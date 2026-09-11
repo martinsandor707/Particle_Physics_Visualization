@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+__CSS__
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">Model Diagnostic Interface</div>
+    <div class="brand-sub" id="dataset-name">—</div>
+
+    <h2>Filtering Parameters</h2>
+
+    <div class="control" id="ctl-e1">
+      <div class="control-head">
+        <label for="e1-lo">E<sub>1</sub> — Shower A reference band [GeV]</label>
+        <span class="readout" id="e1-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e1-fill"></div>
+        <input type="range" id="e1-lo"><input type="range" id="e1-hi">
+      </div>
+      <div class="hint">Isolated single-particle events whose true incident momentum falls in this band.</div>
+    </div>
+
+    <div class="control" id="ctl-e2">
+      <div class="control-head">
+        <label for="e2-lo">E<sub>2</sub> — Shower B reference band [GeV]</label>
+        <span class="readout" id="e2-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e2-fill"></div>
+        <input type="range" id="e2-lo"><input type="range" id="e2-hi">
+      </div>
+      <div class="hint">A second, independent band of the same isolated population.</div>
+    </div>
+
+    <div class="control is-disabled" id="ctl-d"
+         title="Separation D is the transverse distance between the entry points of two overlapping showers. This dataset holds exactly one particle per event, so D is undefined. Supply a *_2combined_* overlap dataset to enable this control.">
+      <div class="control-head">
+        <label>D — entry separation [mm]</label>
+        <span class="readout" id="d-readout">N/A</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="d-fill" style="left:0;width:0"></div>
+        <input type="range" id="d-lo" disabled><input type="range" id="d-hi" disabled>
+      </div>
+      <div class="hint locked" id="d-hint">Undefined for isolated showers — requires an overlap dataset.</div>
+    </div>
+
+    <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
+
+    <div class="control" id="ctl-theta">
+      <div class="control-head">
+        <label for="theta-lo">Incident θ [rad]</label>
+        <span class="readout" id="theta-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="theta-fill"></div>
+        <input type="range" id="theta-lo"><input type="range" id="theta-hi">
+      </div>
+    </div>
+
+    <div class="control" id="ctl-phi">
+      <div class="control-head">
+        <label for="phi-lo">Incident φ [rad]</label>
+        <span class="readout" id="phi-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="phi-fill"></div>
+        <input type="range" id="phi-lo"><input type="range" id="phi-hi">
+      </div>
+    </div>
+
+    <div class="control">
+      <div class="control-head">
+        <label for="minhits">Minimum hits per event</label>
+        <input class="numeric" type="number" id="minhits" min="1" max="105" step="1" value="1">
+      </div>
+      <div class="hint" id="minhits-hint">
+        Sample-composition diagnostic, not a quality cut. Raising it selects the
+        large-deposit tail and <em>widens</em> σ/μ rather than sharpening it.
+      </div>
+    </div>
+
+    <h2>Projection Options</h2>
+
+    <label class="choice" title="76.5% of events deposit a single hit in their entry layer. Recentring pins that hit to exactly (0,0), so the origin bin is populated by construction rather than by physics. Enable this to remove the entry layer from the XY projection and see the artifact's true size.">
+      <input type="checkbox" id="opt-exclude-seed"> Exclude entry layer from XY
+    </label>
+    <label class="choice" title="Events entering deeper than the front face cannot populate the deepest local layers, so those layers are under-populated by acceptance rather than by shower physics.">
+      <input type="checkbox" id="opt-normalise" checked> Normalise depth by acceptance
+    </label>
+    <label class="choice" title="Restrict to events whose first deposit is in the front sampling layer.">
+      <input type="checkbox" id="opt-frontface"> Front-face entrants only
+    </label>
+
+    <h2>Display Mode</h2>
+    <label class="choice">
+      <input type="radio" name="mode" value="density" checked> Average Hit Density (Summed Energy)
+    </label>
+    <label class="choice is-disabled"
+           title="Grad-CAM display projects a trained model's attention instead of deposited energy. No gradcam_weight column exists in the input schema, and attention weights cannot be derived from ground truth, so this mode is unavailable.">
+      <input type="radio" name="mode" value="gradcam" disabled> Grad-CAM Model Attention
+    </label>
+    <div class="hint locked">Attention weights are absent from the input schema.</div>
+
+    <h2>Reconstruction Model</h2>
+    <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
+    <label class="choice"><input type="radio" name="model" value="energy"> Energy Estimation Model</label>
+    <label class="choice"><input type="radio" name="model" value="angle"> Incident Angle Model</label>
+    <div class="caption" id="model-caption">—</div>
+
+    <h2>Colour Map</h2>
+    <select class="picker" id="colormap">
+      <option value="Viridis" selected>Viridis — perceptually uniform</option>
+      <option value="Cividis">Cividis — CVD-optimised</option>
+      <option value="Turbo">Turbo — high detail</option>
+    </select>
+
+    <h2>Model Performance</h2>
+    <div id="metrics"></div>
+
+  </aside>
+
+  <main class="main">
+
+    <header class="header">
+      <h1>__TITLE__</h1>
+      <div class="banner">__WARNING__</div>
+      <div class="statusbar">
+        <span>Events <b id="stat-events">—</b></span>
+        <span>Hits <b id="stat-hits">—</b></span>
+        <span>Band A <b id="stat-a">—</b></span>
+        <span>Band B <b id="stat-b">—</b></span>
+        <span>Calibration f <b id="stat-f">—</b></span>
+        <span class="spacer"></span>
+        <button class="action" id="export">Export Filtered Dataset</button>
+      </div>
+    </header>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="grid">
+
+      <div class="card">
+        <h2>XY Projection — Shower Entry (z′ = 0)</h2>
+        <div class="plot" id="plot-xy"></div>
+        <p class="footnote" id="foot-xy">—</p>
+      </div>
+
+      <div class="card">
+        <h2>YZ Projection — Longitudinal Evolution (x ≈ 0)</h2>
+        <div class="plot" id="plot-yz"></div>
+        <p class="footnote">
+          Shower development with depth. The shaded band marks the instrumented
+          fiducial region; the dashed line is the observed energy-weighted shower
+          axis, fitted from the deposits themselves.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>XZ Projection — Lateral Profile (y ≈ 0)</h2>
+        <div class="plot" id="plot-xz"></div>
+        <p class="footnote">
+          Identical construction and axis scaling to the YZ panel, so the two
+          may be compared directly. Both preserve a 1:1 spatial aspect ratio.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Reconstructed Energy Distribution</h2>
+        <div class="plot" id="plot-energy"></div>
+        <div class="inset" id="inset-table"></div>
+        <p class="footnote" id="foot-energy">—</p>
+        <label class="choice" style="margin-top:6px">
+          <input type="checkbox" id="opt-residual">
+          Show fractional residual (E<sub>reco</sub> − p)/p instead
+        </label>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<script id="calodash-payload" type="application/json">__PAYLOAD__</script>
+__PLOTLY__
+<script>
+__JS__
+</script>
+</body>
+</html>
