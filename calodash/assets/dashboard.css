@@ -1,0 +1,364 @@
+/* Scientific dark theme, CLAUDE.md section 2.
+   Plotly's own `plotly_dark` template uses #111111 / #506784 and does not match
+   these tokens, so every surface colour is set explicitly here and mirrored
+   into the figure layouts in dashboard.js. */
+
+:root {
+  --canvas: #0d1117;
+  --canvas-alt: #161b22;
+  --card: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --warn: #d29922;
+  --warn-bg: rgba(210, 153, 34, 0.12);
+  --shower-a: #f778ba;
+  --shower-b: #58a6ff;
+  --disabled: #484f58;
+  --radius: 6px;
+  --gap: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.app {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--canvas-alt);
+  border-right: 1px solid var(--border);
+  padding: 18px 16px 40px;
+  overflow-y: auto;
+  max-height: 100vh;
+  position: sticky;
+  top: 0;
+}
+
+.main { padding: 18px 20px 40px; min-width: 0; }
+
+/* ---------------------------------------------------------------- header */
+
+.header { margin-bottom: var(--gap); }
+
+.header h1 {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--warn-bg);
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--warn);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.statusbar b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.statusbar .spacer { flex: 1 1 auto; }
+
+button.action {
+  background: var(--accent);
+  color: #04121f;
+  border: none;
+  border-radius: var(--radius);
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.action:hover { filter: brightness(1.1); }
+button.action:active { transform: translateY(1px); }
+
+/* ------------------------------------------------------------------- kpi */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--gap);
+  margin: var(--gap) 0;
+}
+
+.kpi {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+}
+.kpi .label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.kpi .value { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi .sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.kpi.pending .value { color: var(--disabled); font-size: 15px; letter-spacing: 0.04em; }
+
+/* ------------------------------------------------------------------ grid */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap);
+}
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px 10px;
+  min-width: 0;
+  position: relative;
+}
+.card h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.card .plot { width: 100%; height: 340px; }
+.card .footnote {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+
+/* Fitted-parameter summary for the reconstruction panel.
+   Placed below the plot rather than overlaid on it: an absolutely positioned
+   inset collides with the plotly legend, and the legend wins the paint order. */
+.inset {
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.inset table { border-collapse: collapse; width: 100%; }
+.inset th, .inset td { padding: 2px 6px; text-align: right; }
+.inset th { color: var(--muted); font-weight: 500; }
+.inset td.name { text-align: left; }
+.inset .swatch {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+.sidebar h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin: 22px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar h2:first-child { margin-top: 0; }
+
+.sidebar .brand {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.sidebar .brand-sub { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+.control { margin-bottom: 16px; }
+.control.is-disabled { opacity: 0.45; }
+
+.control-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.control-head label { font-size: 12px; font-weight: 500; }
+.control-head .readout {
+  font-size: 11.5px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.control.is-disabled .readout { color: var(--disabled); }
+
+/* Dual-ended range slider: two overlaid inputs above a shared track. */
+.dual {
+  position: relative;
+  height: 22px;
+}
+.dual .track,
+.dual .fill {
+  position: absolute;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+}
+.dual .track { left: 0; right: 0; background: var(--border); }
+.dual .fill { background: var(--accent); }
+.control.is-disabled .dual .fill { background: var(--disabled); }
+
+.dual input[type="range"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.dual input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+.dual input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+.control.is-disabled input[type="range"]::-webkit-slider-thumb {
+  border-color: var(--disabled);
+  cursor: not-allowed;
+}
+.control.is-disabled input[type="range"]::-moz-range-thumb {
+  border-color: var(--disabled);
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.4;
+}
+.hint.locked { color: var(--warn); }
+
+.logic-note {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  padding: 7px;
+  background: var(--canvas);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.logic-note b { color: var(--text); }
+
+/* Radio and checkbox groups */
+.choice { display: block; margin-bottom: 8px; cursor: pointer; font-size: 12px; }
+.choice input { margin-right: 8px; accent-color: var(--accent); }
+.choice.is-disabled { color: var(--disabled); cursor: not-allowed; }
+.choice.is-disabled input { cursor: not-allowed; }
+
+.caption {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--canvas);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 7px 9px;
+  margin-top: 4px;
+}
+
+.numeric {
+  width: 62px;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+select.picker {
+  width: 100%;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* Metric rows inside the sidebar performance card */
+.metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  font-size: 11.5px;
+}
+.metric:last-child { border-bottom: none; }
+.metric .k { color: var(--muted); }
+.metric .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+.metric .v.pending {
+  color: var(--disabled);
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Native tooltips carry the explanations for every disabled control. */
+[title] { cursor: help; }
