@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calorimeter Shower Reconstruction Diagnostic Interface</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+<link rel="stylesheet" href="/static/css/controls.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============================================================= header -->
+  <header class="header">
+    <div>
+      <h1>Calorimeter Shower Reconstruction</h1>
+      <div class="subtitle">Out-of-core diagnostic interface &mdash; DuckDB aggregation</div>
+    </div>
+
+    <div class="badge" style="gap:8px">
+      <span>Experiment</span>
+      <select class="picker" id="experiment-select" style="width:auto;min-width:200px"></select>
+    </div>
+
+    <span class="spacer"></span>
+
+    <div class="badge" id="compute-badge" title="DuckDB memory ceiling and worker threads allocated at boot">
+      <span class="dot"></span>
+      <span>DuckDB <b id="badge-memory">—</b> · <b id="badge-threads">—</b> threads</span>
+    </div>
+
+    <div class="badge" id="exact-badge" title="Whether the displayed aggregates are exact or estimated from the preview sample">
+      <span class="dot"></span><span id="badge-exact">Exact</span>
+    </div>
+
+    <button class="action primary" id="open-upload">Upload Dataset</button>
+  </header>
+
+  <!-- ============================================================ sidebar -->
+  <aside class="sidebar">
+
+    <h2>Filtering Parameters</h2>
+
+    <div class="control" id="ctl-e1">
+      <div class="control-head">
+        <label for="e1-lo">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
+        <span class="readout" id="e1-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e1-fill"></div>
+        <input type="range" id="e1-lo"><input type="range" id="e1-hi">
+      </div>
+      <div class="hint">True incident momentum of shower A (<span class="mono">incoming_momentum_A</span>).</div>
+    </div>
+
+    <div class="control" id="ctl-e2">
+      <div class="control-head">
+        <label for="e2-lo">E<sub>2</sub> &mdash; Shower B momentum [GeV]</label>
+        <span class="readout" id="e2-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e2-fill"></div>
+        <input type="range" id="e2-lo"><input type="range" id="e2-hi">
+      </div>
+      <div class="hint">True incident momentum of shower B (<span class="mono">incoming_momentum_B</span>).</div>
+    </div>
+
+    <div class="control" id="ctl-d">
+      <div class="control-head">
+        <label for="d-lo">D &mdash; A/B separation [mm]</label>
+        <span class="readout" id="d-readout">—</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="d-fill"></div>
+        <input type="range" id="d-lo"><input type="range" id="d-hi">
+      </div>
+      <div class="hint" id="d-hint">Distance between the two shower centroids (<span class="mono">centroid_AB_distance</span>).</div>
+    </div>
+
+    <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
+
+    <label class="choice" title="Events where shower A deposited no energy have no defined separation. They are excluded by default and always counted.">
+      <input type="checkbox" id="opt-undefined-d"> Include events with undefined D
+    </label>
+
+    <h2>Spatial Resolution</h2>
+
+    <label class="choice">
+      <input type="radio" name="display" value="native" checked>
+      Native Detector Lattice <span class="muted">(hardware truth)</span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="display" value="continuous">
+      Continuous Field <span class="muted">(anti-aliased splatting)</span>
+    </label>
+
+    <div class="control is-disabled" id="ctl-resolution" style="margin-top:10px">
+      <div class="control-head">
+        <label for="resolution">Grid resolution R</label>
+        <span class="readout" id="resolution-readout">150</span>
+      </div>
+      <input type="range" id="resolution" min="50" max="400" step="10" value="150" style="width:100%;accent-color:var(--accent)">
+      <div class="hint" id="resolution-hint">Available in Continuous Field mode.</div>
+    </div>
+
+    <div class="caption" id="display-caption">—</div>
+
+    <h2>Display Channel</h2>
+    <label class="choice">
+      <input type="radio" name="channel" value="density" checked>
+      Average Hit Density (Summed Energy)
+    </label>
+    <label class="choice">
+      <input type="radio" name="channel" value="gradcam">
+      Grad-CAM Model Attention
+    </label>
+    <div class="caption" id="channel-caption">—</div>
+
+    <h2>Colour Map</h2>
+    <select class="picker" id="colormap">
+      <option value="viridis" selected>Viridis &mdash; perceptually uniform</option>
+      <option value="cividis">Cividis &mdash; CVD-optimised</option>
+      <option value="plasma">Plasma &mdash; high contrast</option>
+      <option value="turbo">Turbo &mdash; maximum detail</option>
+    </select>
+    <label class="choice" style="margin-top:8px" title="Anchor the colour ramp to the whole dataset so moving a slider changes the image, not the scale.">
+      <input type="checkbox" id="opt-lock-scale" checked> Lock colour scale to dataset
+    </label>
+
+    <h2>Reconstruction Model</h2>
+    <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
+    <label class="choice"><input type="radio" name="model" value="energy"> Energy Estimation Model</label>
+    <label class="choice"><input type="radio" name="model" value="angle"> Incident Angle Model</label>
+    <div class="caption" id="model-caption">—</div>
+
+    <h2>Model Performance</h2>
+    <div class="metrics" id="metrics"></div>
+
+  </aside>
+
+  <!-- =============================================================== main -->
+  <main class="main">
+
+    <div class="banner" id="banner" hidden></div>
+
+    <div class="statusbar">
+      <span>Events <b id="stat-events">—</b></span>
+      <span>Hits <b id="stat-hits">—</b></span>
+      <span>Deposited <b id="stat-edep">—</b></span>
+      <span>Mean D <b id="stat-d">—</b></span>
+      <span>Undefined D <b id="stat-nod">—</b></span>
+      <span class="spacer"></span>
+      <span>Query <b id="stat-latency">—</b></span>
+      <span id="stat-cache" class="muted"></span>
+    </div>
+
+    <section class="grid">
+
+      <div class="card">
+        <h2>XY Projection &mdash; Shower Entry <span class="tag" id="tag-xy">entrance slab</span></h2>
+        <div class="plot" id="plot-xy"></div>
+        <p class="footnote" id="foot-xy">—</p>
+      </div>
+
+      <div class="card">
+        <h2>YZ Projection &mdash; Longitudinal Evolution <span class="tag">depth</span></h2>
+        <div class="plot" id="plot-yz"></div>
+        <p class="footnote" id="foot-yz">
+          Transverse spread against calorimeter depth. Axes are drawn from
+          physical millimetre extents, so the 1:1 metric aspect ratio holds
+          regardless of the matrix shape.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>XZ Projection &mdash; Lateral Profile <span class="tag">depth</span></h2>
+        <div class="plot" id="plot-xz"></div>
+        <p class="footnote" id="foot-xz">
+          Identical construction and colour scale to the YZ panel, so the two
+          may be read against one another directly.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Reconstructed Energy vs. Separation D <span class="tag" id="tag-energy">calibrated</span></h2>
+        <div class="plot tall" id="plot-energy"></div>
+        <div id="fit-table"></div>
+        <p class="footnote" id="foot-energy">—</p>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<!-- ============================================================== modal -->
+<div class="modal-backdrop" id="upload-modal" hidden>
+  <div class="modal">
+    <h2>Upload Dataset</h2>
+    <div class="modal-sub">Ingest a 29-column calorimeter inference CSV into an isolated experiment table.</div>
+
+    <div class="banner" id="upload-warning"></div>
+
+    <div class="row">
+      <label class="field" for="upload-table">Experiment name</label>
+      <input class="textinput" type="text" id="upload-table" placeholder="e.g. run_v37" autocomplete="off">
+      <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
+    </div>
+
+    <div class="row">
+      <label class="field">Upload mode</label>
+      <label class="choice"><input type="radio" name="upload-mode" value="create_new" checked>
+        <b>CREATE_NEW</b> &mdash; clean isolated table, replacing any existing one of this name</label>
+      <label class="choice"><input type="radio" name="upload-mode" value="append">
+        <b>APPEND</b> &mdash; add rows to an existing experiment</label>
+      <div class="hint">Appending is rejected if the incoming event numbers overlap those already stored, since that would merge distinct physics events.</div>
+    </div>
+
+    <div class="row">
+      <label class="field">Source</label>
+      <label class="choice"><input type="radio" name="upload-source" value="browser" checked>
+        Upload from this computer</label>
+      <label class="choice"><input type="radio" name="upload-source" value="server">
+        Already on the server <span class="muted">(no transfer &mdash; best for large files)</span></label>
+    </div>
+
+    <div class="row" id="upload-browser-row">
+      <label class="field" for="upload-file">CSV file</label>
+      <input class="textinput" type="file" id="upload-file" accept=".csv,text/csv">
+      <div class="hint" id="upload-file-info"></div>
+    </div>
+
+    <div class="row" id="upload-server-row" hidden>
+      <label class="field" for="upload-server-file">Server-side file</label>
+      <select class="picker" id="upload-server-file"></select>
+      <div class="hint" id="upload-server-info"></div>
+    </div>
+
+    <div class="row" id="upload-progress-row" hidden>
+      <div class="hint" id="upload-status">Uploading…</div>
+      <div class="progress"><div id="upload-progress-bar"></div></div>
+    </div>
+
+    <div class="actions">
+      <button class="action" id="upload-cancel">Cancel</button>
+      <button class="action primary" id="upload-submit">Upload &amp; Ingest</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/vendor/echarts.min.js"></script>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

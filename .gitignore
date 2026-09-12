@@ -219,3 +219,5 @@ __marimo__/
 
 
 *.csv
+# calosrv runtime state (DuckDB database, upload staging, temp spill)
+data/

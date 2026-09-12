@@ -1,0 +1,224 @@
+"""Payload encoding, colour scaling, statistics, and the SQL-injection wall."""
+
+from __future__ import annotations
+
+import base64
+
+import numpy as np
+import pytest
+
+from calosrv.db import naming
+from calosrv.encode import quantize, scale as scale_mod, topk
+from calosrv.encode.matrix import encode_matrix
+from calosrv.errors import ValidationError
+from calosrv.grid.lattice import Axis
+from calosrv.stats import clip, gaussian, slices
+
+# ------------------------------------------------------------------ naming --
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "", "  ", "Run3", "1run", "run-3", "run 3", "run;DROP TABLE x",
+        'run"x', "run'x", "experiment", "a" * 49, "../etc",
+    ],
+)
+def test_invalid_experiment_names_are_rejected(bad):
+    """The single wall between a user string and SQL identifier text."""
+    with pytest.raises(ValidationError):
+        naming.validate_experiment_name(bad)
+
+
+@pytest.mark.parametrize("good", ["run3", "v37", "a", "experiment_baseline", "a_1_b"])
+def test_valid_names_survive_a_round_trip(good):
+    assert naming.validate_experiment_name(good) == good
+    assert naming.experiment_of(naming.hit_table(good)) == good
+    assert naming.experiment_of(naming.proj_table(good, sampled=True)) == good
+
+
+def test_every_derived_table_is_recognised_as_managed():
+    for table in naming.all_tables("run3"):
+        assert naming.is_managed_table(table)
+
+
+# --------------------------------------------------------------- quantising --
+
+
+def test_empty_cells_are_distinct_from_the_faintest_deposit():
+    """Code 0 must mean 'no deposit', never 'bottom of the ramp'.
+
+    Painting an unlit cell with the ramp's lowest colour makes an empty detector
+    region look like a faint halo.
+    """
+    matrix = np.array([[0.0, 1e-12, 1e-3]])
+    colour = scale_mod.resolve_scale(matrix, lock=False)
+    codes = quantize.quantize(matrix, colour)
+    assert codes[0, 0] == quantize.EMPTY_CODE
+    assert codes[0, 1] >= quantize.MIN_CODE
+    assert codes[0, 2] == quantize.MAX_CODE
+
+
+def test_quantisation_round_trips_within_one_step():
+    rng = np.random.default_rng(7)
+    matrix = 10 ** (rng.uniform(-8, -2, size=(40, 40)))
+    colour = scale_mod.resolve_scale(matrix, lock=False)
+    codes = quantize.quantize(matrix, colour)
+    recovered = quantize.dequantize(codes, colour)
+
+    step = (colour.vmax - colour.vmin) / quantize.LEVELS
+    error = np.abs(np.log10(recovered) - np.log10(matrix))
+    assert np.nanmax(error) <= step
+
+
+def test_log_scale_floors_at_six_decades():
+    """Without a floor, the ramp is spent on cells carrying no physics."""
+    matrix = np.array([[1e-20, 1e-2]])
+    colour = scale_mod.resolve_scale(matrix, lock=False)
+    assert colour.vmax - colour.vmin == pytest.approx(scale_mod.DEFAULT_DECADES)
+    assert colour.n_below == 1
+
+
+def test_locked_scale_ignores_the_selection_maximum():
+    """A locked ramp keeps two selections visually comparable."""
+    full = np.array([[1e-2]])
+    subset = np.array([[1e-4]])
+    locked = scale_mod.resolve_scale(subset, global_vmax=float(full.max()), lock=True)
+    unlocked = scale_mod.resolve_scale(subset, lock=False)
+    assert locked.vmax > unlocked.vmax
+    assert locked.locked is True
+
+
+def test_gradcam_scale_is_always_zero_to_one():
+    colour = scale_mod.resolve_scale(np.array([[0.1, 0.2]]), channel="gradcam")
+    assert (colour.vmin, colour.vmax) == (0.0, 1.0)
+    assert colour.scale == "linear"
+
+
+def test_topk_returns_the_largest_cells_in_order():
+    matrix = np.arange(100, dtype=float).reshape(10, 10)
+    cells = topk.top_cells(matrix, k=5)
+    assert [c["value"] for c in cells] == [99.0, 98.0, 97.0, 96.0, 95.0]
+
+
+def test_topk_ignores_empty_cells():
+    assert topk.top_cells(np.zeros((5, 5)), k=4) == []
+
+
+# ---------------------------------------------------------------- encoding --
+
+
+def test_encoded_matrix_decodes_to_the_original_shape():
+    matrix = np.abs(np.random.default_rng(3).normal(size=(20, 30))) * 1e-4
+    colour = scale_mod.resolve_scale(matrix, lock=False)
+    axis_rows = Axis("y", np.linspace(-100, 100, 20))
+    axis_cols = Axis("x", np.linspace(-200, 200, 30))
+
+    payload = encode_matrix(
+        matrix, colour, axis_rows.edges, axis_cols.edges, "y", "x", "xy", native=True
+    )
+
+    raw = base64.b64decode(payload["data"])
+    assert len(raw) == 20 * 30
+    assert payload["shape"] == [20, 30]
+
+
+def test_irregular_axis_ships_its_edges_and_uniform_one_does_not():
+    """Edges are only worth their bytes when the axis is genuinely irregular."""
+    matrix = np.ones((4, 6))
+    colour = scale_mod.resolve_scale(matrix, lock=False)
+    uniform = Axis("y", np.linspace(0, 100, 4))
+    irregular = Axis("x", np.array([0.0, 1.0, 40.0, 41.0, 80.0, 81.0]))
+
+    payload = encode_matrix(
+        matrix, colour, uniform.edges, irregular.edges, "y", "x", "xy", native=True
+    )
+    assert "edges" not in payload["axes"]["row"]
+    assert payload["axes"]["row"]["uniform"] is True
+    assert "edges" in payload["axes"]["col"]
+    assert payload["axes"]["col"]["uniform"] is False
+
+
+# -------------------------------------------------------------- statistics --
+
+
+def test_small_samples_refuse_to_report_a_width():
+    fit = gaussian.fit_gaussian(np.array([1.0, 2.0, 3.0]))
+    assert fit.insufficient and fit.sigma is None
+    assert "at least 10" in fit.note
+
+
+def test_gaussian_moments_match_numpy():
+    rng = np.random.default_rng(11)
+    sample = rng.normal(10.0, 2.0, size=5000)
+    fit = gaussian.fit_gaussian(sample)
+    assert fit.mu == pytest.approx(float(sample.mean()))
+    assert fit.sigma == pytest.approx(float(sample.std(ddof=0)))
+    assert fit.sigma_core == pytest.approx(2.0, rel=0.02)
+    assert fit.non_gaussian is False
+
+
+def test_core_refit_is_unbiased_on_a_true_gaussian():
+    """Truncating at ±2.5σ removes real variance; the fit must correct for it.
+
+    Without the de-biasing constant the iterated refit converges about 6.3% low,
+    which on a quoted energy resolution is a material misstatement.
+    """
+    rng = np.random.default_rng(2024)
+    widths = []
+    for _ in range(12):
+        sample = rng.normal(0.0, 3.0, size=40000)
+        widths.append(gaussian.fit_gaussian(sample).sigma_core)
+    assert float(np.mean(widths)) == pytest.approx(3.0, rel=0.01)
+
+
+def test_heavy_tail_is_flagged_as_non_gaussian():
+    """A contaminated sample must be flagged, not silently curve-fitted."""
+    rng = np.random.default_rng(5)
+    core = rng.normal(10.0, 1.0, size=2000)
+    tail = rng.normal(10.0, 12.0, size=400)
+    fit = gaussian.fit_gaussian(np.concatenate([core, tail]))
+    assert fit.non_gaussian is True
+    # The core refit must recover the core width despite the contamination.
+    assert fit.sigma_core < fit.sigma
+
+
+def test_unit_area_gaussian_integrates_to_one():
+    x = np.linspace(-40, 40, 20001)
+    y = gaussian.gaussian_curve(x, 0.0, 3.0)
+    assert np.trapezoid(y, x) == pytest.approx(1.0, rel=1e-6)
+
+
+def test_percentile_clip_reports_what_it_hides():
+    values = np.concatenate([np.full(1000, 1.0), np.array([1e6])])
+    result = clip.percentile_clip(values, floor_at_zero=True)
+    assert result.hi < 1e6
+    assert result.n_above >= 1
+    assert "outside" in result.note
+
+
+def test_percentile_clip_leaves_small_samples_alone():
+    """Percentiles of a handful of points are noise, not a range."""
+    result = clip.percentile_clip(np.array([1.0, 2.0, 3.0]))
+    assert result.applied is False
+    assert result.n_outside == 0
+
+
+def test_slices_always_end_in_an_unbounded_overflow():
+    built = slices.build_slices([50, 100, 150, 200])
+    assert len(built) == 5
+    assert built[-1].hi is None
+    assert "well separated" in built[-1].label
+
+
+def test_slice_case_expression_covers_every_distance():
+    built = slices.build_slices([50, 100])
+    sql = slices.case_sql(built)
+    assert "ELSE 2" in sql
+
+
+def test_slice_edges_are_parsed_and_validated():
+    assert slices.parse_edges("50,100") == (50.0, 100.0)
+    assert slices.parse_edges(None) == slices.DEFAULT_EDGES
+    with pytest.raises(ValidationError):
+        slices.parse_edges("not,a,number")

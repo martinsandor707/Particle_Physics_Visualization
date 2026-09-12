@@ -1,0 +1,59 @@
+/* Scientific dark theme, CLAUDE.md section 2.
+   These tokens are the same palette the batch dashboard uses
+   (calodash/constants.py THEME), so a screenshot from either half of this
+   repository sits beside the other without a visible seam. */
+
+:root {
+  --canvas: #0d1117;
+  --canvas-alt: #161b22;
+  --card: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --warn: #d29922;
+  --warn-bg: rgba(210, 153, 34, 0.12);
+  --danger: #f85149;
+  --danger-bg: rgba(248, 81, 73, 0.12);
+  --ok: #3fb950;
+
+  /* Shower identity. A deuteranopia- and protanopia-safe pair, and never the
+     only channel carrying the distinction: shower A is also drawn as a diamond
+     and shower B as a circle, so the two remain separable in greyscale. */
+  --shower-a: #f778ba;
+  --shower-b: #58a6ff;
+
+  --disabled: #484f58;
+  --radius: 6px;
+  --gap: 14px;
+  --sidebar-width: 330px;
+
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", monospace;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-weight: 600; margin: 0; }
+
+button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--canvas); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--disabled); }
+
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }

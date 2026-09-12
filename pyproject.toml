@@ -1,0 +1,42 @@
+[project]
+name = "calosrv"
+version = "1.0.0"
+description = "Out-of-core calorimeter shower reconstruction diagnostic server (DuckDB + FastAPI + ECharts)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "duckdb>=1.1,<2",
+    "numpy>=1.26,<3",
+    "pandas>=2.0,<3",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+calosrv = "calosrv.__main__:main"
+calosrv-ingest = "calosrv.ingest.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["calosrv*"]
+
+[tool.setuptools.package-data]
+calosrv = ["static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Fail on deprecations raised by this package, but not on those third-party
+# libraries emit at import time (starlette/anyio), which are not ours to fix.
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "error::DeprecationWarning:calosrv",
+]

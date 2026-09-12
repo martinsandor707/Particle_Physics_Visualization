@@ -1,0 +1,19 @@
+# Keep the build context small. Without this, the 7.4 GB production CSV is
+# uploaded to the Docker daemon on every build.
+*.csv
+!hits_with_gradcam_dummy.csv
+
+data/
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tests/
+
+# Large artefacts of the batch pipeline; the server does not use them.
+dashboard.html
+*.png
+*.jpg
+*.ipynb

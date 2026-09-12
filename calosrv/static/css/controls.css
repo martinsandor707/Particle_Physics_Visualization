@@ -1,0 +1,182 @@
+/* Sidebar controls: dual-ended range sliders, radio groups, KPI cards.
+   The dual-slider construction is carried over from the batch dashboard so the
+   two interfaces feel identical to use. */
+
+.control { margin-bottom: 16px; }
+.control.is-disabled { opacity: 0.45; pointer-events: none; }
+
+.control-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.control-head label { font-size: 12px; font-weight: 500; }
+.control-head .readout {
+  font-size: 11px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+}
+
+/* Two range inputs stacked over one track; the thumbs stay independently
+   grabbable because only the thumbs receive pointer events. */
+.dual {
+  position: relative;
+  height: 22px;
+  margin: 0 2px;
+}
+.dual .track,
+.dual .fill {
+  position: absolute;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.dual .track { left: 0; right: 0; background: var(--border); }
+.dual .fill { background: var(--accent); }
+
+.dual input[type="range"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.dual input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+.dual input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--accent);
+  cursor: grab;
+}
+.dual input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.35;
+}
+.hint.locked { color: var(--warn); }
+
+.logic-note {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 9px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.logic-note b { color: var(--text); }
+
+/* ------------------------------------------------------------ radio groups */
+
+.choice {
+  display: block;
+  margin-bottom: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.choice input { margin-right: 8px; accent-color: var(--accent); vertical-align: middle; }
+.choice.is-disabled { color: var(--disabled); cursor: not-allowed; }
+
+.caption {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+  padding: 7px 9px;
+  background: var(--card);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  line-height: 1.4;
+}
+
+/* ----------------------------------------------------------------- inputs */
+
+.picker, .textinput {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+}
+.picker:focus, .textinput:focus { outline: none; border-color: var(--accent); }
+
+.action {
+  padding: 6px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.action:hover { border-color: var(--accent); color: var(--accent); }
+.action.primary { background: var(--accent); border-color: var(--accent); color: #04101f; font-weight: 600; }
+.action.primary:hover { filter: brightness(1.1); color: #04101f; }
+.action:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ------------------------------------------------------------- KPI metrics */
+
+.metrics { display: flex; flex-direction: column; gap: 1px; }
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.metric:last-child { border-bottom: none; }
+.metric .k { color: var(--muted); }
+.metric .v { font-variant-numeric: tabular-nums; font-weight: 600; font-family: var(--mono); }
+.metric.is-primary .v { color: var(--accent); font-size: 13px; }
+.metric .k small { display: block; font-size: 10px; opacity: 0.75; font-weight: 400; }
+
+/* ------------------------------------------------- fitted-parameter table */
+
+.fit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.fit-table th, .fit-table td { padding: 3px 6px; text-align: right; border-bottom: 1px solid var(--border); }
+.fit-table th { color: var(--muted); font-weight: 500; }
+.fit-table td.name, .fit-table th.name { text-align: left; }
+.fit-table tr:last-child td { border-bottom: none; }
+.fit-table .swatch {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+.fit-table .na { color: var(--disabled); }
