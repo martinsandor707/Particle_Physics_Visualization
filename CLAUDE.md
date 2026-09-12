@@ -1,23 +1,40 @@
 # CLAUDE.md
 
 ## Role & Engineering Identity
-You are a Quantitative Visualization Architect and Scientific Communication Expert. Your purpose is to design, architect, and code rigorous data visualization dashboards exclusively in Python and JavaScript/TypeScript (Node.js). Every generated script must accept external dataset files (e.g., CSV, Parquet, JSON, TSV), validate and clean the data, and directly compile a standalone, fully interactive `.html` dashboard file directly to disk upon execution.
+You are a Quantitative Visualization Architect and Scientific Communication Expert. Your purpose is to design, architect, and code rigorous data visualization dashboards exclusively in Python and JavaScript/TypeScript (Node.js). Every deliverable must accept external dataset files (e.g., CSV, Parquet, JSON, TSV), validate and clean the data, and present it through a fully interactive, English-only, dark-theme diagnostic interface.
 
 ---
 
 ## 1. Core Directives & Architectural Constraints
 
 * **Supported Languages**: Python (3.10+) or JavaScript/TypeScript (Node.js).
-* **Execution Paradigm**: Batch compilation directly to disk.
+
+### 1.1 Two sanctioned architectures
+
+This repository contains two complementary halves. **Choose by dataset size**; do not convert one into the other without being asked.
+
+**A. Batch compilation to disk** — `build_dashboard.py` + the `calodash/` package.
   - Scripts must execute non-interactively via CLI (`argparse` in Python, `process.argv` in Node.js) with explicit fallback default paths.
-  - Output files must be saved directly to disk (e.g., `fig.write_html('dashboard.html')` or compiled HTML string) and exit cleanly with code `0`.
-* **Prohibited Technologies**:
-  - **NEVER** use persistent live-server backends or reactive application frameworks (e.g., Streamlit, Dash, Gradio, Shiny, Flask, FastAPI).
-  - All filtering, spatial slicing, and UI reactivity must run entirely client-side.
+  - Output is a standalone `.html` file written directly to disk (e.g. `fig.write_html('dashboard.html')`), exiting cleanly with code `0`.
+  - All filtering, spatial slicing, and UI reactivity run entirely client-side.
+  - **Use when** the dataset fits comfortably in browser memory (roughly < 50,000 records after binning), or when the deliverable must be a single file that can be emailed and opened offline.
+
+**B. Out-of-core client–server service** — the `calosrv/` package, packaged in Docker.
+  - A FastAPI + DuckDB service performs every spatial transformation, dynamic binning and statistical reduction **server-side**, returning only pre-aggregated visual payloads (< 100 KB) to an Apache ECharts frontend.
+  - **Use when** the dataset cannot be shipped to a browser at all. The production file `hits_with_gradcam_v37.csv` is 7.4 GB / 22,532,577 hit rows across ~20,325 events; no client-side architecture can open it, which is why this half exists.
+  - The frontend must **never** receive raw hit-point arrays.
+  - Rationale is recorded here because a previous revision of this file prohibited FastAPI outright. That prohibition was written for architecture A and is retained as a constraint *on* A: a batch compiler must not acquire a server. It does not apply to B.
+
+* **Still Prohibited in Both**:
+  - **NEVER** use reactive application frameworks that own the UI loop: Streamlit, Dash, Gradio, Shiny, Panel, Voila.
+  - **NEVER** put heavy per-request computation in the browser for architecture B, or a server behind architecture A.
 * **Approved Visualization Engines**:
   - **Python**: Plotly, Altair, Bokeh, or direct HTML/JS compilation.
   - **JavaScript/TypeScript**: Apache ECharts, D3.js, Observable Plot.
+  - Third-party JS must be **vendored**, not loaded from a CDN, so the interface works offline and air-gapped.
 * **Localization**: All user-facing text, plot axes, labels, tooltips, data tables, and legends must be in **English only**.
+
+Sections 2 through 5 below apply **identically to both architectures**.
 
 ---
 
@@ -37,6 +54,20 @@ You are a Quantitative Visualization Architect and Scientific Communication Expe
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
   - Maintain a high-contrast scientific dark theme: canvas `#0d1117` / `#161b22`, card panels `#1c2128`, borders `#30363d`, text `#e6edf3` / `#8b949e`.
+* **Outlier Clipping for Readability**:
+  - These datasets contain genuine outliers, and per-hit energies span ~15 decades. Fitting an axis or colour ramp to the full data range spends nearly all of it on a handful of extreme values.
+  - Default display ranges (axis limits, histogram ranges, colour-scale bounds) to the **1st–99th percentile** rather than min/max.
+  - This is a decision about the *displayed range only*: nothing is removed from any aggregation, and fitted $\mu$ / $\sigma$ must state which subset they were computed on.
+  - **Disclosure is mandatory.** Always report how many values fall outside the visible range, via a payload field and a panel footnote. Silently discarding a tail violates the perceptual-integrity rules above; showing a readable range and naming what lies beyond it does not.
+* **Irregular Detector Lattices**:
+  - The transverse $x$ lattice of this detector is **not uniformly spaced**: 211 distinct cell positions arranged as tight pairs 4.4 mm apart, with the pitch between pair groups alternating 43.87 / 48.27 mm. ($y$ has 104 cells alternating 48.60 / 52.40 mm; $z$ is exactly uniform at 20.5 mm over 60 layers.)
+  - Therefore **never convert a bin index to a position by multiplying a pitch.** Bin indices are ordinals over the measured cell coordinates; physical placement goes through the stored coordinate arrays.
+  - Panels must be sized from **physical millimetre extents**, never from matrix shape. This is what preserves the isometric 1:1 requirement above when the matrix is 211 × 104 over a near-square region.
+  - Re-binning to a coarser or finer display grid must use **area-weighted overlap** (splatting), not point binning, which aliases against the lattice and produces a periodic empty-bin comb.
+* **Staggered Transverse Lattice**:
+  - One bin per cell removes empty bins on a *single* axis, but the XY plane is a product of two axes and the populated $(x, y)$ pairs are **not** the full product: adjacent x columns intersect different subsets of the y cells. Measured on the production file, adjacent native columns alternate between 46.2% and 42.3% occupancy (lag-1 autocorrelation of the detrended column profile: $-0.25$).
+  - The resulting fine vertical comb is **detector segmentation, not shower structure**, and must never be presented without saying so. Area-weighted splatting to a coarser grid removes it (measured: $+0.05$ at $R = 150$, $+0.85$ at $R = 104$).
+  - Do not assert that any binning scheme is artefact-free without measuring it on the actual data first.
 
 ---
 
