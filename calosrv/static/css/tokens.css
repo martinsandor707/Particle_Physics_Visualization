@@ -4,6 +4,13 @@
    repository sits beside the other without a visible seam. */
 
 :root {
+  /* Tells the engine to draw the parts of native controls that CSS cannot
+     reach - number-input spinners, the select dropdown list, autofill
+     highlights, scrollbar gutters - in their dark variants. Without it those
+     render light regardless of the rules below, which is most of why form
+     controls looked like unstyled white boxes on this canvas. */
+  color-scheme: dark;
+
   --canvas: #0d1117;
   --canvas-alt: #161b22;
   --card: #1c2128;

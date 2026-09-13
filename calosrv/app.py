@@ -6,14 +6,16 @@ baseline experiment on a first boot, and mounting the static frontend.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -35,6 +37,60 @@ from .api import (
 log = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+#: Matches the asset URLs in index.html, so they can be given a version stamp.
+_ASSET_URL = re.compile(r'(src|href)="(/static/[^"?]+)"')
+
+
+def asset_fingerprint(directory: Path = STATIC_DIR) -> str:
+    """A short hash over the static tree's paths, sizes and modification times.
+
+    This is the fix for a genuinely nasty class of failure. The page and its
+    scripts are separate downloads with independent cache lifetimes, so a
+    browser can hold a *stale* script against *fresh* markup. When that happened
+    here the cached script still expected the readout elements that the numeric
+    inputs replaced, and threw
+
+        TypeError: Cannot set properties of null (setting 'textContent')
+
+    during module initialisation - before ECharts was configured or any data
+    fetched, so the whole interface was dead with no visible cause. The stale
+    stylesheet likewise lacked the rules for the new inputs and buttons, which
+    is why they rendered as browser-default white boxes.
+
+    Stamping every asset URL with a hash of the tree means the markup can only
+    ever reference the scripts and styles it was built against: change any file
+    and every URL changes with it, so there is no combination of caches that can
+    produce a mismatched pair.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        digest.update(str(path.relative_to(directory)).encode())
+        digest.update(str(stat.st_size).encode())
+        digest.update(str(int(stat.st_mtime)).encode())
+    return digest.hexdigest()[:12]
+
+
+class VersionedStaticFiles(StaticFiles):
+    """Static files whose cache lifetime depends on whether they are versioned.
+
+    A request carrying the ``v`` stamp is safe to cache forever: if the file
+    changes the stamp changes, so the URL changes too. An unstamped request -
+    someone opening an asset directly, or an old page - must revalidate, so a
+    stale copy can never be served silently.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        query = scope.get("query_string", b"").decode()
+        if "v=" in query:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 #: Experiment name used for the automatically seeded demonstration dataset.
 BASELINE_TABLE = "experiment_baseline"
@@ -151,11 +207,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if STATIC_DIR.is_dir():
         app.mount(
-            "/static", StaticFiles(directory=STATIC_DIR), name="static"
+            "/static", VersionedStaticFiles(directory=STATIC_DIR), name="static"
         )
+        fingerprint = asset_fingerprint()
+        log.info("Static asset version: %s", fingerprint)
 
         @app.get("/", include_in_schema=False)
-        async def index() -> FileResponse:
-            return FileResponse(STATIC_DIR / "index.html")
+        async def index() -> HTMLResponse:
+            # Stamp every asset URL, and never let the page itself be cached:
+            # a stale page would reference a stale stamp and defeat the whole
+            # mechanism.
+            html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+            html = _ASSET_URL.sub(rf'\1="\2?v={fingerprint}"', html)
+            return HTMLResponse(
+                html, headers={"Cache-Control": "no-cache, must-revalidate"}
+            )
 
     return app

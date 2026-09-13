@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from ..db import bootstrap as bootstrap_mod
 from ..db import registry
 from ..query import cache as cache_mod
+from ..models.common import json_safe
 from ..query import experiments
 from .deps import CursorDep, SettingsDep, get_db
 from fastapi import Depends, Request
@@ -29,7 +30,9 @@ def list_experiments(
 ):
     records = experiments.list_all(con, include_pending=include_pending)
     cache = cache_mod.get_cache(settings.cache_entries)
-    return {
+    # This route does not go through `envelope`, so it applies the non-finite
+    # float guard itself; a dataset with a degenerate bound would otherwise 500.
+    return json_safe({
         "experiments": records,
         "compute": {
             "duckdb_memory_gb": settings.memory_gb,
@@ -40,7 +43,7 @@ def list_experiments(
             "large_upload_warn_bytes": settings.large_upload_warn_bytes,
             "cache": cache.info(),
         },
-    }
+    })
 
 
 @router.delete(

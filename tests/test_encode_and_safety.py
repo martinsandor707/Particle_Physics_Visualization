@@ -306,3 +306,71 @@ def test_adaptive_bins_keep_spike_heights_bounded():
         bins = histogram.adaptive_bins(n)
         lone_spike = 1.0 / (n * (span / bins))
         assert lone_spike < 0.6, f"n={n} bins={bins} spike={lone_spike:.3f}"
+
+
+# ------------------------------------------------- JSON float compliance --
+
+
+def test_finite_rejects_infinity_and_nan():
+    """These reach the metrics legitimately and cannot be encoded as JSON.
+
+    A relative residual over an event whose true energy is femto-GeV small
+    overflows to infinity; a correlation over a single event is NaN. Both used
+    to abort the whole model-performance response with HTTP 500.
+    """
+    from calosrv.stats import metrics as metric_mod
+
+    assert metric_mod.finite(float("inf")) is None
+    assert metric_mod.finite(float("-inf")) is None
+    assert metric_mod.finite(float("nan")) is None
+    assert metric_mod.finite(None) is None
+    assert metric_mod.finite(0.0) == 0.0
+    assert metric_mod.finite(-2.5) == -2.5
+
+
+def test_safe_div_survives_an_overflowing_ratio():
+    from calosrv.stats import metrics as metric_mod
+
+    # 1e308 / 1e-308 overflows the double range.
+    assert metric_mod._safe_div(1e308, 1e-308) is None
+    assert metric_mod._safe_div(1.0, 4.0) == 0.25
+
+
+def test_json_safe_scrubs_nested_non_finite_values():
+    """The net beneath the individual guards.
+
+    A future aggregate added to a query must not be able to reintroduce a 500,
+    so the envelope sanitises whatever it is handed.
+    """
+    import json
+
+    from calosrv.models.common import json_safe
+
+    payload = {
+        "a": float("inf"),
+        "b": [1.0, float("nan"), {"c": float("-inf")}],
+        "d": {"e": (float("nan"), 2.0)},
+        "keep": [1, "two", True, None, 3.5],
+    }
+    clean = json_safe(payload)
+
+    assert clean["a"] is None
+    assert clean["b"] == [1.0, None, {"c": None}]
+    assert clean["d"]["e"] == [None, 2.0]
+    assert clean["keep"] == [1, "two", True, None, 3.5]
+    json.dumps(clean)  # must not raise
+
+
+def test_envelope_output_is_json_encodable():
+    import json
+
+    from calosrv.models.common import ApiMeta, envelope
+
+    body = envelope(
+        ApiMeta(table_name="t"),
+        metric=float("inf"),
+        nested={"values": [float("nan"), 1.0]},
+    )
+    json.dumps(body)
+    assert body["metric"] is None
+    assert body["nested"]["values"] == [None, 1.0]

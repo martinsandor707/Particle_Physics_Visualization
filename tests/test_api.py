@@ -326,3 +326,91 @@ def test_energy_series_declare_sparseness(client):
         assert "sparse" in series and "rug" in series
         if series["sparse"]:
             assert series["histogram"] is None
+
+
+# --------------------------------------------------------- asset integrity --
+
+
+def test_asset_urls_are_version_stamped(client):
+    """Markup must reference the exact assets it was built against.
+
+    The page and its scripts are separate downloads with independent cache
+    lifetimes, so a browser can hold a stale script against fresh markup. When
+    that happened the cached script still expected elements the markup no longer
+    had and threw "Cannot set properties of null" during initialisation, killing
+    the interface before any chart was configured. Stamping every asset URL with
+    a hash of the static tree makes that pairing impossible.
+    """
+    import re
+
+    html = client.get("/").text
+    refs = re.findall(r'(?:src|href)="(/static/[^"]+)"', html)
+    assert refs, "no static assets referenced"
+
+    stamps = set()
+    for ref in refs:
+        assert "?v=" in ref, f"{ref} is not version stamped"
+        stamps.add(ref.split("?v=")[1])
+    assert len(stamps) == 1, "all assets must share one build stamp"
+
+
+def test_asset_stamp_changes_when_a_file_changes(tmp_path):
+    """The stamp must be derived from content, not fixed at release."""
+    from calosrv.app import asset_fingerprint
+
+    (tmp_path / "a.js").write_text("one")
+    first = asset_fingerprint(tmp_path)
+
+    (tmp_path / "a.js").write_text("one but longer")
+    assert asset_fingerprint(tmp_path) != first
+
+    (tmp_path / "b.css").write_text("x")
+    assert asset_fingerprint(tmp_path) not in (first,)
+
+
+def test_index_is_never_cached(client):
+    """A stale page would reference a stale stamp and defeat the mechanism."""
+    response = client.get("/")
+    assert "no-cache" in response.headers.get("cache-control", "")
+
+
+def test_versioned_assets_are_immutable_and_bare_ones_revalidate(client):
+    """Stamped URLs are safe to keep forever; unstamped ones must be rechecked.
+
+    Relative ES module imports inside main.js cannot carry a stamp, so they rely
+    on revalidation to avoid being served stale.
+    """
+    stamped = client.get("/static/js/main.js?v=abc123")
+    assert "immutable" in stamped.headers["cache-control"]
+
+    bare = client.get("/static/js/main.js")
+    assert bare.headers["cache-control"] == "no-cache"
+
+
+def test_every_id_the_scripts_write_to_exists_in_the_markup(client):
+    """Guards against the markup and scripts drifting apart in the repository.
+
+    The runtime helpers make a missing element survivable; this makes it a test
+    failure instead, so the mismatch never ships.
+    """
+    import re
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "calosrv" / "static"
+    html = (static / "index.html").read_text(encoding="utf-8")
+    present = set(re.findall(r'id="([^"]+)"', html))
+
+    referenced = set()
+    for path in (static / "js").rglob("*.js"):
+        if "vendor" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        referenced |= set(re.findall(r"getElementById\('([^']+)'\)", source))
+        referenced |= set(re.findall(r"setText\('([^']+)'", source))
+        referenced |= set(re.findall(r"setHtml\('([^']+)'", source))
+        referenced |= set(re.findall(r"setVal\('([^']+)'", source))
+        referenced |= set(re.findall(r"setChecked\('([^']+)'", source))
+        referenced |= set(re.findall(r"setHidden\('([^']+)'", source))
+
+    missing = sorted(referenced - present)
+    assert not missing, f"scripts reference ids absent from index.html: {missing}"

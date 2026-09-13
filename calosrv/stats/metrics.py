@@ -16,15 +16,33 @@ reported; the energy-weighted one is the headline.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, asdict
 from typing import Any
+
+
+def finite(value: float | None) -> float | None:
+    """Return ``value`` only if it is a real, representable number.
+
+    Infinities and NaNs reach here legitimately. A relative residual
+    ``(pred - true) / true`` over an event whose true energy is a few
+    femto-GeV overflows to infinity, and a correlation over a single event is
+    NaN. Neither is a measurement, and neither can be encoded as JSON - the
+    model-performance endpoint returned HTTP 500 with "Out of range float
+    values are not JSON compliant" for exactly this reason on narrow
+    selections. Reporting ``null``, which the interface renders as an em dash,
+    is both honest and serialisable.
+    """
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def _safe_div(numerator: float, denominator: float) -> float | None:
     if denominator is None or denominator == 0:
         return None
-    value = numerator / denominator
-    return value if value == value else None  # filters NaN
+    return finite(numerator / denominator)
 
 
 @dataclass
@@ -104,5 +122,5 @@ def regression(
     return RegressionMetrics(
         mae=_safe_div(sum_abs_err, n_voxels),
         mae_energy_weighted=_safe_div(sum_wabs_err, e_dep),
-        rmse=(mse ** 0.5) if mse is not None and mse >= 0 else None,
+        rmse=finite(mse ** 0.5) if mse is not None and mse >= 0 else None,
     )

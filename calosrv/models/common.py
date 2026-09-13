@@ -8,6 +8,7 @@ interface never has to guess whether what it is drawing is an estimate.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,5 +49,27 @@ class Timer:
         return (time.perf_counter() - self._start) * 1000.0
 
 
+def json_safe(value: Any) -> Any:
+    """Recursively replace non-finite floats with ``None``.
+
+    JSON has no encoding for infinity or NaN, so a single one anywhere in a
+    payload aborts the whole response with HTTP 500 - which is how a narrow
+    kinematic selection could take down the model-performance panel, since a
+    relative residual over a femto-GeV true energy overflows.
+
+    The individual metrics already guard themselves (``stats/metrics.finite``);
+    this is the net beneath them, so a future aggregate added to a query cannot
+    reintroduce the same 500. ``null`` renders as an em dash in the interface,
+    which is the honest reading: the quantity is not defined for this selection.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value
+
+
 def envelope(meta: ApiMeta, **payload: Any) -> dict[str, Any]:
-    return {"meta": meta.as_dict(), **payload}
+    return json_safe({"meta": meta.as_dict(), **payload})
