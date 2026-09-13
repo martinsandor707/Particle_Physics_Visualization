@@ -267,3 +267,62 @@ def test_index_page_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "Calorimeter Shower Reconstruction" in response.text
+
+
+def test_depth_overlays_are_complementary(client):
+    """Exactly one direction overlay is honest at a time.
+
+    Individual trajectories are exact but unreadable in bulk. The ensemble axis
+    converges on the beam position over thousands of events but wanders across
+    the detector when asked to average a handful of showers that sit in
+    different places. The demonstration table holds two events, so it must get
+    the trajectories and not the axis.
+    """
+    body = client.get("/api/projections").json()
+    overlays = body["overlays"]
+
+    assert overlays["trajectories"], "two events is well inside the cap"
+    assert overlays["axes"] == {}, "the ensemble axis is meaningless at N=2"
+
+    assert len(overlays["trajectories"]) <= overlays["max_trajectory_events"]
+    for path in overlays["trajectories"]:
+        assert {"theta", "phi", "x", "y", "z"} <= set(path["a"])
+
+    coherence = overlays["coherence"]
+    assert 0.0 <= coherence["r_a"] <= 1.0
+
+
+def test_payload_stays_under_budget_with_overlays(client):
+    response = client.get("/api/projections", params={"display": "native"})
+    assert len(response.content) < 100_000
+
+
+def test_persistent_notices_are_not_duplicated_into_the_banner(client):
+    """Explanatory notices belong beside their control, not across the plots.
+
+    The staggered-lattice note used to be delivered twice - once as a warning
+    and once in meta - so the banner could never be dismissed for good.
+    """
+    body = client.get("/api/projections", params={"display": "native"}).json()
+    notices = {n["text"] for n in body["meta"]["notices"]}
+    warnings = set(body["meta"]["warnings"])
+    assert not (notices & warnings)
+
+    stagger_note = body["meta"]["stagger"].get("note")
+    if stagger_note:
+        assert stagger_note not in warnings
+
+
+def test_energy_axis_has_a_clean_interval(client):
+    axis = client.get("/api/energy-distribution").json()["axis"]
+    assert axis["interval"] > 0
+    assert abs(axis["hi"] / axis["interval"] - round(axis["hi"] / axis["interval"])) < 1e-9
+
+
+def test_energy_series_declare_sparseness(client):
+    body = client.get("/api/energy-distribution").json()
+    assert body["density_threshold"] == 15
+    for series in body["series"]:
+        assert "sparse" in series and "rug" in series
+        if series["sparse"]:
+            assert series["histogram"] is None

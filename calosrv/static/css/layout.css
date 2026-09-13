@@ -94,10 +94,11 @@
 
 .card h2 {
   font-size: 12px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  min-height: 22px;
 }
 .card h2 .tag {
   font-size: 10px;
@@ -119,7 +120,14 @@
 
 /* --------------------------------------------------------------- banners */
 
+/* The banner now carries only transient, actionable messages. Persistent
+   explanatory notices moved to info popovers beside the control they concern,
+   because a notice that returns on the next response is not meaningfully
+   dismissible and was costing the plots ~15% of their height. */
 .banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 8px 12px;
   border-radius: var(--radius);
   font-size: 12px;
@@ -132,6 +140,19 @@
 .banner ul { margin: 4px 0 0; padding-left: 18px; }
 .banner li { margin: 2px 0; }
 .banner[hidden] { display: none; }
+.banner .banner-text { flex: 1 1 auto; min-width: 0; }
+.banner .banner-close {
+  flex: none;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.banner .banner-close:hover { opacity: 1; }
 
 /* ------------------------------------------------------------- status bar */
 

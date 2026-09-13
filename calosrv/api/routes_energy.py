@@ -30,7 +30,13 @@ def get_energy_distribution(
             "population is always appended."
         ),
     ),
-    bins: int = Query(histogram.DEFAULT_BINS, ge=10, le=500),
+    bins: int | None = Query(
+        None, ge=8, le=500,
+        description=(
+            "Histogram bin count. Left unset, it adapts to the smallest drawn "
+            "slice so no histogram is finer than its own statistics support."
+        ),
+    ),
     calibrated: bool = Query(
         True,
         description=(

@@ -75,6 +75,50 @@ class ClipResult:
         )
 
 
+#: Candidate tick intervals, in ascending order of the range they suit.
+#: Chosen so an axis carries roughly five to twelve labelled ticks.
+_NICE_INTERVALS = (0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0)
+
+#: Target number of ticks used to pick between the candidates above.
+_TARGET_TICKS = 6
+
+
+def nice_range(lo: float, hi: float) -> tuple[float, float, float]:
+    """Round a display range outward to clean tick boundaries.
+
+    Returns ``(lo, hi, interval)``.
+
+    A percentile-derived bound is an arbitrary float - 9.197060758 GeV, say -
+    and letting it terminate an axis puts that number on a tick label, where it
+    reads as false precision about a limit that was a display choice. Rounding
+    the range outward to a multiple of a human interval fixes the labels at
+    source, and doing it here rather than in the chart means the histogram bins
+    and the fitted curve are sampled over the same range that is drawn, so bars
+    line up with ticks instead of drifting against them.
+
+    Rounding is always *outward*, so nothing that was inside the clipped range
+    falls outside the displayed one.
+    """
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return 0.0, 1.0, 0.2
+
+    span = hi - lo
+    interval = _NICE_INTERVALS[-1]
+    for candidate in _NICE_INTERVALS:
+        if span / candidate <= _TARGET_TICKS * 2:
+            interval = candidate
+            break
+
+    nice_lo = float(np.floor(lo / interval) * interval)
+    nice_hi = float(np.ceil(hi / interval) * interval)
+    if nice_hi <= nice_lo:
+        nice_hi = nice_lo + interval
+
+    # Float multiplication leaves dust like 9.600000000000001; the interval is
+    # never finer than 0.1, so six decimals is far more than enough.
+    return round(nice_lo, 6), round(nice_hi, 6), interval
+
+
 def percentile_clip(
     values: np.ndarray,
     low: float = DEFAULT_LOW_PERCENTILE,

@@ -342,3 +342,109 @@ def test_splatting_removes_the_comb(cursor, record):
     plan = plan_resolution(record.lattice, MODE_CONTINUOUS, record.lattice.x.n // 2)
     _, resampled = panels.render_panel(bundle, "xy", plan)
     assert stagger.detect(resampled).staggered is False
+
+
+# ------------------------------------------- low statistics and overlays --
+
+
+def test_low_statistics_suppresses_density_and_emits_a_rug(cursor, record):
+    """Below the threshold a density histogram is an artefact, not a result.
+
+    density=True divides by N * bin_width, so at small N a single event produces
+    a spike whose height is set by the binning. The panel must receive the
+    events themselves instead, and be told why.
+    """
+    spec = filters.build(record)
+    result = energy.compute(cursor, record, spec)
+    assert result.n_events < result.density_threshold
+
+    for series in result.series:
+        payload = series.as_dict()
+        assert payload["sparse"] is True
+        assert payload["histogram"] is None
+        assert payload["curve"]["y"] == []
+        assert len(payload["rug"]) == result.n_events
+        assert "Insufficient sample size" in payload["message"]
+        # The rug must be sorted, so the strip reads left to right.
+        assert payload["rug"] == sorted(payload["rug"])
+
+
+def test_energy_axis_lands_on_clean_ticks(cursor, record):
+    """A raw percentile bound must never terminate the axis."""
+    spec = filters.build(record)
+    result = energy.compute(cursor, record, spec)
+    axis = result.axis
+
+    interval = axis["interval"]
+    assert interval > 0
+    for edge in (axis["lo"], axis["hi"]):
+        assert abs(edge / interval - round(edge / interval)) < 1e-9
+    # And the clean range must still contain everything the clip kept.
+    assert axis["lo"] <= axis["clipping"]["lo"]
+    assert axis["hi"] >= axis["clipping"]["hi"]
+
+
+def test_trajectories_skip_events_without_a_centroid(cursor, record):
+    """Events where shower A deposited nothing have no entry point to project."""
+    spec = filters.build(record)
+    paths = summary.trajectories(cursor, record, spec)
+
+    for path in paths:
+        assert path["a"]["x"] is not None
+        assert path["a"]["theta"] is not None
+        assert path["a"]["phi"] is not None
+
+    event_table = quote(naming.event_table(record.table_name))
+    eligible = cursor.execute(
+        f"SELECT count(*) FROM {event_table} "
+        "WHERE cax IS NOT NULL AND theta_a IS NOT NULL AND phi_a IS NOT NULL"
+    ).fetchone()[0]
+    assert len(paths) == min(int(eligible), summary.MAX_TRAJECTORY_EVENTS)
+
+
+def test_trajectories_are_capped(cursor, record):
+    spec = filters.build(record)
+    assert len(summary.trajectories(cursor, record, spec, limit=1)) <= 1
+
+
+def test_angular_coherence_reports_a_resultant_length(cursor, record):
+    """The measurement that justifies never drawing an averaged direction."""
+    spec = filters.build(record)
+    coherence = summary.angular_coherence(cursor, record, spec)
+    assert coherence["n"] > 0
+    for key in ("r_a", "r_b"):
+        assert 0.0 <= coherence[key] <= 1.0
+
+
+def test_shower_axes_cover_every_depth_layer(cursor, record):
+    """The measured axis is the overlay that stays valid at any event count."""
+    spec = filters.build(record)
+    bundle = projections.fetch_native(cursor, record, spec)
+
+    for name in ("yz", "xz"):
+        axes = panels.shower_axes(bundle, name)
+        assert len(axes["depth"]) == record.lattice.z.n
+        assert len(axes["a"]) == record.lattice.z.n
+        assert len(axes["b"]) == record.lattice.z.n
+
+        row_axis = record.lattice.axis(bundle.panel(name).row_axis)
+        for point in axes["a"]:
+            if point is None:
+                continue
+            depth, centroid = point
+            # A centroid is a weighted mean of coordinates, so it can never fall
+            # outside the range of those coordinates.
+            assert row_axis.lo <= centroid <= row_axis.hi
+            assert record.lattice.z.lo <= depth <= record.lattice.z.hi
+
+
+def test_shower_axes_split_energy_between_the_showers(cursor, record):
+    """A and B axes must be computed from complementary weights."""
+    spec = filters.build(record)
+    bundle = projections.fetch_native(cursor, record, spec)
+    axes = panels.shower_axes(bundle, "yz")
+    a_pts = [p for p in axes["a"] if p]
+    b_pts = [p for p in axes["b"] if p]
+    assert a_pts and b_pts
+    # The two showers are at different places, so the axes must not coincide.
+    assert any(abs(a[1] - b[1]) > 1e-9 for a, b in zip(a_pts, b_pts))

@@ -78,6 +78,18 @@ SERIES = (
 ISOLATED_RESOLUTION = 0.05
 
 
+#: Most individual event energies shipped for a rug strip. A slice below the
+#: density threshold holds at most 14 events, so this is only a guard against a
+#: future threshold change making the payload unbounded.
+MAX_RUG_POINTS = 200
+
+#: Shown in place of the density curve when a slice is too small to estimate one.
+INSUFFICIENT_MESSAGE = (
+    "Insufficient sample size (N < {threshold}) for continuous density "
+    "estimation; plotting individual event points."
+)
+
+
 @dataclass
 class SeriesFit:
     key: str
@@ -86,9 +98,16 @@ class SeriesFit:
     kind: str
     slice_index: int
     fit: gaussian.GaussianFit
-    hist: histogram.Histogram
+    hist: histogram.Histogram | None
     curve_x: list[float] = field(default_factory=list)
     curve_y: list[float] = field(default_factory=list)
+    #: Individual reconstructed energies, populated *instead of* the histogram
+    #: when the slice is too small for a density estimate.
+    rug: list[float] = field(default_factory=list)
+
+    @property
+    def sparse(self) -> bool:
+        return self.hist is None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -98,8 +117,14 @@ class SeriesFit:
             "kind": self.kind,
             "slice": self.slice_index,
             "fit": self.fit.as_dict(),
-            "histogram": self.hist.as_dict(),
+            "histogram": self.hist.as_dict() if self.hist else None,
             "curve": {"x": self.curve_x, "y": self.curve_y},
+            "rug": self.rug,
+            "sparse": self.sparse,
+            "message": (
+                INSUFFICIENT_MESSAGE.format(threshold=gaussian.MIN_SAMPLES)
+                if self.sparse else ""
+            ),
         }
 
 
@@ -113,6 +138,8 @@ class EnergyDistribution:
     benchmarks: list[dict[str, Any]]
     n_events: int
     scale: str
+    #: Event count below which continuous density estimation is suppressed.
+    density_threshold: int = gaussian.MIN_SAMPLES
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +151,7 @@ class EnergyDistribution:
             "benchmarks": self.benchmarks,
             "n_events": self.n_events,
             "scale": self.scale,
+            "density_threshold": self.density_threshold,
         }
 
 
@@ -154,7 +182,7 @@ def compute(
     record: ExperimentRecord,
     spec: FilterSpec,
     edges: Sequence[float] | None = None,
-    bins: int = histogram.DEFAULT_BINS,
+    bins: int | None = None,
     calibrated: bool = True,
     clip_low: float = clip_mod.DEFAULT_LOW_PERCENTILE,
     clip_high: float = clip_mod.DEFAULT_HIGH_PERCENTILE,
@@ -197,13 +225,30 @@ def compute(
     clipping = clip_mod.percentile_clip(
         pooled, low=clip_low, high=clip_high, floor_at_zero=True, pad=0.05
     )
-    edges_array = histogram.axis_edges(clipping.lo, clipping.hi, bins)
-    curve_x = histogram.curve_axis(clipping.lo, clipping.hi)
+
+    # Round outward to clean tick boundaries before anything is binned, so the
+    # histogram bars, the fitted curve and the axis labels all share one range.
+    # Rounding only in the chart would leave the bars drifting against the ticks.
+    axis_lo, axis_hi, axis_interval = clip_mod.nice_range(clipping.lo, clipping.hi)
 
     # --- Stages 4 and 5: per slice, per series ------------------------------
     slice_counts = {
         s.index: int((slice_index == s.index).sum()) for s in slices
     }
+
+    # All slices share one binning, or they cannot be compared bin by bin. The
+    # count is set by the *smallest* slice that will actually be drawn, so no
+    # histogram on the panel is finer than its own statistics support - a slice
+    # of twenty events binned for twenty thousand is the spike comb again.
+    drawn = [
+        n for index, n in slice_counts.items() if n >= gaussian.MIN_SAMPLES
+    ]
+    resolved_bins = (
+        int(bins) if bins is not None
+        else histogram.adaptive_bins(min(drawn) if drawn else 0)
+    )
+    edges_array = histogram.axis_edges(axis_lo, axis_hi, resolved_bins)
+    curve_x = histogram.curve_axis(axis_lo, axis_hi)
     fitted: list[SeriesFit] = []
     for s in slices:
         mask = slice_index == s.index
@@ -212,6 +257,21 @@ def compute(
         for key, label, shower, kind in SERIES:
             sample = values[key][mask]
             fit = gaussian.fit_gaussian(sample, label=f"{label}, {s.label}")
+
+            if fit.insufficient:
+                # Below the threshold a density histogram is not a distribution,
+                # it is a comb of spikes whose heights are set by the bin width
+                # rather than by physics. Ship the events themselves instead.
+                finite = sample[np.isfinite(sample)]
+                fitted.append(
+                    SeriesFit(
+                        key=key, label=label, shower=shower, kind=kind,
+                        slice_index=s.index, fit=fit, hist=None,
+                        rug=[float(v) for v in np.sort(finite)[:MAX_RUG_POINTS]],
+                    )
+                )
+                continue
+
             hist = histogram.density_histogram(sample, edges_array)
 
             curve_y: list[float] = []
@@ -279,12 +339,14 @@ def compute(
             ),
         },
         axis={
-            "lo": clipping.lo,
-            "hi": clipping.hi,
+            "lo": axis_lo,
+            "hi": axis_hi,
+            "interval": axis_interval,
             "unit": unit,
-            "bins": bins,
+            "bins": resolved_bins,
             "clipping": clipping.as_dict(),
         },
+        density_threshold=gaussian.MIN_SAMPLES,
         benchmarks=benchmarks,
         n_events=n_events,
         scale=scale,
