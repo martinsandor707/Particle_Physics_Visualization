@@ -414,3 +414,61 @@ def test_every_id_the_scripts_write_to_exists_in_the_markup(client):
 
     missing = sorted(referenced - present)
     assert not missing, f"scripts reference ids absent from index.html: {missing}"
+
+
+def test_module_imports_are_stamped_too(client):
+    """The entry point alone is not enough to version a module graph.
+
+    A module reached through `import './state.js'` is requested by the browser
+    at a bare URL of its own, so stamping only the entry point leaves the rest
+    of the graph on whatever each browser already had. That is what produced
+
+        TypeError: state.isTouched is not a function
+
+    when a fresh main.js imported a state.js cached before that method existed -
+    and revalidation headers cannot rescue it, because an entry cached *before*
+    those headers existed is governed by the freshness it was stored under.
+    """
+    import re
+
+    served = client.get("/static/js/main.js").text
+    specifiers = re.findall(r"from\s+'(\.\.?/[^']+)'", served)
+    assert specifiers, "main.js should import sibling modules"
+    for spec in specifiers:
+        assert "?v=" in spec, f"unstamped module specifier: {spec}"
+
+
+def test_nested_module_imports_are_stamped(client):
+    import re
+
+    served = client.get("/static/js/panels/projection.js").text
+    for spec in re.findall(r"from\s+'(\.\.?/[^']+)'", served):
+        assert "?v=" in spec, f"unstamped module specifier: {spec}"
+
+
+def test_vendored_bundle_is_served_untouched(client):
+    """Rewriting a minified third-party bundle risks more than it gains."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "calosrv" / "static"
+    on_disk = (static / "js" / "vendor" / "echarts.min.js").read_bytes()
+    assert client.get("/static/js/vendor/echarts.min.js").content == on_disk
+
+
+def test_rewriting_leaves_non_import_strings_alone(tmp_path):
+    """Only real specifiers may be touched, not lookalikes in strings."""
+    from calosrv.app import _JS_IMPORT
+
+    source = (
+        "import { a } from './a.js';\n"
+        "const msg = 'see ./notes.js for details';\n"
+        "const url = `./runtime.js`;\n"
+        "await import('./lazy.js');\n"
+    )
+    out = _JS_IMPORT.sub(r"\1\2\3?v=XYZ\4", source)
+
+    assert "'./a.js?v=XYZ'" in out
+    assert "'./lazy.js?v=XYZ'" in out
+    # A path mentioned in prose, or built at runtime, must be left as it is.
+    assert "see ./notes.js for details" in out
+    assert "`./runtime.js`" in out

@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -74,22 +74,73 @@ def asset_fingerprint(directory: Path = STATIC_DIR) -> str:
     return digest.hexdigest()[:12]
 
 
-class VersionedStaticFiles(StaticFiles):
-    """Static files whose cache lifetime depends on whether they are versioned.
+#: Relative ES module specifiers, e.g. ``from './state.js'`` or
+#: ``import('./panels/energy.js')``. Anchored on the quote so a matching string
+#: in a comment or a template literal is not rewritten.
+_JS_IMPORT = re.compile(
+    r"""(\bfrom\s*|\bimport\s*\(?\s*)(['"])(\.{1,2}/[^'"?]+?\.js)(['"])"""
+)
 
-    A request carrying the ``v`` stamp is safe to cache forever: if the file
-    changes the stamp changes, so the URL changes too. An unstamped request -
-    someone opening an asset directly, or an old page - must revalidate, so a
-    stale copy can never be served silently.
+
+class VersionedStaticFiles(StaticFiles):
+    """Static files, with the module graph stamped and cached deliberately.
+
+    Two things happen here, and the second is the one that actually closes the
+    hole.
+
+    **Caching.** A request carrying the ``v`` stamp is safe to keep forever: if
+    the file changes the stamp changes, so the URL changes too. An unstamped
+    request must revalidate, so a stale copy is never served silently.
+
+    **Rewriting.** Only the entry points can be stamped by the markup; a module
+    reached through ``import './state.js'`` is requested by the browser at a
+    bare URL of its own. Stamping the entry point alone therefore leaves the
+    rest of the graph on whatever each browser already had - which produced
+
+        TypeError: state.isTouched is not a function
+
+    when a page holding a fresh ``main.js`` imported a ``state.js`` cached
+    before that method existed. Revalidation headers do not rescue it either,
+    because an entry cached *before* those headers existed is still governed by
+    the heuristic freshness it was stored under.
+
+    So every relative specifier inside a served script is rewritten to carry the
+    same stamp. The whole graph then hangs off one version: either every module
+    is the new one, or the URL differs and the browser must fetch it.
     """
 
+    def __init__(self, *args, fingerprint: str = "", **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.fingerprint = fingerprint
+
     async def get_response(self, path: str, scope):
+        stamped = "v=" in scope.get("query_string", b"").decode()
+
+        # Vendored libraries are skipped: they are large, they carry no relative
+        # imports of ours, and rewriting a minified bundle risks more than it
+        # gains.
+        if self.fingerprint and path.endswith(".js") and "vendor" not in path:
+            full = Path(self.directory) / path
+            if full.is_file():
+                source = full.read_text(encoding="utf-8")
+                rewritten = _JS_IMPORT.sub(
+                    rf"\1\2\3?v={self.fingerprint}\4", source
+                )
+                return Response(
+                    rewritten,
+                    media_type="text/javascript; charset=utf-8",
+                    headers={
+                        "Cache-Control": (
+                            "public, max-age=31536000, immutable" if stamped
+                            else "no-cache"
+                        ),
+                    },
+                )
+
         response = await super().get_response(path, scope)
-        query = scope.get("query_string", b"").decode()
-        if "v=" in query:
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if stamped else "no-cache"
+        )
         return response
 
 #: Experiment name used for the automatically seeded demonstration dataset.
@@ -206,10 +257,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(module.router)
 
     if STATIC_DIR.is_dir():
-        app.mount(
-            "/static", VersionedStaticFiles(directory=STATIC_DIR), name="static"
-        )
         fingerprint = asset_fingerprint()
+        app.mount(
+            "/static",
+            VersionedStaticFiles(directory=STATIC_DIR, fingerprint=fingerprint),
+            name="static",
+        )
         log.info("Static asset version: %s", fingerprint)
 
         @app.get("/", include_in_schema=False)
