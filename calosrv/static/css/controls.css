@@ -31,25 +31,65 @@
   margin-bottom: 4px;
 }
 
+/* Every text-entry control, not just the ones inside .numeric-pair.
+   A browser-default input renders as a white box, which on this canvas reads as
+   a rendering fault rather than a field. Selecting on the element types rather
+   than on a class means a control added later cannot miss the theme. */
+input[type="number"],
+input[type="text"],
+input[type="search"],
 .numeric-pair .numeric {
-  flex: 1 1 0;
-  min-width: 0;
   padding: 4px 6px;
-  background: var(--card);
+  background: var(--canvas);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  font-family: var(--mono);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-align: right;
 }
+
+input[type="number"]:focus,
+input[type="text"]:focus,
+input[type="search"]:focus,
 .numeric-pair .numeric:focus {
   outline: none;
   border-color: var(--accent);
-  background: var(--canvas);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
 }
+
+input[type="number"]:disabled,
+input[type="text"]:disabled,
 .numeric-pair .numeric:disabled { opacity: 0.5; cursor: not-allowed; }
+
+input::placeholder { color: var(--disabled); }
+
+.numeric-pair .numeric {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+}
+
+/* The file picker's button is a separate shadow part and stays white without
+   this, which is conspicuous in the upload modal. */
+input[type="file"] {
+  color: var(--muted);
+  font-size: 12px;
+}
+input[type="file"]::file-selector-button {
+  margin-right: 8px;
+  padding: 4px 10px;
+  background: #21262d;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: #c9d1d9;
+  font-size: 12px;
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .numeric-pair .numeric-sep { color: var(--muted); font-size: 11px; }
 .numeric-pair .numeric-unit {
   color: var(--muted);
@@ -162,13 +202,21 @@
 .picker, .textinput {
   width: 100%;
   padding: 6px 8px;
-  background: var(--card);
+  background: var(--canvas);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 12px;
 }
-.picker:focus, .textinput:focus { outline: none; border-color: var(--accent); }
+.picker:focus, .textinput:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+}
+
+/* Native dropdown options are drawn by the platform and default to a white
+   list, which is jarring against the rest of the interface. */
+.picker option { background: var(--canvas-alt); color: var(--text); }
 
 .action {
   padding: 6px 12px;
@@ -283,22 +331,28 @@
   gap: 4px;
 }
 
+/* Secondary HUD button: Auto-fit RoI, Reset, and the A / B / Both toggles. */
 .mini {
-  padding: 2px 7px;
-  background: var(--canvas-alt);
+  padding: 3px 8px;
+  background: #21262d;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--muted);
+  color: #c9d1d9;
   font-size: 10px;
   line-height: 1.5;
   cursor: pointer;
   white-space: nowrap;
 }
-.mini:hover { color: var(--accent); border-color: var(--accent); }
+.mini:hover { background: #2d333b; border-color: var(--accent); color: var(--accent); }
+.mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A tinted active state rather than a solid fill: these toggles sit inside a
+   plot card, and a saturated block of accent colour beside a Viridis raster
+   competes with the data for attention. */
 .mini.is-active {
-  background: var(--accent);
+  background: rgba(88, 166, 255, 0.15);
   border-color: var(--accent);
-  color: #04101f;
+  color: var(--accent);
   font-weight: 600;
 }
 

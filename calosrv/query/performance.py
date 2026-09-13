@@ -112,8 +112,10 @@ _NAMES = (
 
 def _residuals(data: dict[str, Any], suffix: str) -> metric_mod.EnergyResidualMetrics:
     def value(key: str) -> float | None:
-        v = data.get(f"{key}_{suffix}")
-        return float(v) if v is not None else None
+        # Relative residuals divide by a per-event true energy that can be
+        # femto-GeV small, so these aggregates legitimately come back as
+        # infinity or NaN. Neither is a measurement, and neither is JSON.
+        return metric_mod.finite(data.get(f"{key}_{suffix}"))
 
     return metric_mod.EnergyResidualMetrics(
         bias_gev=value("bias"),

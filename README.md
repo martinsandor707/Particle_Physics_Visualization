@@ -340,6 +340,29 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 .venv/bin/python -m pytest
 ```
 
+### Static assets and caching
+
+Asset URLs are stamped with a hash of the static tree (`/static/js/main.js?v=…`)
+and served `immutable`; the page itself is `no-cache`, and any unstamped asset —
+which includes the relative ES module imports inside `main.js` — revalidates
+against its ETag.
+
+This is not housekeeping. The page and its scripts are separate downloads with
+independent cache lifetimes, so a browser can hold a **stale script against
+fresh markup**. When that happened here, the cached script still expected the
+readout spans that the numeric inputs replaced and threw
+
+```
+TypeError: Cannot set properties of null (setting 'textContent')
+```
+
+during module initialisation — before ECharts was configured or any data
+fetched, so the interface was dead with nothing on screen to explain why. The
+same stale stylesheet lacked the rules for the new inputs and buttons, which
+rendered them as browser-default white boxes. Stamping the URLs makes that
+pairing impossible; `dom.js` and the startup id audit make it survivable and
+self-explaining if it ever recurs.
+
 ### Module layout
 
 ```
