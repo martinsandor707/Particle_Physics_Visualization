@@ -139,6 +139,73 @@ export function cellCentre(axis, cells, index) {
   return 0.5 * (axis.edges[index] + axis.edges[index + 1]);
 }
 
+/**
+ * Millimetre bounding box of the active hits, for the Auto-fit RoI control.
+ *
+ * Bounded by an energy percentile rather than by the outermost occupied cell.
+ * A single stray hit at the detector edge would otherwise define the region of
+ * interest and the zoom would achieve nothing - the same reasoning CLAUDE.md
+ * section 2 applies to axis limits generally.
+ *
+ * Works on the quantised codes rather than on physical energies, which is sound
+ * here because quantisation is monotone: the ranking of cells by code is the
+ * ranking by energy, and a percentile needs only the ranking.
+ */
+export function occupiedBounds(payload, raster, fraction = 0.99) {
+  const { codes, rows, cols } = raster;
+  const empty = payload.empty_code ?? 0;
+
+  const rowWeight = new Float64Array(rows);
+  const colWeight = new Float64Array(cols);
+  let total = 0;
+
+  for (let r = 0; r < rows; r += 1) {
+    const base = r * cols;
+    for (let c = 0; c < cols; c += 1) {
+      const code = codes[base + c];
+      if (code === empty) continue;
+      rowWeight[r] += code;
+      colWeight[c] += code;
+      total += code;
+    }
+  }
+  if (total === 0) return null;
+
+  // Trim (1 - fraction)/2 of the weight from each end of each marginal.
+  const cut = total * ((1 - fraction) / 2);
+  const span = (weight, n) => {
+    let acc = 0;
+    let lo = 0;
+    let hi = n - 1;
+    for (let i = 0; i < n; i += 1) {
+      acc += weight[i];
+      if (acc > cut) { lo = i; break; }
+    }
+    acc = 0;
+    for (let i = n - 1; i >= 0; i -= 1) {
+      acc += weight[i];
+      if (acc > cut) { hi = i; break; }
+    }
+    return [Math.min(lo, hi), Math.max(lo, hi)];
+  };
+
+  const [r0, r1] = span(rowWeight, rows);
+  const [c0, c1] = span(colWeight, cols);
+
+  const edge = (axis, cells, index) => {
+    const clamped = Math.max(0, Math.min(cells, index));
+    if (axis.uniform || !axis.edges) {
+      return axis.lo + (clamped / cells) * (axis.hi - axis.lo);
+    }
+    return axis.edges[clamped];
+  };
+
+  return {
+    col: [edge(payload.axes.col, cols, c0), edge(payload.axes.col, cols, c1 + 1)],
+    row: [edge(payload.axes.row, rows, r0), edge(payload.axes.row, rows, r1 + 1)],
+  };
+}
+
 /** Invert the quantisation for a tooltip: colour code -> physical value. */
 export function dequantize(code, scale, payload) {
   const minCode = payload.min_code ?? 1;

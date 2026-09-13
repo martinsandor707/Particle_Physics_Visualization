@@ -12,6 +12,7 @@ Gaussian curve, which is a probability density.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,33 @@ class Histogram:
             "n": self.n,
             "n_in_range": self.n_in_range,
         }
+
+
+#: Fewest bins worth drawing. Below this the histogram stops describing a shape.
+MIN_BINS = 8
+
+
+def adaptive_bins(n: int, cap: int = DEFAULT_BINS) -> int:
+    """Bin count for a sample of ``n`` events, by the Rice rule.
+
+    Fixing the bin count at the notebook's 120 is right for the tens of
+    thousands of events the full dataset holds and badly wrong for a few dozen.
+    A ``density=True`` histogram normalises by ``N * bin_width``, so once the
+    bins are much finer than the spacing between events each occupied bin holds
+    exactly one event and reports a height of ``1 / (N * bin_width)``. The
+    result is a comb of tall spikes whose height is set by the binning rather
+    than by the distribution - which is precisely the artefact this panel was
+    reported for.
+
+    ``ceil(2 * n**(1/3))`` is the Rice rule, a standard choice that grows slowly
+    enough to stay smooth at small n while still resolving structure at large n:
+    5 bins at n = 15, 31 at n = 3700, 54 at n = 20000. It is clamped to
+    ``MIN_BINS`` below and to the notebook's 120 above, so the busiest panels
+    keep the resolution they always had.
+    """
+    if n <= 0:
+        return MIN_BINS
+    return int(max(MIN_BINS, min(cap, math.ceil(2.0 * n ** (1.0 / 3.0)))))
 
 
 def axis_edges(lo: float, hi: float, bins: int = DEFAULT_BINS) -> np.ndarray:

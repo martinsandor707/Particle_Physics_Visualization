@@ -145,7 +145,23 @@ def test_irregular_axis_ships_its_edges_and_uniform_one_does_not():
 def test_small_samples_refuse_to_report_a_width():
     fit = gaussian.fit_gaussian(np.array([1.0, 2.0, 3.0]))
     assert fit.insufficient and fit.sigma is None
-    assert "at least 10" in fit.note
+    assert f"at least {gaussian.MIN_SAMPLES}" in fit.note
+
+
+def test_density_threshold_is_above_the_notebook_floor():
+    """The guardrail is deliberately stricter than calodash's.
+
+    A density=True histogram normalises by N * bin_width, so a single event in
+    one of 120 bins reports a density set by the binning rather than by physics.
+    Suppressing the estimator is the fix; the threshold is what decides when.
+    """
+    assert gaussian.MIN_SAMPLES == 15
+
+    # Fourteen events must still refuse; fifteen must produce a width.
+    rng = np.random.default_rng(3)
+    assert gaussian.fit_gaussian(rng.normal(10, 1, 14)).insufficient is True
+    fit = gaussian.fit_gaussian(rng.normal(10, 1, 15))
+    assert fit.insufficient is False and fit.sigma is not None
 
 
 def test_gaussian_moments_match_numpy():
@@ -222,3 +238,71 @@ def test_slice_edges_are_parsed_and_validated():
     assert slices.parse_edges(None) == slices.DEFAULT_EDGES
     with pytest.raises(ValidationError):
         slices.parse_edges("not,a,number")
+
+
+# ------------------------------------------------------------- nice ranges --
+
+
+@pytest.mark.parametrize(
+    "lo,hi",
+    [(0.0, 9.197060758), (0.0, 18.86), (0.0, 34.07297653), (0.0, 2.3), (0.0, 121.4)],
+)
+def test_nice_range_rounds_outward_to_clean_ticks(lo, hi):
+    """A percentile bound must never terminate an axis as a raw float.
+
+    9.197060758 on a tick label reads as precision about a limit that was only a
+    display choice.
+    """
+    nlo, nhi, interval = clip.nice_range(lo, hi)
+    assert nlo <= lo and nhi >= hi, "rounding must be outward, never inward"
+    assert interval > 0
+    # Every boundary must sit exactly on a tick.
+    assert abs(nlo / interval - round(nlo / interval)) < 1e-9
+    assert abs(nhi / interval - round(nhi / interval)) < 1e-9
+
+
+def test_nice_range_produces_a_readable_number_of_ticks():
+    for lo, hi in [(0.0, 9.2), (0.0, 25.0), (0.0, 34.1), (0.0, 120.0)]:
+        nlo, nhi, interval = clip.nice_range(lo, hi)
+        ticks = (nhi - nlo) / interval
+        assert 2 <= ticks <= 24, f"{ticks} ticks for range {lo}-{hi}"
+
+
+def test_nice_range_survives_degenerate_input():
+    assert clip.nice_range(5.0, 5.0)[1] > clip.nice_range(5.0, 5.0)[0]
+    assert clip.nice_range(float("nan"), 1.0) == (0.0, 1.0, 0.2)
+
+
+# -------------------------------------------------------- adaptive binning --
+
+
+@pytest.mark.parametrize(
+    "n,expected",
+    [(0, 8), (15, 8), (100, 10), (3700, 31), (3730, 32), (20000, 55), (10**9, 120)],
+)
+def test_adaptive_bins_follow_the_rice_rule(n, expected):
+    """Bin count must track the sample size, clamped at both ends.
+
+    A fixed 120 bins is right for tens of thousands of events and wrong for a
+    few dozen: once the bins are finer than the spacing between events, each
+    occupied bin holds exactly one and reports a height set by the bin width.
+    """
+    from calosrv.stats import histogram
+
+    assert histogram.adaptive_bins(n) == expected
+
+
+def test_adaptive_bins_keep_spike_heights_bounded():
+    """The property the bin count exists to guarantee.
+
+    With density normalisation a lone event in a bin peaks at
+    1 / (N * bin_width). Adapting the bin count keeps that within a factor of a
+    few of the true density instead of letting it run away as N shrinks.
+    """
+    from calosrv.stats import histogram
+
+    span = 18.0
+    for n in (15, 50, 500, 5000):
+        bins = histogram.adaptive_bins(n)
+        lone_spike = 1.0 / (n * (span / bins))
+        assert lone_spike < 0.6, f"n={n} bins={bins} spike={lone_spike:.3f}"

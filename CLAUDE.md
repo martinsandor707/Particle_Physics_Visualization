@@ -48,6 +48,15 @@ Sections 2 through 5 below apply **identically to both architectures**.
 * **Uncertainty by Default**:
   - Aggregated metrics must never be plotted as naked point estimates.
   - Always encode dispersion: standard deviations ($\sigma$), fitted Gaussian curves, confidence intervals, or probability density bands.
+* **Density Estimation Needs Statistics**:
+  - A `density=True` histogram normalises by $N \times \text{bin width}$. Once the bins are finer than the spacing between events, each occupied bin holds exactly one event and reports a height of $1/(N \cdot w)$ — a comb of tall spikes whose height is set by the *binning*, not by the distribution.
+  - Below **N = 15** in any slice, suppress the histogram and the fitted curve entirely and plot the individual events as a rug strip, with an explicit "insufficient sample size" note. Do not rescale the axis to hide the spikes.
+  - Above the threshold, let the bin count follow the sample size (Rice rule, $\lceil 2N^{1/3} \rceil$, clamped to 8–120), driven by the **smallest** slice that will be drawn so all slices can share one binning and still be comparable bin by bin.
+  - This is stricter than the reference notebook's `< 10`; `calodash/stats.py` retains 10, and only the point at which a width is *reported* has moved. $\mu$ and $\sigma$ themselves are unchanged and remain comparable.
+* **Never Average a Circular Quantity**:
+  - Azimuth $\phi$ wraps, so its arithmetic mean is meaningless. Measured on the production file, the mean resultant length $\bar R$ of `incoming_phi_A` is 0.012 over the full dataset, 0.042 for a 122-event momentum window, and 0.178 even for 7 events: the direction is near-uniform at every selection size reachable through the filters.
+  - Therefore **never draw a single "average trajectory"**. It would point in an arbitrary direction while looking authoritative. Draw the individual per-event trajectories when few enough to read (≤ 50 events), and otherwise state $\bar R$ on the panel and draw nothing.
+  - The same caution applies to any ensemble mean of a *position*: averaging the transverse centroid across a handful of showers that sit in different places has no common centre to converge on. The energy-weighted shower axis is an ensemble statistic and is only meaningful with many events.
 * **Perceptual Uniformity**:
   - Use strictly colorblind-safe palettes: **Viridis**, **Cividis**, **Plasma**, **Turbo**, or **ColorBrewer**.
   - **STRICTLY FORBIDDEN**: Rainbow, Jet, or non-monotonic spectral colormaps.

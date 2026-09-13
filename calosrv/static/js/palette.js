@@ -77,4 +77,29 @@ export function colorStops(name, count = 12) {
   return stops;
 }
 
+/**
+ * Discrete, well-separated colours for a handful of ordered categories.
+ *
+ * Sampling a sequential ramp across its full extent is right for a continuous
+ * surface and wrong for thin lines on a dark canvas: Viridis starts at
+ * #440154, which against the #0d1117 background is very nearly invisible at one
+ * pixel wide. That is why the five separation slices in the energy panel read
+ * as ambiguous.
+ *
+ * Restricting the sampled sub-range keeps the ordered lightness ramp - so the
+ * slice order is still legible as brightness - while guaranteeing every stop
+ * clears the background.
+ */
+export function categoricalStops(name, count, { min = 0.25, max = 1.0 } = {}) {
+  const table = lookupTable(name);
+  const stops = [];
+  const n = Math.max(1, count);
+  for (let i = 0; i < n; i += 1) {
+    const t = n === 1 ? max : min + (i / (n - 1)) * (max - min);
+    const index = Math.round(t * 255) * 3;
+    stops.push(`rgb(${table[index]},${table[index + 1]},${table[index + 2]})`);
+  }
+  return stops;
+}
+
 export const PALETTES = Object.keys(ANCHORS);

@@ -45,36 +45,53 @@
 
     <div class="control" id="ctl-e1">
       <div class="control-head">
-        <label for="e1-lo">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
-        <span class="readout" id="e1-readout">—</span>
+        <label for="e1-num-lo">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="e1-num-lo" step="0.05" aria-label="E1 minimum [GeV]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="e1-num-hi" step="0.05" aria-label="E1 maximum [GeV]">
+        <span class="numeric-unit">GeV</span>
       </div>
       <div class="dual">
         <div class="track"></div><div class="fill" id="e1-fill"></div>
-        <input type="range" id="e1-lo"><input type="range" id="e1-hi">
+        <input type="range" id="e1-lo" aria-label="E1 minimum slider"><input type="range" id="e1-hi" aria-label="E1 maximum slider">
       </div>
       <div class="hint">True incident momentum of shower A (<span class="mono">incoming_momentum_A</span>).</div>
     </div>
 
     <div class="control" id="ctl-e2">
       <div class="control-head">
-        <label for="e2-lo">E<sub>2</sub> &mdash; Shower B momentum [GeV]</label>
-        <span class="readout" id="e2-readout">—</span>
+        <label for="e2-num-lo">E<sub>2</sub> &mdash; Shower B momentum [GeV]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="e2-num-lo" step="0.05" aria-label="E2 minimum [GeV]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="e2-num-hi" step="0.05" aria-label="E2 maximum [GeV]">
+        <span class="numeric-unit">GeV</span>
       </div>
       <div class="dual">
         <div class="track"></div><div class="fill" id="e2-fill"></div>
-        <input type="range" id="e2-lo"><input type="range" id="e2-hi">
+        <input type="range" id="e2-lo" aria-label="E2 minimum slider"><input type="range" id="e2-hi" aria-label="E2 maximum slider">
       </div>
       <div class="hint">True incident momentum of shower B (<span class="mono">incoming_momentum_B</span>).</div>
     </div>
 
     <div class="control" id="ctl-d">
       <div class="control-head">
-        <label for="d-lo">D &mdash; A/B separation [mm]</label>
-        <span class="readout" id="d-readout">—</span>
+        <label for="d-num-lo">D &mdash; A/B separation [mm]</label>
+        <button class="info-dot" id="info-separation" type="button" hidden
+                aria-label="Separation notices">i</button>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="d-num-lo" step="1" aria-label="D minimum [mm]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="d-num-hi" step="1" aria-label="D maximum [mm]">
+        <span class="numeric-unit">mm</span>
       </div>
       <div class="dual">
         <div class="track"></div><div class="fill" id="d-fill"></div>
-        <input type="range" id="d-lo"><input type="range" id="d-hi">
+        <input type="range" id="d-lo" aria-label="D minimum slider"><input type="range" id="d-hi" aria-label="D maximum slider">
       </div>
       <div class="hint" id="d-hint">Distance between the two shower centroids (<span class="mono">centroid_AB_distance</span>).</div>
     </div>
@@ -85,7 +102,11 @@
       <input type="checkbox" id="opt-undefined-d"> Include events with undefined D
     </label>
 
-    <h2>Spatial Resolution</h2>
+    <h2>
+      Spatial Resolution
+      <button class="info-dot" id="info-resolution" type="button" hidden
+              aria-label="Spatial resolution notices">i</button>
+    </h2>
 
     <label class="choice">
       <input type="radio" name="display" value="native" checked>
@@ -143,7 +164,10 @@
   <!-- =============================================================== main -->
   <main class="main">
 
-    <div class="banner" id="banner" hidden></div>
+    <div class="banner" id="banner" hidden>
+      <span class="banner-text" id="banner-text"></span>
+      <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
 
     <div class="statusbar">
       <span>Events <b id="stat-events">—</b></span>
@@ -159,33 +183,56 @@
     <section class="grid">
 
       <div class="card">
-        <h2>XY Projection &mdash; Shower Entry <span class="tag" id="tag-xy">entrance slab</span></h2>
+        <h2>
+          XY Projection &mdash; Shower Entry <span class="tag" id="tag-xy">entrance slab</span>
+          <span class="card-actions">
+            <button class="mini" data-roi="xy" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
+            <button class="mini" data-reset="xy" type="button" title="Restore the full detector extent">Reset</button>
+          </span>
+        </h2>
         <div class="plot" id="plot-xy"></div>
         <p class="footnote" id="foot-xy">—</p>
       </div>
 
       <div class="card">
-        <h2>YZ Projection &mdash; Longitudinal Evolution <span class="tag">depth</span></h2>
+        <h2>
+          YZ Projection &mdash; Longitudinal Evolution <span class="tag">depth</span>
+          <span class="card-actions">
+            <button class="mini" data-roi="yz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
+            <button class="mini" data-reset="yz" type="button" title="Restore the full detector extent">Reset</button>
+          </span>
+        </h2>
         <div class="plot" id="plot-yz"></div>
-        <p class="footnote" id="foot-yz">
-          Transverse spread against calorimeter depth. Axes are drawn from
-          physical millimetre extents, so the 1:1 metric aspect ratio holds
-          regardless of the matrix shape.
-        </p>
+        <p class="footnote" id="foot-yz">—</p>
       </div>
 
       <div class="card">
-        <h2>XZ Projection &mdash; Lateral Profile <span class="tag">depth</span></h2>
+        <h2>
+          XZ Projection &mdash; Lateral Profile <span class="tag">depth</span>
+          <span class="card-actions">
+            <button class="mini" data-roi="xz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
+            <button class="mini" data-reset="xz" type="button" title="Restore the full detector extent">Reset</button>
+          </span>
+        </h2>
         <div class="plot" id="plot-xz"></div>
-        <p class="footnote" id="foot-xz">
-          Identical construction and colour scale to the YZ panel, so the two
-          may be read against one another directly.
-        </p>
+        <p class="footnote" id="foot-xz">—</p>
       </div>
 
       <div class="card">
-        <h2>Reconstructed Energy vs. Separation D <span class="tag" id="tag-energy">calibrated</span></h2>
+        <h2>
+          Reconstructed Energy vs. Separation D <span class="tag" id="tag-energy">calibrated</span>
+          <button class="info-dot" id="info-density" type="button"
+                  aria-label="About probability density">i</button>
+          <span class="card-actions">
+            <span class="seg" role="group" aria-label="Shower selection">
+              <button class="mini" data-shower="a" type="button">A</button>
+              <button class="mini" data-shower="b" type="button">B</button>
+              <button class="mini is-active" data-shower="both" type="button">Both</button>
+            </span>
+          </span>
+        </h2>
         <div class="plot tall" id="plot-energy"></div>
+        <div class="sparse-note" id="energy-sparse" hidden></div>
         <div id="fit-table"></div>
         <p class="footnote" id="foot-energy">—</p>
       </div>

@@ -31,8 +31,15 @@ export class State {
   constructor() {
     this.values = { ...DEFAULTS };
     this.bounds = null;       // kinematic bounds of the active experiment
+    this.domains = null;      // snapped slider domains, for the full-range test
+    this.touched = new Set(); // axes the user has deliberately narrowed
     this.listeners = new Set();
     this.readHash();
+    // A bound arriving in the URL is a deliberate selection, so it must survive
+    // the first adoptBounds rather than being reset to the dataset range.
+    for (const axis of ['e1', 'e2', 'd']) {
+      if (this.values[`${axis}_min`] !== null) this.touched.add(axis);
+    }
   }
 
   get(key) { return this.values[key]; }
@@ -84,15 +91,32 @@ export class State {
   }
 
   /**
-   * Adopt an experiment's bounds, resetting any slider still at full range.
+   * Record that the user has deliberately narrowed an axis.
    *
-   * A bound the user has actually moved is kept when possible, so switching
-   * between two runs of the same detector does not silently discard a
-   * selection. A bound that no longer fits the new dataset is dropped rather
-   * than clamped, because a clamped bound looks deliberate and is not.
+   * Tracked explicitly rather than inferred by comparing the current value
+   * against the dataset bound. That inference used to work, but the sliders now
+   * snap their domain to the step grid, so an untouched axis sits at 0.40 while
+   * the dataset bound is 0.408067 - the comparison fails, and switching
+   * experiments would carry the previous run's window across and silently
+   * filter the new dataset down to a handful of events.
+   */
+  markTouched(axis) {
+    this.touched.add(axis);
+  }
+
+  isTouched(axis) {
+    return this.touched.has(axis);
+  }
+
+  /**
+   * Adopt an experiment's bounds, resetting any axis the user has not narrowed.
+   *
+   * A bound the user actually moved is kept, so switching between two runs of
+   * the same detector does not discard a selection. A bound that no longer fits
+   * the new dataset is dropped rather than clamped, because a clamped bound
+   * looks deliberate and is not.
    */
   adoptBounds(bounds) {
-    const previous = this.bounds;
     this.bounds = bounds;
     const patch = {};
     for (const [axis, range] of Object.entries(bounds)) {
@@ -100,15 +124,11 @@ export class State {
       if (lo === null || hi === null) continue;
       const loKey = `${axis}_min`;
       const hiKey = `${axis}_max`;
-      const wasDefault =
-        this.values[loKey] === null ||
-        (previous && previous[axis] &&
-          this.values[loKey] === previous[axis][0] &&
-          this.values[hiKey] === previous[axis][1]);
+      const untouched = !this.touched.has(axis) || this.values[loKey] === null;
       const outOfRange =
         this.values[loKey] !== null &&
         (this.values[loKey] < lo || this.values[hiKey] > hi);
-      if (wasDefault || outOfRange) {
+      if (untouched || outOfRange) {
         patch[loKey] = lo;
         patch[hiKey] = hi;
       }
@@ -116,6 +136,27 @@ export class State {
     this.set(patch, { silent: true });
     this.writeHash();
     return patch;
+  }
+
+  /**
+   * Record the snapped slider domains, so the hash can omit untouched axes.
+   *
+   * The sliders snap their domain outward to the step grid, so "the whole
+   * range" is the snapped bound rather than the raw dataset bound; comparing
+   * against the latter would never match and every link would carry all six.
+   */
+  setSliderDomains(domains) {
+    this.domains = domains;
+  }
+
+  isFullRangeBound(key, value) {
+    if (!this.domains) return false;
+    const match = /^(e1|e2|d)_(min|max)$/.exec(key);
+    if (!match) return false;
+    const domain = this.domains[match[1]];
+    if (!domain) return false;
+    const edge = match[2] === 'min' ? domain[0] : domain[1];
+    return Math.abs(value - edge) < 1e-9;
   }
 
   readHash() {
@@ -140,7 +181,10 @@ export class State {
     for (const [key, value] of Object.entries(this.values)) {
       if (value === null || value === undefined) continue;
       if (value === DEFAULTS[key]) continue;
-      params.set(key, NUMERIC.has(key) ? String(round(value)) : String(value));
+      // A bound that spans the whole available range says nothing, so leave it
+      // out and keep the link short enough to paste into a message.
+      if (this.isFullRangeBound(key, value)) continue;
+      params.set(key, NUMERIC.has(key) ? String(round(key, value)) : String(value));
     }
     const hash = params.toString();
     const url = `${window.location.pathname}${hash ? `#${hash}` : ''}`;
@@ -148,6 +192,20 @@ export class State {
   }
 }
 
-function round(value) {
-  return Math.abs(value) >= 1000 ? Math.round(value) : Number(value.toFixed(4));
+/* Decimal places each filter bound is written with.
+ *
+ * These match the step of the matching numeric input, so a value the user typed
+ * round-trips through the URL unchanged. The old rule - four decimals for
+ * anything under 1000 - produced links full of 2.0455-style noise, which was a
+ * symptom of the slider quantisation rather than of the formatting. */
+const PRECISION = {
+  e1_min: 2, e1_max: 2,
+  e2_min: 2, e2_max: 2,
+  d_min: 0, d_max: 0,
+  resolution: 0,
+};
+
+function round(key, value) {
+  const digits = PRECISION[key] ?? 2;
+  return Number(Number(value).toFixed(digits));
 }

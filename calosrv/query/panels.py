@@ -112,6 +112,61 @@ def render_panel(
     return payload, resampled
 
 
+#: A depth column must hold at least this fraction of the panel's peak column
+#: energy before its centroid is plotted. Columns in the far tail hold a handful
+#: of stray hits whose centroid is dominated by noise, and joining them to the
+#: shower core produces a line that lurches to the detector edge.
+AXIS_MIN_COLUMN_FRACTION = 1e-3
+
+
+def shower_axes(bundle: NativeBundle, panel_name: str) -> dict[str, Any]:
+    """Energy-weighted transverse centroid against depth, per shower.
+
+    This is the honest always-available answer to "where did each shower go".
+    It is measured from the same binned data the panel displays, so it cannot
+    disagree with the picture, and unlike an averaged incident direction it
+    stays meaningful at any event count - the azimuths that refuse to average
+    (see ``summary.angular_coherence``) have already been folded into the energy
+    distribution being summarised here.
+
+    The attribution between showers uses the fractional voxel weights, for the
+    same reason ``centroids.py`` does: the categorical ``particle_origin`` label
+    discards the overlap region, which is the region under study.
+
+    Computed in NumPy from the cached native-resolution bundle, so it costs no
+    database access and is free on a cache hit.
+    """
+    panel = bundle.panel(panel_name)
+    lattice = bundle.lattice
+    row_axis = lattice.axis(panel.row_axis)
+
+    energy = panel.planes["e"]
+    weights = {
+        "a": panel.planes["efa_true"],
+        "b": np.clip(energy - panel.planes["efa_true"], 0.0, None),
+    }
+
+    depth = lattice.z.coords
+    out: dict[str, Any] = {"depth": [float(v) for v in depth], "a": [], "b": []}
+
+    for shower, w in weights.items():
+        column_total = w.sum(axis=0)
+        peak = float(column_total.max()) if column_total.size else 0.0
+        floor = peak * AXIS_MIN_COLUMN_FRACTION
+
+        points: list[list[float] | None] = []
+        for j in range(w.shape[1]):
+            total = float(column_total[j])
+            if total <= floor or total <= 0:
+                points.append(None)
+                continue
+            centroid = float(np.dot(w[:, j], row_axis.coords) / total)
+            points.append([float(depth[j]), centroid])
+        out[shower] = points
+
+    return out
+
+
 def render_all(
     bundle: NativeBundle,
     plan: ResolutionPlan,

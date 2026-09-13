@@ -133,16 +133,49 @@ def get_projections(
     # geometric comb be read as shower structure.
     stagger = stagger_mod.detect(bundle.xy.planes["e"])
 
-    warnings = list(plan.warnings)
+    # Only transient, actionable messages reach the banner. The persistent
+    # explanatory notices - the staggered-lattice comb, the resolution plan's
+    # caveats, the undefined-D exclusion - are delivered in `meta` and rendered
+    # as info popovers beside the control they concern, so they stop consuming
+    # the top of the plot area on every request.
+    warnings: list[str] = []
     if decision.sampled:
         warnings.append(decision.reason)
+
+    notices: list[dict[str, str]] = []
+    for note in plan.warnings:
+        notices.append({"scope": "resolution", "text": note})
     if stagger.staggered and plan.mode == MODE_NATIVE:
-        warnings.append(stagger.note)
+        notices.append({"scope": "resolution", "text": stagger.note})
     if selection.n_events_no_d and not spec.include_undefined_d:
-        warnings.append(
-            f"{selection.n_events_no_d:,} selected event(s) have no defined A-B "
-            "separation and are excluded."
-        )
+        notices.append({
+            "scope": "separation",
+            "text": (
+                f"{selection.n_events_no_d:,} selected event(s) have no defined "
+                "A-B separation and are excluded."
+            ),
+        })
+
+    # Depth-panel direction overlays. The measured axes are always valid; the
+    # per-event trajectories are only drawn when few enough to read, because
+    # incident azimuth does not average (see summary.angular_coherence).
+    coherence = summary.angular_coherence(con, record, spec)
+    few_events = 0 < selection.n_events <= summary.MAX_TRAJECTORY_EVENTS
+
+    # The two overlays are complements, not layers, and only one is honest at a
+    # time. Individual trajectories are exact but unreadable in bulk. The
+    # measured axis is an *ensemble* centroid per depth layer: with thousands of
+    # events it converges on where the beam actually sits, but across a handful
+    # of showers that are in different places it averages positions that have no
+    # common centre and wanders the full width of the detector. So below the
+    # trajectory threshold the individual lines are drawn and the ensemble axis
+    # is withheld; above it, the reverse.
+    paths = summary.trajectories(con, record, spec) if few_events else []
+    axes = (
+        {}
+        if few_events
+        else {name: panels.shower_axes(bundle, name) for name in ("yz", "xz")}
+    )
 
     meta = ApiMeta(
         table_name=record.table_name,
@@ -156,6 +189,7 @@ def get_projections(
             "channel": mode,
             "weighting": weighting,
             "stagger": stagger.as_dict(),
+            "notices": notices,
             "cache": cache.info(),
         },
     )
@@ -166,6 +200,12 @@ def get_projections(
         centroids=centroid_sets,
         selection=selection.as_dict(),
         filter=spec.as_dict(),
+        overlays={
+            "axes": axes,
+            "trajectories": paths,
+            "coherence": coherence,
+            "max_trajectory_events": summary.MAX_TRAJECTORY_EVENTS,
+        },
         slab={
             "mm": record.lattice.slab_mm,
             "layers": record.lattice.slab_iz + 1,

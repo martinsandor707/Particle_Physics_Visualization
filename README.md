@@ -147,10 +147,24 @@ in the ingest report.
 `DUCKDB_MEMORY_GB` and thread count, an exact/preview badge, and the upload
 button.
 
-**Sidebar** — dual-ended sliders for E₁ (`incoming_momentum_A`), E₂
-(`incoming_momentum_B`) and D (`centroid_AB_distance`), combined with chained
-boolean AND and debounced by 150 ms; the spatial resolution control; display
-channel and model selectors; and the performance KPI card.
+**Sidebar** — filters for E₁ (`incoming_momentum_A`), E₂ (`incoming_momentum_B`)
+and D (`centroid_AB_distance`), combined with chained boolean AND and debounced
+by 150 ms; the spatial resolution control; display channel and model selectors;
+and the performance KPI card.
+
+Each filter carries **both a numeric pair and a slider, on one shared grid**.
+The slider's integer domain *is* the numeric step — 0.05 GeV for the energies,
+1 mm for D — with the range snapped outward to whole multiples, so typing 2.05
+and dragging to 2.05 reach the same value and the URL needs no rounding. (The
+earlier fixed 1000-step slider put one step at 0.0196 GeV, so a typed 2.05 could
+only land on 2.0455.) Typing a lower bound above the current upper bound pushes
+the upper one along rather than swapping the two.
+
+Persistent explanations — the staggered-lattice comb, the depth-lock caveat, the
+undefined-D count — appear as **ⓘ popovers beside the control they concern**.
+The banner across the plots carries only transient, actionable messages and can
+be dismissed; dismissal is keyed by message text, so a warning re-sent on the
+next response stays dismissed.
 
 **2×2 canvas**
 
@@ -161,8 +175,61 @@ channel and model selectors; and the performance KPI card.
 2. **YZ Projection — longitudinal evolution** along depth.
 3. **XZ Projection — lateral profile**, sharing the YZ colour scale so the two
    are directly comparable.
-4. **Reconstructed energy vs. separation D**, with layered Gaussian fits, dashed
-   isolated-shower benchmarks, and an embedded (μ, σ) table.
+4. **Reconstructed energy vs. separation D**, with layered Gaussian fits,
+   isolated-shower reference markers, and an embedded (μ, σ) table.
+
+All three spatial panels **scroll to zoom and drag to pan**, with an *Auto-fit
+RoI* button that frames the box holding 99% of the selected energy (bounded by
+energy percentile, not by the outermost hit, so one stray cell cannot define the
+view) and a *Reset*. Both axes always scale by the same factor, so the 1:1
+metric aspect survives zooming — verified at 4.974 mm/px on both axes after four
+wheel notches. When the selected showers already span the detector, as most
+multi-event selections do, the fit says so rather than appearing inert.
+
+### Direction overlays on the depth panels
+
+The two overlays are complements, and only one is honest at a time.
+
+*Selections of 50 events or fewer* get the **individual incident trajectories**,
+projected from each event's centroid and (θ, φ) across the fiducial depth.
+
+*Larger selections* get the **energy-weighted shower axis** — the transverse
+centroid per depth layer, measured from the binned data on screen.
+
+> **No averaged trajectory is ever drawn.** Azimuth is circular, and its mean
+> resultant length R̄ is 0.012 over the full dataset, 0.042 for a 122-event
+> window and 0.178 even for 7 events: the direction is near-uniform at every
+> reachable selection size, so an "average" would point somewhere arbitrary
+> while looking authoritative. The panel states the measured R̄ instead. For the
+> same reason the ensemble axis is withheld below the trajectory threshold —
+> averaging the position of a handful of showers that sit in different places
+> has no common centre to converge on.
+
+### Low statistics in plot 4
+
+A `density=True` histogram normalises by `N × bin_width`, so once the bins are
+finer than the spacing between events each occupied bin holds exactly one and
+reports a height set by the binning rather than the distribution — the tall
+narrow spikes the panel used to show at small N.
+
+Below **N = 15** in a slice, the histogram and the fitted curve are suppressed
+server-side and the individual events are shipped as a **rug strip** instead,
+with an explicit note. Above it, the bin count follows the sample size (Rice
+rule, clamped to 8–120) driven by the smallest drawn slice, so all slices share
+one binning and none is finer than its own statistics support.
+
+The x-axis range is rounded outward to clean tick boundaries *before* anything
+is binned, so bars, curve and labels share one range and a raw percentile bound
+such as `9.197060758` can never reach a tick. The y-axis is labelled
+**Probability Density [GeV⁻¹]** with an ⓘ explaining that a density integrates
+to 1.0 and legitimately exceeds 1.0 when the distribution is narrow.
+
+Separation slice is carried by colour, shower identity by line style (A solid,
+B dashed), and the isolated references by dotted vertical markers at μ with a
+shaded μ ± σ band — drawn as position-and-width rather than as density curves,
+because their stated 5% resolution is an order of magnitude narrower than the
+reconstructed distributions and a curve that narrow takes the y-axis with it.
+An **A / B / Both** toggle filters by shower without a round trip.
 
 ### Spatial resolution: two modes
 

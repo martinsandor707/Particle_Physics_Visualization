@@ -36,12 +36,26 @@ from typing import Any
 
 import numpy as np
 
-#: Minimum sample size worth describing. Below this, ``calodash/stats.py``
-#: returns nothing rather than a sigma from a handful of events, mirroring the
-#: notebook's ``if len(values) < 10: continue``. The same guard applies here:
-#: the demonstration dataset has two events, and a two-point "Gaussian" would be
-#: arithmetically valid and scientifically meaningless.
-MIN_SAMPLES = 10
+#: Minimum sample size for any continuous density estimate - both the moment
+#: fit and the density histogram drawn beside it.
+#:
+#: ``calodash/stats.py`` and the reference notebook use 10, mirroring the
+#: notebook's ``if len(values) < 10: continue``. This module deliberately uses a
+#: higher threshold, and the reason is the histogram rather than the fit.
+#:
+#: A ``density=True`` histogram normalises by ``N * bin_width``. Over the 120
+#: bins this project inherits from the notebook, a range of ~18 GeV gives a bin
+#: width near 0.15 GeV, so a *single* event in one bin reports a density of
+#: ``1 / (N * 0.15)``: about 1.7 GeV^-1 at N = 4, and higher still as N falls.
+#: What appears on the panel is then a comb of tall, arbitrarily-scaled spikes
+#: at individual event energies - an artefact of the estimator, not a
+#: distribution. Raising the floor to 15 and plotting the individual events
+#: instead is the honest answer; rescaling the axis would merely hide it.
+#:
+#: Anything that must stay numerically comparable with the batch pipeline should
+#: compare mu and sigma, which are unchanged; only the point at which this
+#: module declines to report them has moved.
+MIN_SAMPLES = 15
 
 #: Half-width of the core refit window, in units of the current sigma.
 CORE_SIGMA = 2.5

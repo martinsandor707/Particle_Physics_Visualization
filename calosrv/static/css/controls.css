@@ -20,6 +20,51 @@
   font-family: var(--mono);
 }
 
+/* Paired numeric entry.
+   The slider alone cannot address a narrow window - across the E1 range one
+   pixel is worth tens of MeV - so the exact bounds are typed here, and the
+   slider is quantised to the same step grid so the two agree exactly. */
+.numeric-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.numeric-pair .numeric {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.numeric-pair .numeric:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--canvas);
+}
+.numeric-pair .numeric:disabled { opacity: 0.5; cursor: not-allowed; }
+.numeric-pair .numeric-sep { color: var(--muted); font-size: 11px; }
+.numeric-pair .numeric-unit {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 26px;
+}
+
+/* Firefox shows spinners permanently and they eat width at this size. */
+.numeric-pair .numeric::-webkit-outer-spin-button,
+.numeric-pair .numeric::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.numeric-pair .numeric { -moz-appearance: textfield; appearance: textfield; }
+
 /* Two range inputs stacked over one track; the thumbs stay independently
    grabbable because only the thumbs receive pointer events. */
 .dual {
@@ -180,3 +225,97 @@
   vertical-align: baseline;
 }
 .fit-table .na { color: var(--disabled); }
+
+/* ------------------------------------------------ info dots and popovers */
+
+/* Persistent explanatory notices live next to the control they explain rather
+   than in a banner across the top of the plots, which they used to occupy on
+   every request without ever becoming dismissible in any useful sense. */
+.info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--warn);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--warn);
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  flex: none;
+}
+.info-dot:hover { background: var(--warn-bg); }
+.info-dot[hidden] { display: none; }
+.info-dot.is-neutral { border-color: var(--muted); color: var(--muted); }
+.info-dot.is-neutral:hover { background: rgba(139, 148, 158, 0.14); }
+
+.popover {
+  position: fixed;
+  z-index: 200;
+  max-width: 340px;
+  padding: 10px 12px;
+  background: var(--canvas-alt);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.popover[hidden] { display: none; }
+.popover.is-neutral { border-color: var(--border); }
+.popover ul { margin: 4px 0 0; padding-left: 16px; }
+.popover li { margin: 3px 0; }
+
+/* ------------------------------------------------------- card-header bits */
+
+.card-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini {
+  padding: 2px 7px;
+  background: var(--canvas-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mini:hover { color: var(--accent); border-color: var(--accent); }
+.mini.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04101f;
+  font-weight: 600;
+}
+
+.seg { display: inline-flex; gap: 2px; }
+.seg .mini { border-radius: 0; }
+.seg .mini:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.seg .mini:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+
+/* ------------------------------------------- low-statistics panel notice */
+
+.sparse-note {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--muted);
+  background: rgba(139, 148, 158, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.sparse-note[hidden] { display: none; }
