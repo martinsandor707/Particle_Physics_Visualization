@@ -83,6 +83,52 @@ def ingested(tmp_path_factory):
     reset_database()
 
 
+@pytest.fixture(scope="module")
+def client(tmp_path_factory):
+    """A server booted against an empty database, so seeding is exercised.
+
+    Shared rather than owned by `test_api.py`, because the export-asset tests
+    need the same running app to check that the new modules are served and
+    their imports rewritten. Two independently booted copies would each call
+    `reset_database()` on the singleton the other was still using.
+    """
+    import os
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    if not SEED_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+    data_dir = tmp_path_factory.mktemp("api-data")
+    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+
+    with TestClient(create_app(load_settings())) as test_client:
+        # Seeding runs on a background worker; wait for it to report ready.
+        for _ in range(120):
+            payload = test_client.get("/api/experiments").json()
+            if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+            time.sleep(0.25)
+        yield test_client
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+
 @pytest.fixture
 def record(ingested):
     from calosrv.db import registry

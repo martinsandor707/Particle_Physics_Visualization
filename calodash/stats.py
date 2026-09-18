@@ -13,7 +13,7 @@ the notebook describes:
     gaussian  = amplitude * exp(-0.5 * ((x - mu) / sigma)**2)
     hist      = np.histogram(values, bins=120, range=(0, EMAX), density=True)
 
-Two deliberate departures, both recorded in the build output:
+Three deliberate departures, all recorded in the build output:
 
 1. Aggregation is per event, not per hit. The notebook histograms raw hit rows,
    which is only defensible because its energies were synthetic; a
@@ -21,6 +21,15 @@ Two deliberate departures, both recorded in the build output:
 2. mu and sigma are computed on the same in-range subset the histogram uses.
    ``density=True`` normalises over in-range counts only, so moments taken from
    the full sample would produce a curve that visibly fails to match the bars.
+3. The width is ``ddof = 1``, the unbiased sample estimator, not the notebook's
+   ``ddof = 0``. The population form understates sigma by ``sqrt(1 - 1/N)``: 6%
+   at this module's own floor of N = 10, and below 0.3% above a few hundred
+   events, so nothing at the scale the notebook worked at moves. ``calosrv``
+   made the same change at the same time and additionally reports a ``ddof = 0``
+   width for direct notebook comparison; the two halves must never quote
+   different sigma for one sample, which
+   ``tests/test_encode_and_safety.py::test_ddof_matches_calodash_on_both_widths``
+   asserts.
 
 The functions here are used for the build-time summary table. Their exact
 counterparts live in ``assets/dashboard.js`` so the panel can recompute live as
@@ -89,7 +98,13 @@ def summarise_band(
         return None
 
     mu = float(np.mean(values))
-    sigma = float(np.std(values))
+    # Unbiased sample width, ddof = 1, matching calosrv/stats/gaussian.py. The
+    # population form the notebook uses understates sigma by sqrt(1 - 1/N),
+    # which is 6% at N = 10 - this module's own floor - and below 0.3% above a
+    # few hundred events, so the large-N figures are unchanged. The two
+    # architectures must not quote different widths for the same sample; see
+    # test_ddof_matches_calodash_on_both_widths.
+    sigma = float(np.std(values, ddof=1))
     truth_mu = float(np.mean(p_true[in_range])) if p_true.size else float("nan")
 
     return BandSummary(

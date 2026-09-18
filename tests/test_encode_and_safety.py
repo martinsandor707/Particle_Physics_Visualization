@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import base64
+import math
 
 import numpy as np
 import pytest
 
+from calodash import stats as calodash_stats
 from calosrv.db import naming
 from calosrv.encode import quantize, scale as scale_mod, topk
 from calosrv.encode.matrix import encode_matrix
 from calosrv.errors import ValidationError
 from calosrv.grid.lattice import Axis
-from calosrv.stats import clip, gaussian, slices
+from calosrv.stats import clip, gaussian, histogram, slices
 
 # ------------------------------------------------------------------ naming --
 
@@ -142,26 +144,67 @@ def test_irregular_axis_ships_its_edges_and_uniform_one_does_not():
 # -------------------------------------------------------------- statistics --
 
 
-def test_small_samples_refuse_to_report_a_width():
-    fit = gaussian.fit_gaussian(np.array([1.0, 2.0, 3.0]))
-    assert fit.insufficient and fit.sigma is None
-    assert f"at least {gaussian.MIN_SAMPLES}" in fit.note
+def test_three_events_still_report_a_sample_width():
+    """A width from three events is weak, not undefined.
 
-
-def test_density_threshold_is_above_the_notebook_floor():
-    """The guardrail is deliberately stricter than calodash's.
-
-    A density=True histogram normalises by N * bin_width, so a single event in
-    one of 120 bins reports a density set by the binning rather than by physics.
-    Suppressing the estimator is the fix; the threshold is what decides when.
+    The old behaviour refused outright, which left the panel printing em-dashes
+    for a slice whose mean and spread were perfectly computable. What the small
+    sample forbids is a *curve*, not a *number*.
     """
-    assert gaussian.MIN_SAMPLES == 15
+    sample = np.array([1.0, 2.0, 3.0])
+    fit = gaussian.fit_gaussian(sample)
+    assert fit.insufficient is False
+    assert fit.mu == pytest.approx(2.0)
+    assert fit.sigma == pytest.approx(float(sample.std(ddof=1)))
+    assert fit.resolution == pytest.approx(fit.sigma / fit.mu)
+    assert fit.estimator == "moments"
+    assert fit.core_applied is False
+    # ...and the note must say what was used, not what was withheld.
+    assert "sample moments" in fit.estimator_note
 
-    # Fourteen events must still refuse; fifteen must produce a width.
+
+def test_two_events_report_one_degree_of_freedom():
+    """N = 2 is the shipped demo dataset; it must not print em-dashes."""
+    fit = gaussian.fit_gaussian(np.array([4.0, 6.0]))
+    assert fit.estimator == "moments_1dof"
+    assert fit.mu == pytest.approx(5.0)
+    assert fit.sigma == pytest.approx(math.sqrt(2.0))
+    assert fit.insufficient is False
+
+
+def test_one_event_has_a_position_but_no_width():
+    fit = gaussian.fit_gaussian(np.array([7.0]))
+    assert fit.estimator == "mean_only"
+    assert fit.mu == pytest.approx(7.0)
+    assert fit.sigma is None
+    assert fit.insufficient is True
+
+
+def test_thresholds_are_separately_gated():
+    """One threshold used to answer three different questions.
+
+    Reporting a number, drawing a curve, drawing a histogram and refitting a
+    core are four decisions with four different justifications, and collapsing
+    them into a single floor is what silenced mu and sigma on every thin slice.
+    """
+    assert gaussian.MIN_MOMENT_SAMPLES == 2
+    assert gaussian.MIN_CURVE_SAMPLES == 8
+    assert histogram.MIN_HISTOGRAM_SAMPLES == 15
+    assert gaussian.MIN_CORE_SAMPLES == 15
+    assert gaussian.MIN_ROBUST_SAMPLES == 20
+    assert (
+        gaussian.MIN_MOMENT_SAMPLES
+        < gaussian.MIN_CURVE_SAMPLES
+        <= gaussian.MIN_CORE_SAMPLES
+        <= gaussian.MIN_ROBUST_SAMPLES
+    )
+
+    # Fourteen events: moments only. Fifteen: the core refit takes over.
     rng = np.random.default_rng(3)
-    assert gaussian.fit_gaussian(rng.normal(10, 1, 14)).insufficient is True
+    assert gaussian.fit_gaussian(rng.normal(10, 1, 14)).estimator == "moments"
     fit = gaussian.fit_gaussian(rng.normal(10, 1, 15))
-    assert fit.insufficient is False and fit.sigma is not None
+    assert fit.core_applied is True
+    assert fit.sigma is not None
 
 
 def test_gaussian_moments_match_numpy():
@@ -169,9 +212,106 @@ def test_gaussian_moments_match_numpy():
     sample = rng.normal(10.0, 2.0, size=5000)
     fit = gaussian.fit_gaussian(sample)
     assert fit.mu == pytest.approx(float(sample.mean()))
-    assert fit.sigma == pytest.approx(float(sample.std(ddof=0)))
+    # The quoted width is the unbiased sample estimator...
+    assert fit.sigma == pytest.approx(float(sample.std(ddof=1)))
+    # ...and the population form is kept so the notebook stays comparable.
+    assert fit.sigma_population == pytest.approx(float(sample.std(ddof=0)))
     assert fit.sigma_core == pytest.approx(2.0, rel=0.02)
     assert fit.non_gaussian is False
+
+
+def test_ddof_matches_calodash_on_both_widths():
+    """The two architectures must not quote different sigma for one sample.
+
+    calosrv and calodash/stats.py both moved to ddof = 1 together; the ddof = 0
+    form survives here only so the reference notebook stays comparable.
+    """
+    rng = np.random.default_rng(17)
+    sample = rng.normal(5.0, 1.5, size=400)
+    fit = gaussian.fit_gaussian(sample)
+    band = calodash_stats.summarise_band(
+        "band", sample, sample, float(sample.min()), float(sample.max())
+    )
+    assert fit.sigma == pytest.approx(band.sigma)
+    assert fit.sigma_population == pytest.approx(float(sample.std(ddof=0)))
+
+
+def test_core_debias_is_not_applied_when_nothing_was_truncated():
+    """The de-bias corrects for a cut; an uncut sample must not receive it.
+
+    Applying it unconditionally inflated the quoted width by 6.77% whenever the
+    +/-2.5 sigma window happened to exclude nothing - reachable at N = 15-25,
+    and far more reachable now that thin slices are reported at all.
+    """
+    # A tight, symmetric sample: no event lies beyond +/-2.5 sigma.
+    sample = np.linspace(-1.0, 1.0, 21)
+    fit = gaussian.fit_gaussian(sample)
+    assert fit.core_applied is True
+    assert fit.n_core == fit.n
+    assert fit.sigma_core == pytest.approx(fit.sigma)
+    assert fit.sigma_core < fit.sigma / gaussian.CORE_TRUNCATION_FACTOR
+
+
+def test_shape_verdict_is_withheld_below_the_robust_floor():
+    """An untestable assumption must read as untested, not as confirmed."""
+    rng = np.random.default_rng(19)
+    thin = gaussian.fit_gaussian(rng.normal(10, 1, 12))
+    assert thin.shape_testable is False
+    assert thin.non_gaussian is None
+    assert thin.sigma_robust is None
+
+    thick = gaussian.fit_gaussian(rng.normal(10, 1, 400))
+    assert thick.shape_testable is True
+    assert thick.non_gaussian is False
+
+
+def test_moment_uncertainties_match_their_closed_forms():
+    rng = np.random.default_rng(23)
+    sample = rng.normal(10.0, 2.0, size=9)
+    fit = gaussian.fit_gaussian(sample)
+    n = fit.n
+    assert fit.mu_error == pytest.approx(fit.sigma / math.sqrt(n))
+    assert fit.sigma_error == pytest.approx(fit.sigma / math.sqrt(2 * (n - 1)))
+    # c4 makes the residual bias of s visible rather than folding it in.
+    assert fit.sigma_bias_factor == pytest.approx(gaussian.c4(n))
+    assert fit.sigma_unbiased == pytest.approx(fit.sigma / gaussian.c4(n))
+
+
+def test_mean_interval_uses_student_t_not_a_normal_approximation():
+    """At N = 3 a normal interval understates the uncertainty by 2.2x."""
+    fit = gaussian.fit_gaussian(np.array([9.0, 10.0, 11.0]))
+    half_width = fit.mu_ci95[1] - fit.mu
+    assert half_width == pytest.approx(4.303 * fit.mu_error, rel=1e-3)
+    assert half_width > 1.96 * fit.mu_error
+
+
+def test_sigma_interval_is_asymmetric_and_wide_at_small_n():
+    """A symmetric +/-SE on sigma is badly misleading at N = 3."""
+    fit = gaussian.fit_gaussian(np.array([9.0, 10.0, 11.0]))
+    lo, hi = fit.sigma_ci95
+    assert lo / fit.sigma == pytest.approx(0.521, abs=0.005)
+    assert hi / fit.sigma == pytest.approx(6.287, abs=0.01)
+    # Asymmetric: the upper reach is far longer than the lower.
+    assert (hi - fit.sigma) > 5 * (fit.sigma - lo)
+
+
+def test_quantile_tables_match_reference_values():
+    assert gaussian.t_quantile_975(2) == pytest.approx(4.303)
+    assert gaussian.t_quantile_975(10) == pytest.approx(2.228)
+    assert gaussian.chi2_quantile(2, upper=True) == pytest.approx(7.378)
+    assert gaussian.chi2_quantile(2, upper=False) == pytest.approx(0.0506)
+    # Beyond the table, the asymptotes must still land close.
+    assert gaussian.t_quantile_975(40) == pytest.approx(2.021, abs=0.005)
+    assert gaussian.chi2_quantile(50, upper=True) == pytest.approx(71.42, rel=0.01)
+
+
+def test_identical_values_report_a_measured_zero_not_an_unknown():
+    """sigma = 0 and sigma = None are different statements."""
+    fit = gaussian.fit_gaussian(np.array([2.0, 2.0, 2.0, 2.0]))
+    assert fit.degenerate is True
+    assert fit.sigma == 0.0
+    assert fit.sigma is not None
+    assert fit.estimator == "degenerate"
 
 
 def test_core_refit_is_unbiased_on_a_true_gaussian():

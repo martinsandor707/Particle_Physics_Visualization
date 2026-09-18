@@ -153,11 +153,14 @@ def seed_baseline(database, settings: Settings) -> None:
     Seeded from the full 1000 rows of ``hits_with_gradcam_dummy.csv`` through
     exactly the same pipeline as a real upload - no synthetic records are
     generated. That file holds two events, both well separated, so the spatial
-    panels render correctly while the reconstructed-energy panel reports
-    insufficient statistics rather than fitting a meaningless two-point width.
+    panels render correctly while the reconstructed-energy panel reports its
+    two-event mean and width - flagged as one degree of freedom, and quoted with
+    the standard errors that make the weakness of the estimate legible - while
+    drawing the events themselves rather than a fitted curve.
+
     Section 3 of CLAUDE.md forbids fabricating inference outputs to fill a gap;
-    showing the real, small dataset and saying what it cannot support is the
-    honest alternative.
+    showing the real, small dataset and saying exactly what it can and cannot
+    support is the honest alternative.
     """
     if settings.seed_csv is None or not settings.seed_csv.is_file():
         log.warning(

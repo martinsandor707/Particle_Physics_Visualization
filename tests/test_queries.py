@@ -21,6 +21,7 @@ from calosrv.query import (
     projections,
     summary,
 )
+from calosrv.stats import histogram
 from calosrv.stats import metrics as metric_mod
 
 
@@ -174,14 +175,29 @@ def test_energy_slices_include_an_overflow_bin(cursor, record):
     assert sum(result.slice_counts.values()) == result.n_events
 
 
-def test_small_samples_are_reported_as_insufficient(cursor, record):
-    """Two events must not produce a fitted width."""
+def test_two_event_slices_report_moments_but_draw_no_curve(cursor, record):
+    """Two events fix a mean and a one-d.o.f. width, and no shape at all.
+
+    The demonstration dataset holds exactly two events, so this is the panel a
+    first-boot user sees. It must show real numbers rather than em-dashes, and
+    must not draw a smooth density curve through them.
+    """
     spec = filters.build(record)
     result = energy.compute(cursor, record, spec)
     for series in result.series:
-        assert series.fit.insufficient
-        assert series.fit.sigma is None
+        assert series.fit.insufficient is False
+        assert series.fit.mu is not None
+        assert series.fit.sigma is not None
+        assert series.fit.estimator == "moments_1dof"
+        # No curve, and nothing that could set the density axis.
         assert series.curve_y == []
+        assert series.draw == "strip"
+        assert series.drives_scale is False
+        # The two interval marks are distinct quantities.
+        markers = series.markers()
+        ci = markers["ci95_hi"] - markers["ci95_lo"]
+        spread = markers["dispersion_hi"] - markers["dispersion_lo"]
+        assert ci > 0 and spread > 0 and ci != spread
 
 
 def test_performance_metrics_roll_up_exactly(cursor, record):
@@ -347,26 +363,77 @@ def test_splatting_removes_the_comb(cursor, record):
 # ------------------------------------------- low statistics and overlays --
 
 
-def test_low_statistics_suppresses_density_and_emits_a_rug(cursor, record):
+def test_low_statistics_suppresses_the_histogram_not_the_estimate(cursor, record):
     """Below the threshold a density histogram is an artefact, not a result.
 
     density=True divides by N * bin_width, so at small N a single event produces
     a spike whose height is set by the binning. The panel must receive the
-    events themselves instead, and be told why.
+    events themselves instead, and be told why - but mu and sigma are not
+    artefacts and must still be reported.
     """
     spec = filters.build(record)
     result = energy.compute(cursor, record, spec)
-    assert result.n_events < result.density_threshold
+    assert result.n_events < result.thresholds["histogram"]
 
     for series in result.series:
         payload = series.as_dict()
-        assert payload["sparse"] is True
+        assert payload["draw"] != "histogram"
+        assert payload["drives_scale"] is False
         assert payload["histogram"] is None
-        assert payload["curve"]["y"] == []
-        assert len(payload["rug"]) == result.n_events
-        assert "Insufficient sample size" in payload["message"]
-        # The rug must be sorted, so the strip reads left to right.
-        assert payload["rug"] == sorted(payload["rug"])
+        assert len(payload["strip"]["values"]) == result.n_events
+        # The strip must be sorted, so it reads left to right.
+        assert payload["strip"]["values"] == sorted(payload["strip"]["values"])
+        # The estimate itself survives, and the message explains the marks
+        # rather than announcing a refusal.
+        assert payload["fit"]["mu"] is not None
+        assert payload["markers"] is not None
+        assert "Insufficient sample size" not in payload["message"]
+
+
+def test_a_thin_slice_never_sets_the_density_axis(cursor, record):
+    """Only statistically robust series may drive the canvas scale.
+
+    A curve peak is 1/(sigma*sqrt(2pi)); with sigma poorly determined, letting a
+    thin slice set yMax would flatten every well-measured slice beside it.
+    """
+    edges = histogram.axis_edges(0.0, 20.0, 40)
+    curve_x = histogram.curve_axis(0.0, 20.0)
+    rng = np.random.default_rng(31)
+
+    thin = energy._build_series(
+        "e_a_pred", "Shower A - model", "a", "pred", 0, "0-50 mm",
+        rng.normal(10.0, 1.0, size=9), edges, curve_x,
+    )
+    assert thin.draw == "curve+strip"
+    assert thin.drives_scale is False
+    assert thin.curve_y and thin.curve_peak > 0
+    assert thin.strip  # the events are shown alongside the de-weighted curve
+
+    thick = energy._build_series(
+        "e_a_pred", "Shower A - model", "a", "pred", 0, "0-50 mm",
+        rng.normal(10.0, 1.0, size=200), edges, curve_x,
+    )
+    assert thick.draw == "histogram"
+    assert thick.drives_scale is True
+    assert thick.strip == []
+
+
+def test_curve_floor_withholds_the_curve_but_not_the_numbers(cursor, record):
+    """3 <= N < 8: events and summary markers, no continuous density."""
+    edges = histogram.axis_edges(0.0, 20.0, 40)
+    curve_x = histogram.curve_axis(0.0, 20.0)
+    sample = np.array([9.0, 10.0, 11.0, 12.0])
+
+    series = energy._build_series(
+        "e_a_pred", "Shower A - model", "a", "pred", 0, "0-50 mm",
+        sample, edges, curve_x,
+    )
+    assert series.draw == "strip"
+    assert series.curve_y == []
+    assert series.curve_peak is None
+    assert series.fit.mu == pytest.approx(10.5)
+    assert series.fit.sigma == pytest.approx(float(sample.std(ddof=1)))
+    assert series.markers() is not None
 
 
 def test_energy_axis_lands_on_clean_ticks(cursor, record):

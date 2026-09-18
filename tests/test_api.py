@@ -6,48 +6,12 @@ import json
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 
-from calosrv.app import BASELINE_TABLE, create_app
-from calosrv.config import load_settings
+from calosrv.app import BASELINE_TABLE
 
-
-@pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    """A server booted against an empty database, so seeding is exercised."""
-    import os
-
-    from calosrv.db.connection import reset_database
-    from calosrv.ingest.jobs import reset_job_store
-    from calosrv.query.cache import reset_cache
-    from pathlib import Path
-
-    repo_root = Path(__file__).resolve().parent.parent
-    seed = repo_root / "hits_with_gradcam_dummy.csv"
-    if not seed.is_file():
-        pytest.skip("Demonstration CSV not present")
-
-    reset_database()
-    reset_job_store()
-    reset_cache()
-
-    data_dir = tmp_path_factory.mktemp("api-data")
-    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
-    os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(seed)
-
-    with TestClient(create_app(load_settings())) as test_client:
-        # Seeding runs on a background worker; wait for it to report ready.
-        for _ in range(120):
-            payload = test_client.get("/api/experiments").json()
-            if any(e["status"] == "ready" for e in payload["experiments"]):
-                break
-            time.sleep(0.25)
-        yield test_client
-
-    reset_database()
-    reset_job_store()
-    reset_cache()
+# The booted-server `client` fixture lives in conftest.py: the export-asset
+# tests need the same running app, and two independently booted copies would
+# each reset the shared DuckDB connection under the other.
 
 
 def test_baseline_is_seeded_from_the_whole_demonstration_csv(client):
@@ -319,13 +283,58 @@ def test_energy_axis_has_a_clean_interval(client):
     assert abs(axis["hi"] / axis["interval"] - round(axis["hi"] / axis["interval"])) < 1e-9
 
 
-def test_energy_series_declare_sparseness(client):
+def test_energy_series_declare_their_marks_and_estimator(client):
+    """Every series states what to draw, what it may scale, and how it was fitted."""
     body = client.get("/api/energy-distribution").json()
-    assert body["density_threshold"] == 15
+    assert body["thresholds"]["moment"] == 2
+    assert body["thresholds"]["curve"] == 8
+    assert body["thresholds"]["histogram"] == 15
+
+    # The shared grids are hoisted out of the series, not repeated in each.
+    assert body["axis"]["curve_x"]
+    assert body["axis"]["hist_centres"]
+
     for series in body["series"]:
-        assert "sparse" in series and "rug" in series
-        if series["sparse"]:
+        assert series["draw"] in {"histogram", "curve+strip", "strip"}
+        assert isinstance(series["drives_scale"], bool)
+        assert series["estimator"]
+        assert "x" not in series["curve"]
+        # Only a full histogram series may set the density axis.
+        assert series["drives_scale"] == (series["draw"] == "histogram")
+        if series["draw"] != "histogram":
             assert series["histogram"] is None
+        if series["markers"] is not None:
+            m = series["markers"]
+            # The two interval marks are separate payload fields precisely so
+            # they cannot be drawn with the same mark by accident.
+            assert m["ci95_lo"] <= m["mu"] <= m["ci95_hi"]
+            assert m["dispersion_lo"] <= m["mu"] <= m["dispersion_hi"]
+
+
+def test_energy_benchmarks_are_marked_and_carry_no_curve(client):
+    """A stated benchmark must be distinguishable from a measurement.
+
+    The frontend draws these as a rule and a band, never as a density, so the
+    200-point Gaussian the payload used to carry was dead weight.
+    """
+    body = client.get("/api/energy-distribution").json()
+    for benchmark in body["benchmarks"]:
+        assert benchmark["kind"] == "benchmark"
+        assert benchmark["fitted"] is False
+        assert benchmark["contributes_to_y_axis"] is False
+        assert benchmark["tooltip_prefix"] == "[Reference Benchmark]"
+        assert "x" not in benchmark and "y" not in benchmark
+
+
+def test_energy_payload_stays_within_the_budget(client):
+    """Architecture B ships pre-aggregated payloads under 100 KB (CLAUDE.md 1.1).
+
+    Each series used to carry its own copy of the 200-point curve grid and the
+    120-point bin centres, identical across all twenty by construction; only the
+    two-event demonstration dataset kept that from showing.
+    """
+    raw = client.get("/api/energy-distribution").content
+    assert len(raw) < 100_000
 
 
 # --------------------------------------------------------- asset integrity --

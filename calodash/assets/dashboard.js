@@ -403,7 +403,10 @@
     var mu = sum / kept.length;
     var acc = 0;
     for (i = 0; i < kept.length; i++) acc += (kept[i] - mu) * (kept[i] - mu);
-    var sigma = Math.sqrt(acc / kept.length);   // ddof = 0, as in the notebook
+    // ddof = 1, the unbiased sample width, matching calodash/stats.py and
+    // calosrv/stats/gaussian.py. kept.length >= 10 here, so the denominator is
+    // never zero.
+    var sigma = Math.sqrt(acc / (kept.length - 1));
     return { values: kept, n: kept.length, mu: mu, sigma: sigma };
   }
 
