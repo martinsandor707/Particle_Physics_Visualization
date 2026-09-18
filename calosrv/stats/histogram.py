@@ -21,6 +21,23 @@ import numpy as np
 #: Bin count, transcribed from the reference notebook's ``bins=120``.
 DEFAULT_BINS = 120
 
+#: Fewest events for which a density histogram is drawn at all.
+#:
+#: This floor belongs to the histogram, not to the fit, and conflating the two
+#: is what previously silenced mu and sigma on every small slice. The argument
+#: is specific to the estimator: a ``density=True`` histogram normalises by
+#: ``N * bin_width``, so once the bins are much finer than the spacing between
+#: events each occupied bin holds exactly one event and reports a height of
+#: ``1 / (N * bin_width)``. Over a range of ~18 GeV that is about 1.7 GeV^-1 at
+#: N = 4 and higher still as N falls. What appears on the panel is then a comb
+#: of tall, arbitrarily-scaled spikes at individual event energies - an artefact
+#: of the estimator, not a distribution. Below this floor the individual events
+#: are plotted instead; rescaling the axis would merely hide the comb.
+#:
+#: The mean and width of those same events remain perfectly well defined, and
+#: ``stats/gaussian.py`` reports them from N = 2 with their uncertainty.
+MIN_HISTOGRAM_SAMPLES = 15
+
 #: Points used to draw a fitted curve. Enough that the peak is smooth at any
 #: reasonable panel width, small enough that four series across five slices stay
 #: well inside the payload budget.

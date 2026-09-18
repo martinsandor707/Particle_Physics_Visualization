@@ -33,8 +33,9 @@ def get_energy_distribution(
     bins: int | None = Query(
         None, ge=8, le=500,
         description=(
-            "Histogram bin count. Left unset, it adapts to the smallest drawn "
-            "slice so no histogram is finer than its own statistics support."
+            "Histogram bin count. Left unset, it adapts to the smallest slice "
+            "above the histogram threshold, so no histogram is finer than its "
+            "own statistics support."
         ),
     ),
     calibrated: bool = Query(
@@ -80,6 +81,34 @@ def get_energy_distribution(
     if empty:
         warnings.append(
             "No events in this selection fall in: " + "; ".join(empty) + "."
+        )
+
+    # Low statistics are disclosed rather than suppressed. mu and sigma are
+    # still reported for these slices; what is withheld is the histogram, and
+    # below the curve floor the curve too, so the warning names which.
+    labels = {s.index: s.label for s in result.slices}
+    thin = sorted({
+        labels.get(s.slice_index, str(s.slice_index))
+        for s in result.series if s.draw != "histogram"
+    })
+    if thin:
+        warnings.append(
+            "Below the " + str(result.thresholds["histogram"]) + "-event "
+            "histogram floor: " + "; ".join(thin) + ". mu and sigma there are "
+            "plain sample moments (ddof = 1) rather than core refits, quoted "
+            "with their standard errors; the density histogram is suppressed "
+            "because at this sample size it is a comb of bin-width spikes, and "
+            "these curves do not set the density axis."
+        )
+    degenerate = sorted({
+        labels.get(s.slice_index, str(s.slice_index))
+        for s in result.series if s.fit.degenerate
+    })
+    if degenerate:
+        warnings.append(
+            "All events share one energy to floating-point precision in: "
+            + "; ".join(degenerate) + ". No width can be estimated there and "
+            "no density curve is drawn."
         )
 
     meta = ApiMeta(

@@ -37,11 +37,14 @@ The six-stage pipeline this implements:
    overflow slice for the well-separated majority (see ``stats/slices.py``).
 
 5. **Gaussian parameters** per slice and series, by moments, with an iterated
-   core refit (see ``stats/gaussian.py``).
+   core refit (see ``stats/gaussian.py``). Numbers are reported from N = 2; what
+   the sample size gates is which *marks* are drawn beside them, per the
+   three-mode ladder in :func:`_build_series`.
 
-6. **Reference benchmarks.** Dashed isolated-shower curves at the mean true E1
-   and E2 of the selection, so the overlap-degraded reconstructions can be read
-   against the single-particle case.
+6. **Reference benchmarks.** Isolated-shower references at the mean true E1 and
+   E2 of the selection, so the overlap-degraded reconstructions can be read
+   against the single-particle case. They are drawn as a position and a width,
+   never as a density curve, and never contribute to the density axis.
 """
 
 from __future__ import annotations
@@ -78,16 +81,58 @@ SERIES = (
 ISOLATED_RESOLUTION = 0.05
 
 
-#: Most individual event energies shipped for a rug strip. A slice below the
-#: density threshold holds at most 14 events, so this is only a guard against a
-#: future threshold change making the payload unbounded.
-MAX_RUG_POINTS = 200
+#: Most individual event energies shipped for an event strip. A slice below the
+#: histogram threshold holds at most 14 events, so this is only a guard against
+#: a future threshold change making the payload unbounded.
+MAX_STRIP_POINTS = 200
 
-#: Shown in place of the density curve when a slice is too small to estimate one.
-INSUFFICIENT_MESSAGE = (
-    "Insufficient sample size (N < {threshold}) for continuous density "
-    "estimation; plotting individual event points."
+#: Drawn when a slice is below the histogram floor but still reports moments.
+STRIP_MESSAGE = (
+    "N = {n}: the density histogram is suppressed - at this sample size it "
+    "would be a comb of spikes whose heights are set by the bin width rather "
+    "than by physics. The individual events, the mean with its 95% confidence "
+    "interval and the sample dispersion are drawn instead, and mu and sigma "
+    "are reported in the table with their own uncertainty."
 )
+
+#: Drawn when the slice cannot support a continuous curve either.
+NO_CURVE_MESSAGE = (
+    "N = {n}: below the {threshold}-event floor for a continuous density "
+    "curve. A smooth curve from this few events would assert a shape the "
+    "sample cannot constrain, so only the events and the summary markers are "
+    "drawn. mu and sigma are still reported, with their uncertainty."
+)
+
+#: Drawn when every event in the slice carries the same energy.
+DEGENERATE_MESSAGE = (
+    "N = {n}, all at one energy to floating-point precision. The width is a "
+    "measured zero rather than an unknown, and no density curve is drawn: a "
+    "delta is not a density and would put an unbounded spike on the axis."
+)
+
+
+def _round(value: float) -> float:
+    """Six significant figures - well beyond display precision, far smaller.
+
+    The payload budget for this architecture is 100 KB (CLAUDE.md section 1.1)
+    and a full-precision float64 costs ~24 characters in JSON against ~8 here.
+    """
+    return float(f"{float(value):.6g}")
+
+
+def _round_all(values: Sequence[float] | np.ndarray) -> list[float]:
+    return [_round(v) for v in values]
+
+
+#: The sample sizes at which each mark becomes drawable, shipped so the client
+#: never has to re-derive the policy from a single ambiguous number.
+THRESHOLDS = {
+    "moment": gaussian.MIN_MOMENT_SAMPLES,
+    "curve": gaussian.MIN_CURVE_SAMPLES,
+    "histogram": histogram.MIN_HISTOGRAM_SAMPLES,
+    "core": gaussian.MIN_CORE_SAMPLES,
+    "robust": gaussian.MIN_ROBUST_SAMPLES,
+}
 
 
 @dataclass
@@ -99,17 +144,54 @@ class SeriesFit:
     slice_index: int
     fit: gaussian.GaussianFit
     hist: histogram.Histogram | None
-    curve_x: list[float] = field(default_factory=list)
+    #: "histogram" | "curve+strip" | "strip" - what the client must draw. An
+    #: explicit mode, rather than something inferred from a null histogram.
+    draw: str = "strip"
+    #: Whether this series may set the density axis maximum. True only above the
+    #: histogram threshold: a curve whose peak is 1/(sigma*sqrt(2pi)) with a
+    #: poorly determined sigma must not flatten the well-measured slices.
+    drives_scale: bool = False
     curve_y: list[float] = field(default_factory=list)
-    #: Individual reconstructed energies, populated *instead of* the histogram
-    #: when the slice is too small for a density estimate.
-    rug: list[float] = field(default_factory=list)
+    #: Peak of the drawn curve, so a clipped low-N curve can be named in the
+    #: footnote without the client rescanning the array.
+    curve_peak: float | None = None
+    #: Individual reconstructed energies, drawn *instead of* the histogram when
+    #: the slice is below the histogram floor.
+    strip: list[float] = field(default_factory=list)
+    strip_truncated: bool = False
+    message: str = ""
 
-    @property
-    def sparse(self) -> bool:
-        return self.hist is None
+    def markers(self) -> dict[str, float] | None:
+        """The mean marker's two interval spans - deliberately kept apart.
+
+        ``ci95`` is the inferential uncertainty *of the mean* and is drawn as a
+        capped whisker. ``dispersion`` is the spread *of the events* and is
+        drawn as an uncapped shaded band behind the marker. They differ by a
+        factor of sqrt(N) and answer opposite questions, so they are named
+        separately here to make drawing them with the same mark an explicit
+        mistake rather than an easy one.
+        """
+        if self.fit.mu is None or self.fit.sigma is None:
+            return None
+        lo, hi = self.fit.mu_ci95 or (self.fit.mu, self.fit.mu)
+        return {
+            "mu": _round(self.fit.mu),
+            "ci95_lo": _round(lo),
+            "ci95_hi": _round(hi),
+            "dispersion_lo": _round(self.fit.mu - self.fit.sigma),
+            "dispersion_hi": _round(self.fit.mu + self.fit.sigma),
+        }
 
     def as_dict(self) -> dict[str, Any]:
+        hist = None
+        if self.hist is not None:
+            # Bin centres are hoisted to axis.hist_centres: they are identical
+            # across every series by construction.
+            hist = {
+                "counts": _round_all(self.hist.counts),
+                "n": self.hist.n,
+                "n_in_range": self.hist.n_in_range,
+            }
         return {
             "key": self.key,
             "label": self.label,
@@ -117,14 +199,20 @@ class SeriesFit:
             "kind": self.kind,
             "slice": self.slice_index,
             "fit": self.fit.as_dict(),
-            "histogram": self.hist.as_dict() if self.hist else None,
-            "curve": {"x": self.curve_x, "y": self.curve_y},
-            "rug": self.rug,
-            "sparse": self.sparse,
-            "message": (
-                INSUFFICIENT_MESSAGE.format(threshold=gaussian.MIN_SAMPLES)
-                if self.sparse else ""
-            ),
+            "draw": self.draw,
+            "drives_scale": self.drives_scale,
+            "estimator": self.fit.estimator,
+            "histogram": hist,
+            # x is hoisted to axis.curve_x, shared by every series.
+            "curve": {"y": self.curve_y},
+            "curve_peak": self.curve_peak,
+            "strip": {
+                "values": self.strip,
+                "n_shown": len(self.strip),
+                "truncated": self.strip_truncated,
+            },
+            "markers": self.markers(),
+            "message": self.message,
         }
 
 
@@ -138,8 +226,10 @@ class EnergyDistribution:
     benchmarks: list[dict[str, Any]]
     n_events: int
     scale: str
-    #: Event count below which continuous density estimation is suppressed.
-    density_threshold: int = gaussian.MIN_SAMPLES
+    #: Sample sizes at which each mark becomes drawable.
+    thresholds: dict[str, int] = field(
+        default_factory=lambda: dict(THRESHOLDS)
+    )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -151,8 +241,86 @@ class EnergyDistribution:
             "benchmarks": self.benchmarks,
             "n_events": self.n_events,
             "scale": self.scale,
-            "density_threshold": self.density_threshold,
+            "thresholds": self.thresholds,
         }
+
+
+def _build_series(
+    key: str,
+    label: str,
+    shower: str,
+    kind: str,
+    slice_index: int,
+    slice_label: str,
+    sample: np.ndarray,
+    edges_array: np.ndarray,
+    curve_x: np.ndarray,
+) -> SeriesFit:
+    """One series in one separation slice, with the marks its N supports.
+
+    Three regimes, and the numbers in the summary table are the same in all of
+    them - only the marks change:
+
+    ==========================  ===============  ============  ==================
+    condition                   draw             drives_scale  marks
+    ==========================  ===============  ============  ==================
+    N >= MIN_HISTOGRAM_SAMPLES  ``histogram``    yes           histogram + curve
+    N >= MIN_CURVE_SAMPLES      ``curve+strip``  no            curve + events
+    otherwise                   ``strip``        no            events only
+    ==========================  ===============  ============  ==================
+
+    A width of exactly zero forces ``strip`` at any N: a delta is not a density,
+    and drawing one as a curve would put an infinite spike on the axis.
+    """
+    finite = sample[np.isfinite(sample)]
+    fit = gaussian.fit_gaussian(sample, label=f"{label}, {slice_label}")
+
+    lo, hi = float(edges_array[0]), float(edges_array[-1])
+    fit.n_in_range = int(((finite >= lo) & (finite <= hi)).sum())
+
+    n = fit.n
+    drawable = fit.sigma_core is not None and (fit.sigma_core or 0) > 0
+
+    if n >= histogram.MIN_HISTOGRAM_SAMPLES and drawable:
+        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core)
+        return SeriesFit(
+            key=key, label=label, shower=shower, kind=kind,
+            slice_index=slice_index, fit=fit,
+            hist=histogram.density_histogram(sample, edges_array),
+            draw="histogram", drives_scale=True,
+            curve_y=_round_all(curve),
+            curve_peak=_round(gaussian.unit_area_amplitude(fit.sigma_core)),
+        )
+
+    # Below the histogram floor the events themselves are the honest mark.
+    ordered = np.sort(finite)
+    strip = _round_all(ordered[:MAX_STRIP_POINTS])
+    truncated = bool(ordered.size > MAX_STRIP_POINTS)
+
+    if n >= gaussian.MIN_CURVE_SAMPLES and drawable:
+        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core)
+        return SeriesFit(
+            key=key, label=label, shower=shower, kind=kind,
+            slice_index=slice_index, fit=fit, hist=None,
+            draw="curve+strip", drives_scale=False,
+            curve_y=_round_all(curve),
+            curve_peak=_round(gaussian.unit_area_amplitude(fit.sigma_core)),
+            strip=strip, strip_truncated=truncated,
+            message=STRIP_MESSAGE.format(n=n),
+        )
+
+    return SeriesFit(
+        key=key, label=label, shower=shower, kind=kind,
+        slice_index=slice_index, fit=fit, hist=None,
+        draw="strip", drives_scale=False,
+        strip=strip, strip_truncated=truncated,
+        message=(
+            DEGENERATE_MESSAGE.format(n=n) if fit.degenerate
+            else NO_CURVE_MESSAGE.format(
+                n=n, threshold=gaussian.MIN_CURVE_SAMPLES
+            )
+        ),
+    )
 
 
 def _fetch(
@@ -237,11 +405,12 @@ def compute(
     }
 
     # All slices share one binning, or they cannot be compared bin by bin. The
-    # count is set by the *smallest* slice that will actually be drawn, so no
-    # histogram on the panel is finer than its own statistics support - a slice
-    # of twenty events binned for twenty thousand is the spike comb again.
+    # count is set by the smallest slice whose histogram will actually be drawn,
+    # so no histogram on the panel is finer than its own statistics support - a
+    # slice of twenty events binned for twenty thousand is the spike comb again.
     drawn = [
-        n for index, n in slice_counts.items() if n >= gaussian.MIN_SAMPLES
+        n for index, n in slice_counts.items()
+        if n >= histogram.MIN_HISTOGRAM_SAMPLES
     ]
     resolved_bins = (
         int(bins) if bins is not None
@@ -255,40 +424,12 @@ def compute(
         if not mask.any():
             continue
         for key, label, shower, kind in SERIES:
-            sample = values[key][mask]
-            fit = gaussian.fit_gaussian(sample, label=f"{label}, {s.label}")
-
-            if fit.insufficient:
-                # Below the threshold a density histogram is not a distribution,
-                # it is a comb of spikes whose heights are set by the bin width
-                # rather than by physics. Ship the events themselves instead.
-                finite = sample[np.isfinite(sample)]
-                fitted.append(
-                    SeriesFit(
-                        key=key, label=label, shower=shower, kind=kind,
-                        slice_index=s.index, fit=fit, hist=None,
-                        rug=[float(v) for v in np.sort(finite)[:MAX_RUG_POINTS]],
-                    )
-                )
-                continue
-
-            hist = histogram.density_histogram(sample, edges_array)
-
-            curve_y: list[float] = []
-            if fit.mu_core is not None and fit.sigma_core:
-                curve_y = [
-                    float(v)
-                    for v in gaussian.gaussian_curve(
-                        curve_x, fit.mu_core, fit.sigma_core
-                    )
-                ]
-
             fitted.append(
-                SeriesFit(
+                _build_series(
                     key=key, label=label, shower=shower, kind=kind,
-                    slice_index=s.index, fit=fit, hist=hist,
-                    curve_x=[float(v) for v in curve_x] if curve_y else [],
-                    curve_y=curve_y,
+                    slice_index=s.index, slice_label=s.label,
+                    sample=values[key][mask],
+                    edges_array=edges_array, curve_x=curve_x,
                 )
             )
 
@@ -307,18 +448,27 @@ def compute(
                 {
                     "label": label,
                     "shower": shower,
-                    "mu": mu,
-                    "sigma": sigma,
+                    "mu": _round(mu),
+                    "sigma": _round(sigma),
                     "resolution": ISOLATED_RESOLUTION,
-                    "x": [float(v) for v in curve_x],
-                    "y": [
-                        float(v)
-                        for v in gaussian.gaussian_curve(curve_x, mu, sigma)
-                    ],
+                    # Marked, not merely styled: a reader must be able to tell a
+                    # stated benchmark from a measured distribution from the
+                    # payload alone, and the client must know not to let it near
+                    # the density axis.
+                    "kind": "benchmark",
+                    "fitted": False,
+                    "drawn_as": "reference_marker",
+                    "tooltip_prefix": "[Reference Benchmark]",
+                    "contributes_to_y_axis": False,
                     "note": (
                         "Reference width is a stated single-shower resolution of "
                         f"{100 * ISOLATED_RESOLUTION:.0f}%, not a fit: this "
-                        "dataset contains no isolated single-particle events."
+                        "dataset contains no isolated single-particle events. "
+                        "It is drawn as a position and a width rather than as a "
+                        "density curve, because a unit-area Gaussian this narrow "
+                        f"peaks near {gaussian.unit_area_amplitude(sigma):.2f} "
+                        "GeV^-1 and would take the density axis away from the "
+                        "reconstructions the panel is about."
                     ),
                 }
             )
@@ -345,8 +495,14 @@ def compute(
             "unit": unit,
             "bins": resolved_bins,
             "clipping": clipping.as_dict(),
+            # Hoisted out of every series: both grids are identical across all
+            # twenty series by construction, and shipping twenty copies of each
+            # is most of the payload.
+            "curve_x": _round_all(curve_x),
+            "hist_centres": _round_all(
+                0.5 * (edges_array[:-1] + edges_array[1:])
+            ),
         },
-        density_threshold=gaussian.MIN_SAMPLES,
         benchmarks=benchmarks,
         n_events=n_events,
         scale=scale,

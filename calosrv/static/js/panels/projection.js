@@ -27,7 +27,7 @@
 import {
   renderRaster, exactValue, dequantize, cellAt, cellCentre, occupiedBounds,
 } from '../decode.js';
-import { THEME, formatSci, spatialAxis, visualMap } from '../scale.js';
+import { THEME, formatSci, spatialAxis, visualMap, axisPadding } from '../scale.js';
 
 const AXIS_LABEL = {
   x: 'x [mm]',
@@ -41,15 +41,20 @@ const ROI_PADDING = 0.06;
 /** Range multiplier per wheel notch. */
 const ZOOM_STEP = 1.18;
 
+/** Plot-area height as a fraction of its width, for the two depth panels. */
+const DEPTH_PLOT_ASPECT = 0.55;
+
 export class ProjectionPanel {
   constructor(elementId, { isometric = false } = {}) {
     this.element = document.getElementById(elementId);
     this.chart = echarts.init(this.element, null, { renderer: 'canvas' });
+    this.kind = 'projection';
     this.isometric = isometric;
     this.payload = null;
     this.raster = null;
     this.view = null;   // {col: [lo, hi], row: [lo, hi]} in mm; null = full extent
     this.drag = null;
+    this.lastOpts = null;
     window.addEventListener('resize', () => this.chart.resize());
   }
 
@@ -58,11 +63,20 @@ export class ProjectionPanel {
    *
    * With `isometric`, the shorter physical axis is letterboxed so both axes
    * share one millimetre-per-pixel factor.
+   *
+   * `metrics` carries the host size rather than being read off `this.element`,
+   * because the publication exporter renders the same panel into an off-screen
+   * container of a different size, and the letterboxing must be recomputed for
+   * it. `reservedBottom` is room set aside below the plot for the caption.
    */
-  gridRect(colSpan, rowSpan) {
-    const padding = { left: 52, right: 74, top: 12, bottom: 40 };
-    const width = this.element.clientWidth - padding.left - padding.right;
-    const height = this.element.clientHeight - padding.top - padding.bottom;
+  gridRect(colSpan, rowSpan, metrics) {
+    const pad = axisPadding({ ramp: true });
+    const padding = {
+      left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom,
+    };
+    const width = metrics.width - padding.left - padding.right;
+    const height = metrics.height - (metrics.reservedBottom || 0)
+      - padding.top - padding.bottom;
     if (!this.isometric || width <= 0 || height <= 0) {
       return { ...padding, width, height };
     }
@@ -79,25 +93,53 @@ export class ProjectionPanel {
     };
   }
 
-  render(payload, {
-    palette, centroids = null, showVector = false,
-    axes = null, trajectories = null, showerKey = null,
-  }) {
+  render(payload, opts) {
     // A different detector extent means a different experiment, and a window
     // panned over the previous one would be meaningless against the new.
     if (this.payload && !sameExtent(this.payload, payload)) this.view = null;
 
     this.payload = payload;
-    this.palette = palette;
-    this.raster = renderRaster(payload, palette);
+    this.palette = opts.palette;
+    this.raster = renderRaster(payload, opts.palette);
+    // Retained so the exporter can rebuild this exact panel at a different size
+    // without a round trip or a second copy of the call site's arguments.
+    this.lastOpts = opts;
+
+    this.chart.setOption(this.buildOption({
+      payload,
+      opts,
+      raster: this.raster,
+      metrics: {
+        width: this.element.clientWidth, height: this.element.clientHeight,
+      },
+    }), { notMerge: true });
+
+    this.attachCellTooltip(payload.axes.col, payload.axes.row);
+    this.attachNavigation();
+  }
+
+  /**
+   * The chart option for one render.
+   *
+   * Separated from `render` so the exporter can call it with print tokens
+   * active, a different `metrics`, and room reserved for a caption - without
+   * touching the live instance. It is not derived from `getOption()` because
+   * the `renderItem` closures below capture the raster canvas and the host
+   * size, neither of which survives a round trip through a plain option object.
+   */
+  buildOption({ payload, opts, raster, metrics, graphic = [] }) {
+    const {
+      palette, centroids = null, showVector = false,
+      axes = null, trajectories = null, showerKey = null,
+    } = opts;
 
     const col = payload.axes.col;
     const row = payload.axes.row;
     // The displayed window. The grid is letterboxed from the *full* extent so
     // the plot area does not jump around as the view changes.
     const view = this.view || { col: [col.lo, col.hi], row: [row.lo, row.hi] };
-    const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo);
-    const canvas = this.raster.canvas;
+    const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo, metrics);
+    const canvas = raster.canvas;
 
     const series = [{
       // The raster. renderItem re-runs on every zoom and pan, and `clip` keeps
@@ -130,9 +172,10 @@ export class ProjectionPanel {
     }
     if (centroids) this.addCentroids(series, centroids, col, row, showVector);
 
-    this.chart.setOption({
-      backgroundColor: 'transparent',
+    return {
+      backgroundColor: THEME.chartBackground,
       animation: false,
+      textStyle: { fontFamily: THEME.fontFamily },
       grid: {
         left: rect.left,
         top: rect.top,
@@ -141,18 +184,55 @@ export class ProjectionPanel {
       },
       xAxis: spatialAxis(AXIS_LABEL[col.name] || col.name, view.col[0], view.col[1]),
       yAxis: spatialAxis(AXIS_LABEL[row.name] || row.name, view.row[0], view.row[1]),
-      visualMap: visualMap(payload.scale, palette),
+      visualMap: visualMap(payload.scale, palette, {
+        bottomInset: metrics.reservedBottom || 0,
+      }),
       tooltip: {
         trigger: 'item',
         backgroundColor: 'rgba(22,27,34,0.95)',
         borderColor: THEME.border,
-        textStyle: { color: THEME.text, fontSize: 11 },
+        textStyle: { color: THEME.text, fontSize: THEME.fontTip },
       },
+      graphic,
       series,
-    }, { notMerge: true });
+    };
+  }
 
-    this.attachCellTooltip(col, row);
-    this.attachNavigation();
+  /** The window currently displayed, in millimetres. */
+  currentView() {
+    if (this.view) return this.view;
+    if (!this.payload) return null;
+    const { col, row } = this.payload.axes;
+    return { col: [col.lo, col.hi], row: [row.lo, row.hi] };
+  }
+
+  /**
+   * Figure dimensions for a publication export of the given printed width.
+   *
+   * Called with the print tokens active, so `axisPadding` already reflects the
+   * larger type. The isometric panel takes its plot aspect from the *displayed*
+   * window, which is what makes a zoomed export frame the same region the
+   * screen does; the depth panels span 5200 mm against 1210 mm, where a true
+   * aspect would be an unreadable sliver, so they take a fixed one.
+   */
+  exportMetrics(width) {
+    const pad = axisPadding({ ramp: true });
+    const plotWidth = Math.max(80, width - pad.left - pad.right);
+    const view = this.currentView();
+    let ratio = DEPTH_PLOT_ASPECT;
+    if (this.isometric && view) {
+      const colSpan = view.col[1] - view.col[0];
+      const rowSpan = view.row[1] - view.row[0];
+      if (colSpan > 0 && rowSpan > 0) {
+        ratio = Math.min(1.3, Math.max(0.45, rowSpan / colSpan));
+      } else {
+        ratio = 1;
+      }
+    }
+    return {
+      width,
+      height: Math.round(pad.top + pad.bottom + plotWidth * ratio),
+    };
   }
 
   /* ------------------------------------------------------------- overlays */
@@ -174,7 +254,7 @@ export class ProjectionPanel {
         data: points,
         symbol: 'none',
         smooth: 0.2,
-        lineStyle: { color: colour, width: 1.8, opacity: 0.95 },
+        lineStyle: { color: colour, width: 1.8 * THEME.lineAxis, opacity: 0.95 },
         z: 8,
         clip: true,
         tooltip: {
@@ -215,7 +295,7 @@ export class ProjectionPanel {
           data: [[zLo, at(zLo)], [zHi, at(zHi)]],
           symbol: 'none',
           lineStyle: {
-            color: colour, width: 1, type: 'dashed', opacity: 0.45,
+            color: colour, width: THEME.lineAxis, type: 'dashed', opacity: 0.45,
           },
           z: 6,
           clip: true,
@@ -239,12 +319,12 @@ export class ProjectionPanel {
           type: 'scatter',
           name: `${pair.label} — ${shower}`,
           symbol: shower === 'A' ? 'diamond' : 'circle',
-          symbolSize: style.size,
+          symbolSize: style.size * THEME.markerScale,
           data: [[cx, cy]],
           itemStyle: {
             color: shower === 'A' ? THEME.showerA : THEME.showerB,
             borderColor: THEME.canvas,
-            borderWidth: 1.5,
+            borderWidth: 1.5 * THEME.lineAxis,
             opacity: style.opacity,
           },
           tooltip: {
@@ -272,7 +352,9 @@ export class ProjectionPanel {
         name: 'Separation D',
         data: [[ax, ay], [bx, by]],
         symbol: 'none',
-        lineStyle: { color: THEME.text, width: 1.4, type: 'dashed', opacity: 0.9 },
+        lineStyle: {
+          color: THEME.text, width: 1.4 * THEME.lineAxis, type: 'dashed', opacity: 0.9,
+        },
         silent: true,
         z: 11,
         clip: true,
@@ -287,12 +369,13 @@ export class ProjectionPanel {
               show: true,
               formatter: `D = ${pair.separation_mm.toFixed(0)} mm`,
               color: THEME.text,
-              backgroundColor: 'rgba(13,17,23,0.88)',
+              backgroundColor: THEME.labelBg,
               borderColor: THEME.border,
               borderWidth: 1,
               padding: [3, 5],
               borderRadius: 3,
-              fontSize: 10,
+              fontSize: THEME.fontLabel,
+              fontFamily: THEME.fontFamily,
               offset: labelOffset(ax, ay, bx, by),
             },
           }],

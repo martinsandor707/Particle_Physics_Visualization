@@ -274,6 +274,29 @@ input[type="file"]::file-selector-button:hover {
 }
 .fit-table .na { color: var(--disabled); }
 
+/* Standard errors ride alongside their estimate rather than in a column of
+   their own: a width without its uncertainty is the thing this panel was
+   reported for, and a separate column invites reading the two apart. */
+.fit-table .uncert {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Reference benchmarks are stated, not measured, and sit in their own group so
+   a reader cannot mistake one for a fitted slice. */
+.fit-table tbody.ref-group { border-top: 1px dotted var(--border); }
+.fit-table tbody.ref-group tr.ref-row td { font-style: italic; color: var(--muted); }
+.fit-table td.group {
+  text-align: left;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-top: 8px;
+  border-bottom: none;
+}
+
 /* ------------------------------------------------ info dots and popovers */
 
 /* Persistent explanatory notices live next to the control they explain rather
@@ -361,6 +384,51 @@ input[type="file"]::file-selector-button:hover {
 .seg .mini:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .seg .mini:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
 
+/* A blocking render holds the main thread, so the trigger has to look spent
+   for as long as it is. Without this the disabled button is indistinguishable
+   from the enabled one and the click reads as ignored. */
+.mini:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------- the export menu */
+
+/* Positioned in script like .popover, and fixed for the same reason: the card
+   clips its overflow, so a menu laid out inside it would be cut off. */
+.menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 232px;
+  padding: 4px;
+  background: var(--canvas-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 9px;
+  background: none;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item small { color: var(--muted); font-size: 10px; }
+.menu-item:hover { background: rgba(88, 166, 255, 0.12); color: var(--accent); }
+.menu-item:hover small { color: var(--accent); }
+.menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 /* ------------------------------------------- low-statistics panel notice */
 
 .sparse-note {
@@ -373,3 +441,7 @@ input[type="file"]::file-selector-button:hover {
   line-height: 1.4;
 }
 .sparse-note[hidden] { display: none; }
+/* Several conditions can hold at once - thin slices, a provisional scale, a
+   clipped curve - and each is its own statement rather than one run-on line. */
+.sparse-note p { margin: 0; }
+.sparse-note p + p { margin-top: 5px; }

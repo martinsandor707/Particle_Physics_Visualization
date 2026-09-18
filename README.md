@@ -27,8 +27,9 @@ On a first boot the database is empty, so the server seeds a demonstration
 experiment from the full 1000 rows of `hits_with_gradcam_dummy.csv` through
 exactly the same pipeline a real upload uses. No synthetic records are
 generated. That file holds only two events, both well separated, so the three
-spatial panels render correctly while the reconstructed-energy panel reports
-*insufficient statistics* rather than fitting a meaningless two-point width.
+spatial panels render correctly while the reconstructed-energy panel reports its
+two-event mean and width flagged as `moments (1 d.o.f.)` and draws the events
+themselves — no fitted curve, and a density axis left deliberately unlabelled.
 
 The boot log states the resolved hardware allocation:
 
@@ -207,16 +208,54 @@ centroid per depth layer, measured from the binned data on screen.
 
 ### Low statistics in plot 4
 
-A `density=True` histogram normalises by `N × bin_width`, so once the bins are
-finer than the spacing between events each occupied bin holds exactly one and
-reports a height set by the binning rather than the distribution — the tall
-narrow spikes the panel used to show at small N.
+**Reported numbers and drawn marks are gated separately.** A table cell makes no
+claim about the shape of a distribution; a smooth curve does. So μ, σ and σ/μ are
+reported from **N = 2** — with their standard errors and, on hover, their
+asymmetric 95% intervals — while each mark on the canvas waits for the sample
+size that supports it:
 
-Below **N = 15** in a slice, the histogram and the fitted curve are suppressed
-server-side and the individual events are shipped as a **rug strip** instead,
-with an explicit note. Above it, the bin count follows the sample size (Rice
-rule, clamped to 8–120) driven by the smallest drawn slice, so all slices share
-one binning and none is finer than its own statistics support.
+| Floor | What it gates |
+|---|---|
+| N ≥ 2 | μ, σ, σ/μ as reported numbers (at N = 2, flagged `moments (1 d.o.f.)`) |
+| N ≥ 8 | the continuous parametric density curve |
+| N ≥ 15 | the density histogram, and the iterated ±2.5σ core refit |
+| N ≥ 20 | the robust width and the Gaussian-shape verdict |
+
+The histogram has the highest floor for a reason specific to the estimator: a
+`density=True` histogram normalises by `N × bin_width`, so once the bins are
+finer than the spacing between events each occupied bin holds exactly one and
+reports a height set by the binning rather than by the distribution — the tall
+narrow spikes the panel used to show at small N. That argument is about the
+histogram and does not extend to the mean and width of the same events.
+
+Below the histogram floor the panel draws the individual events as baseline
+ticks, the sample dispersion as an uncapped shaded band, and the mean with its
+**95% confidence interval** (Student-t, not a normal approximation) as a capped
+whisker. The band and the whisker are deliberately different marks: they differ
+by a factor of √N and answer opposite questions — how spread out the events are,
+against how precisely the mean is known — and each tooltip says which it is.
+These marks sit in a tinted, captioned band at the foot of the plot whose
+vertical positions are drawing offsets rather than densities, which the caption
+and every tooltip in it state.
+
+Above the histogram floor the bin count follows the sample size (Rice rule,
+clamped to 8–120) driven by the smallest slice whose histogram is drawn, so all
+slices share one binning and none is finer than its own statistics support.
+
+**The y-axis is scaled from the statistically robust slices only.** A fitted
+curve peaks at `1/(σ√2π)`, so a thin slice with a poorly determined σ would
+flatten every well-measured slice beside it — measured on a test set, two
+10-event slices peaked at 2.52 and 2.09 GeV⁻¹ against a robust maximum of 0.38.
+Thin curves are therefore drawn de-weighted, adapt to the established range, and
+where one overflows it is clipped with a caret at the axis top and named in the
+footnote with its true peak. If no slice reaches N = 15 the axis is labelled
+*provisional*; if nothing estimable is drawn at all the density axis is left
+unlabelled rather than showing a 0–1 grid nothing is measured against.
+
+Widths are the unbiased sample estimator (`ddof = 1`) in both architectures; the
+population form understates σ by 18% at N = 3 and below 0.3% above a few hundred
+events. `calosrv` also reports a `ddof = 0` width so the reference notebook stays
+directly comparable.
 
 The x-axis range is rounded outward to clean tick boundaries *before* anything
 is binned, so bars, curve and labels share one range and a raw percentile bound
@@ -281,6 +320,64 @@ per-event normalisation would force each event onto its own truth exactly and
 erase the containment scatter the resolution measurement exists to quantify.
 Pass `calibrated=false` to see the raw deposited sums, in which case the
 benchmark curves are hidden because they would not be comparable.
+
+### Exporting figures for publication
+
+Every panel header carries an **Export ▾** control offering lossless SVG or
+300 DPI PNG, at 85 mm (single column) or 175 mm (double column). The figure is
+whatever is on screen at that moment: the active zoom window, the A / B / Both
+selection, the filters, the display mode and the colour map.
+
+Figures are authored in millimetres converted at 96 DPI, so 85 mm is 321 logical
+pixels and rasterising at ×3.125 lands on 300 DPI by construction — a
+double-column PNG measures 2065 px. The same convention makes a point
+meaningful, since 1 pt is then 4/3 logical px.
+
+> **Print type is larger than screen type, not smaller.** Legibility is the
+> font's share of the figure width, and the interface's 9–10 px labels in a
+> ~600 px panel become 6.8 pt when reproduced literally in an 85 mm figure.
+> Nine points is 12 logical px here, so every print size is quoted in points and
+> converted. Each colour drawn as text or axis chrome clears 4.5:1 against white,
+> asserted by `tests/test_export_assets.py` rather than judged by eye.
+
+**The figure carries its own disclosures.** The panel footnote travels into the
+image as a caption, together with the selection it was measured on and, for a
+zoomed panel, the displayed window in millimetres. This is not decoration: the
+footnotes hold the percentile-clipping count, the staggered-comb warning, the
+*provisional* density-axis basis and the true peak of any clipped low-N curve.
+The energy figure additionally embeds its fitted μ and σ as an aligned table,
+which on screen lives in HTML beside the chart and would otherwise be left
+behind. A figure that reached print without those sentences would be exactly the
+silent omission the rest of this interface exists to avoid.
+
+Two things change for white paper beyond the obvious inversion:
+
+- **The categorical sub-range flips.** `categoricalStops` samples the *upper*
+  ramp on screen because Viridis begins at `#440154`, invisible as a one-pixel
+  line on `#0d1117`. On white the failure is the mirror image — the `#fde725` end
+  vanishes — so print samples [0, 0.75]. The ramp's identity and its lightness
+  ordering are untouched; this is a sub-range change, not a palette inversion.
+- **The colour bar moves below the x axis.** A vertical bar costs about seven
+  label widths, which on a 321 px figure is a quarter of the canvas.
+
+> **The spatial panels' density field stays a raster.** It is a bitmap of
+> detector cells, so the SVG embeds it as an `<image>`; the axes, overlays,
+> legend and every label are true vector `<text>` and `<path>`, which is what
+> LaTeX compilation turns on. The bitmap is upscaled by an **integer** factor
+> with smoothing off — each pixel is one cell, a discrete measurement, and
+> interpolating between them would invent values across the lattice. The energy
+> panel is line and path geometry throughout and vectorises completely.
+
+Exports never touch the live charts: the panel is re-rendered into a detached
+off-screen instance under a swapped theme, so the screen does not flash and no
+zoom, filter or toggle is reset. The render is synchronous and blocks the main
+thread for a fraction of a second at double-column PNG — ECharts needs a real
+DOM node and cannot be moved to a worker — so the button disables and relabels
+first rather than appearing to ignore the click.
+
+Names are deterministic: `[panel-id]_[slice]_[YYYYMMDD_HHMMSS].[svg|png]`, where
+the slice names only the axes actually narrowed, for the same reason the URL
+hash omits untouched bounds.
 
 ---
 
@@ -376,9 +473,13 @@ calosrv/
   encode/  scale quantize matrix topk
   api/     deps routes_*
   static/  index.html css/ js/
+             js/      main api state scale palette decode dom textfit
+             js/panels/   projection energy metrics
+             js/controls/ range_slider upload
+             js/export/   tokens figure caption filename download menu
 ```
 
-Two structural rules the layout exists to enforce:
+Three structural rules the layout exists to enforce:
 
 - **`db/naming.py` is the only place a table name becomes SQL identifier text.**
   DuckDB cannot parameterise identifiers, so interpolation is unavoidable;
@@ -386,6 +487,14 @@ Two structural rules the layout exists to enforce:
   one file.
 - **No SQL string lives outside `query/` and `db/ddl.py`.** Route modules build a
   `FilterSpec` and call a query module.
+- **A panel builds its chart option from `metrics`, never from its own element,
+  and styles it from `THEME` tokens, never from literals.** Both exist so one set
+  of option builders can serve the screen and a publication figure. `THEME` is a
+  mutable singleton the exporter swaps for the duration of *one synchronous
+  block* — swap, render, serialise, restore, with no `await` between — which is
+  what keeps a global style change invisible to the live charts. A hardcoded
+  `fontSize: 10` or a read of `this.element.clientHeight` inside an option
+  builder silently reintroduces the screen's geometry into the exported figure.
 
 ### The legacy batch compiler
 

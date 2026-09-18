@@ -9,6 +9,7 @@ import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
 import { formatBytes, formatInt, formatNumber, formatSci } from './scale.js';
 import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './dom.js';
+import { attachExportMenus } from './export/menu.js';
 
 const state = new State();
 
@@ -75,7 +76,12 @@ const DENSITY_EXPLAINER =
   + 'the energy axis, so its height carries units of GeV⁻¹ and legitimately '
   + 'exceeds 1.0 wherever the distribution is narrow — a resolution of '
   + 'σ = 0.4 GeV already peaks near 1.0 GeV⁻¹, and anything sharper peaks higher. '
-  + 'A tall peak therefore means good resolution, not a probability above one.';
+  + 'A tall peak therefore means good resolution, not a probability above one. '
+  + 'For the same reason a curve integrating to 1.0 says nothing about how many '
+  + 'events it was built from: the peak height of a fit from nine events and one '
+  + 'from ninety thousand are equally tall for equal σ. The event ticks along the '
+  + 'baseline are what carry the sample size, which is why a thin slice is drawn '
+  + 'with its events beneath it and is never allowed to set the axis scale.';
 
 /* ------------------------------------------------------------------ sliders */
 
@@ -306,9 +312,16 @@ async function loadEnergy() {
   }
   const clipping = payload.axis.clipping;
   if (clipping && clipping.applied && clipping.n_outside) parts.push(clipping.note);
-  setText('foot-energy', parts.join(' ')
-    || 'Solid curves are Gaussian core fits; dashed curves mark shower B; '
-       + 'dotted verticals are the isolated single-shower references at μ ± σ.');
+  parts.push(
+    'Solid curves are Gaussian fits and dashed curves mark shower B; a thinner, '
+    + 'fainter curve is a thin slice, drawn but not allowed to set the density '
+    + 'axis. Below the histogram floor the individual events appear as baseline '
+    + 'ticks, with the sample dispersion as a shaded band and the mean with its '
+    + '95% confidence interval as a capped whisker — two different quantities, '
+    + 'so two different marks. Dotted verticals are the isolated single-shower '
+    + 'reference benchmarks at μ ± σ: stated widths, not fits.'
+  );
+  setText('foot-energy', parts.join(' '));
   return payload;
 }
 
@@ -537,7 +550,11 @@ dom.colormap.addEventListener('change', () => {
   // a round trip.
   repaint();
   if (lastEnergy) {
-    energyPanel.render(lastEnergy, { palette: state.get('palette'), kind: 'pred' });
+    // Carry the active shower filter across: re-rendering without it silently
+    // reset the A/B toggle to Both on every colormap change.
+    energyPanel.render(lastEnergy, {
+      palette: state.get('palette'), kind: 'pred', shower: showerFilter,
+    });
   }
 });
 
@@ -590,6 +607,56 @@ for (const button of document.querySelectorAll('[data-shower]')) {
     }
   });
 }
+
+/* ------------------------------------------------------------ figure export */
+
+/* What each panel contributes to its exported figure.
+ *
+ * The footnote is read live off the page rather than rebuilt, so the figure
+ * carries the same disclosure the reader saw - the clipping count, the
+ * staggered-comb warning, the measured R̄ - without a second copy of the
+ * sentences that could drift out of step with the panel's own. */
+const EXPORT_PANELS = {
+  xy: { panel: () => panels.xy, title: 'XY Projection — Shower Entry', foot: 'foot-xy' },
+  yz: { panel: () => panels.yz, title: 'YZ Projection — Longitudinal Evolution', foot: 'foot-yz' },
+  xz: { panel: () => panels.xz, title: 'XZ Projection — Lateral Profile', foot: 'foot-xz' },
+  energy: {
+    panel: () => energyPanel,
+    title: 'Reconstructed Energy vs. Separation D',
+    foot: 'foot-energy',
+    extraFoot: 'energy-sparse',
+  },
+};
+
+attachExportMenus({
+  state,
+  getExperiment: () => activeExperiment,
+  onError: (message) => showBanner([message], true),
+  resolve: (panelId) => {
+    const spec = EXPORT_PANELS[panelId];
+    if (!spec) return null;
+    const panel = spec.panel();
+    const ready = panelId === 'energy' ? panel.lastPayload : panel.payload;
+    if (!ready) return null;
+
+    const notes = [document.getElementById(spec.foot)?.textContent || ''];
+    // The low-statistics notices are a separate block on screen but belong to
+    // the same figure: they name the gating floors and the clipped peaks.
+    // Read per paragraph, because `textContent` on the container would run the
+    // last word of one notice into the first of the next.
+    const extra = spec.extraFoot ? document.getElementById(spec.extraFoot) : null;
+    if (extra && !extra.hidden) {
+      for (const p of extra.querySelectorAll('p')) notes.push(p.textContent || '');
+    }
+
+    return {
+      panel,
+      title: spec.title,
+      footnote: notes.map((n) => n.trim()).filter((n) => n && n !== '—').join(' '),
+      selection: lastProjections ? lastProjections.selection : null,
+    };
+  },
+});
 
 for (const [scope, dot] of Object.entries(dom.infoDots)) {
   if (!dot) continue;
