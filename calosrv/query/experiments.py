@@ -45,6 +45,11 @@ def describe(record: ExperimentRecord) -> dict[str, Any]:
             "yz": list(lattice.shape_yz),
             "xz": list(lattice.shape_xz),
         }
+        # Both reference frames are served for every ready experiment; the
+        # canonical frame needs only the per-event centroid and angle columns,
+        # which the 29-column schema always carries.
+        payload["frames"] = ["lab", "canonical"]
+        payload["z_front"] = lattice.z.lo
 
     if record.n_events_no_d:
         payload["notice"] = (

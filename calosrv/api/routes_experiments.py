@@ -30,6 +30,9 @@ def list_experiments(
 ):
     records = experiments.list_all(con, include_pending=include_pending)
     cache = cache_mod.get_cache(settings.cache_entries)
+    canonical_cache = cache_mod.get_cache(
+        settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE
+    )
     # This route does not go through `envelope`, so it applies the non-finite
     # float guard itself; a dataset with a degenerate bound would otherwise 500.
     return json_safe({
@@ -42,6 +45,7 @@ def list_experiments(
             "sample_percent": settings.sample_percent,
             "large_upload_warn_bytes": settings.large_upload_warn_bytes,
             "cache": cache.info(),
+            "canonical_cache": canonical_cache.info(),
         },
     })
 
@@ -59,7 +63,7 @@ def delete_experiment(table_name: str, request: Request, settings: SettingsDep):
     with database.write_lock() as con:
         record = registry.get_experiment(con, table_name)
         bootstrap_mod.drop_experiment(con, table_name)
-    cache_mod.get_cache(settings.cache_entries).invalidate_table(table_name)
+    cache_mod.invalidate_all(table_name)
     return {
         "deleted": table_name,
         "existed": record is not None,

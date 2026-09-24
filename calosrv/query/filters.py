@@ -67,6 +67,43 @@ class FilterSpec:
             "d_max": self.d_max,
         }
 
+    def clamped(self, record: ExperimentRecord) -> "FilterSpec":
+        """The same selection with every bound clamped to the dataset's range.
+
+        A bound looser than the data selects exactly the same rows, so the
+        clamped spec is equivalent - but it has one canonical form. The
+        interface snaps its slider domains *outward* to a step grid, so its
+        "whole dataset" request carries 0.70-20.00 GeV where the data span
+        0.708-19.999; without clamping, that request and the one the start-up
+        warmer issued from the exact bounds would sit in two cache entries, and
+        the two-second canonical scan the warmer paid for would be paid again
+        on the first page load.
+        """
+
+        def clamp_interval(
+            lo_req: float, hi_req: float, lo: float | None, hi: float | None
+        ) -> tuple[float, float]:
+            # An interval that misses the data entirely must stay empty: clamping
+            # its two ends independently would collapse it onto the data extreme
+            # and resurrect the boundary event. Only an intersecting interval is
+            # equivalent to its clamped form.
+            if lo is None or hi is None:
+                return lo_req, hi_req
+            if hi_req < lo or lo_req > hi:
+                return lo_req, hi_req
+            return max(lo_req, float(lo)), min(hi_req, float(hi))
+
+        e1_min, e1_max = clamp_interval(self.e1_min, self.e1_max, record.e1_min, record.e1_max)
+        e2_min, e2_max = clamp_interval(self.e2_min, self.e2_max, record.e2_min, record.e2_max)
+        d_min, d_max = clamp_interval(self.d_min, self.d_max, record.d_min, record.d_max)
+        return FilterSpec(
+            table_name=self.table_name,
+            e1_min=e1_min, e1_max=e1_max,
+            e2_min=e2_min, e2_max=e2_max,
+            d_min=d_min, d_max=d_max,
+            include_undefined_d=self.include_undefined_d,
+        )
+
     def cache_key(self) -> tuple:
         """Identity of this selection, for the projection matrix cache.
 

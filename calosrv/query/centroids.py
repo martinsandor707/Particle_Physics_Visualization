@@ -45,7 +45,6 @@ from typing import Any
 
 import numpy as np
 
-from ..grid.lattice import Lattice
 from .projections import NativeBundle, Panel
 
 
@@ -91,21 +90,27 @@ def _weighted_mean(weights: np.ndarray, coords: np.ndarray, axis: int) -> float 
 
 def _pair_from_panel(
     panel: Panel,
-    lattice: Lattice,
+    bundle: NativeBundle,
     plane: str,
     label: str,
     z_panel: Panel | None = None,
     z_plane: str | None = None,
 ) -> CentroidPair:
-    """Build an A/B centroid pair from one panel's weight planes."""
+    """Build an A/B centroid pair from one panel's weight planes.
+
+    Coordinates come from ``bundle.axis(name)`` rather than from the lattice
+    directly, so the same code measures a canonical-frame bundle, whose axes
+    are a uniform grid in x', y', z' rather than detector cells.
+    """
     energy = panel.planes["e"]
     w_a = panel.planes[plane]
     # Energy not attributed to A belongs to B. Clipping guards against a
     # float32 fraction marginally above 1 producing a negative B weight.
     w_b = np.clip(energy - w_a, 0.0, None)
 
-    row_coords = lattice.axis(panel.row_axis).coords
-    col_coords = lattice.axis(panel.col_axis).coords
+    row_coords = bundle.axis(panel.row_axis).coords
+    col_coords = bundle.axis(panel.col_axis).coords
+    depth_coords = bundle.axis("z").coords
 
     def build(weights: np.ndarray, is_a: bool) -> Centroid:
         z = None
@@ -113,7 +118,7 @@ def _pair_from_panel(
             zw_a = z_panel.planes[z_plane]
             zw = zw_a if is_a else np.clip(z_panel.planes["e"] - zw_a, 0.0, None)
             # The YZ panel is (y, z), so depth is the column axis.
-            z = _weighted_mean(zw, lattice.z.coords, axis=1)
+            z = _weighted_mean(zw, depth_coords, axis=1)
         return Centroid(
             x=_weighted_mean(weights, col_coords, axis=1),
             y=_weighted_mean(weights, row_coords, axis=0),
@@ -139,14 +144,13 @@ def compute(bundle: NativeBundle) -> dict[str, CentroidPair]:
     centroids. The depth coordinate is taken from the YZ panel, which spans the
     full instrumented depth.
     """
-    lattice = bundle.lattice
     return {
         "truth_voxel": _pair_from_panel(
-            bundle.xy, lattice, "efa_true", "Ground truth (voxel-weighted)",
+            bundle.xy, bundle, "efa_true", "Ground truth (voxel-weighted)",
             z_panel=bundle.yz, z_plane="efa_true",
         ),
         "pred_voxel": _pair_from_panel(
-            bundle.xy, lattice, "efa_pred", "Model prediction (voxel-weighted)",
+            bundle.xy, bundle, "efa_pred", "Model prediction (voxel-weighted)",
             z_panel=bundle.yz, z_plane="efa_pred",
         ),
     }

@@ -137,8 +137,9 @@ def shower_axes(bundle: NativeBundle, panel_name: str) -> dict[str, Any]:
     database access and is free on a cache hit.
     """
     panel = bundle.panel(panel_name)
-    lattice = bundle.lattice
-    row_axis = lattice.axis(panel.row_axis)
+    # Coordinates through ``bundle.axis`` so a canonical-frame bundle, whose
+    # axes are a uniform grid rather than detector cells, is measured the same way.
+    row_axis = bundle.axis(panel.row_axis)
 
     energy = panel.planes["e"]
     weights = {
@@ -146,7 +147,7 @@ def shower_axes(bundle: NativeBundle, panel_name: str) -> dict[str, Any]:
         "b": np.clip(energy - panel.planes["efa_true"], 0.0, None),
     }
 
-    depth = lattice.z.coords
+    depth = bundle.axis("z").coords
     out: dict[str, Any] = {"depth": [float(v) for v in depth], "a": [], "b": []}
 
     for shower, w in weights.items():

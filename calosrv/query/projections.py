@@ -37,7 +37,7 @@ import numpy as np
 from ..db import naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
-from ..grid.lattice import Lattice
+from ..grid.lattice import Axis, Lattice
 from .filters import FilterSpec
 
 log = logging.getLogger(__name__)
@@ -85,6 +85,16 @@ class NativeBundle:
 
     def panel(self, name: str) -> Panel:
         return {"xy": self.xy, "yz": self.yz, "xz": self.xz}[name]
+
+    def axis(self, name: str) -> Axis:
+        """The physical coordinate axis a panel's row or column index refers to.
+
+        For the laboratory frame this is the detector lattice itself. The
+        canonical-frame bundle answers the same call with its uniform grid, so
+        ``centroids`` and ``panels.shower_axes`` need not know which frame they
+        are measuring.
+        """
+        return self.lattice.axis(name)
 
     @property
     def nbytes(self) -> int:

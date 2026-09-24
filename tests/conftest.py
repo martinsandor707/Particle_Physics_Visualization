@@ -16,6 +16,22 @@ SEED_CSV = REPO_ROOT / "hits_with_gradcam_dummy.csv"
 TABLE = "test_experiment"
 
 
+def pytest_collection_modifyitems(session, config, items):
+    """Run every booted-server test before the ingested-database tests.
+
+    The `client` fixture boots the app against an empty database and, because
+    the DuckDB connection is a process-wide singleton, calls `reset_database()`
+    on setup and teardown. The session-scoped `ingested` fixture holds that
+    same singleton, so a `client` module running *after* the first `ingested`
+    test would close the connection under every later query test. The suite
+    used to rely on alphabetical module order to avoid this; ordering by
+    fixture makes it explicit and lets query-level test modules be named freely.
+    """
+    booted = [item for item in items if "client" in getattr(item, "fixturenames", ())]
+    booted_ids = {id(item) for item in booted}
+    items[:] = booted + [item for item in items if id(item) not in booted_ids]
+
+
 @pytest.fixture(scope="session")
 def ingested(tmp_path_factory):
     """Ingest the demonstration CSV once into a throwaway database."""

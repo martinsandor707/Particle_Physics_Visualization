@@ -261,6 +261,121 @@ def test_payload_stays_under_budget_with_overlays(client):
     assert len(response.content) < 100_000
 
 
+# ------------------------------------------------------- canonical frame --
+
+
+def test_canonical_frame_is_served_beside_the_lab_frame(client):
+    """The API default stays `lab`; `frame=canonical` is a superset envelope."""
+    lab = client.get("/api/projections").json()
+    assert lab["meta"]["frame"] == "lab"
+    assert "frame" not in lab
+
+    response = client.get("/api/projections", params={"frame": "canonical"})
+    assert response.status_code == 200
+    assert len(response.content) < 100_000
+    body = response.json()
+
+    # Every lab key is present, so the interface reads both with one code path.
+    assert set(lab) <= set(body)
+    assert body["meta"]["frame"] == "canonical"
+    frame = body["frame"]
+    assert frame["kind"] == "canonical"
+    assert frame["anchor"] == "entry_backprojection"
+    assert frame["n_events"] == 2
+    assert frame["subsample_k"] >= 2, "point-binning combs; k = 1 is never used"
+    assert frame["fit"]["provisional"] is True, "two events cannot fix a display range"
+    assert frame["rho"]["norm"] == "selection"
+    assert frame["rho"]["unit"] == "GeV/mm^2/event"
+    assert frame["d_entry"]["mean"] > 0 and frame["d_dataset"]["mean"] > 0
+    assert frame["d_entry"]["ci95_half"] > frame["d_entry"]["se"], "the quoted interval is Student-t"
+    assert frame["comb"]["note"], "the comb is measured, not asserted"
+    assert "energy_lag1_core_row" in frame["comb"], "the comb is measured on energy too, not occupancy alone"
+    assert body["meta"]["sample_percent"] == 100.0
+    assert frame["rho"]["selection_k"] == frame["subsample_k"]
+    assert "canonical" in body["meta"]["stagger"]["note"].lower() or "comb" in body["meta"]["stagger"]["note"].lower()
+
+    for panel in body["panels"].values():
+        assert panel["encoding"] == "u8-b64"
+        assert panel["scale"]["unit"] == "a.u."
+        assert panel["scale"]["vmin"] == -3.0
+        assert "clipped_high" not in panel["scale"]
+        assert panel["axes"]["col"]["symbol"] in ("x′", "z′")
+        assert panel["topk_unit"] == "GeV/mm^2/event"
+
+    overlays = body["overlays"]
+    assert overlays["trajectories"] == [], "individual trajectories are suppressed in this frame"
+    assert overlays["axes"] == {}
+    assert set(overlays["ensemble_axes"]["xz"]) == {"a", "b"}
+    assert set(overlays["anchors"]) == {"a", "b"}
+    half = frame["d_entry"]["mean"] / 2
+    assert overlays["anchors"]["a"]["x"] == pytest.approx(-half)
+    assert overlays["anchors"]["b"]["x"] == pytest.approx(+half)
+    assert overlays["ensemble_axes"]["xz"]["a"]["axis"][0] == pytest.approx([0.0, -half])
+    # Two events: dispersion band with one degree of freedom, labelled weak.
+    assert overlays["ensemble_axes"]["xz"]["a"]["band"] is not None
+    assert overlays["ensemble_axes"]["xz"]["a"]["dof_note"] == "1 d.o.f."
+    assert frame["ensemble"]["a"]["label"].startswith("weak")
+
+    assert "truth_dataset" not in body["centroids"]
+    assert set(body["centroids"]) == {"truth_voxel", "pred_voxel", "canonical_mean"}
+    assert set(frame["anchor_offsets"]) == set(body["centroids"])
+
+
+def test_canonical_frame_rejects_unknown_values(client):
+    assert client.get("/api/projections", params={"frame": "hologram"}).status_code == 422
+    assert client.get(
+        "/api/projections", params={"frame": "canonical", "rho_norm": "peak"}
+    ).status_code == 422
+
+
+def test_canonical_density_reference_is_selectable(client):
+    own = client.get("/api/projections", params={"frame": "canonical"}).json()
+    dataset = client.get(
+        "/api/projections", params={"frame": "canonical", "rho_norm": "dataset"}
+    ).json()
+    assert own["panels"]["xy"]["scale"]["norm"] == "selection"
+    assert dataset["panels"]["xy"]["scale"]["norm"] == "dataset"
+    assert dataset["panels"]["xy"]["scale"]["locked"] is True
+    # The demo selection is the whole dataset, so both references coincide.
+    assert dataset["frame"]["rho"]["ref"]["xy"] == pytest.approx(own["frame"]["rho"]["ref"]["xy"])
+
+
+def test_canonical_and_lab_bundles_are_cached_separately(client):
+    params = {"frame": "canonical", "e1_min": 2.0, "e1_max": 18.0}
+    first = client.get("/api/projections", params=params).json()
+    second = client.get("/api/projections", params=params).json()
+    assert second["meta"]["cached"] is True
+    lab = client.get("/api/projections", params={**params, "frame": "lab"}).json()
+    assert lab["meta"]["frame"] == "lab"
+    caches = client.get("/api/experiments").json()["compute"]
+    assert caches["canonical_cache"]["entries"] >= 1
+    assert caches["canonical_cache"]["name"] == "canonical"
+    assert first["panels"]["xy"]["shape"] != lab["panels"]["xy"]["shape"]
+
+
+def test_canonical_frame_explains_undefined_separation_events(client):
+    body = client.get(
+        "/api/projections", params={"frame": "canonical", "include_undefined_d": True}
+    ).json()
+    texts = [n["text"] for n in body["meta"]["notices"]]
+    assert any("undefined A-B separation" in t for t in texts)
+    assert body["frame"]["n_excluded_no_frame"] == body["frame"]["n_selected"] - body["frame"]["n_events"]
+
+
+def test_canonical_continuous_mode_resamples_the_cropped_window(client):
+    body = client.get(
+        "/api/projections",
+        params={"frame": "canonical", "display": "continuous", "resolution": 200},
+    ).json()
+    assert body["meta"]["resolution"]["mode"] == "continuous"
+    assert body["panels"]["xy"]["shape"][1] == 200
+    assert body["meta"]["resolution"]["pitch_mm"] == 20.0
+    native = client.get("/api/projections", params={"frame": "canonical"}).json()
+    assert native["meta"]["resolution"]["mode"] == "native"
+    # Energy inside the same window is the same at any display resolution.
+    assert body["panels"]["yz"]["total"] == pytest.approx(native["panels"]["yz"]["total"], rel=1e-9)
+
+
 def test_persistent_notices_are_not_duplicated_into_the_banner(client):
     """Explanatory notices belong beside their control, not across the plots.
 
