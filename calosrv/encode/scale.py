@@ -40,6 +40,14 @@ MODE_PERCENTILE = "percentile"
 MODE_FIXED = "fixed"
 SCALE_MODES = (MODE_DECADES, MODE_PERCENTILE, MODE_FIXED)
 
+#: Relative mode: values are ratios to a stated reference density and the ramp
+#: is dimensionless. Used by the canonical-frame panels; never selectable for
+#: the lab frame, whose ramp is anchored in GeV.
+MODE_RELATIVE = "relative"
+
+#: Unit string of a relative ramp.
+UNIT_RELATIVE = "a.u."
+
 #: Dynamic range of the logarithmic ramp, in decades below the brightest cell.
 DEFAULT_DECADES = 6.0
 
@@ -62,9 +70,15 @@ class ColorScale:
     n_below: int = 0
     n_above: int = 0
     n_empty: int = 0
+    #: Relative-ramp provenance. Left ``None`` for the lab frame so its payload
+    #: is unchanged; the canonical panels set all four.
+    rho_ref: float | None = None
+    rho_unit: str | None = None
+    decades: float | None = None
+    norm: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "scale": self.scale,
             "vmin": self.vmin,
             "vmax": self.vmax,
@@ -76,11 +90,65 @@ class ColorScale:
             "clipped_high": self.n_above,
             "empty_cells": self.n_empty,
         }
+        if self.mode == MODE_RELATIVE:
+            # A relative ramp always reaches its own peak, so nothing can sit
+            # above it; the field would be a constant zero and is dropped.
+            del data["clipped_high"]
+            data["rho_ref"] = self.rho_ref
+            data["rho_unit"] = self.rho_unit
+            data["decades"] = self.decades
+            data["norm"] = self.norm
+        return data
 
 
 def _positive(values: np.ndarray) -> np.ndarray:
     finite = values[np.isfinite(values)]
     return finite[finite > 0]
+
+
+def relative_log_scale(
+    ratio: np.ndarray,
+    rho_ref: float,
+    decades: float,
+    norm: str,
+    rho_unit: str = "GeV/mm^2/event",
+) -> ColorScale:
+    """The dimensionless ramp of the canonical panels.
+
+    ``ratio`` is the density divided by a stated reference peak ``rho_ref``.
+    The ramp spans ``decades`` below 1.0, and its top is raised to the matrix's
+    own peak whenever a selection exceeds the reference (which happens when the
+    reference is the whole dataset and a slice of superposed showers is
+    brighter), so nothing is ever clipped from above. Values below the bottom
+    fold into the lowest colour code and are counted, as are empty cells.
+    """
+    values = np.asarray(ratio, dtype=np.float64)
+    positive = _positive(values)
+    n_empty = int(values.size - positive.size)
+    vmin = -float(decades)
+    if positive.size == 0:
+        vmax = 0.0
+        n_below = 0
+    else:
+        log_values = np.log10(positive)
+        vmax = max(0.0, float(log_values.max()))
+        n_below = int((log_values < vmin).sum())
+    return ColorScale(
+        scale=SCALE_LOG,
+        vmin=vmin,
+        vmax=vmax,
+        unit=UNIT_RELATIVE,
+        mode=MODE_RELATIVE,
+        locked=norm == "dataset",
+        global_vmax=float(rho_ref) if rho_ref else None,
+        n_below=n_below,
+        n_above=0,
+        n_empty=n_empty,
+        rho_ref=float(rho_ref) if rho_ref else None,
+        rho_unit=rho_unit,
+        decades=float(decades),
+        norm=norm,
+    )
 
 
 def resolve_scale(

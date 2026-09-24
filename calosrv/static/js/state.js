@@ -13,6 +13,14 @@ const DEFAULTS = {
   e2_min: null, e2_max: null,
   d_min: null, d_max: null,
   include_undefined_d: false,
+  // Reference frame of the three spatial panels. The interface opens in the
+  // canonical centre-of-separation frame, where every selected event is
+  // co-registered so both showers sit at the same place; the API's own
+  // default stays 'lab' so its contract is unchanged.
+  frame: 'canonical',
+  // Reference peak of the canonical density ramp: this selection's own peak
+  // (the directive's a.u.) or the whole dataset's, for cross-selection colour.
+  rho_norm: 'selection',
   display: 'native',
   resolution: 150,
   channel: 'density',
@@ -81,6 +89,8 @@ export class State {
     const v = this.values;
     return {
       ...this.filterParams(),
+      frame: v.frame,
+      rho_norm: v.rho_norm,
       display: v.display,
       resolution: v.resolution,
       mode: v.channel,

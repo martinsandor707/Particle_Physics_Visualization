@@ -96,13 +96,16 @@ export function restoreScreenTheme() {
  * old 74 px right inset - reserved for a vertical colour bar - would have eaten
  * a quarter of the canvas. Both now follow the font.
  */
-export function axisPadding({ ramp = false } = {}) {
+export function axisPadding({ ramp = false, wideRamp = false } = {}) {
   const f = THEME.fontLabel;
   const horizontalRamp = ramp && THEME.rampOrient === 'horizontal';
+  // A vertical ramp titled "Average hit density (a.u.)" is about 13 label
+  // heights wide; the GeV ramp's exponent labels fit in 7.4.
+  const rampInset = wideRamp ? 13.5 * f : 7.4 * f;
   return {
     nameGap: 2.6 * f,
     left: 5.2 * f,
-    right: ramp && !horizontalRamp ? 7.4 * f : 1.6 * f,
+    right: ramp && !horizontalRamp ? rampInset : 1.6 * f,
     top: 1.2 * f,
     bottom: 2.6 * f + 1.4 * f + (horizontalRamp ? 3.4 * f : 0),
   };
@@ -159,11 +162,20 @@ export function formatBytes(bytes) {
  */
 export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
   const isLog = scale.scale === 'log10';
+  // A relative (a.u.) ramp is dimensionless: its ends are derived from the
+  // scale's own bounds, which reach above 10^0 when a selection is brighter
+  // than the dataset reference it is drawn against.
+  const relative = scale.unit === 'a.u.';
+  const unit = relative ? ' a.u.' : (isLog ? ' GeV' : '');
   const label = (value) => (isLog
     ? `10${superscript(Number(value).toFixed(1))}`
     : Number(value).toFixed(2));
 
   const horizontal = THEME.rampOrient === 'horizontal';
+  // The ramp title. ECharts' continuous visualMap has no title of its own, so
+  // on the vertical screen ramp it rides as a second line of the top label;
+  // the horizontal print ramp gets a separate graphic from rampTitle().
+  const title = relative && !horizontal ? `${RAMP_TITLE_RELATIVE}\n` : '';
   const place = horizontal
     /* Below the x-axis title, where a figure has height to spare, rather than
      * beside the plot, where a single-column figure has none.
@@ -191,8 +203,8 @@ export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
     // be read off, and the units are what make the panel quotable: decade
     // exponents in GeV for density, a plain 0-1 weight for attention.
     text: [
-      `${label(scale.vmax)}${isLog ? ' GeV' : ''}`,
-      `${label(scale.vmin)}${isLog ? ' GeV' : ''}`,
+      `${title}${label(scale.vmax)}${unit}`,
+      `${label(scale.vmin)}${unit}`,
     ],
     textGap: 6,
     textStyle: {
@@ -200,8 +212,37 @@ export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
     },
     inRange: { color: colorStops(palette) },
     formatter: (value) => (isLog
-      ? `${label(value)} GeV`
+      ? `${label(value)}${unit}`
       : Number(value).toFixed(2)),
+  };
+}
+
+/** The colour-bar title the directive specifies for the canonical panels. */
+export const RAMP_TITLE_RELATIVE = 'Average hit density (a.u.)';
+
+/**
+ * A graphic text titling a horizontal (print) relative ramp.
+ *
+ * Returns null when no separate title is needed: for the vertical screen ramp
+ * the title travels as the first line of the top label inside `visualMap`.
+ * `metrics.reservedBottom` is the caption height, which the ramp itself is
+ * also offset by, so title and ramp move together.
+ */
+export function rampTitle(scale, metrics) {
+  if (!scale || scale.unit !== 'a.u.' || THEME.rampOrient !== 'horizontal') return null;
+  const bottomInset = metrics.reservedBottom || 0;
+  // The bar is 14 px thick with its labels beside it; sit just above it.
+  return {
+    type: 'text',
+    left: 'center',
+    bottom: bottomInset + 2 + 14 + 0.6 * THEME.fontSmall,
+    silent: true,
+    style: {
+      text: RAMP_TITLE_RELATIVE,
+      fill: THEME.muted,
+      fontSize: THEME.fontSmall,
+      fontFamily: THEME.fontFamily,
+    },
   };
 }
 

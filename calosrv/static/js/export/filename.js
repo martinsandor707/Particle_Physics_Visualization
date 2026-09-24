@@ -43,6 +43,9 @@ function describeSlice(state, extra) {
 
   const tokens = bounds.length ? bounds : ['full'];
   tokens.push(state.get('display') === 'native' ? 'native' : `R${state.get('resolution')}`);
+  // The frame changes what every pixel means, so two figures of one selection
+  // in the two frames must not collide on everything but their timestamp.
+  if (state.get('frame') === 'canonical') tokens.push('canonical');
   if (state.get('channel') !== 'density') tokens.push('gradcam');
   for (const item of extra) if (item) tokens.push(item);
 

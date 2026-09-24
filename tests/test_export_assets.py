@@ -181,6 +181,7 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/export/figure.js",
         "/static/js/export/menu.js",
         "/static/js/export/caption.js",
+        "/static/js/export/disclosure.js",
         "/static/js/textfit.js",
     ],
 )
@@ -196,6 +197,7 @@ def test_new_modules_are_served(client, path):
         "/static/js/export/figure.js",
         "/static/js/export/menu.js",
         "/static/js/export/caption.js",
+        "/static/js/export/disclosure.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -262,6 +264,85 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in EXPORT_JS.glob("*.js"):
         assert module.resolve() in seen, f"{module.name} is never imported"
     assert (js_root / "textfit.js").resolve() in seen
+
+
+# ------------------------------------------------- the disclosure band --
+
+
+def test_svg_export_splices_an_isolated_disclosure_group():
+    """Plan section 1.8: the SVG carries a `<g id="figure-disclosure">`.
+
+    zrender's SVG painter flattens `graphic` items, so the group can only come
+    from our own post-processing. The check is on the source: figure.js must
+    call `captionToSvg` and the id must be the one the plan names, so a reader
+    of the file can address the band.
+    """
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    caption = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
+    assert "captionToSvg(" in figure, "figure.js never serialises the caption band"
+    assert re.search(r"\bimport\b[^;]*\bcaptionToSvg\b", figure), (
+        "figure.js must import captionToSvg from caption.js"
+    )
+    assert 'id="figure-disclosure"' in caption
+    # The splice must land before the closing tag, not be appended after it.
+    assert "</svg>" in figure
+
+
+def test_svg_caption_withholds_graphics_but_keeps_the_reserved_height():
+    """For SVG the caption items leave the option; the band's height does not.
+
+    Withholding the items is what lets the `<g>` be the only copy of the text.
+    Dropping the reservation with them would let the ramp slide down into the
+    space the band is then spliced over.
+    """
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    assert re.search(r"graphic:\s*format === 'svg' \? \[\]", figure), (
+        "the SVG option must carry no caption graphics"
+    )
+    assert "reservedBottom: caption.height" in figure
+
+
+def test_caption_module_exports_the_svg_serialiser_and_accepts_disclosure():
+    source = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
+    assert re.search(r"export function captionToSvg\s*\(", source)
+    signature = re.search(r"export function buildCaption\s*\(\{(.*?)\}", source, re.DOTALL)
+    assert signature, "buildCaption signature not found"
+    assert "disclosure" in signature.group(1)
+    # The serialiser positions text the way zrender draws it: centred on the
+    # line, 0.71 x the font size below the item's top.
+    assert 'dominant-baseline="central"' in source
+    assert "0.71 * fontSize" in source
+    # Styles come from each item, not from the (restored) THEME.
+    body = re.search(
+        r"export function captionToSvg\s*\(.*?\n\}\n", source, re.DOTALL
+    ).group(0)
+    assert "THEME" not in body
+
+
+def test_export_menu_forwards_the_disclosure():
+    source = _strip_comments((EXPORT_JS / "menu.js").read_text(encoding="utf-8"))
+    assert re.search(r"disclosure:\s*target\.disclosure", source)
+
+
+def test_disclosure_is_structural_not_scraped():
+    """The disclosure module reads the payload, never the page.
+
+    Its whole reason to exist is that the footnote is prose assembled for the
+    screen. Reaching into the DOM would make it a second copy of that prose,
+    and it must import from scale.js so it sits inside the stamped graph.
+    """
+    source = _strip_comments((EXPORT_JS / "disclosure.js").read_text(encoding="utf-8"))
+    for forbidden in ("getElementById", "querySelector", "textContent", "innerText", "document."):
+        assert forbidden not in source, f"disclosure.js touches the DOM: {forbidden}"
+    assert re.search(r"import\s*\{[^}]*\bformatSci\b[^}]*\}\s*from\s*'\.\./scale\.js'", source)
+    assert re.search(r"import\s*\{[^}]*\bformatInt\b[^}]*\}\s*from\s*'\.\./scale\.js'", source)
+    assert re.search(r"export function figureDisclosure\s*\(", source)
+
+
+def test_filename_carries_the_frame_token():
+    source = _strip_comments((EXPORT_JS / "filename.js").read_text(encoding="utf-8"))
+    assert re.search(r"state\.get\('frame'\) === 'canonical'", source)
+    assert "'canonical'" in source
 
 
 def test_export_modules_avoid_the_vendor_path():

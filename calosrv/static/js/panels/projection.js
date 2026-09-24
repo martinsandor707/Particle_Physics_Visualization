@@ -27,13 +27,50 @@
 import {
   renderRaster, exactValue, dequantize, cellAt, cellCentre, occupiedBounds,
 } from '../decode.js';
-import { THEME, formatSci, spatialAxis, visualMap, axisPadding } from '../scale.js';
+import { THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle } from '../scale.js';
 
+/* Axis titles, keyed by the axis *symbol*. The payload names every axis by
+ * its semantic identity (x, y, z) and, in the canonical frame, adds the
+ * symbol it is written with (x′, y′, z′); the name is what every consumer
+ * indexes by, the symbol is what the reader sees. */
 const AXIS_LABEL = {
   x: 'x [mm]',
   y: 'y [mm]',
   z: 'z — depth [mm]',
+  'x′': 'x′ — along the A→B separation [mm]',
+  'y′': 'y′ — normal to the shower plane [mm]',
+  'z′': 'z′ — depth from the front face [mm]',
 };
+
+/* Short titles for plots too shallow to carry the full ones: a 1:1 canonical
+ * entrance panel of a widely separated pair is a strip a few dozen pixels
+ * tall, and a rotated 35-character y-axis title would overflow it at both
+ * ends. The caption defines x′ and y′ in words. */
+const AXIS_LABEL_COMPACT = {
+  'x′': 'x′ [mm]',
+  'y′': 'y′ [mm]',
+  'z′': 'z′ — depth [mm]',
+};
+
+/** Plot heights and widths (px) below which the compact titles and labels are used. */
+const COMPACT_LABEL_HEIGHT = 220;
+const COMPACT_LABEL_WIDTH = 420;
+
+/** The symbol an axis is written with on screen. */
+export function symbolOf(axis) {
+  return axis.symbol ?? axis.name;
+}
+
+function axisLabel(axis, compact = false) {
+  const symbol = symbolOf(axis);
+  if (compact && AXIS_LABEL_COMPACT[symbol]) return AXIS_LABEL_COMPACT[symbol];
+  return AXIS_LABEL[symbol] || symbol;
+}
+
+/** Line opacity of an ensemble axis whose direction is not distinguishable
+ * from uniform (Rayleigh p above the server's fade threshold, carried as
+ * `faded` on the axis block). */
+const FADE_OPACITY = 0.4;
 
 /** Fraction of the fitted region added as breathing room on each side. */
 const ROI_PADDING = 0.06;
@@ -69,8 +106,8 @@ export class ProjectionPanel {
    * container of a different size, and the letterboxing must be recomputed for
    * it. `reservedBottom` is room set aside below the plot for the caption.
    */
-  gridRect(colSpan, rowSpan, metrics) {
-    const pad = axisPadding({ ramp: true });
+  gridRect(colSpan, rowSpan, metrics, wideRamp = false) {
+    const pad = axisPadding({ ramp: true, wideRamp });
     const padding = {
       left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom,
     };
@@ -94,9 +131,19 @@ export class ProjectionPanel {
   }
 
   render(payload, opts) {
-    // A different detector extent means a different experiment, and a window
-    // panned over the previous one would be meaningless against the new.
-    if (this.payload && !sameExtent(this.payload, payload)) this.view = null;
+    // The displayed window survives a change of *selection* - in the canonical
+    // frame the fitted extents move with every slider tick, and discarding the
+    // zoom on each debounce would make zooming during a drag impossible - but
+    // not a change of frame or of experiment, where the old window would be
+    // meaningless against the new coordinates. Within one frame the window is
+    // clamped to the new extents instead.
+    const viewKey = `${opts.frame?.kind ?? 'lab'}|${opts.tableName ?? ''}`;
+    if (this.viewKey !== viewKey) {
+      this.view = null;
+      this.viewKey = viewKey;
+    } else if (this.view && this.payload && !sameExtent(this.payload, payload)) {
+      this.view = clampView(this.view, payload.axes, this.isometric);
+    }
 
     this.payload = payload;
     this.palette = opts.palette;
@@ -131,6 +178,8 @@ export class ProjectionPanel {
     const {
       palette, centroids = null, showVector = false,
       axes = null, trajectories = null, showerKey = null,
+      frame = null, ensembleAxes = null, ensembleMeta = null,
+      anchors = null, depthBounds = null,
     } = opts;
 
     const col = payload.axes.col;
@@ -138,8 +187,13 @@ export class ProjectionPanel {
     // The displayed window. The grid is letterboxed from the *full* extent so
     // the plot area does not jump around as the view changes.
     const view = this.view || { col: [col.lo, col.hi], row: [row.lo, row.hi] };
-    const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo, metrics);
+    // The vertical a.u. ramp carries its title as a second label line, which
+    // needs a wider right inset than the GeV ramp's exponent labels.
+    const wideRamp = payload.scale?.unit === 'a.u.' && THEME.rampOrient !== 'horizontal';
+    const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo, metrics, wideRamp);
     const canvas = raster.canvas;
+    const title = rampTitle(payload.scale, metrics);
+    const graphics = title ? [...graphic, title] : graphic;
 
     const series = [{
       // The raster. renderItem re-runs on every zoom and pan, and `clip` keeps
@@ -166,11 +220,19 @@ export class ProjectionPanel {
       },
     }];
 
+    if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
     if (axes) this.addShowerAxes(series, axes, col, row);
     if (trajectories && showerKey) {
       this.addTrajectories(series, trajectories, col, row, showerKey);
     }
-    if (centroids) this.addCentroids(series, centroids, col, row, showVector);
+    const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
+
+    if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
+    if (centroids) this.addCentroids(series, centroids, col, row, showVector && !anchors);
+    if (anchors) this.addAnchors(series, anchors, frame, col, row, compact);
+
+    const provisional = frame?.fit?.provisional
+      ? ' (provisional range)' : '';
 
     return {
       backgroundColor: THEME.chartBackground,
@@ -182,8 +244,10 @@ export class ProjectionPanel {
         width: rect.width,
         height: rect.height,
       },
-      xAxis: spatialAxis(AXIS_LABEL[col.name] || col.name, view.col[0], view.col[1]),
-      yAxis: spatialAxis(AXIS_LABEL[row.name] || row.name, view.row[0], view.row[1]),
+      xAxis: spatialAxis(
+        axisLabel(col, compact) + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
+      ),
+      yAxis: spatialAxis(axisLabel(row, compact) + provisional, view.row[0], view.row[1]),
       visualMap: visualMap(payload.scale, palette, {
         bottomInset: metrics.reservedBottom || 0,
       }),
@@ -193,7 +257,7 @@ export class ProjectionPanel {
         borderColor: THEME.border,
         textStyle: { color: THEME.text, fontSize: THEME.fontTip },
       },
-      graphic,
+      graphic: graphics,
       series,
     };
   }
@@ -224,7 +288,11 @@ export class ProjectionPanel {
       const colSpan = view.col[1] - view.col[0];
       const rowSpan = view.row[1] - view.row[0];
       if (colSpan > 0 && rowSpan > 0) {
-        ratio = Math.min(1.3, Math.max(0.45, rowSpan / colSpan));
+        // The floor keeps a figure from becoming a sliver, but an isometric
+        // panel letterboxes its data inside whatever height it is given, so a
+        // floor much above the data's own aspect only adds blank paper: the
+        // canonical entrance panel of a widely separated pair is a 9:1 strip.
+        ratio = Math.min(1.3, Math.max(0.25, rowSpan / colSpan));
       } else {
         ratio = 1;
       }
@@ -305,6 +373,237 @@ export class ProjectionPanel {
     }
   }
 
+  /**
+   * The two ensemble shower axes of the canonical frame, each with its
+   * dispersion band and its mean-uncertainty envelope.
+   *
+   * Three marks, three quantities, per CLAUDE.md section 2: the dashed line is
+   * the mean of the per-event projected slopes; the shaded wedge behind it is
+   * the sample spread of those slopes (where individual showers go); the thin
+   * envelope is the Student-t 95% interval of the mean (how well the ensemble
+   * axis is known). They differ by sqrt(N), so each names itself on hover. An
+   * axis whose direction is not distinguishable from uniform (Rayleigh p above
+   * the fade threshold) is drawn faded, never hidden.
+   */
+  addEnsembleAxes(series, block, meta, col, row) {
+    for (const [shower, colour] of [['a', THEME.showerA], ['b', THEME.showerB]]) {
+      const lines = block[shower];
+      if (!lines || !lines.axis) continue;
+      const info = meta?.[shower] || {};
+      const label = shower.toUpperCase();
+      const faded = Boolean(info.faded);
+      const n = info.n ?? '—';
+      const coherence = Number.isFinite(info.resultant_transverse)
+        ? `R̄′ = ${info.resultant_transverse.toFixed(3)}, Rayleigh p = ${Number(info.rayleigh_p).toPrecision(2)}`
+        : (info.label || 'single event');
+
+      const wedge = (points, name, alpha, tip) => {
+        if (!points) return;
+        series.push({
+          type: 'custom',
+          name,
+          silent: false,
+          clip: true,
+          z: 5,
+          data: [points],
+          renderItem: (params, api) => {
+            const [[z0, lo0, hi0], [z1, lo1, hi1]] = points;
+            const corners = [[z0, lo0], [z1, lo1], [z1, hi1], [z0, hi0]].map((p) => api.coord(p));
+            return {
+              type: 'polygon',
+              shape: { points: corners },
+              style: { fill: colour, opacity: alpha, stroke: 'none' },
+            };
+          },
+          tooltip: { formatter: () => tip },
+        });
+      };
+
+      // The two showers' wedges overlap on the YZ panel (both axes start at
+      // the origin), so each is drawn at a fraction of the band alpha the
+      // energy panel uses for a single band.
+      wedge(lines.band, `Ensemble axis ${label} — spread`, faded ? 0.05 : THEME.bandAlpha * 0.6,
+        `Ensemble axis ${label} — dispersion band<br/>` +
+        `± sample SD of the per-event slopes${lines.dof_note ? ` (${lines.dof_note})` : ''}: ` +
+        'where individual showers go, not the uncertainty of the mean.');
+      wedge(lines.envelope, `Ensemble axis ${label} — 95% interval`, faded ? 0.12 : THEME.bandAlpha * 1.4,
+        `Ensemble axis ${label} — 95% interval of the mean<br/>` +
+        `± t<sub>0.975,N−1</sub>·SD/√N over N = ${n} events: how well the ensemble axis is known.`);
+
+      series.push({
+        type: 'line',
+        name: `Ensemble axis — ${label}`,
+        data: lines.axis,
+        symbol: 'none',
+        lineStyle: {
+          color: colour, width: 1.8 * THEME.lineAxis, type: 'dashed',
+          opacity: faded ? FADE_OPACITY : 0.95,
+        },
+        z: 9,
+        clip: true,
+        tooltip: {
+          formatter: () =>
+            `Ensemble shower axis — ${label}<br/>` +
+            `mean incident direction in the canonical frame (slope ${Number(lines.slope).toFixed(4)})<br/>` +
+            `${coherence}, N = ${n}` +
+            (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
+            (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
+        },
+      });
+    }
+  }
+
+  /**
+   * The anchors of the canonical frame: shower A at (−⟨D_entry⟩/2, 0), B at
+   * (+⟨D_entry⟩/2, 0), each with an uncapped bar for the sample spread of the
+   * entry separation, and the labelled separation vector between them.
+   */
+  addAnchors(series, anchors, frame, col, row, compact = false) {
+    const depthPanel = col.name === 'z';
+    const place = (anchor) => {
+      // XY: (x', y'). Depth panels: [z' = 0, transverse]; on YZ both anchors
+      // sit at the origin because the frame puts the showers on y' = 0.
+      if (!depthPanel) return [anchor.x, anchor.y];
+      return [0.0, row.name === 'x' ? anchor.x : anchor.y];
+    };
+    const spreadPoints = (anchor) => {
+      if (!anchor.spread) return null;
+      if (!depthPanel) return [[anchor.spread[0], anchor.y], [anchor.spread[1], anchor.y]];
+      if (row.name !== 'x') return null;
+      return [[0.0, anchor.spread[0]], [0.0, anchor.spread[1]]];
+    };
+
+    if (depthPanel && row.name !== 'x' && anchors.a && anchors.b) {
+      // On the Y′Z′ panel both anchors project onto the origin: one marker,
+      // one honest tooltip, instead of a circle hiding a diamond.
+      series.push({
+        type: 'scatter',
+        name: 'Anchors A and B',
+        symbol: 'circle',
+        symbolSize: 12 * THEME.markerScale,
+        data: [[0.0, 0.0]],
+        itemStyle: {
+          color: THEME.text, borderColor: THEME.canvas, borderWidth: 1.5 * THEME.lineAxis,
+        },
+        z: 11,
+        tooltip: {
+          formatter: () =>
+            'Canonical anchors — showers A and B<br/>' +
+            'both entry points lie on the shower plane y′ = 0; they are separated along x′, ' +
+            `at ∓⟨D_entry⟩/2 = ∓${Math.abs(anchors.b.x).toFixed(1)} mm, which this panel projects out.`,
+        },
+      });
+      return;
+    }
+
+    for (const [shower, anchor] of Object.entries(anchors)) {
+      if (!anchor) continue;
+      const label = shower.toUpperCase();
+      const colour = shower === 'a' ? THEME.showerA : THEME.showerB;
+      const spread = spreadPoints(anchor);
+      if (spread) {
+        series.push({
+          type: 'line',
+          name: `Anchor ${label} — spread`,
+          data: spread,
+          symbol: 'none',
+          lineStyle: { color: colour, width: 6 * THEME.lineAxis, opacity: 0.35 },
+          z: 9,
+          clip: true,
+          tooltip: {
+            formatter: () =>
+              `Anchor ${label} — spread of D_entry/2 across events<br/>` +
+              `± sample SD${anchor.dof_note ? ` (${anchor.dof_note})` : ''}: dispersion, not uncertainty of the mean.`,
+          },
+        });
+      }
+      series.push({
+        type: 'scatter',
+        name: `Anchor ${label}`,
+        symbol: shower === 'a' ? 'diamond' : 'circle',
+        symbolSize: 15 * THEME.markerScale,
+        data: [place(anchor)],
+        itemStyle: {
+          color: colour, borderColor: THEME.canvas, borderWidth: 1.5 * THEME.lineAxis,
+        },
+        z: 11,
+        tooltip: {
+          formatter: () =>
+            `Canonical anchor — shower ${label}<br/>` +
+            `back-projected entry point at ${shower === 'a' ? '−' : '+'}⟨D_entry⟩/2 = ${anchor.x.toFixed(1)} mm` +
+            (Number.isFinite(anchor.se95) ? `<br/>95% interval of the mean anchor ± ${anchor.se95.toFixed(1)} mm (N = ${anchor.n})` : ''),
+        },
+      });
+    }
+
+    if (depthPanel || !anchors.a || !anchors.b) return;
+    const dEntry = frame?.d_entry?.mean;
+    const dData = frame?.d_dataset?.mean;
+    // The long form names both definitions; a single-column figure has no
+    // room for it, and its caption spells the two out anyway.
+    const text = compact
+      ? [
+        Number.isFinite(dEntry) ? `⟨D_entry⟩ ${dEntry.toFixed(0)} mm` : null,
+        Number.isFinite(dData) ? `⟨D⟩ ${dData.toFixed(0)} mm` : null,
+      ].filter(Boolean).join(' · ')
+      : [
+        Number.isFinite(dEntry) ? `⟨D_entry⟩ = ${dEntry.toFixed(0)} mm (entry)` : null,
+        Number.isFinite(dData) ? `⟨D⟩ = ${dData.toFixed(0)} mm (dataset, 3-D)` : null,
+      ].filter(Boolean).join(' · ');
+    series.push({
+      type: 'line',
+      name: 'Entry separation',
+      data: [[anchors.a.x, anchors.a.y], [anchors.b.x, anchors.b.y]],
+      symbol: 'none',
+      lineStyle: { color: THEME.text, width: 1.4 * THEME.lineAxis, type: 'dashed', opacity: 0.9 },
+      silent: true,
+      z: 11,
+      clip: true,
+      markPoint: {
+        symbol: 'rect',
+        symbolSize: 0,
+        data: [{
+          coord: [0, 0],
+          label: {
+            show: true,
+            formatter: text,
+            color: THEME.text,
+            backgroundColor: THEME.labelBg,
+            borderColor: THEME.border,
+            borderWidth: 1,
+            padding: [3, 5],
+            borderRadius: 3,
+            fontSize: THEME.fontLabel,
+            fontFamily: THEME.fontFamily,
+            offset: [0, -18],
+          },
+        }],
+      },
+    });
+  }
+
+  /** The front and back faces of the calorimeter on a depth panel. */
+  addDepthBounds(series, bounds, col, row) {
+    if (col.name !== 'z') return;
+    for (const [depth, name] of [[bounds.front, 'front face'], [bounds.back, 'back face']]) {
+      if (!Number.isFinite(depth)) continue;
+      series.push({
+        type: 'line',
+        name: `Calorimeter ${name}`,
+        data: [[depth, row.lo], [depth, row.hi]],
+        symbol: 'none',
+        lineStyle: { color: THEME.muted, width: THEME.lineAxis, opacity: 0.7 },
+        z: 4,
+        clip: true,
+        tooltip: {
+          formatter: () =>
+            `Calorimeter ${name} at z′ = ${depth.toFixed(1)} mm<br/>` +
+            'The transverse outline rotates with each event and has no ensemble image.',
+        },
+      });
+    }
+  }
+
   addCentroids(series, centroids, col, row, showVector) {
     for (const [key, pair] of Object.entries(centroids)) {
       if (!pair || !pair.a) continue;
@@ -330,8 +629,8 @@ export class ProjectionPanel {
           tooltip: {
             formatter: () =>
               `${pair.label}<br/>Shower ${shower}<br/>` +
-              `${col.name} = ${cx.toFixed(1)} mm<br/>` +
-              `${row.name} = ${cy.toFixed(1)} mm`,
+              `${symbolOf(col)} = ${cx.toFixed(1)} mm<br/>` +
+              `${symbolOf(row)} = ${cy.toFixed(1)} mm`,
           },
           z: 10,
         });
@@ -413,10 +712,17 @@ export class ProjectionPanel {
 
     if (this.isometric) {
       // Widen the narrower axis so both keep one millimetre-per-pixel factor;
-      // otherwise the 1:1 guarantee would hold only at full zoom-out.
-      const want = Math.max(c1 - c0, r1 - r0);
-      [c0, c1] = centreOn(c0, c1, want);
-      [r0, r1] = centreOn(r0, r1, want);
+      // otherwise the 1:1 guarantee would hold only at full zoom-out. The plot
+      // rectangle is letterboxed from the full extent, so the window must take
+      // the full extent's span ratio - which is 1 for the detector face but
+      // about 9 for the canonical entrance window of a widely separated pair.
+      const target = (col.hi - col.lo) / (row.hi - row.lo);
+      const ratio = (c1 - c0) / (r1 - r0);
+      if (ratio < target) {
+        [c0, c1] = centreOn(c0, c1, (r1 - r0) * target);
+      } else {
+        [r0, r1] = centreOn(r0, r1, (c1 - c0) / target);
+      }
     }
 
     // Padding and squaring can push the window past the detector. Showing
@@ -574,23 +880,40 @@ export class ProjectionPanel {
       }
 
       const exact = exactValue(payload, r, c);
-      const value = exact !== null ? exact : dequantize(code, payload.scale, payload);
       const centreX = cellCentre(col, cols, c);
       const centreY = cellCentre(row, rows, r);
-      const unit = payload.scale.unit === 'GeV' ? 'GeV' : '';
+      const scale = payload.scale;
+      const where =
+        `${symbolOf(col)} = ${centreX.toFixed(1)} mm<br/>` +
+        `${symbolOf(row)} = ${centreY.toFixed(1)} mm<br/>`;
+      const precision = `<span style="color:${THEME.muted}"> ${exact !== null ? '(exact)' : '(quantised)'}</span>`;
+
+      let body;
+      if (scale.unit === 'a.u.' && scale.rho_ref) {
+        // Relative ramp: the raster holds ratios to rho_ref, the exact list
+        // holds physical densities. Show both, plus the bin the value is a
+        // density over, so the number can be quoted either way.
+        const rho = exact !== null ? exact : dequantize(code, scale, payload) * scale.rho_ref;
+        const ratio = rho / scale.rho_ref;
+        const binW = (col.hi - col.lo) / cols;
+        const binH = (row.hi - row.lo) / rows;
+        body =
+          `<b>${ratio.toFixed(3)} a.u.</b> of ρ<sub>ref</sub>${precision}<br/>` +
+          `⟨ρ⟩ = ${formatSci(rho, 3)} GeV mm⁻² per event<br/>` +
+          `<span style="color:${THEME.muted}">${binW.toFixed(0)} × ${binH.toFixed(1)} mm bin · ` +
+          `ρ<sub>ref</sub> = ${formatSci(scale.rho_ref, 3)} (${scale.norm === 'dataset' ? 'dataset' : 'selection'} peak)</span>`;
+      } else {
+        const value = exact !== null ? exact : dequantize(code, scale, payload);
+        const unit = scale.unit === 'GeV' ? 'GeV' : '';
+        body = `<b>${formatSci(value, 3)} ${unit}</b>${precision}`;
+      }
 
       this.chart.dispatchAction({
         type: 'showTip',
         x: px,
         y: py,
         position: [px + 12, py - 8],
-        tooltip: {
-          formatter:
-            `${col.name} = ${centreX.toFixed(1)} mm<br/>` +
-            `${row.name} = ${centreY.toFixed(1)} mm<br/>` +
-            `<b>${formatSci(value, 3)} ${unit}</b>` +
-            `<span style="color:${THEME.muted}"> ${exact !== null ? '(exact)' : '(quantised)'}</span>`,
-        },
+        tooltip: { formatter: where + body },
       });
     };
     zr.on('mousemove', this.tooltipHandler);
@@ -610,6 +933,48 @@ export class ProjectionPanel {
 function sameExtent(a, b) {
   return a.axes.col.lo === b.axes.col.lo && a.axes.col.hi === b.axes.col.hi
     && a.axes.row.lo === b.axes.row.lo && a.axes.row.hi === b.axes.row.hi;
+}
+
+/**
+ * Keep a zoom window inside new extents, or drop it when nothing survives.
+ *
+ * The window keeps its size where it can (so a zoom level survives a slider
+ * tick) and slides inward where the new extent is smaller; a window wider
+ * than the whole new extent simply becomes the full extent (null).
+ *
+ * On an isometric panel the plot rectangle is letterboxed from the *full*
+ * extent, so a window is drawn 1:1 only if its span ratio equals the full
+ * extent's. The canonical fit window changes shape with every selection, so
+ * the kept window is re-proportioned about its centre to the new ratio before
+ * it is slid inside.
+ */
+function clampView(view, axes, isometric = false) {
+  let colSpan = view.col[1] - view.col[0];
+  let rowSpan = view.row[1] - view.row[0];
+  const fullCol = axes.col.hi - axes.col.lo;
+  const fullRow = axes.row.hi - axes.row.lo;
+  if (isometric && fullCol > 0 && fullRow > 0 && colSpan > 0) {
+    rowSpan = colSpan * (fullRow / fullCol);
+  }
+  const centre = (r) => (r[0] + r[1]) / 2;
+  const fit = (mid, span, axis) => {
+    const full = axis.hi - axis.lo;
+    const width = Math.min(span, full);
+    if (!(width > 0) || width >= full * 0.999) return null;
+    let a = mid - width / 2;
+    if (a < axis.lo) a = axis.lo;
+    if (a + width > axis.hi) a = axis.hi - width;
+    return [a, a + width];
+  };
+  const col = fit(centre(view.col), colSpan, axes.col);
+  const row = fit(centre(view.row), rowSpan, axes.row);
+  if (!col && !row) return null;
+  // Both axes must shrink together on an isometric panel, or neither.
+  if (isometric && (!col || !row)) return null;
+  return {
+    col: col || [axes.col.lo, axes.col.hi],
+    row: row || [axes.row.lo, axes.row.hi],
+  };
 }
 
 function pad([lo, hi], fraction) {
@@ -642,4 +1007,7 @@ const CENTROID_STYLE = {
   truth_voxel: { size: 15, opacity: 1.0, vector: true },
   pred_voxel: { size: 11, opacity: 0.75, vector: false },
   truth_dataset: { size: 9, opacity: 0.5, vector: false },
+  // The canonical frame's replacement for truth_dataset: the dataset centroids
+  // averaged after co-registration, where averaging a position is meaningful.
+  canonical_mean: { size: 9, opacity: 0.5, vector: false },
 };

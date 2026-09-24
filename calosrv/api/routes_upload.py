@@ -86,7 +86,7 @@ async def upload(
         staged.unlink()
         raise
 
-    cache_mod.get_cache(settings.cache_entries).invalidate_table(name)
+    cache_mod.invalidate_all(name)
 
     store = jobs_mod.get_job_store(database)
     job = store.submit(
@@ -145,7 +145,7 @@ def ingest_local(
                     f"Cannot append to experiment {name!r}: it does not exist."
                 )
 
-    cache_mod.get_cache(settings.cache_entries).invalidate_table(name)
+    cache_mod.invalidate_all(name)
 
     staged = StagedFile(
         path=source,

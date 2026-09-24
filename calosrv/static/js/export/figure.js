@@ -29,12 +29,27 @@
  * `display: none` and `visibility: hidden` both give a zero-size box, and
  * ECharts measures its container. The node is therefore a normally laid-out
  * element parked outside the viewport, and it is removed before this returns.
+ *
+ * ## Why the SVG caption is spliced rather than drawn
+ *
+ * The PNG carries its caption as ECharts `graphic` text, painted inside the
+ * synchronous block. The SVG does not: zrender's SVG painter flattens the
+ * display list, so `graphic` items come out as loose `<text>` with no group a
+ * reader could address, and the deliverable wants an isolated
+ * `<g id="figure-disclosure">`. So for SVG the chart is rendered with the
+ * caption's *height reserved but its items withheld*, and the same laid-out
+ * items are serialised by `captionToSvg` and spliced before `</svg>` in the
+ * post-processing step, alongside `sharpenRasterHints`. That step runs after
+ * the theme is restored, which is why `captionToSvg` reads styles from the
+ * items and never from `THEME`.
  */
 
 import { THEME, restoreScreenTheme, axisPadding } from '../scale.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
-import { buildCaption, describeSelection, describeView, fitTableRows } from './caption.js';
+import {
+  buildCaption, captionToSvg, describeSelection, describeView, fitTableRows,
+} from './caption.js';
 import { downloadBlob, dataUrlToBlob } from './download.js';
 import { figureName } from './filename.js';
 
@@ -45,10 +60,12 @@ const MAX_RASTER_PX = 4096;
  * Export one panel.
  *
  * `panel` is a `ProjectionPanel` or `EnergyPanel`; `context` carries the
- * `State`, the active experiment and the live footnote text.
+ * `State`, the active experiment, the live footnote text and the structured
+ * `disclosure` sentences from `export/disclosure.js`.
  */
 export function exportPanel(panel, {
   panelId, format = 'svg', widthMm, title, footnote, state, experiment, selection,
+  frame = null, disclosure = [],
 }) {
   const width = widthToPx(widthMm);
   const host = document.createElement('div');
@@ -61,6 +78,10 @@ export function exportPanel(panel, {
   let chart = null;
   let serialized = null;
   let mime = null;
+  // Laid out inside the synchronous block, consumed after it: the SVG splice
+  // below needs the caption's items and the plot height they sit under.
+  let caption = null;
+  let metrics = null;
 
   try {
     chart = echarts.init(host, null, {
@@ -72,23 +93,27 @@ export function exportPanel(panel, {
       /* ---- the synchronous window: no await, no timer, no yield --------- */
       Object.assign(THEME, PRINT_TOKENS);
 
-      const metrics = panel.exportMetrics(width);
-      const caption = buildCaption({
+      metrics = panel.exportMetrics(width);
+      caption = buildCaption({
         title,
-        provenance: provenanceFor(panel, state, experiment, selection),
+        provenance: provenanceFor(panel, state, experiment, selection, frame),
         footnote,
         table: tableFor(panel, width),
+        disclosure,
       }, width);
 
       const figureHeight = metrics.height + caption.height;
       host.style.height = `${figureHeight}px`;
       chart.resize({ width, height: figureHeight });
 
+      // SVG: the band's height is reserved so the ramp and axes stay clear of
+      // it, but its items are withheld from the chart and spliced in as a
+      // `<g>` after serialisation (see the header). PNG: drawn as graphics.
       const option = buildPrintOption(panel, {
         width,
         height: figureHeight,
         reservedBottom: caption.height,
-        graphic: offsetCaption(caption.graphic, metrics.height),
+        graphic: format === 'svg' ? [] : offsetCaption(caption.graphic, metrics.height),
       });
       chart.setOption(option, { notMerge: true });
 
@@ -110,7 +135,9 @@ export function exportPanel(panel, {
     /* ---- screen theme is back; everything below may yield --------------- */
 
     const blob = format === 'svg'
-      ? new Blob([sharpenRasterHints(serialized)], { type: mime })
+      ? new Blob([
+        spliceCaption(sharpenRasterHints(serialized), caption.graphic, metrics.height),
+      ], { type: mime })
       : dataUrlToBlob(serialized);
 
     downloadBlob(blob, figureName(panelId, format, { state }));
@@ -184,13 +211,20 @@ function offsetCaption(graphic, plotHeight) {
   return graphic.map((item) => ({ ...item, top: item.top + plotHeight }));
 }
 
-function provenanceFor(panel, state, experiment, selection) {
-  const parts = [describeSelection(state, experiment, selection)];
+function provenanceFor(panel, state, experiment, selection, frameBlock = null) {
+  // The frame block rides on the top-level projections response, which the
+  // caller passes in; a projection panel only holds its own panel payload.
+  // Fall back to anything the panel itself carries, and to null for the lab.
+  const frame = frameBlock
+    ?? (panel.kind === 'energy' ? panel.lastPayload?.frame : panel.payload?.frame)
+    ?? null;
+  const parts = [describeSelection(state, experiment, selection, frame)];
   if (typeof panel.currentView === 'function') {
     const view = panel.currentView();
-    if (view && panel.payload) {
+    const axes = panel.payload?.axes;
+    if (view && axes?.col && axes?.row) {
       parts.push(describeView(
-        view, panel.payload.axes.col.name, panel.payload.axes.row.name,
+        view, axes.col.symbol ?? axes.col.name, axes.row.symbol ?? axes.row.name,
       ));
     }
   }
@@ -223,4 +257,20 @@ function tableFor(panel, width) {
  */
 function sharpenRasterHints(svg) {
   return svg.replace(/<image /g, '<image style="image-rendering:pixelated" ');
+}
+
+/**
+ * Insert the caption band as `<g id="figure-disclosure">` before `</svg>`.
+ *
+ * The root element zrender writes carries width, height and viewBox in the
+ * same logical pixels the caption was laid out in, so the items' positions
+ * transfer unchanged. Placed last in document order, the band paints over
+ * nothing: its height was reserved below the plot when the chart was built.
+ */
+function spliceCaption(svg, graphic, plotHeight) {
+  const band = captionToSvg(graphic, plotHeight);
+  if (!band) return svg;
+  const close = svg.lastIndexOf('</svg>');
+  if (close < 0) return svg;
+  return `${svg.slice(0, close)}${band}${svg.slice(close)}`;
 }

@@ -185,6 +185,10 @@ input[type="file"]::file-selector-button:hover {
 }
 .choice input { margin-right: 8px; accent-color: var(--accent); vertical-align: middle; }
 .choice.is-disabled { color: var(--disabled); cursor: not-allowed; }
+/* A displayed `.choice` would otherwise beat the `hidden` attribute, which
+ * the frame toggle relies on to swap the lock-scale checkbox for the density
+ * normalisation radios. */
+.choice[hidden] { display: none; }
 
 .caption {
   font-size: 11px;
