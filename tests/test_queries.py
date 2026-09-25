@@ -153,7 +153,7 @@ def test_energy_calibration_puts_truth_on_the_momentum_scale(cursor, record):
 
     event_table = quote(naming.event_table(record.table_name))
     row = cursor.execute(
-        f"SELECT sum(e_a_true), sum(CAST(e1 AS DOUBLE)) FROM {event_table}"
+        f"SELECT sum(e_a_true_abs), sum(CAST(e1 AS DOUBLE)) FROM {event_table}"
     ).fetchone()
     assert float(row[0]) * c_a == pytest.approx(float(row[1]), rel=1e-9)
 
@@ -200,21 +200,25 @@ def test_two_event_slices_report_moments_but_draw_no_curve(cursor, record):
         assert ci > 0 and spread > 0 and ci != spread
 
 
-def test_performance_metrics_roll_up_exactly(cursor, record):
-    """Metrics from stored statistics must equal a direct scan of the hits."""
+def test_performance_metrics_roll_up_exactly(cursor, record, ingested):
+    """Metrics from stored statistics must equal a direct scan of the archived hits."""
+    from calosrv.db import archive
+
     spec = filters.build(record)
     report = performance.compute(cursor, record, spec)
 
-    hit_table = quote(naming.hit_table(record.table_name))
+    hits = archive.relation(ingested["settings"], record.table_name)
     row = cursor.execute(
         f"""
         SELECT count(*),
-               count(*) FILTER (WHERE (voxel_fA_pred >= 0.5) = (voxel_fA_true >= 0.5)),
-               sum(abs(CAST(voxel_fA_pred AS DOUBLE) - CAST(voxel_fA_true AS DOUBLE))),
-               sum(energy * abs(CAST(voxel_fA_pred AS DOUBLE)
-                                - CAST(voxel_fA_true AS DOUBLE))),
+               count(*) FILTER (WHERE (segmentation_absolute_pred >= 0.5)
+                                    = (segmentation_absolute_true >= 0.5)),
+               sum(abs(CAST(segmentation_absolute_pred AS DOUBLE)
+                       - CAST(segmentation_absolute_true AS DOUBLE))),
+               sum(energy * abs(CAST(segmentation_absolute_pred AS DOUBLE)
+                                - CAST(segmentation_absolute_true AS DOUBLE))),
                sum(energy)
-        FROM {hit_table}
+        FROM {hits}
         WHERE energy IS NOT NULL AND isfinite(energy) AND energy > 0
         """
     ).fetchone()

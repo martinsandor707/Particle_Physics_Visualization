@@ -17,20 +17,20 @@ RUN pip install --upgrade pip \
     && pip install \
         "fastapi>=0.115,<1" \
         "uvicorn[standard]>=0.32,<1" \
-        "duckdb>=1.1,<2" \
+        "duckdb==1.5.5" \
         "numpy>=1.26,<3" \
         "pandas>=2.0,<3" \
         "python-multipart>=0.0.12"
 
 COPY calosrv /app/calosrv
 
-# Seed CSV for the baseline experiment. Copied into the image (345 KB) so a
+# Seed CSV for the baseline experiment. Copied into the image (1 MB) so a
 # first boot with an empty ./data volume still produces a populated dashboard.
-COPY hits_with_gradcam_dummy.csv /app/seed/hits_with_gradcam_dummy.csv
+COPY hits_all_models_dummy.csv /app/seed/hits_all_models_dummy.csv
 
 # /app/data is the docker-compose volume mount point: DuckDB file, CSV staging
-# area and DuckDB's temp spill directory all live here.
-RUN mkdir -p /app/data/staging /app/data/tmp
+# area, DuckDB's temp spill directory and the Parquet archive all live here.
+RUN mkdir -p /app/data/staging /app/data/tmp /app/data/archive
 
 EXPOSE 8000
 

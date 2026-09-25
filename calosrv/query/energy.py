@@ -335,7 +335,8 @@ def _fetch(
         f"""
         SELECT
             {case_sql(slices)}          AS slice_index,
-            e_a_pred, e_b_pred, e_a_true, e_b_true,
+            e_a_pred_abs AS e_a_pred, e_b_pred_abs AS e_b_pred,
+            e_a_true_abs AS e_a_true, e_b_true_abs AS e_b_true,
             CAST(e1 AS DOUBLE)          AS e1,
             CAST(e2 AS DOUBLE)          AS e2
         FROM {table}

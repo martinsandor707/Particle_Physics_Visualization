@@ -1,7 +1,7 @@
-# Keep the build context small. Without this, the 7.4 GB production CSV is
+# Keep the build context small. Without this, the 24 GB production CSV is
 # uploaded to the Docker daemon on every build.
 *.csv
-!hits_with_gradcam_dummy.csv
+!hits_all_models_dummy.csv
 
 data/
 .venv/

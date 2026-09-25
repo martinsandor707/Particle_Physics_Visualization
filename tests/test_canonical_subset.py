@@ -1,8 +1,9 @@
 """Canonical-frame behaviour at production scale, on a subset of the real data.
 
-Runs only when ``CALOSRV_TEST_SUBSET_CSV`` points at a 29-column CSV cut from
-the production file (a few hundred to a few thousand events); see plan.md,
-Verification step 2, for how to produce one from ``data/calorimeter.duckdb``.
+Runs only when ``CALOSRV_TEST_SUBSET_CSV`` points at a 99-column
+``hits_all_models`` CSV cut from the production file (a few hundred to a few
+thousand events); ``tests/make_all_models_fixture.py subset`` writes one from
+the Parquet archive of a development ingest.
 The two-event demonstration file cannot exercise the sub-cell factor budget,
 the payload guard on a wide window, the dataset-wide density reference or the
 coherence of the ensemble axes across separation slices.
@@ -35,33 +36,12 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def subset(ingested):
     """Ingest the subset beside the demonstration experiment, once per module."""
-    from calosrv.ingest import derive_events, derive_proj, lattice_fit, load
+    from calosrv.ingest import pipeline
 
     database = ingested["database"]
     with database.write_lock() as con:
         if registry.get_experiment(con, TABLE) is None:
-            record = registry.ExperimentRecord(table_name=TABLE)
-            record.status = registry.STATUS_INGESTING
-            registry.upsert(con, record)
-            n_hits = load.load_csv(con, TABLE, Path(SUBSET_CSV))
-            lattice = lattice_fit.measure_lattice(con, naming.hit_table(TABLE))
-            bounds = lattice_fit.measure_bounds(con, naming.hit_table(TABLE))
-            record.lattice = lattice
-            registry.upsert(con, record)
-            derive_proj.build(con, TABLE, lattice)
-            n_events = derive_events.build(con, TABLE)
-            cell_max, cell_p999 = derive_proj.measure_color_anchors(con, TABLE, lattice.slab_iz)
-            derive_proj.build_sample(con, TABLE, 10.0)
-            record.n_hits, record.n_events = n_hits, n_events
-            record.n_events_no_d = bounds["n_events_no_d"]
-            record.e1_min, record.e1_max = bounds["e1_min"], bounds["e1_max"]
-            record.e2_min, record.e2_max = bounds["e2_min"], bounds["e2_max"]
-            record.d_min, record.d_max = bounds["d_min"], bounds["d_max"]
-            record.overlaps = bounds["overlaps"]
-            record.cell_e_max, record.cell_e_p999 = cell_max, cell_p999
-            record.has_sample = True
-            record.status = registry.STATUS_READY
-            registry.upsert(con, record)
+            pipeline.run_ingest(con, ingested["settings"], TABLE, Path(SUBSET_CSV))
     with database.read_cursor() as con:
         yield {"database": database, "record": registry.require_ready(con, TABLE),
                "settings": ingested["settings"]}
@@ -248,7 +228,7 @@ def test_anchors_sit_where_the_showers_enter(subset):
                        sqrt((xb - xa) * (xb - xa) + (yb - ya) * (yb - ya)) AS d_entry
                 FROM ev
             ), pts AS (
-                SELECT p.event_number, p.energy, p.fa_true, f.d_entry,
+                SELECT p.event_number, p.energy, p.fa_true_abs AS fa_true, f.d_entry,
                        list_extract($xc, p.ix + 1) - f.x0 AS xt,
                        list_extract($yc, p.iy + 1) - f.y0 AS yt, f.c, f.s
                 FROM {proj} p JOIN fr f USING (event_number) WHERE p.iz <= {lat.slab_iz}

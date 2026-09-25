@@ -17,8 +17,10 @@ import logging
 import duckdb
 import numpy as np
 
+from ..db import naming
 from ..db.naming import quote
 from ..errors import IngestError
+from ..grid.bounds import FRAME_AXES, QUANTILE_LEVELS, AxisBounds, FrameBounds, quantile_key
 from ..grid.lattice import Axis, Lattice
 from ..grid.slab import DEFAULT_SLAB_MM, slab_layer_count
 
@@ -31,10 +33,10 @@ MAX_AXIS_CELLS = 4096
 
 
 def _distinct_axis(
-    con: duckdb.DuckDBPyConnection, physical: str, column: str
+    con: duckdb.DuckDBPyConnection, source: str, column: str
 ) -> Axis:
     rows = con.execute(
-        f"SELECT DISTINCT {quote(column)} AS v FROM {quote(physical)} "
+        f"SELECT DISTINCT {quote(column)} AS v FROM {source} "
         f"WHERE {quote(column)} IS NOT NULL ORDER BY v"
     ).fetchall()
     if not rows:
@@ -52,13 +54,18 @@ def _distinct_axis(
 
 def measure_lattice(
     con: duckdb.DuckDBPyConnection,
-    physical: str,
+    source: str,
     slab_mm: float = DEFAULT_SLAB_MM,
 ) -> Lattice:
-    """Measure the x, y and z lattices and the entrance-slab depth."""
-    x = _distinct_axis(con, physical, "x")
-    y = _distinct_axis(con, physical, "y")
-    z = _distinct_axis(con, physical, "z")
+    """Measure the laboratory x, y and z lattices and the entrance-slab depth.
+
+    ``source`` is a relation - the archive's ``read_parquet(...)`` - rather than
+    a table name. Only the laboratory coordinates form a lattice; the per-shower
+    frames are continuous and are described by :func:`measure_frame_bounds`.
+    """
+    x = _distinct_axis(con, source, "x")
+    y = _distinct_axis(con, source, "y")
+    z = _distinct_axis(con, source, "z")
 
     slab_iz = slab_layer_count(z.coords, slab_mm)
 
@@ -82,37 +89,42 @@ def measure_lattice(
     return Lattice(x=x, y=y, z=z, slab_mm=slab_mm, slab_iz=slab_iz)
 
 
-def measure_bounds(con: duckdb.DuckDBPyConnection, physical: str) -> dict:
-    """Kinematic bounds and the overlap classes present.
+def layer_pitch(z_coords: np.ndarray) -> float:
+    """The sampling-layer pitch: the smallest gap between populated layers.
+
+    Not the mean spacing: a selection or a small file that misses a layer
+    (the 2-event demonstration file populates 56 of 60) has a mean spacing
+    above the true pitch, while its smallest gap is still one layer.
+    """
+    coords = np.unique(np.asarray(z_coords, dtype=np.float64))
+    if coords.size < 2:
+        raise IngestError("Cannot measure a layer pitch from fewer than two layers.")
+    return float(round(float(np.min(np.diff(coords))), 4))
+
+
+def measure_bounds(con: duckdb.DuckDBPyConnection, name: str) -> dict:
+    """Kinematic bounds and the overlap classes present, from the event table.
 
     The E1/E2/D bounds are taken over *events*, not hit rows. A hit-weighted
-    minimum would be identical, but a hit-weighted mean would not, and taking
-    all of them from the same event-level subquery keeps the rule "per-event
-    quantities are aggregated per event" visible rather than implicit.
+    minimum would be identical, but a hit-weighted mean would not, and reading
+    the per-event table keeps the rule "per-event quantities are aggregated per
+    event" visible rather than implicit.
     """
+    event = quote(naming.event_table(name))
     row = con.execute(
         f"""
-        WITH ev AS (
-            SELECT event_number,
-                   max(incoming_momentum_A)  AS e1,
-                   max(incoming_momentum_B)  AS e2,
-                   max(centroid_AB_distance) AS d
-            FROM {quote(physical)}
-            GROUP BY event_number
-        )
         SELECT min(e1), max(e1), min(e2), max(e2),
                min(d),  max(d),
                count(*),
                count(*) FILTER (WHERE d IS NULL)
-        FROM ev
+        FROM {event}
         """
     ).fetchone()
 
     overlaps = [
         int(r[0])
         for r in con.execute(
-            f"SELECT DISTINCT overlap FROM {quote(physical)} "
-            "WHERE overlap IS NOT NULL ORDER BY overlap"
+            f"SELECT DISTINCT ovl FROM {event} WHERE ovl IS NOT NULL ORDER BY ovl"
         ).fetchall()
     ]
 
@@ -141,3 +153,45 @@ def measure_bounds(con: duckdb.DuckDBPyConnection, physical: str) -> dict:
         bounds["n_events"], overlaps,
     )
     return bounds
+
+
+def measure_frame_bounds(
+    con: duckdb.DuckDBPyConnection, name: str, layer_pitch_mm: float
+) -> FrameBounds:
+    """Extent and energy-weighted quantiles of every per-shower coordinate.
+
+    Measured from 1 mm histograms of each coordinate on the projection table
+    (one grouped scan per axis) and cumulated in NumPy, so the quantiles are
+    exact to the millimetre without sorting 24 million values. Grid planning
+    for the translated and local frames starts from these.
+    """
+    proj = quote(naming.proj_table(name))
+    axes: dict[str, AxisBounds] = {}
+    for column in FRAME_AXES:
+        rows = con.execute(
+            f"SELECT floor({column}) AS b, sum(energy) AS e FROM {proj} "
+            "GROUP BY b ORDER BY b"
+        ).fetchnumpy()
+        bins = np.asarray(rows["b"], dtype=np.float64)
+        weights = np.asarray(rows["e"], dtype=np.float64)
+        lo, hi = con.execute(f"SELECT min({column}), max({column}) FROM {proj}").fetchone()
+        quantiles: dict[str, float] = {}
+        if weights.size and weights.sum() > 0:
+            cumulative = np.cumsum(weights) / weights.sum()
+            for level in QUANTILE_LEVELS:
+                index = int(np.searchsorted(cumulative, level, side="left"))
+                index = min(index, bins.size - 1)
+                # The upper edge of the millimetre bin that crosses the level.
+                quantiles[quantile_key(level)] = float(bins[index] + 1.0)
+        axes[column] = AxisBounds(
+            column, float(lo if lo is not None else 0.0), float(hi if hi is not None else 0.0),
+            quantiles,
+        )
+        log.info(
+            "Frame bounds %s: %.0f..%.0f mm, energy-weighted 0.1-99.9%% %.0f..%.0f mm",
+            column, axes[column].lo, axes[column].hi,
+            quantiles.get(quantile_key(1e-3), float("nan")),
+            quantiles.get(quantile_key(0.999), float("nan")),
+        )
+    n_layers = int(con.execute(f"SELECT coalesce(max(kt), 0) + 1 FROM {proj}").fetchone()[0])
+    return FrameBounds(axes=axes, n_layers_trans=n_layers, layer_pitch_mm=float(layer_pitch_mm))

@@ -23,7 +23,7 @@ def test_baseline_is_seeded_from_the_whole_demonstration_csv(client):
     assert baseline["status"] == "ready"
     assert baseline["n_hits"] == 1000
     assert baseline["n_events"] == 2
-    assert "hits_with_gradcam_dummy.csv" in baseline["source_files"]
+    assert "hits_all_models_dummy.csv" in baseline["source_files"]
 
 
 def test_experiments_reports_the_compute_allocation(client):
@@ -209,7 +209,7 @@ def test_upload_rejects_a_mismatched_schema(client):
             break
         time.sleep(0.1)
     assert job["status"] == "failed"
-    assert "29-column" in (job["error"] or "")
+    assert "does not match the hits_all_models input schema" in (job["error"] or "")
 
 
 def test_append_to_a_missing_experiment_is_rejected(client):
@@ -224,7 +224,11 @@ def test_append_to_a_missing_experiment_is_rejected(client):
 def test_upload_info_warns_about_large_files(client):
     body = client.get("/api/upload-info").json()
     assert "no resume" in body["warning"]
-    assert len(body["schema"]["columns"]) == 29
+    from calosrv.db.ddl import HIT_COLUMN_NAMES
+
+    assert len(body["schema"]["columns"]) == len(HIT_COLUMN_NAMES) == 99
+    assert body["schema"]["n_columns"] == 99
+    assert body["schema"]["name"] == "hits_all_models"
 
 
 def test_index_page_is_served(client):

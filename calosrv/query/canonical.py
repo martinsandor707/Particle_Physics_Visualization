@@ -458,7 +458,8 @@ def build_sql(
         SELECT (u.range + 0.5) / {k} - 0.5 AS fx, (v.range + 0.5) / {k} - 0.5 AS fy
         FROM range({k}) u, range({k}) v
     ), pts AS (
-        SELECT p.iz, p.energy / {k * k} AS energy, p.ge, p.fa_pred, p.fa_true,
+        SELECT p.iz, p.energy / {k * k} AS energy,
+               p.gc_sg_abs AS ge, p.fa_pred_abs AS fa_pred, p.fa_true_abs AS fa_true,
                list_extract($x_coords, p.ix + 1) + sub.fx * $wx - f.x0 AS xt,
                list_extract($y_coords, p.iy + 1) + sub.fy * $wy - f.y0 AS yt,
                f.c, f.s

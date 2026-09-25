@@ -159,7 +159,7 @@ def test_per_event_centroid_transforms_exactly_like_the_hits(cursor, record, fra
     # Laboratory slab centroid of shower A for this event, from the cell coordinates.
     lat = record.lattice
     rows = cursor.execute(
-        f"SELECT ix, iy, sum(energy * CAST(fa_true AS DOUBLE)) FROM {proj} "
+        f"SELECT ix, iy, sum(energy * CAST(fa_true_abs AS DOUBLE)) FROM {proj} "
         f"WHERE event_number = ? AND iz <= {lat.slab_iz} GROUP BY ix, iy", [ev]
     ).fetchall()
     cells = np.array(rows, dtype=np.float64)

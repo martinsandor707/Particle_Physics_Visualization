@@ -65,7 +65,12 @@ def validate_experiment_name(name: str) -> str:
 
 
 def hit_table(name: str) -> str:
-    """Physical name of the raw 29-column hit table for ``name``."""
+    """Physical name of the retired v37 raw hit table for ``name``.
+
+    No table of this name is created any more - raw rows live in the Parquet
+    archive - but a database written by the v37 release still holds them, so
+    drop and cleanup must keep reaching it.
+    """
     return f"{HIT_PREFIX}{validate_experiment_name(name)}"
 
 
