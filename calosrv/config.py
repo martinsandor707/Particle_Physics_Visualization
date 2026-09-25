@@ -11,6 +11,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 #: Default memory ceiling when ``DUCKDB_MEMORY_GB`` is unset or unparseable.
+#:
+#: ``memory_limit`` covers DuckDB's buffer manager only - not the Python heap,
+#: NumPy conversion of results (about 3.5x the final array size) or the bundle
+#: caches - so the container is given about 4 GB on top of this (compose:
+#: 16 GB inside ``mem_limit`` = ``memswap_limit`` = 20g). The 99-column raw
+#: data lives in the Parquet archive, not in the database, so the buffer pool
+#: holds only the hot tables.
 DEFAULT_MEMORY_GB = 16
 
 #: Above this ceiling the host is assumed to be a shared production box where
@@ -37,18 +44,21 @@ def _int_env(name: str, default: int) -> int:
 
 
 def resolve_threads(memory_gb: int, cpu_cores: int | None = None) -> int:
-    """Thread count for DuckDB, protecting multi-tenant host CPU scheduling.
+    """Thread count for DuckDB, protecting host CPU and memory.
 
     A large memory ceiling implies a big shared production host, so only half
     the cores are claimed. A small ceiling implies a dedicated or development
-    box, where all but one core is fair game.
+    box, where all but one core is fair game. Either way the count never exceeds
+    the memory ceiling in GB: every thread holds its own CSV buffers, row-group
+    write buffers and aggregate partitions, and DuckDB's guidance is at least
+    1 GB per thread. 23 threads on 16 GB is what the previous rule allowed.
     """
     cores = cpu_cores if cpu_cores is not None else (os.cpu_count() or 4)
     if memory_gb >= LARGE_MEMORY_GB:
         wanted = cores // 2
     else:
         wanted = cores - 1
-    return min(MAX_THREADS, max(2, wanted))
+    return min(MAX_THREADS, max(2, memory_gb), max(2, wanted))
 
 
 @dataclass(frozen=True)
@@ -99,6 +109,19 @@ class Settings:
 
     cors_origins: tuple[str, ...] = field(default=())
 
+    #: Immutable Parquet archive of every ingested CSV, one directory per
+    #: experiment. Readable by other processes while the server holds the
+    #: DuckDB lock, which is what lets a notebook work beside the dashboard.
+    archive_dir: Path = Path("/app/data/archive")
+
+    #: Free-space multiple required before an ``ingest-local`` of a file already
+    #: on the host (no staging copy): the archive, the derived tables and spill.
+    local_headroom_factor: float = 1.0
+
+    #: Test-only escape hatch for the RAM-backed-storage refusal
+    #: (``CALOSRV_ALLOW_RAM_STORAGE=1``). Never set by the container.
+    allow_ram_storage: bool = False
+
     #: Entries in the canonical-frame bundle cache. A canonical bundle spans a
     #: grid of up to 350 x 138 transverse bins across six planes - two to four
     #: megabytes against roughly two for a lab bundle - so it gets a smaller
@@ -121,9 +144,9 @@ def _seed_candidates(data_dir: Path) -> list[Path]:
         return [Path(override)]
     repo_root = Path(__file__).resolve().parent.parent
     return [
-        Path("/app/seed/hits_with_gradcam_dummy.csv"),
-        data_dir / "hits_with_gradcam_dummy.csv",
-        repo_root / "hits_with_gradcam_dummy.csv",
+        Path("/app/seed/hits_all_models_dummy.csv"),
+        data_dir / "hits_all_models_dummy.csv",
+        repo_root / "hits_all_models_dummy.csv",
     ]
 
 
@@ -137,7 +160,8 @@ def load_settings() -> Settings:
     data_dir = Path(os.getenv("CALOSRV_DATA_DIR", "/app/data"))
     staging_dir = data_dir / "staging"
     temp_dir = data_dir / "tmp"
-    for directory in (data_dir, staging_dir, temp_dir):
+    archive_dir = data_dir / "archive"
+    for directory in (data_dir, staging_dir, temp_dir, archive_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
     seed = next((path for path in _seed_candidates(data_dir) if path.is_file()), None)
@@ -172,4 +196,6 @@ def load_settings() -> Settings:
         server_url=os.getenv("CALOSRV_SERVER_URL", f"http://127.0.0.1:{port}"),
         cors_origins=origins,
         canonical_cache_entries=max(1, _int_env("CALOSRV_CANONICAL_CACHE_ENTRIES", 32)),
+        archive_dir=archive_dir,
+        allow_ram_storage=os.getenv("CALOSRV_ALLOW_RAM_STORAGE", "").strip() == "1",
     )

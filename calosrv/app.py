@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -150,7 +151,7 @@ BASELINE_TABLE = "experiment_baseline"
 def seed_baseline(database, settings: Settings) -> None:
     """Populate the demonstration experiment on a first boot.
 
-    Seeded from the full 1000 rows of ``hits_with_gradcam_dummy.csv`` through
+    Seeded from the full 1000 rows of ``hits_all_models_dummy.csv`` through
     exactly the same pipeline as a real upload - no synthetic records are
     generated. That file holds two events, both well separated, so the spatial
     panels render correctly while the reconstructed-energy panel reports its
@@ -199,8 +200,11 @@ async def lifespan(app: FastAPI):
     log_boot_banner(settings)
 
     with database.write_lock() as con:
-        ready = bootstrap_mod.bootstrap(con)
-        empty = bootstrap_mod.is_empty(con)
+        ready = bootstrap_mod.bootstrap(con, settings)
+        # A demonstration experiment left over from the retired v37 schema is
+        # the application's own data: replace it rather than leave it failed.
+        reseed = bootstrap_mod.retire_unsupported(con, BASELINE_TABLE, settings)
+        empty = bootstrap_mod.is_empty(con) or reseed
 
     jobs_mod.get_job_store(database)
     if empty:
@@ -225,6 +229,13 @@ async def lifespan(app: FastAPI):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging()
+
+    # Starlette spools every upload larger than 1 MB into a temporary file in
+    # TMPDIR before the route copies it to staging. On a host where /tmp is a
+    # tmpfs that is RAM, so a 24 GB upload would fill memory; spool to the
+    # data volume's staging directory instead (compose also sets TMPDIR).
+    tempfile.tempdir = str(settings.staging_dir)
+    log.info("Upload spooling directory: %s", tempfile.tempdir)
 
     app = FastAPI(
         title="Calorimeter Shower Reconstruction Diagnostic Server",

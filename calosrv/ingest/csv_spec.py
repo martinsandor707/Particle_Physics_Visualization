@@ -3,13 +3,13 @@
 DuckDB's ``read_csv_auto`` is deliberately *not* used, and the reason is
 specific to this dataset rather than general caution.
 
-The type sniffer samples a prefix of the file. In ``hits_with_gradcam_v37.csv``
-the first two gigabytes are entirely ``overlap = 0`` - the well-separated
-population - and that region contains **no empty ``centroid_A_*`` fields**. The
-empty strings only begin once ``overlap >= 30``, hundreds of millions of rows
-later. A sniffer would therefore type those four columns from a sample that
-never exhibits the failure mode, and the first empty field encountered would
-either abort the load or silently coerce.
+The type sniffer samples a prefix of the file. In ``hits_all_models.csv`` the
+leading gigabytes are entirely ``overlap = 0`` - the well-separated population -
+and that region contains **no empty ``centroid_A_*`` fields**. The empty strings
+only appear in the 57 events with no shower-A hit at all, every one of them at
+``overlap >= 30``, deep in the file. A sniffer would therefore type those
+columns from a sample that never exhibits the failure mode, and the first empty
+field encountered would either abort the load or silently coerce.
 
 So the column types are pinned, ``nullstr`` is set explicitly, and errors are
 fatal rather than ignored.
@@ -20,17 +20,17 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES
+from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES, SCHEMA_NAME
 from ..errors import IngestError
 
 #: What an empty field means in this dataset.
 #:
-#: Roughly 0.11% of rows carry an empty string for ``centroid_A_x``,
-#: ``centroid_A_y``, ``centroid_A_z`` and ``centroid_AB_distance``. These are
-#: degenerate events in which shower A deposited no energy at all, so no A
-#: centroid exists and the A-B separation is undefined. The emptiness is a
-#: property of the *event*, not of individual rows: an affected event has the
-#: field empty on every one of its rows.
+#: On the production file 98 rows in 57 events carry an empty string for every
+#: ``centroid_A_*`` column (laboratory, ``_trans`` and ``_local``) and for all
+#: three ``centroid_AB_distance*`` columns. These are degenerate events with no
+#: hit attributed to shower A, so no A centroid exists and the A-B separation
+#: is undefined. The emptiness is a property of the *event*, not of individual
+#: rows: an affected event has the fields empty on every one of its rows.
 NULL_STRING = ""
 
 
@@ -60,10 +60,10 @@ def read_csv_expression(path: Path) -> str:
 
 
 def validate_header(path: Path) -> None:
-    """Check the CSV header against the expected 29 columns before loading.
+    """Check the CSV header against the expected schema before loading.
 
     Failing here costs a few milliseconds and produces a message naming the
-    offending column. Failing inside ``read_csv`` on a 7.4 GB file costs minutes
+    offending column. Failing inside ``read_csv`` on a 24 GB file costs minutes
     and produces a parser error about a row number.
     """
     try:
@@ -82,23 +82,28 @@ def validate_header(path: Path) -> None:
     missing = [c for c in HIT_COLUMN_NAMES if c not in found]
     unexpected = [c for c in found if c not in HIT_COLUMN_NAMES]
 
+    n_expected = len(HIT_COLUMN_NAMES)
     if missing or unexpected:
         parts = []
         if missing:
             parts.append(f"missing columns: {', '.join(missing)}")
         if unexpected:
             parts.append(f"unexpected columns: {', '.join(unexpected)}")
-        raise IngestError(
-            f"{path.name} does not match the expected 29-column inference "
-            f"schema ({'; '.join(parts)}).",
-            expected=list(HIT_COLUMN_NAMES),
-            found=list(found),
+        message = (
+            f"{path.name} does not match the {SCHEMA_NAME} input schema "
+            f"({n_expected} columns; {'; '.join(parts)})."
         )
+        if "voxel_fA_pred" in found:
+            message += (
+                " This looks like a retired v37 (hits_with_gradcam) file; re-export it "
+                f"in the {SCHEMA_NAME} format."
+            )
+        raise IngestError(message, expected=list(HIT_COLUMN_NAMES), found=list(found))
 
     # Same names, different order. The pinned `columns` map is positional, so
     # loading this file would put y values into the x column.
     raise IngestError(
-        f"{path.name} has the expected 29 columns but in a different order. "
+        f"{path.name} has the expected {n_expected} columns but in a different order. "
         "The reader is positional, so the file must be reordered before it can "
         "be ingested.",
         expected=list(HIT_COLUMN_NAMES),

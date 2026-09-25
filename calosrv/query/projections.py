@@ -107,7 +107,8 @@ class NativeBundle:
 
 _QUERY = """
 WITH sel AS (
-    SELECT ix, iy, iz, energy, ge, fa_pred, fa_true,
+    SELECT ix, iy, iz, energy,
+           gc_sg_abs AS ge, fa_pred_abs AS fa_pred, fa_true_abs AS fa_true,
            (iz <= {slab_iz}) AS slab
     FROM {table}
     WHERE {where}

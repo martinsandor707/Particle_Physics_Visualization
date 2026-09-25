@@ -1,13 +1,19 @@
 """Regenerate the laboratory-frame golden snapshot.
 
-The canonical-frame work touches shared code (``NativeBundle.axis``,
-``centroids``, ``panels.shower_axes``). This snapshot pins the lab-frame output
-on the demonstration dataset so ``tests/test_golden_lab.py`` can assert that
-none of it moved. Run **before** such a refactor to capture the reference::
+Shared code (``NativeBundle.axis``, ``centroids``, ``panels.shower_axes``, the
+projection query) is touched by every new frame and schema. This snapshot pins
+the lab-frame output on the demonstration dataset - density panels, centroids
+and shower axes for ``coord_system=lab, model=segmentation, channel=density`` -
+so ``tests/test_golden_lab.py`` can assert that none of it moved. Run it only
+when the lab output is *meant* to change::
 
     .venv/bin/python tests/make_golden.py
 
-Ingest mirrors the ``ingested`` fixture in ``conftest.py`` exactly.
+The current snapshot was produced in commit 84f65e6 ("Re-baseline the lab
+golden on the all-models dummy") by the pre-multi-model code, reading a
+29-column file derived verbatim from ``hits_all_models_dummy.csv``; the
+multi-model code reproduces it byte for byte from the 99-column file. Ingest
+goes through the same ``pipeline.run_ingest`` as the ``ingested`` fixture.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "lab_demo.json"
-SEED_CSV = REPO_ROOT / "hits_with_gradcam_dummy.csv"
+SEED_CSV = REPO_ROOT / "hits_all_models_dummy.csv"
 TABLE = "golden_experiment"
 
 
@@ -57,36 +63,19 @@ def main() -> int:
     os.environ["DUCKDB_MEMORY_GB"] = "2"
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
 
+    os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
+
     from calosrv.config import load_settings
-    from calosrv.db import naming, registry
+    from calosrv.db import registry
     from calosrv.db.bootstrap import bootstrap
     from calosrv.db.connection import get_database, reset_database
-    from calosrv.ingest import derive_events, derive_proj, lattice_fit, load
+    from calosrv.ingest import pipeline
 
     settings = load_settings()
     database = get_database(settings)
     with database.write_lock() as con:
-        bootstrap(con)
-        record = registry.ExperimentRecord(table_name=TABLE)
-        record.status = registry.STATUS_INGESTING
-        registry.upsert(con, record)
-        n_hits = load.load_csv(con, TABLE, SEED_CSV)
-        lattice = lattice_fit.measure_lattice(con, naming.hit_table(TABLE))
-        bounds = lattice_fit.measure_bounds(con, naming.hit_table(TABLE))
-        record.lattice = lattice
-        registry.upsert(con, record)
-        derive_proj.build(con, TABLE, lattice)
-        n_events = derive_events.build(con, TABLE)
-        cell_max, cell_p999 = derive_proj.measure_color_anchors(con, TABLE, lattice.slab_iz)
-        record.n_hits, record.n_events = n_hits, n_events
-        record.n_events_no_d = bounds["n_events_no_d"]
-        record.e1_min, record.e1_max = bounds["e1_min"], bounds["e1_max"]
-        record.e2_min, record.e2_max = bounds["e2_min"], bounds["e2_max"]
-        record.d_min, record.d_max = bounds["d_min"], bounds["d_max"]
-        record.overlaps = bounds["overlaps"]
-        record.cell_e_max, record.cell_e_p999 = cell_max, cell_p999
-        record.status = registry.STATUS_READY
-        registry.upsert(con, record)
+        bootstrap(con, settings)
+        pipeline.run_ingest(con, settings, TABLE, SEED_CSV, build_sample=False)
 
     with database.read_cursor() as con:
         record = registry.require_ready(con, TABLE)

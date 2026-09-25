@@ -86,3 +86,11 @@ class ServiceUnavailableError(ApiError):
     status_code = 503
     error_type = "service-unavailable"
     title = "Service temporarily unavailable"
+
+
+class StorageConfigError(RuntimeError):
+    """The database, spill directory or archive would live on a RAM filesystem.
+
+    Raised at startup, not per request, so it is a plain ``RuntimeError`` rather
+    than an HTTP problem: the server must not come up in that configuration.
+    """

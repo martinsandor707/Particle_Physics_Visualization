@@ -1,16 +1,18 @@
-"""Load a staged CSV into the archival hit table."""
+"""Load a validated CSV into the experiment's Parquet archive."""
 
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
 
-from ..db import naming
-from ..db.ddl import HIT_COLUMN_NAMES, create_hit_table, drop_table
+from ..config import Settings
+from ..db import archive, naming
+from ..db.ddl import HIT_COLUMN_NAMES, SCHEMA_NAME, SCHEMA_VERSION, drop_table
 from ..db.naming import quote
-from ..db.settings import set_ingest_mode
 from ..errors import EventRangeCollisionError, IngestError
 from . import csv_spec
 
@@ -21,34 +23,18 @@ MODE_APPEND = "append"
 VALID_MODES = (MODE_CREATE_NEW, MODE_APPEND)
 
 
-def event_range(con: duckdb.DuckDBPyConnection, physical: str) -> tuple[int, int] | None:
-    """The ``(min, max)`` event number in a table, or ``None`` if empty."""
-    row = con.execute(
-        f"SELECT min(event_number), max(event_number) FROM {quote(physical)}"
-    ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    return int(row[0]), int(row[1])
+@dataclass
+class LoadResult:
+    """What one load committed to the archive."""
 
-
-def csv_event_range(con: duckdb.DuckDBPyConnection, path: Path) -> tuple[int, int] | None:
-    """The ``(min, max)`` event number in a CSV, read without loading it.
-
-    DuckDB projects only the one column it needs out of the CSV, so this is a
-    parse of one field per row rather than of twenty-nine.
-    """
-    expression = csv_spec.read_csv_expression(path)
-    row = con.execute(
-        f"SELECT min(event_number), max(event_number) FROM {expression}"
-    ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    return int(row[0]), int(row[1])
+    rows: int
+    part: Path
+    event_range: tuple[int, int] | None
+    manifest: archive.Manifest
 
 
 def check_append_collision(
-    con: duckdb.DuckDBPyConnection,
-    physical: str,
+    existing: tuple[int, int] | None,
     incoming: tuple[int, int] | None,
 ) -> None:
     """Reject an append whose event numbers overlap what is already there.
@@ -62,12 +48,8 @@ def check_append_collision(
     The caller can override by supplying an explicit ``event_offset``, which
     shifts the incoming numbers clear of the existing range.
     """
-    if incoming is None:
+    if incoming is None or existing is None:
         return
-    existing = event_range(con, physical)
-    if existing is None:
-        return
-
     lo_a, hi_a = existing
     lo_b, hi_b = incoming
     if lo_b <= hi_a and lo_a <= hi_b:
@@ -83,57 +65,8 @@ def check_append_collision(
         )
 
 
-def load_csv(
-    con: duckdb.DuckDBPyConnection,
-    name: str,
-    path: Path,
-    mode: str = MODE_CREATE_NEW,
-    event_offset: int = 0,
-) -> int:
-    """Load ``path`` into ``hit_<name>``, returning the row count inserted.
-
-    No ``ORDER BY`` is applied. The source file is already sorted by
-    ``event_number``, and the ``overlap`` class - which drives the separation
-    distance D - is monotone in blocks along it. Loading in file order therefore
-    gives DuckDB zone maps that let the D slider prune whole row groups for
-    free. Re-sorting on any other key would trade that away.
-    """
-    if mode not in VALID_MODES:
-        raise IngestError(
-            f"Unknown upload mode {mode!r}; expected one of {', '.join(VALID_MODES)}."
-        )
-
-    physical = naming.hit_table(name)
-    csv_spec.validate_header(path)
-
-    exists = con.execute(
-        "SELECT count(*) FROM information_schema.tables "
-        "WHERE table_schema = 'main' AND table_name = ?",
-        [physical],
-    ).fetchone()[0]
-
-    if mode == MODE_CREATE_NEW:
-        if exists:
-            log.info("CREATE_NEW: dropping existing tables for %r", name)
-            for table in naming.all_tables(name):
-                con.execute(drop_table(table))
-        con.execute(create_hit_table(physical))
-    else:
-        if not exists:
-            raise IngestError(
-                f"Cannot append to experiment {name!r}: it does not exist yet. "
-                "Use create_new for the first upload."
-            )
-        incoming = csv_event_range(con, path)
-        if event_offset:
-            incoming = (incoming[0] + event_offset, incoming[1] + event_offset)
-        check_append_collision(con, physical, incoming)
-
-    columns = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
-    expression = csv_spec.read_csv_expression(path)
-
-    # The event_number projection is written out explicitly so the offset can be
-    # applied; every other column passes through untouched.
+def _select_sql(path: Path, event_offset: int) -> str:
+    """Every column in file order, typed by the pinned reader."""
     if event_offset:
         projected = ", ".join(
             f"event_number + {int(event_offset)} AS event_number" if c == "event_number"
@@ -141,20 +74,90 @@ def load_csv(
             for c in HIT_COLUMN_NAMES
         )
     else:
-        projected = columns
+        projected = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
+    return f"SELECT {projected} FROM {csv_spec.read_csv_expression(path)}"
 
-    set_ingest_mode(con, True)
-    try:
-        log.info("Loading %s into %s (mode=%s)", path.name, physical, mode)
-        con.execute(
-            f"INSERT INTO {quote(physical)} ({columns}) "
-            f"SELECT {projected} FROM {expression}"
+
+def load_csv(
+    con: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    name: str,
+    path: Path,
+    mode: str = MODE_CREATE_NEW,
+    event_offset: int = 0,
+    source_name: str | None = None,
+) -> LoadResult:
+    """Validate ``path`` and commit it to the archive as one new Parquet part.
+
+    ``create_new`` drops the experiment's derived tables - including a legacy
+    ``hit_<name>`` table from the retired v37 schema - and its archive first.
+    ``append`` adds a part after checking the event ranges do not collide.
+
+    The CSV is parsed exactly once, straight into the part; the event range is
+    then read from the part's statistics, not from a second pass over the CSV.
+    """
+    if mode not in VALID_MODES:
+        raise IngestError(
+            f"Unknown upload mode {mode!r}; expected one of {', '.join(VALID_MODES)}."
         )
-    except duckdb.Error as exc:
-        raise IngestError(f"DuckDB rejected {path.name}: {exc}") from exc
-    finally:
-        set_ingest_mode(con, False)
+    csv_spec.validate_header(path)
+    root = archive.archive_path(settings, name)
 
-    total = con.execute(f"SELECT count(*) FROM {quote(physical)}").fetchone()[0]
-    log.info("%s now holds %s rows", physical, f"{total:,}")
-    return int(total)
+    if mode == MODE_CREATE_NEW:
+        for table in naming.all_tables(name):
+            con.execute(drop_table(table))
+        archive.remove(settings, name)
+        manifest = archive.Manifest(SCHEMA_NAME, SCHEMA_VERSION)
+    else:
+        manifest = archive.read_manifest(settings, name)
+        if manifest is None or not manifest.parts:
+            raise IngestError(
+                f"Cannot append to experiment {name!r}: its archive is missing. "
+                "Re-ingest it with create_new first."
+            )
+        if (manifest.schema_name, manifest.schema_version) != (SCHEMA_NAME, SCHEMA_VERSION):
+            raise IngestError(
+                f"Cannot append to experiment {name!r}: its archive holds the "
+                f"{manifest.schema_name} v{manifest.schema_version} schema."
+            )
+
+    root.mkdir(parents=True, exist_ok=True)
+    part = archive.next_part_path(settings, name)
+    tmp = part.with_name(part.name + archive.TMP_SUFFIX)
+    log.info("Archiving %s into %s (mode=%s)", path.name, part, mode)
+    try:
+        written = con.execute(
+            archive.copy_to_part_sql(_select_sql(path, event_offset), tmp)
+        ).fetchone()
+    except duckdb.Error as exc:
+        tmp.unlink(missing_ok=True)
+        raise IngestError(f"DuckDB rejected {path.name}: {exc}") from exc
+    rows = int(written[0]) if written and written[0] is not None else int(
+        con.execute(f"SELECT count(*) FROM {archive.relation_sql([tmp])}").fetchone()[0]
+    )
+
+    bounds = con.execute(
+        f"SELECT min(event_number), max(event_number) FROM {archive.relation_sql([tmp])}"
+    ).fetchone()
+    incoming = (int(bounds[0]), int(bounds[1])) if bounds and bounds[0] is not None else None
+    if mode == MODE_APPEND:
+        try:
+            check_append_collision(manifest.event_range(), incoming)
+        except EventRangeCollisionError:
+            tmp.unlink(missing_ok=True)
+            raise
+
+    os.replace(tmp, part)
+    manifest.parts.append(archive.new_part(
+        file=part.name, rows=rows, size=part.stat().st_size,
+        source_name=source_name or path.name, source_bytes=path.stat().st_size,
+        event_offset=event_offset, event_range=incoming,
+        duckdb_version=duckdb.__version__,
+    ))
+    archive.write_manifest(settings, name, manifest)
+    log.info(
+        "Archive %s: part %s holds %s rows (%s bytes); %d part(s), %s rows in total",
+        name, part.name, f"{rows:,}", f"{part.stat().st_size:,}",
+        len(manifest.parts), f"{manifest.rows:,}",
+    )
+    return LoadResult(rows=rows, part=part, event_range=incoming, manifest=manifest)
