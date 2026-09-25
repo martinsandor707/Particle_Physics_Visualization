@@ -39,6 +39,11 @@ import numpy as np
 SCALE_LOG = "log10"
 SCALE_LINEAR = "linear"
 
+#: A signed quantity on a logarithmic ramp: sign and log10 of the magnitude.
+#: The codes split at :data:`calosrv.encode.quantize.SPLIT_CODE` - negative
+#: values below it, positive from it - and |v| under the floor is not drawn.
+SCALE_SIGNED_LOG = "signed_log10"
+
 MODE_DECADES = "decades"
 MODE_PERCENTILE = "percentile"
 MODE_FIXED = "fixed"
@@ -93,6 +98,19 @@ class ColorScale:
     #: when set, so neither the lab payload nor a Grad-CAM scale gains a key.
     floor: str | None = None
     floor_ratio: float | None = None
+    #: The display channel the scale belongs to, when it is not density; and
+    #: whether it is signed and drawn on a diverging ramp symmetric about zero.
+    #: Emitted only when set, so the lab density payload is unchanged.
+    quantity: str | None = None
+    diverging: bool = False
+    #: Energy-weighted CAM channels: the peak the ratio is taken against, its
+    #: unit, and (signed channels) the code the positive half starts at and the
+    #: positive and negative sums the panel holds.
+    ref: float | None = None
+    ref_unit: str | None = None
+    split_code: int | None = None
+    positive_total: float | None = None
+    negative_total: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -118,6 +136,14 @@ class ColorScale:
         if self.floor is not None:
             data["floor"] = self.floor
             data["floor_ratio"] = self.floor_ratio
+        if self.quantity is not None:
+            data["quantity"] = self.quantity
+        if self.diverging:
+            data["diverging"] = True
+        for key in ("ref", "ref_unit", "split_code", "positive_total", "negative_total"):
+            value = getattr(self, key)
+            if value is not None:
+                data[key] = value
         return data
 
 
@@ -180,6 +206,108 @@ def relative_log_scale(
         norm=norm,
         floor=floor,
         floor_ratio=float(10.0 ** vmin) if floor is not None else None,
+    )
+
+
+def attention_scale(
+    matrix: np.ndarray, quantity: str, lo: float, hi: float, unit: str
+) -> ColorScale:
+    """A fixed linear ramp for a per-bin mean attention or attribution.
+
+    Grad-CAM means lie in [0, 1] and Shap-CAM means in [-1, +1] by
+    construction - a weighted mean with non-negative weights stays inside the
+    range of what it averages - so nothing should ever fall outside; the
+    clipped counts are computed anyway and always reported (CLAUDE.md
+    section 2 makes the disclosure mandatory whether or not it is zero).
+    """
+    values = np.asarray(matrix, dtype=np.float64)
+    finite = values[np.isfinite(values)]
+    return ColorScale(
+        scale=SCALE_LINEAR,
+        vmin=float(lo),
+        vmax=float(hi),
+        unit=unit,
+        mode=MODE_FIXED,
+        locked=True,
+        global_vmax=float(hi),
+        n_below=int((finite < lo).sum()),
+        n_above=int((finite > hi).sum()),
+        n_empty=int(values.size - finite.size),
+        quantity=quantity,
+        diverging=lo < 0 < hi,
+    )
+
+
+def extensive_cam_scale(
+    ratio: np.ndarray,
+    populated: np.ndarray,
+    ref: float,
+    ref_unit: str,
+    quantity: str,
+    decades: float = 3.0,
+    norm: str = "selection",
+) -> ColorScale:
+    """The ramp of an energy-weighted CAM channel: ``sum(E * CAM)`` over a peak.
+
+    ``ratio`` is the per-bin value divided by the stated peak ``ref``; the ramp
+    spans ``decades`` below 1.0 and bins under the floor are not drawn, as on the
+    canonical density ramp. ``populated`` marks bins that hold hits: a bin with
+    hits whose weighted attention sums to zero is below the floor, never empty.
+    """
+    values = np.asarray(ratio, dtype=np.float64)
+    occupied = np.asarray(populated, dtype=bool) & np.isfinite(values)
+    positive = values[occupied & (values > 0)]
+    vmin = -float(decades)
+    vmax = 0.0
+    if positive.size:
+        top = float(np.log10(positive.max()))
+        vmax = top if top > VMAX_SNAP_DECADES else 0.0
+    n_below = int((occupied & ~(values > 10.0 ** vmin)).sum())
+    return ColorScale(
+        scale=SCALE_LOG, vmin=vmin, vmax=vmax, unit=UNIT_RELATIVE, mode=MODE_RELATIVE,
+        locked=norm == "dataset", global_vmax=float(ref) if ref else None,
+        n_below=n_below, n_above=0, n_empty=int(values.size - occupied.sum()),
+        rho_ref=float(ref) if ref else None, rho_unit=ref_unit,
+        decades=float(decades), norm=norm,
+        floor=FLOOR_TRANSPARENT, floor_ratio=float(10.0 ** vmin),
+        quantity=quantity, ref=float(ref) if ref else None, ref_unit=ref_unit,
+    )
+
+
+def signed_log_scale(
+    ratio: np.ndarray,
+    populated: np.ndarray,
+    ref: float,
+    ref_unit: str,
+    quantity: str,
+    positive_total: float,
+    negative_total: float,
+    split_code: int,
+    decades: float = 3.0,
+    norm: str = "selection",
+) -> ColorScale:
+    """The diverging signed-log ramp of energy-weighted Shap-CAM.
+
+    ``ratio`` is the signed value over the peak |value| ``ref``, so it lies in
+    [-1, +1]. Each sign gets ``decades`` of log10 |ratio| below 1.0, the two
+    halves meeting at the floor; |ratio| under the floor is not drawn and is
+    counted. Nothing is clipped: the peak is the ramp's end by construction.
+    """
+    values = np.asarray(ratio, dtype=np.float64)
+    occupied = np.asarray(populated, dtype=bool) & np.isfinite(values)
+    floor = 10.0 ** -float(decades)
+    n_below = int((occupied & ~(np.abs(values) >= floor)).sum())
+    return ColorScale(
+        scale=SCALE_SIGNED_LOG, vmin=-float(decades), vmax=0.0, unit=UNIT_RELATIVE,
+        mode=MODE_RELATIVE, locked=norm == "dataset",
+        global_vmax=float(ref) if ref else None,
+        n_below=n_below, n_above=0, n_empty=int(values.size - occupied.sum()),
+        rho_ref=float(ref) if ref else None, rho_unit=ref_unit,
+        decades=float(decades), norm=norm,
+        floor=FLOOR_TRANSPARENT, floor_ratio=float(floor),
+        quantity=quantity, diverging=True, ref=float(ref) if ref else None, ref_unit=ref_unit,
+        split_code=int(split_code),
+        positive_total=float(positive_total), negative_total=float(negative_total),
     )
 
 

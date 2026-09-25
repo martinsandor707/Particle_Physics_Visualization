@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 
 from . import quantize, topk
-from .scale import ColorScale
+from .scale import SCALE_SIGNED_LOG, ColorScale
 
 
 def _encode_edges(edges: np.ndarray, native: bool) -> dict[str, Any]:
@@ -68,6 +68,7 @@ def encode_matrix(
     below_code: int | None = None,
     below_mask: np.ndarray | None = None,
     top: list[dict[str, Any]] | None = None,
+    populated: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Encode one panel: raster, scale, geometry, and exact peak values.
 
@@ -87,8 +88,19 @@ def encode_matrix(
     exact values of the physical density, and computing the discarded list
     was a third of the render time at high R.
     """
-    min_code = quantize.ramp_min_code(below_code)
-    codes = quantize.quantize(matrix, scale, below_code=below_code, below_mask=below_mask)
+    signed = scale.scale == SCALE_SIGNED_LOG
+    if signed:
+        # The diverging signed-log layout: see quantize.quantize_signed_log.
+        below_code = quantize.BELOW_CODE
+        min_code = quantize.SIGNED_MIN_CODE
+        occupied = populated if populated is not None else np.isfinite(np.asarray(matrix, float))
+        codes = quantize.quantize_signed_log(matrix, occupied, scale.decades or 3.0)
+    else:
+        min_code = quantize.ramp_min_code(below_code)
+        codes = quantize.quantize(
+            matrix, scale, below_code=below_code, below_mask=below_mask,
+            populated_mask=populated,
+        )
     raster = base64.b64encode(codes.tobytes(order="C")).decode("ascii")
 
     values = np.asarray(matrix, dtype=np.float64)
@@ -110,6 +122,8 @@ def encode_matrix(
     }
     if below_code is not None:
         payload["below_code"] = int(below_code)
+    if signed:
+        payload["split_code"] = quantize.SPLIT_CODE
     payload.update({
         "min_code": min_code,
         "max_code": quantize.MAX_CODE,
@@ -117,7 +131,7 @@ def encode_matrix(
         "axes": {"row": row, "col": col},
         "occupancy": round(quantize.occupancy(codes, min_code), 6),
         "total": total,
-        "topk": topk.top_cells(matrix, k) if top is None else top,
+        "topk": topk.top_cells(matrix, k, signed=signed or scale.diverging) if top is None else top,
     })
     if below_code is not None:
         payload["below_floor_cells"] = int((codes == below_code).sum())
