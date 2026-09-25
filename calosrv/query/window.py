@@ -265,6 +265,8 @@ class WindowFit:
     xz: PanelFit
     n_events: int
     floor_mm: float = frame_mod.SHOWER_RADIUS_MIN_MM
+    #: How the transverse axes are written, for the note.
+    axis_words: str = "x′ and y′"
 
     @property
     def provisional(self) -> bool:
@@ -282,7 +284,7 @@ class WindowFit:
             "a provisional one-shower floor" if self.provisional else "a two-cell-footprint floor"
         )
         text = (
-            "Display windows are symmetric about the origin along x′ and y′, each half-width "
+            f"Display windows are symmetric about the origin along {self.axis_words}, each half-width "
             f"covering the {WINDOW_LOW_PERCENTILE:g}st to {WINDOW_HIGH_PERCENTILE:g}th energy "
             f"percentile, never below {self.floor_mm:.0f} mm ({floor_kind}), and snapped "
             f"outward to whole {SNAP_MM:.0f} mm bins. Up to {100.0 * worst:.3f}% of a panel's "
@@ -321,7 +323,9 @@ def fit_window(bundle: CanonicalBundle) -> WindowFit:
     grid = bundle.grid
     floor_mm = window_floor_mm(bundle.n_events, bundle.footprint)
     z_edges = grid.axis("z").edges
+    symbols = getattr(bundle, "symbols", None) or {"x": "x′", "y": "y′"}
     return WindowFit(
+        axis_words=f"{symbols['x']} and {symbols['y']}",
         xy=_panel_fit("xy", bundle.xy.planes["e"], grid.y_edges, grid.x_edges, True, grid.pitch, floor_mm),
         yz=_panel_fit("yz", bundle.yz.planes["e"], grid.y_edges, z_edges, False, grid.pitch, floor_mm),
         xz=_panel_fit("xz", bundle.xz.planes["e"], grid.x_edges, z_edges, False, grid.pitch, floor_mm),
