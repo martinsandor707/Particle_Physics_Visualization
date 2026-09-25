@@ -45,11 +45,13 @@ import {
 } from '../decode.js';
 import {
   THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle, floorLabel,
+  rampMidLabel, rampPalette, typographic,
 } from '../scale.js';
 import {
   customLine, customPolyline, symbolOf, onInk,
 } from './marks.js';
-import { addCanonicalAnchors, addCanonicalCentroids } from './canonical_overlays.js';
+import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
+import { formatSigned } from '../format.js';
 import { readoutPosition, tooltipOption } from './tooltip.js';
 
 export { symbolOf } from './marks.js';
@@ -65,6 +67,12 @@ const AXIS_LABEL = {
   'x′': 'x′ — along the A→B separation [mm]',
   'y′': 'y′ — normal to the shower plane [mm]',
   'z′': 'z′ — depth from the front face [mm]',
+  'Δx': 'Δx — from the shower entry point [mm]',
+  'Δy': 'Δy — from the shower entry point [mm]',
+  'Δz': 'Δz — depth from the shower’s first layer [mm]',
+  u: 'u — lateral spread, in the incidence plane [mm]',
+  v: 'v — lateral spread, normal to the incidence plane [mm]',
+  w: 'w — shower depth along the incident direction [mm]',
 };
 
 /* Short titles for plots too shallow to carry the full ones: a 1:1 canonical
@@ -75,7 +83,16 @@ const AXIS_LABEL_COMPACT = {
   'x′': 'x′ [mm]',
   'y′': 'y′ [mm]',
   'z′': 'z′ — depth [mm]',
+  'Δx': 'Δx [mm]',
+  'Δy': 'Δy [mm]',
+  'Δz': 'Δz — depth [mm]',
+  u: 'u [mm]',
+  v: 'v [mm]',
+  w: 'w — depth [mm]',
 };
+
+/** How a physical unit of the payload is written in a readout. */
+const UNIT_TEXT = { 'GeV/mm^2/event': 'GeV mm⁻² per event', GeV: 'GeV' };
 
 /** Plot heights and widths (px) below which the compact titles and labels are used. */
 const COMPACT_LABEL_HEIGHT = 220;
@@ -260,6 +277,9 @@ export class ProjectionPanel {
     const col = payload.axes.col;
     const row = payload.axes.row;
     const canonical = frame?.kind === 'canonical';
+    // Every co-registered frame (canonical, translated, local) draws a symmetric
+    // window about its origin, framed and with the axis lines on the frame.
+    const coregistered = ['canonical', 'trans', 'local'].includes(frame?.kind);
     // The displayed window. The grid is letterboxed from the *full* extent so
     // the plot area does not jump around as the view changes.
     const view = this.view || { col: [col.lo, col.hi], row: [row.lo, row.hi] };
@@ -269,7 +289,8 @@ export class ProjectionPanel {
     const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo, metrics, wideRamp);
     const canvas = raster.canvas;
     const title = rampTitle(payload.scale, metrics);
-    const graphics = title ? [...graphic, title] : graphic;
+    const mid = rampMidLabel(payload.scale, metrics);
+    const graphics = [...graphic, ...(title ? [title] : []), ...(mid ? [mid] : [])];
 
     const series = [{
       // The raster. renderItem re-runs on every zoom and pan, and `clip` keeps
@@ -307,6 +328,11 @@ export class ProjectionPanel {
     if (canonical) {
       addCanonicalCentroids(series, centroids, col, row);
       addCanonicalAnchors(series, anchors, frame, col, row);
+    } else if (coregistered) {
+      // Superimposed showers: the centroid sets by shape, and the mean
+      // per-event centroid with its SD cross and 95% t-whiskers.
+      addCanonicalCentroids(series, centroids, col, row);
+      addFrameMeanSpread(series, centroids?.frame_mean, col, row);
     } else if (centroids) {
       this.addCentroids(series, centroids, col, row, showVector);
     }
@@ -320,7 +346,7 @@ export class ProjectionPanel {
       width: rect.width,
       height: rect.height,
     };
-    if (canonical) {
+    if (coregistered) {
       // A frame around the plot area, drawn above the raster (z 3 > 1): once
       // the display floor is transparent, the fitted window has no painted
       // edge of its own, and without a frame the reader cannot tell where the
@@ -336,7 +362,7 @@ export class ProjectionPanel {
     // Canonical axis lines stay on the frame. Anchored at zero they drew a
     // crosshair through the origin, which the symmetric window now centres -
     // exactly between the two showers.
-    const axisOptions = canonical ? { onZero: false } : {};
+    const axisOptions = coregistered ? { onZero: false } : {};
 
     return {
       backgroundColor: THEME.chartBackground,
@@ -351,7 +377,7 @@ export class ProjectionPanel {
         axisLabel(row, compact) + provisional, view.row[0], view.row[1], axisOptions,
       ),
       // Series 0 is the raster; the visualMap must colour it and nothing else.
-      visualMap: visualMap(payload.scale, palette, {
+      visualMap: visualMap(payload.scale, rampPalette(payload.scale, palette), {
         bottomInset: metrics.reservedBottom || 0,
         seriesIndex: 0,
       }),
@@ -535,7 +561,7 @@ export class ProjectionPanel {
         z: 9,
         tooltip: () =>
           `Ensemble shower axis — ${label}<br/>` +
-          `mean incident direction in the canonical frame (slope ${Number(lines.slope).toFixed(4)})<br/>` +
+          `mean incident direction in the canonical frame (slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
           `${coherence}, N = ${n}` +
           (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
           (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
@@ -587,8 +613,8 @@ export class ProjectionPanel {
           tooltip: {
             formatter: () =>
               `${pair.label}<br/>Shower ${shower}<br/>` +
-              `${symbolOf(col)} = ${cx.toFixed(1)} mm<br/>` +
-              `${symbolOf(row)} = ${cy.toFixed(1)} mm`,
+              `${symbolOf(col)} = ${formatSigned(cx, 1)} mm<br/>` +
+              `${symbolOf(row)} = ${formatSigned(cy, 1)} mm`,
           },
           z: 10,
         });
@@ -832,7 +858,11 @@ export class ProjectionPanel {
     const payload = this.payload;
     const floored = Number.isInteger(payload.below_code);
     const reconstructed = typeof payload.kernel === 'string' && payload.kernel !== 'none';
-    const attention = payload.scale?.unit === 'attention';
+    const quantity = payload.scale?.quantity ?? 'density';
+    // A mean CAM (attention or attribution) is undefined where no hit is.
+    const ratioChannel = quantity === 'gradcam' || quantity === 'shapcam';
+    const what = quantity === 'shapcam' ? 'attribution' : 'attention';
+    const camEnergy = quantity === 'gradcam_energy' || quantity === 'shapcam_energy';
     const floorRatio = this.lastOpts?.frame?.reconstruction?.floor_ratio
       ?? payload.scale?.floor_ratio ?? 1e-3;
     const floorText = floorLabel({ floor_ratio: floorRatio });
@@ -869,8 +899,8 @@ export class ProjectionPanel {
       const centreX = cellCentre(col, cols, c);
       const centreY = cellCentre(row, rows, r);
       const where =
-        `${symbolOf(col)} = ${centreX.toFixed(1)} mm<br/>` +
-        `${symbolOf(row)} = ${centreY.toFixed(1)} mm<br/>`;
+        `${symbolOf(col)} = ${formatSigned(centreX, 1)} mm<br/>` +
+        `${symbolOf(row)} = ${formatSigned(centreY, 1)} mm<br/>`;
       // Named at the pointer, not the bin centre: a wedge edge crosses bins.
       const wedges = col.name === 'z'
         ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY)
@@ -896,16 +926,19 @@ export class ProjectionPanel {
           return;
         }
         let empty;
-        if (attention) empty = 'no hits in this bin: attention undefined';
+        if (ratioChannel || camEnergy) empty = `no hits in this bin: ${what} undefined`;
         else if (reconstructed) empty = 'no reconstructed energy in this bin';
         else empty = 'no energy in this bin';
         show(where + muted(empty));
         return;
       }
       if (floored && code === payload.below_code) {
-        show(where + muted(attention
-          ? `attention not drawn: density below ${floorText} of ρ<sub>ref</sub>`
-          : `below the display floor (ρ/ρ<sub>ref</sub> &lt; ${floorText}): not drawn`));
+        let below;
+        if (ratioChannel) below = `${what} not drawn: density below ${floorText} of ρ<sub>ref</sub>`;
+        else if (quantity === 'shapcam_energy') below = `|Σ E·CAM| below ${floorText} of the selection peak: not drawn`;
+        else if (quantity === 'gradcam_energy') below = `Σ E·CAM below ${floorText} of the selection peak: not drawn`;
+        else below = `below the display floor (ρ/ρ<sub>ref</sub> &lt; ${floorText}): not drawn`;
+        show(where + muted(below));
         return;
       }
 
@@ -915,8 +948,26 @@ export class ProjectionPanel {
       if (exact !== null) label = reconstructed ? '(exact, reconstructed)' : '(exact)';
       const precision = muted(` ${label}`);
 
+      const unitText = UNIT_TEXT[payload.rho_unit ?? scale.rho_unit] ?? 'GeV mm⁻² per event';
       let body;
-      if (scale.unit === 'a.u.' && scale.rho_ref) {
+      if (quantity === 'gradcam') {
+        const value = exact !== null ? exact : dequantize(code, scale, payload);
+        const weight = this.lastOpts?.weighting === 'count' ? 'count-weighted' : 'energy-weighted';
+        body = `<b>${formatSigned(value, 3)}</b> mean Grad-CAM attention${precision}<br/>`
+          + muted(`${weight} over this bin's hits`);
+      } else if (quantity === 'shapcam') {
+        const value = exact !== null ? exact : dequantize(code, scale, payload);
+        body = `<b>${formatSigned(value, 3, { plus: true })}</b> mean Shap-CAM attribution (signed)${precision}`;
+      } else if (camEnergy && scale.ref) {
+        // The raster holds signed ratios to the selection's own peak; the
+        // exact list holds the physical sum per bin.
+        const physical = exact !== null ? exact : dequantize(code, scale, payload) * scale.ref;
+        const ratio = physical / scale.ref;
+        const symbol = quantity === 'shapcam_energy' ? 'Σ E·S' : 'Σ E·G';
+        const peak = quantity === 'shapcam_energy' ? 'of peak |Σ E·S|' : 'of the selection peak';
+        body = `<b>${formatSigned(ratio, 3, { plus: quantity === 'shapcam_energy' })} a.u.</b> ${peak}${precision}<br/>`
+          + `${symbol} = ${formatSci(physical, 3)} ${unitText}`;
+      } else if (scale.unit === 'a.u.' && scale.rho_ref) {
         // Relative ramp: the raster holds ratios to rho_ref, the exact list
         // holds physical densities. Show both, plus the bin the value is a
         // density over, so the number can be quoted either way.
@@ -926,7 +977,7 @@ export class ProjectionPanel {
         const binH = (row.hi - row.lo) / rows;
         body =
           `<b>${ratio.toFixed(3)} a.u.</b> of ρ<sub>ref</sub>${precision}<br/>` +
-          `⟨ρ⟩ = ${formatSci(rho, 3)} GeV mm⁻² per event<br/>` +
+          `⟨ρ⟩ = ${formatSci(rho, 3)} ${unitText}<br/>` +
           muted(`${binW.toFixed(1)} × ${binH.toFixed(1)} mm ${reconstructed ? 'display bin' : 'bin'} · ` +
             `ρ<sub>ref</sub> = ${formatSci(scale.rho_ref, 3)} (${scale.norm === 'dataset' ? 'dataset' : 'selection'} peak)`);
       } else {

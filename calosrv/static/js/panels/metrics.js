@@ -1,46 +1,38 @@
-/* The model-performance KPI card.
+/* The model-performance cards.
  *
- * Which metrics lead depends on the selected model, because the three
- * architectures are read from the same stored inference columns and differ in
- * what they are being asked. The energy-weighted voxel error is the headline
- * for segmentation: the unweighted one is dominated by the sea of
- * sub-femto-GeV dust hits and flatters the model.
+ * Rendered generically from the server's `cards[]`: each card names its
+ * label, unit, whether it is a headline figure, and the uncertainty of the
+ * statistic - its standard error and a 95% interval named by method - so the
+ * nine networks need no client-side table that could drift from the server.
+ * CLAUDE.md section 2: an aggregate is never shown as a naked point estimate;
+ * a card whose uncertainty cannot be estimated (N < 2) says why instead.
  */
 
-import { formatInt, formatNumber, formatPercent } from '../scale.js';
+import { formatInt, formatNumber, formatPercent, formatSci, formatSigned } from '../scale.js';
 
-function pick(source, path) {
-  return path.split('.').reduce((acc, key) => (acc ? acc[key] : undefined), source);
+/** A card value in its own unit. */
+function formatValue(value, unit, id = '') {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  switch (unit) {
+    case 'fraction': return formatPercent(value, 2);
+    case 'mrad': return `${formatSigned(value, 2)} mrad`;
+    case 'GeV': return `${formatSci(value, 3)} GeV`;
+    default:
+      // Dimensionless: the voxel MAE and RMSE sit near 1e-1..1e-3, a
+      // correlation or F1 near 1.
+      return id === 'mae' || id === 'rmse' ? formatSci(value, 3) : formatNumber(value, 4);
+  }
 }
 
-const ROWS = {
-  segmentation: [
-    ['classification.accuracy', 'Voxel accuracy', 'assignment at fA ≥ 0.5', 'percent', true],
-    ['regression.mae_energy_weighted', 'Energy-weighted MAE', 'fraction of energy mis-assigned', 'percent', true],
-    ['regression.mae', 'Voxel MAE', 'unweighted; dominated by dust hits', 'sci', false],
-    ['regression.rmse', 'Voxel RMSE', 'on the fraction itself', 'sci', false],
-    ['classification.f1_a', 'F1 (shower A)', '', 'number', false],
-    ['classification.shared_voxel_fraction', 'Shared voxels', "particle_origin = 'A+B'", 'percent', false],
-  ],
-  energy: [
-    ['energy_residuals.a.relative_resolution', 'Energy resolution A', 'σ of (pred − true)/true', 'percent', true],
-    ['energy_residuals.b.relative_resolution', 'Energy resolution B', 'σ of (pred − true)/true', 'percent', true],
-    ['energy_residuals.a.relative_bias', 'Relative bias A', 'mean fractional residual', 'percent', false],
-    ['energy_residuals.b.relative_bias', 'Relative bias B', 'mean fractional residual', 'percent', false],
-    ['energy_residuals.a.correlation', 'Correlation A', 'pred vs. true', 'number', false],
-    ['regression.mae_energy_weighted', 'Energy-weighted MAE', 'voxel assignment error', 'percent', false],
-  ],
-  angle: [
-    ['classification.accuracy', 'Voxel accuracy', 'segmentation baseline', 'percent', true],
-    ['regression.mae_energy_weighted', 'Energy-weighted MAE', 'segmentation baseline', 'percent', false],
-  ],
-};
-
-function formatValue(value, kind) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  if (kind === 'percent') return formatPercent(value, 2);
-  if (kind === 'sci') return value.toExponential(2);
-  return formatNumber(value, 4);
+/** The uncertainty line of a card: the interval below N = 15, else the SE. */
+function uncertainty(card) {
+  const n = Number.isFinite(card.n) ? `N = ${formatInt(card.n)}` : '';
+  if (card.show === 'ci' && card.interval) {
+    const { lo, hi } = card.interval;
+    return `95% [${formatValue(lo, card.unit, card.id)}, ${formatValue(hi, card.unit, card.id)}] · ${n}`;
+  }
+  if (Number.isFinite(card.se)) return `± ${formatValue(card.se, card.unit, card.id)} SE · ${n}`;
+  return card.note ? `${n} · ${card.note}` : n;
 }
 
 export class MetricsPanel {
@@ -49,39 +41,43 @@ export class MetricsPanel {
     this.caption = document.getElementById(captionId);
   }
 
-  render(payload, model, latencyMs) {
-    const rows = ROWS[model] || ROWS.segmentation;
+  render(payload, latencyMs) {
     const html = [];
-
-    html.push(row('Events in selection', formatInt(payload.n_events), '', false));
-    html.push(row('Voxels', formatInt(payload.classification.n_voxels), '', false));
-
-    for (const [path, label, sub, kind, primary] of rows) {
-      html.push(row(label, formatValue(pick(payload, path), kind), sub, primary));
+    html.push(row({ label: 'Events in selection', value: formatInt(payload.n_events) }));
+    for (const card of payload.cards || []) {
+      html.push(row({
+        label: card.label,
+        sub: card.sub,
+        value: formatValue(card.value, card.unit, card.id),
+        detail: uncertainty(card),
+        title: card.interval?.label
+          ? `${card.interval.label}${card.note ? `. ${card.note}` : ''}`
+          : card.note,
+        primary: card.primary,
+      }));
     }
-
-    html.push(row('Query latency', `${formatNumber(latencyMs, 1)} ms`, '', false));
-
+    html.push(row({ label: 'Query latency', value: `${formatNumber(latencyMs, 1)} ms` }));
     this.element.innerHTML = html.join('');
 
     if (this.caption && payload.model) {
-      const unavailable = payload.meta?.warnings?.length
+      const warning = payload.meta?.warnings?.length
         ? `<br/><span style="color:var(--warn)">${escapeHtml(payload.meta.warnings[0])}</span>`
         : '';
-      this.caption.innerHTML = escapeHtml(payload.model.caption) + unavailable;
+      this.caption.innerHTML = escapeHtml(payload.model.caption) + warning;
     }
   }
 
   renderError(message) {
-    this.element.innerHTML = row('Metrics unavailable', '—', message, false);
+    this.element.innerHTML = row({ label: 'Metrics unavailable', value: '—', sub: message });
   }
 }
 
-function row(label, value, sub, primary) {
+function row({ label, value, sub = '', detail = '', title = '', primary = false }) {
+  const tip = title ? ` title="${escapeHtml(title)}"` : '';
   return `
-    <div class="metric${primary ? ' is-primary' : ''}">
+    <div class="metric${primary ? ' is-primary' : ''}"${tip}>
       <span class="k">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</span>
-      <span class="v">${value}</span>
+      <span class="v">${value}${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span>
     </div>`;
 }
 

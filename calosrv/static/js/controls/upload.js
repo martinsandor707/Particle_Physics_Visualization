@@ -104,7 +104,8 @@ export class UploadModal {
   describeFile() {
     const file = this.fileInput.files && this.fileInput.files[0];
     if (!file) {
-      this.fileInfo.textContent = 'Select a 29-column inference CSV.';
+      const n = this.info?.schema?.n_columns;
+      this.fileInfo.textContent = `Select an all-models inference CSV${n ? ` (${n} columns)` : ''}.`;
       return;
     }
     const parts = [`${file.name} — ${formatBytes(file.size)}`];

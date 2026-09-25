@@ -255,6 +255,8 @@ input[type="file"]::file-selector-button:hover {
 .metric .v { font-variant-numeric: tabular-nums; font-weight: 600; font-family: var(--mono); }
 .metric.is-primary .v { color: var(--accent); font-size: 13px; }
 .metric .k small { display: block; font-size: 10px; opacity: 0.75; font-weight: 400; }
+/* The uncertainty of a card's statistic, under its value. */
+.metric .v small { display: block; font-size: 9px; color: var(--muted); font-weight: 400; text-align: right; }
 
 /* ------------------------------------------------- fitted-parameter table */
 

@@ -1,4 +1,11 @@
-/* Anchor and centroid marks of the canonical centre-of-separation frame.
+/* Anchor and centroid marks of the co-registered frames.
+ *
+ * Written for the canonical centre-of-separation frame and shared by the
+ * translated and local frames, whose centroid sets are drawn the same way;
+ * the file keeps its name because tests pin it. The anchors are canonical
+ * only. The per-shower frames add `frame_mean` - the mean per-event centroid
+ * relative to each shower's own entry point - with its sample SD as a faint
+ * uncapped cross and its Student-t 95% interval as capped whiskers.
  *
  * ## Why they are light
  *
@@ -32,7 +39,8 @@
  */
 
 import { THEME } from '../scale.js';
-import { customLine, symbolOf } from './marks.js';
+import { customLine, customWhisker, symbolOf } from './marks.js';
+import { formatSigned } from '../format.js';
 
 /** Marker size of an anchor, before `THEME.markerScale`. */
 const ANCHOR_SIZE = 13;
@@ -49,6 +57,8 @@ export const CANONICAL_CENTROID_STYLE = {
   truth_voxel: { symbol: 'circle', open: false, shape: 'filled dot' },
   pred_voxel: { symbol: 'circle', open: true, shape: 'open ring' },
   canonical_mean: { symbol: PLUS, open: false, shape: '+' },
+  // Never together with canonical_mean: one is canonical, the other per-shower.
+  frame_mean: { symbol: PLUS, open: false, shape: '+' },
 };
 
 const SHOWERS = [['a', 'A'], ['b', 'B']];
@@ -69,8 +79,7 @@ function openStyle(colour, width) {
 
 /** Millimetres to one decimal with a typographic minus. */
 function mm1(value) {
-  if (!Number.isFinite(value)) return '—';
-  return value < 0 ? `−${Math.abs(value).toFixed(1)}` : value.toFixed(1);
+  return formatSigned(value, 1);
 }
 
 /**
@@ -233,9 +242,67 @@ export function addCanonicalCentroids(series, centroids, col, row) {
           formatter: () =>
             `${pair.label}<br/>Shower ${label} (${style.shape})<br/>`
             + `${symbolOf(col)} = ${mm1(cx)} mm<br/>`
-            + `${symbolOf(row)} = ${mm1(cy)} mm`,
+            + `${symbolOf(row)} = ${mm1(cy)} mm`
+            + (Number.isFinite(pair.offset_mm)
+              ? `<br/>A–B offset = ${mm1(pair.offset_mm)} mm (superimposed centroids, not a separation)`
+              : ''),
         },
       });
+    }
+  }
+}
+
+/**
+ * The spread and uncertainty of `frame_mean`, per shower, on the XY panel.
+ *
+ * Two quantities, two marks (CLAUDE.md section 2): the sample SD of the
+ * per-event centroid offsets as a faint uncapped cross - where the events
+ * scatter - and the Student-t 95% interval of the mean as capped whiskers -
+ * how well the mean is known. Nothing is drawn at N = 1, where neither exists.
+ */
+export function addFrameMeanSpread(series, pair, col, row) {
+  if (!pair || !(pair.n >= 2)) return;
+  for (const [shower, label] of SHOWERS) {
+    const point = pair[shower];
+    const sd = pair.sd?.[shower];
+    const ci = pair.ci95_half?.[shower];
+    if (!point || !sd || !ci) continue;
+    const cx = point[col.name];
+    const cy = point[row.name];
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    const colour = showerColour(shower);
+    for (const [axis, value, h] of [[col.name, cx, true], [row.name, cy, false]]) {
+      const spread = sd[axis];
+      const half = ci[axis];
+      const sym = symbolOf(h ? col : row);
+      const at = (v) => (h ? [v, cy] : [cx, v]);
+      if (Number.isFinite(spread) && spread > 0) {
+        series.push(customLine({
+          name: `Mean centroid ${label} — spread in ${sym}`,
+          from: at(value - spread),
+          to: at(value + spread),
+          color: colour,
+          width: 2.5 * THEME.lineAxis,
+          opacity: SPREAD_OPACITY,
+          z: 8,
+          tooltip: `Mean centroid ${label} — ± ${spread.toFixed(1)} mm in ${sym}<br/>`
+            + '± sample SD of the per-event centroid offsets from P₀ (dispersion, not the '
+            + 'uncertainty of the mean)',
+        }));
+      }
+      if (Number.isFinite(half) && half > 0) {
+        series.push(customWhisker({
+          name: `Mean centroid ${label} — 95% interval in ${sym}`,
+          from: at(value - half),
+          to: at(value + half),
+          color: colour,
+          width: THEME.lineAxis,
+          z: 9,
+          tooltip: `Mean centroid ${label} — ${formatSigned(value, 1)} ± ${half.toFixed(1)} mm in ${sym}<br/>`
+            + `95% Student-t interval of the mean, N = ${pair.n}`
+            + (pair.dof_note ? `<br/><i>${pair.dof_note}</i>` : ''),
+        }));
+      }
     }
   }
 }
@@ -252,7 +319,9 @@ export function centroidLegend(centroids) {
   for (const [key, style] of Object.entries(CANONICAL_CENTROID_STYLE)) {
     const pair = centroids[key];
     if (!pair || !pair.a || !pair.label) continue;
-    items.push(`${style.shape} = ${pair.label}`);
+    const whiskers = key === 'frame_mean' && pair.n >= 2
+      ? ` (faint cross ± SD, capped whiskers 95% t-interval, N = ${pair.n})` : '';
+    items.push(`${style.shape} = ${pair.label}${whiskers}`);
   }
   if (!items.length) return '';
   return `Centroids (magenta A, blue B): ${items.join('; ')}.`;

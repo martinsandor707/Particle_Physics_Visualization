@@ -49,6 +49,7 @@ from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
 from ..grid.resolution import MODE_CONTINUOUS, MODE_NATIVE
 from ..models.common import ApiMeta, Timer, envelope
+from ..text import fmt_signed
 from ..query import cache as cache_mod
 from ..query import canonical, canonical_cache, centroids, density, ensemble, reconstruct, sampling, summary, window
 from ..query import stagger as stagger_mod
@@ -100,7 +101,7 @@ def _comb_report(
     data["measured_on"] = COMB_MEASURED_ON
 
     def fmt(v: float | None) -> str:
-        return "n/a" if v is None else f"{v:+.2f}"
+        return fmt_signed(v, 2, plus=True)
 
     measured = (
         f"occupancy lag-1 {fmt(report.lag1)}, energy lag-1 {fmt(intensity.get('core_row'))} "

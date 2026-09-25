@@ -135,6 +135,9 @@ export const PRINT_TOKENS = {
   separationRule: '#6b7280',
   anchorOpacity: 1,
   floorFadeDecades: 0,
+  // Standard PuOr on white paper: its light centre marks zero there.
+  divergingPalette: 'puor',
+  divergingLinearPalette: 'puor',
 };
 
 /** Logical pixels for a figure of the given printed width. */

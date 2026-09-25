@@ -481,7 +481,7 @@ def compute(
                         "It is drawn as a position and a width rather than as a "
                         "density curve, because a unit-area Gaussian this narrow "
                         f"peaks near {gaussian.unit_area_amplitude(sigma):.2f} "
-                        "GeV^-1 and would take the density axis away from the "
+                        "GeV⁻¹ and would take the density axis away from the "
                         "reconstructions the panel is about."
                     ),
                 }

@@ -141,3 +141,37 @@ def test_the_catalogue_advertises_every_frame_model_and_channel(client):
                                    "n_columns": len(ddl.HIT_COLUMN_NAMES)}
         assert entry["archive"]["present"] is True
         assert entry["archive"]["parts"] >= 1 and entry["archive"]["rows"] > 0
+
+
+def _strings(node, path=""):
+    if isinstance(node, str):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from _strings(value, f"{path}.{key}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _strings(value, f"{path}[{index}]")
+
+
+@pytest.mark.parametrize("coord_system,frame", FRAMES)
+@pytest.mark.parametrize("channel", panels.CHANNELS)
+@pytest.mark.parametrize("display", ["native", "continuous"])
+def test_no_server_sentence_signs_a_number_with_a_hyphen(client, coord_system, frame, channel, display):
+    """S3: every negative number in a notice or note is set with U+2212."""
+    from calosrv.text import signed_hyphens
+
+    bodies = [client.get("/api/projections", params={
+        "coord_system": coord_system, "frame": frame, "channel": channel, "display": display,
+    }).json()]
+    if channel == "density" and display == "native":
+        bodies.append(client.get("/api/energy-distribution",
+                                 params={"coord_system": coord_system}).json())
+        for model in ddl.MODELS:
+            bodies.append(client.get("/api/model-performance",
+                                     params={"model": model, "coord_system": coord_system}).json())
+    for body in bodies:
+        for path, text in _strings(body):
+            if path.endswith(("data", ".table_name", ".column", "source_files")):
+                continue
+            assert not signed_hyphens(text), (path, signed_hyphens(text))
