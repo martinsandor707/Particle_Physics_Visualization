@@ -40,7 +40,7 @@ def pytest_collection_modifyitems(session, config, items):
     """
     booted = [
         item for item in items
-        if {"client", "live_server"} & set(getattr(item, "fixturenames", ()))
+        if {"client", "live_server", "synthetic_client"} & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
@@ -120,6 +120,49 @@ def client(tmp_path_factory):
         for _ in range(120):
             payload = test_client.get("/api/experiments").json()
             if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+            time.sleep(0.25)
+        yield test_client
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+
+@pytest.fixture(scope="module")
+def synthetic_client(tmp_path_factory):
+    """A server seeded from the synthetic low-N file of ``synthetic_all_models``."""
+    import os
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    import synthetic_all_models
+
+    if not synthetic_all_models.TEMPLATE_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+    data_dir = tmp_path_factory.mktemp("synthetic-data")
+    csv_path = data_dir / "hits_all_models_synthetic.csv"
+    synthetic_all_models.write(csv_path)
+    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(csv_path)
+
+    with TestClient(create_app(load_settings())) as test_client:
+        for _ in range(240):
+            payload = test_client.get("/api/experiments").json()
+            if any(e["status"] in ("ready", "failed") for e in payload["experiments"]):
                 break
             time.sleep(0.25)
         yield test_client

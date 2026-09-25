@@ -1,80 +1,100 @@
-"""``GET /api/model-performance`` - the sidebar KPI card."""
+"""``GET /api/model-performance`` - the sidebar metric cards of one network."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
+from ..db import ddl
+from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
-from ..stats.slices import parse_edges
 from ..query import performance
+from ..stats.slices import parse_edges
 from .deps import CursorDep, FilterDep, RecordDep
 
 router = APIRouter()
 
-#: Contextual captions for the model selector. The three architectures are read
-#: from the same stored inference columns, so the selector changes which metrics
-#: are foregrounded and how they are described - it does not change the data.
+FRAME_WORDS = {"absolute": "laboratory (absolute)", "trans": "translated", "local": "local"}
+
+#: Titles and captions per task. ``{frame}`` is the input frame of the network.
 MODEL_CAPTIONS = {
     "segmentation": {
         "title": "Segmentation Model",
         "caption": (
-            "Per-voxel assignment of deposited energy between the two "
-            "overlapping showers, read from voxel_fA_pred against "
-            "voxel_fA_true. The headline figure is the energy-weighted mean "
-            "absolute error: the fraction of deposited energy assigned to the "
-            "wrong shower."
+            "The {frame}-frame segmentation network assigns each hit's energy between the "
+            "two showers, read from segmentation_{column}_pred against its truth "
+            "E_A / E_voxel, which is fractional wherever both showers deposit in one cell. "
+            "Classification uses the ≥ 0.5 majority on both sides; a cell shared by both "
+            "showers is two rows, so unweighted counts see it twice. The headline is the "
+            "energy-weighted MAE, exact over the selection: the fraction of deposited "
+            "energy assigned to the wrong shower."
         ),
-        "primary": ["classification.accuracy", "regression.mae_energy_weighted"],
+        "primary": ["accuracy", "wmae"],
     },
     "energy": {
         "title": "Energy Estimation Model",
         "caption": (
-            "Reconstructed shower energies, formed by summing deposited energy "
-            "under the predicted voxel fractions and calibrating to the "
-            "incident momentum scale. The headline figure is the relative "
-            "energy resolution."
+            "The {frame}-frame energy network's per-shower estimate (energy_{column}_pred) "
+            "against the incident momentum, with no sampling-fraction calibration applied: "
+            "the network predicts the momentum scale directly. The headline is the "
+            "relative resolution σ of (pred − true) / true per shower."
         ),
-        "primary": ["energy_residuals.a.relative_resolution",
-                    "energy_residuals.a.relative_bias"],
+        "primary": ["sigma_rel_a", "sigma_rel_b"],
     },
     "angle": {
         "title": "Incident Angle Estimation Model",
         "caption": (
-            "Incident direction reconstruction. This dataset stores the true "
-            "incoming_theta and incoming_phi but carries no predicted angle "
-            "column, so no angular residual can be computed. Segmentation "
-            "metrics are shown as the available baseline."
+            "The {frame}-frame angle network predicts each shower's polar angle θ "
+            "(angle_{column}_pred) against the incident θ; the azimuth φ is not predicted. "
+            "θ does not wrap, so its mean residual is a meaningful bias. The headline is "
+            "the θ resolution per shower, in mrad."
         ),
-        "primary": [],
-        "unavailable": (
-            "No predicted-angle column exists in the 29-column inference "
-            "schema. Angular residuals cannot be derived from ground truth "
-            "alone and are not fabricated."
-        ),
+        "primary": ["sigma_theta_a", "sigma_theta_b"],
     },
 }
 
 
-@router.get("/api/model-performance", summary="Voxel and energy reconstruction metrics")
+def _context(model: str, coord_system: str) -> dict:
+    frame = ddl.NETWORK_FRAME[coord_system]
+    base = MODEL_CAPTIONS[model]
+    return {
+        **base,
+        "caption": base["caption"].format(frame=FRAME_WORDS[frame], column=frame),
+        "network": {"model": model, "frame": frame},
+    }
+
+
+@router.get("/api/model-performance", summary="Metric cards of one network")
 def get_model_performance(
     con: CursorDep,
     record: RecordDep,
     spec: FilterDep,
     model: str = Query(
         "segmentation",
-        description="segmentation | energy | angle - selects contextual framing.",
+        description="segmentation | energy | angle: which task's network is evaluated.",
+    ),
+    coord_system: str = Query(
+        "lab",
+        description=(
+            "lab | trans | local: the input frame the network was trained on. The "
+            "canonical view uses the absolute-frame (lab) networks."
+        ),
     ),
     d_edges: str | None = Query(
         None, description="Separation-distance slice edges for the breakdown."
     ),
 ):
     timer = Timer()
-    report = performance.compute(con, record, spec, edges=parse_edges(d_edges))
+    for name, value, allowed in (("model", model, ddl.MODELS),
+                                 ("coord_system", coord_system, ddl.COORD_SYSTEMS)):
+        if value not in allowed:
+            raise ValidationError(
+                f"{name} must be one of {', '.join(allowed)}; got {value!r}.", field=name,
+            )
+    report = performance.compute(
+        con, record, spec, model=model, coord_system=coord_system, edges=parse_edges(d_edges),
+    )
 
-    context = MODEL_CAPTIONS.get(model, MODEL_CAPTIONS["segmentation"])
     warnings: list[str] = []
-    if "unavailable" in context:
-        warnings.append(context["unavailable"])
     if report.n_events == 0:
         warnings.append("No events match the current selection.")
 
@@ -83,11 +103,11 @@ def get_model_performance(
         exact=True,
         total_ms=timer.elapsed_ms,
         warnings=warnings,
-        notes={"model": model},
+        notes={"model": model, "coord_system": coord_system},
     )
     return envelope(
         meta,
         **report.as_dict(),
-        model=context,
+        model=_context(model, coord_system),
         filter=spec.as_dict(),
     )
