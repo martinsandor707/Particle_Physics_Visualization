@@ -1,8 +1,8 @@
 """The experiment catalogue endpoint's data.
 
-Touches no hit data at all: every figure is cached in the registry at ingest, so
-this answers in about a millisecond regardless of how many billions of rows the
-experiments hold.
+Touches no hit data at all: every figure is cached in the registry at ingest
+(or, for the archive, in its manifest), so this answers in about a millisecond
+regardless of how many rows the experiments hold.
 """
 
 from __future__ import annotations
@@ -11,11 +11,25 @@ from typing import Any
 
 import duckdb
 
-from ..db import registry
+from ..config import Settings
+from ..db import archive, ddl, registry
 from ..db.registry import ExperimentRecord
+from . import planes as planes_mod
+
+#: The reference frames of the interface, as (coord_system, frame) pairs the
+#: API takes; the canonical frame is built from laboratory coordinates.
+FRAME_KINDS = ("lab", "trans", "local", "canonical")
 
 
-def describe(record: ExperimentRecord) -> dict[str, Any]:
+def _archive_info(settings: Settings | None, name: str) -> dict[str, Any]:
+    manifest = archive.read_manifest(settings, name) if settings is not None else None
+    if manifest is None:
+        return {"present": False, "parts": 0, "rows": 0, "bytes": 0}
+    return {"present": True, "parts": len(manifest.parts), "rows": manifest.rows,
+            "bytes": manifest.bytes}
+
+
+def describe(record: ExperimentRecord, settings: Settings | None = None) -> dict[str, Any]:
     """One experiment, as the frontend needs it."""
     lattice = record.lattice
     payload: dict[str, Any] = {
@@ -36,6 +50,12 @@ def describe(record: ExperimentRecord) -> dict[str, Any]:
             "e2": [record.e2_min, record.e2_max],
             "d": [record.d_min, record.d_max],
         },
+        "schema": {
+            "name": record.schema_name,
+            "version": record.schema_version,
+            "n_columns": len(ddl.HIT_COLUMN_NAMES) if record.schema_name == ddl.SCHEMA_NAME else None,
+        },
+        "archive": _archive_info(settings, record.table_name),
     }
 
     if lattice is not None:
@@ -45,10 +65,18 @@ def describe(record: ExperimentRecord) -> dict[str, Any]:
             "yz": list(lattice.shape_yz),
             "xz": list(lattice.shape_xz),
         }
-        # Both reference frames are served for every ready experiment; the
-        # canonical frame needs only the per-event centroid and angle columns,
-        # which the 29-column schema always carries.
-        payload["frames"] = ["lab", "canonical"]
+        # What the projections route serves for this experiment. The
+        # per-shower frames need the extents measured at ingest; an experiment
+        # without them offers the laboratory and canonical frames only.
+        per_shower = record.frame_bounds is not None
+        payload["frames"] = [
+            kind for kind in FRAME_KINDS if per_shower or kind not in ("trans", "local")
+        ]
+        payload["coord_systems"] = [
+            c for c in ddl.COORD_SYSTEMS if per_shower or c == "lab"
+        ]
+        payload["models"] = list(ddl.MODELS)
+        payload["channels"] = list(planes_mod.CHANNELS)
         payload["z_front"] = lattice.z.lo
 
     if record.n_events_no_d:
@@ -62,7 +90,8 @@ def describe(record: ExperimentRecord) -> dict[str, Any]:
 
 
 def list_all(
-    con: duckdb.DuckDBPyConnection, include_pending: bool = True
+    con: duckdb.DuckDBPyConnection, include_pending: bool = True,
+    settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
     """Every registered experiment.
 
@@ -71,4 +100,4 @@ def list_all(
     them.
     """
     records = registry.list_experiments(con, ready_only=not include_pending)
-    return [describe(r) for r in records]
+    return [describe(r, settings) for r in records]

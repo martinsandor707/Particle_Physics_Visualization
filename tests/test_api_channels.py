@@ -126,3 +126,18 @@ def test_a_per_shower_density_request_reuses_any_models_bundle(client):
     body = client.get("/api/projections", params={"coord_system": "local", "model": "angle",
                                                   "e2_max": 19.0}).json()
     assert body["meta"]["cached"] is True
+
+
+def test_the_catalogue_advertises_every_frame_model_and_channel(client):
+    experiments = client.get("/api/experiments").json()["experiments"]
+    ready = [e for e in experiments if e["status"] == "ready"]
+    assert ready
+    for entry in ready:
+        assert entry["frames"] == ["lab", "trans", "local", "canonical"]
+        assert entry["coord_systems"] == list(ddl.COORD_SYSTEMS)
+        assert entry["models"] == list(ddl.MODELS)
+        assert entry["channels"] == list(panels.CHANNELS)
+        assert entry["schema"] == {"name": ddl.SCHEMA_NAME, "version": ddl.SCHEMA_VERSION,
+                                   "n_columns": len(ddl.HIT_COLUMN_NAMES)}
+        assert entry["archive"]["present"] is True
+        assert entry["archive"]["parts"] >= 1 and entry["archive"]["rows"] > 0

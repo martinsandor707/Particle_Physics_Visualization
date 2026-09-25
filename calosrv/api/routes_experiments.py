@@ -28,7 +28,7 @@ def list_experiments(
         ),
     ),
 ):
-    records = experiments.list_all(con, include_pending=include_pending)
+    records = experiments.list_all(con, include_pending=include_pending, settings=settings)
     cache = cache_mod.get_cache(settings.cache_entries)
     canonical_cache = cache_mod.get_cache(
         settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE
@@ -46,6 +46,10 @@ def list_experiments(
             "large_upload_warn_bytes": settings.large_upload_warn_bytes,
             "cache": cache.info(),
             "canonical_cache": canonical_cache.info(),
+            "trans_cache": cache_mod.get_cache(
+                settings.canonical_cache_entries, name=cache_mod.TRANS_CACHE).info(),
+            "local_cache": cache_mod.get_cache(
+                settings.canonical_cache_entries, name=cache_mod.LOCAL_CACHE).info(),
         },
     })
 
