@@ -31,17 +31,20 @@ def test_ingest_kept_every_row(ingested):
     assert ingested["verification"].ok
 
 
-def test_projection_query_uses_a_single_scan(cursor, record):
-    """The whole design rests on GROUPING SETS reading the table once.
+def test_each_projection_query_uses_a_single_scan(cursor, record):
+    """The depth panels rest on GROUPING SETS reading the table once; the
+    entrance-slab XY query is the second and last scan.
 
     This is a planner behaviour rather than a contract. If a DuckDB upgrade
-    changed it, the only symptom would be a silently tripled p95 latency, so it
+    changed it, the only symptom would be a silently doubled p95 latency, so it
     is asserted here instead.
     """
     spec = filters.build(record)
-    plan = projections.explain(cursor, record, spec)
-    scans = re.findall(r"SEQ_SCAN|TABLE_SCAN", plan)
-    assert len(scans) == 1, f"expected one scan, found {len(scans)}:\n{plan}"
+    plans = projections.explain(cursor, record, spec).split("\n----\n")
+    assert len(plans) == 2
+    for plan in plans:
+        scans = re.findall(r"SEQ_SCAN|TABLE_SCAN", plan)
+        assert len(scans) == 1, f"expected one scan, found {len(scans)}:\n{plan}"
 
 
 def test_depth_panels_agree_on_total_energy(cursor, record):
