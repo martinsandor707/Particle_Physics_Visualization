@@ -56,6 +56,7 @@ import {
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
+import { tooltipOption } from './tooltip.js';
 
 /** Headroom above the tallest robust mark. */
 const Y_HEADROOM = 1.15;
@@ -558,12 +559,7 @@ export class EnergyPanel {
           itemHeight: 8,
         },
       ],
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: 'rgba(22,27,34,0.95)',
-        borderColor: THEME.border,
-        textStyle: { color: THEME.text, fontSize: THEME.fontTip },
-      },
+      tooltip: tooltipOption(),
       xAxis: {
         type: 'value',
         name: `Reconstructed energy [${axis.unit || 'GeV'}]`,

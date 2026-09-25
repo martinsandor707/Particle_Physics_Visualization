@@ -50,6 +50,7 @@ import {
   customLine, customPolyline, symbolOf, onInk,
 } from './marks.js';
 import { addCanonicalAnchors, addCanonicalCentroids } from './canonical_overlays.js';
+import { readoutPosition, tooltipOption } from './tooltip.js';
 
 export { symbolOf } from './marks.js';
 
@@ -354,12 +355,7 @@ export class ProjectionPanel {
         bottomInset: metrics.reservedBottom || 0,
         seriesIndex: 0,
       }),
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: 'rgba(22,27,34,0.95)',
-        borderColor: THEME.border,
-        textStyle: { color: THEME.text, fontSize: THEME.fontTip },
-      },
+      tooltip: tooltipOption(),
       graphic: graphics,
       series,
     };
@@ -883,12 +879,15 @@ export class ProjectionPanel {
       const lead = overlay
         ? `${overlay}<div style="border-top:1px solid ${THEME.border};margin:4px 0"></div>`
         : '';
+      // The position lives inside `tooltip`: ECharts 5.5.1 ignores a top-level
+      // `position` on a manual showTip (measured - the tip kept the default
+      // flip), and honours one given with the formatter. `confine` from the
+      // chart option still clamps whatever this returns into the chart box.
       const show = (html) => this.chart.dispatchAction({
         type: 'showTip',
         x: px,
         y: py,
-        position: [px + 12, py - 8],
-        tooltip: { formatter: lead + html + inWedges },
+        tooltip: { formatter: lead + html + inWedges, position: readoutPosition },
       });
 
       if (code === (payload.empty_code ?? 0)) {

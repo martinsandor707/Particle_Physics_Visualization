@@ -27,7 +27,10 @@ def pytest_collection_modifyitems(session, config, items):
     used to rely on alphabetical module order to avoid this; ordering by
     fixture makes it explicit and lets query-level test modules be named freely.
     """
-    booted = [item for item in items if "client" in getattr(item, "fixturenames", ())]
+    booted = [
+        item for item in items
+        if {"client", "live_server"} & set(getattr(item, "fixturenames", ()))
+    ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
 
