@@ -10,7 +10,11 @@ colour ramp is spent on cells around a tenth of a milli-electronvolt that carry
 no physics. The same reasoning generalises here as a *relative* floor of six
 decades below the brightest cell, which adapts to datasets at other energy
 scales instead of hard-coding one detector's numbers. Cells below the floor are
-folded into the lowest colour code, and the count of them is reported.
+folded into the lowest colour code, and the count of them is reported. The
+canonical panels' relative ramp (three decades, :func:`relative_log_scale`) is
+the one exception: there sub-floor bins get a code of their own and are not
+drawn, because folding them into the opaque bottom colour painted the whole
+crop as a dark rectangle around the showers.
 
 **Locking the ramp is a scientific-integrity feature, not a convenience.** If
 ``vmax`` is recomputed from each selection, then a selection carrying one tenth
@@ -48,6 +52,15 @@ MODE_RELATIVE = "relative"
 #: Unit string of a relative ramp.
 UNIT_RELATIVE = "a.u."
 
+#: How a relative ramp treats bins under its floor: not drawn, rather than
+#: folded into the opaque bottom colour. Canonical panels only.
+FLOOR_TRANSPARENT = "transparent"
+
+#: A ramp top within this many decades of the reference is the reference: a box
+#: merge or an area computed from other edge arrays can put the peak ratio a
+#: few ulps above 1.0, which must not read as a selection brighter than itself.
+VMAX_SNAP_DECADES = 1e-12
+
 #: Dynamic range of the logarithmic ramp, in decades below the brightest cell.
 DEFAULT_DECADES = 6.0
 
@@ -76,6 +89,10 @@ class ColorScale:
     rho_unit: str | None = None
     decades: float | None = None
     norm: str | None = None
+    #: Sub-floor treatment and the floor as a ratio to ``rho_ref``. Emitted only
+    #: when set, so neither the lab payload nor a Grad-CAM scale gains a key.
+    floor: str | None = None
+    floor_ratio: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -98,6 +115,9 @@ class ColorScale:
             data["rho_unit"] = self.rho_unit
             data["decades"] = self.decades
             data["norm"] = self.norm
+        if self.floor is not None:
+            data["floor"] = self.floor
+            data["floor_ratio"] = self.floor_ratio
         return data
 
 
@@ -112,6 +132,7 @@ def relative_log_scale(
     decades: float,
     norm: str,
     rho_unit: str = "GeV/mm^2/event",
+    floor: str | None = None,
 ) -> ColorScale:
     """The dimensionless ramp of the canonical panels.
 
@@ -119,8 +140,15 @@ def relative_log_scale(
     The ramp spans ``decades`` below 1.0, and its top is raised to the matrix's
     own peak whenever a selection exceeds the reference (which happens when the
     reference is the whole dataset and a slice of superposed showers is
-    brighter), so nothing is ever clipped from above. Values below the bottom
-    fold into the lowest colour code and are counted, as are empty cells.
+    brighter), so nothing is ever clipped from above. A top within
+    :data:`VMAX_SNAP_DECADES` of the reference is snapped back to it.
+
+    Values below the bottom are counted as ``n_below`` (``clipped_low``), as
+    are empty cells. With ``floor=FLOOR_TRANSPARENT`` the payload states that
+    those sub-floor bins are not drawn - the encoder gives them their own code
+    instead of the bottom of the ramp - and carries the floor as
+    ``floor_ratio = 10^-decades`` of ``rho_ref``. Without it they fold into
+    the lowest colour, the behaviour this function had before the floor code.
     """
     values = np.asarray(ratio, dtype=np.float64)
     positive = _positive(values)
@@ -132,6 +160,8 @@ def relative_log_scale(
     else:
         log_values = np.log10(positive)
         vmax = max(0.0, float(log_values.max()))
+        if vmax < VMAX_SNAP_DECADES:
+            vmax = 0.0
         n_below = int((log_values < vmin).sum())
     return ColorScale(
         scale=SCALE_LOG,
@@ -148,6 +178,8 @@ def relative_log_scale(
         rho_unit=rho_unit,
         decades=float(decades),
         norm=norm,
+        floor=floor,
+        floor_ratio=float(10.0 ** vmin) if floor is not None else None,
     )
 
 

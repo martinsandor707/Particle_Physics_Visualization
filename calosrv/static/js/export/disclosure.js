@@ -68,7 +68,7 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
     }
   }
 
-  for (const line of colourScale(scale, canonical)) out.push(line);
+  for (const line of colourScale(scale, canonical, panel)) out.push(line);
 
   if (canonical) {
     for (const line of displayWindow(frame, panel, panelId)) out.push(line);
@@ -151,7 +151,16 @@ function frameCounts(frame) {
   return `${parts.join('; ')}.`;
 }
 
-function colourScale(scale, canonical) {
+/**
+ * Whether a panel's bins are a kernel reconstruction. The payload's `kernel`
+ * is 'none' for the raw Native Grid (and a guard's box merge of it), and
+ * absent on the lab frame, which reconstructs nothing either.
+ */
+function reconstructed(panel) {
+  return typeof panel?.kernel === 'string' && panel.kernel !== 'none';
+}
+
+function colourScale(scale, canonical, panel = null) {
   if (!scale) return [];
   const out = [];
 
@@ -160,10 +169,30 @@ function colourScale(scale, canonical) {
     out.push(`Colour: average hit density (a.u.), 10^${exponent(scale.vmin)}…`
       + `10^${exponent(scale.vmax)} relative to ρ_ref = ${formatSci(scale.rho_ref, 3)} `
       + `GeV mm⁻² per event (${norm}).`);
-    if (scale.clipped_low > 0) {
+    if (scale.floor === 'transparent') {
+      // The print raster has no fade (floorFadeDecades 0), so the floor is a
+      // hard contour - which a reader will take for the edge of the shower
+      // unless the figure says otherwise.
+      const floor = floorPower(scale.floor_ratio, scale.vmin);
+      const cells = Number.isFinite(panel?.below_floor_cells) ? panel.below_floor_cells : null;
+      const energy = reconstructed(panel) ? 'in-window reconstructed energy' : 'in-window energy';
+      const share = Number.isFinite(panel?.below_floor_energy_fraction)
+        ? `, ${percent(panel.below_floor_energy_fraction)} of the panel's ${energy}`
+        : '';
+      const counted = cells !== null ? ` (${formatInt(cells)} ${plural(cells, 'bin')}${share})` : '';
+      out.push(`Bins below ${floor} of ρ_ref are not drawn${counted}; the dark outline is the `
+        + `${floor} display floor, not a shower edge.`);
+    } else if (scale.clipped_low > 0) {
       out.push(`${formatInt(scale.clipped_low)} ${plural(scale.clipped_low, 'bin')} below `
         + 'the ramp floor are drawn at the lowest colour.');
     }
+    return out;
+  }
+
+  if (scale.unit === 'attention' && canonical) {
+    out.push('Colour: energy-weighted mean Grad-CAM attention on a fixed 0–1 linear scale.');
+    const mask = attentionMask(panel?.attention_mask);
+    if (mask) out.push(mask);
     return out;
   }
 
@@ -188,12 +217,35 @@ function colourScale(scale, canonical) {
     return out;
   }
 
-  // The Grad-CAM channel is a fixed 0-1 attention scale (`unit: 'attention'`)
-  // with nothing to disclose about its bounds; nothing is said rather than
-  // something approximate. `canonical` is accepted for symmetry with the
-  // callers above and reserved for a frame-specific wording.
-  void canonical;
+  // The lab Grad-CAM channel is a fixed 0-1 attention scale with nothing to
+  // disclose about its bounds; nothing is said rather than something
+  // approximate. The canonical one is handled above, because its mask is.
   return out;
+}
+
+/**
+ * The Grad-CAM masking rule of a canonical panel, from its `attention_mask`.
+ *
+ * Continuous Field masks bins whose reconstructed density falls below the
+ * floor, because the kernel's tails paint attention over no energy; the
+ * Native Grid masks only bins without hits, so no attention measured on a
+ * real hit is ever hidden. The payload's own `rule` names which applies.
+ */
+function attentionMask(mask) {
+  if (!mask) return null;
+  const rule = typeof mask.rule === 'string' && mask.rule
+    ? mask.rule.replace(/\.?\s*$/, '.')
+    : null;
+  const cells = Number.isFinite(mask.cells) ? mask.cells : 0;
+  if (cells <= 0) return rule;
+  const hits = Number.isFinite(mask.hit_fraction)
+    ? `, holding ${percent(mask.hit_fraction)} of the panel's in-window hits`
+    : '';
+  const peak = Number.isFinite(mask.max_attention)
+    ? `; the largest masked attention is ${mask.max_attention.toFixed(2)}`
+    : '';
+  return `${rule ? `${rule} ` : ''}Attention not drawn in ${formatInt(cells)} `
+    + `${plural(cells, 'bin')}${hits}${peak}.`;
 }
 
 function displayWindow(frame, panel, panelId) {
@@ -201,6 +253,15 @@ function displayWindow(frame, panel, panelId) {
   if (!fit) return [];
   const symbols = AXIS_SYMBOLS[panelId];
   const out = [];
+
+  if (frame.fit?.rule === 'symmetric') {
+    const sentence = symmetricWindow(frame.fit, fit, panel, symbols);
+    if (sentence) out.push(sentence);
+    if (frame.fit?.provisional) {
+      out.push(`Fitted ranges are provisional (N = ${formatInt(frame.n_events)}).`);
+    }
+    return out;
+  }
 
   const cropped = [];
   for (const side of ['col', 'row']) {
@@ -229,8 +290,53 @@ function displayWindow(frame, panel, panelId) {
   return out;
 }
 
+/**
+ * The symmetric window as one sentence: half-widths, the percentile rule, any
+ * floor or clamp that set a half-width instead, and the energy outside.
+ *
+ * The outside share is the panel's own, measured after reconstruction - what
+ * the reader cannot see - falling back to the fit's pre-reconstruction figure
+ * for a payload that does not carry it. A Native Grid panel has nothing
+ * reconstructed, so its share is stated without the qualifier.
+ */
+function symmetricWindow(windowFit, fit, panel, symbols) {
+  const parts = [];
+  const limits = [];
+  for (const side of ['col', 'row']) {
+    const axis = fit[side];
+    if (!axis?.applied || !Array.isArray(axis.range) || axis.range.length < 2) continue;
+    const [lo, hi] = axis.range;
+    const half = Number.isFinite(axis.half_width)
+      ? axis.half_width
+      : Math.max(Math.abs(lo), Math.abs(hi));
+    if (!Number.isFinite(half)) continue;
+    const symbol = panel?.axes?.[side]?.symbol ?? symbols[side];
+    parts.push(`${symbol} ±${Math.round(half)} mm`);
+    if (axis.floored && Number.isFinite(windowFit.floor_mm)) {
+      limits.push(`${symbol} held at the ${Math.round(windowFit.floor_mm)} mm floor`);
+    }
+    if (axis.clamped) limits.push(`${symbol} clamped to the accumulation window`);
+  }
+  if (!parts.length) return null;
+
+  const [p0, p1] = Array.isArray(windowFit.percentiles) && windowFit.percentiles.length >= 2
+    ? windowFit.percentiles
+    : [0.1, 99.9];
+  const after = panel?.energy_fraction_outside_window;
+  const outside = Number.isFinite(after) ? after : fit.energy_fraction_outside;
+  const tail = Number.isFinite(after) && reconstructed(panel) ? ' after reconstruction' : '';
+  return `Display window: ${parts.join(', ')}, symmetric about the origin at the `
+    + `${ordinal(p0)}–${ordinal(p1)} energy percentile`
+    + `${limits.length ? `; ${limits.join('; ')}` : ''}; `
+    + `${Number.isFinite(outside) ? percent(outside) : '—'} of the panel's energy lies outside it${tail}.`;
+}
+
 function splatting(frame) {
   const out = [];
+  // What a displayed bin is - the kernel, its width, the gate - before the
+  // comb verdict, which is measured on the raw grid underneath it.
+  const recon = frame.reconstruction?.note;
+  if (typeof recon === 'string' && recon) out.push(recon);
   const fp = frame.footprint_mm;
   const k = frame.subsample_k;
   const pitch = frame.pitch_mm;
@@ -301,17 +407,40 @@ function exponent(value) {
   return text.startsWith('-') ? `−${text.slice(1)}` : text;
 }
 
-function ordinal(n) {
+/**
+ * An ordinal for a percentile, decimal-aware: 1 → "1st", 0.1 → "0.1st",
+ * 99.9 → "99.9th".
+ *
+ * A decimal takes the suffix its last digit is read with ("nought point one
+ * first"), which is the convention "0.1st percentile" follows. Exported for
+ * the on-screen footnotes, so the screen and the figure word it the same way.
+ */
+export function ordinal(n) {
   if (!Number.isFinite(n)) return '—';
-  const v = Math.round(n);
-  const mod100 = v % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${v}th`;
-  switch (v % 10) {
-    case 1: return `${v}st`;
-    case 2: return `${v}nd`;
-    case 3: return `${v}rd`;
-    default: return `${v}th`;
+  const text = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
+  const digits = text.replace(/[^0-9]/g, '');
+  const last = Number(digits.slice(-1));
+  const lastTwo = Number(digits.slice(-2));
+  const integral = !text.includes('.');
+  if (integral && lastTwo >= 11 && lastTwo <= 13) return `${text}th`;
+  switch (last) {
+    case 1: return `${text}st`;
+    case 2: return `${text}nd`;
+    case 3: return `${text}rd`;
+    default: return `${text}th`;
   }
+}
+
+/** log₁₀ floor of a relative ramp as a power of ten, e.g. 10^−3. */
+function floorPower(ratio, fallbackExponent) {
+  const exp = Number.isFinite(ratio) && ratio > 0 ? Math.log10(ratio) : fallbackExponent;
+  if (!Number.isFinite(exp)) return 'the floor';
+  const rounded = Math.round(exp * 10) / 10;
+  return `10^${exponent(rounded)}`;
+}
+
+function percent(value) {
+  return `${(100 * value).toFixed(2)}%`;
 }
 
 function plural(n, noun) {

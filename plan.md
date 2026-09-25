@@ -76,7 +76,7 @@ A hit is a **48.3 × 48.6 mm cell** centred on its coordinate (§Context). Point
 * **No empty bins under a footprint** once s = w/k ≤ p/√2 ⇒ k ≥ ⌈√2·48.6/20⌉ = 4 (s = 12.2 mm).
 * **Budget**: `k = clamp(⌊√(B / rows_scanned)⌋, 2, 6)` (never 1: point-binning was measured to comb, see Implementation notes), B = 3×10⁷ sub-rows; `rows_scanned` is the selection's hit count times the sample fraction when previewing. Full dataset → k = 1 (0.54 s); < 7.5 M → 2; < 1.9 M → 4 (0.41 s at 1.27 M); < 0.83 M → 6.
 * **The comb is measured, not asserted** (CLAUDE.md §2 last rule). `stagger.detect` ([stagger.py:80-106](calosrv/query/stagger.py#L80)) runs on the **uncropped accumulation matrix** (e.g. 138 × 350 for the full dataset) *before* cropping or resampling, so the 15 % edge trim and the 27-sample minimum of `_lag1` are met even for narrow-D fits; the result is carried as `frame.comb` and copied into `meta.stagger` with its `note` **overwritten** by canonical wording (the lab note tells the user to "switch to Continuous Field to merge staggered pairs", which is meaningless here). Three branches: "no cell-footprint comb measured (lag-1 = …, occupancy …)", "a footprint comb is present (lag-1 = …): k = … sub-deposits per cell over N = … events; a larger selection or a coarser R removes it", and "not measurable (only n columns)" when `_lag1` returns None. R̄(ψ) is reported as context only.
-* **k and ρ_max**: point-binned centres (k = 1) are **not** smoothed by the ensemble of rotations — measured lag-1 −0.26 over 20 143 co-registered events and −0.47 on a 221-event slice — so k = 1 is never used (`MIN_SUBSAMPLE = 2`, which measures +0.4 to +0.7); from k ≥ 4 the splat is gap-free at every rotation angle. The regime (`frame.smoothing`: `sub-cell-sampling-gapless` / `sub-cell-sampling-partial`) and k are named in the payload; the effect on peak values is bounded by the measured comb statistic.
+* **k and ρ_max**: point-binned centres (k = 1) are **not** smoothed by the ensemble of rotations — measured lag-1 −0.26 over 20 143 co-registered events and −0.47 on a 221-event slice — so k = 1 is never used (`MIN_SUBSAMPLE = 2`, which measures +0.4 to +0.7); from k ≥ 4 the splat is gap-free at every rotation angle. The regime (`frame.subsample_regime`, originally `frame.smoothing` and renamed by Implementation note 22: `sub-cell-sampling-gapless` / `sub-cell-sampling-partial`) and k are named in the payload; the effect on peak values is bounded by the measured comb statistic.
 
 ### 1.4 Data-fitted spatial domain (two levels, one scan)
 
@@ -97,7 +97,7 @@ A hit is a **48.3 × 48.6 mm cell** centred on its coordinate (§Context). Point
 Per event and shower the projected **slopes** s_x = u′_x/u′_z, s_y = u′_y/u′_z are linear statistics; the panel-relevant aggregate is their mean, so:
 
 * **Axis** (dashed): `x′(z′) = ∓⟨D_entry⟩/2 + ⟨s_x⟩·z′`, `y′(z′) = ⟨s_y⟩·z′` from z′ = 0 to the back face. Exactly two.
-* **Dispersion band** (uncapped shaded wedge behind the axis): ± σ(s)·z′ with σ the sample SD (ddof = 1) of the per-event slope in that panel's transverse coordinate — "the spread of individual shower directions", named in its tooltip. Requires N ≥ 2 (labelled `1 d.o.f.` at N = 2).
+* **Dispersion band** (uncapped shaded wedge behind the axis): ± σ(s)·z′ with σ the sample SD (ddof = 1) of the per-event slope in that panel's transverse coordinate — "the spread of individual shower directions", named in the bin tooltip of every point inside it (the wedge itself is silent, so the bins under it stay readable). Requires N ≥ 2 (labelled `1 d.o.f.` at N = 2).
 * **Mean uncertainty** (thin envelope): ± t₀.₉₇₅,N−1·σ/√N·z′ — "95 % interval of the ensemble axis". Both marks name their quantity, per CLAUDE.md's whisker rule.
 * **Coherence**: R̄′_S (transverse resultant length of û′), Rayleigh p = exp(−N·R̄′²) and N are printed beside each axis from N ≥ 2; the axis is faded when p > 0.05 (D 240–260 mm: N = 221, R̄′ = 0.21 ⇒ z = 9.8, p ≈ 6×10⁻⁵, drawn full; N = 20, R̄′ = 0.30 ⇒ p = 0.17, faded).
 * **Anchors** A (diamond) / B (circle) at (∓⟨D_entry⟩/2, 0) on XY and at z′ = 0 on the depth panels, each with an uncapped range bar ± σ(D_entry)/2 along x′ (sample dispersion of the entry separation) and the t-based SE of ⟨D_entry⟩ in the tooltip. The dashed separation vector is labelled `⟨D_entry⟩ = … mm (entry) · ⟨D⟩ = … mm (dataset, 3-D)`.
@@ -182,7 +182,9 @@ One responsibility per file; ✚ = new. Lab code paths stay behaviourally identi
 | `calosrv/api/routes_projections.py` | `frame`, `rho_norm` params validated; lab branch unchanged; canonical branch: `frame_statistics → cell_footprint → plan_window → choose_subsample(rows_scanned) → cache → stagger.detect(bundle.xy accumulation matrix, uncropped) → fit_window → (dataset_reference if requested) → render_canonical → centroids.compute → ensemble_axes → notices` (excluded events, ill-conditioned ψ, energy outside window/fit, comb measurement with canonical wording, k regime, provisional ranges, budget downgrade, `include_undefined_d` cannot co-register; `lock_scale`/`scale_mode` ignored with a note). Envelope as in §2 (`truth_dataset` omitted, `canonical_mean` added). |
 | `calosrv/query/experiments.py` | `describe()` adds `frames: ["lab", "canonical"]`, `z_front`. |
 
-### 3.2 Frontend (vendored ECharts 5.6.0 only)
+### 3.2 Frontend (vendored ECharts 5.5.1 only)
+
+The bundle is ECharts **5.5.1** (`echarts.version`). An earlier revision of this heading said 5.6.0, which is the `zrender` dependency version that the same file also contains.
 
 | File | Change |
 |---|---|
@@ -269,3 +271,140 @@ Deviations from the approved plan above, each verified against the code and the 
 13. **Depth ends agree**: ensemble axes, dispersion bands and the drawn back-face rule all end at the last sampling layer (`frame.depth_mm`), in the convention that puts the front face at the first one.
 14. **Zoom and Auto-fit RoI keep the panel isometric on non-square extents**: a kept window is re-proportioned to the new fitted extent's span ratio, and the RoI fit widens the narrower axis to that ratio rather than to a square.
 15. **`meta.sample_percent`** is emitted by both frames so the exported figure names the true sampling fraction; `overlays.coherence.note` and `selection.centroid_dataset.label` carry canonical wording in the canonical envelope; ignored `lock_scale`/`scale_mode` values produce a notice; the ρ_ref reference is shown in the status bar.
+
+### Canonical panels revision: Continuous Field, transparent floor, symmetric windows, lighter anchors
+
+This follow-up change to the canonical panels was planned and adversarially reviewed on its own, then measured read-only on production v37 (20 143 co-registered events). Where §1–§3 above state a rule that this revision replaced, the notes below win. The change fixed four defects:
+
+- the frame opened on the raw 20 mm grid, which showed a five-event selection as rotated 48 mm cell blocks;
+- sub-floor bins were folded into the opaque bottom colour, which painted the whole crop as a dark-purple rectangle;
+- the percentile window was asymmetric, so the origin was off-centre (for example x′ ∈ [−260, 340]);
+- 15 px filled anchors, a 6 px spread bar and a floating ⟨D_entry⟩ badge covered the shower cores.
+
+16. **Display windows are symmetric about the origin at p0.1–p99.9** (`query/window.py: symmetric_axis`). This supersedes §1.4's display window and the `fit.percentiles: [1, 99]` of §2.
+    - **Steps, per cropped transverse axis:**
+      1. Δ = max(|lo|, |hi|) of the energy-weighted p0.1/p99.9 fit.
+      2. Raise Δ to the floor (`floored`).
+      3. Snap it outward to 20 mm.
+      4. Clamp it to the accumulation half-width (`clamped`).
+      5. Convert to indices, `lo_i = round((half − Δ)/p)` and `hi_i = n − lo_i`.
+
+      The range is reported from the bin count, so it is exactly antisymmetric. The outside fraction is re-measured on the final window.
+    - **The floor** is 200 mm while provisional (`SHOWER_RADIUS_MIN_MM`: the median single-shower slab |y′| p98). Otherwise it is `WINDOW_FLOOR_FOOTPRINTS` × 48.6 mm, snapped to 100 mm. The 200 mm is not the narrowest robust window: D-only slices at N ≥ 20 measure y′ ±360 mm or more, but E₁, E₂ < 2 GeV (N = 691) measures ±160 mm, < 1.5 GeV (N = 643) ±100 mm and < 1 GeV (N = 468) ±80 mm, which the 100 mm floor holds. A fixed 200 mm floor would widen those 1.25–2.5×.
+    - **Payload.** `fit` gains `rule: "symmetric"`, `percentiles: [0.1, 99.9]`, `floor_mm` and `snap_mm`. Each axis gains `percentile_range`, `symmetric`, `half_width` (null on depth), `floored` and `clamped`.
+    - **Unchanged.** `fit_axis` keeps its 1/99 defaults as the primitive, depth is never cropped, and the provisional labelling is as before.
+    - **Why.** A 1–99 crop cut the halo 15–110× above the 10⁻³ display floor and left 14–99% of the X′Y′ boundary bins above it; at 0.1–99.9 that figure is 2–11%. This is recorded as an exception in CLAUDE.md §2, "Outlier Clipping".
+17. **Continuous Field is a conservative kernel reconstruction, and the canonical frame opens in it.** This supersedes §2's "`display=continuous` resamples the cropped transverse axes to R" by area-weighted overlap.
+    - **The operator** (`grid/kernel.py`, maths only) is `W[r, c] = G_c(d_{r+1}) − G_c(d_r)`, so every column telescopes to the kernel mass inside the destination and no entry is negative.
+    - **Box** is `splat.overlap_matrix`, unchanged.
+    - **Gaussian** is `overlap_matrix + Δ_r[(σ/w)(ψ̃(u_a) − ψ̃(u_b))]` with `ψ̃(z) = φ(|z|) − |z|·½erfc(|z|/√2)`. ψ̃ is exactly zero at |z| ≥ 9, so σ → 0 is the box.
+      - `erfc` is Numerical Recipes' `erfcc`, max fractional error 1.04 × 10⁻⁷. Abramowitz & Stegun 7.1.26 was rejected: its tail error is 0.3–1.8%.
+      - ψ̃ is evaluated once per edge, and only inside the 9σ band. This deviates from the per-half plan. It gives the same numbers bit for bit on 200 random grids and cut the N = 5 render from 8.9 to 5.4 ms, under the 7 ms target.
+    - **Tent** is the exact linear interpolation through the bin centres. It raises `ValueError` on a non-uniform source.
+    - **Precision.** Every input is cast to float64 (guard 8b.3); float32 edges give output bit-identical to the float64 path.
+    - **Policy** (`query/reconstruct.py: choose_kernel`): Native gets `none`. N < 50 gets a Gaussian of σ = 10 mm (`SMOOTH_SIGMA_MM = CANONICAL_PITCH_MM / 2`). N ≥ 50 gets the tent.
+    - **Spread per 20 mm bin:** box 5.77 mm, tent 8.165 mm, Gaussian 11.547 mm RMS.
+    - **Source bins.** A continuous axis starts from the *full* accumulation axis sliced to the window plus the kernel's reach: 1 bin for the tent, ⌈9σ/p⌉ + 1 for the Gaussian. Depth always passes through.
+    - **Rejected:** bicubic (negative lobes, overshoot) and point interpolation (not conservative).
+    - **Native Grid** is kept as the audit view: raw bins, the new window and the transparent floor.
+18. **Energy bookkeeping is measured after reconstruction.**
+    - Per panel, `total` is the in-window GeV after reconstruction, and `energy_fraction_outside_window = clip(1 − total / total_all, 0, 1)`. `energy_fraction_outside_window_raw` is the window-fit figure, and `energy_outside_window_gev` and `kernel` are added.
+    - In continuous mode the test asserts `total == inside_weights_row @ E @ inside_weights_colᵀ` to 10⁻¹² relative. Production X′Y′ agrees to 3.5 × 10⁻¹⁶.
+    - Across seven production selections, raw and reconstructed outside fractions differ by at most 0.007 percentage points.
+19. **ρ_ref stays the raw 20 mm-grid peak.** Both kernels, like the box merge, are non-negative partitions of unity, so that peak is a proven upper bound on the displayed field and is independent of R, the kernel and the window.
+    - `frame.rho` gains `basis`, and per panel `displayed_peak`, `displayed_over_ref` and `kernel_attenuation`. The last is the displayed peak over that panel's own raw accumulation-grid peak.
+    - The dataset-norm notice quotes `kernel_attenuation`, not `displayed_over_ref`. The latter is dominated by how bright the selection is: 1.95 on X′Y′ for the N = 5 slice D 257–258 mm, whose ramp top rises to 10⁰·²⁹.
+    - **The kernel-switch figure was re-measured.** The design's estimate that the N = 50 switch raises the displayed peak by 9% did not reproduce. Re-rendering the same N = 49 / N = 50 bundles (D 753–762 / 753–763 mm) with both kernels gives +6.4–7.1% on X′Y′ and +4–5% on the depth panels. The same effect is 1.8% over the full selection and 20% at N = 5. The kernel is 29% narrower after the switch. `GAUSSIAN_KERNEL_BELOW_N`'s docstring and the kernel sentence quote the measured figures.
+20. **The display floor is transparent** (`encode/quantize.py`, `encode/scale.py`, `encode/matrix.py`, `static/js/decode.js`, `static/js/scale.js`).
+    - **Codes.** `BELOW_CODE = 1`. With a `below_code` the ramp starts at `min_code` 2 with 253 levels (0.0119 decades, 2.8% per step), and code 0 stays empty. Without one, the lab arithmetic is `rint(normalised · 254) + 1`, byte-identical to the legacy formula (tested).
+    - **Helpers.** `below_floor_mask` applies exactly the criterion `relative_log_scale` counts as `clipped_low`. `dequantize` and `occupancy` take `min_code`, so canonical `occupancy` counts only bins drawn on the ramp.
+    - **Scale.** `ColorScale.floor` / `floor_ratio` are emitted only when set, so neither the lab key set nor a Grad-CAM scale changes. `relative_log_scale` snaps a vmax within 10⁻¹² decades of 0 back to 0, against box-merge round-off. `encode_matrix` adds `below_code` and `below_floor_cells` only when given.
+    - **Client** (`codeTable`):
+      - `empty_code` and `below_code` are transparent.
+      - Colours are indexed at `round((code − min_code)/(max_code − min_code)·255)`.
+      - On a relative log ramp the alpha tapers linearly in log density over `THEME.floorFadeDecades`, which is 0.5 on screen and 0 in print.
+      - Guard 8b.1: the taper applies only when that token is finite and positive. Otherwise the alpha is a pure 0/255 step, and the token is never a divisor.
+    - **Legend.** It mirrors the taper with 48 rgba stops; Node SSR on the vendored bundle confirmed `stop-opacity` is interpolated. Its `outOfRange` is made transparent because ECharts' default `#aaa` underlay showed through the faded stops.
+    - **Grad-CAM** gets `attention_mask {rule, cells, hit_fraction, max_attention}` and no `scale.floor`.
+      - Continuous masks bins whose *reconstructed* density is below 10⁻³ ρ_ref. At N = 5 that is 8,753 X′Y′ bins, holding 20% of the reconstructed hit count: dust hits that carry little energy. `max_attention` is the largest attention among them.
+      - Native masks only hitless bins (`cells` 0, `max_attention` null).
+      - `topk` excludes masked bins in both channels, and `below_floor_cells` / `below_floor_energy_fraction` count the masked bins.
+21. **The comb is measured before display smoothing.**
+    - **Order in `build_response`:**
+      1. The kernel is chosen from the exact N, which comes from the event table even when the hits are sampled.
+      2. The comb is measured on the raw, uncropped `bundle.xy.planes['e']`, as before.
+      3. The window is fitted.
+      4. The panels are rendered.
+      5. The whole response is budgeted.
+    - **Payload and note.** `comb.measured_on = "raw accumulation grid, before display smoothing"`. The note drops §1.3's "a larger selection or a coarser R removes it" advice. It now says Native Grid shows the comb as measured, and Continuous Field hides it for display without removing it.
+    - **Why.** Smoothing hid a real k = 1 comb in 7 of 7 tests; this is recorded in CLAUDE.md §2.
+    - **Production.** The comb fields are identical across display modes for every selection, and none is staggered. Over the full range the occupancy lag-1 is +0.245 and the energy lag-1 is +0.892 (core row) and +0.919 (columns).
+22. **`frame.smoothing` is renamed `frame.subsample_regime`** (`_subsample_regime`), because "smoothing" now means the display kernel. Its values (`sub-cell-sampling-gapless` / `-partial`) are unchanged, and no JS or test read the old key.
+23. **`frame.reconstruction` and `meta.resolution.kernel` say what the display did.**
+    - `meta.resolution.kernel` is `{type, sigma_mm, bin_spread_rms_mm, separable, conservative, non_negative}`.
+    - `frame.reconstruction` (`reconstruct.reconstruction_report`) carries:
+      - `display`, `kernel`, `label`;
+      - `sigma_mm` (null unless Gaussian) and `bin_spread_rms_mm`;
+      - `blur_rms_mm {x, y}`, `subsample_k` and `gaussian_below_n` 50;
+      - `axes ["x′","y′"]` in both display modes, and `depth: "native sampling layers, never smoothed or interpolated"`;
+      - `conservative` and `floor_ratio` 0.001;
+      - per-panel `energy_fraction_outside` and `below_floor`, read back from the rendered payloads;
+      - a one-sentence `note`.
+    - **The blur formula.** `blur_rms_mm` is √(w²(1 − 1/k²)/12 + p²/12 + spread²): the discrete k × k footprint term (the continuous w/√12 overstates that term by 15% at k = 2), the p²/12 of point-binning each sub-deposit into its 20 mm bin, and the kernel's spread per bin. The binning term was missing at first, which understated the blur by 5–8% against a Monte Carlo of rotated cells binned as the scan bins them; with it the formula reproduces the Monte Carlo to 0.1 mm (`test_kernel.py`). On v37 the x′ total is 15.7 mm (tent, k = 2) to 18.9 mm (Gaussian, k = 6).
+    - **Extra parameter.** `plan_canonical` also takes `cell_mm`, used only to word the "finer than 20 mm" warning with the 48.6 mm cell.
+24. **The 100 KB contract covers the whole response.**
+    - **Why.** The panel guard bounds only the rasters. The envelope (frame block, meta, centroids, notices) adds 13–16 KB, and at R = 150 the five-event slice D 257–258 mm measured 108,775 B with its panels inside their guard.
+    - **The inner guard** keeps today's `len(json.dumps(panels))`. That measure over-counts the wire form, so it errs towards fitting, and the pinned 15 KB native test still merges.
+      - `render_canonical(limit=None)` now resolves `PAYLOAD_LIMIT` at call time.
+      - Loop bug fixed. The twelfth attempt used to degrade and append a notice for a step the returned panels never took. The loop now degrades only when another attempt follows, and ends with a "served as they are" notice if still over.
+    - **The outer check** (`api/frame_canonical.py`) measures the assembled body with `density.wire_size`, which reproduces `JSONResponse` exactly: compact separators, `ensure_ascii=False`, UTF-8. The tests check it against `len(response.content)`. At 100 000 B or more, the panels are re-rendered from the cached bundle one guard step at a time, continuing from the state the first pass served (`guard["next"]`), and each candidate is measured as it is served until one fits. Every step and a final still-over notice are disclosed. An earlier version compared the guard's over-counted panel measure with a limit of `100 000 − envelope − 1 500` compact bytes; that unit mismatch stepped D 20–40 mm past R = 150 to R = 112 for any request above 150, although R = 150 serves 98,377 B.
+    - **Measured.** D 257–258 ships 81,864 B at R = 112. The plan's own reference case, D 246.39–246.54 mm (N = 3), ships 97,531 B at R = 112.
+25. **Each frame keeps its own display mode** (`state.js`, `main.js`, `index.html`).
+    - **State.** `display_lab` defaults to `native` and `display_canonical` to `continuous`. `get('display')` and `set({display})` act on the active frame; `set` writes the display onto `patch.frame` when the patch carries one, so key order does not matter. `projectionParams` always sends `display`, while the API default stays `native`.
+    - **Links.** A legacy `display=` applies to the active frame unless that frame's own key is also present, and unknown `display_*` values are rejected at read. Old canonical links open in Continuous; this is documented in the `state.js` header.
+    - **Controls.** `syncDisplayControls()` runs from `applyFrameControls`, the display handler and experiment activation. It sets the radios, the per-frame labels ("Native Grid (raw 20 mm bins, audit)", "Continuous Field (kernel reconstruction)"), the R control and the hint. The lab hint is remembered across frame switches. `REQUIRED_IDS` gains `display-label-native` and `display-label-continuous`.
+    - **Native Grid on screen.** `renderRaster` pre-upscales a `kernel: 'none'` raster by an integer nearest-neighbour factor, to about 2048 px and at most ×32. For example, 33 × 20 becomes 1056 × 640.
+    - **Continuous depth panels on screen.** A reconstructed Y′Z′ / X′Z′ raster is enlarged by the same rule along its depth columns only (measured canvases 1920 × 213 and 1920 × 203), so the browser's bilinear upscale never blends two sampling layers while the reconstructed transverse rows stay smooth.
+    - **Print.** `printRaster` asks `renderRaster(…, {screen: false})` for one pixel per payload bin and applies one integer factor to both axes, capped so the long side stays at or below `MAX_RASTER_PX` (4096). The cap used the width alone before, which let a 60 × ~200 depth raster reach 2040 × 7 242–8 772 px and the lab Y′Z′ 2040 × 17 408.
+26. **Lighter anchors and overlays** (new `static/js/panels/canonical_overlays.js`, so `projection.js` does not grow).
+    - **Anchors.** 13 px open outlines with a transparent fill, the shower colour and `THEME.anchorOpacity` (0.75 on screen, 1 in print). They are not `emptyDiamond` / `emptyCircle`, which ECharts fills white with a forced 2 px stroke. Y′Z′ draws one merged circle.
+    - **Spread bar.** Uncapped, 2.5 px, 0.3 opacity, and named as dispersion in its tooltip. The anchor tooltip also restates the SD, because at N = 5 the ±28 mm bar (7.8 px) sits inside the outline's hover band.
+    - **Separation rule.** 1 px dashed in `THEME.separationRule` (`rgba(255,255,255,0.4)` on screen, `#6b7280` in print). Its tooltip carries ⟨D_entry⟩ with its 95% t-interval and N, and ⟨D⟩. The markPoint badge is removed. The X′Y′ tag carries ⟨D_entry⟩ ± interval inside a `.sym` span, which `layout.css` exempts from the tag's uppercase transform.
+    - **Centroids.** 7 px, told apart by shape: filled dot (`truth_voxel`), open ring (`pred_voxel`), plus (`canonical_mean`). `centroidLegend` names each set by its payload label for the footnote and the figure. The lab `CENTROID_STYLE` is unchanged.
+    - **Canonical grid.** `grid {show: true, z: 3}` is a frame drawn above the raster, and `spatialAxis(..., {onZero: false})` removes the crosshair through the origin.
+    - **Print tokens** sit outside `PRINT_INK`, because none of them is text.
+27. **Frontend fixes applied in both frames** (`projection.js`, `scale.js`, `decode.js`, new `static/js/panels/marks.js`), as the user chose.
+    1. `visualMap` binds `seriesIndex: 0`, the raster. It had been recolouring the scatter markers too, and the lab centroid diamonds measured `rgb(253,231,37)`.
+    2. The spread bar, separation rule, ensemble axes, depth-face rules and lab measured shower axes are `customLine` / `customPolyline` series with `clip: true` and `style.fill: 'none'`. A `line` series with `symbol: 'none'` never fires its tooltip. Without `fill: 'none'`, the hover test is the 1 px stroke rather than a ±2.5 px band. The lab trajectories stay silent.
+    3. The zr cell-tooltip handler answers everywhere on the plot. The raster is silent, so a target is always an overlay, but a hit area is wider than the ink: the anchors' transparent fill hit-tests the whole disc on the cores, and the face rules' ±2.5 px band covers most of the first and last layers. Returning on every target hid the bin readout over the brightest bin in 10 of 12 production cases. `marks.js: onInk` now tests the ink (half the stroke + 1 px of a line, the outline of an open marker, all of a filled one). Off the ink the handler shows the bin alone; on it, the overlay's own formatter (read from the series model through `echarts.helper.getECData`) followed by the bin. The ensemble wedges are silent, and the readout names the wedges the pointer is inside, each with its quantity.
+    4. `autoFitRoI` weights by dequantised value (`occupiedBounds(…, {weight: 'value'})`), and skips below-floor bins in both weightings. On isometric panels it slides the box inside rather than truncating it.
+    5. Guard 8b.2: one `ResizeObserver` per panel, rAF-debounced, calls `relayout()`. That runs the `onRelayout` hook, where `main.js` re-decides `depthIsometric`, and rebuilds the option at the new size. Measured: 234 → 160 px keeps 1:1.
+
+    The lab server payload is untouched; `test_golden_lab.py` passes unchanged.
+28. **Export reads the display from the payload** (`export/caption.js: displayOf, kernelPhrase`, `filename.js`, `figure.js`, `disclosure.js`).
+    - **Deviation from §6's "figure.js: comment only".** `figure.js` builds one descriptor (R, pitch, merge, kernel) from `panel.lastOpts.resolution` and `frame.reconstruction` before the synchronous block, and threads it through two call sites into `describeSelection` and `figureName`. Neither function could otherwise see a guard-lowered R. The swap/render/serialise block and the test-pinned lines are untouched.
+    - **File names.** The name takes R from the payload and appends `gauss10` or `tent` last, for example `xy_D-257-258_R112_canonical_gauss10_*.svg`.
+    - **Disclosure.** `disclosure.js` stays DOM-free with its single `scale.js` import. It adds:
+      - the floor sentence, which in print reads "the dark outline is the 10⁻³ display floor, not a shower edge";
+      - the Grad-CAM colour-and-mask sentence;
+      - the symmetric window sentence, falling back to the old asymmetric one for older payloads;
+      - the reconstruction note, before the comb note;
+      - a decimal-aware `ordinal` ("0.1st", "99.9th").
+    - **The `printRaster` comment** now says each pixel block is one payload bin: a detector cell in the lab, a raw 20 mm bin in Native Grid, a reconstructed display bin in Continuous Field.
+29. **Production re-measurement** (v37, read-only connection, R = 150; C = Continuous Field, N = Native Grid):
+
+    | Selection | N | X′Y′ window x′ × y′ | Kernel | X′Y′ outside raw / C / N | Attenuation X′Y′, Y′Z′, X′Z′ (C) | Wire bytes C / N | Cached request ms C / N |
+    |---|---|---|---|---|---|---|---|
+    | D 257–258 | 5 | ±420 × ±500 (floor 200) | Gaussian | 0.179 / 0.186 / 0.179% | .756 .900 .884 | 81,864 (R 112) / 41,443 | 22.4 / 11.3 |
+    | D 256–257 | 3 | ±740 × ±660 | Gaussian | 0.119 / 0.122 / 0.119% | .756 .859 .864 | 79,414 / 44,689 | 12.9 / 10.7 |
+    | D 753–762 | 49 | ±1000 × ±620 (floor 100) | Gaussian | 0.211 / 0.209 / 0.211% | .863 .925 .895 | 69,354 / 49,343 | 12.0 / 10.9 |
+    | D 753–763 | 50 | ±1000 × ±600 | tent | 0.217 / 0.216 / 0.217% | .911 .966 .941 | 68,941 / 49,088 | 11.2 / 10.2 |
+    | D 20–40 | 549 | ±360 × ±380 | tent | 0.333 / 0.338 / 0.333% | .988 .991 .996 | 98,302 / 37,250 | 12.2 / 10.6 |
+    | full range | 20,143 (k = 2) | ±2420 × ±520 | tent | 0.331 / 0.332 / 0.331% | .912 .983 .978 | 50,852 / 69,365 | 29.0 / 25.0 |
+    | E₁, E₂ < 2 GeV | 691 | ±2480 × ±160 | tent | 0.210 / 0.214 / 0.210% | .675 .944 .855 | 43,677 / 54,111 | 16.9 / 13.6 |
+
+    - **Render time.** A cached render takes 2.7–5.4 ms; cold scans take 44–470 ms per slice.
+    - **Native Grid** gives attenuation 1.0 everywhere.
+    - **S1** (D 243.6309–243.8532 mm) reproduces x′ ±480 × y′ ±380 with 0.182% outside.
+    - **Grad-CAM** stays under 99 KB in both modes.
+    - **Tests.** The full suite then stood at 335 passed and 11 skipped, against a baseline of 253 / 9. The two extra skips are the new subset tests, which run only with `CALOSRV_TEST_SUBSET_CSV`; against a 1,500-event subset, `test_canonical_subset.py` passes 10 of 10.

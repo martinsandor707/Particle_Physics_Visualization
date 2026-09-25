@@ -10,6 +10,13 @@ wait for it.
 
 This module sits in the query layer so both the API assembly and the ingest
 job runner can call it without a layering inversion.
+
+**What the key leaves out.** The cache key (``canonical.cache_key``) names the
+selection, the sampling, the accumulation grid, ``k`` and the footprint - and
+nothing about the display. The display mode, the resolution R and the
+reconstruction kernel are all applied afterwards to the cached raw
+accumulation grid, so changing any of them re-renders from the cached bundle
+in milliseconds and never re-scans the hits.
 """
 
 from __future__ import annotations

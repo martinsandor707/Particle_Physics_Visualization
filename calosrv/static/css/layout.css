@@ -107,6 +107,10 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+/* Mathematical symbols inside a tag keep their case: an uppercased ⟨D_entry⟩
+   reads as ⟨D_ENTRY⟩ and "mm" as "MM", which are different quantities. A direct
+   rule beats the inherited transform without raising specificity. */
+.tag .sym { text-transform: none; letter-spacing: 0; }
 
 .card .plot { width: 100%; height: 330px; }
 .card .plot.tall { height: 380px; }

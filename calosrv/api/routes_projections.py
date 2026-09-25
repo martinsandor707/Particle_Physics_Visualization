@@ -45,9 +45,13 @@ def get_projections(
     display: str = Query(
         MODE_NATIVE,
         description=(
-            "native: one bin per real calorimeter cell (hardware truth). "
-            "continuous: uniform grid at resolution R, built by area-weighted "
-            "voxel splatting."
+            "native: one bin per real calorimeter cell (hardware truth); in the "
+            "canonical frame, the raw 20 mm accumulation bins (the audit view). "
+            "continuous: in the lab frame, a uniform grid at resolution R built by "
+            "area-weighted voxel splatting; in the canonical frame, a conservative "
+            "kernel reconstruction along x′ and y′ only (Gaussian σ = 10 mm below "
+            "50 events, bilinear tent from 50), depth never smoothed. The default "
+            "is native in both frames; the interface always sends it explicitly."
         ),
     ),
     mode: str = Query(

@@ -92,6 +92,48 @@ RAMP_DECADES = 3.0
 #: provisional on the axis itself (CLAUDE.md section 2).
 PROVISIONAL_N = 20
 
+#: Standard deviation of the Gaussian display kernel (``grid/kernel.py``): half
+#: the accumulation pitch, so one 20 mm bin's energy spreads to 11.5 mm RMS -
+#: enough to dissolve the rotated cell blocks a handful of events leaves, still
+#: under a quarter of the 48 mm cell.
+SMOOTH_SIGMA_MM = CANONICAL_PITCH_MM / 2
+
+#: Below this many co-registered events the Continuous Field uses the Gaussian
+#: kernel; from here up the bilinear tent, whose 8.2 mm RMS is enough once the
+#: ensemble of rotation angles fills the footprint. The switch narrows the
+#: kernel by 29%; re-rendering the production N = 49 and N = 50 bundles
+#: (D 753-762 / 753-763 mm) with both kernels at R = 150 shows it raises the
+#: displayed X'Y' peak by 6-7% and the depth peaks by 4-5% (1.8% over the full
+#: selection, 20% at N = 5, where the Gaussian is used). Both are disclosed in
+#: the payload rather than hidden.
+GAUSSIAN_KERNEL_BELOW_N = 50
+
+#: Display windows cover the energy-weighted 0.1st to 99.9th percentile of each
+#: transverse marginal, symmetric about the origin. A recorded exception to the
+#: CLAUDE.md 1st-99th default: on production v37 a 1-99 crop cuts the halo
+#: 15-110x above the 10^-3 display floor and leaves 14-99% of the X'Y' boundary
+#: bins above it; at 0.1-99.9 that is 2-11% of the boundary bins, and only
+#: 0.12-0.33% of the X'Y' energy falls outside (seven production selections,
+#: N = 3 to the full 20 143) - counted and reported, as ever.
+WINDOW_LOW_PERCENTILE = 0.1
+WINDOW_HIGH_PERCENTILE = 99.9
+
+#: Smallest half-width of a provisional (N < PROVISIONAL_N) window: the median
+#: single-shower |y'| p98 of the entrance slab, so a handful of events cannot
+#: shrink the view below one shower's own extent. It is *not* the narrowest
+#: robust window: D-only slices at N >= 20 measure y' +-360 mm or more on
+#: production v37, but energy cuts go well below it - E1, E2 < 2 GeV (N = 691)
+#: +-160 mm, < 1.5 GeV (N = 643) +-100 mm, < 1 GeV (N = 468) +-80 mm - which is
+#: why the floor above PROVISIONAL_N is the physical resolution instead.
+SHOWER_RADIUS_MIN_MM = 200.0
+
+#: From PROVISIONAL_N up the robust evidence sets the window, floored only at
+#: this many cell footprints (2 x 48.6 mm, snapped to 100 mm): the physical
+#: resolution. A fixed 200 mm floor would widen the robust low-energy windows
+#: above for no statistical reason: 1.25x at E1, E2 < 2 GeV, 2x at < 1.5 GeV
+#: and 2.5x at < 1 GeV, whose +-80 mm is held at this 100 mm floor instead.
+WINDOW_FLOOR_FOOTPRINTS = 2
+
 #: A consecutive-gap below this fraction of the 90th-percentile gap is a "twin"
 #: (the same column seen in an adjacent row block, offset 4.4 mm).
 TWIN_GAP_FRACTION = 0.25

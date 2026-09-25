@@ -22,12 +22,36 @@
  * can be measured off the picture. The depth panels span 5200 mm transverse
  * against 1210 mm of depth, where forcing 1:1 would leave an unusable sliver,
  * so they fill the card and carry their true extents on the axes instead.
+ *
+ * The letterbox is a function of the container, so it is recomputed whenever
+ * the *container* resizes - a sidebar collapsing, the grid dropping to one
+ * column - not only the window. `chart.resize()` alone keeps the old grid
+ * rectangle in pixels and silently breaks 1:1 (see `observeResize`).
+ *
+ * ## Overlays
+ *
+ * Every overlay line is a custom series from `marks.js`, clipped to the grid
+ * and hit-testable, so its tooltip naming the quantity actually fires. The
+ * canonical anchors and centroids live in `canonical_overlays.js`; the lab
+ * frame keeps its centroid markers and D vector here, unchanged.
+ *
+ * The bin readout answers everywhere on the plot. On an overlay's drawn ink the
+ * overlay's own text leads it; the ensemble wedges are silent and are named in
+ * the readout instead (see `attachCellTooltip`).
  */
 
 import {
   renderRaster, exactValue, dequantize, cellAt, cellCentre, occupiedBounds,
 } from '../decode.js';
-import { THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle } from '../scale.js';
+import {
+  THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle, floorLabel,
+} from '../scale.js';
+import {
+  customLine, customPolyline, symbolOf, onInk,
+} from './marks.js';
+import { addCanonicalAnchors, addCanonicalCentroids } from './canonical_overlays.js';
+
+export { symbolOf } from './marks.js';
 
 /* Axis titles, keyed by the axis *symbol*. The payload names every axis by
  * its semantic identity (x, y, z) and, in the canonical frame, adds the
@@ -55,11 +79,6 @@ const AXIS_LABEL_COMPACT = {
 /** Plot heights and widths (px) below which the compact titles and labels are used. */
 const COMPACT_LABEL_HEIGHT = 220;
 const COMPACT_LABEL_WIDTH = 420;
-
-/** The symbol an axis is written with on screen. */
-export function symbolOf(axis) {
-  return axis.symbol ?? axis.name;
-}
 
 function axisLabel(axis, compact = false) {
   const symbol = symbolOf(axis);
@@ -92,7 +111,60 @@ export class ProjectionPanel {
     this.view = null;   // {col: [lo, hi], row: [lo, hi]} in mm; null = full extent
     this.drag = null;
     this.lastOpts = null;
+    // The container size the current option was laid out at; `relayout`
+    // compares against it so a resize that changes nothing costs nothing.
+    this.laidOut = null;
+    // Set by main.js: called on a container resize before the option is
+    // rebuilt, so the caller may re-decide `isometric` for the new size.
+    this.onRelayout = null;
     window.addEventListener('resize', () => this.chart.resize());
+    this.observeResize();
+  }
+
+  /**
+   * Rebuild the option whenever the container changes size (guard 8b.2).
+   *
+   * The isometric letterbox is computed in pixels from the host size at
+   * build time, so a container that grows or shrinks without a window resize
+   * - the sidebar, the grid's one-column breakpoint - would otherwise keep the
+   * old rectangle, and `chart.resize()` alone stretches it: 1 mm along x′
+   * would no longer be 1 mm along y′. One observer per panel, debounced to an
+   * animation frame so a drag of the window rebuilds once per frame.
+   */
+  observeResize() {
+    if (typeof ResizeObserver !== 'function' || !this.element) return;
+    if (this.resizeObserver) this.resizeObserver.disconnect();
+    let pending = 0;
+    this.resizeObserver = new ResizeObserver(() => {
+      if (pending) return;
+      pending = requestAnimationFrame(() => {
+        pending = 0;
+        this.relayout();
+      });
+    });
+    this.resizeObserver.observe(this.element);
+  }
+
+  /** Re-lay the retained payload out at the container's current size. */
+  relayout() {
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+    if (this.laidOut && this.laidOut.width === width && this.laidOut.height === height) return;
+    this.chart.resize();
+    this.laidOut = { width, height };
+    if (!this.payload || !this.raster || !this.lastOpts) return;
+
+    const wasIsometric = this.isometric;
+    if (typeof this.onRelayout === 'function') this.onRelayout(this);
+    if (this.view && this.isometric !== wasIsometric) {
+      this.view = clampView(this.view, this.payload.axes, this.isometric);
+    }
+    this.chart.setOption(this.buildOption({
+      payload: this.payload,
+      opts: this.lastOpts,
+      raster: this.raster,
+      metrics: { width, height },
+    }), { notMerge: true });
   }
 
   /**
@@ -152,13 +224,15 @@ export class ProjectionPanel {
     // without a round trip or a second copy of the call site's arguments.
     this.lastOpts = opts;
 
+    const metrics = {
+      width: this.element.clientWidth, height: this.element.clientHeight,
+    };
+    this.laidOut = { ...metrics };
     this.chart.setOption(this.buildOption({
       payload,
       opts,
       raster: this.raster,
-      metrics: {
-        width: this.element.clientWidth, height: this.element.clientHeight,
-      },
+      metrics,
     }), { notMerge: true });
 
     this.attachCellTooltip(payload.axes.col, payload.axes.row);
@@ -184,6 +258,7 @@ export class ProjectionPanel {
 
     const col = payload.axes.col;
     const row = payload.axes.row;
+    const canonical = frame?.kind === 'canonical';
     // The displayed window. The grid is letterboxed from the *full* extent so
     // the plot area does not jump around as the view changes.
     const view = this.view || { col: [col.lo, col.hi], row: [row.lo, row.hi] };
@@ -228,28 +303,56 @@ export class ProjectionPanel {
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
 
     if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
-    if (centroids) this.addCentroids(series, centroids, col, row, showVector && !anchors);
-    if (anchors) this.addAnchors(series, anchors, frame, col, row, compact);
+    if (canonical) {
+      addCanonicalCentroids(series, centroids, col, row);
+      addCanonicalAnchors(series, anchors, frame, col, row);
+    } else if (centroids) {
+      this.addCentroids(series, centroids, col, row, showVector);
+    }
 
     const provisional = frame?.fit?.provisional
       ? ' (provisional range)' : '';
+
+    const grid = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+    if (canonical) {
+      // A frame around the plot area, drawn above the raster (z 3 > 1): once
+      // the display floor is transparent, the fitted window has no painted
+      // edge of its own, and without a frame the reader cannot tell where the
+      // plotted region ends and the card begins.
+      Object.assign(grid, {
+        show: true,
+        borderColor: THEME.border,
+        borderWidth: THEME.lineAxis,
+        backgroundColor: 'transparent',
+        z: 3,
+      });
+    }
+    // Canonical axis lines stay on the frame. Anchored at zero they drew a
+    // crosshair through the origin, which the symmetric window now centres -
+    // exactly between the two showers.
+    const axisOptions = canonical ? { onZero: false } : {};
 
     return {
       backgroundColor: THEME.chartBackground,
       animation: false,
       textStyle: { fontFamily: THEME.fontFamily },
-      grid: {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
+      grid,
       xAxis: spatialAxis(
         axisLabel(col, compact) + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
+        axisOptions,
       ),
-      yAxis: spatialAxis(axisLabel(row, compact) + provisional, view.row[0], view.row[1]),
+      yAxis: spatialAxis(
+        axisLabel(row, compact) + provisional, view.row[0], view.row[1], axisOptions,
+      ),
+      // Series 0 is the raster; the visualMap must colour it and nothing else.
       visualMap: visualMap(payload.scale, palette, {
         bottomInset: metrics.reservedBottom || 0,
+        seriesIndex: 0,
       }),
       tooltip: {
         trigger: 'item',
@@ -316,21 +419,17 @@ export class ProjectionPanel {
     for (const [shower, colour] of [['a', THEME.showerA], ['b', THEME.showerB]]) {
       const points = (axes[shower] || []).filter(Boolean);
       if (points.length < 2) continue;
-      series.push({
-        type: 'line',
+      series.push(customPolyline({
         name: `Measured axis — ${shower.toUpperCase()}`,
-        data: points,
-        symbol: 'none',
+        points,
+        color: colour,
+        width: 1.8 * THEME.lineAxis,
+        opacity: 0.95,
         smooth: 0.2,
-        lineStyle: { color: colour, width: 1.8 * THEME.lineAxis, opacity: 0.95 },
         z: 8,
-        clip: true,
-        tooltip: {
-          formatter: () =>
-            `Measured shower axis — ${shower.toUpperCase()}<br/>` +
-            'energy-weighted centroid per depth layer',
-        },
-      });
+        tooltip: `Measured shower axis — ${shower.toUpperCase()}<br/>`
+          + 'energy-weighted centroid per depth layer',
+      }));
     }
   }
 
@@ -384,6 +483,12 @@ export class ProjectionPanel {
    * axis is known). They differ by sqrt(N), so each names itself on hover. An
    * axis whose direction is not distinguishable from uniform (Rayleigh p above
    * the fade threshold) is drawn faded, never hidden.
+   *
+   * The two wedges are silent. At small N they are wide areas lying on the
+   * data - the N = 3 Y′Z′ envelope spans −1172…+636 mm of a ±720 mm window -
+   * and a hit-testable wedge would answer for every bin beneath it. The bin
+   * readout names the wedges the pointer is inside instead (`wedgeNotes`), so
+   * each still states its quantity on hover.
    */
   addEnsembleAxes(series, block, meta, col, row) {
     for (const [shower, colour] of [['a', THEME.showerA], ['b', THEME.showerB]]) {
@@ -397,12 +502,12 @@ export class ProjectionPanel {
         ? `R̄′ = ${info.resultant_transverse.toFixed(3)}, Rayleigh p = ${Number(info.rayleigh_p).toPrecision(2)}`
         : (info.label || 'single event');
 
-      const wedge = (points, name, alpha, tip) => {
+      const wedge = (points, name, alpha) => {
         if (!points) return;
         series.push({
           type: 'custom',
           name,
-          silent: false,
+          silent: true,
           clip: true,
           z: 5,
           data: [points],
@@ -415,171 +520,31 @@ export class ProjectionPanel {
               style: { fill: colour, opacity: alpha, stroke: 'none' },
             };
           },
-          tooltip: { formatter: () => tip },
         });
       };
 
       // The two showers' wedges overlap on the YZ panel (both axes start at
       // the origin), so each is drawn at a fraction of the band alpha the
       // energy panel uses for a single band.
-      wedge(lines.band, `Ensemble axis ${label} — spread`, faded ? 0.05 : THEME.bandAlpha * 0.6,
-        `Ensemble axis ${label} — dispersion band<br/>` +
-        `± sample SD of the per-event slopes${lines.dof_note ? ` (${lines.dof_note})` : ''}: ` +
-        'where individual showers go, not the uncertainty of the mean.');
-      wedge(lines.envelope, `Ensemble axis ${label} — 95% interval`, faded ? 0.12 : THEME.bandAlpha * 1.4,
-        `Ensemble axis ${label} — 95% interval of the mean<br/>` +
-        `± t<sub>0.975,N−1</sub>·SD/√N over N = ${n} events: how well the ensemble axis is known.`);
+      wedge(lines.band, `Ensemble axis ${label} — spread`, faded ? 0.05 : THEME.bandAlpha * 0.6);
+      wedge(lines.envelope, `Ensemble axis ${label} — 95% interval`, faded ? 0.12 : THEME.bandAlpha * 1.4);
 
-      series.push({
-        type: 'line',
+      series.push(customPolyline({
         name: `Ensemble axis — ${label}`,
-        data: lines.axis,
-        symbol: 'none',
-        lineStyle: {
-          color: colour, width: 1.8 * THEME.lineAxis, type: 'dashed',
-          opacity: faded ? FADE_OPACITY : 0.95,
-        },
+        points: lines.axis,
+        color: colour,
+        width: 1.8 * THEME.lineAxis,
+        dash: 'dashed',
+        opacity: faded ? FADE_OPACITY : 0.95,
         z: 9,
-        clip: true,
-        tooltip: {
-          formatter: () =>
-            `Ensemble shower axis — ${label}<br/>` +
-            `mean incident direction in the canonical frame (slope ${Number(lines.slope).toFixed(4)})<br/>` +
-            `${coherence}, N = ${n}` +
-            (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
-            (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
-        },
-      });
+        tooltip: () =>
+          `Ensemble shower axis — ${label}<br/>` +
+          `mean incident direction in the canonical frame (slope ${Number(lines.slope).toFixed(4)})<br/>` +
+          `${coherence}, N = ${n}` +
+          (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
+          (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
+      }));
     }
-  }
-
-  /**
-   * The anchors of the canonical frame: shower A at (−⟨D_entry⟩/2, 0), B at
-   * (+⟨D_entry⟩/2, 0), each with an uncapped bar for the sample spread of the
-   * entry separation, and the labelled separation vector between them.
-   */
-  addAnchors(series, anchors, frame, col, row, compact = false) {
-    const depthPanel = col.name === 'z';
-    const place = (anchor) => {
-      // XY: (x', y'). Depth panels: [z' = 0, transverse]; on YZ both anchors
-      // sit at the origin because the frame puts the showers on y' = 0.
-      if (!depthPanel) return [anchor.x, anchor.y];
-      return [0.0, row.name === 'x' ? anchor.x : anchor.y];
-    };
-    const spreadPoints = (anchor) => {
-      if (!anchor.spread) return null;
-      if (!depthPanel) return [[anchor.spread[0], anchor.y], [anchor.spread[1], anchor.y]];
-      if (row.name !== 'x') return null;
-      return [[0.0, anchor.spread[0]], [0.0, anchor.spread[1]]];
-    };
-
-    if (depthPanel && row.name !== 'x' && anchors.a && anchors.b) {
-      // On the Y′Z′ panel both anchors project onto the origin: one marker,
-      // one honest tooltip, instead of a circle hiding a diamond.
-      series.push({
-        type: 'scatter',
-        name: 'Anchors A and B',
-        symbol: 'circle',
-        symbolSize: 12 * THEME.markerScale,
-        data: [[0.0, 0.0]],
-        itemStyle: {
-          color: THEME.text, borderColor: THEME.canvas, borderWidth: 1.5 * THEME.lineAxis,
-        },
-        z: 11,
-        tooltip: {
-          formatter: () =>
-            'Canonical anchors — showers A and B<br/>' +
-            'both entry points lie on the shower plane y′ = 0; they are separated along x′, ' +
-            `at ∓⟨D_entry⟩/2 = ∓${Math.abs(anchors.b.x).toFixed(1)} mm, which this panel projects out.`,
-        },
-      });
-      return;
-    }
-
-    for (const [shower, anchor] of Object.entries(anchors)) {
-      if (!anchor) continue;
-      const label = shower.toUpperCase();
-      const colour = shower === 'a' ? THEME.showerA : THEME.showerB;
-      const spread = spreadPoints(anchor);
-      if (spread) {
-        series.push({
-          type: 'line',
-          name: `Anchor ${label} — spread`,
-          data: spread,
-          symbol: 'none',
-          lineStyle: { color: colour, width: 6 * THEME.lineAxis, opacity: 0.35 },
-          z: 9,
-          clip: true,
-          tooltip: {
-            formatter: () =>
-              `Anchor ${label} — spread of D_entry/2 across events<br/>` +
-              `± sample SD${anchor.dof_note ? ` (${anchor.dof_note})` : ''}: dispersion, not uncertainty of the mean.`,
-          },
-        });
-      }
-      series.push({
-        type: 'scatter',
-        name: `Anchor ${label}`,
-        symbol: shower === 'a' ? 'diamond' : 'circle',
-        symbolSize: 15 * THEME.markerScale,
-        data: [place(anchor)],
-        itemStyle: {
-          color: colour, borderColor: THEME.canvas, borderWidth: 1.5 * THEME.lineAxis,
-        },
-        z: 11,
-        tooltip: {
-          formatter: () =>
-            `Canonical anchor — shower ${label}<br/>` +
-            `back-projected entry point at ${shower === 'a' ? '−' : '+'}⟨D_entry⟩/2 = ${anchor.x.toFixed(1)} mm` +
-            (Number.isFinite(anchor.se95) ? `<br/>95% interval of the mean anchor ± ${anchor.se95.toFixed(1)} mm (N = ${anchor.n})` : ''),
-        },
-      });
-    }
-
-    if (depthPanel || !anchors.a || !anchors.b) return;
-    const dEntry = frame?.d_entry?.mean;
-    const dData = frame?.d_dataset?.mean;
-    // The long form names both definitions; a single-column figure has no
-    // room for it, and its caption spells the two out anyway.
-    const text = compact
-      ? [
-        Number.isFinite(dEntry) ? `⟨D_entry⟩ ${dEntry.toFixed(0)} mm` : null,
-        Number.isFinite(dData) ? `⟨D⟩ ${dData.toFixed(0)} mm` : null,
-      ].filter(Boolean).join(' · ')
-      : [
-        Number.isFinite(dEntry) ? `⟨D_entry⟩ = ${dEntry.toFixed(0)} mm (entry)` : null,
-        Number.isFinite(dData) ? `⟨D⟩ = ${dData.toFixed(0)} mm (dataset, 3-D)` : null,
-      ].filter(Boolean).join(' · ');
-    series.push({
-      type: 'line',
-      name: 'Entry separation',
-      data: [[anchors.a.x, anchors.a.y], [anchors.b.x, anchors.b.y]],
-      symbol: 'none',
-      lineStyle: { color: THEME.text, width: 1.4 * THEME.lineAxis, type: 'dashed', opacity: 0.9 },
-      silent: true,
-      z: 11,
-      clip: true,
-      markPoint: {
-        symbol: 'rect',
-        symbolSize: 0,
-        data: [{
-          coord: [0, 0],
-          label: {
-            show: true,
-            formatter: text,
-            color: THEME.text,
-            backgroundColor: THEME.labelBg,
-            borderColor: THEME.border,
-            borderWidth: 1,
-            padding: [3, 5],
-            borderRadius: 3,
-            fontSize: THEME.fontLabel,
-            fontFamily: THEME.fontFamily,
-            offset: [0, -18],
-          },
-        }],
-      },
-    });
   }
 
   /** The front and back faces of the calorimeter on a depth panel. */
@@ -587,20 +552,17 @@ export class ProjectionPanel {
     if (col.name !== 'z') return;
     for (const [depth, name] of [[bounds.front, 'front face'], [bounds.back, 'back face']]) {
       if (!Number.isFinite(depth)) continue;
-      series.push({
-        type: 'line',
+      series.push(customLine({
         name: `Calorimeter ${name}`,
-        data: [[depth, row.lo], [depth, row.hi]],
-        symbol: 'none',
-        lineStyle: { color: THEME.muted, width: THEME.lineAxis, opacity: 0.7 },
+        from: [depth, row.lo],
+        to: [depth, row.hi],
+        color: THEME.muted,
+        width: THEME.lineAxis,
+        opacity: 0.7,
         z: 4,
-        clip: true,
-        tooltip: {
-          formatter: () =>
-            `Calorimeter ${name} at z′ = ${depth.toFixed(1)} mm<br/>` +
-            'The transverse outline rotates with each event and has no ensemble image.',
-        },
-      });
+        tooltip: `Calorimeter ${name} at z′ = ${depth.toFixed(1)} mm<br/>`
+          + 'The transverse outline rotates with each event and has no ensemble image.',
+      }));
     }
   }
 
@@ -686,14 +648,14 @@ export class ProjectionPanel {
   /* ----------------------------------------------------------- zoom / RoI */
 
   /**
-   * Zoom to the bounding box of the active hits.
+   * Zoom to where the energy actually is: the box holding 99% of it.
    *
-   * For the isometric panel the narrower span is widened so both axes keep the
-   * same millimetre-per-pixel factor; without that the "1:1" guarantee would
-   * hold only at full zoom-out.
-   */
-  /**
-   * Zoom to where the energy actually is.
+   * Weighted by dequantised energy, not by colour code (see `occupiedBounds`).
+   * For an isometric panel the narrower span is widened so both axes keep the
+   * same millimetre-per-pixel factor, and a window that then pokes past the
+   * extent is slid back inside at its full size. Truncating it instead - as a
+   * non-isometric panel still does - would shorten one axis and not the other,
+   * and the "1:1" guarantee would hold only at full zoom-out.
    *
    * Returns 'fitted', 'full' when the hits already fill the detector and there
    * is nothing to tighten, or 'empty'. The caller reports the last two, because
@@ -701,7 +663,7 @@ export class ProjectionPanel {
    */
   autoFitRoI() {
     if (!this.payload || !this.raster) return 'empty';
-    const bounds = occupiedBounds(this.payload, this.raster);
+    const bounds = occupiedBounds(this.payload, this.raster, 0.99, { weight: 'value' });
     if (!bounds) return 'empty';
 
     const col = this.payload.axes.col;
@@ -737,10 +699,12 @@ export class ProjectionPanel {
       return 'full';
     }
 
-    this.setView({
-      col: [Math.max(col.lo, c0), Math.min(col.hi, c1)],
-      row: [Math.max(row.lo, r0), Math.min(row.hi, r1)],
-    });
+    this.setView(this.isometric
+      ? { col: slideInside([c0, c1], col), row: slideInside([r0, r1], row) }
+      : {
+        col: [Math.max(col.lo, c0), Math.min(col.hi, c1)],
+        row: [Math.max(row.lo, r0), Math.min(row.hi, r1)],
+      });
     return 'fitted';
   }
 
@@ -845,6 +809,24 @@ export class ProjectionPanel {
    * the pointer is inverted through `convertFromPixel`, which - unlike the
    * fixed pixel rectangle this used to assume - accounts for the current zoom
    * window.
+   *
+   * The raster is `silent`, so a pointer over it has no zrender target; a
+   * target means the pointer is inside an overlay's hit area - an anchor, a
+   * rule, an axis - whose own item tooltip ECharts has just shown (its
+   * listener runs before this one). This readout then replaces it: with the
+   * bin alone when the pointer is inside the hit area but off the drawn ink
+   * (`onInk`), and with the overlay's own text followed by the bin when it is
+   * on the ink. Standing aside for every target, as this once did, hid the
+   * bin readout - the only place the exact top-k values and the below-floor
+   * wording appear - exactly where the data matter: the open anchor rings sit
+   * on the shower cores and hit-test their whole 13 px disc, a face rule's
+   * ±2.5 px band covers most of a 6.6 px first or last layer, and the axis
+   * lines run through the cores by construction. The ensemble wedges are
+   * silent and named in the readout (`wedgeNotes`).
+   *
+   * On a canonical payload an undrawn bin still answers, because "nothing is
+   * here" and "something is here, below the floor" are different statements
+   * and both are invisible. The lab keeps hiding the tip over an empty cell.
    */
   attachCellTooltip(col, row) {
     const zr = this.chart.getZr();
@@ -852,10 +834,24 @@ export class ProjectionPanel {
 
     const { codes, rows, cols } = this.raster;
     const payload = this.payload;
+    const floored = Number.isInteger(payload.below_code);
+    const reconstructed = typeof payload.kernel === 'string' && payload.kernel !== 'none';
+    const attention = payload.scale?.unit === 'attention';
+    const floorRatio = this.lastOpts?.frame?.reconstruction?.floor_ratio
+      ?? payload.scale?.floor_ratio ?? 1e-3;
+    const floorText = floorLabel({ floor_ratio: floorRatio });
+    const muted = (text) => `<span style="color:${THEME.muted}">${text}</span>`;
 
     this.tooltipHandler = (event) => {
       const px = event.offsetX;
       const py = event.offsetY;
+      // On an overlay's ink its own text leads and the bin follows; an
+      // element that is not one of these series keeps ECharts' behaviour.
+      let overlay = null;
+      if (event.target && onInk(event.target, px, py)) {
+        overlay = this.overlayTip(event.target);
+        if (overlay === null) return;
+      }
 
       let data;
       try {
@@ -867,26 +863,58 @@ export class ProjectionPanel {
 
       const [mmX, mmY] = data;
       if (mmX < col.lo || mmX > col.hi || mmY < row.lo || mmY > row.hi) {
-        this.chart.dispatchAction({ type: 'hideTip' });
+        if (!overlay) this.chart.dispatchAction({ type: 'hideTip' });
         return;
       }
 
       const c = cellAt(col, cols, mmX);
       const r = cellAt(row, rows, mmY);
       const code = codes[r * cols + c];
+      const centreX = cellCentre(col, cols, c);
+      const centreY = cellCentre(row, rows, r);
+      const where =
+        `${symbolOf(col)} = ${centreX.toFixed(1)} mm<br/>` +
+        `${symbolOf(row)} = ${centreY.toFixed(1)} mm<br/>`;
+      // Named at the pointer, not the bin centre: a wedge edge crosses bins.
+      const wedges = col.name === 'z'
+        ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY)
+        : [];
+      const inWedges = wedges.length ? `<br/>${wedges.map(muted).join('<br/>')}` : '';
+      const lead = overlay
+        ? `${overlay}<div style="border-top:1px solid ${THEME.border};margin:4px 0"></div>`
+        : '';
+      const show = (html) => this.chart.dispatchAction({
+        type: 'showTip',
+        x: px,
+        y: py,
+        position: [px + 12, py - 8],
+        tooltip: { formatter: lead + html + inWedges },
+      });
+
       if (code === (payload.empty_code ?? 0)) {
-        this.chart.dispatchAction({ type: 'hideTip' });
+        if (!floored) {
+          if (!overlay) this.chart.dispatchAction({ type: 'hideTip' });
+          return;
+        }
+        let empty;
+        if (attention) empty = 'no hits in this bin: attention undefined';
+        else if (reconstructed) empty = 'no reconstructed energy in this bin';
+        else empty = 'no energy in this bin';
+        show(where + muted(empty));
+        return;
+      }
+      if (floored && code === payload.below_code) {
+        show(where + muted(attention
+          ? `attention not drawn: density below ${floorText} of ρ<sub>ref</sub>`
+          : `below the display floor (ρ/ρ<sub>ref</sub> &lt; ${floorText}): not drawn`));
         return;
       }
 
       const exact = exactValue(payload, r, c);
-      const centreX = cellCentre(col, cols, c);
-      const centreY = cellCentre(row, rows, r);
       const scale = payload.scale;
-      const where =
-        `${symbolOf(col)} = ${centreX.toFixed(1)} mm<br/>` +
-        `${symbolOf(row)} = ${centreY.toFixed(1)} mm<br/>`;
-      const precision = `<span style="color:${THEME.muted}"> ${exact !== null ? '(exact)' : '(quantised)'}</span>`;
+      let label = '(quantised)';
+      if (exact !== null) label = reconstructed ? '(exact, reconstructed)' : '(exact)';
+      const precision = muted(` ${label}`);
 
       let body;
       if (scale.unit === 'a.u.' && scale.rho_ref) {
@@ -900,23 +928,39 @@ export class ProjectionPanel {
         body =
           `<b>${ratio.toFixed(3)} a.u.</b> of ρ<sub>ref</sub>${precision}<br/>` +
           `⟨ρ⟩ = ${formatSci(rho, 3)} GeV mm⁻² per event<br/>` +
-          `<span style="color:${THEME.muted}">${binW.toFixed(0)} × ${binH.toFixed(1)} mm bin · ` +
-          `ρ<sub>ref</sub> = ${formatSci(scale.rho_ref, 3)} (${scale.norm === 'dataset' ? 'dataset' : 'selection'} peak)</span>`;
+          muted(`${binW.toFixed(1)} × ${binH.toFixed(1)} mm ${reconstructed ? 'display bin' : 'bin'} · ` +
+            `ρ<sub>ref</sub> = ${formatSci(scale.rho_ref, 3)} (${scale.norm === 'dataset' ? 'dataset' : 'selection'} peak)`);
       } else {
         const value = exact !== null ? exact : dequantize(code, scale, payload);
         const unit = scale.unit === 'GeV' ? 'GeV' : '';
         body = `<b>${formatSci(value, 3)} ${unit}</b>${precision}`;
       }
 
-      this.chart.dispatchAction({
-        type: 'showTip',
-        x: px,
-        y: py,
-        position: [px + 12, py - 8],
-        tooltip: { formatter: where + body },
-      });
+      show(where + body);
     };
     zr.on('mousemove', this.tooltipHandler);
+  }
+
+  /**
+   * The tooltip text of the overlay series a zrender element belongs to, or
+   * null when it belongs to none (an axis label, the colour bar, a markPoint).
+   *
+   * Read from the series model, so it is the same formatter ECharts has just
+   * shown; every overlay formatter here ignores its arguments.
+   */
+  overlayTip(target) {
+    const getECData = globalThis.echarts?.helper?.getECData;
+    if (typeof getECData !== 'function') return null;
+    for (let el = target; el; el = el.parent) {
+      const info = getECData(el);
+      if (!Number.isInteger(info?.seriesIndex)) continue;
+      if (info.componentMainType && info.componentMainType !== 'series') return null;
+      const model = this.chart.getModel().getSeriesByIndex(info.seriesIndex);
+      const formatter = model?.get(['tooltip', 'formatter']);
+      if (typeof formatter === 'function') return formatter();
+      return typeof formatter === 'string' ? formatter : null;
+    }
+    return null;
   }
 
   resize() {
@@ -929,6 +973,44 @@ export class ProjectionPanel {
 }
 
 /* ------------------------------------------------------------- helpers -- */
+
+/**
+ * The silent ensemble wedges the depth-panel point (z, t) lies inside, as
+ * readout lines for the bin tooltip.
+ *
+ * A wedge is the quadrilateral through [z0, lo0, hi0] and [z1, lo1, hi1] with
+ * straight edges, so containment is a linear interpolation of lo and hi at z.
+ * Each line names its quantity: the dispersion band and the interval of the
+ * mean differ by sqrt(N) and look alike (CLAUDE.md section 2).
+ */
+function wedgeNotes(block, meta, z, t) {
+  if (!block) return [];
+  const inside = (points) => {
+    if (!Array.isArray(points) || points.length < 2) return false;
+    const [[z0, lo0, hi0], [z1, lo1, hi1]] = points;
+    if (!(z1 !== z0)) return false;
+    const f = (z - z0) / (z1 - z0);
+    if (!(f >= 0 && f <= 1)) return false;
+    const lo = lo0 + f * (lo1 - lo0);
+    const hi = hi0 + f * (hi1 - hi0);
+    return t >= Math.min(lo, hi) && t <= Math.max(lo, hi);
+  };
+  const notes = [];
+  for (const shower of ['a', 'b']) {
+    const lines = block[shower];
+    if (!lines || !lines.axis) continue;
+    const label = shower.toUpperCase();
+    if (inside(lines.band)) {
+      notes.push(`in the dispersion band of axis ${label}: ± sample SD of the per-event slopes`
+        + (lines.dof_note ? ` (${lines.dof_note})` : ''));
+    }
+    if (inside(lines.envelope)) {
+      notes.push(`in the 95% interval of the mean of axis ${label}: `
+        + `± t<sub>0.975,N−1</sub>·SD/√N, N = ${meta?.[shower]?.n ?? '—'}`);
+    }
+  }
+  return notes;
+}
 
 function sameExtent(a, b) {
   return a.axes.col.lo === b.axes.col.lo && a.axes.col.hi === b.axes.col.hi
@@ -975,6 +1057,20 @@ function clampView(view, axes, isometric = false) {
     col: col || [axes.col.lo, axes.col.hi],
     row: row || [axes.row.lo, axes.row.hi],
   };
+}
+
+/**
+ * Move a window inside an axis extent without changing its width.
+ *
+ * A window at least as wide as the extent becomes the extent. On an isometric
+ * panel both axes share one span ratio, so they reach that case together.
+ */
+function slideInside([lo, hi], axis) {
+  const width = hi - lo;
+  if (!(width > 0) || width >= axis.hi - axis.lo) return [axis.lo, axis.hi];
+  if (lo < axis.lo) return [axis.lo, axis.lo + width];
+  if (hi > axis.hi) return [axis.hi - width, axis.hi];
+  return [lo, hi];
 }
 
 function pad([lo, hi], fraction) {
