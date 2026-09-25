@@ -345,14 +345,21 @@ def box_overlap_operator(n_bins: int, width: float, pitch: float, key_lo: int, k
     return a_mat, b_mat
 
 
+#: Key given to a translated-frame hit outside the grid on every axis. Its
+#: groups carry the outside mass; no real key comes near it.
+OUTSIDE_KEY = -(1 << 30)
+
+
 def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]:
     """The XY (entrance slab) and depth moment queries of the translated frame.
 
     A hit whose footprint is not wholly inside the accumulation grid is counted
     outside - in every panel alike, so the three panels always hold the same
-    hits - and its sums are returned separately, so inside + outside equals the
-    hits' own sums exactly. The grid is planned from the dataset's 1e-4 and
-    0.9999 energy quantiles plus half a footprint, so this is a thin tail.
+    hits. It is keyed :data:`OUTSIDE_KEY` on every axis, so its group carries
+    the outside sums and inside + outside equals the hits' own sums exactly,
+    with plain sums and no FILTER on the hot path. The grid is planned from
+    the dataset's 1e-4 and 0.9999 energy quantiles plus half a footprint, so
+    this is a thin tail.
     """
     assert record.lattice is not None
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
@@ -360,18 +367,21 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
     p = float(grid.pitch)
     rx = wx / p - math.floor(wx / p)
     ry = wy / p - math.floor(wy / p)
-    cols = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_TRANS))
+    values = _values(model, KIND_TRANS)
+    per_hit = ",\n               ".join(f"CAST({value} AS DOUBLE) AS v_{plane}" for plane, value in values)
+    carried = ", ".join(f"v_{plane}" for plane, _ in values)
+    columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_TRANS))
     # Every coordinate and constant is DOUBLE: a REAL column combined with a
     # decimal literal is evaluated in single precision, which cost the edge
     # fractions 1e-4 of relative precision against a brute-force overlap.
     base = f"""
     WITH pos AS (
-        SELECT p.kt, p.energy, {cols},
-               CAST(p.xt AS DOUBLE) AS x, CAST(p.yt AS DOUBLE) AS y
-        FROM {proj} p
-        WHERE {spec.where_sql("p")} AND p.d IS NOT NULL
+        SELECT kt, CAST(xt AS DOUBLE) AS x, CAST(yt AS DOUBLE) AS y,
+               {per_hit}
+        FROM (SELECT p.kt, p.xt, p.yt, p.energy, {columns}
+              FROM {proj} p WHERE {spec.where_sql("p")} AND p.d IS NOT NULL)
     ), sel AS (
-        SELECT *,
+        SELECT kt, {carried},
                (x - {0.5 * wx!r}::DOUBLE + {grid.half_x!r}::DOUBLE) / {p!r}::DOUBLE AS ux,
                (y - {0.5 * wy!r}::DOUBLE + {grid.half_y!r}::DOUBLE) / {p!r}::DOUBLE AS uy,
                (x - {0.5 * wx!r}::DOUBLE < -{grid.half_x!r}::DOUBLE
@@ -381,30 +391,30 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
                 OR kt >= {grid.n_z}) AS outside
         FROM pos
     ), keyed AS (
-        SELECT *, floor(ux) AS j0x, ux - floor(ux) AS fx, floor(uy) AS j0y, uy - floor(uy) AS fy
+        SELECT kt, {carried}, outside,
+               ux - floor(ux) AS fx, uy - floor(uy) AS fy,
+               CASE WHEN outside THEN {OUTSIDE_KEY} ELSE CAST(2 * floor(ux)
+                    + CASE WHEN ux - floor(ux) >= {1.0 - rx!r}::DOUBLE THEN 1 ELSE 0 END AS BIGINT)
+               END AS kx,
+               CASE WHEN outside THEN {OUTSIDE_KEY} ELSE CAST(2 * floor(uy)
+                    + CASE WHEN uy - floor(uy) >= {1.0 - ry!r}::DOUBLE THEN 1 ELSE 0 END AS BIGINT)
+               END AS ky,
+               CASE WHEN outside THEN {OUTSIDE_KEY} ELSE kt END AS jt
         FROM sel
-    ), k2 AS (
-        SELECT *,
-               CAST(2 * j0x + CASE WHEN fx >= {1.0 - rx!r}::DOUBLE THEN 1 ELSE 0 END AS BIGINT) AS kx,
-               CAST(2 * j0y + CASE WHEN fy >= {1.0 - ry!r}::DOUBLE THEN 1 ELSE 0 END AS BIGINT) AS ky,
-               (kt <= {record.lattice.slab_iz}) AS slab
-        FROM keyed
     )"""
     xy_parts, depth_parts = [], []
-    for plane, value in _values(model, KIND_TRANS):
-        v = f"({value})"
+    for plane, _ in values:
+        v = f"v_{plane}"
         xy_parts += [f"sum({v}) AS {plane}_00", f"sum({v} * fx) AS {plane}_10",
                      f"sum({v} * fy) AS {plane}_01", f"sum({v} * fx * fy) AS {plane}_11"]
-        inside = "FILTER (WHERE NOT outside)"
-        depth_parts += [f"sum({v}) {inside} AS {plane}_0", f"sum({v} * fx) {inside} AS {plane}_x",
-                        f"sum({v} * fy) {inside} AS {plane}_y",
-                        f"sum({v}) FILTER (WHERE outside) AS {plane}_out"]
+        depth_parts += [f"sum({v}) AS {plane}_0", f"sum({v} * fx) AS {plane}_x",
+                        f"sum({v} * fy) AS {plane}_y"]
     xy_sql = base + f"""
     SELECT kx, ky, {", ".join(xy_parts)}
-    FROM k2 WHERE slab AND NOT outside GROUP BY kx, ky"""
+    FROM keyed WHERE kt <= {record.lattice.slab_iz} AND NOT outside GROUP BY kx, ky"""
     depth_sql = base + f"""
-    SELECT GROUPING_ID(kx, ky, kt) AS gid, kx, ky, kt, {", ".join(depth_parts)}
-    FROM k2 GROUP BY GROUPING SETS ((ky, kt), (kx, kt))"""
+    SELECT GROUPING_ID(kx, ky, jt) AS gid, kx, ky, jt AS kt, {", ".join(depth_parts)}
+    FROM keyed GROUP BY GROUPING SETS ((ky, jt), (kx, jt))"""
     return xy_sql, depth_sql
 
 
@@ -447,8 +457,8 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
             )
 
     # The depth panels: one transverse key axis and the own-shower layer.
-    # Outside hits appear in the groups with their own keys but only in the
-    # ``_out`` sums; their inside moments are NULL and read as zero.
+    # Outside hits are keyed OUTSIDE_KEY on every axis: one group per set,
+    # dropped here and summed as the outside mass below.
     gid = np.nan_to_num(_column(depth_cols, "gid")).astype(np.int64)
     kt = np.nan_to_num(_column(depth_cols, "kt"), nan=-1).astype(np.int64)
     for panel, key_name, n_bins, width, moment, gid_value in (
@@ -457,7 +467,7 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
         rows = gid == gid_value
         keys = np.nan_to_num(_column(depth_cols, key_name)[rows]).astype(np.int64)
         layers = kt[rows]
-        keep = (layers >= 0) & (layers < n_z)
+        keep = (layers >= 0) & (layers < n_z) & (keys != OUTSIDE_KEY)
         if not keep.any():
             continue
         keys, layers = keys[keep], layers[keep]
@@ -471,8 +481,8 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
                         lo, hi - lo + 1, 0, n_z)
             panel.planes[plane] = a_mat @ m0 + b_mat @ m1
 
-    xz_rows = gid == GID_XZ
-    outside = {plane: float(np.nan_to_num(_column(depth_cols, f"{plane}_out")[xz_rows]).sum())
+    out_rows = (gid == GID_XZ) & (kt == OUTSIDE_KEY)
+    outside = {plane: float(np.nan_to_num(_column(depth_cols, f"{plane}_0")[out_rows]).sum())
                for plane in PLANES}
     n_hits = int(round(float(xz_panel.planes["n"].sum()) + outside["n"]))
     return (xy_panel, yz_panel, xz_panel), outside, n_hits, query_ms
@@ -481,7 +491,18 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
 # ----------------------------------------------------- local: sub-deposits --
 
 
-def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled) -> str:
+def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled) -> tuple[str, str]:
+    """The X'Y' (entrance slab) and depth queries of the local frame.
+
+    Each hit joins its own shower's rotation - a 40 000-row CTE from the event
+    table - and is split into ``k x k x k_z`` sub-deposits whose offsets over
+    the cell's footprint box are rotated by that R. Every plane value is
+    divided by the sub-deposit count once per hit, before the split, so the
+    aggregation is nine plain sums. A sub-deposit outside the grid is binned at
+    the sentinel key -1 on every axis; its group carries the outside mass, so
+    inside + outside equals the hits' sums with no FILTER on the hot path.
+    The slab panel runs as its own query over slab rows only.
+    """
     assert record.lattice is not None
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
     event = quote(naming.event_table(record.table_name))
@@ -490,19 +511,14 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
     p = float(grid.pitch)
     z_edges = grid.axis("z").edges
     z0, z1 = float(z_edges[0]), float(z_edges[-1])
-    columns = _plane_columns(model, KIND_LOCAL)
-    carried = ", ".join(columns)
-    aggregates = []
-    for plane, expr in planes_mod.measures(KIND_LOCAL, model):
-        agg = "count(*)" if expr is None else f"sum({expr})"
-        aggregates.append(f"{agg} FILTER (WHERE NOT outside) AS {plane}_all")
-        aggregates.append(f"{agg} FILTER (WHERE slab AND NOT outside) AS {plane}_slab")
-        if plane in OUTSIDE_PLANES:
-            aggregates.append(f"{agg} FILTER (WHERE outside) AS {plane}_out")
-    aggregates.append("sum(energy) FILTER (WHERE outside) AS e_out")
-    aggregates.append("count(*) FILTER (WHERE outside) AS n_out")
     n = k * k * k_z
-    return f"""
+    values = _values(model, KIND_LOCAL)
+    per_hit = ",\n               ".join(
+        f"CAST({value} AS DOUBLE) / {n}.0 AS v_{plane}" for plane, value in values)
+    carried = ", ".join(f"v_{plane}" for plane, _ in values)
+    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in values)
+    columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_LOCAL))
+    base = f"""
     WITH ev AS (
         SELECT event_number, theta_a, phi_a, theta_b, phi_b
         FROM {event}
@@ -518,74 +534,83 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
                sin(t) * cos(f) AS r31, sin(t) * sin(f) AS r32, cos(t) AS r33
         FROM sh
     ), sub AS (
-        SELECT (u.range + 0.5) / {k} - 0.5 AS fx, (v.range + 0.5) / {k} - 0.5 AS fy,
-               (w.range + 0.5) / {k_z} - 0.5 AS fz
+        SELECT ((u.range + 0.5) / {k} - 0.5) * {wx!r}::DOUBLE AS ox,
+               ((v.range + 0.5) / {k} - 0.5) * {wy!r}::DOUBLE AS oy,
+               ((w.range + 0.5) / {k_z} - 0.5) * {wz!r}::DOUBLE AS oz
         FROM range({k}) u, range({k}) v, range({k_z}) w
-    ), pts AS (
-        SELECT p.kt, p.energy / {n} AS energy, {", ".join("p." + c for c in columns)},
-               CAST(p.xl AS DOUBLE) + r.r11 * sub.fx * {wx!r}::DOUBLE
-                   + r.r12 * sub.fy * {wy!r}::DOUBLE + r.r13 * sub.fz * {wz!r}::DOUBLE AS xs,
-               CAST(p.yl AS DOUBLE) + r.r21 * sub.fx * {wx!r}::DOUBLE
-                   + r.r22 * sub.fy * {wy!r}::DOUBLE AS ys,
-               CAST(p.zl AS DOUBLE) + r.r31 * sub.fx * {wx!r}::DOUBLE
-                   + r.r32 * sub.fy * {wy!r}::DOUBLE + r.r33 * sub.fz * {wz!r}::DOUBLE AS zs
-        FROM {proj} p
+    ), hit AS (
+        SELECT p.kt, CAST(p.xl AS DOUBLE) AS xl, CAST(p.yl AS DOUBLE) AS yl,
+               CAST(p.zl AS DOUBLE) AS zl, r.r11, r.r12, r.r13, r.r21, r.r22, r.r31, r.r32, r.r33,
+               {per_hit}
+        FROM (SELECT p.event_number, p.org, p.kt, p.xl, p.yl, p.zl, p.energy, {columns}
+              FROM {proj} p WHERE {spec.where_sql("p")}) p
         JOIN rot r ON p.event_number = r.event_number
-                  AND r.b = CASE WHEN p.org = {ddl.ORIGIN_A} THEN 0 ELSE 1 END,
-             sub
-        WHERE {spec.where_sql("p")}
+                  AND r.b = CASE WHEN p.org = {ddl.ORIGIN_A} THEN 0 ELSE 1 END
+    ), pts AS (
+        SELECT kt, {carried},
+               xl + r11 * ox + r12 * oy + r13 * oz AS xs,
+               yl + r21 * ox + r22 * oy AS ys,
+               zl + r31 * ox + r32 * oy + r33 * oz AS zs
+        FROM hit, sub
     ), binned AS (
-        SELECT CAST(floor((xs + {grid.half_x!r}::DOUBLE) / {p!r}::DOUBLE) AS INTEGER) AS jx,
-               CAST(floor((ys + {grid.half_y!r}::DOUBLE) / {p!r}::DOUBLE) AS INTEGER) AS jy,
-               CAST(floor((zs - {z0!r}::DOUBLE) / {wz!r}::DOUBLE) AS INTEGER) AS jz,
-               energy, {carried},
-               (kt <= {record.lattice.slab_iz}) AS slab,
+        SELECT kt, {carried},
                (xs < -{grid.half_x!r}::DOUBLE OR xs >= {grid.half_x!r}::DOUBLE
                 OR ys < -{grid.half_y!r}::DOUBLE OR ys >= {grid.half_y!r}::DOUBLE
-                OR zs < {z0!r}::DOUBLE OR zs >= {z1!r}::DOUBLE) AS outside
+                OR zs < {z0!r}::DOUBLE OR zs >= {z1!r}::DOUBLE) AS outside,
+               CAST(floor((xs + {grid.half_x!r}::DOUBLE) / {p!r}::DOUBLE) AS INTEGER) AS ix_,
+               CAST(floor((ys + {grid.half_y!r}::DOUBLE) / {p!r}::DOUBLE) AS INTEGER) AS iy_,
+               CAST(floor((zs - {z0!r}::DOUBLE) / {wz!r}::DOUBLE) AS INTEGER) AS iz_
         FROM pts
-    )
-    SELECT GROUPING_ID(jx, jy, jz) AS gid, jx, jy, jz,
-        {",".join(chr(10) + "        " + a for a in aggregates)}
-    FROM binned
-    GROUP BY GROUPING SETS ((jx, jy), (jy, jz), (jx, jz))
-    """
+    ), keyed AS (
+        SELECT kt, {carried},
+               CASE WHEN outside THEN -1 ELSE ix_ END AS jx,
+               CASE WHEN outside THEN -1 ELSE iy_ END AS jy,
+               CASE WHEN outside THEN -1 ELSE iz_ END AS jz
+        FROM binned
+    )"""
+    xy_sql = base + f"""
+    SELECT jx, jy, {sums}
+    FROM keyed WHERE kt <= {record.lattice.slab_iz}
+    GROUP BY jx, jy"""
+    depth_sql = base + f"""
+    SELECT GROUPING_ID(jx, jy, jz) AS gid, jx, jy, jz, {sums}
+    FROM keyed
+    GROUP BY GROUPING SETS ((jy, jz), (jx, jz))"""
+    return xy_sql, depth_sql
 
 
 def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled):
-    sql = _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled)
+    xy_sql, depth_sql = _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled)
+    params = spec.params()
     started = time.perf_counter()
-    columns = con.execute(sql, spec.params()).fetchnumpy()
+    xy_cols = con.execute(xy_sql, params).fetchnumpy()
+    depth_cols = con.execute(depth_sql, params).fetchnumpy()
     query_ms = (time.perf_counter() - started) * 1000.0
 
-    gid = np.nan_to_num(_column(columns, "gid")).astype(np.int64)
-    jx = np.nan_to_num(_column(columns, "jx"), nan=-1).astype(np.int64)
-    jy = np.nan_to_num(_column(columns, "jy"), nan=-1).astype(np.int64)
-    jz = np.nan_to_num(_column(columns, "jz"), nan=-1).astype(np.int64)
     xy = Panel("xy", "y", "x", {name: np.zeros(grid.shape_xy) for name in PLANES})
     yz = Panel("yz", "y", "z", {name: np.zeros(grid.shape_yz) for name in PLANES})
     xz = Panel("xz", "x", "z", {name: np.zeros(grid.shape_xz) for name in PLANES})
 
-    def scatter(panel, mask, rows, n_rows, cols, n_cols, suffix):
+    def keys(columns, name):
+        return np.nan_to_num(_column(columns, name), nan=-2).astype(np.int64)
+
+    def scatter(panel, columns, mask, rows, cols):
+        # The sentinel -1 (outside) and absent keys never index a bin.
+        n_rows, n_cols = panel.planes["e"].shape
         keep = mask & (rows >= 0) & (rows < n_rows) & (cols >= 0) & (cols < n_cols)
-        if not keep.any():
-            return
         for plane in PLANES:
-            panel.planes[plane][rows[keep], cols[keep]] = np.nan_to_num(
-                _column(columns, f"{plane}_{suffix}")[keep])
+            panel.planes[plane][rows[keep], cols[keep]] = np.nan_to_num(_column(columns, plane)[keep])
 
-    scatter(xy, gid == GID_XY, jy, grid.n_y, jx, grid.n_x, "slab")
-    scatter(yz, gid == GID_YZ, jy, grid.n_y, jz, grid.n_z, "all")
-    scatter(xz, gid == GID_XZ, jx, grid.n_x, jz, grid.n_z, "all")
+    scatter(xy, xy_cols, np.ones(len(xy_cols["jx"]), dtype=bool), keys(xy_cols, "jy"), keys(xy_cols, "jx"))
+    gid = np.nan_to_num(_column(depth_cols, "gid")).astype(np.int64)
+    jx, jy, jz = keys(depth_cols, "jx"), keys(depth_cols, "jy"), keys(depth_cols, "jz")
+    scatter(yz, depth_cols, gid == GID_YZ, jy, jz)
+    scatter(xz, depth_cols, gid == GID_XZ, jx, jz)
 
-    xz_rows = gid == GID_XZ
-    outside = {"e": float(np.nan_to_num(_column(columns, "e_out")[xz_rows]).sum())}
-    for plane in OUTSIDE_PLANES:
-        outside[plane] = float(np.nan_to_num(_column(columns, f"{plane}_out")[xz_rows]).sum())
-    n_out = int(np.nan_to_num(_column(columns, "n_out")[xz_rows]).sum())
-    per_hit = k * k * k_z
-    n_hits = int(round((xz.planes["n"].sum() + n_out) / per_hit))
-    outside["n"] = n_out / per_hit
+    outside_rows = (gid == GID_XZ) & (jx == -1) & (jz == -1)
+    outside = {plane: float(np.nan_to_num(_column(depth_cols, plane)[outside_rows]).sum())
+               for plane in PLANES}
+    n_hits = int(round(float(xz.planes["n"].sum()) + outside["n"]))
     return (xy, yz, xz), outside, n_hits, query_ms
 
 
@@ -649,8 +674,8 @@ def explain(con, record, spec, grid, kind, footprint, k, k_z, model="segmentatio
     if kind == KIND_TRANS:
         sqls = _trans_sql(record, spec, grid, footprint, model, False)
     else:
-        sqls = (_local_sql(record, spec, grid, footprint, record.frame_bounds.layer_pitch_mm,
-                           k, k_z, model, False),)
+        sqls = _local_sql(record, spec, grid, footprint, record.frame_bounds.layer_pitch_mm,
+                          k, k_z, model, False)
     out = []
     for sql in sqls:
         rows = con.execute("EXPLAIN " + sql, spec.params()).fetchall()
