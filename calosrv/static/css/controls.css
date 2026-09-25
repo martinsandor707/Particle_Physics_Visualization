@@ -400,8 +400,9 @@ input[type="file"]::file-selector-button:hover {
 
 /* ------------------------------------------------------- the export menu */
 
-/* Positioned in script like .popover, and fixed for the same reason: the card
-   clips its overflow, so a menu laid out inside it would be cut off. */
+/* Positioned in script like .popover, and fixed for the same reason: `.main` is
+   a scroll container that clips its descendants at its padding box, so a menu
+   laid out inside a card would be cut off. */
 .menu {
   position: fixed;
   z-index: 200;

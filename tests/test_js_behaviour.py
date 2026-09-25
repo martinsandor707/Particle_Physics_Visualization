@@ -233,3 +233,80 @@ def test_a_patch_carrying_frame_and_display_does_not_depend_on_key_order(results
     assert results["state"]["keyOrder"] == {
         "frame": "lab", "lab": "continuous", "canonical": "continuous",
     }
+
+
+# --------------------------------------------------------------- tooltip --
+
+_TOOLTIP_SCRIPT = """
+const [tooltipUrl] = JSON.parse(process.argv[1]);
+const { tooltipOption, readoutPosition, READOUT_GAP_PX } = await import(tooltipUrl);
+const size = (w, h, vw, vh) => ({ contentSize: [w, h], viewSize: [vw, vh] });
+const out = { option: tooltipOption(), gap: READOUT_GAP_PX, cases: {} };
+// The measured readout: 372 px wide on a 586 px XY chart.
+for (const [name, point, s] of [
+  ['fitsRight', [100, 50], size(372, 60, 586, 330)],
+  ['flipsLeft', [450, 50], size(372, 60, 586, 330)],
+  ['neitherLeftHalf', [150, 200], size(372, 60, 500, 330)],
+  ['neitherRightHalf', [350, 200], size(372, 60, 500, 330)],
+  ['neitherNearTop', [350, 20], size(372, 60, 500, 330)],
+  ['noSize', [10, 5], undefined],
+]) {
+  out.cases[name] = { point, size: s, at: readoutPosition(point, null, null, null, s) };
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def tooltip_results() -> dict:
+    args = json.dumps([(JS / "panels" / "tooltip.js").as_uri()])
+    done = subprocess.run(
+        [NODE, "--input-type=module", "-e", _TOOLTIP_SCRIPT, args],
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_every_chart_tooltip_is_confined_to_its_chart(tooltip_results):
+    """`confine` is the fix: the tip stays inside the chart, right of the sidebar."""
+    option = tooltip_results["option"]
+    assert option["confine"] is True
+    assert option["className"] == "calo-tooltip"
+    assert option["trigger"] == "item"
+
+
+def _contains(box_at, size, point) -> bool:
+    x, y = box_at
+    w, h = size["contentSize"]
+    return x <= point[0] <= x + w and y <= point[1] <= y + h
+
+
+def test_the_bin_readout_sits_right_of_the_pointer_when_it_fits(tooltip_results):
+    case = tooltip_results["cases"]["fitsRight"]
+    gap = tooltip_results["gap"]
+    assert case["at"] == [case["point"][0] + gap, case["point"][1] - 8]
+    assert not _contains(case["at"], case["size"], case["point"])
+
+
+def test_the_bin_readout_flips_left_only_when_the_right_side_overflows(tooltip_results):
+    case = tooltip_results["cases"]["flipsLeft"]
+    gap = tooltip_results["gap"]
+    width = case["size"]["contentSize"][0]
+    assert case["at"][0] == case["point"][0] - gap - width
+    assert case["at"][0] >= 0
+    assert not _contains(case["at"], case["size"], case["point"])
+
+
+def test_a_readout_wider_than_either_side_moves_off_the_pointer_vertically(tooltip_results):
+    for name in ("neitherLeftHalf", "neitherRightHalf", "neitherNearTop"):
+        case = tooltip_results["cases"][name]
+        assert not _contains(case["at"], case["size"], case["point"]), name
+        view_w = case["size"]["viewSize"][0]
+        width = case["size"]["contentSize"][0]
+        assert 0 <= case["at"][0] <= max(0, view_w - width), name
+
+
+def test_the_readout_position_is_finite_without_a_measured_size(tooltip_results):
+    at = tooltip_results["cases"]["noSize"]["at"]
+    assert all(isinstance(v, (int, float)) for v in at)

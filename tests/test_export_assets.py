@@ -253,6 +253,7 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/textfit.js",
         "/static/js/panels/marks.js",
         "/static/js/panels/canonical_overlays.js",
+        "/static/js/panels/tooltip.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -269,6 +270,7 @@ def test_new_modules_are_served(client, path):
         "/static/js/export/caption.js",
         "/static/js/export/disclosure.js",
         "/static/js/panels/canonical_overlays.js",
+        "/static/js/panels/tooltip.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -313,6 +315,9 @@ def test_the_new_panel_modules_are_stamped_through_projection(client):
     projection = client.get("/static/js/panels/projection.js").text
     assert "./marks.js?v=" in projection
     assert "./canonical_overlays.js?v=" in projection
+    assert "./tooltip.js?v=" in projection
+    energy = client.get("/static/js/panels/energy.js").text
+    assert "./tooltip.js?v=" in energy
 
 
 def test_export_modules_are_reachable_from_the_entry_point():
@@ -342,7 +347,7 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in EXPORT_JS.glob("*.js"):
         assert module.resolve() in seen, f"{module.name} is never imported"
     assert (js_root / "textfit.js").resolve() in seen
-    for module in ("marks.js", "canonical_overlays.js"):
+    for module in ("marks.js", "canonical_overlays.js", "tooltip.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
 
 
@@ -506,3 +511,49 @@ def test_print_raster_takes_one_pixel_per_payload_bin():
     assert re.search(r"export function renderRaster\s*\([^)]*\{\s*screen\s*=\s*true\s*\}", decode)
     figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
     assert re.search(r"renderRaster\([^)]*\{\s*screen:\s*false\s*\}\s*\)", figure)
+
+
+# ------------------------------------------------------ tooltip confinement --
+
+
+def test_every_chart_tooltip_is_confined_and_hooked():
+    """Both chart builders take their tooltip from the one confined option.
+
+    The tooltip was clipped by `.main`'s overflow box, not stacked under the
+    sidebar; `confine: true` keeps it inside the chart. One builder means the
+    projection and energy charts cannot drift apart again.
+    """
+    tooltip = _strip_comments((PANELS_JS / "tooltip.js").read_text(encoding="utf-8"))
+    assert re.search(r"confine:\s*true", tooltip)
+    assert re.search(r"TOOLTIP_CLASS\s*=\s*'calo-tooltip'", tooltip)
+    assert re.search(r"className:\s*TOOLTIP_CLASS", tooltip)
+    for name in ("projection.js", "energy.js"):
+        source = _strip_comments((PANELS_JS / name).read_text(encoding="utf-8"))
+        assert "tooltip: tooltipOption()" in source, name
+    for path in (STATIC / "js").rglob("*.js"):
+        if "vendor" in path.parts or path.name == "tooltip.js":
+            continue
+        assert "rgba(22,27,34,0.95)" not in path.read_text(encoding="utf-8"), (
+            f"{path.name} builds its own tooltip instead of tooltipOption()"
+        )
+
+
+def test_the_bin_readout_positions_through_its_tooltip_option():
+    """ECharts 5.5.1 ignores a top-level `position` on a manual showTip."""
+    source = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    dispatch = re.search(r"type:\s*'showTip'.*?\}\)", source, re.DOTALL)
+    assert dispatch, "the manual showTip dispatch is missing"
+    body = dispatch.group(0)
+    assert re.search(r"tooltip:\s*\{[^}]*position:\s*readoutPosition", body)
+    outside = re.sub(r"tooltip:\s*\{[^}]*\}", "", body)
+    assert "position:" not in outside, "a top-level position is dead on this code path"
+
+
+def test_no_tooltip_stacking_rule_ships():
+    """A z-index rule cannot escape an overflow clip and would target no class."""
+    for path in (STATIC / "css").glob("*.css"):
+        text = path.read_text(encoding="utf-8")
+        assert "echarts-tooltip" not in text, path.name
+        assert "99999" not in text, path.name
+    controls = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    assert "`.main` is\n   a scroll container" in controls
