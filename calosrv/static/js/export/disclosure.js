@@ -26,18 +26,32 @@
 
 import { formatSci, formatInt } from '../scale.js';
 
-/** Fallback axis symbols per panel, when a payload does not carry them. */
-const AXIS_SYMBOLS = {
-  xy: { row: 'y′', col: 'x′' },
-  yz: { row: 'y′', col: 'z′' },
-  xz: { row: 'x′', col: 'z′' },
+/** Fallback axis symbols per frame kind and panel, when a payload does not carry them. */
+const SYMBOLS_OF = {
+  canonical: { x: 'x′', y: 'y′', z: 'z′' },
+  trans: { x: 'Δx', y: 'Δy', z: 'Δz' },
+  local: { x: 'u', y: 'v', z: 'w' },
 };
+function axisSymbols(kind, panelId) {
+  const s = SYMBOLS_OF[kind] ?? SYMBOLS_OF.canonical;
+  return { xy: { row: s.y, col: s.x }, yz: { row: s.y, col: s.z }, xz: { row: s.x, col: s.z } }[panelId];
+}
+const PANELS = new Set(['xy', 'yz', 'xz']);
 
 const SHOWER_NAME = { a: 'A', b: 'B' };
 
-const FRAME_DEFINITION = 'Canonical centre-of-separation frame: each shower\'s 3-D '
-  + 'centroid back-projected to the front face along its incident direction; '
-  + 'entry midpoint at the origin, A→B entry separation along +x′.';
+const TRANSLATED = 'Translated frame: every hit is moved by its own shower\'s entry point P₀ '
+  + '(energy-weighted x, y centroid of its first populated layer, at that layer\'s z); no '
+  + 'rotation; the two showers of each event are superimposed at the origin.';
+
+const FRAME_DEFINITION = {
+  canonical: 'Canonical centre-of-separation frame: each shower\'s 3-D '
+    + 'centroid back-projected to the front face along its incident direction; '
+    + 'entry midpoint at the origin, A→B entry separation along +x′.',
+  trans: TRANSLATED,
+  local: `${TRANSLATED.replace('Translated frame', 'Local frame').replace(/\.$/, '')}, `
+    + 'then rotated by the shower\'s own R(θ, φ) so its incident direction lies along +w.',
+};
 
 const ENSEMBLE_LEGEND = 'Dashed line = mean direction, shaded band = sample spread '
   + '(SD) of per-event slopes, thin envelope = 95% t-interval of the mean.';
@@ -50,28 +64,36 @@ const ENSEMBLE_LEGEND = 'Dashed line = mean direction, shaded band = sample spre
  * mode, and only when the payload does not say itself.
  */
 export function figureDisclosure(payload, panelId, state, extra = {}) {
-  if (!payload || panelId === 'energy' || !AXIS_SYMBOLS[panelId]) return [];
+  if (!payload || panelId === 'energy' || !PANELS.has(panelId)) return [];
 
   const frame = payload.frame ?? null;
-  const canonical = frame?.kind === 'canonical';
+  const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
+  const canonical = kind === 'canonical';
+  const coregistered = kind !== 'lab';
   const panel = payload.panels?.[panelId] ?? null;
   const scale = panel?.scale ?? null;
   const out = [];
 
-  if (canonical) {
-    out.push(FRAME_DEFINITION);
+  if (coregistered) {
+    out.push(FRAME_DEFINITION[kind]);
     if (panelId === 'xy' && typeof payload.slab?.note === 'string') out.push(payload.slab.note);
-    const counts = frameCounts(frame);
+    const counts = canonical ? frameCounts(frame) : showerCounts(frame);
     if (counts) out.push(counts);
     if (frame.n_events === 0) {
-      out.push('No selected event has a defined frame; the panels are empty and no ensemble axis is drawn.');
+      out.push(canonical
+        ? 'No selected event has a defined frame; the panels are empty and no ensemble axis is drawn.'
+        : 'No selected event has a defined A-B separation; the panels are empty.');
     }
   }
 
-  for (const line of colourScale(scale, canonical, panel)) out.push(line);
+  for (const line of colourScale(scale, coregistered, panel)) out.push(line);
+  if (scale?.quantity && scale.quantity !== 'density') {
+    const note = payload.meta?.cam?.note;
+    if (typeof note === 'string' && note) out.push(note);
+  }
 
-  if (canonical) {
-    for (const line of displayWindow(frame, panel, panelId)) out.push(line);
+  if (coregistered) {
+    for (const line of displayWindow(frame, panel, panelId, kind)) out.push(line);
     for (const line of splatting(frame)) out.push(line);
   } else if (panelId === 'xy') {
     // The comb is a product of the two transverse axes, so it is only visible
@@ -83,15 +105,29 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
     }
   }
 
-  if (canonical) {
-    const ill = illConditioned(frame);
-    if (ill) out.push(ill);
-    if (panelId === 'xy') {
-      const offsets = anchorOffsets(frame);
-      if (offsets) out.push(offsets);
-    }
-    if (panelId === 'yz' || panelId === 'xz') {
-      for (const line of ensembleAxes(frame)) out.push(line);
+  if (coregistered) {
+    if (canonical) {
+      const ill = illConditioned(frame);
+      if (ill) out.push(ill);
+      if (panelId === 'xy') {
+        const offsets = anchorOffsets(frame);
+        if (offsets) out.push(offsets);
+      }
+      if (panelId === 'yz' || panelId === 'xz') {
+        for (const line of ensembleAxes(frame)) out.push(line);
+      }
+    } else if (panelId === 'xy') {
+      out.push('The A–B offset of the superimposed centroids is not a separation; D is the laboratory '
+        + '3-D centroid distance.');
+    } else if (kind === 'local') {
+      out.push('w is each shower\'s incident direction by construction; no ensemble axis or Rayleigh '
+        + 'statistic is drawn because none could carry information.');
+    } else {
+      const r = payload.overlays?.coherence?.r_a;
+      out.push((payload.overlays?.trajectories || []).length
+        ? 'Dashed lines: individual incident directions from the origin along each event\'s laboratory (θ, φ).'
+        : `No averaged direction is drawn: the azimuth keeps its laboratory distribution`
+          + `${Number.isFinite(r) ? ` (R̄ = ${r.toFixed(3)})` : ''}.`);
     }
     if (typeof extra.isometric === 'boolean') {
       out.push(extra.isometric
@@ -124,6 +160,21 @@ function anchorOffsets(frame) {
 }
 
 /* ------------------------------------------------------------ sentences -- */
+
+/** Counts of a per-shower frame: events, superimposed showers, 'A+B' hits, D. */
+function showerCounts(frame) {
+  const n = frame.n_events;
+  if (!Number.isFinite(n)) return null;
+  const parts = [`N = ${formatInt(n)} ${n === 1 ? 'event' : 'events'}, `
+    + `${formatInt(frame.n_showers ?? 2 * n)} showers superimposed at their own entry points`];
+  if (frame.n_ab_hits > 0) {
+    parts.push(`${formatInt(frame.n_ab_hits)} 'A+B' ${plural(frame.n_ab_hits, 'hit')} at the origin, counted with B`);
+  }
+  if (Number.isFinite(frame.d_dataset?.mean)) {
+    parts.push(`D = laboratory 3-D centroid distance, ⟨D⟩ = ${mm(frame.d_dataset.mean)} mm`);
+  }
+  return `${parts.join('; ')}.`;
+}
 
 function frameCounts(frame) {
   const n = frame.n_events;
@@ -163,12 +214,49 @@ function reconstructed(panel) {
 function colourScale(scale, canonical, panel = null) {
   if (!scale) return [];
   const out = [];
+  const unit = panel?.rho_unit === 'GeV' ? 'GeV' : 'GeV mm⁻² per event';
+
+  if (scale.quantity === 'gradcam_energy' || scale.quantity === 'shapcam_energy') {
+    const signed = scale.quantity === 'shapcam_energy';
+    const floor = floorPower(scale.floor_ratio, -3);
+    const cells = Number.isFinite(panel?.below_floor_cells) ? panel.below_floor_cells : 0;
+    if (signed) {
+      out.push(`Colour: Σ E·Shap-CAM, signed log₁₀ ±(10^−3…10^0) of the selection's peak |value| `
+        + `(${formatSci(scale.ref, 3)} ${unit}), ColorBrewer PuOr (orange negative, purple positive); `
+        + `${formatInt(cells)} ${plural(cells, 'bin')} with |v| below ${floor} not drawn; positive part `
+        + `${formatSci(scale.positive_total, 3)}, negative part ${formatSci(scale.negative_total, 3)}. `
+        + 'On white paper the near-zero end of PuOr is itself near-white, so the undrawn band\'s edge '
+        + 'is not visible.');
+    } else {
+      const share = Number.isFinite(panel?.below_floor_energy_fraction)
+        ? ` (${percent(panel.below_floor_energy_fraction)} of the panel's energy)` : '';
+      out.push(`Colour: Σ E·Grad-CAM relative to this selection's peak (${formatSci(scale.ref, 3)} `
+        + `${unit}), log₁₀ 10^−3…10^0; ${formatInt(cells)} ${plural(cells, 'bin')} below ${floor} `
+        + `not drawn${share}; the dark outline is the ${floor} display floor, not a shower edge.`);
+    }
+    return out;
+  }
+
+  if (scale.quantity === 'shapcam') {
+    out.push('Colour: energy-weighted mean Shap-CAM attribution, symmetric −1…+1 linear scale, '
+      + 'ColorBrewer PuOr; nothing is clipped.');
+    const mask = attentionMask(panel?.attention_mask);
+    if (canonical && mask) out.push(mask);
+    return out;
+  }
+
+  if (scale.quantity === 'gradcam' && !canonical) {
+    const n = (scale.clipped_low || 0) + (scale.clipped_high || 0);
+    out.push(`Colour: energy-weighted mean Grad-CAM attention, fixed 0–1 linear scale; `
+      + `${formatInt(n)} ${plural(n, 'bin')} outside.`);
+    return out;
+  }
 
   if (scale.unit === 'a.u.') {
     const norm = scale.norm === 'dataset' ? 'dataset peak' : 'selection peak';
     out.push(`Colour: average hit density (a.u.), 10^${exponent(scale.vmin)}…`
       + `10^${exponent(scale.vmax)} relative to ρ_ref = ${formatSci(scale.rho_ref, 3)} `
-      + `GeV mm⁻² per event (${norm}).`);
+      + `${unit} (${norm}).`);
     if (scale.floor === 'transparent') {
       // The print raster has no fade (floorFadeDecades 0), so the floor is a
       // hard contour - which a reader will take for the edge of the shower
@@ -248,10 +336,10 @@ function attentionMask(mask) {
     + `${plural(cells, 'bin')}${hits}${peak}.`;
 }
 
-function displayWindow(frame, panel, panelId) {
+function displayWindow(frame, panel, panelId, kind = 'canonical') {
   const fit = frame.fit?.[panelId];
   if (!fit) return [];
-  const symbols = AXIS_SYMBOLS[panelId];
+  const symbols = axisSymbols(kind, panelId);
   const out = [];
 
   if (frame.fit?.rule === 'symmetric') {
@@ -340,10 +428,17 @@ function splatting(frame) {
   const fp = frame.footprint_mm;
   const k = frame.subsample_k;
   const pitch = frame.pitch_mm;
-  if (Array.isArray(fp) && fp.length >= 2 && Number.isFinite(fp[0]) && Number.isFinite(fp[1])
-      && Number.isFinite(k) && Number.isFinite(pitch)) {
-    out.push(`Cells (${fp[0].toFixed(1)} × ${fp[1].toFixed(1)} mm) were splatted as `
-      + `${k} × ${k} sub-deposits on a ${pitch} mm grid.`);
+  const regime = frame.splat?.regime;
+  const cell = Array.isArray(fp) && fp.length >= 2 && Number.isFinite(fp[0]) && Number.isFinite(fp[1])
+    ? `${fp[0].toFixed(1)} × ${fp[1].toFixed(1)} mm` : null;
+  if (regime === 'box_overlap' && cell && Number.isFinite(pitch)) {
+    out.push(`Cells (${cell}) were integrated exactly by area-weighted box overlap on a ${pitch} mm grid.`);
+  } else if (regime === 'subdeposit3d' && cell && Number.isFinite(pitch)) {
+    out.push(`Cells (${cell} × ${frame.depth?.pitch_mm ?? '—'} mm) were split into `
+      + `${frame.splat.k} × ${frame.splat.k} × ${frame.splat.k_z} sub-deposits rotated with their shower `
+      + `on a ${pitch} mm grid.`);
+  } else if (cell && Number.isFinite(k) && Number.isFinite(pitch)) {
+    out.push(`Cells (${cell}) were splatted as ${k} × ${k} sub-deposits on a ${pitch} mm grid.`);
   }
   const note = frame.comb?.note;
   if (typeof note === 'string' && note) out.push(note);

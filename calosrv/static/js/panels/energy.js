@@ -52,7 +52,7 @@
  */
 
 import {
-  THEME, formatNumber, formatInt, formatPercent, axisPadding,
+  THEME, formatNumber, formatInt, formatPercent, axisPadding, typographic,
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
@@ -1015,7 +1015,7 @@ function ciText(interval) {
 /** Drop trailing zeros so a 0.5 GeV interval does not print "10.00". */
 function trimFloat(value) {
   const rounded = Number(Number(value).toPrecision(3));
-  return String(rounded);
+  return typographic(String(rounded));
 }
 
 function escapeHtml(text) {

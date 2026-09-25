@@ -6,16 +6,26 @@
  * For a diagnostic tool whose output ends up in a discussion, that is the
  * difference between "look at this" and "set these six controls".
  *
+ * ## Four reference frames, one radio group
+ *
+ * `frame` is one of `lab | trans | local | canonical`, and the interface opens
+ * in the laboratory frame. The API takes that choice as two parameters - the
+ * coordinate system (lab, trans, local) and whether the lab coordinates are
+ * co-registered into the canonical frame - and `apiFrame` is the one place
+ * the mapping lives, so the two can never disagree. Links that relied on the
+ * old canonical default now open in the laboratory frame; an explicit
+ * `#frame=canonical` still opens the canonical frame.
+ *
  * ## One display mode per frame
  *
- * The two frames open in different display modes, because the same word means
- * a different thing in each. In the laboratory frame Native is the detector
+ * The frames open in different display modes, because the same word means a
+ * different thing in each. In the laboratory frame Native is the detector
  * lattice itself - one bin per cell, the hardware truth - so it is the default.
- * In the canonical frame Native is the raw 20 mm accumulation grid after every
- * event has been rotated, which shows each 48 mm cell as a tilted block; the
- * kernel reconstruction is the picture and the raw grid is the audit view.
+ * In a co-registered frame (translated, local, canonical) Native is the raw
+ * 20 mm accumulation grid, the audit view, and the kernel reconstruction is
+ * the picture.
  *
- * So the state holds `display_lab` and `display_canonical`, and `display`
+ * So the state holds `display_<frame>` for each frame, and `display`
  * addresses whichever belongs to the active frame: `get('display')` and
  * `set({display})` keep their meaning for every caller, and switching frame
  * and back returns each frame to the mode it was left in. The hash writes a key
@@ -23,16 +33,49 @@
  *
  * Links written before the split carried at most one `display=`. It is read as
  * the active frame's mode, so `#display=native` still opens whichever frame the
- * link names in Native. Old canonical links never carried `display` at all -
- * Native was the default - and therefore now open in Continuous Field.
+ * link names in Native.
  */
+
+import { SEQUENTIAL_PALETTES } from './palette.js';
+
+export const FRAMES = ['lab', 'trans', 'local', 'canonical'];
+export const CHANNELS = ['density', 'gradcam', 'gradcam_energy', 'shapcam', 'shapcam_energy'];
+export const MODELS = ['segmentation', 'energy', 'angle'];
 
 /** The two display modes the API accepts. */
 const DISPLAYS = new Set(['native', 'continuous']);
 
+/** Values a link may carry for each enumerated key; anything else keeps the default. */
+const ENUMS = {
+  frame: FRAMES,
+  channel: CHANNELS,
+  model: MODELS,
+  rho_norm: ['selection', 'dataset'],
+  weighting: ['energy', 'count'],
+  palette: SEQUENTIAL_PALETTES,
+};
+const NUMERIC_RANGE = { resolution: [50, 400] };
+
+/** Each interface frame as the API's (coord_system, frame) pair. */
+export const API_FRAME = {
+  lab: { coord_system: 'lab', frame: 'lab' },
+  trans: { coord_system: 'trans', frame: 'lab' },
+  local: { coord_system: 'local', frame: 'lab' },
+  canonical: { coord_system: 'lab', frame: 'canonical' },
+};
+
+export function apiFrame(frame) {
+  return API_FRAME[frame] ?? API_FRAME.lab;
+}
+
+/** Whether a frame co-registers events or showers (everything but the lab). */
+export function isCoregistered(frame) {
+  return FRAMES.includes(frame) && frame !== 'lab';
+}
+
 /** The state key holding one frame's display mode. */
 function displayKey(frame) {
-  return frame === 'canonical' ? 'display_canonical' : 'display_lab';
+  return FRAMES.includes(frame) ? `display_${frame}` : 'display_lab';
 }
 
 const DEFAULTS = {
@@ -42,16 +85,17 @@ const DEFAULTS = {
   d_min: null, d_max: null,
   include_undefined_d: false,
   // Reference frame of the three spatial panels. The interface opens in the
-  // canonical centre-of-separation frame, where every selected event is
-  // co-registered so both showers sit at the same place; the API's own
-  // default stays 'lab' so its contract is unchanged.
-  frame: 'canonical',
-  // Reference peak of the canonical density ramp: this selection's own peak
+  // laboratory frame, on the detector's own coordinates; the translated,
+  // local and canonical frames are one radio away.
+  frame: 'lab',
+  // Reference peak of a co-registered density ramp: this selection's own peak
   // (the directive's a.u.) or the whole dataset's, for cross-selection colour.
   rho_norm: 'selection',
   // Display mode per frame (see the header): the lab keeps the hardware
-  // lattice, the canonical frame opens on its kernel reconstruction.
+  // lattice, the co-registered frames open on their kernel reconstruction.
   display_lab: 'native',
+  display_trans: 'continuous',
+  display_local: 'continuous',
   display_canonical: 'continuous',
   resolution: 150,
   channel: 'density',
@@ -127,20 +171,35 @@ export class State {
 
   projectionParams(preview = false) {
     const v = this.values;
+    const lab = v.frame === 'lab';
     return {
       ...this.filterParams(),
-      frame: v.frame,
-      rho_norm: v.rho_norm,
+      ...apiFrame(v.frame),
+      model: v.model,
+      channel: v.channel,
       // Always sent, never left to the API default: the server keeps
-      // `display=native` for its own contract, while the canonical frame
-      // here opens in Continuous Field.
+      // `display=native` for its own contract, while the co-registered
+      // frames here open in Continuous Field.
       display: this.get('display'),
       resolution: v.resolution,
-      mode: v.channel,
       weighting: v.weighting,
-      lock_scale: v.lock_scale,
+      // Each control only where it means something; undefined is dropped
+      // from the query, so a co-registered response never carries the
+      // "lock_scale ignored" notice for a box nobody could see.
+      rho_norm: lab ? undefined : v.rho_norm,
+      lock_scale: lab ? v.lock_scale : undefined,
       preview,
     };
+  }
+
+  /** The energy panel: the selected frame's segmentation network. */
+  energyParams() {
+    return { ...this.filterParams(), coord_system: apiFrame(this.values.frame).coord_system };
+  }
+
+  /** The metric cards: the selected network, in the selected frame. */
+  performanceParams() {
+    return { ...this.energyParams(), model: this.values.model };
   }
 
   /**
@@ -227,13 +286,20 @@ export class State {
       if (!(key in DEFAULTS)) continue;
       if (NUMERIC.has(key)) {
         const value = Number(raw);
-        if (Number.isFinite(value)) this.values[key] = value;
+        const range = NUMERIC_RANGE[key];
+        if (Number.isFinite(value) && (!range || (value >= range[0] && value <= range[1]))) {
+          this.values[key] = value;
+        }
       } else if (BOOLEAN.has(key)) {
         this.values[key] = raw === 'true' || raw === '1';
       } else if (key.startsWith('display_')) {
         // An unknown mode would be sent to the API verbatim and rejected
         // there, blanking all three panels; the default is kept instead.
         if (DISPLAYS.has(raw)) this.values[key] = raw;
+      } else if (ENUMS[key]) {
+        // Likewise for every enumerated control: a stale or mistyped link
+        // falls back to the default rather than to a 422.
+        if (ENUMS[key].includes(raw)) this.values[key] = raw;
       } else {
         this.values[key] = raw;
       }

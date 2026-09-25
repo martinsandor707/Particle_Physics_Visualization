@@ -150,3 +150,46 @@ export function customPolyline({
 export function customLine({ from, to, ...options }) {
   return customPolyline({ ...options, points: [from, to] });
 }
+
+/**
+ * A capped whisker `from` → `to` (data coordinates), caps `capPx` either side.
+ *
+ * Reserved for the uncertainty of an aggregate - a 95% interval of a mean -
+ * never for sample dispersion (CLAUDE.md section 2). One polyline traced cap
+ * → shaft → cap in pixel space, so the caps keep their size at every zoom and
+ * `onInk`'s polyline branch covers the whole mark.
+ */
+export function customWhisker({
+  name, from, to, capPx = 4, color, width, opacity = 1, z = 9, tooltip = null,
+}) {
+  const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: !tooltip,
+    data: [from],
+    renderItem: (params, api) => {
+      const a = api.coord(from);
+      const b = api.coord(to);
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const length = Math.hypot(dx, dy) || 1;
+      // The cap runs perpendicular to the shaft.
+      const nx = (-dy / length) * capPx;
+      const ny = (dx / length) * capPx;
+      return {
+        type: 'polyline',
+        shape: {
+          points: [
+            [a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny], a,
+            b, [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny],
+          ],
+        },
+        style: { fill: 'none', stroke: color, lineWidth: width, opacity },
+      };
+    },
+    ...(tooltip ? { tooltip: { formatter } } : {}),
+  };
+}

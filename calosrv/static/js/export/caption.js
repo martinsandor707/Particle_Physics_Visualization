@@ -226,6 +226,21 @@ function escapeXml(value) {
  * whose content depends on neither the frame, the grid, R, the kernel nor the
  * spatial channel: naming them would describe bins the figure does not show.
  */
+/** How each co-registered frame is named in a figure caption. */
+const FRAME_PHRASE = {
+  canonical: 'canonical centre-of-separation frame',
+  trans: 'translated frame (each shower at its own P₀, no rotation)',
+  local: 'local shower-fixed frame (R(θ, φ))',
+};
+
+/** How each CAM channel is named in a figure caption. */
+const CHANNEL_PHRASE = {
+  gradcam: 'energy-weighted mean Grad-CAM attention',
+  gradcam_energy: 'Σ E·Grad-CAM (a.u. of selection peak)',
+  shapcam: 'Shap-CAM attribution (signed, −1…+1)',
+  shapcam_energy: 'Σ E·Shap-CAM (signed log, a.u. of peak |v|)',
+};
+
 export function describeSelection(
   state, experiment, selection, frame = null, display = null, { spatial = true } = {},
 ) {
@@ -253,28 +268,34 @@ export function describeSelection(
 
   if (state.get('include_undefined_d')) parts.push('including events with undefined D');
 
-  const canonical = frame?.kind === 'canonical';
+  const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
+  const coregistered = kind !== 'lab';
   const mode = display?.mode ?? state.get('display');
   const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
+  const network = { lab: 'absolute', canonical: 'absolute', trans: 'trans', local: 'local' }[
+    state.get('frame')] ?? 'absolute';
   if (!spatial) {
-    // Nothing below describes this figure.
-  } else if (canonical) {
+    // Only the network describes this figure: the energy panel is the
+    // segmentation reconstruction of the selected frame.
+    parts.push(`segmentation network, ${network} frame`);
+  } else if (coregistered) {
+    const name = FRAME_PHRASE[kind];
     const pitch = Number.isFinite(frame.pitch_mm) ? frame.pitch_mm : null;
     const kernel = display ? kernelPhrase(display) : null;
     if (mode === 'native') {
       const merged = display?.merge > 1 && Number.isFinite(display.displayPitch)
         ? `, merged ${display.merge}× to ${fmtMm(display.displayPitch)} mm`
         : '';
-      parts.push(`canonical centre-of-separation frame, raw ${pitch ?? 20} mm bins `
+      parts.push(`${name}, raw ${pitch ?? 20} mm bins `
         + `(Native Grid, no reconstruction${merged})`);
     } else if (kernel) {
       const bins = Number.isFinite(display.displayPitch)
         ? `${fmtMm(display.displayPitch)} mm display bins` : 'display bins';
-      parts.push(`canonical centre-of-separation frame, ${kernel} on ${bins} (R = ${r})`);
+      parts.push(`${name}, ${kernel} on ${bins} (R = ${r})`);
     } else {
       // A payload that names no kernel: say what is known, nothing more.
       const grid = pitch !== null ? `${pitch} mm accumulation grid` : 'accumulation grid';
-      parts.push(`canonical centre-of-separation frame, ${grid}, Continuous Field at R = ${r}`);
+      parts.push(`${name}, ${grid}, Continuous Field at R = ${r}`);
     }
   } else {
     parts.push(mode === 'native'
@@ -282,12 +303,14 @@ export function describeSelection(
       : `continuous field, R = ${r}`);
   }
 
+  const channel = state.get('channel');
   if (!spatial) {
     // The channel colours the spatial panels only.
-  } else if (state.get('channel') !== 'density') {
-    parts.push('Grad-CAM attention');
+  } else if (channel && channel !== 'density') {
+    const model = state.get('model') ?? 'segmentation';
+    parts.push(`${model} network (${network}): ${CHANNEL_PHRASE[channel] ?? channel}`);
   } else {
-    parts.push(canonical ? 'average hit density (a.u.)' : 'summed deposited energy');
+    parts.push(coregistered ? 'average hit density (a.u.)' : 'summed deposited energy');
   }
 
   if (selection) {
@@ -302,14 +325,17 @@ export function describeSelection(
  *
  * `resolution` is the response's `meta.resolution` (retained by each panel as
  * `lastOpts.resolution`), `frame` its `frame` block, `panelPayload` the panel.
- * Returns `{mode, r, displayPitch, merge, kernel, sigma, canonical}`; any
+ * Returns `{mode, r, displayPitch, merge, kernel, sigma, canonical, coregistered,
+ * kind}`; any
  * field the payload does not carry is null (merge 1), so callers can fall
  * back field by field. The kernel is 'none' for a raw-bin display.
  */
 export function displayOf(resolution, frame = null, panelPayload = null) {
   const res = resolution || {};
-  const canonical = frame?.kind === 'canonical';
-  const recon = canonical ? (frame.reconstruction ?? null) : null;
+  const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
+  const canonical = kind === 'canonical';
+  const coregistered = kind !== 'lab';
+  const recon = coregistered ? (frame.reconstruction ?? null) : null;
   const kernel = res.kernel?.type ?? recon?.kernel ?? panelPayload?.kernel ?? null;
   const sigma = res.kernel?.sigma_mm ?? recon?.sigma_mm ?? null;
   return {
@@ -320,6 +346,8 @@ export function displayOf(resolution, frame = null, panelPayload = null) {
     kernel,
     sigma: Number.isFinite(sigma) ? sigma : null,
     canonical,
+    coregistered,
+    kind,
   };
 }
 

@@ -36,6 +36,7 @@ from ..errors import ValidationError
 from ..grid import frame as frame_mod
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 from ..models.common import ApiMeta, Timer, envelope
+from ..text import fmt_signed
 from ..query import canonical, centroids, density, reconstruct, sampling, summary, window
 from ..query import planes as planes_mod
 from ..query import shower_frames
@@ -55,7 +56,7 @@ def _panel_names(symbols: dict[str, str]) -> dict[str, str]:
 
 
 def _fmt(v: float | None) -> str:
-    return "n/a" if v is None else f"{v:+.2f}".replace("-", "−")
+    return fmt_signed(v, 2, plus=True)
 
 
 def _comb_report(bundle: ShowerBundle, n_events: int) -> dict[str, Any]:
@@ -384,7 +385,7 @@ def build_response(
             "rows_scanned": int(round(stats.n_hits * (decision.percent / 100.0 if decision.sampled else 1.0))),
             "window": {
                 **grid.as_dict(),
-                "planned_from": "dataset energy-weighted 1e-4 and 0.9999 quantiles plus half a footprint",
+                "planned_from": "dataset energy-weighted 10⁻⁴ and 0.9999 quantiles plus half a footprint",
                 "energy_outside_gev": bundle.energy_outside,
                 "energy_fraction_outside": round(bundle.energy_fraction_outside, 8),
                 "hits_outside": bundle.n_outside,

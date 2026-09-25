@@ -29,10 +29,21 @@
  * into the card instead of ending in a rim (see the token's note in scale.js).
  * Print sets the token to 0, which makes the alpha a pure step: a hard contour
  * that the caption names as the display floor.
+ *
+ * ## Signed channels
+ *
+ * A signed payload (Shap-CAM) is always painted with the theme's diverging
+ * PuOr, whatever sequential ramp is chosen (`scale.rampPalette`). The signed
+ * log (``shapcam_energy``) carries ``split_code`` 129: codes 2..128 are
+ * negative, from -10⁰ at 2 to -10⁻³ at 128, and 129..255 positive, from
+ * +10⁻³ to +10⁰; code 1 is |v| below the floor. The generic colour index
+ * ``round((c - min) / (max - min) · 255)`` then lands the weakest values of
+ * both signs on the table's centre and the strongest on its ends, and the
+ * taper fades both arms symmetrically by |v|.
  */
 
 import { lookupTable } from './palette.js';
-import { THEME, floorExponent } from './scale.js';
+import { THEME, fadesAtFloor, floorExponent, rampPalette } from './scale.js';
 
 /** base64 -> Uint8Array, without a data: URL round trip. */
 export function decodeBase64(text) {
@@ -97,9 +108,9 @@ function axisLookup(axis, cells) {
  * write NaN into ImageData (which the canvas silently reads as 0).
  */
 export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDecades) {
-  const rgb = lookupTable(paletteName);
-  const table = new Uint8ClampedArray(256 * 4);
   const scale = payload.scale || {};
+  const rgb = lookupTable(rampPalette(scale, paletteName));
+  const table = new Uint8ClampedArray(256 * 4);
   const emptyCode = payload.empty_code ?? 0;
   const belowCode = Number.isInteger(payload.below_code) ? payload.below_code : null;
   const minCode = payload.min_code ?? 1;
@@ -108,7 +119,7 @@ export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDec
 
   const floorExp = floorExponent(scale);
   const taper = Number.isFinite(fadeDecades) && fadeDecades > 0
-    && scale.unit === 'a.u.' && scale.scale === 'log10'
+    && fadesAtFloor(scale)
     && Number.isFinite(floorExp) && Number.isFinite(scale.vmin) && Number.isFinite(scale.vmax)
     && span > 0;
 
@@ -126,14 +137,31 @@ export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDec
 
     let alpha = 255;
     if (taper) {
-      const fraction = (code - minCode) / span;
-      const value = scale.vmin + fraction * (scale.vmax - scale.vmin);
+      const value = codeExponent(code, scale, payload);
       const a = (value - floorExp) / fadeDecades;
       alpha = Number.isFinite(a) ? Math.round(255 * Math.min(1, Math.max(0, a))) : 255;
     }
     table[o + 3] = alpha;
   }
   return table;
+}
+
+/**
+ * The ramp value a code encodes, in the scale's own units: the exponent on a
+ * log ramp (of |v| / ref on the signed log), the value on a linear one.
+ */
+export function codeExponent(code, scale, payload) {
+  const minCode = payload.min_code ?? 1;
+  const maxCode = payload.max_code ?? 255;
+  if (scale.scale === 'signed_log10') {
+    const split = payload.split_code ?? 129;
+    const lo = floorExponent(scale);
+    const hi = scale.vmax;
+    if (code < split) return hi - ((code - minCode) / (split - 1 - minCode)) * (hi - lo);
+    return lo + ((code - split) / (maxCode - split)) * (hi - lo);
+  }
+  const fraction = (code - minCode) / (maxCode - minCode);
+  return scale.vmin + fraction * (scale.vmax - scale.vmin);
 }
 
 /** Longest side of the nearest-neighbour pre-upscale of a raw-bin raster. */
@@ -278,7 +306,8 @@ export function occupiedBounds(payload, raster, fraction = 0.99, { weight = 'cod
     if (code === empty || code === below || code < minCode) continue;
     if (weight === 'value') {
       const value = payload.scale ? dequantize(code, payload.scale, payload) : null;
-      weights[code] = Number.isFinite(value) && value > 0 ? value : 0;
+      // |value|: a signed channel's negative bins are as much of the picture.
+      weights[code] = Number.isFinite(value) && value !== 0 ? Math.abs(value) : 0;
     } else {
       weights[code] = code;
     }
@@ -338,10 +367,12 @@ export function occupiedBounds(payload, raster, fraction = 0.99, { weight = 'cod
 /** Invert the quantisation for a tooltip: colour code -> physical value. */
 export function dequantize(code, scale, payload) {
   const minCode = payload.min_code ?? 1;
-  const maxCode = payload.max_code ?? 255;
   if (code < minCode) return null;
-  const fraction = (code - minCode) / (maxCode - minCode);
-  const value = scale.vmin + fraction * (scale.vmax - scale.vmin);
+  const value = codeExponent(code, scale, payload);
+  if (scale.scale === 'signed_log10') {
+    // A signed ratio to scale.ref: negative below the split.
+    return (code < (payload.split_code ?? 129) ? -1 : 1) * 10 ** value;
+  }
   return scale.scale === 'log10' ? 10 ** value : value;
 }
 

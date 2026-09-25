@@ -1,18 +1,20 @@
 /* Application bootstrap and control wiring. */
 
 import { getJson, debounce, ApiError, DEBOUNCE_MS } from './api.js';
-import { State } from './state.js';
+import { State, apiFrame, isCoregistered } from './state.js';
 import { RangeSlider } from './controls/range_slider.js';
 import { UploadModal } from './controls/upload.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
-import { formatBytes, formatInt, formatNumber, formatSci, floorLabel } from './scale.js';
+import { formatBytes, formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
 import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './dom.js';
 import { attachExportMenus } from './export/menu.js';
-import { figureDisclosure, ordinal } from './export/disclosure.js';
-import { displayOf, kernelPhrase } from './export/caption.js';
-import { centroidLegend } from './panels/canonical_overlays.js';
+import { figureDisclosure } from './export/disclosure.js';
+import {
+  FRAME_VIEWS, frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag,
+  showerTag, footnotes, exportLegend, energyNetworkSentence,
+} from './frame_views.js';
 
 const state = new State();
 
@@ -26,17 +28,17 @@ const panels = {
   xz: new ProjectionPanel('plot-xz'),
 };
 
-/* A canonical depth panel decides its 1:1 aspect from the card size
+/* A co-registered depth panel decides its 1:1 aspect from the card size
  * (`depthIsometric`), so a container resize must re-decide it before the
  * panel rebuilds its letterbox - and the footnote, which states the aspect,
  * must follow. The panel calls this from its ResizeObserver. */
 for (const id of ['yz', 'xz']) {
   panels[id].onRelayout = (panel) => {
-    if (!isCanonical(lastProjections) || !panel.payload) return;
+    if (kindOf(lastProjections) === 'lab' || !panel.payload) return;
     const next = depthIsometric(panel, panel.payload);
     if (next === panel.isometric) return;
     panel.isometric = next;
-    renderCanonicalFootnotes(lastProjections);
+    writeFootnotes(lastProjections);
   };
 }
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
@@ -90,7 +92,9 @@ let activeExperiment = null;
 let lastProjections = null;
 let lastEnergy = null;
 let showerFilter = 'both';
-let pendingWarnings = [];
+/* Warnings the projections and performance endpoints sent with their last
+ * responses, merged into one banner. */
+const endpointWarnings = { projections: [], performance: [] };
 
 const DENSITY_EXPLAINER =
   'A probability density is not a probability. The curve integrates to 1.0 over '
@@ -203,34 +207,12 @@ let activePopover = null;
 
 /* -------------------------------------------------------------- projections */
 
-/** Whether a projections payload is in the canonical centre-of-separation frame. */
-function isCanonical(payload) {
-  return payload?.frame?.kind === 'canonical';
-}
-
-const PANEL_TITLES = {
-  lab: {
-    xy: 'XY Projection — Shower Entry',
-    yz: 'YZ Projection — Longitudinal Evolution',
-    xz: 'XZ Projection — Lateral Profile',
-  },
-  canonical: {
-    xy: 'X′Y′ Projection — Co-registered Shower Entry',
-    yz: 'Y′Z′ Projection — Longitudinal Evolution, canonical frame',
-    xz: 'X′Z′ Projection — Lateral Profile, canonical frame',
-  },
-};
-
-function panelTitle(id, canonical) {
-  return PANEL_TITLES[canonical ? 'canonical' : 'lab'][id];
-}
-
 /**
  * Whether a depth panel may keep a 1:1 metric aspect.
  *
  * In the laboratory frame the depth panels span 5200 mm against 1210 mm of
  * depth, where a true aspect would be an unusable sliver, so they fill the
- * card. The canonical frame crops each panel to where the energy is, and for
+ * card. A co-registered frame crops each panel to where the energy is, and for
  * most selections the two spans are comparable, so 1:1 becomes affordable. It
  * is used when the letterboxed plot would still keep at least 45% of the
  * card's width and the span ratio sits inside the export clamp [0.45, 1.3].
@@ -254,14 +236,17 @@ function renderPanels(payload) {
   const palette = state.get('palette');
   const overlays = payload.overlays || {};
   const paths = overlays.trajectories || [];
-  const canonical = isCanonical(payload);
-  const frame = canonical ? payload.frame : null;
+  const kind = kindOf(payload);
+  const canonical = kind === 'canonical';
+  const coregistered = kind !== 'lab';
+  const frame = coregistered ? payload.frame : null;
   // `resolution` is retained in each panel's `lastOpts`, so the exporter
   // names the R and kernel the payload was built with - which the payload
   // guard may have lowered below what the slider says.
   const common = {
     palette, frame, tableName: payload.meta?.table_name,
     resolution: payload.meta?.resolution ?? null,
+    weighting: payload.meta?.weighting ?? state.get('weighting'),
   };
   const ensemble = overlays.ensemble_axes || {};
   const anchors = canonical ? (overlays.anchors || null) : null;
@@ -269,27 +254,38 @@ function renderPanels(payload) {
 
   panels.xy.isometric = true;
   panels.xy.render(payload.panels.xy, {
-    ...common, centroids: payload.centroids, showVector: true, anchors,
+    ...common, centroids: payload.centroids, showVector: kind === 'lab', anchors,
   });
-  // The depth panels carry the measured shower axes always, and the individual
-  // incident trajectories only when few enough events are selected to read.
-  // `showerKey` names which transverse coordinate the panel plots, so the
-  // projection of the direction vector picks sin(phi) or cos(phi) correctly.
-  // In the canonical frame both give way to the two ensemble axes.
+  // The depth panels carry the measured shower axes (lab) and the individual
+  // incident trajectories when few enough events are selected to read (lab,
+  // and from the origin in the translated frame). `showerKey` names which
+  // transverse coordinate the panel plots, so the projection of the direction
+  // vector picks sin(phi) or cos(phi) correctly. In the canonical frame both
+  // give way to the two ensemble axes; the local frame draws no direction.
   for (const [id, key] of [['yz', 'y'], ['xz', 'x']]) {
     const panel = panels[id];
-    panel.isometric = canonical && depthIsometric(panel, payload.panels[id]);
+    panel.isometric = coregistered && depthIsometric(panel, payload.panels[id]);
     panel.render(payload.panels[id], {
       ...common,
-      axes: overlays.axes?.[id],
-      trajectories: paths,
+      axes: kind === 'lab' ? overlays.axes?.[id] : null,
+      trajectories: kind === 'lab' || kind === 'trans' ? paths : null,
       showerKey: key,
       ensembleAxes: canonical ? ensemble[id] || null : null,
-      ensembleMeta: frame?.ensemble || null,
+      ensembleMeta: canonical ? frame?.ensemble || null : null,
       anchors,
       depthBounds,
     });
   }
+}
+
+/** The three footnotes, from the payload and the panels' current aspect. */
+function writeFootnotes(payload) {
+  const notes = footnotes(payload, {
+    isometric: { yz: panels.yz.isometric, xz: panels.xz.isometric },
+  });
+  setText('foot-xy', notes.xy);
+  setText('foot-yz', notes.yz);
+  setText('foot-xz', notes.xz);
 }
 
 async function loadProjections(preview = false) {
@@ -297,15 +293,11 @@ async function loadProjections(preview = false) {
   const payload = await getJson('/api/projections', params, 'projections');
   lastProjections = payload;
 
-  const canonical = isCanonical(payload);
-  const overlays = payload.overlays || {};
+  const kind = kindOf(payload);
+  const coregistered = kind !== 'lab';
   renderPanels(payload);
-  for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, canonical));
-  if (canonical) {
-    renderCanonicalFootnotes(payload);
-  } else {
-    renderDepthFootnotes(overlays, payload.selection);
-  }
+  for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, kind));
+  writeFootnotes(payload);
 
   const selection = payload.selection;
   setText('stat-events', formatInt(selection.n_events));
@@ -314,10 +306,10 @@ async function loadProjections(preview = false) {
   setText('stat-d', selection.d.mean !== null
     ? `${formatNumber(selection.d.mean, 0)} mm` : '—');
   setText('stat-nod', formatInt(selection.n_events_no_d));
-  // The density reference is the canonical frame's "autoscaled" badge: a ramp
+  // The density reference is a co-registered frame's "autoscaled" badge: a ramp
   // relative to the selection's own peak looks identical for a tenth of the
   // energy, so the reader is told which reference the colours are drawn against.
-  setText('stat-rho', canonical
+  setText('stat-rho', coregistered
     ? (payload.frame.rho?.norm === 'dataset' ? 'dataset peak' : 'selection peak (autoscaled)')
     : '—');
   setText('stat-latency', `${formatNumber(payload.meta.total_ms, 1)} ms`);
@@ -329,45 +321,22 @@ async function loadProjections(preview = false) {
 
   const resolution = payload.meta.resolution;
   const stagger = payload.meta.stagger || {};
-  if (canonical) {
-    setText('display-caption', canonicalDisplayCaption(resolution, payload.frame));
-  } else {
-    setText('display-caption', resolution.mode === 'native'
-      ? `Native lattice: one bin per calorimeter cell (${resolution.r_x} × ${resolution.r_y} transverse, ${resolution.r_z} depth layers). Every bin is a real cell, so the depth axes carry no empty-bin comb.`
-      : `Continuous field: ${resolution.r_x} × ${resolution.r_y} transverse bins by area-weighted splatting, depth locked to ${resolution.r_z} native layers.`);
-  }
-  setText('channel-caption', channelCaption(
-    state.get('channel'), canonical, canonical ? payload.frame : null,
-  ));
+  setText('display-caption', displayCaption(kind, resolution, coregistered ? payload.frame : null));
+  setText('channel-caption', currentChannelCaption(payload));
 
   const slabTag = `${payload.slab.layers} layers · ${payload.slab.mm.toFixed(0)} mm`;
-  if (canonical) {
-    // The mean entry separation, with its interval named, where the badge on
-    // the plot used to sit over the shower cores. `.sym` keeps the tag's
-    // uppercase transform off the symbols.
-    const entry = entryTag(payload.frame);
-    setHtml('tag-xy', entry ? `${slabTag} · <span class="sym">${entry}</span>` : slabTag);
-  } else {
-    setText('tag-xy', slabTag);
-  }
-
-  if (!canonical) {
-    // The staggered-lattice comb is detector segmentation, not shower structure.
-    // Saying so on the panel itself matters more than saying it in a banner,
-    // because the panel is what gets screenshotted into a discussion.
-    const combNote = stagger.staggered && resolution.mode === 'native'
-      ? ` ⚠ ${stagger.note}`
-      : '';
-    setText('foot-xy',
-      `${payload.slab.note} Diamond marks shower A, circle shower B; the dashed `
-      + `line is the transverse separation between the ground-truth voxel-weighted `
-      + `entry centroids.${combNote}`);
-  }
+  // The canonical tag carries the mean entry separation with its interval
+  // named; a per-shower tag says how many showers are superimposed. `.sym`
+  // keeps the tag's uppercase transform off the symbols.
+  const extra = kind === 'canonical' ? entryTag(payload.frame)
+    : coregistered ? showerTag(payload.frame) : '';
+  if (extra) setHtml('tag-xy', `${slabTag} · <span class="sym">${extra}</span>`);
+  else setText('tag-xy', slabTag);
 
   // Persistent explanations go to the sidebar info dots; the banner keeps only
   // transient, actionable messages.
   const notices = payload.meta.notices || [];
-  if (!canonical && stagger.staggered && resolution.mode === 'native' && stagger.note) {
+  if (!coregistered && stagger.staggered && resolution.mode === 'native' && stagger.note) {
     notices.push({ scope: 'resolution', text: stagger.note });
   }
   setNotices('resolution', notices);
@@ -376,109 +345,21 @@ async function loadProjections(preview = false) {
   // Held rather than shown, so `refreshAll` can decide between these and any
   // endpoint failure - a failure must not be overwritten by a routine warning
   // arriving from a panel that happened to succeed.
-  pendingWarnings = payload.meta.warnings || [];
+  endpointWarnings.projections = payload.meta.warnings || [];
   return payload;
 }
 
-/**
- * The canonical display caption, read from the payload.
- *
- * Names what a displayed bin is in each mode - the raw 20 mm accumulation bin,
- * or a sample of the kernel reconstruction - with the kernel, its width and
- * the total blur, because a smooth picture that does not say how it was
- * smoothed invites a reader to take its smoothness for the shower's.
- */
-function canonicalDisplayCaption(resolution, frame) {
-  const recon = frame?.reconstruction ?? null;
-  const display = displayOf(resolution, frame);
-  const layers = `${resolution.r_z} depth layers`;
-  if (display.mode === 'native') {
-    const merged = display.merge > 1
-      ? `; merged ${display.merge}× to ${num(display.displayPitch, 0)} mm by the payload guard`
-      : '';
-    return `Native Grid: the raw ${num(resolution.pitch_mm, 0)} mm accumulation bins, no reconstruction `
-      + `(${resolution.r_x} × ${resolution.r_y} transverse in the symmetric window, ${layers}) — `
-      + `the audit view${merged}.`;
-  }
-  const kernel = kernelPhrase(display);
-  if (!recon || !kernel) {
-    // A payload that names no kernel: say what is known, nothing more.
-    return `Continuous Field at R = ${resolution.r_x} (${num(resolution.display_pitch_mm, 1)} mm display bins), `
-      + `depth locked to ${layers}.`;
-  }
-  const spread = Number.isFinite(recon.bin_spread_rms_mm)
-    ? `${recon.bin_spread_rms_mm.toFixed(1)} mm RMS per ${num(resolution.pitch_mm, 0)} mm bin` : null;
-  const blur = recon.blur_rms_mm;
-  const total = Number.isFinite(blur?.x) && Number.isFinite(blur?.y)
-    ? `total blur ${blur.x.toFixed(1)} × ${blur.y.toFixed(1)} mm RMS with the `
-      + `${recon.subsample_k} × ${recon.subsample_k} footprint splat` : null;
-  const detail = [spread, total].filter(Boolean).join('; ');
-  const gate = Number.isFinite(recon.gaussian_below_n)
-    ? ` Gaussian below N = ${recon.gaussian_below_n} events, tent above.` : '';
-  return `Continuous Field: conservative ${kernel}${detail ? ` (${detail})` : ''}, x′/y′ only, `
-    + `depth native (${layers}); ${num(resolution.display_pitch_mm, 1)} mm display bins `
-    + `(R = ${resolution.r_x}).${gate}`;
+/** The channel caption for the active controls, worded from `payload` when it matches. */
+function currentChannelCaption(payload = lastProjections) {
+  return channelCaption({
+    channel: state.get('channel'),
+    model: state.get('model'),
+    frame: state.get('frame'),
+    payload: kindOf(payload) === state.get('frame') ? payload : null,
+    display: state.get('display'),
+    weighting: state.get('weighting'),
+  });
 }
-
-/** ⟨D_entry⟩ with its interval, as HTML for the X′Y′ tag; '' without events. */
-function entryTag(frame) {
-  const entry = frame?.d_entry ?? {};
-  if (!(frame?.n_events > 0) || !Number.isFinite(entry.mean)) return '';
-  const symbol = '⟨D<sub>entry</sub>⟩';
-  const n = Number.isFinite(entry.n) ? entry.n : frame.n_events;
-  if (n === 1) return `${symbol} ${num(entry.mean)} mm (single event)`;
-  if (!Number.isFinite(entry.ci95_half)) return `${symbol} ${num(entry.mean)} mm (N = ${formatInt(n)})`;
-  return `${symbol} ${num(entry.mean)} ± ${num(entry.ci95_half)} mm (95% t, N = ${formatInt(n)})`;
-}
-
-function channelCaption(channel, canonical, frame = null) {
-  const floor = floorLabel({ floor_ratio: frame?.reconstruction?.floor_ratio ?? 1e-3 });
-  if (channel !== 'density') {
-    const base = 'Energy-weighted mean Grad-CAM attention per cell, on a fixed 0–1 linear scale so maps stay comparable across selections.';
-    if (!canonical) return base;
-    const mode = frame?.reconstruction?.display ?? state.get('display');
-    return mode === 'continuous'
-      ? `${base} Bins whose reconstructed density falls below ${floor} of ρ_ref are not drawn: the kernel's tails would otherwise paint attention where there is no energy.`
-      : `${base} Only bins without hits are left undrawn, so attention measured on real hits is never hidden.`;
-  }
-  if (!canonical) {
-    return 'Summed deposited energy per cell, on a logarithmic scale spanning six decades below the brightest cell.';
-  }
-  const basis = frame?.rho?.basis ?? 'raw 20 mm-grid peak';
-  return 'Average hit density ⟨ρ⟩ = ΣE / (N·ΔA) in GeV mm⁻² per event, drawn as a.u. relative to the stated '
-    + `reference peak on a three-decade logarithmic ramp. Bins below ${floor} of ρ_ref are not drawn and the `
-    + `bottom half decade fades out; ρ_ref is the ${basis}.`;
-}
-
-const FRAME_CAPTIONS = {
-  canonical:
-    'Every selected event is moved by one rigid-body motion: the midpoint of the '
-    + 'two back-projected entry points goes to the origin, the A→B separation to '
-    + '+x′, the front face to z′ = 0. Panels show the ensemble-averaged energy '
-    + 'density, and two ensemble axes replace individual trajectories.',
-  lab:
-    'Detector coordinates as recorded. The depth panels draw individual '
-    + 'trajectories for selections of 50 events or fewer, otherwise the measured '
-    + 'shower axes; no averaged direction is drawn in this frame.',
-};
-
-/* The display radios' wording per frame. "Native" is the detector lattice in
- * the lab frame and the raw 20 mm accumulation grid in the canonical one, and
- * the two continuous modes are built differently, so the labels say which. */
-const DISPLAY_LABELS = {
-  lab: {
-    native: 'Native Detector Lattice <span class="muted">(hardware truth)</span>',
-    continuous: 'Continuous Field <span class="muted">(anti-aliased splatting)</span>',
-  },
-  canonical: {
-    native: 'Native Grid <span class="muted">(raw 20 mm bins, audit)</span>',
-    continuous: 'Continuous Field <span class="muted">(kernel reconstruction)</span>',
-  },
-};
-
-const CANONICAL_RESOLUTION_HINT =
-  'R sets the display bins across the X′Y′ window; the kernel, not R, sets the resolution — '
-  + 'no detail exists below the 20 mm grid or the 48 mm cell. Depth stays at the native layers.';
 
 /** The lab hint names the active experiment's lattice; set on activation. */
 let labResolutionHint = 'Available in Continuous Field mode.';
@@ -489,295 +370,83 @@ let labResolutionHint = 'Available in Continuous Field mode.';
  *
  * Each frame keeps its own mode (see state.js), so switching frame can change
  * the checked radio without the user touching it. Called on boot and on every
- * frame change, through `applyFrameControls`, and after a display change.
+ * frame change, through `applyControlAvailability`, and after a display change.
  */
 function syncDisplayControls() {
-  const canonical = state.get('frame') === 'canonical';
-  const labels = DISPLAY_LABELS[canonical ? 'canonical' : 'lab'];
+  const view = frameView(state.get('frame'));
   const display = state.get('display');
   for (const input of document.querySelectorAll('input[name="display"]')) {
     input.checked = input.value === display;
   }
-  setHtml('display-label-native', labels.native);
-  setHtml('display-label-continuous', labels.continuous);
+  setHtml('display-label-native', view.displayLabels.native);
+  setHtml('display-label-continuous', view.displayLabels.continuous);
   dom.resolutionControl.classList.toggle('is-disabled', display !== 'continuous');
-  setText('resolution-hint', canonical ? CANONICAL_RESOLUTION_HINT : labResolutionHint);
+  setText('resolution-hint', view.resolutionHint ?? labResolutionHint);
 }
 
-/** Show the controls that belong to the active frame. */
-function applyFrameControls(frame) {
-  const canonical = frame === 'canonical';
-  setHidden('ctl-rho-norm', !canonical);
-  setHidden('ctl-lock-scale', canonical);
-  setText('frame-caption', FRAME_CAPTIONS[canonical ? 'canonical' : 'lab']);
+/**
+ * Show, hide and disable the controls the active frame and channel make
+ * meaningful.
+ *
+ * The density normalisation belongs to the co-registered frames; the lock
+ * belongs to the lab and to density; a signed channel is always drawn on the
+ * diverging PuOr, so the sequential colour map is disabled and says why.
+ */
+function applyControlAvailability() {
+  const frame = state.get('frame');
+  const channel = state.get('channel');
+  const coregistered = isCoregistered(frame);
+  setHidden('ctl-rho-norm', !coregistered);
+  setHidden('ctl-lock-scale', coregistered);
+  dom.lockScaleControl?.classList.toggle('is-disabled', channel !== 'density');
+  const signed = isDiverging({ diverging: channel.startsWith('shapcam') });
+  dom.colormap.disabled = signed;
+  setHidden('colormap-hint', !signed);
+  setText('colormap-hint', signed
+    ? 'Shap-CAM is signed: it is always drawn on the diverging ColorBrewer PuOr, orange for '
+      + 'negative and purple for positive attribution. The sequential map applies to the other channels.'
+    : '');
+  setText('frame-caption', frameView(frame).caption);
   syncDisplayControls();
 }
 
-function offsetsText(offsets) {
-  const pair = offsets?.truth_voxel;
-  if (!pair || !pair.a || !pair.b) return '';
-  const fmt = (v) => `${v[0] >= 0 ? '+' : ''}${v[0].toFixed(0)}, ${v[1] >= 0 ? '+' : ''}${v[1].toFixed(0)}`;
-  return ` The measured ensemble entry centroids sit at (${fmt(pair.a)}) mm from the A anchor and (${fmt(pair.b)}) mm from the B anchor.`;
-}
-
-/** A number for prose: fixed decimals, or an em dash when undefined. */
-function num(value, digits = 0) {
-  return Number.isFinite(value) ? Number(value).toFixed(digits) : '—';
-}
-
-/** A fraction as a percentage for prose, or an em dash when undefined. */
-function pct(value, digits = 2) {
-  return Number.isFinite(value) ? `${(100 * value).toFixed(digits)}%` : '—';
-}
-
 /**
- * The fitted display window of one canonical panel, as a phrase.
- *
- * The window is symmetric about the origin, so it is quoted as half-widths,
- * `x′ ±480 mm`, which is what the reader compares against ⟨D_entry⟩/2. Where
- * the floor or the accumulation window set a half-width rather than the
- * percentile, that is said: a floored window is wider than the energy needs.
+ * Grey out every frame, channel and model the active experiment does not
+ * serve (from `/api/experiments`), and fall back from one a link asked for.
  */
-function windowPhrase(fit, id, sides) {
-  const panelFit = fit[id] || {};
-  const parts = [];
-  const limits = [];
-  for (const [side, symbol] of sides) {
-    const axis = panelFit[side];
-    if (!axis?.applied || !Array.isArray(axis.range)) {
-      parts.push(`${symbol} full window`);
-      continue;
-    }
-    if (fit.rule === 'symmetric') {
-      const half = Number.isFinite(axis.half_width)
-        ? axis.half_width
-        : Math.max(Math.abs(axis.range[0]), Math.abs(axis.range[1]));
-      parts.push(`${symbol} ±${Math.round(half)} mm`);
-    } else {
-      parts.push(`${symbol} ${Math.round(axis.range[0])}–${Math.round(axis.range[1])} mm`);
-    }
-    if (axis.floored) {
-      limits.push(`${symbol} held at the ${num(fit.floor_mm)} mm `
-        + `${fit.provisional ? 'provisional' : 'two-footprint'} floor`);
-    }
-    if (axis.clamped) limits.push(`${symbol} clamped to the accumulation window`);
-  }
-  const [p0, p1] = Array.isArray(fit.percentiles) && fit.percentiles.length >= 2
-    ? fit.percentiles : [1, 99];
-  const rule = `${fit.rule === 'symmetric' ? 'symmetric ' : ''}${ordinal(p0)}–${ordinal(p1)} energy percentile`;
-  return `Window ${parts.join(', ')} (${[rule, ...limits].join('; ')})`;
-}
-
-/**
- * Whether a canonical panel's bins are a kernel reconstruction: its own
- * `kernel` when the payload names one ('none' is the raw Native Grid, and a
- * guard's box merge of it), else the frame's display mode.
- */
-function reconstructedPanel(panel, continuous) {
-  if (typeof panel?.kernel === 'string') return panel.kernel !== 'none';
-  return Boolean(continuous);
-}
-
-/**
- * The display-floor sentence of one canonical panel.
- *
- * Density: the bins under 10⁻³ of ρ_ref are transparent and the bottom half
- * decade fades, so the reader must be told that the edge of the colour is the
- * floor and not the edge of the shower. Grad-CAM: the masking rule, which
- * differs by display mode - the continuous field masks where the kernel's
- * tails would paint attention over no energy, the Native Grid only where no
- * hit exists.
- */
-function floorSentence(panel, continuous, floor) {
-  if (!panel) return '';
-  if (panel.scale?.unit === 'attention') {
-    const mask = panel.attention_mask;
-    if (!mask) return '';
-    const lead = typeof mask.rule === 'string' && mask.rule
-      ? mask.rule.replace(/\.?\s*$/, '.')
-      : (continuous
-        ? `Attention is not drawn where the reconstructed density is below ${floor} of ρ_ref.`
-        : 'Only bins without hits are left undrawn.');
-    const counts = mask.cells > 0
-      ? ` ${formatInt(mask.cells)} bin${mask.cells === 1 ? '' : 's'} masked`
-        + (Number.isFinite(mask.hit_fraction) ? `, holding ${pct(mask.hit_fraction)} of this panel's in-window hits` : '')
-        + (Number.isFinite(mask.max_attention) ? `; largest masked attention ${mask.max_attention.toFixed(2)}` : '')
-        + '.'
-      : '';
-    return ` ${lead}${counts}`;
-  }
-  if (panel.scale?.floor !== 'transparent') return '';
-  const energy = reconstructedPanel(panel, continuous) ? 'in-window reconstructed energy' : 'in-window energy';
-  const counts = Number.isFinite(panel.below_floor_cells)
-    ? ` (${formatInt(panel.below_floor_cells)} bin${panel.below_floor_cells === 1 ? '' : 's'}`
-      + (Number.isFinite(panel.below_floor_energy_fraction)
-        ? `, ${pct(panel.below_floor_energy_fraction)} of this panel's ${energy}` : '')
-      + ')'
-    : '';
-  return ` Bins below ${floor} of ρ_ref are not drawn${counts}; the bottom half decade fades to `
-    + 'transparent, so the edge of the colour is the display floor, not the edge of the shower.';
-}
-
-/**
- * Footnotes for the canonical frame.
- *
- * Every number a reader needs to reproduce or discount the picture is on the
- * panel itself: the anchor definition, N and what was excluded, both separation
- * definitions, the density reference, the fitted window and what lies outside
- * it, the display floor, the reconstruction kernel, the sub-cell factor, the
- * measured comb, and the coherence of each axis.
- */
-function renderCanonicalFootnotes(payload) {
-  const f = payload.frame;
-  const rho = f.rho || {};
-  const comb = f.comb || {};
-  const fit = f.fit || {};
-  const recon = f.reconstruction || null;
-  const panelPayloads = payload.panels || {};
-
-  if (!(f.n_events > 0)) {
-    // Nothing was co-registered: say so, rather than print zeros for means
-    // that are undefined and windows that were never fitted.
-    const empty =
-      `Canonical centre-of-separation frame: no selected event has a defined frame `
-      + `(${formatInt(f.n_selected)} selected, ${formatInt(f.n_excluded_no_frame)} without a shower-A `
-      + 'centroid or direction). The panels are empty and no ensemble axis is drawn.';
-    setText('foot-xy', `${payload.slab.note} ${empty}`);
-    setText('foot-yz', empty);
-    setText('foot-xz', empty);
-    return;
-  }
-
-  const continuous = (recon?.display ?? payload.meta?.resolution?.mode) === 'continuous';
-  const attention = panelPayloads.xy?.scale?.unit === 'attention';
-  const floor = floorLabel({ floor_ratio: recon?.floor_ratio ?? 1e-3 });
-
-  const ref = (value) => `${formatSci(value, 3)} GeV mm⁻² per event`;
-  const norm = rho.norm === 'dataset'
-    ? `the dataset peak${rho.ref_k && rho.ref_k !== rho.selection_k ? ` (measured with ${rho.ref_k} × ${rho.ref_k} sub-deposits per cell against ${rho.selection_k} × ${rho.selection_k} here)` : ''}`
-    : 'this selection’s own peak (autoscaled; switch the density normalisation to compare colours across selections)';
-  // Measured after reconstruction when the payload says so: energy the
-  // kernel carries across the window edge is energy the reader cannot see.
-  const outside = (id) => {
-    const after = panelPayloads[id]?.energy_fraction_outside_window;
-    const value = Number.isFinite(after) ? after : fit[id]?.energy_fraction_outside;
-    return `${pct(value ?? 0)} of the ${id === 'xy' ? 'slab ' : ''}energy lies outside`
-      + (Number.isFinite(after) && reconstructedPanel(panelPayloads[id], continuous)
-        ? ' after reconstruction' : '');
+function applyCapabilities(experiment) {
+  const frames = experiment?.frames ?? ['lab', 'canonical'];
+  const coords = experiment?.coord_systems ?? ['lab'];
+  const offered = {
+    // A frame is offered when the experiment lists it and serves its
+    // coordinate system (the canonical frame is built from lab coordinates).
+    frame: Object.keys(FRAME_VIEWS).filter(
+      (f) => frames.includes(f) && coords.includes(apiFrame(f).coord_system),
+    ),
+    channel: experiment?.channels ?? ['density', 'gradcam'],
+    model: experiment?.models ?? ['segmentation'],
   };
-  // The kernel sentence, with the attenuation of the displayed peak against
-  // this panel's raw 20 mm-grid peak - the reference ρ_ref is measured on.
-  const kernel = (id) => {
-    const note = typeof recon?.note === 'string' && recon.note ? ` ${recon.note}` : '';
-    const a = rho.kernel_attenuation?.[id];
-    const attenuation = continuous && !attention && Number.isFinite(a)
-      ? ` The displayed peak is ${a.toFixed(2)} × this panel's raw 20 mm-grid peak.`
-      : '';
-    return `${note}${attenuation}`;
-  };
-  // The interval is named: at N = 2 the Student-t 95% half-width is 12.7
-  // standard errors, so a bare "±" would mean whatever the reader assumes.
-  const ci = Number.isFinite(f.d_entry?.ci95_half)
-    ? ` (95% t-interval of the mean ± ${num(f.d_entry.ci95_half)} mm)`
-    : '';
-  const base =
-    `Canonical centre-of-separation frame: N = ${formatInt(f.n_events)} co-registered event${f.n_events === 1 ? '' : 's'}`
-    + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no shower-A centroid or direction)` : '')
-    + `; ⟨D_entry⟩ = ${num(f.d_entry?.mean)} mm at the front face${ci}, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm (dataset, 3-D centroid distance).`;
-  const provisional = fit.provisional ? ` Fitted ranges are provisional (N = ${f.n_events}).` : '';
-  const k = f.subsample_k;
-  const splat = ` Cells (${num(f.footprint_mm?.[0], 1)} × ${num(f.footprint_mm?.[1], 1)} mm) are splatted as ${k} × ${k} sub-deposits on a ${f.pitch_mm} mm grid.`;
-  const combText = comb.note ? ` ${comb.staggered ? '⚠ ' : ''}${comb.note}` : '';
-  const ill = f.n_ill_conditioned
-    ? ` ${formatInt(f.n_ill_conditioned)} event(s) enter closer than ${f.ill_conditioned_threshold_mm} mm apart, so their orientation is effectively random: their energy enters ⟨ρ⟩ averaged over azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.`
-    : '';
-  const colour = (value, shared = '') => (attention
-    ? 'Colour: energy-weighted mean Grad-CAM attention on a fixed 0–1 scale.'
-    : `Colour: average hit density (a.u.) relative to ρ_ref = ${ref(value)}${shared}, ${norm}.`);
-  const centroids = centroidLegend(payload.centroids);
-
-  setText('foot-xy',
-    `${payload.slab.note} ${base} ${colour(rho.ref?.xy)} `
-    + `${windowPhrase(fit, 'xy', [['col', 'x′'], ['row', 'y′']])}; ${outside('xy')}.${provisional}`
-    + `${floorSentence(panelPayloads.xy, continuous, floor)}${kernel('xy')} `
-    + 'Open diamond and circle: the A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
-    + 'D_entry/2 across events; thin dashed rule: the mean entry separation (hover for ⟨D_entry⟩ with its '
-    + `95% t-interval).${centroids ? ` ${centroids}` : ''}${offsetsText(f.anchor_offsets)}${splat}${combText}${ill}`);
-
-  const axesText = (f.notes || []).join(' ');
-  const marks = f.n_events === 1
-    ? ' Dashed lines are this single event’s two incident directions, not an ensemble; no dispersion '
-      + 'band or interval can be drawn from one event. Thin rules mark the front and back faces (first and '
-      + 'last sampling layer); the transverse outline rotates with each event and has no ensemble image.'
-    : ' Dashed lines are the two ensemble shower axes (mean incident direction in this frame); the shaded '
-      + 'wedge behind each is the sample spread of the per-event slopes and the thin envelope the 95% '
-      + 't-interval of the mean — two different quantities, so two different marks. Individual trajectories '
-      + 'are not drawn in this frame. Thin rules mark the front and back faces (first and last sampling '
-      + 'layer); the transverse outline rotates with each event and has no ensemble image.';
-  const anchorsText = {
-    yz: ' The open circle at the origin stands for both anchors, which this panel projects onto one point.',
-    xz: ' Open diamond and circle at z′ = 0: the A and B anchors, with a faint bar for the sample spread '
-      + '(SD) of D_entry/2.',
-  };
-  const aspect = (id) => (panels[id].isometric
-    ? ' Drawn at a 1:1 metric aspect.'
-    : ' Axes carry true extents; the aspect is not 1:1 here.');
-  const depthRef = colour(rho.ref?.depth, ' (shared by both depth panels)');
-
-  setText('foot-yz',
-    `Transverse spread normal to the shower plane against depth. ${depthRef} `
-    + `${windowPhrase(fit, 'yz', [['row', 'y′']])}; ${outside('yz')}.${provisional}`
-    + `${floorSentence(panelPayloads.yz, continuous, floor)}${kernel('yz')}`
-    + `${anchorsText.yz}${marks} ${axesText}${aspect('yz')}`);
-  setText('foot-xz',
-    `Lateral profile along the separation against depth. ${depthRef} `
-    + `${windowPhrase(fit, 'xz', [['row', 'x′']])}; ${outside('xz')}.${provisional}`
-    + `${floorSentence(panelPayloads.xz, continuous, floor)}${kernel('xz')}`
-    + `${anchorsText.xz}${marks} ${axesText}${aspect('xz')}`);
-}
-
-/**
- * Footnotes for the two depth panels.
- *
- * States plainly why an averaged trajectory is absent. The mean resultant
- * length of the incident azimuth is ~0.01 over the full dataset, so a single
- * "average direction" line would point somewhere arbitrary; quoting the
- * measured number on the page is what keeps the omission honest rather than
- * merely silent.
- */
-function renderDepthFootnotes(overlays, selection) {
-  const coherence = overlays.coherence || {};
-  const paths = overlays.trajectories || [];
-  const limit = overlays.max_trajectory_events ?? 50;
-
-  let direction;
-  if (paths.length) {
-    direction =
-      ` Dashed lines are the ${paths.length} individual incident trajectories, ` +
-      "projected from each event's centroid and (θ, φ) — magenta for shower A, " +
-      'blue for shower B. The ensemble shower axis is withheld at this size: ' +
-      'averaging the transverse position of a handful of showers that sit in ' +
-      'different places has no common centre to converge on.';
-  } else {
-    const r = coherence.r_a;
-    const spread = Number.isFinite(r) ? `R̄ = ${r.toFixed(3)}` : 'near-uniform';
-    direction =
-      ' Solid lines are the energy-weighted shower axes measured from the binned ' +
-      'data on screen — magenta for shower A, blue for shower B. Individual ' +
-      `trajectories are drawn only for selections of ${limit} events or fewer; ` +
-      `this one holds ${formatInt(selection.n_events)}. No single averaged ` +
-      'trajectory is drawn either: the incident azimuth is near-uniform ' +
-      `(${spread}), so its mean would point in an arbitrary direction.`;
+  const fallbacks = [];
+  for (const [name, values] of Object.entries(offered)) {
+    for (const input of document.querySelectorAll(`input[name="${name}"]`)) {
+      const ok = values.includes(input.value);
+      input.disabled = !ok;
+      input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+    }
+    if (!values.includes(state.get(name)) && values.length) {
+      fallbacks.push(`${name} "${state.get(name)}" is not available for this experiment; `
+        + `showing "${values[0]}" instead.`);
+      state.set({ [name]: values[0] }, { silent: true });
+    }
   }
-
-  setText('foot-yz', `Transverse spread against calorimeter depth.${direction}`);
-  setText('foot-xz',
-    'Lateral profile against depth, sharing the YZ colour scale so the two may '
-    + `be read against one another.${direction}`);
+  if (fallbacks.length) {
+    restoreControlsFromState();
+    showBanner(fallbacks);
+  }
 }
 
 async function loadEnergy() {
-  const payload = await getJson('/api/energy-distribution', state.filterParams(), 'energy');
+  const payload = await getJson('/api/energy-distribution', state.energyParams(), 'energy');
   lastEnergy = payload;
   energyPanel.render(payload, {
     palette: state.get('palette'), kind: 'pred', shower: showerFilter,
@@ -795,6 +464,8 @@ async function loadEnergy() {
   }
   const clipping = payload.axis.clipping;
   if (clipping && clipping.applied && clipping.n_outside) parts.push(clipping.note);
+  const network = energyNetworkSentence(payload);
+  if (network) parts.push(network);
   parts.push(
     'Solid curves are Gaussian fits and dashed curves mark shower B; a thinner, '
     + 'fainter curve is a thin slice, drawn but not allowed to set the density '
@@ -804,15 +475,40 @@ async function loadEnergy() {
     + 'so two different marks. Dotted verticals are the isolated single-shower '
     + 'reference benchmarks at μ ± σ: stated widths, not fits.'
   );
+  // The energy panel's warnings describe its own slices and are stated in
+  // its notices; only the payload guard's re-sampling is new, and it belongs
+  // with the curves it changed.
+  for (const warning of payload.meta?.warnings || []) {
+    if (warning.startsWith('Density curves sampled')) parts.push(warning);
+  }
   setText('foot-energy', parts.join(' '));
   return payload;
 }
 
 async function loadPerformance() {
-  const params = { ...state.filterParams(), model: state.get('model') };
-  const payload = await getJson('/api/model-performance', params, 'performance');
-  metricsPanel.render(payload, state.get('model'), payload.meta.total_ms);
+  const payload = await getJson('/api/model-performance', state.performanceParams(), 'performance');
+  metricsPanel.render(payload, payload.meta.total_ms);
+  // The first performance warning is shown in the model caption; the rest
+  // join the banner.
+  endpointWarnings.performance = (payload.meta?.warnings || []).slice(1);
   return payload;
+}
+
+/**
+ * The union of every endpoint's warnings, without duplicates and without any
+ * text a footnote or caption already states.
+ */
+function mergedWarnings() {
+  const shown = ['foot-xy', 'foot-yz', 'foot-xz', 'foot-energy', 'display-caption', 'channel-caption']
+    .map((id) => document.getElementById(id)?.textContent || '').join(' ');
+  const seen = new Set();
+  const out = [];
+  for (const text of [...endpointWarnings.projections, ...endpointWarnings.performance]) {
+    if (!text || seen.has(text) || shown.includes(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------- orchestration */
@@ -820,7 +516,7 @@ async function loadPerformance() {
 const requestPreview = debounce(async () => {
   try {
     await loadProjections(true);
-    showBanner(pendingWarnings);
+    showBanner(mergedWarnings());
   } catch (error) {
     if (error.name !== 'AbortError') reportError(error, 'projection preview');
   }
@@ -854,7 +550,7 @@ const refreshAll = debounce(async () => {
       failures.push(`${jobs[index][0]}: ${describeError(error)}`);
     });
     if (failures.length) showBanner(failures, true);
-    else showBanner(pendingWarnings);
+    else showBanner(mergedWarnings());
   } finally {
     setBusy(false);
   }
@@ -895,9 +591,15 @@ async function loadExperiments({ selectFirst = false } = {}) {
     const suffix = e.status === 'ready'
       ? ` — ${formatInt(e.n_events)} events`
       : ` — ${e.status}`;
-    return `<option value="${escapeHtml(e.table_name)}"${e.status !== 'ready' ? ' disabled' : ''}>`
+    const title = e.error ? ` title="${escapeHtml(e.error)}"` : '';
+    return `<option value="${escapeHtml(e.table_name)}"${e.status !== 'ready' ? ' disabled' : ''}${title}>`
       + `${escapeHtml(e.display_name)}${suffix}</option>`;
   }).join(''));
+  // A failed experiment's reason, verbatim - for a retired schema it says
+  // what to do about it.
+  const failed = experiments.filter((e) => e.status === 'failed' && e.error)
+    .map((e) => `${e.display_name || e.table_name}: ${e.error}`);
+  if (failed.length) showBanner(failed);
 
   const ready = experiments.filter((e) => e.status === 'ready');
   if (!ready.length) {
@@ -918,6 +620,7 @@ async function loadExperiments({ selectFirst = false } = {}) {
 async function activateExperiment(experiment) {
   activeExperiment = experiment;
   state.set({ table_name: experiment.table_name }, { silent: true });
+  applyCapabilities(experiment);
 
   const bounds = experiment.bounds;
   state.adoptBounds(bounds);
@@ -964,8 +667,8 @@ async function activateExperiment(experiment) {
   // image free of gaps.
   const nx = experiment.native_resolution ? experiment.native_resolution.xy[1] : 200;
   dom.resolution.max = Math.max(100, Math.min(400, nx * 2));
-  // Remembered rather than written: the canonical frame shows its own hint,
-  // and a later switch to the lab must find this experiment's lattice.
+  // Remembered rather than written: a co-registered frame shows its own
+  // hint, and a later switch to the lab must find this experiment's lattice.
   labResolutionHint = `Native transverse lattice is ${nx} cells; depth is fixed at `
     + `${experiment.native_resolution ? experiment.native_resolution.yz[1] : '—'} sampling layers.`;
   syncDisplayControls();
@@ -1000,10 +703,8 @@ dom.resolution.addEventListener('change', () => {
 for (const input of document.querySelectorAll('input[name="channel"]')) {
   input.addEventListener('change', () => {
     state.set({ channel: input.value });
-    const canonical = state.get('frame') === 'canonical';
-    setText('channel-caption', channelCaption(
-      input.value, canonical, canonical && isCanonical(lastProjections) ? lastProjections.frame : null,
-    ));
+    applyControlAvailability();
+    setText('channel-caption', currentChannelCaption());
     refreshAll();
   });
 }
@@ -1012,7 +713,8 @@ for (const input of document.querySelectorAll('input[name="frame"]')) {
   input.addEventListener('change', () => {
     state.set({ frame: input.value });
     // Also resyncs the display radios: each frame returns to its own mode.
-    applyFrameControls(input.value);
+    applyControlAvailability();
+    setText('channel-caption', currentChannelCaption());
     refreshAll();
   });
 }
@@ -1025,13 +727,12 @@ for (const input of document.querySelectorAll('input[name="rho_norm"]')) {
 }
 
 for (const input of document.querySelectorAll('input[name="model"]')) {
-  input.addEventListener('change', async () => {
+  input.addEventListener('change', () => {
+    // The model drives the CAM projections and the cards, so everything
+    // refreshes; a density request is served from any network's bundle.
     state.set({ model: input.value });
-    try {
-      await loadPerformance();
-    } catch (error) {
-      if (error.name !== 'AbortError') reportError(error);
-    }
+    setText('channel-caption', currentChannelCaption());
+    refreshAll();
   });
 }
 
@@ -1108,9 +809,9 @@ for (const button of document.querySelectorAll('[data-shower]')) {
  * staggered-comb warning, the measured R̄ - without a second copy of the
  * sentences that could drift out of step with the panel's own. */
 const EXPORT_PANELS = {
-  xy: { panel: () => panels.xy, title: () => panelTitle('xy', isCanonical(lastProjections)), foot: 'foot-xy' },
-  yz: { panel: () => panels.yz, title: () => panelTitle('yz', isCanonical(lastProjections)), foot: 'foot-yz' },
-  xz: { panel: () => panels.xz, title: () => panelTitle('xz', isCanonical(lastProjections)), foot: 'foot-xz' },
+  xy: { panel: () => panels.xy, title: () => panelTitle('xy', kindOf(lastProjections)), foot: 'foot-xy' },
+  yz: { panel: () => panels.yz, title: () => panelTitle('yz', kindOf(lastProjections)), foot: 'foot-yz' },
+  xz: { panel: () => panels.xz, title: () => panelTitle('xz', kindOf(lastProjections)), foot: 'foot-xz' },
   energy: {
     panel: () => energyPanel,
     title: () => 'Reconstructed Energy vs. Separation D',
@@ -1146,12 +847,12 @@ attachExportMenus({
     const disclosure = panelId === 'energy'
       ? []
       : figureDisclosure(lastProjections, panelId, state, { isometric: Boolean(panel.isometric) });
-    const canonical = isCanonical(lastProjections) && panelId !== 'energy';
-    // In the canonical frame the on-screen footnote restates every number the
-    // structured disclosure already carries; printing both would double the
-    // caption. The figure gets the disclosure plus one legend sentence.
-    const footnote = canonical
-      ? canonicalLegend(panelId, lastProjections)
+    const coregistered = kindOf(lastProjections) !== 'lab' && panelId !== 'energy';
+    // In a co-registered frame the on-screen footnote restates every number
+    // the structured disclosure already carries; printing both would double
+    // the caption. The figure gets the disclosure plus one legend sentence.
+    const footnote = coregistered
+      ? exportLegend(panelId, lastProjections)
       : notes.map((n) => n.trim()).filter((n) => n && n !== '—').join(' ');
 
     return {
@@ -1164,29 +865,6 @@ attachExportMenus({
     };
   },
 });
-
-/**
- * The mark legend of an exported canonical figure.
- *
- * Same wording as the on-screen footnote, and the centroid sets named by the
- * same `centroidLegend`, so the screen, the footnote and the figure describe
- * one set of marks.
- */
-function canonicalLegend(panelId, payload) {
-  const axes = 'dashed lines: the two ensemble shower axes; shaded wedge: sample spread of per-event '
-    + 'slopes; thin envelope: 95% t-interval of the mean; rules: front and back faces.';
-  if (panelId === 'xy') {
-    const centroids = centroidLegend(payload?.centroids);
-    return 'Open diamond and circle: A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) '
-      + 'of D_entry/2 across events; thin dashed rule: the mean entry separation.'
-      + (centroids ? ` ${centroids}` : '');
-  }
-  if (panelId === 'yz') {
-    return `Open circle: both anchors, projected onto one point; ${axes}`;
-  }
-  return 'Open diamond and circle at z′ = 0: A and B anchors, with the faint spread bar; '
-    + `${axes}`;
-}
 
 for (const [scope, dot] of Object.entries(dom.infoDots)) {
   if (!dot) continue;
@@ -1224,7 +902,7 @@ new UploadModal({
 function restoreControlsFromState() {
   // Checked state only - never synthesised clicks, which would fire the change
   // handlers and trigger a refresh before an experiment has been selected.
-  // The display radios follow the active frame's mode; `applyFrameControls`
+  // The display radios follow the active frame's mode; `applyControlAvailability`
   // below sets them, their labels and the R control together.
   const v = state.values;
   setVal('resolution', v.resolution);
@@ -1241,11 +919,11 @@ function restoreControlsFromState() {
   for (const input of document.querySelectorAll('input[name="rho_norm"]')) {
     input.checked = input.value === v.rho_norm;
   }
-  applyFrameControls(v.frame);
+  applyControlAvailability();
   setVal('colormap', v.palette);
   setChecked('opt-lock-scale', v.lock_scale);
   setChecked('opt-undefined-d', v.include_undefined_d);
-  setText('channel-caption', channelCaption(v.channel, v.frame === 'canonical'));
+  setText('channel-caption', currentChannelCaption(null));
 }
 
 /* Every element id the update routines write to.
@@ -1263,7 +941,7 @@ const REQUIRED_IDS = [
   'ctl-rho-norm', 'ctl-lock-scale',
   'display-caption', 'channel-caption', 'resolution', 'resolution-readout',
   'resolution-hint', 'display-label-native', 'display-label-continuous',
-  'colormap', 'opt-lock-scale', 'opt-undefined-d',
+  'colormap', 'colormap-hint', 'opt-lock-scale', 'opt-undefined-d',
   'experiment-select', 'fit-table', 'metrics', 'model-caption',
   'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi',

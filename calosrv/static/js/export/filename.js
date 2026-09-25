@@ -17,14 +17,23 @@
  * by `caption.displayOf`), not from the controls: the payload guard can lower
  * R below the slider, and a file named R150 holding R84 bins is mislabelled.
  * The kernel token is appended last, so the length cap drops it before it
- * drops `canonical`.
+ * drops the frame. A CAM figure names its channel and network
+ * (`shapcamE_energy`); the energy panel names a non-lab segmentation frame.
  *
  * A figure with no spatial bins (`spatial: false`, the energy panel) carries
  * none of the display, frame, channel or kernel tokens: none of them changes
  * what it shows, and an `R150` on it would name bins it does not contain.
  */
 
-const MAX_SLICE = 60;
+import { apiFrame } from '../state.js';
+
+const MAX_SLICE = 90;
+
+/** Short tokens for the non-density channels and their networks. */
+const CHANNEL_TOKEN = {
+  gradcam: 'gradcam', gradcam_energy: 'gradcamE', shapcam: 'shapcam', shapcam_energy: 'shapcamE',
+};
+const MODEL_TOKEN = { segmentation: 'seg', energy: 'energy', angle: 'angle' };
 
 export function figureName(panelId, format, {
   state, experiment, extra = [], display = null, spatial = true,
@@ -39,9 +48,9 @@ export function figureName(panelId, format, {
   return `${name}.${format}`;
 }
 
-/** `gauss10` | `tent` for a canonical kernel reconstruction, else null. */
+/** `gauss10` | `tent` for a co-registered kernel reconstruction, else null. */
 function kernelToken(display) {
-  if (!display?.canonical || display.mode !== 'continuous') return null;
+  if (!(display?.coregistered ?? display?.canonical) || display.mode !== 'continuous') return null;
   if (display.kernel === 'gaussian') {
     return Number.isFinite(display.sigma) ? `gauss${Math.round(display.sigma)}` : 'gauss';
   }
@@ -70,11 +79,22 @@ function describeSlice(state, extra, display = null, spatial = true) {
     const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
     tokens.push(mode === 'native' ? 'native' : `R${r}`);
     // The frame changes what every pixel means, so two figures of one selection
-    // in the two frames must not collide on everything but their timestamp.
+    // in two frames must not collide on everything but their timestamp.
+    const frame = state.get('frame');
     if (state.get('frame') === 'canonical') tokens.push('canonical');
-    if (state.get('channel') !== 'density') tokens.push('gradcam');
+    else if (frame && frame !== 'lab') tokens.push(frame);
+    // A CAM figure belongs to one network; a density figure to none.
+    const channel = state.get('channel');
+    if (channel && channel !== 'density') {
+      tokens.push(CHANNEL_TOKEN[channel] ?? channel);
+      tokens.push(MODEL_TOKEN[state.get('model')] ?? state.get('model'));
+    }
     const kernel = kernelToken(display);
     if (kernel) tokens.push(kernel);
+  } else {
+    // The energy panel is the selected frame's segmentation reconstruction.
+    const coord = apiFrame(state.get('frame')).coord_system;
+    if (coord !== 'lab') tokens.push(coord);
   }
   for (const item of extra) if (item) tokens.push(item);
 

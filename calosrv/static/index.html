@@ -93,7 +93,7 @@
         <div class="track"></div><div class="fill" id="d-fill"></div>
         <input type="range" id="d-lo" aria-label="D minimum slider"><input type="range" id="d-hi" aria-label="D maximum slider">
       </div>
-      <div class="hint" id="d-hint">3-D distance between the two shower centroids (<span class="mono">centroid_AB_distance</span>). The canonical frame also reports the transverse entry separation D<sub>entry</sub>.</div>
+      <div class="hint" id="d-hint">3-D distance between the two shower centroids in the laboratory frame (<span class="mono">centroid_AB_distance</span>), used as D in every reference frame. The canonical frame also reports the transverse entry separation D<sub>entry</sub>.</div>
     </div>
 
     <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
@@ -107,13 +107,21 @@
       <button class="info-dot" id="info-frame" type="button" hidden
               aria-label="Reference frame notices">i</button>
     </h2>
-    <label class="choice" title="Every selected event is moved by one rigid-body motion so its two shower entry points sit at ∓D_entry/2 on the x′ axis with the front face at z′ = 0; the panels then show the ensemble-averaged energy density.">
-      <input type="radio" name="frame" value="canonical" checked>
-      Canonical centre-of-separation <span class="muted">(SE(3) co-registered)</span>
-    </label>
     <label class="choice" title="Detector coordinates as recorded: each event where it struck.">
-      <input type="radio" name="frame" value="lab">
+      <input type="radio" name="frame" value="lab" checked>
       Laboratory <span class="muted">(detector coordinates)</span>
+    </label>
+    <label class="choice" title="Every hit is shifted by its own shower's entry point P₀; no rotation. The two showers of each event are superimposed at the origin.">
+      <input type="radio" name="frame" value="trans">
+      Translated <span class="muted">(each shower from its own entry point P₀)</span>
+    </label>
+    <label class="choice" title="Translated, then rotated by the shower's own R(θ, φ) so its incident direction lies along +w.">
+      <input type="radio" name="frame" value="local">
+      Local <span class="muted">(shower-fixed)</span>
+    </label>
+    <label class="choice" title="Every selected event is moved by one rigid-body motion so its two shower entry points sit at ∓D_entry/2 on the x′ axis with the front face at z′ = 0; the panels then show the ensemble-averaged energy density.">
+      <input type="radio" name="frame" value="canonical">
+      Canonical centre-of-separation <span class="muted">(SE(3) co-registered)</span>
     </label>
     <div class="caption" id="frame-caption">&mdash;</div>
 
@@ -125,15 +133,15 @@
 
     <!-- The label text is rewritten per frame by syncDisplayControls() in
          main.js: "Native" is the detector lattice in the lab frame and the raw
-         20 mm accumulation grid in the canonical one. The markup carries the
-         canonical wording because that is the frame the interface opens in. -->
+         20 mm accumulation grid in a co-registered one. The markup carries the
+         laboratory wording because that is the frame the interface opens in. -->
     <label class="choice">
-      <input type="radio" name="display" value="native">
-      <span id="display-label-native">Native Grid <span class="muted">(raw 20 mm bins, audit)</span></span>
+      <input type="radio" name="display" value="native" checked>
+      <span id="display-label-native">Native Detector Lattice <span class="muted">(hardware truth)</span></span>
     </label>
     <label class="choice">
-      <input type="radio" name="display" value="continuous" checked>
-      <span id="display-label-continuous">Continuous Field <span class="muted">(kernel reconstruction)</span></span>
+      <input type="radio" name="display" value="continuous">
+      <span id="display-label-continuous">Continuous Field <span class="muted">(anti-aliased splatting)</span></span>
     </label>
 
     <div class="control is-disabled" id="ctl-resolution" style="margin-top:10px">
@@ -156,6 +164,18 @@
       <input type="radio" name="channel" value="gradcam">
       Grad-CAM Model Attention
     </label>
+    <label class="choice">
+      <input type="radio" name="channel" value="gradcam_energy">
+      Energy-weighted Grad-CAM <span class="muted">(Σ E·CAM)</span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="channel" value="shapcam">
+      Shap-CAM Attribution <span class="muted">(signed)</span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="channel" value="shapcam_energy">
+      Energy-weighted Shap-CAM <span class="muted">(Σ E·CAM, signed)</span>
+    </label>
     <div class="caption" id="channel-caption">—</div>
 
     <h2>Colour Map</h2>
@@ -165,11 +185,12 @@
       <option value="plasma">Plasma &mdash; high contrast</option>
       <option value="turbo">Turbo &mdash; maximum detail</option>
     </select>
+    <div class="hint" id="colormap-hint" hidden></div>
     <label class="choice" style="margin-top:8px" id="ctl-lock-scale" title="Anchor the colour ramp to the whole dataset so moving a slider changes the image, not the scale.">
       <input type="checkbox" id="opt-lock-scale" checked> Lock colour scale to dataset
     </label>
     <div id="ctl-rho-norm" hidden>
-      <div class="hint" style="margin-top:8px">Density normalisation <span class="muted">(canonical frame)</span></div>
+      <div class="hint" style="margin-top:8px">Density normalisation <span class="muted">(co-registered frames)</span></div>
       <label class="choice" title="The ramp spans three decades below this selection's own peak ⟨ρ⟩; the peak value is stated on each panel.">
         <input type="radio" name="rho_norm" value="selection" checked>
         Relative to this selection's peak
@@ -183,7 +204,7 @@
     <h2>Reconstruction Model</h2>
     <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
     <label class="choice"><input type="radio" name="model" value="energy"> Energy Estimation Model</label>
-    <label class="choice"><input type="radio" name="model" value="angle"> Incident Angle Model</label>
+    <label class="choice"><input type="radio" name="model" value="angle"> Incident Angle Estimation Model</label>
     <div class="caption" id="model-caption">—</div>
 
     <h2>Model Performance</h2>
@@ -205,7 +226,7 @@
       <span>Deposited <b id="stat-edep">—</b></span>
       <span>Mean D <b id="stat-d">—</b></span>
       <span>Undefined D <b id="stat-nod">—</b></span>
-      <span title="Reference peak of the canonical density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
+      <span title="Reference peak of the co-registered density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
@@ -284,13 +305,13 @@
 <div class="modal-backdrop" id="upload-modal" hidden>
   <div class="modal">
     <h2>Upload Dataset</h2>
-    <div class="modal-sub">Ingest a 29-column calorimeter inference CSV into an isolated experiment table.</div>
+    <div class="modal-sub">Ingest an all-models calorimeter inference CSV (the 99-column <span class="mono">hits_all_models</span> schema) into an isolated experiment table.</div>
 
     <div class="banner" id="upload-warning"></div>
 
     <div class="row">
       <label class="field" for="upload-table">Experiment name</label>
-      <input class="textinput" type="text" id="upload-table" placeholder="e.g. run_v37" autocomplete="off">
+      <input class="textinput" type="text" id="upload-table" placeholder="e.g. all_models" autocomplete="off">
       <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
     </div>
 

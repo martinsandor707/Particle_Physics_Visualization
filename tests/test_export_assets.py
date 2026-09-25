@@ -254,6 +254,8 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/panels/marks.js",
         "/static/js/panels/canonical_overlays.js",
         "/static/js/panels/tooltip.js",
+        "/static/js/frame_views.js",
+        "/static/js/format.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -271,6 +273,7 @@ def test_new_modules_are_served(client, path):
         "/static/js/export/disclosure.js",
         "/static/js/panels/canonical_overlays.js",
         "/static/js/panels/tooltip.js",
+        "/static/js/frame_views.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -349,6 +352,8 @@ def test_export_modules_are_reachable_from_the_entry_point():
     assert (js_root / "textfit.js").resolve() in seen
     for module in ("marks.js", "canonical_overlays.js", "tooltip.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
+    for module in ("frame_views.js", "format.js"):
+        assert (js_root / module).resolve() in seen, f"{module} is never imported"
 
 
 # ------------------------------------------------- the disclosure band --
@@ -557,3 +562,52 @@ def test_no_tooltip_stacking_rule_ships():
         assert "99999" not in text, path.name
     controls = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
     assert "`.main` is\n   a scroll container" in controls
+
+
+# ------------------------------------------- frames, channels and wording --
+
+
+def test_the_reference_frame_control_opens_in_the_laboratory_frame():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    frames = re.findall(r'<input type="radio" name="frame" value="(\w+)"( checked)?', html)
+    assert [v for v, _ in frames] == ["lab", "trans", "local", "canonical"]
+    assert [v for v, c in frames if c] == ["lab"]
+    displays = re.findall(r'<input type="radio" name="display" value="(\w+)"( checked)?', html)
+    assert [v for v, c in displays if c] == ["native"]
+    channels = re.findall(r'<input type="radio" name="channel" value="(\w+)"', html)
+    assert channels == ["density", "gradcam", "gradcam_energy", "shapcam", "shapcam_energy"]
+    assert 'id="colormap-hint"' in html
+
+
+def test_no_retired_schema_wording_ships():
+    retired = ("29-column", "no predicted angle", "No predicted-angle", "A+B = 8.6",
+               "particle_origin = 'A+B'", "Shared voxels", "shared_voxel_fraction")
+    sources = [STATIC / "index.html"] + [
+        path for path in (STATIC / "js").rglob("*.js") if "vendor" not in path.parts
+    ]
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        for phrase in retired:
+            assert phrase not in text, f"{path.name} still says {phrase!r}"
+
+
+def test_puor_anchors_are_the_colorbrewer_values():
+    source = (STATIC / "js" / "palette.js").read_text(encoding="utf-8")
+    anchors = ("[127, 59, 8], [179, 88, 6], [224, 130, 20], [253, 184, 99], [254, 224, 182],\n"
+               "  [247, 247, 247], [216, 218, 235], [178, 171, 210], [128, 115, 172], [84, 39, 136],\n"
+               "  [45, 0, 75]")
+    assert anchors in source
+
+
+def test_filename_names_frame_channel_and_model():
+    source = (EXPORT_JS / "filename.js").read_text(encoding="utf-8")
+    assert "else if (frame && frame !== 'lab') tokens.push(frame);" in source
+    assert "shapcam_energy: 'shapcamE'" in source and "segmentation: 'seg'" in source
+    assert "apiFrame(state.get('frame')).coord_system" in source
+
+
+def test_disclosure_covers_every_frame_kind():
+    source = (EXPORT_JS / "disclosure.js").read_text(encoding="utf-8")
+    for phrase in ("Translated frame:", "Local frame", "Canonical centre-of-separation frame",
+                   "not a separation", "by construction", "box overlap", "rotated with their shower"):
+        assert phrase in source, phrase
