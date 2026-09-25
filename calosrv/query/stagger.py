@@ -77,6 +77,31 @@ def _lag1(profile: np.ndarray) -> float | None:
     return float(np.corrcoef(a, b)[0, 1])
 
 
+def intensity_lag1(matrix: np.ndarray) -> dict[str, float | None]:
+    """Lag-1 autocorrelation of the detrended *energy* profiles of a raster.
+
+    :func:`detect` looks at occupancy - whether a bin holds anything - which is
+    the right instrument for the native lattice, where the comb is structurally
+    empty bins. A sub-cell footprint splat fills every bin under a footprint by
+    construction, so its residual comb, if any, is an *intensity* alternation
+    that occupancy cannot see. Measured on the production dataset: point-binned
+    cell centres (k = 1) gave a core-row energy lag-1 of -0.26 while the
+    occupancy statistic barely moved; at k >= 2 both are positive.
+
+    Returns the lag-1 of the column-summed energy profile and of the single
+    brightest row ("core"), each ``None`` when too short to detrend.
+    """
+    values = np.asarray(matrix, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] < 16 or values.size == 0:
+        return {"columns": None, "core_row": None}
+    lo = int(values.shape[1] * EDGE_MARGIN)
+    hi = int(values.shape[1] * (1.0 - EDGE_MARGIN))
+    interior = values[:, lo:hi]
+    columns = interior.sum(axis=0)
+    core = interior[int(np.argmax(interior.sum(axis=1)))] if interior.shape[0] else columns
+    return {"columns": _lag1(columns), "core_row": _lag1(core)}
+
+
 def detect(matrix: np.ndarray) -> StaggerReport:
     """Measure whether ``matrix`` shows a column-to-column comb."""
     values = np.asarray(matrix, dtype=np.float64)

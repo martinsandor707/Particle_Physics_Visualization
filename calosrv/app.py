@@ -199,12 +199,21 @@ async def lifespan(app: FastAPI):
     log_boot_banner(settings)
 
     with database.write_lock() as con:
-        bootstrap_mod.bootstrap(con)
+        ready = bootstrap_mod.bootstrap(con)
         empty = bootstrap_mod.is_empty(con)
 
     jobs_mod.get_job_store(database)
     if empty:
         seed_baseline(database, settings)
+    else:
+        # Warm the canonical frame's full-range bundle for every ready
+        # experiment: the interface opens on it, and cold it costs ~2 s on the
+        # production table. Background and best-effort.
+        from .query import canonical_cache
+
+        canonical_cache.warm(
+            database, settings, [r.table_name for r in ready if r.is_ready]
+        )
 
     try:
         yield

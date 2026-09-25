@@ -93,7 +93,7 @@
         <div class="track"></div><div class="fill" id="d-fill"></div>
         <input type="range" id="d-lo" aria-label="D minimum slider"><input type="range" id="d-hi" aria-label="D maximum slider">
       </div>
-      <div class="hint" id="d-hint">Distance between the two shower centroids (<span class="mono">centroid_AB_distance</span>).</div>
+      <div class="hint" id="d-hint">3-D distance between the two shower centroids (<span class="mono">centroid_AB_distance</span>). The canonical frame also reports the transverse entry separation D<sub>entry</sub>.</div>
     </div>
 
     <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
@@ -103,18 +103,37 @@
     </label>
 
     <h2>
+      Reference Frame
+      <button class="info-dot" id="info-frame" type="button" hidden
+              aria-label="Reference frame notices">i</button>
+    </h2>
+    <label class="choice" title="Every selected event is moved by one rigid-body motion so its two shower entry points sit at ∓D_entry/2 on the x′ axis with the front face at z′ = 0; the panels then show the ensemble-averaged energy density.">
+      <input type="radio" name="frame" value="canonical" checked>
+      Canonical centre-of-separation <span class="muted">(SE(3) co-registered)</span>
+    </label>
+    <label class="choice" title="Detector coordinates as recorded: each event where it struck.">
+      <input type="radio" name="frame" value="lab">
+      Laboratory <span class="muted">(detector coordinates)</span>
+    </label>
+    <div class="caption" id="frame-caption">&mdash;</div>
+
+    <h2>
       Spatial Resolution
       <button class="info-dot" id="info-resolution" type="button" hidden
               aria-label="Spatial resolution notices">i</button>
     </h2>
 
+    <!-- The label text is rewritten per frame by syncDisplayControls() in
+         main.js: "Native" is the detector lattice in the lab frame and the raw
+         20 mm accumulation grid in the canonical one. The markup carries the
+         canonical wording because that is the frame the interface opens in. -->
     <label class="choice">
-      <input type="radio" name="display" value="native" checked>
-      Native Detector Lattice <span class="muted">(hardware truth)</span>
+      <input type="radio" name="display" value="native">
+      <span id="display-label-native">Native Grid <span class="muted">(raw 20 mm bins, audit)</span></span>
     </label>
     <label class="choice">
-      <input type="radio" name="display" value="continuous">
-      Continuous Field <span class="muted">(anti-aliased splatting)</span>
+      <input type="radio" name="display" value="continuous" checked>
+      <span id="display-label-continuous">Continuous Field <span class="muted">(kernel reconstruction)</span></span>
     </label>
 
     <div class="control is-disabled" id="ctl-resolution" style="margin-top:10px">
@@ -146,9 +165,20 @@
       <option value="plasma">Plasma &mdash; high contrast</option>
       <option value="turbo">Turbo &mdash; maximum detail</option>
     </select>
-    <label class="choice" style="margin-top:8px" title="Anchor the colour ramp to the whole dataset so moving a slider changes the image, not the scale.">
+    <label class="choice" style="margin-top:8px" id="ctl-lock-scale" title="Anchor the colour ramp to the whole dataset so moving a slider changes the image, not the scale.">
       <input type="checkbox" id="opt-lock-scale" checked> Lock colour scale to dataset
     </label>
+    <div id="ctl-rho-norm" hidden>
+      <div class="hint" style="margin-top:8px">Density normalisation <span class="muted">(canonical frame)</span></div>
+      <label class="choice" title="The ramp spans three decades below this selection's own peak ⟨ρ⟩; the peak value is stated on each panel.">
+        <input type="radio" name="rho_norm" value="selection" checked>
+        Relative to this selection's peak
+      </label>
+      <label class="choice" title="The ramp is anchored to the whole dataset's peak ⟨ρ⟩, so colours compare across selections; a brighter slice extends the ramp above 10⁰.">
+        <input type="radio" name="rho_norm" value="dataset">
+        Relative to the dataset peak
+      </label>
+    </div>
 
     <h2>Reconstruction Model</h2>
     <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
@@ -175,6 +205,7 @@
       <span>Deposited <b id="stat-edep">—</b></span>
       <span>Mean D <b id="stat-d">—</b></span>
       <span>Undefined D <b id="stat-nod">—</b></span>
+      <span title="Reference peak of the canonical density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
@@ -184,7 +215,7 @@
 
       <div class="card">
         <h2>
-          XY Projection &mdash; Shower Entry <span class="tag" id="tag-xy">entrance slab</span>
+          <span id="title-xy">XY Projection &mdash; Shower Entry</span> <span class="tag" id="tag-xy">entrance slab</span>
           <span class="card-actions">
             <button class="mini" data-roi="xy" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="xy" type="button" title="Restore the full detector extent">Reset</button>
@@ -198,7 +229,7 @@
 
       <div class="card">
         <h2>
-          YZ Projection &mdash; Longitudinal Evolution <span class="tag">depth</span>
+          <span id="title-yz">YZ Projection &mdash; Longitudinal Evolution</span> <span class="tag">depth</span>
           <span class="card-actions">
             <button class="mini" data-roi="yz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="yz" type="button" title="Restore the full detector extent">Reset</button>
@@ -212,7 +243,7 @@
 
       <div class="card">
         <h2>
-          XZ Projection &mdash; Lateral Profile <span class="tag">depth</span>
+          <span id="title-xz">XZ Projection &mdash; Lateral Profile</span> <span class="tag">depth</span>
           <span class="card-actions">
             <button class="mini" data-roi="xz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="xz" type="button" title="Restore the full detector extent">Reset</button>

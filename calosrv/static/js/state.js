@@ -5,7 +5,35 @@
  * resolution and channel - and get that view back rather than the defaults.
  * For a diagnostic tool whose output ends up in a discussion, that is the
  * difference between "look at this" and "set these six controls".
+ *
+ * ## One display mode per frame
+ *
+ * The two frames open in different display modes, because the same word means
+ * a different thing in each. In the laboratory frame Native is the detector
+ * lattice itself - one bin per cell, the hardware truth - so it is the default.
+ * In the canonical frame Native is the raw 20 mm accumulation grid after every
+ * event has been rotated, which shows each 48 mm cell as a tilted block; the
+ * kernel reconstruction is the picture and the raw grid is the audit view.
+ *
+ * So the state holds `display_lab` and `display_canonical`, and `display`
+ * addresses whichever belongs to the active frame: `get('display')` and
+ * `set({display})` keep their meaning for every caller, and switching frame
+ * and back returns each frame to the mode it was left in. The hash writes a key
+ * only when it differs from its default, as for every other value.
+ *
+ * Links written before the split carried at most one `display=`. It is read as
+ * the active frame's mode, so `#display=native` still opens whichever frame the
+ * link names in Native. Old canonical links never carried `display` at all -
+ * Native was the default - and therefore now open in Continuous Field.
  */
+
+/** The two display modes the API accepts. */
+const DISPLAYS = new Set(['native', 'continuous']);
+
+/** The state key holding one frame's display mode. */
+function displayKey(frame) {
+  return frame === 'canonical' ? 'display_canonical' : 'display_lab';
+}
 
 const DEFAULTS = {
   table_name: null,
@@ -13,7 +41,18 @@ const DEFAULTS = {
   e2_min: null, e2_max: null,
   d_min: null, d_max: null,
   include_undefined_d: false,
-  display: 'native',
+  // Reference frame of the three spatial panels. The interface opens in the
+  // canonical centre-of-separation frame, where every selected event is
+  // co-registered so both showers sit at the same place; the API's own
+  // default stays 'lab' so its contract is unchanged.
+  frame: 'canonical',
+  // Reference peak of the canonical density ramp: this selection's own peak
+  // (the directive's a.u.) or the whole dataset's, for cross-selection colour.
+  rho_norm: 'selection',
+  // Display mode per frame (see the header): the lab keeps the hardware
+  // lattice, the canonical frame opens on its kernel reconstruction.
+  display_lab: 'native',
+  display_canonical: 'continuous',
   resolution: 150,
   channel: 'density',
   weighting: 'energy',
@@ -42,12 +81,21 @@ export class State {
     }
   }
 
-  get(key) { return this.values[key]; }
+  get(key) {
+    if (key === 'display') return this.values[displayKey(this.values.frame)];
+    return this.values[key];
+  }
 
   /** Apply a patch, notify listeners, and sync the URL. Returns true if changed. */
   set(patch, { silent = false } = {}) {
     let changed = false;
-    for (const [key, value] of Object.entries(patch)) {
+    // `display` is written onto the frame the patch leaves active, so a patch
+    // carrying both a frame and a display does not depend on key order.
+    // Listeners still receive the caller's own patch.
+    const entries = Object.entries(patch).map(([key, value]) => (key === 'display'
+      ? [displayKey(patch.frame ?? this.values.frame), value]
+      : [key, value]));
+    for (const [key, value] of entries) {
       if (this.values[key] !== value) {
         this.values[key] = value;
         changed = true;
@@ -81,7 +129,12 @@ export class State {
     const v = this.values;
     return {
       ...this.filterParams(),
-      display: v.display,
+      frame: v.frame,
+      rho_norm: v.rho_norm,
+      // Always sent, never left to the API default: the server keeps
+      // `display=native` for its own contract, while the canonical frame
+      // here opens in Continuous Field.
+      display: this.get('display'),
       resolution: v.resolution,
       mode: v.channel,
       weighting: v.weighting,
@@ -163,17 +216,32 @@ export class State {
     const hash = window.location.hash.replace(/^#/, '');
     if (!hash) return;
     const params = new URLSearchParams(hash);
+    // A pre-split `display=` is held until the frame is known, because the
+    // frame may come later in the hash than the display does.
+    let legacyDisplay = null;
     for (const [key, raw] of params.entries()) {
+      if (key === 'display') {
+        if (DISPLAYS.has(raw)) legacyDisplay = raw;
+        continue;
+      }
       if (!(key in DEFAULTS)) continue;
       if (NUMERIC.has(key)) {
         const value = Number(raw);
         if (Number.isFinite(value)) this.values[key] = value;
       } else if (BOOLEAN.has(key)) {
         this.values[key] = raw === 'true' || raw === '1';
+      } else if (key.startsWith('display_')) {
+        // An unknown mode would be sent to the API verbatim and rejected
+        // there, blanking all three panels; the default is kept instead.
+        if (DISPLAYS.has(raw)) this.values[key] = raw;
       } else {
         this.values[key] = raw;
       }
     }
+    // The legacy key names the active frame's mode, unless the link also
+    // carries that frame's own key, which is the more specific statement.
+    const active = displayKey(this.values.frame);
+    if (legacyDisplay && !params.has(active)) this.values[active] = legacyDisplay;
   }
 
   writeHash() {

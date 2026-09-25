@@ -261,6 +261,308 @@ def test_payload_stays_under_budget_with_overlays(client):
     assert len(response.content) < 100_000
 
 
+# ------------------------------------------------------- canonical frame --
+
+
+def test_canonical_frame_is_served_beside_the_lab_frame(client):
+    """The API default stays `lab`; `frame=canonical` is a superset envelope."""
+    lab = client.get("/api/projections").json()
+    assert lab["meta"]["frame"] == "lab"
+    assert "frame" not in lab
+
+    response = client.get("/api/projections", params={"frame": "canonical"})
+    assert response.status_code == 200
+    assert len(response.content) < 100_000
+    body = response.json()
+
+    # Every lab key is present, so the interface reads both with one code path.
+    assert set(lab) <= set(body)
+    assert body["meta"]["frame"] == "canonical"
+    frame = body["frame"]
+    assert frame["kind"] == "canonical"
+    assert frame["anchor"] == "entry_backprojection"
+    assert frame["n_events"] == 2
+    assert frame["subsample_k"] >= 2, "point-binning combs; k = 1 is never used"
+    assert frame["fit"]["provisional"] is True, "two events cannot fix a display range"
+    assert frame["rho"]["norm"] == "selection"
+    assert frame["rho"]["unit"] == "GeV/mm^2/event"
+    assert frame["d_entry"]["mean"] > 0 and frame["d_dataset"]["mean"] > 0
+    assert frame["d_entry"]["ci95_half"] > frame["d_entry"]["se"], "the quoted interval is Student-t"
+    assert frame["comb"]["note"], "the comb is measured, not asserted"
+    assert "energy_lag1_core_row" in frame["comb"], "the comb is measured on energy too, not occupancy alone"
+    assert body["meta"]["sample_percent"] == 100.0
+    assert frame["rho"]["selection_k"] == frame["subsample_k"]
+    assert "canonical" in body["meta"]["stagger"]["note"].lower() or "comb" in body["meta"]["stagger"]["note"].lower()
+
+    for panel in body["panels"].values():
+        assert panel["encoding"] == "u8-b64"
+        assert panel["scale"]["unit"] == "a.u."
+        assert panel["scale"]["vmin"] == -3.0
+        assert "clipped_high" not in panel["scale"]
+        assert panel["axes"]["col"]["symbol"] in ("x′", "z′")
+        assert panel["topk_unit"] == "GeV/mm^2/event"
+        # Sub-floor bins have their own, transparent code; the ramp starts above it.
+        assert (panel["empty_code"], panel["below_code"], panel["min_code"]) == (0, 1, 2)
+        assert panel["scale"]["floor"] == "transparent"
+        assert panel["below_floor_cells"] == panel["scale"]["clipped_low"]
+        assert panel["kernel"] == "none", "the API default display is native"
+
+    # Symmetric windows about the origin.
+    lo, hi = frame["fit"]["xy"]["col"]["range"]
+    assert lo == -hi and frame["fit"]["xy"]["col"]["half_width"] == hi
+    assert frame["fit"]["rule"] == "symmetric"
+    assert "subsample_regime" in frame and "smoothing" not in frame
+    assert frame["reconstruction"]["display"] == "native"
+    assert frame["comb"]["measured_on"] == "raw accumulation grid, before display smoothing"
+    assert set(frame["rho"]) >= {"basis", "displayed_peak", "displayed_over_ref", "kernel_attenuation"}
+
+    overlays = body["overlays"]
+    assert overlays["trajectories"] == [], "individual trajectories are suppressed in this frame"
+    assert overlays["axes"] == {}
+    assert set(overlays["ensemble_axes"]["xz"]) == {"a", "b"}
+    assert set(overlays["anchors"]) == {"a", "b"}
+    half = frame["d_entry"]["mean"] / 2
+    assert overlays["anchors"]["a"]["x"] == pytest.approx(-half)
+    assert overlays["anchors"]["b"]["x"] == pytest.approx(+half)
+    assert overlays["ensemble_axes"]["xz"]["a"]["axis"][0] == pytest.approx([0.0, -half])
+    # Two events: dispersion band with one degree of freedom, labelled weak.
+    assert overlays["ensemble_axes"]["xz"]["a"]["band"] is not None
+    assert overlays["ensemble_axes"]["xz"]["a"]["dof_note"] == "1 d.o.f."
+    assert frame["ensemble"]["a"]["label"].startswith("weak")
+
+    assert "truth_dataset" not in body["centroids"]
+    assert set(body["centroids"]) == {"truth_voxel", "pred_voxel", "canonical_mean"}
+    assert set(frame["anchor_offsets"]) == set(body["centroids"])
+
+
+def test_canonical_frame_rejects_unknown_values(client):
+    assert client.get("/api/projections", params={"frame": "hologram"}).status_code == 422
+    assert client.get(
+        "/api/projections", params={"frame": "canonical", "rho_norm": "peak"}
+    ).status_code == 422
+
+
+def test_canonical_density_reference_is_selectable(client):
+    own = client.get("/api/projections", params={"frame": "canonical"}).json()
+    dataset = client.get(
+        "/api/projections", params={"frame": "canonical", "rho_norm": "dataset"}
+    ).json()
+    assert own["panels"]["xy"]["scale"]["norm"] == "selection"
+    assert dataset["panels"]["xy"]["scale"]["norm"] == "dataset"
+    assert dataset["panels"]["xy"]["scale"]["locked"] is True
+    # The demo selection is the whole dataset, so both references coincide.
+    assert dataset["frame"]["rho"]["ref"]["xy"] == pytest.approx(own["frame"]["rho"]["ref"]["xy"])
+
+
+def test_canonical_and_lab_bundles_are_cached_separately(client):
+    params = {"frame": "canonical", "e1_min": 2.0, "e1_max": 18.0}
+    first = client.get("/api/projections", params=params).json()
+    second = client.get("/api/projections", params=params).json()
+    assert second["meta"]["cached"] is True
+    lab = client.get("/api/projections", params={**params, "frame": "lab"}).json()
+    assert lab["meta"]["frame"] == "lab"
+    caches = client.get("/api/experiments").json()["compute"]
+    assert caches["canonical_cache"]["entries"] >= 1
+    assert caches["canonical_cache"]["name"] == "canonical"
+    assert first["panels"]["xy"]["shape"] != lab["panels"]["xy"]["shape"]
+
+
+def test_canonical_frame_explains_undefined_separation_events(client):
+    body = client.get(
+        "/api/projections", params={"frame": "canonical", "include_undefined_d": True}
+    ).json()
+    texts = [n["text"] for n in body["meta"]["notices"]]
+    assert any("undefined A-B separation" in t for t in texts)
+    assert body["frame"]["n_excluded_no_frame"] == body["frame"]["n_selected"] - body["frame"]["n_events"]
+
+
+def test_canonical_continuous_mode_reconstructs_the_symmetric_window(client):
+    body = client.get(
+        "/api/projections",
+        params={"frame": "canonical", "display": "continuous", "resolution": 200},
+    ).json()
+    resolution = body["meta"]["resolution"]
+    assert resolution["mode"] == "continuous"
+    assert body["panels"]["xy"]["shape"][1] == 200
+    assert resolution["pitch_mm"] == 20.0
+    # Two events: the Gaussian kernel, named in the plan and on every panel.
+    assert resolution["kernel"]["type"] == "gaussian" and resolution["kernel"]["sigma_mm"] == 10.0
+    assert any("Gaussian kernel" in w for w in resolution["warnings"])
+    native = client.get("/api/projections", params={"frame": "canonical"}).json()
+    assert native["meta"]["resolution"]["mode"] == "native"
+    assert native["meta"]["resolution"]["kernel"]["type"] == "none"
+    # Both modes crop the same symmetric window.
+    assert body["panels"]["xy"]["axes"]["col"]["lo"] == pytest.approx(-body["panels"]["xy"]["axes"]["col"]["hi"])
+    assert body["frame"]["fit"] == native["frame"]["fit"]
+    for payload in body["panels"].values():
+        assert payload["kernel"] == "gaussian"
+        # The in-window energy after reconstruction and the disclosed outside share agree.
+        outside = 1.0 - payload["total"] / payload["total_energy_all_gev"]
+        assert payload["energy_fraction_outside_window"] == pytest.approx(outside, abs=1e-8)
+        assert payload["energy_outside_window_gev"] == pytest.approx(
+            payload["total_energy_all_gev"] - payload["total"], abs=1e-12
+        )
+    # Native Grid holds exactly the raw crop, so its two outside figures coincide.
+    for payload in native["panels"].values():
+        assert payload["energy_fraction_outside_window"] == pytest.approx(
+            payload["energy_fraction_outside_window_raw"], abs=1e-8
+        )
+
+
+def test_the_comb_verdict_does_not_depend_on_the_display(client):
+    """Measured on the raw accumulation grid, before any display smoothing."""
+    native = client.get("/api/projections", params={"frame": "canonical", "display": "native"}).json()
+    continuous = client.get(
+        "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
+    ).json()
+    assert native["frame"]["comb"] == continuous["frame"]["comb"]
+    assert native["meta"]["stagger"] == continuous["meta"]["stagger"]
+    assert "coarser" not in continuous["frame"]["comb"]["note"]
+
+
+def test_a_display_or_resolution_change_is_served_from_the_canonical_cache(client):
+    params = {"frame": "canonical", "e1_min": 1.0, "e1_max": 19.0}
+    client.get("/api/projections", params={**params, "display": "native"})
+    for extra in (
+        {"display": "continuous", "resolution": 150},
+        {"display": "continuous", "resolution": 220},
+        {"display": "native"},
+    ):
+        body = client.get("/api/projections", params={**params, **extra}).json()
+        assert body["meta"]["cached"] is True, extra
+        assert body["meta"]["total_ms"] < 100, extra
+
+
+def test_the_reconstruction_is_disclosed(client):
+    body = client.get(
+        "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
+    ).json()
+    block = body["frame"]["reconstruction"]
+    assert {
+        "display", "kernel", "label", "sigma_mm", "bin_spread_rms_mm", "blur_rms_mm", "subsample_k",
+        "gaussian_below_n", "axes", "depth", "conservative", "floor_ratio",
+        "energy_fraction_outside", "below_floor", "note",
+    } <= set(block)
+    assert block["kernel"] == "gaussian" and block["label"] == "Gaussian σ = 10 mm"
+    assert block["axes"] == ["x′", "y′"] and block["gaussian_below_n"] == 50
+    assert set(block["blur_rms_mm"]) == {"x", "y"}
+    for name, panel in body["panels"].items():
+        assert block["energy_fraction_outside"][name] == panel["energy_fraction_outside_window"]
+        assert block["below_floor"][name]["cells"] == panel["below_floor_cells"]
+    texts = [n["text"] for n in body["meta"]["notices"]]
+    assert any("not drawn" in t and "display floor" in t for t in texts)
+    rho = body["frame"]["rho"]
+    for name in ("xy", "yz", "xz"):
+        assert 0 < rho["kernel_attenuation"][name] <= 1.0
+
+
+def test_the_lab_payload_keys_are_untouched(client):
+    """The canonical floor code, kernel and bookkeeping never leak into the lab."""
+    body = client.get("/api/projections", params={"display": "continuous", "resolution": 150}).json()
+    legacy_panel = {
+        "panel", "encoding", "shape", "data", "empty_code", "min_code", "max_code",
+        "scale", "axes", "occupancy", "total", "topk",
+    }
+    legacy_scale = {
+        "scale", "vmin", "vmax", "unit", "mode", "locked", "global_vmax",
+        "clipped_low", "clipped_high", "empty_cells",
+    }
+    for name, panel in body["panels"].items():
+        assert set(panel) == legacy_panel, name
+        extra = {"shared_with"} if name in ("yz", "xz") else set()
+        assert set(panel["scale"]) == legacy_scale | extra, name
+        assert panel["min_code"] == 1
+    assert set(body["meta"]["resolution"]) == {"mode", "requested", "r_x", "r_y", "r_z", "shapes", "warnings"}
+    assert "frame" not in body
+
+
+def test_the_wire_size_helper_measures_what_the_route_sends(client):
+    from calosrv.query import density
+
+    response = client.get(
+        "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
+    )
+    assert density.wire_size(response.json()) == len(response.content)
+
+
+def _centred_axis(marginal, edges, half_width):
+    """A synthetic origin-centred crop of ``half_width`` mm, with honest bookkeeping."""
+    from calosrv.query import window
+
+    n = edges.size - 1
+    pitch = (edges[-1] - edges[0]) / n
+    lo_index = int(round((0.5 * (edges[-1] - edges[0]) - half_width) / pitch))
+    hi_index = n - lo_index
+    total = float(marginal.sum())
+    outside = float(marginal[:lo_index].sum() + marginal[hi_index:].sum())
+    return window.AxisFit(
+        lo_index, hi_index, -half_width, half_width, outside / total if total > 0 else 0.0,
+        True, symmetric=True,
+    )
+
+
+def _narrow_entrance_window(real_fit):
+    """X′Y′ cropped to ±100 mm while the depth panels keep every transverse row -
+    the shape of the N = 3, D ≈ 246 mm production case, whose narrow entrance
+    window sets a fine display pitch for two wide depth panels."""
+    import dataclasses
+
+    from calosrv.query import window
+
+    def fit(bundle):
+        base = real_fit(bundle)
+        grid = bundle.grid
+        plane = bundle.xy.planes["e"]
+        row = _centred_axis(plane.sum(axis=1), grid.y_edges, 100.0)
+        col = _centred_axis(plane.sum(axis=0), grid.x_edges, 100.0)
+        kept = float(plane[row.lo_index:row.hi_index, col.lo_index:col.hi_index].sum())
+        xy = window.PanelFit("xy", row, col, float(plane.sum()), kept)
+
+        def full_rows(name, edges):
+            depth = bundle.panel(name).planes["e"]
+            rows = _centred_axis(depth.sum(axis=1), edges, 0.5 * float(edges[-1] - edges[0]))
+            return window.PanelFit(name, rows, base.panel(name).col, float(depth.sum()), float(depth.sum()))
+
+        return dataclasses.replace(
+            base, xy=xy, yz=full_rows("yz", grid.y_edges), xz=full_rows("xz", grid.x_edges)
+        )
+
+    return fit
+
+
+def test_the_whole_response_stays_under_budget_on_a_narrow_entrance_window(client, monkeypatch):
+    from calosrv.query import window
+
+    monkeypatch.setattr(window, "fit_window", _narrow_entrance_window(window.fit_window))
+    response = client.get(
+        "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
+    )
+    assert response.status_code == 200
+    assert len(response.content) < 100_000
+    body = response.json()
+    assert body["frame"]["fit"]["xy"]["col"]["range"] == [-100.0, 100.0]
+    assert body["meta"]["resolution"]["r_x"] < 150
+    texts = [n["text"] for n in body["meta"]["notices"]]
+    assert any(t.startswith("Resolution lowered") for t in texts), "the degrade must be disclosed"
+
+
+def test_the_whole_response_budget_fires_when_the_panel_guard_does_not(client, monkeypatch):
+    """With the panel guard lifted, only the whole-response check can keep the
+    contract: it must re-render from the cached bundle and say so."""
+    from calosrv.query import density, window
+
+    monkeypatch.setattr(window, "fit_window", _narrow_entrance_window(window.fit_window))
+    monkeypatch.setattr(density, "PAYLOAD_LIMIT", 10**9)
+    response = client.get(
+        "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
+    )
+    assert response.status_code == 200
+    assert len(response.content) < 100_000
+    texts = [n["text"] for n in response.json()["meta"]["notices"]]
+    assert any(t.startswith("The whole response measured") for t in texts)
+    assert any(t.startswith("Resolution lowered") for t in texts)
+
+
 def test_persistent_notices_are_not_duplicated_into_the_banner(client):
     """Explanatory notices belong beside their control, not across the plots.
 

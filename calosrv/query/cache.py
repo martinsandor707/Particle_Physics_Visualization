@@ -1,4 +1,4 @@
-"""LRU cache of native-resolution projection bundles.
+"""LRU caches of native-resolution projection bundles.
 
 This is what turns the resolution control, the display-mode toggle and the
 palette picker from database queries into NumPy operations.
@@ -11,6 +11,14 @@ change the resolution from 150 to 200 and nothing is re-queried at all.
 
 Entries are keyed by the filter's rounded bounds, so two slider positions a
 float ulp apart share an entry rather than each paying for a full scan.
+
+**Two caches, one registry.** The laboratory frame and the canonical frame hold
+bundles of different shapes and sizes (a canonical bundle spans a 350 x 138
+grid and weighs a few megabytes), so each frame owns a named cache with its own
+entry budget. Every cache lives in one registry, so that invalidating a table
+after a re-ingest or resetting between tests reaches all of them - a stale
+canonical bundle surviving an append would be exactly the failure the lab
+cache's invalidation exists to prevent.
 """
 
 from __future__ import annotations
@@ -19,11 +27,19 @@ import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Callable
-
-from .projections import NativeBundle
+from typing import Any, Callable, Protocol
 
 log = logging.getLogger(__name__)
+
+LAB_CACHE = "lab"
+CANONICAL_CACHE = "canonical"
+
+
+class Cacheable(Protocol):
+    """What a cached bundle must offer: its memory footprint."""
+
+    @property
+    def nbytes(self) -> int: ...
 
 
 @dataclass
@@ -50,17 +66,18 @@ class CacheStats:
 
 
 class BundleCache:
-    """Thread-safe LRU over :class:`NativeBundle` objects."""
+    """Thread-safe LRU over bundle objects."""
 
-    def __init__(self, max_entries: int = 128) -> None:
+    def __init__(self, max_entries: int = 128, name: str = LAB_CACHE) -> None:
         self._max = max(1, max_entries)
-        self._entries: OrderedDict[tuple, NativeBundle] = OrderedDict()
+        self.name = name
+        self._entries: OrderedDict[tuple, Any] = OrderedDict()
         self._lock = threading.Lock()
         self.stats = CacheStats()
 
     def get_or_compute(
-        self, key: tuple, compute: Callable[[], NativeBundle]
-    ) -> tuple[NativeBundle, bool]:
+        self, key: tuple, compute: Callable[[], Any]
+    ) -> tuple[Any, bool]:
         """Return the cached bundle for ``key``, computing it on a miss.
 
         Returns ``(bundle, was_cached)``. The lock is *not* held while
@@ -91,14 +108,16 @@ class BundleCache:
 
         Called when a table is re-ingested or appended to. Without this, an
         append would leave the interface showing pre-append aggregates until the
-        entries happened to be evicted.
+        entries happened to be evicted. Every key starts with the table name.
         """
         with self._lock:
             stale = [k for k in self._entries if k and k[0] == table_name]
             for key in stale:
                 del self._entries[key]
         if stale:
-            log.info("Invalidated %d cached bundle(s) for %r", len(stale), table_name)
+            log.info(
+                "Invalidated %d cached %s bundle(s) for %r", len(stale), self.name, table_name
+            )
         return len(stale)
 
     def clear(self) -> None:
@@ -114,6 +133,7 @@ class BundleCache:
         with self._lock:
             entries = len(self._entries)
         return {
+            "name": self.name,
             "entries": entries,
             "max_entries": self._max,
             "bytes": self.nbytes,
@@ -121,19 +141,31 @@ class BundleCache:
         }
 
 
-_cache: BundleCache | None = None
+_caches: dict[str, BundleCache] = {}
 _cache_lock = threading.Lock()
 
 
-def get_cache(max_entries: int = 128) -> BundleCache:
-    global _cache
-    if _cache is None:
+def get_cache(max_entries: int = 128, name: str = LAB_CACHE) -> BundleCache:
+    """The named cache, created on first use with ``max_entries``."""
+    cache = _caches.get(name)
+    if cache is None:
         with _cache_lock:
-            if _cache is None:
-                _cache = BundleCache(max_entries)
-    return _cache
+            cache = _caches.get(name)
+            if cache is None:
+                cache = BundleCache(max_entries, name=name)
+                _caches[name] = cache
+    return cache
+
+
+def invalidate_all(table_name: str) -> int:
+    """Drop one experiment's entries from every cache that exists."""
+    with _cache_lock:
+        caches = list(_caches.values())
+    return sum(cache.invalidate_table(table_name) for cache in caches)
 
 
 def reset_cache() -> None:
-    global _cache
-    _cache = None
+    """Forget every cache. Tests call this between booted servers."""
+    global _caches
+    with _cache_lock:
+        _caches = {}

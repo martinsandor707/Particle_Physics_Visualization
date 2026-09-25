@@ -21,9 +21,10 @@ from ..encode.scale import SCALE_MODES, MODE_DECADES
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import cache as cache_mod
-from ..query import centroids, panels, projections, sampling
+from ..query import centroids, density, panels, projections, sampling
 from ..query import stagger as stagger_mod
 from ..query import summary
+from . import frame_canonical
 from .deps import CursorDep, FilterDep, RecordDep, SettingsDep
 
 router = APIRouter()
@@ -44,9 +45,13 @@ def get_projections(
     display: str = Query(
         MODE_NATIVE,
         description=(
-            "native: one bin per real calorimeter cell (hardware truth). "
-            "continuous: uniform grid at resolution R, built by area-weighted "
-            "voxel splatting."
+            "native: one bin per real calorimeter cell (hardware truth); in the "
+            "canonical frame, the raw 20 mm accumulation bins (the audit view). "
+            "continuous: in the lab frame, a uniform grid at resolution R built by "
+            "area-weighted voxel splatting; in the canonical frame, a conservative "
+            "kernel reconstruction along x′ and y′ only (Gaussian σ = 10 mm below "
+            "50 events, bilinear tent from 50), depth never smoothed. The default "
+            "is native in both frames; the interface always sends it explicitly."
         ),
     ),
     mode: str = Query(
@@ -75,9 +80,37 @@ def get_projections(
             "is marked exact=false."
         ),
     ),
+    frame: str = Query(
+        frame_canonical.FRAME_LAB,
+        description=(
+            "lab: detector coordinates (default). canonical: every selected event "
+            "is co-registered by a rigid-body motion into the centre-of-separation "
+            "frame (shower entry points at ∓D_entry/2 on x′, front face at z′ = 0) "
+            "and the panels show the ensemble-averaged energy density."
+        ),
+    ),
+    rho_norm: str = Query(
+        density.NORM_SELECTION,
+        description=(
+            "Canonical frame only. selection: colours relative to this selection's "
+            "peak density. dataset: relative to the whole experiment's peak, so "
+            "colours are comparable across selections. The reference is always "
+            "reported in GeV/mm^2/event."
+        ),
+    ),
 ):
     timer = Timer()
 
+    if frame not in frame_canonical.FRAMES:
+        raise ValidationError(
+            f"frame must be one of {', '.join(frame_canonical.FRAMES)}; got {frame!r}.",
+            field="frame",
+        )
+    if rho_norm not in density.NORMS:
+        raise ValidationError(
+            f"rho_norm must be one of {', '.join(density.NORMS)}; got {rho_norm!r}.",
+            field="rho_norm",
+        )
     if display not in DISPLAY_MODES:
         raise ValidationError(
             f"display must be one of {', '.join(DISPLAY_MODES)}; got {display!r}.",
@@ -97,6 +130,16 @@ def get_projections(
         raise ValidationError(
             f"scale_mode must be one of {', '.join(SCALE_MODES)}.",
             field="scale_mode",
+        )
+
+    if frame == frame_canonical.FRAME_CANONICAL:
+        # `lock_scale` and `scale_mode` are lab-frame ramp controls; the
+        # canonical ramp is relative to a stated reference chosen by rho_norm.
+        return frame_canonical.build_response(
+            con, record, spec, settings,
+            resolution=resolution, display=display, channel=mode,
+            weighting=weighting, rho_norm=rho_norm, preview=preview, timer=timer,
+            lock_scale=lock_scale, scale_mode=scale_mode,
         )
 
     decision = sampling.decide(record, preview, settings.sample_percent)
@@ -185,9 +228,11 @@ def get_projections(
         cached=was_cached,
         warnings=warnings,
         notes={
+            "frame": frame_canonical.FRAME_LAB,
             "resolution": plan.as_dict(),
             "channel": mode,
             "weighting": weighting,
+            "sample_percent": decision.percent if decision.sampled else 100.0,
             "stagger": stagger.as_dict(),
             "notices": notices,
             "cache": cache.info(),

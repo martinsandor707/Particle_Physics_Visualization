@@ -99,6 +99,12 @@ class Settings:
 
     cors_origins: tuple[str, ...] = field(default=())
 
+    #: Entries in the canonical-frame bundle cache. A canonical bundle spans a
+    #: grid of up to 350 x 138 transverse bins across six planes - two to four
+    #: megabytes against roughly two for a lab bundle - so it gets a smaller
+    #: budget of its own rather than competing with the lab bundles.
+    canonical_cache_entries: int = 32
+
     @property
     def memory_limit_sql(self) -> str:
         return f"{self.memory_gb}GB"
@@ -165,4 +171,5 @@ def load_settings() -> Settings:
         local_ingest_dir=local_dir,
         server_url=os.getenv("CALOSRV_SERVER_URL", f"http://127.0.0.1:{port}"),
         cors_origins=origins,
+        canonical_cache_entries=max(1, _int_env("CALOSRV_CANONICAL_CACHE_ENTRIES", 32)),
     )

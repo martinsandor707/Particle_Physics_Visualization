@@ -54,8 +54,10 @@ export function closeExportMenu() {
 /**
  * Wire every `[data-export]` button on the page.
  *
- * `resolve(panelId)` returns `{ panel, title, footnote, selection }` for the
- * panel that button belongs to, or null when there is nothing to export yet.
+ * `resolve(panelId)` returns `{ panel, title, footnote, selection, disclosure }`
+ * for the panel that button belongs to, or null when there is nothing to
+ * export yet. `disclosure` is the structured sentence list from
+ * `export/disclosure.js` and may be absent.
  */
 export function attachExportMenus({ resolve, state, getExperiment, onError }) {
   for (const button of document.querySelectorAll('[data-export]')) {
@@ -125,6 +127,8 @@ function run(button, panelId, choice, { resolve, state, getExperiment, onError }
         title: target.title,
         footnote: target.footnote,
         selection: target.selection,
+        frame: target.frame,
+        disclosure: target.disclosure,
         state,
         experiment: getExperiment(),
       });

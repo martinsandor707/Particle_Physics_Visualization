@@ -246,6 +246,12 @@ class JobStore:
             job.stage_label = (
                 "Ingestion complete" if verification.ok else "Verification failed"
             )
+            if verification.ok:
+                # The canonical frame's full-range scan is the one query that
+                # can take a couple of seconds; pay it now, off the request path.
+                from ..query import canonical_cache
+
+                canonical_cache.warm(self._db, self._db.settings, [name])
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)

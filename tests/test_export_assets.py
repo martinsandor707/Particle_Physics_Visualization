@@ -16,6 +16,7 @@ import pytest
 
 STATIC = Path(__file__).resolve().parent.parent / "calosrv" / "static"
 EXPORT_JS = STATIC / "js" / "export"
+PANELS_JS = STATIC / "js" / "panels"
 
 #: Panels that must offer an export control.
 PANEL_IDS = ("xy", "yz", "xz", "energy")
@@ -113,6 +114,73 @@ def test_no_dark_theme_colour_leaks_into_the_print_tokens():
     assert not found, f"dark-theme colours present in the print tokens: {found}"
 
 
+def _object_literal(source: str, header: str) -> str:
+    """The body of a top-level `header {...};` object literal, comments dropped.
+
+    Brace-matched rather than cut at the first `};`, because the print tokens
+    hold nested objects (`categorical: { ... }`).
+    """
+    source = _strip_comments(source)
+    start = source.index(header) + len(header)
+    assert source[start - 1] == "{", f"{header!r} does not open an object"
+    depth = 1
+    for i in range(start, len(source)):
+        if source[i] == "{":
+            depth += 1
+        elif source[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:i]
+    raise AssertionError(f"unterminated object after {header!r}")
+
+
+def _top_level_tokens(body: str) -> dict[str, str]:
+    """`key: value` pairs at the top level of an object body, as raw text."""
+    pairs: dict[str, str] = {}
+    depth = 0
+    for line in body.splitlines():
+        stripped = line.strip()
+        if depth == 0:
+            match = re.match(r"(\w+):\s*(.+?),?$", stripped)
+            if match:
+                pairs[match.group(1)] = match.group(2)
+        depth += stripped.count("{") - stripped.count("}")
+    return pairs
+
+
+#: Canonical-overlay tokens both themes must define.
+FLOOR_TOKENS = ("separationRule", "anchorOpacity", "floorFadeDecades")
+
+
+def test_floor_tokens_exist_on_screen_and_in_print():
+    """The canonical floor, rule and anchor tokens exist in both themes.
+
+    The exporter swaps `THEME` wholesale, so a token defined only on screen
+    would print in its screen value - a translucent white rule on white paper,
+    or the on-screen fade instead of the hard contour the caption names. None
+    of them is ink, so none may sit in `PRINT_INK`, whose members must clear
+    4.5:1: a reference rule that did would compete with the data.
+    """
+    screen = _top_level_tokens(_object_literal(
+        (STATIC / "js" / "scale.js").read_text(encoding="utf-8"), "const SCREEN = {",
+    ))
+    tokens_js = (EXPORT_JS / "tokens.js").read_text(encoding="utf-8")
+    printed = _top_level_tokens(_object_literal(tokens_js, "export const PRINT_TOKENS = {"))
+    ink = _top_level_tokens(_object_literal(tokens_js, "export const PRINT_INK = {"))
+
+    for token in FLOOR_TOKENS:
+        assert token in screen, f"screen theme lacks {token}"
+        assert token in printed, f"print tokens lack {token}"
+        assert token not in ink, f"{token} is chrome, not ink, and must stay out of PRINT_INK"
+
+    assert re.fullmatch(r"'#[0-9a-fA-F]{6}'", printed["separationRule"]), (
+        "the print separation rule must be an opaque #rrggbb"
+    )
+    assert float(printed["floorFadeDecades"]) == 0, "print must draw a hard floor contour"
+    assert float(screen["floorFadeDecades"]) > 0, "the screen floor must fade"
+    assert float(printed["anchorOpacity"]) == 1
+
+
 def test_print_type_clears_the_nine_point_floor():
     """Nine points is 12 logical px under the 96 DPI authoring convention.
 
@@ -181,7 +249,10 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/export/figure.js",
         "/static/js/export/menu.js",
         "/static/js/export/caption.js",
+        "/static/js/export/disclosure.js",
         "/static/js/textfit.js",
+        "/static/js/panels/marks.js",
+        "/static/js/panels/canonical_overlays.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -196,6 +267,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/export/figure.js",
         "/static/js/export/menu.js",
         "/static/js/export/caption.js",
+        "/static/js/export/disclosure.js",
+        "/static/js/panels/canonical_overlays.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -205,9 +278,9 @@ def test_new_module_imports_are_stamped(client, path):
     the exact failure mode commit a0e00c3 exists to prevent: a fresh entry point
     importing a module the browser has been holding since before the feature.
 
-    `textfit.js` is deliberately absent from this list - it is a leaf with no
-    imports of its own, so there is nothing in it to stamp. It is reached, and
-    therefore versioned, through the importers above.
+    `textfit.js` and `panels/marks.js` are deliberately absent from this list -
+    they are leaves with no imports of their own, so there is nothing in them to
+    stamp. They are reached, and therefore versioned, through their importers.
     """
     response = client.get(path)
     specifiers = re.findall(r"from\s+'(\.\.?/[^']+)'", response.text)
@@ -233,6 +306,13 @@ def test_the_export_directory_is_reached_from_the_entry_point_graph(client):
     figure = client.get("/static/js/export/figure.js").text
     assert "../scale.js?v=" in figure
     assert "../decode.js?v=" in figure
+
+
+def test_the_new_panel_modules_are_stamped_through_projection(client):
+    """The overlay modules are imported by projection.js under the same stamp."""
+    projection = client.get("/static/js/panels/projection.js").text
+    assert "./marks.js?v=" in projection
+    assert "./canonical_overlays.js?v=" in projection
 
 
 def test_export_modules_are_reachable_from_the_entry_point():
@@ -262,6 +342,87 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in EXPORT_JS.glob("*.js"):
         assert module.resolve() in seen, f"{module.name} is never imported"
     assert (js_root / "textfit.js").resolve() in seen
+    for module in ("marks.js", "canonical_overlays.js"):
+        assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
+
+
+# ------------------------------------------------- the disclosure band --
+
+
+def test_svg_export_splices_an_isolated_disclosure_group():
+    """Plan section 1.8: the SVG carries a `<g id="figure-disclosure">`.
+
+    zrender's SVG painter flattens `graphic` items, so the group can only come
+    from our own post-processing. The check is on the source: figure.js must
+    call `captionToSvg` and the id must be the one the plan names, so a reader
+    of the file can address the band.
+    """
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    caption = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
+    assert "captionToSvg(" in figure, "figure.js never serialises the caption band"
+    assert re.search(r"\bimport\b[^;]*\bcaptionToSvg\b", figure), (
+        "figure.js must import captionToSvg from caption.js"
+    )
+    assert 'id="figure-disclosure"' in caption
+    # The splice must land before the closing tag, not be appended after it.
+    assert "</svg>" in figure
+
+
+def test_svg_caption_withholds_graphics_but_keeps_the_reserved_height():
+    """For SVG the caption items leave the option; the band's height does not.
+
+    Withholding the items is what lets the `<g>` be the only copy of the text.
+    Dropping the reservation with them would let the ramp slide down into the
+    space the band is then spliced over.
+    """
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    assert re.search(r"graphic:\s*format === 'svg' \? \[\]", figure), (
+        "the SVG option must carry no caption graphics"
+    )
+    assert "reservedBottom: caption.height" in figure
+
+
+def test_caption_module_exports_the_svg_serialiser_and_accepts_disclosure():
+    source = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
+    assert re.search(r"export function captionToSvg\s*\(", source)
+    signature = re.search(r"export function buildCaption\s*\(\{(.*?)\}", source, re.DOTALL)
+    assert signature, "buildCaption signature not found"
+    assert "disclosure" in signature.group(1)
+    # The serialiser positions text the way zrender draws it: centred on the
+    # line, 0.71 x the font size below the item's top.
+    assert 'dominant-baseline="central"' in source
+    assert "0.71 * fontSize" in source
+    # Styles come from each item, not from the (restored) THEME.
+    body = re.search(
+        r"export function captionToSvg\s*\(.*?\n\}\n", source, re.DOTALL
+    ).group(0)
+    assert "THEME" not in body
+
+
+def test_export_menu_forwards_the_disclosure():
+    source = _strip_comments((EXPORT_JS / "menu.js").read_text(encoding="utf-8"))
+    assert re.search(r"disclosure:\s*target\.disclosure", source)
+
+
+def test_disclosure_is_structural_not_scraped():
+    """The disclosure module reads the payload, never the page.
+
+    Its whole reason to exist is that the footnote is prose assembled for the
+    screen. Reaching into the DOM would make it a second copy of that prose,
+    and it must import from scale.js so it sits inside the stamped graph.
+    """
+    source = _strip_comments((EXPORT_JS / "disclosure.js").read_text(encoding="utf-8"))
+    for forbidden in ("getElementById", "querySelector", "textContent", "innerText", "document."):
+        assert forbidden not in source, f"disclosure.js touches the DOM: {forbidden}"
+    assert re.search(r"import\s*\{[^}]*\bformatSci\b[^}]*\}\s*from\s*'\.\./scale\.js'", source)
+    assert re.search(r"import\s*\{[^}]*\bformatInt\b[^}]*\}\s*from\s*'\.\./scale\.js'", source)
+    assert re.search(r"export function figureDisclosure\s*\(", source)
+
+
+def test_filename_carries_the_frame_token():
+    source = _strip_comments((EXPORT_JS / "filename.js").read_text(encoding="utf-8"))
+    assert re.search(r"state\.get\('frame'\) === 'canonical'", source)
+    assert "'canonical'" in source
 
 
 def test_export_modules_avoid_the_vendor_path():
@@ -272,3 +433,76 @@ def test_export_modules_avoid_the_vendor_path():
     assert "vendor" not in EXPORT_JS.parts
     for module in EXPORT_JS.glob("*.js"):
         assert "vendor" not in module.parts
+
+
+# ------------------------------------------- canonical floor and overlays --
+
+
+def test_visualmap_is_bound_to_the_raster_series():
+    """Unbound, a visualMap recolours every series by its data value.
+
+    That is how the lab frame's pink and blue centroid diamonds came out in the
+    ramp's colours. The option must name the raster, series 0.
+    """
+    source = _strip_comments((STATIC / "js" / "scale.js").read_text(encoding="utf-8"))
+    body = re.search(r"export function visualMap\s*\(.*?\n\}\n", source, re.DOTALL)
+    assert body, "visualMap not found in scale.js"
+    assert re.search(r"\bseriesIndex\b", body.group(0))
+    projection = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    assert re.search(r"seriesIndex:\s*0", projection)
+
+
+def test_floor_fade_is_guarded_before_it_divides():
+    """Guard 8b.1: a zero or non-finite fade width is a pure step, never NaN.
+
+    Print sets the fade to 0. Dividing by it would write NaN alpha into the
+    ImageData, which the canvas reads as 0 and paints the whole field clear.
+    """
+    source = _strip_comments((STATIC / "js" / "decode.js").read_text(encoding="utf-8"))
+    body = re.search(r"export function codeTable\s*\(.*?\n\}\n", source, re.DOTALL)
+    assert body, "codeTable not found in decode.js"
+    text = body.group(0)
+    guard = re.search(r"Number\.isFinite\(fadeDecades\)\s*&&\s*fadeDecades\s*>\s*0", text)
+    division = text.find("/ fadeDecades")
+    assert guard, "the fade width is not checked finite and positive"
+    assert division > guard.start(), "the fade is divided by before it is checked"
+
+
+def test_print_disclosure_names_the_hard_floor_contour():
+    source = (EXPORT_JS / "disclosure.js").read_text(encoding="utf-8")
+    assert "not a shower edge" in source
+
+
+def test_custom_line_marks_clip_and_have_no_fill():
+    """Both settings are load-bearing (see panels/marks.js).
+
+    `clip: true` keeps a line inside a zoomed plot; `fill: 'none'` is what
+    gives the stroke its ±2.5 px hover band instead of the 1 px default.
+    """
+    source = _strip_comments((PANELS_JS / "marks.js").read_text(encoding="utf-8"))
+    assert re.search(r"clip:\s*true", source)
+    assert re.search(r"fill:\s*'none'", source)
+
+
+def test_open_markers_do_not_use_the_empty_symbols():
+    """`emptyCircle` / `emptyDiamond` are filled white with a forced 2 px stroke."""
+    source = _strip_comments((PANELS_JS / "canonical_overlays.js").read_text(encoding="utf-8"))
+    assert "emptyCircle" not in source and "emptyDiamond" not in source
+    assert re.search(r"color:\s*'transparent'", source)
+    # The floating ⟨D_entry⟩ badge sat on the shower cores; it is gone.
+    assert "markPoint" not in source
+
+
+def test_print_raster_takes_one_pixel_per_payload_bin():
+    """The exporter enlarges the raw payload bins by one factor on both axes.
+
+    On screen ``renderRaster`` enlarges the canonical Native Grid uniformly and
+    the Continuous Field's depth columns only (so the browser's bilinear
+    upscale cannot interpolate between sampling layers). Print must not
+    inherit either: it asks for one pixel per bin and applies its own integer
+    nearest-neighbour factor to both axes.
+    """
+    decode = _strip_comments((STATIC / "js" / "decode.js").read_text(encoding="utf-8"))
+    assert re.search(r"export function renderRaster\s*\([^)]*\{\s*screen\s*=\s*true\s*\}", decode)
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    assert re.search(r"renderRaster\([^)]*\{\s*screen:\s*false\s*\}\s*\)", figure)

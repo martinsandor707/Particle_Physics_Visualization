@@ -6,6 +6,7 @@
  */
 
 import { colorStops } from './palette.js';
+import { fitsWidth } from './textfit.js';
 
 /* The screen style. Mirrors css/tokens.css, which ECharts cannot read.
  *
@@ -60,6 +61,22 @@ const SCREEN = {
   bandAlpha: 0.18,
   stripAlpha: 0.045,
 
+  /* Canonical-frame overlay chrome.
+   *
+   * The separation rule between the anchors is a reference line, not data, so
+   * it is drawn as a faint 1 px dash that the shower cores show through. The
+   * anchors are open outlines at 0.75 so they locate the core without
+   * occluding it; a filled 15 px marker used to hide the brightest bins. */
+  separationRule: 'rgba(255,255,255,0.4)',
+  anchorOpacity: 0.75,
+  /* Decades over which the canonical density ramp fades to transparent above
+   * its 10⁻³ floor. A hard floor draws a rim: the dark end of Viridis against
+   * the #1c2128 card is only 1.07:1 in WCAG contrast but ΔE76 ≈ 49 in colour,
+   * so a sharp edge reads as a violet outline around the whole halo. Tapering
+   * the bottom half decade removes the rim. Print sets 0: a hard contour, which
+   * the figure caption names as the display floor. */
+  floorFadeDecades: 0.5,
+
   categorical: { min: 0.25, max: 1.0 },
   rampOrient: 'vertical',
   // A scrolling legend is right on screen, where the arrows are clickable and
@@ -96,13 +113,16 @@ export function restoreScreenTheme() {
  * old 74 px right inset - reserved for a vertical colour bar - would have eaten
  * a quarter of the canvas. Both now follow the font.
  */
-export function axisPadding({ ramp = false } = {}) {
+export function axisPadding({ ramp = false, wideRamp = false } = {}) {
   const f = THEME.fontLabel;
   const horizontalRamp = ramp && THEME.rampOrient === 'horizontal';
+  // A vertical ramp titled "Average hit density (a.u.)" is about 13 label
+  // heights wide; the GeV ramp's exponent labels fit in 7.4.
+  const rampInset = wideRamp ? 13.5 * f : 7.4 * f;
   return {
     nameGap: 2.6 * f,
     left: 5.2 * f,
-    right: ramp && !horizontalRamp ? 7.4 * f : 1.6 * f,
+    right: ramp && !horizontalRamp ? rampInset : 1.6 * f,
     top: 1.2 * f,
     bottom: 2.6 * f + 1.4 * f + (horizontalRamp ? 3.4 * f : 0),
   };
@@ -156,14 +176,35 @@ export function formatBytes(bytes) {
  * renders them as powers of ten in GeV. For Grad-CAM the scale is linear and
  * fixed to [0, 1], which is what keeps attention maps comparable between
  * selections - the entire reason for looking at them.
+ *
+ * `seriesIndex` names the raster, which is always series 0. Without it a
+ * visualMap colours *every* series by its data value, and the lab frame's
+ * pink and blue centroid diamonds came out in whatever ramp colour their
+ * coordinates happened to map to (measured on the vendored bundle: an anchor
+ * fill of rgb(253,231,37), the top of Viridis).
+ *
+ * On a relative (a.u.) log ramp the legend mirrors the raster's floor taper
+ * (`decode.codeTable`): its bottom stops fade to transparent over the same
+ * `THEME.floorFadeDecades` above the same floor, and the bottom label says the
+ * floor is not drawn. With the print value 0 the stops stay opaque, matching
+ * the hard contour the figure caption names.
  */
-export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
+export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } = {}) {
   const isLog = scale.scale === 'log10';
+  // A relative (a.u.) ramp is dimensionless: its ends are derived from the
+  // scale's own bounds, which reach above 10^0 when a selection is brighter
+  // than the dataset reference it is drawn against.
+  const relative = scale.unit === 'a.u.';
+  const unit = relative ? ' a.u.' : (isLog ? ' GeV' : '');
   const label = (value) => (isLog
     ? `10${superscript(Number(value).toFixed(1))}`
     : Number(value).toFixed(2));
 
   const horizontal = THEME.rampOrient === 'horizontal';
+  // The ramp title. ECharts' continuous visualMap has no title of its own, so
+  // on the vertical screen ramp it rides as a second line of the top label;
+  // the horizontal print ramp gets a separate graphic from rampTitle().
+  const title = relative && !horizontal ? `${RAMP_TITLE_RELATIVE}\n` : '';
   const place = horizontal
     /* Below the x-axis title, where a figure has height to spare, rather than
      * beside the plot, where a single-column figure has none.
@@ -180,8 +221,28 @@ export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
     }
     : { orient: 'vertical', right: 6, top: 'middle', itemWidth: 10, itemHeight: 140 };
 
+  // The fade, when this ramp has one: alpha rises linearly in log density
+  // from 0 at the floor to 1 a `fade` decades above it. 48 stops put about
+  // eight inside the bottom half decade of a three-decade ramp, so the legend
+  // gradient follows the raster's taper rather than a single coarse step.
+  const fade = THEME.floorFadeDecades;
+  const floorExp = floorExponent(scale);
+  const tapered = relative && isLog && Number.isFinite(fade) && fade > 0
+    && Number.isFinite(floorExp) && Number.isFinite(scale.vmin) && Number.isFinite(scale.vmax);
+  const stops = tapered
+    ? colorStops(palette, 48, (t) => clip01(
+      (scale.vmin + t * (scale.vmax - scale.vmin) - floorExp) / fade,
+    ))
+    : colorStops(palette);
+  // Two lines, not one: a one-line "10⁻³ a.u. — fades to not drawn" would
+  // widen the vertical ramp group past the 13.5-label-height right inset.
+  const bottom = tapered
+    ? `${label(scale.vmin)}${unit} —\nfades to not drawn`
+    : `${label(scale.vmin)}${unit}`;
+
   return {
     type: 'continuous',
+    seriesIndex,
     min: scale.vmin,
     max: scale.vmax,
     calculable: false,
@@ -191,18 +252,94 @@ export function visualMap(scale, palette, { bottomInset = 0 } = {}) {
     // be read off, and the units are what make the panel quotable: decade
     // exponents in GeV for density, a plain 0-1 weight for attention.
     text: [
-      `${label(scale.vmax)}${isLog ? ' GeV' : ''}`,
-      `${label(scale.vmin)}${isLog ? ' GeV' : ''}`,
+      `${title}${label(scale.vmax)}${unit}`,
+      bottom,
     ],
     textGap: 6,
     textStyle: {
       color: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
     },
-    inRange: { color: colorStops(palette) },
+    inRange: { color: stops },
+    // The continuous legend paints an out-of-range bar underneath the ramp,
+    // grey (#aaa) by default. Opaque stops hide it; faded ones let it show as
+    // a light patch where the card should be. It colours nothing else here:
+    // the raster's renderItem never reads a visual colour.
+    ...(tapered ? { outOfRange: { color: ['rgba(0,0,0,0)'] } } : {}),
     formatter: (value) => (isLog
-      ? `${label(value)} GeV`
+      ? `${label(value)}${unit}`
       : Number(value).toFixed(2)),
   };
+}
+
+/** The colour-bar title the directive specifies for the canonical panels. */
+export const RAMP_TITLE_RELATIVE = 'Average hit density (a.u.)';
+
+/**
+ * log₁₀ of a ramp's display floor, in the units of its `vmin`/`vmax`.
+ *
+ * The canonical density scale states its floor as `floor_ratio` (10⁻³ of
+ * ρ_ref); a scale that does not falls back to its own bottom, which is the
+ * same number on every relative ramp the server builds today. Shared by the
+ * raster's alpha table and the legend, so both fade from one floor. Returns
+ * null when neither is a finite number.
+ */
+export function floorExponent(scale) {
+  const ratio = scale?.floor_ratio;
+  if (Number.isFinite(ratio) && ratio > 0) return Math.log10(ratio);
+  return Number.isFinite(scale?.vmin) ? scale.vmin : null;
+}
+
+/** The floor as the reader writes it, e.g. 10⁻³. */
+export function floorLabel(scale) {
+  const exp = floorExponent(scale);
+  if (!Number.isFinite(exp)) return 'the floor';
+  const rounded = Math.round(exp * 10) / 10;
+  return `10${superscript(Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1))}`;
+}
+
+/**
+ * A graphic text titling a horizontal (print) relative ramp.
+ *
+ * Returns null when no separate title is needed: for the vertical screen ramp
+ * the title travels as the first line of the top label inside `visualMap`.
+ * `metrics.reservedBottom` is the caption height, which the ramp itself is
+ * also offset by, so title and ramp move together.
+ *
+ * A ramp whose floor is transparent says so in the title, because in print the
+ * floor is a hard contour and a reader would otherwise take it for the edge of
+ * the shower. The long wording gives way to a shorter one on a single-column
+ * figure it does not fit.
+ */
+export function rampTitle(scale, metrics) {
+  if (!scale || scale.unit !== 'a.u.' || THEME.rampOrient !== 'horizontal') return null;
+  const bottomInset = metrics.reservedBottom || 0;
+  let text = RAMP_TITLE_RELATIVE;
+  if (scale.floor === 'transparent') {
+    const floor = floorLabel(scale);
+    const long = `${RAMP_TITLE_RELATIVE} · below ${floor} not drawn`;
+    const width = Number.isFinite(metrics.width) ? metrics.width - 16 : Infinity;
+    text = fitsWidth(long, width, THEME.fontSmall, THEME.fontFamily)
+      ? long
+      : `${RAMP_TITLE_RELATIVE} · <${floor} not drawn`;
+  }
+  // The bar is 14 px thick with its labels beside it; sit just above it.
+  return {
+    type: 'text',
+    left: 'center',
+    bottom: bottomInset + 2 + 14 + 0.6 * THEME.fontSmall,
+    silent: true,
+    style: {
+      text,
+      fill: THEME.muted,
+      fontSize: THEME.fontSmall,
+      fontFamily: THEME.fontFamily,
+    },
+  };
+}
+
+function clip01(value) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(1, Math.max(0, value));
 }
 
 /** Render an exponent with Unicode superscripts, e.g. -4.2 -> ⁻⁴·². */
@@ -215,8 +352,14 @@ function superscript(text) {
   return String(text).split('').map((c) => map[c] || c).join('');
 }
 
-/** Shared axis styling for the spatial panels, labelled in millimetres. */
-export function spatialAxis(name, lo, hi) {
+/**
+ * Shared axis styling for the spatial panels, labelled in millimetres.
+ *
+ * `onZero` overrides the theme: the canonical panels pass false, because
+ * their windows are symmetric about the origin and an axis line anchored at
+ * zero would draw a crosshair through the middle of both showers.
+ */
+export function spatialAxis(name, lo, hi, { onZero } = {}) {
   return {
     type: 'value',
     name,
@@ -228,7 +371,7 @@ export function spatialAxis(name, lo, hi) {
     min: lo,
     max: hi,
     axisLine: {
-      onZero: THEME.axisOnZero,
+      onZero: onZero ?? THEME.axisOnZero,
       lineStyle: { color: THEME.border, width: THEME.lineAxis },
     },
     // Outward-facing ticks, stated rather than left to the default, because a
