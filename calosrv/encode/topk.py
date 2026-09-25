@@ -16,16 +16,27 @@ import numpy as np
 DEFAULT_K = 64
 
 
-def top_cells(matrix: np.ndarray, k: int = DEFAULT_K) -> list[dict[str, Any]]:
-    """The ``k`` largest cells, as ``{i, j, value}`` in descending order."""
+def top_cells(
+    matrix: np.ndarray, k: int = DEFAULT_K, signed: bool = False
+) -> list[dict[str, Any]]:
+    """The ``k`` largest cells, as ``{i, j, value}`` in descending order.
+
+    ``signed`` ranks by magnitude and keeps the sign, for a diverging channel
+    whose most negative bins matter as much as its most positive ones.
+    """
     values = np.asarray(matrix, dtype=np.float64)
-    finite = np.isfinite(values) & (values > 0)
+    if signed:
+        finite = np.isfinite(values) & (values != 0)
+        rank = np.abs(values)
+    else:
+        finite = np.isfinite(values) & (values > 0)
+        rank = values
     count = int(finite.sum())
     if count == 0:
         return []
 
     k = min(k, count)
-    flat = np.where(finite, values, -np.inf).ravel()
+    flat = np.where(finite, rank, -np.inf).ravel()
     # argpartition finds the k largest without sorting the whole matrix, which
     # matters when the native XY panel holds twenty thousand cells.
     picked = np.argpartition(flat, -k)[-k:]

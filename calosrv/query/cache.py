@@ -33,6 +33,19 @@ log = logging.getLogger(__name__)
 
 LAB_CACHE = "lab"
 CANONICAL_CACHE = "canonical"
+TRANS_CACHE = "trans"
+LOCAL_CACHE = "local"
+
+#: Default byte budget per named cache. The entry count alone does not bound
+#: memory once bundles differ in size (a canonical bundle is several times a
+#: laboratory one), and the Python heap - which these caches live in - sits
+#: outside DuckDB's memory_limit, inside the container's ~4 GB of headroom.
+DEFAULT_MAX_BYTES = {
+    LAB_CACHE: 256 * 1024 ** 2,
+    CANONICAL_CACHE: 256 * 1024 ** 2,
+    TRANS_CACHE: 128 * 1024 ** 2,
+    LOCAL_CACHE: 128 * 1024 ** 2,
+}
 
 
 class Cacheable(Protocol):
@@ -68,8 +81,11 @@ class CacheStats:
 class BundleCache:
     """Thread-safe LRU over bundle objects."""
 
-    def __init__(self, max_entries: int = 128, name: str = LAB_CACHE) -> None:
+    def __init__(
+        self, max_entries: int = 128, name: str = LAB_CACHE, max_bytes: int | None = None
+    ) -> None:
         self._max = max(1, max_entries)
+        self._max_bytes = max_bytes
         self.name = name
         self._entries: OrderedDict[tuple, Any] = OrderedDict()
         self._lock = threading.Lock()
@@ -98,10 +114,28 @@ class BundleCache:
         with self._lock:
             self._entries[key] = bundle
             self._entries.move_to_end(key)
-            while len(self._entries) > self._max:
+            while len(self._entries) > self._max or (
+                self._max_bytes is not None and len(self._entries) > 1
+                and sum(b.nbytes for b in self._entries.values()) > self._max_bytes
+            ):
                 self._entries.popitem(last=False)
                 self.stats.evictions += 1
         return bundle, False
+
+    def get_any(self, keys: list[tuple]) -> Any | None:
+        """The first of ``keys`` that is cached, counted as a hit; else ``None``.
+
+        A density request is the same for every network, so it can be served
+        from whichever network's bundle of the selection is already cached.
+        """
+        with self._lock:
+            for key in keys:
+                bundle = self._entries.get(key)
+                if bundle is not None:
+                    self._entries.move_to_end(key)
+                    self.stats.hits += 1
+                    return bundle
+        return None
 
     def invalidate_table(self, table_name: str) -> int:
         """Drop every entry for one experiment.
@@ -136,6 +170,7 @@ class BundleCache:
             "name": self.name,
             "entries": entries,
             "max_entries": self._max,
+            "max_bytes": self._max_bytes,
             "bytes": self.nbytes,
             **self.stats.as_dict(),
         }
@@ -145,14 +180,17 @@ _caches: dict[str, BundleCache] = {}
 _cache_lock = threading.Lock()
 
 
-def get_cache(max_entries: int = 128, name: str = LAB_CACHE) -> BundleCache:
-    """The named cache, created on first use with ``max_entries``."""
+def get_cache(
+    max_entries: int = 128, name: str = LAB_CACHE, max_bytes: int | None = None
+) -> BundleCache:
+    """The named cache, created on first use with ``max_entries`` and a byte budget."""
     cache = _caches.get(name)
     if cache is None:
         with _cache_lock:
             cache = _caches.get(name)
             if cache is None:
-                cache = BundleCache(max_entries, name=name)
+                budget = max_bytes if max_bytes is not None else DEFAULT_MAX_BYTES.get(name)
+                cache = BundleCache(max_entries, name=name, max_bytes=budget)
                 _caches[name] = cache
     return cache
 

@@ -42,12 +42,13 @@ from typing import Any
 import duckdb
 import numpy as np
 
-from ..db import naming
+from ..db import ddl, naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
 from ..grid.frame import CanonicalGrid
 from ..grid.lattice import Axis, Lattice
+from . import planes as planes_mod
 from .filters import FilterSpec
 from .projections import GID_XY, GID_XZ, GID_YZ, PLANES, Panel
 
@@ -371,6 +372,10 @@ class CanonicalBundle:
     query_ms: float
     n_hits: int
     sample_percent: float = 100.0
+    #: The network whose CAM planes the bundle holds (density ignores it).
+    model: str = "segmentation"
+    #: Outside-window sums of the energy-weighted CAM planes (``OUTSIDE_PLANES``).
+    plane_outside: dict[str, float] = field(default_factory=dict)
 
     def panel(self, name: str) -> Panel:
         return {"xy": self.xy, "yz": self.yz, "xz": self.xz}[name]
@@ -401,30 +406,32 @@ class CanonicalBundle:
         )
 
 
-#: Per-cell measures, as (column stem, SQL expression); ``None`` means count(*).
-_MEASURES: tuple[tuple[str, str | None], ...] = (
-    ("e", "energy"),
-    ("eg", "energy * CAST(ge AS DOUBLE)"),
-    ("g", "CAST(ge AS DOUBLE)"),
-    ("n", None),
-    ("efat", "energy * CAST(fa_true AS DOUBLE)"),
-    ("efap", "energy * CAST(fa_pred AS DOUBLE)"),
-)
-
-_PLANE_SOURCE = {
-    "e": "e", "eg": "eg", "g": "g", "n": "n", "efa_true": "efat", "efa_pred": "efap",
-}
+def _plane_columns(model: str) -> tuple[str, ...]:
+    """The projection columns the canonical planes of ``model`` read."""
+    return (
+        ddl.cam_column(model, "lab", "gradcam"), ddl.cam_column(model, "lab", "shapcam"),
+        ddl.seg_column("true", "lab"), ddl.seg_column("pred", "lab"),
+    )
 
 
-def _aggregates() -> str:
+def _aggregates(model: str) -> str:
     parts = []
-    for stem, expr in _MEASURES:
+    for plane, expr in planes_mod.measures("lab", model):
         agg = "count(*)" if expr is None else f"sum({expr})"
-        parts.append(f"{agg} FILTER (WHERE NOT outside) AS {stem}_all")
-        parts.append(f"{agg} FILTER (WHERE slab AND NOT outside) AS {stem}_slab")
+        parts.append(f"{agg} FILTER (WHERE NOT outside) AS {plane}_all")
+        parts.append(f"{agg} FILTER (WHERE slab AND NOT outside) AS {plane}_slab")
     parts.append("sum(energy) FILTER (WHERE outside) AS e_out")
     parts.append("count(*) FILTER (WHERE outside) AS n_out")
+    # The energy-weighted CAM planes' mass outside the window, so their
+    # conservation can be stated exactly: inside + outside = the hits' sum.
+    for plane, expr in planes_mod.measures("lab", model):
+        if plane in OUTSIDE_PLANES:
+            parts.append(f"sum({expr}) FILTER (WHERE outside) AS {plane}_out")
     return ",\n        ".join(parts)
+
+
+#: Planes whose outside-window mass is tracked besides energy.
+OUTSIDE_PLANES = ("eg", "esp", "esn")
 
 
 def build_sql(
@@ -433,6 +440,7 @@ def build_sql(
     grid: CanonicalGrid,
     k: int,
     sampled: bool = False,
+    model: str = "segmentation",
 ) -> str:
     """Render the canonical accumulation query.
 
@@ -442,6 +450,7 @@ def build_sql(
     """
     assert record.lattice is not None
     k = int(max(1, k))
+    carried = ", ".join(_plane_columns(model))
     event = quote(naming.event_table(record.table_name))
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
     return f"""
@@ -459,7 +468,7 @@ def build_sql(
         FROM range({k}) u, range({k}) v
     ), pts AS (
         SELECT p.iz, p.energy / {k * k} AS energy,
-               p.gc_sg_abs AS ge, p.fa_pred_abs AS fa_pred, p.fa_true_abs AS fa_true,
+               {", ".join("p." + c for c in _plane_columns(model))},
                list_extract($x_coords, p.ix + 1) + sub.fx * $wx - f.x0 AS xt,
                list_extract($y_coords, p.iy + 1) + sub.fy * $wy - f.y0 AS yt,
                f.c, f.s
@@ -468,19 +477,19 @@ def build_sql(
         WHERE {spec.where_sql("p")}
     ), rot AS (
         SELECT c * xt + s * yt AS xc, -s * xt + c * yt AS yc,
-               iz, energy, ge, fa_pred, fa_true
+               iz, energy, {carried}
         FROM pts
     ), binned AS (
         SELECT CAST(floor((xc + {grid.half_x!r}) / {grid.pitch!r}) AS INTEGER) AS jx,
                CAST(floor((yc + {grid.half_y!r}) / {grid.pitch!r}) AS INTEGER) AS jy,
-               iz, energy, ge, fa_pred, fa_true,
+               iz, energy, {carried},
                (iz <= {record.lattice.slab_iz}) AS slab,
                (xc < -{grid.half_x!r} OR xc >= {grid.half_x!r}
                 OR yc < -{grid.half_y!r} OR yc >= {grid.half_y!r}) AS outside
         FROM rot
     )
     SELECT GROUPING_ID(jx, jy, iz) AS gid, jx, jy, iz,
-        {_aggregates()}
+        {_aggregates(model)}
     FROM binned
     GROUP BY GROUPING SETS ((jx, jy), (jy, iz), (jx, iz))
     """
@@ -523,10 +532,11 @@ def fetch_canonical(
     footprint: tuple[float, float],
     sampled: bool = False,
     sample_percent: float = 100.0,
+    model: str = "segmentation",
 ) -> CanonicalBundle:
     """Run the accumulation scan and assemble the three canonical panels."""
     assert record.lattice is not None
-    sql = build_sql(record, spec, grid, k, sampled)
+    sql = build_sql(record, spec, grid, k, sampled, model)
     started = time.perf_counter()
     columns = con.execute(sql, _params(record, spec, footprint)).fetchnumpy()
     query_ms = (time.perf_counter() - started) * 1000.0
@@ -552,8 +562,8 @@ def fetch_canonical(
             return
         r = rows[keep]
         c = cols[keep]
-        for plane, stem in _PLANE_SOURCE.items():
-            values = np.nan_to_num(_column(columns, f"{stem}_{suffix}")[keep])
+        for plane in PLANES:
+            values = np.nan_to_num(_column(columns, f"{plane}_{suffix}")[keep])
             panel.planes[plane][r, c] = values
 
     scatter(xy, gid == GID_XY, jy, grid.n_y, jx, grid.n_x, "slab")
@@ -564,6 +574,10 @@ def fetch_canonical(
     # set, so summing e_out over one set counts it once.
     xz_rows = gid == GID_XZ
     energy_outside = float(np.nan_to_num(_column(columns, "e_out")[xz_rows]).sum())
+    plane_outside = {
+        plane: float(np.nan_to_num(_column(columns, f"{plane}_out")[xz_rows]).sum())
+        for plane in OUTSIDE_PLANES
+    }
     n_outside = int(np.nan_to_num(_column(columns, "n_out")[xz_rows]).sum())
     n_hits = int(round(xz.planes["n"].sum() / (k * k))) + int(round(n_outside / (k * k)))
 
@@ -573,7 +587,7 @@ def fetch_canonical(
         subsample_k=k, footprint=footprint,
         energy_outside=energy_outside, n_outside=n_outside,
         exact=not sampled, query_ms=query_ms, n_hits=n_hits,
-        sample_percent=sample_percent,
+        sample_percent=sample_percent, model=model, plane_outside=plane_outside,
     )
     log.debug(
         "Canonical scan for %s in %.1f ms (%s hits, k=%d, sampled=%s, %.4f%% outside)",
@@ -597,6 +611,7 @@ def scale_sample(bundle: CanonicalBundle, percent: float) -> CanonicalBundle:
         for plane in panel.planes.values():
             plane *= factor
     bundle.energy_outside *= factor
+    bundle.plane_outside = {k: v * factor for k, v in bundle.plane_outside.items()}
     bundle.n_outside = int(round(bundle.n_outside * factor))
     bundle.n_hits = int(round(bundle.n_hits * factor))
     bundle.sample_percent = percent
@@ -611,6 +626,7 @@ def explain(
     k: int,
     footprint: tuple[float, float],
     sampled: bool = False,
+    model: str = "segmentation",
 ) -> str:
     """``EXPLAIN`` output for the canonical query.
 
@@ -619,16 +635,21 @@ def explain(
     which a test documents so a DuckDB upgrade that started scanning the hit
     table twice would be caught.
     """
-    sql = build_sql(record, spec, grid, k, sampled)
+    sql = build_sql(record, spec, grid, k, sampled, model)
     rows = con.execute("EXPLAIN " + sql, _params(record, spec, footprint)).fetchall()
     return "\n".join(str(r[-1]) for r in rows)
 
 
 def cache_key(spec: FilterSpec, sampled: bool, grid: CanonicalGrid, k: int,
-              footprint: tuple[float, float]) -> tuple:
-    """Identity of a canonical bundle. ``table_name`` stays first for invalidation."""
+              footprint: tuple[float, float], model: str = "segmentation",
+              kind: str = "canonical", k_z: int = 1) -> tuple:
+    """Identity of a co-registered bundle. ``table_name`` stays first for invalidation.
+
+    The model is part of it - the CAM planes are the model's - but not the
+    channel, display, R or kernel, which all re-render from the same bundle.
+    """
     return (
-        *spec.cache_key(), sampled, "canonical",
+        *spec.cache_key(), sampled, kind,
         round(grid.pitch, 3), round(grid.half_x, 3), round(grid.half_y, 3),
-        int(k), round(footprint[0], 3), round(footprint[1], 3),
+        int(k), int(k_z), round(footprint[0], 3), round(footprint[1], 3), model,
     )

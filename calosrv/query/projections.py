@@ -38,6 +38,7 @@ from ..db import naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..grid.lattice import Axis, Lattice
+from . import planes as planes_mod
 from .filters import FilterSpec
 
 log = logging.getLogger(__name__)
@@ -48,8 +49,8 @@ GID_XY = 0b001  # grouped by (ix, iy); iz absent
 GID_XZ = 0b010  # grouped by (ix, iz); iy absent
 GID_YZ = 0b100  # grouped by (iy, iz); ix absent
 
-#: Per-cell measurement planes returned by the query.
-PLANES = ("e", "eg", "g", "n", "efa_true", "efa_pred")
+#: Per-cell measurement planes returned by the query (see ``planes.py``).
+PLANES = planes_mod.PLANES
 
 
 @dataclass
@@ -82,6 +83,8 @@ class NativeBundle:
     exact: bool
     query_ms: float
     n_hits: int
+    #: The network whose CAM planes the bundle holds (density ignores it).
+    model: str = "segmentation"
 
     def panel(self, name: str) -> Panel:
         return {"xy": self.xy, "yz": self.yz, "xz": self.xz}[name]
@@ -105,42 +108,34 @@ class NativeBundle:
         )
 
 
-_QUERY = """
+def build_sql(
+    record: ExperimentRecord, spec: FilterSpec, sampled: bool, model: str = "segmentation"
+) -> str:
+    """Render the projection query for one experiment, selection and network.
+
+    One scan with ``GROUP BY GROUPING SETS ((ix, iy), (iy, iz), (ix, iz))``;
+    every plane is summed over all rows and over the entrance slab
+    (``FILTER (WHERE slab)``), which the XY panel reads.
+    """
+    assert record.lattice is not None
+    aggregates = []
+    for plane, expr in planes_mod.measures("lab", model):
+        agg = "count(*)" if expr is None else f"sum({expr})"
+        aggregates.append(f"{agg} AS {plane}_all")
+        aggregates.append(f"{agg} FILTER (WHERE slab) AS {plane}_slab")
+    return f"""
 WITH sel AS (
-    SELECT ix, iy, iz, energy,
-           gc_sg_abs AS ge, fa_pred_abs AS fa_pred, fa_true_abs AS fa_true,
-           (iz <= {slab_iz}) AS slab
-    FROM {table}
-    WHERE {where}
+    SELECT *, (iz <= {record.lattice.slab_iz}) AS slab
+    FROM {quote(naming.proj_table(record.table_name, sampled=sampled))}
+    WHERE {spec.where_sql()}
 )
 SELECT
-    GROUPING_ID(ix, iy, iz)                                   AS gid,
+    GROUPING_ID(ix, iy, iz) AS gid,
     ix, iy, iz,
-    sum(energy)                                               AS e_all,
-    sum(energy) FILTER (WHERE slab)                           AS e_slab,
-    sum(energy * CAST(ge AS DOUBLE))                          AS eg_all,
-    sum(energy * CAST(ge AS DOUBLE)) FILTER (WHERE slab)      AS eg_slab,
-    sum(CAST(ge AS DOUBLE))                                   AS g_all,
-    sum(CAST(ge AS DOUBLE)) FILTER (WHERE slab)               AS g_slab,
-    count(*)                                                  AS n_all,
-    count(*) FILTER (WHERE slab)                              AS n_slab,
-    sum(energy * CAST(fa_true AS DOUBLE))                     AS efat_all,
-    sum(energy * CAST(fa_true AS DOUBLE)) FILTER (WHERE slab) AS efat_slab,
-    sum(energy * CAST(fa_pred AS DOUBLE))                     AS efap_all,
-    sum(energy * CAST(fa_pred AS DOUBLE)) FILTER (WHERE slab) AS efap_slab
+    {(','+chr(10)+'    ').join(aggregates)}
 FROM sel
 GROUP BY GROUPING SETS ((ix, iy), (iy, iz), (ix, iz))
 """
-
-
-def build_sql(record: ExperimentRecord, spec: FilterSpec, sampled: bool) -> str:
-    """Render the projection query for one experiment and selection."""
-    assert record.lattice is not None
-    return _QUERY.format(
-        table=quote(naming.proj_table(record.table_name, sampled=sampled)),
-        where=spec.where_sql(),
-        slab_iz=record.lattice.slab_iz,
-    )
 
 
 def _empty(shape: tuple[int, int]) -> dict[str, np.ndarray]:
@@ -152,12 +147,13 @@ def fetch_native(
     record: ExperimentRecord,
     spec: FilterSpec,
     sampled: bool = False,
+    model: str = "segmentation",
 ) -> NativeBundle:
     """Run the single-scan aggregation and assemble native-resolution matrices."""
     lattice = record.lattice
     assert lattice is not None
 
-    sql = build_sql(record, spec, sampled)
+    sql = build_sql(record, spec, sampled, model)
     started = time.perf_counter()
     columns = con.execute(sql, spec.params()).fetchnumpy()
     query_ms = (time.perf_counter() - started) * 1000.0
@@ -186,16 +182,8 @@ def fetch_native(
             return
         r = rows[mask].astype(np.intp)
         c = cols[mask].astype(np.intp)
-        source = {
-            "e": f"e_{suffix}",
-            "eg": f"eg_{suffix}",
-            "g": f"g_{suffix}",
-            "n": f"n_{suffix}",
-            "efa_true": f"efat_{suffix}",
-            "efa_pred": f"efap_{suffix}",
-        }
-        for plane, column in source.items():
-            values = np.asarray(columns[column], dtype=np.float64)[mask]
+        for plane in PLANES:
+            values = np.asarray(columns[f"{plane}_{suffix}"], dtype=np.float64)[mask]
             # FILTER aggregates yield NULL, not zero, for groups where no row
             # satisfied the filter; numpy renders those as NaN.
             np.nan_to_num(values, copy=False)
@@ -227,6 +215,7 @@ def fetch_native(
         exact=not sampled,
         query_ms=query_ms,
         n_hits=n_hits,
+        model=model,
     )
 
 

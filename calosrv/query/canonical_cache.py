@@ -47,6 +47,7 @@ def bundle_for(
     footprint: tuple[float, float],
     sampled: bool,
     percent: float,
+    model: str = "segmentation",
 ) -> tuple[CanonicalBundle, FrameStats, frame_mod.CanonicalGrid, int, bool]:
     """Frame statistics, window, sub-sampling factor and the (cached) bundle.
 
@@ -67,12 +68,12 @@ def bundle_for(
         k = min(k, frame_mod.PREVIEW_MAX_SUBSAMPLE)
 
     cache = cache_mod.get_cache(settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE)
-    key = canonical.cache_key(spec, sampled, grid, k, footprint)
+    key = canonical.cache_key(spec, sampled, grid, k, footprint, model)
 
     def compute() -> CanonicalBundle:
         bundle = canonical.fetch_canonical(
             con, record, spec, stats, grid, k, footprint,
-            sampled=sampled, sample_percent=percent,
+            sampled=sampled, sample_percent=percent, model=model,
         )
         if sampled:
             canonical.scale_sample(bundle, percent)
