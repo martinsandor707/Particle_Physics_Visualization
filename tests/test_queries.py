@@ -200,23 +200,24 @@ def test_two_event_slices_report_moments_but_draw_no_curve(cursor, record):
         assert ci > 0 and spread > 0 and ci != spread
 
 
-def test_performance_metrics_roll_up_exactly(cursor, record, ingested):
-    """Metrics from stored statistics must equal a direct scan of the archived hits."""
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_performance_metrics_roll_up_exactly(cursor, record, ingested, coord_system, frame):
+    """Every frame's segmentation cards equal a direct scan of the archived hits."""
     from calosrv.db import archive
 
     spec = filters.build(record)
-    report = performance.compute(cursor, record, spec)
+    report = performance.compute(cursor, record, spec, coord_system=coord_system)
 
     hits = archive.relation(ingested["settings"], record.table_name)
+    pred, true = f"segmentation_{frame}_pred", f"segmentation_{frame}_true"
     row = cursor.execute(
         f"""
         SELECT count(*),
-               count(*) FILTER (WHERE (segmentation_absolute_pred >= 0.5)
-                                    = (segmentation_absolute_true >= 0.5)),
-               sum(abs(CAST(segmentation_absolute_pred AS DOUBLE)
-                       - CAST(segmentation_absolute_true AS DOUBLE))),
-               sum(energy * abs(CAST(segmentation_absolute_pred AS DOUBLE)
-                                - CAST(segmentation_absolute_true AS DOUBLE))),
+               count(*) FILTER (WHERE ({pred} >= 0.5) = ({true} >= 0.5)),
+               sum(abs(CAST({pred} AS DOUBLE) - CAST({true} AS DOUBLE))),
+               sum(energy * abs(CAST({pred} AS DOUBLE) - CAST({true} AS DOUBLE))),
                sum(energy)
         FROM {hits}
         WHERE energy IS NOT NULL AND isfinite(energy) AND energy > 0
@@ -229,6 +230,39 @@ def test_performance_metrics_roll_up_exactly(cursor, record, ingested):
     assert report.regression.mae_energy_weighted == pytest.approx(
         wabs_err / e_dep, rel=1e-12
     )
+    cards = {c.id: c.estimate for c in report.cards}
+    assert cards["accuracy"].value == pytest.approx(correct / n, rel=1e-12)
+    assert cards["wmae"].value == pytest.approx(wabs_err / e_dep, rel=1e-12)
+    assert report.network == {"model": "segmentation", "frame": frame}
+
+
+@pytest.mark.parametrize("model", ["energy", "angle"])
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_residual_cards_equal_the_archived_per_shower_values(cursor, record, ingested, model,
+                                                            coord_system, frame):
+    from calosrv.db import archive
+
+    spec = filters.build(record)
+    report = performance.compute(cursor, record, spec, model=model, coord_system=coord_system)
+    hits = archive.relation(ingested["settings"], record.table_name)
+    cards = {c.id: c.estimate for c in report.cards}
+    for shower, is_a in (("a", True), ("b", False)):
+        # One prediction per (event, shower); 'A+B' hits carry shower B's values.
+        pred, true = (np.asarray(v, dtype=np.float64) for v in zip(*cursor.execute(
+            f"""SELECT CAST(max({model}_{frame}_pred) AS DOUBLE), CAST(max({model}_{frame}_true) AS DOUBLE)
+                FROM {hits} WHERE centroid_AB_distance IS NOT NULL
+                  AND (particle_origin = 'A') = {is_a}
+                GROUP BY event_number"""
+        ).fetchall()))
+        if model == "energy":
+            residual, card = (pred - true) / true, f"sigma_rel_{shower}"
+        else:
+            residual, card = (pred - true) * 1000.0, f"sigma_theta_{shower}"
+        got = cards[card]
+        assert got.n == pred.size
+        assert got.value == pytest.approx(float(np.std(residual, ddof=1)), rel=1e-6)
 
 
 def test_energy_weighted_mae_differs_from_the_unweighted_one(cursor, record):
@@ -241,7 +275,7 @@ def test_energy_weighted_mae_differs_from_the_unweighted_one(cursor, record):
 
 
 def test_metric_helpers_guard_division_by_zero():
-    empty = metric_mod.classification(0, 0, 0, 0, 0, 0)
+    empty = metric_mod.classification(0, 0, 0, 0, 0)
     assert empty.accuracy is None and empty.f1_a is None
 
 

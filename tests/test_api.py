@@ -148,11 +148,51 @@ def test_custom_slice_edges_are_honoured(client):
     assert body["slices"][-1]["hi"] is None
 
 
-def test_model_performance_flags_the_missing_angle_column(client):
-    """Absent model outputs must be reported, never fabricated."""
-    body = client.get("/api/model-performance", params={"model": "angle"}).json()
-    assert body["model"]["title"] == "Incident Angle Estimation Model"
-    assert any("No predicted-angle column" in w for w in body["meta"]["warnings"])
+@pytest.mark.parametrize("model,primary", [
+    ("segmentation", {"accuracy", "wmae"}),
+    ("energy", {"sigma_rel_a", "sigma_rel_b"}),
+    ("angle", {"sigma_theta_a", "sigma_theta_b"}),
+])
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_model_performance_serves_each_networks_cards(client, model, primary, coord_system, frame):
+    body = client.get("/api/model-performance",
+                      params={"model": model, "coord_system": coord_system}).json()
+    assert body["network"] == {"model": model, "frame": frame}
+    assert body["model"]["network"] == body["network"]
+    assert {c["id"] for c in body["cards"] if c["primary"]} == primary
+    for card in body["cards"]:
+        assert set(card) >= {"id", "label", "sub", "value", "unit", "primary", "n", "se",
+                             "interval", "note"}
+        if card["interval"] is not None:
+            assert card["interval"]["level"] == 0.95
+            assert card["interval"]["lo"] <= card["value"] <= card["interval"]["hi"]
+    assert not body["meta"]["warnings"]
+
+
+@pytest.mark.parametrize("route", ["/api/model-performance", "/api/energy-distribution"])
+@pytest.mark.parametrize("params,field", [
+    ({"coord_system": "polar"}, "coord_system"),
+    ({"model": "gpt"}, "model"),
+])
+def test_performance_and_energy_refuse_unknown_networks(client, route, params, field):
+    if route == "/api/energy-distribution" and field == "model":
+        pytest.skip("the energy panel is always the segmentation reconstruction")
+    response = client.get(route, params=params)
+    assert response.status_code == 422
+    assert response.json().get("field") == field
+
+
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_the_energy_panel_names_its_network_and_nothing_else(client, coord_system, frame):
+    base = client.get("/api/energy-distribution").json()
+    body = client.get("/api/energy-distribution", params={"coord_system": coord_system}).json()
+    assert body["meta"]["network"] == {"model": "segmentation", "frame": frame}
+    assert set(body) == set(base)
+    assert set(body["meta"]) == set(base["meta"])
 
 
 def test_model_performance_reports_both_error_weightings(client):
