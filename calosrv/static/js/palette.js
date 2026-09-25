@@ -66,13 +66,27 @@ export function lookupTable(name) {
   return CACHE.get(key);
 }
 
-/** CSS colour stops for the ECharts visualMap legend. */
-export function colorStops(name, count = 12) {
+/**
+ * CSS colour stops for the ECharts visualMap legend.
+ *
+ * `alphaAt(t)`, given, returns the opacity at ramp position t in [0, 1]; a stop
+ * below 1 is emitted as rgba so the legend can show the same fade to
+ * transparent that the raster draws at its floor. ECharts interpolates the
+ * alpha between rgba stops (measured on the vendored 5.5.1 bundle: the SVG
+ * gradient carries `stop-opacity` from 0 to 0.99 across the bottom stops).
+ * Without it the output is the plain rgb list it always was.
+ */
+export function colorStops(name, count = 12, alphaAt = null) {
   const table = lookupTable(name);
   const stops = [];
   for (let i = 0; i < count; i += 1) {
-    const index = Math.round((i / (count - 1)) * 255) * 3;
-    stops.push(`rgb(${table[index]},${table[index + 1]},${table[index + 2]})`);
+    const t = i / (count - 1);
+    const index = Math.round(t * 255) * 3;
+    const rgb = `${table[index]},${table[index + 1]},${table[index + 2]}`;
+    const alpha = alphaAt ? alphaAt(t) : 1;
+    stops.push(Number.isFinite(alpha) && alpha < 1
+      ? `rgba(${rgb},${Math.max(0, alpha).toFixed(3)})`
+      : `rgb(${rgb})`);
   }
   return stops;
 }

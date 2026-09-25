@@ -31,6 +31,10 @@ conserve their total. Intensive quantities (mean Grad-CAM attention) must never
 be resampled directly - averaging an average weights cells equally regardless of
 how much energy each holds. Resample the numerator and the denominator
 separately and divide afterwards; :func:`resample_ratio` does exactly that.
+
+The conservative smoothing kernels of the canonical Continuous Field (box
+convolved with a Gaussian, and the bilinear tent) are built from this overlap
+operator in ``grid/kernel.py`` and applied through the same two functions.
 """
 
 from __future__ import annotations

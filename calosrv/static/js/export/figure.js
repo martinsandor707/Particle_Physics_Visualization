@@ -48,7 +48,7 @@ import { THEME, restoreScreenTheme, axisPadding } from '../scale.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
 import {
-  buildCaption, captionToSvg, describeSelection, describeView, fitTableRows,
+  buildCaption, captionToSvg, describeSelection, describeView, displayOf, fitTableRows,
 } from './caption.js';
 import { downloadBlob, dataUrlToBlob } from './download.js';
 import { figureName } from './filename.js';
@@ -82,6 +82,14 @@ export function exportPanel(panel, {
   // below needs the caption's items and the plot height they sit under.
   let caption = null;
   let metrics = null;
+  // What the displayed bins are - R, merge, kernel - as the payload states
+  // them, for the provenance line and the file name. Read before the
+  // synchronous block; it depends on nothing the theme swap changes. The
+  // energy panel has no spatial bins, so it names none (`spatial: false`).
+  const spatial = panel.kind === 'projection';
+  const display = spatial
+    ? displayOf(panel.lastOpts?.resolution, frame ?? panel.lastOpts?.frame, panel.payload)
+    : null;
 
   try {
     chart = echarts.init(host, null, {
@@ -96,7 +104,7 @@ export function exportPanel(panel, {
       metrics = panel.exportMetrics(width);
       caption = buildCaption({
         title,
-        provenance: provenanceFor(panel, state, experiment, selection, frame),
+        provenance: provenanceFor(panel, state, experiment, selection, frame, display, spatial),
         footnote,
         table: tableFor(panel, width),
         disclosure,
@@ -140,7 +148,7 @@ export function exportPanel(panel, {
       ], { type: mime })
       : dataUrlToBlob(serialized);
 
-    downloadBlob(blob, figureName(panelId, format, { state }));
+    downloadBlob(blob, figureName(panelId, format, { state, display, spatial }));
   } finally {
     if (chart) chart.dispose();
     host.remove();
@@ -181,19 +189,32 @@ function buildPrintOption(panel, { width, height, reservedBottom, graphic }) {
 /**
  * The density raster, upscaled for print by an integer factor.
  *
- * Nearest-neighbour, never smoothed. Each pixel here is one detector cell - a
- * discrete measurement - so interpolating between them would invent values
- * across a lattice CLAUDE.md section 2 specifically forbids resampling by
- * point-binning or aliasing. An integer factor also keeps every cell boundary
- * on a whole pixel, so the upscale adds resolution to the *chrome* around the
- * image without blurring the image itself.
+ * Nearest-neighbour, never smoothed. Each pixel block here is one *payload
+ * bin*: a detector cell in the lab frame, a raw 20 mm accumulation bin in the
+ * canonical Native Grid, a reconstructed display bin in the Continuous Field.
+ * Every one of them is a value the server computed; interpolating between
+ * them would invent values the payload does not contain - and on the lab
+ * lattice would resample it by point interpolation, which CLAUDE.md section 2
+ * forbids. The smoothing the Continuous Field shows was done by a stated,
+ * conservative kernel on the server, not by the image scaler. An integer
+ * factor also keeps every bin boundary on a whole pixel, so the upscale adds
+ * resolution to the *chrome* around the image without blurring the image.
+ *
+ * So the raster is taken at one pixel per payload bin (`screen: false`),
+ * without the on-screen enlargements `renderRaster` applies to the Native
+ * Grid and to the depth axis of the Continuous Field, and enlarged here by one
+ * factor for both axes.
  */
 function printRaster(panel, width) {
-  const base = renderRaster(panel.payload, panel.palette);
+  const base = renderRaster(panel.payload, panel.palette, { screen: false });
   const target = width * PX_RATIO;
+  // The cap is on the long side. A depth raster is 60 layer columns by a few
+  // hundred transverse rows, so a factor chosen from its width alone grew its
+  // height to 7 000-17 000 px.
+  const longSide = Math.max(1, base.canvas.width, base.canvas.height);
   const factor = Math.max(1, Math.min(
     Math.floor(target / Math.max(1, base.canvas.width)),
-    Math.floor(MAX_RASTER_PX / Math.max(1, base.canvas.width)),
+    Math.floor(MAX_RASTER_PX / longSide),
   ));
   if (factor <= 1) return base;
 
@@ -211,14 +232,16 @@ function offsetCaption(graphic, plotHeight) {
   return graphic.map((item) => ({ ...item, top: item.top + plotHeight }));
 }
 
-function provenanceFor(panel, state, experiment, selection, frameBlock = null) {
+function provenanceFor(
+  panel, state, experiment, selection, frameBlock = null, display = null, spatial = true,
+) {
   // The frame block rides on the top-level projections response, which the
   // caller passes in; a projection panel only holds its own panel payload.
   // Fall back to anything the panel itself carries, and to null for the lab.
   const frame = frameBlock
     ?? (panel.kind === 'energy' ? panel.lastPayload?.frame : panel.payload?.frame)
     ?? null;
-  const parts = [describeSelection(state, experiment, selection, frame)];
+  const parts = [describeSelection(state, experiment, selection, frame, display, { spatial })];
   if (typeof panel.currentView === 'function') {
     const view = panel.currentView();
     const axes = panel.payload?.axes;

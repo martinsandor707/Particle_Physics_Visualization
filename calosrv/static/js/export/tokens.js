@@ -122,6 +122,19 @@ export const PRINT_TOKENS = {
    * x axis it costs height instead, which a figure has more of to spare. */
   rampOrient: 'horizontal',
   legendWrap: true,
+
+  /* Canonical-frame overlay chrome, deliberately outside PRINT_INK: none of it
+   * is text, and the separation rule is a reference line that must stay
+   * quieter than the data, so it is not held to the 4.5:1 ink floor.
+   *
+   * The screen rule is translucent white, which vanishes on paper and carries
+   * an alpha channel PDF renderers composite unpredictably; a mid grey
+   * replaces it. Anchors print at full opacity for the same reason. The floor
+   * fade is 0: print shows a hard contour at the 10⁻³ display floor, and the
+   * caption names it, rather than a gradient a printer may band or drop. */
+  separationRule: '#6b7280',
+  anchorOpacity: 1,
+  floorFadeDecades: 0,
 };
 
 /** Logical pixels for a figure of the given printed width. */

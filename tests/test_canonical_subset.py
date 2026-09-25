@@ -112,6 +112,93 @@ def test_payload_budget_holds_on_a_wide_window(subset, mode, resolution):
     assert out["resolution"]["r_z"] == bundle.grid.n_z
 
 
+def _response(subset, **overrides):
+    from calosrv.api import frame_canonical
+    from calosrv.models.common import Timer
+
+    record = subset["record"]
+    params = dict(
+        resolution=150, display=MODE_CONTINUOUS, channel="density", weighting="energy",
+        rho_norm="selection", preview=False,
+    )
+    params.update(overrides)
+    spec = params.pop("spec", None) or filters.build(record)
+    with subset["database"].read_cursor() as con:
+        return frame_canonical.build_response(
+            con, record, spec, subset["settings"], timer=Timer(), **params
+        )
+
+
+def test_the_full_selection_response_fits_the_wire_budget(subset):
+    """The whole response, envelope included, measured as the route sends it."""
+    from calosrv.query import reconstruct
+
+    body = _response(subset)
+    assert density.wire_size(body) < 100_000
+    expected = reconstruct.choose_kernel(MODE_CONTINUOUS, body["frame"]["n_events"])
+    assert body["frame"]["reconstruction"]["kernel"] == expected.name
+    native = _response(subset, display=MODE_NATIVE)
+    assert density.wire_size(native) < 100_000
+
+
+def test_a_sampled_continuous_preview_is_approximate_and_fits_the_budget(subset, monkeypatch):
+    """A smoke test of the drag preview in Continuous Field at production scale.
+
+    Marked approximate, its sub-cell factor capped, its kernel chosen from the
+    event count of the event table - the only count a bundle carries, sampled
+    or not - and inside the wire budget.
+    """
+    from calosrv.query import reconstruct, sampling
+
+    monkeypatch.setattr(sampling, "SAMPLE_THRESHOLD_ROWS", 0)
+    body = _response(subset, preview=True)
+    assert body["meta"]["exact"] is False
+    assert body["frame"]["subsample_k"] <= frame.PREVIEW_MAX_SUBSAMPLE
+    n_events = body["frame"]["n_events"]
+    record = subset["record"]
+    with subset["database"].read_cursor() as con:
+        exact = canonical.frame_statistics(con, record, filters.build(record).clamped(record))
+    assert n_events == exact.n_events
+    expected = reconstruct.choose_kernel(MODE_CONTINUOUS, exact.n_events)
+    assert body["frame"]["reconstruction"]["kernel"] == expected.name
+    assert density.wire_size(body) < 100_000
+
+
+def _narrow_slice(subset, n_target=5):
+    """A D window holding about ``n_target`` events, from the middle of the subset."""
+    record = subset["record"]
+    event = quote(naming.event_table(record.table_name))
+    with subset["database"].read_cursor() as con:
+        d = sorted(row[0] for row in con.execute(f"SELECT d FROM {event} WHERE d IS NOT NULL").fetchall())
+    i = len(d) // 2
+    return filters.build(record, d_min=float(d[i]), d_max=float(d[i + n_target - 1]))
+
+
+@pytest.mark.parametrize("resolution", [300, 400, 512])
+def test_a_cached_high_resolution_request_stays_inside_the_latency_budget(subset, resolution):
+    """Plan section 10.6 at the resolutions the slider reaches, on a narrow slice.
+
+    A narrow slice has a narrow X′Y′ window and so a fine display pitch: every
+    guard attempt above the served R is large. Rendering them all, twice, took
+    309 ms at R = 400 on the production N = 3 slice. The guard now steps past
+    attempts whose rasters alone are over, and the whole-response re-render
+    resumes where the first pass stopped.
+    """
+    spec = _narrow_slice(subset)
+    _response(subset, spec=spec)  # warm the canonical cache
+    timings, bodies = [], []
+    for _ in range(3):
+        body = _response(subset, spec=spec, resolution=resolution)
+        assert body["meta"]["cached"] is True
+        timings.append(body["meta"]["total_ms"])
+        bodies.append(body)
+    assert float(np.median(timings)) < 100.0, timings
+    served = bodies[-1]["meta"]["resolution"]["r_x"]
+    at_default = _response(subset, spec=spec)["meta"]["resolution"]["r_x"]
+    assert served >= at_default, "asking for more detail must not serve less than the default"
+    assert density.wire_size(bodies[-1]) < 100_000
+
+
 def test_dataset_reference_is_the_full_selection_peak(subset):
     record = subset["record"]
     with subset["database"].read_cursor() as con:

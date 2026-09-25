@@ -97,6 +97,111 @@ def test_gradcam_scale_is_always_zero_to_one():
     assert colour.scale == "linear"
 
 
+def _relative(matrix, floor=scale_mod.FLOOR_TRANSPARENT):
+    return scale_mod.relative_log_scale(np.asarray(matrix, dtype=float), 1.0, 3.0, "selection", floor=floor)
+
+
+def test_the_canonical_floor_code_is_distinct_from_empty_and_from_the_ramp():
+    """Code 0 empty, code 1 populated-but-below-floor, the ramp from code 2."""
+    matrix = np.array([[0.0, 1e-5, 1e-3, 1.0]])
+    colour = _relative(matrix)
+    codes = quantize.quantize(matrix, colour, below_code=quantize.BELOW_CODE)
+    assert codes.tolist() == [[0, 1, 2, 255]]
+    assert quantize.ramp_min_code(quantize.BELOW_CODE) == 2
+    assert quantize.ramp_min_code(None) == quantize.MIN_CODE == 1
+    # An explicit mask adds populated bins to the floor code, never empty ones.
+    masked = quantize.quantize(matrix, colour, below_code=1, below_mask=np.array([[True, False, False, True]]))
+    assert masked.tolist() == [[0, 1, 2, 1]]
+
+
+def _legacy_quantize(matrix, scale):
+    """The quantiser exactly as it stood before the canonical floor code."""
+    values = np.asarray(matrix, dtype=np.float64)
+    codes = np.zeros(values.shape, dtype=np.uint8)
+    if scale.scale == scale_mod.SCALE_LOG:
+        populated = np.isfinite(values) & (values > 0)
+        transformed = np.full(values.shape, scale.vmin, dtype=np.float64)
+        np.log10(values, out=transformed, where=populated)
+    else:
+        populated = np.isfinite(values)
+        transformed = np.where(populated, values, scale.vmin)
+    if not populated.any():
+        return codes
+    span = scale.vmax - scale.vmin
+    if span <= 0:
+        codes[populated] = 255
+        return codes
+    normalised = np.clip((transformed - scale.vmin) / span, 0.0, 1.0)
+    codes[populated] = (np.rint(normalised * 254) + 1)[populated].astype(np.uint8)
+    return codes
+
+
+def test_lab_quantisation_is_byte_identical_to_the_legacy_formula():
+    rng = np.random.default_rng(29)
+    energy = 10 ** rng.uniform(-14, -1, size=(60, 80))
+    energy[rng.random(energy.shape) < 0.3] = 0.0
+    attention = rng.uniform(0, 1, size=(60, 80))
+    attention[rng.random(attention.shape) < 0.2] = np.nan
+    for matrix, colour in (
+        (energy, scale_mod.resolve_scale(energy, lock=False)),
+        (energy, scale_mod.resolve_scale(energy, mode=scale_mod.MODE_PERCENTILE, lock=False)),
+        (attention, scale_mod.resolve_scale(attention, channel="gradcam")),
+    ):
+        assert quantize.quantize(matrix, colour).tobytes() == _legacy_quantize(matrix, colour).tobytes()
+
+
+def test_dequantize_honours_the_shifted_ramp():
+    rng = np.random.default_rng(31)
+    matrix = 10 ** rng.uniform(-4.0, 0.0, size=(30, 30))
+    colour = _relative(matrix)
+    codes = quantize.quantize(matrix, colour, below_code=quantize.BELOW_CODE)
+    recovered = quantize.dequantize(codes, colour, min_code=2)
+    step = (colour.vmax - colour.vmin) / (quantize.MAX_CODE - 2)
+    drawn = codes >= 2
+    assert np.isnan(recovered[~drawn]).all()
+    error = np.abs(np.log10(recovered[drawn]) - np.log10(matrix[drawn]))
+    assert error.max() <= 0.5 * step + 1e-12
+    assert quantize.occupancy(codes, min_code=2) == pytest.approx(drawn.mean())
+
+
+def test_the_floor_mask_counts_exactly_what_the_scale_calls_clipped():
+    rng = np.random.default_rng(37)
+    matrix = 10 ** rng.uniform(-6.0, 0.0, size=(40, 40))
+    matrix[rng.random(matrix.shape) < 0.25] = 0.0
+    colour = _relative(matrix)
+    mask = quantize.below_floor_mask(matrix, colour)
+    assert int(mask.sum()) == colour.n_below > 0
+    codes = quantize.quantize(matrix, colour, below_code=1)
+    assert int((codes == 1).sum()) == colour.n_below
+    assert int((codes == 0).sum()) == colour.n_empty
+
+
+def test_the_relative_scale_states_its_floor_only_when_asked():
+    matrix = np.array([[1e-5, 0.5, 1.0 + 1e-15]])
+    with_floor = _relative(matrix).as_dict()
+    assert with_floor["floor"] == "transparent" and with_floor["floor_ratio"] == pytest.approx(1e-3)
+    assert with_floor["vmax"] == 0.0, "a peak a few ulps above the reference is the reference"
+    assert "floor" not in _relative(matrix, floor=None).as_dict()
+    assert "floor" not in scale_mod.resolve_scale(matrix, lock=False).as_dict()
+    assert "floor" not in scale_mod.resolve_scale(matrix, channel="gradcam").as_dict()
+
+
+def test_encoded_keys_change_only_when_a_floor_code_is_given():
+    matrix = np.array([[0.0, 1e-5], [1e-2, 1.0]])
+    edges = np.array([0.0, 1.0, 2.0])
+    lab = encode_matrix(matrix, scale_mod.resolve_scale(matrix, lock=False), edges, edges, "y", "x", "xy", native=True)
+    assert "below_code" not in lab and "below_floor_cells" not in lab
+    assert lab["min_code"] == 1
+    canonical = encode_matrix(matrix, _relative(matrix), edges, edges, "y", "x", "xy", native=True, below_code=1)
+    assert set(canonical) - set(lab) == {"below_code", "below_floor_cells"}
+    assert canonical["min_code"] == 2 and canonical["below_code"] == 1
+    assert canonical["below_floor_cells"] == 1
+    raw = np.frombuffer(base64.b64decode(canonical["data"]), dtype=np.uint8)
+    # 1e-2 is a third of the way up three decades: rint(253 / 3) + 2.
+    assert raw.tolist() == [0, 1, 86, 255]
+    assert canonical["occupancy"] == pytest.approx(0.5)
+
+
 def test_topk_returns_the_largest_cells_in_order():
     matrix = np.arange(100, dtype=float).reshape(10, 10)
     cells = topk.top_cells(matrix, k=5)

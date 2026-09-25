@@ -216,8 +216,19 @@ function escapeXml(value) {
  * rather than the detector lattice - there is no lattice to be native to once
  * every event has been rotated - and the channel is a per-event average
  * density in arbitrary units, not a summed energy.
+ *
+ * `display` is the descriptor `displayOf` reads from the payload. The grid is
+ * worded from it rather than from the controls, because the payload guard may
+ * have lowered R below the slider, and a figure must name the bins it shows.
+ * The controls are consulted only when no descriptor is given.
+ *
+ * `spatial: false` is for a figure with no spatial bins - the energy panel -
+ * whose content depends on neither the frame, the grid, R, the kernel nor the
+ * spatial channel: naming them would describe bins the figure does not show.
  */
-export function describeSelection(state, experiment, selection, frame = null) {
+export function describeSelection(
+  state, experiment, selection, frame = null, display = null, { spatial = true } = {},
+) {
   const parts = [];
   if (experiment) {
     parts.push(`Experiment ${experiment.display_name || experiment.table_name}`);
@@ -243,19 +254,37 @@ export function describeSelection(state, experiment, selection, frame = null) {
   if (state.get('include_undefined_d')) parts.push('including events with undefined D');
 
   const canonical = frame?.kind === 'canonical';
-  if (canonical) {
-    const pitch = Number.isFinite(frame.pitch_mm) ? `${frame.pitch_mm} mm grid` : 'grid';
-    const resampled = state.get('display') === 'continuous'
-      ? `, resampled to R = ${state.get('resolution')}`
-      : '';
-    parts.push(`canonical centre-of-separation frame, ${pitch}${resampled}`);
+  const mode = display?.mode ?? state.get('display');
+  const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
+  if (!spatial) {
+    // Nothing below describes this figure.
+  } else if (canonical) {
+    const pitch = Number.isFinite(frame.pitch_mm) ? frame.pitch_mm : null;
+    const kernel = display ? kernelPhrase(display) : null;
+    if (mode === 'native') {
+      const merged = display?.merge > 1 && Number.isFinite(display.displayPitch)
+        ? `, merged ${display.merge}× to ${fmtMm(display.displayPitch)} mm`
+        : '';
+      parts.push(`canonical centre-of-separation frame, raw ${pitch ?? 20} mm bins `
+        + `(Native Grid, no reconstruction${merged})`);
+    } else if (kernel) {
+      const bins = Number.isFinite(display.displayPitch)
+        ? `${fmtMm(display.displayPitch)} mm display bins` : 'display bins';
+      parts.push(`canonical centre-of-separation frame, ${kernel} on ${bins} (R = ${r})`);
+    } else {
+      // A payload that names no kernel: say what is known, nothing more.
+      const grid = pitch !== null ? `${pitch} mm accumulation grid` : 'accumulation grid';
+      parts.push(`canonical centre-of-separation frame, ${grid}, Continuous Field at R = ${r}`);
+    }
   } else {
-    parts.push(state.get('display') === 'native'
+    parts.push(mode === 'native'
       ? 'native detector lattice'
-      : `continuous field, R = ${state.get('resolution')}`);
+      : `continuous field, R = ${r}`);
   }
 
-  if (state.get('channel') !== 'density') {
+  if (!spatial) {
+    // The channel colours the spatial panels only.
+  } else if (state.get('channel') !== 'density') {
     parts.push('Grad-CAM attention');
   } else {
     parts.push(canonical ? 'average hit density (a.u.)' : 'summed deposited energy');
@@ -266,6 +295,55 @@ export function describeSelection(state, experiment, selection, frame = null) {
       + `${plural(selection.n_hits, 'hit')}`);
   }
   return `${parts.join(' · ')}.`;
+}
+
+/**
+ * What a displayed bin is, read from the payload rather than from the controls.
+ *
+ * `resolution` is the response's `meta.resolution` (retained by each panel as
+ * `lastOpts.resolution`), `frame` its `frame` block, `panelPayload` the panel.
+ * Returns `{mode, r, displayPitch, merge, kernel, sigma, canonical}`; any
+ * field the payload does not carry is null (merge 1), so callers can fall
+ * back field by field. The kernel is 'none' for a raw-bin display.
+ */
+export function displayOf(resolution, frame = null, panelPayload = null) {
+  const res = resolution || {};
+  const canonical = frame?.kind === 'canonical';
+  const recon = canonical ? (frame.reconstruction ?? null) : null;
+  const kernel = res.kernel?.type ?? recon?.kernel ?? panelPayload?.kernel ?? null;
+  const sigma = res.kernel?.sigma_mm ?? recon?.sigma_mm ?? null;
+  return {
+    mode: res.mode ?? recon?.display ?? null,
+    r: Number.isFinite(res.r_x) ? res.r_x : null,
+    displayPitch: Number.isFinite(res.display_pitch_mm) ? res.display_pitch_mm : null,
+    merge: Number.isFinite(res.merge) ? res.merge : 1,
+    kernel,
+    sigma: Number.isFinite(sigma) ? sigma : null,
+    canonical,
+  };
+}
+
+/**
+ * The reconstruction kernel as a phrase, or null for a raw-bin display.
+ *
+ * Gaussian names its σ, since the width is what a reader needs to judge how
+ * much the picture was smoothed; the tent's width is fixed by the grid.
+ */
+export function kernelPhrase(display) {
+  switch (display?.kernel) {
+    case 'gaussian':
+      return Number.isFinite(display.sigma)
+        ? `Gaussian kernel, σ = ${fmtMm(display.sigma)} mm`
+        : 'Gaussian kernel';
+    case 'bilinear': return 'bilinear (tent) kernel';
+    case 'box': return 'box (area-weighted) kernel';
+    default: return null;
+  }
+}
+
+/** Millimetres to at most one decimal: 10 → "10", 4.4 → "4.4". */
+function fmtMm(value) {
+  return Number.isInteger(value) ? String(value) : Number(value).toFixed(1);
 }
 
 /** The displayed window, so a zoomed figure states the region it shows. */

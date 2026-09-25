@@ -123,13 +123,17 @@
               aria-label="Spatial resolution notices">i</button>
     </h2>
 
+    <!-- The label text is rewritten per frame by syncDisplayControls() in
+         main.js: "Native" is the detector lattice in the lab frame and the raw
+         20 mm accumulation grid in the canonical one. The markup carries the
+         canonical wording because that is the frame the interface opens in. -->
     <label class="choice">
-      <input type="radio" name="display" value="native" checked>
-      Native Detector Lattice <span class="muted">(hardware truth)</span>
+      <input type="radio" name="display" value="native">
+      <span id="display-label-native">Native Grid <span class="muted">(raw 20 mm bins, audit)</span></span>
     </label>
     <label class="choice">
-      <input type="radio" name="display" value="continuous">
-      Continuous Field <span class="muted">(anti-aliased splatting)</span>
+      <input type="radio" name="display" value="continuous" checked>
+      <span id="display-label-continuous">Continuous Field <span class="muted">(kernel reconstruction)</span></span>
     </label>
 
     <div class="control is-disabled" id="ctl-resolution" style="margin-top:10px">
