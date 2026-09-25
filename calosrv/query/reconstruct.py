@@ -81,9 +81,14 @@ def blur_rms(width: float, k: int, bin_spread: float, bin_pitch: float) -> float
     A display bin coarser than ``p`` adds its own quantisation, which the
     caption states separately as the display pitch.
     """
-    k = max(1, int(k))
     w = float(width)
     p = float(bin_pitch)
+    if k is None:
+        # Exact area-weighted box overlap (the translated frame): the footprint
+        # is integrated, not sampled, so its variance is the continuous
+        # w^2 / 12 and there is no point-binning term.
+        return math.sqrt(w * w / 12.0 + float(bin_spread) ** 2)
+    k = max(1, int(k))
     return math.sqrt(
         w * w * (1.0 - 1.0 / (k * k)) / 12.0 + p * p / 12.0 + float(bin_spread) ** 2
     )
@@ -96,13 +101,18 @@ def _gate(kernel: Kernel, n_events: int) -> str:
     return f"used from N = {gate} co-registered events (here N = {n_events:,})"
 
 
-def kernel_sentence(kernel: Kernel, n_events: int, pitch: float) -> str:
+def kernel_sentence(
+    kernel: Kernel, n_events: int, pitch: float,
+    axes: tuple[str, str] = RECONSTRUCTED_AXES,
+    depth_clause: str = "depth keeps its native sampling layers",
+) -> str:
     """One sentence naming the Continuous Field kernel, its spread and its N gate.
 
     The switch is described qualitatively, because this sentence travels with
     every experiment's payload: on production v37 it raises the displayed X′Y′
     peak by 6-7% (the N = 49 / 50 pair, ``grid/frame.py``), but that figure
-    belongs to that dataset, not to the demo or to an upload.
+    belongs to that dataset, not to the demo or to an upload. ``axes`` and
+    ``depth_clause`` word it for the frame the panels are drawn in.
     """
     gauss = kernel_mod.gaussian(frame_mod.SMOOTH_SIGMA_MM)
     tent = kernel_mod.BILINEAR
@@ -123,11 +133,11 @@ def kernel_sentence(kernel: Kernel, n_events: int, pitch: float) -> str:
             f"{gauss.sigma_mm:g} mm ({gauss.bin_spread_rms(pitch):.1f} mm RMS) is used instead"
         )
     return (
-        f"Continuous Field reconstructs x′ and y′ only with {body}, {_gate(kernel, n_events)}; "
+        f"Continuous Field reconstructs {axes[0]} and {axes[1]} only with {body}, {_gate(kernel, n_events)}; "
         f"{other}, the tent being {100.0 * narrower:.0f}% narrower, so the displayed peak is "
         "higher on the tent side of the switch: compare selections on the same side of it. "
         f"Energy is conserved, no displayed bin exceeds the raw {pitch:.0f} mm-grid peak, and "
-        "depth keeps its native sampling layers."
+        f"{depth_clause}."
     )
 
 
@@ -235,14 +245,19 @@ def reconstruction_report(plan: Any, bundle: Any, panels: dict[str, dict[str, An
     # width sets both the kernel's spread and the point-binning term.
     spread_pitch = plan.pitch_mm if kernel.smooths else plan.display_pitch_mm
     spread = kernel.bin_spread_rms(spread_pitch)
-    k = int(bundle.subsample_k)
+    regime = getattr(bundle, "splat_regime", "subdeposit2d")
+    k = None if regime == "box_overlap" else int(bundle.subsample_k)
+    symbols = getattr(bundle, "symbols", None) or {"x": "x′", "y": "y′"}
     w_x, w_y = bundle.footprint
     n_events = int(bundle.n_events)
     blur_x = blur_rms(w_x, k, spread, spread_pitch)
     blur_y = blur_rms(w_y, k, spread, spread_pitch)
 
     if kernel.smooths:
-        note = kernel_sentence(kernel, n_events, plan.pitch_mm)
+        note = kernel_sentence(
+            kernel, n_events, plan.pitch_mm, (symbols["x"], symbols["y"]),
+            getattr(bundle, "depth_clause", None) or "depth keeps its native sampling layers",
+        )
     else:
         note = (
             f"Native Grid: the raw {plan.pitch_mm:.0f} mm accumulation bins with no "
@@ -253,9 +268,18 @@ def reconstruction_report(plan: Any, bundle: Any, panels: dict[str, dict[str, An
                 f"; merged {plan.merge}× to {plan.display_pitch_mm:.0f} mm by the payload guard"
             )
         note += "."
+    if regime == "box_overlap":
+        splat_phrase = "the exact area-weighted overlap of each cell's footprint"
+    elif regime == "subdeposit3d":
+        splat_phrase = (
+            f"the {k} × {k} × {int(getattr(bundle, 'k_z', 1))} rotated footprint sub-deposits"
+        )
+    else:
+        splat_phrase = f"the {k} × {k} footprint splat"
     note += (
-        f" Total transverse blur including the {k} × {k} footprint splat and the "
-        f"{spread_pitch:.0f} mm binning: {blur_x:.1f} mm RMS in x′, {blur_y:.1f} mm in y′."
+        f" Total transverse blur including {splat_phrase} and the "
+        f"{spread_pitch:.0f} mm binning: {blur_x:.1f} mm RMS in {symbols['x']}, "
+        f"{blur_y:.1f} mm in {symbols['y']}."
     )
 
     return {
@@ -266,9 +290,10 @@ def reconstruction_report(plan: Any, bundle: Any, panels: dict[str, dict[str, An
         "bin_spread_rms_mm": round(spread, 3),
         "blur_rms_mm": {"x": round(blur_x, 3), "y": round(blur_y, 3)},
         "subsample_k": k,
+        "splat_regime": regime,
         "gaussian_below_n": frame_mod.GAUSSIAN_KERNEL_BELOW_N,
-        "axes": list(RECONSTRUCTED_AXES),
-        "depth": DEPTH_POLICY,
+        "axes": [symbols["x"], symbols["y"]],
+        "depth": getattr(bundle, "depth_policy", DEPTH_POLICY),
         "conservative": True,
         "floor_ratio": float(10.0 ** -frame_mod.RAMP_DECADES),
         "energy_fraction_outside": {

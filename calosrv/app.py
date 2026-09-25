@@ -210,13 +210,15 @@ async def lifespan(app: FastAPI):
     if empty:
         seed_baseline(database, settings)
     else:
-        # Warm the canonical frame's full-range bundle for every ready
-        # experiment: the interface opens on it, and cold it costs ~2 s on the
-        # production table. Background and best-effort.
-        from .query import canonical_cache
+        # Warm the co-registered frames' full-range bundles for every ready
+        # experiment - canonical first, then translated and local, one scan at
+        # a time: cold, each costs seconds on the production table.
+        # Background and best-effort.
+        from .query import canonical_cache, shower_frames
 
-        canonical_cache.warm(
-            database, settings, [r.table_name for r in ready if r.is_ready]
+        names = [r.table_name for r in ready if r.is_ready]
+        shower_frames.warm(
+            database, settings, names, after=canonical_cache.warm(database, settings, names)
         )
 
     try:

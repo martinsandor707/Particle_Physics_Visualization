@@ -215,7 +215,7 @@ def _floor_notice(
     # The Native Grid reconstructs nothing, so its bins hold raw energy.
     energy = "reconstructed energy" if display == MODE_CONTINUOUS else "energy"
     parts = "; ".join(
-        f"{_PANEL_NAMES[name]} {int(panels[name]['below_floor_cells']):,} bins holding "
+        f"{names[name]} {int(panels[name]['below_floor_cells']):,} bins holding "
         f"{100.0 * panels[name]['below_floor_energy_fraction']:.3g}% of its in-window {energy}"
         for name in ("xy", "yz", "xz")
     )
@@ -508,6 +508,16 @@ def build_response(
             frame=frame_block,
         )
 
+    return serve_within_budget(assemble, render, rendered, display)
+
+
+def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str) -> dict[str, Any]:
+    """Measure the assembled response as served and, if it is over, step the guard.
+
+    Shared by every co-registered frame. ``assemble(rendered, notes)`` builds
+    the whole body; ``render(limit, start=...)`` re-renders the panels from the
+    cached bundle at a guard state.
+    """
     body = assemble(rendered, [])
     size = density.wire_size(body)
     if size < density.RESPONSE_LIMIT:

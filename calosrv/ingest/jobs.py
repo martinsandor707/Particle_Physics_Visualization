@@ -168,9 +168,12 @@ class JobStore:
             if result.ok:
                 # The co-registered frames' full-range scans are the queries
                 # that take seconds; pay them now, off the request path.
-                from ..query import canonical_cache
+                from ..query import canonical_cache, shower_frames
 
-                canonical_cache.warm(self._db, self._db.settings, [name])
+                shower_frames.warm(
+                    self._db, self._db.settings, [name],
+                    after=canonical_cache.warm(self._db, self._db.settings, [name]),
+                )
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)

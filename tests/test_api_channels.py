@@ -42,13 +42,19 @@ def test_the_deprecated_mode_alias_still_selects_the_channel(client):
     assert body["panels"]["xy"]["scale"]["quantity"] == "gradcam"
 
 
-@pytest.mark.parametrize("frame", ["lab", "canonical"])
+#: The four reference frames of the interface, as (coord_system, frame).
+FRAMES = [("lab", "lab"), ("trans", "lab"), ("local", "lab"), ("lab", "canonical")]
+
+
+@pytest.mark.parametrize("coord_system,frame", FRAMES)
 @pytest.mark.parametrize("model", ddl.MODELS)
 @pytest.mark.parametrize("channel", panels.CHANNELS)
 @pytest.mark.parametrize("display,r", [("native", 150), ("continuous", 150), ("continuous", 400)])
-def test_every_view_stays_under_the_payload_contract(client, frame, model, channel, display, r):
+def test_every_view_stays_under_the_payload_contract(client, coord_system, frame, model, channel,
+                                                      display, r):
     response = client.get("/api/projections", params={
-        "frame": frame, "model": model, "channel": channel, "display": display, "resolution": r,
+        "coord_system": coord_system, "frame": frame, "model": model, "channel": channel,
+        "display": display, "resolution": r,
     })
     assert response.status_code == 200, response.text
     assert len(response.content) < density.RESPONSE_LIMIT
@@ -72,3 +78,51 @@ def test_the_lab_guard_lowers_r_and_says_so(client, monkeypatch):
     assert resolution["requested"] == 400 and resolution["r_x"] < 400
     texts = [n["text"] for n in body["meta"]["notices"]]
     assert any("Resolution lowered from R = 400" in t for t in texts)
+
+
+# ------------------------------------------------------ per-shower frames --
+
+
+@pytest.mark.parametrize("coord_system,symbols", [
+    ("trans", {"x": "Δx", "y": "Δy", "z": "Δz"}),
+    ("local", {"x": "u", "y": "v", "z": "w"}),
+])
+def test_the_per_shower_frames_answer_with_their_own_contract(client, coord_system, symbols):
+    body = client.get("/api/projections", params={"coord_system": coord_system}).json()
+    assert body["meta"]["coord_system"] == coord_system
+    frame = body["frame"]
+    assert frame["kind"] == coord_system
+    assert frame["n_showers"] == 2 * frame["n_events"]
+    assert frame["splat"]["regime"] == ("box_overlap" if coord_system == "trans" else "subdeposit3d")
+    assert frame["depth"]["policy"] == ("native_layers" if coord_system == "trans" else "uniform_bins")
+    assert set(frame["comb"]["lag1"]) == ({"x", "y"} if coord_system == "trans" else {"x", "y", "z"})
+    axes = body["panels"]["xy"]["axes"]
+    assert (axes["col"]["symbol"], axes["row"]["symbol"]) == (symbols["x"], symbols["y"])
+    assert body["panels"]["yz"]["axes"]["col"]["symbol"] == symbols["z"]
+
+    # Superimposed at the origin: no separation, an offset instead.
+    for key in ("truth_voxel", "pred_voxel"):
+        assert body["centroids"][key]["separation_mm"] is None
+        assert "offset_mm" in body["centroids"][key]
+    mean = body["centroids"]["frame_mean"]
+    assert mean["n"] == frame["n_events"]
+    assert set(mean["sd"]) == set(mean["ci95_half"]) == {"a", "b"}
+
+    if coord_system == "trans":
+        trajectories = body["overlays"]["trajectories"]
+        assert trajectories and all(t["a"]["x"] == t["a"]["y"] == t["a"]["z"] == 0.0
+                                    for t in trajectories)
+        assert "coherence" in frame
+    else:
+        assert body["overlays"] == {}
+        assert "coherence" not in frame
+    text = " ".join(n["text"] for n in body["meta"]["notices"])
+    assert "x′" not in text and "X′" not in text, "canonical wording leaked into a per-shower frame"
+
+
+def test_a_per_shower_density_request_reuses_any_models_bundle(client):
+    client.get("/api/projections", params={"coord_system": "local", "model": "energy",
+                                           "channel": "gradcam", "e2_max": 19.0})
+    body = client.get("/api/projections", params={"coord_system": "local", "model": "angle",
+                                                  "e2_max": 19.0}).json()
+    assert body["meta"]["cached"] is True

@@ -229,6 +229,9 @@ def plan_canonical(
     kernel: Kernel | None = None,
     cell_mm: float | None = None,
     requested: int | None = None,
+    depth_warning: str | None = None,
+    axes: tuple[str, str] = reconstruct.RECONSTRUCTED_AXES,
+    depth_clause: str | None = None,
 ) -> CanonicalPlan:
     """Bin counts and kernel per panel.
 
@@ -239,7 +242,9 @@ def plan_canonical(
     square across panels; depth is always the native layers. The kernel
     defaults to :func:`reconstruct.choose_kernel` for the fit's event count.
     ``cell_mm`` (the measured footprint) only words a warning; ``requested``
-    is the R the caller asked for, when the guard renders a lower one.
+    is the R the caller asked for, when the guard renders a lower one;
+    ``depth_warning`` replaces the native-layer sentence for a frame whose
+    depth axis is not the detector's layers (the local frame's w bins).
     """
     n_z = grid.n_z
     requested = int(resolution if requested is None else requested)
@@ -287,9 +292,14 @@ def plan_canonical(
         return max(1, int(round(span / display_pitch))) if span > 0 else 1
 
     warnings = [
-        f"Depth is locked to the {n_z} native sampling layers; there is no "
-        "measurement between layers to interpolate.",
-        reconstruct.kernel_sentence(kernel, fit.n_events, grid.pitch),
+        depth_warning or (
+            f"Depth is locked to the {n_z} native sampling layers; there is no "
+            "measurement between layers to interpolate."
+        ),
+        reconstruct.kernel_sentence(
+            kernel, fit.n_events, grid.pitch, axes,
+            depth_clause or "depth keeps its native sampling layers",
+        ),
     ]
     if display_pitch < grid.pitch:
         cell = f"the {cell_mm:.1f} mm cell" if cell_mm else "the cell footprint"
@@ -617,7 +627,10 @@ def render_canonical(
     r, merge = (int(start[0]), max(1, int(start[1]))) if start else (requested, 1)
     fits = False
     for attempt in range(MAX_ATTEMPTS):
-        plan = plan_canonical(fit, bundle.grid, mode, r, merge, kernel, cell, requested=requested)
+        plan = plan_canonical(fit, bundle.grid, mode, r, merge, kernel, cell, requested=requested,
+                              depth_warning=getattr(bundle, "depth_warning", None),
+                              axes=((symbols or SYMBOLS)["x"], (symbols or SYMBOLS)["y"]),
+                              depth_clause=getattr(bundle, "depth_clause", None))
         continuous = plan.mode == MODE_CONTINUOUS
         # The step this attempt would take if it is over, or None when no step
         # changes anything any more: R at its minimum, or every transverse axis
