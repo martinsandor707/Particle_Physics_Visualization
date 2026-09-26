@@ -5,9 +5,10 @@ The rotation is per event, so it cannot be applied to the lab-frame
 event it belongs to. Instead each hit row of the projection table joins its
 event's frame parameters - a 20 000-row CTE built from the per-event table -
 and the rotated position is binned into a uniform canonical grid with the same
-``GROUP BY GROUPING SETS`` single-scan pattern as ``projections.py``. Measured
-on the 22.5-million-row production table this costs 0.54 s at k = 1 against
-0.35 s for the lab-frame scan.
+two-scan pattern as ``projections.py``: the entrance slab, and the depth panels
+by ``GROUP BY GROUPING SETS``. Measured on the 24.2-million-row all-models table
+this costs 1.7 s at k = 2 (0.27 s for the 10 % drag preview) against 0.27 s for
+the lab-frame scan.
 
 **Sub-cell splatting.** A hit is a 48 x 49 mm cell, not a point; dropping its
 rotated centre into a 20 mm bin would draw a dotted comb around every event.
@@ -15,7 +16,7 @@ Each cell's energy is therefore split into ``k x k`` equal sub-deposits over its
 physical footprint (``CROSS JOIN range(k) x range(k)``), which conserves the
 total exactly for any ``k`` and leaves no hole under a rotated footprint once
 ``k >= 4``. ``k`` is chosen from a row budget so the scan stays interactive -
-2 for the whole dataset (about 2 s, cached and pre-warmed), 4 for a
+2 for the whole dataset (1.7 s, cached and pre-warmed), 4 for a
 thousand-event slice, 6 for a handful - and never drops to 1: point-binning
 was measured to comb even over 20 000 co-registered events.
 
@@ -414,22 +415,6 @@ def _plane_columns(model: str) -> tuple[str, ...]:
     )
 
 
-def _aggregates(model: str) -> str:
-    parts = []
-    for plane, expr in planes_mod.measures("lab", model):
-        agg = "count(*)" if expr is None else f"sum({expr})"
-        parts.append(f"{agg} FILTER (WHERE NOT outside) AS {plane}_all")
-        parts.append(f"{agg} FILTER (WHERE slab AND NOT outside) AS {plane}_slab")
-    parts.append("sum(energy) FILTER (WHERE outside) AS e_out")
-    parts.append("count(*) FILTER (WHERE outside) AS n_out")
-    # The energy-weighted CAM planes' mass outside the window, so their
-    # conservation can be stated exactly: inside + outside = the hits' sum.
-    for plane, expr in planes_mod.measures("lab", model):
-        if plane in OUTSIDE_PLANES:
-            parts.append(f"sum({expr}) FILTER (WHERE outside) AS {plane}_out")
-    return ",\n        ".join(parts)
-
-
 #: Planes whose outside-window mass is tracked besides energy.
 OUTSIDE_PLANES = ("eg", "esp", "esn")
 
@@ -441,8 +426,19 @@ def build_sql(
     k: int,
     sampled: bool = False,
     model: str = "segmentation",
-) -> str:
-    """Render the canonical accumulation query.
+) -> tuple[str, str]:
+    """Render the ``(xy, depth)`` canonical accumulation queries.
+
+    Each hit joins its event's frame parameters - a 20 000-row CTE from the
+    per-event table - and is split into ``k x k`` sub-deposits over its
+    footprint, rotated into the canonical frame and binned. Every plane value
+    is divided by ``k * k`` once per hit, before the split, so the aggregation
+    is plain sums; a sub-deposit outside the window is keyed -1 on every axis,
+    so its group carries the outside mass. The entrance-slab X'Y' panel is its
+    own query over slab rows, the depth panels one ``GROUPING SETS`` query.
+    The earlier single pass with ``FILTER`` aggregates, which DuckDB evaluates
+    in every grouping set, measured 5.8-6.3 s on the 24-million-row production
+    table at k = 2.
 
     Parameters bound at execution: ``$x_coords``, ``$y_coords`` (the lattice
     coordinate arrays), ``$zf`` (front face), ``$wx``, ``$wy`` (cell footprint),
@@ -450,10 +446,17 @@ def build_sql(
     """
     assert record.lattice is not None
     k = int(max(1, k))
-    carried = ", ".join(_plane_columns(model))
+    n = k * k
     event = quote(naming.event_table(record.table_name))
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
-    return f"""
+    measures = planes_mod.measures("lab", model)
+    per_hit = ",\n               ".join(
+        f"CAST({'1.0' if expr is None else expr} AS DOUBLE) / {n}.0 AS v_{plane}"
+        for plane, expr in measures)
+    carried = ", ".join(f"v_{plane}" for plane, _ in measures)
+    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in measures)
+    columns = ", ".join(_plane_columns(model))
+    base = f"""
     WITH ev AS (
         SELECT event_number, {_ENTRY_SQL}
         FROM {event}
@@ -466,33 +469,44 @@ def build_sql(
     ), sub AS (
         SELECT (u.range + 0.5) / {k} - 0.5 AS fx, (v.range + 0.5) / {k} - 0.5 AS fy
         FROM range({k}) u, range({k}) v
+    ), hit AS (
+        SELECT p.iz, list_extract($x_coords, p.ix + 1) AS hx, list_extract($y_coords, p.iy + 1) AS hy,
+               f.x0, f.y0, f.c, f.s,
+               {per_hit}
+        FROM (SELECT event_number, ix, iy, iz, energy, {columns}
+              FROM {proj} WHERE {spec.where_sql()}) p
+        JOIN fr f USING (event_number)
     ), pts AS (
-        SELECT p.iz, p.energy / {k * k} AS energy,
-               {", ".join("p." + c for c in _plane_columns(model))},
-               list_extract($x_coords, p.ix + 1) + sub.fx * $wx - f.x0 AS xt,
-               list_extract($y_coords, p.iy + 1) + sub.fy * $wy - f.y0 AS yt,
-               f.c, f.s
-        FROM {proj} p
-        JOIN fr f USING (event_number), sub
-        WHERE {spec.where_sql("p")}
+        SELECT iz, {carried}, c, s,
+               hx + sub.fx * $wx - x0 AS xt,
+               hy + sub.fy * $wy - y0 AS yt
+        FROM hit, sub
     ), rot AS (
-        SELECT c * xt + s * yt AS xc, -s * xt + c * yt AS yc,
-               iz, energy, {carried}
+        SELECT iz, {carried}, c * xt + s * yt AS xc, -s * xt + c * yt AS yc
         FROM pts
     ), binned AS (
-        SELECT CAST(floor((xc + {grid.half_x!r}) / {grid.pitch!r}) AS INTEGER) AS jx,
-               CAST(floor((yc + {grid.half_y!r}) / {grid.pitch!r}) AS INTEGER) AS jy,
-               iz, energy, {carried},
-               (iz <= {record.lattice.slab_iz}) AS slab,
+        SELECT iz, {carried},
                (xc < -{grid.half_x!r} OR xc >= {grid.half_x!r}
-                OR yc < -{grid.half_y!r} OR yc >= {grid.half_y!r}) AS outside
+                OR yc < -{grid.half_y!r} OR yc >= {grid.half_y!r}) AS outside,
+               CAST(floor((xc + {grid.half_x!r}) / {grid.pitch!r}) AS INTEGER) AS ix_,
+               CAST(floor((yc + {grid.half_y!r}) / {grid.pitch!r}) AS INTEGER) AS iy_
         FROM rot
-    )
-    SELECT GROUPING_ID(jx, jy, iz) AS gid, jx, jy, iz,
-        {_aggregates(model)}
-    FROM binned
-    GROUP BY GROUPING SETS ((jx, jy), (jy, iz), (jx, iz))
-    """
+    ), keyed AS (
+        SELECT {carried},
+               CASE WHEN outside THEN -1 ELSE ix_ END AS jx,
+               CASE WHEN outside THEN -1 ELSE iy_ END AS jy,
+               CASE WHEN outside THEN -1 ELSE iz END AS iz
+        FROM binned
+    )"""
+    xy_sql = base + f"""
+    SELECT jx, jy, {sums}
+    FROM keyed WHERE iz <= {record.lattice.slab_iz}
+    GROUP BY jx, jy"""
+    depth_sql = base + f"""
+    SELECT GROUPING_ID(jx, jy, iz) AS gid, jx, jy, iz, {sums}
+    FROM keyed
+    GROUP BY GROUPING SETS ((jy, iz), (jx, iz))"""
+    return xy_sql, depth_sql
 
 
 def _params(record: ExperimentRecord, spec: FilterSpec, footprint: tuple[float, float]) -> dict:
@@ -534,52 +548,49 @@ def fetch_canonical(
     sample_percent: float = 100.0,
     model: str = "segmentation",
 ) -> CanonicalBundle:
-    """Run the accumulation scan and assemble the three canonical panels."""
+    """Run the accumulation scans and assemble the three canonical panels."""
     assert record.lattice is not None
-    sql = build_sql(record, spec, grid, k, sampled, model)
+    xy_sql, depth_sql = build_sql(record, spec, grid, k, sampled, model)
+    params = _params(record, spec, footprint)
     started = time.perf_counter()
-    columns = con.execute(sql, _params(record, spec, footprint)).fetchnumpy()
+    xy_columns = con.execute(xy_sql, params).fetchnumpy()
+    columns = con.execute(depth_sql, params).fetchnumpy()
     query_ms = (time.perf_counter() - started) * 1000.0
 
-    gid = np.nan_to_num(_column(columns, "gid")).astype(np.int64)
-    jx = np.nan_to_num(_column(columns, "jx"), nan=-1).astype(np.int64)
-    jy = np.nan_to_num(_column(columns, "jy"), nan=-1).astype(np.int64)
-    iz = np.nan_to_num(_column(columns, "iz"), nan=-1).astype(np.int64)
+    def keys(source: dict[str, Any], name: str) -> np.ndarray:
+        return np.nan_to_num(_column(source, name), nan=-2).astype(np.int64)
 
     xy = Panel("xy", "y", "x", _empty(grid.shape_xy))
     yz = Panel("yz", "y", "z", _empty(grid.shape_yz))
     xz = Panel("xz", "x", "z", _empty(grid.shape_xz))
 
-    def scatter(
-        panel: Panel, mask: np.ndarray, rows: np.ndarray, n_rows: int,
-        cols: np.ndarray, n_cols: int, suffix: str,
-    ) -> None:
-        # Groups whose bin fell outside the window carry only the FILTERed
-        # aggregates (NULL -> 0) and indices out of range; they are dropped here,
-        # their energy having been counted in e_out.
+    def scatter(panel: Panel, source: dict[str, Any], mask: np.ndarray,
+                rows: np.ndarray, cols: np.ndarray) -> None:
+        # The outside sentinel (-1) and absent grouping keys never index a
+        # bin; the outside mass is read from its own group below.
+        n_rows, n_cols = panel.planes["e"].shape
         keep = mask & (rows >= 0) & (rows < n_rows) & (cols >= 0) & (cols < n_cols)
         if not keep.any():
             return
-        r = rows[keep]
-        c = cols[keep]
         for plane in PLANES:
-            values = np.nan_to_num(_column(columns, f"{plane}_{suffix}")[keep])
-            panel.planes[plane][r, c] = values
+            panel.planes[plane][rows[keep], cols[keep]] = np.nan_to_num(_column(source, plane)[keep])
 
-    scatter(xy, gid == GID_XY, jy, grid.n_y, jx, grid.n_x, "slab")
-    scatter(yz, gid == GID_YZ, jy, grid.n_y, iz, grid.n_z, "all")
-    scatter(xz, gid == GID_XZ, jx, grid.n_x, iz, grid.n_z, "all")
+    scatter(xy, xy_columns, np.ones(len(xy_columns["jx"]), dtype=bool),
+            keys(xy_columns, "jy"), keys(xy_columns, "jx"))
+    gid = np.nan_to_num(_column(columns, "gid")).astype(np.int64)
+    jx, jy, iz = keys(columns, "jx"), keys(columns, "jy"), keys(columns, "iz")
+    scatter(yz, columns, gid == GID_YZ, jy, iz)
+    scatter(xz, columns, gid == GID_XZ, jx, iz)
 
-    # Each outside sub-deposit appears in exactly one group of each grouping
-    # set, so summing e_out over one set counts it once.
-    xz_rows = gid == GID_XZ
-    energy_outside = float(np.nan_to_num(_column(columns, "e_out")[xz_rows]).sum())
-    plane_outside = {
-        plane: float(np.nan_to_num(_column(columns, f"{plane}_out")[xz_rows]).sum())
-        for plane in OUTSIDE_PLANES
-    }
-    n_outside = int(np.nan_to_num(_column(columns, "n_out")[xz_rows]).sum())
-    n_hits = int(round(xz.planes["n"].sum() / (k * k))) + int(round(n_outside / (k * k)))
+    # Every outside sub-deposit lands in the one (-1, -1) group of each set.
+    outside_rows = (gid == GID_XZ) & (jx == -1) & (iz == -1)
+    outside = {plane: float(np.nan_to_num(_column(columns, plane)[outside_rows]).sum())
+               for plane in PLANES}
+    energy_outside = outside["e"]
+    plane_outside = {plane: outside[plane] for plane in OUTSIDE_PLANES}
+    # Planes are per hit: each sub-deposit carries 1 / k^2 of every value.
+    n_outside = int(round(outside["n"]))
+    n_hits = int(round(float(xz.planes["n"].sum()) + outside["n"]))
 
     bundle = CanonicalBundle(
         xy=xy, yz=yz, xz=xz,
@@ -628,16 +639,18 @@ def explain(
     sampled: bool = False,
     model: str = "segmentation",
 ) -> str:
-    """``EXPLAIN`` output for the canonical query.
+    """``EXPLAIN`` output for the two canonical queries, separated by ``----``.
 
-    The projection table must appear exactly once: the plan also scans the
+    The projection table must appear exactly once in each: the plan also scans the
     small per-event table and two ``RANGE`` generators for the sub-deposits,
     which a test documents so a DuckDB upgrade that started scanning the hit
     table twice would be caught.
     """
-    sql = build_sql(record, spec, grid, k, sampled, model)
-    rows = con.execute("EXPLAIN " + sql, _params(record, spec, footprint)).fetchall()
-    return "\n".join(str(r[-1]) for r in rows)
+    plans = []
+    for sql in build_sql(record, spec, grid, k, sampled, model):
+        rows = con.execute("EXPLAIN " + sql, _params(record, spec, footprint)).fetchall()
+        plans.append("\n".join(str(r[-1]) for r in rows))
+    return "\n----\n".join(plans)
 
 
 def cache_key(spec: FilterSpec, sampled: bool, grid: CanonicalGrid, k: int,

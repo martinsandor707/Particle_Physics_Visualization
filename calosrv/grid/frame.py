@@ -440,8 +440,8 @@ def choose_subsample(
     """Largest ``k`` such that ``rows_scanned * k**2`` stays within ``budget``,
     never below ``k_min``.
 
-    The floor costs the full production dataset about two seconds on a cold
-    query (90 M sub-deposit rows at k = 2, measured 2.0 s) - paid once per
+    The floor costs the full production dataset 1.7 s on a cold query
+    (97 M sub-deposit rows at k = 2, all-models file) - paid once per
     selection, then served from the cache, and pre-warmed at start-up for the
     full range every interface opens on.
     """

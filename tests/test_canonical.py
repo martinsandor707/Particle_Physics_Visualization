@@ -55,14 +55,17 @@ def _framed_energy(cursor, record, spec) -> float:
 # ------------------------------------------------------------------- scan --
 
 
-def test_canonical_query_scans_the_projection_table_once(cursor, record, framed):
+def test_each_canonical_query_scans_the_projection_table_once(cursor, record, framed):
     """The join adds a scan of the small event table and two RANGE generators
-    for the sub-deposits; the hit-level table itself must appear exactly once."""
-    plan = canonical.explain(
+    for the sub-deposits; the hit-level table itself must appear exactly once
+    in each of the two queries (entrance slab, depth grouping sets)."""
+    plans = canonical.explain(
         cursor, record, framed["spec"], framed["grid"], framed["k"], framed["footprint"]
-    )
-    assert plan.count(naming.proj_table(record.table_name)) == 1
-    assert plan.count(naming.event_table(record.table_name)) >= 1
+    ).split("\n----\n")
+    assert len(plans) == 2
+    for plan in plans:
+        assert plan.count(naming.proj_table(record.table_name)) == 1
+        assert plan.count(naming.event_table(record.table_name)) >= 1
 
 
 @pytest.mark.parametrize("k", [2, 3, 6])
