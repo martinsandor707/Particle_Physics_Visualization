@@ -1,8 +1,8 @@
 """The cached canonical bundle of a selection, and its start-up warmer.
 
-The canonical scan is the one query in the service that can take a couple of
-seconds: co-registering all 22.5 million production hits at the smallest
-honest sub-cell factor (k = 2, see ``grid/frame.py``) measures about 2.0 s.
+The co-registered scans are the queries in the service that take over a
+second: co-registering all 24.2 million production hits at the smallest honest
+sub-cell factor (k = 2, see ``grid/frame.py``) measures 1.7 s.
 It is paid once per selection and then served from the canonical LRU; the
 full-range selection that every interface opens on is warmed here in the
 background as soon as an experiment is ready, so the first page load does not
