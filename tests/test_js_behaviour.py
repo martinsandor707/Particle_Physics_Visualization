@@ -653,3 +653,79 @@ def test_no_caption_or_footnote_carries_retired_wording_or_a_hyphen_minus(frame_
         for phrase in ("29-column", "Shared voxels", "No predicted-angle"):
             assert phrase not in text
         assert not re.search(r"(?<![\w])-\d", text), text
+
+
+# ------------------------------------------------ review regressions --
+
+_REVIEW_SCRIPT = """
+const [disclosureUrl, captionUrl, framesUrl, stateUrl] = JSON.parse(process.argv[1]);
+const { figureDisclosure } = await import(disclosureUrl);
+const { describeView } = await import(captionUrl);
+const fv = await import(framesUrl);
+const out = {};
+const frame = (kind) => ({ kind, n_events: 7, n_showers: 14, n_selected: 9, n_excluded_no_frame: 2,
+  d_dataset: { mean: 800 }, fit: {}, splat: { regime: 'box_overlap' }, footprint_mm: [48.3, 48.6], pitch_mm: 20 });
+const stubState = { get: () => null, isTouched: () => false };
+out.local = figureDisclosure({ frame: frame('local'), panels: { xy: { scale: {} } }, slab: { note: '' }, meta: {} }, 'xy', stubState).join(' ');
+out.trans = figureDisclosure({ frame: frame('trans'), panels: { xy: { scale: {} } }, slab: { note: '' }, meta: {} }, 'xy', stubState).join(' ');
+out.labCam = figureDisclosure({ panels: { xy: { scale: { quantity: 'gradcam_energy', unit: 'a.u.', scale: 'log10',
+  floor_ratio: 1e-3, ref: 0.153, ref_unit: 'GeV', rho_unit: 'GeV' }, below_floor_cells: 3 } }, meta: {} }, 'xy', stubState).join(' ');
+out.view = describeView({ col: [-300, 300], row: [-320.4, 320] }, 'Δx', 'Δy');
+out.caption = fv.channelCaption({ channel: 'shapcam', model: 'energy', frame: 'lab',
+  payload: { meta: { channel: 'gradcam', model: 'segmentation', cam: { column: 'segmentation_absolute_gradcam', note: 'OLD NOTE' } } } });
+globalThis.window = { location: { hash: '', pathname: '/' },
+  history: { replaceState(_s, _t, url) { const i = url.indexOf('#'); window.location.hash = i >= 0 ? url.slice(i) : ''; } } };
+const { State } = await import(stateUrl);
+window.location.hash = '#e1_max=5';
+let s = new State();
+s.adoptBounds({ e1: [0.408, 18.25], e2: [0.35, 20], d: [0, 5300] });
+out.upperOnly = [s.values.e1_min, s.values.e1_max];
+window.location.hash = '#d_min=19&d_max=21';
+s = new State();
+s.adoptBounds({ e1: [0.408, 18.25], e2: [0.35, 20], d: [19.94, 648] });
+out.snappedEdge = [s.values.d_min, s.values.d_max];
+window.location.hash = '#d_min=9000&d_max=9500';
+s = new State();
+s.adoptBounds({ e1: [0.408, 18.25], e2: [0.35, 20], d: [19.94, 648] });
+out.foreign = [s.values.d_min, s.values.d_max];
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def review_results() -> dict:
+    args = json.dumps([(JS / "export" / "disclosure.js").as_uri(), (JS / "export" / "caption.js").as_uri(),
+                       (JS / "frame_views.js").as_uri(), (JS / "state.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _REVIEW_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_local_frame_definition_does_not_deny_its_rotation(review_results):
+    assert "no rotation" not in review_results["local"]
+    assert "R(θ, φ)" in review_results["local"]
+
+
+def test_a_per_shower_export_states_its_exclusions(review_results):
+    assert "2 selected events excluded: no A–B separation" in review_results["trans"]
+
+
+def test_a_lab_energy_weighted_cam_ref_is_a_per_bin_sum_in_gev(review_results):
+    assert "GeV)" in review_results["labCam"] and "mm⁻²" not in review_results["labCam"]
+
+
+def test_the_exported_view_uses_the_minus_sign(review_results):
+    assert review_results["view"] == "View Δx −300–300 mm, Δy −320–320 mm."
+
+
+def test_a_caption_never_names_the_previous_payloads_network(review_results):
+    caption = review_results["caption"]
+    assert "energy_absolute_shapcam" in caption
+    assert "segmentation_absolute_gradcam" not in caption and "OLD NOTE" not in caption
+
+
+def test_link_bounds_survive_adoption(review_results):
+    assert review_results["upperOnly"] == [0.408, 5], "an upper-only link must keep its maximum"
+    assert review_results["snappedEdge"] == [19, 21], "a bound at the snapped edge is in range"
+    assert review_results["foreign"] == [19.94, 648], "a bound from another dataset resets"

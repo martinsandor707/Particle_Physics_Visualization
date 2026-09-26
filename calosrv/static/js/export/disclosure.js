@@ -49,8 +49,10 @@ const FRAME_DEFINITION = {
     + 'centroid back-projected to the front face along its incident direction; '
     + 'entry midpoint at the origin, A→B entry separation along +x′.',
   trans: TRANSLATED,
-  local: `${TRANSLATED.replace('Translated frame', 'Local frame').replace(/\.$/, '')}, `
-    + 'then rotated by the shower\'s own R(θ, φ) so its incident direction lies along +w.',
+  local: 'Local frame: every hit is moved by its own shower\'s entry point P₀ (energy-weighted '
+    + 'x, y centroid of its first populated layer, at that layer\'s z) and rotated by that '
+    + 'shower\'s own R(θ, φ), so its incident direction lies along +w; the two showers of each '
+    + 'event are superimposed at the origin.',
 };
 
 const ENSEMBLE_LEGEND = 'Dashed line = mean direction, shaded band = sample spread '
@@ -86,7 +88,7 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
     }
   }
 
-  for (const line of colourScale(scale, coregistered, panel)) out.push(line);
+  for (const line of colourScale(scale, coregistered, panel, payload.meta?.weighting)) out.push(line);
   if (scale?.quantity && scale.quantity !== 'density') {
     const note = payload.meta?.cam?.note;
     if (typeof note === 'string' && note) out.push(note);
@@ -170,6 +172,10 @@ function showerCounts(frame) {
   if (frame.n_ab_hits > 0) {
     parts.push(`${formatInt(frame.n_ab_hits)} 'A+B' ${plural(frame.n_ab_hits, 'hit')} at the origin, counted with B`);
   }
+  if (frame.n_excluded_no_frame > 0) {
+    parts.push(`${formatInt(frame.n_excluded_no_frame)} selected ${plural(frame.n_excluded_no_frame, 'event')} `
+      + 'excluded: no A–B separation');
+  }
   if (Number.isFinite(frame.d_dataset?.mean)) {
     parts.push(`D = laboratory 3-D centroid distance, ⟨D⟩ = ${mm(frame.d_dataset.mean)} mm`);
   }
@@ -211,10 +217,14 @@ function reconstructed(panel) {
   return typeof panel?.kernel === 'string' && panel.kernel !== 'none';
 }
 
-function colourScale(scale, canonical, panel = null) {
+function colourScale(scale, canonical, panel = null, weighting = 'energy') {
   if (!scale) return [];
   const out = [];
-  const unit = panel?.rho_unit === 'GeV' ? 'GeV' : 'GeV mm⁻² per event';
+  // The lab's energy-weighted CAM ref is a per-bin sum in GeV; a co-registered
+  // one is an areal density per event.
+  const rawUnit = panel?.rho_unit ?? scale.ref_unit ?? scale.rho_unit;
+  const unit = rawUnit === 'GeV' ? 'GeV' : 'GeV mm⁻² per event';
+  const mean = weighting === 'count' ? 'count-weighted mean' : 'energy-weighted mean';
 
   if (scale.quantity === 'gradcam_energy' || scale.quantity === 'shapcam_energy') {
     const signed = scale.quantity === 'shapcam_energy';
@@ -238,7 +248,7 @@ function colourScale(scale, canonical, panel = null) {
   }
 
   if (scale.quantity === 'shapcam') {
-    out.push('Colour: energy-weighted mean Shap-CAM attribution, symmetric −1…+1 linear scale, '
+    out.push(`Colour: ${mean} Shap-CAM attribution, symmetric −1…+1 linear scale, `
       + 'ColorBrewer PuOr; nothing is clipped.');
     const mask = attentionMask(panel?.attention_mask);
     if (canonical && mask) out.push(mask);
@@ -247,7 +257,7 @@ function colourScale(scale, canonical, panel = null) {
 
   if (scale.quantity === 'gradcam' && !canonical) {
     const n = (scale.clipped_low || 0) + (scale.clipped_high || 0);
-    out.push(`Colour: energy-weighted mean Grad-CAM attention, fixed 0–1 linear scale; `
+    out.push(`Colour: ${mean} Grad-CAM attention, fixed 0–1 linear scale; `
       + `${formatInt(n)} ${plural(n, 'bin')} outside.`);
     return out;
   }
@@ -278,7 +288,7 @@ function colourScale(scale, canonical, panel = null) {
   }
 
   if (scale.unit === 'attention' && canonical) {
-    out.push('Colour: energy-weighted mean Grad-CAM attention on a fixed 0–1 linear scale.');
+    out.push(`Colour: ${mean} Grad-CAM attention on a fixed 0–1 linear scale.`);
     const mask = attentionMask(panel?.attention_mask);
     if (mask) out.push(mask);
     return out;

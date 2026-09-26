@@ -35,7 +35,7 @@
  */
 
 import { measureText, wrapText } from '../textfit.js';
-import { THEME } from '../scale.js';
+import { THEME, typographic } from '../scale.js';
 
 /** Gap between the plot area and the first caption line. */
 const TOP_GAP = 10;
@@ -237,12 +237,12 @@ const FRAME_PHRASE = {
 const CHANNEL_PHRASE = {
   gradcam: 'energy-weighted mean Grad-CAM attention',
   gradcam_energy: 'Σ E·Grad-CAM (a.u. of selection peak)',
-  shapcam: 'Shap-CAM attribution (signed, −1…+1)',
+  shapcam: 'energy-weighted mean Shap-CAM attribution (signed, −1…+1)',
   shapcam_energy: 'Σ E·Shap-CAM (signed log, a.u. of peak |v|)',
 };
 
 export function describeSelection(
-  state, experiment, selection, frame = null, display = null, { spatial = true } = {},
+  state, experiment, selection, frame = null, display = null, { spatial = true, meta = null } = {},
 ) {
   const parts = [];
   if (experiment) {
@@ -272,8 +272,13 @@ export function describeSelection(
   const coregistered = kind !== 'lab';
   const mode = display?.mode ?? state.get('display');
   const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
-  const network = { lab: 'absolute', canonical: 'absolute', trans: 'trans', local: 'local' }[
-    state.get('frame')] ?? 'absolute';
+  // What the figure holds, from its response's meta where it says: the
+  // controls may have moved on while the chart still shows the last payload.
+  const uiFrame = ['canonical', 'trans', 'local'].includes(meta?.frame) ? meta.frame
+    : (meta?.coord_system ? 'lab' : state.get('frame'));
+  const network = meta?.network?.frame
+    ?? { lab: 'absolute', canonical: 'absolute', trans: 'trans', local: 'local' }[uiFrame]
+    ?? 'absolute';
   if (!spatial) {
     // Only the network describes this figure: the energy panel is the
     // segmentation reconstruction of the selected frame.
@@ -303,12 +308,17 @@ export function describeSelection(
       : `continuous field, R = ${r}`);
   }
 
-  const channel = state.get('channel');
+  const channel = meta?.channel ?? state.get('channel');
   if (!spatial) {
     // The channel colours the spatial panels only.
   } else if (channel && channel !== 'density') {
-    const model = state.get('model') ?? 'segmentation';
-    parts.push(`${model} network (${network}): ${CHANNEL_PHRASE[channel] ?? channel}`);
+    const model = meta?.model ?? state.get('model') ?? 'segmentation';
+    const count = (meta?.weighting ?? state.get('weighting')) === 'count';
+    let phrase = CHANNEL_PHRASE[channel] ?? channel;
+    if (count && (channel === 'gradcam' || channel === 'shapcam')) {
+      phrase = phrase.replace('energy-weighted', 'count-weighted');
+    }
+    parts.push(`${model} network (${network}): ${phrase}`);
   } else {
     parts.push(coregistered ? 'average hit density (a.u.)' : 'summed deposited energy');
   }
@@ -377,8 +387,9 @@ function fmtMm(value) {
 /** The displayed window, so a zoomed figure states the region it shows. */
 export function describeView(view, colName, rowName) {
   if (!view) return '';
-  return `View ${colName} ${Math.round(view.col[0])}–${Math.round(view.col[1])} mm, `
-    + `${rowName} ${Math.round(view.row[0])}–${Math.round(view.row[1])} mm.`;
+  const mm = (v) => typographic(String(Math.round(v)));
+  return `View ${colName} ${mm(view.col[0])}–${mm(view.col[1])} mm, `
+    + `${rowName} ${mm(view.row[0])}–${mm(view.row[1])} mm.`;
 }
 
 /**

@@ -926,7 +926,8 @@ export class ProjectionPanel {
           return;
         }
         let empty;
-        if (ratioChannel || camEnergy) empty = `no hits in this bin: ${what} undefined`;
+        if (ratioChannel) empty = `no hits in this bin: ${what} undefined`;
+        else if (camEnergy) empty = 'no hits in this bin: Σ E·CAM = 0 (not drawn)';
         else if (reconstructed) empty = 'no reconstructed energy in this bin';
         else empty = 'no energy in this bin';
         show(where + muted(empty));

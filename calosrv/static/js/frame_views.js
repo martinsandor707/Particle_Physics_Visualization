@@ -254,9 +254,13 @@ export function channelCaption({ channel, model = 'segmentation', frame = 'lab',
   const floor = floorLabel({ floor_ratio: pf?.reconstruction?.floor_ratio ?? 1e-3 });
   const network = NETWORK_FRAME[kind] ?? 'absolute';
   const cam = channel.startsWith('shapcam') ? 'shapcam' : 'gradcam';
-  const column = payload?.meta?.cam?.column ?? `${model}_${network}_${cam}`;
+  // The payload's own column and note only when it holds this channel and
+  // network: right after a switch the last payload still describes the old one.
+  const matching = payload?.meta?.channel === channel && payload?.meta?.model === model;
+  const cam_meta = matching ? payload.meta.cam : null;
+  const column = cam_meta?.column ?? `${model}_${network}_${cam}`;
   const lead = `${MODEL_WORDS[model] ?? model} network, ${FRAME_WORDS[network]} frame (${column}):`;
-  const normalisation = payload?.meta?.cam?.note ?? CAM_NORMALISATION;
+  const normalisation = cam_meta?.note ?? CAM_NORMALISATION;
   const mean = weighting === 'count' ? 'count-weighted mean' : 'energy-weighted mean';
   const mode = pf?.reconstruction?.display ?? display;
 
@@ -397,15 +401,16 @@ export function floorSentence(panel, continuous, floor) {
 }
 
 /** The colour sentence of a co-registered panel, by the quantity it shows. */
-function colourSentence(panel, rho, reference, shared = '') {
+function colourSentence(panel, rho, reference, shared = '', weighting = 'energy') {
   const scale = panel?.scale || {};
+  const mean = weighting === 'count' ? 'count-weighted mean' : 'energy-weighted mean';
   const unit = unitText(panel?.rho_unit);
   const ref = (value) => `${formatSci(value, 3)} ${unit}`;
   switch (scale.quantity) {
     case 'gradcam':
-      return 'Colour: energy-weighted mean Grad-CAM attention on a fixed 0–1 scale.';
+      return `Colour: ${mean} Grad-CAM attention on a fixed 0–1 scale.`;
     case 'shapcam':
-      return `Colour: energy-weighted mean Shap-CAM attribution on a symmetric ${typographic('-1')}…+1 scale `
+      return `Colour: ${mean} Shap-CAM attribution on a symmetric ${typographic('-1')}…+1 scale `
         + '(PuOr: orange negative, purple positive); nothing is clipped.';
     case 'gradcam_energy':
       return `Colour: Σ E·Grad-CAM per event and mm², relative to this selection's raw-grid peak `
@@ -510,7 +515,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
   const centroids = centroidLegend(payload.centroids);
 
   const xy =
-    `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy)} `
+    `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
     + `${windowPhrase(fit, 'xy', [['col', 'x′'], ['row', 'y′']])}; ${outside('xy')}.${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')} `
     + 'Open diamond and circle: the A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
@@ -532,7 +537,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     xz: ' Open diamond and circle at z′ = 0: the A and B anchors, with a faint bar for the sample spread '
       + '(SD) of D_entry/2.',
   };
-  const depthRef = (id) => colourSentence(panels[id], rho, rho.ref?.depth, ' (shared by both depth panels)');
+  const depthRef = (id) => colourSentence(panels[id], rho, rho.ref?.depth, ' (shared by both depth panels)', payload.meta?.weighting);
 
   return {
     xy,
@@ -587,7 +592,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     ? ` ${formatInt(f.n_ab_hits)} single 'A+B' hit${f.n_ab_hits === 1 ? '' : 's'} sit at the origin and are counted with shower B.`
     : '';
 
-  const xy = `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy)} `
+  const xy = `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
     + `${windowPhrase(fit, 'xy', [['col', sym.x], ['row', sym.y]])}; ${outside('xy')}.${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')}`
     + `${centroids ? ` ${centroids}` : ''}${offset}${splat}${combText}${ab}`;
@@ -612,7 +617,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   const depth = kind === 'trans'
     ? " Depth counts each shower's own sampling layers from its first."
     : ` Depth w is binned at the ${num(f.depth?.pitch_mm, 1)} mm layer pitch and never smoothed.`;
-  const depthRef = (id) => colourSentence(panels[id], rho, rho.ref?.depth, ' (shared by both depth panels)');
+  const depthRef = (id) => colourSentence(panels[id], rho, rho.ref?.depth, ' (shared by both depth panels)', payload.meta?.weighting);
   return {
     xy,
     yz: `Transverse spread (${sym.y}) against depth (${sym.z}). ${depthRef('yz')} `
