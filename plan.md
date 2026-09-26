@@ -2,6 +2,10 @@
 
 > Approved implementation plan (revision 2). It incorporates 27 findings from a three-lens adversarial review
 > (physics/statistics, backend/tests, frontend/export), each verified against the source and the production data.
+>
+> Revision 3 (appended at the end) supersedes decision 2 (interface default), §2 "No schema, ingest or Docker
+> change", §1.5 Grad-CAM = `ge`, and §3.2 `frame: 'canonical'`. The §1.7 low-N table stands, is cited by CLAUDE.md
+> §2, and also governs the translated and local frames.
 
 ## Context
 
@@ -408,3 +412,156 @@ This follow-up change to the canonical panels was planned and adversarially revi
     - **S1** (D 243.6309–243.8532 mm) reproduces x′ ±480 × y′ ±380 with 0.182% outside.
     - **Grad-CAM** stays under 99 KB in both modes.
     - **Tests.** The full suite then stood at 335 passed and 11 skipped, against a baseline of 253 / 9. The two extra skips are the new subset tests, which run only with `CALOSRV_TEST_SUBSET_CSV`; against a 1,500-event subset, `test_canonical_subset.py` passes 10 of 10.
+
+
+---
+
+## Revision 3 — multi-model, multi-frame, multi-channel (`hits_all_models.csv`)
+
+### Context
+
+`hits_all_models.csv` (24 GB, 24,161,893 rows, 20,325 events, 99 columns) replaced the 29-column v37 file. Per hit
+it carries three coordinate systems (laboratory; *trans*, shifted by the hit's own shower's entry point P₀;
+*local*, then rotated by that shower's R(θ, φ)) and nine networks — angle, energy and segmentation, each trained in
+the absolute, trans and local frame — with a prediction, its truth and per-hit Grad-CAM and Shap-CAM maps. The
+directive asked `calosrv` to expose frame × model × channel, with laboratory / segmentation / density as the
+cold-boot view, and to fix the tooltip that appeared to hide behind the sidebar.
+
+| Fact (measured on the full file) | Consequence |
+|---|---|
+| trans/local are per-shower frames (P₀ spread 0.00037 mm, rotation residual 0.00066 mm) | both showers of an event are superimposed at the origin; the lab lattice does not exist there |
+| a shared cell is two rows (1,629,316 split cells); 422 `'A+B'` rows, at the origin | row counts are not cell counts; `'A+B'` counts with B |
+| angle/energy predictions are constant per (event, shower) | they live in the event table |
+| Shap-CAM is signed, 11–64% negative for angle/energy | a [0, 1] or log ramp would erase it |
+| `*_gradcam_energy` = CAM·E_voxel rescaled | summing it double-counts: archived, not plotted |
+| `centroid_AB_distance_trans/_local` correlate 0.11 / −0.001 with D | D is always the laboratory separation |
+| the tooltip is clipped by `.main`'s overflow box, not stacked under the sidebar | mounted on a fixed layer outside `.main`, no z-index rule on the tip; `confine: true` was tried first and dropped (note 43) |
+
+**Decisions taken with the user.** D1 Shap-CAM on a diverging ramp centred on zero (linear ±1; signed log
+±(10⁻³…1)). D2 energy-weighted channels computed server-side as Σ E·CAM. D3 projections *and* cards follow
+(model, frame); plot 4 stays the segmentation reconstruction of the frame's segmentation network. D4 the measured
+minimal tooltip fix. D5 v37 retired. D6 DuckDB + an immutable zstd Parquet archive + memory hardening (PostgreSQL
+evaluated and rejected: no parallel `GROUPING SETS`). D7 the DuckDB default stays 16 GB. D8 folded PuOr on screen,
+standard PuOr in print. Execution safeguards S1–S4: the folded palette; `ROW_GROUP_SIZE 100000, zstd, level 3`;
+U+2212 for every rendered negative number; plot-4 `meta.network` only, with a synthetic small-N budget test.
+
+### R.1 Perceptual & Statistical Audit
+
+- **Frames.** Four, one radio: Laboratory (default), Translated, Local, Canonical. Translated and local take the
+  canonical rules: symmetric 0.1–99.9 windows with the same floors, the Continuous Field kernel on the transverse
+  axes only, the comb measured on the raw raster (both transverse axes; w in local), ⟨ρ⟩ = ΣE/(N·ΔA). Footprints are
+  splatted, never point-binned: exact box overlap in translated, k × k × k_z rotated sub-deposits (k ≥ 2,
+  k_z = 2) in local. D is the laboratory distance everywhere; the superimposed centroid pair is an *offset*.
+- **Directions.** Translated keeps the laboratory azimuth (R̄ = 0.012): individual trajectories from the origin
+  for ≤ 50 events, else R̄ stated. Local: +w by construction, nothing drawn, said so. `frame_mean` (per-event
+  centroid offset from P₀) is drawn with its SD as an uncapped cross and its Student-t 95% interval as capped
+  whiskers.
+- **Channels.** Density; Grad-CAM mean (linear 0–1); Σ E·Grad-CAM (log, three decades of the selection's raw-grid
+  peak, transparent floor); Shap-CAM mean (linear ±1, PuOr); Σ E·Shap-CAM (signed log, PuOr, |v| < 10⁻³
+  transparent), the positive and negative parts kept as separate conserved planes. The CAM normalisation (per
+  shower / per event) is stated with every CAM panel.
+- **Palette.** Standard PuOr fails on the dark card (`#2d004b` 1.07:1, `#7f3b08` 1.95:1, a bright `#f7f7f7`
+  centre). The screen folds it: each arm rises from the card; the first 3:1 colour sits at 10^−2.5, where the
+  taper reaches full opacity; raw Shap-CAM zero is `#30363d`.
+- **Cards.** Every card carries its SE and a named 95% interval: clustered ratio (events as clusters, Student-t),
+  χ² for σ with the c₄ note, Student-t for a bias, Fisher-z for a correlation; the interval replaces the SE below
+  N = 15.
+
+### R.2 Execution & Data Requirements
+
+- `python -m calosrv.ingest -i hits_all_models.csv -t all_models` (or through the running server); `--rebuild`
+  rebuilds the derived tables from the archive. The 99-column header is checked before parsing.
+- `duckdb==1.5.5`; compose `DUCKDB_MEMORY_GB=16`, `mem_limit` = `memswap_limit` = 20g, `TMPDIR=/app/data/staging`.
+  Start-up refuses RAM-backed database, temp or archive storage (`CALOSRV_ALLOW_RAM_STORAGE=1` for tests only).
+- Full-dataset jobs run alone, with an explicit memory limit, inside a memory-capped scope.
+
+### R.3 Implementation
+
+Branch `multi-model-frames` from `81c66d3`, in commit order: golden re-baseline on a 29-column derivation of the
+new dummy (only the golden moved); the tooltip fix; the Parquet archive, 99-column DDL, registry migration, v37
+retirement and memory hardening; the five channels on the lab and canonical paths; the translated and local frames;
+the per-shower scans as plain sums; `/api/experiments` capabilities; the metric cards, plot-4 frame and budget
+guard, and the synthetic S4 fixture; the frontend (state mapping, `frame_views.js`, folded PuOr, U+2212, cards,
+export); the real-data fixture tool; the lab and canonical scans split; presentation fixes from the full-dataset
+screenshot pass.
+
+### R.4 Data Integrity Checklist
+
+- [x] Zero axis distortion: panels sized from millimetre extents; depth panels 1:1 when affordable, stated otherwise.
+- [x] Uncertainty by default: `frame_mean` SD band + t-whiskers; every card SE + named interval; D half-widths quoted.
+- [x] Perceptual uniformity: sequential Viridis/Cividis/Plasma/Turbo; PuOr (ColorBrewer) for signed channels only.
+- [x] Disclosure: every floor, crop, outside-grid mass, comb, kernel, sample and guard step is counted and stated.
+- [x] Conservation: Σ E·CAM (and each Shap sign) equals the hits' sums to ≤ 3.3e−13 in all four frames.
+- [x] Payload: 900-view production matrix, largest response 99,863 B; plot 4 guarded (98,064 B worst of 75).
+- [x] Golden: passes byte-identically, never regenerated after the re-baseline.
+- [x] Cold boot: laboratory / segmentation / density (JS state test and browser).
+
+### R.5 Verification
+
+`pytest tests/` (817 passed on the dummy and the fixture); `CALOSRV_TEST_SUBSET_CSV=… pytest
+tests/test_canonical_subset.py` (13); `CALOSRV_BROWSER_TESTS=1 pytest tests/test_browser_tooltip.py` (8, all four
+frames at two viewports). Production measurements are in the implementation notes below.
+
+### Implementation notes (revision 3)
+
+30. **Ingest resources (M1).** 61 s at `DUCKDB_MEMORY_GB=10` in a 14 GB cgroup with no swap; peak RSS 5.9 GB; DuckDB
+    buffers 2.8 GB; nothing spilled. Outside a cgroup the page cache pushed 6.2 GB of other processes into zram,
+    which is why compose sets `memswap_limit` equal to `mem_limit`.
+31. **Storage (M4, M10).** Database 2.5 GB, archive 2.7 GB. `ROW_GROUP_SIZE` is a target: 241 row groups of
+    11,448–102,040 rows, DuckDB's parallel writer overshooting by up to 2%. The M10 criterion is read as
+    "target 100,000, ≤ 2% overshoot".
+32. **Data contracts (M2, M3).** 24,161,893 rows, 20,325 events, 22,532,577 cells (= v37), 1,629,316 split cells,
+    0 bad, 422 `'A+B'` rows at the origin, 57 events without D, calibration c_A 46.752 / c_B 49.712 in all frames.
+33. **Translated frame by exact box overlap.** Four moments per hit keyed by (first bin, side), expanded by two
+    matrices per axis; brute force agrees to 1e−12 of the total. A footprint not wholly inside the grid is outside in
+    every panel alike.
+34. **Local frame by rotated sub-deposits**, depth w binned at the 20.5 mm layer pitch; the grid of both frames is
+    planned from the ingest-time 10⁻⁴ / 0.9999 energy-weighted quantiles plus half a footprint (0.027% / 0.035% of
+    the energy outside).
+35. **Every scan is plain sums in two queries.** `FILTER` aggregates are evaluated in every grouping set, so the
+    entrance slab is its own query and outside mass is keyed −1: local 15.9 → 2.5 s, translated 2.7 → 0.85 s,
+    canonical 5.9–6.3 → 1.7 s (preview 0.27 s), lab 565 → 270 ms (v37's six-plane pass: 313 ms on the same machine).
+    The golden passed unregenerated.
+36. **Comb and window (M-K, M-W)** over N = 3 … 20,268: no comb in either frame; 0.1–99.9 windows leave 0–6.4% of
+    the boundary bins above the floor against 22–95% for 1–99. k_z = 1 shows no comb either, but its depth lag-1
+    falls to +0.0003 at N = 5, so k_z = 2 is kept.
+37. **Payload (M-P, M-E).** 900 production views, largest 99,863 B (the guard lowered R in 360). Plot 4 reached
+    119,816 B at eight slices; the curve re-sampling guard brings the worst of 75 to 98,064 B.
+38. **Conservation (M-C).** All four frames, three networks, both displays, R 50–400: ≤ 3.3e−13 against direct
+    sums. A first lab check that omitted the default filter's `d IS NOT NULL` showed 1e−5…1e−3 — the reference,
+    not the code.
+39. **Cards (M5, M6).** Within 0.05 pp of the characterisation table except two shower-B entries (σ_rel 34.43% vs
+    33.7%, local σθ 31.3 vs 30 mrad), which an independent archive recomputation reproduces to 1e−15: the table's
+    values are not reproducible from the full file. Cards 7–11 ms, plot 4 12–13 ms.
+40. **Migration (M8)** on a copy of the v37 database: v37 rows marked failed with the exact text, the baseline
+    reseeded, DELETE drops the v37 tables. **Fixture (M9)**: 9 events, 380 MB RSS.
+41. **Tooltip (M-T).** Clipped by `.main`'s overflow at a 41 px margin before the fix. With `confine: true`, no tip
+    started left of its chart or resolved to the sidebar over a 9 × 7 grid on all four charts, all four frames and
+    two viewports. Note 43 replaces that fix.
+42. **Presentation details from the full-dataset screenshot pass:** the diverging zero mark is positioned from
+    the measured legend width (a fixed offset hid it under the narrow linear bar); signed Shap-CAM totals are sums
+    in GeV, not densities; a D half-width below 10 mm is quoted to one decimal.
+
+43. **Tooltips leave the panel they explain (user review).** `confine: true` kept a large tip inside its own chart,
+    over the plot it explains. Measured on the demonstration data, an overlay tip covered a median 35% of the plot
+    area at 1600 × 900 and up to 98% at 1280 × 800; plain readouts sometimes sat on the pointer.
+    - Every tip is now mounted on `#tooltip-layer`, a fixed, viewport-sized layer outside `.main`, where nothing
+      clips it. Fixed rather than `<body>`: ECharts hides a tip without moving it, and on `<body>` a hidden tip grew
+      the document after the window shrank.
+    - `tooltip.js: placeTooltip` places a tip by its kind. The plain bin readout stays beside the pointer. Every
+      explanation (a mark's, an overlay's, plot 4's) goes just outside the chart, on the side with the most room:
+      over a neighbouring panel, inside `.main`'s visible area, then the viewport. Failing that it goes outside the
+      plot area, and last to the position covering the least plot. No step may cover the pointer.
+    - A first version chose by size (a tip at most 20% of the plot stayed at the pointer). An adversarial review
+      dropped it: readout sizes straddle the line from bin to bin, so the readout jumped about 360 px to the next
+      panel and back (451 flips in a sweep).
+    - The same review found three more problems:
+      - zrender's cached client transforms (`___zrEVENTSAVED`) share one validity check, so a scroll and then a
+        drag left one stale, and a tip was drawn 120–240 px from its place. They are now dropped before every
+        placement and on scroll; a test pins the internal.
+      - The hidden tip on `<body>` grew the document (above).
+      - The 100 ms `hideDelay` left a tip floating after a scroll; it is now 0.
+    - Result, over 3,039 tips at four viewports: all 2,646 readouts beside the pointer, 0 of 393 explanations over
+      their chart, and 0 clipped, covered, off screen or on the pointer. M-T asserts this over grid, sweep and
+      marker hovers at three viewports, and replays the three cases above. Each fix has a mutation the test catches:
+      no transform reset, `hideDelay` left at its default, and the layer made `absolute`.

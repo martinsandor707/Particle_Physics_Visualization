@@ -4,6 +4,14 @@ An ingest that quietly loses rows is worse than one that fails, because nothing
 downstream can tell. These checks run after the derived tables are built and
 either pass or attach a warning to the experiment record, so a dataset that
 behaved unexpectedly is visible in the interface rather than only in a log.
+
+Besides row accounting, they check the *contracts* the per-shower frames and
+the network columns are used under, each measured on the production file
+before it was relied on: that a shower's entry point P0 is one point, that the
+local coordinates are the translated ones rotated by that shower's own
+R(theta, phi), that ``z_trans`` sits on whole layers, that ``*_true`` is the
+shower's own incident momentum or polar angle, and that per-shower network
+outputs are constant within a shower.
 """
 
 from __future__ import annotations
@@ -15,17 +23,28 @@ from pathlib import Path
 import duckdb
 
 from ..db import naming
+from ..db.ddl import CSV_FRAMES, MODEL_FIELDS, MODELS, csv_model_column
 from ..db.naming import quote
 from . import csv_spec
+from .derive_proj import FRAME_COORDINATES, keep_predicate
 
 log = logging.getLogger(__name__)
+
+#: Tolerances, set well above the CSV's six-decimal rounding and REAL storage.
+P0_TOLERANCE_MM = 0.01
+ROTATION_TOLERANCE_MM = 0.01
+LAYER_TOLERANCE_MM = 1e-3
+MOMENTUM_TOLERANCE_GEV = 1e-5
+THETA_TOLERANCE_RAD = 2e-6
 
 
 @dataclass
 class VerificationResult:
     ok: bool = True
     warnings: list[str] = field(default_factory=list)
+    notices: list[str] = field(default_factory=list)
     checks: dict[str, str] = field(default_factory=dict)
+    values: dict[str, float | int | None] = field(default_factory=dict)
 
     def fail(self, key: str, message: str) -> None:
         self.ok = False
@@ -38,132 +57,310 @@ class VerificationResult:
         self.warnings.append(message)
         log.warning("Verification warning - %s: %s", key, message)
 
+    def notice(self, key: str, message: str) -> None:
+        self.checks.setdefault(key, "PASS")
+        self.notices.append(message)
+        log.info("Verification notice - %s: %s", key, message)
+
     def passed(self, key: str) -> None:
         self.checks.setdefault(key, "PASS")
+
+    def as_dict(self) -> dict:
+        return {"ok": self.ok, "checks": self.checks, "values": self.values,
+                "warnings": self.warnings, "notices": self.notices}
+
+
+def _own(column_a: str, column_b: str) -> str:
+    return f"CASE WHEN particle_origin = 'A' THEN {column_a} ELSE {column_b} END"
+
+
+def _exceeds(value, tolerance: float) -> bool:
+    """``value > tolerance`` that also fails a NaN, which no comparison does."""
+    return value is not None and not (float(value) <= tolerance)
+
+
+def _archive_checks(con: duckdb.DuckDBPyConnection, source: str, pitch: float) -> dict:
+    """One ungrouped scan of the archive computing every row-level contract.
+
+    Only rows the sanitiser keeps are examined: a row it drops - a missing or
+    non-finite energy or coordinate, a bad origin - is already removed and
+    counted there, and failing the whole ingest on it would make those counters
+    unreachable on a ready experiment. The model columns come from the model
+    schema itself, so the hit ``energy`` is never mistaken for a network output.
+    """
+    model_columns = [csv_model_column(m, f, k) for m in MODELS for f in CSV_FRAMES
+                     for k in MODEL_FIELDS]
+    finite = {
+        c: f"count(*) FILTER (WHERE {quote(c)} IS NULL OR NOT isfinite({quote(c)}))"
+        for c in model_columns
+    }
+    theta = _own("incoming_theta_A", "incoming_theta_B")
+    phi = _own("incoming_phi_A", "incoming_phi_B")
+    # R(theta, phi) of the notebook that produced the local frame: first the
+    # laboratory azimuth, then the tilt. Applied to the translated vector.
+    xl = (f"(x_trans * cos({theta}) * cos({phi}) + y_trans * cos({theta}) * sin({phi}) "
+          f"- z_trans * sin({theta}))")
+    yl = f"(-x_trans * sin({phi}) + y_trans * cos({phi}))"
+    zl = (f"(x_trans * sin({theta}) * cos({phi}) + y_trans * sin({theta}) * sin({phi}) "
+          f"+ z_trans * cos({theta}))")
+    momentum = _own("incoming_momentum_A", "incoming_momentum_B")
+    aggregates = {
+        **{f"nonfinite__{c}": sql for c, sql in finite.items()},
+        "max_rotation_residual": (
+            f"max(greatest(abs(x_local - {xl}), abs(y_local - {yl}), abs(z_local - {zl})))"
+        ),
+        "max_layer_residual": (
+            f"max(abs(z_trans - round(z_trans / {pitch!r}) * {pitch!r}))"
+        ),
+        "gradcam_outside": " + ".join(
+            f"count(*) FILTER (WHERE {quote(csv_model_column(m, f, 'gradcam'))} < 0 "
+            f"OR {quote(csv_model_column(m, f, 'gradcam'))} > 1)"
+            for m in MODELS for f in ("absolute", "trans", "local")
+        ),
+        "shapcam_outside": " + ".join(
+            f"count(*) FILTER (WHERE abs({quote(csv_model_column(m, f, 'shapcam'))}) > 1)"
+            for m in MODELS for f in ("absolute", "trans", "local")
+        ),
+        "segmentation_outside": " + ".join(
+            f"count(*) FILTER (WHERE {quote(csv_model_column('segmentation', f, k))} < 0 "
+            f"OR {quote(csv_model_column('segmentation', f, k))} > 1)"
+            for f in ("absolute", "trans", "local") for k in ("pred", "true")
+        ),
+        "ab_rows": "count(*) FILTER (WHERE particle_origin = 'A+B')",
+        "ab_off_origin": (
+            "count(*) FILTER (WHERE particle_origin = 'A+B' AND ("
+            + " OR ".join(f"{c} <> 0" for c in FRAME_COORDINATES) + "))"
+        ),
+        "bad_origin": ("count(*) FILTER (WHERE particle_origin IS NULL "
+                       "OR particle_origin NOT IN ('A', 'B', 'A+B'))"),
+    }
+    for frame in ("absolute", "trans", "local"):
+        energy_true = quote(csv_model_column("energy", frame, "true"))
+        angle_true = quote(csv_model_column("angle", frame, "true"))
+        aggregates[f"max_momentum_residual__{frame}"] = (
+            f"max(abs({energy_true} - {momentum})) FILTER (WHERE particle_origin <> 'A+B')"
+        )
+        aggregates[f"max_theta_residual__{frame}"] = (
+            f"max(abs({angle_true} - {theta})) FILTER (WHERE particle_origin <> 'A+B')"
+        )
+    names = list(aggregates)
+    row = con.execute(
+        f"SELECT {', '.join(f'{sql} AS {quote(k)}' for k, sql in aggregates.items())} "
+        f"FROM {source} WHERE {keep_predicate()}"
+    ).fetchone()
+    return dict(zip(names, row))
 
 
 def verify(
     con: duckdb.DuckDBPyConnection,
     name: str,
-    source: Path | None,
-    expect_rows: int | None = None,
+    source_csv: Path | None,
+    archive_source: str,
+    archive_rows: int,
+    layer_pitch_mm: float,
+    part_rows: int | None = None,
+    lattice_n: tuple[int, int, int] | None = None,
+    depth_mm: float | None = None,
 ) -> VerificationResult:
-    """Check the ingested tables against the source file and each other."""
+    """Check the archive and the derived tables against the source and each other."""
     result = VerificationResult()
-    hit_physical = naming.hit_table(name)
     proj_physical = naming.proj_table(name)
     event_physical = naming.event_table(name)
+    proj, event = quote(proj_physical), quote(event_physical)
 
-    n_hits = int(con.execute(f"SELECT count(*) FROM {quote(hit_physical)}").fetchone()[0])
-    n_proj = int(con.execute(f"SELECT count(*) FROM {quote(proj_physical)}").fetchone()[0])
-    n_events = int(
-        con.execute(f"SELECT count(*) FROM {quote(event_physical)}").fetchone()[0]
-    )
+    n_parquet = int(con.execute(f"SELECT count(*) FROM {archive_source}").fetchone()[0])
+    n_proj = int(con.execute(f"SELECT count(*) FROM {proj}").fetchone()[0])
+    n_events = int(con.execute(f"SELECT count(*) FROM {event}").fetchone()[0])
+    result.values.update(archive_rows=n_parquet, proj_rows=n_proj, events=n_events)
 
-    # 1. Every data row of the source must have reached the hit table.
-    if expect_rows is None and source is not None and source.is_file():
-        expect_rows = csv_spec.count_data_rows(source)
-    if expect_rows is not None:
-        if n_hits == expect_rows:
-            result.passed("row_count")
-        else:
-            result.fail(
-                "row_count",
-                f"The source file holds {expect_rows:,} data rows but "
-                f"{hit_physical} holds {n_hits:,}.",
-            )
-    if n_hits == 0:
-        result.fail("non_empty", f"{hit_physical} is empty after ingestion.")
+    # 1. Every data row of the source must have reached the archive: the part
+    #    just written holds the source's rows, and the manifest agrees with the
+    #    parts actually on disk (an append adds one part to several).
+    expected = csv_spec.count_data_rows(source_csv) if source_csv and source_csv.is_file() else None
+    if n_parquet != archive_rows:
+        result.fail("archive_row_count",
+                    f"The archive manifest lists {archive_rows:,} rows but its parts hold {n_parquet:,}.")
+    elif expected is not None and part_rows is not None and expected != part_rows:
+        result.fail("archive_row_count",
+                    f"The source file holds {expected:,} data rows but its archive part holds "
+                    f"{part_rows:,}.")
+    else:
+        result.passed("archive_row_count")
+    if n_parquet == 0:
+        result.fail("non_empty", "The archive is empty after ingestion.")
         return result
 
-    # 2. The projection table may legitimately be smaller (sanitisation removes
-    #    unphysical rows) but never larger, and losing a large fraction is a
-    #    sign the input is not what it claims to be.
-    if n_proj > n_hits:
-        result.fail(
-            "projection_size",
-            f"{proj_physical} has more rows ({n_proj:,}) than {hit_physical} "
-            f"({n_hits:,}).",
-        )
+    # 2. The projection may be smaller (sanitisation) but never larger.
+    if n_proj > n_parquet:
+        result.fail("projection_size",
+                    f"{proj_physical} has more rows ({n_proj:,}) than the archive ({n_parquet:,}).")
     else:
-        dropped = n_hits - n_proj
-        if dropped and dropped / n_hits > 0.05:
-            result.warn(
-                "projection_size",
-                f"Sanitisation removed {dropped:,} of {n_hits:,} rows "
-                f"({100.0 * dropped / n_hits:.2f}%) as unphysical.",
-            )
+        dropped = n_parquet - n_proj
+        if dropped and dropped / n_parquet > 0.05:
+            result.warn("projection_size",
+                        f"Sanitisation removed {dropped:,} of {n_parquet:,} rows "
+                        f"({100.0 * dropped / n_parquet:.2f}%) as unphysical.")
         else:
             result.passed("projection_size")
 
-    # 3. Event counts must agree between the two derived tables.
+    # 3. Event counts must agree between the derived tables.
     n_proj_events = int(
-        con.execute(
-            f"SELECT count(DISTINCT event_number) FROM {quote(proj_physical)}"
-        ).fetchone()[0]
+        con.execute(f"SELECT count(DISTINCT event_number) FROM {proj}").fetchone()[0]
     )
     if n_proj_events == n_events:
         result.passed("event_count")
     else:
-        result.warn(
-            "event_count",
-            f"{event_physical} summarises {n_events:,} events but "
-            f"{proj_physical} contains {n_proj_events:,}.",
-        )
+        result.warn("event_count",
+                    f"{event_physical} summarises {n_events:,} events but {proj_physical} "
+                    f"contains {n_proj_events:,}.")
 
-    # 4. Undefined separation distance. Not an error - these are degenerate
-    #    events where shower A deposited nothing - but it must be surfaced,
-    #    because they are silently excluded by any D filter and their number is
-    #    correlated with the overlap regime under study.
-    n_no_d = int(
-        con.execute(
-            f"SELECT count(*) FROM {quote(event_physical)} WHERE d IS NULL"
-        ).fetchone()[0]
-    )
-    if n_no_d:
-        result.warn(
-            "undefined_separation",
-            f"{n_no_d:,} of {n_events:,} events have no defined A-B separation "
-            "and are excluded from D-filtered views.",
-        )
+    # 4. Undefined separation: exactly the events with no shower-A row.
+    row = con.execute(
+        f"""SELECT count(*) FILTER (WHERE d IS NULL),
+                   count(*) FILTER (WHERE (d IS NULL) <> (n_a_rows = 0)),
+                   count(*) FILTER (WHERE cbx IS NULL)
+            FROM {event}"""
+    ).fetchone()
+    n_no_d, mismatched, no_b = (int(v or 0) for v in row)
+    result.values.update(events_no_d=n_no_d)
+    if mismatched or no_b:
+        result.fail("null_centroid_events",
+                    f"{mismatched:,} event(s) have an undefined separation that does not match "
+                    f"an absent shower A, and {no_b:,} lack a shower-B centroid.")
+    elif n_no_d:
+        result.warn("undefined_separation",
+                    f"{n_no_d:,} of {n_events:,} events have no hit attributed to shower A, so no "
+                    "A centroid and no A-B separation; they are excluded from D-filtered views.")
     else:
         result.passed("undefined_separation")
 
-    # 5. Lattice indices must stay inside the measured lattice.
-    row = con.execute(
-        f"SELECT max(ix), max(iy), max(iz) FROM {quote(proj_physical)}"
-    ).fetchone()
-    lat = con.execute(
-        'SELECT nx, ny, nz FROM "experiment" WHERE table_name = ?', [name]
-    ).fetchone()
-    if lat and all(v is not None for v in lat) and all(v is not None for v in row):
-        if row[0] < lat[0] and row[1] < lat[1] and row[2] < lat[2]:
+    # 5. Lattice and layer indices stay inside what was measured. The own-
+    #    shower layer kt counts whole layer pitches from the shower's first
+    #    layer, so it is bounded by the detector's depth in pitches - not by the
+    #    number of *populated* laboratory layers, which a small file can leave
+    #    below the full count (the demonstration file populates 56 of 60).
+    idx = con.execute(f"SELECT max(ix), max(iy), max(iz), max(kt) FROM {proj}").fetchone()
+    if lattice_n and all(v is not None for v in idx):
+        nx, ny, nz = lattice_n
+        n_pitches = int(round(depth_mm / layer_pitch_mm)) + 1 if depth_mm is not None else nz
+        if idx[0] < nx and idx[1] < ny and idx[2] < nz and idx[3] < n_pitches:
             result.passed("lattice_bounds")
         else:
-            result.fail(
-                "lattice_bounds",
-                f"Projection indices ({row[0]}, {row[1]}, {row[2]}) exceed the "
-                f"measured lattice ({lat[0]}, {lat[1]}, {lat[2]}).",
-            )
+            result.fail("lattice_bounds",
+                        f"Projection indices ({idx[0]}, {idx[1]}, {idx[2]}, kt {idx[3]}) exceed "
+                        f"the measured lattice ({nx}, {ny}, {nz}; {n_pitches} layer pitches).")
 
-    # 6. Deposited energy must be strictly positive and finite in aggregate.
+    # 6. Deposited energy positive and finite in aggregate.
     e_dep = con.execute(
-        f"SELECT sum(e_dep), count(*) FILTER (WHERE NOT isfinite(e_dep)) "
-        f"FROM {quote(event_physical)}"
+        f"SELECT sum(e_dep), count(*) FILTER (WHERE NOT isfinite(e_dep)) FROM {event}"
     ).fetchone()
     if e_dep[0] is None or not (e_dep[0] > 0) or e_dep[1]:
-        result.fail(
-            "energy_sanity",
-            f"Total deposited energy is not a usable positive finite value "
-            f"(sum={e_dep[0]}, non-finite events={e_dep[1]}).",
-        )
+        result.fail("energy_sanity",
+                    f"Total deposited energy is not a usable positive finite value "
+                    f"(sum={e_dep[0]}, non-finite events={e_dep[1]}).")
     else:
         result.passed("energy_sanity")
 
+    # 7. Per-shower constancy (event table).
+    spreads = con.execute(
+        f"""SELECT max(chk_p0_spread), max(chk_pt_spread), coalesce(sum(chk_bad_split), 0),
+                   coalesce(sum(n_split_cells), 0), coalesce(sum(n_cells), 0),
+                   coalesce(sum(n_ab_rows), 0),
+                   count(*) FILTER (WHERE cam_zero_mask <> 0)
+            FROM {event}"""
+    ).fetchone()
+    p0_spread, pt_spread, bad_split, n_split, n_cells, n_ab, n_cam_zero = spreads
+    result.values.update(p0_spread_mm=p0_spread, pt_spread=pt_spread,
+                         split_cells=int(n_split), cells=int(n_cells), ab_rows=int(n_ab),
+                         cam_zero_events=int(n_cam_zero))
+    if _exceeds(p0_spread, P0_TOLERANCE_MM):
+        result.fail("p0_constancy",
+                    f"A shower's entry point P0 (x - x_trans) varies by up to {p0_spread:.4g} mm "
+                    "within the shower; the translated frame would not be a rigid shift.")
+    else:
+        result.passed("p0_constancy")
+    if _exceeds(pt_spread, 0.0):
+        result.fail("per_shower_constancy",
+                    f"Angle or energy network outputs vary within a shower (spread {pt_spread:.4g}).")
+    else:
+        result.passed("per_shower_constancy")
+    if bad_split:
+        result.warn("split_cells",
+                    f"{int(bad_split):,} cell(s) appear more than once without being one A row "
+                    "plus one B row.")
+    else:
+        result.passed("split_cells")
+    if n_cam_zero:
+        result.notice("cam_zero",
+                      f"{int(n_cam_zero):,} event(s) have at least one network's CAM map "
+                      "identically zero; those maps have no peak to normalise.")
+
+    # 8. Row-level contracts, one scan of the archive.
+    checks = _archive_checks(con, archive_source, layer_pitch_mm)
+    bad_columns = {k.split("__", 1)[1]: int(v) for k, v in checks.items()
+                   if k.startswith("nonfinite__") and v}
+    if bad_columns:
+        result.fail("finite_model_columns",
+                    "Non-finite or missing values in: "
+                    + ", ".join(f"{c} ({n:,})" for c, n in sorted(bad_columns.items()))
+                    + " on rows that are otherwise kept. They are rejected rather than "
+                    "replaced, because a filled-in model output would be a fabricated one.")
+    else:
+        result.passed("finite_model_columns")
+    outside = int(checks["gradcam_outside"] or 0) + int(checks["shapcam_outside"] or 0) \
+        + int(checks["segmentation_outside"] or 0)
+    result.values["cam_values_outside_range"] = outside
+    if outside:
+        result.warn("cam_ranges",
+                    f"{outside:,} model value(s) lie outside their documented range "
+                    "(Grad-CAM and voxel fractions in [0, 1], Shap-CAM in [-1, 1]).")
+    else:
+        result.passed("cam_ranges")
+    rotation = checks["max_rotation_residual"]
+    result.values["rotation_residual_mm"] = rotation
+    if _exceeds(rotation, ROTATION_TOLERANCE_MM):
+        result.fail("local_rotation",
+                    f"x/y/z_local differ from R(theta, phi) of the own shower applied to the "
+                    f"translated coordinates by up to {rotation:.4g} mm.")
+    else:
+        result.passed("local_rotation")
+    layer = checks["max_layer_residual"]
+    result.values["layer_residual_mm"] = layer
+    if _exceeds(layer, LAYER_TOLERANCE_MM):
+        result.fail("trans_layers",
+                    f"z_trans is off the {layer_pitch_mm} mm layer grid by up to {layer:.4g} mm.")
+    else:
+        result.passed("trans_layers")
+    def worst(prefix: str) -> float:
+        values = [float(checks[f"{prefix}__{f}"] or 0.0) for f in ("absolute", "trans", "local")]
+        # Python's max is order-dependent with a NaN; a NaN residual must fail.
+        return float("nan") if any(v != v for v in values) else max(values)
+
+    worst_p = worst("max_momentum_residual")
+    worst_t = worst("max_theta_residual")
+    result.values.update(momentum_residual_gev=worst_p, theta_residual_rad=worst_t)
+    if _exceeds(worst_p, MOMENTUM_TOLERANCE_GEV) or _exceeds(worst_t, THETA_TOLERANCE_RAD):
+        result.fail("truth_consistency",
+                    f"energy_*_true / angle_*_true differ from the own shower's incident "
+                    f"momentum / polar angle by up to {worst_p:.3g} GeV / {worst_t:.3g} rad.")
+    else:
+        result.passed("truth_consistency")
+    if checks["bad_origin"]:
+        result.fail("ab_rows", f"{int(checks['bad_origin']):,} row(s) have an unknown particle_origin.")
+    elif checks["ab_off_origin"]:
+        result.fail("ab_rows",
+                    f"{int(checks['ab_off_origin']):,} 'A+B' row(s) are not at the origin of "
+                    "the per-shower frames.")
+    else:
+        if checks["ab_rows"]:
+            result.notice("ab_rows",
+                          f"{int(checks['ab_rows']):,} 'A+B' row(s): at the origin of both "
+                          "per-shower frames and counted with shower B.")
+        result.passed("ab_rows")
+
     log.info(
         "Verification for %r: %s (%s)",
-        name,
-        "PASSED" if result.ok else "FAILED",
+        name, "PASSED" if result.ok else "FAILED",
         ", ".join(f"{k}={v}" for k, v in sorted(result.checks.items())),
     )
     return result

@@ -17,12 +17,12 @@ import logging
 from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from ..db import naming, registry
-from ..db.ddl import HIT_COLUMN_NAMES
+from ..db.ddl import HIT_COLUMN_NAMES, SCHEMA_NAME, SCHEMA_VERSION
 from ..errors import IngestError, NotFoundError, ValidationError
 from ..ingest import jobs as jobs_mod
 from ..ingest import local as local_ingest
 from ..ingest import stream
-from ..ingest.stream import StagedFile
+from ..ingest.stream import StagedFile, check_free_space
 from ..models.upload import UploadMode
 from ..query import cache as cache_mod
 from .deps import SettingsDep
@@ -43,7 +43,7 @@ async def upload(
     ),
     display_name: str = Form("", description="Label for the experiment dropdown."),
     event_offset: int = Form(
-        0, description="Shift incoming event numbers to avoid a collision."
+        0, ge=0, description="Shift incoming event numbers to avoid a collision."
     ),
 ):
     name = naming.validate_experiment_name(table_name)
@@ -65,10 +65,15 @@ async def upload(
                     "Use create_new for the first upload."
                 )
 
+    # FastAPI has already spooled the whole multipart body by the time this
+    # handler runs, and the spool sits on the staging volume (``TMPDIR``), so
+    # both checks credit it: it is released when the request ends, before the
+    # ingest's own writes. Here the spool is one of the ``factor`` copies the
+    # rule budgets for; after staging, the staged file is another.
     declared = request.headers.get("content-length")
     if declared and declared.isdigit():
         stream.check_free_space(
-            settings.staging_dir, int(declared), settings.disk_headroom_factor
+            settings.staging_dir, int(declared), settings.disk_headroom_factor - 1
         )
 
     destination = stream.staged_path(settings.staging_dir, file.filename or "upload.csv")
@@ -80,7 +85,7 @@ async def upload(
     # ingest; a chunked upload has no reliable content-length.
     try:
         stream.check_free_space(
-            settings.staging_dir, staged.size_bytes, settings.disk_headroom_factor
+            settings.staging_dir, staged.size_bytes, settings.disk_headroom_factor - 2
         )
     except Exception:
         staged.unlink()
@@ -119,7 +124,7 @@ def ingest_local(
     table_name: str = Form(...),
     mode: str = Form(UploadMode.CREATE_NEW.value),
     display_name: str = Form(""),
-    event_offset: int = Form(0),
+    event_offset: int = Form(0, ge=0),
 ):
     """Run an ingest inside the server process, without moving the file.
 
@@ -136,6 +141,9 @@ def ingest_local(
 
     source = local_ingest.resolve_local_path(settings, path)
     database = request.app.state.database
+    # The file is read in place, so no staging copy: the archive (about 0.15x
+    # the CSV), the derived tables and DuckDB spill still need room.
+    check_free_space(settings.data_dir, source.stat().st_size, settings.local_headroom_factor)
 
     if mode == UploadMode.APPEND.value:
         with database.read_cursor() as con:
@@ -203,22 +211,28 @@ def upload_info(settings: SettingsDep):
         "headroom_factor": settings.disk_headroom_factor,
         "max_practical_bytes": int(free / settings.disk_headroom_factor),
         "large_upload_warn_bytes": settings.large_upload_warn_bytes,
+        "local_headroom_factor": settings.local_headroom_factor,
+        "data_free_bytes": shutil.disk_usage(settings.data_dir).free,
         "warning": (
             "Large uploads are supported, but a browser upload has no resume: "
             "if the connection drops the transfer restarts from the beginning. "
             "Ingestion also needs roughly three times the CSV size in free disk "
-            "space for the staging file and the derived tables. For datasets "
-            "already on the server, the offline CLI "
+            "space for the staging file, the Parquet archive and the derived "
+            "tables. For datasets already on the server, the offline CLI "
             "(python -m calosrv.ingest --input ... --table ...) avoids the "
             "transfer entirely."
         ),
         "schema": {
+            "name": SCHEMA_NAME,
+            "version": SCHEMA_VERSION,
+            "n_columns": len(HIT_COLUMN_NAMES),
             "columns": list(HIT_COLUMN_NAMES),
             "note": (
-                "The file must carry exactly these 29 columns in this order. "
-                "Empty fields are read as NULL; rows with a missing coordinate "
-                "or a non-positive energy are excluded from the projections and "
-                "counted in the ingest report."
+                f"The file must carry exactly these {len(HIT_COLUMN_NAMES)} columns "
+                "in this order. Empty fields are read as NULL; rows with a missing "
+                "coordinate or a non-positive energy are excluded from the "
+                "projections and counted in the ingest report. The retired "
+                "29-column v37 format is no longer accepted."
             ),
         },
     }

@@ -33,6 +33,19 @@ log = logging.getLogger(__name__)
 
 LAB_CACHE = "lab"
 CANONICAL_CACHE = "canonical"
+TRANS_CACHE = "trans"
+LOCAL_CACHE = "local"
+
+#: Default byte budget per named cache. The entry count alone does not bound
+#: memory once bundles differ in size (a canonical bundle is several times a
+#: laboratory one), and the Python heap - which these caches live in - sits
+#: outside DuckDB's memory_limit, inside the container's ~4 GB of headroom.
+DEFAULT_MAX_BYTES = {
+    LAB_CACHE: 256 * 1024 ** 2,
+    CANONICAL_CACHE: 256 * 1024 ** 2,
+    TRANS_CACHE: 128 * 1024 ** 2,
+    LOCAL_CACHE: 128 * 1024 ** 2,
+}
 
 
 class Cacheable(Protocol):
@@ -68,12 +81,19 @@ class CacheStats:
 class BundleCache:
     """Thread-safe LRU over bundle objects."""
 
-    def __init__(self, max_entries: int = 128, name: str = LAB_CACHE) -> None:
+    def __init__(
+        self, max_entries: int = 128, name: str = LAB_CACHE, max_bytes: int | None = None
+    ) -> None:
         self._max = max(1, max_entries)
+        self._max_bytes = max_bytes
         self.name = name
         self._entries: OrderedDict[tuple, Any] = OrderedDict()
         self._lock = threading.Lock()
         self.stats = CacheStats()
+        #: Bumped by every invalidation of a table. A scan that was already
+        #: running when its table was invalidated read the old tables, so its
+        #: result is returned to its caller but never inserted.
+        self._generation: dict[Any, int] = {}
 
     def get_or_compute(
         self, key: tuple, compute: Callable[[], Any]
@@ -85,6 +105,7 @@ class BundleCache:
         every other reader for its duration would be far worse than the
         occasional duplicated scan when two identical requests race.
         """
+        table = key[0] if key else None
         with self._lock:
             bundle = self._entries.get(key)
             if bundle is not None:
@@ -92,16 +113,37 @@ class BundleCache:
                 self.stats.hits += 1
                 return bundle, True
             self.stats.misses += 1
+            generation = self._generation.get(table, 0)
 
         bundle = compute()
 
         with self._lock:
+            if self._generation.get(table, 0) != generation:
+                return bundle, False
             self._entries[key] = bundle
             self._entries.move_to_end(key)
-            while len(self._entries) > self._max:
+            while len(self._entries) > self._max or (
+                self._max_bytes is not None and len(self._entries) > 1
+                and sum(b.nbytes for b in self._entries.values()) > self._max_bytes
+            ):
                 self._entries.popitem(last=False)
                 self.stats.evictions += 1
         return bundle, False
+
+    def get_any(self, keys: list[tuple]) -> Any | None:
+        """The first of ``keys`` that is cached, counted as a hit; else ``None``.
+
+        A density request is the same for every network, so it can be served
+        from whichever network's bundle of the selection is already cached.
+        """
+        with self._lock:
+            for key in keys:
+                bundle = self._entries.get(key)
+                if bundle is not None:
+                    self._entries.move_to_end(key)
+                    self.stats.hits += 1
+                    return bundle
+        return None
 
     def invalidate_table(self, table_name: str) -> int:
         """Drop every entry for one experiment.
@@ -111,6 +153,7 @@ class BundleCache:
         entries happened to be evicted. Every key starts with the table name.
         """
         with self._lock:
+            self._generation[table_name] = self._generation.get(table_name, 0) + 1
             stale = [k for k in self._entries if k and k[0] == table_name]
             for key in stale:
                 del self._entries[key]
@@ -136,6 +179,7 @@ class BundleCache:
             "name": self.name,
             "entries": entries,
             "max_entries": self._max,
+            "max_bytes": self._max_bytes,
             "bytes": self.nbytes,
             **self.stats.as_dict(),
         }
@@ -145,14 +189,17 @@ _caches: dict[str, BundleCache] = {}
 _cache_lock = threading.Lock()
 
 
-def get_cache(max_entries: int = 128, name: str = LAB_CACHE) -> BundleCache:
-    """The named cache, created on first use with ``max_entries``."""
+def get_cache(
+    max_entries: int = 128, name: str = LAB_CACHE, max_bytes: int | None = None
+) -> BundleCache:
+    """The named cache, created on first use with ``max_entries`` and a byte budget."""
     cache = _caches.get(name)
     if cache is None:
         with _cache_lock:
             cache = _caches.get(name)
             if cache is None:
-                cache = BundleCache(max_entries, name=name)
+                budget = max_bytes if max_bytes is not None else DEFAULT_MAX_BYTES.get(name)
+                cache = BundleCache(max_entries, name=name, max_bytes=budget)
                 _caches[name] = cache
     return cache
 

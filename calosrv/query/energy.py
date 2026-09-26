@@ -56,7 +56,7 @@ from typing import Any, Sequence
 import duckdb
 import numpy as np
 
-from ..db import naming
+from ..db import ddl, naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..stats import clip as clip_mod
@@ -328,14 +328,21 @@ def _fetch(
     record: ExperimentRecord,
     spec: FilterSpec,
     slices: Sequence[Slice],
+    frame_code: str = "abs",
 ) -> dict[str, np.ndarray]:
-    """Per-event energies, slice assignment and truth momenta for the selection."""
+    """Per-event energies, slice assignment and truth momenta for the selection.
+
+    ``frame_code`` picks the segmentation network (``abs``, ``trn``, ``loc``)
+    whose voxel fractions split each event's deposited energy.
+    """
     table = quote(naming.event_table(record.table_name))
+    f = frame_code
     return con.execute(
         f"""
         SELECT
             {case_sql(slices)}          AS slice_index,
-            e_a_pred, e_b_pred, e_a_true, e_b_true,
+            e_a_pred_{f} AS e_a_pred, e_b_pred_{f} AS e_b_pred,
+            e_a_true_{f} AS e_a_true, e_b_true_{f} AS e_b_true,
             CAST(e1 AS DOUBLE)          AS e1,
             CAST(e2 AS DOUBLE)          AS e2
         FROM {table}
@@ -354,10 +361,17 @@ def compute(
     calibrated: bool = True,
     clip_low: float = clip_mod.DEFAULT_LOW_PERCENTILE,
     clip_high: float = clip_mod.DEFAULT_HIGH_PERCENTILE,
+    coord_system: str = "lab",
+    curve_points: int = histogram.CURVE_POINTS,
 ) -> EnergyDistribution:
-    """Build the reconstructed-energy distribution for the active selection."""
+    """Build the reconstructed-energy distribution for the active selection.
+
+    Always the segmentation reconstruction - E_A and E_B from that network's
+    voxel fractions - of the frame ``coord_system`` names; D stays the
+    laboratory separation.
+    """
     slices = build_slices(edges) if edges else build_slices()
-    columns = _fetch(con, record, spec, slices)
+    columns = _fetch(con, record, spec, slices, ddl.frame_code(coord_system))
 
     slice_index = np.asarray(columns["slice_index"], dtype=np.int64)
     n_events = int(slice_index.size)
@@ -417,7 +431,7 @@ def compute(
         else histogram.adaptive_bins(min(drawn) if drawn else 0)
     )
     edges_array = histogram.axis_edges(axis_lo, axis_hi, resolved_bins)
-    curve_x = histogram.curve_axis(axis_lo, axis_hi)
+    curve_x = histogram.curve_axis(axis_lo, axis_hi, curve_points)
     fitted: list[SeriesFit] = []
     for s in slices:
         mask = slice_index == s.index
@@ -467,7 +481,7 @@ def compute(
                         "It is drawn as a position and a width rather than as a "
                         "density curve, because a unit-area Gaussian this narrow "
                         f"peaks near {gaussian.unit_area_amplitude(sigma):.2f} "
-                        "GeV^-1 and would take the density axis away from the "
+                        "GeV⁻¹ and would take the density axis away from the "
                         "reconstructions the panel is about."
                     ),
                 }

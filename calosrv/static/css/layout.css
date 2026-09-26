@@ -174,6 +174,21 @@
 }
 .statusbar b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* --------------------------------------------------------- tooltip layer */
+
+/* Every chart tooltip is mounted here (panels/tooltip.js). It sits outside
+   `.main`, whose overflow box would clip a tip. `position: fixed` also keeps a
+   hidden tip, which ECharts leaves where it last stood, from growing the
+   document after the window shrinks: a fixed box's contents never add to the
+   page's scroll size. It stacks above the page and below the export menu and
+   popovers (z-index 200). */
+.tooltip-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 150;
+}
+
 /* ------------------------------------------------------------------ modal */
 
 .modal-backdrop {

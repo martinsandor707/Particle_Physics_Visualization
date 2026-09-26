@@ -49,9 +49,11 @@ from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
 from ..grid.resolution import MODE_CONTINUOUS, MODE_NATIVE
 from ..models.common import ApiMeta, Timer, envelope
+from ..text import fmt_signed
 from ..query import cache as cache_mod
 from ..query import canonical, canonical_cache, centroids, density, ensemble, reconstruct, sampling, summary, window
 from ..query import stagger as stagger_mod
+from ..query import planes as planes_mod
 from ..query.panels import CHANNEL_GRADCAM
 from ..query.canonical import FrameStats
 from ..query.filters import FilterSpec
@@ -99,7 +101,7 @@ def _comb_report(
     data["measured_on"] = COMB_MEASURED_ON
 
     def fmt(v: float | None) -> str:
-        return "n/a" if v is None else f"{v:+.2f}"
+        return fmt_signed(v, 2, plus=True)
 
     measured = (
         f"occupancy lag-1 {fmt(report.lag1)}, energy lag-1 {fmt(intensity.get('core_row'))} "
@@ -175,29 +177,46 @@ _bundle_for = canonical_cache.bundle_for
 dataset_reference = canonical_cache.dataset_reference
 
 
-def _floor_notice(channel: str, display: str, panels: dict[str, dict[str, Any]]) -> str:
+def _floor_notice(
+    channel: str, display: str, panels: dict[str, dict[str, Any]],
+    names: dict[str, str] | None = None,
+) -> str:
     """What the display floor leaves undrawn, in the channel's own terms."""
     floor = density.floor_label()
-    if channel == CHANNEL_GRADCAM:
+    names = names or _PANEL_NAMES
+    view = planes_mod.view(channel)
+    label = "Grad-CAM" if view.cam == "gradcam" else "Shap-CAM"
+    if view.kind == planes_mod.KIND_RATIO:
+        what = "attention" if view.cam == "gradcam" else "attribution"
         if display == MODE_NATIVE:
             return (
-                "Grad-CAM in Native Grid: only bins with no hits are transparent, because "
-                "attention is undefined there; attention measured on real hits is always "
+                f"{label} in Native Grid: only bins with no hits are transparent, because "
+                f"{what} is undefined there; {what} measured on real hits is always "
                 "drawn, however little energy they hold."
             )
         masked = ", ".join(
-            f"{_PANEL_NAMES[name]} {int(panels[name]['attention_mask']['cells']):,}"
+            f"{names[name]} {int(panels[name]['attention_mask']['cells']):,}"
             for name in ("xy", "yz", "xz")
         )
         return (
-            "Grad-CAM in Continuous Field: attention is not drawn where the reconstructed "
+            f"{label} in Continuous Field: {what} is not drawn where the reconstructed "
             f"energy density is below {floor} of ρ_ref (bins masked: {masked}), because the "
-            "kernel tails carry attention into bins no measured energy reached."
+            f"kernel tails carry {what} into bins no measured energy reached."
+        )
+    if view.is_cam:
+        parts = "; ".join(
+            f"{names[name]} {int(panels[name].get('below_floor_cells', 0)):,} bins"
+            for name in ("xy", "yz", "xz")
+        )
+        magnitude = "|Σ E·CAM|" if view.kind == planes_mod.KIND_SIGNED else "Σ E·CAM"
+        return (
+            f"Energy-weighted {label}: bins whose {magnitude} is below {floor} of this "
+            f"selection's peak are not drawn ({parts}); bins with no hits are empty."
         )
     # The Native Grid reconstructs nothing, so its bins hold raw energy.
     energy = "reconstructed energy" if display == MODE_CONTINUOUS else "energy"
     parts = "; ".join(
-        f"{_PANEL_NAMES[name]} {int(panels[name]['below_floor_cells']):,} bins holding "
+        f"{names[name]} {int(panels[name]['below_floor_cells']):,} bins holding "
         f"{100.0 * panels[name]['below_floor_energy_fraction']:.3g}% of its in-window {energy}"
         for name in ("xy", "yz", "xz")
     )
@@ -224,6 +243,43 @@ def _attenuation_notice(rho: dict[str, Any]) -> str | None:
     )
 
 
+
+def _reference_notice(channel: str, rho_norm: str, pitch: float) -> str | None:
+    """What this channel's colours are relative to, and what ``rho_norm`` changes.
+
+    Only the density channel follows ``rho_norm``. An energy-weighted CAM channel
+    is always relative to this selection's own raw-grid peak of the same
+    quantity. A mean CAM channel is drawn on a fixed scale, and ``rho_norm`` only
+    moves the density floor below which the Continuous Field masks its bins.
+    """
+    view = planes_mod.view(channel)
+    if not view.is_cam:
+        if rho_norm == density.NORM_DATASET:
+            return None
+        return (
+            "Colours are relative to this selection's own peak density on the raw "
+            f"{pitch:.0f} mm accumulation grid (stated in the footnote), which the "
+            "displayed field never exceeds; switch the density normalisation to the "
+            "dataset peak to compare colours across selections."
+        )
+    cam = "Grad-CAM" if view.cam == "gradcam" else "Shap-CAM"
+    if view.kind != planes_mod.KIND_RATIO:
+        text = (
+            f"Colours are relative to this selection's own peak of Σ E·{cam} on the raw "
+            f"{pitch:.0f} mm accumulation grid (stated in the footnote), so they compare "
+            "positions within this selection, not one selection with another."
+        )
+        if rho_norm == density.NORM_DATASET:
+            text += " The dataset density normalisation applies to the density channel only."
+        return text
+    bounds = "0 to 1" if view.cam == "gradcam" else "−1 to +1"
+    scope = "this selection's" if rho_norm == density.NORM_SELECTION else "the whole dataset's"
+    return (
+        f"{cam} is drawn on its fixed {bounds} scale, not relative to a peak. The density "
+        "normalisation only sets the floor below which the Continuous Field masks a bin: "
+        f"10⁻³ of {scope} raw-grid peak density."
+    )
+
 def build_response(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -239,6 +295,7 @@ def build_response(
     timer: Timer,
     lock_scale: bool | None = None,
     scale_mode: str = "decades",
+    model: str = "segmentation",
 ) -> dict[str, Any]:
     """The full canonical-frame response, budgeted as it goes on the wire."""
     assert record.lattice is not None
@@ -247,7 +304,7 @@ def build_response(
     footprint = canonical.cell_footprint(con, record)
 
     bundle, stats, grid, k, was_cached = _bundle_for(
-        con, record, spec, settings, footprint, decision.sampled, decision.percent
+        con, record, spec, settings, footprint, decision.sampled, decision.percent, model
     )
 
     # The kernel follows the exact event count, which comes from the event
@@ -355,9 +412,12 @@ def build_response(
                         "and colours are comparable only to that extent."
                     ),
                 })
-            attenuation = _attenuation_notice(rendered["rho"])
+            attenuation = None if planes_mod.view(channel).is_cam else _attenuation_notice(rendered["rho"])
             if attenuation:
                 notices.append({"scope": "frame", "text": attenuation})
+        cam_view = planes_mod.view(channel)
+        if cam_view.is_cam:
+            notices.append({"scope": "frame", "text": planes_mod.cam_note(model, "lab", channel)["note"]})
         if lock_scale is False or scale_mode != "decades":
             notices.append({
                 "scope": "frame",
@@ -375,16 +435,9 @@ def build_response(
                     "ranges rest on weak evidence and are labelled provisional."
                 ),
             })
-        if rho_norm == density.NORM_SELECTION:
-            notices.append({
-                "scope": "frame",
-                "text": (
-                    "Colours are relative to this selection's own peak density on the raw "
-                    f"{grid.pitch:.0f} mm accumulation grid (stated in the footnote), which the "
-                    "displayed field never exceeds; switch the density normalisation to the "
-                    "dataset peak to compare colours across selections."
-                ),
-            })
+        reference = _reference_notice(channel, rendered["rho"].get("norm", rho_norm), grid.pitch)
+        if reference:
+            notices.append({"scope": "frame", "text": reference})
         for note in axes["notes"]:
             notices.append({"scope": "frame", "text": note})
 
@@ -411,6 +464,7 @@ def build_response(
                 "margin_mm": frame_mod.SHOWER_MARGIN_MM,
                 "energy_outside_gev": bundle.energy_outside,
                 "energy_fraction_outside": round(bundle.energy_fraction_outside, 8),
+                "hits_outside": bundle.n_outside,
             },
             "fit": fit.as_dict(),
             **stats.as_dict(),
@@ -431,9 +485,13 @@ def build_response(
             warnings=warnings,
             notes={
                 "frame": FRAME_CANONICAL,
+                "coord_system": "lab",
+                "model": model,
                 "resolution": rendered["resolution"],
                 "channel": channel,
                 "weighting": weighting,
+                **({"cam": planes_mod.cam_note(model, "lab", channel)}
+                   if planes_mod.view(channel).is_cam else {}),
                 "sample_percent": decision.percent if decision.sampled else 100.0,
                 "stagger": comb,
                 "notices": notices,
@@ -473,6 +531,16 @@ def build_response(
             frame=frame_block,
         )
 
+    return serve_within_budget(assemble, render, rendered, display)
+
+
+def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str) -> dict[str, Any]:
+    """Measure the assembled response as served and, if it is over, step the guard.
+
+    Shared by every co-registered frame. ``assemble(rendered, notes)`` builds
+    the whole body; ``render(limit, start=...)`` re-renders the panels from the
+    cached bundle at a guard state.
+    """
     body = assemble(rendered, [])
     size = density.wire_size(body)
     if size < density.RESPONSE_LIMIT:

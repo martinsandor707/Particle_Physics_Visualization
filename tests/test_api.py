@@ -23,7 +23,7 @@ def test_baseline_is_seeded_from_the_whole_demonstration_csv(client):
     assert baseline["status"] == "ready"
     assert baseline["n_hits"] == 1000
     assert baseline["n_events"] == 2
-    assert "hits_with_gradcam_dummy.csv" in baseline["source_files"]
+    assert "hits_all_models_dummy.csv" in baseline["source_files"]
 
 
 def test_experiments_reports_the_compute_allocation(client):
@@ -148,11 +148,51 @@ def test_custom_slice_edges_are_honoured(client):
     assert body["slices"][-1]["hi"] is None
 
 
-def test_model_performance_flags_the_missing_angle_column(client):
-    """Absent model outputs must be reported, never fabricated."""
-    body = client.get("/api/model-performance", params={"model": "angle"}).json()
-    assert body["model"]["title"] == "Incident Angle Estimation Model"
-    assert any("No predicted-angle column" in w for w in body["meta"]["warnings"])
+@pytest.mark.parametrize("model,primary", [
+    ("segmentation", {"accuracy", "wmae"}),
+    ("energy", {"sigma_rel_a", "sigma_rel_b"}),
+    ("angle", {"sigma_theta_a", "sigma_theta_b"}),
+])
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_model_performance_serves_each_networks_cards(client, model, primary, coord_system, frame):
+    body = client.get("/api/model-performance",
+                      params={"model": model, "coord_system": coord_system}).json()
+    assert body["network"] == {"model": model, "frame": frame}
+    assert body["model"]["network"] == body["network"]
+    assert {c["id"] for c in body["cards"] if c["primary"]} == primary
+    for card in body["cards"]:
+        assert set(card) >= {"id", "label", "sub", "value", "unit", "primary", "n", "se",
+                             "interval", "note"}
+        if card["interval"] is not None:
+            assert card["interval"]["level"] == 0.95
+            assert card["interval"]["lo"] <= card["value"] <= card["interval"]["hi"]
+    assert not body["meta"]["warnings"]
+
+
+@pytest.mark.parametrize("route", ["/api/model-performance", "/api/energy-distribution"])
+@pytest.mark.parametrize("params,field", [
+    ({"coord_system": "polar"}, "coord_system"),
+    ({"model": "gpt"}, "model"),
+])
+def test_performance_and_energy_refuse_unknown_networks(client, route, params, field):
+    if route == "/api/energy-distribution" and field == "model":
+        pytest.skip("the energy panel is always the segmentation reconstruction")
+    response = client.get(route, params=params)
+    assert response.status_code == 422
+    assert response.json().get("field") == field
+
+
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_the_energy_panel_names_its_network_and_nothing_else(client, coord_system, frame):
+    base = client.get("/api/energy-distribution").json()
+    body = client.get("/api/energy-distribution", params={"coord_system": coord_system}).json()
+    assert body["meta"]["network"] == {"model": "segmentation", "frame": frame}
+    assert set(body) == set(base)
+    assert set(body["meta"]) == set(base["meta"])
 
 
 def test_model_performance_reports_both_error_weightings(client):
@@ -209,7 +249,7 @@ def test_upload_rejects_a_mismatched_schema(client):
             break
         time.sleep(0.1)
     assert job["status"] == "failed"
-    assert "29-column" in (job["error"] or "")
+    assert "does not match the hits_all_models input schema" in (job["error"] or "")
 
 
 def test_append_to_a_missing_experiment_is_rejected(client):
@@ -224,7 +264,11 @@ def test_append_to_a_missing_experiment_is_rejected(client):
 def test_upload_info_warns_about_large_files(client):
     body = client.get("/api/upload-info").json()
     assert "no resume" in body["warning"]
-    assert len(body["schema"]["columns"]) == 29
+    from calosrv.db.ddl import HIT_COLUMN_NAMES
+
+    assert len(body["schema"]["columns"]) == len(HIT_COLUMN_NAMES) == 99
+    assert body["schema"]["n_columns"] == 99
+    assert body["schema"]["name"] == "hits_all_models"
 
 
 def test_index_page_is_served(client):

@@ -253,6 +253,9 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/textfit.js",
         "/static/js/panels/marks.js",
         "/static/js/panels/canonical_overlays.js",
+        "/static/js/panels/tooltip.js",
+        "/static/js/frame_views.js",
+        "/static/js/format.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -269,6 +272,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/export/caption.js",
         "/static/js/export/disclosure.js",
         "/static/js/panels/canonical_overlays.js",
+        "/static/js/panels/tooltip.js",
+        "/static/js/frame_views.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -313,6 +318,9 @@ def test_the_new_panel_modules_are_stamped_through_projection(client):
     projection = client.get("/static/js/panels/projection.js").text
     assert "./marks.js?v=" in projection
     assert "./canonical_overlays.js?v=" in projection
+    assert "./tooltip.js?v=" in projection
+    energy = client.get("/static/js/panels/energy.js").text
+    assert "./tooltip.js?v=" in energy
 
 
 def test_export_modules_are_reachable_from_the_entry_point():
@@ -342,8 +350,10 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in EXPORT_JS.glob("*.js"):
         assert module.resolve() in seen, f"{module.name} is never imported"
     assert (js_root / "textfit.js").resolve() in seen
-    for module in ("marks.js", "canonical_overlays.js"):
+    for module in ("marks.js", "canonical_overlays.js", "tooltip.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
+    for module in ("frame_views.js", "format.js"):
+        assert (js_root / module).resolve() in seen, f"{module} is never imported"
 
 
 # ------------------------------------------------- the disclosure band --
@@ -506,3 +516,179 @@ def test_print_raster_takes_one_pixel_per_payload_bin():
     assert re.search(r"export function renderRaster\s*\([^)]*\{\s*screen\s*=\s*true\s*\}", decode)
     figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
     assert re.search(r"renderRaster\([^)]*\{\s*screen:\s*false\s*\}\s*\)", figure)
+
+
+# ------------------------------------------------------ tooltip placement --
+
+
+def test_every_chart_tooltip_is_mounted_on_the_layer_and_placed_by_one_module():
+    """Both chart builders take their tooltip from the one option.
+
+    The tooltip was clipped by `.main`'s overflow box, not stacked under the
+    sidebar. Mounted on the fixed `#tooltip-layer` nothing clips it, and it is
+    not confined, so an explanation can leave the plot it explains. One
+    builder and one placement module mean the projection and energy charts
+    cannot drift apart again.
+    """
+    tooltip = _strip_comments((PANELS_JS / "tooltip.js").read_text(encoding="utf-8"))
+    assert re.search(r"TOOLTIP_LAYER\s*=\s*'#tooltip-layer'", tooltip)
+    assert re.search(r"appendTo:\s*TOOLTIP_LAYER", tooltip)
+    assert re.search(r"confine:\s*false", tooltip)
+    assert re.search(r"hideDelay:\s*0", tooltip)
+    assert re.search(r"TOOLTIP_CLASS\s*=\s*'calo-tooltip'", tooltip)
+    assert re.search(r"className:\s*TOOLTIP_CLASS", tooltip)
+    for name in ("projection.js", "energy.js"):
+        source = _strip_comments((PANELS_JS / name).read_text(encoding="utf-8"))
+        assert "tooltip: tooltipOption(this.tooltipPosition)" in source, name
+        assert "this.tooltipPosition = tooltipPosition(this.chart" in source, name
+        assert "hideTooltipOnScroll(this.chart)" in source, name
+    for path in (STATIC / "js").rglob("*.js"):
+        if "vendor" in path.parts or path.name == "tooltip.js":
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "rgba(22,27,34,0.95)" not in text, (
+            f"{path.name} builds its own tooltip instead of tooltipOption()"
+        )
+        assert not re.search(r"confine:\s*true", _strip_comments(text)), (
+            f"{path.name} confines a tooltip to its chart, over the plot it explains"
+        )
+
+
+def test_the_tooltip_layer_is_fixed_to_the_viewport_and_clips_nothing_else():
+    """The layer exists once, outside `.main`, fixed and viewport-sized.
+
+    `position: fixed` is what keeps a hidden tip - ECharts leaves it where it
+    last stood - from growing the document after the window shrinks: a fixed
+    box's contents never add to the page's scroll size.
+    """
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count('id="tooltip-layer"') == 1
+    main_start = html.index('<main class="main">')
+    main_end = html.index("</main>")
+    layer = html.index('id="tooltip-layer"')
+    assert not main_start < layer < main_end, "the layer must sit outside .main's overflow box"
+    assert layer < html.index("echarts.min.js"), "the layer must exist before any chart is created"
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.tooltip-layer\s*\{([^}]*)\}", css)
+    assert rule, "the .tooltip-layer rule is missing"
+    body = rule.group(1)
+    for decl in (r"position:\s*fixed", r"inset:\s*0", r"pointer-events:\s*none"):
+        assert re.search(decl, body), decl
+    assert not re.search(r"overflow:\s*(hidden|clip|auto|scroll)", body), "the layer must clip nothing"
+
+
+def test_the_zrender_transform_cache_the_placement_resets_still_exists():
+    """`resetPointerTransforms` clears an ECharts internal; an upgrade must be re-checked.
+
+    zrender caches the client transforms of a chart's viewport root on
+    `___zrEVENTSAVED` as `trans` and `invTrans`, validated against one shared
+    `srcCoords`. If a new bundle renames them, the reset silently does nothing
+    and a scroll can leave a tip drawn 120-240 px from where it was placed.
+    """
+    bundle = (STATIC / "js" / "vendor" / "echarts.min.js").read_text(encoding="utf-8")
+    assert "___zrEVENTSAVED" in bundle
+    assert re.search(r'"invTrans":"trans"', bundle) and "srcCoords" in bundle
+    tooltip = _strip_comments((PANELS_JS / "tooltip.js").read_text(encoding="utf-8"))
+    reset = re.search(r"export function resetPointerTransforms.*?\n\}", tooltip, re.DOTALL)
+    assert reset, "resetPointerTransforms is missing"
+    for key in ("___zrEVENTSAVED", "srcCoords", "trans", "invTrans"):
+        assert key in reset.group(0), key
+    position = re.search(r"export function tooltipPosition.*?\n\}", tooltip, re.DOTALL)
+    assert position and "resetPointerTransforms(chart)" in position.group(0)
+
+
+def test_the_live_grid_is_recorded_outside_build_option():
+    """`buildOption` also runs at print geometry for the exporter.
+
+    The plot box the tooltip is kept off must come from the option on screen,
+    so it is recorded where the live option is set, never inside `buildOption`.
+    """
+    for name in ("projection.js", "energy.js"):
+        source = _strip_comments((PANELS_JS / name).read_text(encoding="utf-8"))
+        build = re.search(r"\n  buildOption\(.*?\n  \}\n", source, re.DOTALL)
+        assert build, name
+        assert "liveGrid" not in build.group(0), name
+        assert re.search(r"this\.liveGrid = option\.grid", source), name
+    projection = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    # Every full re-render goes through setLiveOption, which records the grid.
+    assert "notMerge: true" in re.search(r"setLiveOption\(option\) \{.*?\n  \}", projection, re.DOTALL).group(0)
+    assert projection.count("notMerge: true") == 1
+
+
+def test_the_bin_readout_positions_through_its_tooltip_option():
+    """ECharts ignores a top-level `position` on a manual showTip (measured on 5.5.1).
+
+    The plain readout stays at the pointer; once an overlay's explanation leads
+    it, the tip leaves the chart like every other explanation.
+    """
+    source = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    assert "this.readoutPosition = tooltipPosition(this.chart, plotBox, { prefer: PREFER_POINTER })" in source
+    dispatch = re.search(r"type:\s*'showTip'.*?\}\)", source, re.DOTALL)
+    assert dispatch, "the manual showTip dispatch is missing"
+    body = dispatch.group(0)
+    assert re.search(r"position:\s*overlay \? this\.tooltipPosition : this\.readoutPosition", body)
+    outside = re.sub(r"tooltip:\s*\{.*\}", "", body, flags=re.DOTALL)
+    assert "position:" not in outside, "a top-level position is dead on this code path"
+
+
+def test_no_tooltip_stacking_rule_ships():
+    """No z-index rule on the tip itself: it cannot escape an overflow clip.
+
+    The tip is moved out of the clip onto `#tooltip-layer` instead, and the
+    only z-index involved is the layer's own.
+    """
+    for path in (STATIC / "css").glob("*.css"):
+        text = path.read_text(encoding="utf-8")
+        assert "echarts-tooltip" not in text, path.name
+        assert "99999" not in text, path.name
+    controls = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    assert "`.main` is\n   a scroll container" in controls
+
+
+# ------------------------------------------- frames, channels and wording --
+
+
+def test_the_reference_frame_control_opens_in_the_laboratory_frame():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    frames = re.findall(r'<input type="radio" name="frame" value="(\w+)"( checked)?', html)
+    assert [v for v, _ in frames] == ["lab", "trans", "local", "canonical"]
+    assert [v for v, c in frames if c] == ["lab"]
+    displays = re.findall(r'<input type="radio" name="display" value="(\w+)"( checked)?', html)
+    assert [v for v, c in displays if c] == ["native"]
+    channels = re.findall(r'<input type="radio" name="channel" value="(\w+)"', html)
+    assert channels == ["density", "gradcam", "gradcam_energy", "shapcam", "shapcam_energy"]
+    assert 'id="colormap-hint"' in html
+
+
+def test_no_retired_schema_wording_ships():
+    retired = ("29-column", "no predicted angle", "No predicted-angle", "A+B = 8.6",
+               "particle_origin = 'A+B'", "Shared voxels", "shared_voxel_fraction")
+    sources = [STATIC / "index.html"] + [
+        path for path in (STATIC / "js").rglob("*.js") if "vendor" not in path.parts
+    ]
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        for phrase in retired:
+            assert phrase not in text, f"{path.name} still says {phrase!r}"
+
+
+def test_puor_anchors_are_the_colorbrewer_values():
+    source = (STATIC / "js" / "palette.js").read_text(encoding="utf-8")
+    anchors = ("[127, 59, 8], [179, 88, 6], [224, 130, 20], [253, 184, 99], [254, 224, 182],\n"
+               "  [247, 247, 247], [216, 218, 235], [178, 171, 210], [128, 115, 172], [84, 39, 136],\n"
+               "  [45, 0, 75]")
+    assert anchors in source
+
+
+def test_filename_names_frame_channel_and_model():
+    source = (EXPORT_JS / "filename.js").read_text(encoding="utf-8")
+    assert "else if (frame && frame !== 'lab') tokens.push(frame);" in source
+    assert "shapcam_energy: 'shapcamE'" in source and "segmentation: 'seg'" in source
+    assert "apiFrame(state.get('frame')).coord_system" in source
+
+
+def test_disclosure_covers_every_frame_kind():
+    source = (EXPORT_JS / "disclosure.js").read_text(encoding="utf-8")
+    for phrase in ("Translated frame:", "Local frame", "Canonical centre-of-separation frame",
+                   "not a separation", "by construction", "box overlap", "rotated with their shower"):
+        assert phrase in source, phrase

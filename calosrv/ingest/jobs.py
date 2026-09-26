@@ -1,6 +1,6 @@
 """Background ingest jobs and their status, for polling.
 
-Ingesting the 7.4 GB production file takes minutes. That cannot happen inside an
+Ingesting the 24 GB production file takes minutes. That cannot happen inside an
 HTTP request: the client would time out, and - more importantly - DuckDB permits
 exactly one writer, so a request thread holding the write lock for minutes would
 stall every other write in the process.
@@ -24,9 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from ..db.connection import Database
-from ..db import naming, registry
+from ..db import registry
 from ..errors import ApiError
-from . import derive_events, derive_proj, lattice_fit, load, verify as verify_mod
+from . import pipeline
+from .pipeline import STAGES
 from .stream import StagedFile
 
 log = logging.getLogger(__name__)
@@ -36,17 +37,7 @@ JOB_RUNNING = "running"
 JOB_DONE = "done"
 JOB_FAILED = "failed"
 
-#: Ordered pipeline stages, reported so the interface can show real progress
-#: rather than a spinner. The weights are rough shares of total wall time on the
-#: 7.4 GB file and are used only to turn a stage into a percentage.
-STAGES: tuple[tuple[str, str, float], ...] = (
-    ("load", "Loading CSV into the hit table", 0.45),
-    ("lattice", "Measuring the detector lattice", 0.08),
-    ("projection", "Building the projection table", 0.22),
-    ("events", "Building per-event statistics", 0.15),
-    ("sample", "Building the preview sample", 0.05),
-    ("verify", "Verifying the ingested data", 0.05),
-)
+__all__ = ["STAGES", "IngestJob", "JobStore", "get_job_store", "reset_job_store"]
 
 
 @dataclass
@@ -155,115 +146,61 @@ class JobStore:
 
         try:
             with self._db.write_lock() as con:
-                registry.ensure_registry(con)
-                existing = registry.get_experiment(con, name)
-                record = existing or registry.ExperimentRecord(table_name=name)
-                record.display_name = display_name or record.display_name or name
-                record.status = registry.STATUS_INGESTING
-                record.error = None
-                if staged.original_name not in record.source_files:
-                    record.source_files = [*record.source_files, staged.original_name]
-                if record.created_at is None:
-                    record.created_at = job.started_at.replace(tzinfo=None)
-                registry.upsert(con, record)
-
-                self._advance(job, "load")
-                n_hits = load.load_csv(
-                    con, name, staged.path, mode=job.mode, event_offset=event_offset
+                result = pipeline.run_ingest(
+                    con, self._db.settings, name, staged.path,
+                    source_name=staged.original_name,
+                    mode=job.mode,
+                    event_offset=event_offset,
+                    display_name=display_name,
+                    # An upload was already checked against the 3x headroom
+                    # before it was staged; ingest-local checks in its route.
+                    check_space=False,
+                    created_at=job.started_at.replace(tzinfo=None),
+                    progress=lambda stage: self._advance(job, stage),
                 )
 
-                self._advance(job, "lattice")
-                hit_physical = naming.hit_table(name)
-                lattice = lattice_fit.measure_lattice(con, hit_physical)
-                bounds = lattice_fit.measure_bounds(con, hit_physical)
+            # The tables were rebuilt under the write lock: anything cached (or
+            # being computed) against the old ones must go before the warmers
+            # run. The upload routes also invalidate at submit time.
+            from ..query import cache as cache_mod
 
-                # Persist the lattice before verification runs: the
-                # lattice-bounds check reads it back from the registry, and
-                # would otherwise skip itself silently on a first ingest.
-                record.lattice = lattice
-                registry.upsert(con, record)
-
-                self._advance(job, "projection")
-                sanitation = derive_proj.build(con, name, lattice)
-
-                self._advance(job, "events")
-                n_events = derive_events.build(con, name)
-                c_a, c_b = derive_events.calibration(con, name)
-                cell_e_max, cell_e_p999 = derive_proj.measure_color_anchors(
-                    con, name, lattice.slab_iz
-                )
-
-                self._advance(job, "sample")
-                sample_rows = derive_proj.build_sample(
-                    con, name, self._db.settings.sample_percent
-                )
-
-                self._advance(job, "verify")
-                # The staged CSV is still on disk here, so the row-count check
-                # can compare against the source before it is deleted.
-                verification = verify_mod.verify(con, name, staged.path)
-
-                record.n_hits = n_hits
-                record.n_events = n_events
-                record.n_events_no_d = bounds["n_events_no_d"]
-                record.e1_min = bounds["e1_min"]
-                record.e1_max = bounds["e1_max"]
-                record.e2_min = bounds["e2_min"]
-                record.e2_max = bounds["e2_max"]
-                record.d_min = bounds["d_min"]
-                record.d_max = bounds["d_max"]
-                record.overlaps = bounds["overlaps"]
-                record.lattice = lattice
-                record.cell_e_max = cell_e_max
-                record.cell_e_p999 = cell_e_p999
-                record.has_sample = sample_rows > 0
-                record.status = (
-                    registry.STATUS_READY if verification.ok else registry.STATUS_FAILED
-                )
-                record.error = (
-                    None if verification.ok else "; ".join(verification.warnings)
-                )
-                registry.upsert(con, record)
-
-            job.warnings = list(verification.warnings)
-            job.result = {
-                "n_hits": n_hits,
-                "n_events": n_events,
-                "n_events_no_d": bounds["n_events_no_d"],
-                "sanitation": sanitation.as_dict(),
-                "calibration": {"c_a": c_a, "c_b": c_b},
-                "lattice": {
-                    "nx": lattice.x.n, "ny": lattice.y.n, "nz": lattice.z.n,
-                    "x_uniform": lattice.x.is_uniform,
-                    "y_uniform": lattice.y.is_uniform,
-                    "z_uniform": lattice.z.is_uniform,
-                },
-                "checks": verification.checks,
-            }
-            job.status = JOB_DONE if verification.ok else JOB_FAILED
-            job.error = None if verification.ok else "; ".join(verification.warnings)
+            cache_mod.invalidate_all(name)
+            job.warnings = result.warnings
+            job.result = result.as_job_result()
+            job.status = JOB_DONE if result.ok else JOB_FAILED
+            job.error = None if result.ok else "; ".join(result.warnings)
             job.progress = 1.0
-            job.stage_label = (
-                "Ingestion complete" if verification.ok else "Verification failed"
-            )
-            if verification.ok:
-                # The canonical frame's full-range scan is the one query that
-                # can take a couple of seconds; pay it now, off the request path.
-                from ..query import canonical_cache
+            job.stage_label = "Ingestion complete" if result.ok else "Verification failed"
+            if result.ok:
+                # The co-registered frames' full-range scans are the queries
+                # that take seconds; pay them now, off the request path.
+                from ..query import canonical_cache, shower_frames
 
-                canonical_cache.warm(self._db, self._db.settings, [name])
+                shower_frames.warm(
+                    self._db, self._db.settings, [name],
+                    after=canonical_cache.warm(self._db, self._db.settings, [name]),
+                )
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)
+            self._invalidate(name)
         except Exception as exc:  # noqa: BLE001 - the worker must never die silently
             log.error("Ingest of %r failed: %s\n%s", name, exc, traceback.format_exc())
             self._fail(job, name, str(exc))
+            self._invalidate(name)
         finally:
             job.finished_at = dt.datetime.now(dt.timezone.utc)
             # Reclaim the staging space immediately: on the production file this
-            # is 7.4 GB that nothing needs once the derived tables exist.
+            # is 24 GB that nothing needs once the archive and derived tables exist.
             if delete_source:
                 staged.unlink()
+
+    @staticmethod
+    def _invalidate(name: str) -> None:
+        """Drop cached bundles of ``name``: a failed ingest may have rebuilt its tables."""
+        from ..query import cache as cache_mod
+
+        cache_mod.invalidate_all(name)
 
     def _fail(self, job: IngestJob, name: str, message: str) -> None:
         job.status = JOB_FAILED
@@ -271,7 +208,12 @@ class JobStore:
         job.stage_label = "Ingestion failed"
         try:
             with self._db.write_lock() as con:
-                registry.set_status(con, name, registry.STATUS_FAILED, message)
+                # Only an experiment the job had started to rewrite is failed.
+                # A refused file (header, event-range collision) or a discarded
+                # append leaves the experiment as it was, and it stays served.
+                current = registry.get_experiment(con, name)
+                if current is None or current.status == registry.STATUS_INGESTING:
+                    registry.set_status(con, name, registry.STATUS_FAILED, message)
         except Exception:  # pragma: no cover - the original error is what matters
             log.exception("Could not record ingest failure for %r", name)
 

@@ -15,6 +15,28 @@
  * interpolation in sRGB. That is accurate to a fraction of a colour step
  * against the reference implementations - far below what the eye resolves and
  * far below the 5.6% quantisation step of the encoded raster.
+ *
+ * ## Signed quantities: ColorBrewer PuOr, folded on screen
+ *
+ * Shap-CAM is signed, so it takes a diverging ramp symmetric about zero:
+ * ColorBrewer PuOr (colourblind-safe, CLAUDE.md section 2), orange for
+ * negative and purple for positive. Index 0 is the most negative value, 255
+ * the most positive, and 127/128 zero.
+ *
+ * Print keeps the standard 11-class scheme, whose light centre marks zero on
+ * white paper. On the dark screen that centre is wrong twice over: its
+ * #f7f7f7 makes a bright halo round every near-zero bin, and its strongest
+ * colours vanish into the #1c2128 card (#2d004b at 1.07:1, #7f3b08 at 1.95:1
+ * in WCAG contrast). So the screen *folds* it: each arm runs from the card
+ * outwards through PuOr's own colours in reverse, brightness rising steadily
+ * with |value| and hue alone giving the sign. The anchors sit at explicit arm
+ * positions p = |value| on the arm's own scale (the log position on a signed-
+ * log ramp): the first colour at 3:1 against the card - #b35806 (3.3:1),
+ * #8073ac (3.8:1) - lands at p = 1/6, which is 10^-2.5 of the peak on the
+ * three-decade ramp. Below it the taper of `decode.codeTable` fades the bin
+ * into the card, so nothing the reader is asked to see is drawn at under 3:1.
+ * The raw (linear) Shap-CAM puts zero at border grey #30363d instead, so a
+ * populated bin with zero attribution stays distinct from an empty one.
  */
 
 const ANCHORS = {
@@ -41,6 +63,55 @@ const ANCHORS = {
   ],
 };
 
+const CARD = [28, 33, 40];      // #1c2128
+const BORDER = [48, 54, 61];    // #30363d
+
+/** Standard 11-class ColorBrewer PuOr, most negative first (print). */
+const PUOR = [
+  [127, 59, 8], [179, 88, 6], [224, 130, 20], [253, 184, 99], [254, 224, 182],
+  [247, 247, 247], [216, 218, 235], [178, 171, 210], [128, 115, 172], [84, 39, 136],
+  [45, 0, 75],
+];
+
+/* The folded screen arms, from zero outwards: [arm position p, rgb].
+ *
+ * Anchors are placed by CIE lightness L*, so equal |value| reads equally bright
+ * on both arms (orange L* 47, 63, 79, 90; purple 27, 51, 71, 87). On the signed
+ * log the 3:1 anchors sit at p = 1/6 (10^-2.5 of the peak) and each arm's later
+ * anchors follow its own L* line from there. On the linear raw Shap-CAM ramp
+ * both arms follow one L* line from the #30363d zero (L* 22) to the dimmer end
+ * (L* 87): a positive arm running through #542788 at p = 0.25 had stayed below
+ * 3:1 until |v| = 0.43 while the orange arm crossed it at 0.24. */
+const ARM_NEG = [[0, CARD], [1 / 6, [179, 88, 6]], [0.468, [224, 130, 20]],
+  [0.786, [253, 184, 99]], [1, [254, 224, 182]]];
+const ARM_POS = [[0, CARD], [0.08, [84, 39, 136]], [1 / 6, [128, 115, 172]],
+  [0.635, [178, 171, 210]], [1, [216, 218, 235]]];
+const ARM_NEG_LINEAR = [[0, BORDER], [0.391, [179, 88, 6]], [0.630, [224, 130, 20]],
+  [0.881, [253, 184, 99]], [1, [254, 224, 182]]];
+const ARM_POS_LINEAR = [[0, BORDER], [0.072, [84, 39, 136]], [0.451, [128, 115, 172]],
+  [0.760, [178, 171, 210]], [1, [216, 218, 235]]];
+
+/** The colour at arm position p of positioned anchors [[p, rgb], ...]. */
+function armColour(arm, p) {
+  let i = 0;
+  while (i < arm.length - 2 && p > arm[i + 1][0]) i += 1;
+  const [p0, a] = arm[i];
+  const [p1, b] = arm[i + 1];
+  const f = p1 > p0 ? Math.min(1, Math.max(0, (p - p0) / (p1 - p0))) : 0;
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+
+/** A 256-entry diverging table from two arms: 0..127 negative (outermost at
+ * 0), 128..255 positive (outermost at 255). */
+function buildFolded(neg, pos) {
+  const table = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i += 1) {
+    const rgb = i < 128 ? armColour(neg, (127 - i) / 127) : armColour(pos, (i - 128) / 127);
+    table.set(rgb, i * 3);
+  }
+  return table;
+}
+
 /** Build a 256-entry Uint8 RGB table by interpolating the anchor points. */
 function buildTable(anchors) {
   const table = new Uint8ClampedArray(256 * 3);
@@ -58,12 +129,35 @@ function buildTable(anchors) {
   return table;
 }
 
+const DIVERGING = {
+  puor: () => buildTable(PUOR),
+  puor_screen: () => buildFolded(ARM_NEG, ARM_POS),
+  puor_screen_linear: () => buildFolded(ARM_NEG_LINEAR, ARM_POS_LINEAR),
+};
+
 const CACHE = new Map();
 
 export function lookupTable(name) {
-  const key = ANCHORS[name] ? name : 'viridis';
-  if (!CACHE.has(key)) CACHE.set(key, buildTable(ANCHORS[key]));
+  const key = ANCHORS[name] || DIVERGING[name] ? name : 'viridis';
+  if (!CACHE.has(key)) {
+    CACHE.set(key, DIVERGING[key] ? DIVERGING[key]() : buildTable(ANCHORS[key]));
+  }
   return CACHE.get(key);
+}
+
+/** WCAG relative luminance of an sRGB triple (0-255). */
+export function luminance([r, g, b]) {
+  const lin = (c) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** WCAG contrast ratio of two sRGB triples. */
+export function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 /**
@@ -116,4 +210,11 @@ export function categoricalStops(name, count, { min = 0.25, max = 1.0 } = {}) {
   return stops;
 }
 
-export const PALETTES = Object.keys(ANCHORS);
+/** The sequential ramps the colour-map control offers. */
+export const SEQUENTIAL_PALETTES = Object.keys(ANCHORS);
+export const PALETTES = SEQUENTIAL_PALETTES;
+
+/** The diverging ramps: print, and the folded screen arms (signed log / linear). */
+export const DIVERGING_PALETTES = Object.keys(DIVERGING);
+export const PUOR_ANCHORS = PUOR;
+export const SCREEN_CARD = CARD;

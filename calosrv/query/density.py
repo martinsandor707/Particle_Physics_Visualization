@@ -75,8 +75,10 @@ from ..grid import kernel as kernel_mod
 from ..grid.kernel import Kernel
 from ..grid.resolution import DEFAULT_RESOLUTION, MIN_RESOLUTION, MODE_CONTINUOUS, MODE_NATIVE
 from . import reconstruct
+from . import planes as planes_mod
 from .canonical import CanonicalBundle
 from .panels import CHANNEL_DENSITY, CHANNEL_GRADCAM, WEIGHTING_COUNT
+from .planes import KIND_RATIO, KIND_SIGNED
 from .window import AxisFit, PanelFit, WindowFit
 
 #: How the canonical axes are written; the semantic names stay x, y, z.
@@ -149,6 +151,31 @@ def raw_panel_peaks(bundle: CanonicalBundle) -> dict[str, float]:
     return {name: float(rho[name].max()) if rho[name].size else 0.0 for name in _PANELS}
 
 
+def cam_energy_peaks(bundle: CanonicalBundle, channel: str) -> dict[str, float]:
+    """Raw-grid peak of an energy-weighted CAM density: XY, and YZ + XZ shared.
+
+    ``sum(E * CAM) / (N * dA)`` per bin, before any crop or reconstruction, so
+    - exactly as for density - the peak bounds every displayed bin (the
+    kernels are weighted means). Signed channels take the peak magnitude.
+    """
+    view = planes_mod.view(channel)
+    n = max(1, bundle.n_events)
+    grid = bundle.grid
+    z_edges = grid.axis("z").edges
+    areas = {
+        "xy": _bin_area(grid.y_edges, grid.x_edges),
+        "yz": _bin_area(grid.y_edges, z_edges),
+        "xz": _bin_area(grid.x_edges, z_edges),
+    }
+    peaks = {}
+    for name in _PANELS:
+        plane = bundle.panel(name).planes
+        value = sum(plane[p] for p in view.numerator) / (n * areas[name])
+        peaks[name] = float(np.abs(value).max() if view.kind == KIND_SIGNED else value.max()) \
+            if value.size else 0.0
+    return {"xy": peaks["xy"], "depth": max(peaks["yz"], peaks["xz"])}
+
+
 def selection_peaks(bundle: CanonicalBundle) -> dict[str, float]:
     """Peak ``<rho>`` on the accumulation grid: one for XY, one shared by YZ + XZ."""
     peaks = raw_panel_peaks(bundle)
@@ -202,6 +229,9 @@ def plan_canonical(
     kernel: Kernel | None = None,
     cell_mm: float | None = None,
     requested: int | None = None,
+    depth_warning: str | None = None,
+    axes: tuple[str, str] = reconstruct.RECONSTRUCTED_AXES,
+    depth_clause: str | None = None,
 ) -> CanonicalPlan:
     """Bin counts and kernel per panel.
 
@@ -212,7 +242,9 @@ def plan_canonical(
     square across panels; depth is always the native layers. The kernel
     defaults to :func:`reconstruct.choose_kernel` for the fit's event count.
     ``cell_mm`` (the measured footprint) only words a warning; ``requested``
-    is the R the caller asked for, when the guard renders a lower one.
+    is the R the caller asked for, when the guard renders a lower one;
+    ``depth_warning`` replaces the native-layer sentence for a frame whose
+    depth axis is not the detector's layers (the local frame's w bins).
     """
     n_z = grid.n_z
     requested = int(resolution if requested is None else requested)
@@ -260,9 +292,14 @@ def plan_canonical(
         return max(1, int(round(span / display_pitch))) if span > 0 else 1
 
     warnings = [
-        f"Depth is locked to the {n_z} native sampling layers; there is no "
-        "measurement between layers to interpolate.",
-        reconstruct.kernel_sentence(kernel, fit.n_events, grid.pitch),
+        depth_warning or (
+            f"Depth is locked to the {n_z} native sampling layers; there is no "
+            "measurement between layers to interpolate."
+        ),
+        reconstruct.kernel_sentence(
+            kernel, fit.n_events, grid.pitch, axes,
+            depth_clause or "depth keeps its native sampling layers",
+        ),
     ]
     if display_pitch < grid.pitch:
         cell = f"the {cell_mm:.1f} mm cell" if cell_mm else "the cell footprint"
@@ -316,13 +353,17 @@ def axis_maps(
 
 
 def _attention_mask(
-    mask: np.ndarray, attention: np.ndarray, hits: np.ndarray, native: bool, decades: float
+    mask: np.ndarray, attention: np.ndarray, hits: np.ndarray, native: bool, decades: float,
+    signed: bool = False, what: str = "attention",
 ) -> dict[str, Any]:
-    """What the Grad-CAM floor hid, in the channel's own terms.
+    """What the floor of a mean-CAM channel hid, in the channel's own terms.
 
     ``hit_fraction`` is the share of the panel's in-window hit count
     (reconstructed with the same operator) that lies in masked bins, and
-    ``max_attention`` the largest attention among them. Many hits carry almost
+    ``max_attention`` the largest attention among them - for a signed channel
+    (Shap-CAM) the masked value of largest *magnitude*, with its sign
+    (``max_is_magnitude``), since a full-scale negative attribution hidden by
+    the floor matters as much as a positive one. Many hits carry almost
     no energy: on production v37 the X'Y' mask at N = 5 (D 257-258 mm) holds
     20% of the hits but 0.8% of the energy, and the raw 20 mm grid puts 25% of
     the hits below the same floor.
@@ -330,24 +371,30 @@ def _attention_mask(
     if native:
         return {
             "rule": (
-                "Native Grid: only bins with no hits are transparent (attention undefined); "
-                "attention measured on real hits is always drawn."
+                f"Native Grid: only bins with no hits are transparent ({what} undefined); "
+                f"{what} measured on real hits is always drawn."
             ),
             "cells": 0,
             "hit_fraction": 0.0,
             "max_attention": None,
+            "max_is_magnitude": signed,
         }
     total_hits = float(hits.sum())
     hidden = attention[mask]
+    finite = hidden[np.isfinite(hidden)]
+    extreme = None
+    if finite.size:
+        extreme = float(finite[np.argmax(np.abs(finite))]) if signed else float(finite.max())
     return {
         "rule": (
-            "Continuous Field: attention is not drawn where the reconstructed energy density "
-            f"is below {floor_label(decades)} of ρ_ref, because the kernel tails carry attention "
+            f"Continuous Field: {what} is not drawn where the reconstructed energy density "
+            f"is below {floor_label(decades)} of ρ_ref, because the kernel tails carry {what} "
             "into bins no measured energy reached."
         ),
         "cells": int(mask.sum()),
         "hit_fraction": round(float(hits[mask].sum()) / total_hits, 8) if total_hits > 0 else 0.0,
-        "max_attention": float(np.nanmax(hidden)) if hidden.size and np.isfinite(hidden).any() else None,
+        "max_attention": extreme,
+        "max_is_magnitude": signed,
     }
 
 
@@ -361,8 +408,13 @@ def render_panel(
     rho_ref: float,
     rho_norm: str,
     decades: float = frame_mod.RAMP_DECADES,
+    symbols: dict[str, str] | None = None,
 ) -> RenderedPanel:
-    """One panel: crop to its window, reconstruct, normalise, encode."""
+    """One panel: crop to its window, reconstruct, normalise, encode.
+
+    For an energy-weighted CAM channel ``rho_ref`` is that channel's own
+    raw-grid peak (:func:`cam_energy_peaks`), not the density's.
+    """
     panel = bundle.panel(name)
     row_name, col_name = _PANEL_AXES[name]
     row_map, col_map = axis_maps(bundle, fit, plan, name)
@@ -375,22 +427,62 @@ def render_panel(
     floor_ratio = 10.0 ** -float(decades)
 
     attention_mask = None
-    if channel == CHANNEL_GRADCAM:
-        if weighting == WEIGHTING_COUNT:
-            num, den = panel.planes["g"], panel.planes["n"]
-        else:
-            num, den = panel.planes["eg"], panel.planes["e"]
+    view = planes_mod.view(channel, weighting)
+    populated = None
+    below_code = quantize.BELOW_CODE
+    cam_parts = None
+    if view.kind == KIND_RATIO:
+        num = panel.planes[view.numerator[0]]
+        for name_ in view.numerator[1:]:
+            num = num + panel.planes[name_]
+        den = panel.planes[view.denominator]
         attention = reconstruct.apply_ratio(num, den, row_map, col_map)
-        scale = scale_mod.resolve_scale(attention, channel=CHANNEL_GRADCAM)
+        if channel == CHANNEL_GRADCAM:
+            scale = scale_mod.resolve_scale(attention, channel=CHANNEL_GRADCAM)
+            scale.quantity = CHANNEL_GRADCAM
+            finite = attention[np.isfinite(attention)]
+            scale.n_below = int((finite < 0).sum())
+            scale.n_above = int((finite > 1).sum())
+        else:
+            scale = scale_mod.attention_scale(attention, channel, -1.0, 1.0, "attribution")
         encoded = attention
         if native or rho_ref <= 0:
             below = np.zeros(attention.shape, dtype=bool)
         else:
             below = np.isfinite(attention) & (density < floor_ratio * rho_ref)
         hits = reconstruct.apply(panel.planes["n"], row_map, col_map)
-        attention_mask = _attention_mask(below, attention, hits, native, decades)
-        exact = topk.top_cells(np.where(below, np.nan, attention))
+        attention_mask = _attention_mask(
+            below, attention, hits, native, decades, signed=bool(scale.diverging),
+            what="attention" if channel == CHANNEL_GRADCAM else "attribution",
+        )
+        exact = topk.top_cells(np.where(below, np.nan, attention), signed=scale.diverging)
         mask_arg = below
+    elif view.is_cam:
+        # Energy-weighted CAM: sum(E * CAM) per bin as an areal density, like
+        # <rho>, shown relative to its own raw-grid peak (``rho_ref`` here).
+        cam_parts = [reconstruct.apply(panel.planes[p], row_map, col_map) for p in view.numerator]
+        cam_sum = cam_parts[0] if len(cam_parts) == 1 else cam_parts[0] + cam_parts[1]
+        value = cam_sum / (n_events * area)
+        ratio = value / rho_ref if rho_ref > 0 else np.zeros_like(value)
+        populated = energy > 0
+        if view.kind == KIND_SIGNED:
+            scale = scale_mod.signed_log_scale(
+                ratio, populated, rho_ref, RHO_UNIT, channel,
+                positive_total=float(cam_parts[0].sum()),
+                negative_total=float(cam_parts[1].sum()),
+                split_code=quantize.SPLIT_CODE, decades=decades,
+            )
+            undrawn = populated & ~(np.abs(ratio) >= floor_ratio)
+        else:
+            scale = scale_mod.extensive_cam_scale(
+                ratio, populated, rho_ref, RHO_UNIT, channel, decades=decades,
+            )
+            undrawn = populated & ~(ratio >= floor_ratio)
+        encoded = ratio
+        below = undrawn
+        exact = topk.top_cells(np.where(undrawn | ~populated, np.nan, value),
+                               signed=view.kind == KIND_SIGNED)
+        mask_arg = None
     else:
         ratio = density / rho_ref if rho_ref > 0 else np.zeros_like(density)
         scale = scale_mod.relative_log_scale(
@@ -408,9 +500,9 @@ def render_panel(
         row_edges=row_map.dst_edges, col_edges=col_map.dst_edges,
         row_axis=row_name, col_axis=col_name,
         panel=name, native=native,
-        symbols=SYMBOLS,
-        below_code=quantize.BELOW_CODE, below_mask=mask_arg,
-        top=exact,
+        symbols=symbols or SYMBOLS,
+        below_code=below_code, below_mask=mask_arg,
+        top=exact, populated=populated,
     )
     # ``total`` keeps the lab meaning - energy in GeV - rather than a sum of
     # ratios, and is the energy the rendered window holds after reconstruction.
@@ -419,7 +511,20 @@ def render_panel(
     outside = min(1.0, max(0.0, 1.0 - total / total_all)) if total_all > 0 else 0.0
     below_energy = float(energy[below].sum()) if below.any() else 0.0
 
-    payload["topk_unit"] = RHO_UNIT if channel != CHANNEL_GRADCAM else "attention"
+    payload["topk_unit"] = (
+        "attention" if channel == CHANNEL_GRADCAM
+        else "attribution" if view.kind == KIND_RATIO
+        else RHO_UNIT
+    )
+    if cam_parts is not None:
+        # The panel's in-window sum of E x CAM after reconstruction - the
+        # quantity every conservative operator preserves (signed for Shap-CAM).
+        payload["cam_total"] = float(sum(part.sum() for part in cam_parts))
+        # ...and on the whole raw accumulation grid, before the crop: this is
+        # the figure that must equal the SQL sum over the selected hits.
+        payload["cam_total_all"] = float(sum(panel.planes[p].sum() for p in view.numerator))
+        plane_out = getattr(bundle, "plane_outside", {}) or {}
+        payload["cam_total_outside_grid"] = float(sum(plane_out.get(p, 0.0) for p in view.numerator))
     payload["kernel"] = plan.kernel.name
     payload["total"] = total
     payload["total_energy_all_gev"] = total_all
@@ -487,6 +592,7 @@ def render_canonical(
     limit: int | None = None,
     kernel: Kernel | None = None,
     start: tuple[int, int] | None = None,
+    symbols: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Render all three panels within the payload budget.
 
@@ -520,6 +626,13 @@ def render_canonical(
         ref = dict(peaks)
         ref_k = bundle.subsample_k
     ref_of = {"xy": ref["xy"], "yz": ref["depth"], "xz": ref["depth"]}
+    view = planes_mod.view(channel, weighting)
+    cam_ref = None
+    if view.is_cam and view.kind != KIND_RATIO:
+        # Energy-weighted CAM: relative to the selection's own raw-grid peak of
+        # the same quantity. A dataset reference exists for density only.
+        cam_ref = cam_energy_peaks(bundle, channel)
+        ref_of = {"xy": cam_ref["xy"], "yz": cam_ref["depth"], "xz": cam_ref["depth"]}
     cell = max(bundle.footprint) if bundle.footprint else None
 
     notices: list[str] = []
@@ -527,7 +640,10 @@ def render_canonical(
     r, merge = (int(start[0]), max(1, int(start[1]))) if start else (requested, 1)
     fits = False
     for attempt in range(MAX_ATTEMPTS):
-        plan = plan_canonical(fit, bundle.grid, mode, r, merge, kernel, cell, requested=requested)
+        plan = plan_canonical(fit, bundle.grid, mode, r, merge, kernel, cell, requested=requested,
+                              depth_warning=getattr(bundle, "depth_warning", None),
+                              axes=((symbols or SYMBOLS)["x"], (symbols or SYMBOLS)["y"]),
+                              depth_clause=getattr(bundle, "depth_clause", None))
         continuous = plan.mode == MODE_CONTINUOUS
         # The step this attempt would take if it is over, or None when no step
         # changes anything any more: R at its minimum, or every transverse axis
@@ -549,7 +665,8 @@ def render_canonical(
             panels: dict[str, dict[str, Any]] = {}
             for name in _PANELS:
                 rendered = render_panel(
-                    bundle, fit.panel(name), plan, name, channel, weighting, ref_of[name], rho_norm
+                    bundle, fit.panel(name), plan, name, channel, weighting, ref_of[name], rho_norm,
+                    symbols=symbols,
                 )
                 panels[name] = rendered.payload
             for name in ("yz", "xz"):
@@ -613,6 +730,14 @@ def render_canonical(
             "displayed_peak": displayed,
             "displayed_over_ref": {name: _ratio(displayed[name], ref_of[name]) for name in _PANELS},
             "kernel_attenuation": {name: _ratio(displayed[name], raw_peaks[name]) for name in _PANELS},
+        },
+        "cam_ref": None if cam_ref is None else {
+            "channel": channel, "ref": cam_ref, "unit": RHO_UNIT,
+            "basis": (
+                f"peak of sum(E x CAM) / (N x dA) on the raw {bundle.grid.pitch:.0f} mm "
+                "accumulation grid of this selection"
+                + (", in magnitude" if view.kind == KIND_SIGNED else "")
+            ),
         },
         "notices": notices,
         "reconstruction": reconstruct.reconstruction_report(plan, bundle, panels),

@@ -57,6 +57,15 @@ def validate_experiment_name(name: str) -> str:
             "underscores (max 48 characters).",
             field="table_name",
         )
+    if candidate.endswith(SAMPLE_SUFFIX):
+        # ``proj_<name>_s10`` is <name>'s preview sample; an experiment called
+        # ``<name>_s10`` would own a projection table of the same name, and the
+        # two would overwrite and drop each other's tables.
+        raise ValidationError(
+            f"Invalid experiment name {candidate!r}: the suffix {SAMPLE_SUFFIX!r} is reserved "
+            "for preview-sample tables.",
+            field="table_name",
+        )
     if candidate in _RESERVED:
         raise ValidationError(
             f"Experiment name {candidate!r} is reserved.", field="table_name"
@@ -65,7 +74,12 @@ def validate_experiment_name(name: str) -> str:
 
 
 def hit_table(name: str) -> str:
-    """Physical name of the raw 29-column hit table for ``name``."""
+    """Physical name of the retired v37 raw hit table for ``name``.
+
+    No table of this name is created any more - raw rows live in the Parquet
+    archive - but a database written by the v37 release still holds them, so
+    drop and cleanup must keep reaching it.
+    """
     return f"{HIT_PREFIX}{validate_experiment_name(name)}"
 
 

@@ -440,8 +440,8 @@ def choose_subsample(
     """Largest ``k`` such that ``rows_scanned * k**2`` stays within ``budget``,
     never below ``k_min``.
 
-    The floor costs the full production dataset about two seconds on a cold
-    query (90 M sub-deposit rows at k = 2, measured 2.0 s) - paid once per
+    The floor costs the full production dataset 1.7 s on a cold query
+    (97 M sub-deposit rows at k = 2, all-models file) - paid once per
     selection, then served from the cache, and pre-warmed at start-up for the
     full range every interface opens on.
     """
@@ -480,3 +480,84 @@ def rayleigh_p(n: int, resultant: float) -> float | None:
 #: so the two halves of the interface can never quote different intervals for
 #: the same N. Re-exported here for the ensemble-axis envelope.
 t_quantile_975 = _t_quantile_975
+
+
+# ------------------------------------------------------ per-shower frames --
+
+#: The co-registered frame kinds. The canonical frame co-registers each
+#: *event* by its two entry points; the translated and local frames each
+#: *shower* by its own entry point P0 (and, for local, its own incident
+#: direction), superimposing the two showers of an event at the origin.
+KIND_CANONICAL = "canonical"
+KIND_TRANS = "trans"
+KIND_LOCAL = "local"
+SHOWER_KINDS = (KIND_TRANS, KIND_LOCAL)
+
+#: Sub-deposits along the depth of a cell in the local frame. The rotation
+#: tilts every cell by up to 36 degrees, so its 20.5 mm layer thickness spreads
+#: across depth bins; a single depth sample would comb the w axis. Two is the
+#: default; one is allowed only where a measured w comb says so.
+LOCAL_K_Z = 2
+
+#: The energy-weighted quantile levels the per-shower window is planned from:
+#: wide, so the fixed grid holds essentially everything and the display window
+#: (0.1-99.9 %, window.py) is fitted inside it per selection.
+SHOWER_GRID_LOW = 1e-4
+SHOWER_GRID_HIGH = 0.9999
+
+
+def plan_shower_window(
+    kind: str,
+    bounds: Any,
+    footprint: tuple[float, float],
+    pitch: float = CANONICAL_PITCH_MM,
+) -> CanonicalGrid:
+    """The fixed accumulation grid of a per-shower frame, from the dataset's extents.
+
+    Planned from the dataset-wide energy-weighted quantiles measured at ingest
+    (``grid/bounds.py``), not from the selection, so every selection of a
+    dataset shares one grid - bin boundaries included - and the energy outside
+    it is counted, not dropped. Transverse half-widths are the larger excursion
+    of the 1e-4 and 0.9999 quantiles plus half a cell footprint, snapped up to
+    whole bins and centred on the origin, which is every shower's own entry
+    point. Depth is the own-shower layers (translated) or uniform bins of the
+    layer pitch along w (local), neither ever cropped.
+    """
+    x_name, y_name = ("xt", "yt") if kind == KIND_TRANS else ("xl", "yl")
+
+    def half(axis_name: str, width: float) -> float:
+        axis = bounds.axis(axis_name)
+        reach = max(abs(axis.quantile(SHOWER_GRID_LOW)), abs(axis.quantile(SHOWER_GRID_HIGH)))
+        return _snap_up(reach + 0.5 * float(width), pitch)
+
+    layer = float(bounds.layer_pitch_mm)
+    if kind == KIND_TRANS:
+        z = np.arange(int(bounds.n_layers_trans), dtype=np.float64) * layer
+    elif kind == KIND_LOCAL:
+        axis = bounds.axis("zl")
+        z0 = math.floor(axis.quantile(SHOWER_GRID_LOW) / layer) * layer
+        n = int(math.ceil((axis.quantile(SHOWER_GRID_HIGH) - z0) / layer)) + 1
+        z = z0 + (np.arange(n, dtype=np.float64) + 0.5) * layer
+    else:  # pragma: no cover - guarded by the caller
+        raise ValueError(f"not a per-shower frame: {kind!r}")
+    return CanonicalGrid(
+        pitch=float(pitch),
+        half_x=half(x_name, footprint[0]),
+        half_y=half(y_name, footprint[1]),
+        z_front=0.0,
+        z_coords=z,
+    )
+
+
+def choose_subsample_3d(
+    rows_scanned: int,
+    k_z: int = LOCAL_K_Z,
+    budget: int = SUBSAMPLE_ROW_BUDGET,
+    k_max: int = MAX_SUBSAMPLE,
+    k_min: int = MIN_SUBSAMPLE,
+) -> int:
+    """Largest transverse ``k`` with ``rows * k**2 * k_z`` within ``budget``, never below ``k_min``."""
+    if rows_scanned <= 0:
+        return k_max
+    k = int(math.floor(math.sqrt(budget / (rows_scanned * max(1, k_z)))))
+    return max(k_min, min(k_max, k))

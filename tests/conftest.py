@@ -11,7 +11,18 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-SEED_CSV = REPO_ROOT / "hits_with_gradcam_dummy.csv"
+SEED_CSV = REPO_ROOT / "hits_all_models_dummy.csv"
+
+#: A small cut of the production file with split cells, 'A+B' hits, an
+#: overlap-100 event and an event without shower A - the cases the 2-event
+#: demonstration file cannot exercise. Built by tests/make_all_models_fixture.py
+#: and, like every CSV, not committed; the tests that need it skip without it.
+FIXTURE_CSV = REPO_ROOT / "hits_all_models_fixture.csv"
+
+# The demonstration and fixture databases are a few megabytes, so the default
+# pytest temporary directory (often a tmpfs) is acceptable for them. The server
+# refuses RAM-backed storage otherwise; this is the documented test opt-out.
+os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
 
 TABLE = "test_experiment"
 
@@ -27,7 +38,10 @@ def pytest_collection_modifyitems(session, config, items):
     used to rely on alphabetical module order to avoid this; ordering by
     fixture makes it explicit and lets query-level test modules be named freely.
     """
-    booted = [item for item in items if "client" in getattr(item, "fixturenames", ())]
+    booted = [
+        item for item in items
+        if {"client", "live_server", "synthetic_client"} & set(getattr(item, "fixturenames", ()))
+    ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
 
@@ -45,47 +59,17 @@ def ingested(tmp_path_factory):
 
     from calosrv.config import load_settings
     from calosrv.db.connection import get_database, reset_database
-    from calosrv.db import registry
     from calosrv.db.bootstrap import bootstrap
-    from calosrv.ingest import derive_events, derive_proj, lattice_fit, load, verify
+    from calosrv.ingest import pipeline
 
     settings = load_settings()
     database = get_database(settings)
 
     with database.write_lock() as con:
-        bootstrap(con)
-        record = registry.ExperimentRecord(table_name=TABLE)
-        record.status = registry.STATUS_INGESTING
-        registry.upsert(con, record)
-
-        n_hits = load.load_csv(con, TABLE, SEED_CSV)
-        from calosrv.db import naming
-
-        lattice = lattice_fit.measure_lattice(con, naming.hit_table(TABLE))
-        bounds = lattice_fit.measure_bounds(con, naming.hit_table(TABLE))
-        record.lattice = lattice
-        registry.upsert(con, record)
-
-        derive_proj.build(con, TABLE, lattice)
-        n_events = derive_events.build(con, TABLE)
-        cell_max, cell_p999 = derive_proj.measure_color_anchors(
-            con, TABLE, lattice.slab_iz
-        )
-        derive_proj.build_sample(con, TABLE, 10.0)
-        result = verify.verify(con, TABLE, SEED_CSV)
-
-        record.n_hits = n_hits
-        record.n_events = n_events
-        record.n_events_no_d = bounds["n_events_no_d"]
-        record.e1_min, record.e1_max = bounds["e1_min"], bounds["e1_max"]
-        record.e2_min, record.e2_max = bounds["e2_min"], bounds["e2_max"]
-        record.d_min, record.d_max = bounds["d_min"], bounds["d_max"]
-        record.overlaps = bounds["overlaps"]
-        record.cell_e_max = cell_max
-        record.cell_e_p999 = cell_p999
-        record.has_sample = True
-        record.status = registry.STATUS_READY
-        registry.upsert(con, record)
+        bootstrap(con, settings)
+        outcome = pipeline.run_ingest(con, settings, TABLE, SEED_CSV)
+    result = outcome.verification
+    n_hits, n_events = outcome.n_hits, outcome.n_events
 
     yield {
         "database": database,
@@ -136,6 +120,49 @@ def client(tmp_path_factory):
         for _ in range(120):
             payload = test_client.get("/api/experiments").json()
             if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+            time.sleep(0.25)
+        yield test_client
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+
+@pytest.fixture(scope="module")
+def synthetic_client(tmp_path_factory):
+    """A server seeded from the synthetic low-N file of ``synthetic_all_models``."""
+    import os
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    import synthetic_all_models
+
+    if not synthetic_all_models.TEMPLATE_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+    data_dir = tmp_path_factory.mktemp("synthetic-data")
+    csv_path = data_dir / "hits_all_models_synthetic.csv"
+    synthetic_all_models.write(csv_path)
+    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(csv_path)
+
+    with TestClient(create_app(load_settings())) as test_client:
+        for _ in range(240):
+            payload = test_client.get("/api/experiments").json()
+            if any(e["status"] in ("ready", "failed") for e in payload["experiments"]):
                 break
             time.sleep(0.25)
         yield test_client

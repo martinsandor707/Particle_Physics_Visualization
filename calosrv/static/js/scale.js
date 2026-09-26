@@ -6,7 +6,10 @@
  */
 
 import { colorStops } from './palette.js';
-import { fitsWidth } from './textfit.js';
+import { fitsWidth, measureText } from './textfit.js';
+import { MINUS, formatSigned, typographic } from './format.js';
+
+export { MINUS, formatSigned, typographic };
 
 /* The screen style. Mirrors css/tokens.css, which ECharts cannot read.
  *
@@ -76,6 +79,11 @@ const SCREEN = {
    * the bottom half decade removes the rim. Print sets 0: a hard contour, which
    * the figure caption names as the display floor. */
   floorFadeDecades: 0.5,
+  /* The diverging ramps a signed quantity is painted with (palette.js): the
+   * folded PuOr on the dark screen - signed log, and the linear raw Shap-CAM
+   * whose zero is border grey - and standard PuOr in print. */
+  divergingPalette: 'puor_screen',
+  divergingLinearPalette: 'puor_screen_linear',
 
   categorical: { min: 0.25, max: 1.0 },
   rampOrient: 'vertical',
@@ -134,27 +142,27 @@ export function formatSci(value, digits = 2) {
   if (value === 0) return '0';
   const exponent = Math.floor(Math.log10(Math.abs(value)));
   if (exponent >= -3 && exponent < 4) {
-    return value.toFixed(Math.max(0, digits - 1 - exponent));
+    return typographic(value.toFixed(Math.max(0, digits - 1 - exponent)));
   }
-  return value.toExponential(digits);
+  return typographic(value.toExponential(digits));
 }
 
 export function formatNumber(value, digits = 3) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return value.toLocaleString(undefined, {
+  return typographic(value.toLocaleString(undefined, {
     maximumFractionDigits: digits,
     minimumFractionDigits: 0,
-  });
+  }));
 }
 
 export function formatInt(value) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return Math.round(value).toLocaleString();
+  return typographic(Math.round(value).toLocaleString());
 }
 
 export function formatPercent(value, digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return `${(value * 100).toFixed(digits)}%`;
+  return typographic(`${(value * 100).toFixed(digits)}%`);
 }
 
 export function formatBytes(bytes) {
@@ -190,21 +198,7 @@ export function formatBytes(bytes) {
  * the hard contour the figure caption names.
  */
 export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } = {}) {
-  const isLog = scale.scale === 'log10';
-  // A relative (a.u.) ramp is dimensionless: its ends are derived from the
-  // scale's own bounds, which reach above 10^0 when a selection is brighter
-  // than the dataset reference it is drawn against.
-  const relative = scale.unit === 'a.u.';
-  const unit = relative ? ' a.u.' : (isLog ? ' GeV' : '');
-  const label = (value) => (isLog
-    ? `10${superscript(Number(value).toFixed(1))}`
-    : Number(value).toFixed(2));
-
   const horizontal = THEME.rampOrient === 'horizontal';
-  // The ramp title. ECharts' continuous visualMap has no title of its own, so
-  // on the vertical screen ramp it rides as a second line of the top label;
-  // the horizontal print ramp gets a separate graphic from rampTitle().
-  const title = relative && !horizontal ? `${RAMP_TITLE_RELATIVE}\n` : '';
   const place = horizontal
     /* Below the x-axis title, where a figure has height to spare, rather than
      * beside the plot, where a single-column figure has none.
@@ -220,14 +214,67 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
       itemHeight: 90,
     }
     : { orient: 'vertical', right: 6, top: 'middle', itemWidth: 10, itemHeight: 140 };
+  const textStyle = {
+    color: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
+  };
+  const fade = THEME.floorFadeDecades;
+  const floorExp = floorExponent(scale);
+  const title = scale.unit === 'a.u.' && !horizontal ? `${rampTitleText(scale)}\n` : '';
+
+  if (scale.scale === 'signed_log10') {
+    /* The legend runs in signed position u in [-1, 1]: |u| is the position on
+     * the three-decade log ramp of |value| / peak, the sign is the sign. An
+     * odd stop count puts one stop exactly on zero, inside the |v| < 10^-3
+     * band the raster leaves transparent. */
+    const span = (scale.vmax - floorExp) || 1;
+    const alphaAt = (t) => {
+      const e = floorExp + Math.abs(2 * t - 1) * span;
+      if (Math.abs(2 * t - 1) < 1e-9) return 0;
+      return Number.isFinite(fade) && fade > 0 ? clip01((e - floorExp) / fade) : 1;
+    };
+    return {
+      type: 'continuous', seriesIndex, min: -1, max: 1, calculable: false, ...place,
+      precision: 2,
+      text: [`${title}+10⁰ a.u.`, `${MINUS}10⁰ a.u.`],
+      textGap: 6, textStyle,
+      inRange: { color: colorStops(palette, 49, alphaAt) },
+      outOfRange: { color: ['rgba(0,0,0,0)'] },
+      formatter: (u) => {
+        const value = Number(u);
+        if (Math.abs(value) < 1e-9) return `±${floorLabel(scale)} a.u.`;
+        const e = floorExp + Math.abs(value) * span;
+        return `${value < 0 ? MINUS : '+'}10${superscript(e.toFixed(1))} a.u.`;
+      },
+    };
+  }
+
+  if (isDiverging(scale)) {
+    // Linear and symmetric about zero: nothing clipped, the ends are +-1.
+    return {
+      type: 'continuous', seriesIndex, min: scale.vmin, max: scale.vmax, calculable: false,
+      ...place, precision: 2,
+      text: [formatSigned(scale.vmax, 2, { plus: true }), formatSigned(scale.vmin, 2, { plus: true })],
+      textGap: 6, textStyle,
+      inRange: { color: colorStops(palette, 13) },
+      formatter: (value) => formatSigned(Number(value), 2, { plus: true }),
+    };
+  }
+
+  const isLog = scale.scale === 'log10';
+  // A relative (a.u.) ramp is dimensionless: its ends are derived from the
+  // scale's own bounds, which reach above 10^0 when a selection is brighter
+  // than the dataset reference it is drawn against.
+  const relative = scale.unit === 'a.u.';
+  const unit = relative ? ' a.u.' : (isLog ? ' GeV' : '');
+  const label = (value) => (isLog
+    ? `10${superscript(Number(value).toFixed(1))}`
+    : typographic(Number(value).toFixed(2)));
 
   // The fade, when this ramp has one: alpha rises linearly in log density
   // from 0 at the floor to 1 a `fade` decades above it. 48 stops put about
   // eight inside the bottom half decade of a three-decade ramp, so the legend
   // gradient follows the raster's taper rather than a single coarse step.
-  const fade = THEME.floorFadeDecades;
-  const floorExp = floorExponent(scale);
-  const tapered = relative && isLog && Number.isFinite(fade) && fade > 0
+  const tapered = fadesAtFloor(scale) && Number.isFinite(fade) && fade > 0
     && Number.isFinite(floorExp) && Number.isFinite(scale.vmin) && Number.isFinite(scale.vmax);
   const stops = tapered
     ? colorStops(palette, 48, (t) => clip01(
@@ -252,13 +299,11 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
     // be read off, and the units are what make the panel quotable: decade
     // exponents in GeV for density, a plain 0-1 weight for attention.
     text: [
-      `${title}${label(scale.vmax)}${unit}`,
+      `${relative && !horizontal ? title : ''}${label(scale.vmax)}${unit}`,
       bottom,
     ],
     textGap: 6,
-    textStyle: {
-      color: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
-    },
+    textStyle,
     inRange: { color: stops },
     // The continuous legend paints an out-of-range bar underneath the ramp,
     // grey (#aaa) by default. Opaque stops hide it; faded ones let it show as
@@ -267,12 +312,76 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
     ...(tapered ? { outOfRange: { color: ['rgba(0,0,0,0)'] } } : {}),
     formatter: (value) => (isLog
       ? `${label(value)}${unit}`
-      : Number(value).toFixed(2)),
+      : typographic(Number(value).toFixed(2))),
   };
 }
 
+/** Whether a scale is signed and takes the diverging PuOr ramp. */
+export function isDiverging(scale) {
+  return scale?.diverging === true || scale?.scale === 'signed_log10';
+}
+
+/**
+ * The palette a scale is painted with: the chosen sequential ramp, or - for a
+ * signed quantity, whatever was chosen - the diverging PuOr of the active
+ * theme (folded on screen, standard in print; palette.js).
+ */
+export function rampPalette(scale, chosen) {
+  if (!isDiverging(scale)) return chosen;
+  return scale.scale === 'signed_log10' ? THEME.divergingPalette : THEME.divergingLinearPalette;
+}
+
+/** Whether a ramp fades to transparent above a stated display floor. */
+export function fadesAtFloor(scale) {
+  return (scale?.scale === 'log10' || scale?.scale === 'signed_log10')
+    && (scale.floor === 'transparent' || scale.unit === 'a.u.');
+}
+
+/** Colour-bar titles of the relative (a.u.) ramps, by quantity. */
+export const RAMP_TITLES = {
+  density: 'Average hit density (a.u.)',
+  gradcam_energy: 'Σ E·Grad-CAM (a.u.)',
+  shapcam_energy: 'Σ E·Shap-CAM (a.u., signed)',
+};
+
+export function rampTitleText(scale) {
+  return RAMP_TITLES[scale?.quantity ?? 'density'] ?? RAMP_TITLES.density;
+}
+
+/**
+ * The zero mark at a diverging ramp's midpoint: "0" on the linear ramp,
+ * "±10⁻³" on the signed log, whose centre is the undrawn band. Null for a
+ * sequential ramp.
+ *
+ * On the vertical screen ramp it sits just left of the bar. ECharts centres
+ * the bar under its end labels, so the bar's position depends on the widest
+ * label; a fixed offset put the mark under the bar of the narrow linear
+ * ramp, where it could not be seen. The offset is measured from the labels
+ * `visualMap` draws.
+ */
+export function rampMidLabel(scale, metrics = {}) {
+  if (!isDiverging(scale)) return null;
+  const text = scale.scale === 'signed_log10' ? `±${floorLabel(scale)}` : '0';
+  const style = { text, fill: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily };
+  if (THEME.rampOrient === 'horizontal') {
+    const bottomInset = metrics.reservedBottom || 0;
+    return { type: 'text', left: 'center', bottom: bottomInset + 2 + 14 + 2.0 * THEME.fontSmall,
+      silent: true, style };
+  }
+  const map = visualMap(scale, 'viridis');
+  const lines = map.text.flatMap((t) => String(t).split('\n'));
+  const widths = lines.map((line) => {
+    const w = measureText(line, THEME.fontSmall, THEME.fontFamily);
+    return Number.isFinite(w) ? w : line.length * 0.6 * THEME.fontSmall;
+  });
+  const component = Math.max(map.itemWidth, ...widths);
+  // map.right is the component's own inset; the bar is centred within it.
+  const barLeft = map.right + component / 2 + map.itemWidth / 2;
+  return { type: 'text', right: barLeft + 4, top: 'middle', silent: true, style };
+}
+
 /** The colour-bar title the directive specifies for the canonical panels. */
-export const RAMP_TITLE_RELATIVE = 'Average hit density (a.u.)';
+export const RAMP_TITLE_RELATIVE = RAMP_TITLES.density;
 
 /**
  * log₁₀ of a ramp's display floor, in the units of its `vmin`/`vmax`.
@@ -313,14 +422,15 @@ export function floorLabel(scale) {
 export function rampTitle(scale, metrics) {
   if (!scale || scale.unit !== 'a.u.' || THEME.rampOrient !== 'horizontal') return null;
   const bottomInset = metrics.reservedBottom || 0;
-  let text = RAMP_TITLE_RELATIVE;
+  const base = rampTitleText(scale);
+  let text = base;
   if (scale.floor === 'transparent') {
-    const floor = floorLabel(scale);
-    const long = `${RAMP_TITLE_RELATIVE} · below ${floor} not drawn`;
+    const floor = scale.scale === 'signed_log10' ? `|v| ${floorLabel(scale)}` : floorLabel(scale);
+    const long = `${base} · below ${floor} not drawn`;
     const width = Number.isFinite(metrics.width) ? metrics.width - 16 : Infinity;
     text = fitsWidth(long, width, THEME.fontSmall, THEME.fontFamily)
       ? long
-      : `${RAMP_TITLE_RELATIVE} · <${floor} not drawn`;
+      : `${base} · <${floor} not drawn`;
   }
   // The bar is 14 px thick with its labels beside it; sit just above it.
   return {
@@ -392,7 +502,7 @@ export function spatialAxis(name, lo, hi, { onZero } = {}) {
       hideOverlap: true,
       showMinLabel: false,
       showMaxLabel: false,
-      formatter: (v) => `${Math.round(v)}`,
+      formatter: (v) => typographic(`${Math.round(v)}`),
     },
     splitLine: { show: false },
   };

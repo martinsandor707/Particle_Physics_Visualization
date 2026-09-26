@@ -128,6 +128,7 @@ function run(button, panelId, choice, { resolve, state, getExperiment, onError }
         footnote: target.footnote,
         selection: target.selection,
         frame: target.frame,
+        meta: target.meta ?? null,
         disclosure: target.disclosure,
         state,
         experiment: getExperiment(),

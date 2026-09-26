@@ -28,7 +28,7 @@ def list_experiments(
         ),
     ),
 ):
-    records = experiments.list_all(con, include_pending=include_pending)
+    records = experiments.list_all(con, include_pending=include_pending, settings=settings)
     cache = cache_mod.get_cache(settings.cache_entries)
     canonical_cache = cache_mod.get_cache(
         settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE
@@ -46,6 +46,10 @@ def list_experiments(
             "large_upload_warn_bytes": settings.large_upload_warn_bytes,
             "cache": cache.info(),
             "canonical_cache": canonical_cache.info(),
+            "trans_cache": cache_mod.get_cache(
+                settings.canonical_cache_entries, name=cache_mod.TRANS_CACHE).info(),
+            "local_cache": cache_mod.get_cache(
+                settings.canonical_cache_entries, name=cache_mod.LOCAL_CACHE).info(),
         },
     })
 
@@ -54,17 +58,19 @@ def list_experiments(
     "/api/experiments/{table_name}", summary="Drop an experiment and its tables"
 )
 def delete_experiment(table_name: str, request: Request, settings: SettingsDep):
-    """Remove every table belonging to one experiment.
+    """Remove every table belonging to one experiment, and its Parquet archive.
 
     Destructive and irreversible, so it is a separate explicit verb rather than
-    a side effect of re-uploading.
+    a side effect of re-uploading. This is also how an experiment ingested under
+    the retired v37 schema is cleared away.
     """
     database = request.app.state.database
     with database.write_lock() as con:
         record = registry.get_experiment(con, table_name)
-        bootstrap_mod.drop_experiment(con, table_name)
+        archive_removed = bootstrap_mod.drop_experiment(con, table_name, settings)
     cache_mod.invalidate_all(table_name)
     return {
         "deleted": table_name,
         "existed": record is not None,
+        "archive_removed": archive_removed,
     }

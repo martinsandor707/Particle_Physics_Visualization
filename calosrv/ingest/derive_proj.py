@@ -1,14 +1,22 @@
-"""Build the narrow projection table that every interactive query reads.
+"""Build the projection table that every interactive query reads.
 
-Two things happen here: coordinates become ordinal lattice indices, and
+Three things happen here: laboratory coordinates become ordinal lattice
+indices, the per-shower frames' coordinates are carried alongside them, and
 unphysical rows are removed.
 
-**Ordinal indexing.** Each coordinate is replaced by its rank among the distinct
-values present in that column, resolved by an equi-join against a dictionary
-built from the column itself. Float equality is safe because both sides
-originate from the same stored values - no arithmetic is performed on them.
-This is what makes the native view comb-free: an index exists only if a cell
-exists.
+**Ordinal indexing.** Each laboratory coordinate is replaced by its rank among
+the distinct values present in that column, resolved by an equi-join against a
+dictionary built from the column itself. Float equality is safe because both
+sides originate from the same stored values - no arithmetic is performed on
+them. This is what makes the native laboratory view comb-free: an index exists
+only if a cell exists.
+
+**Per-shower frames.** ``x_trans``/``y_trans`` and the three local coordinates
+are continuous - every shower is shifted by its own energy-weighted entry
+point, and the local frame is rotated as well - so they are stored as REAL
+millimetres, never as lattice ordinals. ``z_trans`` is always a whole number of
+sampling layers counted from the shower's own first layer, so it is stored as
+that layer index, ``kt``.
 
 **Sanitisation.** CLAUDE.md section 3 requires unphysical values to be detected
 and removed rather than propagated. A negative or non-finite deposited energy is
@@ -27,24 +35,31 @@ from typing import Any
 import duckdb
 
 from ..db import naming
-from ..db.ddl import create_proj_table, drop_table
+from ..db.ddl import (
+    COORD_SYSTEMS, NETWORK_FRAME, PROJ_COLUMN_NAMES, create_proj_table, csv_model_column,
+    drop_table, raw_cam_columns, seg_column,
+)
 from ..db.naming import quote
-from ..grid.lattice import Lattice
 
 log = logging.getLogger(__name__)
+
+#: The per-shower frame coordinates a projected row must carry.
+FRAME_COORDINATES = ("x_trans", "y_trans", "z_trans", "x_local", "y_local", "z_local")
 
 
 @dataclass
 class SanitationReport:
-    """What was removed on the way from the hit table to the projection table."""
+    """What was removed on the way from the archive to the projection table."""
 
     total_rows: int = 0
     kept_rows: int = 0
     null_coordinate: int = 0
+    null_frame_coordinate: int = 0
     null_energy: int = 0
     non_finite_energy: int = 0
     negative_energy: int = 0
     zero_energy: int = 0
+    bad_origin: int = 0
 
     @property
     def removed(self) -> int:
@@ -60,15 +75,21 @@ class SanitationReport:
             log.info("Sanitisation: all %s rows retained", f"{self.total_rows:,}")
             return
         log.warning(
-            "Sanitisation removed %s of %s rows (%.4f%%): "
-            "null coordinate %s, null energy %s, non-finite energy %s, "
-            "negative energy %s, zero energy %s",
+            "Sanitisation removed %s of %s rows (%.4f%%): null coordinate %s, "
+            "null or non-finite frame coordinate %s, null energy %s, non-finite "
+            "energy %s, negative energy %s, zero energy %s, unknown origin %s",
             f"{self.removed:,}", f"{self.total_rows:,}",
             100.0 * self.removed / max(1, self.total_rows),
-            f"{self.null_coordinate:,}", f"{self.null_energy:,}",
-            f"{self.non_finite_energy:,}", f"{self.negative_energy:,}",
-            f"{self.zero_energy:,}",
+            f"{self.null_coordinate:,}", f"{self.null_frame_coordinate:,}",
+            f"{self.null_energy:,}", f"{self.non_finite_energy:,}",
+            f"{self.negative_energy:,}", f"{self.zero_energy:,}", f"{self.bad_origin:,}",
         )
+
+
+def _frame_ok(p: str) -> str:
+    return " AND ".join(
+        f"{p}{c} IS NOT NULL AND isfinite({p}{c})" for c in FRAME_COORDINATES
+    )
 
 
 def keep_predicate(alias: str = "") -> str:
@@ -77,45 +98,54 @@ def keep_predicate(alias: str = "") -> str:
     Zero-energy hits are dropped alongside negative ones: they contribute
     nothing to any sum, but they do occupy a lattice cell, and an occupancy
     statistic that counts them overstates how much of the detector actually saw
-    the shower.
+    the shower. A row without finite per-shower coordinates, or with an origin
+    other than A, B or 'A+B', cannot be placed in every frame and is dropped
+    from all of them, so the frames always describe the same hits.
     """
     p = f"{alias}." if alias else ""
     return (
-        f"{p}x IS NOT NULL AND {p}y IS NOT NULL AND {p}z IS NOT NULL "
-        f"AND {p}energy IS NOT NULL AND isfinite({p}energy) AND {p}energy > 0"
+        f"isfinite({p}x) AND isfinite({p}y) AND isfinite({p}z) "
+        f"AND {p}energy IS NOT NULL AND isfinite({p}energy) AND {p}energy > 0 "
+        f"AND {_frame_ok(p)} "
+        f"AND {p}particle_origin IN ('A', 'B', 'A+B')"
     )
 
 
-def audit(con: duckdb.DuckDBPyConnection, hit_physical: str) -> SanitationReport:
+def audit(con: duckdb.DuckDBPyConnection, source: str) -> SanitationReport:
     """Count each rejection rule separately, before anything is removed."""
+    frame_bad = " OR ".join(f"{c} IS NULL OR NOT isfinite({c})" for c in FRAME_COORDINATES)
     row = con.execute(
         f"""
         SELECT count(*),
-               count(*) FILTER (WHERE x IS NULL OR y IS NULL OR z IS NULL),
+               count(*) FILTER (WHERE x IS NULL OR y IS NULL OR z IS NULL
+                                  OR NOT isfinite(x) OR NOT isfinite(y) OR NOT isfinite(z)),
+               count(*) FILTER (WHERE {frame_bad}),
                count(*) FILTER (WHERE energy IS NULL),
                count(*) FILTER (WHERE energy IS NOT NULL AND NOT isfinite(energy)),
                count(*) FILTER (WHERE energy IS NOT NULL AND isfinite(energy)
                                   AND energy < 0),
                count(*) FILTER (WHERE energy IS NOT NULL AND isfinite(energy)
                                   AND energy = 0),
+               count(*) FILTER (WHERE particle_origin IS NULL
+                                  OR particle_origin NOT IN ('A', 'B', 'A+B')),
                count(*) FILTER (WHERE {keep_predicate()})
-        FROM {quote(hit_physical)}
+        FROM {source}
         """
     ).fetchone()
     return SanitationReport(
         total_rows=int(row[0]),
         null_coordinate=int(row[1]),
-        null_energy=int(row[2]),
-        non_finite_energy=int(row[3]),
-        negative_energy=int(row[4]),
-        zero_energy=int(row[5]),
-        kept_rows=int(row[6]),
+        null_frame_coordinate=int(row[2]),
+        null_energy=int(row[3]),
+        non_finite_energy=int(row[4]),
+        negative_energy=int(row[5]),
+        zero_energy=int(row[6]),
+        bad_origin=int(row[7]),
+        kept_rows=int(row[8]),
     )
 
 
-def _build_dictionaries(
-    con: duckdb.DuckDBPyConnection, hit_physical: str
-) -> None:
+def _build_dictionaries(con: duckdb.DuckDBPyConnection, source: str) -> None:
     """Temporary coordinate dictionaries: distinct value to dense ordinal."""
     for column in ("x", "y", "z"):
         con.execute(f"DROP TABLE IF EXISTS lat_{column};")
@@ -125,46 +155,69 @@ def _build_dictionaries(
             SELECT v, CAST(row_number() OVER (ORDER BY v) - 1 AS INTEGER) AS i
             FROM (
                 SELECT DISTINCT {quote(column)} AS v
-                FROM {quote(hit_physical)}
-                WHERE {quote(column)} IS NOT NULL
+                FROM {source}
+                WHERE isfinite({quote(column)})
             )
             """
         )
 
 
+def projection_select(layer_pitch_mm: float) -> list[str]:
+    """``expression AS column`` for every projection column, in table order."""
+    expressions: dict[str, str] = {
+        "event_number": "h.event_number",
+        "ix": "CAST(lx.i AS USMALLINT)",
+        "iy": "CAST(ly.i AS USMALLINT)",
+        "iz": "CAST(lz.i AS UTINYINT)",
+        "org": ("CAST(CASE h.particle_origin WHEN 'A' THEN 0 WHEN 'B' THEN 1 "
+                "ELSE 2 END AS UTINYINT)"),
+        "xt": "h.x_trans",
+        "yt": "h.y_trans",
+        "kt": f"CAST(round(h.z_trans / {float(layer_pitch_mm)!r}) AS UTINYINT)",
+        "xl": "h.x_local",
+        "yl": "h.y_local",
+        "zl": "h.z_local",
+        "energy": "h.energy",
+        "e1": "h.incoming_momentum_A",
+        "e2": "h.incoming_momentum_B",
+        "d": "h.centroid_AB_distance",
+        "ovl": "h.overlap",
+    }
+    for column, csv_name, *_ in raw_cam_columns():
+        expressions[column] = f"h.{quote(csv_name)}"
+    for kind in ("pred", "true"):
+        for coord in COORD_SYSTEMS:
+            csv_name = csv_model_column("segmentation", NETWORK_FRAME[coord], kind)
+            expressions[seg_column(kind, coord)] = f"h.{quote(csv_name)}"
+    missing = [c for c in PROJ_COLUMN_NAMES if c not in expressions]
+    assert not missing, f"no source for projection columns {missing}"
+    return [f"{expressions[c]} AS {c}" for c in PROJ_COLUMN_NAMES]
+
+
 def build(
     con: duckdb.DuckDBPyConnection,
     name: str,
-    lattice: Lattice,
+    source: str,
+    layer_pitch_mm: float,
 ) -> SanitationReport:
-    """Create ``proj_<name>`` from ``hit_<name>``."""
-    hit_physical = naming.hit_table(name)
+    """Create ``proj_<name>`` from the archive relation ``source``."""
     proj_physical = naming.proj_table(name)
 
-    report = audit(con, hit_physical)
+    report = audit(con, source)
     report.log()
 
     con.execute(drop_table(proj_physical))
     con.execute(create_proj_table(proj_physical))
-    _build_dictionaries(con, hit_physical)
+    _build_dictionaries(con, source)
 
-    log.info("Building %s (ordinal lattice indices)", proj_physical)
+    log.info("Building %s (lattice ordinals + per-shower frames)", proj_physical)
+    columns = ", ".join(PROJ_COLUMN_NAMES)
+    select = ",\n               ".join(projection_select(layer_pitch_mm))
     con.execute(
         f"""
-        INSERT INTO {quote(proj_physical)}
-        SELECT h.event_number,
-               CAST(lx.i AS USMALLINT) AS ix,
-               CAST(ly.i AS USMALLINT) AS iy,
-               CAST(lz.i AS UTINYINT)  AS iz,
-               h.energy,
-               h.gradcam_energy       AS ge,
-               h.voxel_fA_pred        AS fa_pred,
-               h.voxel_fA_true        AS fa_true,
-               h.incoming_momentum_A  AS e1,
-               h.incoming_momentum_B  AS e2,
-               h.centroid_AB_distance AS d,
-               h.overlap              AS ovl
-        FROM {quote(hit_physical)} h
+        INSERT INTO {quote(proj_physical)} ({columns})
+        SELECT {select}
+        FROM {source} h
         JOIN lat_x lx ON h.x = lx.v
         JOIN lat_y ly ON h.y = ly.v
         JOIN lat_z lz ON h.z = lz.v

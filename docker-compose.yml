@@ -9,13 +9,19 @@ services:
       # Read-only mount of the repository so the offline ingest CLI can reach
       # multi-gigabyte CSVs on the host without them traversing HTTP:
       #   docker compose exec calorimeter-dashboard \
-      #     python -m calosrv.ingest --input /app/host/hits_with_gradcam_v37.csv --table v37
+      #     python -m calosrv.ingest --input /app/host/hits_all_models.csv --table all_models
       - .:/app/host:ro
     environment:
       - DUCKDB_MEMORY_GB=16  # Override to 100 on production server
       - PORT=8000
+      # Uploads are spooled by Starlette before the route stages them; keep
+      # that on the data volume, never in a tmpfs /tmp (which is RAM).
+      - TMPDIR=/app/data/staging
     # DuckDB's memory_limit accounts for its buffer manager only - not the Python
-    # heap, Arrow result buffers or the projection matrix cache. Give the
-    # container DUCKDB_MEMORY_GB + 4 GB of headroom or ingest will be OOM-killed.
+    # heap, NumPy result conversion or the bundle caches. Give the container
+    # DUCKDB_MEMORY_GB + 4 GB of headroom or ingest will be OOM-killed.
     mem_limit: 20g
+    # Without this the container may use as much swap again, and on a host
+    # whose swap is zram that swap is compressed RAM.
+    memswap_limit: 20g
     restart: unless-stopped

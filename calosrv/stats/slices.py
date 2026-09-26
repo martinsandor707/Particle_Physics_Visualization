@@ -94,9 +94,20 @@ def build_slices(edges: Sequence[float] = DEFAULT_EDGES) -> list[Slice]:
     return slices
 
 
+#: Slice index of a row with no defined separation (``include_undefined_d``).
+UNDEFINED_SLICE = -1
+
+
 def case_sql(slices: Sequence[Slice], column: str = "d") -> str:
-    """A ``CASE`` expression assigning each row to its slice index."""
-    branches = [
+    """A ``CASE`` expression assigning each row to its slice index.
+
+    A NULL separation belongs to no D slice: without its own branch it would
+    fail every comparison and land in the ELSE - the well-separated overflow
+    slice, which would then claim a large separation for events whose
+    separation is undefined. It gets :data:`UNDEFINED_SLICE` instead, which
+    no per-slice breakdown lists; the totals still count it.
+    """
+    branches = [f"WHEN {column} IS NULL THEN {UNDEFINED_SLICE}"] + [
         f"WHEN {column} < {s.hi} THEN {s.index}"
         for s in slices
         if s.hi is not None

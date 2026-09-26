@@ -1,4 +1,11 @@
-/* Anchor and centroid marks of the canonical centre-of-separation frame.
+/* Anchor and centroid marks of the co-registered frames.
+ *
+ * Written for the canonical centre-of-separation frame and shared by the
+ * translated and local frames, whose centroid sets are drawn the same way;
+ * the file keeps its name because tests pin it. The anchors are canonical
+ * only. The per-shower frames add `frame_mean` - the mean per-event centroid
+ * relative to each shower's own entry point - with its sample SD as a faint
+ * uncapped cross and its Student-t 95% interval as capped whiskers.
  *
  * ## Why they are light
  *
@@ -32,7 +39,8 @@
  */
 
 import { THEME } from '../scale.js';
-import { customLine, symbolOf } from './marks.js';
+import { customCaret, customLine, customWhisker, symbolOf } from './marks.js';
+import { formatSigned } from '../format.js';
 
 /** Marker size of an anchor, before `THEME.markerScale`. */
 const ANCHOR_SIZE = 13;
@@ -49,6 +57,8 @@ export const CANONICAL_CENTROID_STYLE = {
   truth_voxel: { symbol: 'circle', open: false, shape: 'filled dot' },
   pred_voxel: { symbol: 'circle', open: true, shape: 'open ring' },
   canonical_mean: { symbol: PLUS, open: false, shape: '+' },
+  // Never together with canonical_mean: one is canonical, the other per-shower.
+  frame_mean: { symbol: PLUS, open: false, shape: '+' },
 };
 
 const SHOWERS = [['a', 'A'], ['b', 'B']];
@@ -69,8 +79,7 @@ function openStyle(colour, width) {
 
 /** Millimetres to one decimal with a typographic minus. */
 function mm1(value) {
-  if (!Number.isFinite(value)) return '—';
-  return value < 0 ? `−${Math.abs(value).toFixed(1)}` : value.toFixed(1);
+  return formatSigned(value, 1);
 }
 
 /**
@@ -233,9 +242,136 @@ export function addCanonicalCentroids(series, centroids, col, row) {
           formatter: () =>
             `${pair.label}<br/>Shower ${label} (${style.shape})<br/>`
             + `${symbolOf(col)} = ${mm1(cx)} mm<br/>`
-            + `${symbolOf(row)} = ${mm1(cy)} mm`,
+            + `${symbolOf(row)} = ${mm1(cy)} mm`
+            + (key === 'frame_mean' && pair.n < 2 && pair.dof_note ? `<br/><i>${pair.dof_note}</i>` : '')
+            + (Number.isFinite(pair.offset_mm)
+              ? `<br/>A–B offset = ${mm1(pair.offset_mm)} mm (superimposed centroids, not a separation)`
+              : ''),
         },
       });
+    }
+  }
+}
+
+/**
+ * The ends of the `frame_mean` marks, clamped to the panel window.
+ *
+ * One entry per mark - a shower's SD bar or 95% interval along one axis - with
+ * its true half-width and its ends clamped to `col`/`row`. An end that runs
+ * past the window is flagged: the panel draws it on the edge with a caret and
+ * the true interval in its tooltip, and the footnote counts it (CLAUDE.md
+ * section 2: clip it and say so). Both read this one list, so the carets and
+ * the count cannot disagree. Empty at N = 1, where neither quantity exists.
+ */
+export function frameMeanMarks(pair, col, row) {
+  const marks = [];
+  if (!pair || !(pair.n >= 2) || !col || !row) return marks;
+  for (const [shower, label] of SHOWERS) {
+    const point = pair[shower];
+    const sd = pair.sd?.[shower];
+    const ci = pair.ci95_half?.[shower];
+    if (!point || !sd || !ci) continue;
+    const cx = point[col.name];
+    const cy = point[row.name];
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    for (const [axis, value, horizontal] of [[col.name, cx, true], [row.name, cy, false]]) {
+      const bounds = horizontal ? col : row;
+      // A mean outside its own window leaves nothing on the panel to attach to.
+      if (!(value >= bounds.lo && value <= bounds.hi)) continue;
+      for (const [quantity, half] of [['sd', sd[axis]], ['ci', ci[axis]]]) {
+        if (!(Number.isFinite(half) && half > 0)) continue;
+        marks.push({
+          shower, label, quantity, horizontal, value, half, cx, cy,
+          sym: symbolOf(bounds),
+          lo: Math.max(value - half, bounds.lo),
+          hi: Math.min(value + half, bounds.hi),
+          clipLo: value - half < bounds.lo,
+          clipHi: value + half > bounds.hi,
+        });
+      }
+    }
+  }
+  return marks;
+}
+
+/** How many `frame_mean` mark ends run past the window and are clipped to it. */
+export function frameMeanOverflow(pair, col, row) {
+  return frameMeanMarks(pair, col, row)
+    .reduce((n, mark) => n + (mark.clipLo ? 1 : 0) + (mark.clipHi ? 1 : 0), 0);
+}
+
+/**
+ * The footnote sentence for clipped `frame_mean` ends on the XY panel, or ''.
+ * Read from the same marks the panel draws, for the screen and the export.
+ */
+export function frameMeanOverflowText(payload) {
+  const axes = payload?.panels?.xy?.axes;
+  const n = frameMeanOverflow(payload?.centroids?.frame_mean, axes?.col, axes?.row);
+  if (!n) return '';
+  return `${n} end${n === 1 ? '' : 's'} of the mean-centroid SD and 95% interval marks `
+    + `run${n === 1 ? 's' : ''} past the window and ${n === 1 ? 'is' : 'are'} clipped at its edge `
+    + '(caret, no cap); the tooltip gives the full range.';
+}
+
+/**
+ * The spread and uncertainty of `frame_mean`, per shower, on the XY panel.
+ *
+ * Two quantities, two marks (CLAUDE.md section 2): the sample SD of the
+ * per-event centroid offsets as a faint uncapped cross - where the events
+ * scatter - and the Student-t 95% interval of the mean as capped whiskers -
+ * how well the mean is known. Nothing is drawn at N = 1, where neither exists.
+ * An end clipped to the window loses its cap and gets a caret.
+ */
+export function addFrameMeanSpread(series, pair, col, row) {
+  for (const mark of frameMeanMarks(pair, col, row)) {
+    const { shower, label, quantity, horizontal, value, half, cx, cy, sym } = mark;
+    const colour = showerColour(shower);
+    const at = (v) => (horizontal ? [v, cy] : [cx, v]);
+    const clipped = mark.clipLo || mark.clipHi;
+    const full = `${formatSigned(value - half, 1)} to ${formatSigned(value + half, 1)} mm`;
+    const clipNote = clipped
+      ? `<br/>clipped at the window edge: the full range is ${full}` : '';
+    let text;
+    if (quantity === 'sd') {
+      text = `Mean centroid ${label} — ± ${half.toFixed(1)} mm in ${sym}<br/>`
+        + '± sample SD of the per-event centroid offsets from P₀ (dispersion, not the '
+        + `uncertainty of the mean)${clipNote}`;
+      series.push(customLine({
+        name: `Mean centroid ${label} — spread in ${sym}`,
+        from: at(mark.lo),
+        to: at(mark.hi),
+        color: colour,
+        width: 2.5 * THEME.lineAxis,
+        opacity: SPREAD_OPACITY,
+        z: 8,
+        tooltip: text,
+      }));
+    } else {
+      text = `Mean centroid ${label} — ${formatSigned(value, 1)} ± ${half.toFixed(1)} mm in ${sym}<br/>`
+        + `95% Student-t interval of the mean, N = ${pair.n}`
+        + (pair.dof_note ? `<br/><i>${pair.dof_note}</i>` : '') + clipNote;
+      series.push(customWhisker({
+        name: `Mean centroid ${label} — 95% interval in ${sym}`,
+        from: at(mark.lo),
+        to: at(mark.hi),
+        caps: [!mark.clipLo, !mark.clipHi],
+        color: colour,
+        width: THEME.lineAxis,
+        z: 9,
+        tooltip: text,
+      }));
+    }
+    for (const [end, other, isClipped] of [[mark.lo, mark.hi, mark.clipLo], [mark.hi, mark.lo, mark.clipHi]]) {
+      if (!isClipped) continue;
+      series.push(customCaret({
+        name: `Mean centroid ${label} — ${quantity === 'sd' ? 'spread' : '95% interval'} in ${sym} (clipped)`,
+        from: at(other),
+        to: at(end),
+        color: colour,
+        opacity: quantity === 'sd' ? Math.max(SPREAD_OPACITY, 0.6) : 1,
+        z: 9,
+        tooltip: text,
+      }));
     }
   }
 }
@@ -252,7 +388,13 @@ export function centroidLegend(centroids) {
   for (const [key, style] of Object.entries(CANONICAL_CENTROID_STYLE)) {
     const pair = centroids[key];
     if (!pair || !pair.a || !pair.label) continue;
-    items.push(`${style.shape} = ${pair.label}`);
+    let whiskers = '';
+    if (key === 'frame_mean' && pair.n >= 2) {
+      whiskers = ` (faint cross ± SD, capped whiskers 95% t-interval, N = ${pair.n})`;
+    } else if (key === 'frame_mean' && pair.dof_note) {
+      whiskers = ` (${pair.dof_note.replace(/\.$/, '')})`;
+    }
+    items.push(`${style.shape} = ${pair.label}${whiskers}`);
   }
   if (!items.length) return '';
   return `Centroids (magenta A, blue B): ${items.join('; ')}.`;

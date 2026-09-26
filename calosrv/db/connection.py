@@ -27,6 +27,7 @@ import duckdb
 
 from ..config import Settings
 from .settings import apply_session_settings
+from .storage_guard import assert_disk_backed
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,17 @@ class Database:
         self._write_mutex = threading.Lock()
 
         settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Before anything is opened: a database or spill directory on a tmpfs
+        # turns "spill to disk" into "spill to RAM" (see storage_guard).
+        assert_disk_backed(
+            {
+                "database": settings.db_path.parent,
+                "temp_directory": settings.temp_dir,
+                "archive": settings.archive_dir,
+                "staging": settings.staging_dir,
+            },
+            allow=settings.allow_ram_storage,
+        )
         log.info("Opening DuckDB database at %s", settings.db_path)
         self._con = duckdb.connect(str(settings.db_path))
         apply_session_settings(self._con, settings)

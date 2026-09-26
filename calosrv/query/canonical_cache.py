@@ -1,8 +1,8 @@
 """The cached canonical bundle of a selection, and its start-up warmer.
 
-The canonical scan is the one query in the service that can take a couple of
-seconds: co-registering all 22.5 million production hits at the smallest
-honest sub-cell factor (k = 2, see ``grid/frame.py``) measures about 2.0 s.
+The co-registered scans are the queries in the service that take over a
+second: co-registering all 24.2 million production hits at the smallest honest
+sub-cell factor (k = 2, see ``grid/frame.py``) measures 1.7 s.
 It is paid once per selection and then served from the canonical LRU; the
 full-range selection that every interface opens on is warmed here in the
 background as soon as an experiment is ready, so the first page load does not
@@ -47,6 +47,7 @@ def bundle_for(
     footprint: tuple[float, float],
     sampled: bool,
     percent: float,
+    model: str = "segmentation",
 ) -> tuple[CanonicalBundle, FrameStats, frame_mod.CanonicalGrid, int, bool]:
     """Frame statistics, window, sub-sampling factor and the (cached) bundle.
 
@@ -67,12 +68,12 @@ def bundle_for(
         k = min(k, frame_mod.PREVIEW_MAX_SUBSAMPLE)
 
     cache = cache_mod.get_cache(settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE)
-    key = canonical.cache_key(spec, sampled, grid, k, footprint)
+    key = canonical.cache_key(spec, sampled, grid, k, footprint, model)
 
     def compute() -> CanonicalBundle:
         bundle = canonical.fetch_canonical(
             con, record, spec, stats, grid, k, footprint,
-            sampled=sampled, sample_percent=percent,
+            sampled=sampled, sample_percent=percent, model=model,
         )
         if sampled:
             canonical.scale_sample(bundle, percent)

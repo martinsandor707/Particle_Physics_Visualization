@@ -31,17 +31,20 @@ def test_ingest_kept_every_row(ingested):
     assert ingested["verification"].ok
 
 
-def test_projection_query_uses_a_single_scan(cursor, record):
-    """The whole design rests on GROUPING SETS reading the table once.
+def test_each_projection_query_uses_a_single_scan(cursor, record):
+    """The depth panels rest on GROUPING SETS reading the table once; the
+    entrance-slab XY query is the second and last scan.
 
     This is a planner behaviour rather than a contract. If a DuckDB upgrade
-    changed it, the only symptom would be a silently tripled p95 latency, so it
+    changed it, the only symptom would be a silently doubled p95 latency, so it
     is asserted here instead.
     """
     spec = filters.build(record)
-    plan = projections.explain(cursor, record, spec)
-    scans = re.findall(r"SEQ_SCAN|TABLE_SCAN", plan)
-    assert len(scans) == 1, f"expected one scan, found {len(scans)}:\n{plan}"
+    plans = projections.explain(cursor, record, spec).split("\n----\n")
+    assert len(plans) == 2
+    for plan in plans:
+        scans = re.findall(r"SEQ_SCAN|TABLE_SCAN", plan)
+        assert len(scans) == 1, f"expected one scan, found {len(scans)}:\n{plan}"
 
 
 def test_depth_panels_agree_on_total_energy(cursor, record):
@@ -153,7 +156,7 @@ def test_energy_calibration_puts_truth_on_the_momentum_scale(cursor, record):
 
     event_table = quote(naming.event_table(record.table_name))
     row = cursor.execute(
-        f"SELECT sum(e_a_true), sum(CAST(e1 AS DOUBLE)) FROM {event_table}"
+        f"SELECT sum(e_a_true_abs), sum(CAST(e1 AS DOUBLE)) FROM {event_table}"
     ).fetchone()
     assert float(row[0]) * c_a == pytest.approx(float(row[1]), rel=1e-9)
 
@@ -200,21 +203,26 @@ def test_two_event_slices_report_moments_but_draw_no_curve(cursor, record):
         assert ci > 0 and spread > 0 and ci != spread
 
 
-def test_performance_metrics_roll_up_exactly(cursor, record):
-    """Metrics from stored statistics must equal a direct scan of the hits."""
-    spec = filters.build(record)
-    report = performance.compute(cursor, record, spec)
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_performance_metrics_roll_up_exactly(cursor, record, ingested, coord_system, frame):
+    """Every frame's segmentation cards equal a direct scan of the archived hits."""
+    from calosrv.db import archive
 
-    hit_table = quote(naming.hit_table(record.table_name))
+    spec = filters.build(record)
+    report = performance.compute(cursor, record, spec, coord_system=coord_system)
+
+    hits = archive.relation(ingested["settings"], record.table_name)
+    pred, true = f"segmentation_{frame}_pred", f"segmentation_{frame}_true"
     row = cursor.execute(
         f"""
         SELECT count(*),
-               count(*) FILTER (WHERE (voxel_fA_pred >= 0.5) = (voxel_fA_true >= 0.5)),
-               sum(abs(CAST(voxel_fA_pred AS DOUBLE) - CAST(voxel_fA_true AS DOUBLE))),
-               sum(energy * abs(CAST(voxel_fA_pred AS DOUBLE)
-                                - CAST(voxel_fA_true AS DOUBLE))),
+               count(*) FILTER (WHERE ({pred} >= 0.5) = ({true} >= 0.5)),
+               sum(abs(CAST({pred} AS DOUBLE) - CAST({true} AS DOUBLE))),
+               sum(energy * abs(CAST({pred} AS DOUBLE) - CAST({true} AS DOUBLE))),
                sum(energy)
-        FROM {hit_table}
+        FROM {hits}
         WHERE energy IS NOT NULL AND isfinite(energy) AND energy > 0
         """
     ).fetchone()
@@ -225,6 +233,39 @@ def test_performance_metrics_roll_up_exactly(cursor, record):
     assert report.regression.mae_energy_weighted == pytest.approx(
         wabs_err / e_dep, rel=1e-12
     )
+    cards = {c.id: c.estimate for c in report.cards}
+    assert cards["accuracy"].value == pytest.approx(correct / n, rel=1e-12)
+    assert cards["wmae"].value == pytest.approx(wabs_err / e_dep, rel=1e-12)
+    assert report.network == {"model": "segmentation", "frame": frame}
+
+
+@pytest.mark.parametrize("model", ["energy", "angle"])
+@pytest.mark.parametrize("coord_system,frame", [
+    ("lab", "absolute"), ("trans", "trans"), ("local", "local"),
+])
+def test_residual_cards_equal_the_archived_per_shower_values(cursor, record, ingested, model,
+                                                            coord_system, frame):
+    from calosrv.db import archive
+
+    spec = filters.build(record)
+    report = performance.compute(cursor, record, spec, model=model, coord_system=coord_system)
+    hits = archive.relation(ingested["settings"], record.table_name)
+    cards = {c.id: c.estimate for c in report.cards}
+    for shower, is_a in (("a", True), ("b", False)):
+        # One prediction per (event, shower); 'A+B' hits carry shower B's values.
+        pred, true = (np.asarray(v, dtype=np.float64) for v in zip(*cursor.execute(
+            f"""SELECT CAST(max({model}_{frame}_pred) AS DOUBLE), CAST(max({model}_{frame}_true) AS DOUBLE)
+                FROM {hits} WHERE centroid_AB_distance IS NOT NULL
+                  AND (particle_origin = 'A') = {is_a}
+                GROUP BY event_number"""
+        ).fetchall()))
+        if model == "energy":
+            residual, card = (pred - true) / true, f"sigma_rel_{shower}"
+        else:
+            residual, card = (pred - true) * 1000.0, f"sigma_theta_{shower}"
+        got = cards[card]
+        assert got.n == pred.size
+        assert got.value == pytest.approx(float(np.std(residual, ddof=1)), rel=1e-6)
 
 
 def test_energy_weighted_mae_differs_from_the_unweighted_one(cursor, record):
@@ -237,7 +278,7 @@ def test_energy_weighted_mae_differs_from_the_unweighted_one(cursor, record):
 
 
 def test_metric_helpers_guard_division_by_zero():
-    empty = metric_mod.classification(0, 0, 0, 0, 0, 0)
+    empty = metric_mod.classification(0, 0, 0, 0, 0)
     assert empty.accuracy is None and empty.f1_a is None
 
 
@@ -515,3 +556,37 @@ def test_shower_axes_split_energy_between_the_showers(cursor, record):
     assert a_pts and b_pts
     # The two showers are at different places, so the axes must not coincide.
     assert any(abs(a[1] - b[1]) > 1e-9 for a, b in zip(a_pts, b_pts))
+
+
+def test_a_scan_that_straddles_an_invalidation_is_not_cached():
+    """An in-flight scan read the old tables; its bundle is returned but never cached."""
+    from types import SimpleNamespace
+
+    from calosrv.query.cache import BundleCache
+
+    cache = BundleCache(4, name="straddle")
+    key = ("some_table", 1)
+
+    def compute():
+        cache.invalidate_table("some_table")  # an ingest finished meanwhile
+        return SimpleNamespace(nbytes=1)
+
+    bundle, cached = cache.get_or_compute(key, compute)
+    assert bundle is not None and cached is False
+    assert cache.get_any([key]) is None
+    fresh, cached = cache.get_or_compute(key, lambda: SimpleNamespace(nbytes=1))
+    assert cache.get_any([key]) is fresh
+
+
+def test_an_undefined_separation_joins_no_d_slice():
+    """With include_undefined_d, a NULL D must not fall into the well-separated slice."""
+    import duckdb
+
+    from calosrv.stats.slices import UNDEFINED_SLICE, build_slices, case_sql
+
+    slices = build_slices()
+    rows = duckdb.connect().execute(
+        f"SELECT d, {case_sql(slices)} AS s FROM (VALUES (NULL), (10.0), (5000.0)) t(d) ORDER BY d NULLS FIRST"
+    ).fetchall()
+    assert rows[0][1] == UNDEFINED_SLICE
+    assert rows[1][1] == slices[0].index and rows[2][1] == slices[-1].index
