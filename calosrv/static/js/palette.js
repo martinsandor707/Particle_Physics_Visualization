@@ -31,8 +31,8 @@
  * outwards through PuOr's own colours in reverse, brightness rising steadily
  * with |value| and hue alone giving the sign. The anchors sit at explicit arm
  * positions p = |value| on the arm's own scale (the log position on a signed-
- * log ramp): the first colour at 3:1 against the card - #b35806 (3.4:1),
- * #8073ac (3.9:1) - lands at p = 1/6, which is 10^-2.5 of the peak on the
+ * log ramp): the first colour at 3:1 against the card - #b35806 (3.3:1),
+ * #8073ac (3.8:1) - lands at p = 1/6, which is 10^-2.5 of the peak on the
  * three-decade ramp. Below it the taper of `decode.codeTable` fades the bin
  * into the card, so nothing the reader is asked to see is drawn at under 3:1.
  * The raw (linear) Shap-CAM puts zero at border grey #30363d instead, so a
@@ -73,15 +73,23 @@ const PUOR = [
   [45, 0, 75],
 ];
 
-/* The folded screen arms, from zero outwards: [arm position p, rgb]. */
-const ARM_NEG = [[0, CARD], [1 / 6, [179, 88, 6]], [0.45, [224, 130, 20]],
-  [0.75, [253, 184, 99]], [1, [254, 224, 182]]];
+/* The folded screen arms, from zero outwards: [arm position p, rgb].
+ *
+ * Anchors are placed by CIE lightness L*, so equal |value| reads equally bright
+ * on both arms (orange L* 47, 63, 79, 90; purple 27, 51, 71, 87). On the signed
+ * log the 3:1 anchors sit at p = 1/6 (10^-2.5 of the peak) and each arm's later
+ * anchors follow its own L* line from there. On the linear raw Shap-CAM ramp
+ * both arms follow one L* line from the #30363d zero (L* 22) to the dimmer end
+ * (L* 87): a positive arm running through #542788 at p = 0.25 had stayed below
+ * 3:1 until |v| = 0.43 while the orange arm crossed it at 0.24. */
+const ARM_NEG = [[0, CARD], [1 / 6, [179, 88, 6]], [0.468, [224, 130, 20]],
+  [0.786, [253, 184, 99]], [1, [254, 224, 182]]];
 const ARM_POS = [[0, CARD], [0.08, [84, 39, 136]], [1 / 6, [128, 115, 172]],
-  [0.55, [178, 171, 210]], [1, [216, 218, 235]]];
-const ARM_NEG_LINEAR = [[0, BORDER], [0.25, [179, 88, 6]], [0.5, [224, 130, 20]],
-  [0.75, [253, 184, 99]], [1, [254, 224, 182]]];
-const ARM_POS_LINEAR = [[0, BORDER], [0.25, [84, 39, 136]], [0.5, [128, 115, 172]],
-  [0.75, [178, 171, 210]], [1, [216, 218, 235]]];
+  [0.635, [178, 171, 210]], [1, [216, 218, 235]]];
+const ARM_NEG_LINEAR = [[0, BORDER], [0.391, [179, 88, 6]], [0.630, [224, 130, 20]],
+  [0.881, [253, 184, 99]], [1, [254, 224, 182]]];
+const ARM_POS_LINEAR = [[0, BORDER], [0.072, [84, 39, 136]], [0.451, [128, 115, 172]],
+  [0.760, [178, 171, 210]], [1, [216, 218, 235]]];
 
 /** The colour at arm position p of positioned anchors [[p, rgb], ...]. */
 function armColour(arm, p) {

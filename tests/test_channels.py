@@ -157,3 +157,37 @@ def test_a_signed_mask_reports_the_masked_value_of_largest_magnitude():
     assert "attribution is not drawn" in signed["rule"]
     plain = density._attention_mask(mask, attention, hits, False, 3.0)
     assert plain["max_attention"] == 0.01 and plain["max_is_magnitude"] is False
+
+
+@pytest.mark.parametrize("builder", ["canonical", "trans"])
+@pytest.mark.parametrize("rho_norm", ["selection", "dataset"])
+@pytest.mark.parametrize("channel", ["density", "gradcam", "shapcam", "gradcam_energy", "shapcam_energy"])
+def test_the_colour_reference_notice_names_each_channels_own_reference(
+    cursor, ingested, record, builder, rho_norm, channel,
+):
+    """Only density follows rho_norm: a CAM panel must not claim a peak-density reference."""
+    from calosrv.api import frame_canonical, frame_shower
+    from calosrv.models.common import Timer
+
+    common = dict(resolution=150, display=MODE_CONTINUOUS, channel=channel, weighting="energy",
+                  rho_norm=rho_norm, preview=False, timer=Timer(), model="segmentation")
+    spec = filters.build(record)
+    if builder == "canonical":
+        body = frame_canonical.build_response(cursor, record, spec, ingested["settings"], **common)
+    else:
+        body = frame_shower.build_response(cursor, record, spec, ingested["settings"], kind="trans", **common)
+    text = " ".join(n["text"] for n in body["meta"]["notices"])
+    if channel != "density":
+        assert "peak density on the raw" not in text
+        assert "whole dataset's raw 20 mm-grid peak" not in text
+    if channel == "density":
+        assert ("own peak density on the raw" in text) == (rho_norm == "selection")
+    elif channel.endswith("_energy"):
+        cam = "Grad-CAM" if channel.startswith("gradcam") else "Shap-CAM"
+        assert f"own peak of Σ E·{cam} on the raw" in text
+        assert ("density channel only" in text) == (rho_norm == "dataset")
+    else:
+        bounds = "0 to 1" if channel == "gradcam" else "−1 to +1"
+        assert f"fixed {bounds} scale" in text
+        scope = "this selection's" if rho_norm == "selection" else "the whole dataset's"
+        assert f"10⁻³ of {scope} raw-grid peak density" in text

@@ -243,6 +243,43 @@ def _attenuation_notice(rho: dict[str, Any]) -> str | None:
     )
 
 
+
+def _reference_notice(channel: str, rho_norm: str, pitch: float) -> str | None:
+    """What this channel's colours are relative to, and what ``rho_norm`` changes.
+
+    Only the density channel follows ``rho_norm``. An energy-weighted CAM channel
+    is always relative to this selection's own raw-grid peak of the same
+    quantity. A mean CAM channel is drawn on a fixed scale, and ``rho_norm`` only
+    moves the density floor below which the Continuous Field masks its bins.
+    """
+    view = planes_mod.view(channel)
+    if not view.is_cam:
+        if rho_norm == density.NORM_DATASET:
+            return None
+        return (
+            "Colours are relative to this selection's own peak density on the raw "
+            f"{pitch:.0f} mm accumulation grid (stated in the footnote), which the "
+            "displayed field never exceeds; switch the density normalisation to the "
+            "dataset peak to compare colours across selections."
+        )
+    cam = "Grad-CAM" if view.cam == "gradcam" else "Shap-CAM"
+    if view.kind != planes_mod.KIND_RATIO:
+        text = (
+            f"Colours are relative to this selection's own peak of Σ E·{cam} on the raw "
+            f"{pitch:.0f} mm accumulation grid (stated in the footnote), so they compare "
+            "positions within this selection, not one selection with another."
+        )
+        if rho_norm == density.NORM_DATASET:
+            text += " The dataset density normalisation applies to the density channel only."
+        return text
+    bounds = "0 to 1" if view.cam == "gradcam" else "−1 to +1"
+    scope = "this selection's" if rho_norm == density.NORM_SELECTION else "the whole dataset's"
+    return (
+        f"{cam} is drawn on its fixed {bounds} scale, not relative to a peak. The density "
+        "normalisation only sets the floor below which the Continuous Field masks a bin: "
+        f"10⁻³ of {scope} raw-grid peak density."
+    )
+
 def build_response(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -375,19 +412,10 @@ def build_response(
                         "and colours are comparable only to that extent."
                     ),
                 })
-            attenuation = _attenuation_notice(rendered["rho"])
+            attenuation = None if planes_mod.view(channel).is_cam else _attenuation_notice(rendered["rho"])
             if attenuation:
                 notices.append({"scope": "frame", "text": attenuation})
         cam_view = planes_mod.view(channel)
-        if cam_view.is_cam and cam_view.kind != planes_mod.KIND_RATIO and rho_norm == density.NORM_DATASET:
-            notices.append({
-                "scope": "frame",
-                "text": (
-                    "The dataset density normalisation applies to the density channel only; "
-                    "an energy-weighted CAM panel is relative to this selection's own "
-                    "raw-grid peak of Σ E·CAM, stated in its footnote."
-                ),
-            })
         if cam_view.is_cam:
             notices.append({"scope": "frame", "text": planes_mod.cam_note(model, "lab", channel)["note"]})
         if lock_scale is False or scale_mode != "decades":
@@ -407,16 +435,9 @@ def build_response(
                     "ranges rest on weak evidence and are labelled provisional."
                 ),
             })
-        if rho_norm == density.NORM_SELECTION:
-            notices.append({
-                "scope": "frame",
-                "text": (
-                    "Colours are relative to this selection's own peak density on the raw "
-                    f"{grid.pitch:.0f} mm accumulation grid (stated in the footnote), which the "
-                    "displayed field never exceeds; switch the density normalisation to the "
-                    "dataset peak to compare colours across selections."
-                ),
-            })
+        reference = _reference_notice(channel, rendered["rho"].get("norm", rho_norm), grid.pitch)
+        if reference:
+            notices.append({"scope": "frame", "text": reference})
         for note in axes["notes"]:
             notices.append({"scope": "frame", "text": note})
 
@@ -443,6 +464,7 @@ def build_response(
                 "margin_mm": frame_mod.SHOWER_MARGIN_MM,
                 "energy_outside_gev": bundle.energy_outside,
                 "energy_fraction_outside": round(bundle.energy_fraction_outside, 8),
+                "hits_outside": bundle.n_outside,
             },
             "fit": fit.as_dict(),
             **stats.as_dict(),

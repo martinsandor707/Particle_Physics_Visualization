@@ -157,10 +157,13 @@ export function customLine({ from, to, ...options }) {
  * Reserved for the uncertainty of an aggregate - a 95% interval of a mean -
  * never for sample dispersion (CLAUDE.md section 2). One polyline traced cap
  * → shaft → cap in pixel space, so the caps keep their size at every zoom and
- * `onInk`'s polyline branch covers the whole mark.
+ * `onInk`'s polyline branch covers the whole mark. `caps` drops a cap at an
+ * end clipped to the panel window, where a cap would claim the interval ends
+ * there; `customCaret` marks that end instead.
  */
 export function customWhisker({
   name, from, to, capPx = 4, color, width, opacity = 1, z = 9, tooltip = null,
+  caps = [true, true],
 }) {
   const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
   return {
@@ -183,11 +186,49 @@ export function customWhisker({
         type: 'polyline',
         shape: {
           points: [
-            [a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny], a,
-            b, [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny],
+            ...(caps[0] ? [[a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny]] : []), a,
+            b, ...(caps[1] ? [[b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny]] : []),
           ],
         },
         style: { fill: 'none', stroke: color, lineWidth: width, opacity },
+      };
+    },
+    ...(tooltip ? { tooltip: { formatter } } : {}),
+  };
+}
+
+/**
+ * A caret at `to` pointing away from `from`: the end of a range clipped to the
+ * panel window (CLAUDE.md section 2: clip it and say so, with the true value
+ * in the tooltip). Its tip sits on the window edge and its body inside, so it
+ * is clipped with the plot area like every other mark and stays in the window
+ * at any zoom.
+ */
+export function customCaret({
+  name, from, to, sizePx = 6, color, opacity = 1, z = 9, tooltip = null,
+}) {
+  const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: !tooltip,
+    data: [to],
+    renderItem: (params, api) => {
+      const tip = api.coord(to);
+      const back = api.coord(from);
+      const length = Math.hypot(tip[0] - back[0], tip[1] - back[1]) || 1;
+      const ux = (tip[0] - back[0]) / length;
+      const uy = (tip[1] - back[1]) / length;
+      const base = [tip[0] - ux * sizePx, tip[1] - uy * sizePx];
+      const wing = 0.6 * sizePx;
+      return {
+        type: 'polygon',
+        shape: {
+          points: [tip, [base[0] - uy * wing, base[1] + ux * wing], [base[0] + uy * wing, base[1] - ux * wing]],
+        },
+        style: { fill: color, opacity },
       };
     },
     ...(tooltip ? { tooltip: { formatter } } : {}),
