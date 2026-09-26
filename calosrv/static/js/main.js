@@ -309,9 +309,19 @@ async function loadProjections(preview = false) {
   // The density reference is a co-registered frame's "autoscaled" badge: a ramp
   // relative to the selection's own peak looks identical for a tenth of the
   // energy, so the reader is told which reference the colours are drawn against.
-  setText('stat-rho', coregistered
-    ? (payload.frame.rho?.norm === 'dataset' ? 'dataset peak' : 'selection peak (autoscaled)')
-    : '—');
+  // An energy-weighted CAM panel is always relative to this selection's own
+  // raw-grid peak of Σ E·CAM, whatever the density normalisation says, and a
+  // mean-CAM panel has a fixed scale; the badge says which.
+  const quantity = payload.panels?.xy?.scale?.quantity;
+  let rhoBadge = '—';
+  if (coregistered && (quantity === 'gradcam_energy' || quantity === 'shapcam_energy')) {
+    rhoBadge = 'selection Σ E·CAM peak (autoscaled)';
+  } else if (coregistered && (quantity === 'gradcam' || quantity === 'shapcam')) {
+    rhoBadge = 'fixed scale';
+  } else if (coregistered) {
+    rhoBadge = payload.frame.rho?.norm === 'dataset' ? 'dataset peak' : 'selection peak (autoscaled)';
+  }
+  setText('stat-rho', rhoBadge);
   setText('stat-latency', `${formatNumber(payload.meta.total_ms, 1)} ms`);
   setText('stat-cache', payload.meta.cached ? 'cached' : 'scanned');
 
@@ -861,6 +871,10 @@ attachExportMenus({
       footnote,
       selection: lastProjections ? lastProjections.selection : null,
       frame: lastProjections?.frame ?? null,
+      // The response's own statement of what it holds (channel, network,
+      // weighting, frame): the export names its content from this, never from
+      // controls that may have moved on since.
+      meta: panelId === 'energy' ? (lastEnergy?.meta ?? null) : (lastProjections?.meta ?? null),
       disclosure,
     };
   },

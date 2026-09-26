@@ -65,7 +65,7 @@ const MAX_RASTER_PX = 4096;
  */
 export function exportPanel(panel, {
   panelId, format = 'svg', widthMm, title, footnote, state, experiment, selection,
-  frame = null, disclosure = [],
+  frame = null, meta = null, disclosure = [],
 }) {
   const width = widthToPx(widthMm);
   const host = document.createElement('div');
@@ -104,7 +104,7 @@ export function exportPanel(panel, {
       metrics = panel.exportMetrics(width);
       caption = buildCaption({
         title,
-        provenance: provenanceFor(panel, state, experiment, selection, frame, display, spatial),
+        provenance: provenanceFor(panel, state, experiment, selection, frame, display, spatial, meta),
         footnote,
         table: tableFor(panel, width),
         disclosure,
@@ -148,7 +148,7 @@ export function exportPanel(panel, {
       ], { type: mime })
       : dataUrlToBlob(serialized);
 
-    downloadBlob(blob, figureName(panelId, format, { state, display, spatial }));
+    downloadBlob(blob, figureName(panelId, format, { state, display, spatial, meta }));
   } finally {
     if (chart) chart.dispose();
     host.remove();
@@ -233,7 +233,7 @@ function offsetCaption(graphic, plotHeight) {
 }
 
 function provenanceFor(
-  panel, state, experiment, selection, frameBlock = null, display = null, spatial = true,
+  panel, state, experiment, selection, frameBlock = null, display = null, spatial = true, meta = null,
 ) {
   // The frame block rides on the top-level projections response, which the
   // caller passes in; a projection panel only holds its own panel payload.
@@ -241,7 +241,7 @@ function provenanceFor(
   const frame = frameBlock
     ?? (panel.kind === 'energy' ? panel.lastPayload?.frame : panel.payload?.frame)
     ?? null;
-  const parts = [describeSelection(state, experiment, selection, frame, display, { spatial })];
+  const parts = [describeSelection(state, experiment, selection, frame, display, { spatial, meta })];
   if (typeof panel.currentView === 'function') {
     const view = panel.currentView();
     const axes = panel.payload?.axes;

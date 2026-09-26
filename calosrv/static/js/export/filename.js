@@ -36,11 +36,11 @@ const CHANNEL_TOKEN = {
 const MODEL_TOKEN = { segmentation: 'seg', energy: 'energy', angle: 'angle' };
 
 export function figureName(panelId, format, {
-  state, experiment, extra = [], display = null, spatial = true,
+  state, experiment, extra = [], display = null, spatial = true, meta = null,
 } = {}) {
   const parts = [slug(panelId)];
 
-  const slice = describeSlice(state, extra, display, spatial);
+  const slice = describeSlice(state, extra, display, spatial, meta);
   if (slice) parts.push(slice);
   parts.push(timestamp());
 
@@ -58,7 +58,23 @@ function kernelToken(display) {
   return null;
 }
 
-function describeSlice(state, extra, display = null, spatial = true) {
+/**
+ * What the figure holds, from the response's own meta when there is one: the
+ * controls can have moved on (a request still in flight, or one that failed)
+ * while the chart still shows the previous payload.
+ */
+function shownBy(state, meta) {
+  const frame = ['canonical', 'trans', 'local'].includes(meta?.frame) ? meta.frame
+    : (meta ? 'lab' : state.get('frame'));
+  return {
+    frame,
+    channel: meta?.channel ?? state.get('channel'),
+    model: meta?.model ?? state.get('model'),
+    network: meta?.network?.frame ?? null,
+  };
+}
+
+function describeSlice(state, extra, display = null, spatial = true, meta = null) {
   if (!state) return extra.filter(Boolean).map(slug).join('-') || null;
 
   const bounds = [];
@@ -80,20 +96,23 @@ function describeSlice(state, extra, display = null, spatial = true) {
     tokens.push(mode === 'native' ? 'native' : `R${r}`);
     // The frame changes what every pixel means, so two figures of one selection
     // in two frames must not collide on everything but their timestamp.
-    const frame = state.get('frame');
-    if (state.get('frame') === 'canonical') tokens.push('canonical');
+    const shown = shownBy(state, meta);
+    const frame = shown.frame;
+    if (meta ? frame === 'canonical' : state.get('frame') === 'canonical') tokens.push('canonical');
     else if (frame && frame !== 'lab') tokens.push(frame);
     // A CAM figure belongs to one network; a density figure to none.
-    const channel = state.get('channel');
+    const channel = shown.channel;
     if (channel && channel !== 'density') {
       tokens.push(CHANNEL_TOKEN[channel] ?? channel);
-      tokens.push(MODEL_TOKEN[state.get('model')] ?? state.get('model'));
+      tokens.push(MODEL_TOKEN[shown.model] ?? shown.model);
     }
     const kernel = kernelToken(display);
     if (kernel) tokens.push(kernel);
   } else {
     // The energy panel is the selected frame's segmentation reconstruction.
-    const coord = apiFrame(state.get('frame')).coord_system;
+    const network = shownBy(state, meta).network;
+    const coord = network ? (network === 'absolute' ? 'lab' : network)
+      : apiFrame(state.get('frame')).coord_system;
     if (coord !== 'lab') tokens.push(coord);
   }
   for (const item of extra) if (item) tokens.push(item);

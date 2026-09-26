@@ -56,6 +56,9 @@ const ENUMS = {
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
+/** The filter sliders' steps (main.js), by which their domains snap outward. */
+const SLIDER_STEP = { e1: 0.05, e2: 0.05, d: 1 };
+
 /** Each interface frame as the API's (coord_system, frame) pair. */
 export const API_FRAME = {
   lab: { coord_system: 'lab', frame: 'lab' },
@@ -121,7 +124,11 @@ export class State {
     // A bound arriving in the URL is a deliberate selection, so it must survive
     // the first adoptBounds rather than being reset to the dataset range.
     for (const axis of ['e1', 'e2', 'd']) {
-      if (this.values[`${axis}_min`] !== null) this.touched.add(axis);
+      // Either bound: a link omits a bound left at the full range, so one
+      // narrowed only from above carries only its maximum.
+      if (this.values[`${axis}_min`] !== null || this.values[`${axis}_max`] !== null) {
+        this.touched.add(axis);
+      }
     }
   }
 
@@ -236,13 +243,25 @@ export class State {
       if (lo === null || hi === null) continue;
       const loKey = `${axis}_min`;
       const hiKey = `${axis}_max`;
-      const untouched = !this.touched.has(axis) || this.values[loKey] === null;
-      const outOfRange =
-        this.values[loKey] !== null &&
-        (this.values[loKey] < lo || this.values[hiKey] > hi);
-      if (untouched || outOfRange) {
+      if (!this.touched.has(axis)) {
         patch[loKey] = lo;
         patch[hiKey] = hi;
+        continue;
+      }
+      // A touched axis may carry one bound only; the other is the full range.
+      const vlo = this.values[loKey] ?? lo;
+      const vhi = this.values[hiKey] ?? hi;
+      // The sliders snap their domain outward by up to one step, so a bound
+      // left at the snapped edge lies just outside the raw range and is still
+      // in range; only a bound past that is from another dataset.
+      const step = SLIDER_STEP[axis] ?? 0;
+      const outOfRange = vlo < lo - step - 1e-9 || vhi > hi + step + 1e-9 || vlo > vhi;
+      if (outOfRange) {
+        patch[loKey] = lo;
+        patch[hiKey] = hi;
+      } else {
+        if (this.values[loKey] !== vlo) patch[loKey] = vlo;
+        if (this.values[hiKey] !== vhi) patch[hiKey] = vhi;
       }
     }
     this.set(patch, { silent: true });
