@@ -23,10 +23,10 @@ from pathlib import Path
 import duckdb
 
 from ..db import naming
-from ..db.ddl import HIT_COLUMNS, MODELS, csv_model_column
+from ..db.ddl import CSV_FRAMES, MODEL_FIELDS, MODELS, csv_model_column
 from ..db.naming import quote
 from . import csv_spec
-from .derive_proj import FRAME_COORDINATES
+from .derive_proj import FRAME_COORDINATES, keep_predicate
 
 log = logging.getLogger(__name__)
 
@@ -74,12 +74,25 @@ def _own(column_a: str, column_b: str) -> str:
     return f"CASE WHEN particle_origin = 'A' THEN {column_a} ELSE {column_b} END"
 
 
+def _exceeds(value, tolerance: float) -> bool:
+    """``value > tolerance`` that also fails a NaN, which no comparison does."""
+    return value is not None and not (float(value) <= tolerance)
+
+
 def _archive_checks(con: duckdb.DuckDBPyConnection, source: str, pitch: float) -> dict:
-    """One ungrouped scan of the archive computing every row-level contract."""
-    model_columns = [n for n, _ in HIT_COLUMNS if n.split("_")[0] in MODELS]
+    """One ungrouped scan of the archive computing every row-level contract.
+
+    Only rows the sanitiser keeps are examined: a row it drops - a missing or
+    non-finite energy or coordinate, a bad origin - is already removed and
+    counted there, and failing the whole ingest on it would make those counters
+    unreachable on a ready experiment. The model columns come from the model
+    schema itself, so the hit ``energy`` is never mistaken for a network output.
+    """
+    model_columns = [csv_model_column(m, f, k) for m in MODELS for f in CSV_FRAMES
+                     for k in MODEL_FIELDS]
     finite = {
         c: f"count(*) FILTER (WHERE {quote(c)} IS NULL OR NOT isfinite({quote(c)}))"
-        for c in (*model_columns, *FRAME_COORDINATES)
+        for c in model_columns
     }
     theta = _own("incoming_theta_A", "incoming_theta_B")
     phi = _own("incoming_phi_A", "incoming_phi_B")
@@ -133,7 +146,7 @@ def _archive_checks(con: duckdb.DuckDBPyConnection, source: str, pitch: float) -
     names = list(aggregates)
     row = con.execute(
         f"SELECT {', '.join(f'{sql} AS {quote(k)}' for k, sql in aggregates.items())} "
-        f"FROM {source}"
+        f"FROM {source} WHERE {keep_predicate()}"
     ).fetchone()
     return dict(zip(names, row))
 
@@ -260,13 +273,13 @@ def verify(
     result.values.update(p0_spread_mm=p0_spread, pt_spread=pt_spread,
                          split_cells=int(n_split), cells=int(n_cells), ab_rows=int(n_ab),
                          cam_zero_events=int(n_cam_zero))
-    if p0_spread is not None and p0_spread > P0_TOLERANCE_MM:
+    if _exceeds(p0_spread, P0_TOLERANCE_MM):
         result.fail("p0_constancy",
                     f"A shower's entry point P0 (x - x_trans) varies by up to {p0_spread:.4g} mm "
                     "within the shower; the translated frame would not be a rigid shift.")
     else:
         result.passed("p0_constancy")
-    if pt_spread is not None and pt_spread > 0:
+    if _exceeds(pt_spread, 0.0):
         result.fail("per_shower_constancy",
                     f"Angle or energy network outputs vary within a shower (spread {pt_spread:.4g}).")
     else:
@@ -290,8 +303,8 @@ def verify(
         result.fail("finite_model_columns",
                     "Non-finite or missing values in: "
                     + ", ".join(f"{c} ({n:,})" for c, n in sorted(bad_columns.items()))
-                    + ". They are rejected rather than replaced, because a filled-in "
-                    "prediction would be a fabricated one.")
+                    + " on rows that are otherwise kept. They are rejected rather than "
+                    "replaced, because a filled-in model output would be a fabricated one.")
     else:
         result.passed("finite_model_columns")
     outside = int(checks["gradcam_outside"] or 0) + int(checks["shapcam_outside"] or 0) \
@@ -305,7 +318,7 @@ def verify(
         result.passed("cam_ranges")
     rotation = checks["max_rotation_residual"]
     result.values["rotation_residual_mm"] = rotation
-    if rotation is not None and rotation > ROTATION_TOLERANCE_MM:
+    if _exceeds(rotation, ROTATION_TOLERANCE_MM):
         result.fail("local_rotation",
                     f"x/y/z_local differ from R(theta, phi) of the own shower applied to the "
                     f"translated coordinates by up to {rotation:.4g} mm.")
@@ -313,15 +326,20 @@ def verify(
         result.passed("local_rotation")
     layer = checks["max_layer_residual"]
     result.values["layer_residual_mm"] = layer
-    if layer is not None and layer > LAYER_TOLERANCE_MM:
+    if _exceeds(layer, LAYER_TOLERANCE_MM):
         result.fail("trans_layers",
                     f"z_trans is off the {layer_pitch_mm} mm layer grid by up to {layer:.4g} mm.")
     else:
         result.passed("trans_layers")
-    worst_p = max((checks[f"max_momentum_residual__{f}"] or 0.0) for f in ("absolute", "trans", "local"))
-    worst_t = max((checks[f"max_theta_residual__{f}"] or 0.0) for f in ("absolute", "trans", "local"))
+    def worst(prefix: str) -> float:
+        values = [float(checks[f"{prefix}__{f}"] or 0.0) for f in ("absolute", "trans", "local")]
+        # Python's max is order-dependent with a NaN; a NaN residual must fail.
+        return float("nan") if any(v != v for v in values) else max(values)
+
+    worst_p = worst("max_momentum_residual")
+    worst_t = worst("max_theta_residual")
     result.values.update(momentum_residual_gev=worst_p, theta_residual_rad=worst_t)
-    if worst_p > MOMENTUM_TOLERANCE_GEV or worst_t > THETA_TOLERANCE_RAD:
+    if _exceeds(worst_p, MOMENTUM_TOLERANCE_GEV) or _exceeds(worst_t, THETA_TOLERANCE_RAD):
         result.fail("truth_consistency",
                     f"energy_*_true / angle_*_true differ from the own shower's incident "
                     f"momentum / polar angle by up to {worst_p:.3g} GeV / {worst_t:.3g} rad.")

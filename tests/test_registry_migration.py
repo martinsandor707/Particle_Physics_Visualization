@@ -128,6 +128,14 @@ def test_the_backing_filesystem_is_found_by_longest_mount_prefix(path, fstype, r
     assert mount.ram_backed is ram
 
 
+def test_a_tmpfs_mounted_over_a_disk_path_is_seen():
+    """mountinfo lists the shadowed mount first; the one mounted over it is what is used."""
+    overmount = MOUNTINFO + "40 31 8:1 /data /app/data rw - ext4 /dev/sda1 rw\n" \
+        "41 40 0:50 / /app/data rw - tmpfs tmpfs rw\n"
+    mount = backing_fs(Path("/app/data/tmp"), overmount)
+    assert mount.fstype == "tmpfs" and mount.ram_backed
+
+
 def test_ram_backed_storage_is_refused_unless_explicitly_allowed():
     roles = {"temp_directory": Path("/tmp/calosrv/tmp"), "database": Path("/home/me/data")}
     with pytest.raises(StorageConfigError, match="temp_directory at /tmp/calosrv/tmp is on tmpfs"):

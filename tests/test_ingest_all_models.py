@@ -231,12 +231,27 @@ def spare(ingested):
 
 def test_an_append_that_reuses_event_numbers_is_refused(spare):
     with spare["database"].write_lock() as con:
+        before = registry.get_experiment(con, spare["name"])
         with pytest.raises(EventRangeCollisionError) as info:
             pipeline.run_ingest(con, spare["settings"], spare["name"], SEED_CSV,
                                 mode="append", build_sample=False)
+        after = registry.get_experiment(con, spare["name"])
     assert info.value.extra.get("suggested_offset") == 2
     manifest = archive.read_manifest(spare["settings"], spare["name"])
     assert len(manifest.parts) == 1, "a refused append must not leave a part behind"
+    # The file was refused before anything changed: the experiment stays served.
+    assert after.status == registry.STATUS_READY
+    assert after.source_files == before.source_files
+
+
+def test_the_suggested_offset_is_the_absolute_offset_to_supply(spare):
+    """A colliding attempt with a non-zero offset suggests the total, not the extra shift."""
+    with spare["database"].write_lock() as con:
+        with pytest.raises(EventRangeCollisionError) as info:
+            pipeline.run_ingest(con, spare["settings"], spare["name"], SEED_CSV,
+                                mode="append", event_offset=1, build_sample=False)
+    # Events 0-1 are stored; offset 1 moves the file to 1-2; 2 clears it (next test).
+    assert info.value.extra.get("suggested_offset") == 2
 
 
 def test_an_offset_append_adds_a_part_and_the_rows(spare):
@@ -258,6 +273,92 @@ def test_rebuild_reproduces_the_derived_tables_without_the_csv(spare):
         after = con.execute(f"SELECT sum(e_dep), sum(e_a_pred_loc), count(*) FROM {event}").fetchone()
     assert result.ok
     assert after == pytest.approx(before, rel=1e-12)
+
+
+def _shifted_seed(tmp_path: Path, name: str, shift: int, mutate=None) -> Path:
+    with SEED_CSV.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle)
+        header = next(reader)
+        rows = list(reader)
+    col = {c: i for i, c in enumerate(header)}
+    for row in rows:
+        row[col["event_number"]] = str(int(row[col["event_number"]]) + shift)
+    if mutate:
+        mutate(rows, col)
+    return _write_csv(tmp_path / name, header, rows)
+
+
+def test_an_append_that_fails_verification_is_discarded(spare, tmp_path):
+    """A provisional append commits nothing when it fails: the experiment is rebuilt as it was."""
+    name = spare["name"]
+
+    def fabricate_a_hole(rows, col):
+        rows[3][col["segmentation_absolute_pred"]] = "nan"
+
+    bad = _shifted_seed(tmp_path, "bad.csv", 100, fabricate_a_hole)
+    with spare["database"].write_lock() as con:
+        before = registry.get_experiment(con, name)
+        parts_before = len(archive.read_manifest(spare["settings"], name).parts)
+        result = pipeline.run_ingest(con, spare["settings"], name, bad, mode="append",
+                                     build_sample=False)
+        after = registry.get_experiment(con, name)
+    assert not result.ok
+    assert any("discarded" in w for w in result.warnings)
+    manifest = archive.read_manifest(spare["settings"], name)
+    assert len(manifest.parts) == parts_before
+    assert not (archive.archive_path(spare["settings"], name) / f"part-{parts_before}.parquet").exists()
+    assert after.status == registry.STATUS_READY
+    assert (after.n_hits, after.n_events) == (before.n_hits, before.n_events)
+    assert after.source_files == before.source_files
+
+
+def test_an_offset_that_overflows_the_event_number_is_refused(spare):
+    name = spare["name"]
+    with spare["database"].write_lock() as con:
+        parts_before = len(archive.read_manifest(spare["settings"], name).parts)
+        with pytest.raises(IngestError):
+            pipeline.run_ingest(con, spare["settings"], name, SEED_CSV, mode="append",
+                                event_offset=2 ** 31, build_sample=False)
+        after = registry.get_experiment(con, name)
+    assert len(archive.read_manifest(spare["settings"], name).parts) == parts_before
+    assert after.status == registry.STATUS_READY
+
+
+def test_rows_the_sanitiser_drops_leave_the_experiment_ready(ingested, tmp_path):
+    """A NaN or missing energy and a missing frame coordinate are removed and counted,
+    never grounds for failing the whole ingest; a NaN lab coordinate is removed too."""
+
+    def damage(rows, col):
+        rows[0][col["energy"]] = "nan"
+        rows[1][col["energy"]] = ""
+        rows[2][col["x_local"]] = ""
+        rows[3][col["x"]] = "nan"
+
+    path = _shifted_seed(tmp_path, "damaged.csv", 0, damage)
+    database, settings = ingested["database"], ingested["settings"]
+    try:
+        with database.write_lock() as con:
+            result = pipeline.run_ingest(con, settings, "damaged_experiment", path,
+                                         build_sample=False)
+        assert result.ok, result.warnings
+        s = result.sanitation
+        assert (s["non_finite_energy"], s["null_energy"], s["null_frame_coordinate"],
+                s["null_coordinate"]) == (1, 1, 1, 1)
+        assert s["kept_rows"] == s["total_rows"] - 4
+        lattice = result.record.lattice
+        assert np.isfinite(lattice.x.coords).all() and np.isfinite(lattice.x.hi)
+    finally:
+        from calosrv.db.bootstrap import drop_experiment
+
+        with database.write_lock() as con:
+            drop_experiment(con, "damaged_experiment", settings)
+
+
+def test_a_name_ending_in_the_sample_suffix_is_refused():
+    from calosrv.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="reserved"):
+        naming.validate_experiment_name("foo" + naming.SAMPLE_SUFFIX)
 
 
 def test_deleting_an_experiment_removes_its_archive(ingested):

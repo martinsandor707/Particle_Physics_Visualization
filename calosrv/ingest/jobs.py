@@ -159,6 +159,12 @@ class JobStore:
                     progress=lambda stage: self._advance(job, stage),
                 )
 
+            # The tables were rebuilt under the write lock: anything cached (or
+            # being computed) against the old ones must go before the warmers
+            # run. The upload routes also invalidate at submit time.
+            from ..query import cache as cache_mod
+
+            cache_mod.invalidate_all(name)
             job.warnings = result.warnings
             job.result = result.as_job_result()
             job.status = JOB_DONE if result.ok else JOB_FAILED
@@ -177,9 +183,11 @@ class JobStore:
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)
+            self._invalidate(name)
         except Exception as exc:  # noqa: BLE001 - the worker must never die silently
             log.error("Ingest of %r failed: %s\n%s", name, exc, traceback.format_exc())
             self._fail(job, name, str(exc))
+            self._invalidate(name)
         finally:
             job.finished_at = dt.datetime.now(dt.timezone.utc)
             # Reclaim the staging space immediately: on the production file this
@@ -187,13 +195,25 @@ class JobStore:
             if delete_source:
                 staged.unlink()
 
+    @staticmethod
+    def _invalidate(name: str) -> None:
+        """Drop cached bundles of ``name``: a failed ingest may have rebuilt its tables."""
+        from ..query import cache as cache_mod
+
+        cache_mod.invalidate_all(name)
+
     def _fail(self, job: IngestJob, name: str, message: str) -> None:
         job.status = JOB_FAILED
         job.error = message
         job.stage_label = "Ingestion failed"
         try:
             with self._db.write_lock() as con:
-                registry.set_status(con, name, registry.STATUS_FAILED, message)
+                # Only an experiment the job had started to rewrite is failed.
+                # A refused file (header, event-range collision) or a discarded
+                # append leaves the experiment as it was, and it stays served.
+                current = registry.get_experiment(con, name)
+                if current is None or current.status == registry.STATUS_INGESTING:
+                    registry.set_status(con, name, registry.STATUS_FAILED, message)
         except Exception:  # pragma: no cover - the original error is what matters
             log.exception("Could not record ingest failure for %r", name)
 

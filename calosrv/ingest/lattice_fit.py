@@ -37,7 +37,7 @@ def _distinct_axis(
 ) -> Axis:
     rows = con.execute(
         f"SELECT DISTINCT {quote(column)} AS v FROM {source} "
-        f"WHERE {quote(column)} IS NOT NULL ORDER BY v"
+        f"WHERE isfinite({quote(column)}) ORDER BY v"
     ).fetchall()
     if not rows:
         raise IngestError(f"Column {column!r} holds no usable values.")

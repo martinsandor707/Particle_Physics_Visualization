@@ -12,6 +12,7 @@ set the peak - the measurement the ingest memory budget is judged on.
 
 from __future__ import annotations
 
+import copy
 import logging
 import resource
 import time
@@ -26,7 +27,7 @@ from ..config import Settings
 from ..db import archive, registry
 from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION
 from ..errors import IngestError
-from . import derive_events, derive_proj, lattice_fit, load, stream, verify as verify_mod
+from . import csv_spec, derive_events, derive_proj, lattice_fit, load, stream, verify as verify_mod
 
 log = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ def _derive(
 ) -> IngestResult:
     """Everything after the archive: lattice, derived tables, verification."""
     name = record.table_name
-    relation = archive.relation_sql(archive.part_paths(settings, name))
+    relation = archive.relation_sql(archive.part_paths(settings, name, manifest))
 
     progress("lattice")
     lattice = lattice_fit.measure_lattice(con, relation)
@@ -224,10 +225,19 @@ def run_ingest(
     created_at=None,
     progress: Callable[[str], None] | None = None,
 ) -> IngestResult:
-    """Ingest one CSV into experiment ``name``. Caller holds the write lock."""
+    """Ingest one CSV into experiment ``name``. Caller holds the write lock.
+
+    Nothing in the registry changes until the file is known to be acceptable:
+    the header is checked first, and an append also passes its event-range
+    check before the record is touched, so a refused file leaves a ready
+    experiment ready. An append is **provisional** until it verifies: its part
+    is committed to the manifest only on success; on failure the part is
+    discarded and the experiment rebuilt from its previous parts.
+    """
     progress = progress or (lambda _stage: None)
     watch = _Stopwatch(con)
     source_name = source_name or source.name
+    csv_spec.validate_header(source)
     if check_space:
         stream.check_free_space(
             settings.data_dir, source.stat().st_size, settings.local_headroom_factor
@@ -235,25 +245,66 @@ def run_ingest(
 
     registry.ensure_registry(con)
     existing = registry.get_experiment(con, name)
-    record = existing or registry.ExperimentRecord(table_name=name)
-    record.display_name = display_name or record.display_name or name
-    record.status = registry.STATUS_INGESTING
-    record.error = None
-    if source_name not in record.source_files:
-        record.source_files = [*record.source_files, source_name]
-    if record.created_at is None and created_at is not None:
-        record.created_at = created_at
-    record.schema_name, record.schema_version = SCHEMA_NAME, SCHEMA_VERSION
-    registry.upsert(con, record)
+    snapshot = copy.deepcopy(existing)
+    appending = mode == load.MODE_APPEND
+
+    def mark_ingesting() -> registry.ExperimentRecord:
+        record = existing or registry.ExperimentRecord(table_name=name)
+        record.display_name = display_name or record.display_name or name
+        record.status = registry.STATUS_INGESTING
+        record.error = None
+        if source_name not in record.source_files:
+            record.source_files = [*record.source_files, source_name]
+        if record.created_at is None and created_at is not None:
+            record.created_at = created_at
+        record.schema_name, record.schema_version = SCHEMA_NAME, SCHEMA_VERSION
+        registry.upsert(con, record)
+        return record
 
     progress("archive")
+    if not appending:
+        record = mark_ingesting()
+        loaded = load.load_csv(
+            con, settings, name, source, mode=mode, event_offset=event_offset,
+            source_name=source_name,
+        )
+        watch.mark("archive")
+        return _derive(con, settings, record, source, loaded.manifest, build_sample, watch,
+                       progress, part_rows=loaded.rows)
+
     loaded = load.load_csv(
         con, settings, name, source, mode=mode, event_offset=event_offset,
-        source_name=source_name,
+        source_name=source_name, commit=False,
     )
+    record = mark_ingesting()
     watch.mark("archive")
-    return _derive(con, settings, record, source, loaded.manifest, build_sample, watch, progress,
-                   part_rows=loaded.rows)
+    try:
+        result = _derive(con, settings, record, source, loaded.manifest, build_sample, watch,
+                         progress, part_rows=loaded.rows)
+    except Exception as exc:
+        _discard_append(con, settings, name, loaded, snapshot, build_sample)
+        raise IngestError(
+            f"Appending {source_name} to {name!r} failed ({exc}). The new part was discarded "
+            "and the experiment rebuilt from its previous parts."
+        ) from exc
+    if result.ok:
+        archive.write_manifest(settings, name, loaded.manifest)
+        return result
+    _discard_append(con, settings, name, loaded, snapshot, build_sample)
+    result.verification.warnings.append(
+        f"The append of {source_name} failed verification; its part was discarded and "
+        f"{name!r} rebuilt from its previous parts."
+    )
+    return result
+
+
+def _discard_append(con, settings, name, loaded, snapshot, build_sample) -> None:
+    """Remove an uncommitted append part and restore the experiment it was appended to."""
+    loaded.part.unlink(missing_ok=True)
+    if snapshot is not None:
+        registry.upsert(con, snapshot)
+    log.warning("Append to %r discarded; rebuilding from the committed parts", name)
+    rebuild(con, settings, name, build_sample=build_sample)
 
 
 def rebuild(

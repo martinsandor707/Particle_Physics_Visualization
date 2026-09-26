@@ -141,9 +141,14 @@ def write_manifest(settings: Settings, name: str, manifest: Manifest) -> None:
     os.replace(tmp, path)
 
 
-def part_paths(settings: Settings, name: str) -> list[Path]:
-    """The committed parts, from the manifest - never from a glob."""
-    manifest = read_manifest(settings, name)
+def part_paths(settings: Settings, name: str, manifest: "Manifest | None" = None) -> list[Path]:
+    """The parts of ``manifest`` (default: the committed one) - never from a glob.
+
+    Passing a manifest lets an append derive and verify over its provisional
+    part before the part is committed.
+    """
+    if manifest is None:
+        manifest = read_manifest(settings, name)
     if manifest is None:
         return []
     root = archive_path(settings, name)

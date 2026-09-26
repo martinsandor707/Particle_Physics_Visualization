@@ -90,6 +90,10 @@ class BundleCache:
         self._entries: OrderedDict[tuple, Any] = OrderedDict()
         self._lock = threading.Lock()
         self.stats = CacheStats()
+        #: Bumped by every invalidation of a table. A scan that was already
+        #: running when its table was invalidated read the old tables, so its
+        #: result is returned to its caller but never inserted.
+        self._generation: dict[Any, int] = {}
 
     def get_or_compute(
         self, key: tuple, compute: Callable[[], Any]
@@ -101,6 +105,7 @@ class BundleCache:
         every other reader for its duration would be far worse than the
         occasional duplicated scan when two identical requests race.
         """
+        table = key[0] if key else None
         with self._lock:
             bundle = self._entries.get(key)
             if bundle is not None:
@@ -108,10 +113,13 @@ class BundleCache:
                 self.stats.hits += 1
                 return bundle, True
             self.stats.misses += 1
+            generation = self._generation.get(table, 0)
 
         bundle = compute()
 
         with self._lock:
+            if self._generation.get(table, 0) != generation:
+                return bundle, False
             self._entries[key] = bundle
             self._entries.move_to_end(key)
             while len(self._entries) > self._max or (
@@ -145,6 +153,7 @@ class BundleCache:
         entries happened to be evicted. Every key starts with the table name.
         """
         with self._lock:
+            self._generation[table_name] = self._generation.get(table_name, 0) + 1
             stale = [k for k in self._entries if k and k[0] == table_name]
             for key in stale:
                 del self._entries[key]

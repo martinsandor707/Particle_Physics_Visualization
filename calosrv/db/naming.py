@@ -57,6 +57,15 @@ def validate_experiment_name(name: str) -> str:
             "underscores (max 48 characters).",
             field="table_name",
         )
+    if candidate.endswith(SAMPLE_SUFFIX):
+        # ``proj_<name>_s10`` is <name>'s preview sample; an experiment called
+        # ``<name>_s10`` would own a projection table of the same name, and the
+        # two would overwrite and drop each other's tables.
+        raise ValidationError(
+            f"Invalid experiment name {candidate!r}: the suffix {SAMPLE_SUFFIX!r} is reserved "
+            "for preview-sample tables.",
+            field="table_name",
+        )
     if candidate in _RESERVED:
         raise ValidationError(
             f"Experiment name {candidate!r} is reserved.", field="table_name"

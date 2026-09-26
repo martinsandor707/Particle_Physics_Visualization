@@ -43,7 +43,7 @@ async def upload(
     ),
     display_name: str = Form("", description="Label for the experiment dropdown."),
     event_offset: int = Form(
-        0, description="Shift incoming event numbers to avoid a collision."
+        0, ge=0, description="Shift incoming event numbers to avoid a collision."
     ),
 ):
     name = naming.validate_experiment_name(table_name)
@@ -65,10 +65,15 @@ async def upload(
                     "Use create_new for the first upload."
                 )
 
+    # FastAPI has already spooled the whole multipart body by the time this
+    # handler runs, and the spool sits on the staging volume (``TMPDIR``), so
+    # both checks credit it: it is released when the request ends, before the
+    # ingest's own writes. Here the spool is one of the ``factor`` copies the
+    # rule budgets for; after staging, the staged file is another.
     declared = request.headers.get("content-length")
     if declared and declared.isdigit():
         stream.check_free_space(
-            settings.staging_dir, int(declared), settings.disk_headroom_factor
+            settings.staging_dir, int(declared), settings.disk_headroom_factor - 1
         )
 
     destination = stream.staged_path(settings.staging_dir, file.filename or "upload.csv")
@@ -80,7 +85,7 @@ async def upload(
     # ingest; a chunked upload has no reliable content-length.
     try:
         stream.check_free_space(
-            settings.staging_dir, staged.size_bytes, settings.disk_headroom_factor
+            settings.staging_dir, staged.size_bytes, settings.disk_headroom_factor - 2
         )
     except Exception:
         staged.unlink()
@@ -119,7 +124,7 @@ def ingest_local(
     table_name: str = Form(...),
     mode: str = Form(UploadMode.CREATE_NEW.value),
     display_name: str = Form(""),
-    event_offset: int = Form(0),
+    event_offset: int = Form(0, ge=0),
 ):
     """Run an ingest inside the server process, without moving the file.
 
