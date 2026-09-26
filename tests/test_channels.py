@@ -143,3 +143,17 @@ def test_canonical_energy_weighted_cam_is_conserved_on_the_raw_grid(cursor, inge
                 assert inside_plus_outside == pytest.approx(
                     expected, rel=1e-9, abs=1e-15), (channel, display, name)
             assert body["meta"]["model"] == model and body["meta"]["cam"]["model"] == model
+
+
+def test_a_signed_mask_reports_the_masked_value_of_largest_magnitude():
+    """Shap-CAM: a hidden full-scale negative attribution must not read as 'modest'."""
+    import numpy as np
+
+    attention = np.array([[0.01, -1.0], [0.3, np.nan]])
+    mask = np.array([[True, True], [False, True]])
+    hits = np.ones_like(attention)
+    signed = density._attention_mask(mask, attention, hits, False, 3.0, signed=True, what="attribution")
+    assert signed["max_attention"] == -1.0 and signed["max_is_magnitude"] is True
+    assert "attribution is not drawn" in signed["rule"]
+    plain = density._attention_mask(mask, attention, hits, False, 3.0)
+    assert plain["max_attention"] == 0.01 and plain["max_is_magnitude"] is False

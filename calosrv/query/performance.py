@@ -167,6 +167,8 @@ def _segmentation(con, record, spec, f, slices):
     for values in cursor.fetchall():
         data = dict(zip(names, values))
         index = int(data["slice_index"])
+        if index not in lookup:
+            continue  # no defined separation: counted in the totals, in no D slice
         classification, regression = rollups(data)
         by_slice.append({
             "slice": index,

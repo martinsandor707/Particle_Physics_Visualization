@@ -367,7 +367,8 @@ export function floorSentence(panel, continuous, floor) {
       : (continuous
         ? `Attention is not drawn where the reconstructed density is below ${floor} of ρ_ref.`
         : 'Only bins without hits are left undrawn.');
-    const largest = quantity === 'shapcam' ? 'largest masked |attribution|' : 'largest masked attention';
+    const largest = mask.max_is_magnitude
+      ? 'masked attribution of largest magnitude' : 'largest masked attention';
     const counts = mask.cells > 0
       ? ` ${formatInt(mask.cells)} bin${mask.cells === 1 ? '' : 's'} masked`
         + (Number.isFinite(mask.hit_fraction) ? `, holding ${pct(mask.hit_fraction)} of this panel's in-window hits` : '')

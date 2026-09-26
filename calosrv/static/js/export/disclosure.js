@@ -24,7 +24,7 @@
  * its disclosures live in its fitted-parameter table and its own footnote.
  */
 
-import { formatSci, formatInt } from '../scale.js';
+import { formatSci, formatInt, formatSigned } from '../scale.js';
 
 /** Fallback axis symbols per frame kind and panel, when a payload does not carry them. */
 const SYMBOLS_OF = {
@@ -329,10 +329,13 @@ function attentionMask(mask) {
   const hits = Number.isFinite(mask.hit_fraction)
     ? `, holding ${percent(mask.hit_fraction)} of the panel's in-window hits`
     : '';
+  const signed = Boolean(mask.max_is_magnitude);
   const peak = Number.isFinite(mask.max_attention)
-    ? `; the largest masked attention is ${mask.max_attention.toFixed(2)}`
+    ? (signed
+      ? `; the masked attribution of largest magnitude is ${formatSigned(mask.max_attention, 2, { plus: true })}`
+      : `; the largest masked attention is ${formatSigned(mask.max_attention, 2)}`)
     : '';
-  return `${rule ? `${rule} ` : ''}Attention not drawn in ${formatInt(cells)} `
+  return `${rule ? `${rule} ` : ''}${signed ? 'Attribution' : 'Attention'} not drawn in ${formatInt(cells)} `
     + `${plural(cells, 'bin')}${hits}${peak}.`;
 }
 
