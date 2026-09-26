@@ -518,44 +518,125 @@ def test_print_raster_takes_one_pixel_per_payload_bin():
     assert re.search(r"renderRaster\([^)]*\{\s*screen:\s*false\s*\}\s*\)", figure)
 
 
-# ------------------------------------------------------ tooltip confinement --
+# ------------------------------------------------------ tooltip placement --
 
 
-def test_every_chart_tooltip_is_confined_and_hooked():
-    """Both chart builders take their tooltip from the one confined option.
+def test_every_chart_tooltip_is_mounted_on_the_layer_and_placed_by_one_module():
+    """Both chart builders take their tooltip from the one option.
 
     The tooltip was clipped by `.main`'s overflow box, not stacked under the
-    sidebar; `confine: true` keeps it inside the chart. One builder means the
-    projection and energy charts cannot drift apart again.
+    sidebar. Mounted on the fixed `#tooltip-layer` nothing clips it, and it is
+    not confined, so an explanation can leave the plot it explains. One
+    builder and one placement module mean the projection and energy charts
+    cannot drift apart again.
     """
     tooltip = _strip_comments((PANELS_JS / "tooltip.js").read_text(encoding="utf-8"))
-    assert re.search(r"confine:\s*true", tooltip)
+    assert re.search(r"TOOLTIP_LAYER\s*=\s*'#tooltip-layer'", tooltip)
+    assert re.search(r"appendTo:\s*TOOLTIP_LAYER", tooltip)
+    assert re.search(r"confine:\s*false", tooltip)
+    assert re.search(r"hideDelay:\s*0", tooltip)
     assert re.search(r"TOOLTIP_CLASS\s*=\s*'calo-tooltip'", tooltip)
     assert re.search(r"className:\s*TOOLTIP_CLASS", tooltip)
     for name in ("projection.js", "energy.js"):
         source = _strip_comments((PANELS_JS / name).read_text(encoding="utf-8"))
-        assert "tooltip: tooltipOption()" in source, name
+        assert "tooltip: tooltipOption(this.tooltipPosition)" in source, name
+        assert "this.tooltipPosition = tooltipPosition(this.chart" in source, name
+        assert "hideTooltipOnScroll(this.chart)" in source, name
     for path in (STATIC / "js").rglob("*.js"):
         if "vendor" in path.parts or path.name == "tooltip.js":
             continue
-        assert "rgba(22,27,34,0.95)" not in path.read_text(encoding="utf-8"), (
+        text = path.read_text(encoding="utf-8")
+        assert "rgba(22,27,34,0.95)" not in text, (
             f"{path.name} builds its own tooltip instead of tooltipOption()"
+        )
+        assert not re.search(r"confine:\s*true", _strip_comments(text)), (
+            f"{path.name} confines a tooltip to its chart, over the plot it explains"
         )
 
 
+def test_the_tooltip_layer_is_fixed_to_the_viewport_and_clips_nothing_else():
+    """The layer exists once, outside `.main`, fixed and viewport-sized.
+
+    `position: fixed` is what keeps a hidden tip - ECharts leaves it where it
+    last stood - from growing the document after the window shrinks: a fixed
+    box's contents never add to the page's scroll size.
+    """
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count('id="tooltip-layer"') == 1
+    main_start = html.index('<main class="main">')
+    main_end = html.index("</main>")
+    layer = html.index('id="tooltip-layer"')
+    assert not main_start < layer < main_end, "the layer must sit outside .main's overflow box"
+    assert layer < html.index("echarts.min.js"), "the layer must exist before any chart is created"
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.tooltip-layer\s*\{([^}]*)\}", css)
+    assert rule, "the .tooltip-layer rule is missing"
+    body = rule.group(1)
+    for decl in (r"position:\s*fixed", r"inset:\s*0", r"pointer-events:\s*none"):
+        assert re.search(decl, body), decl
+    assert not re.search(r"overflow:\s*(hidden|clip|auto|scroll)", body), "the layer must clip nothing"
+
+
+def test_the_zrender_transform_cache_the_placement_resets_still_exists():
+    """`resetPointerTransforms` clears an ECharts internal; an upgrade must be re-checked.
+
+    zrender caches the client transforms of a chart's viewport root on
+    `___zrEVENTSAVED` as `trans` and `invTrans`, validated against one shared
+    `srcCoords`. If a new bundle renames them, the reset silently does nothing
+    and a scroll can leave a tip drawn 120-240 px from where it was placed.
+    """
+    bundle = (STATIC / "js" / "vendor" / "echarts.min.js").read_text(encoding="utf-8")
+    assert "___zrEVENTSAVED" in bundle
+    assert re.search(r'"invTrans":"trans"', bundle) and "srcCoords" in bundle
+    tooltip = _strip_comments((PANELS_JS / "tooltip.js").read_text(encoding="utf-8"))
+    reset = re.search(r"export function resetPointerTransforms.*?\n\}", tooltip, re.DOTALL)
+    assert reset, "resetPointerTransforms is missing"
+    for key in ("___zrEVENTSAVED", "srcCoords", "trans", "invTrans"):
+        assert key in reset.group(0), key
+    position = re.search(r"export function tooltipPosition.*?\n\}", tooltip, re.DOTALL)
+    assert position and "resetPointerTransforms(chart)" in position.group(0)
+
+
+def test_the_live_grid_is_recorded_outside_build_option():
+    """`buildOption` also runs at print geometry for the exporter.
+
+    The plot box the tooltip is kept off must come from the option on screen,
+    so it is recorded where the live option is set, never inside `buildOption`.
+    """
+    for name in ("projection.js", "energy.js"):
+        source = _strip_comments((PANELS_JS / name).read_text(encoding="utf-8"))
+        build = re.search(r"\n  buildOption\(.*?\n  \}\n", source, re.DOTALL)
+        assert build, name
+        assert "liveGrid" not in build.group(0), name
+        assert re.search(r"this\.liveGrid = option\.grid", source), name
+    projection = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    # Every full re-render goes through setLiveOption, which records the grid.
+    assert "notMerge: true" in re.search(r"setLiveOption\(option\) \{.*?\n  \}", projection, re.DOTALL).group(0)
+    assert projection.count("notMerge: true") == 1
+
+
 def test_the_bin_readout_positions_through_its_tooltip_option():
-    """ECharts 5.5.1 ignores a top-level `position` on a manual showTip."""
+    """ECharts ignores a top-level `position` on a manual showTip (measured on 5.5.1).
+
+    The plain readout stays at the pointer; once an overlay's explanation leads
+    it, the tip leaves the chart like every other explanation.
+    """
     source = _strip_comments((PANELS_JS / "projection.js").read_text(encoding="utf-8"))
+    assert "this.readoutPosition = tooltipPosition(this.chart, plotBox, { prefer: PREFER_POINTER })" in source
     dispatch = re.search(r"type:\s*'showTip'.*?\}\)", source, re.DOTALL)
     assert dispatch, "the manual showTip dispatch is missing"
     body = dispatch.group(0)
-    assert re.search(r"tooltip:\s*\{[^}]*position:\s*readoutPosition", body)
-    outside = re.sub(r"tooltip:\s*\{[^}]*\}", "", body)
+    assert re.search(r"position:\s*overlay \? this\.tooltipPosition : this\.readoutPosition", body)
+    outside = re.sub(r"tooltip:\s*\{.*\}", "", body, flags=re.DOTALL)
     assert "position:" not in outside, "a top-level position is dead on this code path"
 
 
 def test_no_tooltip_stacking_rule_ships():
-    """A z-index rule cannot escape an overflow clip and would target no class."""
+    """No z-index rule on the tip itself: it cannot escape an overflow clip.
+
+    The tip is moved out of the clip onto `#tooltip-layer` instead, and the
+    only z-index involved is the layer's own.
+    """
     for path in (STATIC / "css").glob("*.css"):
         text = path.read_text(encoding="utf-8")
         assert "echarts-tooltip" not in text, path.name

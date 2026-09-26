@@ -349,20 +349,61 @@ golden test pins it byte for byte.
   bin of each of the 15 panels shows its readout, and so do all 63 points of a
   9 × 7 grid over each plot; anchors, rules and axis lines still name
   themselves when hovered on their ink.
-- **Every tooltip is confined to its chart.** A hover readout could appear to
-  slide under the left sidebar. Measured in Chromium with the real stylesheet,
-  it was not stacked beneath the sidebar at all: `.main` is an
-  `overflow-y: auto` scroll container, and a tooltip ECharts flipped left of the
-  pointer was clipped at its padding box, 41 px short. `confine: true`
-  (`static/js/panels/tooltip.js: tooltipOption`, used by every chart) keeps the
-  tip inside the chart box, and the bin readout's position callback flips it
-  left or right of the pointer inside that box (`readoutPosition`; ECharts 5.5.1
-  ignores a top-level `position` on a manual `showTip`, so it rides inside the
-  tooltip option). No z-index rule ships: z-index cannot escape an overflow
-  clip. The opt-in Playwright test (`CALOSRV_BROWSER_TESTS=1 pytest
-  tests/test_browser_tooltip.py`) walks a 9 × 7 pointer grid over all four
-  charts in all four frames at 1600 × 900 and 1024 × 768 and asserts that no tip
-  starts left of its chart or resolves to the sidebar.
+- **Tooltips are never clipped, and explanations leave the panel they explain.**
+  A hover readout used to be cut off where it met the left sidebar. Measured in
+  Chromium with the real stylesheet, it was clipped rather than stacked under
+  the sidebar: `.main` is an `overflow-y: auto` scroll container, and a tooltip
+  that ECharts flipped left of the pointer was cut at its padding box, 41 px
+  short. The first fix, `confine: true`, kept every tip inside its own chart.
+  But that pushed a rich tip back over the plot it explains. On a centroid, an
+  overlay's explanation sits above the bin readout, about 360 × 180 px. Such a
+  tip covered a median 35% of the plot area at 1600 × 900, up to 98% at
+  1280 × 800, and often sat on the pointer.
+
+  Every tip is now mounted on `#tooltip-layer`, a `position: fixed`,
+  viewport-sized layer outside `.main` (`index.html`, `layout.css`). Nothing
+  clips it there, and it draws above the sidebar and the header. The layer is
+  fixed rather than plain `<body>` because ECharts hides a tip without moving
+  it: on `<body>`, a hidden tip left near the old bottom edge made the document
+  taller once the window shrank.
+
+  One placement module (`static/js/panels/tooltip.js: placeTooltip`) decides
+  where a tip goes, by the kind of tip rather than its size:
+
+  - **The plain bin readout stays beside the pointer.** That is the
+    coordinates and the bin's value: right of the pointer, or left at the edge.
+  - **Every explanation leaves the hovered chart.** That covers a mark's or an
+    overlay's explanation, and every tip on plot 4. It goes to the side with
+    the most room: over the neighbouring panel in the two-column layout, or
+    above or below in the one-column one. It stays inside the visible content
+    area, then the viewport.
+  - **With no room anywhere**, an explanation goes outside the plot area, and
+    as a last resort to the position that covers the least of the plot.
+
+  A size threshold was tried first and dropped: readout sizes straddled it
+  from bin to bin, so the readout jumped to the next panel and back as the
+  pointer moved. The side follows the layout, not the pointer. A tip neither
+  glides (`transitionDuration: 0`) nor lingers (`hideDelay: 0`), and it hides
+  when the content scrolls.
+
+  One ECharts internal is involved. zrender caches the chart's client
+  transforms on `___zrEVENTSAVED`, and a scroll followed by a drag once left one
+  of them stale, drawing a tip 120-240 px from its place. The cache is
+  dropped before every placement, and a test pins it in the vendored bundle.
+
+  Measured on the demonstration data over 3,039 tooltips, at four viewports
+  from 1024 × 768 to 1920 × 1080 in six views:
+
+  - all 2,646 plain readouts sat beside the pointer;
+  - none of the 393 explanations covered any part of its chart;
+  - no tip was clipped, covered, off-screen or on the pointer.
+
+  The opt-in Playwright test (`CALOSRV_BROWSER_TESTS=1 pytest
+  tests/test_browser_tooltip.py`) asserts those properties. It hovers a 9 × 7
+  grid, a row sweep and every centroid and anchor marker, on all four charts,
+  in all four frames, at 1600 × 900, 1280 × 800 and 1024 × 768. It also
+  replays three cases on their own: a scroll then a drag, a window that
+  shrinks, and a scroll while a tip shows.
 - **Auto-fit RoI weights bins by energy, not by colour code.** Codes are
   monotone in energy but not proportional to it. On the three-decade canonical
   ramp a bin a tenth as bright as the peak carried two thirds of the peak's
@@ -1507,7 +1548,7 @@ file.
 | `static/js/export/disclosure.js` | the structured figure disclosures, per frame kind and quantity |
 | `static/js/frame_views.js` | every frame's titles, captions, display captions and footnotes, as pure strings |
 | `static/js/format.js` | the typographic minus |
-| `static/js/panels/tooltip.js` | the confined tooltip option and the bin readout's position |
+| `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer, every explanation off the hovered chart |
 
 Three structural rules the layout exists to enforce:
 

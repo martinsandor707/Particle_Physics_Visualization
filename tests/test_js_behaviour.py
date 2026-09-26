@@ -306,22 +306,119 @@ def test_defaults_are_not_written_to_the_hash(results):
 
 # --------------------------------------------------------------- tooltip --
 
+# Geometry measured on the real stylesheet: at 1600 x 900 the sidebar is 330 px
+# wide under a 50 px header and the panels sit two to a row; at 1024 x 768 the
+# sidebar is 280 px and the panels stack in one column.
 _TOOLTIP_SCRIPT = """
 const [tooltipUrl] = JSON.parse(process.argv[1]);
-const { tooltipOption, readoutPosition, READOUT_GAP_PX } = await import(tooltipUrl);
-const size = (w, h, vw, vh) => ({ contentSize: [w, h], viewSize: [vw, vh] });
-const out = { option: tooltipOption(), gap: READOUT_GAP_PX, cases: {} };
-// The measured readout: 372 px wide on a 586 px XY chart.
-for (const [name, point, s] of [
-  ['fitsRight', [100, 50], size(372, 60, 586, 330)],
-  ['flipsLeft', [450, 50], size(372, 60, 586, 330)],
-  ['neitherLeftHalf', [150, 200], size(372, 60, 500, 330)],
-  ['neitherRightHalf', [350, 200], size(372, 60, 500, 330)],
-  ['neitherNearTop', [350, 20], size(372, 60, 500, 330)],
-  ['noSize', [10, 5], undefined],
-]) {
-  out.cases[name] = { point, size: s, at: readoutPosition(point, null, null, null, s) };
+const t = await import(tooltipUrl);
+const R = (left, top, right, bottom) => ({ left, top, right, bottom });
+const wide = { viewport: R(0, 0, 1600, 900), usable: R(330, 50, 1600, 900) };
+const panel1 = { chart: R(360, 110, 950, 440), plot: R(410, 130, 880, 400) };
+const panel2 = { chart: R(978, 110, 1568, 440), plot: R(1028, 130, 1498, 400) };
+const narrow = { viewport: R(0, 0, 1024, 768), usable: R(280, 50, 1024, 768) };
+const stacked = { chart: R(310, 110, 994, 440), plot: R(360, 130, 944, 400) };
+const readout = [240, 73];
+const bigReadout = [323, 115];
+const overlay = [363, 184];
+const small = [198, 150];
+const out = {
+  option: t.tooltipOption(), withPosition: typeof t.tooltipOption(() => [0, 0]).position,
+  gap: t.READOUT_GAP_PX, edge: t.EDGE_MARGIN_PX, layer: t.TOOLTIP_LAYER, cases: {},
+};
+const run = (name, layout, geom, pointer, size, prefer) => {
+  const g = { ...layout, ...geom, pointer, size, ...(prefer ? { prefer } : {}) };
+  out.cases[name] = { ...g, at: t.placeTooltip(g) };
+};
+run('readout', wide, panel1, [600, 250], readout, 'pointer');
+run('bigReadout', wide, panel1, [600, 250], bigReadout, 'pointer');
+run('readoutFlips', wide, panel2, [1450, 250], readout, 'pointer');
+run('smallExplanation', wide, panel1, [600, 250], small);
+run('overlayLeftColumn', wide, panel1, [600, 250], overlay);
+run('overlayRightColumn', wide, panel2, [1200, 250], overlay);
+run('overlayStacked', narrow, stacked, [600, 250], overlay);
+run('overlayStackedLow', narrow, { chart: R(310, 400, 994, 730), plot: R(360, 420, 944, 690) }, [600, 550], overlay);
+// A viewport too small for the tip anywhere off the chart: the least plot covered.
+run('cramped', { viewport: R(0, 0, 700, 420), usable: R(200, 40, 700, 420) },
+    { chart: R(210, 50, 690, 410), plot: R(250, 60, 680, 380) }, [450, 200], [420, 300]);
+// The review's case: a zoomed one-column panel, pointer resting on the y-axis labels.
+run('margin', { viewport: R(0, 0, 1024, 480), usable: R(280, 50, 1024, 480) },
+    { chart: R(309, 110, 995, 440), plot: R(464, 122, 757, 400) }, [434, 250], bigReadout);
+// A readout sweep along one row: the readout must follow the pointer, never jump off the chart.
+const sweep = [];
+for (let x = 1030; x < 1498; x += 6) {
+  for (const size of [readout, bigReadout, [269, 77]]) {
+    const at = t.placeTooltip({ ...wide, ...panel2, pointer: [x, 250], size, prefer: 'pointer' });
+    sweep.push({ x, mode: at.mode, dx: at.x - x, right: at.x + size[0] - x });
+  }
 }
+out.sweep = sweep;
+out.grid = {
+  pixels: t.plotBoxFromGrid({ left: 60, top: 40, width: 400, height: 300 }, 600, 400),
+  insets: t.plotBoxFromGrid({ left: 50, right: 20, top: 30, bottom: 40 }, 600, 400),
+  percent: t.plotBoxFromGrid([{ left: '10%', right: '10%', top: 20, bottom: '25%' }], 600, 400),
+  none: t.plotBoxFromGrid(null, 600, 400),
+};
+// Random layouts, pointers inside the plot and in the chart's margins: the
+// invariants must hold for any geometry, not just the measured ones.
+let seed = 12345;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+const violations = [];
+const modes = {};
+const ov = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+  * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+for (let i = 0; i < 6000; i++) {
+  const vw = 600 + rnd() * 1400, vh = 400 + rnd() * 800;
+  const side = 150 + rnd() * 250, head = 20 + rnd() * 60;
+  const usable = R(side, head, vw, vh);
+  const cl = side + rnd() * (vw - side) * 0.6, ct = head + rnd() * (vh - head) * 0.6;
+  const chart = R(cl, ct, Math.min(vw, cl + 150 + rnd() * 700), Math.min(vh, ct + 120 + rnd() * 400));
+  const plot = R(chart.left + 20 + rnd() * 120, chart.top + 15, chart.right - 20, chart.bottom - 25);
+  if (plot.right - plot.left < 40 || plot.bottom - plot.top < 40) continue;
+  const inMargin = rnd() < 0.3;
+  const pointer = inMargin
+    ? [chart.left + rnd() * (plot.left - chart.left), plot.top + rnd() * (plot.bottom - plot.top)]
+    : [plot.left + rnd() * (plot.right - plot.left), plot.top + rnd() * (plot.bottom - plot.top)];
+  const size = [100 + rnd() * 400, 50 + rnd() * 220];
+  const prefer = rnd() < 0.5 ? 'pointer' : 'outside';
+  const at = t.placeTooltip({ pointer, size, chart, plot, usable, viewport: R(0, 0, vw, vh), prefer });
+  modes[at.mode] = (modes[at.mode] || 0) + 1;
+  const tip = R(at.x, at.y, at.x + size[0], at.y + size[1]);
+  const bad = [];
+  if (![at.x, at.y].every(Number.isFinite)) bad.push('not finite');
+  const room = size[0] <= vw - 2 * t.EDGE_MARGIN_PX && size[1] <= vh - 2 * t.EDGE_MARGIN_PX;
+  if (room && (tip.left < -0.5 || tip.top < -0.5 || tip.right > vw + 0.5 || tip.bottom > vh + 0.5)) bad.push('off screen');
+  const onPointer = pointer[0] >= tip.left && pointer[0] <= tip.right && pointer[1] >= tip.top && pointer[1] <= tip.bottom;
+  if (at.mode !== 'least-overlap' && onPointer) bad.push('on the pointer');
+  if (at.mode === 'pointer' && prefer !== 'pointer') bad.push('explanation left at the pointer');
+  if (at.mode === 'outside-chart' && ov(tip, chart) > 0.5) bad.push('overlaps the chart');
+  if (at.mode === 'outside-plot' && ov(tip, plot) > 0.5) bad.push('overlaps the plot');
+  if (bad.length) violations.push({ i, bad, at, size, chart, pointer, prefer });
+}
+out.random = { violations: violations.slice(0, 5), count: violations.length, modes };
+// The DOM glue, with stand-ins for the chart, its host, .main and the document.
+const saved = { srcCoords: [1], trans: [2], invTrans: [3] };
+const root = { ___zrEVENTSAVED: saved };
+let listener = null;
+const actions = [];
+const main = { getBoundingClientRect: () => R(330, 50, 1600, 900),
+  addEventListener: (type, fn) => { if (type === 'scroll') listener = fn; } };
+const host = { getBoundingClientRect: () => ({ ...R(360, 110, 950, 440), width: 590, height: 330 }),
+  closest: (sel) => (sel === '.main' ? main : null) };
+const chart = { getDom: () => host, getZr: () => ({ painter: { getViewportRoot: () => root } }),
+  dispatchAction: (a) => actions.push(a) };
+globalThis.document = { documentElement: { clientWidth: 1600, clientHeight: 900 } };
+const plotBox = () => ({ left: 50, top: 20, width: 470, height: 270 });
+const sizeOf = (w, h) => ({ contentSize: [w, h], viewSize: [590, 330] });
+out.glue = {
+  readout: t.tooltipPosition(chart, plotBox, { prefer: 'pointer' })([240, 140], null, null, null, sizeOf(240, 73)),
+  explanation: t.tooltipPosition(chart, plotBox)([240, 140], null, null, null, sizeOf(363, 184)),
+  cleared: [saved.srcCoords, saved.trans, saved.invTrans],
+};
+saved.srcCoords = [9]; saved.trans = [9]; saved.invTrans = [9];
+t.hideTooltipOnScroll(chart);
+listener();
+out.scroll = { actions, cleared: [saved.srcCoords, saved.trans, saved.invTrans] };
 console.log(JSON.stringify(out));
 """
 
@@ -337,48 +434,138 @@ def tooltip_results() -> dict:
     return json.loads(done.stdout)
 
 
-def test_every_chart_tooltip_is_confined_to_its_chart(tooltip_results):
-    """`confine` is the fix: the tip stays inside the chart, right of the sidebar."""
+def _tip(case) -> dict:
+    at, (w, h) = case["at"], case["size"]
+    return {"left": at["x"], "top": at["y"], "right": at["x"] + w, "bottom": at["y"] + h}
+
+
+def _overlap(a, b) -> float:
+    return max(0.0, min(a["right"], b["right"]) - max(a["left"], b["left"])) * max(
+        0.0, min(a["bottom"], b["bottom"]) - max(a["top"], b["top"]))
+
+
+def _inside(a, b) -> bool:
+    return (a["left"] >= b["left"] - 0.5 and a["top"] >= b["top"] - 0.5
+            and a["right"] <= b["right"] + 0.5 and a["bottom"] <= b["bottom"] + 0.5)
+
+
+def _covers(r, point) -> bool:
+    return r["left"] <= point[0] <= r["right"] and r["top"] <= point[1] <= r["bottom"]
+
+
+def test_every_chart_tooltip_is_mounted_where_nothing_clips_it(tooltip_results):
+    """On the fixed layer, out of `.main`'s overflow clip, never confined, hidden at once."""
     option = tooltip_results["option"]
-    assert option["confine"] is True
+    assert option["appendTo"] == tooltip_results["layer"] == "#tooltip-layer"
+    assert option["confine"] is False
     assert option["className"] == "calo-tooltip"
     assert option["trigger"] == "item"
+    assert option["transitionDuration"] == 0 and option["hideDelay"] == 0
+    assert "position" not in option and tooltip_results["withPosition"] == "function"
 
 
-def _contains(box_at, size, point) -> bool:
-    x, y = box_at
-    w, h = size["contentSize"]
-    return x <= point[0] <= x + w and y <= point[1] <= y + h
-
-
-def test_the_bin_readout_sits_right_of_the_pointer_when_it_fits(tooltip_results):
-    case = tooltip_results["cases"]["fitsRight"]
+def test_the_bin_readout_stays_beside_the_pointer_whatever_its_size(tooltip_results):
     gap = tooltip_results["gap"]
-    assert case["at"] == [case["point"][0] + gap, case["point"][1] - 8]
-    assert not _contains(case["at"], case["size"], case["point"])
-
-
-def test_the_bin_readout_flips_left_only_when_the_right_side_overflows(tooltip_results):
-    case = tooltip_results["cases"]["flipsLeft"]
-    gap = tooltip_results["gap"]
-    width = case["size"]["contentSize"][0]
-    assert case["at"][0] == case["point"][0] - gap - width
-    assert case["at"][0] >= 0
-    assert not _contains(case["at"], case["size"], case["point"])
-
-
-def test_a_readout_wider_than_either_side_moves_off_the_pointer_vertically(tooltip_results):
-    for name in ("neitherLeftHalf", "neitherRightHalf", "neitherNearTop"):
+    for name in ("readout", "bigReadout"):
         case = tooltip_results["cases"][name]
-        assert not _contains(case["at"], case["size"], case["point"]), name
-        view_w = case["size"]["viewSize"][0]
-        width = case["size"]["contentSize"][0]
-        assert 0 <= case["at"][0] <= max(0, view_w - width), name
+        assert case["at"]["mode"] == "pointer", name
+        assert [case["at"]["x"], case["at"]["y"]] == [case["pointer"][0] + gap, case["pointer"][1] - 8], name
 
 
-def test_the_readout_position_is_finite_without_a_measured_size(tooltip_results):
-    at = tooltip_results["cases"]["noSize"]["at"]
-    assert all(isinstance(v, (int, float)) for v in at)
+def test_the_bin_readout_flips_left_at_the_edge_of_the_content(tooltip_results):
+    case = tooltip_results["cases"]["readoutFlips"]
+    gap = tooltip_results["gap"]
+    assert case["at"]["mode"] == "pointer"
+    assert case["at"]["x"] == case["pointer"][0] - gap - case["size"][0]
+
+
+def test_a_readout_sweep_never_jumps_off_the_chart(tooltip_results):
+    """The review's hop: readouts of three sizes along a row stay beside the pointer."""
+    gap = tooltip_results["gap"]
+    for step in tooltip_results["sweep"]:
+        assert step["mode"] == "pointer", step
+        assert step["dx"] == gap or step["right"] == -gap, step
+
+
+def test_every_explanation_leaves_the_chart_however_small(tooltip_results):
+    case = tooltip_results["cases"]["smallExplanation"]
+    assert case["at"]["mode"] == "outside-chart"
+    assert _overlap(_tip(case), case["chart"]) == 0
+
+
+def test_a_large_tip_moves_over_the_neighbouring_panel(tooltip_results):
+    """Hovering panel 1 puts the tip over panel 2, and the other way round."""
+    for name, side in (("overlayLeftColumn", "right"), ("overlayRightColumn", "left")):
+        case = tooltip_results["cases"][name]
+        tip = _tip(case)
+        assert case["at"]["mode"] == "outside-chart", name
+        assert _overlap(tip, case["chart"]) == 0, name
+        assert _inside(tip, case["usable"]), f"{name}: over the sidebar or off screen"
+        if side == "right":
+            assert tip["left"] == case["chart"]["right"] + tooltip_results["gap"]
+        else:
+            assert tip["right"] == case["chart"]["left"] - tooltip_results["gap"]
+
+
+def test_a_large_tip_goes_above_or_below_a_stacked_panel(tooltip_results):
+    below = tooltip_results["cases"]["overlayStacked"]
+    above = tooltip_results["cases"]["overlayStackedLow"]
+    for case in (below, above):
+        assert case["at"]["mode"] == "outside-chart"
+        assert _overlap(_tip(case), case["chart"]) == 0
+        assert _inside(_tip(case), case["usable"])
+    assert _tip(below)["top"] >= below["chart"]["bottom"]
+    assert _tip(above)["bottom"] <= above["chart"]["top"]
+
+
+def test_with_no_room_off_the_chart_the_tip_covers_the_least_plot(tooltip_results):
+    case = tooltip_results["cases"]["cramped"]
+    tip = _tip(case)
+    assert case["at"]["mode"] in ("outside-plot", "least-overlap")
+    assert _inside(tip, case["viewport"])
+    plot = case["plot"]
+    plot_area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+    # Centred on the pointer the 420 x 300 tip would hide 97% of this plot.
+    assert _overlap(tip, plot) / plot_area < 0.8
+
+
+def test_a_pointer_in_the_axis_margin_is_never_covered(tooltip_results):
+    case = tooltip_results["cases"]["margin"]
+    assert not _covers(_tip(case), case["pointer"]), case["at"]
+    assert _inside(_tip(case), case["viewport"])
+
+
+def test_placement_invariants_hold_for_any_layout(tooltip_results):
+    """6,000 random layouts: on screen, off the pointer, explanations off the chart."""
+    random = tooltip_results["random"]
+    assert random["count"] == 0, random["violations"]
+    for mode in ("pointer", "outside-chart", "outside-plot", "least-overlap"):
+        assert random["modes"].get(mode, 0) > 0, (mode, random["modes"])
+
+
+def test_the_plot_box_follows_the_grid_option(tooltip_results):
+    grid = tooltip_results["grid"]
+    assert grid["pixels"] == {"left": 60, "top": 40, "width": 400, "height": 300}
+    assert grid["insets"] == {"left": 50, "top": 30, "width": 530, "height": 330}
+    assert grid["percent"] == {"left": 60, "top": 20, "width": 480, "height": 280}
+    assert grid["none"] == {"left": 0, "top": 0, "width": 600, "height": 400}
+
+
+def test_the_position_callback_translates_between_chart_and_viewport(tooltip_results):
+    """Chart-local in, chart-local out; placed in viewport pixels in between."""
+    glue = tooltip_results["glue"]
+    gap = tooltip_results["gap"]
+    # Pointer at chart (240, 140) = viewport (600, 250); the readout sits right of it.
+    assert glue["readout"] == [240 + gap, 140 - 8]
+    # The explanation leaves the chart (360..950): x = 950 + gap in the viewport.
+    assert glue["explanation"][0] == 950 + gap - 360
+    assert glue["cleared"] == [None, None, None], "zrender's cached transforms were kept"
+
+
+def test_a_scroll_hides_the_tip_and_drops_the_cached_transforms(tooltip_results):
+    scroll = tooltip_results["scroll"]
+    assert scroll["actions"] == [{"type": "hideTip"}]
+    assert scroll["cleared"] == [None, None, None]
 
 
 # ------------------------------------------------------ signed channels --

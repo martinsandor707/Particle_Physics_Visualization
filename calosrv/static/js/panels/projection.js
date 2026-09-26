@@ -52,7 +52,9 @@ import {
 } from './marks.js';
 import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
 import { formatSigned } from '../format.js';
-import { readoutPosition, tooltipOption } from './tooltip.js';
+import {
+  PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition,
+} from './tooltip.js';
 
 export { symbolOf } from './marks.js';
 
@@ -122,6 +124,16 @@ export class ProjectionPanel {
   constructor(elementId, { isometric = false } = {}) {
     this.element = document.getElementById(elementId);
     this.chart = echarts.init(this.element, null, { renderer: 'canvas' });
+    // The grid of the option on screen, recorded at each live setOption (never
+    // in buildOption, which the exporter also calls at print geometry), so the
+    // tooltip keeps the plot area it is placed around current.
+    this.liveGrid = null;
+    // Two placements over one plot box: an explanation (a mark's, an
+    // overlay's) leaves the chart, the plain bin readout stays at the pointer.
+    const plotBox = () => plotBoxFromGrid(this.liveGrid, this.chart.getWidth(), this.chart.getHeight());
+    this.tooltipPosition = tooltipPosition(this.chart, plotBox);
+    this.readoutPosition = tooltipPosition(this.chart, plotBox, { prefer: PREFER_POINTER });
+    hideTooltipOnScroll(this.chart);
     this.kind = 'projection';
     this.isometric = isometric;
     this.payload = null;
@@ -177,12 +189,12 @@ export class ProjectionPanel {
     if (this.view && this.isometric !== wasIsometric) {
       this.view = clampView(this.view, this.payload.axes, this.isometric);
     }
-    this.chart.setOption(this.buildOption({
+    this.setLiveOption(this.buildOption({
       payload: this.payload,
       opts: this.lastOpts,
       raster: this.raster,
       metrics: { width, height },
-    }), { notMerge: true });
+    }));
   }
 
   /**
@@ -246,15 +258,21 @@ export class ProjectionPanel {
       width: this.element.clientWidth, height: this.element.clientHeight,
     };
     this.laidOut = { ...metrics };
-    this.chart.setOption(this.buildOption({
+    this.setLiveOption(this.buildOption({
       payload,
       opts,
       raster: this.raster,
       metrics,
-    }), { notMerge: true });
+    }));
 
     this.attachCellTooltip(payload.axes.col, payload.axes.row);
     this.attachNavigation();
+  }
+
+  /** Put an option on screen and record its grid for the tooltip placement. */
+  setLiveOption(option) {
+    this.liveGrid = option.grid ?? null;
+    this.chart.setOption(option, { notMerge: true });
   }
 
   /**
@@ -381,7 +399,7 @@ export class ProjectionPanel {
         bottomInset: metrics.reservedBottom || 0,
         seriesIndex: 0,
       }),
-      tooltip: tooltipOption(),
+      tooltip: tooltipOption(this.tooltipPosition),
       graphic: graphics,
       series,
     };
@@ -909,15 +927,19 @@ export class ProjectionPanel {
       const lead = overlay
         ? `${overlay}<div style="border-top:1px solid ${THEME.border};margin:4px 0"></div>`
         : '';
-      // The position lives inside `tooltip`: ECharts 5.5.1 ignores a top-level
-      // `position` on a manual showTip (measured - the tip kept the default
-      // flip), and honours one given with the formatter. `confine` from the
-      // chart option still clamps whatever this returns into the chart box.
+      // The position lives inside `tooltip`: ECharts ignores a top-level
+      // `position` on a manual showTip (measured on 5.5.1 - the tip kept the
+      // default flip) and honours one given with the formatter. The plain
+      // readout stays at the pointer; led by an overlay's explanation, the tip
+      // leaves the chart instead.
       const show = (html) => this.chart.dispatchAction({
         type: 'showTip',
         x: px,
         y: py,
-        tooltip: { formatter: lead + html + inWedges, position: readoutPosition },
+        tooltip: {
+          formatter: lead + html + inWedges,
+          position: overlay ? this.tooltipPosition : this.readoutPosition,
+        },
       });
 
       if (code === (payload.empty_code ?? 0)) {
