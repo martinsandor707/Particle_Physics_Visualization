@@ -14,7 +14,11 @@
 let context = null;
 
 function measurer() {
-  if (!context) context = document.createElement('canvas').getContext('2d');
+  // Without a DOM (the Node tests) there is nothing to measure with; callers
+  // fall back to an estimate.
+  if (!context && typeof document !== 'undefined') {
+    context = document.createElement('canvas').getContext('2d');
+  }
   return context;
 }
 
