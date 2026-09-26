@@ -6,7 +6,7 @@
  */
 
 import { colorStops } from './palette.js';
-import { fitsWidth } from './textfit.js';
+import { fitsWidth, measureText } from './textfit.js';
 import { MINUS, formatSigned, typographic } from './format.js';
 
 export { MINUS, formatSigned, typographic };
@@ -352,6 +352,12 @@ export function rampTitleText(scale) {
  * The zero mark at a diverging ramp's midpoint: "0" on the linear ramp,
  * "±10⁻³" on the signed log, whose centre is the undrawn band. Null for a
  * sequential ramp.
+ *
+ * On the vertical screen ramp it sits just left of the bar. ECharts centres
+ * the bar under its end labels, so the bar's position depends on the widest
+ * label; a fixed offset put the mark under the bar of the narrow linear
+ * ramp, where it could not be seen. The offset is measured from the labels
+ * `visualMap` draws.
  */
 export function rampMidLabel(scale, metrics = {}) {
   if (!isDiverging(scale)) return null;
@@ -362,7 +368,16 @@ export function rampMidLabel(scale, metrics = {}) {
     return { type: 'text', left: 'center', bottom: bottomInset + 2 + 14 + 2.0 * THEME.fontSmall,
       silent: true, style };
   }
-  return { type: 'text', right: 20, top: 'middle', silent: true, style };
+  const map = visualMap(scale, 'viridis');
+  const lines = map.text.flatMap((t) => String(t).split('\n'));
+  const widths = lines.map((line) => {
+    const w = measureText(line, THEME.fontSmall, THEME.fontFamily);
+    return Number.isFinite(w) ? w : line.length * 0.6 * THEME.fontSmall;
+  });
+  const component = Math.max(map.itemWidth, ...widths);
+  // map.right is the component's own inset; the bar is centred within it.
+  const barLeft = map.right + component / 2 + map.itemWidth / 2;
+  return { type: 'text', right: barLeft + 4, top: 'middle', silent: true, style };
 }
 
 /** The colour-bar title the directive specifies for the canonical panels. */

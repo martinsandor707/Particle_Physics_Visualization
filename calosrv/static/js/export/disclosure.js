@@ -223,8 +223,8 @@ function colourScale(scale, canonical, panel = null) {
     if (signed) {
       out.push(`Colour: Σ E·Shap-CAM, signed log₁₀ ±(10^−3…10^0) of the selection's peak |value| `
         + `(${formatSci(scale.ref, 3)} ${unit}), ColorBrewer PuOr (orange negative, purple positive); `
-        + `${formatInt(cells)} ${plural(cells, 'bin')} with |v| below ${floor} not drawn; positive part `
-        + `${formatSci(scale.positive_total, 3)}, negative part ${formatSci(scale.negative_total, 3)}. `
+        + `${formatInt(cells)} ${plural(cells, 'bin')} with |v| below ${floor} not drawn; Σ E·Shap-CAM `
+        + `drawn ${formatSci(scale.positive_total, 3)} GeV positive, ${formatSci(scale.negative_total, 3)} GeV negative. `
         + 'On white paper the near-zero end of PuOr is itself near-white, so the undrawn band\'s edge '
         + 'is not visible.');
     } else {

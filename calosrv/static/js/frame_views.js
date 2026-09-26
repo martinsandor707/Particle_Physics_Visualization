@@ -411,8 +411,8 @@ function colourSentence(panel, rho, reference, shared = '') {
         + `${ref(scale.ref)}${shared}.`;
     case 'shapcam_energy':
       return `Colour: Σ E·Shap-CAM per event and mm² (signed log), relative to this selection's raw-grid `
-        + `peak |value| ${ref(scale.ref)}${shared}; drawn positive part ${formatSci(scale.positive_total, 3)}, `
-        + `negative part ${formatSci(scale.negative_total, 3)} ${unit}·mm².`;
+        + `peak |value| ${ref(scale.ref)}${shared}; Σ E·Shap-CAM drawn in this window: `
+        + `${formatSci(scale.positive_total, 3)} GeV positive, ${formatSci(scale.negative_total, 3)} GeV negative.`;
     default: {
       const norm = rho.norm === 'dataset'
         ? `the dataset peak${rho.ref_k && rho.ref_k !== rho.selection_k ? ` (measured with ${rho.ref_k} × ${rho.ref_k} sub-deposits per cell against ${rho.selection_k} × ${rho.selection_k} here)` : ''}`
@@ -566,8 +566,10 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   const p = coregisteredParts(payload, isometric);
   const { rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText } = p;
 
-  const ci = Number.isFinite(f.d_dataset?.ci95_half)
-    ? ` ± ${num(f.d_dataset.ci95_half)} mm (95% t-interval of the mean)` : '';
+  const half = f.d_dataset?.ci95_half;
+  // A narrow D window has a sub-millimetre interval; "± 0 mm" would claim none.
+  const ci = Number.isFinite(half)
+    ? ` ± ${num(half, half < 10 ? 1 : 0)} mm (95% t-interval of the mean)` : '';
   const base = `${title}: N = ${formatInt(f.n_events)} event${f.n_events === 1 ? '' : 's'}, `
     + `${formatInt(f.n_showers)} showers superimposed at their own entry points`
     + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no A-B separation)` : '')

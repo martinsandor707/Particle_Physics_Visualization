@@ -154,7 +154,10 @@ def _measure(live_server, viewport, fragment):
 
 
 @pytest.mark.parametrize("viewport", VIEWPORTS, ids=lambda v: f"{v[0]}x{v[1]}")
-@pytest.mark.parametrize("fragment", ["", "#frame=lab"], ids=["default", "lab"])
+@pytest.mark.parametrize(
+    "fragment", ["", "#frame=trans", "#frame=local", "#frame=canonical"],
+    ids=["default-lab", "trans", "local", "canonical"],
+)
 def test_no_tooltip_is_clipped_behind_the_sidebar(live_server, viewport, fragment):
     results = _measure(live_server, viewport, fragment)
     assert results, "no tooltip appeared anywhere on the grid"
