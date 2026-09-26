@@ -88,7 +88,9 @@ def backing_fs(path: Path, mountinfo_text: str | None = None) -> Mount | None:
         mount_point = _unescape(left_fields[4])
         prefix = mount_point.rstrip("/") + "/"
         if target == mount_point or target.startswith(prefix) or mount_point == "/":
-            if len(mount_point) > best_len:
+            # ``>=``: mountinfo lists a mount before anything mounted over it, so
+            # of two entries at one mount point the later one is visible.
+            if len(mount_point) >= best_len:
                 best_len = len(mount_point)
                 best = Mount(right_fields[0], right_fields[1], mount_point)
     return best

@@ -556,3 +556,23 @@ def test_shower_axes_split_energy_between_the_showers(cursor, record):
     assert a_pts and b_pts
     # The two showers are at different places, so the axes must not coincide.
     assert any(abs(a[1] - b[1]) > 1e-9 for a, b in zip(a_pts, b_pts))
+
+
+def test_a_scan_that_straddles_an_invalidation_is_not_cached():
+    """An in-flight scan read the old tables; its bundle is returned but never cached."""
+    from types import SimpleNamespace
+
+    from calosrv.query.cache import BundleCache
+
+    cache = BundleCache(4, name="straddle")
+    key = ("some_table", 1)
+
+    def compute():
+        cache.invalidate_table("some_table")  # an ingest finished meanwhile
+        return SimpleNamespace(nbytes=1)
+
+    bundle, cached = cache.get_or_compute(key, compute)
+    assert bundle is not None and cached is False
+    assert cache.get_any([key]) is None
+    fresh, cached = cache.get_or_compute(key, lambda: SimpleNamespace(nbytes=1))
+    assert cache.get_any([key]) is fresh

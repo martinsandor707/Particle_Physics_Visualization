@@ -104,7 +104,7 @@ def keep_predicate(alias: str = "") -> str:
     """
     p = f"{alias}." if alias else ""
     return (
-        f"{p}x IS NOT NULL AND {p}y IS NOT NULL AND {p}z IS NOT NULL "
+        f"isfinite({p}x) AND isfinite({p}y) AND isfinite({p}z) "
         f"AND {p}energy IS NOT NULL AND isfinite({p}energy) AND {p}energy > 0 "
         f"AND {_frame_ok(p)} "
         f"AND {p}particle_origin IN ('A', 'B', 'A+B')"
@@ -117,7 +117,8 @@ def audit(con: duckdb.DuckDBPyConnection, source: str) -> SanitationReport:
     row = con.execute(
         f"""
         SELECT count(*),
-               count(*) FILTER (WHERE x IS NULL OR y IS NULL OR z IS NULL),
+               count(*) FILTER (WHERE x IS NULL OR y IS NULL OR z IS NULL
+                                  OR NOT isfinite(x) OR NOT isfinite(y) OR NOT isfinite(z)),
                count(*) FILTER (WHERE {frame_bad}),
                count(*) FILTER (WHERE energy IS NULL),
                count(*) FILTER (WHERE energy IS NOT NULL AND NOT isfinite(energy)),
@@ -155,7 +156,7 @@ def _build_dictionaries(con: duckdb.DuckDBPyConnection, source: str) -> None:
             FROM (
                 SELECT DISTINCT {quote(column)} AS v
                 FROM {source}
-                WHERE {quote(column)} IS NOT NULL
+                WHERE isfinite({quote(column)})
             )
             """
         )

@@ -36,6 +36,7 @@ class LoadResult:
 def check_append_collision(
     existing: tuple[int, int] | None,
     incoming: tuple[int, int] | None,
+    event_offset: int = 0,
 ) -> None:
     """Reject an append whose event numbers overlap what is already there.
 
@@ -46,22 +47,25 @@ def check_append_collision(
     energy, hit multiplicity, the centroids - would then describe a chimera.
 
     The caller can override by supplying an explicit ``event_offset``, which
-    shifts the incoming numbers clear of the existing range.
+    shifts the incoming numbers clear of the existing range. ``incoming`` is the
+    range *after* the requested ``event_offset``, so the suggestion adds the
+    extra shift to it: it is the absolute offset to supply next time.
     """
     if incoming is None or existing is None:
         return
     lo_a, hi_a = existing
     lo_b, hi_b = incoming
     if lo_b <= hi_a and lo_a <= hi_b:
+        suggested = int(event_offset) + (hi_a - lo_b + 1)
         raise EventRangeCollisionError(
             f"The incoming file covers event numbers {lo_b}-{hi_b}, which "
             f"overlaps the {lo_a}-{hi_a} already in this experiment. Appending "
             "would merge distinct events. Supply an event_offset of at least "
-            f"{hi_a - lo_b + 1} to shift the incoming events clear, or upload "
+            f"{suggested} to shift the incoming events clear, or upload "
             "into a new table instead.",
             existing_range=[lo_a, hi_a],
             incoming_range=[lo_b, hi_b],
-            suggested_offset=hi_a - lo_b + 1,
+            suggested_offset=suggested,
         )
 
 
@@ -69,7 +73,10 @@ def _select_sql(path: Path, event_offset: int) -> str:
     """Every column in file order, typed by the pinned reader."""
     if event_offset:
         projected = ", ".join(
-            f"event_number + {int(event_offset)} AS event_number" if c == "event_number"
+            # Cast back to the pinned INTEGER: an offset that overflows it is
+            # an error here, not an INT64 part beside INT32 ones.
+            f"CAST(event_number + {int(event_offset)} AS INTEGER) AS event_number"
+            if c == "event_number"
             else quote(c)
             for c in HIT_COLUMN_NAMES
         )
@@ -86,6 +93,7 @@ def load_csv(
     mode: str = MODE_CREATE_NEW,
     event_offset: int = 0,
     source_name: str | None = None,
+    commit: bool = True,
 ) -> LoadResult:
     """Validate ``path`` and commit it to the archive as one new Parquet part.
 
@@ -95,7 +103,15 @@ def load_csv(
 
     The CSV is parsed exactly once, straight into the part; the event range is
     then read from the part's statistics, not from a second pass over the CSV.
+
+    ``commit=False`` leaves the part out of the written manifest: the returned
+    in-memory manifest lists it, so an append can derive and verify over it and
+    commit only on success (``archive.write_manifest``), or discard it.
+    Readers take the committed manifest and never glob, so an uncommitted part
+    is invisible, and the next append's part replaces it.
     """
+    if event_offset < 0:
+        raise IngestError(f"event_offset must be zero or positive; got {event_offset}.")
     if mode not in VALID_MODES:
         raise IngestError(
             f"Unknown upload mode {mode!r}; expected one of {', '.join(VALID_MODES)}."
@@ -142,7 +158,7 @@ def load_csv(
     incoming = (int(bounds[0]), int(bounds[1])) if bounds and bounds[0] is not None else None
     if mode == MODE_APPEND:
         try:
-            check_append_collision(manifest.event_range(), incoming)
+            check_append_collision(manifest.event_range(), incoming, event_offset)
         except EventRangeCollisionError:
             tmp.unlink(missing_ok=True)
             raise
@@ -154,7 +170,8 @@ def load_csv(
         event_offset=event_offset, event_range=incoming,
         duckdb_version=duckdb.__version__,
     ))
-    archive.write_manifest(settings, name, manifest)
+    if commit:
+        archive.write_manifest(settings, name, manifest)
     log.info(
         "Archive %s: part %s holds %s rows (%s bytes); %d part(s), %s rows in total",
         name, part.name, f"{rows:,}", f"{part.stat().st_size:,}",
