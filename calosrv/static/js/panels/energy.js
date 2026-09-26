@@ -56,7 +56,7 @@ import {
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
-import { tooltipOption } from './tooltip.js';
+import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
 
 /** Headroom above the tallest robust mark. */
 const Y_HEADROOM = 1.15;
@@ -95,6 +95,14 @@ export class EnergyPanel {
     this.tableElement = document.getElementById(tableId);
     this.noteElement = noteId ? document.getElementById(noteId) : null;
     this.chart = echarts.init(this.element, null, { renderer: 'canvas' });
+    // As in ProjectionPanel: the on-screen grid, recorded at each live
+    // setOption, is the plot area the tooltip is kept off. Every tip here
+    // explains a curve or a mark, so all of them leave the chart.
+    this.liveGrid = null;
+    this.tooltipPosition = tooltipPosition(this.chart, () => plotBoxFromGrid(
+      this.liveGrid, this.chart.getWidth(), this.chart.getHeight(),
+    ));
+    hideTooltipOnScroll(this.chart);
     this.kind = 'energy';
     this.lastPayload = null;
     this.lastOpts = null;
@@ -113,6 +121,7 @@ export class EnergyPanel {
         width: this.element.clientWidth, height: this.element.clientHeight,
       },
     });
+    this.liveGrid = option.grid ?? null;
     this.chart.setOption(option, { notMerge: true });
     this.renderNotices(payload, notices.shown, notices);
     this.renderTable(payload, table.shown, table.sliceColor, table.counts);
@@ -559,7 +568,7 @@ export class EnergyPanel {
           itemHeight: 8,
         },
       ],
-      tooltip: tooltipOption(),
+      tooltip: tooltipOption(this.tooltipPosition),
       xAxis: {
         type: 'value',
         name: `Reconstructed energy [${axis.unit || 'GeV'}]`,

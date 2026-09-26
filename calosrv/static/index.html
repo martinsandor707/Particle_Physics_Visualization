@@ -356,6 +356,10 @@
   </div>
 </div>
 
+<!-- Every chart tooltip is mounted here (panels/tooltip.js): fixed to the viewport,
+     outside .main's overflow clip, and never part of the document's scroll size. -->
+<div id="tooltip-layer" class="tooltip-layer" aria-hidden="true"></div>
+
 <script src="/static/js/vendor/echarts.min.js"></script>
 <script type="module" src="/static/js/main.js"></script>
 </body>

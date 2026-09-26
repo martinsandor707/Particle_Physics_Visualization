@@ -435,7 +435,7 @@ cold-boot view, and to fix the tooltip that appeared to hide behind the sidebar.
 | Shap-CAM is signed, 11–64% negative for angle/energy | a [0, 1] or log ramp would erase it |
 | `*_gradcam_energy` = CAM·E_voxel rescaled | summing it double-counts: archived, not plotted |
 | `centroid_AB_distance_trans/_local` correlate 0.11 / −0.001 with D | D is always the laboratory separation |
-| the tooltip is clipped by `.main`'s overflow box, not stacked under the sidebar | `confine: true`, no z-index rule |
+| the tooltip is clipped by `.main`'s overflow box, not stacked under the sidebar | mounted on a fixed layer outside `.main`, no z-index rule on the tip; `confine: true` was tried first and dropped (note 43) |
 
 **Decisions taken with the user.** D1 Shap-CAM on a diverging ramp centred on zero (linear ±1; signed log
 ±(10⁻³…1)). D2 energy-weighted channels computed server-side as Σ E·CAM. D3 projections *and* cards follow
@@ -535,8 +535,33 @@ frames at two viewports). Production measurements are in the implementation note
     values are not reproducible from the full file. Cards 7–11 ms, plot 4 12–13 ms.
 40. **Migration (M8)** on a copy of the v37 database: v37 rows marked failed with the exact text, the baseline
     reseeded, DELETE drops the v37 tables. **Fixture (M9)**: 9 events, 380 MB RSS.
-41. **Tooltip (M-T).** Clipped by `.main`'s overflow at a 41 px margin before the fix; after it, no tip starts left
-    of its chart or resolves to the sidebar over a 9 × 7 grid on all four charts, all four frames, two viewports.
+41. **Tooltip (M-T).** Clipped by `.main`'s overflow at a 41 px margin before the fix. With `confine: true`, no tip
+    started left of its chart or resolved to the sidebar over a 9 × 7 grid on all four charts, all four frames and
+    two viewports. Note 43 replaces that fix.
 42. **Presentation details from the full-dataset screenshot pass:** the diverging zero mark is positioned from
     the measured legend width (a fixed offset hid it under the narrow linear bar); signed Shap-CAM totals are sums
     in GeV, not densities; a D half-width below 10 mm is quoted to one decimal.
+
+43. **Tooltips leave the panel they explain (user review).** `confine: true` kept a large tip inside its own chart,
+    over the plot it explains. Measured on the demonstration data, an overlay tip covered a median 35% of the plot
+    area at 1600 × 900 and up to 98% at 1280 × 800; plain readouts sometimes sat on the pointer.
+    - Every tip is now mounted on `#tooltip-layer`, a fixed, viewport-sized layer outside `.main`, where nothing
+      clips it. Fixed rather than `<body>`: ECharts hides a tip without moving it, and on `<body>` a hidden tip grew
+      the document after the window shrank.
+    - `tooltip.js: placeTooltip` places a tip by its kind. The plain bin readout stays beside the pointer. Every
+      explanation (a mark's, an overlay's, plot 4's) goes just outside the chart, on the side with the most room:
+      over a neighbouring panel, inside `.main`'s visible area, then the viewport. Failing that it goes outside the
+      plot area, and last to the position covering the least plot. No step may cover the pointer.
+    - A first version chose by size (a tip at most 20% of the plot stayed at the pointer). An adversarial review
+      dropped it: readout sizes straddle the line from bin to bin, so the readout jumped about 360 px to the next
+      panel and back (451 flips in a sweep).
+    - The same review found three more problems:
+      - zrender's cached client transforms (`___zrEVENTSAVED`) share one validity check, so a scroll and then a
+        drag left one stale, and a tip was drawn 120–240 px from its place. They are now dropped before every
+        placement and on scroll; a test pins the internal.
+      - The hidden tip on `<body>` grew the document (above).
+      - The 100 ms `hideDelay` left a tip floating after a scroll; it is now 0.
+    - Result, over 3,039 tips at four viewports: all 2,646 readouts beside the pointer, 0 of 393 explanations over
+      their chart, and 0 clipped, covered, off screen or on the pointer. M-T asserts this over grid, sweep and
+      marker hovers at three viewports, and replays the three cases above. Each fix has a mutation the test catches:
+      no transform reset, `hideDelay` left at its default, and the layer made `absolute`.
