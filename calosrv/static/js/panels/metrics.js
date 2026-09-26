@@ -24,14 +24,21 @@ function formatValue(value, unit, id = '') {
   }
 }
 
-/** The uncertainty line of a card: the interval below N = 15, else the SE. */
+/**
+ * The uncertainty line of a card: its SE, and below N = 15 its 95% interval
+ * beside it - at small N the interval is asymmetric and much wider than ±1.96
+ * SE, and CLAUDE.md section 2 asks for both. A card with no uncertainty (N < 2)
+ * says why.
+ */
 function uncertainty(card) {
   const n = Number.isFinite(card.n) ? `N = ${formatInt(card.n)}` : '';
+  const se = Number.isFinite(card.se) ? `± ${formatValue(card.se, card.unit, card.id)} SE` : null;
   if (card.show === 'ci' && card.interval) {
     const { lo, hi } = card.interval;
-    return `95% [${formatValue(lo, card.unit, card.id)}, ${formatValue(hi, card.unit, card.id)}] · ${n}`;
+    const ci = `95% [${formatValue(lo, card.unit, card.id)}, ${formatValue(hi, card.unit, card.id)}]`;
+    return [se, ci, n].filter(Boolean).join(' · ');
   }
-  if (Number.isFinite(card.se)) return `± ${formatValue(card.se, card.unit, card.id)} SE · ${n}`;
+  if (se) return `${se} · ${n}`;
   return card.note ? `${n} · ${card.note}` : n;
 }
 
@@ -50,6 +57,9 @@ export class MetricsPanel {
         sub: card.sub,
         value: formatValue(card.value, card.unit, card.id),
         detail: uncertainty(card),
+        // Below N = 15 the card's own caveats (the c4 bias of sigma, an
+        // untestable shape) are part of the reading, not a hover detail.
+        caveat: card.show === 'ci' && card.interval ? card.note : '',
         title: card.interval?.label
           ? `${card.interval.label}${card.note ? `. ${card.note}` : ''}`
           : card.note,
@@ -72,11 +82,11 @@ export class MetricsPanel {
   }
 }
 
-function row({ label, value, sub = '', detail = '', title = '', primary = false }) {
+function row({ label, value, sub = '', detail = '', caveat = '', title = '', primary = false }) {
   const tip = title ? ` title="${escapeHtml(title)}"` : '';
   return `
     <div class="metric${primary ? ' is-primary' : ''}"${tip}>
-      <span class="k">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}</span>
+      <span class="k">${escapeHtml(label)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}${caveat ? `<small class="caveat">${escapeHtml(caveat)}</small>` : ''}</span>
       <span class="v">${value}${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span>
     </div>`;
 }

@@ -25,6 +25,7 @@
  */
 
 import { formatSci, formatInt, formatSigned } from '../scale.js';
+import { frameMeanOverflowText } from '../panels/canonical_overlays.js';
 
 /** Fallback axis symbols per frame kind and panel, when a payload does not carry them. */
 const SYMBOLS_OF = {
@@ -96,6 +97,8 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
 
   if (coregistered) {
     for (const line of displayWindow(frame, panel, panelId, kind)) out.push(line);
+    const beyond = beyondGridSentence(frame);
+    if (beyond) out.push(beyond);
     for (const line of splatting(frame)) out.push(line);
   } else if (panelId === 'xy') {
     // The comb is a product of the two transverse axes, so it is only visible
@@ -121,6 +124,8 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
     } else if (panelId === 'xy') {
       out.push('The A–B offset of the superimposed centroids is not a separation; D is the laboratory '
         + '3-D centroid distance.');
+      const overflow = frameMeanOverflowText(payload);
+      if (overflow) out.push(overflow);
     } else if (kind === 'local') {
       out.push('w is each shower\'s incident direction by construction; no ensemble axis or Rayleigh '
         + 'statistic is drawn because none could carry information.');
@@ -347,6 +352,23 @@ function attentionMask(mask) {
     : '';
   return `${rule ? `${rule} ` : ''}${signed ? 'Attribution' : 'Attention'} not drawn in ${formatInt(cells)} `
     + `${plural(cells, 'bin')}${hits}${peak}.`;
+}
+
+/**
+ * The energy that fell outside the accumulation grid, and so is in no panel.
+ *
+ * The window shares are of the in-grid energy; this is the rest of the
+ * selection, stated separately so no share of it goes unreported. '' when
+ * nothing fell outside. Shared with the on-screen footnote (frame_views.js).
+ */
+export function beyondGridSentence(frame) {
+  const fraction = frame?.window?.energy_fraction_outside;
+  if (!(Number.isFinite(fraction) && fraction > 0)) return '';
+  const share = fraction < 5e-5 ? '< 0.01%' : percent(fraction);
+  const n = frame.window.hits_outside;
+  const hits = Number.isFinite(n) ? ` (${formatInt(n)} hit${n === 1 ? '' : 's'})` : '';
+  return `A further ${share} of the selection's energy${hits} fell outside the accumulation grid `
+    + 'and is in no panel.';
 }
 
 function displayWindow(frame, panel, panelId, kind = 'canonical') {

@@ -43,7 +43,9 @@ from ..query import shower_frames
 from ..query import stagger as stagger_mod
 from ..query.filters import FilterSpec
 from ..query.shower_frames import ShowerBundle, ShowerStats
-from .frame_canonical import COMB_MEASURED_ON, _attenuation_notice, _floor_notice, serve_within_budget
+from .frame_canonical import (
+    COMB_MEASURED_ON, _attenuation_notice, _floor_notice, _reference_notice, serve_within_budget,
+)
 
 FRAME_TITLE = {KIND_TRANS: "translated", KIND_LOCAL: "local"}
 
@@ -168,8 +170,16 @@ def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
     else:
         dof = f"N = {n}: SD with ddof = 1 and a Student-t 95% interval on {n - 1} degrees of freedom."
     column = "centroid_*_trans" if kind == KIND_TRANS else "centroid_*_local"
+    # One event has no ensemble to average: its marker is that event's own
+    # centroid, and is labelled so wherever the label travels.
+    label = (
+        f"This single event's own centroid ({column}), relative to each shower's entry point: "
+        "not an ensemble mean"
+        if n < 2 else
+        f"Mean per-event centroid ({column}), relative to each shower's entry point"
+    )
     return {
-        "label": f"Mean per-event centroid ({column}), relative to each shower's entry point",
+        "label": label,
         "a": point("a"),
         "b": point("b"),
         "separation_mm": None,
@@ -311,12 +321,6 @@ def build_response(
                     f"{zero:,} selected event(s) have an all-zero map from the {model} network in "
                     f"the {title} frame; they contribute energy but no attention."
                 )})
-            if cam_view.kind != planes_mod.KIND_RATIO and rho_norm == density.NORM_DATASET:
-                notices.append({"scope": "frame", "text": (
-                    "The dataset density normalisation applies to the density channel only; "
-                    "an energy-weighted CAM panel is relative to this selection's own "
-                    "raw-grid peak of Σ E·CAM, stated in its footnote."
-                )})
         if rho_norm == density.NORM_DATASET:
             ref_k = rendered["rho"].get("ref_k")
             if kind == KIND_LOCAL and ref_k and ref_k != k:
@@ -326,18 +330,14 @@ def build_response(
                     f"{bundle.k_z}; a peak is a maximum statistic, so the two differ by the "
                     "footprint discretisation and colours are comparable only to that extent."
                 )})
-            attenuation = _attenuation_notice(rendered["rho"])
+            attenuation = None if cam_view.is_cam else _attenuation_notice(rendered["rho"])
             if attenuation:
                 for prime, sym in (("X′Y′", names["xy"]), ("Y′Z′", names["yz"]), ("X′Z′", names["xz"])):
                     attenuation = attenuation.replace(prime, sym)
                 notices.append({"scope": "frame", "text": attenuation})
-        else:
-            notices.append({"scope": "frame", "text": (
-                "Colours are relative to this selection's own peak density on the raw "
-                f"{grid.pitch:.0f} mm accumulation grid (stated in the footnote), which the "
-                "displayed field never exceeds; switch the density normalisation to the "
-                "dataset peak to compare colours across selections."
-            )})
+        reference = _reference_notice(channel, rendered["rho"].get("norm", rho_norm), grid.pitch)
+        if reference:
+            notices.append({"scope": "frame", "text": reference})
         if lock_scale is False or scale_mode != "decades":
             notices.append({"scope": "frame", "text": (
                 "lock_scale and scale_mode are laboratory-frame ramp controls and are ignored "

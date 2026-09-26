@@ -268,7 +268,8 @@ def compute(
         "uncertainty": (
             "Each card quotes its standard error and a 95% interval of the statistic over "
             "the selected events; below N = "
-            f"{metric_mod.SHOW_CI_BELOW_N} the interval is shown."
+            f"{metric_mod.SHOW_CI_BELOW_N} the interval is shown beside the SE, with the "
+            "card's small-sample caveats."
         ),
     }
     if model == "segmentation":

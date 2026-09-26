@@ -671,6 +671,18 @@ out.trans = figureDisclosure({ frame: frame('trans'), panels: { xy: { scale: {} 
 out.labCam = figureDisclosure({ panels: { xy: { scale: { quantity: 'gradcam_energy', unit: 'a.u.', scale: 'log10',
   floor_ratio: 1e-3, ref: 0.153, ref_unit: 'GeV', rho_unit: 'GeV' }, below_floor_cells: 3 } }, meta: {} }, 'xy', stubState).join(' ');
 out.view = describeView({ col: [-300, 300], row: [-320.4, 320] }, 'Δx', 'Δy');
+const labPanel = (quantity) => ({ scale: { quantity, unit: 'a.u.', floor: quantity === 'density' ? undefined : 'transparent',
+  floor_ratio: 1e-3 }, below_floor_cells: 3 });
+const labPayload = (quantity) => ({ slab: { note: '' }, meta: {}, overlays: {}, selection: { n_events: 90 },
+  panels: { xy: labPanel(quantity), yz: labPanel(quantity), xz: labPanel(quantity) } });
+out.labFloor = fv.labFootnotes(labPayload('shapcam_energy'));
+const beyond = { ...frame('trans'), window: { energy_fraction_outside: 0.0012, hits_outside: 42 } };
+out.beyondExport = figureDisclosure({ frame: beyond, panels: { yz: { scale: {} } }, slab: { note: '' }, meta: {} }, 'yz', stubState).join(' ');
+out.beyondScreen = fv.footnotes({ frame: beyond, panels: { xy: { scale: {} }, yz: { scale: {} }, xz: { scale: {} } },
+  slab: { note: '' }, meta: {}, overlays: {}, centroids: {} });
+out.beyondTiny = (await import(disclosureUrl)).beyondGridSentence({ window: { energy_fraction_outside: 1e-6, hits_outside: 1 } });
+out.beyondNone = (await import(disclosureUrl)).beyondGridSentence({ window: { energy_fraction_outside: 0, hits_outside: 0 } });
+out.labDensity = fv.labFootnotes(labPayload('density'));
 out.caption = fv.channelCaption({ channel: 'shapcam', model: 'energy', frame: 'lab',
   payload: { meta: { channel: 'gradcam', model: 'segmentation', cam: { column: 'segmentation_absolute_gradcam', note: 'OLD NOTE' } } } });
 globalThis.window = { location: { hash: '', pathname: '/' },
@@ -729,3 +741,133 @@ def test_link_bounds_survive_adoption(review_results):
     assert review_results["upperOnly"] == [0.408, 5], "an upper-only link must keep its maximum"
     assert review_results["snappedEdge"] == [19, 21], "a bound at the snapped edge is in range"
     assert review_results["foreign"] == [19.94, 648], "a bound from another dataset resets"
+
+
+_MIRROR_SCRIPT = """
+const [paletteUrl] = JSON.parse(process.argv[1]);
+const { lookupTable, contrast, SCREEN_CARD } = await import(paletteUrl);
+const out = {};
+for (const name of ['puor_screen', 'puor_screen_linear']) {
+  const t = lookupTable(name);
+  const c = (i) => contrast([t[i * 3], t[i * 3 + 1], t[i * 3 + 2]], SCREEN_CARD);
+  out[name] = Array.from({ length: 128 }, (_, i) => Math.max(c(127 - i), c(128 + i)) / Math.min(c(127 - i), c(128 + i)));
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.mark.parametrize("name,tolerance", [("puor_screen", 1.2), ("puor_screen_linear", 1.12)])
+def test_equal_magnitudes_of_either_sign_are_equally_visible(name, tolerance):
+    """The two screen arms are matched in lightness: at every |v| the orange and
+    purple codes' contrasts against the card agree to within the tolerance."""
+    args = json.dumps([(JS / "palette.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _MIRROR_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    ratios = json.loads(done.stdout)[name]
+    assert max(ratios) <= tolerance, (max(ratios), ratios.index(max(ratios)))
+
+
+# The frame_mean marks of the per-shower frames: which quantity each mark is,
+# whether it is capped, and how a window overflow is clipped and disclosed.
+_FRAME_MEAN_SCRIPT = """
+const [overlaysUrl, disclosureUrl] = JSON.parse(process.argv[1]);
+const ov = await import(overlaysUrl);
+const { figureDisclosure } = await import(disclosureUrl);
+const col = { name: 'x', symbol: 'Δx', lo: -300, hi: 300 };
+const row = { name: 'y', symbol: 'Δy', lo: -300, hi: 300 };
+const api = { coord: (p) => p };
+const drawn = (series) => series.map((s) => {
+  const el = s.renderItem({}, api);
+  return { name: s.name, type: el.type, points: el.shape.points.length,
+           tooltip: s.tooltip ? s.tooltip.formatter() : null };
+});
+const pair = (n, ax, sdx, cix) => ({
+  n, label: 'L', dof_note: n < 2 ? "N = 1: a single event's own centroids; no dispersion or interval is defined." : 'N = 5: dof',
+  a: { x: ax, y: 0, z: 0 }, b: { x: -10, y: 5, z: 0 },
+  sd: { a: { x: sdx, y: 20, z: 1 }, b: { x: 25, y: 20, z: 1 } },
+  ci95_half: { a: { x: cix, y: 8, z: 1 }, b: { x: 9, y: 8, z: 1 } },
+});
+const out = {};
+let series = [];
+ov.addFrameMeanSpread(series, { ...pair(1, 10, null, null), sd: { a: {}, b: {} }, ci95_half: { a: {}, b: {} } }, col, row);
+out.single = series.length;
+out.singleLegend = ov.centroidLegend({ frame_mean: { ...pair(1, 10, 1, 1), label: "This single event's own centroid" } });
+series = [];
+ov.addFrameMeanSpread(series, pair(5, 10, 30, 12), col, row);
+out.inside = drawn(series);
+series = [];
+const clipped = pair(5, 280, 50, 30);
+ov.addFrameMeanSpread(series, clipped, col, row);
+out.clipped = drawn(series);
+out.overflow = ov.frameMeanOverflow(clipped, col, row);
+const payload = {
+  frame: { kind: 'trans', n_events: 5, n_showers: 10, n_selected: 5, d_dataset: { mean: 800 }, fit: {},
+           splat: { regime: 'box_overlap' }, footprint_mm: [48.3, 48.6], pitch_mm: 20 },
+  panels: { xy: { scale: {}, axes: { col, row } } }, slab: { note: '' }, meta: {},
+  centroids: { frame_mean: clipped },
+};
+out.text = ov.frameMeanOverflowText(payload);
+out.export = figureDisclosure(payload, 'xy', { get: () => null, isTouched: () => false }).join(' ');
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def frame_mean_results() -> dict:
+    args = json.dumps([(JS / "panels" / "canonical_overlays.js").as_uri(),
+                       (JS / "export" / "disclosure.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _FRAME_MEAN_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_a_single_event_draws_no_spread_and_says_why(frame_mean_results):
+    assert frame_mean_results["single"] == 0
+    legend = frame_mean_results["singleLegend"]
+    assert "This single event's own centroid" in legend and "no dispersion or interval" in legend
+    assert "capped whiskers" not in legend
+
+
+def test_the_sd_is_an_uncapped_bar_and_the_interval_a_capped_whisker(frame_mean_results):
+    marks = frame_mean_results["inside"]
+    spread = [m for m in marks if "spread in" in m["name"]]
+    interval = [m for m in marks if "95% interval in" in m["name"]]
+    # Two showers x two transverse axes, one of each mark.
+    assert len(spread) == 4 and len(interval) == 4 and len(marks) == 8
+    assert all(m["type"] == "polyline" and m["points"] == 2 for m in spread)
+    assert all(m["type"] == "polyline" and m["points"] == 6 for m in interval)
+    assert all("sample SD" in m["tooltip"] and "not the uncertainty of the mean" in m["tooltip"]
+               for m in spread)
+    assert all("95% Student-t interval of the mean, N = 5" in m["tooltip"] for m in interval)
+    assert not any("clipped" in m["name"] for m in marks)
+
+
+def test_an_end_past_the_window_is_clamped_with_a_caret_and_counted(frame_mean_results):
+    marks = frame_mean_results["clipped"]
+    carets = [m for m in marks if m["name"].endswith("(clipped)")]
+    # Shower A at x = 280: both its SD (±50) and its interval (±30) overflow +300.
+    assert len(carets) == 2 and all(m["type"] == "polygon" for m in carets)
+    whisker = next(m for m in marks if m["name"] == "Mean centroid A — 95% interval in Δx")
+    assert whisker["points"] == 4  # the clipped end loses its cap
+    assert "the full range is 250.0 to 310.0 mm" in whisker["tooltip"]
+    assert frame_mean_results["overflow"] == 2
+    assert frame_mean_results["text"].startswith("2 ends of the mean-centroid SD and 95% interval")
+    assert frame_mean_results["text"] in frame_mean_results["export"]
+
+
+def test_a_lab_energy_weighted_cam_footnote_states_its_floor(review_results):
+    for panel in ("xy", "yz", "xz"):
+        text = review_results["labFloor"][panel]
+        assert "|Σ E·CAM| is below 10⁻³ of this selection's peak are not drawn (3 bins)" in text
+        assert "not drawn" not in review_results["labDensity"][panel]
+
+
+def test_energy_outside_the_accumulation_grid_is_disclosed(review_results):
+    sentence = "A further 0.12% of the selection's energy (42 hits) fell outside the accumulation grid"
+    assert sentence in review_results["beyondExport"]
+    for panel in ("xy", "yz", "xz"):
+        assert sentence in review_results["beyondScreen"][panel]
+    assert review_results["beyondTiny"].startswith("A further < 0.01% of the selection's energy (1 hit)")
+    assert review_results["beyondNone"] == ""

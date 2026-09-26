@@ -204,24 +204,51 @@ def test_energy_weighted_cam_sums_match_the_archived_hits(cursor, ingested, show
         assert value == pytest.approx(reference, rel=1e-9, abs=1e-15)
 
 
-@pytest.mark.parametrize("kind", KINDS)
+def _bundle_of(shower, cursor, kind):
+    if kind in KINDS:
+        return shower["bundles"][kind, "energy"][0]
+    from calosrv.query import canonical_cache
+
+    return canonical_cache.bundle_for(cursor, shower["record"], shower["spec"], shower["settings"],
+                                      canonical.cell_footprint(cursor, shower["record"]), False,
+                                      100.0, "energy")[0]
+
+
+@pytest.mark.parametrize("kind", [*KINDS, "canonical"])
 @pytest.mark.parametrize("display", ["native", "continuous"])
 @pytest.mark.parametrize("r", [50, 150, 300, 400])
-def test_the_rendered_cam_total_is_conserved_at_every_resolution(shower, kind, display, r):
-    bundle = shower["bundles"][kind, "energy"][0]
-    from calosrv.query import window
+def test_the_rendered_cam_parts_equal_the_raw_planes_in_the_window(cursor, shower, kind, display, r):
+    """What is drawn conserves each part: at every R and in both displays, the
+    rendered Σ E·Grad-CAM and the positive and negative Σ E·Shap-CAM equal the
+    raw planes weighted by the render's own inside-weights (the window crop and
+    the kernel's reach), sign for sign."""
+    from calosrv.query import reconstruct, window
 
+    bundle = _bundle_of(shower, cursor, kind)
     fit = window.fit_window(bundle)
+    kernel = reconstruct.choose_kernel(display, bundle.n_events)
     for channel in ("gradcam_energy", "shapcam_energy"):
-        out = density.render_canonical(bundle, fit, display, r, channel, symbols=bundle.symbols)
+        out = density.render_canonical(bundle, fit, display, r, channel, kernel=kernel,
+                                       symbols=getattr(bundle, "symbols", None))
+        guard = out["guard"]
+        plan = density.plan_canonical(fit, bundle.grid, display, guard["r"], guard["merge"], kernel,
+                                      max(bundle.footprint), requested=r)
         for name in ("xy", "yz", "xz"):
             panel = out["panels"][name]
-            numerator = ("eg",) if channel == "gradcam_energy" else ("esp", "esn")
-            raw = sum(float(bundle.panel(name).planes[p].sum()) for p in numerator)
-            assert panel["cam_total_all"] == pytest.approx(raw, rel=1e-12, abs=1e-18)
-            if channel == "shapcam_energy":
-                scale = panel["scale"]
-                assert scale["positive_total"] >= 0 >= scale["negative_total"]
+            planes = bundle.panel(name).planes
+            row_map, col_map = density.axis_maps(bundle, fit.panel(name), plan, name)
+            rows = reconstruct.inside_weights(row_map, planes["e"].shape[0])
+            cols = reconstruct.inside_weights(col_map, planes["e"].shape[1])
+            drawn = {part: float(rows @ planes[part] @ cols) for part in ("eg", "esp", "esn")}
+            scale = panel["scale"]
+            if channel == "gradcam_energy":
+                assert panel["cam_total"] == pytest.approx(drawn["eg"], rel=1e-9, abs=1e-18)
+            else:
+                assert scale["positive_total"] == pytest.approx(drawn["esp"], rel=1e-9, abs=1e-18)
+                assert scale["negative_total"] == pytest.approx(drawn["esn"], rel=1e-9, abs=1e-18)
+                assert panel["cam_total"] == pytest.approx(drawn["esp"] + drawn["esn"], rel=1e-9, abs=1e-18)
+                if planes["esn"].min() < 0:
+                    assert scale["negative_total"] < 0
 
 
 # ----------------------------------------------------------------- scan --
@@ -249,6 +276,49 @@ def test_the_statistics_come_from_the_event_table(cursor, shower):
     assert stats.mean["a"]["x"].mean == pytest.approx(cax, rel=1e-6)
     assert stats.phi_resultant["a"] is None or 0 <= stats.phi_resultant["a"] <= 1
 
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_frame_mean_interval_is_student_t_on_the_ddof1_sd(cursor, shower, kind):
+    """The whisker is t_{0.975, n-1} SD / sqrt(n) of the per-event centroids, SD with ddof = 1."""
+    from calosrv.api import frame_shower
+    from calosrv.stats import gaussian
+
+    stats = shower["bundles"][kind, "segmentation"][1]
+    mean = frame_shower._frame_mean(stats, kind)
+    event = quote(naming.event_table(shower["record"].table_name))
+    suffix = "_t" if kind == frame_mod.KIND_TRANS else "_l"
+    for s in "ab":
+        for axis in "xyz":
+            column = f"c{s}{axis}{suffix}"
+            values = cursor.execute(
+                f"SELECT CAST({column} AS DOUBLE) AS v FROM {event} "
+                f"WHERE d IS NOT NULL AND {column} IS NOT NULL").fetchnumpy()["v"]
+            v = np.asarray(values, dtype=float)
+            n = v.size
+            assert n >= 2
+            sd = float(np.std(v, ddof=1))
+            assert mean[s][axis] == pytest.approx(float(v.mean()), rel=1e-9, abs=1e-9)
+            assert mean["sd"][s][axis] == pytest.approx(sd, rel=1e-9)
+            assert mean["ci95_half"][s][axis] == pytest.approx(
+                gaussian.t_quantile_975(n - 1) * sd / math.sqrt(n), rel=1e-9)
+    assert mean["n"] == stats.n_events and "Mean per-event centroid" in mean["label"]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_single_event_marker_is_labelled_as_that_events_own_centroid(cursor, shower, kind):
+    from calosrv.api import frame_shower
+
+    record = shower["record"]
+    event = quote(naming.event_table(record.table_name))
+    d0, d1 = (r[0] for r in cursor.execute(
+        f"SELECT DISTINCT d FROM {event} WHERE d IS NOT NULL ORDER BY d LIMIT 2").fetchall())
+    one = filters.build(record, d_min=float(d0), d_max=float(d0 + (d1 - d0) / 2))
+    stats = shower_frames.shower_statistics(cursor, record, one, kind, "segmentation")
+    assert stats.n_events == 1
+    mean = frame_shower._frame_mean(stats, kind)
+    assert mean["label"].startswith("This single event's own centroid")
+    assert "not an ensemble mean" in mean["label"] and mean["dof_note"].startswith("N = 1")
 
 def test_the_grid_is_the_datasets_not_the_selections(cursor, shower):
     record, settings, footprint = shower["record"], shower["settings"], shower["footprint"]

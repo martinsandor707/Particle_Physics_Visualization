@@ -20,9 +20,9 @@
  */
 
 import { formatInt, formatSci, floorLabel, formatSigned, typographic } from './scale.js';
-import { ordinal } from './export/disclosure.js';
+import { beyondGridSentence, ordinal } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
-import { centroidLegend } from './panels/canonical_overlays.js';
+import { centroidLegend, frameMeanOverflowText } from './panels/canonical_overlays.js';
 
 export const COREGISTERED = ['canonical', 'trans', 'local'];
 
@@ -472,7 +472,9 @@ function coregisteredParts(payload, isometric) {
     : ' Axes carry true extents; the aspect is not 1:1 here.');
   const provisional = fit.provisional ? ` Fitted ranges are provisional (N = ${f.n_events}).` : '';
   const combText = f.comb?.note ? ` ${f.comb.staggered ? '⚠ ' : ''}${f.comb.note}` : '';
-  return { f, rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText };
+  const beyond = beyondGridSentence(f);
+  const beyondGrid = beyond ? ` ${beyond}` : '';
+  return { f, rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText, beyondGrid };
 }
 
 /**
@@ -496,7 +498,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     return { xy: `${payload.slab.note} ${empty}`, yz: empty, xz: empty };
   }
   const p = coregisteredParts(payload, isometric);
-  const { rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText } = p;
+  const { rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText, beyondGrid } = p;
 
   // The interval is named: at N = 2 the Student-t 95% half-width is 12.7
   // standard errors, so a bare "±" would mean whatever the reader assumes.
@@ -516,7 +518,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
 
   const xy =
     `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
-    + `${windowPhrase(fit, 'xy', [['col', 'x′'], ['row', 'y′']])}; ${outside('xy')}.${provisional}`
+    + `${windowPhrase(fit, 'xy', [['col', 'x′'], ['row', 'y′']])}; ${outside('xy')}.${beyondGrid}${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')} `
     + 'Open diamond and circle: the A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
     + 'D_entry/2 across events; thin dashed rule: the mean entry separation (hover for ⟨D_entry⟩ with its '
@@ -542,11 +544,11 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
   return {
     xy,
     yz: `Transverse spread normal to the shower plane against depth. ${depthRef('yz')} `
-      + `${windowPhrase(fit, 'yz', [['row', 'y′']])}; ${outside('yz')}.${provisional}`
+      + `${windowPhrase(fit, 'yz', [['row', 'y′']])}; ${outside('yz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.yz, continuous, floor)}${kernel('yz')}`
       + `${anchorsText.yz}${marks} ${axesText}${aspect('yz')}`,
     xz: `Lateral profile along the separation against depth. ${depthRef('xz')} `
-      + `${windowPhrase(fit, 'xz', [['row', 'x′']])}; ${outside('xz')}.${provisional}`
+      + `${windowPhrase(fit, 'xz', [['row', 'x′']])}; ${outside('xz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.xz, continuous, floor)}${kernel('xz')}`
       + `${anchorsText.xz}${marks} ${axesText}${aspect('xz')}`,
   };
@@ -570,7 +572,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     return { xy: `${payload.slab.note} ${empty}`, yz: empty, xz: empty };
   }
   const p = coregisteredParts(payload, isometric);
-  const { rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText } = p;
+  const { rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText, beyondGrid } = p;
 
   const half = f.d_dataset?.ci95_half;
   // A narrow D window has a sub-millimetre interval; "± 0 mm" would claim none.
@@ -581,6 +583,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no A-B separation)` : '')
     + `; D is the laboratory 3-D centroid distance, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm${ci}.`;
   const centroids = centroidLegend(payload.centroids);
+  const overflow = frameMeanOverflowText(payload);
   const offset = ' The A–B offset of the superimposed centroids (offset_mm) is not a separation.';
   const splat = kind === 'trans'
     ? ` Each cell's ${num(f.footprint_mm?.[0], 1)} × ${num(f.footprint_mm?.[1], 1)} mm footprint is `
@@ -593,9 +596,9 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     : '';
 
   const xy = `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
-    + `${windowPhrase(fit, 'xy', [['col', sym.x], ['row', sym.y]])}; ${outside('xy')}.${provisional}`
+    + `${windowPhrase(fit, 'xy', [['col', sym.x], ['row', sym.y]])}; ${outside('xy')}.${beyondGrid}${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')}`
-    + `${centroids ? ` ${centroids}` : ''}${offset}${splat}${combText}${ab}`;
+    + `${centroids ? ` ${centroids}` : ''}${overflow ? ` ${overflow}` : ''}${offset}${splat}${combText}${ab}`;
 
   let direction;
   if (kind === 'local') {
@@ -621,10 +624,10 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   return {
     xy,
     yz: `Transverse spread (${sym.y}) against depth (${sym.z}). ${depthRef('yz')} `
-      + `${windowPhrase(fit, 'yz', [['row', sym.y]])}; ${outside('yz')}.${provisional}`
+      + `${windowPhrase(fit, 'yz', [['row', sym.y]])}; ${outside('yz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.yz, continuous, floor)}${kernel('yz')}${depth}${direction}${aspect('yz')}`,
     xz: `Lateral profile (${sym.x}) against depth (${sym.z}). ${depthRef('xz')} `
-      + `${windowPhrase(fit, 'xz', [['row', sym.x]])}; ${outside('xz')}.${provisional}`
+      + `${windowPhrase(fit, 'xz', [['row', sym.x]])}; ${outside('xz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.xz, continuous, floor)}${kernel('xz')}${depth}${direction}${aspect('xz')}`,
   };
 }
@@ -672,11 +675,19 @@ export function labFootnotes(payload) {
       + 'trajectory is drawn either: the incident azimuth is near-uniform '
       + `(${spread}), so its mean would point in an arbitrary direction.`;
   }
+  // The energy-weighted CAM channels leave bins below their 10⁻³ floor
+  // undrawn; the lab density ramp has no such floor and says nothing here.
+  const floorOf = (id) => {
+    const panel = payload.panels?.[id];
+    const quantity = panel?.scale?.quantity;
+    if (quantity !== 'gradcam_energy' && quantity !== 'shapcam_energy') return '';
+    return floorSentence(panel, false, floorLabel({ floor_ratio: panel.scale.floor_ratio ?? 1e-3 }));
+  };
   return {
-    xy,
-    yz: `Transverse spread against calorimeter depth.${direction}`,
+    xy: `${xy}${floorOf('xy')}`,
+    yz: `Transverse spread against calorimeter depth.${direction}${floorOf('yz')}`,
     xz: 'Lateral profile against depth, sharing the YZ colour scale so the two may '
-      + `be read against one another.${direction}`,
+      + `be read against one another.${direction}${floorOf('xz')}`,
   };
 }
 

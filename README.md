@@ -447,13 +447,14 @@ so the payload reports the measured anchor–centroid offsets per selection
 
 **D_entry is not D.** The transverse separation of the two entry points at the
 face is the frame's own separation; it differs from the slider's 3-D centroid
-distance by up to 726 mm per event — over the full dataset ⟨D_entry⟩ = 765 mm
-against ⟨D⟩ = 854 mm, and in the D 240–260 mm slice 157 mm against 249 mm. Both
+distance by up to 726 mm per event — over the full dataset ⟨D_entry⟩ = 757 mm
+against ⟨D⟩ = 842 mm (production v37: 765 / 854 mm, and 157 / 249 mm in the
+D 240–260 mm slice). Both
 are always printed side by side, the mean D_entry with the Student-t 95 %
 interval of the mean, named as such (the payload also carries the bare standard
-error; at N = 2 the two differ by a factor 12.7). The 182 events (0.9%) with no
+error; at N = 2 the two differ by a factor 12.7). The 57 events (0.28%) with no
 A centroid have no frame and are excluded from N and counted, even when
-*include undefined D* admits them elsewhere. Below D_entry = 80 mm — 28.2% of
+*include undefined D* admits them elsewhere. Below D_entry = 80 mm — 32.3% of
 all events — the rotation angle is dominated by the ~80 mm anchor residual and
 is effectively random: those events' energy enters ⟨ρ⟩ averaged over azimuth,
 and their randomly oriented directions enter the ensemble-axis statistics (R̄′,
@@ -666,10 +667,13 @@ differ by √N: a shaded wedge for the **sample SD** of the per-event slopes
 known), from the same t table the energy panel uses. R̄′, the Rayleigh
 p = exp(−N R̄′²) and N are printed beside each axis; an axis with p > 0.05 is
 drawn **faded, never hidden**, because there are always exactly two. The
-coherence that licenses the mark is measured, not assumed: R̄′_A / R̄′_B is
-0.779 / 0.819 for D 2700–3000 mm (with ⟨û′_A⟩ → −x′ and ⟨û′_B⟩ → +x′: the two
-showers diverge with depth), 0.339 / 0.340 for D 20–40 mm, and 0.024 / 0.371
-over the full selection, against 0.012 in the laboratory frame.
+coherence that licenses the mark is measured, not assumed. On the all-models
+file R̄′_A / R̄′_B is 0.779 / 0.819 for D 2700–3000 mm (N = 500; ⟨û′_A⟩ → −x′ and
+⟨û′_B⟩ → +x′: the two showers diverge with depth), 0.123 / 0.125 for D 20–40 mm
+(N = 950, every event below the 80 mm ill-conditioning threshold, still
+Rayleigh p ≈ 5 × 10⁻⁷), and 0.156 / 0.237 over the full selection, against 0.012
+in the laboratory frame. (Production v37: 0.779 / 0.819, 0.339 / 0.340 and
+0.024 / 0.371.)
 
 **The marks near the cores are deliberately light.** By construction the anchors
 sit on the two brightest places in the picture. The earlier marks were 15 px
@@ -851,7 +855,13 @@ offset of two ensembles each relative to its own entry point: `offset_mm`, never
 a separation, which stays the laboratory D. `centroids.frame_mean` is the mean
 per-event centroid (`centroid_*_trans` / `_local`) with its sample SD, drawn as a
 faint uncapped cross, and its Student-t 95% interval of the mean, drawn as capped
-whiskers — two quantities, two marks, nothing at N = 1.
+whiskers — two quantities, two marks. At N = 1 the marker is labelled as that
+single event's own centroid and no cross or whisker is drawn. A mark end that
+would leave the window is clamped to its edge, with a caret in place of the
+cap and the full range in the tooltip, and the footnote counts such ends.
+Energy that falls outside the accumulation grid altogether
+(`frame.window.energy_fraction_outside`, `hits_outside`) is stated beside each
+panel's window share.
 
 **Directions.** *Translated* keeps every shower's laboratory azimuth, which is
 near-uniform (R̄ = 0.012), so it draws the individual incident directions from
@@ -917,11 +927,15 @@ sequential ramp is chosen (the colour-map control is disabled and says why).
   WCAG contrast), and its `#f7f7f7` centre makes a bright halo round every
   near-zero bin. Each arm therefore runs from the card outwards through PuOr's
   own colours, brightness rising with |value| and hue alone giving the sign.
-  The first 3:1 colour of each arm (`#b35806` 3.4:1, `#8073ac` 3.9:1) sits at
+  The first 3:1 colour of each arm (`#b35806` 3.3:1, `#8073ac` 3.8:1) sits at
   10^−2.5 of the peak, where the taper above the 10⁻³ band reaches full
   opacity, so nothing a reader is asked to see is drawn below 3:1. Raw Shap-CAM
   puts zero at border grey `#30363d`, so a populated bin with zero attribution
-  stays distinct from an empty one.
+  stays distinct from an empty one. The other anchors of both arms are placed
+  by CIE lightness, so equal |value| of either sign reads equally bright:
+  mirrored codes agree to 15% in contrast on the signed log and 9% on the
+  linear ramp. (Spaced evenly, the purple arm of the linear ramp had stayed
+  below 3:1 until |v| = 0.43 while the orange one crossed it at 0.24.)
 
 The legends mark both signs and zero (`+10⁰ a.u.`, `±10⁻³`, `−10⁰ a.u.`; `+1.00`,
 `0`, `−1.00`). Every rendered negative number in the interface and the exported
@@ -933,7 +947,8 @@ minus sign U+2212, never a hyphen (`static/js/format.js`, `calosrv/text.py`).
 `GET /api/model-performance?model=&coord_system=` evaluates one of the nine
 networks over the selection and returns self-describing `cards[]`: value, unit,
 standard error, a 95% interval named by its method, N and a note. Below N = 15 a
-card shows its interval rather than its SE.
+card shows its interval beside its SE, and its small-sample caveats (the c₄ bias
+of σ, an untestable shape) under the label.
 
 | Model | Cards (headline in bold) | Uncertainty |
 |---|---|---|
