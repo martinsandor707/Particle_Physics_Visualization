@@ -353,13 +353,17 @@ def axis_maps(
 
 
 def _attention_mask(
-    mask: np.ndarray, attention: np.ndarray, hits: np.ndarray, native: bool, decades: float
+    mask: np.ndarray, attention: np.ndarray, hits: np.ndarray, native: bool, decades: float,
+    signed: bool = False, what: str = "attention",
 ) -> dict[str, Any]:
-    """What the Grad-CAM floor hid, in the channel's own terms.
+    """What the floor of a mean-CAM channel hid, in the channel's own terms.
 
     ``hit_fraction`` is the share of the panel's in-window hit count
     (reconstructed with the same operator) that lies in masked bins, and
-    ``max_attention`` the largest attention among them. Many hits carry almost
+    ``max_attention`` the largest attention among them - for a signed channel
+    (Shap-CAM) the masked value of largest *magnitude*, with its sign
+    (``max_is_magnitude``), since a full-scale negative attribution hidden by
+    the floor matters as much as a positive one. Many hits carry almost
     no energy: on production v37 the X'Y' mask at N = 5 (D 257-258 mm) holds
     20% of the hits but 0.8% of the energy, and the raw 20 mm grid puts 25% of
     the hits below the same floor.
@@ -367,24 +371,30 @@ def _attention_mask(
     if native:
         return {
             "rule": (
-                "Native Grid: only bins with no hits are transparent (attention undefined); "
-                "attention measured on real hits is always drawn."
+                f"Native Grid: only bins with no hits are transparent ({what} undefined); "
+                f"{what} measured on real hits is always drawn."
             ),
             "cells": 0,
             "hit_fraction": 0.0,
             "max_attention": None,
+            "max_is_magnitude": signed,
         }
     total_hits = float(hits.sum())
     hidden = attention[mask]
+    finite = hidden[np.isfinite(hidden)]
+    extreme = None
+    if finite.size:
+        extreme = float(finite[np.argmax(np.abs(finite))]) if signed else float(finite.max())
     return {
         "rule": (
-            "Continuous Field: attention is not drawn where the reconstructed energy density "
-            f"is below {floor_label(decades)} of ρ_ref, because the kernel tails carry attention "
+            f"Continuous Field: {what} is not drawn where the reconstructed energy density "
+            f"is below {floor_label(decades)} of ρ_ref, because the kernel tails carry {what} "
             "into bins no measured energy reached."
         ),
         "cells": int(mask.sum()),
         "hit_fraction": round(float(hits[mask].sum()) / total_hits, 8) if total_hits > 0 else 0.0,
-        "max_attention": float(np.nanmax(hidden)) if hidden.size and np.isfinite(hidden).any() else None,
+        "max_attention": extreme,
+        "max_is_magnitude": signed,
     }
 
 
@@ -441,7 +451,10 @@ def render_panel(
         else:
             below = np.isfinite(attention) & (density < floor_ratio * rho_ref)
         hits = reconstruct.apply(panel.planes["n"], row_map, col_map)
-        attention_mask = _attention_mask(below, attention, hits, native, decades)
+        attention_mask = _attention_mask(
+            below, attention, hits, native, decades, signed=bool(scale.diverging),
+            what="attention" if channel == CHANNEL_GRADCAM else "attribution",
+        )
         exact = topk.top_cells(np.where(below, np.nan, attention), signed=scale.diverging)
         mask_arg = below
     elif view.is_cam:

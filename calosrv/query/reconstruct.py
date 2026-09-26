@@ -85,9 +85,14 @@ def blur_rms(width: float, k: int, bin_spread: float, bin_pitch: float) -> float
     p = float(bin_pitch)
     if k is None:
         # Exact area-weighted box overlap (the translated frame): the footprint
-        # is integrated, not sampled, so its variance is the continuous
-        # w^2 / 12 and there is no point-binning term.
-        return math.sqrt(w * w / 12.0 + float(bin_spread) ** 2)
+        # is integrated rather than sampled, so its term is the continuous
+        # w^2 / 12 - the k -> infinity limit of the sub-deposit term. The
+        # binning term stays: overlap weighting still puts each bin's share at
+        # the bin centre, and each shower's entry point is continuous, so the
+        # displacement to it is uniform over the bin. (Measured with a Monte
+        # Carlo of the scan's own operator: 16.15 mm against 16.15 with the term
+        # and 15.08 without it, native display.)
+        return math.sqrt(w * w / 12.0 + p * p / 12.0 + float(bin_spread) ** 2)
     k = max(1, int(k))
     return math.sqrt(
         w * w * (1.0 - 1.0 / (k * k)) / 12.0 + p * p / 12.0 + float(bin_spread) ** 2

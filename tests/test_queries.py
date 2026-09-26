@@ -576,3 +576,17 @@ def test_a_scan_that_straddles_an_invalidation_is_not_cached():
     assert cache.get_any([key]) is None
     fresh, cached = cache.get_or_compute(key, lambda: SimpleNamespace(nbytes=1))
     assert cache.get_any([key]) is fresh
+
+
+def test_an_undefined_separation_joins_no_d_slice():
+    """With include_undefined_d, a NULL D must not fall into the well-separated slice."""
+    import duckdb
+
+    from calosrv.stats.slices import UNDEFINED_SLICE, build_slices, case_sql
+
+    slices = build_slices()
+    rows = duckdb.connect().execute(
+        f"SELECT d, {case_sql(slices)} AS s FROM (VALUES (NULL), (10.0), (5000.0)) t(d) ORDER BY d NULLS FIRST"
+    ).fetchall()
+    assert rows[0][1] == UNDEFINED_SLICE
+    assert rows[1][1] == slices[0].index and rows[2][1] == slices[-1].index

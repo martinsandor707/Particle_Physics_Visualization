@@ -278,6 +278,34 @@ def test_blur_matches_a_monte_carlo_of_rotated_cells(kern, k):
     assert reconstruct.blur_rms(width, k, spread, PITCH) == pytest.approx(measured, rel=0.01)
 
 
+@pytest.mark.parametrize("kern", [kernel_mod.BOX, kernel_mod.BILINEAR, kernel_mod.gaussian(10.0)])
+def test_the_box_overlap_blur_matches_a_monte_carlo_of_the_scan_operator(kern):
+    """The translated frame's exact box overlap still pays the p^2/12 binning term.
+
+    Boxes of the 48.27 mm footprint are placed at random continuous positions
+    and spread over the 20 mm grid by the scan's own ``box_overlap_operator``;
+    the displayed second moment about the box centre is the overlap-weighted
+    mean squared distance of the bin centres plus the kernel's spread.
+    """
+    from calosrv.query.shower_frames import box_overlap_operator
+
+    rng = np.random.default_rng(11)
+    width, n_bins, half = 48.27, 40, 400.0
+    centres = rng.uniform(-100.0, 100.0, 20_000)
+    u = (centres - 0.5 * width + half) / PITCH
+    j0 = np.floor(u)
+    phi = u - j0
+    r = width / PITCH - math.floor(width / PITCH)
+    keys = (2 * j0 + (phi >= 1.0 - r)).astype(np.int64)
+    a_mat, b_mat = box_overlap_operator(n_bins, width, PITCH, int(keys.min()), int(keys.max()))
+    weights = a_mat[:, keys - keys.min()] + b_mat[:, keys - keys.min()] * phi  # (bins, boxes)
+    bin_centres = -half + (np.arange(n_bins) + 0.5) * PITCH
+    second = float(np.mean((weights * (bin_centres[:, None] - centres[None, :]) ** 2).sum(0)))
+    spread = kern.bin_spread_rms(PITCH)
+    measured = math.sqrt(second + spread ** 2)
+    assert reconstruct.blur_rms(width, None, spread, PITCH) == pytest.approx(measured, rel=0.01)
+
+
 # ---------------------------------------------------------------- windows --
 
 
