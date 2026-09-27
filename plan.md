@@ -565,3 +565,108 @@ frames at two viewports). Production measurements are in the implementation note
       their chart, and 0 clipped, covered, off screen or on the pointer. M-T asserts this over grid, sweep and
       marker hovers at three viewports, and replays the three cases above. Each fix has a mutation the test catches:
       no transform reset, `hideDelay` left at its default, and the layer made `absolute`.
+
+## Revision 4 — the Admin Settings panel, Parquet ingest, and the drop folder
+
+### Context
+
+The cold-boot view was hard-coded in `state.js` `DEFAULTS`. Its dataset was the oldest ready experiment, the demo
+baseline, even with the 20,325-event production run ingested as `production_hits_all_models`. Data entered only as
+CSV, nothing registered a file dropped on the host, and `create_new` silently dropped an existing experiment and its
+archive before the new file was read.
+
+The directive asked for four things:
+1. persisted, admin-editable defaults behind a header button, with cold boot from them and URL hashes keeping
+   precedence;
+2. direct Parquet ingest;
+3. an idempotent boot-time scan of a mounted folder;
+4. manual alias and force-re-ingest overrides.
+
+**Decisions taken with the user:**
+
+| | Decision | Why |
+|---|---|---|
+| D1 | The built-in view stays Laboratory / segmentation / density. The team's view is saved in the panel. | Translated subtracts a truth-labelled P₀, and the network follows the frame, so the directive's "absolute segmentation network in the translated frame" cannot be one view. |
+| D2 | The pinned schema is kept for both formats. | CSV- and Parquet-sourced parts stay interchangeable. |
+| D3 | `create_new` onto an existing experiment is a 409 unless `force_reingest`. Every check runs before the drop. | |
+| D4 | The drop folder is `./ingest/`, read-only at `/app/host/ingest`. | |
+
+**Decisions taken in planning:**
+- the saved defaults are a JSON file, not a DuckDB table (an ingest holds the write lock for minutes);
+- the package is `calosrv/admin/`, which does not shadow `config.py`;
+- API parameter defaults are unchanged;
+- a file already archived under another name is skipped;
+- a file that fails pre-flight is reported, not queued;
+- no authentication is added, the same as every other endpoint;
+- memory stays environment-driven, 16 GB (Revision 3, D7).
+
+### R4.1 Perceptual & Statistical Audit
+- **The panel only chooses which existing view opens first.** No mark, scale, palette or statistic changed. The
+  180-view payload matrix still bounds every response below 100 KB, whatever is saved.
+- **Bookmarks.** `writeHash` omits built-in values, so an absent key means "built-in".
+  - Saved defaults therefore apply only to a link with no recognised key.
+  - The first link written records every non-built-in value.
+  - `DEFAULTS` is frozen, and a test holds it equal to `admin/schema.py`.
+- **Precision (D2).** Measured on the dummy, float32 against the file's float64 text:
+  - lab x, y, z and `z_trans` are exact;
+  - momenta ≤ 5.9×10⁻⁷ GeV, θ/φ ≤ 1.1×10⁻⁷ rad, local/trans coordinates and centroids ≤ 1.2×10⁻⁴ mm;
+  - the bound is 2⁻²⁴ ≈ 6×10⁻⁸ relative;
+  - a narrowed DOUBLE source is reported.
+- **Missing values.** Parquet NaN → NULL only in the 12 undefined-separation columns, counted, because every
+  consumer tests `IS NULL`. NaN elsewhere fails `finite_model_columns`.
+
+### R4.2 Execution & Data Requirements
+- **Environment:** `CALOSRV_CONFIG_PATH`, `CALOSRV_AUTO_INGEST_DIR`, `CALOSRV_AUTO_INGEST_SETTLE_S` (30), and the
+  six `CALOSRV_DEFAULT_*` variables.
+- **Compose:** the drop folder, and `CALOSRV_DEFAULT_DATASET=production_hits_all_models`.
+- **API:** `GET/POST /api/admin/config` and `POST /api/admin/auto-ingest/scan`; a `defaults` block on
+  `/api/experiments`; `force_reingest` on upload and ingest-local; `--force-reingest` on the CLI.
+- **Parquet:** one file; the 99 names in any order; cast to the pinned types.
+
+### R4.3 Implementation
+Branch `admin-defaults-parquet`, in commit order:
+1. Pre-existing bugs:
+   - `JobStore.recent()` crashed with a running and a queued job;
+   - `UnicodeDecodeError` escaped the header check;
+   - the local listing truncated before sorting;
+   - `source_files` grew on `create_new`;
+   - the upload dialog stopped polling when closed.
+2. `calosrv/admin` store, schema and routes.
+3. The panel (`controls/admin.js`, `controls/modal.js`, `labels.js`) and the cold boot (`State.applyDefaults`).
+4. Parquet (`ingest/formats.py`, `parquet_spec.py`, `source_check.py`).
+5. `db/catalog.py` with the 409 rule, and the upload dialog.
+6. `ingest/autoingest.py`, the lifespan hook and the deployment files.
+7. Documentation.
+
+### R4.4 Data Integrity Checklist
+- [x] **Payload:** unchanged; the 180-view matrix passes.
+- [x] **Bookmarks:** JS state tests; the browser test shows `/#frame=lab` unaffected by a saved Translated default.
+- [x] **Parquet fidelity:** a Parquet copy of the demo and of the real-data fixture, including pandas-style NaN for
+      undefined centroids, gives identical archives and derived tables (EXCEPT ALL, both ways).
+- [x] **No clobbering:** 409 on every route and the CLI; a refused file leaves the experiment intact; auto-ingest
+      never forces.
+- [x] **Idempotent start-up:** every skip rule tested; a second scan queues nothing; the exact directive log line.
+- [ ] **Parquet memory and disk at production scale:** not yet measured; needs the isolated run below.
+
+### R4.5 Verification
+- `pytest tests/`: 991 passed, 40 skipped.
+- `CALOSRV_BROWSER_TESTS=1`: the admin panel 5, the upload dialog 4, tooltips 16, all passing.
+- Still to run, only with the user's go-ahead and alone on the machine: ingest the 2.9 GB production archive part
+  (100k-row groups) and a 1M-row-group re-export as Parquet; record time, peak RSS and disk growth; set
+  `parquet_headroom_factor` from them.
+
+### Implementation notes (revision 4)
+
+44. **Why the defaults ride on `/api/experiments`.** The boot already awaits it before the first render, and the
+    default experiment is resolved against the same registry snapshot. A separate request would race it.
+45. **Pre-flight costs.**
+    - For a Parquet file: the footer, then columnar scans of the integer columns wider than their pinned type
+      (dry-run `TRY_CAST`) and of the float nullable columns (NaN count). No full read.
+    - For a CSV: the header line, as before.
+46. **DuckDB facts relied on:**
+    - `parquet_file_metadata().num_rows` counts once per file;
+    - `TRY_CAST` out of range gives NULL;
+    - NaN = NaN is true;
+    - no row group is written below the 2,048-row vector (hence the six-fold repeat in the row-count test).
+47. **Test isolation.** The booted fixtures now forget each other's boot variables (`conftest.clean_boot_env`);
+    `live_server` moved to `conftest` and carries an empty drop folder for Scan now.
