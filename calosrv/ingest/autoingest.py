@@ -108,7 +108,8 @@ def candidates(root: Path, settle_s: float, now: float) -> tuple[list[Path], lis
         if age < settle_s:
             waiting.append(ScanEntry(
                 name, None, "unsettled",
-                f"Modified {age:.0f} s ago. It is picked up once it has been unchanged for "
+                # A clock ahead of the server's gives a negative age: "just now".
+                f"Modified {max(age, 0.0):.0f} s ago. It is picked up once it has been unchanged for "
                 f"{settle_s:.0f} s: at the next start, or with Scan now.",
             ))
             continue

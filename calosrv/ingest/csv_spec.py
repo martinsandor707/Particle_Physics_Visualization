@@ -23,6 +23,7 @@ from pathlib import Path
 from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES, SCHEMA_NAME
 from ..db.naming import quote
 from ..errors import IngestError
+from ..text import listed
 
 #: What an empty field means in this dataset.
 #:
@@ -110,9 +111,9 @@ def validate_header(path: Path) -> None:
     if missing or unexpected:
         parts = []
         if missing:
-            parts.append(f"missing columns: {', '.join(missing)}")
+            parts.append(f"missing columns: {listed(missing)}")
         if unexpected:
-            parts.append(f"unexpected columns: {', '.join(unexpected)}")
+            parts.append(f"unexpected columns: {listed(unexpected)}")
         message = (
             f"{path.name} does not match the {SCHEMA_NAME} input schema "
             f"({n_expected} columns; {'; '.join(parts)})."

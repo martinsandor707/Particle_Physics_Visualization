@@ -26,6 +26,7 @@ import duckdb
 from ..db.ddl import HIT_COLUMN_NAMES, HIT_COLUMNS, NULLABLE_COLUMNS, SCHEMA_NAME
 from ..db.naming import quote
 from ..errors import IngestError
+from ..text import listed
 from .source_check import SourceCheck
 
 #: DuckDB's names for the integer types a Parquet column can arrive as.
@@ -92,9 +93,9 @@ def _check_columns(path: Path, found: dict[str, str]) -> list[str]:
         return ignored
     parts = []
     if missing:
-        parts.append(f"missing columns: {', '.join(missing)}")
+        parts.append(f"missing columns: {listed(missing)}")
     if unexpected:
-        parts.append(f"unexpected columns: {', '.join(unexpected)}")
+        parts.append(f"unexpected columns: {listed(unexpected)}")
     message = (
         f"{path.name} does not match the {SCHEMA_NAME} input schema "
         f"({len(HIT_COLUMN_NAMES)} columns; {'; '.join(parts)})."

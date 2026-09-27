@@ -36,3 +36,16 @@ def typographic(text: str) -> str:
 def signed_hyphens(text: str) -> list[str]:
     """The places a hyphen-minus still signs a number, for tests."""
     return [text[max(0, m.start() - 12):m.end() + 6] for m in _SIGNED.finditer(text)]
+
+
+def listed(names, limit: int = 8) -> str:
+    """Names for a sentence: all of them when few, else the first ``limit`` and the count.
+
+    A file in the wrong schema can miss 95 of 99 columns; naming every one buries
+    the sentence that says what the file is, and the full lists travel beside
+    the message in the problem's ``expected`` and ``found`` fields anyway.
+    """
+    names = list(names)
+    if len(names) <= limit:
+        return ", ".join(names)
+    return f"{', '.join(names[:limit])}, … ({len(names)} in all)"
