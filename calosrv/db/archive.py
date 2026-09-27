@@ -63,6 +63,9 @@ class ArchivePart:
     event_max: int | None
     written_at: str
     duckdb_version: str
+    #: ``csv`` or ``parquet``. Defaulted, so manifests written before Parquet
+    #: sources existed still load: every one of those parts came from a CSV.
+    source_format: str = "csv"
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -187,6 +190,7 @@ def copy_to_part_sql(select_sql: str, destination: Path) -> str:
 def new_part(
     *, file: str, rows: int, size: int, source_name: str, source_bytes: int,
     event_offset: int, event_range: tuple[int, int] | None, duckdb_version: str,
+    source_format: str = "csv",
 ) -> ArchivePart:
     return ArchivePart(
         file=file, rows=int(rows), bytes=int(size),
@@ -196,6 +200,7 @@ def new_part(
         event_max=event_range[1] if event_range else None,
         written_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         duckdb_version=duckdb_version,
+        source_format=source_format,
     )
 
 

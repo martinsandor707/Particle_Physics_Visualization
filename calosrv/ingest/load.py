@@ -1,4 +1,4 @@
-"""Load a validated CSV into the experiment's Parquet archive."""
+"""Load a validated CSV or Parquet source into the experiment's Parquet archive."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import duckdb
 
 from ..config import Settings
 from ..db import archive, naming
-from ..db.ddl import HIT_COLUMN_NAMES, SCHEMA_NAME, SCHEMA_VERSION, drop_table
-from ..db.naming import quote
+from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION, drop_table
 from ..errors import EventRangeCollisionError, IngestError
-from . import csv_spec
+from . import formats
+from .source_check import SourceCheck
 
 log = logging.getLogger(__name__)
 
@@ -69,40 +69,29 @@ def check_append_collision(
         )
 
 
-def _select_sql(path: Path, event_offset: int) -> str:
-    """Every column in file order, typed by the pinned reader."""
-    if event_offset:
-        projected = ", ".join(
-            # Cast back to the pinned INTEGER: an offset that overflows it is
-            # an error here, not an INT64 part beside INT32 ones.
-            f"CAST(event_number + {int(event_offset)} AS INTEGER) AS event_number"
-            if c == "event_number"
-            else quote(c)
-            for c in HIT_COLUMN_NAMES
-        )
-    else:
-        projected = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
-    return f"SELECT {projected} FROM {csv_spec.read_csv_expression(path)}"
-
-
-def load_csv(
+def load_source(
     con: duckdb.DuckDBPyConnection,
     settings: Settings,
     name: str,
     path: Path,
+    *,
+    fmt: str = formats.CSV,
+    check: SourceCheck | None = None,
     mode: str = MODE_CREATE_NEW,
     event_offset: int = 0,
     source_name: str | None = None,
     commit: bool = True,
 ) -> LoadResult:
-    """Validate ``path`` and commit it to the archive as one new Parquet part.
+    """Commit ``path`` - already validated as ``fmt`` - to the archive as one new part.
 
     ``create_new`` drops the experiment's derived tables - including a legacy
     ``hit_<name>`` table from the retired v37 schema - and its archive first.
     ``append`` adds a part after checking the event ranges do not collide.
 
-    The CSV is parsed exactly once, straight into the part; the event range is
-    then read from the part's statistics, not from a second pass over the CSV.
+    The source is read exactly once, straight into the part, whatever its
+    format; the event range is then read from the part's statistics, not from a
+    second pass over the source. ``check`` is the pre-flight result, which says
+    which columns need NaN read as undefined.
 
     ``commit=False`` leaves the part out of the written manifest: the returned
     in-memory manifest lists it, so an append can derive and verify over it and
@@ -116,7 +105,6 @@ def load_csv(
         raise IngestError(
             f"Unknown upload mode {mode!r}; expected one of {', '.join(VALID_MODES)}."
         )
-    csv_spec.validate_header(path)
     root = archive.archive_path(settings, name)
 
     if mode == MODE_CREATE_NEW:
@@ -143,7 +131,7 @@ def load_csv(
     log.info("Archiving %s into %s (mode=%s)", path.name, part, mode)
     try:
         written = con.execute(
-            archive.copy_to_part_sql(_select_sql(path, event_offset), tmp)
+            archive.copy_to_part_sql(formats.select_sql(path, fmt, event_offset, check), tmp)
         ).fetchone()
     except duckdb.Error as exc:
         tmp.unlink(missing_ok=True)
@@ -168,7 +156,7 @@ def load_csv(
         file=part.name, rows=rows, size=part.stat().st_size,
         source_name=source_name or path.name, source_bytes=path.stat().st_size,
         event_offset=event_offset, event_range=incoming,
-        duckdb_version=duckdb.__version__,
+        duckdb_version=duckdb.__version__, source_format=fmt,
     ))
     if commit:
         archive.write_manifest(settings, name, manifest)

@@ -1,4 +1,4 @@
-"""``python -m calosrv.ingest`` - ingest a CSV without pushing it through HTTP.
+"""``python -m calosrv.ingest`` - ingest a CSV or Parquet file without pushing it through HTTP.
 
 The upload endpoint accepts files of any size, but sending 24 GB from a browser
 is slow, unresumable and easy to interrupt. For datasets already on the host -
@@ -54,17 +54,17 @@ log = logging.getLogger("calosrv.ingest.cli")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m calosrv.ingest",
-        description="Ingest a calorimeter inference CSV into the DuckDB store.",
+        description="Ingest a calorimeter inference CSV or Parquet file into the DuckDB store.",
     )
     parser.add_argument(
         "--input", "-i", type=Path, default=None,
-        help="Path to the CSV file to ingest (not needed with --rebuild).",
+        help="Path to the CSV or Parquet file to ingest (not needed with --rebuild).",
     )
     parser.add_argument(
         "--rebuild", action="store_true",
         help=(
             "Re-derive every table of --table from its Parquet archive, reading no "
-            "CSV. Direct mode only."
+            "source file. Direct mode only."
         ),
     )
     parser.add_argument(

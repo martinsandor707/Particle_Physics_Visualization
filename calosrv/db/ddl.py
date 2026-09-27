@@ -173,6 +173,15 @@ HIT_COLUMNS: tuple[tuple[str, str], ...] = _hit_columns()
 
 HIT_COLUMN_NAMES: tuple[str, ...] = tuple(name for name, _ in HIT_COLUMNS)
 
+#: The columns that are legitimately empty: every ``centroid_A_*`` coordinate and
+#: the three ``centroid_AB_distance*`` columns, in the events where shower A
+#: deposited nothing (57 on the production file). No A centroid exists there, so
+#: the separation is undefined, and every consumer tests that with ``IS NULL``.
+NULLABLE_COLUMNS: tuple[str, ...] = tuple(
+    name for name in HIT_COLUMN_NAMES
+    if name.startswith("centroid_A_") or name.startswith("centroid_AB_distance")
+)
+
 
 # ----------------------------------------------------- projection table --
 

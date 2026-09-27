@@ -132,6 +132,12 @@ class Settings:
     #: on the host (no staging copy): the archive, the derived tables and spill.
     local_headroom_factor: float = 1.0
 
+    #: The same for a Parquet source, which arrives already compressed: its
+    #: archive comes out near its own size and the database near it again, where
+    #: a CSV's are an eighth. Provisional until measured on the production file;
+    #: an uploaded Parquet file adds one staged copy on top.
+    parquet_headroom_factor: float = 2.5
+
     #: Test-only escape hatch for the RAM-backed-storage refusal
     #: (``CALOSRV_ALLOW_RAM_STORAGE=1``). Never set by the container.
     allow_ram_storage: bool = False
