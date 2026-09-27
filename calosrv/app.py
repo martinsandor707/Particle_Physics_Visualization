@@ -208,10 +208,18 @@ async def lifespan(app: FastAPI):
         reseed = bootstrap_mod.retire_unsupported(con, BASELINE_TABLE, settings)
         empty = bootstrap_mod.is_empty(con) or reseed
 
-    jobs_mod.get_job_store(database)
+    store = jobs_mod.get_job_store(database)
     if empty:
         seed_baseline(database, settings)
-    else:
+
+    # Files dropped into the drop folder queue behind the seed and before any
+    # warming. The scan only decides and submits - the ingests run on the job
+    # worker - so the server is serving within moments whatever it finds.
+    from .ingest import autoingest
+
+    app.state.auto_ingest = autoingest.scan(database, settings, store)
+
+    if not empty:
         # Warm the co-registered frames' full-range bundles for every ready
         # experiment - canonical first, then translated and local, one scan at
         # a time: cold, each costs seconds on the production table.

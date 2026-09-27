@@ -73,6 +73,31 @@ def validate_experiment_name(name: str) -> str:
     return candidate
 
 
+#: Prefix given to a derived name whose file starts with a digit, which the
+#: pattern forbids: ``2026_run.csv`` becomes ``exp_2026_run``.
+DIGIT_PREFIX = "exp_"
+
+_NOT_NAME_CHARACTER = re.compile(r"[^a-z0-9]+")
+
+
+def derive_experiment_name(stem: str) -> str:
+    """The experiment name the automatic ingest gives a dropped file.
+
+    The stem is lower-cased, every run of other characters becomes one
+    underscore, leading and trailing underscores go, a leading digit gets
+    :data:`DIGIT_PREFIX`, and the result is cut to 48 characters. That is a
+    derivation, not a sanitisation of user input into acceptability: the
+    result still has to pass :func:`validate_experiment_name`, so a reserved
+    word or the sample suffix is refused rather than bent into something else.
+
+    ``Production-20k (v2)`` -> ``production_20k_v2``.
+    """
+    name = _NOT_NAME_CHARACTER.sub("_", stem.lower()).strip("_")
+    if name[:1].isdigit():
+        name = DIGIT_PREFIX + name
+    return validate_experiment_name(name[:48].rstrip("_"))
+
+
 def hit_table(name: str) -> str:
     """Physical name of the retired v37 raw hit table for ``name``.
 

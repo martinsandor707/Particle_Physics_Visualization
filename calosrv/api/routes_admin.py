@@ -1,7 +1,8 @@
-"""``/api/admin/config`` - the defaults behind the Admin Settings panel.
+"""``/api/admin/*`` - the defaults and the automatic ingest behind the Admin Settings panel.
 
-The panel reads the effective default view with ``GET`` and saves changes with
-``POST``. Scripts can use the same two calls. No endpoint in this service is
+The panel reads the effective default view with ``GET /api/admin/config`` and
+saves changes with ``POST``; ``POST /api/admin/auto-ingest/scan`` is its Scan
+now. Scripts can use the same calls. No endpoint in this service is
 authenticated, and this one follows the same trust model as upload and delete:
 anyone who can reach the port can change what a new session opens on.
 """
@@ -13,6 +14,9 @@ from typing import Any
 from fastapi import APIRouter, Body, Request
 
 from ..admin.store import DefaultsStore
+from ..errors import ConflictError
+from ..ingest import autoingest
+from ..ingest import jobs as jobs_mod
 from ..models.common import json_safe
 from ..query import experiments
 from .deps import CursorDep, SettingsDep
@@ -55,3 +59,19 @@ def post_config(
     store = _store(request)
     store.update(patch, records)
     return json_safe(store.admin_view(records, _auto_ingest(request)))
+
+
+@router.post("/api/admin/auto-ingest/scan", summary="Scan the drop folder now")
+def scan_now(request: Request, settings: SettingsDep):
+    """What a restart would do, without the restart: queue every new file.
+
+    Idempotent like the boot-time scan - a file whose experiment exists, or
+    whose content is already archived, is skipped - and serialised, so two
+    clicks cannot queue one file twice.
+    """
+    database = request.app.state.database
+    report = autoingest.scan(database, settings, jobs_mod.get_job_store(database))
+    request.app.state.auto_ingest = report
+    if not report.enabled:
+        raise ConflictError(f"Automatic ingest is off: {report.reason}", reason=report.reason)
+    return json_safe(report.as_dict())

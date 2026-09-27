@@ -2,8 +2,11 @@
 # uploaded to the Docker daemon on every build.
 *.csv
 !hits_all_models_dummy.csv
+*.parquet
 
 data/
+# The drop folder reaches the container through the read-only mount, not the image.
+ingest/
 .venv/
 .git/
 __pycache__/

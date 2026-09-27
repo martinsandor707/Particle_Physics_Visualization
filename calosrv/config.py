@@ -151,6 +151,16 @@ class Settings:
     #: pairs - unvalidated here; see :data:`DEFAULT_ENV_VARS`.
     env_defaults: tuple[tuple[str, str], ...] = ()
 
+    #: The drop folder scanned at every start (``calosrv/ingest/autoingest.py``).
+    #: Unset by default, so nothing is ingested unless a deployment asks: compose
+    #: points it at the repository's ./ingest, mounted read-only. A path that
+    #: does not exist is kept, so the Admin Settings panel can say so.
+    auto_ingest_dir: Path | None = None
+
+    #: A file modified more recently than this many seconds is skipped as still
+    #: being written; the next scan picks it up.
+    auto_ingest_settle_s: int = 30
+
     #: Entries in the canonical-frame bundle cache. A canonical bundle spans a
     #: grid of up to 350 x 138 transverse bins across six planes - two to four
     #: megabytes against roughly two for a lab bundle - so it gets a smaller
@@ -206,6 +216,7 @@ def load_settings() -> Settings:
     port = _int_env("PORT", 8000)
 
     config_path = Path(os.getenv("CALOSRV_CONFIG_PATH", "").strip() or data_dir / "config.json")
+    raw_auto = os.getenv("CALOSRV_AUTO_INGEST_DIR", "").strip()
     env_defaults = tuple(
         (field_name, os.environ[variable].strip())
         for field_name, variable in DEFAULT_ENV_VARS
@@ -236,4 +247,6 @@ def load_settings() -> Settings:
         allow_ram_storage=os.getenv("CALOSRV_ALLOW_RAM_STORAGE", "").strip() == "1",
         config_path=config_path,
         env_defaults=env_defaults,
+        auto_ingest_dir=Path(raw_auto) if raw_auto else None,
+        auto_ingest_settle_s=max(0, _int_env("CALOSRV_AUTO_INGEST_SETTLE_S", 30)),
     )
