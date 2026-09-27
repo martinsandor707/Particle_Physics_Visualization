@@ -30,6 +30,10 @@ export class UploadModal {
     this.serverRow = document.getElementById('upload-server-row');
     this.onComplete = onComplete || (() => {});
     this.info = null;
+    // True from the moment a transfer or server-side ingest starts until its
+    // job finishes. Closing the modal does not stop either, so reopening it
+    // must not re-arm Submit while one is still running.
+    this.busy = false;
 
     for (const input of document.querySelectorAll('input[name="upload-source"]')) {
       input.addEventListener('change', () => this.setSource(input.value));
@@ -50,7 +54,7 @@ export class UploadModal {
 
   async open() {
     this.backdrop.hidden = false;
-    this.reset();
+    if (!this.busy) this.reset();
     try {
       this.info = await getJson('/api/upload-info', {}, 'upload-info');
       this.warning.textContent = this.info.warning;
@@ -87,14 +91,13 @@ export class UploadModal {
   }
 
   close() {
+    // Hiding the modal must not stop the job poll: the ingest carries on
+    // server-side, and onComplete is what brings its experiment on screen.
     this.backdrop.hidden = true;
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
   }
 
   reset() {
+    this.busy = false;
     this.progressRow.hidden = true;
     this.progressBar.style.width = '0';
     this.submit.disabled = false;
@@ -129,6 +132,7 @@ export class UploadModal {
   }
 
   async start() {
+    if (this.busy) return false;
     const table = this.tableInput.value.trim();
 
     if (!table) return this.fail('Enter an experiment name.');
@@ -153,6 +157,7 @@ export class UploadModal {
     form.append('mode', mode);
     form.append('display_name', table);
 
+    this.busy = true;
     this.submit.disabled = true;
     this.submit.textContent = 'Uploading…';
     this.progressRow.hidden = false;
@@ -187,6 +192,7 @@ export class UploadModal {
     const path = this.serverSelect.value;
     if (!path) return this.fail('No server-side file selected.');
 
+    this.busy = true;
     this.submit.disabled = true;
     this.submit.textContent = 'Ingesting…';
     this.progressRow.hidden = false;
@@ -234,6 +240,7 @@ export class UploadModal {
             `${formatInt(result.n_events)} events.`;
           this.progressBar.style.width = '100%';
           this.submit.textContent = 'Done';
+          this.busy = false;
           this.onComplete(job);
           setTimeout(() => this.close(), 1600);
           return;

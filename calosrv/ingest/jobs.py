@@ -53,6 +53,11 @@ class IngestJob:
     progress: float = 0.0
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    #: When the job was queued. Always set and timezone-aware, so jobs can be
+    #: ordered before any of them has started.
+    submitted_at: dt.datetime = field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
     started_at: dt.datetime | None = None
     finished_at: dt.datetime | None = None
     result: dict[str, Any] = field(default_factory=dict)
@@ -70,6 +75,7 @@ class IngestJob:
             "progress": round(self.progress, 4),
             "error": self.error,
             "warnings": list(self.warnings),
+            "submitted_at": self.submitted_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "result": self.result,
@@ -92,9 +98,15 @@ class JobStore:
             return self._jobs.get(job_id)
 
     def recent(self, limit: int = 20) -> list[IngestJob]:
+        """The latest jobs, newest submission first.
+
+        Ordered by submission rather than start: a queued job has not started,
+        and mixing its missing start time with the aware ones of started jobs
+        is what used to raise here whenever one job ran while another waited.
+        """
         with self._lock:
             jobs = list(self._jobs.values())
-        jobs.sort(key=lambda j: j.started_at or dt.datetime.min, reverse=True)
+        jobs.sort(key=lambda j: j.submitted_at, reverse=True)
         return jobs[:limit]
 
     def submit(

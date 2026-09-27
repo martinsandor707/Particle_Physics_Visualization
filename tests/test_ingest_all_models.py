@@ -61,6 +61,16 @@ def test_the_demonstration_header_matches_the_schema():
     csv_spec.validate_header(SEED_CSV)
 
 
+def test_a_binary_file_is_refused_with_a_reason_not_a_crash(tmp_path):
+    """A compressed CSV used to escape the header check as a bare UnicodeDecodeError."""
+    import gzip
+
+    packed = tmp_path / "packed.csv"
+    packed.write_bytes(gzip.compress(SEED_CSV.read_bytes()[:4096]))
+    with pytest.raises(IngestError, match="not a UTF-8 text CSV"):
+        csv_spec.validate_header(packed)
+
+
 # --------------------------------------------------------------- archive --
 
 
@@ -372,6 +382,25 @@ def test_deleting_an_experiment_removes_its_archive(ingested):
         assert drop_experiment(con, "doomed_experiment", settings) is True
         assert registry.get_experiment(con, "doomed_experiment") is None
     assert not path.exists()
+
+
+def test_a_replacing_ingest_lists_only_its_own_source(ingested):
+    """create_new drops every earlier row, so its record must not keep naming their files."""
+    from calosrv.db.bootstrap import drop_experiment
+
+    database, settings = ingested["database"], ingested["settings"]
+    name = "resealed_experiment"
+    try:
+        with database.write_lock() as con:
+            pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="first.csv",
+                                build_sample=False)
+            pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="second.csv",
+                                build_sample=False)
+            record = registry.get_experiment(con, name)
+        assert record.source_files == ["second.csv"]
+    finally:
+        with database.write_lock() as con:
+            drop_experiment(con, name, settings)
 
 
 # ------------------------------------------ the real-data fixture, if present --

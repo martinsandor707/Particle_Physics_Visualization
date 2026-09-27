@@ -106,10 +106,10 @@ def list_local_files(settings: Settings, limit: int = 200) -> list[dict]:
                     "modified": stat.st_mtime,
                 }
             )
-            if len(entries) >= limit:
-                break
     except OSError as exc:  # pragma: no cover - unreadable mount
         log.warning("Could not list %s: %s", root, exc)
 
+    # Sort before truncating: cutting first kept whichever files the directory
+    # walk happened to reach, not the newest ones the docstring promises.
     entries.sort(key=lambda e: e["modified"], reverse=True)
-    return entries
+    return entries[:limit]
