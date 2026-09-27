@@ -28,6 +28,20 @@ LARGE_MEMORY_GB = 64
 #: ``query/projections.py`` is bound by memory bandwidth, not by cores.
 MAX_THREADS = 32
 
+#: The environment layer of the admin panel's defaults (``calosrv/admin``), one
+#: variable per field. It sits beneath what the panel saves and above the
+#: built-in view: a deployment can ship its team's defaults here, and the panel
+#: can still override them at runtime. Values are validated by the admin store,
+#: which ignores an invalid one with a warning rather than refusing to boot.
+DEFAULT_ENV_VARS: tuple[tuple[str, str], ...] = (
+    ("default_dataset", "CALOSRV_DEFAULT_DATASET"),
+    ("default_coord_system", "CALOSRV_DEFAULT_COORD_SYSTEM"),
+    ("default_model", "CALOSRV_DEFAULT_MODEL"),
+    ("default_channel", "CALOSRV_DEFAULT_CHANNEL"),
+    ("default_display_mode", "CALOSRV_DEFAULT_DISPLAY_MODE"),
+    ("default_rho_norm", "CALOSRV_DEFAULT_RHO_NORM"),
+)
+
 
 def _int_env(name: str, default: int) -> int:
     """Read an integer environment variable, falling back on any bad value.
@@ -122,6 +136,15 @@ class Settings:
     #: (``CALOSRV_ALLOW_RAM_STORAGE=1``). Never set by the container.
     allow_ram_storage: bool = False
 
+    #: Where the admin panel saves its defaults. A JSON file on the data volume
+    #: rather than a DuckDB table, because an ingest holds DuckDB's write lock
+    #: for minutes and a save must not wait behind it.
+    config_path: Path = Path("/app/data/config.json")
+
+    #: The ``CALOSRV_DEFAULT_*`` variables that were set, as (field, raw value)
+    #: pairs - unvalidated here; see :data:`DEFAULT_ENV_VARS`.
+    env_defaults: tuple[tuple[str, str], ...] = ()
+
     #: Entries in the canonical-frame bundle cache. A canonical bundle spans a
     #: grid of up to 350 x 138 transverse bins across six planes - two to four
     #: megabytes against roughly two for a lab bundle - so it gets a smaller
@@ -176,6 +199,13 @@ def load_settings() -> Settings:
 
     port = _int_env("PORT", 8000)
 
+    config_path = Path(os.getenv("CALOSRV_CONFIG_PATH", "").strip() or data_dir / "config.json")
+    env_defaults = tuple(
+        (field_name, os.environ[variable].strip())
+        for field_name, variable in DEFAULT_ENV_VARS
+        if os.getenv(variable, "").strip()
+    )
+
     return Settings(
         memory_gb=memory_gb,
         threads=resolve_threads(memory_gb, cpu_cores),
@@ -198,4 +228,6 @@ def load_settings() -> Settings:
         canonical_cache_entries=max(1, _int_env("CALOSRV_CANONICAL_CACHE_ENTRIES", 32)),
         archive_dir=archive_dir,
         allow_ram_storage=os.getenv("CALOSRV_ALLOW_RAM_STORAGE", "").strip() == "1",
+        config_path=config_path,
+        env_defaults=env_defaults,
     )

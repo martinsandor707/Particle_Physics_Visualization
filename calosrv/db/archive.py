@@ -31,20 +31,19 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..fsutil import TMP_SUFFIX, atomic_write_text
 from . import naming
 
 log = logging.getLogger(__name__)
 
 ARCHIVE_SUBDIR = "archive"
 PART_PATTERN = "part-{:05d}.parquet"
-TMP_SUFFIX = ".tmp"
 MANIFEST = "manifest.json"
 
 #: Rows per Parquet row group, and the zstd level. See the module docstring.
@@ -133,12 +132,11 @@ def read_manifest(settings: Settings, name: str) -> Manifest | None:
 
 
 def write_manifest(settings: Settings, name: str, manifest: Manifest) -> None:
-    """Replace the manifest atomically."""
-    path = _manifest_path(settings, name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + TMP_SUFFIX)
-    tmp.write_text(json.dumps(manifest.as_dict(), indent=1, sort_keys=True), encoding="utf-8")
-    os.replace(tmp, path)
+    """Replace the manifest atomically, and durably: it is what readers trust."""
+    atomic_write_text(
+        _manifest_path(settings, name),
+        json.dumps(manifest.as_dict(), indent=1, sort_keys=True),
+    )
 
 
 def part_paths(settings: Settings, name: str, manifest: "Manifest | None" = None) -> list[Path]:

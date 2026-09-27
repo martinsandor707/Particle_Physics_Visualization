@@ -101,11 +101,16 @@ def dataset_reference(
     return {**density.selection_peaks(bundle), "k": k}
 
 
-def warm(database, settings: Settings, table_names: Iterable[str]) -> threading.Thread:
+def warm(
+    database, settings: Settings, table_names: Iterable[str], model: str = "segmentation",
+) -> threading.Thread:
     """Compute the full-range canonical bundle of each experiment in the background.
 
     Best effort: a failure is logged, never raised, because a warm cache is a
     convenience and the request path computes the same bundle on demand.
+    ``model`` is the network whose bundle is built: the canonical path does not
+    reuse another model's bundle even for density, so the default model's is
+    the one a new session needs.
     """
     names = [n for n in table_names]
 
@@ -116,7 +121,8 @@ def warm(database, settings: Settings, table_names: Iterable[str]) -> threading.
                     record = registry.require_ready(con, name)
                     footprint = canonical.cell_footprint(con, record)
                     _, stats, grid, k, was_cached = bundle_for(
-                        con, record, filters.build(record), settings, footprint, False, 100.0
+                        con, record, filters.build(record), settings, footprint, False, 100.0,
+                        model,
                     )
                 log.info(
                     "Canonical cache warmed for %s: %s events, k=%d, grid %dx%d%s",
