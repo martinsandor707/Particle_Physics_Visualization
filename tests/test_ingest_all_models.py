@@ -395,7 +395,7 @@ def test_a_replacing_ingest_lists_only_its_own_source(ingested):
             pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="first.csv",
                                 build_sample=False)
             pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="second.csv",
-                                build_sample=False)
+                                build_sample=False, force_reingest=True)
             record = registry.get_experiment(con, name)
         assert record.source_files == ["second.csv"]
     finally:

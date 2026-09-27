@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 class UploadMode(str, Enum):
     """What to do with an experiment name that may already exist.
 
-    ``CREATE_NEW`` drops every table belonging to that name first, producing a
-    clean, isolated experiment. ``APPEND`` adds to the existing one, and is
+    ``CREATE_NEW`` produces a clean, isolated experiment. Onto a name that
+    already holds one it is refused unless ``force_reingest`` is set, which
+    drops every table and the archive of that name first. ``APPEND`` adds to
+    the existing one, and is
     rejected if the incoming event numbers overlap those already present -
     merging two files that each number events from zero would fuse distinct
     physics events.

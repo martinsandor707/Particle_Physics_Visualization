@@ -916,6 +916,8 @@ dom.bannerClose.addEventListener('click', () => {
 });
 
 new UploadModal({
+  // The dialog asks this before sending: whether a name is taken, and by what.
+  getExperiments: () => experiments,
   onComplete: async (job) => {
     // Open the experiment that was just ingested, not the one on screen.
     if (job && job.table_name) state.set({ table_name: job.table_name }, { silent: true });
