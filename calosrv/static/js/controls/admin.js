@@ -314,9 +314,12 @@ export class AdminModal {
   renderIngest() {
     const ingest = this.config?.auto_ingest;
     if (!ingest || !ingest.enabled) {
-      this.ingestWhere.textContent = 'Automatic ingest is off. Set CALOSRV_AUTO_INGEST_DIR '
-        + 'to a folder (the compose file uses /app/host/ingest, which is ./ingest on the host) '
-        + 'and every CSV or Parquet file dropped there becomes an experiment at the next start.';
+      // A configured folder that is missing says so; an unset one says how to set it.
+      this.ingestWhere.textContent = ingest?.dir
+        ? `Automatic ingest is off: ${ingest.reason || 'the drop folder is unavailable.'}`
+        : 'Automatic ingest is off. Set CALOSRV_AUTO_INGEST_DIR to a folder (the compose '
+          + 'file uses /app/host/ingest, which is ./ingest on the host) and every CSV or '
+          + 'Parquet file dropped there becomes an experiment at the next start.';
       this.ingestTable.hidden = true;
       this.scanButton.disabled = true;
       return;

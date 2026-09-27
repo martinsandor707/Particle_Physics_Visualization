@@ -26,6 +26,21 @@ os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
 
 TABLE = "test_experiment"
 
+#: Variables a booted server reads that the fixtures below set or must not
+#: inherit. The fixtures write os.environ directly, so without this a drop
+#: folder or a default set for one booted module would reach the next.
+_BOOT_ENV = (
+    "CALOSRV_AUTO_INGEST_DIR", "CALOSRV_AUTO_INGEST_SETTLE_S", "CALOSRV_CONFIG_PATH",
+    "CALOSRV_DEFAULT_DATASET", "CALOSRV_DEFAULT_COORD_SYSTEM", "CALOSRV_DEFAULT_MODEL",
+    "CALOSRV_DEFAULT_CHANNEL", "CALOSRV_DEFAULT_DISPLAY_MODE", "CALOSRV_DEFAULT_RHO_NORM",
+)
+
+
+def clean_boot_env() -> None:
+    """Forget every boot-time variable a previous booted fixture may have set."""
+    for name in _BOOT_ENV:
+        os.environ.pop(name, None)
+
 
 def pytest_collection_modifyitems(session, config, items):
     """Run every booted-server test before the ingested-database tests.
@@ -40,7 +55,8 @@ def pytest_collection_modifyitems(session, config, items):
     """
     booted = [
         item for item in items
-        if {"client", "live_server", "synthetic_client"} & set(getattr(item, "fixturenames", ()))
+        if {"client", "live_server", "synthetic_client", "auto_client"}
+        & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
@@ -109,6 +125,7 @@ def client(tmp_path_factory):
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()
 
     data_dir = tmp_path_factory.mktemp("api-data")
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
@@ -151,6 +168,7 @@ def synthetic_client(tmp_path_factory):
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()
 
     data_dir = tmp_path_factory.mktemp("synthetic-data")
     csv_path = data_dir / "hits_all_models_synthetic.csv"
@@ -221,7 +239,12 @@ def live_server(tmp_path_factory):
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()
     os.environ["CALOSRV_DATA_DIR"] = str(tmp_path_factory.mktemp("browser-data"))
+    # An empty drop folder, so the Admin Settings panel's Scan now can be driven.
+    drop = tmp_path_factory.mktemp("browser-drop")
+    os.environ["CALOSRV_AUTO_INGEST_DIR"] = str(drop)
+    os.environ["CALOSRV_AUTO_INGEST_SETTLE_S"] = "0"
     os.environ["DUCKDB_MEMORY_GB"] = "2"
     os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
 
@@ -247,10 +270,11 @@ def live_server(tmp_path_factory):
         server.should_exit = True
         pytest.fail("the server never reported a ready experiment")
 
-    yield {"base": base, "playwright": playwright}
+    yield {"base": base, "playwright": playwright, "drop": drop}
 
     server.should_exit = True
     thread.join(timeout=10)
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()

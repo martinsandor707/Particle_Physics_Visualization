@@ -135,10 +135,27 @@ def test_escape_closes_the_panel_and_returns_focus(clean):
         browser.close()
 
 
-def test_the_panel_says_when_automatic_ingest_is_off(clean):
+def test_scan_now_ingests_a_file_dropped_into_the_folder(clean):
+    """The live server's drop folder starts empty; a file dropped in is one click away."""
+    import shutil
+
+    from conftest import SEED_CSV
+
     with clean["playwright"].sync_playwright() as p:
         browser, page = _page(p, clean["base"])
         _open_panel(page)
-        assert "Automatic ingest is off" in page.inner_text("#admin-ingest-where")
-        assert page.is_disabled("#admin-scan")
+        assert "no CSV or Parquet files found" in page.inner_text("#admin-ingest-where")
+        shutil.copyfile(SEED_CSV, clean["drop"] / "panel_drop.csv")
+        page.click("#admin-scan")
+        page.wait_for_function(
+            "() => [...document.querySelectorAll('#admin-ingest-rows tr')].some((row) =>"
+            " row.cells[0].textContent === 'panel_drop.csv'"
+            " && row.cells[2].textContent === 'ingested — ready')",
+            timeout=60_000,
+        )
+        # The experiment joins the header's list without a reload.
+        page.wait_for_function(
+            "() => !!document.querySelector('#experiment-select option[value=\"panel_drop\"]')",
+            timeout=30_000,
+        )
         browser.close()
