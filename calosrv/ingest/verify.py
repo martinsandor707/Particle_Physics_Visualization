@@ -25,7 +25,7 @@ import duckdb
 from ..db import naming
 from ..db.ddl import CSV_FRAMES, MODEL_FIELDS, MODELS, csv_model_column
 from ..db.naming import quote
-from . import csv_spec
+from . import formats
 from .derive_proj import FRAME_COORDINATES, keep_predicate
 
 log = logging.getLogger(__name__)
@@ -154,13 +154,14 @@ def _archive_checks(con: duckdb.DuckDBPyConnection, source: str, pitch: float) -
 def verify(
     con: duckdb.DuckDBPyConnection,
     name: str,
-    source_csv: Path | None,
+    source: Path | None,
     archive_source: str,
     archive_rows: int,
     layer_pitch_mm: float,
     part_rows: int | None = None,
     lattice_n: tuple[int, int, int] | None = None,
     depth_mm: float | None = None,
+    source_format: str = "csv",
 ) -> VerificationResult:
     """Check the archive and the derived tables against the source and each other."""
     result = VerificationResult()
@@ -176,7 +177,8 @@ def verify(
     # 1. Every data row of the source must have reached the archive: the part
     #    just written holds the source's rows, and the manifest agrees with the
     #    parts actually on disk (an append adds one part to several).
-    expected = csv_spec.count_data_rows(source_csv) if source_csv and source_csv.is_file() else None
+    expected = (formats.count_rows(con, source, source_format)
+                if source is not None and source.is_file() else None)
     if n_parquet != archive_rows:
         result.fail("archive_row_count",
                     f"The archive manifest lists {archive_rows:,} rows but its parts hold {n_parquet:,}.")

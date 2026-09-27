@@ -21,6 +21,7 @@ import csv
 from pathlib import Path
 
 from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES, SCHEMA_NAME
+from ..db.naming import quote
 from ..errors import IngestError
 
 #: What an empty field means in this dataset.
@@ -57,6 +58,22 @@ def read_csv_expression(path: Path) -> str:
         "parallel = true, "
         f"columns = {columns_clause()})"
     )
+
+
+def select_sql(path: Path, event_offset: int = 0) -> str:
+    """Every column in file order, typed by the pinned reader."""
+    if event_offset:
+        projected = ", ".join(
+            # Cast back to the pinned INTEGER: an offset that overflows it is
+            # an error here, not an INT64 part beside INT32 ones.
+            f"CAST(event_number + {int(event_offset)} AS INTEGER) AS event_number"
+            if c == "event_number"
+            else quote(c)
+            for c in HIT_COLUMN_NAMES
+        )
+    else:
+        projected = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
+    return f"SELECT {projected} FROM {read_csv_expression(path)}"
 
 
 def validate_header(path: Path) -> None:

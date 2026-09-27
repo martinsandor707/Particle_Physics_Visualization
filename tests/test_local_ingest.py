@@ -86,6 +86,15 @@ def test_non_csv_is_refused(rooted):
         local.resolve_local_path(settings, "notes.md")
 
 
+def test_a_parquet_file_resolves_and_is_listed_as_one(rooted):
+    settings, root, _ = rooted
+    (root / "run7.parquet").write_bytes(b"PAR1" + b"\0" * 8 + b"PAR1")
+    assert local.resolve_local_path(settings, "run7.parquet") == root / "run7.parquet"
+    listed = {entry["relative"]: entry["format"] for entry in local.list_local_files(settings)}
+    assert listed["run7.parquet"] == "parquet"
+    assert listed["good.csv"] == "csv"
+
+
 def test_directory_is_refused(rooted):
     settings, _, _ = rooted
     with pytest.raises(ValidationError):
