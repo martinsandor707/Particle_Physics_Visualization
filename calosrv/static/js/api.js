@@ -49,15 +49,39 @@ export async function getJson(path, params = {}, key = path) {
     if (inFlight.get(key) === controller) inFlight.delete(key);
   }
 
-  if (!response.ok) {
-    let problem = { detail: `${response.status} ${response.statusText}` };
-    try {
-      problem = await response.json();
-    } catch {
-      /* a non-JSON error body is still worth reporting by status alone */
-    }
-    throw new ApiError(problem, response.status);
+  if (!response.ok) throw new ApiError(await problemOf(response), response.status);
+  return response.json();
+}
+
+/** The RFC 7807 problem an error response carries, or one built from its status. */
+async function problemOf(response) {
+  try {
+    return await response.json();
+  } catch {
+    /* a non-JSON error body is still worth reporting by status alone */
+    return { detail: `${response.status} ${response.statusText}` };
   }
+}
+
+/** Send a JSON body (the Admin Settings save); a problem response throws ApiError. */
+export async function sendJson(method, path, body) {
+  const response = await fetch(buildUrl(path), {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw new ApiError(await problemOf(response), response.status);
+  return response.json();
+}
+
+/** POST urlencoded fields (the server-side ingest); a problem response throws ApiError. */
+export async function postForm(path, fields) {
+  const response = await fetch(buildUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(fields),
+  });
+  if (!response.ok) throw new ApiError(await problemOf(response), response.status);
   return response.json();
 }
 
