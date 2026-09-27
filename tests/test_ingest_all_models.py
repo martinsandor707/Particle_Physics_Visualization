@@ -447,3 +447,15 @@ def test_a_plus_b_rows_carry_shower_b_values_and_sit_at_the_origin(cursor, fixtu
     ).fetchone()
     assert row[0] > 0
     assert row[1] == 0
+
+
+def test_a_file_in_another_schema_is_named_in_one_readable_sentence(tmp_path):
+    """96 missing names used to bury the one sentence that says what the file is."""
+    v37 = ["event_number", "x", "energy", "voxel_fA_pred"]
+    with pytest.raises(IngestError) as info:
+        csv_spec.validate_header(_write_csv(tmp_path / "v37.csv", v37))
+    message = info.value.detail
+    # Three of the 99 names are present, so 96 are missing.
+    assert "(96 in all)" in message and "retired v37" in message
+    assert len(message) < 500
+    assert len(info.value.extra["expected"]) == 99, "the full list still travels beside it"
