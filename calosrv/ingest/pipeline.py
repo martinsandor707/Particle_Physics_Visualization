@@ -24,9 +24,9 @@ from typing import Any
 import duckdb
 
 from ..config import Settings
-from ..db import archive, registry
+from ..db import archive, catalog, registry
 from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION
-from ..errors import IngestError
+from ..errors import ExperimentExistsError, IngestError
 from . import derive_events, derive_proj, formats, lattice_fit, load, stream, verify as verify_mod
 from .source_check import SourceCheck
 
@@ -236,15 +236,23 @@ def run_ingest(
     check_space: bool = True,
     created_at=None,
     progress: Callable[[str], None] | None = None,
+    force_reingest: bool = False,
 ) -> IngestResult:
     """Ingest one CSV or Parquet file into experiment ``name``. Caller holds the write lock.
 
     Nothing in the registry changes until the file is known to be acceptable:
     its format is read from its content and its columns checked first, and an
     append also passes its event-range check before the record is touched, so a
-    refused file leaves a ready experiment ready. An append is **provisional** until it verifies: its part
-    is committed to the manifest only on success; on failure the part is
-    discarded and the experiment rebuilt from its previous parts.
+    refused file leaves a ready experiment ready. An append is **provisional**
+    until it verifies: its part is committed to the manifest only on success; on
+    failure the part is discarded and the experiment rebuilt from its previous
+    parts.
+
+    ``create_new`` onto a name that already holds anything - a registry row in
+    any status, a table, an archive - raises ``ExperimentExistsError`` unless
+    ``force_reingest``. Replacing drops the old experiment before the new file
+    is read, so the file's checks all run first: a refused file never costs the
+    experiment it would have replaced.
     """
     progress = progress or (lambda _stage: None)
     watch = _Stopwatch(con)
@@ -257,10 +265,20 @@ def run_ingest(
             formats.headroom_factor(settings, fmt, staged=False),
         )
 
+    appending = mode == load.MODE_APPEND
+    if not appending and not force_reingest:
+        present = catalog.presence(con, settings, name)
+        if present.exists:
+            raise ExperimentExistsError(
+                f"Experiment {name!r} already exists ({present.describe()}). Pass "
+                "force_reingest=true (--force-reingest on the command line) to replace "
+                "it; it is deleted before the new file is loaded.",
+                table_name=name, existing_status=present.status,
+            )
+
     registry.ensure_registry(con)
     existing = registry.get_experiment(con, name)
     snapshot = copy.deepcopy(existing)
-    appending = mode == load.MODE_APPEND
 
     def mark_ingesting() -> registry.ExperimentRecord:
         record = existing or registry.ExperimentRecord(table_name=name)

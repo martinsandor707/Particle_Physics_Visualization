@@ -305,9 +305,9 @@
 
 <!-- ============================================================== modal -->
 <div class="modal-backdrop" id="upload-modal" hidden>
-  <div class="modal">
-    <h2>Upload Dataset</h2>
-    <div class="modal-sub">Ingest an all-models calorimeter inference CSV (the 99-column <span class="mono">hits_all_models</span> schema) into an isolated experiment table.</div>
+  <div class="modal" aria-labelledby="upload-title">
+    <h2 id="upload-title">Upload Dataset</h2>
+    <div class="modal-sub">Ingest an all-models calorimeter inference file &mdash; CSV or Parquet, in the 99-column <span class="mono">hits_all_models</span> schema &mdash; into an isolated experiment table.</div>
 
     <div class="banner" id="upload-warning"></div>
 
@@ -317,13 +317,32 @@
       <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
     </div>
 
+    <div class="row" id="upload-replace-row" hidden>
+      <label class="choice"><input type="checkbox" id="upload-replace">
+        <span id="upload-replace-text">Replace the existing experiment</span></label>
+      <div class="hint">It is deleted before the new file is loaded, and not restored if that load fails.
+        Leave this unticked and choose another name to keep it.</div>
+    </div>
+
+    <div class="row">
+      <label class="field" for="upload-display">Display name <span class="muted">(optional)</span></label>
+      <input class="textinput" type="text" id="upload-display"
+             placeholder="Shown in the experiment list; the experiment name if empty" autocomplete="off">
+    </div>
+
     <div class="row">
       <label class="field">Upload mode</label>
       <label class="choice"><input type="radio" name="upload-mode" value="create_new" checked>
-        <b>CREATE_NEW</b> &mdash; clean isolated table, replacing any existing one of this name</label>
+        <b>CREATE_NEW</b> &mdash; a clean, isolated experiment; an existing one of this name is replaced only if you tick Replace</label>
       <label class="choice"><input type="radio" name="upload-mode" value="append">
         <b>APPEND</b> &mdash; add rows to an existing experiment</label>
       <div class="hint">Appending is rejected if the incoming event numbers overlap those already stored, since that would merge distinct physics events.</div>
+    </div>
+
+    <div class="row" id="upload-offset-row" hidden>
+      <label class="field" for="upload-offset">Event offset</label>
+      <input class="textinput" type="number" id="upload-offset" min="0" step="1" value="0">
+      <div class="hint">Added to every incoming event number, so a file that also numbers from zero can be appended. A refused append names the offset to use.</div>
     </div>
 
     <div class="row">
@@ -335,8 +354,9 @@
     </div>
 
     <div class="row" id="upload-browser-row">
-      <label class="field" for="upload-file">CSV file</label>
-      <input class="textinput" type="file" id="upload-file" accept=".csv,text/csv">
+      <label class="field" for="upload-file">CSV or Parquet file</label>
+      <input class="textinput" type="file" id="upload-file"
+             accept=".csv,.txt,.parquet,text/csv,application/vnd.apache.parquet">
       <div class="hint" id="upload-file-info"></div>
     </div>
 

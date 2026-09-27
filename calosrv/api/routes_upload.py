@@ -16,9 +16,9 @@ import logging
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 
-from ..db import naming, registry
+from ..db import catalog, naming, registry
 from ..db.ddl import HIT_COLUMN_NAMES, SCHEMA_NAME, SCHEMA_VERSION
-from ..errors import IngestError, NotFoundError, ValidationError
+from ..errors import ConflictError, ExperimentExistsError, IngestError, NotFoundError, ValidationError
 from ..ingest import formats
 from ..ingest import jobs as jobs_mod
 from ..ingest import local as local_ingest
@@ -31,6 +31,41 @@ from .deps import SettingsDep
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _check_target(database, settings, name: str, mode: str, force_reingest: bool) -> None:
+    """Refuse a request that would collide with what the name already holds.
+
+    - A job already queued or running for the name: 409, even with force. A
+      second one would replace or interleave with the first mid-flight.
+    - ``append`` to an experiment that does not exist: 400.
+    - ``create_new`` onto anything that exists, unforced: 409. The pipeline
+      checks again when the job runs; this answers before the job is queued.
+    """
+    store = jobs_mod.get_job_store(database)
+    if name in store.active_names():
+        raise ConflictError(
+            f"An ingest into {name!r} is already queued or running. Wait for it to "
+            "finish, or choose another name.",
+            table_name=name,
+        )
+    with database.read_cursor() as con:
+        if mode == UploadMode.APPEND.value:
+            registry.ensure_registry(con)
+            if registry.get_experiment(con, name) is None:
+                raise IngestError(
+                    f"Cannot append to experiment {name!r}: it does not exist. "
+                    "Use create_new for the first upload."
+                )
+            return
+        present = catalog.presence(con, settings, name)
+    if present.exists and not force_reingest:
+        raise ExperimentExistsError(
+            f"Experiment {name!r} already exists ({present.describe()}). Pass "
+            "force_reingest=true to replace it; it is deleted before the new file "
+            "is loaded, and not restored if that load fails.",
+            table_name=name, existing_status=present.status, queued_job=None,
+        )
 
 
 @router.post("/api/upload", status_code=202, summary="Upload and ingest a CSV or Parquet dataset")
@@ -46,6 +81,13 @@ async def upload(
     event_offset: int = Form(
         0, ge=0, description="Shift incoming event numbers to avoid a collision."
     ),
+    force_reingest: bool = Form(
+        False,
+        description=(
+            "Replace an existing experiment of this name (create_new only). It is "
+            "deleted before the new file is loaded."
+        ),
+    ),
 ):
     name = naming.validate_experiment_name(table_name)
     if mode not in (m.value for m in UploadMode):
@@ -55,16 +97,10 @@ async def upload(
 
     database = request.app.state.database
 
-    # Appending to an experiment that does not exist is a mistake worth catching
-    # before spending the upload, not after.
-    if mode == UploadMode.APPEND.value:
-        with database.read_cursor() as con:
-            registry.ensure_registry(con)
-            if registry.get_experiment(con, name) is None:
-                raise IngestError(
-                    f"Cannot append to experiment {name!r}: it does not exist. "
-                    "Use create_new for the first upload."
-                )
+    # A collision is a mistake worth catching before the file is staged, not as
+    # a failed job afterwards. FastAPI has read the body by now; the upload
+    # dialog asks the same question before it sends anything.
+    _check_target(database, settings, name, mode, force_reingest)
 
     # FastAPI has already spooled the whole multipart body by the time this
     # handler runs, and the spool sits on the staging volume (``TMPDIR``), so
@@ -107,6 +143,7 @@ async def upload(
         mode=mode,
         display_name=display_name,
         event_offset=event_offset,
+        force_reingest=force_reingest,
     )
 
     return {
@@ -132,6 +169,7 @@ def ingest_local(
     mode: str = Form(UploadMode.CREATE_NEW.value),
     display_name: str = Form(""),
     event_offset: int = Form(0, ge=0),
+    force_reingest: bool = Form(False),
 ):
     """Run an ingest inside the server process, without moving the file.
 
@@ -148,6 +186,7 @@ def ingest_local(
 
     source = local_ingest.resolve_local_path(settings, path)
     database = request.app.state.database
+    _check_target(database, settings, name, mode, force_reingest)
     # The file is read in place, so no staging copy: the archive (about 0.12x a
     # CSV, near 1x a Parquet file), the derived tables and DuckDB spill still
     # need room.
@@ -155,14 +194,6 @@ def ingest_local(
         settings.data_dir, source.stat().st_size,
         formats.headroom_factor(settings, formats.detect_format(source), staged=False),
     )
-
-    if mode == UploadMode.APPEND.value:
-        with database.read_cursor() as con:
-            registry.ensure_registry(con)
-            if registry.get_experiment(con, name) is None:
-                raise IngestError(
-                    f"Cannot append to experiment {name!r}: it does not exist."
-                )
 
     cache_mod.invalidate_all(name)
 
@@ -181,6 +212,7 @@ def ingest_local(
         # The file belongs to the host, not the application. Deleting a user's
         # dataset as a side effect of reading it would be indefensible.
         delete_source=False,
+        force_reingest=force_reingest,
     )
     return {"job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}
 
