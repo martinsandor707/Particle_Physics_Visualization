@@ -40,9 +40,6 @@ from __future__ import annotations
 
 import os
 import re
-import socket
-import threading
-import time
 
 import pytest
 
@@ -130,65 +127,6 @@ _PLOT_RECT = """(plotId) => {
 
 _DOCUMENT = """() => ({ sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight,
   cw: document.documentElement.clientWidth, ch: document.documentElement.clientHeight })"""
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-@pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
-    """The real app on a real port, seeded from the demonstration CSV."""
-    playwright = pytest.importorskip("playwright.sync_api")
-    import uvicorn
-
-    from calosrv.app import create_app
-    from calosrv.config import load_settings
-    from calosrv.db.connection import reset_database
-    from calosrv.ingest.jobs import reset_job_store
-    from calosrv.query.cache import reset_cache
-
-    if not SEED_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
-
-    reset_database()
-    reset_job_store()
-    reset_cache()
-    os.environ["CALOSRV_DATA_DIR"] = str(tmp_path_factory.mktemp("browser-data"))
-    os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
-
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(
-        create_app(load_settings()), host="127.0.0.1", port=port, log_level="warning",
-    ))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    import httpx
-
-    base = f"http://127.0.0.1:{port}"
-    for _ in range(240):
-        try:
-            payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
-            if any(e["status"] == "ready" for e in payload["experiments"]):
-                break
-        except Exception:
-            pass
-        time.sleep(0.25)
-    else:
-        server.should_exit = True
-        pytest.fail("the server never reported a ready experiment")
-
-    yield {"base": base, "playwright": playwright}
-
-    server.should_exit = True
-    thread.join(timeout=10)
-    reset_database()
-    reset_job_store()
-    reset_cache()
 
 
 def _open(p, live_server, viewport, fragment):

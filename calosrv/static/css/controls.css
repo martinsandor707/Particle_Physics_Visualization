@@ -453,3 +453,62 @@ input[type="file"]::file-selector-button:hover {
    clipped curve - and each is its own statement rather than one run-on line. */
 .sparse-note p { margin: 0; }
 .sparse-note p + p { margin-top: 5px; }
+
+/* --------------------------------------------------- admin settings panel */
+
+.modal.modal-wide { width: min(760px, calc(100vw - 40px)); }
+
+.admin-field { margin-bottom: 14px; }
+.admin-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.modal .admin-head .field { margin-bottom: 0; }
+.admin-head h3 { font-size: 13px; margin: 0; }
+.admin-head .spacer, .admin-actions .spacer { flex: 1 1 auto; }
+.modal .actions.admin-actions { justify-content: flex-start; flex-wrap: wrap; }
+
+/* The radios of one setting, several to a row: the panel lists five settings
+   and would otherwise scroll before reaching its Save button. */
+.admin-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  column-gap: 14px;
+}
+.admin-options .choice { display: flex; align-items: flex-start; gap: 8px; }
+.admin-options .choice input { flex: none; margin: 1px 0 0; }
+
+/* Where a value comes from. Outlined rather than filled, so the chips read as
+   annotations of the controls and not as controls themselves. */
+.chip {
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip:empty { display: none; }
+.chip[data-source="admin"] { color: var(--accent); border-color: var(--accent); }
+.chip[data-source="env"] { color: var(--text); }
+.chip[data-source="fallback"] { color: var(--warn); border-color: var(--warn); }
+.chip[data-source="pending"] { color: var(--warn); border-color: var(--warn); border-style: dashed; }
+
+.mini:disabled { opacity: 0.45; cursor: not-allowed; }
+.hint.is-error, .admin-error { color: var(--danger); }
+
+.admin-ingest { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.table[hidden] { display: none; }
+.table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.table td { padding: 4px 6px; border-bottom: 1px solid var(--card); vertical-align: top; }
+.table td:first-child { font-family: var(--mono); word-break: break-all; }
+
+/* Keyboard focus on the text buttons, which had none; links styled as buttons. */
+.action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+a.action { display: inline-block; text-decoration: none; }
