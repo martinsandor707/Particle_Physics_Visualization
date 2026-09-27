@@ -17,6 +17,7 @@ router = APIRouter()
 
 @router.get("/api/experiments", summary="Registered experiments and their bounds")
 def list_experiments(
+    request: Request,
     con: CursorDep,
     settings: SettingsDep,
     include_pending: bool = Query(
@@ -37,6 +38,10 @@ def list_experiments(
     # float guard itself; a dataset with a degenerate bound would otherwise 500.
     return json_safe({
         "experiments": records,
+        # What a session opens on when its link carries no view state: the
+        # Admin Settings panel's defaults, keyed by the interface's state names.
+        # Delivered here so a cold boot needs no second round trip.
+        "defaults": request.app.state.defaults.boot_block(records),
         "compute": {
             "duckdb_memory_gb": settings.memory_gb,
             "threads": settings.threads,
