@@ -906,7 +906,9 @@ dom.bannerClose.addEventListener('click', () => {
 });
 
 new UploadModal({
-  onComplete: async () => {
+  onComplete: async (job) => {
+    // Open the experiment that was just ingested, not the one on screen.
+    if (job && job.table_name) state.set({ table_name: job.table_name }, { silent: true });
     await loadExperiments({ selectFirst: false });
   },
 });

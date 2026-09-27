@@ -253,7 +253,11 @@ def run_ingest(
         record.display_name = display_name or record.display_name or name
         record.status = registry.STATUS_INGESTING
         record.error = None
-        if source_name not in record.source_files:
+        if not appending:
+            # create_new replaces every row, so earlier files no longer describe
+            # anything the experiment holds.
+            record.source_files = [source_name]
+        elif source_name not in record.source_files:
             record.source_files = [*record.source_files, source_name]
         if record.created_at is None and created_at is not None:
             record.created_at = created_at

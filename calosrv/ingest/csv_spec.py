@@ -71,6 +71,13 @@ def validate_header(path: Path) -> None:
             header = next(csv.reader(handle), None)
     except OSError as exc:
         raise IngestError(f"Could not read {path.name}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        # A binary file - compressed, or some other format - read as text. Left
+        # unhandled this escaped as a bare 500 instead of saying what is wrong.
+        raise IngestError(
+            f"{path.name} is not a UTF-8 text CSV (byte {exc.start} cannot be decoded). "
+            "Compressed files must be decompressed first."
+        ) from exc
 
     if header is None:
         raise IngestError(f"{path.name} is empty.")
