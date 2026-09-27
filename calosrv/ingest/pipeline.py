@@ -1,9 +1,9 @@
-"""The one ingest pipeline: CSV -> Parquet archive -> derived tables -> checks.
+"""The one ingest pipeline: CSV or Parquet -> Parquet archive -> derived tables -> checks.
 
 Before this module the same eleven steps were written out three times - in the
 background job, in the command-line tool and in the test fixture - and kept in
 step by hand. They now all call :func:`run_ingest`; :func:`rebuild` re-derives
-every table from an existing archive without reading any CSV.
+every table from an existing archive without reading any source file.
 
 Every stage records its wall time, the process's peak RSS so far, DuckDB's
 buffer-managed memory and its spill-file size, so the report shows which stage
@@ -24,10 +24,11 @@ from typing import Any
 import duckdb
 
 from ..config import Settings
-from ..db import archive, registry
+from ..db import archive, catalog, registry
 from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION
-from ..errors import IngestError
-from . import csv_spec, derive_events, derive_proj, lattice_fit, load, stream, verify as verify_mod
+from ..errors import ExperimentExistsError, IngestError
+from . import derive_events, derive_proj, formats, lattice_fit, load, stream, verify as verify_mod
+from .source_check import SourceCheck
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ class IngestResult:
     calibration: dict[str, Any] = field(default_factory=dict)
     verification: verify_mod.VerificationResult | None = None
     timings: list[dict[str, Any]] = field(default_factory=list)
+    #: What reading the source did that a reader should know: a narrowed
+    #: column, NaN read as undefined. Informational, never a failure.
+    notices: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -62,7 +66,8 @@ class IngestResult:
 
     @property
     def warnings(self) -> list[str]:
-        return list(self.verification.warnings) if self.verification else []
+        failures = list(self.verification.warnings) if self.verification else []
+        return [*failures, *self.notices]
 
     def as_job_result(self) -> dict[str, Any]:
         lattice = self.record.lattice
@@ -86,6 +91,7 @@ class IngestResult:
             },
             "checks": self.verification.checks if self.verification else {},
             "timings": self.timings,
+            "source": self.record.ingest_report.get("source"),
         }
 
 
@@ -125,12 +131,13 @@ def _derive(
     con: duckdb.DuckDBPyConnection,
     settings: Settings,
     record: registry.ExperimentRecord,
-    source_csv: Path | None,
+    source: Path | None,
     manifest: archive.Manifest,
     build_sample: bool,
     watch: _Stopwatch,
     progress: Callable[[str], None],
     part_rows: int | None = None,
+    check: SourceCheck | None = None,
 ) -> IngestResult:
     """Everything after the archive: lattice, derived tables, verification."""
     name = record.table_name
@@ -165,9 +172,10 @@ def _derive(
 
     progress("verify")
     verification = verify_mod.verify(
-        con, name, source_csv, relation, manifest.rows, pitch, part_rows=part_rows,
+        con, name, source, relation, manifest.rows, pitch, part_rows=part_rows,
         lattice_n=(lattice.x.n, lattice.y.n, lattice.z.n),
         depth_mm=float(lattice.z.hi - lattice.z.lo),
+        source_format=check.format if check else formats.CSV,
     )
     watch.mark("verify")
 
@@ -192,12 +200,15 @@ def _derive(
     record.n_cells, record.n_split_cells, record.n_ab_rows = (int(v) for v in counts)
     record.frame_bounds = frame_bounds
     calibration_report = {code: {"c_a": c_a, "c_b": c_b} for code, (c_a, c_b) in calibration.items()}
+    # A rebuild reads no source, so it keeps what the last ingest said about it.
+    source_report = check.as_dict() if check else (record.ingest_report or {}).get("source")
     record.ingest_report = {
         "sanitation": sanitation.as_dict(),
         "calibration": calibration_report,
         "timings": watch.stages,
         "verification": verification.as_dict(),
         "layer_pitch_mm": pitch,
+        "source": source_report,
     }
     record.status = registry.STATUS_READY if verification.ok else registry.STATUS_FAILED
     record.error = None if verification.ok else "; ".join(verification.warnings)
@@ -207,6 +218,7 @@ def _derive(
         record=record, n_hits=record.n_hits, n_events=n_events,
         sanitation=sanitation.as_dict(), calibration=calibration_report,
         verification=verification, timings=watch.stages,
+        notices=list(check.notices) if check else [],
     )
 
 
@@ -224,36 +236,60 @@ def run_ingest(
     check_space: bool = True,
     created_at=None,
     progress: Callable[[str], None] | None = None,
+    force_reingest: bool = False,
 ) -> IngestResult:
-    """Ingest one CSV into experiment ``name``. Caller holds the write lock.
+    """Ingest one CSV or Parquet file into experiment ``name``. Caller holds the write lock.
 
     Nothing in the registry changes until the file is known to be acceptable:
-    the header is checked first, and an append also passes its event-range
-    check before the record is touched, so a refused file leaves a ready
-    experiment ready. An append is **provisional** until it verifies: its part
-    is committed to the manifest only on success; on failure the part is
-    discarded and the experiment rebuilt from its previous parts.
+    its format is read from its content and its columns checked first, and an
+    append also passes its event-range check before the record is touched, so a
+    refused file leaves a ready experiment ready. An append is **provisional**
+    until it verifies: its part is committed to the manifest only on success; on
+    failure the part is discarded and the experiment rebuilt from its previous
+    parts.
+
+    ``create_new`` onto a name that already holds anything - a registry row in
+    any status, a table, an archive - raises ``ExperimentExistsError`` unless
+    ``force_reingest``. Replacing drops the old experiment before the new file
+    is read, so the file's checks all run first: a refused file never costs the
+    experiment it would have replaced.
     """
     progress = progress or (lambda _stage: None)
     watch = _Stopwatch(con)
     source_name = source_name or source.name
-    csv_spec.validate_header(source)
+    fmt = formats.detect_format(source)
+    check = formats.validate(con, source, fmt)
     if check_space:
         stream.check_free_space(
-            settings.data_dir, source.stat().st_size, settings.local_headroom_factor
+            settings.data_dir, source.stat().st_size,
+            formats.headroom_factor(settings, fmt, staged=False),
         )
+
+    appending = mode == load.MODE_APPEND
+    if not appending and not force_reingest:
+        present = catalog.presence(con, settings, name)
+        if present.exists:
+            raise ExperimentExistsError(
+                f"Experiment {name!r} already exists ({present.describe()}). Pass "
+                "force_reingest=true (--force-reingest on the command line) to replace "
+                "it; it is deleted before the new file is loaded.",
+                table_name=name, existing_status=present.status,
+            )
 
     registry.ensure_registry(con)
     existing = registry.get_experiment(con, name)
     snapshot = copy.deepcopy(existing)
-    appending = mode == load.MODE_APPEND
 
     def mark_ingesting() -> registry.ExperimentRecord:
         record = existing or registry.ExperimentRecord(table_name=name)
         record.display_name = display_name or record.display_name or name
         record.status = registry.STATUS_INGESTING
         record.error = None
-        if source_name not in record.source_files:
+        if not appending:
+            # create_new replaces every row, so earlier files no longer describe
+            # anything the experiment holds.
+            record.source_files = [source_name]
+        elif source_name not in record.source_files:
             record.source_files = [*record.source_files, source_name]
         if record.created_at is None and created_at is not None:
             record.created_at = created_at
@@ -264,23 +300,23 @@ def run_ingest(
     progress("archive")
     if not appending:
         record = mark_ingesting()
-        loaded = load.load_csv(
-            con, settings, name, source, mode=mode, event_offset=event_offset,
-            source_name=source_name,
+        loaded = load.load_source(
+            con, settings, name, source, fmt=fmt, check=check, mode=mode,
+            event_offset=event_offset, source_name=source_name,
         )
         watch.mark("archive")
         return _derive(con, settings, record, source, loaded.manifest, build_sample, watch,
-                       progress, part_rows=loaded.rows)
+                       progress, part_rows=loaded.rows, check=check)
 
-    loaded = load.load_csv(
-        con, settings, name, source, mode=mode, event_offset=event_offset,
-        source_name=source_name, commit=False,
+    loaded = load.load_source(
+        con, settings, name, source, fmt=fmt, check=check, mode=mode,
+        event_offset=event_offset, source_name=source_name, commit=False,
     )
     record = mark_ingesting()
     watch.mark("archive")
     try:
         result = _derive(con, settings, record, source, loaded.manifest, build_sample, watch,
-                         progress, part_rows=loaded.rows)
+                         progress, part_rows=loaded.rows, check=check)
     except Exception as exc:
         _discard_append(con, settings, name, loaded, snapshot, build_sample)
         raise IngestError(
@@ -315,7 +351,7 @@ def rebuild(
     build_sample: bool = True,
     progress: Callable[[str], None] | None = None,
 ) -> IngestResult:
-    """Re-derive every table of ``name`` from its archive, reading no CSV."""
+    """Re-derive every table of ``name`` from its archive, reading no source file."""
     progress = progress or (lambda _stage: None)
     manifest = archive.read_manifest(settings, name)
     if manifest is None or not manifest.parts:

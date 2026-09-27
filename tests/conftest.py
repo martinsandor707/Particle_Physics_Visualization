@@ -26,6 +26,21 @@ os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
 
 TABLE = "test_experiment"
 
+#: Variables a booted server reads that the fixtures below set or must not
+#: inherit. The fixtures write os.environ directly, so without this a drop
+#: folder or a default set for one booted module would reach the next.
+_BOOT_ENV = (
+    "CALOSRV_AUTO_INGEST_DIR", "CALOSRV_AUTO_INGEST_SETTLE_S", "CALOSRV_CONFIG_PATH",
+    "CALOSRV_DEFAULT_DATASET", "CALOSRV_DEFAULT_COORD_SYSTEM", "CALOSRV_DEFAULT_MODEL",
+    "CALOSRV_DEFAULT_CHANNEL", "CALOSRV_DEFAULT_DISPLAY_MODE", "CALOSRV_DEFAULT_RHO_NORM",
+)
+
+
+def clean_boot_env() -> None:
+    """Forget every boot-time variable a previous booted fixture may have set."""
+    for name in _BOOT_ENV:
+        os.environ.pop(name, None)
+
 
 def pytest_collection_modifyitems(session, config, items):
     """Run every booted-server test before the ingested-database tests.
@@ -40,7 +55,8 @@ def pytest_collection_modifyitems(session, config, items):
     """
     booted = [
         item for item in items
-        if {"client", "live_server", "synthetic_client"} & set(getattr(item, "fixturenames", ()))
+        if {"client", "live_server", "synthetic_client", "auto_client"}
+        & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
@@ -109,6 +125,7 @@ def client(tmp_path_factory):
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()
 
     data_dir = tmp_path_factory.mktemp("api-data")
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
@@ -151,6 +168,7 @@ def synthetic_client(tmp_path_factory):
     reset_database()
     reset_job_store()
     reset_cache()
+    clean_boot_env()
 
     data_dir = tmp_path_factory.mktemp("synthetic-data")
     csv_path = data_dir / "hits_all_models_synthetic.csv"
@@ -184,3 +202,79 @@ def record(ingested):
 def cursor(ingested):
     with ingested["database"].read_cursor() as con:
         yield con
+
+
+# ------------------------------------------------------ browser test server --
+#
+# Shared by the opt-in Chromium tests (``test_browser_*.py``), which gate
+# themselves on CALOSRV_BROWSER_TESTS=1.
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+@pytest.fixture(scope="module")
+def live_server(tmp_path_factory):
+    """The real app on a real port, seeded from the demonstration CSV."""
+    import threading
+    import time
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    import uvicorn
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    if not SEED_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()
+    os.environ["CALOSRV_DATA_DIR"] = str(tmp_path_factory.mktemp("browser-data"))
+    # An empty drop folder, so the Admin Settings panel's Scan now can be driven.
+    drop = tmp_path_factory.mktemp("browser-drop")
+    os.environ["CALOSRV_AUTO_INGEST_DIR"] = str(drop)
+    os.environ["CALOSRV_AUTO_INGEST_SETTLE_S"] = "0"
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(
+        create_app(load_settings()), host="127.0.0.1", port=port, log_level="warning",
+    ))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    import httpx
+
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(240):
+        try:
+            payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
+            if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+        except Exception:
+            pass
+        time.sleep(0.25)
+    else:
+        server.should_exit = True
+        pytest.fail("the server never reported a ready experiment")
+
+    yield {"base": base, "playwright": playwright, "drop": drop}
+
+    server.should_exit = True
+    thread.join(timeout=10)
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()

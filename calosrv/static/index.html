@@ -36,6 +36,8 @@
     </div>
 
     <button class="action primary" id="open-upload">Upload Dataset</button>
+    <button class="action" id="open-admin" type="button"
+            title="Choose the view a new session opens on, and check the automatic ingest">Admin Settings</button>
   </header>
 
   <!-- ============================================================ sidebar -->
@@ -303,9 +305,9 @@
 
 <!-- ============================================================== modal -->
 <div class="modal-backdrop" id="upload-modal" hidden>
-  <div class="modal">
-    <h2>Upload Dataset</h2>
-    <div class="modal-sub">Ingest an all-models calorimeter inference CSV (the 99-column <span class="mono">hits_all_models</span> schema) into an isolated experiment table.</div>
+  <div class="modal" aria-labelledby="upload-title">
+    <h2 id="upload-title">Upload Dataset</h2>
+    <div class="modal-sub">Ingest an all-models calorimeter inference file &mdash; CSV or Parquet, in the 99-column <span class="mono">hits_all_models</span> schema &mdash; into an isolated experiment table.</div>
 
     <div class="banner" id="upload-warning"></div>
 
@@ -315,13 +317,32 @@
       <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
     </div>
 
+    <div class="row" id="upload-replace-row" hidden>
+      <label class="choice"><input type="checkbox" id="upload-replace">
+        <span id="upload-replace-text">Replace the existing experiment</span></label>
+      <div class="hint">It is deleted before the new file is loaded, and not restored if that load fails.
+        Leave this unticked and choose another name to keep it.</div>
+    </div>
+
+    <div class="row">
+      <label class="field" for="upload-display">Display name <span class="muted">(optional)</span></label>
+      <input class="textinput" type="text" id="upload-display"
+             placeholder="Shown in the experiment list; the experiment name if empty" autocomplete="off">
+    </div>
+
     <div class="row">
       <label class="field">Upload mode</label>
       <label class="choice"><input type="radio" name="upload-mode" value="create_new" checked>
-        <b>CREATE_NEW</b> &mdash; clean isolated table, replacing any existing one of this name</label>
+        <b>CREATE_NEW</b> &mdash; a clean, isolated experiment; an existing one of this name is replaced only if you tick Replace</label>
       <label class="choice"><input type="radio" name="upload-mode" value="append">
         <b>APPEND</b> &mdash; add rows to an existing experiment</label>
       <div class="hint">Appending is rejected if the incoming event numbers overlap those already stored, since that would merge distinct physics events.</div>
+    </div>
+
+    <div class="row" id="upload-offset-row" hidden>
+      <label class="field" for="upload-offset">Event offset</label>
+      <input class="textinput" type="number" id="upload-offset" min="0" step="1" value="0">
+      <div class="hint">Added to every incoming event number, so a file that also numbers from zero can be appended. A refused append names the offset to use.</div>
     </div>
 
     <div class="row">
@@ -333,8 +354,9 @@
     </div>
 
     <div class="row" id="upload-browser-row">
-      <label class="field" for="upload-file">CSV file</label>
-      <input class="textinput" type="file" id="upload-file" accept=".csv,text/csv">
+      <label class="field" for="upload-file">CSV or Parquet file</label>
+      <input class="textinput" type="file" id="upload-file"
+             accept=".csv,.txt,.parquet,text/csv,application/vnd.apache.parquet">
       <div class="hint" id="upload-file-info"></div>
     </div>
 
@@ -353,6 +375,105 @@
       <button class="action" id="upload-cancel">Cancel</button>
       <button class="action primary" id="upload-submit">Upload &amp; Ingest</button>
     </div>
+  </div>
+</div>
+
+<!-- ======================================================= admin settings -->
+<!-- The view a new session opens on when its link carries no view state, and
+     the state of the automatic ingest. The radio groups are built from
+     js/labels.js by controls/admin.js, so they always match the sidebar. -->
+<div class="modal-backdrop" id="admin-modal" hidden>
+  <div class="modal modal-wide" aria-labelledby="admin-title">
+    <h2 id="admin-title">Admin Settings</h2>
+    <div class="modal-sub">Default view: what a new session opens on when its link carries no view.
+      Open links and bookmarks keep their own view, and saving does not change this session's.</div>
+
+    <div class="banner" id="admin-notice" hidden></div>
+
+    <div class="admin-field" data-field="default_dataset">
+      <div class="admin-head">
+        <label class="field" for="admin-dataset">Experiment</label>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <select class="picker" id="admin-dataset"></select>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="admin-field" data-field="default_coord_system">
+      <div class="admin-head">
+        <span class="field">Reference frame</span>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <div class="admin-options" role="radiogroup" aria-label="Default reference frame"></div>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="admin-field" data-field="default_model">
+      <div class="admin-head">
+        <span class="field">Reconstruction model</span>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <div class="admin-options" role="radiogroup" aria-label="Default reconstruction model"></div>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="admin-field" data-field="default_channel">
+      <div class="admin-head">
+        <span class="field">Display channel</span>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <div class="admin-options" role="radiogroup" aria-label="Default display channel"></div>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="admin-field" data-field="default_display_mode">
+      <div class="admin-head">
+        <span class="field">Display mode <span class="muted">(of the default frame)</span></span>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <div class="admin-options" role="radiogroup" aria-label="Default display mode"></div>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="admin-field" data-field="default_rho_norm">
+      <div class="admin-head">
+        <span class="field">Density normalisation <span class="muted">(co-registered frames)</span></span>
+        <span class="chip"></span>
+        <button class="mini" type="button" data-reset>Reset</button>
+      </div>
+      <div class="admin-options" role="radiogroup" aria-label="Default density normalisation"></div>
+      <div class="hint admin-error" hidden></div>
+    </div>
+
+    <div class="actions admin-actions">
+      <button class="action" id="admin-use-current" type="button"
+              title="Fill the form with the view on screen now">Use current view</button>
+      <a class="action" id="admin-open-default" href="/" target="_blank" rel="noopener"
+         title="Open a new session without view state, which starts on the saved defaults">Open default view ↗</a>
+      <span class="spacer"></span>
+      <button class="action" id="admin-cancel" type="button">Cancel</button>
+      <button class="action primary" id="admin-save" type="button">Save defaults</button>
+    </div>
+    <div class="hint" id="admin-status" aria-live="polite"></div>
+
+    <section class="admin-ingest" aria-labelledby="admin-ingest-title">
+      <div class="admin-head">
+        <h3 id="admin-ingest-title">Automatic ingest</h3>
+        <span class="spacer"></span>
+        <button class="action" id="admin-scan" type="button"
+                title="Look for new files in the drop folder now, without restarting">Scan now</button>
+      </div>
+      <div class="hint" id="admin-ingest-where"></div>
+      <table class="table" id="admin-ingest-table" hidden>
+        <thead><tr><th>File</th><th>Experiment</th><th>Result</th></tr></thead>
+        <tbody id="admin-ingest-rows"></tbody>
+      </table>
+    </section>
   </div>
 </div>
 

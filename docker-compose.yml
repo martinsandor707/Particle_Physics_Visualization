@@ -17,6 +17,14 @@ services:
       # Uploads are spooled by Starlette before the route stages them; keep
       # that on the data volume, never in a tmpfs /tmp (which is RAM).
       - TMPDIR=/app/data/staging
+      # Drop folder: every new CSV or Parquet file in ./ingest on the host
+      # becomes an experiment at the next start, or on Scan now in the Admin
+      # Settings panel. Read-only in here, through the /app/host mount above;
+      # an experiment that already exists is never replaced.
+      - CALOSRV_AUTO_INGEST_DIR=/app/host/ingest
+      # The default experiment a new session opens on, as a fallback beneath
+      # whatever the Admin Settings panel saves.
+      - CALOSRV_DEFAULT_DATASET=production_hits_all_models
     # DuckDB's memory_limit accounts for its buffer manager only - not the Python
     # heap, NumPy result conversion or the bundle caches. Give the container
     # DUCKDB_MEMORY_GB + 4 GB of headroom or ingest will be OOM-killed.

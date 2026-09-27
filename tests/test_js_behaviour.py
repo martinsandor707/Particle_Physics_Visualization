@@ -1058,3 +1058,210 @@ def test_energy_outside_the_accumulation_grid_is_disclosed(review_results):
         assert sentence in review_results["beyondScreen"][panel]
     assert review_results["beyondTiny"].startswith("A further < 0.01% of the selection's energy (1 hit)")
     assert review_results["beyondNone"] == ""
+
+
+# ------------------------------------------------ cold boot and defaults --
+#
+# The Admin Settings panel's defaults reach the interface only through
+# State.applyDefaults, and only on a link without view state. Everything the
+# bookmark guarantee rests on is pure, so it is executed here.
+
+_COLD_BOOT_SCRIPT = """
+const [stateUrl, labelsUrl] = JSON.parse(process.argv[1]);
+globalThis.window = {
+  location: { hash: '', pathname: '/' },
+  history: {
+    replaceState(_state, _title, url) {
+      const at = url.indexOf('#');
+      window.location.hash = at >= 0 ? url.slice(at) : '';
+    },
+  },
+};
+const { State, DEFAULTS } = await import(stateUrl);
+const { CHOICE_LABELS } = await import(labelsUrl);
+const fresh = (hash) => { window.location.hash = hash; return new State(); };
+const view = (s) => ({ table_name: s.values.table_name, frame: s.values.frame,
+  model: s.values.model, channel: s.values.channel, rho_norm: s.values.rho_norm,
+  display: s.get('display') });
+const saved = { table_name: 'production', frame: 'trans', model: 'energy', channel: 'gradcam',
+                display: null, rho_norm: 'dataset', notices: [] };
+const out = {};
+
+let s = fresh('');
+out.coldBoot = s.coldBoot;
+out.taken = s.applyDefaults(saved);
+out.applied = view(s);
+out.hashAfterApply = window.location.hash;
+out.touched = [...s.touched];
+s.writeHash();
+out.written = Object.fromEntries(new URLSearchParams(window.location.hash.replace(/^#/, '')));
+
+const reloaded = fresh(window.location.hash);
+out.reloadedColdBoot = reloaded.coldBoot;
+out.reloadedTakes = reloaded.applyDefaults({ ...saved, frame: 'local', channel: 'shapcam' });
+out.reloaded = view(reloaded);
+
+out.blocked = {};
+for (const hash of ['#frame=lab', '#table_name=x', '#display=native', '#frame=hologram',
+                    '#palette=cividis', '#e1_min=0.5']) {
+  const t = fresh(hash);
+  out.blocked[hash] = { coldBoot: t.coldBoot, took: t.applyDefaults(saved), frame: t.values.frame };
+}
+out.unknownKey = fresh('#utm_source=mail').coldBoot;
+
+s = fresh('');
+s.applyDefaults({ table_name: 'alpha', frame: DEFAULTS.frame, model: DEFAULTS.model,
+                  channel: DEFAULTS.channel, display: null, rho_norm: DEFAULTS.rho_norm });
+s.writeHash();
+out.builtinHash = window.location.hash;
+
+s = fresh('');
+s.applyDefaults({ table_name: 'alpha', frame: 'hologram', model: 'gpt', channel: 'shapcam',
+                  display: 'smooth', rho_norm: 'peak' });
+out.invalid = view(s);
+
+s = fresh('');
+s.applyDefaults({ frame: 'canonical', display: 'native' });
+out.displayCanonical = { canonical: s.values.display_canonical, lab: s.values.display_lab,
+                         trans: s.values.display_trans };
+s = fresh('');
+s.applyDefaults({ frame: 'lab', display: 'continuous' });
+out.displayLab = { lab: s.values.display_lab, canonical: s.values.display_canonical };
+
+s = fresh('');
+out.once = [s.applyDefaults(saved), s.applyDefaults({ ...saved, frame: 'local' }), s.values.frame];
+
+out.defaults = DEFAULTS;
+out.frozen = Object.isFrozen(DEFAULTS);
+out.labels = CHOICE_LABELS;
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def cold_boot() -> dict:
+    args = json.dumps([(JS / "state.js").as_uri(), (JS / "labels.js").as_uri()])
+    done = subprocess.run(
+        [NODE, "--input-type=module", "-e", _COLD_BOOT_SCRIPT, args],
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_an_empty_link_opens_on_the_saved_defaults_without_writing_the_link(cold_boot):
+    assert cold_boot["coldBoot"] is True and cold_boot["taken"] is True
+    assert cold_boot["applied"] == {"table_name": "production", "frame": "trans",
+                                    "model": "energy", "channel": "gradcam",
+                                    "rho_norm": "dataset", "display": "continuous"}
+    assert cold_boot["hashAfterApply"] == ""
+    assert cold_boot["touched"] == [], "a default is not a selection the user narrowed"
+
+
+def test_the_first_link_written_records_every_value_that_is_not_built_in(cold_boot):
+    assert cold_boot["written"] == {"table_name": "production", "frame": "trans",
+                                    "model": "energy", "channel": "gradcam",
+                                    "rho_norm": "dataset"}
+
+
+def test_a_written_link_reopens_its_own_view_whatever_is_saved_later(cold_boot):
+    assert cold_boot["reloadedColdBoot"] is False
+    assert cold_boot["reloadedTakes"] is False
+    assert cold_boot["reloaded"] == cold_boot["applied"]
+
+
+@pytest.mark.parametrize("fragment", ["#frame=lab", "#table_name=x", "#display=native",
+                                      "#frame=hologram", "#palette=cividis", "#e1_min=0.5"])
+def test_any_recognised_key_keeps_the_saved_defaults_out(cold_boot, fragment):
+    """An absent key in a link means "built-in": filling it from the saved defaults
+    would re-read the bookmark whenever an admin saved new ones."""
+    blocked = cold_boot["blocked"][fragment]
+    assert blocked == {"coldBoot": False, "took": False, "frame": "lab"}
+
+
+def test_an_unrecognised_key_alone_is_still_a_cold_boot(cold_boot):
+    assert cold_boot["unknownKey"] is True
+
+
+def test_built_in_equal_defaults_leave_only_the_experiment_in_the_link(cold_boot):
+    assert cold_boot["builtinHash"] == "#table_name=alpha"
+
+
+def test_invalid_saved_values_keep_the_built_in_ones(cold_boot):
+    assert cold_boot["invalid"] == {"table_name": "alpha", "frame": "lab",
+                                    "model": "segmentation", "channel": "shapcam",
+                                    "rho_norm": "selection", "display": "native"}
+
+
+def test_a_display_default_applies_to_the_default_frame_only(cold_boot):
+    assert cold_boot["displayCanonical"] == {"canonical": "native", "lab": "native",
+                                             "trans": "continuous"}
+    assert cold_boot["displayLab"] == {"lab": "continuous", "canonical": "continuous"}
+
+
+def test_the_defaults_are_taken_once(cold_boot):
+    assert cold_boot["once"] == [True, False, "trans"]
+
+
+def test_the_built_in_view_is_frozen(cold_boot):
+    assert cold_boot["frozen"] is True
+
+
+def test_the_server_built_ins_are_the_interface_defaults(cold_boot):
+    """calosrv/admin/schema.py and state.js describe one built-in view."""
+    from calosrv.admin.schema import BUILTIN
+    from calosrv.admin.store import own_display_mode
+
+    js = cold_boot["defaults"]
+    assert BUILTIN["default_dataset"] is None and js["table_name"] is None
+    assert BUILTIN["default_coord_system"] == js["frame"]
+    assert BUILTIN["default_model"] == js["model"]
+    assert BUILTIN["default_channel"] == js["channel"]
+    assert BUILTIN["default_rho_norm"] == js["rho_norm"]
+    assert BUILTIN["default_display_mode"] is None
+    for frame in ("lab", "trans", "local", "canonical"):
+        assert own_display_mode(frame) == js[f"display_{frame}"]
+
+
+def _sidebar_radio_labels() -> dict[str, dict[str, str]]:
+    """Every radio in index.html: group -> value -> its label's visible text."""
+    from html.parser import HTMLParser
+
+    class Radios(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.current = None
+            self.found: dict[str, dict[str, str]] = {}
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "label":
+                self.current = {"text": [], "radio": None}
+            elif tag == "input" and self.current is not None and attrs.get("type") == "radio":
+                self.current["radio"] = (attrs.get("name"), attrs.get("value"))
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["text"].append(data)
+
+        def handle_endtag(self, tag):
+            if tag == "label" and self.current is not None:
+                if self.current["radio"]:
+                    name, value = self.current["radio"]
+                    text = " ".join("".join(self.current["text"]).split())
+                    self.found.setdefault(name, {})[value] = text
+                self.current = None
+
+    parser = Radios()
+    parser.feed((JS.parent / "index.html").read_text(encoding="utf-8"))
+    return parser.found
+
+
+@pytest.mark.parametrize("group", ["frame", "model", "channel", "rho_norm"])
+def test_the_admin_panel_labels_are_the_sidebar_labels(cold_boot, group):
+    sidebar = _sidebar_radio_labels()[group]
+    panel = {
+        choice["value"]: " ".join(f"{choice['label']} {choice.get('detail', '')}".split())
+        for choice in cold_boot["labels"][group]
+    }
+    assert panel == sidebar

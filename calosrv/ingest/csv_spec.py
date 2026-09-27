@@ -21,7 +21,9 @@ import csv
 from pathlib import Path
 
 from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES, SCHEMA_NAME
+from ..db.naming import quote
 from ..errors import IngestError
+from ..text import listed
 
 #: What an empty field means in this dataset.
 #:
@@ -59,6 +61,22 @@ def read_csv_expression(path: Path) -> str:
     )
 
 
+def select_sql(path: Path, event_offset: int = 0) -> str:
+    """Every column in file order, typed by the pinned reader."""
+    if event_offset:
+        projected = ", ".join(
+            # Cast back to the pinned INTEGER: an offset that overflows it is
+            # an error here, not an INT64 part beside INT32 ones.
+            f"CAST(event_number + {int(event_offset)} AS INTEGER) AS event_number"
+            if c == "event_number"
+            else quote(c)
+            for c in HIT_COLUMN_NAMES
+        )
+    else:
+        projected = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
+    return f"SELECT {projected} FROM {read_csv_expression(path)}"
+
+
 def validate_header(path: Path) -> None:
     """Check the CSV header against the expected schema before loading.
 
@@ -71,6 +89,13 @@ def validate_header(path: Path) -> None:
             header = next(csv.reader(handle), None)
     except OSError as exc:
         raise IngestError(f"Could not read {path.name}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        # A binary file - compressed, or some other format - read as text. Left
+        # unhandled this escaped as a bare 500 instead of saying what is wrong.
+        raise IngestError(
+            f"{path.name} is not a UTF-8 text CSV (byte {exc.start} cannot be decoded). "
+            "Compressed files must be decompressed first."
+        ) from exc
 
     if header is None:
         raise IngestError(f"{path.name} is empty.")
@@ -86,9 +111,9 @@ def validate_header(path: Path) -> None:
     if missing or unexpected:
         parts = []
         if missing:
-            parts.append(f"missing columns: {', '.join(missing)}")
+            parts.append(f"missing columns: {listed(missing)}")
         if unexpected:
-            parts.append(f"unexpected columns: {', '.join(unexpected)}")
+            parts.append(f"unexpected columns: {listed(unexpected)}")
         message = (
             f"{path.name} does not match the {SCHEMA_NAME} input schema "
             f"({n_expected} columns; {'; '.join(parts)})."

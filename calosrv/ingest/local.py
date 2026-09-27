@@ -28,6 +28,10 @@ from ..errors import IngestError, NotFoundError, ValidationError
 
 log = logging.getLogger(__name__)
 
+#: The suffixes listed as candidate datasets. ``.txt`` is still accepted by
+#: path, as before, but not offered: a repository is full of text files.
+LISTED_SUFFIXES = (".csv", ".parquet")
+
 #: Directories never worth listing as candidate datasets.
 _SKIP_DIRECTORIES = frozenset(
     {
@@ -67,23 +71,24 @@ def resolve_local_path(settings: Settings, raw: str) -> Path:
         raise NotFoundError(f"No such file on the server: {resolved}")
     if not resolved.is_file():
         raise ValidationError(f"{resolved} is not a regular file.", field="path")
-    if resolved.suffix.lower() not in (".csv", ".txt"):
+    if resolved.suffix.lower() not in LISTED_SUFFIXES + (".txt",):
         raise IngestError(
             f"Unsupported file type {resolved.suffix or '(none)'!r}; "
-            "expected a .csv file."
+            "expected a .csv or .parquet file."
         )
     return resolved
 
 
 def list_local_files(settings: Settings, limit: int = 200) -> list[dict]:
-    """CSV files available for server-side ingestion, newest first."""
+    """CSV and Parquet files available for server-side ingestion, newest first."""
     root = settings.local_ingest_dir
     if root is None:
         return []
 
     entries = []
     try:
-        for path in sorted(root.rglob("*.csv")):
+        candidates = (p for p in root.rglob("*") if p.suffix.lower() in LISTED_SUFFIXES)
+        for path in sorted(candidates):
             relative = path.relative_to(root)
             # The ingest root is often a whole repository checkout, which
             # contains thousands of irrelevant CSVs inside virtual environments
@@ -104,12 +109,14 @@ def list_local_files(settings: Settings, limit: int = 200) -> list[dict]:
                     "relative": str(path.relative_to(root)),
                     "size_bytes": stat.st_size,
                     "modified": stat.st_mtime,
+                    # By suffix, for the listing only; the ingest reads the content.
+                    "format": "parquet" if path.suffix.lower() == ".parquet" else "csv",
                 }
             )
-            if len(entries) >= limit:
-                break
     except OSError as exc:  # pragma: no cover - unreadable mount
         log.warning("Could not list %s: %s", root, exc)
 
+    # Sort before truncating: cutting first kept whichever files the directory
+    # walk happened to reach, not the newest ones the docstring promises.
     entries.sort(key=lambda e: e["modified"], reverse=True)
-    return entries
+    return entries[:limit]

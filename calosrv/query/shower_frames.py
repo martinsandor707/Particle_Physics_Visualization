@@ -806,13 +806,14 @@ def dataset_reference(
 
 def warm(
     database, settings: Settings, table_names: Iterable[str],
-    after: threading.Thread | None = None,
+    after: threading.Thread | None = None, model: str = "segmentation",
 ) -> threading.Thread:
     """Compute the full-range translated and local bundles in the background, in turn.
 
     Best effort, like the canonical warmer. ``after`` is a warm-up thread to
     wait for first, so the co-registered scans run one at a time and never
-    compete for DuckDB's memory.
+    compete for DuckDB's memory. ``model`` is the network whose bundles are
+    built; density requests reuse any model's, the CAM channels need this one.
     """
     names = list(table_names)
 
@@ -829,7 +830,7 @@ def warm(
                         footprint = canonical.cell_footprint(con, record)
                         bundle, stats, grid, k, was_cached = bundle_for(
                             con, record, filters.build(record), settings, kind, footprint,
-                            False, 100.0,
+                            False, 100.0, model,
                         )
                     log.info(
                         "%s-frame cache warmed for %s: %s events, k=%d, grid %dx%dx%d in %.0f ms%s",

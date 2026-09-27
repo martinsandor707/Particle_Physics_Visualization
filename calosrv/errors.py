@@ -57,6 +57,18 @@ class ConflictError(ApiError):
     title = "Request conflicts with existing state"
 
 
+class ExperimentExistsError(ConflictError):
+    """A ``create_new`` onto a name that already holds an experiment, unforced.
+
+    Replacing drops the old experiment and its archive before the new file is
+    read, so a failure later in the load leaves nothing. That is only worth
+    risking when asked for explicitly, with ``force_reingest``.
+    """
+
+    error_type = "experiment-exists"
+    title = "Experiment already exists"
+
+
 class EventRangeCollisionError(ConflictError):
     """Appending a file whose ``event_number`` range overlaps the target table.
 

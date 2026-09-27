@@ -219,5 +219,9 @@ __marimo__/
 
 
 *.csv
+*.parquet
 # calosrv runtime state (DuckDB database, upload staging, temp spill)
 data/
+# The automatic-ingest drop folder: datasets are never committed, the note is.
+ingest/*
+!ingest/README.md

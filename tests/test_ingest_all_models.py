@@ -61,6 +61,16 @@ def test_the_demonstration_header_matches_the_schema():
     csv_spec.validate_header(SEED_CSV)
 
 
+def test_a_binary_file_is_refused_with_a_reason_not_a_crash(tmp_path):
+    """A compressed CSV used to escape the header check as a bare UnicodeDecodeError."""
+    import gzip
+
+    packed = tmp_path / "packed.csv"
+    packed.write_bytes(gzip.compress(SEED_CSV.read_bytes()[:4096]))
+    with pytest.raises(IngestError, match="not a UTF-8 text CSV"):
+        csv_spec.validate_header(packed)
+
+
 # --------------------------------------------------------------- archive --
 
 
@@ -374,6 +384,25 @@ def test_deleting_an_experiment_removes_its_archive(ingested):
     assert not path.exists()
 
 
+def test_a_replacing_ingest_lists_only_its_own_source(ingested):
+    """create_new drops every earlier row, so its record must not keep naming their files."""
+    from calosrv.db.bootstrap import drop_experiment
+
+    database, settings = ingested["database"], ingested["settings"]
+    name = "resealed_experiment"
+    try:
+        with database.write_lock() as con:
+            pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="first.csv",
+                                build_sample=False)
+            pipeline.run_ingest(con, settings, name, SEED_CSV, source_name="second.csv",
+                                build_sample=False, force_reingest=True)
+            record = registry.get_experiment(con, name)
+        assert record.source_files == ["second.csv"]
+    finally:
+        with database.write_lock() as con:
+            drop_experiment(con, name, settings)
+
+
 # ------------------------------------------ the real-data fixture, if present --
 
 
@@ -418,3 +447,15 @@ def test_a_plus_b_rows_carry_shower_b_values_and_sit_at_the_origin(cursor, fixtu
     ).fetchone()
     assert row[0] > 0
     assert row[1] == 0
+
+
+def test_a_file_in_another_schema_is_named_in_one_readable_sentence(tmp_path):
+    """96 missing names used to bury the one sentence that says what the file is."""
+    v37 = ["event_number", "x", "energy", "voxel_fA_pred"]
+    with pytest.raises(IngestError) as info:
+        csv_spec.validate_header(_write_csv(tmp_path / "v37.csv", v37))
+    message = info.value.detail
+    # Three of the 99 names are present, so 96 are missing.
+    assert "(96 in all)" in message and "retired v37" in message
+    assert len(message) < 500
+    assert len(info.value.extra["expected"]) == 99, "the full list still travels beside it"

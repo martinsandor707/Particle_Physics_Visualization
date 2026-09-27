@@ -53,6 +53,13 @@ class IngestJob:
     progress: float = 0.0
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    #: When the job was queued. Always set and timezone-aware, so jobs can be
+    #: ordered before any of them has started.
+    submitted_at: dt.datetime = field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+    #: Replace an existing experiment of this name (``create_new`` only).
+    force_reingest: bool = False
     started_at: dt.datetime | None = None
     finished_at: dt.datetime | None = None
     result: dict[str, Any] = field(default_factory=dict)
@@ -70,6 +77,8 @@ class IngestJob:
             "progress": round(self.progress, 4),
             "error": self.error,
             "warnings": list(self.warnings),
+            "submitted_at": self.submitted_at.isoformat(),
+            "force_reingest": self.force_reingest,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "result": self.result,
@@ -92,10 +101,29 @@ class JobStore:
             return self._jobs.get(job_id)
 
     def recent(self, limit: int = 20) -> list[IngestJob]:
+        """The latest jobs, newest submission first.
+
+        Ordered by submission rather than start: a queued job has not started,
+        and mixing its missing start time with the aware ones of started jobs
+        is what used to raise here whenever one job ran while another waited.
+        """
         with self._lock:
             jobs = list(self._jobs.values())
-        jobs.sort(key=lambda j: j.started_at or dt.datetime.min, reverse=True)
+        jobs.sort(key=lambda j: j.submitted_at, reverse=True)
         return jobs[:limit]
+
+    def active_names(self) -> set[str]:
+        """Experiments with a job queued or running.
+
+        A second job for one of these would replace or interleave with the
+        first, and nothing else would stop it: the registry knows of a queued
+        job only once the worker reaches it.
+        """
+        with self._lock:
+            return {
+                job.table_name for job in self._jobs.values()
+                if job.status in (JOB_QUEUED, JOB_RUNNING)
+            }
 
     def submit(
         self,
@@ -105,6 +133,7 @@ class JobStore:
         display_name: str = "",
         event_offset: int = 0,
         delete_source: bool = True,
+        force_reingest: bool = False,
     ) -> IngestJob:
         job = IngestJob(
             job_id=uuid.uuid4().hex[:16],
@@ -112,6 +141,7 @@ class JobStore:
             mode=mode,
             source_name=staged.original_name,
             size_bytes=staged.size_bytes,
+            force_reingest=force_reingest,
         )
         with self._lock:
             self._jobs[job.job_id] = job
@@ -157,6 +187,7 @@ class JobStore:
                     check_space=False,
                     created_at=job.started_at.replace(tzinfo=None),
                     progress=lambda stage: self._advance(job, stage),
+                    force_reingest=job.force_reingest,
                 )
 
             # The tables were rebuilt under the write lock: anything cached (or

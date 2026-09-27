@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
+from .admin.store import DefaultsStore
 from .config import Settings, load_settings
 from .db import bootstrap as bootstrap_mod
 from .db.connection import get_database, reset_database
@@ -27,6 +28,7 @@ from .errors import ApiError
 from .ingest import jobs as jobs_mod
 from .logging_setup import configure_logging, log_boot_banner
 from .api import (
+    routes_admin,
     routes_energy,
     routes_experiments,
     routes_health,
@@ -206,19 +208,33 @@ async def lifespan(app: FastAPI):
         reseed = bootstrap_mod.retire_unsupported(con, BASELINE_TABLE, settings)
         empty = bootstrap_mod.is_empty(con) or reseed
 
-    jobs_mod.get_job_store(database)
+    store = jobs_mod.get_job_store(database)
     if empty:
         seed_baseline(database, settings)
-    else:
+
+    # Files dropped into the drop folder queue behind the seed and before any
+    # warming. The scan only decides and submits - the ingests run on the job
+    # worker - so the server is serving within moments whatever it finds.
+    from .ingest import autoingest
+
+    app.state.auto_ingest = autoingest.scan(database, settings, store)
+
+    if not empty:
         # Warm the co-registered frames' full-range bundles for every ready
         # experiment - canonical first, then translated and local, one scan at
         # a time: cold, each costs seconds on the production table.
-        # Background and best-effort.
+        # Background and best-effort. The admin panel's default experiment goes
+        # first and its default model is the one warmed, so the view a new
+        # session opens on is the one already paid for.
         from .query import canonical_cache, shower_frames
 
-        names = [r.table_name for r in ready if r.is_ready]
+        defaults: DefaultsStore = app.state.defaults
+        first = defaults.configured("default_dataset")
+        model = defaults.configured("default_model") or "segmentation"
+        names = sorted((r.table_name for r in ready if r.is_ready), key=lambda n: n != first)
         shower_frames.warm(
-            database, settings, names, after=canonical_cache.warm(database, settings, names)
+            database, settings, names, model=model,
+            after=canonical_cache.warm(database, settings, names, model=model),
         )
 
     try:
@@ -251,6 +267,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    # The Admin Settings panel's defaults. Built here rather than in the
+    # lifespan so every route can reach them however the app is driven.
+    app.state.defaults = DefaultsStore(settings)
 
     # Payloads are base64 rasters and JSON arrays, both of which compress well.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -274,6 +293,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for module in (
         routes_health,
         routes_experiments,
+        routes_admin,
         routes_upload,
         routes_projections,
         routes_energy,

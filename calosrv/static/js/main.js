@@ -4,6 +4,7 @@ import { getJson, debounce, ApiError, DEBOUNCE_MS } from './api.js';
 import { State, apiFrame, isCoregistered } from './state.js';
 import { RangeSlider } from './controls/range_slider.js';
 import { UploadModal } from './controls/upload.js';
+import { AdminModal } from './controls/admin.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
@@ -597,6 +598,15 @@ async function loadExperiments({ selectFirst = false } = {}) {
   setText('badge-memory', `${compute.duckdb_memory_gb} GB`);
   setText('badge-threads', compute.threads);
 
+  // A link without view state opens on the Admin Settings panel's defaults.
+  // Taken once, before an experiment is chosen and before the first render,
+  // so the radios are repainted without a single request for the built-in view.
+  const defaultNotices = [];
+  if (state.applyDefaults(payload.defaults)) {
+    restoreControlsFromState();
+    defaultNotices.push(...(payload.defaults.notices || []));
+  }
+
   setHtml('experiment-select', experiments.map((e) => {
     const suffix = e.status === 'ready'
       ? ` — ${formatInt(e.n_events)} events`
@@ -609,7 +619,7 @@ async function loadExperiments({ selectFirst = false } = {}) {
   // what to do about it.
   const failed = experiments.filter((e) => e.status === 'failed' && e.error)
     .map((e) => `${e.display_name || e.table_name}: ${e.error}`);
-  if (failed.length) showBanner(failed);
+  if (failed.length || defaultNotices.length) showBanner([...defaultNotices, ...failed]);
 
   const ready = experiments.filter((e) => e.status === 'ready');
   if (!ready.length) {
@@ -906,10 +916,27 @@ dom.bannerClose.addEventListener('click', () => {
 });
 
 new UploadModal({
-  onComplete: async () => {
+  // The dialog asks this before sending: whether a name is taken, and by what.
+  getExperiments: () => experiments,
+  onComplete: async (job) => {
+    // Open the experiment that was just ingested, not the one on screen.
+    if (job && job.table_name) state.set({ table_name: job.table_name }, { silent: true });
     await loadExperiments({ selectFirst: false });
   },
 });
+
+try {
+  // A failure here must not take the dashboard with it: the panel is an
+  // operator's tool, the plots are everyone's.
+  new AdminModal({
+    state,
+    // An automatic ingest that finishes while the panel is open joins the
+    // experiment list at once, without switching away from the current view.
+    onIngested: async () => { await loadExperiments({ selectFirst: false }); },
+  });
+} catch (error) {
+  reportError(error, 'admin settings');
+}
 
 /* --------------------------------------------------------------------- boot */
 

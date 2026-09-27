@@ -1,4 +1,4 @@
-"""``python -m calosrv.ingest`` - ingest a CSV without pushing it through HTTP.
+"""``python -m calosrv.ingest`` - ingest a CSV or Parquet file without pushing it through HTTP.
 
 The upload endpoint accepts files of any size, but sending 24 GB from a browser
 is slow, unresumable and easy to interrupt. For datasets already on the host -
@@ -54,17 +54,17 @@ log = logging.getLogger("calosrv.ingest.cli")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m calosrv.ingest",
-        description="Ingest a calorimeter inference CSV into the DuckDB store.",
+        description="Ingest a calorimeter inference CSV or Parquet file into the DuckDB store.",
     )
     parser.add_argument(
         "--input", "-i", type=Path, default=None,
-        help="Path to the CSV file to ingest (not needed with --rebuild).",
+        help="Path to the CSV or Parquet file to ingest (not needed with --rebuild).",
     )
     parser.add_argument(
         "--rebuild", action="store_true",
         help=(
             "Re-derive every table of --table from its Parquet archive, reading no "
-            "CSV. Direct mode only."
+            "source file. Direct mode only."
         ),
     )
     parser.add_argument(
@@ -74,7 +74,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode", "-m", choices=(load.MODE_CREATE_NEW, load.MODE_APPEND),
         default=load.MODE_CREATE_NEW,
-        help="create_new drops any existing table of this name; append adds to it.",
+        help=(
+            "create_new makes a new experiment (an existing one of this name needs "
+            "--force-reingest); append adds to an existing one."
+        ),
+    )
+    parser.add_argument(
+        "--force-reingest", action="store_true",
+        help=(
+            "With create_new, replace an existing experiment of this name. It is "
+            "deleted before the new file is loaded, and not restored if that fails."
+        ),
     )
     parser.add_argument(
         "--display-name", default="",
@@ -120,6 +130,7 @@ def run_delegated(args: argparse.Namespace, base_url: str, source: Path) -> int:
         "mode": args.mode,
         "display_name": args.display_name or name,
         "event_offset": str(args.event_offset),
+        "force_reingest": "true" if args.force_reingest else "false",
     }
     body = urllib.parse.urlencode(fields).encode()
     request = urllib.request.Request(
@@ -241,6 +252,7 @@ def run(args: argparse.Namespace) -> int:
             event_offset=args.event_offset,
             display_name=args.display_name,
             build_sample=not args.no_sample,
+            force_reingest=args.force_reingest,
         )
 
     # The source file is left in place. It belongs to the host, not to the

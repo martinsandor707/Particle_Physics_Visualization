@@ -86,6 +86,15 @@ def test_non_csv_is_refused(rooted):
         local.resolve_local_path(settings, "notes.md")
 
 
+def test_a_parquet_file_resolves_and_is_listed_as_one(rooted):
+    settings, root, _ = rooted
+    (root / "run7.parquet").write_bytes(b"PAR1" + b"\0" * 8 + b"PAR1")
+    assert local.resolve_local_path(settings, "run7.parquet") == root / "run7.parquet"
+    listed = {entry["relative"]: entry["format"] for entry in local.list_local_files(settings)}
+    assert listed["run7.parquet"] == "parquet"
+    assert listed["good.csv"] == "csv"
+
+
 def test_directory_is_refused(rooted):
     settings, _, _ = rooted
     with pytest.raises(ValidationError):
@@ -105,6 +114,18 @@ def test_listing_hides_vendor_directories(rooted):
     assert "good.csv" in listed
     assert "nested/deep.csv" in listed
     assert not any("site-packages" in name or "__pycache__" in name for name in listed)
+
+
+def test_the_listing_keeps_the_newest_files_when_it_truncates(rooted):
+    """The limit applies after sorting, so a long listing keeps the latest files."""
+    settings, root, _ = rooted
+    for age, name in enumerate(["newest.csv", "middle.csv", "oldest.csv"]):
+        path = root / name
+        path.write_text("a,b\n1,2\n")
+        stamp = 2_000_000_000 - age * 1000
+        os.utime(path, (stamp, stamp))
+    listed = [entry["relative"] for entry in local.list_local_files(settings, limit=2)]
+    assert listed == ["newest.csv", "middle.csv"]
 
 
 def test_disabled_when_no_root_is_configured(tmp_path, monkeypatch):

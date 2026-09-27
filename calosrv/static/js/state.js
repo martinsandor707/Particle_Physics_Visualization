@@ -81,7 +81,14 @@ function displayKey(frame) {
   return FRAMES.includes(frame) ? `display_${frame}` : 'display_lab';
 }
 
-const DEFAULTS = {
+/* The built-in view, and the reference every link is written against.
+ *
+ * Frozen, and never to be edited in place: writeHash omits every value equal to
+ * these, so an absent key in a saved link means "the built-in value". Changing
+ * one would silently re-read every bookmark that relied on it. A team's own
+ * opening view is set in the Admin Settings panel instead (applyDefaults), and
+ * calosrv/admin/schema.py holds the same values (a test keeps them equal). */
+export const DEFAULTS = Object.freeze({
   table_name: null,
   e1_min: null, e1_max: null,
   e2_min: null, e2_max: null,
@@ -106,12 +113,37 @@ const DEFAULTS = {
   palette: 'viridis',
   lock_scale: true,
   model: 'segmentation',
-};
+});
 
 const NUMERIC = new Set([
   'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution',
 ]);
 const BOOLEAN = new Set(['include_undefined_d', 'lock_scale']);
+
+/* The keys the Admin Settings panel's defaults may set on a cold boot. */
+const DEFAULTABLE = ['table_name', 'frame', 'model', 'channel', 'rho_norm'];
+
+/**
+ * The value `raw` gives `key`, or undefined when it may not set it.
+ *
+ * One rule for a link and for a saved default alike: an unknown mode or a
+ * mistyped enum keeps the built-in value rather than reaching the API, where it
+ * would be rejected and blank every panel.
+ */
+function acceptValue(key, raw) {
+  if (!(key in DEFAULTS)) return undefined;
+  if (NUMERIC.has(key)) {
+    const value = Number(raw);
+    const range = NUMERIC_RANGE[key];
+    return Number.isFinite(value) && (!range || (value >= range[0] && value <= range[1]))
+      ? value : undefined;
+  }
+  if (BOOLEAN.has(key)) return raw === true || raw === 'true' || raw === '1';
+  if (key.startsWith('display_')) return DISPLAYS.has(raw) ? raw : undefined;
+  if (ENUMS[key]) return ENUMS[key].includes(raw) ? raw : undefined;
+  // table_name: checked against the experiment list when the view loads.
+  return typeof raw === 'string' && raw ? raw : undefined;
+}
 
 export class State {
   constructor() {
@@ -120,6 +152,7 @@ export class State {
     this.domains = null;      // snapped slider domains, for the full-range test
     this.touched = new Set(); // axes the user has deliberately narrowed
     this.listeners = new Set();
+    this.defaultsApplied = false; // applyDefaults runs at most once
     this.readHash();
     // A bound arriving in the URL is a deliberate selection, so it must survive
     // the first adoptBounds rather than being reset to the dataset range.
@@ -135,6 +168,42 @@ export class State {
   get(key) {
     if (key === 'display') return this.values[displayKey(this.values.frame)];
     return this.values[key];
+  }
+
+  /** Whether the page opened on a link without any view state. */
+  get coldBoot() {
+    return this.hashKeys.size === 0;
+  }
+
+  /**
+   * Adopt the Admin Settings panel's defaults, on a cold boot only, and once.
+   *
+   * A link carrying any view state keeps all of it. An absent key in a link
+   * means "built-in value", because writeHash omits exactly those, so filling
+   * the gaps from today's defaults would re-read an old bookmark whenever new
+   * ones were saved. Nothing is written or marked touched here: the first
+   * writeHash then records every value that differs from the built-in view, so
+   * the session's own link never depends on the defaults again.
+   *
+   * `defaults.display` (null for "each frame's own") applies to the default
+   * frame. Returns whether this was the cold boot that took them.
+   */
+  applyDefaults(defaults) {
+    if (this.defaultsApplied || !this.coldBoot || !defaults) return false;
+    this.defaultsApplied = true;
+    const patch = {};
+    for (const key of DEFAULTABLE) {
+      if (defaults[key] === null || defaults[key] === undefined) continue;
+      const value = acceptValue(key, defaults[key]);
+      if (value !== undefined) patch[key] = value;
+    }
+    if (defaults.display !== null && defaults.display !== undefined) {
+      const key = displayKey(patch.frame ?? this.values.frame);
+      const value = acceptValue(key, defaults.display);
+      if (value !== undefined) patch[key] = value;
+    }
+    Object.assign(this.values, patch);
+    return true;
   }
 
   /** Apply a patch, notify listeners, and sync the URL. Returns true if changed. */
@@ -291,6 +360,9 @@ export class State {
   }
 
   readHash() {
+    // Every recognised key the link carries, valid or not: a link naming any
+    // part of the view is a view link, and the saved defaults stay out of it.
+    this.hashKeys = new Set();
     const hash = window.location.hash.replace(/^#/, '');
     if (!hash) return;
     const params = new URLSearchParams(hash);
@@ -299,29 +371,14 @@ export class State {
     let legacyDisplay = null;
     for (const [key, raw] of params.entries()) {
       if (key === 'display') {
+        this.hashKeys.add(key);
         if (DISPLAYS.has(raw)) legacyDisplay = raw;
         continue;
       }
       if (!(key in DEFAULTS)) continue;
-      if (NUMERIC.has(key)) {
-        const value = Number(raw);
-        const range = NUMERIC_RANGE[key];
-        if (Number.isFinite(value) && (!range || (value >= range[0] && value <= range[1]))) {
-          this.values[key] = value;
-        }
-      } else if (BOOLEAN.has(key)) {
-        this.values[key] = raw === 'true' || raw === '1';
-      } else if (key.startsWith('display_')) {
-        // An unknown mode would be sent to the API verbatim and rejected
-        // there, blanking all three panels; the default is kept instead.
-        if (DISPLAYS.has(raw)) this.values[key] = raw;
-      } else if (ENUMS[key]) {
-        // Likewise for every enumerated control: a stale or mistyped link
-        // falls back to the default rather than to a 422.
-        if (ENUMS[key].includes(raw)) this.values[key] = raw;
-      } else {
-        this.values[key] = raw;
-      }
+      this.hashKeys.add(key);
+      const value = acceptValue(key, raw);
+      if (value !== undefined) this.values[key] = value;
     }
     // The legacy key names the active frame's mode, unless the link also
     // carries that frame's own key, which is the more specific statement.

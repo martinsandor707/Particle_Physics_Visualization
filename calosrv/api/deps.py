@@ -37,11 +37,13 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 def resolve_table(
     con: CursorDep,
+    request: Request,
     table_name: str | None = Query(
         None,
         description=(
-            "Experiment to query. Defaults to the first ready experiment, so "
-            "the interface can load before the user has chosen one."
+            "Experiment to query. Defaults to the Admin Settings panel's default "
+            "experiment when it is ready, otherwise the first ready experiment, "
+            "so the interface can load before the user has chosen one."
         ),
     ),
 ) -> ExperimentRecord:
@@ -54,11 +56,13 @@ def resolve_table(
     ready = registry.list_experiments(con, ready_only=True)
     if not ready:
         raise UnknownTableError(
-            "No experiment has finished ingesting yet. Upload a CSV, or run "
+            "No experiment has finished ingesting yet. Upload a dataset, or run "
             "the offline ingest CLI, to populate the database.",
             available=[],
         )
-    return ready[0]
+    defaults = getattr(request.app.state, "defaults", None)
+    wanted = defaults.configured("default_dataset") if defaults is not None else None
+    return next((record for record in ready if record.table_name == wanted), ready[0])
 
 
 RecordDep = Annotated[ExperimentRecord, Depends(resolve_table)]

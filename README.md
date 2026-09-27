@@ -52,6 +52,10 @@ Set in `docker-compose.yml`:
 | `CALOSRV_SEED_CSV` | — | Override the baseline seed file. |
 | `CALOSRV_CACHE_ENTRIES` | `128` | Native-resolution matrix bundles held in the LRU. |
 | `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local). |
+| `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/host/ingest`, the repository's `./ingest`, read-only. |
+| `CALOSRV_AUTO_INGEST_SETTLE_S` | `30` | A dropped file modified more recently is taken to be still copying, and waits for the next scan. |
+| `CALOSRV_CONFIG_PATH` | `<data dir>/config.json` | Where the [Admin Settings](#admin-settings-the-default-view) panel saves the default view. |
+| `CALOSRV_DEFAULT_DATASET`, `…_COORD_SYSTEM`, `…_MODEL`, `…_CHANNEL`, `…_DISPLAY_MODE`, `…_RHO_NORM` | unset | The default view's environment layer, beneath what the panel saves. Compose sets `CALOSRV_DEFAULT_DATASET=production_hits_all_models`. An invalid value is ignored with a warning. |
 | `CALOSRV_ALLOW_RAM_STORAGE` | unset | `1` lets the database, temp and archive directories sit on tmpfs/ramfs/zram. The test suite sets it for its throw-away databases; nothing else should. |
 | `TMPDIR` | `/app/data/staging` | Where Starlette spools uploads before they are staged; kept on the data volume, never in a tmpfs `/tmp`. |
 
@@ -99,14 +103,15 @@ peak RSS 5.9 GB (DuckDB's own buffers 2.8 GB, nothing spilled), producing a
 projection table 5 s, event table 17 s, preview sample 5 s, verification 16 s.
 
 ```
---input / -i        path to the CSV
+--input / -i        path to the CSV or Parquet file
 --table / -t        experiment name (lowercase letters, digits, underscores)
 --mode / -m         create_new (default) | append
+--force-reingest    with create_new, replace an existing experiment of this name
 --display-name      label shown in the experiment dropdown
 --event-offset      shift incoming event numbers when appending
 --no-sample         skip the 10% preview-sample table
 --rebuild           rebuild the derived tables from the experiment's Parquet archive,
-                    without re-reading the CSV
+                    without re-reading the source file
 --direct            always open the database directly (see below)
 --server-url        base URL of a running server
 ```
@@ -123,10 +128,49 @@ projection table 5 s, event table 17 s, preview sample 5 s, verification 16 s.
 > locked.
 
 The same route is available from the interface: the upload modal's **Source**
-selector offers "Already on the server", which lists the CSVs under the mounted
-root. Paths are confined to that one directory — every request is resolved
+selector offers "Already on the server", which lists the CSV and Parquet files
+under the mounted root. Paths are confined to that one directory — every request is resolved
 (following symlinks, collapsing `..`) and rejected if it lands outside — so the
 endpoint cannot be used to read arbitrary server files.
+
+### Drop folder (automatic ingest)
+
+Put a CSV or Parquet file in `./ingest/` and it becomes an experiment the next
+time the server starts, or at once with **Scan now** in the
+[Admin Settings](#admin-settings-the-default-view) panel. The container reads
+the folder through the read-only repository mount
+(`CALOSRV_AUTO_INGEST_DIR=/app/host/ingest`), so a dropped file is never
+modified or deleted, and the folder stays yours on the host.
+
+```bash
+ln hits_all_models.csv ingest/production_hits_all_models.csv   # a hard link costs no disk
+```
+
+- **The file name is the experiment name**: lower-cased, every other run of
+  characters one underscore, `exp_` before a leading digit, at most 48
+  characters. `Production-20k (v2).parquet` becomes `production_20k_v2`. A name
+  the rules refuse (a reserved word, the `_s10` suffix) is reported, not bent.
+- **Idempotent.** A file is skipped when its experiment already exists in any
+  form, whether a registry row in any status, a table or an archive. That is
+  logged as `Table '<name>' already exists in database catalog. Skipping
+  automatic ingestion.`. A file is also skipped when:
+  - a job for that name is already queued;
+  - the same file (name and size) is already archived as another experiment;
+  - a second file claims the same name.
+
+  Nothing is ever replaced: that is the upload dialog's **Replace**.
+- **Reported, not failed.** A file that fails its schema check is listed in the
+  panel with the reason and left alone, instead of adding a failed experiment
+  at every boot. A file modified within the settle window is taken to be still
+  copying.
+- **Never in the way.** The scan only decides and queues. The ingests run one
+  at a time on the worker an upload uses, so the server answers at once. An
+  ingest that crashes leaves a failed registry row, which the next boot treats
+  as existing, so a bad file cannot loop a restarting container.
+
+Only the folder's top level is scanned. Hidden files, temporary names (`.part`,
+`.tmp`, …) and anything that is not `.csv` or `.parquet` are passed over.
+`ingest/README.md` repeats these rules beside the files.
 
 ### Through the browser
 
@@ -134,12 +178,27 @@ The **Upload Dataset** button streams a file to disk in 8 MiB chunks and hands
 it to a background ingest job, polled for progress. Large uploads are permitted
 — external collaborators have no shell access and this is their only route — but
 the modal warns that a browser upload cannot resume, and that ingestion needs
-roughly three times the CSV size in free disk space.
+about three times a CSV's size, or three and a half times a Parquet file's, in
+free disk space. The Parquet figure is provisional until measured on the
+production file.
 
-`CREATE_NEW` drops any existing tables of that name and builds a clean, isolated
-experiment. `APPEND` adds rows, and is **rejected** if the incoming event numbers
-overlap those already stored; merging two files that each number events from zero
-would fuse distinct physics events. Pass an `event_offset` to shift them clear.
+`CREATE_NEW` builds a clean, isolated experiment.
+
+- **An existing name is refused.** Onto a name that already holds an experiment
+  (in any state, including tables or an archive a crash left behind) it returns
+  **409** unless **Replace** is ticked. That is `force_reingest=true` in the
+  API and `--force-reingest` on the CLI.
+- **Every check runs before the drop.** Replacing drops the old experiment
+  before the new file is read, so a refused file never costs the experiment it
+  would have replaced. A failure later in the load still does, and the dialog
+  says so.
+- **A queued name is refused even when forced.**
+- **The dialog asks first.** Each of these, the file type and the naming rules
+  are checked before a byte is sent.
+
+`APPEND` adds rows, and is **rejected** if the incoming event numbers overlap
+those already stored; merging two files that each number events from zero would
+fuse distinct physics events. Enter an event offset to shift them clear.
 
 ### Expected schema
 
@@ -190,9 +249,34 @@ tail; every coordinate, centroid and model column is REAL. Empty fields are read
 as NULL; rows with a missing coordinate or a non-positive energy are excluded
 from the projections and counted in the ingest report.
 
+**Parquet files** carry the same 99 names in any order. A Parquet column is read
+by name; only a CSV is positional. Each column is cast to its pinned type, so a
+Parquet-sourced archive part is interchangeable with a CSV-sourced one: the
+same types, readable together, appendable to each other.
+
+- **Refused before anything is dropped,** naming the column:
+  - a column missing, or an extra one (a pandas index column is ignored);
+  - an incompatible type, such as text into a number or a floating-point event
+    number;
+  - integers outside the pinned range.
+- **Narrowing is reported.** A DOUBLE column narrowed to the schema's REAL is
+  noted in the ingest report. Float32 round-off is at most 2⁻²⁴ ≈ 6 × 10⁻⁸ of
+  the value. Measured on the demonstration file:
+  - lab `x, y, z` are exact, because the file prints float32 values;
+  - momenta move by at most 5.9 × 10⁻⁷ GeV;
+  - local coordinates move by at most 1.2 × 10⁻⁴ mm.
+- **NaN.** In the twelve undefined-separation columns, NaN is read as NULL (as
+  an empty CSV field is) and counted. NaN anywhere else fails verification.
+- **Scope.** A single file only, with no globs or hive partitions. DuckDB reads
+  it without pyarrow.
+
+The format is taken from the file's content, not its name. A Parquet file
+begins and ends with `PAR1`, which also tells a half-copied file (no footer yet)
+from a whole one, and a gzip or zip file is refused with a reason.
+
 ### Storage: DuckDB tables and the Parquet archive
 
-Ingest writes the CSV **once** into an immutable Parquet archive,
+Ingest writes the source, CSV or Parquet, **once** into an immutable Parquet archive,
 `${data_dir}/archive/<experiment>/part-<n>.parquet`, and builds the query
 tables from it:
 
@@ -229,6 +313,79 @@ figures credited to production v37 below were measured on that file and are
 kept with that provenance.
 
 ---
+
+## Admin Settings: the default view
+
+**Admin Settings** in the header opens a panel that sets what a new session
+opens on:
+
+- the experiment;
+- the reference frame;
+- the reconstruction model;
+- the display channel;
+- the display mode;
+- the density normalisation.
+
+Choose them, or press **Use current view** to copy the sidebar, then press
+**Save defaults**. **Open default view ↗** starts a fresh session to check the
+result. The panel also shows the [drop folder](#drop-folder-automatic-ingest)'s
+last scan, with live job status and **Scan now**.
+
+Each setting resolves through four layers, highest first:
+
+| Layer | Set by | Chip |
+|---|---|---|
+| URL hash | a link or bookmark carrying view state | — |
+| Saved | the panel: `config.json` on the data volume, written atomically | "set here" |
+| Environment | `CALOSRV_DEFAULT_*` in `docker-compose.yml` | "from environment" |
+| Built-in | Laboratory / segmentation / density / each frame's own display mode / selection; the oldest ready experiment | "built-in" |
+
+- **Chips and Reset.** The chip beside every control names its layer. **Reset**
+  removes the saved value, so the layer beneath shows through; like every
+  change it takes effect on **Save defaults**.
+- **Fallback.** A saved experiment that is not ready yields to the oldest ready
+  one, and says so ("fallback").
+- **Unavailable choices.** A frame, model or channel the chosen experiment does
+  not serve is disabled.
+- **Display mode.** The display-mode setting applies to the default frame.
+  "Frame's own" keeps native in the laboratory and the Continuous Field
+  elsewhere.
+
+**Bookmarks never change meaning.**
+
+- **Absent means built-in.** The interface writes into the URL hash every view
+  value that differs from the built-in view, and omits the rest, so an absent
+  key means "built-in".
+- **Only an empty link takes the defaults.** A link with any recognised key
+  opens exactly as written.
+- **New links stand alone.** The first link a session writes records every
+  non-built-in value, so it does not depend on the defaults either.
+- **The built-in view is frozen.** It is `state.js` `DEFAULTS`, held equal to
+  `calosrv/admin/schema.py` by a test. The team's view changes in the panel,
+  never by editing the built-in values, which would silently re-read every
+  saved link.
+
+**Why the built-in view is the laboratory frame.**
+
+- **It is the only frame computable from measured quantities.**
+  - The translated frame subtracts each shower's entry point P₀, recovered from
+    its truth-labelled hits.
+  - The local frame also rotates by the truth (θ, φ).
+  - The canonical frame back-projects along the truth (θ, φ).
+- **It carries the networks that apply to real data.** The network follows the
+  frame, so the absolute-frame networks, the only ones whose inputs exist on
+  detector data, appear only in the laboratory and canonical frames.
+- **Any other frame can still be the team's default.** Choose it in the panel.
+
+**Scope.** Saving never changes the view of the session that saved it. An API
+call is still a function of its parameters: the defaults govern the interface's
+cold boot, plus one API case, where a request naming no experiment opens the
+default one.
+
+**Trust model.** No endpoint of this service is authenticated, and the panel is
+no exception. Like upload and delete, it is open to anyone who can reach the
+port, which compose publishes on all interfaces. Keep the port on a trusted
+network.
 
 ## The interface
 
@@ -1368,8 +1525,13 @@ All endpoints return pre-aggregated payloads; none returns a raw hit array.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/experiments` | Registered tables, row/event counts, kinematic bounds, lattice, the frames/coordinate systems/models/channels each serves, schema, archive, compute allocation. A failed experiment carries its `error`. |
-| `POST /api/upload` | Streamed multipart ingest. Returns a job id. |
+| `GET /api/experiments` | Registered tables, row/event counts, kinematic bounds, lattice, the frames/coordinate systems/models/channels each serves, schema, archive, compute allocation, and the cold-boot `defaults`. A failed experiment carries its `error`. |
+| `GET /api/admin/config` | The default view: every value with its source, the saved and environment layers, the options each experiment offers, the drop folder's last scan. |
+| `POST /api/admin/config` | Save any subset of the six defaults; `null` clears one. A 422 names the field for an unknown value, experiment or capability. |
+| `POST /api/admin/auto-ingest/scan` | Scan the drop folder now. A 409 when it is off. |
+| `POST /api/upload` | Streamed multipart ingest of a CSV or Parquet file. `force_reingest=true` replaces an existing experiment, which is a 409 without it. Returns a job id. |
+| `POST /api/ingest-local` | Ingest a CSV or Parquet file already under the mounted root, by path, with the same fields. |
+| `GET /api/local-files` | The CSV and Parquet files under that root. |
 | `GET /api/upload/{job_id}` | Ingest progress and result. |
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames. Unknown values return 422 naming the field. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks from the `coord_system`'s segmentation network (`meta.network`). |
@@ -1499,9 +1661,11 @@ self-explaining if it ever recurs.
 
 ```
 calosrv/
-  config.py logging_setup.py errors.py app.py text.py
-  db/      connection settings storage_guard ddl naming registry bootstrap archive
-  ingest/  stream csv_spec load pipeline lattice_fit derive_proj derive_events verify jobs cli
+  config.py logging_setup.py errors.py app.py text.py fsutil.py
+  admin/   schema store
+  db/      connection settings storage_guard ddl naming registry bootstrap archive catalog
+  ingest/  stream formats csv_spec parquet_spec source_check load pipeline lattice_fit
+           derive_proj derive_events verify jobs autoingest cli
   grid/    lattice splat resolution slab frame bounds kernel
   query/   filters planes projections panels centroids summary energy performance sampling cache
            experiments stagger canonical shower_frames window reconstruct density ensemble
@@ -1510,9 +1674,9 @@ calosrv/
   encode/  scale quantize matrix topk
   api/     deps routes_* frame_canonical frame_shower
   static/  index.html css/ js/
-             js/      main api state scale palette decode dom textfit format frame_views
+             js/      main api state labels scale palette decode dom textfit format frame_views
              js/panels/   projection canonical_overlays marks tooltip energy metrics
-             js/controls/ range_slider upload
+             js/controls/ range_slider upload admin modal
              js/export/   tokens figure caption disclosure filename download menu
 ```
 
@@ -1538,6 +1702,11 @@ file.
 | `grid/bounds.py` | the dataset-wide frame extents measured at ingest, from which their grids are planned |
 | `db/archive.py`, `db/storage_guard.py` | the Parquet archive and its manifest; the refusal of RAM-backed storage |
 | `stats/metrics.py` | the card estimators: clustered ratios, residual summaries, Fisher-z correlation |
+| `admin/schema.py`, `admin/store.py` | the six defaults of the Admin Settings panel, validated against the API's own tuples; the layered store (saved, environment, built-in) that reports each value's source |
+| `db/catalog.py` | what already exists under a name, or from a source file: the one answer the 409 and the drop folder share |
+| `ingest/formats.py`, `ingest/parquet_spec.py` | the format read from the file's content, and every branch on it; the Parquet schema, type and range checks and the SELECT that reads it |
+| `ingest/autoingest.py` | the drop-folder scan: decides and queues, never forces |
+| `fsutil.py` | crash-safe file replacement (the saved defaults, the archive manifests) |
 
 **Client:**
 
@@ -1548,6 +1717,8 @@ file.
 | `static/js/export/disclosure.js` | the structured figure disclosures, per frame kind and quantity |
 | `static/js/frame_views.js` | every frame's titles, captions, display captions and footnotes, as pure strings |
 | `static/js/format.js` | the typographic minus |
+| `static/js/controls/admin.js`, `static/js/controls/modal.js` | the Admin Settings panel; the dialog shell both dialogs share (focus, Escape, ARIA) |
+| `static/js/labels.js` | every choice's label, used by the panel and held equal to the sidebar's by a test |
 | `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer, every explanation off the hovered chart |
 
 Three structural rules the layout exists to enforce:

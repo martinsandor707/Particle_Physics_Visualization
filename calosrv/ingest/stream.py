@@ -53,8 +53,8 @@ def check_free_space(
     if free < required:
         raise InsufficientStorageError(
             f"Ingesting this file needs about {required / 1e9:.1f} GB of free "
-            f"space (the CSV itself plus the derived tables and write-ahead "
-            f"log), but only {free / 1e9:.1f} GB is available on the data "
+            f"space (the source file itself plus the archive, the derived tables "
+            f"and the write-ahead log), but only {free / 1e9:.1f} GB is available on the data "
             "volume.",
             required_bytes=required,
             free_bytes=free,
@@ -68,12 +68,16 @@ def staged_path(staging_dir: Path, original_name: str) -> Path:
     suffix, and only after validation - so a name like ``../../etc/passwd``
     cannot escape the staging directory.
     """
+    from .formats import PARQUET, format_of_name
+
     suffix = Path(original_name).suffix.lower()
-    if suffix not in (".csv", ".txt", ""):
+    fmt = format_of_name(original_name)
+    if fmt is None:
         raise IngestError(
-            f"Unsupported file type {suffix or '(none)'!r}; expected a .csv file."
+            f"Unsupported file type {suffix or '(none)'!r}; expected a .csv or .parquet file."
         )
-    return staging_dir / f"upload_{uuid.uuid4().hex}.csv"
+    # A truthful suffix, though the content decides the format when it is read.
+    return staging_dir / f"upload_{uuid.uuid4().hex}.{'parquet' if fmt == PARQUET else 'csv'}"
 
 
 async def stream_to_disk(
