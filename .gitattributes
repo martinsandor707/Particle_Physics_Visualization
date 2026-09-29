@@ -1,0 +1,2 @@
+ingest/hits_all_models_dummy.parquet filter=lfs diff=lfs merge=lfs -text
+ingest/hits_all_models.parquet filter=lfs diff=lfs merge=lfs -text
