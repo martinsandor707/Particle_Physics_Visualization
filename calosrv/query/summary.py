@@ -22,6 +22,7 @@ import duckdb
 from ..db import naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
+from ..text import typographic
 from .filters import FilterSpec
 
 
@@ -192,10 +193,83 @@ def angular_coherence(
         "note": (
             "Incident azimuth is near-uniform over this selection, so no single "
             "averaged trajectory is drawn; it would point in an arbitrary "
-            "direction. The solid lines are the energy-weighted shower axes "
-            "measured from the displayed data."
+            "direction. The solid lines are the centres of deposited energy per "
+            "depth layer, measured from the displayed data: a property of the "
+            "summed picture, not a direction."
         ),
     }
+
+
+def pointing(
+    con: duckdb.DuckDBPyConnection,
+    record: ExperimentRecord,
+    spec: FilterSpec,
+) -> dict[str, Any]:
+    """Where the incident directions point, measured against each shower's own position.
+
+    The azimuth is near-uniform over the detector face, but not random: on
+    the production file every shower's incident direction points back at the
+    detector origin - ``phi = atan2(y, x)`` with a resultant length of 1.000,
+    and ``tan(theta) * z = r`` (the 3-D centroid's ``r / tan theta`` is
+    3,860 mm against its own z of 3,892 mm). The residual between the
+    direction and the radial line through the centroid is 1.8 degrees SD. The
+    azimuth is uniform only because the entry positions are, which is what
+    licenses the windowed ensemble axis (``query/window_axis.py``) and what
+    part of the D-frame's slope dispersion is made of.
+
+    Returns, per shower, the residual's mean and SD in degrees, the median
+    ``r / tan theta`` beside the median centroid depth, and N.
+    """
+    table = quote(naming.event_table(record.table_name))
+    where = spec.where_sql()
+    out: dict[str, Any] = {}
+    for shower in ("a", "b"):
+        th, ph = f"CAST(theta_{shower} AS DOUBLE)", f"CAST(phi_{shower} AS DOUBLE)"
+        cx, cy, cz = (f"CAST(c{shower}{a} AS DOUBLE)" for a in "xyz")
+        row = con.execute(
+            f"""
+            WITH ev AS (
+                SELECT {th} AS th, {ph} AS ph, {cx} AS cx, {cy} AS cy, {cz} AS cz
+                FROM {table}
+                WHERE {where} AND theta_{shower} IS NOT NULL AND phi_{shower} IS NOT NULL
+                  AND c{shower}x IS NOT NULL AND c{shower}y IS NOT NULL AND c{shower}z IS NOT NULL
+            ), res AS (
+                SELECT atan2(sin(ph - atan2(cy, cx)), cos(ph - atan2(cy, cx))) AS r,
+                       CASE WHEN tan(th) > 0 THEN sqrt(cx * cx + cy * cy) / tan(th) END AS zs, cz
+                FROM ev
+            )
+            SELECT count(*), avg(r), stddev_samp(r), median(zs), median(cz) FROM res
+            """,
+            spec.params(),
+        ).fetchone()
+        n = int(row[0] or 0)
+
+        def deg(value):
+            return math.degrees(float(value)) if value is not None and math.isfinite(float(value)) else None
+
+        out[shower] = {
+            "n": n,
+            "mean_deg": deg(row[1]) if n else None,
+            "sd_deg": deg(row[2]) if n >= 2 else None,
+            "source_z_mm": float(row[3]) if row[3] is not None else None,
+            "centroid_z_mm": float(row[4]) if row[4] is not None else None,
+        }
+    parts = []
+    for shower, name in (("a", "A"), ("b", "B")):
+        block = out[shower]
+        if block["n"] >= 2 and block["sd_deg"] is not None:
+            source = (f", r / tan θ = {block['source_z_mm']:,.0f} mm against a centroid depth of "
+                      f"{block['centroid_z_mm']:,.0f} mm") if block["source_z_mm"] is not None else ""
+            parts.append(f"{name}: {block['mean_deg']:+.1f}° ± {block['sd_deg']:.1f}° SD over N = {block['n']:,}{source}")
+        elif block["n"] == 1:
+            parts.append(f"{name}: one event, residual {block['mean_deg']:+.1f}°")
+    out["note"] = typographic(
+        "Incident directions point at the detector origin: against the radial line through each "
+        "shower's 3-D centroid the residual is " + "; ".join(parts) + ". The azimuth is uniform over the "
+        "face only because the entry points are, so the showers entering one window share a direction: "
+        "zoom a depth panel and the ensemble axis of the events entering its window is drawn."
+    ) if parts else "Too few events to measure where the incident directions point."
+    return out
 
 
 def trajectories(

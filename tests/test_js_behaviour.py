@@ -1506,11 +1506,13 @@ def test_projection_notes_are_sectioned_in_a_fixed_order(ui_results):
         positions = [NOTE_ORDER.index(h) for h in notes["headings"]]
         assert positions == sorted(positions), key
         assert notes["headings"][:2] == ["Selection", "What is drawn"], key
-        # The lab legend is inside its footnote; a co-registered entry panel
-        # always has one. A depth panel's legend sentence can coincide with a
-        # disclosure line, and is then stated once, under Disclosures.
+        # The lab entry panel's legend is inside its footnote; its depth panels
+        # carry one for the energy centres or the trajectories, and the windowed
+        # axis when it is drawn. A co-registered entry panel always has one. A
+        # depth panel's legend sentence can coincide with a disclosure line,
+        # and is then stated once, under Disclosures.
         if kind == "lab":
-            assert "Marks and legend" not in notes["headings"], key
+            assert ("Marks and legend" in notes["headings"]) == (not key.endswith("|xy")), key
         elif key.endswith("|xy"):
             assert "Marks and legend" in notes["headings"], key
         assert notes["title"] == ui_results["titles"][key], key
@@ -1986,5 +1988,173 @@ def test_no_event_sentence_carries_a_hyphen_minus(event_results):
     texts = [r["label"]["full"], r["label"]["noAxis"], *r["selection"].values(), *r["sentences"].values()]
     for notes in (r["notes"]["local"], r["notes"]["lab"], r["outsideNotes"]):
         texts.extend(line for section in notes["sections"] for line in section["lines"])
+    for text in texts:
+        assert not re.search(r"(?<![\w-])-\d", text), text
+
+
+# ------------------------------------------------- the windowed ensemble axis --
+
+_WINDOW_SCRIPT = """
+const [marksUrl, framesUrl, notesUrl] = JSON.parse(process.argv[1]);
+const { insideWedge, customBand } = await import(marksUrl);
+const fv = await import(framesUrl);
+const { projectionNotes, notesLines } = await import(notesUrl);
+const out = {};
+
+const two = [[0, -1, 1], [100, -3, 3]];
+const three = [[0, 0, 0], [50, -1, 1], [100, -5, 5]];
+out.inside = {
+  two: insideWedge(two, 50, 1.5), twoOut: insideWedge(two, 50, 2.5), twoEnd: insideWedge(two, 100, -3),
+  three: insideWedge(three, 75, 2.9), threeOut: insideWedge(three, 75, 3.1), threeFirst: insideWedge(three, 25, 0.4),
+  beyond: insideWedge(three, 120, 0), before: insideWedge(three, -1, 0), none: insideWedge(null, 0, 0),
+  one: insideWedge([[0, -1, 1]], 0, 0),
+};
+// The band polygon walks the lower edge out and the upper edge back.
+const band = customBand({ name: 'b', points: three, color: '#fff', opacity: 0.2 });
+const shape = band.renderItem({}, { coord: (p) => p }).shape.points;
+out.band = { silent: band.silent, points: shape };
+
+const lab = (overlays) => ({
+  slab: { note: 'Slab.' },
+  panels: {
+    xy: { scale: { unit: 'GeV', scale: 'log10', vmin: -6, vmax: 0, clipped_low: 0, clipped_high: 0 },
+          axes: { col: { name: 'x', lo: -2600, hi: 2600 }, row: { name: 'y', lo: -2600, hi: 2600 } } },
+    yz: { scale: { unit: 'GeV', scale: 'log10', vmin: -6, vmax: 0, clipped_low: 0, clipped_high: 0 },
+          axes: { col: { name: 'z', lo: 3662, hi: 4873 }, row: { name: 'y', lo: -2600, hi: 2600 } } },
+    xz: { scale: { unit: 'GeV', scale: 'log10', vmin: -6, vmax: 0, clipped_low: 0, clipped_high: 0 },
+          axes: { col: { name: 'z', lo: 3662, hi: 4873 }, row: { name: 'x', lo: -2600, hi: 2600 } } },
+  },
+  overlays: { axes: {}, trajectories: [], coherence: { r_a: 0.012, r_b: 0.016 }, max_trajectory_events: 50, ...overlays },
+  centroids: {}, selection: { n_events: 20268, n_hits: 24000000 },
+  meta: { resolution: { mode: 'native', r_x: 212 }, stagger: { staggered: false }, exact: true, coord_system: 'lab' },
+});
+const pointing = {
+  a: { n: 20268, mean_deg: -0.005, sd_deg: 1.799, source_z_mm: 3860, centroid_z_mm: 3892 },
+  b: { n: 20268, mean_deg: 0.02, sd_deg: 1.8, source_z_mm: 3862, centroid_z_mm: 3890 },
+  note: 'Incident directions point at the detector origin: against the radial line through each shower’s 3-D '
+    + 'centroid the residual is A: −0.0° ± 1.8° SD over N = 20,268, r / tan θ = 3,860 mm against a centroid depth '
+    + 'of 3,892 mm; B: +0.0° ± 1.8° SD over N = 20,268. The azimuth is uniform over the face only because the '
+    + 'entry points are, so the showers entering one window share a direction: zoom a depth panel and the '
+    + 'ensemble axis of the events entering its window is drawn.',
+};
+const payload = lab({ pointing });
+out.lab = fv.labFootnotes(payload);
+out.labFew = fv.labFootnotes(lab({ pointing, trajectories: [{ event: 1, a: {} }, { event: 2, a: {} }] })).xz;
+out.legend = { many: fv.labLegend(payload), few: fv.labLegend(lab({ trajectories: [{ event: 1 }] })) };
+
+const stations = [[3662, 1100, 1200], [3965, 1190, 1300], [4268, 1270, 1410], [4571, 1350, 1520], [4873, 1420, 1640]];
+const windowAxis = {
+  panel: 'xz', axis: 'x', window: [1000, 1300], z_front: 3662, depth_max: 4873, stations: 5, lean_ratio_min: 1,
+  a: { n: 65, n_selection: 20268, anchor: { t: 1150, z: 3662, sd: 86, se95: 21 }, slope: 0.311, slope_sd: 0.023,
+       se95: 0.0057, lean_ratio: 13.5, fan_deg: 1.5, resultant_azimuth: 0.7, rayleigh_p: 1e-12, faded: false, label: '',
+       dof_note: null, axis: [[3662, 1150], [4873, 1526]], band: stations,
+       envelope: stations.map(([z, lo, hi]) => [z, (lo + hi) / 2 - 3, (lo + hi) / 2 + 3]) },
+  b: { n: 0, n_selection: 20268, axis: null, band: null, envelope: null, faded: false, label: '' },
+  notes: ['Shower A: N = 65 of 20,268 selected events enter the window x ∈ [1000, 1300] mm; mean lean +0.3110 '
+          + '± 0.0230 SD, fan ± 1.5°; lean / fan = 13.52 ≥ 1, drawn in full.',
+          'Shower B: no selected event enters the window x ∈ [1000, 1300] mm; no axis is drawn.'],
+  rule: 'Windowed ensemble axis: the selected events whose entry point lies in this panel’s displayed transverse window.',
+};
+const view = { col: [3662, 4873], row: [1000, 1300] };
+const withAxis = projectionNotes({ payload, panelId: 'xz', isometric: {}, view, windowAxis });
+const without = projectionNotes({ payload, panelId: 'xz', isometric: {}, view });
+const entry = projectionNotes({ payload, panelId: 'xy', isometric: {}, view, windowAxis });
+out.notes = {
+  headings: withAxis.sections.map((s) => s.heading),
+  legend: notesLines(withAxis, 'Marks and legend'),
+  disclosures: notesLines(withAxis, 'Disclosures'),
+  withoutLegend: notesLines(without, 'Marks and legend'),
+  withoutDisclosures: notesLines(without, 'Disclosures'),
+  entryHeadings: entry.sections.map((s) => s.heading),
+};
+out.windowLegend = { full: fv.windowAxisLegend(windowAxis), none: fv.windowAxisLegend(null) };
+out.geometry = { full: fv.geometrySentence(pointing), none: fv.geometrySentence(null), noSd: fv.geometrySentence({ a: { n: 1 } }) };
+
+// The D-frame depth panels state the geometry share of their band.
+const fitAxis = (half) => ({ applied: true, range: [-half, half], half_width: half, floored: false });
+const frame = { kind: 'canonical', n_events: 7, n_selected: 7, n_excluded_no_frame: 0, anchor_choice: 'backprojected',
+  d_entry: { mean: 800, ci95_half: 40, n: 7 }, d_dataset: { mean: 820, ci95_half: 30 }, subsample_k: 2,
+  footprint_mm: [48.3, 48.6], pitch_mm: 20, fit: { rule: 'symmetric', provisional: true, floor_mm: 200,
+  percentiles: [0.1, 99.9], xy: { col: fitAxis(480), row: fitAxis(200), energy_fraction_outside: 0.002 },
+  yz: { row: fitAxis(200), energy_fraction_outside: 0.001 }, xz: { row: fitAxis(480), energy_fraction_outside: 0.001 } },
+  rho: { norm: 'selection', ref: { xy: 1e-6, depth: 2e-6 } }, reconstruction: { display: 'continuous', note: 'Kernel.' },
+  comb: { note: 'No comb.', staggered: false }, notes: [], ensemble: {}, coherence: { r_a: 0.012 } };
+const cpanel = (col, row, sc, sr) => ({ scale: { unit: 'a.u.', scale: 'log10', floor: 'transparent', floor_ratio: 1e-3 },
+  rho_unit: 'GeV/mm^2/event', below_floor_cells: 3, energy_fraction_outside_window: 0.002,
+  axes: { col: { name: col, symbol: sc, lo: -480, hi: 480 }, row: { name: row, symbol: sr, lo: -200, hi: 200 } } });
+const canonical = { frame, panels: { xy: cpanel('x', 'y', 'x′', 'y′'), yz: cpanel('z', 'y', 'z′', 'y′'), xz: cpanel('z', 'x', 'z′', 'x′') },
+  slab: { note: 'Slab.' }, centroids: {}, overlays: { pointing },
+  meta: { resolution: { mode: 'continuous' }, exact: true, frame: 'canonical' }, selection: { n_events: 7, n_hits: 100 } };
+out.canonical = { xz: fv.canonicalFootnotes(canonical, { isometric: {} }).xz,
+  single: fv.canonicalFootnotes({ ...canonical, frame: { ...frame, n_events: 1 } }, { isometric: {} }).xz };
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def window_results() -> dict:
+    args = json.dumps([(JS / "panels" / "marks.js").as_uri(), (JS / "frame_views.js").as_uri(),
+                       (JS / "panel_notes.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _WINDOW_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_a_band_of_several_stations_is_interpolated_between_them(window_results):
+    r = window_results["inside"]
+    assert r["two"] is True and r["twoOut"] is False and r["twoEnd"] is True
+    assert r["three"] is True and r["threeOut"] is False and r["threeFirst"] is True
+    assert r["beyond"] is False and r["before"] is False and r["none"] is False and r["one"] is False
+    band = window_results["band"]
+    assert band["silent"] is True
+    assert band["points"] == [[0, 0], [50, -1], [100, -5], [100, 5], [50, 1], [0, 0]]
+
+
+def test_the_absolute_frame_names_its_energy_centres_and_where_the_directions_point(window_results):
+    lab = window_results["lab"]
+    for panel in ("yz", "xz"):
+        assert "centres of deposited energy per depth layer" in lab[panel]
+        assert "a property of the summed picture, not a direction" in lab[panel]
+        assert "No single averaged trajectory is drawn over the whole face" in lab[panel]
+        assert "Incident directions point at the detector origin" in lab[panel]
+        assert "zoom a depth panel" in lab[panel]
+        assert "shower axes" not in lab[panel]
+    assert "Incident directions point" not in lab["xy"]
+    few = window_results["labFew"]
+    assert "2 individual incident trajectories" in few and "centre of deposited energy is withheld" in few
+    legend = window_results["legend"]
+    assert legend["many"].startswith("Solid lines: the centre of deposited energy per depth layer")
+    assert legend["few"].startswith("Dashed lines: the 1 individual incident trajectories")
+
+
+def test_the_windowed_axis_joins_the_depth_panels_notes(window_results):
+    notes = window_results["notes"]
+    assert notes["headings"] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
+    assert notes["entryHeadings"] == ["Selection", "What is drawn", "Disclosures"], "the entry panel draws no axis"
+    assert any(line.startswith("Shower A: N = 65 of 20,268 selected events enter the window") for line in notes["disclosures"])
+    assert any(line.startswith("Shower B: no selected event enters the window") for line in notes["disclosures"])
+    assert any(line.startswith("Windowed ensemble axis: the selected events") for line in notes["disclosures"])
+    assert notes["legend"][0].startswith("Solid lines: the centre of deposited energy")
+    assert notes["legend"][1].startswith("Windowed ensemble axis for x ∈ [1000, 1300] mm: dashed line = the mean incident trajectory")
+    assert "two quantities, two marks" in notes["legend"][1] and "faded axis means the mean lean lies within the fan" in notes["legend"][1]
+    assert notes["withoutLegend"] == [notes["legend"][0]]
+    assert not any("window" in line for line in notes["withoutDisclosures"])
+    assert window_results["windowLegend"]["none"] == ""
+
+
+def test_the_d_frame_states_the_geometry_share_of_its_band(window_results):
+    g = window_results["geometry"]
+    assert g["full"].startswith(" Part of that spread is geometry: in detector coordinates the incident directions point at the origin (residual ±1.8° SD")
+    assert g["none"] == "" and g["noSd"] == ""
+    canonical = window_results["canonical"]
+    assert "Part of that spread is geometry" in canonical["xz"]
+    assert "Part of that spread is geometry" not in canonical["single"], "one event has no spread"
+
+
+def test_no_windowed_axis_sentence_carries_a_hyphen_minus(window_results):
+    r = window_results
+    texts = [*r["lab"].values(), r["labFew"], *r["legend"].values(), r["windowLegend"]["full"], r["geometry"]["full"],
+             *r["notes"]["legend"], *r["notes"]["disclosures"], r["canonical"]["xz"]]
     for text in texts:
         assert not re.search(r"(?<![\w-])-\d", text), text

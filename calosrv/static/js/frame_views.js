@@ -584,6 +584,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
       + 't-interval of the mean — two different quantities, so two different marks. Individual trajectories '
       + 'are not drawn in this frame. Thin rules mark the front and back faces (first and last sampling '
       + 'layer); the transverse outline rotates with each event and has no ensemble image.';
+  const geometry = f.n_events >= 2 ? geometrySentence(payload.overlays?.pointing) : '';
   const anchorsText = {
     yz: ' The open circle at the origin stands for both anchors, which this panel projects onto one point.',
     xz: ' Open diamond and circle at z′ = 0: the A and B anchors, with a faint bar for the sample spread '
@@ -596,11 +597,11 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     yz: `Transverse spread normal to the shower plane against depth. ${depthRef('yz')} `
       + `${windowPhrase(fit, 'yz', [['row', 'y′']])}; ${outside('yz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.yz, continuous, floor)}${kernel('yz')}`
-      + `${anchorsText.yz}${marks} ${axesText}${aspect('yz')}`,
+      + `${anchorsText.yz}${marks}${geometry} ${axesText}${aspect('yz')}`,
     xz: `Lateral profile along the separation against depth. ${depthRef('xz')} `
       + `${windowPhrase(fit, 'xz', [['row', 'x′']])}; ${outside('xz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.xz, continuous, floor)}${kernel('xz')}`
-      + `${anchorsText.xz}${marks} ${axesText}${aspect('xz')}`,
+      + `${anchorsText.xz}${marks}${geometry} ${axesText}${aspect('xz')}`,
   };
 }
 
@@ -712,20 +713,23 @@ export function labFootnotes(payload) {
     direction =
       ` Dashed lines are the ${paths.length} individual incident trajectories, `
       + "projected from each event's centroid and (θ, φ) — magenta for shower A, "
-      + 'blue for shower B. The ensemble shower axis is withheld at this size: '
+      + 'blue for shower B. The centre of deposited energy is withheld at this size: '
       + 'averaging the transverse position of a handful of showers that sit in '
       + 'different places has no common centre to converge on.';
   } else {
     const r = coherence.r_a;
     const spread = Number.isFinite(r) ? `R̄ = ${r.toFixed(3)}` : 'near-uniform';
     direction =
-      ' Solid lines are the energy-weighted shower axes measured from the binned '
-      + 'data on screen — magenta for shower A, blue for shower B. Individual '
-      + `trajectories are drawn only for selections of ${limit} events or fewer; `
-      + `this one holds ${formatInt(payload.selection?.n_events)}. No single averaged `
-      + 'trajectory is drawn either: the incident azimuth is near-uniform '
-      + `(${spread}), so its mean would point in an arbitrary direction.`;
+      ' Solid lines are the centres of deposited energy per depth layer, measured from the '
+      + 'binned data on screen — magenta for shower A, blue for shower B: a property of the '
+      + 'summed picture, not a direction. Individual trajectories are drawn only for selections '
+      + `of ${limit} events or fewer; this one holds ${formatInt(payload.selection?.n_events)}. `
+      + 'No single averaged trajectory is drawn over the whole face: the incident azimuth is '
+      + `near-uniform there (${spread}), so its mean would point in an arbitrary direction.`;
   }
+  // Where the directions point, measured against each shower's own position:
+  // the reason the azimuth is uniform, and what the windowed axis rests on.
+  const pointing = overlays.pointing?.note ? ` ${overlays.pointing.note}` : '';
   // The energy-weighted CAM channels leave bins below their 10⁻³ floor
   // undrawn; the lab density ramp has no such floor and says nothing here.
   const floorOf = (id) => {
@@ -736,10 +740,57 @@ export function labFootnotes(payload) {
   };
   return {
     xy: `${xy}${floorOf('xy')}`,
-    yz: `Transverse spread against calorimeter depth.${direction}${floorOf('yz')}`,
+    yz: `Transverse spread against calorimeter depth.${direction}${pointing}${floorOf('yz')}`,
     xz: 'Lateral profile against depth, sharing the YZ colour scale so the two may '
-      + `be read against one another.${direction}${floorOf('xz')}`,
+      + `be read against one another.${direction}${pointing}${floorOf('xz')}`,
   };
+}
+
+/* ----------------------------------------- the absolute frame's marks -- */
+
+/** The legend line of an absolute-frame depth panel's marks. */
+export function labLegend(payload) {
+  const paths = payload?.overlays?.trajectories || [];
+  if (paths.length) {
+    return `Dashed lines: the ${paths.length} individual incident trajectories, each from its event's `
+      + '3-D centroid along (θ, φ) — magenta shower A, blue shower B.';
+  }
+  return 'Solid lines: the centre of deposited energy per depth layer — magenta shower A, blue shower B — '
+    + 'a property of the summed picture, not a direction.';
+}
+
+/**
+ * The windowed ensemble axis (query/window_axis.py) as the drawer's legend
+ * line: what the dashed line, the band and the envelope are.
+ */
+export function windowAxisLegend(block) {
+  if (!block || !block.window) return '';
+  const [lo, hi] = block.window;
+  return `Windowed ensemble axis for ${block.axis ?? 'x'} ∈ [${num(lo, 0)}, ${num(hi, 0)}] mm: dashed line = `
+    + 'the mean incident trajectory of the selected events whose entry point (3-D centroid back-projected '
+    + 'to the front face) lies in the window; shaded band = the sample SD of their per-event trajectories '
+    + 'at each depth; thin envelope = the Student-t 95% interval of the mean — two quantities, two marks. '
+    + 'A faded axis means the mean lean lies within the fan: those showers go straight on average.';
+}
+
+/** The windowed axis's own disclosures: the server's per-shower notes and its rule. */
+export function windowAxisDisclosures(block) {
+  if (!block) return [];
+  return [...(block.notes ?? []), block.rule ?? ''];
+}
+
+/**
+ * What part of a slope dispersion is geometry. In detector coordinates the
+ * incident directions point at the origin, so a shower's lean grows with
+ * its radius; measured per selection (`overlays.pointing`).
+ */
+export function geometrySentence(pointing) {
+  const sd = pointing?.a?.sd_deg;
+  if (!Number.isFinite(sd)) return '';
+  return ' Part of that spread is geometry: in detector coordinates the incident directions point at the '
+    + `origin (residual ±${num(sd, 1)}° SD against the radial line through each shower A centroid), so `
+    + 'showers at larger radius lean more, and the band mixes the spread of entry radii across events '
+    + 'with anything physical.';
 }
 
 /** The three footnotes of any projections payload. */

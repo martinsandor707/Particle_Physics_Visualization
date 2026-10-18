@@ -63,11 +63,15 @@ for (const id of ['yz', 'xz']) {
 function notesOnViewChange(id) {
   let pending = 0;
   return () => {
-    if (pending) return;
-    pending = requestAnimationFrame(() => {
-      pending = 0;
-      buildNotes(id);
-    });
+    if (!pending) {
+      pending = requestAnimationFrame(() => {
+        pending = 0;
+        buildNotes(id);
+      });
+    }
+    // A depth panel of the absolute frame asks for the ensemble axis of the
+    // events entering its new window, or drops it back at full extent.
+    if (id === 'yz' || id === 'xz') requestWindowAxis(id);
   };
 }
 for (const id of ['xy', 'yz', 'xz']) panels[id].onViewChange = notesOnViewChange(id);
@@ -150,6 +154,56 @@ let lastEnergy = null;
 let showerFilter = 'both';
 /* The compare-frames view's three responses, by frame kind. */
 const comparePayloads = { lab: null, trans: null, local: null };
+
+/* The windowed ensemble axis of the absolute frame's depth panels
+ * (query/window_axis.py): asked for whenever a depth panel is zoomed to a
+ * transverse window narrower than the detector, debounced like the sliders,
+ * and dropped at full extent. The response replaces one overlay of the
+ * panel's retained options, so the zoom that asked for it is kept. */
+const windowAxisRequests = {
+  yz: debounce(() => loadWindowAxis('yz'), DEBOUNCE_MS),
+  xz: debounce(() => loadWindowAxis('xz'), DEBOUNCE_MS),
+};
+
+/** The transverse window a depth panel shows, or null at full extent. */
+function windowOf(panel) {
+  const view = panel?.view;
+  if (!view || !panel.payload || panel.payload.axes.col.name !== 'z') return null;
+  return { t_min: view.row[0], t_max: view.row[1] };
+}
+
+/** Ask for a depth panel's windowed axis, or drop it when the panel is back at full extent. */
+function requestWindowAxis(id) {
+  const panel = panels[id];
+  if (!panel || !panel.payload) return;
+  if (kindOf(lastProjections) !== 'lab' || !windowOf(panel)) {
+    windowAxisRequests[id]?.cancel();
+    if (panel.lastOpts?.windowAxis) {
+      panel.setOverlay('windowAxis', null);
+      buildNotes(id);
+    }
+    return;
+  }
+  windowAxisRequests[id]();
+}
+
+async function loadWindowAxis(id) {
+  const panel = panels[id];
+  const asked = windowOf(panel);
+  if (!asked || kindOf(lastProjections) !== 'lab') return;
+  try {
+    const payload = await getJson('/api/window-axis', {
+      ...state.filterParams(), panel: id, t_min: asked.t_min, t_max: asked.t_max,
+    }, `window-axis-${id}`);
+    // The window may have moved on while the request was in flight.
+    const now = windowOf(panel);
+    if (!now || now.t_min !== asked.t_min || now.t_max !== asked.t_max) return;
+    panel.setOverlay('windowAxis', payload);
+    buildNotes(id);
+  } catch (error) {
+    if (error?.name !== 'AbortError') reportError(error, `windowed axis (${id})`);
+  }
+}
 /* The frame keys the active experiment serves (labels.js `offeredFrames`). */
 let offeredFrames = offeredFramesOf(null);
 /* Warnings the projections, performance, event and comparison endpoints sent
@@ -350,7 +404,11 @@ function renderPanels(payload) {
   for (const id of ['yz', 'xz']) {
     const panel = panels[id];
     panel.isometric = coregistered && depthIsometric(panel, payload.panels[id]);
-    panel.render(payload.panels[id], panelOptions(payload, id));
+    // A zoomed absolute-frame depth panel keeps its windowed axis across the
+    // redraw and asks for a fresh one for the new selection.
+    const windowAxis = coregistered ? null : (panel.lastOpts?.windowAxis ?? null);
+    panel.render(payload.panels[id], { ...panelOptions(payload, id), windowAxis });
+    requestWindowAxis(id);
   }
 }
 
@@ -494,6 +552,7 @@ function buildNotes(panelId) {
       panelId,
       isometric: { xy: true, yz: panels.yz.isometric, xz: panels.xz.isometric },
       view: panels[panelId].currentView(),
+      windowAxis: panelId === 'xy' ? null : (panels[panelId].lastOpts?.windowAxis ?? null),
       state,
       experiment: activeExperiment,
     });

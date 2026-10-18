@@ -660,17 +660,55 @@ at a time.
 *Selections of 50 events or fewer* get the **individual incident trajectories**,
 projected from each event's centroid and (θ, φ) across the fiducial depth.
 
-*Larger selections* get the **energy-weighted shower axis** — the transverse
-centroid per depth layer, measured from the binned data on screen.
+*Larger selections* get the **centre of deposited energy per depth layer** —
+the energy-weighted transverse centroid of the selection's summed deposit in
+each layer, measured from the binned data on screen. It is a property of the
+summed picture, named as such on the panel and in the drawer, and never a
+direction: over many events struck at many places it traces the pooled centre
+of the deposit at each depth.
 
-> **No averaged trajectory is ever drawn in this frame.** Azimuth is circular,
+> **No averaged trajectory is drawn over the whole face.** Azimuth is circular,
 > and its mean resultant length R̄ is 0.012 over the full dataset, 0.042 for a
 > 122-event window and 0.178 even for 7 events: the direction is near-uniform at
 > every reachable selection size, so an "average" would point somewhere
 > arbitrary while looking authoritative. The panel states the measured R̄
-> instead. For the same reason the ensemble axis is withheld below the
+> instead. For the same reason the energy centre is withheld below the
 > trajectory threshold — averaging the position of a handful of showers that
 > sit in different places has no common centre to converge on.
+
+**Where the directions point.** The azimuth is uniform over the face, but not
+random. Measured on the production event table (`overlays.pointing`, printed
+on the depth panels and in their drawers): every shower's incident direction
+points back at the detector origin — its azimuth equals the azimuth of its own
+position, φ = atan2(y, x), with a resultant length of 1.000, and tan θ · z = r
+(the 3-D centroid's r / tan θ is 3,860 mm against its own z of 3,892 mm). The
+residual against the radial line through the centroid is 1.8° SD. The azimuth
+is uniform only because the entry positions are; conditioned on position it is
+nearly deterministic.
+
+**The windowed ensemble axis** (`GET /api/window-axis`,
+`query/window_axis.py`) follows from that. When a depth panel is zoomed to a
+transverse window narrower than the detector, the client asks for the selected
+events whose entry point — the 3-D centroid back-projected to the front face
+along its incident direction, as the per-event trajectories are drawn — lies in
+the window, and draws their **mean trajectory** through their mean entry point
+(dashed), the **sample SD of their per-event trajectories at each depth** as an
+uncapped band (entry spread, slope spread and their covariance, exact at nine
+depth stations) and the **Student-t 95 % interval of the mean** as a thin
+envelope — two quantities, two marks, each named in its tooltip. Measured on
+production in 300 mm windows of the entry position: 262 windows hold 20 events
+or more, the median azimuth resultant is 0.999, the mean lean over the 1,210 mm
+depth 346 mm against a 33 mm dispersion band, and the 95 % envelope of the mean
+about 8 mm at N = 65. The **gate is the lean against the fan**: the axis is
+drawn in full when |mean slope| ≥ SD of the slopes and faded otherwise, with
+the reason stated ("these showers go straight on average within that fan"). A
+Rayleigh test on the azimuth is reported but not used as the gate, because a
+strip across the face flips the azimuth between 0 and π while every projected
+slope stays coherent. One event gets its own trajectory, labelled as such and
+without a band; two get a band with one degree of freedom, said so; fewer than
+twenty are labelled weak. Nothing of the kind is drawn at full extent, and
+Reset drops it. The request is debounced like the sliders and costs one scan
+of the event table.
 
 ### Separation-Aligned (D-Frame): the Translated view (API canonical)
 
@@ -740,6 +778,14 @@ on the two-event demonstration file, 178 / 180 mm. The payload's
 `frame.anchor` names the definition in use (`entry_backprojection` or
 `p0_backprojection`), and D_entry is reported for whichever is in use. The
 default stays the back-projected centroid.
+
+**Part of the ensemble band is geometry.** In detector coordinates the incident
+directions point at the origin (see [Direction overlays on the depth
+panels](#direction-overlays-on-the-depth-panels)), so a shower's lean grows with
+its radius; the dispersion band around each D-frame axis therefore mixes the
+spread of entry radii across the selected events with anything physical. The
+response measures the pointing residual per selection (`overlays.pointing`)
+and the depth panels' drawers say so.
 
 **D_entry is not D.** The transverse separation of the two entry points at the
 face is the frame's own separation; it differs from the slider's 3-D centroid
@@ -1724,6 +1770,7 @@ All endpoints return pre-aggregated payloads; none returns a raw hit array.
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). Unknown values return 422 naming the field. |
 | `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. |
 | `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. |
+| `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks from the `coord_system`'s segmentation network (`meta.network`). |
 | `GET /api/model-performance` | `cards[]` of the network `model` in `coord_system`, each with SE and a named 95% interval, and the per-slice breakdown. |
 | `GET /api/health` | Liveness, with the resolved memory and thread allocation. |
@@ -1866,7 +1913,7 @@ calosrv/
   grid/    lattice splat resolution slab frame bounds kernel footprint
   query/   filters planes projections panels centroids summary energy performance sampling cache
            experiments stagger canonical shower_frames window reconstruct density ensemble
-           canonical_cache frame_sql event_inspector
+           canonical_cache frame_sql event_inspector window_axis
   stats/   gaussian histogram slices metrics clip shape
   encode/  scale quantize matrix topk
   api/     deps routes_* frame_canonical frame_shower
@@ -1905,6 +1952,7 @@ file.
 | `stats/shape.py` | the energy-weighted principal axis of one cloud and its tilt from +w |
 | `query/event_inspector.py` | the Event Inspector: one shower of one event as nine rasters, the notebook's window, one ramp, the marks, the seeded pick |
 | `api/routes_event.py` | `GET /api/event` and `GET /api/event/pick` |
+| `query/window_axis.py`, `api/routes_window_axis.py` | the windowed ensemble axis of the absolute frame's depth panels: the events entering a window, their mean trajectory, the exact dispersion band, the t-envelope and the lean / fan gate; `summary.pointing` measures where the directions point |
 | `db/archive.py`, `db/storage_guard.py` | the Parquet archive and its manifest; the refusal of RAM-backed storage |
 | `stats/metrics.py` | the card estimators: clustered ratios, residual summaries, Fisher-z correlation |
 | `admin/schema.py`, `admin/store.py` | the six defaults of the Admin Settings panel, validated against the API's own tuples; the layered store (saved, environment, built-in) that reports each value's source |
