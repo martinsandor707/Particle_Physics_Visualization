@@ -6,21 +6,27 @@
  * For a diagnostic tool whose output ends up in a discussion, that is the
  * difference between "look at this" and "set these six controls".
  *
- * ## Four reference frames, one radio group
+ * ## Four reference frames, one stored key
  *
  * `frame` is one of `lab | trans | local | canonical`, and the interface opens
- * in the laboratory frame. The API takes that choice as two parameters - the
- * coordinate system (lab, trans, local) and whether the lab coordinates are
+ * in the Absolute view (`lab`). The sidebar shows the key as two tiers -
+ * Absolute | Separation-Aligned (D-Frame), with Translated (`canonical`) and
+ * Local (`local`) nested under the second, and the legacy per-shower `trans`
+ * revealed only while a link or a saved default holds it (labels.js
+ * FRAME_TREE) - but only the key is stored, written to the hash and saved as
+ * a default. The API takes that choice as two parameters - the coordinate
+ * system (lab, trans, local) and whether the lab coordinates are
  * co-registered into the canonical frame - and `apiFrame` is the one place
  * the mapping lives, so the two can never disagree. Links that relied on the
- * old canonical default now open in the laboratory frame; an explicit
- * `#frame=canonical` still opens the canonical frame.
+ * old canonical default now open in the Absolute view; an explicit
+ * `#frame=canonical` still opens the D-frame.
  *
  * ## One display mode per frame
  *
  * The frames open in different display modes, because the same word means a
- * different thing in each. In the laboratory frame Native is the detector
- * lattice itself - one bin per cell, the hardware truth - so it is the default.
+ * different thing in each. In the absolute (detector) frame Native is the
+ * detector lattice itself - one bin per cell, the hardware truth - so it is
+ * the default.
  * In a co-registered frame (translated, local, canonical) Native is the raw
  * 20 mm accumulation grid, the audit view, and the kernel reconstruction is
  * the picture.
@@ -95,14 +101,15 @@ export const DEFAULTS = Object.freeze({
   d_min: null, d_max: null,
   include_undefined_d: false,
   // Reference frame of the three spatial panels. The interface opens in the
-  // laboratory frame, on the detector's own coordinates; the translated,
-  // local and canonical frames are one radio away.
+  // Absolute view, on the detector's own coordinates; the Separation-Aligned
+  // frames are one radio away.
   frame: 'lab',
   // Reference peak of a co-registered density ramp: this selection's own peak
   // (the directive's a.u.) or the whole dataset's, for cross-selection colour.
   rho_norm: 'selection',
-  // Display mode per frame (see the header): the lab keeps the hardware
-  // lattice, the co-registered frames open on their kernel reconstruction.
+  // Display mode per frame (see the header): the absolute frame keeps the
+  // hardware lattice, the co-registered frames open on their kernel
+  // reconstruction.
   display_lab: 'native',
   display_trans: 'continuous',
   display_local: 'continuous',

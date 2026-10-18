@@ -24,9 +24,10 @@
  * so they fill the card and carry their true extents on the axes instead.
  *
  * The letterbox is a function of the container, so it is recomputed whenever
- * the *container* resizes - a sidebar collapsing, the grid dropping to one
- * column - not only the window. `chart.resize()` alone keeps the old grid
- * rectangle in pixels and silently breaks 1:1 (see `observeResize`).
+ * the *container* resizes - the sidebar collapsing, the Details drawer
+ * opening, the grid dropping to one column - not only the window.
+ * `chart.resize()` alone keeps the old grid rectangle in pixels and silently
+ * breaks 1:1 (see `observeResize`).
  *
  * ## Overlays
  *
@@ -52,6 +53,7 @@ import {
 } from './marks.js';
 import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
 import { formatSigned } from '../format.js';
+import { axisSymbol, panelOf } from '../axis_symbols.js';
 import {
   PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition,
 } from './tooltip.js';
@@ -59,13 +61,16 @@ import {
 export { symbolOf } from './marks.js';
 
 /* Axis titles, keyed by the axis *symbol*. The payload names every axis by
- * its semantic identity (x, y, z) and, in the canonical frame, adds the
+ * its semantic identity (x, y, z) and, in a co-registered frame, adds the
  * symbol it is written with (x′, y′, z′); the name is what every consumer
- * indexes by, the symbol is what the reader sees. */
+ * indexes by, the symbol is what the reader sees. The Separation-Aligned
+ * entry panel writes its horizontal axis as D (axis_symbols.js): the signed
+ * x′ coordinate along the A→B separation, anchors at ∓⟨D_entry⟩/2. */
 const AXIS_LABEL = {
   x: 'x [mm]',
   y: 'y [mm]',
   z: 'z — depth [mm]',
+  D: 'D — along the A→B separation [mm]',
   'x′': 'x′ — along the A→B separation [mm]',
   'y′': 'y′ — normal to the shower plane [mm]',
   'z′': 'z′ — depth from the front face [mm]',
@@ -77,11 +82,12 @@ const AXIS_LABEL = {
   w: 'w — shower depth along the incident direction [mm]',
 };
 
-/* Short titles for plots too shallow to carry the full ones: a 1:1 canonical
+/* Short titles for plots too shallow to carry the full ones: a 1:1 D-frame
  * entrance panel of a widely separated pair is a strip a few dozen pixels
  * tall, and a rotated 35-character y-axis title would overflow it at both
- * ends. The caption defines x′ and y′ in words. */
+ * ends. The Details drawer defines D, x′ and y′ in words. */
 const AXIS_LABEL_COMPACT = {
+  D: 'D [mm]',
   'x′': 'x′ [mm]',
   'y′': 'y′ [mm]',
   'z′': 'z′ — depth [mm]',
@@ -100,10 +106,23 @@ const UNIT_TEXT = { 'GeV/mm^2/event': 'GeV mm⁻² per event', GeV: 'GeV' };
 const COMPACT_LABEL_HEIGHT = 220;
 const COMPACT_LABEL_WIDTH = 420;
 
-function axisLabel(axis, compact = false) {
-  const symbol = symbolOf(axis);
+function axisLabel(symbol, compact = false) {
   if (compact && AXIS_LABEL_COMPACT[symbol]) return AXIS_LABEL_COMPACT[symbol];
   return AXIS_LABEL[symbol] || symbol;
+}
+
+/**
+ * The symbols a panel's two axes are written with: the payload's own, except
+ * that the Separation-Aligned entry panel writes x′ as D (axis_symbols.js).
+ * One rule for the axis titles, the hover readout and the overlay tooltips.
+ */
+function displaySymbols(payload, opts) {
+  const kind = opts?.frame?.kind ?? 'lab';
+  const panelId = panelOf(payload.axes);
+  return {
+    col: axisSymbol(payload.axes.col, kind, panelId),
+    row: axisSymbol(payload.axes.row, kind, panelId),
+  };
 }
 
 /** Line opacity of an ensemble axis whose direction is not distinguishable
@@ -147,6 +166,9 @@ export class ProjectionPanel {
     // Set by main.js: called on a container resize before the option is
     // rebuilt, so the caller may re-decide `isometric` for the new size.
     this.onRelayout = null;
+    // Set by main.js: called after the displayed window changes (zoom, pan,
+    // Auto-fit RoI, Reset, a clamp), so text that states the window follows.
+    this.onViewChange = null;
     window.addEventListener('resize', () => this.chart.resize());
     this.observeResize();
   }
@@ -156,10 +178,14 @@ export class ProjectionPanel {
    *
    * The isometric letterbox is computed in pixels from the host size at
    * build time, so a container that grows or shrinks without a window resize
-   * - the sidebar, the grid's one-column breakpoint - would otherwise keep the
-   * old rectangle, and `chart.resize()` alone stretches it: 1 mm along x′
-   * would no longer be 1 mm along y′. One observer per panel, debounced to an
-   * animation frame so a drag of the window rebuilds once per frame.
+   * - the sidebar, the Details drawer, the grid's one-column breakpoint -
+   * would otherwise keep the old rectangle, and `chart.resize()` alone
+   * stretches it: 1 mm along x′ would no longer be 1 mm along y′. One
+   * observer per panel, debounced to an animation frame so a drag of the
+   * window rebuilds once per frame. The shell also calls `relayout()`
+   * directly after a sidebar or drawer toggle (main.js `relayoutAll`); the
+   * grid tracks snap, so that call measures the final geometry and the
+   * observer's own tick then finds nothing to do.
    */
   observeResize() {
     if (typeof ResizeObserver !== 'function' || !this.element) return;
@@ -179,8 +205,11 @@ export class ProjectionPanel {
   relayout() {
     const width = this.element.clientWidth;
     const height = this.element.clientHeight;
-    if (this.laidOut && this.laidOut.width === width && this.laidOut.height === height) return;
-    this.chart.resize();
+    // The canvas is checked as well as the option: a render that measured the
+    // new size before this ran would otherwise leave the canvas at the old one.
+    const sized = this.chart.getWidth() === width && this.chart.getHeight() === height;
+    if (sized && this.laidOut && this.laidOut.width === width && this.laidOut.height === height) return;
+    if (!sized) this.chart.resize();
     this.laidOut = { width, height };
     if (!this.payload || !this.raster || !this.lastOpts) return;
 
@@ -188,6 +217,7 @@ export class ProjectionPanel {
     if (typeof this.onRelayout === 'function') this.onRelayout(this);
     if (this.view && this.isometric !== wasIsometric) {
       this.view = clampView(this.view, this.payload.axes, this.isometric);
+      this.viewChanged();
     }
     this.setLiveOption(this.buildOption({
       payload: this.payload,
@@ -206,7 +236,8 @@ export class ProjectionPanel {
    * `metrics` carries the host size rather than being read off `this.element`,
    * because the publication exporter renders the same panel into an off-screen
    * container of a different size, and the letterboxing must be recomputed for
-   * it. `reservedBottom` is room set aside below the plot for the caption.
+   * it. `reservedBottom`, when a caller sets it, is room kept clear below the
+   * plot; the exporter reserves none, so the figure is the plot alone.
    */
   gridRect(colSpan, rowSpan, metrics, wideRamp = false) {
     const pad = axisPadding({ ramp: true, wideRamp });
@@ -253,6 +284,7 @@ export class ProjectionPanel {
     // Retained so the exporter can rebuild this exact panel at a different size
     // without a round trip or a second copy of the call site's arguments.
     this.lastOpts = opts;
+    this.symbols = displaySymbols(payload, opts);
 
     const metrics = {
       width: this.element.clientWidth, height: this.element.clientHeight,
@@ -279,8 +311,7 @@ export class ProjectionPanel {
    * The chart option for one render.
    *
    * Separated from `render` so the exporter can call it with print tokens
-   * active, a different `metrics`, and room reserved for a caption - without
-   * touching the live instance. It is not derived from `getOption()` because
+   * active and a different `metrics` - without touching the live instance. It is not derived from `getOption()` because
    * the `renderItem` closures below capture the raster canvas and the host
    * size, neither of which survives a round trip through a plain option object.
    */
@@ -294,6 +325,7 @@ export class ProjectionPanel {
 
     const col = payload.axes.col;
     const row = payload.axes.row;
+    const symbols = displaySymbols(payload, opts);
     const canonical = frame?.kind === 'canonical';
     // Every co-registered frame (canonical, translated, local) draws a symmetric
     // window about its origin, framed and with the axis lines on the frame.
@@ -344,12 +376,12 @@ export class ProjectionPanel {
 
     if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
     if (canonical) {
-      addCanonicalCentroids(series, centroids, col, row);
-      addCanonicalAnchors(series, anchors, frame, col, row);
+      addCanonicalCentroids(series, centroids, col, row, symbols);
+      addCanonicalAnchors(series, anchors, frame, col, row, symbols);
     } else if (coregistered) {
       // Superimposed showers: the centroid sets by shape, and the mean
       // per-event centroid with its SD cross and 95% t-whiskers.
-      addCanonicalCentroids(series, centroids, col, row);
+      addCanonicalCentroids(series, centroids, col, row, symbols);
       addFrameMeanSpread(series, centroids?.frame_mean, col, row);
     } else if (centroids) {
       this.addCentroids(series, centroids, col, row, showVector);
@@ -388,11 +420,11 @@ export class ProjectionPanel {
       textStyle: { fontFamily: THEME.fontFamily },
       grid,
       xAxis: spatialAxis(
-        axisLabel(col, compact) + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
+        axisLabel(symbols.col, compact) + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
         axisOptions,
       ),
       yAxis: spatialAxis(
-        axisLabel(row, compact) + provisional, view.row[0], view.row[1], axisOptions,
+        axisLabel(symbols.row, compact) + provisional, view.row[0], view.row[1], axisOptions,
       ),
       // Series 0 is the raster; the visualMap must colour it and nothing else.
       visualMap: visualMap(payload.scale, rampPalette(payload.scale, palette), {
@@ -579,7 +611,7 @@ export class ProjectionPanel {
         z: 9,
         tooltip: () =>
           `Ensemble shower axis — ${label}<br/>` +
-          `mean incident direction in the canonical frame (slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
+          `mean incident direction in the Separation-Aligned (D-Frame) (slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
           `${coherence}, N = ${n}` +
           (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
           (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
@@ -763,6 +795,7 @@ export class ProjectionPanel {
       xAxis: { min: view.col[0], max: view.col[1] },
       yAxis: { min: view.row[0], max: view.row[1] },
     });
+    this.viewChanged();
   }
 
   resetView() {
@@ -773,6 +806,12 @@ export class ProjectionPanel {
       xAxis: { min: col.lo, max: col.hi },
       yAxis: { min: row.lo, max: row.hi },
     });
+    this.viewChanged();
+  }
+
+  /** Tell the owner the displayed window changed, so text that states it can follow. */
+  viewChanged() {
+    if (typeof this.onViewChange === 'function') this.onViewChange(this);
   }
 
   /**
@@ -885,6 +924,8 @@ export class ProjectionPanel {
       ?? payload.scale?.floor_ratio ?? 1e-3;
     const floorText = floorLabel({ floor_ratio: floorRatio });
     const muted = (text) => `<span style="color:${THEME.muted}">${text}</span>`;
+    // The axes as this panel writes them (D on the D-frame entry panel).
+    const symbols = this.symbols ?? { col: symbolOf(col), row: symbolOf(row) };
 
     this.tooltipHandler = (event) => {
       const px = event.offsetX;
@@ -917,8 +958,8 @@ export class ProjectionPanel {
       const centreX = cellCentre(col, cols, c);
       const centreY = cellCentre(row, rows, r);
       const where =
-        `${symbolOf(col)} = ${formatSigned(centreX, 1)} mm<br/>` +
-        `${symbolOf(row)} = ${formatSigned(centreY, 1)} mm<br/>`;
+        `${symbols.col} = ${formatSigned(centreX, 1)} mm<br/>` +
+        `${symbols.row} = ${formatSigned(centreY, 1)} mm<br/>`;
       // Named at the pointer, not the bin centre: a wedge edge crosses bins.
       const wedges = col.name === 'z'
         ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY)

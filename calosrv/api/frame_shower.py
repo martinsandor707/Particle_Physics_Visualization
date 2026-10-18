@@ -47,7 +47,7 @@ from .frame_canonical import (
     COMB_MEASURED_ON, _attenuation_notice, _floor_notice, _reference_notice, serve_within_budget,
 )
 
-FRAME_TITLE = {KIND_TRANS: "translated", KIND_LOCAL: "local"}
+FRAME_TITLE = {KIND_TRANS: "per-shower translated", KIND_LOCAL: "local"}
 
 DEPTH_KIND = {KIND_TRANS: "native_layers", KIND_LOCAL: "uniform_bins"}
 
@@ -144,7 +144,7 @@ def _superimposed_pairs(pairs: dict[str, centroids.CentroidPair], symbols: dict[
         data["offset_note"] = (
             f"A-B offset of the two superimposed ensemble centroids in the {symbols['x']}{symbols['y']} "
             "plane, each relative to its own shower's entry point: not a separation, which "
-            "is D (laboratory)."
+            "is D, the absolute-frame 3-D centroid distance."
         )
         out[key] = data
     return out
@@ -214,7 +214,7 @@ def build_response(
     if record.frame_bounds is None or record.lattice is None:
         raise ValidationError(
             f"Experiment {record.table_name!r} has no per-shower frame extents; re-ingest it "
-            "to use the translated and local frames.",
+            "to use the per-shower translated and local frames.",
             field="coord_system",
         )
     lattice = record.lattice
@@ -251,17 +251,18 @@ def build_response(
 
     selection_dict = summary.summarise(con, record, spec).as_dict()
     selection_dict["centroid_dataset"]["label"] = (
-        f"Dataset centroids (laboratory-frame per-event average; not drawn in the {title} "
+        f"Dataset centroids (absolute-frame per-event average; not drawn in the {title} "
         "frame - see centroids.frame_mean)"
     )
 
     if kind == KIND_TRANS:
         coherence = summary.angular_coherence(con, record, spec)
         coherence["note"] = (
-            "The translated frame does not rotate, so every shower keeps its laboratory "
-            "incident direction and the azimuth keeps its laboratory distribution (resultant "
-            "length above): no averaged direction is drawn. Individual trajectories are drawn "
-            f"from the origin for at most {summary.MAX_TRAJECTORY_EVENTS} events."
+            "The per-shower translated frame does not rotate, so every shower keeps its "
+            "absolute-frame incident direction and the azimuth keeps its absolute-frame "
+            "distribution (resultant length above): no averaged direction is drawn. "
+            "Individual trajectories are drawn from the origin for at most "
+            f"{summary.MAX_TRAJECTORY_EVENTS} events."
         )
         trajectories = (
             shower_frames.trajectories_from_origin(con, record, spec, summary.MAX_TRAJECTORY_EVENTS)
@@ -340,7 +341,7 @@ def build_response(
             notices.append({"scope": "frame", "text": reference})
         if lock_scale is False or scale_mode != "decades":
             notices.append({"scope": "frame", "text": (
-                "lock_scale and scale_mode are laboratory-frame ramp controls and are ignored "
+                "lock_scale and scale_mode are absolute-frame ramp controls and are ignored "
                 f"here: the {title} ramp is relative to the reference chosen by rho_norm."
             )})
         if fit.provisional:
@@ -362,7 +363,7 @@ def build_response(
                 "x, y centroid of that shower's first populated layer, at that layer's depth"
                 + (" - and rotated by that shower's R(θ, φ), so its incident direction is +w"
                    if kind == KIND_LOCAL else "")
-                + ". D (the slider) is the laboratory 3-D centroid distance."
+                + ". D (the slider) is the absolute-frame 3-D centroid distance."
             ),
             "symbols": symbols,
             "pitch_mm": grid.pitch,

@@ -5,13 +5,15 @@
  *
  * Four frames share three spatial panels:
  *
- * - `lab`: detector coordinates as recorded.
- * - `canonical`: every event co-registered by one rigid-body motion into the
- *   centre-of-separation frame.
- * - `trans`: every hit shifted by its own shower's entry point P₀, so the two
- *   showers of each event are superimposed at the origin.
- * - `local`: translated, then rotated by the shower's own R(θ, φ), so every
- *   incident direction is +w.
+ * - `lab`: the Absolute view, detector coordinates as recorded.
+ * - `canonical`: Separation-Aligned (D-Frame), Translated: every event
+ *   co-registered by one rigid-body motion onto its entry midpoint, the A→B
+ *   separation along +x′, which the entry panel writes as D.
+ * - `local`: Separation-Aligned (D-Frame), Local: each shower moved to its
+ *   own entry point P₀ and rotated by its own R(θ, φ), so every incident
+ *   direction is +w.
+ * - `trans`: the legacy per-shower translated frame, P₀ without rotation;
+ *   opened by a #frame=trans link or a saved default only.
  *
  * The three co-registered frames share the canonical renderer and so its
  * payload blocks (`fit`, `rho`, `reconstruction`, `comb`); what differs - the
@@ -20,6 +22,7 @@
  */
 
 import { formatInt, formatSci, floorLabel, formatSigned, typographic } from './scale.js';
+import { FRAME_SYMBOLS, SEPARATION_AXIS } from './axis_symbols.js';
 import { beyondGridSentence, ordinal } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
 import { centroidLegend, frameMeanOverflowText } from './panels/canonical_overlays.js';
@@ -35,14 +38,14 @@ export function kindOf(payload) {
 export const FRAME_VIEWS = {
   lab: {
     coregistered: false,
-    symbols: { x: 'x', y: 'y', z: 'z' },
+    symbols: FRAME_SYMBOLS.lab,
     titles: {
       xy: 'XY Projection — Shower Entry',
       yz: 'YZ Projection — Longitudinal Evolution',
       xz: 'XZ Projection — Lateral Profile',
     },
     caption:
-      'Detector coordinates as recorded. The depth panels draw individual '
+      'Absolute frame: detector coordinates as recorded. The depth panels draw individual '
       + 'trajectories for selections of 50 events or fewer, otherwise the measured '
       + 'shower axes; no averaged direction is drawn in this frame.',
     displayLabels: {
@@ -53,37 +56,39 @@ export const FRAME_VIEWS = {
   },
   canonical: {
     coregistered: true,
-    symbols: { x: 'x′', y: 'y′', z: 'z′' },
+    symbols: FRAME_SYMBOLS.canonical,
     titles: {
-      xy: 'X′Y′ Projection — Co-registered Shower Entry',
-      yz: 'Y′Z′ Projection — Longitudinal Evolution, canonical frame',
-      xz: 'X′Z′ Projection — Lateral Profile, canonical frame',
+      xy: 'D–Y′ Projection — Shower Entry, Separation-Aligned (D-Frame)',
+      yz: 'Y′Z′ Projection — Longitudinal Evolution, Separation-Aligned (D-Frame)',
+      xz: 'X′Z′ Projection — Lateral Profile, Separation-Aligned (D-Frame)',
     },
     caption:
-      'Every selected event is moved by one rigid-body motion: the midpoint of the '
-      + 'two back-projected entry points goes to the origin, the A→B separation to '
-      + '+x′, the front face to z′ = 0. Panels show the ensemble-averaged energy '
-      + 'density, and two ensemble axes replace individual trajectories.',
+      'Separation-Aligned, Translated: every selected event is moved by one rigid-body '
+      + 'motion: the midpoint of the two back-projected entry points goes to the origin, '
+      + 'the A→B separation to +x′ — written D on the entry panel — and the front face to '
+      + 'z′ = 0. Panels show the ensemble-averaged energy density, and two ensemble axes '
+      + 'replace individual trajectories.',
     displayLabels: {
       native: 'Native Grid <span class="muted">(raw 20 mm bins, audit)</span>',
       continuous: 'Continuous Field <span class="muted">(kernel reconstruction)</span>',
     },
     resolutionHint:
-      'R sets the display bins across the X′Y′ window; the kernel, not R, sets the resolution — '
+      'R sets the display bins across the D–Y′ window; the kernel, not R, sets the resolution — '
       + 'no detail exists below the 20 mm grid or the 48 mm cell. Depth stays at the native layers.',
   },
   trans: {
     coregistered: true,
-    symbols: { x: 'Δx', y: 'Δy', z: 'Δz' },
+    symbols: FRAME_SYMBOLS.trans,
     titles: {
-      xy: 'Δx–Δy Projection — Superimposed Shower Entry',
-      yz: 'Δy–Δz Projection — Longitudinal Evolution, translated frame',
-      xz: 'Δx–Δz Projection — Lateral Profile, translated frame',
+      xy: 'Δx–Δy Projection — Superimposed Shower Entry, per-shower translated (legacy)',
+      yz: 'Δy–Δz Projection — Longitudinal Evolution, per-shower translated frame (legacy)',
+      xz: 'Δx–Δz Projection — Lateral Profile, per-shower translated frame (legacy)',
     },
     caption:
-      "Every hit is moved by its own shower's entry point P₀ (the energy-weighted x, y "
+      "Legacy per-shower translated frame (a #frame=trans link or a saved default): every "
+      + "hit is moved by its own shower's entry point P₀ (the energy-weighted x, y "
       + 'centroid of its first populated layer, at that layer’s z), without rotation, so both '
-      + 'showers of every event sit at the origin. D stays the laboratory 3-D centroid '
+      + 'showers of every event sit at the origin. D stays the absolute-frame 3-D centroid '
       + 'distance. The depth panels draw individual incident directions from the origin for '
       + '50 events or fewer; no averaged direction is drawn.',
     displayLabels: {
@@ -96,17 +101,18 @@ export const FRAME_VIEWS = {
   },
   local: {
     coregistered: true,
-    symbols: { x: 'u', y: 'v', z: 'w' },
+    symbols: FRAME_SYMBOLS.local,
     titles: {
-      xy: 'u–v Projection — Shower-fixed Entry',
-      yz: 'v–w Projection — Longitudinal Evolution, local frame',
-      xz: 'u–w Projection — Lateral Profile, local frame',
+      xy: 'u–v Projection — Shower-fixed Entry, Separation-Aligned (D-Frame), Local',
+      yz: 'v–w Projection — Longitudinal Evolution, Separation-Aligned (D-Frame), Local',
+      xz: 'u–w Projection — Lateral Profile, Separation-Aligned (D-Frame), Local',
     },
     caption:
-      "Translated as in the translated frame, then rotated by each shower's own R(θ, φ): "
+      "Separation-Aligned, Local: each shower is moved to its own entry point P₀, then rotated "
+      + "by its own R(θ, φ): "
       + 'u and v are the lateral spread, w the depth along the incident direction. w is the '
       + 'incident direction by construction, so no direction overlay is drawn. D stays the '
-      + 'laboratory 3-D centroid distance.',
+      + 'absolute-frame 3-D centroid distance.',
     displayLabels: {
       native: 'Native Grid <span class="muted">(raw 20 mm bins, audit)</span>',
       continuous: 'Continuous Field <span class="muted">(kernel reconstruction)</span>',
@@ -145,7 +151,7 @@ function unitText(unit) {
 
 const MODEL_WORDS = { segmentation: 'Segmentation', energy: 'Energy', angle: 'Angle' };
 const NETWORK_FRAME = { lab: 'absolute', canonical: 'absolute', trans: 'trans', local: 'local' };
-const FRAME_WORDS = { absolute: 'laboratory (absolute)', trans: 'translated', local: 'local' };
+const FRAME_WORDS = { absolute: 'absolute (detector)', trans: 'per-shower translated', local: 'local' };
 
 const CAM_NORMALISATION =
   'Angle- and energy-model CAMs are normalised per shower, segmentation CAMs per event, so an '
@@ -243,7 +249,7 @@ export function showerTag(frame) {
  *
  * `frame` is the interface frame (lab | trans | local | canonical); the CAM
  * column is the payload's own `meta.cam.column` when one is in hand, else
- * derived from the model and the frame's network (the canonical frame uses
+ * derived from the model and the frame's network (the D-frame uses
  * the absolute networks).
  */
 export function channelCaption({ channel, model = 'segmentation', frame = 'lab', payload = null,
@@ -477,8 +483,12 @@ function coregisteredParts(payload, isometric) {
   return { f, rho, fit, panels, continuous, floor, outside, kernel, aspect, provisional, combText, beyondGrid };
 }
 
+/** The entry panel's horizontal axis, named once for every reader of the D-frame. */
+const D_AXIS_SENTENCE = ' The horizontal axis is written D: the signed x′ coordinate along the A→B '
+  + 'separation; D itself (the slider) stays the absolute-frame 3-D centroid distance.';
+
 /**
- * Footnotes for the canonical frame.
+ * Footnotes for the Separation-Aligned (D-Frame), Translated view.
  *
  * Every number a reader needs to reproduce or discount the picture is on the
  * panel itself: the anchor definition, N and what was excluded, both separation
@@ -492,7 +502,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     // Nothing was co-registered: say so, rather than print zeros for means
     // that are undefined and windows that were never fitted.
     const empty =
-      `Canonical centre-of-separation frame: no selected event has a defined frame `
+      `Separation-Aligned (D-Frame), Translated: no selected event has a defined frame `
       + `(${formatInt(f.n_selected)} selected, ${formatInt(f.n_excluded_no_frame)} without a shower-A `
       + 'centroid or direction). The panels are empty and no ensemble axis is drawn.';
     return { xy: `${payload.slab.note} ${empty}`, yz: empty, xz: empty };
@@ -506,7 +516,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     ? ` (95% t-interval of the mean ± ${num(f.d_entry.ci95_half)} mm)`
     : '';
   const base =
-    `Canonical centre-of-separation frame: N = ${formatInt(f.n_events)} co-registered event${f.n_events === 1 ? '' : 's'}`
+    `Separation-Aligned (D-Frame), Translated: N = ${formatInt(f.n_events)} co-registered event${f.n_events === 1 ? '' : 's'}`
     + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no shower-A centroid or direction)` : '')
     + `; ⟨D_entry⟩ = ${num(f.d_entry?.mean)} mm at the front face${ci}, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm (dataset, 3-D centroid distance).`;
   const k = f.subsample_k;
@@ -517,10 +527,10 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
   const centroids = centroidLegend(payload.centroids);
 
   const xy =
-    `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
-    + `${windowPhrase(fit, 'xy', [['col', 'x′'], ['row', 'y′']])}; ${outside('xy')}.${beyondGrid}${provisional}`
+    `${payload.slab.note} ${base}${D_AXIS_SENTENCE} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
+    + `${windowPhrase(fit, 'xy', [['col', SEPARATION_AXIS], ['row', 'y′']])}; ${outside('xy')}.${beyondGrid}${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')} `
-    + 'Open diamond and circle: the A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
+    + 'Open diamond and circle: the A and B anchors at D = ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
     + 'D_entry/2 across events; thin dashed rule: the mean entry separation (hover for ⟨D_entry⟩ with its '
     + `95% t-interval).${centroids ? ` ${centroids}` : ''}${offsetsText(f.anchor_offsets)}${splat}${combText}${ill}`;
 
@@ -555,17 +565,18 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
 }
 
 /**
- * Footnotes for the translated and local frames.
+ * Footnotes for the per-shower frames: Separation-Aligned › Local, and the
+ * legacy per-shower translated frame.
  *
  * Both superimpose the two showers of every event at the origin, so the voxel
  * centroid pair measures an A-B *offset* of two ensembles each relative to its
- * own entry point - never a separation, which stays the laboratory D.
+ * own entry point - never a separation, which stays the absolute-frame D.
  */
 export function showerFootnotes(payload, { isometric = {} } = {}) {
   const f = payload.frame;
   const kind = f.kind;
   const sym = frameView(kind).symbols;
-  const title = kind === 'trans' ? 'Translated frame' : 'Local frame';
+  const title = kind === 'trans' ? 'Per-shower translated frame (legacy)' : 'Separation-Aligned (D-Frame), Local';
   if (!(f.n_events > 0)) {
     const empty = `${title}: no selected event has a defined A-B separation `
       + `(${formatInt(f.n_selected)} selected); the panels are empty.`;
@@ -581,7 +592,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   const base = `${title}: N = ${formatInt(f.n_events)} event${f.n_events === 1 ? '' : 's'}, `
     + `${formatInt(f.n_showers)} showers superimposed at their own entry points`
     + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no A-B separation)` : '')
-    + `; D is the laboratory 3-D centroid distance, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm${ci}.`;
+    + `; D is the absolute-frame 3-D centroid distance, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm${ci}.`;
   const centroids = centroidLegend(payload.centroids);
   const overflow = frameMeanOverflowText(payload);
   const offset = ' The A–B offset of the superimposed centroids (offset_mm) is not a separation.';
@@ -609,10 +620,10 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     const limit = payload.overlays?.max_trajectory_events ?? 50;
     if (paths.length) {
       direction = ` Dashed lines are the ${paths.length} individual incident directions, drawn from the `
-        + "origin along each event's laboratory (θ, φ) — magenta for shower A, blue for shower B.";
+        + "origin along each event's absolute-frame (θ, φ) — magenta for shower A, blue for shower B.";
     } else {
       const r = f.coherence?.r_a;
-      direction = ' No averaged direction: the azimuth keeps its laboratory distribution '
+      direction = ' No averaged direction: the azimuth keeps its absolute-frame distribution '
         + `(${Number.isFinite(r) ? `R̄ = ${r.toFixed(3)}` : 'near-uniform'}), so its mean would point in an `
         + `arbitrary direction; individual directions are drawn for ${limit} events or fewer.`;
     }
@@ -633,7 +644,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
 }
 
 /**
- * Footnotes for the laboratory frame.
+ * Footnotes for the Absolute (detector) frame.
  *
  * The depth panels state plainly why an averaged trajectory is absent. The
  * mean resultant length of the incident azimuth is ~0.01 over the full
@@ -715,14 +726,14 @@ export function exportLegend(panelId, payload) {
     }
     if (kind === 'local') return 'w is the incident direction by construction; no direction is drawn.';
     return (payload?.overlays?.trajectories || []).length
-      ? 'Dashed lines: individual incident directions from the origin along each event’s laboratory (θ, φ).'
-      : 'No averaged direction is drawn: the azimuth keeps its laboratory distribution.';
+      ? 'Dashed lines: individual incident directions from the origin along each event’s absolute-frame (θ, φ).'
+      : 'No averaged direction is drawn: the azimuth keeps its absolute-frame distribution.';
   }
   const axes = 'dashed lines: the two ensemble shower axes; shaded wedge: sample spread of per-event '
     + 'slopes; thin envelope: 95% t-interval of the mean; rules: front and back faces.';
   if (panelId === 'xy') {
     const centroids = centroidLegend(payload?.centroids);
-    return 'Open diamond and circle: A and B anchors at ∓⟨D_entry⟩/2; faint bar: sample spread (SD) '
+    return 'Open diamond and circle: A and B anchors at D = ∓⟨D_entry⟩/2; faint bar: sample spread (SD) '
       + 'of D_entry/2 across events; thin dashed rule: the mean entry separation.'
       + (centroids ? ` ${centroids}` : '');
   }
@@ -737,6 +748,6 @@ export function exportLegend(panelId, payload) {
 export function energyNetworkSentence(payload) {
   const network = payload?.meta?.network;
   if (!network) return '';
-  return `Reconstructed by the ${FRAME_WORDS[network.frame] ?? network.frame}-frame segmentation `
-    + 'network in every model view; D is the laboratory separation.';
+  return `Reconstructed by the segmentation network of the ${FRAME_WORDS[network.frame] ?? network.frame} `
+    + 'frame in every model view; D is the absolute-frame separation.';
 }

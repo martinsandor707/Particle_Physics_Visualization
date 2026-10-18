@@ -1,12 +1,15 @@
-/* The Admin Settings panel: the view a new session opens on.
+/* The Admin Settings panel: the view a new session opens on, the dataset
+ * upload form and the drop-folder ingest.
  *
  * It reads GET /api/admin/config and saves with POST. Beside every control a
  * chip says where the current value comes from - saved here, the deployment's
  * environment, or the built-in view - and Reset lets the layer beneath show
  * through again. Nothing is stored until Save, and saving never changes the
  * view of the session that saved it: the defaults apply only to links that
- * carry no view state (State.applyDefaults). The lower section reports the
- * automatic ingest of the drop folder, with live job status, and can rescan it.
+ * carry no view state (State.applyDefaults). The lower sections hold the
+ * upload form (controls/upload.js, readied by `prepare()` on every open and
+ * covered by this panel's focus trap and Escape) and the automatic ingest of
+ * the drop folder, with live job status and a rescan.
  */
 
 import { ApiError, getJson, sendJson } from '../api.js';
@@ -68,9 +71,10 @@ function ownDisplay(frame) {
 }
 
 export class AdminModal {
-  constructor({ state, onIngested }) {
+  constructor({ state, onIngested, upload = null }) {
     this.state = state;
     this.onIngested = onIngested || (() => {});
+    this.upload = upload;
     this.backdrop = document.getElementById('admin-modal');
     this.datasetSelect = document.getElementById('admin-dataset');
     this.saveButton = document.getElementById('admin-save');
@@ -144,6 +148,8 @@ export class AdminModal {
 
   async open() {
     this.shell.open();
+    // Not awaited: the form reports through its own rows.
+    this.upload?.prepare();
     this.setStatus('Loading the saved defaults…');
     try {
       this.load(await getJson('/api/admin/config', {}, 'admin-config'));
@@ -164,6 +170,24 @@ export class AdminModal {
     this.render();
     this.renderIngest();
     this.pollJobs();
+  }
+
+  /**
+   * Refresh the experiment list and the ingest report without touching the
+   * form: an upload that finished while the panel is open must not discard
+   * unsaved default edits, as `load()` would.
+   */
+  async refreshDatasets() {
+    if (!this.config) return;
+    try {
+      const config = await getJson('/api/admin/config', {}, 'admin-datasets');
+      this.config.options = config.options;
+      this.config.auto_ingest = config.auto_ingest;
+      this.render();
+      this.renderIngest();
+    } catch {
+      // The next open reloads everything; nothing to report here.
+    }
   }
 
   pick(field, value) {

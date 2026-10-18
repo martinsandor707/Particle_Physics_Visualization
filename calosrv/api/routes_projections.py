@@ -50,20 +50,22 @@ def get_projections(
         description=(
             "native: one bin per real calorimeter cell (hardware truth); in a "
             "co-registered frame, the raw 20 mm accumulation bins (the audit view). "
-            "continuous: in the lab frame, a uniform grid at resolution R built by "
-            "area-weighted voxel splatting; in a co-registered frame, a conservative "
-            "kernel reconstruction of the transverse axes only (Gaussian σ = 10 mm "
-            "below 50 events, bilinear tent from 50), depth never smoothed. The "
-            "default is native everywhere; the interface always sends it explicitly."
+            "continuous: in the absolute (detector) frame, a uniform grid at resolution "
+            "R built by area-weighted voxel splatting; in a co-registered frame, a "
+            "conservative kernel reconstruction of the transverse axes only (Gaussian "
+            "σ = 10 mm below 50 events, bilinear tent from 50), depth never smoothed. "
+            "The default is native everywhere; the interface always sends it explicitly."
         ),
     ),
     coord_system: str = Query(
         "lab",
         description=(
-            "lab: detector coordinates (default). trans: every hit shifted by its own "
-            "shower's entry point P0, no rotation. local: translated, then rotated by "
-            "the shower's own R(theta, phi). Also selects which network's CAM columns "
-            "are read (lab uses the absolute-frame networks)."
+            "lab: the absolute (detector) frame (default). trans: the per-shower "
+            "translated frame (legacy): every hit shifted by its own shower's entry "
+            "point P0, no rotation. local: Separation-Aligned (D-Frame), Local "
+            "(shower-fixed): shifted as trans, then rotated by the shower's own "
+            "R(theta, phi). Also selects which network's CAM columns are read (lab "
+            "uses the absolute-frame networks)."
         ),
     ),
     model: str = Query(
@@ -106,11 +108,12 @@ def get_projections(
     frame: str = Query(
         frame_canonical.FRAME_LAB,
         description=(
-            "lab: detector coordinates (default). canonical: every selected event "
-            "is co-registered by a rigid-body motion into the centre-of-separation "
-            "frame (shower entry points at ∓D_entry/2 on x′, front face at z′ = 0) "
-            "and the panels show the ensemble-averaged energy density. Requires "
-            "coord_system=lab: the canonical frame is built from laboratory coordinates."
+            "lab: the absolute (detector) frame (default). canonical: Separation-Aligned "
+            "(D-Frame), Translated: every selected event is co-registered by a "
+            "rigid-body motion so that its shower entry points lie at ∓D_entry/2 on x′ "
+            "(which the entry panel writes as D) and the front face at z′ = 0, and the "
+            "panels show the ensemble-averaged energy density. Requires "
+            "coord_system=lab: the D-frame is built from absolute (detector) coordinates."
         ),
     ),
     rho_norm: str = Query(
@@ -148,8 +151,8 @@ def get_projections(
             )
     if frame == frame_canonical.FRAME_CANONICAL and coord_system != "lab":
         raise ValidationError(
-            "frame=canonical is built from laboratory coordinates; it requires "
-            f"coord_system=lab, not {coord_system!r}.",
+            "frame=canonical (the D-frame) is built from absolute (detector) coordinates; "
+            f"it requires coord_system=lab, not {coord_system!r}.",
             field="coord_system",
         )
 

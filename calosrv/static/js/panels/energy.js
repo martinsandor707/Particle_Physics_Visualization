@@ -106,23 +106,75 @@ export class EnergyPanel {
     this.kind = 'energy';
     this.lastPayload = null;
     this.lastOpts = null;
-    this.lastAxis = null;
+    // The container size the current option was laid out at; `relayout`
+    // compares against it so a resize that changes nothing costs nothing.
+    this.laidOut = null;
+    // The low-statistics sentences last written to the card, kept for the
+    // Details drawer (panel_notes.js), which never reads the page.
+    this.lastNotices = [];
     window.addEventListener('resize', () => this.chart.resize());
+    this.observeResize();
+  }
+
+  /**
+   * Rebuild the option whenever the container changes size.
+   *
+   * The strip-row pitch, the legend row count and the band-label fit are all
+   * functions of the host width, so a container that grows or shrinks without
+   * a window resize - the sidebar collapsing, the Details drawer opening -
+   * would otherwise keep a layout computed for the old width. One observer,
+   * debounced to an animation frame, as in ProjectionPanel; the shell also
+   * calls `relayout()` directly after a toggle (main.js `relayoutAll`), and
+   * the observer's own tick then finds nothing left to do.
+   */
+  observeResize() {
+    if (typeof ResizeObserver !== 'function' || !this.element) return;
+    if (this.resizeObserver) this.resizeObserver.disconnect();
+    let pending = 0;
+    this.resizeObserver = new ResizeObserver(() => {
+      if (pending) return;
+      pending = requestAnimationFrame(() => {
+        pending = 0;
+        this.relayout();
+      });
+    });
+    this.resizeObserver.observe(this.element);
+  }
+
+  /** Re-lay the retained payload out at the container's current size. */
+  relayout() {
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+    // The canvas is checked as well as the option: a paint that measured the
+    // new size before this ran would otherwise leave the canvas at the old one.
+    const sized = this.chart.getWidth() === width && this.chart.getHeight() === height;
+    if (sized && this.laidOut && this.laidOut.width === width && this.laidOut.height === height) return;
+    if (!sized) this.chart.resize();
+    this.laidOut = { width, height };
+    // The chart only: the notices and the fitted-parameter table do not
+    // depend on the geometry.
+    if (this.lastPayload) this.paint();
+  }
+
+  /** Build and show the option for the retained payload at the current size. */
+  paint() {
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+    const { option, notices, table } = this.buildOption({
+      payload: this.lastPayload,
+      opts: this.lastOpts || {},
+      metrics: { width, height },
+    });
+    this.laidOut = { width, height };
+    this.liveGrid = option.grid ?? null;
+    this.chart.setOption(option, { notMerge: true });
+    return { notices, table };
   }
 
   render(payload, opts = {}) {
     this.lastPayload = payload;
     this.lastOpts = opts;
-
-    const { option, notices, table } = this.buildOption({
-      payload,
-      opts,
-      metrics: {
-        width: this.element.clientWidth, height: this.element.clientHeight,
-      },
-    });
-    this.liveGrid = option.grid ?? null;
-    this.chart.setOption(option, { notMerge: true });
+    const { notices, table } = this.paint();
     this.renderNotices(payload, notices.shown, notices);
     this.renderTable(payload, table.shown, table.sliceColor, table.counts);
   }
@@ -513,9 +565,9 @@ export class EnergyPanel {
      *
      * The long forms were written for a 380 px panel. In an 85 mm figure the
      * plot is barely 200 px tall, and the full sentence overruns the axis at
-     * both ends - over the legend above and into the caption below. Each has a
+     * both ends - over the legend above and into the margin below. Each has a
      * shorter form; the qualification the short form drops is stated in full by
-     * the caption, which is drawn from the same footnote either way. */
+     * the panel's Details drawer, which is built from the same sentences. */
     const yNames = hasDensity
       ? (provisional
         ? ['Probability Density [GeV⁻¹] — provisional scale, no slice above N = 15',
@@ -680,10 +732,6 @@ export class EnergyPanel {
       series,
     };
 
-    // The axis window, for the exporter's caption. Kept on the instance because
-    // these are locals of one render and the caption is assembled afterwards.
-    this.lastAxis = { xLo, xHi, yMax, hasDensity, provisional };
-
     return {
       option,
       notices: { shown, stripCount, clipped, provisional, hasDensity },
@@ -828,9 +876,15 @@ export class EnergyPanel {
   }
 
   renderNotices(payload, shown, { stripCount, clipped, provisional, hasDensity }) {
-    if (!this.noteElement) return;
     const thresholds = payload.thresholds || {};
     const notices = [];
+
+    // The clipping of the energy axis is a disclosure in its own right, and it
+    // stays on the card now that the footnote that used to carry it is gone.
+    const clipping = payload.axis?.clipping;
+    if (clipping && clipping.applied && clipping.n_outside && clipping.note) {
+      notices.push(clipping.note);
+    }
 
     if (stripCount) {
       const noCurve = shown.filter((s) => s.draw === 'strip').length;
@@ -881,6 +935,8 @@ export class EnergyPanel {
         + `${outside.length} series has events outside it.`);
     }
 
+    this.lastNotices = notices;
+    if (!this.noteElement) return;
     if (!notices.length) {
       this.noteElement.hidden = true;
       return;

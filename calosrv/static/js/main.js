@@ -1,9 +1,9 @@
 /* Application bootstrap and control wiring. */
 
 import { getJson, debounce, ApiError, DEBOUNCE_MS } from './api.js';
-import { State, apiFrame, isCoregistered } from './state.js';
+import { State, isCoregistered } from './state.js';
 import { RangeSlider } from './controls/range_slider.js';
-import { UploadModal } from './controls/upload.js';
+import { UploadForm } from './controls/upload.js';
 import { AdminModal } from './controls/admin.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { EnergyPanel } from './panels/energy.js';
@@ -11,13 +11,25 @@ import { MetricsPanel } from './panels/metrics.js';
 import { formatBytes, formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
 import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './dom.js';
 import { attachExportMenus } from './export/menu.js';
-import { figureDisclosure } from './export/disclosure.js';
 import {
-  FRAME_VIEWS, frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag,
-  showerTag, footnotes, exportLegend, energyNetworkSentence,
+  frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag, showerTag,
 } from './frame_views.js';
+import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
+import {
+  projectionNotes, energyNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
+} from './panel_notes.js';
+import { Shell } from './shell.js';
 
 const state = new State();
+
+/* The two side panels: the collapsible sidebar and the Details drawer.
+ * Constructed before the charts, so a sidebar stored as collapsed is already
+ * collapsed when the panels first measure their containers. */
+const shell = new Shell({
+  // The store first; a panel inspected before its first payload builds then.
+  getNotes: (panelId) => panelNotes[panelId] ?? buildNotes(panelId),
+  onLayoutChange: () => relayoutAll(),
+});
 
 const panels = {
   // The XY panel is locked to a 1:1 metric aspect so the separation vector D
@@ -31,15 +43,29 @@ const panels = {
 
 /* A co-registered depth panel decides its 1:1 aspect from the card size
  * (`depthIsometric`), so a container resize must re-decide it before the
- * panel rebuilds its letterbox - and the footnote, which states the aspect,
- * must follow. The panel calls this from its ResizeObserver. */
+ * panel rebuilds its letterbox - and the panel's notes, which state the
+ * aspect, must follow. The panel calls this from its ResizeObserver. */
 for (const id of ['yz', 'xz']) {
   panels[id].onRelayout = (panel) => {
     if (kindOf(lastProjections) === 'lab' || !panel.payload) return;
     const next = depthIsometric(panel, panel.payload);
     if (next === panel.isometric) return;
     panel.isometric = next;
-    writeFootnotes(lastProjections);
+    writePanelNotes();
+  };
+}
+
+/* The drawer's Selection line states the displayed window, so a zoom, a pan,
+ * Auto-fit RoI or Reset rebuilds that panel's notes - once per frame during a
+ * drag; the notes are text only. */
+for (const id of ['xy', 'yz', 'xz']) {
+  let pending = 0;
+  panels[id].onViewChange = () => {
+    if (pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      buildNotes(id);
+    });
   };
 }
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
@@ -71,10 +97,6 @@ const dom = {
   statNoD: document.getElementById('stat-nod'),
   statLatency: document.getElementById('stat-latency'),
   statCache: document.getElementById('stat-cache'),
-  footXy: document.getElementById('foot-xy'),
-  footYz: document.getElementById('foot-yz'),
-  footXz: document.getElementById('foot-xz'),
-  footEnergy: document.getElementById('foot-energy'),
   tagXy: document.getElementById('tag-xy'),
   tagEnergy: document.getElementById('tag-energy'),
   displayCaption: document.getElementById('display-caption'),
@@ -93,21 +115,11 @@ let activeExperiment = null;
 let lastProjections = null;
 let lastEnergy = null;
 let showerFilter = 'both';
+/* The frame keys the active experiment serves (labels.js `offeredFrames`). */
+let offeredFrames = offeredFramesOf(null);
 /* Warnings the projections and performance endpoints sent with their last
  * responses, merged into one banner. */
 const endpointWarnings = { projections: [], performance: [] };
-
-const DENSITY_EXPLAINER =
-  'A probability density is not a probability. The curve integrates to 1.0 over '
-  + 'the energy axis, so its height carries units of GeV⁻¹ and legitimately '
-  + 'exceeds 1.0 wherever the distribution is narrow — a resolution of '
-  + 'σ = 0.4 GeV already peaks near 1.0 GeV⁻¹, and anything sharper peaks higher. '
-  + 'A tall peak therefore means good resolution, not a probability above one. '
-  + 'For the same reason a curve integrating to 1.0 says nothing about how many '
-  + 'events it was built from: the peak height of a fit from nine events and one '
-  + 'from ninety thousand are equally tall for equal σ. The event ticks along the '
-  + 'baseline are what carry the sample size, which is why a thin slice is drawn '
-  + 'with its events beneath it and is never allowed to set the axis scale.';
 
 /* ------------------------------------------------------------------ sliders */
 
@@ -211,9 +223,9 @@ let activePopover = null;
 /**
  * Whether a depth panel may keep a 1:1 metric aspect.
  *
- * In the laboratory frame the depth panels span 5200 mm against 1210 mm of
- * depth, where a true aspect would be an unusable sliver, so they fill the
- * card. A co-registered frame crops each panel to where the energy is, and for
+ * In the absolute (detector) frame the depth panels span 5200 mm against
+ * 1210 mm of depth, where a true aspect would be an unusable sliver, so they
+ * fill the card. A co-registered frame crops each panel to where the energy is, and for
  * most selections the two spans are comparable, so 1:1 becomes affordable. It
  * is used when the letterboxed plot would still keep at least 45% of the
  * card's width and the span ratio sits inside the export clamp [0.45, 1.3].
@@ -279,14 +291,80 @@ function renderPanels(payload) {
   }
 }
 
-/** The three footnotes, from the payload and the panels' current aspect. */
-function writeFootnotes(payload) {
-  const notes = footnotes(payload, {
-    isometric: { yz: panels.yz.isometric, xz: panels.xz.isometric },
-  });
-  setText('foot-xy', notes.xy);
-  setText('foot-yz', notes.yz);
-  setText('foot-xz', notes.xz);
+/* ------------------------------------------------------------ panel notes */
+
+/* What the Details drawer says about each panel - methodology and
+ * disclosures - built from the payloads by panel_notes.js and never read off
+ * the page. The store is what the drawer shows and what the banner
+ * de-duplicates against. */
+const panelNotes = { xy: null, yz: null, xz: null, energy: null };
+
+/** Rebuild one panel's notes, flag its Details button and refresh the drawer. */
+function buildNotes(panelId) {
+  let notes = null;
+  if (panelId === 'energy') {
+    notes = lastEnergy ? energyNotes({
+      payload: lastEnergy,
+      notices: energyPanel.lastNotices,
+      selection: lastProjections?.selection ?? null,
+      state,
+      experiment: activeExperiment,
+    }) : null;
+  } else if (lastProjections && panels[panelId]) {
+    notes = projectionNotes({
+      payload: lastProjections,
+      panelId,
+      isometric: { xy: true, yz: panels.yz.isometric, xz: panels.xz.isometric },
+      view: panels[panelId].currentView(),
+      state,
+      experiment: activeExperiment,
+    });
+  }
+  panelNotes[panelId] = notes;
+  markDetails(panelId, notes);
+  shell.refresh(panelId, notes);
+  return notes;
+}
+
+/** The three spatial panels' notes, from the payload and the panels' current aspect. */
+function writePanelNotes() {
+  for (const id of ['xy', 'yz', 'xz']) buildNotes(id);
+}
+
+/** Flag a card's Details button when its notes name a hazard the reader should open. */
+function markDetails(panelId, notes) {
+  const button = document.querySelector(`[data-inspect="${panelId}"]`);
+  if (!button) return;
+  const hazards = notes?.hazards ?? [];
+  button.classList.toggle('is-flagged', hazards.length > 0);
+  button.title = hazards.length
+    ? `Details — ${hazards.join('; ')}`
+    : 'Methodology and disclosures for this panel';
+}
+
+/**
+ * Re-lay every chart out at its container's current size.
+ *
+ * Called by the shell after the sidebar or the drawer toggles. The grid tracks
+ * snap, so this measures the final geometry at once; each panel's own
+ * ResizeObserver fires once more on the next frame and finds nothing to do.
+ */
+function relayoutAll() {
+  for (const panel of Object.values(panels)) panel.relayout();
+  energyPanel.relayout();
+}
+
+/** The entry panel's clipping count, kept on the status bar. */
+function clippedReadout(payload) {
+  const panel = payload?.panels?.xy;
+  if (!panel) return '—';
+  if (kindOf(payload) === 'lab') {
+    const scale = panel.scale || {};
+    const n = (scale.clipped_low || 0) + (scale.clipped_high || 0);
+    return n > 0 ? `${formatInt(n)} cell${n === 1 ? '' : 's'}` : '—';
+  }
+  const n = panel.below_floor_cells;
+  return Number.isFinite(n) && n > 0 ? `${formatInt(n)} bin${n === 1 ? '' : 's'} below floor` : '—';
 }
 
 async function loadProjections(preview = false) {
@@ -298,7 +376,7 @@ async function loadProjections(preview = false) {
   const coregistered = kind !== 'lab';
   renderPanels(payload);
   for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, kind));
-  writeFootnotes(payload);
+  writePanelNotes();
 
   const selection = payload.selection;
   setText('stat-events', formatInt(selection.n_events));
@@ -323,6 +401,7 @@ async function loadProjections(preview = false) {
     rhoBadge = payload.frame.rho?.norm === 'dataset' ? 'dataset peak' : 'selection peak (autoscaled)';
   }
   setText('stat-rho', rhoBadge);
+  setText('stat-clipped', clippedReadout(payload));
   setText('stat-latency', `${formatNumber(payload.meta.total_ms, 1)} ms`);
   setText('stat-cache', payload.meta.cached ? 'cached' : 'scanned');
 
@@ -396,12 +475,46 @@ function syncDisplayControls() {
 }
 
 /**
+ * Bring the two-tier frame control into line with the stored frame key.
+ *
+ * The primary radio shows the view, the nested radio the sub-frame, and the
+ * legacy per-shower option is revealed only while a link or a saved default
+ * holds the frame on it. `data-frame` on the fieldset is the key the control
+ * reflects, for anything that needs to read it back.
+ */
+function syncFrameControl() {
+  const frame = state.get('frame');
+  const { view, sub } = viewOf(frame);
+  for (const input of document.querySelectorAll('input[name="frame-view"]')) {
+    input.checked = input.value === view;
+  }
+  for (const input of document.querySelectorAll('input[name="frame-sub"]')) {
+    input.checked = input.value === sub;
+  }
+  setHidden('frame-sub', view !== 'aligned');
+  setHidden('frame-sub-trans', frame !== 'trans');
+  const control = document.getElementById('ctl-frame');
+  if (control) control.dataset.frame = frame;
+  setText('frame-caption', frameView(frame).caption);
+}
+
+/** Switch the reference frame and refresh everything that depends on it. */
+function changeFrame(frame) {
+  state.set({ frame });
+  // Also resyncs the display radios: each frame returns to its own mode.
+  applyControlAvailability();
+  setText('channel-caption', currentChannelCaption());
+  refreshAll();
+}
+
+/**
  * Show, hide and disable the controls the active frame and channel make
  * meaningful.
  *
  * The density normalisation belongs to the co-registered frames; the lock
- * belongs to the lab and to density; a signed channel is always drawn on the
- * diverging PuOr, so the sequential colour map is disabled and says why.
+ * belongs to the absolute frame and to density; a signed channel is always
+ * drawn on the diverging PuOr, so the sequential colour map is disabled and
+ * says why.
  */
 function applyControlAvailability() {
   const frame = state.get('frame');
@@ -417,7 +530,7 @@ function applyControlAvailability() {
     ? 'Shap-CAM is signed: it is always drawn on the diverging ColorBrewer PuOr, orange for '
       + 'negative and purple for positive attribution. The sequential map applies to the other channels.'
     : '');
-  setText('frame-caption', frameView(frame).caption);
+  syncFrameControl();
   syncDisplayControls();
 }
 
@@ -426,18 +539,34 @@ function applyControlAvailability() {
  * serve (from `/api/experiments`), and fall back from one a link asked for.
  */
 function applyCapabilities(experiment) {
-  const frames = experiment?.frames ?? ['lab', 'canonical'];
-  const coords = experiment?.coord_systems ?? ['lab'];
+  offeredFrames = offeredFramesOf(experiment);
   const offered = {
-    // A frame is offered when the experiment lists it and serves its
-    // coordinate system (the canonical frame is built from lab coordinates).
-    frame: Object.keys(FRAME_VIEWS).filter(
-      (f) => frames.includes(f) && coords.includes(apiFrame(f).coord_system),
-    ),
     channel: experiment?.channels ?? ['density', 'gradcam'],
     model: experiment?.models ?? ['segmentation'],
   };
   const fallbacks = [];
+
+  // The two-tier frame control: a sub-frame the experiment does not serve is
+  // greyed, and Separation-Aligned itself when none of its sub-frames is.
+  for (const input of document.querySelectorAll('input[name="frame-sub"]')) {
+    const ok = offeredFrames.includes(input.value);
+    input.disabled = !ok;
+    input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+  }
+  for (const input of document.querySelectorAll('input[name="frame-view"]')) {
+    const ok = input.value === 'aligned'
+      ? enteringSub(offeredFrames) !== null
+      : offeredFrames.includes('lab');
+    input.disabled = !ok;
+    input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+  }
+  if (!offeredFrames.includes(state.get('frame')) && offeredFrames.length) {
+    fallbacks.push(`${frameLabel(state.get('frame'))} is not available for this experiment; `
+      + `showing ${frameLabel(offeredFrames[0])} instead.`);
+    state.set({ frame: offeredFrames[0] }, { silent: true });
+  }
+  syncFrameControl();
+
   for (const [name, values] of Object.entries(offered)) {
     for (const input of document.querySelectorAll(`input[name="${name}"]`)) {
       const ok = values.includes(input.value);
@@ -459,41 +588,18 @@ function applyCapabilities(experiment) {
 async function loadEnergy() {
   const payload = await getJson('/api/energy-distribution', state.energyParams(), 'energy');
   lastEnergy = payload;
-  energyPanel.render(payload, {
+  renderEnergy();
+  setText('tag-energy', payload.calibration.applied ? 'calibrated' : 'deposited');
+  return payload;
+}
+
+/** Draw the energy panel from the payload in hand, and rebuild its notes. */
+function renderEnergy() {
+  if (!lastEnergy) return;
+  energyPanel.render(lastEnergy, {
     palette: state.get('palette'), kind: 'pred', shower: showerFilter,
   });
-
-  const calibration = payload.calibration;
-  setText('tag-energy', calibration.applied ? 'calibrated' : 'deposited');
-  const parts = [];
-  if (calibration.applied) {
-    parts.push(
-      `Energies are calibrated to the incident-momentum scale by the fitted ` +
-      `sampling fractions f_A = ${formatSci(calibration.sampling_fraction_a, 3)}, ` +
-      `f_B = ${formatSci(calibration.sampling_fraction_b, 3)}.`
-    );
-  }
-  const clipping = payload.axis.clipping;
-  if (clipping && clipping.applied && clipping.n_outside) parts.push(clipping.note);
-  const network = energyNetworkSentence(payload);
-  if (network) parts.push(network);
-  parts.push(
-    'Solid curves are Gaussian fits and dashed curves mark shower B; a thinner, '
-    + 'fainter curve is a thin slice, drawn but not allowed to set the density '
-    + 'axis. Below the histogram floor the individual events appear as baseline '
-    + 'ticks, with the sample dispersion as a shaded band and the mean with its '
-    + '95% confidence interval as a capped whisker — two different quantities, '
-    + 'so two different marks. Dotted verticals are the isolated single-shower '
-    + 'reference benchmarks at μ ± σ: stated widths, not fits.'
-  );
-  // The energy panel's warnings describe its own slices and are stated in
-  // its notices; only the payload guard's re-sampling is new, and it belongs
-  // with the curves it changed.
-  for (const warning of payload.meta?.warnings || []) {
-    if (warning.startsWith('Density curves sampled')) parts.push(warning);
-  }
-  setText('foot-energy', parts.join(' '));
-  return payload;
+  buildNotes('energy');
 }
 
 async function loadPerformance() {
@@ -507,19 +613,17 @@ async function loadPerformance() {
 
 /**
  * The union of every endpoint's warnings, without duplicates and without any
- * text a footnote or caption already states.
+ * text the reader can already see: the two captions, the energy card's
+ * notices and the notes of the panel whose drawer is open. A closed drawer
+ * does not count - a warning is dropped only because it is visible.
  */
 function mergedWarnings() {
-  const shown = ['foot-xy', 'foot-yz', 'foot-xz', 'foot-energy', 'display-caption', 'channel-caption']
-    .map((id) => document.getElementById(id)?.textContent || '').join(' ');
-  const seen = new Set();
-  const out = [];
-  for (const text of [...endpointWarnings.projections, ...endpointWarnings.performance]) {
-    if (!text || seen.has(text) || shown.includes(text)) continue;
-    seen.add(text);
-    out.push(text);
-  }
-  return out;
+  const shown = [
+    ...['display-caption', 'channel-caption'].map((id) => document.getElementById(id)?.textContent || ''),
+    ...(energyPanel.lastNotices || []),
+    shell.inspected ? notesText(panelNotes[shell.inspected]) : '',
+  ].join(' ');
+  return warningsNotShown([...endpointWarnings.projections, ...endpointWarnings.performance], shown);
 }
 
 /* ------------------------------------------------------------- orchestration */
@@ -624,8 +728,8 @@ async function loadExperiments({ selectFirst = false } = {}) {
   const ready = experiments.filter((e) => e.status === 'ready');
   if (!ready.length) {
     showBanner([
-      'No experiment has finished ingesting yet. Use "Upload Dataset", or run ' +
-      'the offline ingest CLI on the server.',
+      'No experiment has finished ingesting yet. Open Admin Settings → Upload dataset, ' +
+      'or run the offline ingest CLI on the server.',
     ], true);
     return null;
   }
@@ -729,14 +833,16 @@ for (const input of document.querySelectorAll('input[name="channel"]')) {
   });
 }
 
-for (const input of document.querySelectorAll('input[name="frame"]')) {
+for (const input of document.querySelectorAll('input[name="frame-view"]')) {
   input.addEventListener('change', () => {
-    state.set({ frame: input.value });
-    // Also resyncs the display radios: each frame returns to its own mode.
-    applyControlAvailability();
-    setText('channel-caption', currentChannelCaption());
-    refreshAll();
+    // Entering Separation-Aligned always lands on Translated, the D-frame;
+    // the legacy per-shower frame is never entered from the sidebar.
+    changeFrame(input.value === 'aligned' ? (enteringSub(offeredFrames) ?? 'canonical') : 'lab');
   });
+}
+
+for (const input of document.querySelectorAll('input[name="frame-sub"]')) {
+  input.addEventListener('change', () => changeFrame(input.value));
 }
 
 for (const input of document.querySelectorAll('input[name="rho_norm"]')) {
@@ -761,13 +867,9 @@ dom.colormap.addEventListener('change', () => {
   // A palette change is a pure repaint of data already held; it must not cost
   // a round trip.
   repaint();
-  if (lastEnergy) {
-    // Carry the active shower filter across: re-rendering without it silently
-    // reset the A/B toggle to Both on every colormap change.
-    energyPanel.render(lastEnergy, {
-      palette: state.get('palette'), kind: 'pred', shower: showerFilter,
-    });
-  }
+  // Carry the active shower filter across: re-rendering without it silently
+  // reset the A/B toggle to Both on every colormap change.
+  renderEnergy();
 });
 
 dom.lockScale.addEventListener('change', () => {
@@ -812,80 +914,35 @@ for (const button of document.querySelectorAll('[data-shower]')) {
       other.classList.toggle('is-active', other === button);
     }
     // A pure re-filter of data already in hand; no round trip.
-    if (lastEnergy) {
-      energyPanel.render(lastEnergy, {
-        palette: state.get('palette'), kind: 'pred', shower: showerFilter,
-      });
-    }
+    renderEnergy();
   });
 }
 
 /* ------------------------------------------------------------ figure export */
 
-/* What each panel contributes to its exported figure.
- *
- * The footnote is read live off the page rather than rebuilt, so the figure
- * carries the same disclosure the reader saw - the clipping count, the
- * staggered-comb warning, the measured R̄ - without a second copy of the
- * sentences that could drift out of step with the panel's own. */
+/* The figure is the plot alone. What it shows is named from the response's
+ * own meta - channel, network, weighting, frame - never from controls that may
+ * have moved on since; the methodology and disclosures are the panel's
+ * Details drawer, not the file. */
 const EXPORT_PANELS = {
-  xy: { panel: () => panels.xy, title: () => panelTitle('xy', kindOf(lastProjections)), foot: 'foot-xy' },
-  yz: { panel: () => panels.yz, title: () => panelTitle('yz', kindOf(lastProjections)), foot: 'foot-yz' },
-  xz: { panel: () => panels.xz, title: () => panelTitle('xz', kindOf(lastProjections)), foot: 'foot-xz' },
-  energy: {
-    panel: () => energyPanel,
-    title: () => 'Reconstructed Energy vs. Separation D',
-    foot: 'foot-energy',
-    extraFoot: 'energy-sparse',
-  },
+  xy: () => panels.xy,
+  yz: () => panels.yz,
+  xz: () => panels.xz,
+  energy: () => energyPanel,
 };
 
 attachExportMenus({
   state,
-  getExperiment: () => activeExperiment,
   onError: (message) => showBanner([message], true),
   resolve: (panelId) => {
-    const spec = EXPORT_PANELS[panelId];
-    if (!spec) return null;
-    const panel = spec.panel();
+    const get = EXPORT_PANELS[panelId];
+    if (!get) return null;
+    const panel = get();
     const ready = panelId === 'energy' ? panel.lastPayload : panel.payload;
     if (!ready) return null;
-
-    const notes = [document.getElementById(spec.foot)?.textContent || ''];
-    // The low-statistics notices are a separate block on screen but belong to
-    // the same figure: they name the gating floors and the clipped peaks.
-    // Read per paragraph, because `textContent` on the container would run the
-    // last word of one notice into the first of the next.
-    const extra = spec.extraFoot ? document.getElementById(spec.extraFoot) : null;
-    if (extra && !extra.hidden) {
-      for (const p of extra.querySelectorAll('p')) notes.push(p.textContent || '');
-    }
-
-    // Disclosures read structurally from the payload, so the figure states
-    // the clipping counts, the frame, the density reference and the measured
-    // comb even if the on-screen footnote were ever to drift.
-    const disclosure = panelId === 'energy'
-      ? []
-      : figureDisclosure(lastProjections, panelId, state, { isometric: Boolean(panel.isometric) });
-    const coregistered = kindOf(lastProjections) !== 'lab' && panelId !== 'energy';
-    // In a co-registered frame the on-screen footnote restates every number
-    // the structured disclosure already carries; printing both would double
-    // the caption. The figure gets the disclosure plus one legend sentence.
-    const footnote = coregistered
-      ? exportLegend(panelId, lastProjections)
-      : notes.map((n) => n.trim()).filter((n) => n && n !== '—').join(' ');
-
     return {
       panel,
-      title: spec.title(),
-      footnote,
-      selection: lastProjections ? lastProjections.selection : null,
-      frame: lastProjections?.frame ?? null,
-      // The response's own statement of what it holds (channel, network,
-      // weighting, frame): the export names its content from this, never from
-      // controls that may have moved on since.
       meta: panelId === 'energy' ? (lastEnergy?.meta ?? null) : (lastProjections?.meta ?? null),
-      disclosure,
     };
   },
 });
@@ -915,21 +972,30 @@ dom.bannerClose.addEventListener('click', () => {
   setHidden('banner', true);
 });
 
-new UploadModal({
-  // The dialog asks this before sending: whether a name is taken, and by what.
-  getExperiments: () => experiments,
-  onComplete: async (job) => {
-    // Open the experiment that was just ingested, not the one on screen.
-    if (job && job.table_name) state.set({ table_name: job.table_name }, { silent: true });
-    await loadExperiments({ selectFirst: false });
-  },
-});
-
+/* The Admin Settings panel hosts the upload form. Each is constructed in its
+ * own guard: a failure in either must not take the dashboard with it - the
+ * panel is an operator's tool, the plots are everyone's - and a fault in the
+ * form's markup must not take the panel down either. */
+let adminModal = null;
+let uploadForm = null;
 try {
-  // A failure here must not take the dashboard with it: the panel is an
-  // operator's tool, the plots are everyone's.
-  new AdminModal({
+  uploadForm = new UploadForm({
+    // The form asks this before sending: whether a name is taken, and by what.
+    getExperiments: () => experiments,
+    onComplete: async (job) => {
+      // Open the experiment that was just ingested, not the one on screen.
+      if (job && job.table_name) state.set({ table_name: job.table_name }, { silent: true });
+      await loadExperiments({ selectFirst: false });
+      await adminModal?.refreshDatasets();
+    },
+  });
+} catch (error) {
+  reportError(error, 'upload form');
+}
+try {
+  adminModal = new AdminModal({
     state,
+    upload: uploadForm,
     // An automatic ingest that finishes while the panel is open joins the
     // experiment list at once, without switching away from the current view.
     onIngested: async () => { await loadExperiments({ selectFirst: false }); },
@@ -954,9 +1020,6 @@ function restoreControlsFromState() {
   for (const input of document.querySelectorAll('input[name="model"]')) {
     input.checked = input.value === v.model;
   }
-  for (const input of document.querySelectorAll('input[name="frame"]')) {
-    input.checked = input.value === v.frame;
-  }
   for (const input of document.querySelectorAll('input[name="rho_norm"]')) {
     input.checked = input.value === v.rho_norm;
   }
@@ -974,12 +1037,12 @@ function restoreControlsFromState() {
  * render. The helpers in dom.js already make each individual write survivable;
  * this is what turns "some readouts are blank" into a message that says why. */
 const REQUIRED_IDS = [
-  'stat-events', 'stat-hits', 'stat-edep', 'stat-d', 'stat-nod', 'stat-rho', 'stat-latency',
-  'stat-cache', 'banner', 'banner-text', 'banner-close', 'energy-sparse',
+  'stat-events', 'stat-hits', 'stat-edep', 'stat-d', 'stat-nod', 'stat-rho', 'stat-clipped',
+  'stat-latency', 'stat-cache', 'banner', 'banner-text', 'banner-close', 'energy-sparse',
   'badge-memory', 'badge-threads', 'badge-exact', 'exact-badge',
-  'foot-xy', 'foot-yz', 'foot-xz', 'foot-energy', 'tag-xy', 'tag-energy',
-  'title-xy', 'title-yz', 'title-xz', 'info-frame', 'frame-caption',
-  'ctl-rho-norm', 'ctl-lock-scale',
+  'tag-xy', 'tag-energy', 'title-xy', 'title-yz', 'title-xz', 'info-frame', 'frame-caption',
+  'ctl-frame', 'frame-sub', 'frame-sub-trans', 'ctl-rho-norm', 'ctl-lock-scale',
+  'sidebar', 'sidebar-toggle', 'inspector', 'inspector-title', 'inspector-body', 'inspector-close',
   'display-caption', 'channel-caption', 'resolution', 'resolution-readout',
   'resolution-hint', 'display-label-native', 'display-label-continuous',
   'colormap', 'colormap-hint', 'opt-lock-scale', 'opt-undefined-d',

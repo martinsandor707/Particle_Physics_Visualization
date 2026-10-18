@@ -47,6 +47,11 @@ def _checked(page, name):
     return page.eval_on_selector(f'input[name="{name}"]:checked', "el => el.value")
 
 
+def _frame(page):
+    """The frame key the two-tier control reflects (main.js `syncFrameControl`)."""
+    return page.get_attribute("#ctl-frame", "data-frame")
+
+
 def _chip(page, field):
     return page.inner_text(f'#admin-modal [data-field="{field}"] .chip').strip()
 
@@ -78,16 +83,21 @@ def test_saving_in_the_panel_changes_what_a_new_session_opens_on(clean):
             "() => document.getElementById('admin-status').textContent.startsWith('Saved')")
         assert _chip(page, "default_coord_system") == "set here"
         # The session that saved keeps its own view.
-        assert _checked(page, "frame") == "lab"
+        assert _frame(page) == "lab"
         browser.close()
 
         browser, page = _page(p, clean["base"])
-        assert (_checked(page, "frame"), _checked(page, "channel")) == ("trans", "gradcam")
+        assert (_frame(page), _checked(page, "channel")) == ("trans", "gradcam")
         assert "frame=trans" in page.evaluate("() => window.location.hash")
+        # The legacy per-shower frame has no radio of its own: a saved default
+        # reveals the hidden sub-option so the control reflects the state.
+        assert page.evaluate("() => document.getElementById('frame-sub-trans').hidden") is False
+        assert page.is_checked('input[name="frame-sub"][value="trans"]')
         browser.close()
 
         browser, page = _page(p, clean["base"], "#frame=lab")
-        assert (_checked(page, "frame"), _checked(page, "channel")) == ("lab", "density")
+        assert (_frame(page), _checked(page, "channel")) == ("lab", "density")
+        assert page.evaluate("() => document.getElementById('frame-sub-trans').hidden") is True
         browser.close()
 
 
@@ -121,6 +131,20 @@ def test_reset_removes_the_saved_value(clean):
         page.wait_for_function(
             "() => document.getElementById('admin-status').textContent.startsWith('Saved')")
         assert _chip(page, "default_coord_system") == "built-in"
+        browser.close()
+
+
+def test_the_panels_frame_choices_are_the_sidebar_tree_composed(clean):
+    with clean["playwright"].sync_playwright() as p:
+        browser, page = _page(p, clean["base"])
+        _open_panel(page)
+        labels = page.evaluate("""() => Object.fromEntries(
+            [...document.querySelectorAll('#admin-modal input[name="admin-default_coord_system"]')]
+              .map((el) => [el.value, el.closest('label').textContent.replace(/\\s+/g, ' ').trim()]))""")
+        assert labels["lab"].startswith("Absolute (detector coordinates)")
+        assert labels["canonical"].startswith("Separation-Aligned (D-Frame) › Translated")
+        assert labels["local"].startswith("Separation-Aligned (D-Frame) › Local (shower-fixed)")
+        assert labels["trans"].startswith("Per-shower translated (legacy")
         browser.close()
 
 

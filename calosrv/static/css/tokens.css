@@ -34,6 +34,7 @@
   --radius: 6px;
   --gap: 14px;
   --sidebar-width: 330px;
+  --inspector-width: 360px;
 
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", monospace;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;

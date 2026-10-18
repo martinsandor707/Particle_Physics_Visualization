@@ -102,16 +102,19 @@ export function entrySeparationText(frame) {
 }
 
 /**
- * The two canonical anchors, their spread bars and the separation rule.
+ * The two D-frame anchors, their spread bars and the separation rule.
  *
  * X′Y′: both anchors at (∓⟨D_entry⟩/2, 0), each with a horizontal spread bar,
  * and the dashed rule between them. X′Z′: both at z′ = 0 on the x′ axis, with
  * the bars vertical along x′. Y′Z′: both project onto the origin, so one merged
  * open circle stands for the two instead of a circle hiding a diamond.
  */
-export function addCanonicalAnchors(series, anchors, frame, col, row) {
+export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = null) {
   if (!anchors) return;
   const depthPanel = col.name === 'z';
+  // The axis the anchors sit on, as the panel writes it: D on the entry
+  // panel, x′ on the X′Z′ panel (axis_symbols.js).
+  const axisName = symbols?.[depthPanel ? 'row' : 'col'] ?? 'x′';
 
   if (depthPanel && row.name !== 'x' && anchors.a && anchors.b) {
     series.push({
@@ -124,8 +127,8 @@ export function addCanonicalAnchors(series, anchors, frame, col, row) {
       z: 11,
       tooltip: {
         formatter: () =>
-          'Canonical anchors — showers A and B<br/>'
-          + 'both entry points lie on the shower plane y′ = 0; they are separated along x′, '
+          'D-frame anchors — showers A and B<br/>'
+          + 'both entry points lie on the shower plane y′ = 0; they are separated along D (the x′ axis), '
           + `at ∓⟨D_entry⟩/2 = ∓${Math.abs(anchors.b.x).toFixed(1)} mm, which this panel projects out.`,
       },
     });
@@ -176,8 +179,8 @@ export function addCanonicalAnchors(series, anchors, frame, col, row) {
       // stroke threshold) and its own tooltip is reachable only zoomed in.
       tooltip: {
         formatter: () =>
-          `Canonical anchor — shower ${label}<br/>`
-          + `back-projected entry point at ${shower === 'a' ? '−' : '+'}⟨D_entry⟩/2 = ${mm1(anchor.x)} mm`
+          `D-frame anchor — shower ${label}<br/>`
+          + `back-projected entry point at ${axisName} = ${shower === 'a' ? '−' : '+'}⟨D_entry⟩/2 = ${mm1(anchor.x)} mm`
           + (Number.isFinite(anchor.se95)
             ? `<br/>95% interval of the mean anchor ± ${anchor.se95.toFixed(1)} mm (N = ${anchor.n})`
             : '')
@@ -211,8 +214,10 @@ export function addCanonicalAnchors(series, anchors, frame, col, row) {
  * No separation vector: the anchors and their rule already state the
  * separation, and a second dashed line would sit on top of the first.
  */
-export function addCanonicalCentroids(series, centroids, col, row) {
+export function addCanonicalCentroids(series, centroids, col, row, symbols = null) {
   if (!centroids) return;
+  const colName = symbols?.col ?? symbolOf(col);
+  const rowName = symbols?.row ?? symbolOf(row);
   for (const [key, style] of Object.entries(CANONICAL_CENTROID_STYLE)) {
     const pair = centroids[key];
     if (!pair || !pair.a) continue;
@@ -241,8 +246,8 @@ export function addCanonicalCentroids(series, centroids, col, row) {
         tooltip: {
           formatter: () =>
             `${pair.label}<br/>Shower ${label} (${style.shape})<br/>`
-            + `${symbolOf(col)} = ${mm1(cx)} mm<br/>`
-            + `${symbolOf(row)} = ${mm1(cy)} mm`
+            + `${colName} = ${mm1(cx)} mm<br/>`
+            + `${rowName} = ${mm1(cy)} mm`
             + (key === 'frame_mean' && pair.n < 2 && pair.dof_note ? `<br/><i>${pair.dof_note}</i>` : '')
             + (Number.isFinite(pair.offset_mm)
               ? `<br/>A–B offset = ${mm1(pair.offset_mm)} mm (superimposed centroids, not a separation)`
