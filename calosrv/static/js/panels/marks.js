@@ -318,3 +318,51 @@ export function projectMarks(marks, colName, rowName, panelId, reach) {
   }
   return out;
 }
+
+/**
+ * Whether the depth-panel point (z, t) lies inside a band given as stations
+ * `[[z, lo, hi], ...]` in increasing z. The band is linear between
+ * consecutive stations, so a two-station wedge is the special case and the
+ * windowed axis's exact band (nine stations) needs nothing more. Pure, so it
+ * runs under Node.
+ */
+export function insideWedge(points, z, t) {
+  if (!Array.isArray(points) || points.length < 2) return false;
+  for (let i = 0; i + 1 < points.length; i += 1) {
+    const [z0, lo0, hi0] = points[i];
+    const [z1, lo1, hi1] = points[i + 1];
+    if (!(z1 !== z0)) continue;
+    const f = (z - z0) / (z1 - z0);
+    if (!(f >= 0 && f <= 1)) continue;
+    const lo = lo0 + f * (lo1 - lo0);
+    const hi = hi0 + f * (hi1 - hi0);
+    return t >= Math.min(lo, hi) && t <= Math.max(lo, hi);
+  }
+  return false;
+}
+
+/**
+ * A silent filled band through stations `[[z, lo, hi], ...]`: the lower
+ * edge station by station, then the upper edge back. The ensemble axes'
+ * two-station wedges and the windowed axis's nine-station band are both
+ * drawn with it, so one polygon rule serves every dispersion mark.
+ */
+export function customBand({ name, points, color, opacity, z = 5 }) {
+  return {
+    type: 'custom',
+    name,
+    silent: true,
+    clip: true,
+    z,
+    data: [points],
+    renderItem: (params, api) => {
+      const lower = points.map(([depth, lo]) => api.coord([depth, lo]));
+      const upper = points.slice().reverse().map(([depth, , hi]) => api.coord([depth, hi]));
+      return {
+        type: 'polygon',
+        shape: { points: [...lower, ...upper] },
+        style: { fill: color, opacity, stroke: 'none' },
+      };
+    },
+  };
+}

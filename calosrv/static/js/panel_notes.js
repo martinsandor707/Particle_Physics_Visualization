@@ -19,6 +19,7 @@
 import {
   footnotes, exportLegend, kindOf, panelTitle, energyNetworkSentence,
   eventRowLabel, eventSelectionLine, eventFrameSentence, num, pct,
+  labLegend, windowAxisLegend, windowAxisDisclosures,
 } from './frame_views.js';
 import { figureDisclosure } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
@@ -104,10 +105,12 @@ class Notes {
  * `isometric` is `{xy, yz, xz}` as the panels currently draw themselves (the
  * depth panels decide 1:1 from their size), `view` the displayed window in
  * millimetres or null for the full extent, `state` the interface State (null
- * under a bare Node test, which then gets no selection line).
+ * under a bare Node test, which then gets no selection line), `windowAxis`
+ * the absolute-frame depth panel's windowed ensemble axis response, when one
+ * is drawn.
  */
 export function projectionNotes({
-  payload, panelId, isometric = {}, view = null, state = null, experiment = null,
+  payload, panelId, isometric = {}, view = null, state = null, experiment = null, windowAxis = null,
 }) {
   const panel = payload?.panels?.[panelId];
   if (!panel) return null;
@@ -130,10 +133,12 @@ export function projectionNotes({
 
   const footnote = footnotes(payload, { isometric })[panelId] ?? '';
   notes.section(SECTION.drawn, [footnote]);
-  notes.section(SECTION.disclosures, figureDisclosure(
-    payload, panelId, state, { isometric: Boolean(isometric[panelId]) },
-  ));
+  const disclosures = figureDisclosure(payload, panelId, state, { isometric: Boolean(isometric[panelId]) });
+  const windowed = kind === 'lab' && panelId !== 'xy' ? windowAxis : null;
+  if (windowed) disclosures.push(...windowAxisDisclosures(windowed));
+  notes.section(SECTION.disclosures, disclosures);
   if (kind !== 'lab') notes.section(SECTION.legend, [exportLegend(panelId, payload)]);
+  else if (panelId !== 'xy') notes.section(SECTION.legend, [labLegend(payload), windowAxisLegend(windowed)]);
   return notes.done(hazards(payload, panelId));
 }
 

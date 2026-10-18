@@ -374,6 +374,10 @@ def build_response(
         "D-frame - see centroids.canonical_mean)"
     )
     coherence = summary.angular_coherence(con, record, spec)
+    # Part of the slope dispersion drawn below is geometry: the incident
+    # directions point at the detector origin, so showers at larger radius
+    # lean more. Measured per selection and stated in the drawer.
+    pointing = summary.pointing(con, record, spec)
     coherence["note"] = (
         "Absolute-frame azimuth is near-uniform (resultant length above), which is "
         "why no averaged direction is drawn there. In the D-frame the "
@@ -545,6 +549,7 @@ def build_response(
                 "axes": {},
                 "trajectories": [],
                 "coherence": coherence,
+                "pointing": pointing,
                 "max_trajectory_events": summary.MAX_TRAJECTORY_EVENTS,
                 "ensemble_axes": {
                     "yz": {"a": axes["a"]["yz"], "b": axes["b"]["yz"]},

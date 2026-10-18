@@ -45,11 +45,11 @@ import {
   renderRaster, exactValue, dequantize, cellAt, cellCentre, occupiedBounds,
 } from '../decode.js';
 import {
-  THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle, floorLabel,
+  THEME, formatSci, formatInt, spatialAxis, visualMap, axisPadding, rampTitle, floorLabel,
   rampMidLabel, rampPalette, typographic, unitSuffix,
 } from '../scale.js';
 import {
-  customLine, customPolyline, customMarker, symbolOf, onInk, projectMarks,
+  customLine, customPolyline, customMarker, customBand, insideWedge, symbolOf, onInk, projectMarks,
 } from './marks.js';
 import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
 import { formatSigned } from '../format.js';
@@ -336,7 +336,7 @@ export class ProjectionPanel {
       axes = null, trajectories = null, showerKey = null,
       frame = null, ensembleAxes = null, ensembleMeta = null,
       anchors = null, depthBounds = null, marks = null, markColour = null,
-      framed = false,
+      framed = false, windowAxis = null,
     } = opts;
 
     const col = payload.axes.col;
@@ -396,6 +396,7 @@ export class ProjectionPanel {
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
 
     if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
+    if (windowAxis) this.addWindowAxis(series, windowAxis, col, row);
     if (canonical) {
       addCanonicalCentroids(series, centroids, col, row, symbols);
       addCanonicalAnchors(series, anchors, frame, col, row, symbols);
@@ -456,6 +457,30 @@ export class ProjectionPanel {
       graphic: graphics,
       series,
     };
+  }
+
+  /**
+   * Replace one overlay of the retained options and redraw at the current
+   * size, keeping the displayed window: the windowed axis arrives after the
+   * zoom that asked for it, and must not reset the zoom.
+   */
+  setOverlay(key, value) {
+    if (!this.lastOpts) return;
+    this.lastOpts = { ...this.lastOpts, [key]: value };
+    if (!this.payload || !this.raster) return;
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+    if (!(width > 0 && height > 0)) {
+      this.laidOut = null;
+      return;
+    }
+    this.laidOut = { width, height };
+    this.setLiveOption(this.buildOption({
+      payload: this.payload,
+      opts: this.lastOpts,
+      raster: this.raster,
+      metrics: { width, height },
+    }));
   }
 
   /** The window currently displayed, in millimetres. */
@@ -545,15 +570,16 @@ export class ProjectionPanel {
       const points = (axes[shower] || []).filter(Boolean);
       if (points.length < 2) continue;
       series.push(customPolyline({
-        name: `Measured axis — ${shower.toUpperCase()}`,
+        name: `Centre of deposited energy — ${shower.toUpperCase()}`,
         points,
         color: colour,
         width: 1.8 * THEME.lineAxis,
         opacity: 0.95,
         smooth: 0.2,
         z: 8,
-        tooltip: `Measured shower axis — ${shower.toUpperCase()}<br/>`
-          + 'energy-weighted centroid per depth layer',
+        tooltip: `Centre of deposited energy — ${shower.toUpperCase()}<br/>`
+          + 'energy-weighted centre of the selection’s summed deposit, per depth layer<br/>'
+          + 'a property of the summed picture, not a direction',
       }));
     }
   }
@@ -629,23 +655,7 @@ export class ProjectionPanel {
 
       const wedge = (points, name, alpha) => {
         if (!points) return;
-        series.push({
-          type: 'custom',
-          name,
-          silent: true,
-          clip: true,
-          z: 5,
-          data: [points],
-          renderItem: (params, api) => {
-            const [[z0, lo0, hi0], [z1, lo1, hi1]] = points;
-            const corners = [[z0, lo0], [z1, lo1], [z1, hi1], [z0, hi0]].map((p) => api.coord(p));
-            return {
-              type: 'polygon',
-              shape: { points: corners },
-              style: { fill: colour, opacity: alpha, stroke: 'none' },
-            };
-          },
-        });
+        series.push(customBand({ name, points, color: colour, opacity: alpha }));
       };
 
       // The two showers' wedges overlap on the YZ panel (both axes start at
@@ -668,6 +678,60 @@ export class ProjectionPanel {
           `${coherence}, N = ${n}` +
           (faded ? '<br/><i>direction not distinguishable from uniform; drawn faded</i>' : '') +
           (info.label && !faded ? `<br/><i>${info.label}</i>` : ''),
+      }));
+    }
+  }
+
+  /**
+   * The windowed ensemble axis of the absolute frame (query/window_axis.py):
+   * the mean trajectory of the selected events whose entry point lies in
+   * this panel's displayed transverse window, with the sample SD of the
+   * per-event trajectories at each depth as an uncapped band and the
+   * Student-t 95% interval of the mean as a thin envelope - two quantities,
+   * two marks. Faded when the mean lean lies within the fan, which the
+   * tooltip says; nothing of the kind is drawn at full extent.
+   */
+  addWindowAxis(series, block, col, row) {
+    if (col.name !== 'z') return;
+    for (const [shower, colour] of [['a', THEME.showerA], ['b', THEME.showerB]]) {
+      const lines = block?.[shower];
+      if (!lines || !lines.axis) continue;
+      const label = shower.toUpperCase();
+      const faded = Boolean(lines.faded);
+      const n = Number.isFinite(lines.n) ? formatInt(lines.n) : '—';
+      const of = Number.isFinite(lines.n_selection) ? ` of ${formatInt(lines.n_selection)} selected` : '';
+      if (lines.band) {
+        series.push(customBand({
+          name: `Windowed axis ${label} — spread`, points: lines.band, color: colour,
+          opacity: faded ? 0.05 : THEME.bandAlpha * 0.6,
+        }));
+      }
+      if (lines.envelope) {
+        series.push(customBand({
+          name: `Windowed axis ${label} — 95% interval`, points: lines.envelope, color: colour,
+          opacity: faded ? 0.12 : THEME.bandAlpha * 1.4, z: 6,
+        }));
+      }
+      let coherence;
+      if (Number.isFinite(lines.lean_ratio)) coherence = `lean / fan = ${lines.lean_ratio.toFixed(2)}`;
+      else if (lines.n >= 2) coherence = 'every direction identical';
+      else coherence = lines.label || 'single event';
+      const fan = Number.isFinite(lines.fan_deg) ? `, fan ± ${lines.fan_deg.toFixed(1)}°` : '';
+      series.push(customPolyline({
+        name: `Windowed axis — ${label}`,
+        points: lines.axis,
+        color: colour,
+        width: 1.8 * THEME.lineAxis,
+        dash: 'dashed',
+        opacity: faded ? FADE_OPACITY : 0.95,
+        z: 9,
+        tooltip: () =>
+          `Windowed ensemble axis — ${label}<br/>` +
+          `mean incident trajectory of the ${n} events entering this window${of} ` +
+          `(slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
+          `${coherence}${fan}` +
+          (faded ? '<br/><i>the mean lean lies within the fan: these showers go straight on average; drawn faded</i>' : '') +
+          (lines.label && !faded && lines.n >= 2 ? `<br/><i>${lines.label}</i>` : ''),
       }));
     }
   }
@@ -1013,7 +1077,8 @@ export class ProjectionPanel {
         `${symbols.row} = ${formatSigned(centreY, 1)} mm<br/>`;
       // Named at the pointer, not the bin centre: a wedge edge crosses bins.
       const wedges = col.name === 'z'
-        ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY)
+        ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY,
+          this.lastOpts?.windowAxis)
         : [];
       const inWedges = wedges.length ? `<br/>${wedges.map(muted).join('<br/>')}` : '';
       const lead = overlay
@@ -1152,30 +1217,31 @@ export class ProjectionPanel {
  * Each line names its quantity: the dispersion band and the interval of the
  * mean differ by sqrt(N) and look alike (CLAUDE.md section 2).
  */
-function wedgeNotes(block, meta, z, t) {
-  if (!block) return [];
-  const inside = (points) => {
-    if (!Array.isArray(points) || points.length < 2) return false;
-    const [[z0, lo0, hi0], [z1, lo1, hi1]] = points;
-    if (!(z1 !== z0)) return false;
-    const f = (z - z0) / (z1 - z0);
-    if (!(f >= 0 && f <= 1)) return false;
-    const lo = lo0 + f * (lo1 - lo0);
-    const hi = hi0 + f * (hi1 - hi0);
-    return t >= Math.min(lo, hi) && t <= Math.max(lo, hi);
-  };
+function wedgeNotes(block, meta, z, t, windowAxis = null) {
   const notes = [];
   for (const shower of ['a', 'b']) {
-    const lines = block[shower];
-    if (!lines || !lines.axis) continue;
     const label = shower.toUpperCase();
-    if (inside(lines.band)) {
-      notes.push(`in the dispersion band of axis ${label}: ± sample SD of the per-event slopes`
-        + (lines.dof_note ? ` (${lines.dof_note})` : ''));
+    const lines = block?.[shower];
+    if (lines && lines.axis) {
+      if (insideWedge(lines.band, z, t)) {
+        notes.push(`in the dispersion band of axis ${label}: ± sample SD of the per-event slopes`
+          + (lines.dof_note ? ` (${lines.dof_note})` : ''));
+      }
+      if (insideWedge(lines.envelope, z, t)) {
+        notes.push(`in the 95% interval of the mean of axis ${label}: `
+          + `± t<sub>0.975,N−1</sub>·SD/√N, N = ${meta?.[shower]?.n ?? '—'}`);
+      }
     }
-    if (inside(lines.envelope)) {
-      notes.push(`in the 95% interval of the mean of axis ${label}: `
-        + `± t<sub>0.975,N−1</sub>·SD/√N, N = ${meta?.[shower]?.n ?? '—'}`);
+    const windowed = windowAxis?.[shower];
+    if (windowed && windowed.axis) {
+      if (insideWedge(windowed.band, z, t)) {
+        notes.push(`in the dispersion band of the windowed axis ${label}: ± sample SD of the per-event `
+          + `trajectories at this depth${windowed.dof_note ? ` (${windowed.dof_note})` : ''}`);
+      }
+      if (insideWedge(windowed.envelope, z, t)) {
+        notes.push(`in the 95% interval of the mean of the windowed axis ${label}: `
+          + `± t<sub>0.975,N−1</sub>·SD/√N, N = ${windowed.n ?? '—'}`);
+      }
     }
   }
   return notes;

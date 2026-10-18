@@ -257,6 +257,10 @@ def get_projections(
     # per-event trajectories are only drawn when few enough to read, because
     # incident azimuth does not average (see summary.angular_coherence).
     coherence = summary.angular_coherence(con, record, spec)
+    # Where those directions point, measured against each shower's own
+    # position: the reason the azimuth is uniform, and what licenses the
+    # windowed ensemble axis (query/window_axis.py).
+    pointing = summary.pointing(con, record, spec)
     few_events = 0 < selection.n_events <= summary.MAX_TRAJECTORY_EVENTS
 
     # The two overlays are complements, not layers, and only one is honest at a
@@ -326,6 +330,7 @@ def get_projections(
                 "axes": axes,
                 "trajectories": paths,
                 "coherence": coherence,
+                "pointing": pointing,
                 "max_trajectory_events": summary.MAX_TRAJECTORY_EVENTS,
             },
             slab={

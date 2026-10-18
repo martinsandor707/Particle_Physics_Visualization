@@ -31,6 +31,7 @@ from .api import (
     routes_admin,
     routes_energy,
     routes_event,
+    routes_window_axis,
     routes_experiments,
     routes_health,
     routes_performance,
@@ -300,6 +301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_energy,
         routes_performance,
         routes_event,
+        routes_window_axis,
     ):
         app.include_router(module.router)
 
