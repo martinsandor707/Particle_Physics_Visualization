@@ -59,9 +59,14 @@ const CHANNEL_PHRASE = {
  * `spatial: false` is for a panel with no spatial bins - the energy panel -
  * whose content depends on neither the frame, the grid, R, the kernel nor the
  * spatial channel: naming them would describe bins the panel does not show.
+ *
+ * `filtersOnly: true` stops after the experiment and the filters: the Event
+ * Inspector draws one event, so the frame, display and channel of the
+ * ensemble panels say nothing about it, and its own line names the event.
  */
 export function describeSelection(
-  state, experiment, selection, frame = null, display = null, { spatial = true, meta = null } = {},
+  state, experiment, selection, frame = null, display = null,
+  { spatial = true, meta = null, filtersOnly = false } = {},
 ) {
   const parts = [];
   if (experiment) {
@@ -86,6 +91,7 @@ export function describeSelection(
     : 'full kinematic range');
 
   if (state.get('include_undefined_d')) parts.push('including events with undefined D');
+  if (filtersOnly) return `${parts.join(' · ')}.`;
 
   const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
   const coregistered = kind !== 'lab';
@@ -103,7 +109,9 @@ export function describeSelection(
     // segmentation reconstruction of the selected frame.
     parts.push(`segmentation network, ${NETWORK_PHRASE[network] ?? `${network} frame`}`);
   } else if (coregistered) {
-    const name = FRAME_PHRASE[kind];
+    // The D-frame names its anchor when it is not the default one.
+    const name = kind === 'canonical' && frame.anchor_choice === 'p0'
+      ? `${FRAME_PHRASE[kind]}, anchored on P₀` : FRAME_PHRASE[kind];
     const pitch = Number.isFinite(frame.pitch_mm) ? frame.pitch_mm : null;
     const kernel = display ? kernelPhrase(display) : null;
     if (mode === 'native') {

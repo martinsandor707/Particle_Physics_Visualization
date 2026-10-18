@@ -23,6 +23,7 @@ packages, only Node's ES-module loader and a stub `window` for the hash.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -1572,3 +1573,418 @@ def test_no_note_carries_a_hyphen_minus(ui_results):
     for key, notes in ui_results["notes"].items():
         for line in notes["lines"]:
             assert not re.search(r"(?<![\w])-\d", line), (key, line)
+
+
+# ------------------------------------ the anchor choice and the coordinate source --
+
+_ANCHOR_SCRIPT = """
+const [stateUrl, framesUrl, disclosureUrl, captionUrl, filenameUrl] = JSON.parse(process.argv[1]);
+globalThis.window = {
+  location: { hash: '', pathname: '/' },
+  history: { replaceState(_s, _t, url) { const at = url.indexOf('#'); window.location.hash = at >= 0 ? url.slice(at) : ''; } },
+};
+const { State, ANCHORS, DEFAULTS } = await import(stateUrl);
+const fv = await import(framesUrl);
+const { figureDisclosure } = await import(disclosureUrl);
+const { describeSelection } = await import(captionUrl);
+const { figureName } = await import(filenameUrl);
+const out = { anchors: ANCHORS, defaultAnchor: DEFAULTS.anchor };
+
+const fresh = (hash) => { window.location.hash = hash; return new State(); };
+let s = fresh('#frame=canonical&anchor=p0');
+out.p0 = { anchor: s.get('anchor'), sent: s.projectionParams().anchor ?? null, hash: window.location.hash };
+s.set({ frame: 'lab' });
+out.labSends = s.projectionParams().anchor ?? null;
+s = fresh('#frame=canonical&anchor=centroid');
+out.bogus = s.get('anchor');
+s = fresh('#frame=canonical');
+out.defaultSent = s.projectionParams().anchor ?? null;
+out.defaultHash = window.location.hash;
+
+const residual = { a: { median: 46.4, p90: 133.4, over_footprint: 9620 }, b: { median: 45.2, p90: 132.6, over_footprint: 9382 },
+  footprint_mm: 48.6, n: 20268 };
+const axesOf = (sx, sy, sz) => ({
+  xy: { col: { name: 'x', symbol: sx, lo: -480, hi: 480 }, row: { name: 'y', symbol: sy, lo: -200, hi: 200 } },
+  yz: { col: { name: 'z', symbol: sz, lo: 0, hi: 1210 }, row: { name: 'y', symbol: sy, lo: -200, hi: 200 } },
+  xz: { col: { name: 'z', symbol: sz, lo: 0, hi: 1210 }, row: { name: 'x', symbol: sx, lo: -480, hi: 480 } },
+});
+const fitAxis = (half) => ({ applied: true, range: [-half, half], half_width: half, floored: false });
+const frame = (extra) => ({ kind: 'canonical', n_events: 7, n_selected: 7, n_excluded_no_frame: 0,
+  d_entry: { mean: 800, ci95_half: 40, n: 7 }, d_dataset: { mean: 820, ci95_half: 30 }, subsample_k: 2,
+  footprint_mm: [48.3, 48.6], pitch_mm: 20, fit: { rule: 'symmetric', provisional: true, floor_mm: 200,
+  percentiles: [0.1, 99.9], xy: { col: fitAxis(480), row: fitAxis(200), energy_fraction_outside: 0.002 },
+  yz: { row: fitAxis(200), energy_fraction_outside: 0.001 }, xz: { row: fitAxis(480), energy_fraction_outside: 0.001 } },
+  rho: { norm: 'selection', ref: { xy: 1e-6, depth: 2e-6 } }, reconstruction: { display: 'continuous', note: 'Kernel.' },
+  comb: { note: 'No comb.', staggered: false }, notes: [], ensemble: {}, coherence: { r_a: 0.012 }, ...extra });
+const axes = axesOf('x′', 'y′', 'z′');
+const panel = (id) => ({ scale: { unit: 'a.u.', scale: 'log10', floor: 'transparent', floor_ratio: 1e-3 },
+  rho_unit: 'GeV/mm^2/event', below_floor_cells: 3, axes: axes[id], energy_fraction_outside_window: 0.002 });
+const payload = (f) => ({ frame: f, panels: { xy: panel('xy'), yz: panel('yz'), xz: panel('xz') }, slab: { note: 'Slab.' },
+  centroids: {}, overlays: {}, meta: { resolution: { mode: 'continuous' }, exact: true, frame: 'canonical', anchor: f.anchor_choice },
+  selection: { n_events: 7, n_hits: 100 } });
+
+const withResidual = payload(frame({ anchor_choice: 'backprojected', anchor_residual: residual }));
+const onP0 = payload(frame({ anchor_choice: 'p0', anchor_residual: residual }));
+const older = payload(frame({}));
+out.sentence = { backprojected: fv.anchorSentence(withResidual.frame), p0: fv.anchorSentence(onP0.frame),
+  older: fv.anchorSentence(older.frame) };
+out.footnote = fv.canonicalFootnotes(withResidual, { isometric: {} }).xy;
+out.disclosure = { backprojected: figureDisclosure(withResidual, 'xy', null), p0: figureDisclosure(onP0, 'xy', null),
+  depth: figureDisclosure(onP0, 'yz', null) };
+const stubState = { isTouched: () => false, get: (key) => ({ display: 'continuous', resolution: 150, channel: 'density',
+  frame: 'canonical', weighting: 'energy', model: 'segmentation', anchor: 'p0' })[key] ?? null };
+out.caption = { p0: describeSelection(stubState, null, null, onP0.frame, null, { spatial: true, meta: onP0.meta }),
+  backprojected: describeSelection(stubState, null, null, withResidual.frame, null, { spatial: true, meta: withResidual.meta }) };
+out.names = { p0: figureName('xy', 'svg', { state: stubState, meta: onP0.meta }),
+  backprojected: figureName('xy', 'svg', { state: stubState, meta: withResidual.meta }) };
+
+const shower = { kind: 'local', n_events: 7, n_showers: 14, n_selected: 7, n_excluded_no_frame: 0, n_ab_hits: 0,
+  d_dataset: { mean: 820, ci95_half: 30 }, footprint_mm: [48.3, 48.6], pitch_mm: 20, depth: { pitch_mm: 20.5 },
+  splat: { regime: 'subdeposit3d', k: 2, k_z: 2 }, fit: withResidual.frame.fit, rho: withResidual.frame.rho,
+  reconstruction: { display: 'continuous', note: 'Kernel.' }, comb: { note: 'No comb.', staggered: false },
+  coordinates: { source: 'computed', residual_max_mm: 0.00023, tolerance_mm: 0.01, within_tolerance: true,
+    note: 'Coordinates: recomputed inside the scan as R(θ, φ) applied; over this selection the two differ by at most 0.00023 mm.' } };
+const localAxes = axesOf('u', 'v', 'w');
+const localPayload = { frame: shower, panels: { xy: { ...panel('xy'), axes: localAxes.xy }, yz: { ...panel('yz'), axes: localAxes.yz },
+  xz: { ...panel('xz'), axes: localAxes.xz } }, slab: { note: 'Slab.' }, centroids: {}, overlays: {},
+  meta: { resolution: { mode: 'continuous' }, exact: true, frame: 'local' }, selection: { n_events: 7, n_hits: 100 } };
+out.coordinates = { sentence: fv.coordinatesSentence(shower), footnote: fv.showerFootnotes(localPayload, { isometric: {} }).xy,
+  disclosure: figureDisclosure(localPayload, 'xy', null), none: fv.coordinatesSentence({}) };
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def anchor_results() -> dict:
+    args = json.dumps([
+        (JS / "state.js").as_uri(), (JS / "frame_views.js").as_uri(),
+        (JS / "export" / "disclosure.js").as_uri(), (JS / "export" / "caption.js").as_uri(),
+        (JS / "export" / "filename.js").as_uri(),
+    ])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _ANCHOR_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_anchor_is_a_d_frame_key_sent_only_with_the_d_frame(anchor_results):
+    r = anchor_results
+    assert r["anchors"] == ["backprojected", "p0"] and r["defaultAnchor"] == "backprojected"
+    assert r["p0"] == {"anchor": "p0", "sent": "p0", "hash": "#frame=canonical&anchor=p0"}
+    assert r["labSends"] is None, "the API refuses an anchor outside the D-frame"
+    assert r["bogus"] == "backprojected"
+    assert r["defaultSent"] == "backprojected" and r["defaultHash"] == "#frame=canonical"
+
+
+def test_the_drawer_names_the_anchor_and_the_distance_to_the_other_definition(anchor_results):
+    r = anchor_results
+    back = r["sentence"]["backprojected"]
+    assert back.startswith(" Anchor: each shower’s 3-D centroid, back-projected to the front face.")
+    assert "first-layer entry point P₀" in back and "shower A median 46 mm, p90 133 mm" in back
+    assert "9,620 more than one cell footprint apart" in back and "N = 20,268" in back
+    p0 = r["sentence"]["p0"]
+    assert p0.startswith(" Anchor: each shower’s first-layer entry point P₀")
+    assert "the back-projected 3-D centroid, lands" in p0
+    assert r["sentence"]["older"] == "", "a payload without the choice gets no sentence"
+    assert back.strip() in r["footnote"]
+    assert any(s.startswith("Anchor = backprojected;") for s in r["disclosure"]["backprojected"])
+    assert any(s.startswith("Anchor = p0;") and "3-D centroid" in s for s in r["disclosure"]["p0"])
+    assert r["disclosure"]["p0"][0].startswith("Separation-Aligned (D-Frame), Translated, anchored on P₀")
+    assert not any(s.startswith("Anchor =") for s in r["disclosure"]["depth"]), "the entry panel alone states it"
+    assert "anchored on P₀" in r["caption"]["p0"] and "anchored on P₀" not in r["caption"]["backprojected"]
+    assert "_canonical_p0_" in r["names"]["p0"] and "_p0" not in r["names"]["backprojected"]
+    for text in (back, p0, *r["disclosure"]["p0"]):
+        assert not re.search(r"-\d", text), text
+
+
+def test_the_per_shower_drawer_states_the_coordinate_source(anchor_results):
+    r = anchor_results["coordinates"]
+    assert r["sentence"].startswith(" Coordinates: recomputed inside the scan")
+    assert r["sentence"].strip() in r["footnote"]
+    assert any(s.startswith("Coordinates: recomputed") for s in r["disclosure"])
+    assert r["none"] == ""
+
+
+# ----------------------------------------------------- the Event Inspector --
+
+_EVENT_SCRIPT = """
+const [marksUrl, stateUrl, notesUrl, framesUrl, filenameUrl] = JSON.parse(process.argv[1]);
+globalThis.window = {
+  location: { hash: '', pathname: '/' },
+  history: { replaceState(_s, _t, url) { const at = url.indexOf('#'); window.location.hash = at >= 0 ? url.slice(at) : ''; } },
+};
+const { projectMarks } = await import(marksUrl);
+const { State, DEFAULTS, SHOWERS } = await import(stateUrl);
+const { eventNotes, hazards, SECTION } = await import(notesUrl);
+const { eventRowLabel, eventSelectionLine, eventFrameSentence } = await import(framesUrl);
+const { figureName } = await import(filenameUrl);
+const out = {};
+
+// The marks of the laboratory and translated frames, and of the local one.
+const o = [100, -20, 3662];
+const d = [0.1, -0.2, 0.97];
+const marks = [
+  { type: 'line', style: 'forward', origin: o, direction: d, panels: null, name: 'f', tooltip: 'F' },
+  { type: 'line', style: 'backward', origin: o, direction: d.map((v) => -v), panels: null, name: 'b', tooltip: 'B' },
+  { type: 'plane', style: 'plane', axis: 'z', at: 3662, panels: ['xz', 'yz'], name: 'p', tooltip: 'P' },
+  { type: 'point', style: 'origin', at: o, panels: null, name: 'o', tooltip: 'O' },
+];
+const tan = Math.tan(0.2);
+const localMarks = [
+  { type: 'line', style: 'forward', origin: [0, 0, 0], direction: [0, 0, 1], panels: null, name: 'f' },
+  { type: 'line', style: 'plane', origin: [0, 0, 0], direction: [1, 0, tan], panels: ['xz'], name: 'p' },
+  { type: 'point', style: 'origin', at: [0, 0, 0], panels: null, name: 'o' },
+];
+const byName = (list) => Object.fromEntries(list.map((m) => [m.name, m]));
+out.marks = {
+  xy: byName(projectMarks(marks, 'x', 'y', 'xy', 300)),
+  xz: byName(projectMarks(marks, 'z', 'x', 'xz', 300)),
+  yz: byName(projectMarks(marks, 'z', 'y', 'yz', 300)),
+  localXy: byName(projectMarks(localMarks, 'x', 'y', 'xy', 300)),
+  localXz: byName(projectMarks(localMarks, 'z', 'x', 'xz', 300)),
+  localYz: byName(projectMarks(localMarks, 'z', 'y', 'yz', 300)),
+  none: projectMarks(null, 'x', 'y', 'xy', 300),
+  tan,
+};
+
+// The event, the shower and the comparison are view state.
+const fresh = (hash) => { window.location.hash = hash; return new State(); };
+let s = fresh('#event=12&shower=b&compare=true');
+out.state = { event: s.get('event'), shower: s.get('shower'), compare: s.get('compare'),
+              params: s.eventParams(), hash: window.location.hash };
+s.set({ event: null });
+out.unpinned = window.location.hash;
+s = fresh('#event=1.5&shower=c&compare=maybe');
+out.invalid = { event: s.get('event'), shower: s.get('shower'), compare: s.get('compare') };
+out.negative = fresh('#event=-3').get('event');
+s = fresh('');
+out.defaults = { event: DEFAULTS.event, shower: DEFAULTS.shower, compare: DEFAULTS.compare, showers: SHOWERS };
+s.set({ event: 7 });
+out.pinnedHash = window.location.hash;
+s = fresh('#frame=canonical&anchor=p0');
+const lab = s.projectionParams(false, 'lab');
+const local = s.projectionParams(false, 'local');
+out.compareParams = { lab: { coord: lab.coord_system, frame: lab.frame, display: lab.display, lock: lab.lock_scale ?? null,
+                             rho: lab.rho_norm ?? null, anchor: lab.anchor ?? null },
+                      local: { coord: local.coord_system, frame: local.frame, display: local.display,
+                               lock: local.lock_scale ?? null, rho: local.rho_norm ?? null, anchor: local.anchor ?? null },
+                      active: s.projectionParams().anchor ?? null };
+
+// A response of /api/event, as query/event_inspector.py shapes it.
+const axesOf = (sym, win) => ({
+  xy: { col: { name: 'x', symbol: sym.x, lo: win.x[0], hi: win.x[1] }, row: { name: 'y', symbol: sym.y, lo: win.y[0], hi: win.y[1] } },
+  xz: { col: { name: 'z', symbol: sym.z, lo: win.z[0], hi: win.z[1] }, row: { name: 'x', symbol: sym.x, lo: win.x[0], hi: win.x[1] } },
+  yz: { col: { name: 'z', symbol: sym.z, lo: win.z[0], hi: win.z[1] }, row: { name: 'y', symbol: sym.y, lo: win.y[0], hi: win.y[1] } },
+});
+const panel = (id, axes, below) => ({
+  panel: id, axes: axes[id], shape: [30, 30], native: false,
+  scale: { unit: 'GeV/mm^2', scale: 'log10', vmin: -6, vmax: -3, locked: true, clipped_low: below, clipped_high: 0 },
+  total: 0.012, total_energy_all_gev: 0.0123, energy_outside_window_gev: below ? 0.0003 : 0,
+  energy_fraction_outside_window: below ? 0.0244 : 0, kernel: 'none', n_events: 1, rho_unit: 'GeV/mm^2',
+});
+const frame = (kind, title, sym, win, splat, depth, m) => {
+  const axes = axesOf(sym, win);
+  return { kind, title, symbols: sym, window: win, raster: win, half_mm: 300,
+    panels: { xy: panel('xy', axes, 2), xz: panel('xz', axes, 0), yz: panel('yz', axes, 1) }, marks: m, depth, splat };
+};
+const labWin = { x: [-200, 400], y: [-320, 280], z: [3362, 3962] };
+const localWin = { x: [-300, 300], y: [-300, 300], z: [-100, 500] };
+const shower = { key: 'a', label: 'A', n_hits: 310, energy_gev: 0.0123, momentum_gev: 3.2, theta: 0.2, phi: -1.0,
+  theta_deg: 11.5, phi_deg: -57.3, p0: [100.5, -20.25, 3662.4], first_layer_z: 3662.4, direction: d,
+  principal_axis: { tilt_deg: 3.4, axis: [0, 0, 1], eigenvalues: [1, 2, 3], n: 310 } };
+const payload = {
+  frames: {
+    lab: frame('lab', 'Original — detector coordinates (x, y, z)', { x: 'x', y: 'y', z: 'z' }, labWin,
+      { regime: 'native_lattice', pitch_mm: null },
+      { policy: 'native_layers', pitch_mm: 20.5, note: "the detector's own sampling layers, cropped to the event" }, marks),
+    trans: frame('trans', 'Translated only — origin shifted to P₀, not rotated (Δx, Δy, Δz)', { x: 'Δx', y: 'Δy', z: 'Δz' },
+      localWin, { regime: 'box_overlap', pitch_mm: 20, k: null, k_z: null },
+      { policy: 'native_layers', pitch_mm: 20.5, note: "the shower's own sampling layers counted from its first, cropped to the event" }, marks),
+    local: frame('local', 'Local — translated and rotated by R(θ, φ) (u, v, w)', { x: 'u', y: 'v', z: 'w' }, localWin,
+      { regime: 'subdeposit3d', pitch_mm: 20, k: 4, k_z: 2 },
+      { policy: 'uniform_bins', pitch_mm: 20.5, note: 'uniform bins of the layer pitch along w, cropped to the event, never smoothed' }, localMarks),
+  },
+  scale: { unit: 'GeV/mm^2', floor: 1e-6, top: 1e-3, vmin: -6, vmax: -3, floor_percentile: 1, n_below: 9,
+    rule: 'One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², from the 1st percentile of this shower’s positive lattice-cell densities (1e-06) to its brightest bin (0.001); 9 bins below the floor are drawn at the lowest colour.' },
+  grid: { pitch_mm: 20, notes: [] },
+  event: { event_number: 1234, in_selection: true, prev: 1200, next: 1300, n_hits: 532, d: 412.3, e1: 3.2, e2: 1.1, overlap: 0, shower },
+  coordinates: { source: 'file', residual_max_mm: 0.00005, tolerance_mm: 0.01, within_tolerance: true,
+    note: 'Coordinates: the file’s own x/y_trans and x/y/z_local; the motions were also applied to every cell here, and the two differ by at most 5e-05 mm (within the 0.01 mm tolerance).' },
+  window: { half_mm: 300, pad: 1.15, min_half_mm: 150,
+    rule: 'One half-width for all nine panels: 1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never below 150 mm (300 mm here).' },
+  footprint_mm: [48.27, 48.6, 20.5],
+  meta: { table_name: 'demo', event: 1234, shower: 'a', notices: [] },
+};
+const stubState = { isTouched: (axis) => axis === 'd',
+  get: (key) => ({ d_min: 100, d_max: 500, include_undefined_d: false, display: 'native', resolution: 150,
+    channel: 'gradcam', frame: 'canonical', model: 'segmentation' })[key] ?? null };
+out.notes = {
+  local: eventNotes({ payload, kind: 'local', panelId: 'xz', view: { col: [-50, 450], row: [-100, 100] },
+                      state: stubState, experiment: { display_name: 'Demo' } }),
+  lab: eventNotes({ payload, kind: 'lab', panelId: 'xy' }),
+  missing: eventNotes({ payload, kind: 'canonical', panelId: 'xy' }),
+};
+const outside = { ...payload,
+  event: { ...payload.event, in_selection: false, shower: { ...shower, principal_axis: null } },
+  grid: { pitch_mm: 40, notes: ['Grids coarsened from 20 mm to 40 mm to keep the response under the 100,000-byte contract.'] },
+  coordinates: { ...payload.coordinates, within_tolerance: false } };
+out.hazards = { fine: hazards(payload, 'xy'), bad: hazards(outside, 'yz') };
+out.outsideNotes = eventNotes({ payload: outside, kind: 'trans', panelId: 'yz' });
+out.label = { full: eventRowLabel(payload.event), noAxis: eventRowLabel(outside.event), none: eventRowLabel(null) };
+out.selection = { inside: eventSelectionLine(payload.event), outside: eventSelectionLine(outside.event) };
+out.sentences = { lab: eventFrameSentence(payload, 'lab'), trans: eventFrameSentence(payload, 'trans'),
+                  local: eventFrameSentence(payload, 'local') };
+out.names = {
+  local: figureName('event-local-xy', 'svg', { state: stubState, display: { mode: 'native' },
+    meta: { frame: 'local', channel: 'density', event: 1234, shower: 'a' } }),
+  lab: figureName('event-lab-xz', 'png', { state: stubState, display: { mode: 'native' },
+    meta: { channel: 'density', event: 1234, shower: 'b' } }),
+  ensemble: figureName('xy', 'svg', { state: stubState, meta: { frame: 'canonical', channel: 'density' } }),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def event_results() -> dict:
+    args = json.dumps([
+        (JS / "panels" / "marks.js").as_uri(), (JS / "state.js").as_uri(), (JS / "panel_notes.js").as_uri(),
+        (JS / "frame_views.js").as_uri(), (JS / "export" / "filename.js").as_uri(),
+    ])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _EVENT_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _slope(line) -> float:
+    (x0, y0), (x1, y1) = line["from"], line["to"]
+    return (y1 - y0) / (x1 - x0)
+
+
+def test_the_marks_project_onto_each_panels_two_axes(event_results):
+    m = event_results["marks"]
+    xy = m["xy"]
+    # The forward line runs from the origin along the direction's (x, y).
+    assert xy["f"]["from"] == [100, -20] and xy["f"]["style"] == "forward" and xy["f"]["tooltip"] == "F"
+    assert xy["f"]["to"][0] > 100 and _slope(xy["f"]) == pytest.approx(-0.2 / 0.1)
+    # Backward is the same line the other way, from the origin too.
+    assert xy["b"]["from"] == [100, -20] and xy["b"]["to"][0] < 100 and _slope(xy["b"]) == pytest.approx(-0.2 / 0.1)
+    assert "p" not in xy, "the first-layer plane has no image on the entry panel"
+    assert xy["o"] == {"type": "point", "at": [100, -20], "name": "o", "tooltip": "O"}
+    # The depth panels: z on the column axis, so the plane z = z0 is a vertical rule.
+    for panel, row in (("xz", 100), ("yz", -20)):
+        p = m[panel]
+        assert p["p"]["style"] == "plane" and p["p"]["from"][0] == 3662 == p["p"]["to"][0]
+        assert p["p"]["from"][1] < -1000 < 1000 < p["p"]["to"][1], "a rule across the whole panel"
+        assert p["f"]["from"] == [3662, row] and p["f"]["to"][0] > 3662
+        assert p["b"]["to"][0] < 3662 and p["o"]["at"] == [3662, row]
+    assert m["none"] == []
+
+
+def test_the_local_plane_is_the_tilted_line_on_the_xz_panel_only(event_results):
+    m = event_results["marks"]
+    tan = m["tan"]
+    xz = m["localXz"]
+    # z' = tan(theta) x' with z on the column axis: dx/dz = 1/tan, through the origin, both ways.
+    assert _slope(xz["p"]) == pytest.approx(1 / tan)
+    assert xz["p"]["from"][0] < 0 < xz["p"]["to"][0] and xz["p"]["style"] == "plane"
+    assert xz["f"]["from"] == [0, 0] and xz["f"]["to"][1] == 0 and xz["f"]["to"][0] > 0
+    assert "p" not in m["localXy"] and "p" not in m["localYz"]
+    # The +w direction has no component in the u-v plane, so no line is drawn there; the origin is.
+    assert "f" not in m["localXy"] and m["localXy"]["o"]["at"] == [0, 0]
+    assert m["localYz"]["f"]["from"] == [0, 0]
+
+
+def test_the_event_and_shower_are_view_state(event_results):
+    r = event_results
+    assert r["state"]["event"] == 12 and r["state"]["shower"] == "b" and r["state"]["compare"] is True
+    assert r["state"]["params"]["event_number"] == 12 and r["state"]["params"]["shower"] == "b"
+    assert "table_name" in r["state"]["params"] and "d_min" in r["state"]["params"]
+    assert r["state"]["hash"] == "#event=12&shower=b&compare=true"
+    assert "event=" not in r["unpinned"] and "shower=b" in r["unpinned"]
+    assert r["invalid"] == {"event": None, "shower": "a", "compare": False}
+    assert r["negative"] is None
+    assert r["defaults"] == {"event": None, "shower": "a", "compare": False, "showers": ["a", "b"]}
+    assert r["pinnedHash"] == "#event=7"
+
+
+def test_the_comparison_asks_each_frame_in_its_own_display_mode(event_results):
+    r = event_results["compareParams"]
+    assert r["lab"] == {"coord": "lab", "frame": "lab", "display": "native", "lock": True, "rho": None, "anchor": None}
+    assert r["local"] == {"coord": "local", "frame": "lab", "display": "continuous", "lock": None,
+                          "rho": "selection", "anchor": None}
+    assert r["active"] == "p0", "the active frame's own parameters are unchanged"
+
+
+def test_event_notes_are_sectioned_and_carry_the_disclosures(event_results):
+    notes = event_results["notes"]["local"]
+    assert notes["title"] == "Local — translated and rotated by R(θ, φ) (u, v, w): u–w"
+    assert [s["heading"] for s in notes["sections"]] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
+    selection = notes["sections"][0]["lines"]
+    assert selection[0].startswith("Event 1,234, shower A: 310 cells, 0.0123 GeV deposited, θ = 11.5°, φ = −57.3°, P₀ = (100.5, −20.3, 3662.4) mm, principal axis 3.4° from +w.")
+    assert selection[1].startswith("Event 1,234: 532 hits in all, E₁ = 3.20 GeV, E₂ = 1.10 GeV, D = 412 mm; inside the current selection.")
+    assert selection[2] == "Experiment Demo · selection D 100–500 mm."
+    assert selection[3] == "View w −50–450 mm, u −100–100 mm."
+    drawn = notes["sections"][1]["lines"]
+    assert drawn[0].startswith("Local: every cell moved by −P₀ and rotated by its shower's R(θ, φ)")
+    assert "k × k × k_z = 4 × 4 × 2" in drawn[0] and "20 mm grid" in drawn[0] and "never smoothed" in drawn[0]
+    assert drawn[1].startswith("One half-width for all nine panels")
+    assert drawn[2].startswith("Axes 1:1 (isometric), 300 mm half-width")
+    disclosures = notes["sections"][2]["lines"]
+    assert disclosures[0].startswith("One logarithmic ramp for all nine panels") and "1st percentile" in disclosures[0]
+    assert disclosures[1] == "No populated bin of this panel lies below the ramp floor."
+    assert disclosures[2] == "Every cell of the shower lies inside this panel's window."
+    assert disclosures[3].startswith("Coordinates: the file’s own")
+    legend = notes["sections"][3]["lines"]
+    assert legend[0].startswith("Dashed line = the incident direction") and "✕ = the shower origin P₀" in legend[0]
+    assert legend[1].startswith("Principal axis of the energy-weighted cloud in the local frame: 3.4° from +w over 310 cells")
+    assert notes["hazards"] == []
+    lab = event_results["notes"]["lab"]
+    assert lab["title"] == "Original — detector coordinates (x, y, z): x–y"
+    lab_disclosures = lab["sections"][2]["lines"]
+    assert lab_disclosures[1] == "2 populated bins of this panel lie below the ramp floor and are drawn at the lowest colour."
+    assert lab_disclosures[2].startswith("3.000e−4 GeV (2.44%) of the shower's 0.0123 GeV falls outside this panel's window")
+    assert [s["heading"] for s in lab["sections"]] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
+    assert event_results["notes"]["missing"] is None
+
+
+def test_event_hazards_are_structural(event_results):
+    r = event_results
+    assert r["hazards"]["fine"] == []
+    assert r["hazards"]["bad"] == ["event outside the selection", "coordinate residual above tolerance",
+                                   "coarsened grid", "principal axis untestable"]
+    outside = r["outsideNotes"]
+    assert outside["hazards"] == r["hazards"]["bad"]
+    disclosures = outside["sections"][2]["lines"]
+    assert any(line.startswith("Grids coarsened") for line in disclosures)
+    assert any("outside the current selection" in line for line in disclosures)
+    assert outside["sections"][3]["lines"][1].startswith("Principal axis: untestable below 3 populated cells")
+    assert r["label"]["noAxis"].endswith("principal axis untestable (fewer than 3 cells).")
+    assert r["label"]["none"] == ""
+    assert r["selection"]["outside"].endswith("outside the current selection, drawn as asked; previous / next walk the selection.")
+
+
+def test_the_frame_sentences_name_the_splat_and_the_depth(event_results):
+    s = event_results["sentences"]
+    assert s["lab"].startswith("Original detector coordinates: the native lattice, one bin per populated cell")
+    assert "no entrance slab" in s["lab"] and "the detector's own sampling layers" in s["lab"]
+    assert s["trans"].startswith("Translated only: every cell moved by −P₀ without rotation, its 48.27 × 48.60 mm footprint")
+    assert "exact area-weighted box overlap" in s["trans"] and "counted from its first" in s["trans"]
+    assert "48.27 × 48.60 mm × 20.5 mm footprint" in s["local"]
+
+
+def test_the_event_figure_name_leads_with_the_event(event_results):
+    names = event_results["names"]
+    assert re.fullmatch(r"event-local-xy_ev1234A_D-100-500_native_local_\d{8}_\d{6}\.svg", names["local"]), names["local"]
+    assert re.fullmatch(r"event-lab-xz_ev1234B_D-100-500_native_\d{8}_\d{6}\.png", names["lab"]), names["lab"]
+    assert "_ev" not in names["ensemble"], "an ensemble figure names no event"
+
+
+def test_no_event_sentence_carries_a_hyphen_minus(event_results):
+    r = event_results
+    texts = [r["label"]["full"], r["label"]["noAxis"], *r["selection"].values(), *r["sentences"].values()]
+    for notes in (r["notes"]["local"], r["notes"]["lab"], r["outsideNotes"]):
+        texts.extend(line for section in notes["sections"] for line in section["lines"])
+    for text in texts:
+        assert not re.search(r"(?<![\w-])-\d", text), text

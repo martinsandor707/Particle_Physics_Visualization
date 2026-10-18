@@ -176,6 +176,8 @@ def _derive(
         lattice_n=(lattice.x.n, lattice.y.n, lattice.z.n),
         depth_mm=float(lattice.z.hi - lattice.z.lo),
         source_format=check.format if check else formats.CSV,
+        lattice=lattice,
+        removed_rows=sanitation.removed,
     )
     watch.mark("verify")
 

@@ -47,6 +47,11 @@ import { SEQUENTIAL_PALETTES } from './palette.js';
 export const FRAMES = ['lab', 'trans', 'local', 'canonical'];
 export const CHANNELS = ['density', 'gradcam', 'gradcam_energy', 'shapcam', 'shapcam_energy'];
 export const MODELS = ['segmentation', 'energy', 'angle'];
+/* The D-frame's two entry-anchor definitions (API `anchor`): each shower's
+ * back-projected 3-D centroid, or its first-layer entry point P₀. */
+export const ANCHORS = ['backprojected', 'p0'];
+/* The Event Inspector draws one of an event's two showers at a time. */
+export const SHOWERS = ['a', 'b'];
 
 /** The two display modes the API accepts. */
 const DISPLAYS = new Set(['native', 'continuous']);
@@ -59,6 +64,8 @@ const ENUMS = {
   rho_norm: ['selection', 'dataset'],
   weighting: ['energy', 'count'],
   palette: SEQUENTIAL_PALETTES,
+  anchor: ANCHORS,
+  shower: SHOWERS,
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
@@ -107,6 +114,9 @@ export const DEFAULTS = Object.freeze({
   // Reference peak of a co-registered density ramp: this selection's own peak
   // (the directive's a.u.) or the whole dataset's, for cross-selection colour.
   rho_norm: 'selection',
+  // The D-frame's entry anchor: the back-projected 3-D centroid the frame
+  // shipped with, or the first-layer entry point P₀ (the notebook's origin).
+  anchor: 'backprojected',
   // Display mode per frame (see the header): the absolute frame keeps the
   // hardware lattice, the co-registered frames open on their kernel
   // reconstruction.
@@ -120,12 +130,22 @@ export const DEFAULTS = Object.freeze({
   palette: 'viridis',
   lock_scale: true,
   model: 'segmentation',
+  // The Event Inspector: the pinned event (null = the ensemble panels) and
+  // which of its two showers is drawn; and the compare-frames view, which
+  // lays the selection out in the Absolute, per-shower translated and Local
+  // frames at once. All three are view state, so a link carries them.
+  event: null,
+  shower: 'a',
+  compare: false,
 });
 
 const NUMERIC = new Set([
-  'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution',
+  'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution', 'event',
 ]);
-const BOOLEAN = new Set(['include_undefined_d', 'lock_scale']);
+/* Whole, non-negative numbers: an event number is an identifier, so a
+ * fraction or a negative in a link names nothing and keeps the default. */
+const INTEGER = new Set(['event']);
+const BOOLEAN = new Set(['include_undefined_d', 'lock_scale', 'compare']);
 
 /* The keys the Admin Settings panel's defaults may set on a cold boot. */
 const DEFAULTABLE = ['table_name', 'frame', 'model', 'channel', 'rho_norm'];
@@ -142,6 +162,7 @@ function acceptValue(key, raw) {
   if (NUMERIC.has(key)) {
     const value = Number(raw);
     const range = NUMERIC_RANGE[key];
+    if (INTEGER.has(key) && !(Number.isInteger(value) && value >= 0)) return undefined;
     return Number.isFinite(value) && (!range || (value >= range[0] && value <= range[1]))
       ? value : undefined;
   }
@@ -252,18 +273,23 @@ export class State {
     };
   }
 
-  projectionParams(preview = false) {
+  /**
+   * Parameters of one projections request: the active frame's, or `frame`'s
+   * - the compare-frames view asks for each frame in turn, each in the
+   * display mode it keeps for itself.
+   */
+  projectionParams(preview = false, frame = this.values.frame) {
     const v = this.values;
-    const lab = v.frame === 'lab';
+    const lab = frame === 'lab';
     return {
       ...this.filterParams(),
-      ...apiFrame(v.frame),
+      ...apiFrame(frame),
       model: v.model,
       channel: v.channel,
       // Always sent, never left to the API default: the server keeps
       // `display=native` for its own contract, while the co-registered
       // frames here open in Continuous Field.
-      display: this.get('display'),
+      display: this.values[displayKey(frame)],
       resolution: v.resolution,
       weighting: v.weighting,
       // Each control only where it means something; undefined is dropped
@@ -271,8 +297,16 @@ export class State {
       // "lock_scale ignored" notice for a box nobody could see.
       rho_norm: lab ? undefined : v.rho_norm,
       lock_scale: lab ? v.lock_scale : undefined,
+      // The anchor is a D-frame choice; the API refuses it elsewhere.
+      anchor: frame === 'canonical' ? v.anchor : undefined,
       preview,
     };
+  }
+
+  /** The Event Inspector: the pinned event and its shower, under the same filters. */
+  eventParams() {
+    const v = this.values;
+    return { ...this.filterParams(), event_number: v.event, shower: v.shower };
   }
 
   /** The energy panel: the selected frame's segmentation network. */
@@ -420,6 +454,7 @@ const PRECISION = {
   e2_min: 2, e2_max: 2,
   d_min: 0, d_max: 0,
   resolution: 0,
+  event: 0,
 };
 
 function round(key, value) {

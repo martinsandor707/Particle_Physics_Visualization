@@ -46,10 +46,10 @@ import {
 } from '../decode.js';
 import {
   THEME, formatSci, spatialAxis, visualMap, axisPadding, rampTitle, floorLabel,
-  rampMidLabel, rampPalette, typographic,
+  rampMidLabel, rampPalette, typographic, unitSuffix,
 } from '../scale.js';
 import {
-  customLine, customPolyline, symbolOf, onInk,
+  customLine, customPolyline, customMarker, symbolOf, onInk, projectMarks,
 } from './marks.js';
 import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
 import { formatSigned } from '../format.js';
@@ -100,7 +100,7 @@ const AXIS_LABEL_COMPACT = {
 };
 
 /** How a physical unit of the payload is written in a readout. */
-const UNIT_TEXT = { 'GeV/mm^2/event': 'GeV mm⁻² per event', GeV: 'GeV' };
+const UNIT_TEXT = { 'GeV/mm^2/event': 'GeV mm⁻² per event', 'GeV/mm^2': 'GeV mm⁻²', GeV: 'GeV' };
 
 /** Plot heights and widths (px) below which the compact titles and labels are used. */
 const COMPACT_LABEL_HEIGHT = 220;
@@ -205,6 +205,13 @@ export class ProjectionPanel {
   relayout() {
     const width = this.element.clientWidth;
     const height = this.element.clientHeight;
+    // A hidden host - a grid that is not on show - has no size to lay out
+    // at. The payload is kept; the relayout that follows the host being shown
+    // (its ResizeObserver, or the shell's relayoutAll) builds the option.
+    if (!(width > 0 && height > 0)) {
+      this.laidOut = null;
+      return;
+    }
     // The canvas is checked as well as the option: a render that measured the
     // new size before this ran would otherwise leave the canvas at the old one.
     const sized = this.chart.getWidth() === width && this.chart.getHeight() === height;
@@ -216,7 +223,7 @@ export class ProjectionPanel {
     const wasIsometric = this.isometric;
     if (typeof this.onRelayout === 'function') this.onRelayout(this);
     if (this.view && this.isometric !== wasIsometric) {
-      this.view = clampView(this.view, this.payload.axes, this.isometric);
+      this.view = clampView(this.view, this.extent ?? extentOf(this.payload, this.lastOpts), this.isometric);
       this.viewChanged();
     }
     this.setLiveOption(this.buildOption({
@@ -270,15 +277,17 @@ export class ProjectionPanel {
     // not a change of frame or of experiment, where the old window would be
     // meaningless against the new coordinates. Within one frame the window is
     // clamped to the new extents instead.
-    const viewKey = `${opts.frame?.kind ?? 'lab'}|${opts.tableName ?? ''}`;
+    const viewKey = `${opts.frame?.kind ?? 'lab'}|${opts.tableName ?? ''}|${opts.viewKey ?? ''}`;
+    const extent = extentOf(payload, opts);
     if (this.viewKey !== viewKey) {
       this.view = null;
       this.viewKey = viewKey;
-    } else if (this.view && this.payload && !sameExtent(this.payload, payload)) {
-      this.view = clampView(this.view, payload.axes, this.isometric);
+    } else if (this.view && this.extent && !sameExtent(this.extent, extent)) {
+      this.view = clampView(this.view, extent, this.isometric);
     }
 
     this.payload = payload;
+    this.extent = extent;
     this.palette = opts.palette;
     this.raster = renderRaster(payload, opts.palette);
     // Retained so the exporter can rebuild this exact panel at a different size
@@ -289,13 +298,19 @@ export class ProjectionPanel {
     const metrics = {
       width: this.element.clientWidth, height: this.element.clientHeight,
     };
-    this.laidOut = { ...metrics };
-    this.setLiveOption(this.buildOption({
-      payload,
-      opts,
-      raster: this.raster,
-      metrics,
-    }));
+    if (metrics.width > 0 && metrics.height > 0) {
+      this.laidOut = { ...metrics };
+      this.setLiveOption(this.buildOption({
+        payload,
+        opts,
+        raster: this.raster,
+        metrics,
+      }));
+    } else {
+      // Rendered into a hidden host: everything is retained, and relayout()
+      // builds the option once the host has a size.
+      this.laidOut = null;
+    }
 
     this.attachCellTooltip(payload.axes.col, payload.axes.row);
     this.attachNavigation();
@@ -320,7 +335,8 @@ export class ProjectionPanel {
       palette, centroids = null, showVector = false,
       axes = null, trajectories = null, showerKey = null,
       frame = null, ensembleAxes = null, ensembleMeta = null,
-      anchors = null, depthBounds = null,
+      anchors = null, depthBounds = null, marks = null, markColour = null,
+      framed = false,
     } = opts;
 
     const col = payload.axes.col;
@@ -329,14 +345,18 @@ export class ProjectionPanel {
     const canonical = frame?.kind === 'canonical';
     // Every co-registered frame (canonical, translated, local) draws a symmetric
     // window about its origin, framed and with the axis lines on the frame.
-    const coregistered = ['canonical', 'trans', 'local'].includes(frame?.kind);
+    // The Event Inspector's nine panels are framed the same way (`framed`).
+    const coregistered = ['canonical', 'trans', 'local'].includes(frame?.kind) || framed;
+    // The extent the axes span: the caller's window (the inspector's equal
+    // half-width window, wider than the raster) or the raster's own edges.
+    const extent = extentOf(payload, opts);
     // The displayed window. The grid is letterboxed from the *full* extent so
     // the plot area does not jump around as the view changes.
-    const view = this.view || { col: [col.lo, col.hi], row: [row.lo, row.hi] };
+    const view = this.view || { col: [...extent.col], row: [...extent.row] };
     // The vertical a.u. ramp carries its title as a second label line, which
     // needs a wider right inset than the GeV ramp's exponent labels.
     const wideRamp = payload.scale?.unit === 'a.u.' && THEME.rampOrient !== 'horizontal';
-    const rect = this.gridRect(col.hi - col.lo, row.hi - row.lo, metrics, wideRamp);
+    const rect = this.gridRect(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0], metrics, wideRamp);
     const canvas = raster.canvas;
     const title = rampTitle(payload.scale, metrics);
     const mid = rampMidLabel(payload.scale, metrics);
@@ -368,6 +388,7 @@ export class ProjectionPanel {
     }];
 
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
+    if (marks) this.addMarks(series, marks, col, row, extent, markColour, panelOf(payload.axes));
     if (axes) this.addShowerAxes(series, axes, col, row);
     if (trajectories && showerKey) {
       this.addTrajectories(series, trajectories, col, row, showerKey);
@@ -441,8 +462,40 @@ export class ProjectionPanel {
   currentView() {
     if (this.view) return this.view;
     if (!this.payload) return null;
-    const { col, row } = this.payload.axes;
-    return { col: [col.lo, col.hi], row: [row.lo, row.hi] };
+    const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
+    return { col: [...extent.col], row: [...extent.row] };
+  }
+
+  /**
+   * The Event Inspector's marks: three-dimensional lines and points in the
+   * frame's own coordinates, projected onto this panel's two axes.
+   *
+   * The incident direction forward (dashed) and extrapolated backward
+   * (dotted), the first-layer plane (dash-dot; a tilted line on the local
+   * X′Z′ panel, a rule at z = z₀ on the others) and the shower's origin (a
+   * cross in the shower's colour) - the overlays of the reference notebook's
+   * figure. A line whose direction has no component in the panel's plane is
+   * skipped, and a mark may name the panels it belongs on.
+   */
+  addMarks(series, marks, col, row, extent, colour, panelId) {
+    const span = Math.max(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0]);
+    for (const mark of projectMarks(marks, col.name, row.name, panelId, span)) {
+      if (mark.type === 'point') {
+        series.push(customMarker({
+          name: mark.name, at: mark.at, color: colour ?? THEME.text, sizePx: 6,
+          width: 1.6 * THEME.lineAxis, z: 12, tooltip: mark.tooltip,
+        }));
+        continue;
+      }
+      const style = {
+        forward: { color: THEME.text, width: 1.6 * THEME.lineAxis, dash: 'dashed', opacity: 0.9 },
+        backward: { color: THEME.muted, width: 1.4 * THEME.lineAxis, dash: 'dotted', opacity: 0.9 },
+        plane: { color: THEME.muted, width: THEME.lineAxis, dash: [6, 3, 2, 3], opacity: 0.8 },
+      }[mark.style] ?? { color: THEME.muted, width: THEME.lineAxis, dash: null, opacity: 0.8 };
+      series.push(customLine({
+        name: mark.name, from: mark.from, to: mark.to, ...style, z: 7, tooltip: mark.tooltip,
+      }));
+    }
   }
 
   /**
@@ -738,8 +791,9 @@ export class ProjectionPanel {
     const bounds = occupiedBounds(this.payload, this.raster, 0.99, { weight: 'value' });
     if (!bounds) return 'empty';
 
-    const col = this.payload.axes.col;
-    const row = this.payload.axes.row;
+    const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
+    const col = { lo: extent.col[0], hi: extent.col[1] };
+    const row = { lo: extent.row[0], hi: extent.row[1] };
 
     let [c0, c1] = pad(bounds.col, ROI_PADDING);
     let [r0, r1] = pad(bounds.row, ROI_PADDING);
@@ -801,10 +855,10 @@ export class ProjectionPanel {
   resetView() {
     this.view = null;
     if (!this.payload) return;
-    const { col, row } = this.payload.axes;
+    const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
     this.chart.setOption({
-      xAxis: { min: col.lo, max: col.hi },
-      yAxis: { min: row.lo, max: row.hi },
+      xAxis: { min: extent.col[0], max: extent.col[1] },
+      yAxis: { min: extent.row[0], max: extent.row[1] },
     });
     this.viewChanged();
   }
@@ -831,10 +885,7 @@ export class ProjectionPanel {
       zr.off('globalout', this.upHandler);
     }
 
-    const current = () => this.view || {
-      col: [this.payload.axes.col.lo, this.payload.axes.col.hi],
-      row: [this.payload.axes.row.lo, this.payload.axes.row.hi],
-    };
+    const current = () => this.view || this.currentView();
 
     this.wheelHandler = (event) => {
       if (!this.payload) return;
@@ -1046,8 +1097,12 @@ export class ProjectionPanel {
             `ρ<sub>ref</sub> = ${formatSci(scale.rho_ref, 3)} (${scale.norm === 'dataset' ? 'dataset' : 'selection'} peak)`);
       } else {
         const value = exact !== null ? exact : dequantize(code, scale, payload);
-        const unit = scale.unit === 'GeV' ? 'GeV' : '';
-        body = `<b>${formatSci(value, 3)} ${unit}</b>${precision}`;
+        const unit = scale.unit === 'GeV' ? 'GeV' : (UNIT_TEXT[scale.unit] ?? '');
+        // The inspector's panels hold an areal density: say what it is per.
+        const cell = scale.unit === 'GeV/mm^2'
+          ? `<br/>${muted(`projected energy per mm² of this ${payload.axes.col.uniform ? 'bin' : 'cell'}`)}`
+          : '';
+        body = `<b>${formatSci(value, 3)} ${unit}</b>${precision}${cell}`;
       }
 
       show(where + body);
@@ -1126,9 +1181,24 @@ function wedgeNotes(block, meta, z, t) {
   return notes;
 }
 
+/**
+ * The extent a panel's axes span: the caller's `window` ({col, row} in
+ * millimetres) when given - the Event Inspector draws one equal half-width
+ * window round a raster that covers only the populated part - else the
+ * raster's own edges.
+ */
+export function extentOf(payload, opts) {
+  const win = opts?.window;
+  const { col, row } = payload.axes;
+  const ok = (r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite) && r[1] > r[0];
+  return {
+    col: ok(win?.col) ? [win.col[0], win.col[1]] : [col.lo, col.hi],
+    row: ok(win?.row) ? [win.row[0], win.row[1]] : [row.lo, row.hi],
+  };
+}
+
 function sameExtent(a, b) {
-  return a.axes.col.lo === b.axes.col.lo && a.axes.col.hi === b.axes.col.hi
-    && a.axes.row.lo === b.axes.row.lo && a.axes.row.hi === b.axes.row.hi;
+  return a.col[0] === b.col[0] && a.col[1] === b.col[1] && a.row[0] === b.row[0] && a.row[1] === b.row[1];
 }
 
 /**
@@ -1144,7 +1214,8 @@ function sameExtent(a, b) {
  * the kept window is re-proportioned about its centre to the new ratio before
  * it is slid inside.
  */
-function clampView(view, axes, isometric = false) {
+function clampView(view, extent, isometric = false) {
+  const axes = { col: { lo: extent.col[0], hi: extent.col[1] }, row: { lo: extent.row[0], hi: extent.row[1] } };
   let colSpan = view.col[1] - view.col[0];
   let rowSpan = view.row[1] - view.row[0];
   const fullCol = axes.col.hi - axes.col.lo;

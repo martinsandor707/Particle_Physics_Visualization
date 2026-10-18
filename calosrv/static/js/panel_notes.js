@@ -18,11 +18,12 @@
 
 import {
   footnotes, exportLegend, kindOf, panelTitle, energyNetworkSentence,
+  eventRowLabel, eventSelectionLine, eventFrameSentence, num, pct,
 } from './frame_views.js';
 import { figureDisclosure } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols } from './axis_symbols.js';
-import { formatSci } from './scale.js';
+import { formatSci, formatInt } from './scale.js';
 
 export const SECTION = Object.freeze({
   selection: 'Selection',
@@ -54,6 +55,18 @@ export const DENSITY_EXPLAINER =
   + 'from ninety thousand are equally tall for equal σ. The event ticks along the '
   + 'baseline are what carry the sample size, which is why a thin slice is drawn '
   + 'with its events beneath it and is never allowed to set the axis scale.';
+
+/** The Event Inspector's marks: every one belongs to the one shower drawn. */
+export const EVENT_MARKS =
+  'Dashed line = the incident direction (θ, φ) forward from the shower origin; dotted line = '
+  + 'the same direction extrapolated backward, upstream of the origin; dash-dot line = the plane '
+  + 'of the first populated layer (z = z₀ in the original and translated frames; on the local '
+  + 'X′Z′ panel the tilted line w = tan θ · u it maps to, which has no image on the other local '
+  + 'panels); ✕ = the shower origin P₀, in the shower’s colour. No ensemble statistic is drawn: '
+  + 'every mark belongs to this one shower, and the principal-axis tilt is printed, not drawn.';
+
+/** The semantic axes of each Event Inspector panel: column, row. */
+const EVENT_PANEL_AXES = { xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] };
 
 /** Whitespace-collapsed text, for comparing sentences that came from different sources. */
 function collapse(text) {
@@ -173,6 +186,68 @@ export function energyNotes({
 }
 
 /**
+ * The notes of one Event Inspector panel: one shower of one event in one
+ * frame (`kind`: lab | trans | local), one projection (`panelId`: xy | xz |
+ * yz). `payload` is the whole `/api/event` response.
+ */
+export function eventNotes({
+  payload, kind, panelId, view = null, state = null, experiment = null,
+}) {
+  const frame = payload?.frames?.[kind];
+  const panel = frame?.panels?.[panelId];
+  if (!panel) return null;
+  const event = payload.event ?? {};
+  const symbols = frame.symbols ?? {};
+  const [first, second] = { xy: ['x', 'y'], xz: ['x', 'z'], yz: ['y', 'z'] }[panelId] ?? ['x', 'y'];
+  const notes = new Notes(`${frame.title}: ${symbols[first] ?? first}–${symbols[second] ?? second}`);
+
+  const selection = [eventRowLabel(event), eventSelectionLine(event)];
+  if (state) {
+    selection.push(describeSelection(state, experiment, null, null, null, { filtersOnly: true }));
+  }
+  if (view) {
+    const [c, r] = EVENT_PANEL_AXES[panelId] ?? ['x', 'y'];
+    selection.push(describeView(view, symbols[c] ?? c, symbols[r] ?? r));
+  }
+  notes.section(SECTION.selection, selection);
+
+  const half = Number.isFinite(frame.half_mm) ? `${num(frame.half_mm, 0)} mm` : 'one';
+  notes.section(SECTION.drawn, [
+    eventFrameSentence(payload, kind),
+    payload.window?.rule ?? '',
+    `Axes 1:1 (isometric), ${half} half-width on every axis of all nine panels, so the tilt reads at `
+    + 'its true angle; the raster covers the populated part of the window and the rest is empty.',
+  ]);
+
+  const disclosures = [payload.scale?.rule ?? ''];
+  const below = panel.scale?.clipped_low ?? 0;
+  disclosures.push(below > 0
+    ? `${formatInt(below)} populated bin${below === 1 ? '' : 's'} of this panel lie below the ramp floor and are drawn at the lowest colour.`
+    : 'No populated bin of this panel lies below the ramp floor.');
+  const outside = panel.energy_outside_window_gev ?? 0;
+  const total = panel.total_energy_all_gev;
+  disclosures.push(outside > 0
+    ? `${formatSci(outside, 3)} GeV (${pct(panel.energy_fraction_outside_window ?? (total ? outside / total : 0))}) `
+      + `of the shower's ${formatSci(total, 3)} GeV falls outside this panel's window and is not drawn.`
+    : 'Every cell of the shower lies inside this panel\'s window.');
+  if (payload.coordinates?.note) disclosures.push(payload.coordinates.note);
+  for (const note of payload.grid?.notes ?? []) disclosures.push(note);
+  if (event.in_selection === false) {
+    disclosures.push('This event lies outside the current selection and is drawn as asked; '
+      + 'the previous / next controls walk the selection.');
+  }
+  notes.section(SECTION.disclosures, disclosures);
+
+  const axis = event.shower?.principal_axis;
+  const tilt = axis && Number.isFinite(axis.tilt_deg)
+    ? `Principal axis of the energy-weighted cloud in the local frame: ${num(axis.tilt_deg, 1)}° from +w `
+      + `over ${formatInt(axis.n)} cells - the notebook's check on the rotation, printed in the row label.`
+    : 'Principal axis: untestable below 3 populated cells, so no tilt is quoted.';
+  notes.section(SECTION.legend, [EVENT_MARKS, tilt]);
+  return notes.done(hazards(payload, panelId));
+}
+
+/**
  * The conditions a reader should not miss, from the payload's structure.
  *
  * Structural predicates only, never text matching: a provisional fitted
@@ -183,6 +258,16 @@ export function energyNotes({
 export function hazards(payload, panelId) {
   const out = [];
   if (!payload) return out;
+  if (payload.frames && payload.event) {
+    // An Event Inspector response: one event, nine panels, one set of hazards.
+    if (payload.event.in_selection === false) out.push('event outside the selection');
+    if (payload.coordinates && payload.coordinates.within_tolerance === false) {
+      out.push('coordinate residual above tolerance');
+    }
+    if (payload.grid?.notes?.length) out.push('coarsened grid');
+    if (payload.event.shower && !payload.event.shower.principal_axis) out.push('principal axis untestable');
+    return out;
+  }
   if (panelId === 'energy') {
     if ((payload.series || []).some((s) => s.draw && s.draw !== 'histogram')) {
       out.push('low-statistics series');

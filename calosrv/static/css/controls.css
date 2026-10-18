@@ -205,6 +205,16 @@ input[type="file"]::file-selector-button:hover {
 .choice-sub[hidden] { display: none; }
 .choice-sub .choice:last-child { margin-bottom: 0; }
 
+/* The Event Inspector's two actions, side by side under the shower radios. */
+.event-actions {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.event-actions .action { flex: 1 1 0; min-width: 0; text-align: center; }
+.event-actions .action[hidden] { display: none; }
+.numeric-pair .mini { flex: none; }
+
 .caption {
   font-size: 11px;
   color: var(--muted);

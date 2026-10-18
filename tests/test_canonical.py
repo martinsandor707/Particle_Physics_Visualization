@@ -823,3 +823,108 @@ def test_snapped_full_range_bounds_share_the_warmed_cache_entry(record):
     # A genuine narrowing survives clamping.
     narrow = filters.build(record, e1_max=(record.e1_min + record.e1_max) / 2)
     assert narrow.clamped(record).cache_key() != exact.clamped(record).cache_key()
+
+
+# ------------------------------------------------------------ the anchor --
+#
+# The D-frame can anchor on each shower's back-projected 3-D centroid (the
+# definition it shipped with) or on its back-projected first-layer entry point
+# P0, the reference notebook's origin; the distance between the two is
+# measured whichever is used.
+
+
+def test_the_p0_anchor_builds_the_frame_on_the_back_projected_entry_points(cursor, record, framed):
+    from calosrv.query import frame_sql
+
+    stats = canonical.frame_statistics(cursor, record, framed["spec"], frame_sql.ANCHOR_P0,
+                                       max(framed["footprint"]))
+    assert stats.anchor == frame_sql.ANCHOR_P0
+    z_front = record.lattice.z.lo
+    event = quote(naming.event_table(record.table_name))
+    rows = cursor.execute(
+        f"SELECT p0ax, p0ay, p0az, p0bx, p0by, p0bz, theta_a, phi_a, theta_b, phi_b FROM {event} "
+        f"WHERE {framed['spec'].where_sql()} AND {frame_sql.frame_defined(frame_sql.ANCHOR_P0)} "
+        "ORDER BY event_number",
+        framed["spec"].params(),
+    ).fetchall()
+    arr = np.array(rows, dtype=np.float64)
+    xa, ya = frame.entry_anchor(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 6], arr[:, 7], z_front)
+    xb, yb = frame.entry_anchor(arr[:, 3], arr[:, 4], arr[:, 5], arr[:, 8], arr[:, 9], z_front)
+    params = frame.frame_of(xa, ya, xb, yb)
+    assert stats.n_events == len(rows)
+    assert stats.d_entry.mean == pytest.approx(float(params.d_entry.mean()), rel=1e-6)
+    # The residual is the same measurement whichever anchor is in use.
+    default = framed["stats"]
+    assert stats.anchor_residual["a"]["median"] == pytest.approx(
+        default.anchor_residual["a"]["median"], rel=1e-9)
+    assert stats.anchor_residual["n"] == stats.n_events
+    assert set(stats.anchor_residual) >= {"a", "b", "n", "definition"}
+    for shower in ("a", "b"):
+        block = stats.anchor_residual[shower]
+        assert block["median"] >= 0.0 and block["p90"] >= block["median"]
+        assert 0 <= block["over_footprint"] <= stats.n_events
+    # A P0-anchored scan conserves energy and co-registers the same events.
+    grid = frame.plan_window(stats.d_entry_max, stats.theta_max, record.lattice)
+    bundle = canonical.fetch_canonical(cursor, record, framed["spec"], stats, grid, 2, framed["footprint"])
+    assert bundle.total_energy + bundle.energy_outside == pytest.approx(
+        framed["bundle"].total_energy + framed["bundle"].energy_outside, rel=1e-9)
+    assert bundle.n_events == framed["bundle"].n_events
+
+
+def test_the_anchor_is_part_of_the_cache_key(cursor, record, ingested, framed):
+    from calosrv.query import canonical_cache, frame_sql
+
+    settings, footprint, spec = ingested["settings"], framed["footprint"], framed["spec"]
+    a = canonical.cache_key(spec, False, framed["grid"], framed["k"], footprint)
+    b = canonical.cache_key(spec, False, framed["grid"], framed["k"], footprint, anchor=frame_sql.ANCHOR_P0)
+    assert a != b and a[:-2] == b[:-2]
+    bundle, stats, *_ = canonical_cache.bundle_for(
+        cursor, record, spec, settings, footprint, False, 100.0, anchor=frame_sql.ANCHOR_P0)
+    assert stats.anchor == frame_sql.ANCHOR_P0
+    _, _, _, _, cached = canonical_cache.bundle_for(
+        cursor, record, spec, settings, footprint, False, 100.0, anchor=frame_sql.ANCHOR_P0)
+    assert cached is True
+
+
+def test_the_shared_frame_cte_is_the_numpy_motion(cursor, record, framed):
+    """The SQL frame row of query/frame_sql.py is grid/frame.py's Se3, entry for entry."""
+    from calosrv.query import frame_sql
+
+    event = quote(naming.event_table(record.table_name))
+    z_front = float(record.lattice.z.lo)
+    params = {**framed["spec"].params(), "zf": z_front}
+    rows = cursor.execute(
+        f"WITH {frame_sql.canonical_frame_cte(event, framed['spec'].where_sql())} "
+        "SELECT event_number, r11, r12, r13, r21, r22, r23, r31, r32, r33, ax, ay, az FROM fr "
+        "ORDER BY event_number", params,
+    ).fetchall()
+    entries = cursor.execute(
+        f"SELECT event_number, {frame_sql.entry_sql()} FROM {event} WHERE {framed['spec'].where_sql()} "
+        f"AND {frame_sql.frame_defined()} ORDER BY event_number", params,
+    ).fetchall()
+    assert [r[0] for r in rows] == [e[0] for e in entries]
+    for row, entry in zip(rows, entries):
+        motion = frame.per_event_canonical([entry[1], entry[2]], [entry[3], entry[4]], z_front)
+        np.testing.assert_allclose(np.array(row[1:10]).reshape(3, 3), motion.r, atol=1e-12)
+        np.testing.assert_allclose(np.array(row[10:13]), motion.anchor, atol=1e-9)
+    for kind in ("trans", "local"):
+        shower_rows = cursor.execute(
+            f"WITH {frame_sql.shower_frame_cte(event, framed['spec'].where_sql(), kind)} "
+            "SELECT event_number, b, r11, r12, r13, r21, r22, r23, r31, r32, r33, ax, ay, az FROM fr "
+            "ORDER BY event_number, b", framed["spec"].params(),
+        ).fetchall()
+        p0 = cursor.execute(
+            f"SELECT event_number, p0ax, p0ay, p0az, theta_a, phi_a, p0bx, p0by, p0bz, theta_b, phi_b "
+            f"FROM {event} WHERE {framed['spec'].where_sql()} AND d IS NOT NULL ORDER BY event_number",
+            framed["spec"].params(),
+        ).fetchall()
+        assert len(shower_rows) == 2 * len(p0)
+        for (ev, *vals) in p0:
+            for b, offset in ((0, 0), (1, 5)):
+                row = next(r for r in shower_rows if r[0] == ev and r[1] == b)
+                anchor = np.array(vals[offset:offset + 3], dtype=float)
+                theta, phi = float(vals[offset + 3]), float(vals[offset + 4])
+                motion = (frame.per_shower_translated(anchor) if kind == "trans"
+                          else frame.per_shower_local(anchor, theta, phi))
+                np.testing.assert_allclose(np.array(row[2:11]).reshape(3, 3), motion.r, atol=1e-12)
+                np.testing.assert_allclose(np.array(row[11:14]), motion.anchor, atol=1e-9)

@@ -827,3 +827,58 @@ def test_rewriting_leaves_non_import_strings_alone(tmp_path):
     # A path mentioned in prose, or built at runtime, must be left as it is.
     assert "see ./notes.js for details" in out
     assert "`./runtime.js`" in out
+
+
+# ----------------------------------------- the anchor and the coordinate source --
+
+
+def test_the_canonical_anchor_is_a_stated_measured_choice(client):
+    default = client.get("/api/projections", params={"frame": "canonical"}).json()
+    frame = default["frame"]
+    assert frame["anchor"] == "entry_backprojection" and frame["anchor_choice"] == "backprojected"
+    assert frame["anchor_choices"] == ["backprojected", "p0"]
+    residual = frame["anchor_residual"]
+    assert residual["n"] == frame["n_events"] and residual["a"]["median"] >= 0.0
+    assert any("anchor definitions" in n["text"] or "Anchor:" in n["text"]
+               for n in default["meta"]["notices"])
+    assert default["meta"]["anchor"] == "backprojected"
+
+    p0 = client.get("/api/projections", params={"frame": "canonical", "anchor": "p0"}).json()
+    assert p0["frame"]["anchor"] == "p0_backprojection" and p0["frame"]["anchor_choice"] == "p0"
+    assert "entry point P0" in p0["frame"]["anchor_note"]
+    assert p0["meta"]["anchor"] == "p0"
+    assert p0["frame"]["n_events"] == frame["n_events"]
+    assert p0["frame"]["anchor_residual"]["a"]["median"] == pytest.approx(residual["a"]["median"], rel=1e-9)
+    assert len(client.get("/api/projections", params={"frame": "canonical", "anchor": "p0"}).content) < 100_000
+
+    bad = client.get("/api/projections", params={"frame": "lab", "anchor": "p0"})
+    assert bad.status_code == 422 and bad.json()["field"] == "anchor"
+    bad = client.get("/api/projections", params={"frame": "canonical", "anchor": "centroid"})
+    assert bad.status_code == 422 and bad.json()["field"] == "anchor"
+
+
+@pytest.mark.parametrize("coord_system", ["trans", "local"])
+def test_the_per_shower_frames_report_their_coordinate_source_and_residual(client, coord_system):
+    body = client.get("/api/projections", params={"coord_system": coord_system}).json()
+    block = body["frame"]["coordinates"]
+    assert block["source"] == "file" and block["tolerance_mm"] == 0.01
+    assert block["residual_max_mm"] is not None and block["within_tolerance"] is True
+    assert block["ingest_residual_mm"] is not None
+    assert block["note"].startswith("Coordinates: the file's own")
+    assert any(n["text"] == block["note"] for n in body["meta"]["notices"])
+    assert body["meta"]["coordinates"] == "file"
+
+    computed = client.get("/api/projections", params={"coord_system": coord_system,
+                                                       "coordinates": "computed"}).json()
+    block = computed["frame"]["coordinates"]
+    assert block["source"] == "computed" and block["within_tolerance"] is True
+    assert block["note"].startswith("Coordinates: recomputed inside the scan")
+    assert computed["meta"]["coordinates"] == "computed"
+    assert computed["frame"]["n_events"] == body["frame"]["n_events"]
+    assert len(client.get("/api/projections", params={"coord_system": coord_system,
+                                                       "coordinates": "computed"}).content) < 100_000
+
+    bad = client.get("/api/projections", params={"coord_system": "lab", "coordinates": "computed"})
+    assert bad.status_code == 422 and bad.json()["field"] == "coordinates"
+    bad = client.get("/api/projections", params={"coord_system": coord_system, "coordinates": "guess"})
+    assert bad.status_code == 422 and bad.json()["field"] == "coordinates"

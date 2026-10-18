@@ -110,6 +110,7 @@
 
 @media (max-width: 1100px) {
   .grid { grid-template-columns: minmax(0, 1fr); }
+  .frame-grid-cells { grid-template-columns: minmax(0, 1fr); }
   .app { --sidebar-width: 280px; --inspector-width: 300px; }
 }
 
@@ -150,6 +151,52 @@
 
 .card .plot { width: 100%; height: 330px; }
 .card .plot.tall { height: 380px; }
+
+/* ------------------------------------------------------ 3 x 3 frame grids */
+
+/* The Event Inspector and the compare-frames view: three rows of frames by
+   three projections, in the reference notebook's order, shown in place of the
+   2x2 ensemble grid. A row is a labelled band of three cards; the cards are
+   the same `.card` as the ensemble's, built by js/panels/frame_grid.js. Like
+   every track here the columns snap - no transition - so a toggle is one
+   layout and one rebuild per panel. */
+.frame-grid[hidden] { display: none; }
+.frame-grid-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.frame-grid-head h2 { font-size: 13px; white-space: nowrap; }
+.frame-grid-head .spacer { flex: 1 1 auto; }
+.frame-grid-label {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 0;
+  line-height: 1.4;
+}
+.frame-grid-row { margin-bottom: var(--gap); }
+.frame-grid-row[hidden] { display: none; }
+.frame-grid-row-head {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+}
+.frame-grid-row-head .sym { text-transform: none; letter-spacing: 0; }
+.frame-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+}
+.frame-cell .plot { height: 300px; }
+
+/* Three cards across need room for three toolbars; below that the row stacks. */
+@container main (max-width: 980px) {
+  .frame-grid-cells { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* ------------------------------------------------------- details drawer */
 

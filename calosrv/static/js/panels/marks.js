@@ -234,3 +234,87 @@ export function customCaret({
     ...(tooltip ? { tooltip: { formatter } } : {}),
   };
 }
+
+/**
+ * A small cross at `at` (data coordinates), `sizePx` from centre to tip: the
+ * reference notebook's ✕ at the shower origin. Drawn in pixel space so it
+ * keeps its size at every zoom, as the caps of a whisker do.
+ */
+export function customMarker({
+  name, at, color, sizePx = 6, width = 1.5, opacity = 1, z = 12, tooltip = null,
+}) {
+  const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: !tooltip,
+    data: [at],
+    renderItem: (params, api) => {
+      const [cx, cy] = api.coord(at);
+      const s = sizePx;
+      return {
+        type: 'group',
+        children: [
+          { type: 'line', shape: { x1: cx - s, y1: cy - s, x2: cx + s, y2: cy + s },
+            style: { stroke: color, lineWidth: width, opacity } },
+          { type: 'line', shape: { x1: cx - s, y1: cy + s, x2: cx + s, y2: cy - s },
+            style: { stroke: color, lineWidth: width, opacity } },
+        ],
+      };
+    },
+    ...(tooltip ? { tooltip: { formatter } } : {}),
+  };
+}
+
+/** Index of a semantic axis name in a 3-D mark coordinate. */
+const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+
+/**
+ * Project the Event Inspector's 3-D marks onto a panel with column axis
+ * `colName` and row axis `rowName` (semantic names x | y | z).
+ *
+ * Pure, so it runs under Node. Returns 2-D marks in (col, row) data
+ * coordinates: a `line` with `from`, `to`, `style` and `name`, or a `point`
+ * with `at`. Lines of style 'forward' and 'backward' run from the origin a
+ * long way (`reach`, a multiple of the window) in their direction; a 'plane'
+ * with a `direction` runs both ways; a 'plane' with an `axis` and `at` is a
+ * rule across the panel at that coordinate when the axis is one of the
+ * panel's. A line whose direction has no component in the panel's plane, or
+ * a mark that names other panels, is left out.
+ */
+export function projectMarks(marks, colName, rowName, panelId, reach) {
+  const c = AXIS_INDEX[colName];
+  const r = AXIS_INDEX[rowName];
+  const out = [];
+  if (!Array.isArray(marks) || c === undefined || r === undefined) return out;
+  const far = Math.max(1, Number(reach) || 1) * 100;
+  for (const mark of marks) {
+    if (Array.isArray(mark.panels) && !mark.panels.includes(panelId)) continue;
+    if (mark.type === 'point' && Array.isArray(mark.at)) {
+      out.push({ type: 'point', at: [mark.at[c], mark.at[r]], name: mark.name, tooltip: mark.tooltip ?? null });
+      continue;
+    }
+    if (mark.type === 'plane' && mark.axis && Number.isFinite(mark.at)) {
+      if (mark.axis === colName) {
+        out.push({ type: 'line', style: 'plane', name: mark.name, tooltip: mark.tooltip ?? null,
+          from: [mark.at, -far], to: [mark.at, far] });
+      } else if (mark.axis === rowName) {
+        out.push({ type: 'line', style: 'plane', name: mark.name, tooltip: mark.tooltip ?? null,
+          from: [-far, mark.at], to: [far, mark.at] });
+      }
+      continue;
+    }
+    if (mark.type !== 'line' || !Array.isArray(mark.origin) || !Array.isArray(mark.direction)) continue;
+    const o = [mark.origin[c], mark.origin[r]];
+    const d = [mark.direction[c], mark.direction[r]];
+    const length = Math.hypot(d[0], d[1]);
+    if (!(length > 1e-9)) continue;
+    const u = [d[0] / length, d[1] / length];
+    const tip = [o[0] + far * u[0], o[1] + far * u[1]];
+    const tail = mark.style === 'plane' ? [o[0] - far * u[0], o[1] - far * u[1]] : o;
+    out.push({ type: 'line', style: mark.style, name: mark.name, tooltip: mark.tooltip ?? null, from: tail, to: tip });
+  }
+  return out;
+}

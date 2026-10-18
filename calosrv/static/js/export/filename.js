@@ -23,6 +23,10 @@
  * A figure with no spatial bins (`spatial: false`, the energy panel) carries
  * none of the display, frame, channel or kernel tokens: none of them changes
  * what it shows, and an `R150` on it would name bins it does not contain.
+ *
+ * An Event Inspector figure leads with its event and shower (`ev1234A`), from
+ * the response's meta, so the nine figures of one event sort together and two
+ * events of one selection never collide on everything but their timestamp.
  */
 
 import { apiFrame } from '../state.js';
@@ -90,6 +94,9 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
   push('d', 'D-', 0);
 
   const tokens = bounds.length ? bounds : ['full'];
+  if (Number.isInteger(meta?.event)) {
+    tokens.unshift(`ev${meta.event}${typeof meta.shower === 'string' ? meta.shower.toUpperCase() : ''}`);
+  }
   if (spatial) {
     const mode = display?.mode ?? state.get('display');
     const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
@@ -98,8 +105,11 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
     // in two frames must not collide on everything but their timestamp.
     const shown = shownBy(state, meta);
     const frame = shown.frame;
-    if (meta ? frame === 'canonical' : state.get('frame') === 'canonical') tokens.push('canonical');
-    else if (frame && frame !== 'lab') tokens.push(frame);
+    if (meta ? frame === 'canonical' : state.get('frame') === 'canonical') {
+      tokens.push('canonical');
+      // Two figures of one selection on the two anchors must not collide.
+      if ((meta?.anchor ?? state.get('anchor')) === 'p0') tokens.push('p0');
+    } else if (frame && frame !== 'lab') tokens.push(frame);
     // A CAM figure belongs to one network; a density figure to none.
     const channel = shown.channel;
     if (channel && channel !== 'density') {

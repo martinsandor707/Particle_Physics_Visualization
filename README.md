@@ -305,7 +305,10 @@ tables from it:
   frames), its 10% sample `proj_<name>_s10`, and `event_<name>` (additive
   per-event sufficient statistics for every network and frame). There is no
   `hit_` table any more. 2.5 GB on the production file.
-- **Verification** compares the archive's rows with the CSV's, and checks the
+- **Verification** compares the archive's rows with the CSV's, confirms that
+  P₀ is each shower's first-layer energy-weighted centroid (`p0_definition`),
+  measures the two D-frame anchor definitions against each other
+  (`anchor_residual`, a notice), and checks the
   data contracts the frames rely on: P₀ constant per shower (spread 0.00037 mm),
   the local coordinates equal to R(θ, φ) applied to the translated ones
   (residual 0.00066 mm), `z_trans` on whole 20.5 mm layers, the `*_true` columns
@@ -434,9 +437,15 @@ under which a **Density normalisation** radio (relative to this selection's
 peak, or to the dataset peak) appears in the co-registered frames, where it
 replaces the lock-scale checkbox; the **model** selector, which drives both the
 CAM channels of the spatial panels and the metric cards; and the
-[metric cards](#model-performance-cards). Every control travels in the URL
-hash — `frame`, `channel`, `model`, `rho_norm` and the four per-frame display
-modes (`display_lab`, `display_trans`, `display_local`, `display_canonical`)
+[metric cards](#model-performance-cards); under the Reference Frame caption a
+**Compare frames side by side** checkbox, and below it the **Event Inspector**
+picker (an event number, Prev / Next within the selection, a shower radio,
+*Pick for me* and *Back to the ensemble*; see
+[The Event Inspector and the compare-frames view](#the-event-inspector-and-the-compare-frames-view)).
+Every control travels in the URL
+hash — `frame`, `channel`, `model`, `rho_norm`, `anchor`, the four per-frame display
+modes (`display_lab`, `display_trans`, `display_local`, `display_canonical`),
+`compare`, `event` and `shower`
 among them — and a link carrying an unknown value for any enumerated control
 falls back to its default rather than to a 422. **Old canonical links:** the
 D-frame (`frame=canonical`) used to be the default, which a link never wrote
@@ -711,6 +720,26 @@ constant** — outward by −22 / +24 mm for D_entry > 500 mm, and +44 / +9 mm f
 D_entry < 80 mm, where overlapping deposits drag the A slab centroid toward B —
 so the payload reports the measured anchor–centroid offsets per selection
 (`frame.anchor_offsets`) and the entry panel's Details drawer prints them.
+
+**The anchor is a stated, measured choice.** The frame shipped anchored on
+each shower's 3-D centroid back-projected to the front face along its incident
+direction; the reference notebook's origin is the shower's first-layer entry
+point P₀ (the energy-weighted centroid of its first populated layer, at that
+layer's z). Both are in the event table, so `anchor=backprojected|p0` on
+`frame=canonical` (the sidebar's *Entry anchor* radio under Translated) picks
+either: with `p0` the origin is the midpoint of the two P₀, each back-projected
+the short distance (z₀ − z_f) tan θ to the front face, and ψ the azimuth
+between them; `z′ = z − z_f` is untouched. The two definitions are measured
+against each other on every dataset — at ingest (`anchor_residual` in the
+verification report) and on every D-frame response (`frame.anchor_residual`,
+printed by the entry panel's Details drawer and named in the export file name
+as `canonical_p0`). On production `hits_all_models.csv` they land a median
+46.5 mm (A) / 45.2 mm (B) apart at the face, p90 133.5 / 132.6 mm, with
+9,620 / 9,382 of 20,268 showers more than one 48.6 mm cell footprint apart;
+on the two-event demonstration file, 178 / 180 mm. The payload's
+`frame.anchor` names the definition in use (`entry_backprojection` or
+`p0_backprojection`), and D_entry is reported for whichever is in use. The
+default stays the back-projected centroid.
 
 **D_entry is not D.** The transverse separation of the two entry points at the
 face is the frame's own separation; it differs from the slider's 3-D centroid
@@ -1103,6 +1132,24 @@ own `*_trans` / `*_local` coordinates, verified at ingest to be exactly that
 transform. The two showers of every event are therefore **superimposed at the
 origin**; the 422 `'A+B'` rows sit there too and are counted with shower B.
 
+**Coordinates: the file's, or the motions'.** Both frames are rigid motions
+of the laboratory lattice — `p − P₀`, and `R(θ, φ)(p − P₀)` with
+`R = R_y(θ) R_z(φ)`, the notebook's — and `grid/frame.py` holds that SE(3)
+element (`Se3`, `rotation_matrix`, `per_shower_translated`, `per_shower_local`,
+`per_event_canonical` for the D-frame's `R(0, ψ)`). Every per-shower scan
+joins one shared frame CTE (`query/frame_sql.py`) that applies the motion to
+the lattice ordinals beside the file's own `*_trans` / `*_local` columns, and
+each response reports the largest difference between the two over the
+selection (`frame.coordinates`: source, residual, the 0.01 mm tolerance, and
+whether it is met; the drawer prints it). `coordinates=file` (the default)
+bins the file's columns; `coordinates=computed` bins the motion's, for a file
+that carries no such columns or one whose columns are in doubt. On production
+the residual is 0.05 µm over 40,650 showers; at ingest the same check is
+`local_rotation`, and `p0_definition` now verifies that P₀ *is* the
+first-layer energy-weighted centroid (an 'A+B' cell counts for both showers),
+failing above 0.01 mm on a file the sanitiser left whole and warning, since
+it cannot be confirmed, on one it did not.
+
 **Accumulation, by footprint rather than point.** A hit is a 48.27 × 48.6 mm
 cell, and point-binning a co-registered centre combs (CLAUDE.md section 2):
 
@@ -1176,6 +1223,71 @@ cold and 0.23 s for the drag preview; *Local* 2.5–2.7 s cold and 0.40 s for th
 preview; a cached re-render (channel, display mode, R) 23–34 ms. Both are
 pre-warmed after the D-frame at start-up. Bundles are 2.7 MB
 (*Per-shower translated*, 162 × 132 × 60) and 2.9 MB (*Local*, 150 × 128 × 85).
+
+### The Event Inspector and the compare-frames view
+
+Two views lay nine panels out as the reference notebook's figures do — three
+rows of frames by three projections (X–Y, X–Z, Y–Z) — in place of the 2 × 2
+ensemble grid (`js/panels/frame_grid.js`; the cards are ordinary cards with
+their own Details and Export buttons, ids `event-<frame>-<panel>` and
+`compare-<frame>-<panel>`).
+
+**The Event Inspector** (`#event=<n>&shower=a|b`, `GET /api/event`,
+`query/event_inspector.py`) is the notebook's per-event comparison figure:
+one shower of one event in the original detector coordinates, translated only
+(every cell moved by −P₀) and local (moved and rotated by R(θ, φ)). What it
+draws:
+
+- **Rasters, not scatters.** The laboratory row is the native lattice, one
+  bin per populated cell; the translated row integrates each cell's
+  48.27 × 48.6 mm footprint onto a 20 mm grid by exact box overlap; the local
+  row splits each footprint (with the 20.5 mm layer pitch) into
+  k × k × k_z = 4 × 4 × 2 sub-deposits rotated with the shower, on a 20 mm
+  grid with depth at the layer pitch. Every panel projects the whole depth
+  (no entrance slab), as the notebook's do, and conserves the shower's energy
+  (a test asserts it in all nine). The grids coarsen by doubling, disclosed,
+  until the response fits the 100 KB contract; on the demonstration file a
+  response is 18–69 KB in about 5 ms.
+- **One window.** The notebook's rule: one half-width for all nine panels,
+  1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never
+  below 150 mm, 1:1 on every panel, so the tilt reads at its true angle. The
+  raster covers only the populated part; a stray cell costs the window, not
+  the payload. Depth is cropped to the event, which the ensemble frames never
+  do, and the drawer says so.
+- **One ramp.** Every panel is the projected energy *surface density* in
+  GeV per mm² — a cell's energy over its own lattice area, a bin's over its
+  grid area — on one logarithmic ramp from the 1st percentile of the shower's
+  positive cell densities (the notebook's `vmin`) to its brightest bin; bins
+  below the floor are counted and drawn at the lowest colour. No per-event
+  *density* claim is made beyond that.
+- **Marks.** The incident direction forward (dashed) and extrapolated
+  backward (dotted) from the origin; the first-layer plane as a dash-dot rule
+  at z = z₀ (original) and Δz = 0 (translated), and on the local X′Z′ panel
+  the tilted line w = tan θ · u it maps to; the origin ✕ in the shower's
+  colour. They travel as 3-D lines and points in each frame's coordinates and
+  the client projects them (`panels/marks.js: projectMarks`). The
+  principal-axis tilt — the angle between the energy-weighted principal axis
+  of the local cloud and +w, the notebook's check on the rotation — is printed
+  in the row label with the event's θ, φ, cell count and P₀, never drawn, and
+  is untestable below three cells. No ensemble statistic appears anywhere.
+- **The picker.** An event number, Prev / Next within the current selection,
+  a shower radio, and *Pick for me*, which reproduces the notebook's
+  `_select_events` (`GET /api/event/pick`: events with more hits than the
+  selection's mean, the 20 with the largest incident angle, one drawn at
+  random; seed 42 first, then the next seed per click) and prints the rule. An
+  event outside the current filters is drawn as asked and flagged. The
+  coordinates note, the window rule, the ramp rule and any coarsening are the
+  panel's Details drawer; the export is the plot alone, named
+  `event-<frame>-<panel>_ev<n><A|B>_…`.
+
+**Compare frames** (`#compare=true`, the sidebar checkbox) is the notebook's
+ensemble figure: the selection in the Absolute, per-shower translated and
+Local frames, one row each, three `/api/projections` requests. Every row is
+exactly that frame's own response — its own display mode (native lattice for
+Absolute, the Continuous Field for the two co-registered frames), window,
+ramp, overlays and Details drawer — so nothing is re-derived for the layout. A
+frame the experiment does not serve is named as missing. A pinned event takes
+precedence over the comparison; closing it returns to whichever view was on.
 
 ### Display channels
 
@@ -1609,7 +1721,9 @@ All endpoints return pre-aggregated payloads; none returns a raw hit array.
 | `POST /api/ingest-local` | Ingest a CSV or Parquet file already under the mounted root, by path, with the same fields. |
 | `GET /api/local-files` | The CSV and Parquet files under that root. |
 | `GET /api/upload/{job_id}` | Ingest progress and result. |
-| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames. Unknown values return 422 naming the field. |
+| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). Unknown values return 422 naming the field. |
+| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. |
+| `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks from the `coord_system`'s segmentation network (`meta.network`). |
 | `GET /api/model-performance` | `cards[]` of the network `model` in `coord_system`, each with SE and a named 95% interval, and the per-slice breakdown. |
 | `GET /api/health` | Liveness, with the resolved memory and thread allocation. |
@@ -1748,18 +1862,18 @@ calosrv/
   admin/   schema store
   db/      connection settings storage_guard ddl naming registry bootstrap archive catalog
   ingest/  stream formats csv_spec parquet_spec source_check load pipeline lattice_fit
-           derive_proj derive_events verify jobs autoingest cli
-  grid/    lattice splat resolution slab frame bounds kernel
+           derive_proj derive_events verify frame_checks jobs autoingest cli
+  grid/    lattice splat resolution slab frame bounds kernel footprint
   query/   filters planes projections panels centroids summary energy performance sampling cache
            experiments stagger canonical shower_frames window reconstruct density ensemble
-           canonical_cache
-  stats/   gaussian histogram slices metrics clip
+           canonical_cache frame_sql event_inspector
+  stats/   gaussian histogram slices metrics clip shape
   encode/  scale quantize matrix topk
   api/     deps routes_* frame_canonical frame_shower
   static/  index.html css/ js/
              js/      main api state labels scale palette decode dom textfit format frame_views
-                      axis_symbols panel_notes shell
-             js/panels/   projection canonical_overlays marks tooltip energy metrics
+                      axis_symbols panel_notes shell event_inspector
+             js/panels/   projection canonical_overlays marks tooltip energy metrics frame_grid
              js/controls/ range_slider upload admin modal
              js/export/   tokens figure caption disclosure filename download menu
 ```
@@ -1784,6 +1898,13 @@ file.
 | `query/shower_frames.py` | the per-shower (`trans`, `local`) frames: statistics, the exact box-overlap and rotated sub-deposit scans, their caches and warmer |
 | `api/frame_shower.py` | the per-shower (`trans`, `local`) envelope: comb on both axes, superimposed centroids, `frame_mean`, directions |
 | `grid/bounds.py` | the dataset-wide frame extents measured at ingest, from which their grids are planned |
+| `grid/frame.py: Se3` | the one SE(3) element every co-registered view is an instance of: `rotation_matrix` (the notebook's R_y(θ) R_z(φ)), `per_shower_translated`, `per_shower_local`, `per_event_canonical` |
+| `query/frame_sql.py` | the shared frame CTE: the same motions as SQL, applied to the lattice ordinals inside every per-shower and D-frame scan; the anchor and coordinate-source vocabulary |
+| `ingest/frame_checks.py` | the `p0_definition` check and the anchor residual δ between the two D-frame anchors |
+| `grid/footprint.py` | exact box overlap of a cell footprint with a grid, and rotated sub-deposits binned on one |
+| `stats/shape.py` | the energy-weighted principal axis of one cloud and its tilt from +w |
+| `query/event_inspector.py` | the Event Inspector: one shower of one event as nine rasters, the notebook's window, one ramp, the marks, the seeded pick |
+| `api/routes_event.py` | `GET /api/event` and `GET /api/event/pick` |
 | `db/archive.py`, `db/storage_guard.py` | the Parquet archive and its manifest; the refusal of RAM-backed storage |
 | `stats/metrics.py` | the card estimators: clustered ratios, residual summaries, Fisher-z correlation |
 | `admin/schema.py`, `admin/store.py` | the six defaults of the Admin Settings panel, validated against the API's own tuples; the layered store (saved, environment, built-in) that reports each value's source |
@@ -1810,6 +1931,8 @@ file.
 | `static/js/controls/upload.js` | the upload form inside Admin Settings: naming checks before a byte is sent, the streaming upload or server-side ingest, and the job poll, which carries on after the panel is closed |
 | `static/js/labels.js` | every choice's label and `FRAME_TREE`, the one definition of the two-tier frame control; the admin panel builds from it and a test holds it equal to the sidebar's markup |
 | `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer, every explanation off the hovered chart |
+| `static/js/panels/frame_grid.js` | the 3 × 3 grid of cards and projection panels the Event Inspector and the compare-frames view share; charts created on first show |
+| `static/js/event_inspector.js` | the Event Inspector's controller: the picker, the pinned event in the link, the nine cells' options and the export meta |
 
 Three structural rules the layout exists to enforce:
 

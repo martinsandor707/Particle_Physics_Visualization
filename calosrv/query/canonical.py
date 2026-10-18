@@ -49,26 +49,29 @@ from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
 from ..grid.frame import CanonicalGrid
 from ..grid.lattice import Axis, Lattice
+from . import frame_sql
 from . import planes as planes_mod
 from .filters import FilterSpec
+from .frame_sql import ANCHOR_BACKPROJECTED
 from .projections import GID_XY, GID_XZ, GID_YZ, PLANES, Panel
 
 log = logging.getLogger(__name__)
 
-#: Every per-event column a frame needs. ``d`` is included so the frame-bearing
-#: set is a subset of the filtered set even when ``include_undefined_d`` is on.
-_FRAME_COLUMNS = (
-    "cax", "cay", "caz", "cbx", "cby", "cbz",
-    "theta_a", "phi_a", "theta_b", "phi_b", "d",
-)
-_FRAME_DEFINED = " AND ".join(f"{c} IS NOT NULL" for c in _FRAME_COLUMNS)
+#: Every per-event column the (back-projected) frame needs, and its ``IS NOT
+#: NULL`` predicate; both from ``query/frame_sql.py``, which also serves the
+#: P0 anchor. ``d`` is included so the frame-bearing set is a subset of the
+#: filtered set even when ``include_undefined_d`` is on.
+_FRAME_COLUMNS = frame_sql.frame_columns(ANCHOR_BACKPROJECTED)
+_FRAME_DEFINED = frame_sql.frame_defined(ANCHOR_BACKPROJECTED)
 
 #: Back-projected entry points, as SQL over the per-event table.
-_ENTRY_SQL = """
-    cax - (caz - $zf) * tan(theta_a) * cos(phi_a) AS xa,
-    cay - (caz - $zf) * tan(theta_a) * sin(phi_a) AS ya,
-    cbx - (cbz - $zf) * tan(theta_b) * cos(phi_b) AS xb,
-    cby - (cbz - $zf) * tan(theta_b) * sin(phi_b) AS yb"""
+_ENTRY_SQL = frame_sql.entry_sql(ANCHOR_BACKPROJECTED)
+
+#: How the payload names each anchor definition.
+ANCHOR_DEFINITIONS = {
+    frame_sql.ANCHOR_BACKPROJECTED: "entry_backprojection",
+    frame_sql.ANCHOR_P0: "p0_backprojection",
+}
 
 
 # ------------------------------------------------------------ statistics --
@@ -155,6 +158,12 @@ class FrameStats:
     a: ShowerDirection
     b: ShowerDirection
     z_front: float
+    #: Which entry-anchor definition the frame is built on (``frame_sql.ANCHORS``).
+    anchor: str = ANCHOR_BACKPROJECTED
+    #: The transverse distance between the two anchor definitions' front-face
+    #: entry points, per shower over the selection: ``{a: {median, p90,
+    #: over_footprint}, b: {...}, footprint_mm, n}``. Empty below one event.
+    anchor_residual: dict[str, Any] = field(default_factory=dict)
 
     @property
     def n_excluded_no_frame(self) -> int:
@@ -173,6 +182,8 @@ class FrameStats:
             "psi_resultant": self.psi_resultant,
             "z_front_mm": self.z_front,
             "axes": {"a": self.a.as_dict(), "b": self.b.as_dict()},
+            "anchor_choice": self.anchor,
+            "anchor_residual": dict(self.anchor_residual),
         }
 
 
@@ -194,19 +205,30 @@ def frame_statistics(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
     spec: FilterSpec,
+    anchor: str = ANCHOR_BACKPROJECTED,
+    footprint_mm: float | None = None,
 ) -> FrameStats:
-    """Per-event frame statistics for the selection. Reads only the event table."""
+    """Per-event frame statistics for the selection. Reads only the event table.
+
+    ``anchor`` picks the entry-point definition the frame is built on; the
+    residual between the two definitions is measured either way, per shower,
+    and ``footprint_mm`` (the larger cell side) is the threshold its
+    ``over_footprint`` count is taken against.
+    """
     assert record.lattice is not None
+    frame_sql.check_anchor(anchor)
     z_front = float(record.lattice.z.lo)
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
+    threshold = float(footprint_mm) if footprint_mm else 0.0
     sql = f"""
     WITH ev AS (
         SELECT event_number, d, n_hits, theta_a, theta_b, phi_a, phi_b,
                cax, cay, caz, cbx, cby, cbz,
-               {_ENTRY_SQL}
+               {frame_sql.entry_sql(anchor)},
+               {frame_sql.both_entries_sql()}
         FROM {table}
-        WHERE {where} AND {_FRAME_DEFINED}
+        WHERE {where} AND {frame_sql.frame_defined(anchor)}
     ), fr AS (
         SELECT *,
                atan2(yb - ya, xb - xa)                 AS psi,
@@ -217,10 +239,12 @@ def frame_statistics(
     ), rot AS (
         SELECT *, cos(psi) AS c, sin(psi) AS s,
                sin(theta_a) * cos(phi_a) AS uax, sin(theta_a) * sin(phi_a) AS uay, cos(theta_a) AS uaz,
-               sin(theta_b) * cos(phi_b) AS ubx, sin(theta_b) * sin(phi_b) AS uby, cos(theta_b) AS ubz
+               sin(theta_b) * cos(phi_b) AS ubx, sin(theta_b) * sin(phi_b) AS uby, cos(theta_b) AS ubz,
+               sqrt(power(xa_c - xa_p, 2) + power(ya_c - ya_p, 2)) AS delta_a,
+               sqrt(power(xb_c - xb_p, 2) + power(yb_c - yb_p, 2)) AS delta_b
         FROM fr
     ), can AS (
-        SELECT d, d_entry, psi, n_hits, theta_a, theta_b, uaz, ubz,
+        SELECT d, d_entry, psi, n_hits, theta_a, theta_b, uaz, ubz, delta_a, delta_b,
                c * uax + s * uay AS uax_c, -s * uax + c * uay AS uay_c,
                c * ubx + s * uby AS ubx_c, -s * ubx + c * uby AS uby_c,
                c * (cax - x0) + s * (cay - y0) AS cax_c, -s * (cax - x0) + c * (cay - y0) AS cay_c,
@@ -239,10 +263,14 @@ def frame_statistics(
         count(*) FILTER (WHERE d_entry < $ill)          AS n_ill,
         avg(cos(psi)), avg(sin(psi)),
         {_shower_sql("a")},
-        {_shower_sql("b")}
+        {_shower_sql("b")},
+        median(delta_a), quantile_cont(delta_a, 0.9), count(*) FILTER (WHERE delta_a > $fp),
+        median(delta_b), quantile_cont(delta_b, 0.9), count(*) FILTER (WHERE delta_b > $fp),
+        count(delta_a)
     FROM can
     """
-    params = {**spec.params(), "zf": z_front, "ill": frame_mod.ILL_CONDITIONED_D_MM}
+    params = {**spec.params(), "zf": z_front, "ill": frame_mod.ILL_CONDITIONED_D_MM,
+              "fp": threshold}
     row = con.execute(sql, params).fetchone()
 
     def f(i: int) -> float | None:
@@ -280,6 +308,21 @@ def frame_statistics(
             centroid_mean=(f(offset + 9), f(offset + 10), f(offset + 11)),
         )
 
+    base = 17 + 24
+    n_delta = int(row[base + 6] or 0)
+    residual: dict[str, Any] = {}
+    if n_delta:
+        residual = {
+            "a": {"median": f(base), "p90": f(base + 1), "over_footprint": int(row[base + 2] or 0)},
+            "b": {"median": f(base + 3), "p90": f(base + 4), "over_footprint": int(row[base + 5] or 0)},
+            "footprint_mm": threshold if threshold > 0 else None,
+            "n": n_delta,
+            "definition": (
+                "transverse distance at the front face between the back-projected 3-D "
+                "centroid and the back-projected first-layer entry point P0, per shower"
+            ),
+        }
+
     return FrameStats(
         n_selected=n_selected,
         n_events=n_events,
@@ -293,6 +336,8 @@ def frame_statistics(
         a=shower(17),
         b=shower(17 + 12),
         z_front=z_front,
+        anchor=anchor,
+        anchor_residual=residual,
     )
 
 
@@ -426,12 +471,15 @@ def build_sql(
     k: int,
     sampled: bool = False,
     model: str = "segmentation",
+    anchor: str = ANCHOR_BACKPROJECTED,
 ) -> tuple[str, str]:
     """Render the ``(xy, depth)`` canonical accumulation queries.
 
     Each hit joins its event's frame parameters - a 20 000-row CTE from the
-    per-event table - and is split into ``k x k`` sub-deposits over its
-    footprint, rotated into the canonical frame and binned. Every plane value
+    per-event table, the shared ``fr`` of ``query/frame_sql.py`` (the rotation
+    entries of :func:`~calosrv.grid.frame.rotation_matrix` at zero tilt and
+    the anchor ``anchor`` names) - and is split into ``k x k`` sub-deposits
+    over its footprint, rotated into the canonical frame and binned. Every plane value
     is divided by ``k * k`` once per hit, before the split, so the aggregation
     is plain sums; a sub-deposit outside the window is keyed -1 on every axis,
     so its group carries the outside mass. The entrance-slab X'Y' panel is its
@@ -456,33 +504,25 @@ def build_sql(
     carried = ", ".join(f"v_{plane}" for plane, _ in measures)
     sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in measures)
     columns = ", ".join(_plane_columns(model))
+    xc_sql, yc_sql, _ = frame_sql.transform_sql("xt", "yt", None)
     base = f"""
-    WITH ev AS (
-        SELECT event_number, {_ENTRY_SQL}
-        FROM {event}
-        WHERE {spec.where_sql()} AND {_FRAME_DEFINED}
-    ), fr AS (
-        SELECT event_number,
-               (xa + xb) / 2 AS x0, (ya + yb) / 2 AS y0,
-               cos(atan2(yb - ya, xb - xa)) AS c, sin(atan2(yb - ya, xb - xa)) AS s
-        FROM ev
-    ), sub AS (
+    WITH {frame_sql.canonical_frame_cte(event, spec.where_sql(), anchor)}, sub AS (
         SELECT (u.range + 0.5) / {k} - 0.5 AS fx, (v.range + 0.5) / {k} - 0.5 AS fy
         FROM range({k}) u, range({k}) v
     ), hit AS (
         SELECT p.iz, list_extract($x_coords, p.ix + 1) AS hx, list_extract($y_coords, p.iy + 1) AS hy,
-               f.x0, f.y0, f.c, f.s,
+               f.ax, f.ay, f.r11, f.r12, f.r21, f.r22,
                {per_hit}
         FROM (SELECT event_number, ix, iy, iz, energy, {columns}
               FROM {proj} WHERE {spec.where_sql()}) p
         JOIN fr f USING (event_number)
     ), pts AS (
-        SELECT iz, {carried}, c, s,
-               hx + sub.fx * $wx - x0 AS xt,
-               hy + sub.fy * $wy - y0 AS yt
+        SELECT iz, {carried}, r11, r12, r21, r22, ax, ay,
+               hx + sub.fx * $wx AS xt,
+               hy + sub.fy * $wy AS yt
         FROM hit, sub
     ), rot AS (
-        SELECT iz, {carried}, c * xt + s * yt AS xc, -s * xt + c * yt AS yc
+        SELECT iz, {carried}, {xc_sql} AS xc, {yc_sql} AS yc
         FROM pts
     ), binned AS (
         SELECT iz, {carried},
@@ -548,9 +588,13 @@ def fetch_canonical(
     sample_percent: float = 100.0,
     model: str = "segmentation",
 ) -> CanonicalBundle:
-    """Run the accumulation scans and assemble the three canonical panels."""
+    """Run the accumulation scans and assemble the three canonical panels.
+
+    The anchor definition is the one ``stats`` was measured with, so the
+    panels and the statistics of one response always share it.
+    """
     assert record.lattice is not None
-    xy_sql, depth_sql = build_sql(record, spec, grid, k, sampled, model)
+    xy_sql, depth_sql = build_sql(record, spec, grid, k, sampled, model, stats.anchor)
     params = _params(record, spec, footprint)
     started = time.perf_counter()
     xy_columns = con.execute(xy_sql, params).fetchnumpy()
@@ -638,6 +682,7 @@ def explain(
     footprint: tuple[float, float],
     sampled: bool = False,
     model: str = "segmentation",
+    anchor: str = ANCHOR_BACKPROJECTED,
 ) -> str:
     """``EXPLAIN`` output for the two canonical queries, separated by ``----``.
 
@@ -647,7 +692,7 @@ def explain(
     table twice would be caught.
     """
     plans = []
-    for sql in build_sql(record, spec, grid, k, sampled, model):
+    for sql in build_sql(record, spec, grid, k, sampled, model, anchor):
         rows = con.execute("EXPLAIN " + sql, _params(record, spec, footprint)).fetchall()
         plans.append("\n".join(str(r[-1]) for r in rows))
     return "\n----\n".join(plans)
@@ -655,14 +700,18 @@ def explain(
 
 def cache_key(spec: FilterSpec, sampled: bool, grid: CanonicalGrid, k: int,
               footprint: tuple[float, float], model: str = "segmentation",
-              kind: str = "canonical", k_z: int = 1) -> tuple:
+              kind: str = "canonical", k_z: int = 1,
+              anchor: str = ANCHOR_BACKPROJECTED, source: str = frame_sql.SOURCE_FILE) -> tuple:
     """Identity of a co-registered bundle. ``table_name`` stays first for invalidation.
 
-    The model is part of it - the CAM planes are the model's - but not the
-    channel, display, R or kernel, which all re-render from the same bundle.
+    The model is part of it - the CAM planes are the model's - as are the
+    D-frame's anchor definition and a per-shower frame's coordinate source,
+    but not the channel, display, R or kernel, which all re-render from the
+    same bundle.
     """
     return (
         *spec.cache_key(), sampled, kind,
         round(grid.pitch, 3), round(grid.half_x, 3), round(grid.half_y, 3),
         int(k), int(k_z), round(footprint[0], 3), round(footprint[1], 3), model,
+        anchor, source,
     )

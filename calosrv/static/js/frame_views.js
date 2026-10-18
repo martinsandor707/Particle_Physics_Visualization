@@ -434,6 +434,45 @@ function colourSentence(panel, rho, reference, shared = '', weighting = 'energy'
   }
 }
 
+/**
+ * Which entry-anchor definition the D-frame is built on, and how far the
+ * other lands from it over the selection: median and p90 per shower, and the
+ * showers more than one cell footprint apart. '' for a payload that carries
+ * no residual (an empty frame, or one older than the measurement).
+ */
+export function anchorSentence(frame) {
+  const choice = frame?.anchor_choice;
+  const residual = frame?.anchor_residual;
+  if (!choice) return '';
+  const used = choice === 'p0'
+    ? 'each shower’s first-layer entry point P₀ (the notebook’s origin), back-projected to the front face'
+    : 'each shower’s 3-D centroid, back-projected to the front face';
+  const other = choice === 'p0' ? 'the back-projected 3-D centroid' : 'the back-projected first-layer entry point P₀';
+  let text = ` Anchor: ${used}.`;
+  const parts = [];
+  for (const [key, label] of [['a', 'A'], ['b', 'B']]) {
+    const block = residual?.[key];
+    if (!block || !Number.isFinite(block.median)) continue;
+    let part = `shower ${label} median ${num(block.median)} mm`;
+    if (Number.isFinite(block.p90)) part += `, p90 ${num(block.p90)} mm`;
+    if (Number.isFinite(residual.footprint_mm) && Number.isFinite(block.over_footprint)) {
+      part += `, ${formatInt(block.over_footprint)} more than one cell footprint apart`;
+    }
+    parts.push(part);
+  }
+  if (parts.length) {
+    text += ` The other definition, ${other}, lands a transverse distance away of ${parts.join('; ')}`
+      + ` (N = ${formatInt(residual.n)}); the choice is the sidebar’s Entry anchor control.`;
+  }
+  return text;
+}
+
+/** The per-shower frames' coordinate source and residual, as the payload states them. */
+export function coordinatesSentence(frame) {
+  const block = frame?.coordinates;
+  return typeof block?.note === 'string' && block.note ? ` ${block.note}` : '';
+}
+
 function offsetsText(offsets) {
   const pair = offsets?.truth_voxel;
   if (!pair || !pair.a || !pair.b) return '';
@@ -521,6 +560,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     + `; ⟨D_entry⟩ = ${num(f.d_entry?.mean)} mm at the front face${ci}, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm (dataset, 3-D centroid distance).`;
   const k = f.subsample_k;
   const splat = ` Cells (${num(f.footprint_mm?.[0], 1)} × ${num(f.footprint_mm?.[1], 1)} mm) are splatted as ${k} × ${k} sub-deposits on a ${f.pitch_mm} mm grid.`;
+  const anchor = anchorSentence(f);
   const ill = f.n_ill_conditioned
     ? ` ${formatInt(f.n_ill_conditioned)} event(s) enter closer than ${f.ill_conditioned_threshold_mm} mm apart, so their orientation is effectively random: their energy enters ⟨ρ⟩ averaged over azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.`
     : '';
@@ -532,7 +572,7 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')} `
     + 'Open diamond and circle: the A and B anchors at D = ∓⟨D_entry⟩/2; faint bar: sample spread (SD) of '
     + 'D_entry/2 across events; thin dashed rule: the mean entry separation (hover for ⟨D_entry⟩ with its '
-    + `95% t-interval).${centroids ? ` ${centroids}` : ''}${offsetsText(f.anchor_offsets)}${splat}${combText}${ill}`;
+    + `95% t-interval).${anchor}${centroids ? ` ${centroids}` : ''}${offsetsText(f.anchor_offsets)}${splat}${combText}${ill}`;
 
   const axesText = (f.notes || []).join(' ');
   const marks = f.n_events === 1
@@ -609,7 +649,7 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   const xy = `${payload.slab.note} ${base} ${colourSentence(panels.xy, rho, rho.ref?.xy, '', payload.meta?.weighting)} `
     + `${windowPhrase(fit, 'xy', [['col', sym.x], ['row', sym.y]])}; ${outside('xy')}.${beyondGrid}${provisional}`
     + `${floorSentence(panels.xy, continuous, floor)}${kernel('xy')}`
-    + `${centroids ? ` ${centroids}` : ''}${overflow ? ` ${overflow}` : ''}${offset}${splat}${combText}${ab}`;
+    + `${centroids ? ` ${centroids}` : ''}${overflow ? ` ${overflow}` : ''}${offset}${splat}${coordinatesSentence(f)}${combText}${ab}`;
 
   let direction;
   if (kind === 'local') {
@@ -750,4 +790,70 @@ export function energyNetworkSentence(payload) {
   if (!network) return '';
   return `Reconstructed by the segmentation network of the ${FRAME_WORDS[network.frame] ?? network.frame} `
     + 'frame in every model view; D is the absolute-frame separation.';
+}
+
+/* ----------------------------------------------- the Event Inspector -- */
+
+/**
+ * The reference notebook's row label for one shower of one event: cells,
+ * deposited energy, the incident angles, P₀ and the principal-axis tilt.
+ *
+ * The tilt is the angle between the energy-weighted principal axis of the
+ * cloud in the local frame and +w: the notebook's check that the rotation
+ * did what it claims. It is printed, never drawn, and below three cells it is
+ * untestable rather than zero.
+ */
+export function eventRowLabel(event) {
+  const s = event?.shower;
+  if (!s) return '';
+  const p0 = Array.isArray(s.p0) && s.p0.length === 3
+    ? `(${s.p0.map((v) => num(v, 1)).join(', ')}) mm` : '—';
+  const axis = s.principal_axis;
+  const tilt = axis && Number.isFinite(axis.tilt_deg)
+    ? `principal axis ${num(axis.tilt_deg, 1)}° from +w`
+    : 'principal axis untestable (fewer than 3 cells)';
+  const label = s.label ?? String(s.key ?? '').toUpperCase();
+  return `Event ${formatInt(event.event_number)}, shower ${label}: `
+    + `${formatInt(s.n_hits)} cell${s.n_hits === 1 ? '' : 's'}, ${formatSci(s.energy_gev, 3)} GeV deposited, `
+    + `θ = ${num(s.theta_deg, 1)}°, φ = ${num(s.phi_deg, 1)}°, P₀ = ${p0}, ${tilt}.`;
+}
+
+/** The event's own kinematics, and whether the current filters select it. */
+export function eventSelectionLine(event) {
+  if (!event || !Number.isFinite(event.event_number)) return '';
+  const energy = (v) => (Number.isFinite(v) ? `${num(v, 2)} GeV` : '—');
+  const d = Number.isFinite(event.d) ? `${num(event.d, 0)} mm` : 'undefined';
+  return `Event ${formatInt(event.event_number)}: ${formatInt(event.n_hits)} hits in all, `
+    + `E₁ = ${energy(event.e1)}, E₂ = ${energy(event.e2)}, D = ${d}; `
+    + (event.in_selection
+      ? 'inside the current selection.'
+      : 'outside the current selection, drawn as asked; previous / next walk the selection.');
+}
+
+/**
+ * What one frame of the Event Inspector draws, from the response's own
+ * `splat` and `depth` blocks: how each cell's footprint reaches the raster,
+ * and what the depth axis is.
+ */
+export function eventFrameSentence(payload, kind) {
+  const frame = payload?.frames?.[kind];
+  if (!frame) return '';
+  const fp = Array.isArray(payload.footprint_mm) ? payload.footprint_mm : [];
+  const footprint = fp.length >= 2 ? `${num(fp[0], 2)} × ${num(fp[1], 2)} mm` : 'its measured';
+  const pitch = Number.isFinite(frame.splat?.pitch_mm) ? `${num(frame.splat.pitch_mm, 0)} mm` : 'the accumulation';
+  const depth = frame.depth?.note ? `; depth is ${frame.depth.note}` : '';
+  if (kind === 'lab') {
+    return 'Original detector coordinates: the native lattice, one bin per populated cell, every layer '
+      + `of the event projected (no entrance slab), cropped to the event's window${depth}.`;
+  }
+  if (kind === 'trans') {
+    return `Translated only: every cell moved by −P₀ without rotation, its ${footprint} footprint `
+      + `integrated onto a ${pitch} grid by exact area-weighted box overlap${depth}.`;
+  }
+  const k = Number.isFinite(frame.splat?.k) ? frame.splat.k : '—';
+  const kz = Number.isFinite(frame.splat?.k_z) ? frame.splat.k_z : '—';
+  const layer = fp.length >= 3 ? `${num(fp[2], 1)} mm` : 'one layer';
+  return `Local: every cell moved by −P₀ and rotated by its shower's R(θ, φ) so the incident direction lies `
+    + `along +w; each ${footprint} × ${layer} footprint is split into k × k × k_z = ${k} × ${k} × ${kz} `
+    + `sub-deposits rotated with the shower and binned on a ${pitch} grid${depth}.`;
 }

@@ -145,8 +145,70 @@
           Per-shower translated <span class="muted">(legacy: each shower from its own entry point P₀)</span>
         </label>
       </fieldset>
+      <!-- The D-frame's entry anchor, shown while Translated is selected. Both
+           definitions are back-projected to the front face; the response
+           reports how far apart they land, so the choice is a measured one. -->
+      <fieldset class="choice-sub" id="anchor-sub" aria-label="D-frame entry anchor" hidden>
+        <div class="hint" style="margin:0 0 6px">Entry anchor</div>
+        <label class="choice" title="Each shower's 3-D centroid back-projected to the front face along its incident direction: the definition the D-frame shipped with.">
+          <input type="radio" name="anchor" value="backprojected" checked>
+          Back-projected 3-D centroid <span class="muted">(default)</span>
+        </label>
+        <label class="choice" title="Each shower's own entry point P₀, the energy-weighted centroid of its first populated layer, back-projected the short distance to the front face: the reference notebook's origin.">
+          <input type="radio" name="anchor" value="p0">
+          First-layer entry point P₀ <span class="muted">(the notebook’s origin)</span>
+        </label>
+      </fieldset>
     </fieldset>
     <div class="caption" id="frame-caption">&mdash;</div>
+    <!-- The compare-frames view: the selection in the Absolute, per-shower
+         translated and Local frames at once, one row each, in place of the
+         2x2 grid (js/panels/frame_grid.js). View state: #compare=true. -->
+    <label class="choice" id="ctl-compare" style="margin-top:8px"
+           title="Lay the selection out in the Absolute, per-shower translated and Local frames at once, one row of three projections each, in the reference notebook's order. Each frame keeps its own display mode and its own disclosures.">
+      <input type="checkbox" id="opt-compare"> Compare frames side by side
+      <span class="muted">(Absolute · Per-shower translated · Local)</span>
+    </label>
+
+    <h2>
+      Event Inspector
+      <button class="info-dot" id="info-event" type="button" hidden
+              aria-label="Event Inspector notices">i</button>
+    </h2>
+    <!-- One shower of one event in the original, translated and local frames
+         - the reference notebook's comparison figure - in place of the
+         ensemble panels while an event is pinned (js/event_inspector.js). The
+         event and the shower are view state: #event=…&shower=…. -->
+    <div class="control" id="ctl-event">
+      <div class="control-head">
+        <label for="event-number">Event number</label>
+        <span class="readout" id="event-status">off</span>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="event-number" min="0" step="1" placeholder="&mdash;"
+               aria-label="Event number to pin" title="Type an event number and press Enter; clear it to return to the ensemble panels">
+        <button class="mini" id="event-prev" type="button" disabled
+                title="The previous event of the current selection">&lsaquo; Prev</button>
+        <button class="mini" id="event-next" type="button" disabled
+                title="The next event of the current selection">Next &rsaquo;</button>
+      </div>
+      <label class="choice" title="Shower A: its own entry point P₀ and rotation R(θ, φ).">
+        <input type="radio" name="event-shower" value="a" checked> Shower A
+      </label>
+      <label class="choice" title="Shower B: its own entry point P₀ and rotation R(θ, φ); the 'A+B' cells count with it.">
+        <input type="radio" name="event-shower" value="b"> Shower B
+      </label>
+      <div class="event-actions">
+        <button class="action" id="event-pick" type="button"
+                title="The reference notebook's seeded selection rule on the current filters: events with more hits than the mean, the 20 with the largest incident angle, one drawn at random. Each click takes the next seed.">Pick for me</button>
+        <button class="action" id="event-close" type="button" hidden
+                title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
+      </div>
+      <div class="hint">Pins one event and draws one of its showers in all three frames &mdash; original,
+        translated only, and local &mdash; with the incident direction, the first-layer plane and the
+        origin, one shared colour ramp and one window on all nine panels.</div>
+      <div class="caption" id="event-caption" hidden>&mdash;</div>
+    </div>
 
     <h2>
       Spatial Resolution
@@ -257,7 +319,7 @@
       <span id="stat-cache" class="muted"></span>
     </div>
 
-    <section class="grid">
+    <section class="grid" id="ensemble-grid">
 
       <div class="card" data-panel="xy">
         <h2>
@@ -326,6 +388,36 @@
         <div id="fit-table"></div>
       </div>
 
+    </section>
+
+    <!-- The compare-frames view: the selection in the Absolute, per-shower
+         translated and Local frames, one row of three projections each, in
+         place of the ensemble grid while the sidebar's toggle is on. The
+         rows and their cards are built by js/panels/frame_grid.js. -->
+    <section class="frame-grid" id="compare-grid" hidden aria-labelledby="compare-grid-title">
+      <div class="frame-grid-head">
+        <h2 id="compare-grid-title">Compare frames</h2>
+        <span class="frame-grid-label" id="compare-grid-label">&mdash;</span>
+        <span class="spacer"></span>
+        <button class="mini" id="compare-grid-close" type="button"
+                title="Return to the ensemble panels">Back to the ensemble</button>
+      </div>
+      <div id="compare-grid-rows"></div>
+    </section>
+
+    <!-- The Event Inspector: one shower of one event in the original,
+         translated and local frames - the reference notebook's comparison
+         figure - in place of the ensemble grid while an event is pinned.
+         Drawn by js/event_inspector.js from one GET /api/event response. -->
+    <section class="frame-grid" id="event-grid" hidden aria-labelledby="event-grid-title">
+      <div class="frame-grid-head">
+        <h2 id="event-grid-title">Event Inspector</h2>
+        <span class="frame-grid-label" id="event-grid-label">&mdash;</span>
+        <span class="spacer"></span>
+        <button class="mini" id="event-grid-close" type="button"
+                title="Return to the ensemble panels; the link loses its event">Back to the ensemble</button>
+      </div>
+      <div id="event-grid-rows"></div>
     </section>
   </main>
 

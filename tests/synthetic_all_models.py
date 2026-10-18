@@ -10,8 +10,12 @@ incident momenta, and writes a file that passes ingest verification:
   ``energy_*_true`` columns (the own shower's momentum, as verification
   demands) and ``energy``, which is scaled by the same factor as the shower's
   momentum so the reconstructed energies spread the way real ones do;
-* each template is cut to its highest-energy hits of each shower, so the file
-  stays small (a few MB for three hundred events).
+* each template is cut to its highest-energy hits of each shower, plus every
+  hit of the shower's first populated layer, so the file stays small (a few MB
+  for three hundred events) while each shower's entry point P₀ - the
+  energy-weighted centroid of its first layer, which the file's ``*_trans``
+  columns encode and ingest verifies (``p0_definition``) - is unchanged by
+  the cut. The energy scale is uniform within a shower, so the centroid is too.
 
 Nothing here is a model output: the network columns keep the template's
 values, so the fixture tests payload shape and budget, never physics.
@@ -53,9 +57,22 @@ def _templates(path: Path, hits_per_shower: int):
         a = [r for r in event_rows if r[col["particle_origin"]] == "A"]
         b = [r for r in event_rows if r[col["particle_origin"]] != "A"]
         pick = []
+        kept: set[int] = set()
         for group in (a, b):
+            # The whole first populated layer of the shower, so its P0 - the
+            # energy-weighted centroid of that layer - survives the cut; an
+            # 'A+B' row counts for both showers, as ingest counts it.
+            own = group if group is a else group
+            shared = [r for r in event_rows if r[col["particle_origin"]] == "A+B"]
+            members = own + [r for r in shared if r not in own]
+            z0 = min(float(r[col["z"]]) for r in members) if members else None
+            first_layer = [r for r in members if float(r[col["z"]]) == z0]
             group.sort(key=lambda r: -float(r[col["energy"]]))
-            pick += group[:hits_per_shower]
+            for row in first_layer + group[:hits_per_shower]:
+                if id(row) in kept:
+                    continue
+                kept.add(id(row))
+                pick.append(row)
         templates.append(pick)
     return header, col, templates
 

@@ -6,6 +6,8 @@ import { RangeSlider } from './controls/range_slider.js';
 import { UploadForm } from './controls/upload.js';
 import { AdminModal } from './controls/admin.js';
 import { ProjectionPanel } from './panels/projection.js';
+import { FrameGrid, GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
+import { EventInspector } from './event_inspector.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
 import { formatBytes, formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
@@ -16,7 +18,7 @@ import {
 } from './frame_views.js';
 import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
 import {
-  projectionNotes, energyNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
+  projectionNotes, energyNotes, eventNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
 } from './panel_notes.js';
 import { Shell } from './shell.js';
 
@@ -58,9 +60,9 @@ for (const id of ['yz', 'xz']) {
 /* The drawer's Selection line states the displayed window, so a zoom, a pan,
  * Auto-fit RoI or Reset rebuilds that panel's notes - once per frame during a
  * drag; the notes are text only. */
-for (const id of ['xy', 'yz', 'xz']) {
+function notesOnViewChange(id) {
   let pending = 0;
-  panels[id].onViewChange = () => {
+  return () => {
     if (pending) return;
     pending = requestAnimationFrame(() => {
       pending = 0;
@@ -68,6 +70,35 @@ for (const id of ['xy', 'yz', 'xz']) {
     });
   };
 }
+for (const id of ['xy', 'yz', 'xz']) panels[id].onViewChange = notesOnViewChange(id);
+
+/* The two 3 x 3 grids shown in place of the ensemble grid: the Event
+ * Inspector (one shower of one event in the original, translated and local
+ * frames) and the compare-frames view (the selection in the Absolute,
+ * per-shower translated and Local frames). Their cards exist from the start,
+ * so the Details delegation and the export menus cover them; their charts are
+ * created the first time each grid is shown. */
+const eventGrid = new FrameGrid(document.getElementById('event-grid-rows'), {
+  prefix: 'event',
+  onPanelCreated: (id, panel) => { panel.onViewChange = notesOnViewChange(id); },
+});
+const compareGrid = new FrameGrid(document.getElementById('compare-grid-rows'), {
+  prefix: 'compare',
+  onPanelCreated: (id, panel) => {
+    panel.onViewChange = notesOnViewChange(id);
+    if (panel.gridCol === 'xy') return;
+    // A co-registered depth panel re-decides its 1:1 aspect from its size,
+    // exactly as the ensemble grid's depth panels do.
+    panel.onRelayout = (p) => {
+      const payload = comparePayloads[p.gridRow];
+      if (!payload || kindOf(payload) === 'lab' || !p.payload) return;
+      const next = depthIsometric(p, p.payload);
+      if (next === p.isometric) return;
+      p.isometric = next;
+      buildNotes(id);
+    };
+  },
+});
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
 const metricsPanel = new MetricsPanel('metrics', 'model-caption');
 
@@ -82,6 +113,7 @@ const dom = {
     separation: document.getElementById('info-separation'),
     density: document.getElementById('info-density'),
     frame: document.getElementById('info-frame'),
+    event: document.getElementById('info-event'),
   },
   frameCaption: document.getElementById('frame-caption'),
   rhoNormControl: document.getElementById('ctl-rho-norm'),
@@ -108,6 +140,7 @@ const dom = {
   colormap: document.getElementById('colormap'),
   lockScale: document.getElementById('opt-lock-scale'),
   undefinedD: document.getElementById('opt-undefined-d'),
+  compare: document.getElementById('opt-compare'),
 };
 
 let experiments = [];
@@ -115,11 +148,29 @@ let activeExperiment = null;
 let lastProjections = null;
 let lastEnergy = null;
 let showerFilter = 'both';
+/* The compare-frames view's three responses, by frame kind. */
+const comparePayloads = { lab: null, trans: null, local: null };
 /* The frame keys the active experiment serves (labels.js `offeredFrames`). */
 let offeredFrames = offeredFramesOf(null);
-/* Warnings the projections and performance endpoints sent with their last
- * responses, merged into one banner. */
-const endpointWarnings = { projections: [], performance: [] };
+/* Warnings the projections, performance, event and comparison endpoints sent
+ * with their last responses, merged into one banner. */
+const endpointWarnings = { projections: [], performance: [], event: [], compare: [] };
+
+/* The Event Inspector's controller: the sidebar picker, the pinned event and
+ * the nine panels of the event grid. */
+const inspector = new EventInspector({
+  state,
+  grid: eventGrid,
+  palette: () => state.get('palette'),
+  onRendered: (payload) => {
+    for (const id of eventGrid.ids()) buildNotes(id);
+    setNotices('event', payload.meta?.notices || []);
+    endpointWarnings.event = payload.meta?.warnings || [];
+    showBanner(mergedWarnings());
+  },
+  onError: (error, context) => reportError(error, context),
+  onViewMode: () => applyViewMode(),
+});
 
 /* ------------------------------------------------------------------ sliders */
 
@@ -154,6 +205,8 @@ const sliders = {
 function setBusy(busy) {
   for (const panel of Object.values(panels)) panel.setBusy(busy);
   energyPanel.setBusy(busy);
+  eventGrid.setBusy(busy);
+  compareGrid.setBusy(busy);
 }
 
 /* Messages the user has dismissed, keyed by content.
@@ -244,11 +297,22 @@ function depthIsometric(panel, payload) {
   return colSpan * scale >= 0.45 * width;
 }
 
-/** Draw the three spatial panels from a projections payload. */
-function renderPanels(payload) {
+/**
+ * The options one spatial panel of a projections payload renders with - the
+ * ensemble grid's and the compare-frames view's cells alike.
+ *
+ * The entry panel carries the centroids and, in the absolute frame, the
+ * separation vector; the depth panels carry the measured shower axes (lab)
+ * and the individual incident trajectories when few enough events are
+ * selected to read (lab, and from the origin in the translated frame).
+ * `showerKey` names which transverse coordinate a depth panel plots, so the
+ * projection of the direction vector picks sin(phi) or cos(phi) correctly. In
+ * the canonical frame both give way to the two ensemble axes; the local frame
+ * draws no direction.
+ */
+function panelOptions(payload, id) {
   const palette = state.get('palette');
   const overlays = payload.overlays || {};
-  const paths = overlays.trajectories || [];
   const kind = kindOf(payload);
   const canonical = kind === 'canonical';
   const coregistered = kind !== 'lab';
@@ -261,34 +325,122 @@ function renderPanels(payload) {
     resolution: payload.meta?.resolution ?? null,
     weighting: payload.meta?.weighting ?? state.get('weighting'),
   };
-  const ensemble = overlays.ensemble_axes || {};
   const anchors = canonical ? (overlays.anchors || null) : null;
-  const depthBounds = canonical ? { front: 0, back: frame.depth_mm } : null;
+  if (id === 'xy') {
+    return { ...common, centroids: payload.centroids, showVector: kind === 'lab', anchors };
+  }
+  const ensemble = overlays.ensemble_axes || {};
+  return {
+    ...common,
+    axes: kind === 'lab' ? overlays.axes?.[id] : null,
+    trajectories: kind === 'lab' || kind === 'trans' ? (overlays.trajectories || []) : null,
+    showerKey: id === 'yz' ? 'y' : 'x',
+    ensembleAxes: canonical ? ensemble[id] || null : null,
+    ensembleMeta: canonical ? frame?.ensemble || null : null,
+    anchors,
+    depthBounds: canonical ? { front: 0, back: frame.depth_mm } : null,
+  };
+}
 
+/** Draw the three spatial panels from a projections payload. */
+function renderPanels(payload) {
+  const coregistered = kindOf(payload) !== 'lab';
   panels.xy.isometric = true;
-  panels.xy.render(payload.panels.xy, {
-    ...common, centroids: payload.centroids, showVector: kind === 'lab', anchors,
-  });
-  // The depth panels carry the measured shower axes (lab) and the individual
-  // incident trajectories when few enough events are selected to read (lab,
-  // and from the origin in the translated frame). `showerKey` names which
-  // transverse coordinate the panel plots, so the projection of the direction
-  // vector picks sin(phi) or cos(phi) correctly. In the canonical frame both
-  // give way to the two ensemble axes; the local frame draws no direction.
-  for (const [id, key] of [['yz', 'y'], ['xz', 'x']]) {
+  panels.xy.render(payload.panels.xy, panelOptions(payload, 'xy'));
+  for (const id of ['yz', 'xz']) {
     const panel = panels[id];
     panel.isometric = coregistered && depthIsometric(panel, payload.panels[id]);
-    panel.render(payload.panels[id], {
-      ...common,
-      axes: kind === 'lab' ? overlays.axes?.[id] : null,
-      trajectories: kind === 'lab' || kind === 'trans' ? paths : null,
-      showerKey: key,
-      ensembleAxes: canonical ? ensemble[id] || null : null,
-      ensembleMeta: canonical ? frame?.ensemble || null : null,
-      anchors,
-      depthBounds,
-    });
+    panel.render(payload.panels[id], panelOptions(payload, id));
   }
+}
+
+/* ------------------------------------------------------ compare frames */
+
+/** The row title of one frame in the compare-frames view. */
+function compareRowTitle(kind, payload) {
+  const sym = frameView(kind).symbols;
+  const n = payload?.selection?.n_events;
+  return `${frameLabel(kind)} (${sym.x}, ${sym.y}, ${sym.z})`
+    + (Number.isFinite(n) ? ` · ${formatInt(n)} event${n === 1 ? '' : 's'}` : '');
+}
+
+/**
+ * Fetch the selection in every frame the experiment serves - Absolute,
+ * per-shower translated, Local - and draw them as the rows of the compare
+ * grid. Each frame is asked for in the display mode it keeps for itself, so
+ * every row is exactly what that frame shows on its own.
+ */
+async function loadCompare() {
+  const kinds = GRID_ROWS.filter((kind) => offeredFrames.includes(kind));
+  const results = await Promise.all(kinds.map((kind) => getJson(
+    '/api/projections', state.projectionParams(false, kind), `compare-${kind}`,
+  )));
+  for (const kind of GRID_ROWS) comparePayloads[kind] = null;
+  kinds.forEach((kind, index) => { comparePayloads[kind] = results[index]; });
+  endpointWarnings.compare = results.flatMap((payload) => payload.meta?.warnings || []);
+  renderCompare();
+  return results;
+}
+
+/** Draw the compare grid from the responses in hand, and rebuild its notes. */
+function renderCompare() {
+  const rows = {};
+  const modes = [];
+  for (const kind of GRID_ROWS) {
+    const payload = comparePayloads[kind];
+    if (!payload) continue;
+    const frameKind = kindOf(payload);
+    const cells = {};
+    for (const col of GRID_COLS) {
+      const panel = compareGrid.panel(kind, col);
+      cells[col] = {
+        title: panelTitle(col, frameKind),
+        payload: payload.panels[col],
+        opts: panelOptions(payload, col),
+        isometric: col === 'xy' || (frameKind !== 'lab' && panel
+          ? depthIsometric(panel, payload.panels[col]) : false),
+      };
+    }
+    rows[kind] = { title: compareRowTitle(kind, payload), cells };
+    const mode = payload.meta?.resolution?.mode === 'native' ? 'native' : 'Continuous Field';
+    modes.push(`${frameLabel(kind)}: ${mode}`);
+  }
+  const missing = GRID_ROWS.filter((kind) => !comparePayloads[kind]).map(frameLabel);
+  compareGrid.show(true);
+  compareGrid.render(rows);
+  setText('compare-grid-label', `${modes.join(' · ')}`
+    + (missing.length ? ` · not served by this experiment: ${missing.join(', ')}` : '')
+    + '. Each row is that frame\'s own response, with its own window, ramp and disclosures.');
+  for (const id of compareGrid.ids()) buildNotes(id);
+}
+
+/** Refresh the compare grid alone, when its toggle is switched on. */
+async function refreshCompare() {
+  compareGrid.setBusy(true);
+  try {
+    await loadCompare();
+    showBanner(mergedWarnings());
+  } catch (error) {
+    if (error?.name !== 'AbortError') reportError(error, 'frame comparison');
+  } finally {
+    compareGrid.setBusy(false);
+  }
+}
+
+/**
+ * Show whichever grid the view state asks for: the Event Inspector while an
+ * event is pinned, else the compare-frames grid while its toggle is on, else
+ * the ensemble grid. The grid tracks snap, so one call is one layout.
+ */
+function applyViewMode() {
+  const pinned = state.get('event') !== null;
+  const compare = !pinned && state.get('compare');
+  setHidden('ensemble-grid', pinned || compare);
+  eventGrid.show(pinned);
+  compareGrid.show(compare);
+  inspector.syncControls();
+  setChecked('opt-compare', state.get('compare'));
+  relayoutAll();
 }
 
 /* ------------------------------------------------------------ panel notes */
@@ -307,6 +459,32 @@ function buildNotes(panelId) {
       payload: lastEnergy,
       notices: energyPanel.lastNotices,
       selection: lastProjections?.selection ?? null,
+      state,
+      experiment: activeExperiment,
+    }) : null;
+  } else if (panelId.startsWith('event-')) {
+    // One cell of the Event Inspector: `event-<frame>-<panel>`.
+    const [, kind, col] = panelId.split('-');
+    const panel = eventGrid.panelById(panelId);
+    notes = inspector.payload ? eventNotes({
+      payload: inspector.payload,
+      kind,
+      panelId: col,
+      view: panel?.currentView() ?? null,
+      state,
+      experiment: activeExperiment,
+    }) : null;
+  } else if (panelId.startsWith('compare-')) {
+    // One cell of the compare-frames view: that frame's own projections
+    // payload, so its notes are exactly the ensemble panel's in that frame.
+    const [, kind, col] = panelId.split('-');
+    const payload = comparePayloads[kind];
+    const panel = compareGrid.panelById(panelId);
+    notes = payload && panel ? projectionNotes({
+      payload,
+      panelId: col,
+      isometric: { [col]: col === 'xy' ? true : panel.isometric },
+      view: panel.currentView(),
       state,
       experiment: activeExperiment,
     }) : null;
@@ -352,6 +530,8 @@ function markDetails(panelId, notes) {
 function relayoutAll() {
   for (const panel of Object.values(panels)) panel.relayout();
   energyPanel.relayout();
+  eventGrid.relayout();
+  compareGrid.relayout();
 }
 
 /** The entry panel's clipping count, kept on the status bar. */
@@ -493,6 +673,11 @@ function syncFrameControl() {
   }
   setHidden('frame-sub', view !== 'aligned');
   setHidden('frame-sub-trans', frame !== 'trans');
+  // The entry anchor is a choice of the D-frame alone.
+  setHidden('anchor-sub', frame !== 'canonical');
+  for (const input of document.querySelectorAll('input[name="anchor"]')) {
+    input.checked = input.value === state.get('anchor');
+  }
   const control = document.getElementById('ctl-frame');
   if (control) control.dataset.frame = frame;
   setText('frame-caption', frameView(frame).caption);
@@ -623,7 +808,10 @@ function mergedWarnings() {
     ...(energyPanel.lastNotices || []),
     shell.inspected ? notesText(panelNotes[shell.inspected]) : '',
   ].join(' ');
-  return warningsNotShown([...endpointWarnings.projections, ...endpointWarnings.performance], shown);
+  return warningsNotShown([
+    ...endpointWarnings.projections, ...endpointWarnings.performance,
+    ...endpointWarnings.event, ...endpointWarnings.compare,
+  ], shown);
 }
 
 /* ------------------------------------------------------------- orchestration */
@@ -654,6 +842,10 @@ const refreshAll = debounce(async () => {
     ['energy distribution', () => loadEnergy()],
     ['model performance', () => loadPerformance()],
   ];
+  // The grid on show follows the selection too: the pinned event's neighbours
+  // and in-selection flag, or the three frames of the comparison.
+  if (state.get('event') !== null) jobs.push(['event inspector', () => inspector.load()]);
+  else if (state.get('compare')) jobs.push(['frame comparison', () => loadCompare()]);
   try {
     const results = await Promise.allSettled(jobs.map(([, run]) => run()));
     const failures = [];
@@ -671,10 +863,11 @@ const refreshAll = debounce(async () => {
   }
 }, DEBOUNCE_MS);
 
-/** Redraw from the payload already in hand, without another request. */
+/** Redraw from the payloads already in hand, without another request. */
 function repaint() {
-  if (!lastProjections) return;
-  renderPanels(lastProjections);
+  if (lastProjections) renderPanels(lastProjections);
+  if (inspector.payload && state.get('event') !== null) inspector.render(inspector.payload);
+  if (state.get('compare') && compareGrid.visible) renderCompare();
 }
 
 function describeError(error) {
@@ -845,6 +1038,13 @@ for (const input of document.querySelectorAll('input[name="frame-sub"]')) {
   input.addEventListener('change', () => changeFrame(input.value));
 }
 
+for (const input of document.querySelectorAll('input[name="anchor"]')) {
+  input.addEventListener('change', () => {
+    state.set({ anchor: input.value });
+    refreshAll();
+  });
+}
+
 for (const input of document.querySelectorAll('input[name="rho_norm"]')) {
   input.addEventListener('change', () => {
     state.set({ rho_norm: input.value });
@@ -880,6 +1080,17 @@ dom.lockScale.addEventListener('change', () => {
 dom.undefinedD.addEventListener('change', () => {
   state.set({ include_undefined_d: dom.undefinedD.checked });
   refreshAll();
+});
+
+dom.compare.addEventListener('change', () => {
+  state.set({ compare: dom.compare.checked });
+  applyViewMode();
+  // Three requests for the comparison alone; the ensemble panels keep theirs.
+  if (state.get('compare') && state.get('event') === null) refreshCompare();
+});
+document.getElementById('compare-grid-close')?.addEventListener('click', () => {
+  state.set({ compare: false });
+  applyViewMode();
 });
 
 /* ------------------------------------------- RoI, popovers, shower toggle */
@@ -935,6 +1146,15 @@ attachExportMenus({
   state,
   onError: (message) => showBanner([message], true),
   resolve: (panelId) => {
+    if (panelId.startsWith('event-')) {
+      // An Event Inspector cell: the event response's meta, with the row's frame.
+      const panel = eventGrid.panelById(panelId);
+      return panel?.payload ? { panel, meta: inspector.exportMeta(panelId.split('-')[1]) } : null;
+    }
+    if (panelId.startsWith('compare-')) {
+      const panel = compareGrid.panelById(panelId);
+      return panel?.payload ? { panel, meta: comparePayloads[panelId.split('-')[1]]?.meta ?? null } : null;
+    }
     const get = EXPORT_PANELS[panelId];
     if (!get) return null;
     const panel = get();
@@ -1028,6 +1248,7 @@ function restoreControlsFromState() {
   setChecked('opt-lock-scale', v.lock_scale);
   setChecked('opt-undefined-d', v.include_undefined_d);
   setText('channel-caption', currentChannelCaption(null));
+  applyViewMode();
 }
 
 /* Every element id the update routines write to.
@@ -1041,13 +1262,16 @@ const REQUIRED_IDS = [
   'stat-latency', 'stat-cache', 'banner', 'banner-text', 'banner-close', 'energy-sparse',
   'badge-memory', 'badge-threads', 'badge-exact', 'exact-badge',
   'tag-xy', 'tag-energy', 'title-xy', 'title-yz', 'title-xz', 'info-frame', 'frame-caption',
-  'ctl-frame', 'frame-sub', 'frame-sub-trans', 'ctl-rho-norm', 'ctl-lock-scale',
+  'ctl-frame', 'frame-sub', 'frame-sub-trans', 'anchor-sub', 'ctl-rho-norm', 'ctl-lock-scale',
   'sidebar', 'sidebar-toggle', 'inspector', 'inspector-title', 'inspector-body', 'inspector-close',
   'display-caption', 'channel-caption', 'resolution', 'resolution-readout',
   'resolution-hint', 'display-label-native', 'display-label-continuous',
   'colormap', 'colormap-hint', 'opt-lock-scale', 'opt-undefined-d',
   'experiment-select', 'fit-table', 'metrics', 'model-caption',
-  'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy',
+  'plot-xy', 'plot-yz', 'plot-xz', 'plot-energy', 'ensemble-grid',
+  'event-grid', 'event-grid-rows', 'event-grid-label', 'event-grid-close', 'info-event',
+  'event-number', 'event-prev', 'event-next', 'event-pick', 'event-close', 'event-status', 'event-caption',
+  'compare-grid', 'compare-grid-rows', 'compare-grid-label', 'compare-grid-close', 'opt-compare',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi',
   'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi',

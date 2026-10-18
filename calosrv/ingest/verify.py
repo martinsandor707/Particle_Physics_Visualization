@@ -7,11 +7,14 @@ behaved unexpectedly is visible in the interface rather than only in a log.
 
 Besides row accounting, they check the *contracts* the per-shower frames and
 the network columns are used under, each measured on the production file
-before it was relied on: that a shower's entry point P0 is one point, that the
-local coordinates are the translated ones rotated by that shower's own
-R(theta, phi), that ``z_trans`` sits on whole layers, that ``*_true`` is the
-shower's own incident momentum or polar angle, and that per-shower network
-outputs are constant within a shower.
+before it was relied on: that a shower's entry point P0 is one point *and* is
+the energy-weighted centroid of the shower's first populated layer
+(``frame_checks.py``), that the local coordinates are the translated ones
+rotated by that shower's own R(theta, phi), that ``z_trans`` sits on whole
+layers, that ``*_true`` is the shower's own incident momentum or polar angle,
+and that per-shower network outputs are constant within a shower. The
+distance between the D-frame's two anchor definitions is measured here too
+and reported, never judged.
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ import duckdb
 from ..db import naming
 from ..db.ddl import CSV_FRAMES, MODEL_FIELDS, MODELS, csv_model_column
 from ..db.naming import quote
-from . import formats
+from ..grid import frame as frame_mod
+from ..grid.lattice import Lattice
+from ..text import typographic
+from . import formats, frame_checks
 from .derive_proj import FRAME_COORDINATES, keep_predicate
 
 log = logging.getLogger(__name__)
@@ -162,8 +168,16 @@ def verify(
     lattice_n: tuple[int, int, int] | None = None,
     depth_mm: float | None = None,
     source_format: str = "csv",
+    lattice: Lattice | None = None,
+    removed_rows: int = 0,
 ) -> VerificationResult:
-    """Check the archive and the derived tables against the source and each other."""
+    """Check the archive and the derived tables against the source and each other.
+
+    ``lattice`` (the measured detector lattice) enables the two frame checks
+    of ``frame_checks.py``, which need the front face and a cell footprint;
+    ``removed_rows`` is what the sanitiser dropped, which decides whether a
+    P0 that is not the first-layer centroid fails the ingest or only warns.
+    """
     result = VerificationResult()
     proj_physical = naming.proj_table(name)
     event_physical = naming.event_table(name)
@@ -359,6 +373,48 @@ def verify(
                           f"{int(checks['ab_rows']):,} 'A+B' row(s): at the origin of both "
                           "per-shower frames and counted with shower B.")
         result.passed("ab_rows")
+
+    # 9. What P0 is, and how far the two D-frame anchors sit apart.
+    p0_rule = frame_checks.p0_definition_residual(con, archive_source, event_physical)
+    result.values["p0_definition_residual_mm"] = p0_rule["max_mm"]
+    result.values["p0_definition_showers"] = p0_rule["n_showers"]
+    if p0_rule["n_showers"] == 0:
+        result.warn("p0_definition", "No shower had an entry point P0 to check against its first layer.")
+    elif _exceeds(p0_rule["max_mm"], frame_checks.P0_DEFINITION_TOLERANCE_MM):
+        # A per-axis component can be tiny beside the total and write an
+        # exponent; its sign takes the typographic minus.
+        message = typographic(
+            f"A shower's entry point P0 (x - x_trans) differs from the energy-weighted "
+            f"centroid of its first populated layer by up to {p0_rule['max_mm']:.4g} mm "
+            f"(x {p0_rule['x']:.4g}, y {p0_rule['y']:.4g}, z {p0_rule['z']:.4g})"
+        )
+        if removed_rows > 0:
+            # A trimmed file: the producer's P0 may have used a row whose
+            # position or energy is now missing, so the rule cannot be
+            # confirmed here - and cannot be called broken either.
+            result.warn("p0_definition",
+                        f"{message}; {removed_rows:,} row(s) were removed by the sanitiser, "
+                        "among them possibly rows the producer's P0 was computed from, so the "
+                        "first-layer rule cannot be confirmed on this file.")
+        else:
+            result.fail("p0_definition",
+                        f"{message}; the per-shower frames are not anchored where the "
+                        "documentation says.")
+    else:
+        result.passed("p0_definition")
+    if lattice is not None:
+        footprint = max(frame_mod.footprint_from_lattice(lattice))
+        anchors = frame_checks.anchor_residual(con, event_physical, float(lattice.z.lo), footprint)
+        result.values["anchor_residual"] = anchors
+        if anchors["n_events"]:
+            a, b = anchors["a"], anchors["b"]
+            result.notice("anchor_residual", (
+                f"The D-frame's two anchor definitions - the back-projected 3-D centroid and the "
+                f"back-projected first-layer entry point P0 - sit a median {a['median_mm']:.0f} mm "
+                f"(A) / {b['median_mm']:.0f} mm (B) apart at the front face over {anchors['n_events']:,} "
+                f"events; {a['over_footprint']:,} / {b['over_footprint']:,} showers differ by more "
+                f"than one {footprint:.1f} mm cell footprint."
+            ))
 
     log.info(
         "Verification for %r: %s (%s)",

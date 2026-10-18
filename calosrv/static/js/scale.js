@@ -265,7 +265,7 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
   // scale's own bounds, which reach above 10^0 when a selection is brighter
   // than the dataset reference it is drawn against.
   const relative = scale.unit === 'a.u.';
-  const unit = relative ? ' a.u.' : (isLog ? ' GeV' : '');
+  const unit = relative ? ' a.u.' : (isLog ? ` ${unitSuffix(scale.unit)}` : '');
   const label = (value) => (isLog
     ? `10${superscript(Number(value).toFixed(1))}`
     : typographic(Number(value).toFixed(2)));
@@ -314,6 +314,16 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
       ? `${label(value)}${unit}`
       : typographic(Number(value).toFixed(2))),
   };
+}
+
+/**
+ * How a physical unit is written beside a ramp label: the lab's summed energy
+ * in GeV, the Event Inspector's areal density in GeV per mm².
+ */
+export function unitSuffix(unit) {
+  if (unit === 'GeV/mm^2') return 'GeV/mm²';
+  if (unit === 'GeV/mm^2/event') return 'GeV/mm²/event';
+  return unit === 'GeV' || !unit ? 'GeV' : String(unit);
 }
 
 /** Whether a scale is signed and takes the diverging PuOr ramp. */

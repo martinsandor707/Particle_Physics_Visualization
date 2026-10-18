@@ -69,17 +69,23 @@ export class Shell {
     this.toggle?.addEventListener('click', () => this.toggleSidebar());
     this.closeButton?.addEventListener('click', () => this.closeInspector());
 
-    for (const card of document.querySelectorAll('.card[data-panel]')) {
-      const panelId = card.dataset.panel;
-      const button = card.querySelector('[data-inspect]');
-      button?.addEventListener('click', () => this.toggleInspector(panelId, button));
+    // One delegated listener rather than one per card: the Event Inspector
+    // and the compare-frames view build their eighteen cards after the shell
+    // exists, and every card with a `data-panel` is a drawer target.
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-inspect]');
+      if (button) {
+        this.toggleInspector(button.dataset.inspect, button);
+        return;
+      }
       // The title row opens the drawer too; its own buttons keep their jobs.
-      card.querySelector('h2')?.addEventListener('click', (event) => {
-        // The toolbar and its gaps are the buttons' territory, not a trigger.
-        if (event.target.closest('button, a, input, .seg, .card-actions')) return;
-        this.toggleInspector(panelId, button);
-      });
-    }
+      const heading = event.target.closest('.card[data-panel] > h2');
+      if (!heading) return;
+      // The toolbar and its gaps are the buttons' territory, not a trigger.
+      if (event.target.closest('button, a, input, .seg, .card-actions')) return;
+      const card = heading.closest('.card[data-panel]');
+      this.toggleInspector(card.dataset.panel, card.querySelector('[data-inspect]'));
+    });
 
     // Escape closes the drawer, unless an overlay that owns the keypress is
     // open: a modal (which traps focus), a popover or the export menu. Those

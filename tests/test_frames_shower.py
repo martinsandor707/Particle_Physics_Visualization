@@ -335,3 +335,146 @@ def test_a_density_bundle_is_reused_across_models(cursor, shower):
     bundle, *_, cached = shower_frames.density_bundle_for(
         cursor, record, shower["spec"], settings, "trans", footprint, False, 100.0, "angle")
     assert cached is True
+
+
+# --------------------------------------------- the motion inside the scan --
+#
+# Every per-shower scan applies the shower's SE(3) element (query/frame_sql.py)
+# to the laboratory lattice beside the file's own columns, and reports the
+# largest difference. With `coordinates=computed` the panels are binned from
+# the motion's coordinates and need no `*_trans` / `*_local` columns at all.
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_scan_reports_a_residual_within_the_ingest_tolerance(shower, kind):
+    bundle = shower["bundles"][kind, "segmentation"][0]
+    assert bundle.coordinate_source == shower_frames.SOURCE_FILE
+    assert bundle.coordinate_residual_mm is not None
+    assert 0.0 <= bundle.coordinate_residual_mm <= shower_frames.COORDINATE_TOLERANCE_MM
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_computed_coordinates_are_cached_apart_and_conserve_energy(cursor, shower, kind):
+    record, settings, footprint, spec = (shower[k] for k in ("record", "settings", "footprint", "spec"))
+    computed, _, grid, k, cached = shower_frames.bundle_for(
+        cursor, record, spec, settings, kind, footprint, False, 100.0, "segmentation",
+        source=shower_frames.SOURCE_COMPUTED)
+    assert cached is False, "the computed source must not be served from the file-source entry"
+    assert computed.coordinate_source == shower_frames.SOURCE_COMPUTED
+    file_bundle = shower["bundles"][kind, "segmentation"][0]
+    assert computed.total_energy + computed.energy_outside == pytest.approx(
+        file_bundle.total_energy + file_bundle.energy_outside, rel=1e-12)
+    assert computed.coordinate_residual_mm == pytest.approx(file_bundle.coordinate_residual_mm, abs=1e-9)
+    # A hit lands in another bin only if its two coordinates straddle an
+    # edge, which a sub-0.01 mm residual can do to a vanishing share of them.
+    moved = sum(float(np.abs(computed.panel(n).planes["e"] - file_bundle.panel(n).planes["e"]).sum())
+                for n in ("xy", "yz", "xz"))
+    assert moved <= 1e-3 * 3 * file_bundle.total_energy
+    # The second request is a cache hit of its own.
+    _, _, _, _, again = shower_frames.bundle_for(
+        cursor, record, spec, settings, kind, footprint, False, 100.0, "segmentation",
+        source=shower_frames.SOURCE_COMPUTED)
+    assert again is True
+
+
+def test_the_computed_local_panels_equal_the_motion_applied_in_numpy(cursor, shower):
+    """The in-scan motion is grid/frame.py's: the same bundle as the file test,
+    with the file's x/y/z_local replaced by `per_shower_local` of the lattice."""
+    record, settings, footprint, spec = (shower[k] for k in ("record", "settings", "footprint", "spec"))
+    bundle, _, grid, k, _ = shower_frames.bundle_for(
+        cursor, record, spec, settings, "local", footprint, False, 100.0, "segmentation",
+        source=shower_frames.SOURCE_COMPUTED)
+    wx, wy = footprint
+    wz = record.frame_bounds.layer_pitch_mm
+    proj = quote(naming.proj_table(record.table_name))
+    event = quote(naming.event_table(record.table_name))
+    rows = cursor.execute(
+        f"""SELECT p.ix, p.iy, p.iz, p.kt, p.energy,
+                   CAST(CASE WHEN p.org = 0 THEN e.theta_a ELSE e.theta_b END AS DOUBLE) AS t,
+                   CAST(CASE WHEN p.org = 0 THEN e.phi_a ELSE e.phi_b END AS DOUBLE) AS f,
+                   CASE WHEN p.org = 0 THEN e.p0ax ELSE e.p0bx END AS px,
+                   CASE WHEN p.org = 0 THEN e.p0ay ELSE e.p0by END AS py,
+                   CASE WHEN p.org = 0 THEN e.p0az ELSE e.p0bz END AS pz
+            FROM {proj} p JOIN {event} e USING (event_number) WHERE e.d IS NOT NULL"""
+    ).fetchnumpy()
+    lat = record.lattice
+    lab = np.column_stack([lat.x.coords[np.asarray(rows["ix"], int)],
+                           lat.y.coords[np.asarray(rows["iy"], int)],
+                           lat.z.coords[np.asarray(rows["iz"], int)]])
+    p0 = np.column_stack([np.asarray(rows[c], float) for c in ("px", "py", "pz")])
+    t, f = np.asarray(rows["t"], float), np.asarray(rows["f"], float)
+    local = frame_mod.per_shower_local(p0, t, f).apply(lab)
+    xl, yl, zl = local[:, 0], local[:, 1], local[:, 2]
+    e = np.asarray(rows["energy"], dtype=np.float64)
+    kt = np.asarray(rows["kt"], dtype=np.int64)
+    k_z = bundle.k_z
+    offsets = [((a + 0.5) / k - 0.5, (b + 0.5) / k - 0.5, (c + 0.5) / k_z - 0.5)
+               for a in range(k) for b in range(k) for c in range(k_z)]
+    ct, st, cf, sf = np.cos(t), np.sin(t), np.cos(f), np.sin(f)
+    z_edges = grid.axis("z").edges
+    xz = np.zeros(grid.shape_xz)
+    xy = np.zeros(grid.shape_xy)
+    for fx, fy, fz in offsets:
+        ox, oy, oz = fx * wx, fy * wy, fz * wz
+        xs = xl + ct * cf * ox + ct * sf * oy - st * oz
+        ys = yl - sf * ox + cf * oy
+        zs = zl + st * cf * ox + st * sf * oy + ct * oz
+        jx = np.floor((xs + grid.half_x) / grid.pitch).astype(int)
+        jy = np.floor((ys + grid.half_y) / grid.pitch).astype(int)
+        jz = np.floor((zs - z_edges[0]) / wz).astype(int)
+        ok = (jx >= 0) & (jx < grid.n_x) & (jy >= 0) & (jy < grid.n_y) & (jz >= 0) & (jz < grid.n_z)
+        np.add.at(xz, (jx[ok], jz[ok]), e[ok] / len(offsets))
+        slab = ok & (kt <= record.lattice.slab_iz)
+        np.add.at(xy, (jy[slab], jx[slab]), e[slab] / len(offsets))
+    scale = e.sum()
+    np.testing.assert_allclose(bundle.xz.planes["e"], xz, rtol=0, atol=1e-9 * scale)
+    np.testing.assert_allclose(bundle.xy.planes["e"], xy, rtol=0, atol=1e-9 * scale)
+
+
+def test_the_computed_translated_panels_equal_the_motion_applied_in_numpy(cursor, shower):
+    record, settings, footprint, spec = (shower[k] for k in ("record", "settings", "footprint", "spec"))
+    bundle, _, grid, _, _ = shower_frames.bundle_for(
+        cursor, record, spec, settings, "trans", footprint, False, 100.0, "segmentation",
+        source=shower_frames.SOURCE_COMPUTED)
+    wx, wy = footprint
+    pitch = record.frame_bounds.layer_pitch_mm
+    proj = quote(naming.proj_table(record.table_name))
+    event = quote(naming.event_table(record.table_name))
+    rows = cursor.execute(
+        f"""SELECT p.ix, p.iy, p.iz, p.energy,
+                   CASE WHEN p.org = 0 THEN e.p0ax ELSE e.p0bx END AS px,
+                   CASE WHEN p.org = 0 THEN e.p0ay ELSE e.p0by END AS py,
+                   CASE WHEN p.org = 0 THEN e.p0az ELSE e.p0bz END AS pz
+            FROM {proj} p JOIN {event} e USING (event_number) WHERE e.d IS NOT NULL"""
+    ).fetchnumpy()
+    lat = record.lattice
+    lab = np.column_stack([lat.x.coords[np.asarray(rows["ix"], int)],
+                           lat.y.coords[np.asarray(rows["iy"], int)],
+                           lat.z.coords[np.asarray(rows["iz"], int)]])
+    p0 = np.column_stack([np.asarray(rows[c], float) for c in ("px", "py", "pz")])
+    moved = frame_mod.per_shower_translated(p0).apply(lab)
+    xt, yt = moved[:, 0], moved[:, 1]
+    kt = np.rint(moved[:, 2] / pitch).astype(np.int64)
+    e = np.asarray(rows["energy"], dtype=np.float64)
+    inside = ((xt - wx / 2 >= -grid.half_x) & (xt + wx / 2 <= grid.half_x)
+              & (yt - wy / 2 >= -grid.half_y) & (yt + wy / 2 <= grid.half_y) & (kt < grid.n_z))
+    ox = _overlap(xt - wx / 2, xt + wx / 2, grid.x_edges)
+    oy = _overlap(yt - wy / 2, yt + wy / 2, grid.y_edges)
+    xz = np.zeros(grid.shape_xz)
+    for layer in range(grid.n_z):
+        sel = inside & (kt == layer)
+        xz[:, layer] = (e[sel, None] * ox[sel]).sum(0)
+    scale = e.sum()
+    np.testing.assert_allclose(bundle.xz.planes["e"], xz, rtol=0, atol=1e-9 * scale)
+    assert bundle.energy_outside == pytest.approx(float(e[~inside].sum()), rel=1e-9, abs=1e-15)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_each_computed_query_scans_the_projection_table_once(cursor, shower, kind):
+    bundle, _, grid, k, _ = shower["bundles"][kind, "segmentation"]
+    plan = shower_frames.explain(cursor, shower["record"], shower["spec"], grid, kind,
+                                 shower["footprint"], k, bundle.k_z,
+                                 source=shower_frames.SOURCE_COMPUTED)
+    table = naming.proj_table(shower["record"].table_name)
+    for part in plan.split("\n----\n"):
+        assert part.count(table) == 1
