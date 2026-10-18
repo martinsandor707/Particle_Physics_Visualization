@@ -28,6 +28,17 @@ over its physical footprint in both frames - by different means:
 
 Depth is each shower's own layers counted from its first (translated) or
 uniform bins of the layer pitch along w (local); it is never smoothed.
+
+**Where the coordinates come from.** Every scan joins the shower's SE(3)
+element from ``query/frame_sql.py`` (the file's own P0 and (theta, phi), as
+the event table holds them) and applies it to the hit's laboratory lattice
+position inside the scan, so each hit has two sets of frame coordinates: the
+file's columns and the motion's own. The ``file`` source (the default) bins
+the file's columns, as the frames always did; ``computed`` bins the motion's,
+which needs no ``*_trans`` / ``*_local`` columns at all. Either way the
+largest difference between the two over the selection is aggregated in the
+same scan and reported with every response, beside the ingest-time figure,
+so a reader can see that the two are interchangeable - or that they are not.
 """
 
 from __future__ import annotations
@@ -50,11 +61,13 @@ from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
 from ..grid.frame import CanonicalGrid, KIND_LOCAL, KIND_TRANS
 from ..grid.lattice import Axis, Lattice
+from . import frame_sql
 from . import planes as planes_mod
 from .canonical import Moments, _column
 from . import cache as cache_mod
 from . import canonical, density, filters
 from .filters import FilterSpec
+from .frame_sql import SOURCE_COMPUTED, SOURCE_FILE
 from .projections import GID_XY, GID_XZ, GID_YZ, PLANES, Panel
 
 log = logging.getLogger(__name__)
@@ -74,6 +87,16 @@ SPLAT_REGIME = {KIND_TRANS: "box_overlap", KIND_LOCAL: "subdeposit3d"}
 
 #: Planes whose outside-grid mass is tracked besides energy.
 OUTSIDE_PLANES = ("eg", "esp", "esn")
+
+#: The largest difference between the file's frame coordinates and the
+#: motion's own at which the two are called interchangeable: the ingest
+#: tolerance of the rotation check (``ingest/verify.py``).
+COORDINATE_TOLERANCE_MM = 0.01
+
+#: The ingest-report value each frame's residual is read beside: the
+#: translation is rigid to ``p0_spread_mm``, the rotation to
+#: ``rotation_residual_mm``.
+INGEST_RESIDUAL_KEY = {KIND_TRANS: "p0_spread_mm", KIND_LOCAL: "rotation_residual_mm"}
 
 
 # ------------------------------------------------------------ statistics --
@@ -225,6 +248,10 @@ class ShowerBundle:
     sample_percent: float = 100.0
     model: str = "segmentation"
     plane_outside: dict[str, float] = field(default_factory=dict)
+    #: Which coordinates the panels were binned from (``frame_sql.SOURCES``),
+    #: and the largest |file - computed| over the selection's hits, in mm.
+    coordinate_source: str = SOURCE_FILE
+    coordinate_residual_mm: float | None = None
 
     @property
     def splat_regime(self) -> str:
@@ -298,6 +325,51 @@ def _values(model: str, kind: str) -> list[tuple[str, str]]:
     return [(plane, "1.0" if expr is None else expr) for plane, expr in planes_mod.measures(kind, model)]
 
 
+def _params(record: ExperimentRecord, spec: FilterSpec) -> dict[str, Any]:
+    """The filter's parameters plus the lattice coordinate arrays the motion reads."""
+    assert record.lattice is not None
+    return {
+        **spec.params(),
+        "x_coords": [float(v) for v in record.lattice.x.coords],
+        "y_coords": [float(v) for v in record.lattice.y.coords],
+        "z_coords": [float(v) for v in record.lattice.z.coords],
+    }
+
+
+def _hit_frame_sql(kind: str, record: ExperimentRecord, spec: FilterSpec, columns: str,
+                   proj: str, event: str, layer_pitch: float) -> str:
+    """The ``fr`` CTE and a ``hit`` CTE carrying both coordinate sets of every hit.
+
+    ``hit`` holds the file's own frame coordinates (``xf, yf, zf``; the
+    translated depth as ``kt * pitch``), the motion's (``xc, yc, zc``), their
+    largest difference ``resid`` and the rotation entries ``r11 .. r33``, so
+    the two scans below choose a source and aggregate the residual without
+    repeating any of it.
+    """
+    xc, yc, zc = frame_sql.transform_sql("hx", "hy", "hz", "f.")
+    if kind == KIND_TRANS:
+        file_xyz = ("CAST(p.xt AS DOUBLE)", "CAST(p.yt AS DOUBLE)",
+                    f"CAST(p.kt AS DOUBLE) * {float(layer_pitch)!r}::DOUBLE")
+    else:
+        file_xyz = ("CAST(p.xl AS DOUBLE)", "CAST(p.yl AS DOUBLE)", "CAST(p.zl AS DOUBLE)")
+    return f"""{frame_sql.shower_frame_cte(event, spec.where_sql(), kind)}, hit AS (
+        SELECT p.event_number, p.kt, p.energy, {columns},
+               {file_xyz[0]} AS xf, {file_xyz[1]} AS yf, {file_xyz[2]} AS zf,
+               {xc} AS xc, {yc} AS yc, {zc} AS zc,
+               f.r11, f.r12, f.r13, f.r21, f.r22, f.r23, f.r31, f.r32, f.r33
+        FROM (SELECT p.event_number, p.org, p.kt, p.xt, p.yt, p.xl, p.yl, p.zl, p.energy, {columns},
+                     list_extract($x_coords, p.ix + 1) AS hx,
+                     list_extract($y_coords, p.iy + 1) AS hy,
+                     list_extract($z_coords, p.iz + 1) AS hz
+              FROM {proj} p WHERE {spec.where_sql("p")} AND p.d IS NOT NULL) p
+        JOIN fr f ON p.event_number = f.event_number
+                 AND f.b = CASE WHEN p.org = {ddl.ORIGIN_A} THEN 0 ELSE 1 END
+    ), src AS (
+        SELECT *, greatest(abs(xc - xf), abs(yc - yf), abs(zc - zf)) AS resid
+        FROM hit
+    )"""
+
+
 # ------------------------------------------------ translated: box overlap --
 
 
@@ -350,7 +422,8 @@ def box_overlap_operator(n_bins: int, width: float, pitch: float, key_lo: int, k
 OUTSIDE_KEY = -(1 << 30)
 
 
-def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]:
+def _trans_sql(record, spec, grid, footprint, model, sampled, layer_pitch,
+               source=SOURCE_FILE) -> tuple[str, str]:
     """The XY (entrance slab) and depth moment queries of the translated frame.
 
     A hit whose footprint is not wholly inside the accumulation grid is counted
@@ -360,9 +433,14 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
     with plain sums and no FILTER on the hot path. The grid is planned from
     the dataset's 1e-4 and 0.9999 energy quantiles plus half a footprint, so
     this is a thin tail.
+
+    ``source`` picks the file's own ``x/y_trans`` and own-shower layer or the
+    motion's (``_hit_frame_sql``); the residual between the two rides along
+    the depth query as a ``max`` aggregate and never touches the sums.
     """
     assert record.lattice is not None
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
+    event = quote(naming.event_table(record.table_name))
     wx, wy = (float(v) for v in footprint)
     p = float(grid.pitch)
     rx = wx / p - math.floor(wx / p)
@@ -371,17 +449,21 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
     per_hit = ",\n               ".join(f"CAST({value} AS DOUBLE) AS v_{plane}" for plane, value in values)
     carried = ", ".join(f"v_{plane}" for plane, _ in values)
     columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_TRANS))
+    if source == SOURCE_FILE:
+        pos_x, pos_y, pos_k = "xf", "yf", "kt"
+    else:
+        pos_x, pos_y = "xc", "yc"
+        pos_k = f"CAST(round(zc / {float(layer_pitch)!r}::DOUBLE) AS INTEGER)"
     # Every coordinate and constant is DOUBLE: a REAL column combined with a
     # decimal literal is evaluated in single precision, which cost the edge
     # fractions 1e-4 of relative precision against a brute-force overlap.
     base = f"""
-    WITH pos AS (
-        SELECT kt, CAST(xt AS DOUBLE) AS x, CAST(yt AS DOUBLE) AS y,
+    WITH {_hit_frame_sql(KIND_TRANS, record, spec, columns, proj, event, layer_pitch)}, pos AS (
+        SELECT {pos_k} AS kt, {pos_x} AS x, {pos_y} AS y, resid,
                {per_hit}
-        FROM (SELECT p.kt, p.xt, p.yt, p.energy, {columns}
-              FROM {proj} p WHERE {spec.where_sql("p")} AND p.d IS NOT NULL)
+        FROM src
     ), sel AS (
-        SELECT kt, {carried},
+        SELECT kt, {carried}, resid,
                (x - {0.5 * wx!r}::DOUBLE + {grid.half_x!r}::DOUBLE) / {p!r}::DOUBLE AS ux,
                (y - {0.5 * wy!r}::DOUBLE + {grid.half_y!r}::DOUBLE) / {p!r}::DOUBLE AS uy,
                (x - {0.5 * wx!r}::DOUBLE < -{grid.half_x!r}::DOUBLE
@@ -391,7 +473,7 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
                 OR kt >= {grid.n_z}) AS outside
         FROM pos
     ), keyed AS (
-        SELECT kt, {carried}, outside,
+        SELECT kt, {carried}, outside, resid,
                ux - floor(ux) AS fx, uy - floor(uy) AS fy,
                CASE WHEN outside THEN {OUTSIDE_KEY} ELSE CAST(2 * floor(ux)
                     + CASE WHEN ux - floor(ux) >= {1.0 - rx!r}::DOUBLE THEN 1 ELSE 0 END AS BIGINT)
@@ -413,7 +495,8 @@ def _trans_sql(record, spec, grid, footprint, model, sampled) -> tuple[str, str]
     SELECT kx, ky, {", ".join(xy_parts)}
     FROM keyed WHERE kt <= {record.lattice.slab_iz} AND NOT outside GROUP BY kx, ky"""
     depth_sql = base + f"""
-    SELECT GROUPING_ID(kx, ky, jt) AS gid, kx, ky, jt AS kt, {", ".join(depth_parts)}
+    SELECT GROUPING_ID(kx, ky, jt) AS gid, kx, ky, jt AS kt, max(resid) AS resid,
+           {", ".join(depth_parts)}
     FROM keyed GROUP BY GROUPING SETS ((ky, jt), (kx, jt))"""
     return xy_sql, depth_sql
 
@@ -424,9 +507,15 @@ def _dense(keys_r, keys_c, values, lo_r, n_r, lo_c, n_c) -> np.ndarray:
     return out
 
 
-def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
-    xy_sql, depth_sql = _trans_sql(record, spec, grid, footprint, model, sampled)
-    params = spec.params()
+def _residual(columns: dict[str, Any]) -> float | None:
+    """The largest |file - computed| coordinate difference the scan aggregated."""
+    values = np.nan_to_num(_column(columns, "resid"), nan=-1.0)
+    return float(values.max()) if values.size and values.max() >= 0 else None
+
+
+def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch, source):
+    xy_sql, depth_sql = _trans_sql(record, spec, grid, footprint, model, sampled, layer_pitch, source)
+    params = _params(record, spec)
     started = time.perf_counter()
     xy_cols = con.execute(xy_sql, params).fetchnumpy()
     depth_cols = con.execute(depth_sql, params).fetchnumpy()
@@ -485,23 +574,29 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled):
     outside = {plane: float(np.nan_to_num(_column(depth_cols, f"{plane}_0")[out_rows]).sum())
                for plane in PLANES}
     n_hits = int(round(float(xz_panel.planes["n"].sum()) + outside["n"]))
-    return (xy_panel, yz_panel, xz_panel), outside, n_hits, query_ms
+    return (xy_panel, yz_panel, xz_panel), outside, n_hits, query_ms, _residual(depth_cols)
 
 
 # ----------------------------------------------------- local: sub-deposits --
 
 
-def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled) -> tuple[str, str]:
+def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled,
+               source=SOURCE_FILE) -> tuple[str, str]:
     """The X'Y' (entrance slab) and depth queries of the local frame.
 
-    Each hit joins its own shower's rotation - a 40 000-row CTE from the event
-    table - and is split into ``k x k x k_z`` sub-deposits whose offsets over
-    the cell's footprint box are rotated by that R. Every plane value is
-    divided by the sub-deposit count once per hit, before the split, so the
-    aggregation is nine plain sums. A sub-deposit outside the grid is binned at
-    the sentinel key -1 on every axis; its group carries the outside mass, so
-    inside + outside equals the hits' sums with no FILTER on the hot path.
-    The slab panel runs as its own query over slab rows only.
+    Each hit joins its own shower's SE(3) element - a 40 000-row CTE from the
+    event table (``query/frame_sql.py``) - and is split into ``k x k x k_z``
+    sub-deposits whose offsets over the cell's footprint box are rotated by
+    that R. Every plane value is divided by the sub-deposit count once per
+    hit, before the split, so the aggregation is nine plain sums. A
+    sub-deposit outside the grid is binned at the sentinel key -1 on every
+    axis; its group carries the outside mass, so inside + outside equals the
+    hits' sums with no FILTER on the hot path. The slab panel runs as its own
+    query over slab rows only.
+
+    ``source`` picks the file's own ``x/y/z_local`` or the motion's as the
+    sub-deposits' centre; the residual between the two rides along the depth
+    query as a ``max`` aggregate.
     """
     assert record.lattice is not None
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
@@ -518,42 +613,26 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
     carried = ", ".join(f"v_{plane}" for plane, _ in values)
     sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in values)
     columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_LOCAL))
+    cx, cy, cz = ("xf", "yf", "zf") if source == SOURCE_FILE else ("xc", "yc", "zc")
     base = f"""
-    WITH ev AS (
-        SELECT event_number, theta_a, phi_a, theta_b, phi_b
-        FROM {event}
-        WHERE {spec.where_sql()} AND d IS NOT NULL
-    ), sh AS (
-        SELECT event_number, 0 AS b, CAST(theta_a AS DOUBLE) AS t, CAST(phi_a AS DOUBLE) AS f FROM ev
-        UNION ALL
-        SELECT event_number, 1 AS b, CAST(theta_b AS DOUBLE), CAST(phi_b AS DOUBLE) FROM ev
-    ), rot AS (
-        SELECT event_number, b,
-               cos(t) * cos(f) AS r11, cos(t) * sin(f) AS r12, -sin(t) AS r13,
-               -sin(f) AS r21, cos(f) AS r22,
-               sin(t) * cos(f) AS r31, sin(t) * sin(f) AS r32, cos(t) AS r33
-        FROM sh
-    ), sub AS (
+    WITH {_hit_frame_sql(KIND_LOCAL, record, spec, columns, proj, event, layer_pitch)}, sub AS (
         SELECT ((u.range + 0.5) / {k} - 0.5) * {wx!r}::DOUBLE AS ox,
                ((v.range + 0.5) / {k} - 0.5) * {wy!r}::DOUBLE AS oy,
                ((w.range + 0.5) / {k_z} - 0.5) * {wz!r}::DOUBLE AS oz
         FROM range({k}) u, range({k}) v, range({k_z}) w
-    ), hit AS (
-        SELECT p.kt, CAST(p.xl AS DOUBLE) AS xl, CAST(p.yl AS DOUBLE) AS yl,
-               CAST(p.zl AS DOUBLE) AS zl, r.r11, r.r12, r.r13, r.r21, r.r22, r.r31, r.r32, r.r33,
+    ), centre AS (
+        SELECT kt, {cx} AS xl, {cy} AS yl, {cz} AS zl, resid,
+               r11, r12, r13, r21, r22, r31, r32, r33,
                {per_hit}
-        FROM (SELECT p.event_number, p.org, p.kt, p.xl, p.yl, p.zl, p.energy, {columns}
-              FROM {proj} p WHERE {spec.where_sql("p")}) p
-        JOIN rot r ON p.event_number = r.event_number
-                  AND r.b = CASE WHEN p.org = {ddl.ORIGIN_A} THEN 0 ELSE 1 END
+        FROM src
     ), pts AS (
-        SELECT kt, {carried},
+        SELECT kt, {carried}, resid,
                xl + r11 * ox + r12 * oy + r13 * oz AS xs,
                yl + r21 * ox + r22 * oy AS ys,
                zl + r31 * ox + r32 * oy + r33 * oz AS zs
-        FROM hit, sub
+        FROM centre, sub
     ), binned AS (
-        SELECT kt, {carried},
+        SELECT kt, {carried}, resid,
                (xs < -{grid.half_x!r}::DOUBLE OR xs >= {grid.half_x!r}::DOUBLE
                 OR ys < -{grid.half_y!r}::DOUBLE OR ys >= {grid.half_y!r}::DOUBLE
                 OR zs < {z0!r}::DOUBLE OR zs >= {z1!r}::DOUBLE) AS outside,
@@ -562,7 +641,7 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
                CAST(floor((zs - {z0!r}::DOUBLE) / {wz!r}::DOUBLE) AS INTEGER) AS iz_
         FROM pts
     ), keyed AS (
-        SELECT kt, {carried},
+        SELECT kt, {carried}, resid,
                CASE WHEN outside THEN -1 ELSE ix_ END AS jx,
                CASE WHEN outside THEN -1 ELSE iy_ END AS jy,
                CASE WHEN outside THEN -1 ELSE iz_ END AS jz
@@ -573,15 +652,16 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
     FROM keyed WHERE kt <= {record.lattice.slab_iz}
     GROUP BY jx, jy"""
     depth_sql = base + f"""
-    SELECT GROUPING_ID(jx, jy, jz) AS gid, jx, jy, jz, {sums}
+    SELECT GROUPING_ID(jx, jy, jz) AS gid, jx, jy, jz, max(resid) AS resid, {sums}
     FROM keyed
     GROUP BY GROUPING SETS ((jy, jz), (jx, jz))"""
     return xy_sql, depth_sql
 
 
-def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled):
-    xy_sql, depth_sql = _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled)
-    params = spec.params()
+def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled, source):
+    xy_sql, depth_sql = _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model,
+                                   sampled, source)
+    params = _params(record, spec)
     started = time.perf_counter()
     xy_cols = con.execute(xy_sql, params).fetchnumpy()
     depth_cols = con.execute(depth_sql, params).fetchnumpy()
@@ -611,7 +691,7 @@ def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model,
     outside = {plane: float(np.nan_to_num(_column(depth_cols, plane)[outside_rows]).sum())
                for plane in PLANES}
     n_hits = int(round(float(xz.planes["n"].sum()) + outside["n"]))
-    return (xy, yz, xz), outside, n_hits, query_ms
+    return (xy, yz, xz), outside, n_hits, query_ms, _residual(depth_cols)
 
 
 # ------------------------------------------------------------- the entry --
@@ -630,16 +710,22 @@ def fetch(
     model: str = "segmentation",
     sampled: bool = False,
     sample_percent: float = 100.0,
+    source: str = SOURCE_FILE,
 ) -> ShowerBundle:
-    """Run the accumulation scan of one per-shower frame and assemble its panels."""
+    """Run the accumulation scan of one per-shower frame and assemble its panels.
+
+    ``source`` is where the frame coordinates come from (``frame_sql.SOURCES``).
+    """
     assert record.lattice is not None and record.frame_bounds is not None
+    if source not in frame_sql.SOURCES:
+        raise ValueError(f"unknown coordinate source {source!r}")
+    pitch = record.frame_bounds.layer_pitch_mm
     if kind == KIND_TRANS:
-        panels, outside, n_hits, query_ms = _fetch_trans(
-            con, record, spec, grid, footprint, model, sampled)
+        panels, outside, n_hits, query_ms, residual = _fetch_trans(
+            con, record, spec, grid, footprint, model, sampled, pitch, source)
     else:
-        panels, outside, n_hits, query_ms = _fetch_local(
-            con, record, spec, grid, footprint, record.frame_bounds.layer_pitch_mm,
-            k, k_z, model, sampled)
+        panels, outside, n_hits, query_ms, residual = _fetch_local(
+            con, record, spec, grid, footprint, pitch, k, k_z, model, sampled, source)
     xy, yz, xz = panels
     bundle = ShowerBundle(
         xy=xy, yz=yz, xz=xz, grid=grid, stats=stats, lattice=record.lattice, kind=kind,
@@ -649,9 +735,11 @@ def fetch(
         exact=not sampled, query_ms=query_ms, n_hits=n_hits,
         sample_percent=sample_percent, model=model,
         plane_outside={p: float(outside.get(p, 0.0)) for p in OUTSIDE_PLANES},
+        coordinate_source=source, coordinate_residual_mm=residual,
     )
-    log.debug("%s-frame scan for %s in %.1f ms (%s hits, k=%d, k_z=%d, sampled=%s)",
-              kind, record.table_name, query_ms, f"{n_hits:,}", k, k_z, sampled)
+    log.debug("%s-frame scan for %s in %.1f ms (%s hits, k=%d, k_z=%d, sampled=%s, %s coordinates, "
+              "residual %s mm)", kind, record.table_name, query_ms, f"{n_hits:,}", k, k_z, sampled,
+              source, residual)
     return bundle
 
 
@@ -669,16 +757,17 @@ def scale_sample(bundle: ShowerBundle, percent: float) -> ShowerBundle:
     return bundle
 
 
-def explain(con, record, spec, grid, kind, footprint, k, k_z, model="segmentation") -> str:
+def explain(con, record, spec, grid, kind, footprint, k, k_z, model="segmentation",
+            source=SOURCE_FILE) -> str:
     """``EXPLAIN`` of the scan(s), for the single-scan test."""
+    pitch = record.frame_bounds.layer_pitch_mm
     if kind == KIND_TRANS:
-        sqls = _trans_sql(record, spec, grid, footprint, model, False)
+        sqls = _trans_sql(record, spec, grid, footprint, model, False, pitch, source)
     else:
-        sqls = _local_sql(record, spec, grid, footprint, record.frame_bounds.layer_pitch_mm,
-                          k, k_z, model, False)
+        sqls = _local_sql(record, spec, grid, footprint, pitch, k, k_z, model, False, source)
     out = []
     for sql in sqls:
-        rows = con.execute("EXPLAIN " + sql, spec.params()).fetchall()
+        rows = con.execute("EXPLAIN " + sql, _params(record, spec)).fetchall()
         out.append("\n".join(str(r[-1]) for r in rows))
     return "\n----\n".join(out)
 
@@ -733,6 +822,7 @@ def bundle_for(
     percent: float,
     model: str = "segmentation",
     k_z: int = frame_mod.LOCAL_K_Z,
+    source: str = SOURCE_FILE,
 ) -> tuple[ShowerBundle, ShowerStats, CanonicalGrid, int, bool]:
     """Statistics, grid, sub-sampling factor and the (cached) bundle of a per-shower frame.
 
@@ -740,7 +830,8 @@ def bundle_for(
     (``plan_shower_window``), so it never depends on the selection. The
     translated frame integrates each footprint exactly and has no ``k``
     (reported as 1); the local frame chooses ``k >= 2`` from the row budget at
-    ``k * k * k_z`` rows per hit, capped for the drag preview.
+    ``k * k * k_z`` rows per hit, capped for the drag preview. ``source`` is
+    the coordinate source (``frame_sql.SOURCES``) and is part of the cache key.
     """
     assert record.lattice is not None and record.frame_bounds is not None
     spec = spec.clamped(record)
@@ -754,11 +845,12 @@ def bundle_for(
         if sampled:
             k = min(k, frame_mod.PREVIEW_MAX_SUBSAMPLE)
 
-    key = canonical.cache_key(spec, sampled, grid, k, footprint, model, kind=kind, k_z=k_z)
+    key = canonical.cache_key(spec, sampled, grid, k, footprint, model, kind=kind, k_z=k_z,
+                              source=source)
 
     def compute() -> ShowerBundle:
         bundle = fetch(con, record, spec, stats, grid, kind, footprint, k, k_z,
-                       model=model, sampled=sampled, sample_percent=percent)
+                       model=model, sampled=sampled, sample_percent=percent, source=source)
         if sampled:
             scale_sample(bundle, percent)
         return bundle
@@ -768,7 +860,8 @@ def bundle_for(
     return bundle, stats, grid, k, was_cached
 
 
-def density_bundle_for(con, record, spec, settings, kind, footprint, sampled, percent, model):
+def density_bundle_for(con, record, spec, settings, kind, footprint, sampled, percent, model,
+                       source=SOURCE_FILE):
     """As :func:`bundle_for`, but reuse any network's cached bundle: density reads no CAM plane."""
     assert record.frame_bounds is not None
     clamped = spec.clamped(record)
@@ -782,12 +875,14 @@ def density_bundle_for(con, record, spec, settings, kind, footprint, sampled, pe
         k = frame_mod.choose_subsample_3d(rows_scanned, k_z)
         if sampled:
             k = min(k, frame_mod.PREVIEW_MAX_SUBSAMPLE)
-    keys = [canonical.cache_key(clamped, sampled, grid, k, footprint, m, kind=kind, k_z=k_z)
+    keys = [canonical.cache_key(clamped, sampled, grid, k, footprint, m, kind=kind, k_z=k_z,
+                                source=source)
             for m in (model, *ddl.MODELS)]
     hit = cache_for(settings, kind).get_any(keys)
     if hit is not None:
         return hit, stats, grid, k, True
-    return bundle_for(con, record, spec, settings, kind, footprint, sampled, percent, model)
+    return bundle_for(con, record, spec, settings, kind, footprint, sampled, percent, model,
+                      source=source)
 
 
 def dataset_reference(

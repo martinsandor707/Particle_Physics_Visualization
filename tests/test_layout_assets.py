@@ -204,3 +204,68 @@ def test_the_upload_form_lives_inside_the_admin_panel():
     assert "this.upload?.prepare()" in admin
     main = (JS / "main.js").read_text(encoding="utf-8")
     assert "Upload Dataset" not in main and "Open Admin Settings" in main
+
+
+# ------------------------------------------------------- the frame grids --
+
+
+def test_the_frame_grids_sit_in_main_after_the_ensemble_grid():
+    html = _html()
+    assert html.count('id="ensemble-grid"') == 1
+    assert '<section class="grid" id="ensemble-grid">' in html
+    for section in ("compare-grid", "event-grid"):
+        assert html.count(f'id="{section}"') == 1, section
+        assert f'<section class="frame-grid" id="{section}" hidden aria-labelledby="{section}-title">' in html
+        assert html.index('id="ensemble-grid"') < html.index(f'id="{section}"') < html.index("</main>")
+        for part in ("title", "label", "close", "rows"):
+            assert html.count(f'id="{section}-{part}"') == 1, f"{section}-{part}"
+    assert html.index('id="compare-grid"') < html.index('id="event-grid"')
+
+
+def test_the_event_picker_and_the_compare_toggle_live_in_the_sidebar():
+    html = _html()
+    sidebar = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
+    for element_id in ("event-number", "event-prev", "event-next", "event-pick", "event-close",
+                       "event-status", "event-caption", "info-event", "opt-compare", "ctl-event"):
+        assert sidebar.count(f'id="{element_id}"') == 1, element_id
+    assert sidebar.count('name="event-shower"') == 2
+    assert 'id="event-close" type="button" hidden' in sidebar
+    assert 'type="number" id="event-number" min="0" step="1"' in sidebar
+    # The toggle belongs to the reference-frame block, after its caption.
+    assert sidebar.index('id="frame-caption"') < sidebar.index('id="opt-compare"') < sidebar.index('id="ctl-event"')
+
+
+def test_the_frame_grid_cells_are_three_across_and_snap():
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    cells = re.search(r"\.frame-grid-cells \{\s*display: grid;\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);"
+                      r"\s*gap: var\(--gap\);\s*\}", css)
+    assert cells, "the grid cells rule is missing"
+    assert re.search(r"@container main \(max-width: \d+px\) \{\s*\.frame-grid-cells \{ grid-template-columns: minmax\(0, 1fr\); \}", css)
+    breakpoint = re.search(r"@media \(max-width: 1100px\) \{(.*?)\n\}", css, re.DOTALL)
+    assert ".frame-grid-cells { grid-template-columns: minmax(0, 1fr); }" in breakpoint.group(1)
+    assert ".frame-grid[hidden] { display: none; }" in css
+    assert ".frame-grid-row[hidden] { display: none; }" in css
+    section = css[css.index("3 x 3 frame grids"):css.index("details drawer")]
+    assert "transition" not in _strip_comments(section), "the frame grids snap, like every other track"
+
+
+def test_the_frame_grid_builds_cards_the_shell_and_the_export_menu_recognise():
+    grid = _strip_comments((JS / "panels" / "frame_grid.js").read_text(encoding="utf-8"))
+    for token in ("card.dataset.panel = id", "details.dataset.inspect = id", "exporter.dataset.export = id",
+                  "details.setAttribute('aria-controls', 'inspector')",
+                  "new ProjectionPanel(`plot-${id}`, { isometric: true })",
+                  "export const GRID_ROWS = ['lab', 'trans', 'local'];",
+                  "export const GRID_COLS = ['xy', 'xz', 'yz'];"):
+        assert token in grid, token
+    assert "innerHTML" not in grid
+    assert "plot area only" in (JS / "panels" / "frame_grid.js").read_text(encoding="utf-8")
+    # The charts are created when the grid is first shown, never into a hidden section.
+    assert re.search(r"show\(visible\) \{.*?this\.ensurePanels\(\);", grid, re.DOTALL)
+    shell = _strip_comments((JS / "shell.js").read_text(encoding="utf-8"))
+    assert "closest('[data-inspect]')" in shell and "'.card[data-panel] > h2'" in shell
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    assert "eventGrid.relayout()" in main and "compareGrid.relayout()" in main
+    assert "function applyViewMode()" in main and "setHidden('ensemble-grid'" in main
+    inspector = _strip_comments((JS / "event_inspector.js").read_text(encoding="utf-8"))
+    assert "'/api/event'" in inspector and "'/api/event/pick'" in inspector
+    assert "innerHTML" not in inspector

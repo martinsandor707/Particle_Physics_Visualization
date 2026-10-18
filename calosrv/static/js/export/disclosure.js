@@ -42,6 +42,11 @@ const FRAME_DEFINITION = {
   canonical: 'Separation-Aligned (D-Frame), Translated: each shower\'s 3-D '
     + 'centroid back-projected to the front face along its incident direction; '
     + 'entry midpoint at the origin, A→B entry separation along +x′, written D on the entry panel.',
+  // The same frame anchored on the notebook's origin (API anchor=p0).
+  canonical_p0: 'Separation-Aligned (D-Frame), Translated, anchored on P₀: each shower\'s '
+    + 'first-layer entry point P₀ (the energy-weighted centroid of its first populated layer) '
+    + 'back-projected to the front face along its incident direction; entry midpoint at the '
+    + 'origin, A→B entry separation along +x′, written D on the entry panel.',
   trans: TRANSLATED,
   local: 'Separation-Aligned (D-Frame), Local: every hit is moved by its own shower\'s entry point P₀ (energy-weighted '
     + 'x, y centroid of its first populated layer, at that layer\'s z) and rotated by that '
@@ -71,7 +76,7 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
   const out = [];
 
   if (coregistered) {
-    out.push(FRAME_DEFINITION[kind]);
+    out.push(canonical && frame.anchor_choice === 'p0' ? FRAME_DEFINITION.canonical_p0 : FRAME_DEFINITION[kind]);
     if (panelId === 'xy' && typeof payload.slab?.note === 'string') out.push(payload.slab.note);
     const counts = canonical ? frameCounts(frame) : showerCounts(frame);
     if (counts) out.push(counts);
@@ -104,10 +109,14 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
   }
 
   if (coregistered) {
+    const coordinates = frame.coordinates?.note;
+    if (!canonical && typeof coordinates === 'string' && coordinates) out.push(coordinates);
     if (canonical) {
       const ill = illConditioned(frame);
       if (ill) out.push(ill);
       if (panelId === 'xy') {
+        const residual = anchorResidual(frame);
+        if (residual) out.push(residual);
         const offsets = anchorOffsets(frame);
         if (offsets) out.push(offsets);
       }
@@ -147,6 +156,31 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
 
   void state;
   return out.filter((s) => typeof s === 'string' && s.length);
+}
+
+/**
+ * The distance between the two anchor definitions over the selection, read
+ * from `frame.anchor_residual`: a measured number behind a stated choice.
+ */
+function anchorResidual(frame) {
+  const residual = frame?.anchor_residual;
+  if (!residual || !frame?.anchor_choice) return null;
+  const parts = [];
+  for (const key of ['a', 'b']) {
+    const block = residual[key];
+    if (!block || !Number.isFinite(block.median)) continue;
+    let part = `shower ${SHOWER_NAME[key]} median ${mm(block.median)} mm`;
+    if (Number.isFinite(block.p90)) part += `, p90 ${mm(block.p90)} mm`;
+    if (Number.isFinite(residual.footprint_mm) && Number.isFinite(block.over_footprint)) {
+      part += `, ${formatInt(block.over_footprint)} ${plural(block.over_footprint, 'shower')} more than one cell footprint apart`;
+    }
+    parts.push(part);
+  }
+  if (!parts.length) return null;
+  const other = frame.anchor_choice === 'p0'
+    ? 'the back-projected 3-D centroid' : 'the back-projected first-layer entry point P₀';
+  return `Anchor = ${frame.anchor_choice}; the other definition (${other}) lands a transverse distance away `
+    + `of ${parts.join('; ')} (N = ${formatInt(residual.n)}).`;
 }
 
 /** Measured ensemble entry centroids relative to the anchors (§1.6 of the plan). */

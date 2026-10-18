@@ -225,6 +225,119 @@ def rotate_direction(u: Any, psi: Any) -> np.ndarray:
     return np.stack([c * ux + s * uy, -s * ux + c * uy, uz], axis=-1)
 
 
+# -------------------------------------------------------------------- SE(3) --
+#
+# Every co-registered view of the service is one rigid-body motion applied
+# per shower or per event: ``p' = R (p - a)``, an element of SE(3) with a
+# rotation ``R`` and an anchor ``a`` taken to the origin. Distances survive it
+# exactly, which is what makes energies of different showers addable after it.
+# The three instantiations below are the reference notebook's two frames and
+# the D-frame, expressed through one object so that the SQL scans, the
+# per-event inspector and the tests all read the same definition.
+
+
+def rotation_matrix(theta: Any, phi: Any) -> np.ndarray:
+    """``R(theta, phi) = R_y(theta) @ R_z(phi)``, shape ``(..., 3, 3)``.
+
+    The rotation of the reference notebook (``local-coords.ipynb``): a passive
+    rotation by ``phi`` about z, then by ``theta`` about the new y, so that the
+    incident direction :func:`unit_direction` becomes ``+z'``::
+
+        R = [[ cos t cos p,  cos t sin p, -sin t],
+             [-sin p,        cos p,        0    ],
+             [ sin t cos p,  sin t sin p,  cos t]]
+
+    At ``theta = 0`` it is the D-frame's rotation about the detector axis:
+    :func:`rotate_xy` with ``psi = phi``. Orthonormal with determinant +1 for
+    every argument, so the inverse is the transpose.
+    """
+    t = np.asarray(theta, dtype=np.float64)
+    p = np.asarray(phi, dtype=np.float64)
+    st, ct, sp, cp = np.sin(t), np.cos(t), np.sin(p), np.cos(p)
+    zero = np.zeros(np.broadcast(st, sp).shape, dtype=np.float64)
+    return np.stack([
+        np.stack([ct * cp, ct * sp, -st], axis=-1),
+        np.stack([-sp, cp, zero], axis=-1),
+        np.stack([st * cp, st * sp, ct], axis=-1),
+    ], axis=-2)
+
+
+def _rotate(r: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """``r @ v`` over leading batch dimensions: ``(..., 3, 3) x (..., 3) -> (..., 3)``."""
+    return np.einsum("...ij,...j->...i", r, np.asarray(v, dtype=np.float64))
+
+
+@dataclass(frozen=True)
+class Se3:
+    """A rigid-body motion ``p' = r @ p + t``.
+
+    ``r`` is ``(..., 3, 3)`` and ``t`` ``(..., 3)``; leading dimensions
+    broadcast against the points, so one element may move a cloud and a batch
+    of elements may each move its own point. Built from an anchor through
+    :meth:`about`, which is how every frame of the service is defined.
+    """
+
+    r: np.ndarray
+    t: np.ndarray
+
+    @classmethod
+    def about(cls, r: np.ndarray, anchor: Any) -> "Se3":
+        """The motion ``p' = r (p - anchor)``: ``anchor`` goes to the origin."""
+        r = np.asarray(r, dtype=np.float64)
+        return cls(r, -_rotate(r, anchor))
+
+    @property
+    def anchor(self) -> np.ndarray:
+        """The point this motion takes to the origin, ``-r^T t``."""
+        return -_rotate(np.swapaxes(self.r, -1, -2), self.t)
+
+    def apply(self, p: Any) -> np.ndarray:
+        """Move points ``(..., 3)``."""
+        return _rotate(self.r, p) + self.t
+
+    def apply_direction(self, u: Any) -> np.ndarray:
+        """Rotate direction vectors ``(..., 3)`` by the linear part alone."""
+        return _rotate(self.r, u)
+
+    def inverse(self) -> "Se3":
+        rt = np.swapaxes(self.r, -1, -2)
+        return Se3(rt, -_rotate(rt, self.t))
+
+
+def per_shower_translated(p0: Any) -> Se3:
+    """The notebook's *translated* frame: ``p' = p - P0``, no rotation."""
+    p0 = np.asarray(p0, dtype=np.float64)
+    identity = np.broadcast_to(np.eye(3), p0.shape[:-1] + (3, 3))
+    return Se3.about(identity, p0)
+
+
+def per_shower_local(p0: Any, theta: Any, phi: Any) -> Se3:
+    """The notebook's *local* frame: ``p' = R(theta, phi) (p - P0)``.
+
+    ``P0`` is the shower's entry point and ``(theta, phi)`` its incident
+    direction, which lies along ``+z'`` afterwards.
+    """
+    return Se3.about(rotation_matrix(theta, phi), p0)
+
+
+def per_event_canonical(entry_a: Any, entry_b: Any, z_front: Any) -> Se3:
+    """The D-frame: the entry midpoint to the origin, A->B along ``+x'``, front face at ``z' = 0``.
+
+    ``entry_a`` and ``entry_b`` are the two transverse entry points
+    ``(..., 2)`` at the front face ``z_front``. The rotation is
+    :func:`rotation_matrix` at ``theta = 0`` with the separation azimuth
+    ``psi = atan2(B - A)`` as ``phi``: the notebook's rotation with the tilt
+    removed, which is what :func:`rotate_xy` applies in two dimensions.
+    """
+    a = np.asarray(entry_a, dtype=np.float64)
+    b = np.asarray(entry_b, dtype=np.float64)
+    psi = np.arctan2(b[..., 1] - a[..., 1], b[..., 0] - a[..., 0])
+    mid = 0.5 * (a + b)
+    zf = np.broadcast_to(np.asarray(z_front, dtype=np.float64), psi.shape)
+    anchor = np.concatenate([mid, zf[..., None]], axis=-1)
+    return Se3.about(rotation_matrix(np.zeros_like(psi), psi), anchor)
+
+
 # ---------------------------------------------------------------- footprint --
 
 

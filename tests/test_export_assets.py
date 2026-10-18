@@ -260,6 +260,8 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/axis_symbols.js",
         "/static/js/panel_notes.js",
         "/static/js/shell.js",
+        "/static/js/panels/frame_grid.js",
+        "/static/js/event_inspector.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -280,6 +282,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/frame_views.js",
         "/static/js/panel_notes.js",
         "/static/js/labels.js",
+        "/static/js/panels/frame_grid.js",
+        "/static/js/event_inspector.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -357,10 +361,10 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in EXPORT_JS.glob("*.js"):
         assert module.resolve() in seen, f"{module.name} is never imported"
     assert (js_root / "textfit.js").resolve() in seen
-    for module in ("marks.js", "canonical_overlays.js", "tooltip.js"):
+    for module in ("marks.js", "canonical_overlays.js", "tooltip.js", "frame_grid.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
     for module in ("frame_views.js", "format.js", "axis_symbols.js", "labels.js",
-                   "panel_notes.js", "shell.js"):
+                   "panel_notes.js", "shell.js", "event_inspector.js"):
         assert (js_root / module).resolve() in seen, f"{module} is never imported"
 
 

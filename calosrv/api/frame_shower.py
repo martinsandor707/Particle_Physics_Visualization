@@ -19,6 +19,10 @@ notices:
   its laboratory azimuth - near-uniform - and only individual trajectories are
   drawn, from the origin, for at most 50 events. In the local frame every
   incident direction is +w by construction; nothing is drawn.
+* **``coordinates``** names where the frame coordinates came from - the file's
+  own columns (default) or the SE(3) motion applied to the laboratory lattice
+  inside the scan (``query/frame_sql.py``) - and the largest difference
+  between the two over the selection, beside the ingest-time figure.
 
 Order of work, window floors, kernel gates and the whole-response budget are
 the canonical frame's (``frame_canonical.py``).
@@ -36,8 +40,9 @@ from ..errors import ValidationError
 from ..grid import frame as frame_mod
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 from ..models.common import ApiMeta, Timer, envelope
-from ..text import fmt_signed
+from ..text import fmt_signed, typographic
 from ..query import canonical, centroids, density, reconstruct, sampling, summary, window
+from ..query import frame_sql
 from ..query import planes as planes_mod
 from ..query import shower_frames
 from ..query import stagger as stagger_mod
@@ -190,6 +195,52 @@ def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
     }
 
 
+def _coordinates_block(bundle: ShowerBundle, record: ExperimentRecord, kind: str) -> dict[str, Any]:
+    """Where the panels' coordinates came from, and how far the two sources differ."""
+    source = bundle.coordinate_source
+    residual = bundle.coordinate_residual_mm
+    tolerance = shower_frames.COORDINATE_TOLERANCE_MM
+    values = ((record.ingest_report or {}).get("verification") or {}).get("values") or {}
+    ingest = values.get(shower_frames.INGEST_RESIDUAL_KEY[kind])
+    columns = "x/y_trans and the own-shower layer" if kind == KIND_TRANS else "x/y/z_local"
+    motion = (
+        "the shower's entry point P0 subtracted from the laboratory position"
+        if kind == KIND_TRANS else
+        "R(θ, φ) of the shower applied to the laboratory position about its entry point P0"
+    )
+    if residual is None:
+        measured = "no hit was scanned, so no residual was measured"
+    else:
+        # The residuals are tiny, so `.3g` writes an exponent: its sign takes
+        # the typographic minus like every other rendered number.
+        measured = typographic(
+            f"over this selection the two differ by at most {residual:.3g} mm"
+            + (f" (ingest-wide {float(ingest):.3g} mm)" if ingest is not None else "")
+            + (", within the " if residual <= tolerance else ", above the ")
+            + f"{tolerance:g} mm tolerance"
+        )
+    if source == frame_sql.SOURCE_FILE:
+        text = (
+            f"Coordinates: the file's own {columns}, as every response of this frame binned "
+            f"them; the same motion ({motion}) was applied to every hit inside the scan as a "
+            f"cross-check, and {measured}."
+        )
+    else:
+        text = (
+            f"Coordinates: recomputed inside the scan as {motion}; the file's own {columns} "
+            f"were not used for binning, and {measured}."
+        )
+    return {
+        "source": source,
+        "residual_max_mm": residual,
+        "tolerance_mm": tolerance,
+        "ingest_residual_mm": float(ingest) if ingest is not None else None,
+        "ingest_residual_key": shower_frames.INGEST_RESIDUAL_KEY[kind],
+        "within_tolerance": None if residual is None else bool(residual <= tolerance),
+        "note": text,
+    }
+
+
 def build_response(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -207,10 +258,13 @@ def build_response(
     timer: Timer,
     lock_scale: bool | None = None,
     scale_mode: str = "decades",
+    coordinates: str = frame_sql.SOURCE_FILE,
 ) -> dict[str, Any]:
     """The full translated- or local-frame response, budgeted as it goes on the wire."""
     if kind not in frame_mod.SHOWER_KINDS:  # pragma: no cover - the route validates first
         raise ValidationError(f"not a per-shower frame: {kind!r}", field="coord_system")
+    if coordinates not in frame_sql.SOURCES:  # pragma: no cover - the route validates first
+        raise ValidationError(f"unknown coordinate source: {coordinates!r}", field="coordinates")
     if record.frame_bounds is None or record.lattice is None:
         raise ValidationError(
             f"Experiment {record.table_name!r} has no per-shower frame extents; re-ingest it "
@@ -226,10 +280,13 @@ def build_response(
 
     if channel == planes_mod.CHANNEL_DENSITY:
         bundle, stats, grid, k, was_cached = shower_frames.density_bundle_for(
-            con, record, spec, settings, kind, footprint, decision.sampled, decision.percent, model)
+            con, record, spec, settings, kind, footprint, decision.sampled, decision.percent, model,
+            source=coordinates)
     else:
         bundle, stats, grid, k, was_cached = shower_frames.bundle_for(
-            con, record, spec, settings, kind, footprint, decision.sampled, decision.percent, model)
+            con, record, spec, settings, kind, footprint, decision.sampled, decision.percent, model,
+            source=coordinates)
+    coordinate_block = _coordinates_block(bundle, record, kind)
 
     kernel = reconstruct.choose_kernel(display, stats.n_events)
     comb = _comb_report(bundle, stats.n_events)
@@ -299,6 +356,7 @@ def build_response(
         )})
         notices.append({"scope": "frame", "text": comb["note"]})
         notices.append({"scope": "frame", "text": _floor_notice(channel, display, rendered["panels"], names)})
+        notices.append({"scope": "frame", "text": coordinate_block["note"]})
         if stats.n_excluded_no_frame:
             notices.append({"scope": "frame", "text": (
                 f"{stats.n_excluded_no_frame:,} selected event(s) have no A-B separation (no "
@@ -399,6 +457,7 @@ def build_response(
                 "sd": stats.d_dataset.sd,
                 "n": stats.d_dataset.n,
             },
+            "coordinates": coordinate_block,
             "comb": comb,
             "rho": rendered["rho"],
             "reconstruction": rendered["reconstruction"],
@@ -418,6 +477,7 @@ def build_response(
             notes={
                 "frame": kind,
                 "coord_system": kind,
+                "coordinates": coordinates,
                 "model": model,
                 "resolution": rendered["resolution"],
                 "channel": channel,

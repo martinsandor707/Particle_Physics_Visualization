@@ -118,8 +118,54 @@ def test_no_verification_check_fails_on_the_demonstration_file(ingested):
     checks = ingested["verification"].checks
     assert "FAIL" not in checks.values(), checks
     for key in ("archive_row_count", "p0_constancy", "per_shower_constancy",
-                "local_rotation", "trans_layers", "truth_consistency", "finite_model_columns"):
+                "local_rotation", "trans_layers", "truth_consistency", "finite_model_columns",
+                "p0_definition"):
         assert checks[key] == "PASS", key
+
+
+def test_p0_is_the_first_layer_centroid_and_the_anchor_residual_is_reported(ingested, record):
+    """The notebook's P0 rule holds on the file, and the D-frame's two anchor
+    definitions are measured against each other at ingest."""
+    from calosrv.ingest.frame_checks import P0_DEFINITION_TOLERANCE_MM
+
+    values = ingested["verification"].values
+    assert values["p0_definition_showers"] == 2 * ingested["n_events"]
+    assert 0.0 <= values["p0_definition_residual_mm"] <= P0_DEFINITION_TOLERANCE_MM
+    anchors = values["anchor_residual"]
+    assert anchors["n_events"] == ingested["n_events"]
+    for shower in ("a", "b"):
+        assert anchors[shower]["median_mm"] >= 0.0
+        assert anchors[shower]["p90_mm"] >= anchors[shower]["median_mm"]
+        assert 0 <= anchors[shower]["over_footprint"] <= anchors["n_events"]
+    assert anchors["footprint_mm"] > 40.0
+    assert record.ingest_report["verification"]["values"]["anchor_residual"]["n_events"] == anchors["n_events"]
+    assert any("anchor definitions" in n for n in ingested["verification"].notices)
+
+
+def test_a_p0_that_is_not_the_first_layer_centroid_fails_verification(ingested, tmp_path):
+    """Moving every hit's x_trans of one shower by a constant keeps P0 rigid - the
+    constancy check still passes - but P0 is no longer the first-layer centroid."""
+    from calosrv.db.bootstrap import drop_experiment
+
+    def shift_shower_a(rows, col):
+        for row in rows:
+            if row[col["particle_origin"]] == "A":
+                row[col["x_trans"]] = str(float(row[col["x_trans"]]) + 1.0)
+
+    path = _shifted_seed(tmp_path, "shifted_p0.csv", 0, shift_shower_a)
+    database, settings = ingested["database"], ingested["settings"]
+    try:
+        with database.write_lock() as con:
+            result = pipeline.run_ingest(con, settings, "shifted_p0_experiment", path,
+                                         build_sample=False)
+        checks = result.verification.checks
+        assert checks["p0_constancy"] == "PASS"
+        assert checks["p0_definition"] == "FAIL"
+        assert result.verification.values["p0_definition_residual_mm"] == pytest.approx(1.0, abs=1e-3)
+        assert not result.ok
+    finally:
+        with database.write_lock() as con:
+            drop_experiment(con, "shifted_p0_experiment", settings)
 
 
 # ------------------------------------------------------------ projection --
@@ -357,6 +403,12 @@ def test_rows_the_sanitiser_drops_leave_the_experiment_ready(ingested, tmp_path)
         assert s["kept_rows"] == s["total_rows"] - 4
         lattice = result.record.lattice
         assert np.isfinite(lattice.x.coords).all() and np.isfinite(lattice.x.hi)
+        # A first-layer row of one shower is among the removed, so its P0 can
+        # no longer be confirmed as the first-layer centroid: a warning that
+        # names the removed rows, never a failure.
+        assert result.verification.checks["p0_definition"] in ("PASS", "WARN")
+        if result.verification.checks["p0_definition"] == "WARN":
+            assert any("cannot be confirmed" in w for w in result.verification.warnings)
     finally:
         from calosrv.db.bootstrap import drop_experiment
 

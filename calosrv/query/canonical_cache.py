@@ -35,6 +35,7 @@ from . import cache as cache_mod
 from . import canonical, density, filters
 from .canonical import CanonicalBundle, FrameStats
 from .filters import FilterSpec
+from .frame_sql import ANCHOR_BACKPROJECTED
 
 log = logging.getLogger(__name__)
 
@@ -48,19 +49,22 @@ def bundle_for(
     sampled: bool,
     percent: float,
     model: str = "segmentation",
+    anchor: str = ANCHOR_BACKPROJECTED,
 ) -> tuple[CanonicalBundle, FrameStats, frame_mod.CanonicalGrid, int, bool]:
     """Frame statistics, window, sub-sampling factor and the (cached) bundle.
 
     Returns ``(bundle, stats, grid, k, was_cached)``. The sampled drag preview
     caps ``k`` at :data:`~calosrv.grid.frame.PREVIEW_MAX_SUBSAMPLE`: it is
-    approximate by construction and must stay quick.
+    approximate by construction and must stay quick. ``anchor`` is the
+    entry-point definition (``query/frame_sql.py``); the bundle of each
+    definition is cached on its own.
     """
     assert record.lattice is not None
     # One canonical form per selection: a bound looser than the data selects
     # the same rows, and clamping lets the interface's snapped full-range
     # request hit the bundle the start-up warmer already computed.
     spec = spec.clamped(record)
-    stats = canonical.frame_statistics(con, record, spec)
+    stats = canonical.frame_statistics(con, record, spec, anchor, max(footprint))
     grid = frame_mod.plan_window(stats.d_entry_max, stats.theta_max, record.lattice)
     rows_scanned = int(round(stats.n_hits * (percent / 100.0 if sampled else 1.0)))
     k = frame_mod.choose_subsample(rows_scanned)
@@ -68,7 +72,7 @@ def bundle_for(
         k = min(k, frame_mod.PREVIEW_MAX_SUBSAMPLE)
 
     cache = cache_mod.get_cache(settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE)
-    key = canonical.cache_key(spec, sampled, grid, k, footprint, model)
+    key = canonical.cache_key(spec, sampled, grid, k, footprint, model, anchor=anchor)
 
     def compute() -> CanonicalBundle:
         bundle = canonical.fetch_canonical(
@@ -88,6 +92,7 @@ def dataset_reference(
     record: ExperimentRecord,
     settings: Settings,
     footprint: tuple[float, float],
+    anchor: str = ANCHOR_BACKPROJECTED,
 ) -> dict[str, float]:
     """Peak canonical density of the whole experiment, from its cached full-range bundle.
 
@@ -97,7 +102,8 @@ def dataset_reference(
     estimator. The response discloses both factors.
     """
     full = filters.build(record)
-    bundle, _, _, k, _ = bundle_for(con, record, full, settings, footprint, False, 100.0)
+    bundle, _, _, k, _ = bundle_for(con, record, full, settings, footprint, False, 100.0,
+                                    anchor=anchor)
     return {**density.selection_peaks(bundle), "k": k}
 
 

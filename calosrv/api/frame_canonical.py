@@ -52,6 +52,7 @@ from ..models.common import ApiMeta, Timer, envelope
 from ..text import fmt_signed
 from ..query import cache as cache_mod
 from ..query import canonical, canonical_cache, centroids, density, ensemble, reconstruct, sampling, summary, window
+from ..query import frame_sql
 from ..query import stagger as stagger_mod
 from ..query import planes as planes_mod
 from ..query.panels import CHANNEL_GRADCAM
@@ -62,7 +63,22 @@ FRAME_LAB = "lab"
 FRAME_CANONICAL = "canonical"
 FRAMES = (FRAME_LAB, FRAME_CANONICAL)
 
-ANCHOR_DEFINITION = "entry_backprojection"
+#: How the payload names the default anchor definition; the P0 one is named
+#: by ``canonical.ANCHOR_DEFINITIONS``.
+ANCHOR_DEFINITION = canonical.ANCHOR_DEFINITIONS[frame_sql.ANCHOR_BACKPROJECTED]
+
+#: What each anchor definition is, for the payload's ``anchor_note``.
+_ANCHOR_SENTENCE = {
+    frame_sql.ANCHOR_BACKPROJECTED: (
+        "Each shower's 3-D centroid is back-projected to the front face along its "
+        "incident direction;"
+    ),
+    frame_sql.ANCHOR_P0: (
+        "Each shower's own entry point P0 - the energy-weighted centroid of its first "
+        "populated layer, the reference notebook's origin - is back-projected the short "
+        "distance from that layer to the front face along its incident direction;"
+    ),
+}
 
 #: Where the comb is measured, stated in the payload beside the verdict.
 COMB_MEASURED_ON = "raw accumulation grid, before display smoothing"
@@ -296,15 +312,24 @@ def build_response(
     lock_scale: bool | None = None,
     scale_mode: str = "decades",
     model: str = "segmentation",
+    anchor: str = frame_sql.ANCHOR_BACKPROJECTED,
 ) -> dict[str, Any]:
-    """The full canonical-frame response, budgeted as it goes on the wire."""
+    """The full canonical-frame response, budgeted as it goes on the wire.
+
+    ``anchor`` is the entry-point definition the frame is built on
+    (``query/frame_sql.py``): the back-projected 3-D centroid, or the shower's
+    own first-layer entry point P0. The residual between the two is reported
+    whichever is in use.
+    """
     assert record.lattice is not None
+    frame_sql.check_anchor(anchor)
     lattice = record.lattice
     decision = sampling.decide(record, preview, settings.sample_percent)
     footprint = canonical.cell_footprint(con, record)
 
     bundle, stats, grid, k, was_cached = _bundle_for(
-        con, record, spec, settings, footprint, decision.sampled, decision.percent, model
+        con, record, spec, settings, footprint, decision.sampled, decision.percent, model,
+        anchor=anchor,
     )
 
     # The kernel follows the exact event count, which comes from the event
@@ -323,7 +348,7 @@ def build_response(
     fit = window.fit_window(bundle)
     reference = None
     if rho_norm == density.NORM_DATASET:
-        reference = dataset_reference(con, record, settings, footprint)
+        reference = dataset_reference(con, record, settings, footprint, anchor=anchor)
 
     def render(limit: int, **resume: Any) -> dict[str, Any]:
         return density.render_canonical(
@@ -440,19 +465,24 @@ def build_response(
             notices.append({"scope": "frame", "text": reference})
         for note in axes["notes"]:
             notices.append({"scope": "frame", "text": note})
+        anchor_residual_text = _anchor_residual_notice(stats)
+        if anchor_residual_text:
+            notices.append({"scope": "frame", "text": anchor_residual_text})
 
         frame_block: dict[str, Any] = {
             "kind": FRAME_CANONICAL,
-            "anchor": ANCHOR_DEFINITION,
+            "anchor": canonical.ANCHOR_DEFINITIONS[anchor],
+            "anchor_choice": anchor,
+            "anchor_choices": list(frame_sql.ANCHORS),
             "anchor_note": (
-                "Each shower's 3-D centroid is back-projected to the front face along its "
-                "incident direction; the midpoint of the two entry points is the origin and "
+                f"{_ANCHOR_SENTENCE[anchor]} the midpoint of the two entry points is the origin and "
                 "the A→B entry separation is the +x′ axis, which the entry (X′Y′) panel "
                 "writes as D: the signed coordinate along the separation, with the anchors "
                 "at D = ∓⟨D_entry⟩/2 and tick values in mm. D_entry is the transverse entry "
                 "separation; D (the slider) is the absolute-frame 3-D centroid distance "
                 "from the dataset."
             ),
+            "anchor_residual": stats.anchor_residual,
             "z_front_mm": float(lattice.z.lo),
             "depth_mm": float(lattice.z.hi - lattice.z.lo),
             "pitch_mm": grid.pitch,
@@ -489,6 +519,7 @@ def build_response(
             notes={
                 "frame": FRAME_CANONICAL,
                 "coord_system": "lab",
+                "anchor": anchor,
                 "model": model,
                 "resolution": rendered["resolution"],
                 "channel": channel,
@@ -535,6 +566,37 @@ def build_response(
         )
 
     return serve_within_budget(assemble, render, rendered, display)
+
+
+def _anchor_residual_notice(stats: FrameStats) -> str | None:
+    """How far the two anchor definitions sit apart over this selection, in words."""
+    residual = stats.anchor_residual
+    if not residual:
+        return None
+    parts = []
+    for shower in ("a", "b"):
+        block = residual.get(shower) or {}
+        median = block.get("median")
+        p90 = block.get("p90")
+        if median is None:
+            continue
+        text = f"shower {shower.upper()} median {median:.0f} mm"
+        if p90 is not None:
+            text += f", p90 {p90:.0f} mm"
+        if residual.get("footprint_mm") and block.get("over_footprint") is not None:
+            text += f", {block['over_footprint']:,} over one cell footprint"
+        parts.append(text)
+    if not parts:
+        return None
+    used = "back-projected 3-D centroid" if stats.anchor == frame_sql.ANCHOR_BACKPROJECTED \
+        else "back-projected first-layer entry point P0"
+    other = "first-layer entry point P0" if stats.anchor == frame_sql.ANCHOR_BACKPROJECTED \
+        else "3-D centroid"
+    return (
+        f"Anchor: the {used} (anchor={stats.anchor}). The other definition, the "
+        f"{other}, lands a transverse distance away at the front face of "
+        f"{'; '.join(parts)} (N = {residual.get('n', stats.n_events):,})."
+    )
 
 
 def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str) -> dict[str, Any]:

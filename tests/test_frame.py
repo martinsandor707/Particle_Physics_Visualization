@@ -191,3 +191,154 @@ def test_rayleigh_and_student_t_helpers():
     assert frame.t_quantile_975(2) == pytest.approx(4.303, abs=1e-3)
     assert frame.t_quantile_975(30) == pytest.approx(2.042, abs=1e-3)
     assert frame.t_quantile_975(1000) == pytest.approx(1.96, abs=1e-2)
+
+
+# ------------------------------------------------------------------ SE(3) --
+#
+# The identities the coordinate-transformation audit checked
+# (reference_ipynb_notebooks/01_local_coords_vs_calosrv_se3_audit.md, section 1),
+# pinned: the notebook's rotation, the D-frame as its theta = 0 special case,
+# and the per-shower frames reproducing the file's own columns.
+
+
+def _random_angles(seed: int, n: int = 500):
+    rng = np.random.default_rng(seed)
+    return rng.uniform(0.05, 0.63, n), rng.uniform(-math.pi, math.pi, n)
+
+
+def test_rotation_matrix_is_the_notebooks_r_y_theta_r_z_phi():
+    """R = R_y(theta) R_z(phi): the notebook's matrix, entry for entry."""
+    theta, phi = _random_angles(11)
+    r = frame.rotation_matrix(theta, phi)
+    ct, st, cp, sp = np.cos(theta), np.sin(theta), np.cos(phi), np.sin(phi)
+    expected = np.empty((theta.size, 3, 3))
+    expected[:, 0] = np.stack([ct * cp, ct * sp, -st], axis=-1)
+    expected[:, 1] = np.stack([-sp, cp, np.zeros_like(sp)], axis=-1)
+    expected[:, 2] = np.stack([st * cp, st * sp, ct], axis=-1)
+    np.testing.assert_allclose(r, expected, atol=0.0)
+    # Composed from the two elementary passive rotations.
+    r_y = np.array([[[c, 0, -s], [0, 1, 0], [s, 0, c]] for c, s in zip(ct, st)])
+    r_z = np.array([[[c, s, 0], [-s, c, 0], [0, 0, 1]] for c, s in zip(cp, sp)])
+    np.testing.assert_allclose(r, r_y @ r_z, atol=1e-15)
+
+
+def test_rotation_matrix_sends_the_incident_direction_to_plus_z_and_is_orthonormal():
+    theta, phi = _random_angles(12)
+    r = frame.rotation_matrix(theta, phi)
+    along = np.einsum("nij,nj->ni", r, frame.unit_direction(theta, phi))
+    np.testing.assert_allclose(along, np.tile([0.0, 0.0, 1.0], (theta.size, 1)), atol=1e-15)
+    np.testing.assert_allclose(r @ np.swapaxes(r, 1, 2), np.tile(np.eye(3), (theta.size, 1, 1)), atol=1e-15)
+    np.testing.assert_allclose(np.linalg.det(r), 1.0, atol=1e-14)
+
+
+def test_the_d_frame_rotation_is_the_notebooks_at_zero_tilt():
+    """rotation_matrix(0, psi) applied to (x, y, z) is rotate_xy with psi, and z untouched."""
+    rng = np.random.default_rng(13)
+    psi = rng.uniform(-math.pi, math.pi, 300)
+    pts = rng.normal(size=(300, 3)) * 500
+    motion = frame.Se3.about(frame.rotation_matrix(np.zeros_like(psi), psi), np.zeros((300, 3)))
+    moved = motion.apply(pts)
+    x, y = frame.rotate_xy(pts[:, 0], pts[:, 1], 0.0, 0.0, psi)
+    np.testing.assert_allclose(moved[:, 0], x, atol=1e-12)
+    np.testing.assert_allclose(moved[:, 1], y, atol=1e-12)
+    np.testing.assert_allclose(moved[:, 2], pts[:, 2], atol=0.0)
+    # Directions too: the linear part is what rotate_direction applies.
+    u = frame.unit_direction(*_random_angles(14, 300))
+    np.testing.assert_allclose(motion.apply_direction(u), frame.rotate_direction(u, psi), atol=1e-15)
+
+
+def test_every_frame_element_is_an_isometry_with_an_exact_inverse():
+    rng = np.random.default_rng(15)
+    theta, phi = _random_angles(16, 1)
+    p0 = rng.normal(size=3) * 1000
+    cloud = rng.normal(size=(400, 3)) * 300 + p0
+    before = np.linalg.norm(cloud[:, None] - cloud[None, :], axis=-1)
+    for motion in (
+        frame.per_shower_translated(p0),
+        frame.per_shower_local(p0, theta[0], phi[0]),
+        frame.per_event_canonical([10.0, -20.0], [410.0, 280.0], 3662.4),
+    ):
+        moved = motion.apply(cloud)
+        after = np.linalg.norm(moved[:, None] - moved[None, :], axis=-1)
+        np.testing.assert_allclose(after, before, atol=1e-9)
+        np.testing.assert_allclose(motion.inverse().apply(moved), cloud, atol=1e-9)
+        np.testing.assert_allclose(motion.apply(motion.anchor), 0.0, atol=1e-9)
+
+
+def test_the_per_shower_frames_take_p0_to_the_origin_and_tilt_the_first_layer_plane():
+    theta, phi = 0.5, -2.0
+    p0 = np.array([120.0, -80.0, 3662.4])
+    local = frame.per_shower_local(p0, theta, phi)
+    translated = frame.per_shower_translated(p0)
+    np.testing.assert_allclose(local.apply(p0), 0.0, atol=1e-12)
+    np.testing.assert_allclose(translated.apply(p0), 0.0, atol=1e-12)
+    # The incident direction is +z' in the local frame and unchanged in the translated one.
+    n = frame.unit_direction(theta, phi)
+    np.testing.assert_allclose(local.apply_direction(n), [0.0, 0.0, 1.0], atol=1e-15)
+    np.testing.assert_allclose(translated.apply_direction(n), n, atol=0.0)
+    # Points of the first-layer plane (delta z = 0) lie on z' = tan(theta) x' for every y'.
+    rng = np.random.default_rng(17)
+    plane = p0 + np.column_stack([rng.normal(size=50) * 200, rng.normal(size=50) * 200, np.zeros(50)])
+    moved = local.apply(plane)
+    np.testing.assert_allclose(moved[:, 2], math.tan(theta) * moved[:, 0], atol=1e-9)
+
+
+def test_per_event_canonical_agrees_with_frame_of_and_rotate_xy():
+    rng = np.random.default_rng(18)
+    a = rng.uniform(-2000, 2000, (100, 2))
+    b = rng.uniform(-2000, 2000, (100, 2))
+    z_front = 3662.4
+    motion = frame.per_event_canonical(a, b, z_front)
+    params = frame.frame_of(a[:, 0], a[:, 1], b[:, 0], b[:, 1])
+    pts = rng.normal(size=(100, 3)) * 500 + np.array([0.0, 0.0, z_front + 300.0])
+    moved = motion.apply(pts)
+    x, y = frame.rotate_xy(pts[:, 0], pts[:, 1], params.x0, params.y0, params.psi)
+    np.testing.assert_allclose(moved[:, 0], x, atol=1e-9)
+    np.testing.assert_allclose(moved[:, 1], y, atol=1e-9)
+    np.testing.assert_allclose(moved[:, 2], pts[:, 2] - z_front, atol=1e-9)
+    # B lands at (+D_entry/2, 0, 0) and A at (-D_entry/2, 0, 0).
+    at_b = motion.apply(np.column_stack([b, np.full(100, z_front)]))
+    np.testing.assert_allclose(at_b[:, 0], params.d_entry / 2, atol=1e-9)
+    np.testing.assert_allclose(at_b[:, 1:], 0.0, atol=1e-9)
+
+
+def test_the_per_shower_frames_reproduce_the_files_own_columns(record, cursor):
+    """The in-NumPy motions, from the laboratory lattice and the event table's
+    P0 and (theta, phi), land on the file's x/y_trans and x/y/z_local within
+    the ingest tolerance - the same contract verify.py checks in SQL."""
+    from calosrv.db import naming
+    from calosrv.db.naming import quote
+    from calosrv.ingest.verify import ROTATION_TOLERANCE_MM
+
+    proj = quote(naming.proj_table(record.table_name))
+    event = quote(naming.event_table(record.table_name))
+    rows = cursor.execute(
+        f"""SELECT p.ix, p.iy, p.iz, p.org, p.xt, p.yt, p.kt, p.xl, p.yl, p.zl,
+                   CASE WHEN p.org = 0 THEN e.p0ax ELSE e.p0bx END,
+                   CASE WHEN p.org = 0 THEN e.p0ay ELSE e.p0by END,
+                   CASE WHEN p.org = 0 THEN e.p0az ELSE e.p0bz END,
+                   CAST(CASE WHEN p.org = 0 THEN e.theta_a ELSE e.theta_b END AS DOUBLE),
+                   CAST(CASE WHEN p.org = 0 THEN e.phi_a ELSE e.phi_b END AS DOUBLE)
+            FROM {proj} p JOIN {event} e USING (event_number) WHERE e.d IS NOT NULL"""
+    ).fetchnumpy()
+    lat = record.lattice
+    lab = np.column_stack([
+        lat.x.coords[np.asarray(rows["ix"], dtype=int)],
+        lat.y.coords[np.asarray(rows["iy"], dtype=int)],
+        lat.z.coords[np.asarray(rows["iz"], dtype=int)],
+    ])
+    p0 = np.column_stack([np.asarray(rows[k], dtype=float) for k in rows.keys() if k.startswith("CASE")][:3])
+    theta = np.asarray(list(rows.values())[13], dtype=float)
+    phi = np.asarray(list(rows.values())[14], dtype=float)
+    pitch = record.frame_bounds.layer_pitch_mm
+
+    local = frame.per_shower_local(p0, theta, phi).apply(lab)
+    expected_local = np.column_stack([np.asarray(rows[k], dtype=float) for k in ("xl", "yl", "zl")])
+    assert np.abs(local - expected_local).max() <= ROTATION_TOLERANCE_MM
+
+    translated = frame.per_shower_translated(p0).apply(lab)
+    expected_trans = np.column_stack([
+        np.asarray(rows["xt"], dtype=float), np.asarray(rows["yt"], dtype=float),
+        np.asarray(rows["kt"], dtype=float) * pitch,
+    ])
+    assert np.abs(translated - expected_trans).max() <= ROTATION_TOLERANCE_MM

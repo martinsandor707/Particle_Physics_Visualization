@@ -95,6 +95,11 @@ export const CHOICE_LABELS = Object.freeze({
     { value: 'selection', label: "Relative to this selection's peak" },
     { value: 'dataset', label: 'Relative to the dataset peak' },
   ],
+  // The D-frame's entry anchor (API `anchor`), shown under Translated only.
+  anchor: [
+    { value: 'backprojected', label: 'Back-projected 3-D centroid', detail: '(default)' },
+    { value: 'p0', label: 'First-layer entry point P₀', detail: '(the notebook’s origin)' },
+  ],
 });
 
 /** A frame key as the interface names it, for a banner or a chip. */

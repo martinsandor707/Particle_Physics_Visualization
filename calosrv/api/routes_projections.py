@@ -24,7 +24,7 @@ from ..encode.scale import SCALE_MODES, MODE_DECADES
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import cache as cache_mod
-from ..query import centroids, density, panels, planes, projections, sampling
+from ..query import centroids, density, frame_sql, panels, planes, projections, sampling
 from ..query import stagger as stagger_mod
 from ..query import summary
 from . import frame_canonical
@@ -125,6 +125,26 @@ def get_projections(
             "always reported in GeV/mm^2/event."
         ),
     ),
+    anchor: str = Query(
+        frame_sql.ANCHOR_BACKPROJECTED,
+        description=(
+            "frame=canonical only. Which entry point anchors the D-frame: backprojected "
+            "(default), each shower's 3-D centroid back-projected to the front face along "
+            "its incident direction; or p0, each shower's own first-layer entry point P0 "
+            "(the reference notebook's origin) back-projected the same way. The response "
+            "reports the transverse distance between the two definitions whichever is used."
+        ),
+    ),
+    coordinates: str = Query(
+        frame_sql.SOURCE_FILE,
+        description=(
+            "coord_system=trans|local only. file (default): the panels are binned from "
+            "the file's own x/y_trans and x/y/z_local columns. computed: from the SE(3) "
+            "motion (the shower's P0 and R(theta, phi)) applied to the laboratory lattice "
+            "inside the scan, which needs no such columns. Either way the response reports "
+            "the largest difference between the two over the selection."
+        ),
+    ),
 ):
     timer = Timer()
 
@@ -144,6 +164,8 @@ def get_projections(
         ("display", display, DISPLAY_MODES),
         ("weighting", weighting, panels.WEIGHTINGS),
         ("scale_mode", scale_mode, SCALE_MODES),
+        ("anchor", anchor, frame_sql.ANCHORS),
+        ("coordinates", coordinates, frame_sql.SOURCES),
     ):
         if value not in allowed:
             raise ValidationError(
@@ -155,6 +177,19 @@ def get_projections(
             f"it requires coord_system=lab, not {coord_system!r}.",
             field="coord_system",
         )
+    if anchor != frame_sql.ANCHOR_BACKPROJECTED and frame != frame_canonical.FRAME_CANONICAL:
+        raise ValidationError(
+            "anchor chooses the D-frame's entry-point definition and applies to "
+            f"frame=canonical only; got anchor={anchor!r} with frame={frame!r}.",
+            field="anchor",
+        )
+    if coordinates != frame_sql.SOURCE_FILE and coord_system == "lab":
+        raise ValidationError(
+            "coordinates chooses a per-shower frame's coordinate source and applies to "
+            f"coord_system=trans|local only; got coordinates={coordinates!r} with "
+            f"coord_system={coord_system!r}.",
+            field="coordinates",
+        )
 
     if coord_system != "lab":
         from . import frame_shower
@@ -163,7 +198,7 @@ def get_projections(
             con, record, spec, settings, kind=coord_system,
             resolution=resolution, display=display, channel=channel, model=model,
             weighting=weighting, rho_norm=rho_norm, preview=preview, timer=timer,
-            lock_scale=lock_scale, scale_mode=scale_mode,
+            lock_scale=lock_scale, scale_mode=scale_mode, coordinates=coordinates,
         )
 
     if frame == frame_canonical.FRAME_CANONICAL:
@@ -173,7 +208,7 @@ def get_projections(
             con, record, spec, settings,
             resolution=resolution, display=display, channel=channel,
             weighting=weighting, rho_norm=rho_norm, preview=preview, timer=timer,
-            lock_scale=lock_scale, scale_mode=scale_mode, model=model,
+            lock_scale=lock_scale, scale_mode=scale_mode, model=model, anchor=anchor,
         )
 
     decision = sampling.decide(record, preview, settings.sample_percent)
