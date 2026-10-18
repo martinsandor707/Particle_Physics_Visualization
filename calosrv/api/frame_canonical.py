@@ -109,12 +109,12 @@ def _comb_report(
     )
     if report.lag1 is None and not energy_values:
         data["note"] = (
-            "Cell-footprint comb not measurable on this canonical window: too few "
+            "Cell-footprint comb not measurable on this D-frame window: too few "
             "columns for the lag-1 statistics."
         )
     elif comb:
         data["note"] = (
-            "A cell-footprint comb is measurable on the raw canonical accumulation grid, "
+            "A cell-footprint comb is measurable on the raw D-frame accumulation grid, "
             f"before any display smoothing ({measured}). Each cell was split into {k} × {k} "
             f"sub-deposits over {n_events:,} co-registered event(s). Native Grid shows it as "
             "measured; Continuous Field smooths it for display, which hides it rather than "
@@ -122,7 +122,7 @@ def _comb_report(
         )
     else:
         data["note"] = (
-            "No cell-footprint comb measured on the raw canonical accumulation grid, before "
+            "No cell-footprint comb measured on the raw D-frame accumulation grid, before "
             f"any display smoothing ({measured})."
         )
     return data
@@ -168,7 +168,7 @@ def _canonical_mean_pair(stats: FrameStats) -> centroids.CentroidPair:
     if None not in (a[0], a[1], b[0], b[1]):
         separation = float(math.hypot(a[0] - b[0], a[1] - b[1]))
     return centroids.CentroidPair(
-        label="Dataset centroids (mean canonical position)", a=ca, b=cb,
+        label="Dataset centroids (mean D-frame position)", a=ca, b=cb,
         separation_mm=separation,
     )
 
@@ -258,16 +258,16 @@ def _reference_notice(channel: str, rho_norm: str, pitch: float) -> str | None:
             return None
         return (
             "Colours are relative to this selection's own peak density on the raw "
-            f"{pitch:.0f} mm accumulation grid (stated in the footnote), which the "
-            "displayed field never exceeds; switch the density normalisation to the "
+            f"{pitch:.0f} mm accumulation grid (stated in the panel's Details drawer), which "
+            "the displayed field never exceeds; switch the density normalisation to the "
             "dataset peak to compare colours across selections."
         )
     cam = "Grad-CAM" if view.cam == "gradcam" else "Shap-CAM"
     if view.kind != planes_mod.KIND_RATIO:
         text = (
             f"Colours are relative to this selection's own peak of Σ E·{cam} on the raw "
-            f"{pitch:.0f} mm accumulation grid (stated in the footnote), so they compare "
-            "positions within this selection, not one selection with another."
+            f"{pitch:.0f} mm accumulation grid (stated in the panel's Details drawer), so "
+            "they compare positions within this selection, not one selection with another."
         )
         if rho_norm == density.NORM_DATASET:
             text += " The dataset density normalisation applies to the density channel only."
@@ -345,13 +345,13 @@ def build_response(
     # sit in different places is exactly what this frame exists to avoid; say
     # so, and point at the frame-consistent replacement.
     selection_dict["centroid_dataset"]["label"] = (
-        "Dataset centroids (laboratory-frame per-event average; not drawn in the "
-        "canonical frame - see centroids.canonical_mean)"
+        "Dataset centroids (absolute-frame per-event average; not drawn in the "
+        "D-frame - see centroids.canonical_mean)"
     )
     coherence = summary.angular_coherence(con, record, spec)
     coherence["note"] = (
-        "Laboratory-frame azimuth is near-uniform (resultant length above), which is "
-        "why no averaged direction is drawn there. In the canonical frame the "
+        "Absolute-frame azimuth is near-uniform (resultant length above), which is "
+        "why no averaged direction is drawn there. In the D-frame the "
         "directions are co-registered first; the dashed lines are the two ensemble "
         "axes, each with its transverse resultant R̄′ and Rayleigh p stated."
     )
@@ -377,7 +377,7 @@ def build_response(
                 "text": (
                     f"{stats.n_excluded_no_frame:,} selected event(s) have no shower-A "
                     "centroid or incident direction and cannot be co-registered; they are "
-                    "excluded from N and from every canonical panel."
+                    "excluded from N and from every D-frame panel."
                 ),
             })
         if spec.include_undefined_d:
@@ -385,7 +385,7 @@ def build_response(
                 "scope": "separation",
                 "text": (
                     "Events with an undefined A-B separation have no frame: including "
-                    "them changes nothing in the canonical panels."
+                    "them changes nothing in the D-frame panels."
                 ),
             })
         if stats.n_ill_conditioned:
@@ -422,8 +422,8 @@ def build_response(
             notices.append({
                 "scope": "frame",
                 "text": (
-                    "lock_scale and scale_mode are laboratory-frame ramp controls and are "
-                    "ignored here: the canonical ramp is relative to the reference chosen by "
+                    "lock_scale and scale_mode are absolute-frame ramp controls and are "
+                    "ignored here: the D-frame ramp is relative to the reference chosen by "
                     "rho_norm."
                 ),
             })
@@ -447,8 +447,11 @@ def build_response(
             "anchor_note": (
                 "Each shower's 3-D centroid is back-projected to the front face along its "
                 "incident direction; the midpoint of the two entry points is the origin and "
-                "the A→B entry separation is the +x′ axis. D_entry is the transverse entry "
-                "separation; D (the slider) is the 3-D centroid distance from the dataset."
+                "the A→B entry separation is the +x′ axis, which the entry (X′Y′) panel "
+                "writes as D: the signed coordinate along the separation, with the anchors "
+                "at D = ∓⟨D_entry⟩/2 and tick values in mm. D_entry is the transverse entry "
+                "separation; D (the slider) is the absolute-frame 3-D centroid distance "
+                "from the dataset."
             ),
             "z_front_mm": float(lattice.z.lo),
             "depth_mm": float(lattice.z.hi - lattice.z.lo),

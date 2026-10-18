@@ -1,56 +1,49 @@
-/* Disclosures for an exported figure, read from the payload's structured fields.
+/* The disclosures of one spatial panel, read from the payload's structured fields.
  *
- * ## Why these are not scraped off the page
+ * ## Why these are not derived from the on-screen prose
  *
- * The live footnote already travels inside the figure (see caption.js), and
- * it is the right thing to carry because it is what the reader saw. But it is
- * prose assembled by `main.js` for the screen: a sentence can be shortened for
- * a narrow card, a number can be rounded for a tooltip, and a future edit to a
- * footnote would silently change what every exported figure says. The
- * disclosures CLAUDE.md section 2 makes mandatory - the clipping counts, the
- * percentile window and the energy it leaves out, the reference density a
- * colour is relative to, the ensemble statistics behind a drawn axis - are
- * numbers with a definite home in the JSON. Reading them from there means the
- * figure states what was *computed*, not what happened to be rendered.
+ * The prose the reader sees (frame_views.js) is assembled for the screen: a
+ * sentence can be shortened for a narrow card, a number can be rounded for a
+ * tooltip, and a future edit to it would silently change what the panel
+ * discloses. The disclosures CLAUDE.md section 2 makes mandatory - the
+ * clipping counts, the percentile window and the energy it leaves out, the
+ * reference density a colour is relative to, the ensemble statistics behind a
+ * drawn axis - are numbers with a definite home in the JSON. Reading them
+ * from there means the panel states what was *computed*, not what happened to
+ * be rendered.
  *
- * `buildCaption` de-duplicates against the live footnote, so a sentence that
- * `main.js` already put on the panel verbatim is not printed twice.
+ * The sentences feed the panel's Details drawer (panel_notes.js), where they
+ * follow the prose; the drawer drops any sentence the prose already states
+ * verbatim. No exported figure carries them: a figure is the plot canvas
+ * alone (export/figure.js), and the drawer is what an author carries into a
+ * manuscript caption.
  *
  * ## Contract
  *
  * `figureDisclosure(payload, panelId, state)` returns an array of short English
  * sentences in a fixed order. Every read is guarded: a lab-frame payload has no
  * `frame` block and must never throw, and the energy panel gets nothing because
- * its disclosures live in its fitted-parameter table and its own footnote.
+ * its disclosures live in its fitted-parameter table and its own notes.
  */
 
 import { formatSci, formatInt, formatSigned } from '../scale.js';
 import { frameMeanOverflowText } from '../panels/canonical_overlays.js';
+import { panelSymbols } from '../axis_symbols.js';
 
-/** Fallback axis symbols per frame kind and panel, when a payload does not carry them. */
-const SYMBOLS_OF = {
-  canonical: { x: 'x′', y: 'y′', z: 'z′' },
-  trans: { x: 'Δx', y: 'Δy', z: 'Δz' },
-  local: { x: 'u', y: 'v', z: 'w' },
-};
-function axisSymbols(kind, panelId) {
-  const s = SYMBOLS_OF[kind] ?? SYMBOLS_OF.canonical;
-  return { xy: { row: s.y, col: s.x }, yz: { row: s.y, col: s.z }, xz: { row: s.x, col: s.z } }[panelId];
-}
 const PANELS = new Set(['xy', 'yz', 'xz']);
 
 const SHOWER_NAME = { a: 'A', b: 'B' };
 
-const TRANSLATED = 'Translated frame: every hit is moved by its own shower\'s entry point P₀ '
+const TRANSLATED = 'Per-shower translated frame (legacy): every hit is moved by its own shower\'s entry point P₀ '
   + '(energy-weighted x, y centroid of its first populated layer, at that layer\'s z); no '
   + 'rotation; the two showers of each event are superimposed at the origin.';
 
 const FRAME_DEFINITION = {
-  canonical: 'Canonical centre-of-separation frame: each shower\'s 3-D '
+  canonical: 'Separation-Aligned (D-Frame), Translated: each shower\'s 3-D '
     + 'centroid back-projected to the front face along its incident direction; '
-    + 'entry midpoint at the origin, A→B entry separation along +x′.',
+    + 'entry midpoint at the origin, A→B entry separation along +x′, written D on the entry panel.',
   trans: TRANSLATED,
-  local: 'Local frame: every hit is moved by its own shower\'s entry point P₀ (energy-weighted '
+  local: 'Separation-Aligned (D-Frame), Local: every hit is moved by its own shower\'s entry point P₀ (energy-weighted '
     + 'x, y centroid of its first populated layer, at that layer\'s z) and rotated by that '
     + 'shower\'s own R(θ, φ), so its incident direction lies along +w; the two showers of each '
     + 'event are superimposed at the origin.',
@@ -122,7 +115,7 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
         for (const line of ensembleAxes(frame)) out.push(line);
       }
     } else if (panelId === 'xy') {
-      out.push('The A–B offset of the superimposed centroids is not a separation; D is the laboratory '
+      out.push('The A–B offset of the superimposed centroids is not a separation; D is the absolute-frame '
         + '3-D centroid distance.');
       const overflow = frameMeanOverflowText(payload);
       if (overflow) out.push(overflow);
@@ -132,8 +125,8 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
     } else {
       const r = payload.overlays?.coherence?.r_a;
       out.push((payload.overlays?.trajectories || []).length
-        ? 'Dashed lines: individual incident directions from the origin along each event\'s laboratory (θ, φ).'
-        : `No averaged direction is drawn: the azimuth keeps its laboratory distribution`
+        ? 'Dashed lines: individual incident directions from the origin along each event\'s absolute-frame (θ, φ).'
+        : `No averaged direction is drawn: the azimuth keeps its absolute-frame distribution`
           + `${Number.isFinite(r) ? ` (R̄ = ${r.toFixed(3)})` : ''}.`);
     }
     if (typeof extra.isometric === 'boolean') {
@@ -182,7 +175,7 @@ function showerCounts(frame) {
       + 'excluded: no A–B separation');
   }
   if (Number.isFinite(frame.d_dataset?.mean)) {
-    parts.push(`D = laboratory 3-D centroid distance, ⟨D⟩ = ${mm(frame.d_dataset.mean)} mm`);
+    parts.push(`D = absolute-frame 3-D centroid distance, ⟨D⟩ = ${mm(frame.d_dataset.mean)} mm`);
   }
   return `${parts.join('; ')}.`;
 }
@@ -374,7 +367,8 @@ export function beyondGridSentence(frame) {
 function displayWindow(frame, panel, panelId, kind = 'canonical') {
   const fit = frame.fit?.[panelId];
   if (!fit) return [];
-  const symbols = axisSymbols(kind, panelId);
+  // The symbols as the panel writes them: D on the D-frame entry panel.
+  const symbols = panelSymbols(kind, panelId, panel?.axes);
   const out = [];
 
   if (frame.fit?.rule === 'symmetric') {
@@ -392,7 +386,7 @@ function displayWindow(frame, panel, panelId, kind = 'canonical') {
     if (!axis?.applied || !Array.isArray(axis.range) || axis.range.length < 2) continue;
     const [lo, hi] = axis.range;
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
-    const symbol = panel?.axes?.[side]?.symbol ?? symbols[side];
+    const symbol = symbols[side];
     cropped.push(`${symbol} ∈ [${mm(lo)}, ${mm(hi)}] mm`);
   }
 
@@ -433,7 +427,7 @@ function symmetricWindow(windowFit, fit, panel, symbols) {
       ? axis.half_width
       : Math.max(Math.abs(lo), Math.abs(hi));
     if (!Number.isFinite(half)) continue;
-    const symbol = panel?.axes?.[side]?.symbol ?? symbols[side];
+    const symbol = symbols[side];
     parts.push(`${symbol} ±${Math.round(half)} mm`);
     if (axis.floored && Number.isFinite(windowFit.floor_mm)) {
       limits.push(`${symbol} held at the ${Math.round(windowFit.floor_mm)} mm floor`);

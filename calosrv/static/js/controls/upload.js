@@ -1,4 +1,10 @@
-/* The upload modal: naming, mode, streaming upload or server-side ingest, job polling.
+/* The upload form inside Admin Settings: naming, mode, streaming upload or
+ * server-side ingest, job polling.
+ *
+ * The form lives in the Admin Settings panel beside the drop-folder report, so
+ * the panel's ModalShell owns opening, closing, Escape and the focus trap; the
+ * form owns its checks, the transfer and the job poll, which carries on after
+ * the panel is closed. `prepare()` runs each time the panel opens.
  *
  * Large uploads are deliberately permitted - collaborators outside the
  * organisation have no shell access to the server and the browser is their only
@@ -15,7 +21,6 @@
 
 import { ApiError, getJson, postForm, uploadDataset } from '../api.js';
 import { formatBytes, formatInt } from '../scale.js';
-import { ModalShell } from './modal.js';
 
 const POLL_INTERVAL_MS = 1200;
 
@@ -47,9 +52,8 @@ function nameProblem(table) {
   return null;
 }
 
-export class UploadModal {
+export class UploadForm {
   constructor({ onComplete, getExperiments }) {
-    this.backdrop = document.getElementById('upload-modal');
     this.tableInput = document.getElementById('upload-table');
     this.displayInput = document.getElementById('upload-display');
     this.replaceRow = document.getElementById('upload-replace-row');
@@ -64,7 +68,7 @@ export class UploadModal {
     this.progressBar = document.getElementById('upload-progress-bar');
     this.status = document.getElementById('upload-status');
     this.submit = document.getElementById('upload-submit');
-    this.cancel = document.getElementById('upload-cancel');
+    this.clearButton = document.getElementById('upload-clear');
     this.serverSelect = document.getElementById('upload-server-file');
     this.serverInfo = document.getElementById('upload-server-info');
     this.browserRow = document.getElementById('upload-browser-row');
@@ -73,13 +77,12 @@ export class UploadModal {
     this.getExperiments = getExperiments || (() => []);
     this.info = null;
     // True from the moment a transfer or server-side ingest starts until its
-    // job finishes. Closing the modal does not stop either, so reopening it
+    // job finishes. Closing the panel does not stop either, so reopening it
     // must not re-arm Submit while one is still running.
     this.busy = false;
-
-    // Hiding the modal never stops the job poll: the ingest carries on
-    // server-side, and onComplete is what brings its experiment on screen.
-    this.shell = new ModalShell(this.backdrop, { initialFocus: () => this.tableInput });
+    // The last job's failure, kept so reopening the panel shows it rather
+    // than the generic guidance; cleared by Clear form or the next attempt.
+    this.lastFailure = null;
 
     for (const input of document.querySelectorAll('input[name="upload-source"]')) {
       input.addEventListener('change', () => this.setSource(input.value));
@@ -89,23 +92,26 @@ export class UploadModal {
     }
     this.tableInput.addEventListener('input', () => this.describeTarget());
 
-    document.getElementById('open-upload').addEventListener('click', () => this.open());
-    this.cancel.addEventListener('click', () => this.shell.close());
+    this.clearButton.addEventListener('click', () => this.clear());
     this.submit.addEventListener('click', () => this.start());
     this.fileInput.addEventListener('change', () => this.describeFile());
   }
 
-  async open() {
-    this.shell.open();
+  /** Ready the form for the panel that just opened: limits, server files, a clean state. */
+  async prepare() {
     if (!this.busy) this.reset();
     this.describeTarget();
     try {
       this.info = await getJson('/api/upload-info', {}, 'upload-info');
-      this.warning.textContent = this.info.warning;
-      this.warning.hidden = false;
+      // A running job keeps its warning hidden, a failed one keeps its message.
+      if (!this.busy && !this.lastFailure) {
+        this.warning.classList.remove('is-error');
+        this.warning.textContent = this.info.warning;
+        this.warning.hidden = false;
+      }
       this.describeFile();
     } catch {
-      this.warning.hidden = true;
+      if (!this.busy && !this.lastFailure) this.warning.hidden = true;
     }
 
     try {
@@ -164,6 +170,41 @@ export class UploadModal {
     this.progressBar.style.width = '0';
     this.submit.disabled = false;
     this.submit.textContent = 'Upload & Ingest';
+    this.clearButton.disabled = false;
+    this.clearButton.title = 'Empty the form and re-arm Upload & Ingest';
+  }
+
+  /** Both buttons go quiet while a transfer or ingest runs. */
+  setBusy() {
+    this.busy = true;
+    this.lastFailure = null;
+    this.submit.disabled = true;
+    this.clearButton.disabled = true;
+    this.clearButton.title = 'Available once the running ingest finishes';
+  }
+
+  /** Empty every field and re-arm Submit; a running job keeps the form as it is. */
+  clear() {
+    if (this.busy) return;
+    this.lastFailure = null;
+    this.reset();
+    this.tableInput.value = '';
+    this.displayInput.value = '';
+    this.offsetInput.value = '0';
+    this.fileInput.value = '';
+    this.replaceBox.checked = false;
+    for (const input of document.querySelectorAll('input[name="upload-mode"]')) {
+      input.checked = input.value === 'create_new';
+    }
+    for (const input of document.querySelectorAll('input[name="upload-source"]')) {
+      input.checked = input.value === 'browser';
+    }
+    this.setSource('browser');
+    this.describeTarget();
+    this.describeFile();
+    this.warning.classList.remove('is-error');
+    this.warning.textContent = this.info?.warning ?? '';
+    this.warning.hidden = !this.warning.textContent;
   }
 
   describeFile() {
@@ -252,8 +293,7 @@ export class UploadModal {
     form.append('file', file);
     for (const [key, value] of Object.entries(fields)) form.append(key, value);
 
-    this.busy = true;
-    this.submit.disabled = true;
+    this.setBusy();
     this.submit.textContent = 'Uploading…';
     this.progressRow.hidden = false;
     this.warning.hidden = true;
@@ -287,8 +327,7 @@ export class UploadModal {
     const path = this.serverSelect.value;
     if (!path) return this.fail('No server-side file selected.');
 
-    this.busy = true;
-    this.submit.disabled = true;
+    this.setBusy();
     this.submit.textContent = 'Ingesting…';
     this.progressRow.hidden = false;
     this.warning.hidden = true;
@@ -320,9 +359,10 @@ export class UploadModal {
           this.progressBar.style.width = '100%';
           this.submit.textContent = 'Done';
           this.busy = false;
+          this.clearButton.disabled = false;
+          this.clearButton.title = 'Empty the form and re-arm Upload & Ingest';
           this.onComplete(job);
-          // Long enough to read a warning; a clean ingest closes quickly.
-          setTimeout(() => this.shell.close(), (job.warnings || []).length ? 6000 : 1600);
+          // The report stays until Clear form or the next open of the panel.
           return;
         }
         if (job.status === 'failed') {
@@ -340,9 +380,15 @@ export class UploadModal {
   }
 
   fail(message) {
+    this.lastFailure = message;
     this.warning.hidden = false;
     this.warning.classList.add('is-error');
     this.warning.textContent = message;
+    // The banner sits at the top of a long panel; bring it to the control
+    // that produced the refusal.
+    if (typeof this.warning.scrollIntoView === 'function') {
+      this.warning.scrollIntoView({ block: 'nearest' });
+    }
     setTimeout(() => this.warning.classList.remove('is-error'), 6000);
     return false;
   }

@@ -11,8 +11,8 @@ read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
   front. Choose the file name to choose the experiment name.
 - **Nothing is replaced.** A file whose experiment already exists, in any state,
   is skipped, and so is a file already ingested under another name (same file
-  name and size). To replace an experiment, use the upload dialog and tick
-  Replace.
+  name and size). To replace an experiment, use the Upload dataset section of Admin
+  Settings and tick Replace.
 - **Large files.** Hard-link rather than copy: `ln ../hits_all_models.csv
   production_hits_all_models.csv` costs no disk. A file modified in the last
   30 seconds is taken to be still copying and waits for the next scan.

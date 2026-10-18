@@ -63,8 +63,11 @@ def get_energy_distribution(
         "lab",
         description=(
             "lab | trans | local: which frame's segmentation network splits each "
-            "event's energy between the showers. The panel is the segmentation "
-            "reconstruction in every model view; D is always the laboratory separation."
+            "event's energy between the showers - lab the absolute (detector) frame, "
+            "trans the per-shower translated frame (legacy), local the Separation-Aligned "
+            "(D-Frame), Local (shower-fixed) frame. The panel is the segmentation "
+            "reconstruction in every model view; D is always the absolute-frame 3-D "
+            "centroid distance."
         ),
     ),
 ):

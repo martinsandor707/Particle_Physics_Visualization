@@ -164,7 +164,8 @@ def _consider(database, settings: Settings, store, path: Path,
         name = naming.derive_experiment_name(path.stem)
     except ValidationError as exc:
         return ScanEntry(path.name, None, "invalid_name",
-                         f"{exc.detail} Rename the file, or ingest it from the upload dialog.")
+                         f"{exc.detail} Rename the file, or ingest it from the Upload dataset "
+                         "section of Admin Settings.")
     if name in claimed:
         return ScanEntry(path.name, name, "name_collision",
                          f"{claimed[name]} already takes the name {name!r} in this scan.")
@@ -178,7 +179,8 @@ def _consider(database, settings: Settings, store, path: Path,
                  name)
         detail = f"Experiment {name!r} already exists ({present.describe()})."
         if present.status == registry.STATUS_FAILED:
-            detail += " It failed earlier: re-ingest it from the upload dialog with Replace ticked."
+            detail += (" It failed earlier: re-ingest it from the Upload dataset section of "
+                       "Admin Settings with Replace ticked.")
         return ScanEntry(path.name, name, "exists", detail)
     if name in active:
         return ScanEntry(path.name, name, "queued",

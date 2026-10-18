@@ -225,7 +225,7 @@ def test_attention_is_never_tapered(results):
 # ------------------------------------------------------------------ state --
 
 
-def test_the_interface_opens_in_the_laboratory_frame(results):
+def test_the_interface_opens_in_the_absolute_frame(results):
     assert results["state"]["cold"] == {
         "frame": "lab", "coord_system": "lab", "apiFrame": "lab", "channel": "density",
         "model": "segmentation", "mode": None, "display": "native", "rho_norm": None,
@@ -805,19 +805,25 @@ def test_every_channel_caption_exists_and_names_its_network(frame_views):
     for key, text in frame_views["captions"].items():
         frame, model, channel = key.split("|")
         assert text and text != "—", key
+        assert "laboratory" not in text, key
         if channel != "density":
             cam = "shapcam" if channel.startswith("shapcam") else "gradcam"
             assert f"{model}_{network[frame]}_{cam}" in text, key
             assert "normalised per shower" in text, key
+            if network[frame] == "absolute":
+                assert "absolute (detector) frame" in text, key
 
 
 def test_the_per_shower_footnotes_never_call_the_offset_a_separation(frame_views):
     for kind in ("trans", "local"):
         notes = frame_views["footnotes"][kind]
-        assert "not a separation" in notes["xy"] and "laboratory" in notes["xy"]
+        assert "not a separation" in notes["xy"] and "absolute-frame" in notes["xy"]
+        assert "laboratory" not in notes["xy"]
         assert "provisional" in notes["xy"]
         assert "'A+B'" in notes["xy"]
         assert "not a separation" in frame_views["footnotes"][f"{kind}Legend"]
+    assert frame_views["footnotes"]["trans"]["xy"].startswith("Slab. Per-shower translated frame (legacy):")
+    assert "Separation-Aligned (D-Frame), Local" in frame_views["footnotes"]["local"]["xy"]
     assert "by construction" in frame_views["footnotes"]["local"]["yz"]
     assert "R̄ = 0.012" in frame_views["footnotes"]["trans"]["xz"]
     assert "box overlap" in frame_views["footnotes"]["trans"]["xy"]
@@ -827,7 +833,11 @@ def test_the_per_shower_footnotes_never_call_the_offset_a_separation(frame_views
 
 def test_frame_kinds_and_titles(frame_views):
     assert frame_views["kinds"] == ["lab", "local", "lab"]
+    assert frame_views["titles"][0].startswith("XY")
     assert frame_views["titles"][1].startswith("Δx–Δy") and frame_views["titles"][2].startswith("u–v")
+    assert frame_views["titles"][3].startswith("D–Y′")
+    assert "Separation-Aligned (D-Frame)" in frame_views["titles"][3]
+    assert "legacy" in frame_views["titles"][1]
 
 
 def test_no_caption_or_footnote_carries_retired_wording_or_a_hyphen_minus(frame_views):
@@ -1078,7 +1088,7 @@ globalThis.window = {
   },
 };
 const { State, DEFAULTS } = await import(stateUrl);
-const { CHOICE_LABELS } = await import(labelsUrl);
+const { CHOICE_LABELS, FRAME_TREE } = await import(labelsUrl);
 const fresh = (hash) => { window.location.hash = hash; return new State(); };
 const view = (s) => ({ table_name: s.values.table_name, frame: s.values.frame,
   model: s.values.model, channel: s.values.channel, rho_norm: s.values.rho_norm,
@@ -1134,6 +1144,7 @@ out.once = [s.applyDefaults(saved), s.applyDefaults({ ...saved, frame: 'local' }
 out.defaults = DEFAULTS;
 out.frozen = Object.isFrozen(DEFAULTS);
 out.labels = CHOICE_LABELS;
+out.tree = FRAME_TREE;
 console.log(JSON.stringify(out));
 """
 
@@ -1257,7 +1268,7 @@ def _sidebar_radio_labels() -> dict[str, dict[str, str]]:
     return parser.found
 
 
-@pytest.mark.parametrize("group", ["frame", "model", "channel", "rho_norm"])
+@pytest.mark.parametrize("group", ["model", "channel", "rho_norm"])
 def test_the_admin_panel_labels_are_the_sidebar_labels(cold_boot, group):
     sidebar = _sidebar_radio_labels()[group]
     panel = {
@@ -1265,3 +1276,299 @@ def test_the_admin_panel_labels_are_the_sidebar_labels(cold_boot, group):
         for choice in cold_boot["labels"][group]
     }
     assert panel == sidebar
+
+
+def _labelled(choices) -> dict[str, str]:
+    return {c["value"]: " ".join(f"{c['label']} {c.get('detail', '')}".split()) for c in choices}
+
+
+def test_the_frame_tree_labels_are_the_sidebar_labels(cold_boot):
+    """The two tiers in index.html are labels.js FRAME_TREE, word for word and in order.
+
+    The admin panel's flat reference-frame list is the same tree composed, so
+    the three places a reader meets a frame name cannot drift apart.
+    """
+    sidebar = _sidebar_radio_labels()
+    tree = cold_boot["tree"]
+    assert sidebar["frame-view"] == _labelled(tree["views"])
+    assert sidebar["frame-sub"] == _labelled(tree["subs"])
+    assert list(sidebar["frame-view"]) == [v["value"] for v in tree["views"]]
+    assert list(sidebar["frame-sub"]) == [s["value"] for s in tree["subs"]]
+    assert "frame" not in sidebar, "no flat name=frame radio group may remain"
+    aligned = next(v for v in tree["views"] if v["value"] == "aligned")["label"]
+    assert {c["value"]: c["label"] for c in cold_boot["labels"]["frame"]} == {
+        "lab": "Absolute",
+        "canonical": f"{aligned} › Translated",
+        "local": f"{aligned} › Local",
+        "trans": "Per-shower translated",
+    }
+    assert [c["value"] for c in cold_boot["labels"]["frame"] if c.get("legacy")] == ["trans"]
+
+# ---------------------------------------- the frame tree, the D axis, the notes --
+
+_UI_SCRIPT = """
+const [labelsUrl, axisUrl, disclosureUrl, framesUrl, notesUrl, captionUrl, stateUrl, overlaysUrl] = JSON.parse(process.argv[1]);
+globalThis.window = { location: { hash: '', pathname: '/' }, history: { replaceState() {} } };
+const labels = await import(labelsUrl);
+const overlays = await import(overlaysUrl);
+const ax = await import(axisUrl);
+const { figureDisclosure } = await import(disclosureUrl);
+const fv = await import(framesUrl);
+const pn = await import(notesUrl);
+const caption = await import(captionUrl);
+const { FRAMES } = await import(stateUrl);
+const out = {};
+
+out.roundTrip = Object.fromEntries(FRAMES.map((f) => {
+  const v = labels.viewOf(f); return [f, [v.view, v.sub, labels.frameOf(v.view, v.sub)]];
+}));
+out.bogusView = labels.viewOf('bogus');
+out.frameOf = { alignedBogus: labels.frameOf('aligned', 'bogus'), absoluteLocal: labels.frameOf('absolute', 'local'),
+                aligned: labels.frameOf('aligned') };
+out.labels = { lab: labels.frameLabel('lab'), trans: labels.frameLabel('trans'), canonical: labels.frameLabel('canonical') };
+out.choiceValues = labels.CHOICE_LABELS.frame.map((c) => c.value);
+out.offered = { none: labels.offeredFrames(null),
+  noBounds: labels.offeredFrames({ frames: ['lab', 'canonical'], coord_systems: ['lab'] }),
+  full: labels.offeredFrames({ frames: FRAMES, coord_systems: ['lab', 'trans', 'local'] }) };
+out.entering = { both: labels.enteringSub(['lab', 'canonical', 'local', 'trans']),
+  noCanonical: labels.enteringSub(['lab', 'local', 'trans']), onlyTrans: labels.enteringSub(['lab', 'trans']),
+  none: labels.enteringSub(['lab']) };
+
+out.symbols = {
+  xyCol: ax.axisSymbol({ name: 'x', symbol: 'x′' }, 'canonical', 'xy'),
+  xzRow: ax.axisSymbol({ name: 'x', symbol: 'x′' }, 'canonical', 'xz'),
+  xyRow: ax.axisSymbol({ name: 'y', symbol: 'y′' }, 'canonical', 'xy'),
+  trans: ax.axisSymbol({ name: 'x', symbol: 'Δx' }, 'trans', 'xy'),
+  local: ax.axisSymbol({ name: 'x' }, 'local', 'xy'),
+  lab: ax.axisSymbol({ name: 'x' }, 'lab', 'xy'),
+  panels: [ax.panelOf({ col: { name: 'x' }, row: { name: 'y' } }), ax.panelOf({ col: { name: 'z' }, row: { name: 'y' } }),
+           ax.panelOf({ col: { name: 'z' }, row: { name: 'x' } })],
+  xy: ax.panelSymbols('canonical', 'xy'), xz: ax.panelSymbols('canonical', 'xz'), yz: ax.panelSymbols('canonical', 'yz'),
+};
+
+const axesOf = (sx, sy, sz) => ({
+  xy: { col: { name: 'x', symbol: sx, lo: -480, hi: 480 }, row: { name: 'y', symbol: sy, lo: -200, hi: 200 } },
+  yz: { col: { name: 'z', symbol: sz, lo: 0, hi: 1210 }, row: { name: 'y', symbol: sy, lo: -200, hi: 200 } },
+  xz: { col: { name: 'z', symbol: sz, lo: 0, hi: 1210 }, row: { name: 'x', symbol: sx, lo: -480, hi: 480 } },
+});
+const views = { xy: { col: [-480, 480], row: [-200, 200] }, yz: { col: [0, 1210], row: [-200, 200] },
+                xz: { col: [0, 1210], row: [-480, 480] } };
+const coPanel = (axes, id) => ({ scale: { unit: 'a.u.', scale: 'log10', floor: 'transparent', floor_ratio: 1e-3 },
+  rho_unit: 'GeV/mm^2/event', below_floor_cells: 3, axes: axes[id], energy_fraction_outside_window: 0.002 });
+const fitAxis = (half, floored = false) => ({ applied: true, range: [-half, half], half_width: half, floored });
+const coFrame = (kind, extra) => ({ kind, n_events: 7, n_showers: 14, n_selected: 9, n_excluded_no_frame: 2, n_ab_hits: 2,
+  d_entry: { mean: 800, ci95_half: 40, n: 7 }, d_dataset: { mean: 820, ci95_half: 30 }, subsample_k: 2,
+  footprint_mm: [48.3, 48.6], pitch_mm: 20, depth: { pitch_mm: 20.5 },
+  fit: { rule: 'symmetric', provisional: true, floor_mm: 200, percentiles: [0.1, 99.9],
+    xy: { col: fitAxis(480), row: fitAxis(200, true), energy_fraction_outside: 0.002 },
+    yz: { row: fitAxis(200, true), energy_fraction_outside: 0.001 },
+    xz: { row: fitAxis(480), energy_fraction_outside: 0.001 } },
+  rho: { norm: 'selection', ref: { xy: 1e-6, depth: 2e-6 } },
+  reconstruction: { display: 'continuous', note: 'Kernel.' }, comb: { note: 'No comb.', staggered: false },
+  notes: [], ensemble: {}, coherence: { r_a: 0.012 }, ...extra });
+const coPayload = (kind, axes, extra) => ({ frame: coFrame(kind, extra),
+  panels: { xy: coPanel(axes, 'xy'), yz: coPanel(axes, 'yz'), xz: coPanel(axes, 'xz') },
+  slab: { note: 'Slab.' }, centroids: {}, overlays: kind === 'trans' ? { trajectories: [] } : {},
+  meta: { resolution: { mode: 'continuous' }, exact: true }, selection: { n_events: 7, n_hits: 100 } });
+const canonical = coPayload('canonical', axesOf('x′', 'y′', 'z′'), {});
+const trans = coPayload('trans', axesOf('Δx', 'Δy', 'Δz'), { splat: { regime: 'box_overlap' } });
+const local = coPayload('local', axesOf('u', 'v', 'w'), { splat: { regime: 'subdeposit3d', k: 2, k_z: 2 } });
+const labAxes = axesOf('x', 'y', 'z');
+const labPanel = (id) => ({ scale: { unit: 'GeV', scale: 'log10', vmin: -6, vmax: 0, clipped_low: 2, clipped_high: 1, locked: true },
+  axes: labAxes[id] });
+const lab = { slab: { note: 'Slab.' }, meta: { resolution: { mode: 'native' }, stagger: { staggered: true, note: 'Comb note.' }, exact: true },
+  overlays: { coherence: { r_a: 0.012 }, trajectories: [] }, selection: { n_events: 90, n_hits: 1000 },
+  panels: { xy: labPanel('xy'), yz: labPanel('yz'), xz: labPanel('xz') } };
+
+out.windowXy = figureDisclosure(canonical, 'xy', null).find((s) => s.startsWith('Display window'));
+out.windowXz = figureDisclosure(canonical, 'xz', null).find((s) => s.startsWith('Display window'));
+out.canonicalXy = fv.canonicalFootnotes(canonical, { isometric: {} }).xy;
+
+const stubState = { isTouched: () => false, get: (key) => ({ display: 'continuous', resolution: 150,
+  channel: 'density', frame: 'canonical', weighting: 'energy', model: 'segmentation' })[key] ?? null };
+out.notes = {};
+out.titles = {};
+for (const [kind, payload] of Object.entries({ lab, trans, local, canonical })) {
+  for (const id of ['xy', 'yz', 'xz']) {
+    const n = pn.projectionNotes({ payload, panelId: id, isometric: { xy: true, yz: true, xz: false },
+      view: views[id], state: stubState, experiment: { display_name: 'Demo' } });
+    out.notes[`${kind}|${id}`] = { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
+      lines: n.sections.flatMap((s) => s.lines) };
+    out.titles[`${kind}|${id}`] = fv.panelTitle(id, kind);
+  }
+}
+const energyPayload = { calibration: { applied: true, sampling_fraction_a: 0.0123, sampling_fraction_b: 0.0456 },
+  axis: { clipping: { applied: true, n_outside: 3, note: 'Three events lie outside the displayed range.' } },
+  meta: { warnings: ['Density curves sampled at 200 points.', 'Something else.'], network: { frame: 'absolute' } },
+  series: [{ draw: 'strip' }, { draw: 'histogram' }] };
+const energy = pn.energyNotes({ payload: energyPayload, notices: ['Three events lie outside the displayed range.',
+  'Low-statistics series — 1 below N = 8.'], selection: { n_events: 7, n_hits: 100 }, state: stubState, experiment: null });
+out.energy = { title: energy.title, hazards: energy.hazards, headings: energy.sections.map((s) => s.heading),
+  sections: Object.fromEntries(energy.sections.map((s) => [s.heading, s.lines])) };
+out.hazards = { provisional: pn.hazards(canonical, 'yz'), labComb: pn.hazards(lab, 'xy'), labYz: pn.hazards(lab, 'yz'),
+  sampled: pn.hazards({ ...lab, meta: { ...lab.meta, exact: false, stagger: {} } }, 'xy'),
+  plain: pn.hazards({ ...lab, meta: { resolution: { mode: 'continuous' } } }, 'xy'),
+  energy: pn.hazards(energyPayload, 'energy'),
+  energyPlain: pn.hazards({ calibration: { applied: true }, series: [{ draw: 'histogram' }] }, 'energy') };
+// The overlay tooltips name the axes as the panel writes them: D on the
+// entry panel, x′ on X′Z′.
+const centroids = { truth_voxel: { label: 'Truth centroids', a: { x: 10, y: 5, z: 0 }, b: { x: -10, y: -5, z: 0 } },
+  pred_voxel: { label: 'Predicted centroids', a: { x: 12, y: 4, z: 0 }, b: { x: -8, y: -6, z: 0 } },
+  canonical_mean: { label: 'Dataset centroids', a: { x: 9, y: 3, z: 0 }, b: { x: -9, y: -3, z: 0 } } };
+const anchors = { a: { x: -400, y: 0, n: 7, se95: 10 }, b: { x: 400, y: 0, n: 7, se95: 10 } };
+const tips = (series) => series.map((s) => (typeof s.tooltip?.formatter === 'function' ? s.tooltip.formatter() : null)).filter(Boolean);
+const panelTips = (id) => {
+  const axes = canonical.panels[id].axes;
+  const symbols = ax.panelSymbols('canonical', id, axes);
+  const series = [];
+  overlays.addCanonicalCentroids(series, centroids, axes.col, axes.row, symbols);
+  overlays.addCanonicalAnchors(series, anchors, canonical.frame, axes.col, axes.row, symbols);
+  return tips(series);
+};
+out.overlayTips = { xy: panelTips('xy'), xz: panelTips('xz') };
+out.warnings = pn.warningsNotShown(['a', 'a', ' b ', 'c', ''], 'x b y');
+out.nullText = pn.notesText(null);
+out.captionExports = Object.keys(caption).sort();
+out.sections = pn.SECTION;
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def ui_results() -> dict:
+    args = json.dumps([
+        (JS / "labels.js").as_uri(), (JS / "axis_symbols.js").as_uri(),
+        (JS / "export" / "disclosure.js").as_uri(), (JS / "frame_views.js").as_uri(),
+        (JS / "panel_notes.js").as_uri(), (JS / "export" / "caption.js").as_uri(),
+        (JS / "state.js").as_uri(), (JS / "panels" / "canonical_overlays.js").as_uri(),
+    ])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _UI_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+NOTE_ORDER = ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
+
+
+def test_the_frame_tree_round_trips(ui_results):
+    """Every frame key maps to its two tiers and back; the stored key never changes."""
+    assert ui_results["roundTrip"] == {
+        "lab": ["absolute", None, "lab"], "trans": ["aligned", "trans", "trans"],
+        "local": ["aligned", "local", "local"], "canonical": ["aligned", "canonical", "canonical"],
+    }
+    assert ui_results["bogusView"] == {"view": "absolute", "sub": None}
+    assert ui_results["frameOf"] == {"alignedBogus": "canonical", "absoluteLocal": "lab", "aligned": "canonical"}
+    assert ui_results["labels"]["lab"] == "Absolute"
+    assert ui_results["labels"]["canonical"] == "Separation-Aligned (D-Frame) › Translated"
+    assert "legacy" not in ui_results["labels"]["trans"] and "Per-shower" in ui_results["labels"]["trans"]
+    assert ui_results["choiceValues"] == ["lab", "canonical", "local", "trans"]
+
+
+def test_entering_separation_aligned_never_lands_on_the_legacy_frame(ui_results):
+    offered = ui_results["offered"]
+    assert offered["none"] == ["lab", "canonical"]
+    assert offered["noBounds"] == ["lab", "canonical"]
+    assert offered["full"] == ["lab", "trans", "local", "canonical"]
+    assert ui_results["entering"] == {"both": "canonical", "noCanonical": "local", "onlyTrans": None, "none": None}
+
+
+def test_the_separation_aligned_entry_panel_writes_x_prime_as_d(ui_results):
+    s = ui_results["symbols"]
+    assert s["xyCol"] == "D" and s["xzRow"] == "x′" and s["xyRow"] == "y′"
+    assert (s["trans"], s["local"], s["lab"]) == ("Δx", "u", "x")
+    assert s["panels"] == ["xy", "yz", "xz"]
+    assert s["xy"] == {"col": "D", "row": "y′"}
+    assert s["xz"] == {"col": "z′", "row": "x′"} and s["yz"] == {"col": "z′", "row": "y′"}
+    assert "Display window: D ±480 mm, y′ ±200 mm" in ui_results["windowXy"]
+    assert "x′ ±480 mm" in ui_results["windowXz"] and "D ±" not in ui_results["windowXz"]
+    xy = ui_results["canonicalXy"]
+    assert xy.startswith("Slab. Separation-Aligned (D-Frame), Translated: N = 7")
+    assert "Window D ±480 mm, y′ ±200 mm" in xy
+    assert "D = ∓⟨D_entry⟩/2" in xy and "written D" in xy
+
+
+def test_the_overlay_tooltips_write_the_entry_axis_as_d(ui_results):
+    tips = ui_results["overlayTips"]
+    assert len(tips["xy"]) >= 4 and len(tips["xz"]) >= 4
+    for tip in tips["xy"]:
+        assert "x′ =" not in tip, tip
+    assert any("D = " in tip for tip in tips["xy"])
+    assert any("D-frame anchor" in tip and "D = " in tip for tip in tips["xy"])
+    assert any("x′ = " in tip for tip in tips["xz"])
+    assert not any("D = " in tip for tip in tips["xz"])
+
+
+def test_projection_notes_are_sectioned_in_a_fixed_order(ui_results):
+    for key, notes in ui_results["notes"].items():
+        kind = key.split("|")[0]
+        positions = [NOTE_ORDER.index(h) for h in notes["headings"]]
+        assert positions == sorted(positions), key
+        assert notes["headings"][:2] == ["Selection", "What is drawn"], key
+        # The lab legend is inside its footnote; a co-registered entry panel
+        # always has one. A depth panel's legend sentence can coincide with a
+        # disclosure line, and is then stated once, under Disclosures.
+        if kind == "lab":
+            assert "Marks and legend" not in notes["headings"], key
+        elif key.endswith("|xy"):
+            assert "Marks and legend" in notes["headings"], key
+        assert notes["title"] == ui_results["titles"][key], key
+
+
+def test_notes_never_repeat_a_sentence(ui_results):
+    for key, notes in ui_results["notes"].items():
+        collapsed = [" ".join(line.split()) for line in notes["lines"]]
+        assert len(collapsed) == len(set(collapsed)), key
+
+
+def test_the_notes_carry_the_structural_disclosures(ui_results):
+    notes = ui_results["notes"]
+    assert any("not a separation" in line for line in notes["trans|xy"]["lines"])
+    assert any("1:1" in line for line in notes["canonical|yz"]["lines"])
+    assert "View D −480–480 mm, y′ −200–200 mm." in notes["canonical|xy"]["lines"]
+    assert "View z′ 0–1210 mm, x′ −480–480 mm." in notes["canonical|xz"]["lines"]
+    assert any(line.startswith("Experiment Demo") for line in notes["lab|xy"]["lines"])
+    assert any("Comb note." in line for line in notes["lab|xy"]["lines"])
+    assert any("not a shower edge" in line for line in notes["canonical|xy"]["lines"])
+
+
+def test_energy_notes_carry_calibration_clipping_notices_and_the_explainer(ui_results):
+    energy = ui_results["energy"]
+    assert energy["title"] == "Reconstructed Energy vs. Separation D"
+    drawn = energy["sections"]["What is drawn"]
+    assert any("sampling fractions" in line for line in drawn)
+    assert any("segmentation network" in line for line in drawn)
+    assert any("Gaussian fits" in line for line in drawn)
+    assert "Density curves sampled at 200 points." in drawn and "Something else." not in drawn
+    disclosures = energy["sections"]["Disclosures"]
+    assert disclosures == ["Three events lie outside the displayed range.", "Low-statistics series — 1 below N = 8."]
+    assert energy["sections"]["Reading the density axis"][0].startswith("A probability density is not a probability.")
+    assert energy["headings"][-1] == "Reading the density axis"
+
+
+def test_hazards_are_structural(ui_results):
+    h = ui_results["hazards"]
+    assert h["provisional"] == ["provisional fitted range"]
+    assert h["labComb"] == ["measured lattice comb"] and h["labYz"] == []
+    assert h["sampled"] == ["sampled preview"]
+    assert h["plain"] == []
+    assert h["energy"] == ["low-statistics series", "clipped energy range"]
+    assert h["energyPlain"] == []
+
+
+def test_warnings_not_shown_drops_what_the_notes_already_say(ui_results):
+    assert ui_results["warnings"] == ["a", "c"]
+    assert ui_results["nullText"] == ""
+
+
+def test_the_caption_module_exports_only_provenance_helpers(ui_results):
+    assert ui_results["captionExports"] == ["describeSelection", "describeView", "displayOf", "kernelPhrase"]
+    assert list(ui_results["sections"].values()) == NOTE_ORDER + ["Reading the density axis"]
+
+
+def test_no_note_carries_a_hyphen_minus(ui_results):
+    import re
+
+    for key, notes in ui_results["notes"].items():
+        for line in notes["lines"]:
+            assert not re.search(r"(?<![\w])-\d", line), (key, line)

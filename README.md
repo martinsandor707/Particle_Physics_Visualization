@@ -127,8 +127,9 @@ projection table 5 s, event table 17 s, preview sample 5 s, verification 16 s.
 > itself. `--direct` forces the second mode and fails loudly if the database is
 > locked.
 
-The same route is available from the interface: the upload modal's **Source**
-selector offers "Already on the server", which lists the CSV and Parquet files
+The same route is available from the interface: the **Source** selector of the
+**Upload dataset** form in [Admin Settings](#admin-settings-the-default-view)
+offers "Already on the server", which lists the CSV and Parquet files
 under the mounted root. Paths are confined to that one directory — every request is resolved
 (following symlinks, collapsing `..`) and rejected if it lands outside — so the
 endpoint cannot be used to read arbitrary server files.
@@ -158,7 +159,8 @@ ln hits_all_models.csv ingest/production_hits_all_models.csv   # a hard link cos
   - the same file (name and size) is already archived as another experiment;
   - a second file claims the same name.
 
-  Nothing is ever replaced: that is the upload dialog's **Replace**.
+  Nothing is ever replaced: that is the upload form's **Replace** in Admin
+  Settings.
 - **Reported, not failed.** A file that fails its schema check is listed in the
   panel with the reason and left alone, instead of adding a failed experiment
   at every boot. A file modified within the settle window is taken to be still
@@ -174,13 +176,22 @@ Only the folder's top level is scanned. Hidden files, temporary names (`.part`,
 
 ### Through the browser
 
-The **Upload Dataset** button streams a file to disk in 8 MiB chunks and hands
-it to a background ingest job, polled for progress. Large uploads are permitted
-— external collaborators have no shell access and this is their only route — but
-the modal warns that a browser upload cannot resume, and that ingestion needs
-about three times a CSV's size, or three and a half times a Parquet file's, in
-free disk space. The Parquet figure is provisional until measured on the
-production file.
+The **Upload dataset** form lives inside the **Admin Settings** panel, between
+the default-view form and the Automatic ingest section; there is no separate
+header button any more, the header's **Admin Settings** button opens both. Its
+fields are the experiment name, an optional display name, the `CREATE_NEW` /
+`APPEND` mode, the event offset, the source — a file from this computer or one
+already on the server — and **Replace** (`force_reingest`), with a **Clear
+form** button that empties every field and re-arms **Upload & Ingest**. The
+form streams a file to disk in 8 MiB chunks and hands it to a background ingest
+job, polled for progress. The panel's **Close** button closes it; a running
+upload or ingest survives closing the panel, and its report stays until
+**Clear form** or the next open. Large uploads are permitted — external
+collaborators have no shell access and this is their only route — but the form
+warns that a browser upload cannot resume, and that ingestion needs about three
+times a CSV's size, or three and a half times a Parquet file's, in free disk
+space. The Parquet figure is provisional until measured on the production
+file.
 
 `CREATE_NEW` builds a clean, isolated experiment.
 
@@ -190,10 +201,10 @@ production file.
   API and `--force-reingest` on the CLI.
 - **Every check runs before the drop.** Replacing drops the old experiment
   before the new file is read, so a refused file never costs the experiment it
-  would have replaced. A failure later in the load still does, and the dialog
+  would have replaced. A failure later in the load still does, and the form
   says so.
 - **A queued name is refused even when forced.**
-- **The dialog asks first.** Each of these, the file type and the naming rules
+- **The form asks first.** Each of these, the file type and the naming rules
   are checked before a byte is sent.
 
 `APPEND` adds rows, and is **rejected** if the incoming event numbers overlap
@@ -217,7 +228,8 @@ centroid_{A,B}_{x,y,z}_trans, centroid_AB_distance_trans  _trans and _local)
 {angle,energy,segmentation}_{absolute,local,trans}_{pred,true,gradcam,gradcam_energy,shapcam,shapcam_energy}
 ```
 
-Three coordinate systems per hit (laboratory; *trans*, shifted by the hit's own
+Three coordinate systems per hit (absolute, the detector's own `x, y, z`;
+*trans*, shifted by the hit's own
 shower's entry point; *local*, then rotated by that shower's own R(θ, φ)), and
 nine networks — three tasks × three input frames — each with a prediction,
 its truth and per-hit Grad-CAM and Shap-CAM maps. Measured facts that shape
@@ -225,7 +237,7 @@ the service:
 
 - **A cell shared by both showers is two rows**, one A and one B (1,629,316
   such cells on the production file). Only 422 rows remain labelled `'A+B'`;
-  they sit at the origin of the translated and local frames and are counted
+  they sit at the origin of the per-shower translated and local frames and are counted
   with shower B. `cellID` is therefore not unique within an event, and row
   counts are not cell counts.
 - **The segmentation truth is fractional** (E_A / E_voxel) on 45% of hits.
@@ -238,7 +250,7 @@ the service:
   plotted.** They are CAM × E_voxel rescaled per event or shower, so summing
   them over hits double-counts. The energy-weighted channels are computed
   from the raw CAM columns instead (see [Display channels](#display-channels)).
-- **D is always `centroid_AB_distance`**, the laboratory 3-D centroid distance.
+- **D is always `centroid_AB_distance`**, the absolute-frame 3-D centroid distance.
   `centroid_AB_distance_trans` / `_local` compare centroids expressed in two
   different frames and are not a separation (their correlation with D is 0.11
   and −0.001).
@@ -320,7 +332,10 @@ kept with that provenance.
 opens on:
 
 - the experiment;
-- the reference frame;
+- the reference frame (the sidebar's two tiers composed into one list:
+  *Absolute*, *Separation-Aligned (D-Frame) › Translated*, *Separation-Aligned
+  (D-Frame) › Local*, and the legacy *Per-shower translated*, which has no
+  sidebar radio);
 - the reconstruction model;
 - the display channel;
 - the display mode;
@@ -328,8 +343,11 @@ opens on:
 
 Choose them, or press **Use current view** to copy the sidebar, then press
 **Save defaults**. **Open default view ↗** starts a fresh session to check the
-result. The panel also shows the [drop folder](#drop-folder-automatic-ingest)'s
-last scan, with live job status and **Scan now**.
+result. The panel also holds the **Upload dataset** form (see
+[Through the browser](#through-the-browser)) and shows the
+[drop folder](#drop-folder-automatic-ingest)'s last scan, with live job status
+and **Scan now**; its **Close** button closes the whole panel, and a running
+ingest survives that.
 
 Each setting resolves through four layers, highest first:
 
@@ -338,7 +356,7 @@ Each setting resolves through four layers, highest first:
 | URL hash | a link or bookmark carrying view state | — |
 | Saved | the panel: `config.json` on the data volume, written atomically | "set here" |
 | Environment | `CALOSRV_DEFAULT_*` in `docker-compose.yml` | "from environment" |
-| Built-in | Laboratory / segmentation / density / each frame's own display mode / selection; the oldest ready experiment | "built-in" |
+| Built-in | Absolute / segmentation / density / each frame's own display mode / selection; the oldest ready experiment | "built-in" |
 
 - **Chips and Reset.** The chip beside every control names its layer. **Reset**
   removes the saved value, so the layer beneath shows through; like every
@@ -348,7 +366,7 @@ Each setting resolves through four layers, highest first:
 - **Unavailable choices.** A frame, model or channel the chosen experiment does
   not serve is disabled.
 - **Display mode.** The display-mode setting applies to the default frame.
-  "Frame's own" keeps native in the laboratory and the Continuous Field
+  "Frame's own" keeps native in the Absolute frame and the Continuous Field
   elsewhere.
 
 **Bookmarks never change meaning.**
@@ -365,16 +383,17 @@ Each setting resolves through four layers, highest first:
   never by editing the built-in values, which would silently re-read every
   saved link.
 
-**Why the built-in view is the laboratory frame.**
+**Why the built-in view is the Absolute (detector) frame.**
 
 - **It is the only frame computable from measured quantities.**
-  - The translated frame subtracts each shower's entry point P₀, recovered from
-    its truth-labelled hits.
-  - The local frame also rotates by the truth (θ, φ).
-  - The canonical frame back-projects along the truth (θ, φ).
+  - The legacy per-shower translated frame subtracts each shower's entry point
+    P₀, recovered from its truth-labelled hits.
+  - The Separation-Aligned Local frame also rotates by the truth (θ, φ).
+  - The Separation-Aligned Translated frame — the D-frame — back-projects along
+    the truth (θ, φ).
 - **It carries the networks that apply to real data.** The network follows the
   frame, so the absolute-frame networks, the only ones whose inputs exist on
-  detector data, appear only in the laboratory and canonical frames.
+  detector data, appear only in the Absolute frame and the D-frame.
 - **Any other frame can still be the team's default.** Choose it in the panel.
 
 **Scope.** Saving never changes the view of the session that saved it. An API
@@ -389,17 +408,27 @@ network.
 
 ## The interface
 
-**Header** — experiment dropdown, a compute badge showing the active
-`DUCKDB_MEMORY_GB` and thread count, an exact/preview badge, and the upload
-button.
+**Header** — a sidebar toggle (one icon button, `#sidebar-toggle`, reporting
+`aria-expanded`), the experiment dropdown, a compute badge showing the active
+`DUCKDB_MEMORY_GB` and thread count, an exact/preview badge, and the
+**Admin Settings** button, whose panel also holds the upload form.
 
 **Sidebar** — filters for E₁ (`incoming_momentum_A`), E₂ (`incoming_momentum_B`)
 and D (`centroid_AB_distance`), combined with chained boolean AND and debounced
-by 150 ms; a **Reference Frame** radio — *Laboratory* (the default),
-*Translated*, *Local* or *Canonical centre-of-separation*, see
-[Reference frames](#reference-frames) — with a caption stating what the frame
+by 150 ms; a two-tier **Reference Frame** control — a primary radio
+*Absolute (detector coordinates)*, the default, or *Separation-Aligned
+(D-Frame)* (`name="frame-view"`, values `absolute` | `aligned`), and under the
+latter a nested radio *Translated* or *Local (shower-fixed)*
+(`name="frame-sub"`, values `canonical` | `local`); entering Separation-Aligned
+lands on Translated. The legacy per-shower translated frame has no radio: a
+`#frame=trans` link or a saved admin default opens it and reveals a hidden
+*Per-shower translated (legacy)* sub-option while it is active. The stored
+value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin
+`default_coord_system` stay the flat four-value frame key, and `js/labels.js`
+`FRAME_TREE` is the one definition of the tree (see
+[Reference frames](#reference-frames)) — with a caption stating what the frame
 does; the display-mode and resolution control, whose labels, default and hint
-follow the frame (see [Display modes in the canonical frame](#display-modes-in-the-canonical-frame));
+follow the frame (see [Display modes in the Separation-Aligned frames](#display-modes-in-the-separation-aligned-frames));
 the five-way **display channel** selector (see [Display channels](#display-channels)),
 under which a **Density normalisation** radio (relative to this selection's
 peak, or to the dataset peak) appears in the co-registered frames, where it
@@ -410,8 +439,37 @@ hash — `frame`, `channel`, `model`, `rho_norm` and the four per-frame display
 modes (`display_lab`, `display_trans`, `display_local`, `display_canonical`)
 among them — and a link carrying an unknown value for any enumerated control
 falls back to its default rather than to a 422. **Old canonical links:** the
-canonical frame used to be the default, which a link never wrote down, so such
-links now open in the laboratory frame; add `#frame=canonical`.
+D-frame (`frame=canonical`) used to be the default, which a link never wrote
+down, so such links now open in the Absolute frame; add `#frame=canonical`.
+
+**Collapsing the sidebar.** The header's icon button collapses and re-expands
+the configuration sidebar. The state is kept in `localStorage`
+(`calosrv.sidebar`), never in the URL: a bookmark must not carry layout. The
+grid tracks snap — no CSS transition — and every chart re-lays itself out
+synchronously once the class has toggled, so the XY panel stays 1:1 px/mm at
+the new width rather than measuring a half-way geometry.
+
+**The Details drawer.** The four on-card footnotes are gone. Each card has a
+**Details** button — its title row is clickable too — that opens a right-hand
+drawer (`<aside id="inspector">`, `js/shell.js`) with that panel's methodology
+and statistical disclosures in sections: *Selection*, *What is drawn*,
+*Disclosures*, *Marks and legend*, and for the energy panel *Reading the
+density axis*. `js/panel_notes.js` builds them from the same pure functions
+that wrote the footnotes — `frame_views.js` `footnotes()`,
+`export/disclosure.js` `figureDisclosure()`, `exportLegend()`, `caption.js`
+`describeSelection()` / `describeView()` — so nothing a footnote said has gone
+anywhere else. The Details button is the keyboard trigger: it reports
+`aria-expanded`, Escape closes the drawer, and focus returns to it. It carries
+a warning dot when the panel holds a hazard a reader should not miss — a
+provisional fitted range, a measured comb, a sampled preview, an empty frame;
+on the energy panel a low-statistics series, a clipped energy range or
+uncalibrated energies. Opening the drawer narrows the chart column, and every
+panel re-lays itself out. Still on screen without opening it: ρ_ref and a
+**Clipped** readout in the status bar (`#stat-clipped`: the entry panel's
+cells clipped to the ends of the colour ramp in the Absolute frame, or its
+bins below the display floor in a co-registered frame), the energy card's
+low-statistics notices (`#energy-sparse`, which also carry the energy-axis
+clipping note), and the sidebar's ⓘ dots (the comb and frame notices).
 
 Each filter carries **both a numeric pair and a slider, on one shared grid**.
 The slider's integer domain *is* the numeric step — 0.05 GeV for the energies,
@@ -445,15 +503,21 @@ cannot mistake a co-registered picture for detector coordinates:
 
 | Frame | Panels | Axis symbols |
 |---|---|---|
-| Laboratory | XY / YZ / XZ | x, y, z |
-| Translated | Δx–Δy / Δy–Δz / Δx–Δz | Δx, Δy from the shower's entry point; Δz depth from its first layer |
-| Local | u–v / v–w / u–w | u, v lateral; w depth along the incident direction |
-| Canonical | X′Y′ / Y′Z′ / X′Z′ | x′ along the A→B separation, y′ normal to the shower plane, z′ from the front face |
+| Absolute | XY / YZ / XZ | x, y, z |
+| Separation-Aligned › Translated (the D-frame, API `canonical`) | D–Y′ (the server's X′Y′) / Y′Z′ / X′Z′ | the entry panel's horizontal axis is written **D**: the signed x′ coordinate along the A→B separation, with the anchors at D = ∓⟨D_entry⟩/2 and tick values in mm; y′ normal to the shower plane, z′ from the front face; the depth panels keep x′, y′, z′ |
+| Separation-Aligned › Local (API `local`) | u–v / v–w / u–w | u, v lateral; w depth along the incident direction |
+| Per-shower translated (legacy, API `trans`) | Δx–Δy / Δy–Δz / Δx–Δz | Δx, Δy from the shower's entry point; Δz depth from its first layer |
 
-The server sends the symbol with each axis; the name stays `x`, `y`, `z`. The
-footnotes carry every disclosure the frame generates; see
-[Canonical centre-of-separation frame](#canonical-centre-of-separation-frame) and
-[Translated and local shower frames](#translated-and-local-shower-frames).
+The server sends the symbol with each axis; the name stays `x`, `y`, `z`, and
+the server's symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed. The
+D label is the one client-side exception, made in `js/axis_symbols.js` and
+read from there by every consumer that names the axis — the axis title, the
+hover readout, the window phrase, the drawer's provenance line, the centroid
+tooltips — so the screen cannot disagree with itself about what the axis is
+called. Each panel's Details drawer carries every disclosure the frame
+generates; see
+[Separation-Aligned (D-Frame): the Translated view (API canonical)](#separation-aligned-d-frame-the-translated-view-api-canonical) and
+[Per-shower frames: Local, and the legacy translated frame](#per-shower-frames-local-and-the-legacy-translated-frame).
 
 All three spatial panels **scroll to zoom and drag to pan**, with an *Auto-fit
 RoI* button that frames the box holding 99% of the selected energy (bounded by
@@ -465,8 +529,8 @@ multi-event selections do, the fit says so rather than appearing inert.
 
 ### Overlay and layout behaviour shared by every frame
 
-These fixes were found while reworking the canonical panels. They were applied
-to the laboratory frame too. The lab *server* payload did not change: the
+These fixes were found while reworking the D-frame panels. They were applied
+to the Absolute frame too. The `lab` *server* payload did not change: the
 golden test pins it byte for byte.
 
 - **The colour bar colours the raster and nothing else** (`visualMap`
@@ -562,7 +626,7 @@ golden test pins it byte for byte.
   replays three cases on their own: a scroll then a drag, a window that
   shrinks, and a scroll while a tip shows.
 - **Auto-fit RoI weights bins by energy, not by colour code.** Codes are
-  monotone in energy but not proportional to it. On the three-decade canonical
+  monotone in energy but not proportional to it. On the three-decade D-frame
   ramp a bin a tenth as bright as the peak carried two thirds of the peak's
   weight, so the "99% of the energy" box swelled towards the halo. On an
   isometric panel the fitted box is now slid inside the panel rather than
@@ -576,11 +640,13 @@ golden test pins it byte for byte.
 
 ### Direction overlays on the depth panels
 
-This section describes the **laboratory frame**. In the canonical frame (next
-section) both overlays give way to two ensemble axes; the translated frame draws
-the individual trajectories from the origin and nothing else; the local frame
-draws no direction at all (see [Translated and local shower frames](#translated-and-local-shower-frames)).
-In the lab the two overlays are complements, and only one is honest at a time.
+This section describes the **Absolute (detector) frame**. In the D-frame (next
+section) both overlays give way to two ensemble axes; the legacy per-shower
+translated frame draws the individual trajectories from the origin and nothing
+else; the Separation-Aligned Local frame draws no direction at all (see
+[Per-shower frames: Local, and the legacy translated frame](#per-shower-frames-local-and-the-legacy-translated-frame)).
+In the Absolute frame the two overlays are complements, and only one is honest
+at a time.
 
 *Selections of 50 events or fewer* get the **individual incident trajectories**,
 projected from each event's centroid and (θ, φ) across the fiducial depth.
@@ -597,13 +663,16 @@ centroid per depth layer, measured from the binned data on screen.
 > trajectory threshold — averaging the position of a handful of showers that
 > sit in different places has no common centre to converge on.
 
-### Canonical centre-of-separation frame
+### Separation-Aligned (D-Frame): the Translated view (API canonical)
 
-The **Reference Frame** control offers this view beside the laboratory one. In the laboratory frame
-every event's two showers land wherever the particles struck, so a multi-event
-selection is a smear across the 5.2 m face, and the prohibition above holds
-with no exception: with φ uniform, nothing can be averaged. The canonical frame
-changes the premise rather than bending the rule. Every selected event is moved
+The **Reference Frame** control offers this view as *Separation-Aligned
+(D-Frame) › Translated*, beside the Absolute one; the API calls it
+`frame=canonical`, and the rest of this document calls it the D-frame
+(formerly "the canonical centre-of-separation frame"). In the absolute
+(detector) frame every event's two showers land wherever the particles struck,
+so a multi-event selection is a smear across the 5.2 m face, and the
+prohibition above holds with no exception: with φ uniform, nothing can be
+averaged. The D-frame changes the premise rather than bending the rule. Every selected event is moved
 by one **rigid-body motion** — an element of SE(3), so distances, transverse
 widths and longitudinal profiles are preserved exactly — such that its two
 showers sit at the same place as every other event's, and only then is anything
@@ -635,13 +704,13 @@ the lab query. Bin indices become millimetres only through the coordinate
 arrays measured at ingest, bound as list parameters — never by multiplying a
 pitch.
 
-The frame is checked on the data it is applied to. Per-event canonical slab
+The frame is checked on the data it is applied to. Per-event D-frame slab
 centroids sit at y′ = +0.3 / −0.0 mm (median), and at x′ + D_entry/2 = +19 mm
 (A), x′ − D_entry/2 = +17 mm (B). That x′ offset is a **mixture, not a
 constant** — outward by −22 / +24 mm for D_entry > 500 mm, and +44 / +9 mm for
 D_entry < 80 mm, where overlapping deposits drag the A slab centroid toward B —
 so the payload reports the measured anchor–centroid offsets per selection
-(`frame.anchor_offsets`) and the X′Y′ footnote prints them.
+(`frame.anchor_offsets`) and the entry panel's Details drawer prints them.
 
 **D_entry is not D.** The transverse separation of the two entry points at the
 face is the frame's own separation; it differs from the slider's 3-D centroid
@@ -650,14 +719,19 @@ against ⟨D⟩ = 842 mm (production v37: 765 / 854 mm, and 157 / 249 mm in the
 D 240–260 mm slice). Both
 are always printed side by side, the mean D_entry with the Student-t 95 %
 interval of the mean, named as such (the payload also carries the bare standard
-error; at N = 2 the two differ by a factor 12.7). The 57 events (0.28%) with no
+error; at N = 2 the two differ by a factor 12.7). The entry panel writes its
+horizontal axis as **D** — the signed x′ coordinate along the A→B separation,
+with the anchors at D = ∓⟨D_entry⟩/2 and tick values in mm — while D itself,
+the slider's quantity, stays the absolute-frame 3-D centroid distance
+`centroid_AB_distance`; the depth panels keep x′, y′ and z′. The 57 events
+(0.28%) with no
 A centroid have no frame and are excluded from N and counted, even when
 *include undefined D* admits them elsewhere. Below D_entry = 80 mm — 32.3% of
 all events — the rotation angle is dominated by the ~80 mm anchor residual and
 is effectively random: those events' energy enters ⟨ρ⟩ averaged over azimuth,
 and their randomly oriented directions enter the ensemble-axis statistics (R̄′,
 the Rayleigh p, the dispersion band) as noise that lowers R̄′ and raises p. The
-count is disclosed on the panel and in the figure.
+count is disclosed in the panel's Details drawer.
 
 **A hit is a cell, and rotation does not smooth the lattice.** The physical
 footprint is measured from the populated `(ix, iy)` occupancy of the projection
@@ -687,7 +761,7 @@ accumulation raster:
   bin under a cell by construction, so occupancy alone cannot see a residual
   *intensity* comb.
 
-Either below −0.10 is reported as a comb, with canonical wording in
+Either below −0.10 is reported as a comb, with one fixed wording in
 `meta.stagger` and `frame.comb`. The measurement is taken on the **raw grid,
 before any display smoothing**, and `frame.comb.measured_on` says so. The
 verdict is therefore identical in both display modes. This order matters:
@@ -707,7 +781,7 @@ density ⟨ρ⟩ = ΣE / (N · ΔA) in **GeV mm⁻² per event**:
   resolution;
 - every display operator conserves the sum and cannot raise any bin above the
   raw peak. Those operators are Native Grid's box merge and both Continuous
-  Field kernels (see [Display modes in the canonical frame](#display-modes-in-the-canonical-frame)).
+  Field kernels (see [Display modes in the Separation-Aligned frames](#display-modes-in-the-separation-aligned-frames)).
   Each is a non-negative partition of unity on the uniform grid, so a displayed
   bin is a weighted *mean* of raw 20 mm bins.
 
@@ -742,7 +816,8 @@ than the physics. It does not quote `displayed_over_ref`, which is dominated by
 how bright the selection is relative to the dataset. For example, the ratio is
 1.95 on X′Y′ for the N = 5 slice, whose ramp top therefore rises to 10⁰·²⁹.
 
-ρ_ref and its reference are printed on every panel and in the figure caption.
+ρ_ref is kept in the status bar, and every panel's Details drawer states it
+with its reference.
 The exact `topk` values ship in physical units and `total` keeps its GeV
 meaning, so the physical density can always be recovered from a picture drawn in
 a.u. Tooltips show both. The top-k list is the *displayed* field, labelled
@@ -754,7 +829,7 @@ drawn**. They used to be clamped into colour code 1, the opaque bottom of the
 ramp, which painted the whole crop as a dark-purple rectangle around the
 showers.
 
-- **Codes.** A canonical panel now reserves code 1 (`below_code`) for them. The
+- **Codes.** A co-registered panel now reserves code 1 (`below_code`) for them. The
   ramp starts at `min_code` 2 with 253 levels, and code 0 still means empty.
 - **Counts.** The payload counts the undrawn bins (`below_floor_cells`, equal to
   `scale.clipped_low`) and gives the share of the panel's in-window
@@ -766,8 +841,10 @@ showers.
   linearly in alpha (`THEME.floorFadeDecades` 0.5), and the field dissolves into
   the card. The legend mirrors the fade with translucent stops and reads
   "10⁻³ a.u. — fades to not drawn".
-- **Print.** The token is 0 in print, which gives a hard contour. The caption
-  says the contour is the 10⁻³ display floor and not a shower edge.
+- **Print.** The token is 0 in print, which gives a hard contour. The exported
+  figure carries no caption, so the drawer's floor sentence — the edge of the
+  colour is the display floor, not the edge of the shower — is what the
+  manuscript caption must repeat; the ramp's print title names the floor.
 - **Grad-CAM** keeps the lab's fixed 0–1 scale and gets an `attention_mask`
   block instead:
   - *Continuous Field* masks attention where the *reconstructed* energy density
@@ -805,8 +882,8 @@ The origin is the midpoint of the two anchors, so a centred window keeps it in
 the middle of the panel. The X′Y′ panel's 1:1 aspect comes from the letterbox,
 not from forcing a square. `frame.fit.<panel>.<row|col>` carries the
 `percentile_range` before centring, `half_width`, `floored` and `clamped`; the
-footnote prints the window as `x′ ±480 mm` and names a floor or a clamp where
-one applied. Measured on production v37:
+Details drawer prints the window as `D ±480 mm` on the entry panel and
+`x′ ±480 mm` on X′Z′, and names a floor or a clamp where one applied. Measured on production v37:
 
 | Selection | N | X′Y′ window | X′Y′ energy outside (raw grid) |
 |---|---|---|---|
@@ -821,7 +898,7 @@ like the edge of the shower: 14–99% of the X′Y′ boundary bins were above t
 floor, against 2–11% now.
 
 The disclosure is unchanged in kind. The energy outside each window is reported
-in its footnote, measured *after* display reconstruction
+in its Details drawer, measured *after* display reconstruction
 (`energy_fraction_outside_window`), because a kernel moves a little energy
 across the window edge in both directions. The raw-grid figure travels beside
 it (`energy_fraction_outside_window_raw`). Across seven production selections
@@ -870,7 +947,7 @@ file R̄′_A / R̄′_B is 0.779 / 0.819 for D 2700–3000 mm (N = 500; ⟨û�
 ⟨û′_B⟩ → +x′: the two showers diverge with depth), 0.123 / 0.125 for D 20–40 mm
 (N = 950, every event below the 80 mm ill-conditioning threshold, still
 Rayleigh p ≈ 5 × 10⁻⁷), and 0.156 / 0.237 over the full selection, against 0.012
-in the laboratory frame. (Production v37: 0.779 / 0.819, 0.339 / 0.340 and
+in the absolute (detector) frame. (Production v37: 0.779 / 0.819, 0.339 / 0.340 and
 0.024 / 0.371.)
 
 **The marks near the cores are deliberately light.** By construction the anchors
@@ -901,19 +978,20 @@ covered exactly the bins the panel exists to show. They are drawn by
   - a plus for `canonical_mean`, the dataset centroids averaged *after*
     co-registration.
 
-  The footnote and the exported figure name each set by the payload's own
-  label (`centroidLegend`), so the three never disagree. `truth_dataset`, a
-  lab-frame mean of positions, is omitted here, because averaging positions
+  The drawer's *What is drawn* and *Marks and legend* sections name each set
+  by the payload's own label (`centroidLegend`), so the tooltips and the
+  drawer never disagree. `truth_dataset`, an
+  absolute-frame mean of positions, is omitted here, because averaging positions
   across events that sit in different places is exactly what this frame exists
   to avoid.
-- **Plot chrome.** The canonical plots are framed by a thin border drawn above
+- **Plot chrome.** The co-registered plots are framed by a thin border drawn above
   the raster. The axis lines no longer sit on zero: a symmetric window would
   otherwise put a crosshair through the middle of both showers.
 
 Thin rules mark the front and back faces at z′ = 0 and 1209.5 mm. **Not drawn**:
 individual trajectories (the ensemble axes replace them), and the transverse
 detector outline, which rotates with each event and has no ensemble image. The
-footnote says so.
+Details drawer says so.
 
 **Low N.** Numbers are reported from N ≥ 2 and marks are gated separately, as
 in plot 4. With no framed event the panels are empty and say so. A single event
@@ -936,7 +1014,8 @@ server start-up and after each successful ingest, before the translated and
 local ones, one scan at a time. Sampled drag previews cap k at 2.
 Depth panels are drawn at a 1:1 metric aspect when the fitted spans allow it
 (the letterboxed plot keeps at least 45% of the card width and the span ratio
-lies within [0.45, 1.3]), otherwise with true extents and a footnote saying so;
+lies within [0.45, 1.3]), otherwise with true extents and the Details drawer
+saying so;
 the decision is re-taken whenever the card resizes.
 The zoom window survives slider ticks within one frame — the fitted extents
 move on every tick, and resetting the view each time would make zooming during
@@ -945,14 +1024,14 @@ a drag impossible — and is reset only on a change of frame or experiment.
 **API.**
 
 - **Parameters.** `GET /api/projections?frame=lab|canonical` defaults to `lab`.
-  `frame=canonical` requires `coord_system=lab`: the canonical frame is built
-  from laboratory coordinates, and its CAM channels read the absolute-frame
+  `frame=canonical` requires `coord_system=lab`: the D-frame is built
+  from absolute (detector) coordinates, and its CAM channels read the absolute-frame
   networks (`model=`). It also takes
   `rho_norm=selection|dataset` and `display=native|continuous`, whose server
   default stays `native` in every frame. The interface always sends `display`
   explicitly. `lock_scale` and `scale_mode` are accepted but ignored in the
-  canonical frame.
-- **The envelope.** The canonical envelope keeps every lab key and adds:
+  D-frame.
+- **The envelope.** The `frame=canonical` envelope keeps every `lab` key and adds:
   - a `frame` block: anchor definition, window, fit, footprint, k,
     `subsample_regime`, comb (with `measured_on`), ρ_ref (with `basis`,
     `displayed_peak`, `displayed_over_ref`, `kernel_attenuation`),
@@ -998,22 +1077,28 @@ a drag impossible — and is reset only on a change of frame or experiment.
 
 | Interface label | API `(coord_system, frame)` | Coordinates | Co-registers | Accumulation | Direction overlay | D |
 |---|---|---|---|---|---|---|
-| **Laboratory** (default) | `(lab, lab)` | `x, y, z` | nothing | the detector lattice, one bin per cell | trajectories ≤ 50 events, else measured shower axes | `centroid_AB_distance` |
-| **Translated** | `(trans, lab)` | `x_trans, y_trans`, own-shower layer | each shower on its own entry point P₀ | 20 mm grid, exact box overlap | trajectories from the origin ≤ 50 events, else R̄ stated | the same |
-| **Local** | `(local, lab)` | `x_local, y_local, z_local` | each shower on P₀ and its own R(θ, φ) | 20 mm × 20.5 mm grid, rotated k × k × k_z sub-deposits | none: w is the direction by construction | the same |
-| **Canonical** | `(lab, canonical)` | lab, co-registered in SE(3) | each event on the midpoint of its entry points | 20 mm grid, k × k sub-deposits | two ensemble axes with band and envelope | the same; D_entry reported beside it |
+| **Absolute** (default) | `(lab, lab)` | `x, y, z` | nothing | the detector lattice, one bin per cell | trajectories ≤ 50 events, else measured shower axes | `centroid_AB_distance` |
+| **Separation-Aligned › Translated** (the D-frame) | `(lab, canonical)` | absolute, co-registered in SE(3) | each event on the midpoint of its entry points | 20 mm grid, k × k sub-deposits | two ensemble axes with band and envelope | the same; D_entry reported beside it, and the entry panel's horizontal axis written D |
+| **Separation-Aligned › Local** | `(local, lab)` | `x_local, y_local, z_local` | each shower on P₀ and its own R(θ, φ) | 20 mm × 20.5 mm grid, rotated k × k × k_z sub-deposits | none: w is the direction by construction | the same |
+| **Per-shower translated** (legacy, link-only: `#frame=trans` or a saved default) | `(trans, lab)` | `x_trans, y_trans`, own-shower layer | each shower on its own entry point P₀ | 20 mm grid, exact box overlap | trajectories from the origin ≤ 50 events, else R̄ stated | the same |
 
 `state.js: apiFrame` is the only UI → API mapping, so the two parameters can
-never disagree. The network behind the CAM channels, the metric cards and the
+never disagree; `labels.js: FRAME_TREE` maps the flat key to the sidebar's two
+tiers and back. The network behind the CAM channels, the metric cards and the
 energy panel follows the coordinate system: absolute-frame networks for the
-laboratory and canonical frames, the translated and local networks for theirs.
+Absolute frame and the D-frame, the `trans` and `local` networks for the two
+per-shower frames.
 
-### Translated and local shower frames
+### Per-shower frames: Local, and the legacy translated frame
 
-**What they are.** *Translated* moves every hit by its own shower's entry point
-P₀ — the energy-weighted (x, y) centroid of that shower's first populated layer,
-at that layer's z — without rotation. *Local* then rotates it by that shower's
-own R(θ, φ), so its incident direction lies along +w. Both are the input file's
+**What they are.** Two frames superimpose the showers at their own entry
+points: *Local* — the sidebar's *Separation-Aligned (D-Frame) › Local*, API
+`local` — and *Per-shower translated* — the legacy frame, API `trans`, with no
+sidebar radio of its own; plain "Translated" in the sidebar now names the
+D-frame. *Per-shower translated* moves every hit by its own shower's entry
+point P₀ — the energy-weighted (x, y) centroid of that shower's first populated
+layer, at that layer's z — without rotation. *Local* then rotates it by that
+shower's own R(θ, φ), so its incident direction lies along +w. Both are the input file's
 own `*_trans` / `*_local` coordinates, verified at ingest to be exactly that
 transform. The two showers of every event are therefore **superimposed at the
 origin**; the 422 `'A+B'` rows sit there too and are counted with shower B.
@@ -1021,7 +1106,7 @@ origin**; the 422 `'A+B'` rows sit there too and are counted with shower B.
 **Accumulation, by footprint rather than point.** A hit is a 48.27 × 48.6 mm
 cell, and point-binning a co-registered centre combs (CLAUDE.md section 2):
 
-- *Translated* does not rotate, so a footprint stays an axis-aligned box and its
+- *Per-shower translated* does not rotate, so a footprint stays an axis-aligned box and its
   area-weighted overlap with the 20 mm grid is computed **exactly**. The overlap
   of a box with the bins it touches is affine in the position of its left edge
   within its first bin, so the SQL aggregates four moments per hit keyed by
@@ -1034,14 +1119,15 @@ cell, and point-binning a co-registered centre combs (CLAUDE.md section 2):
   the layer pitch, so near-normal incidence maps each layer onto one bin.
 
 Depth is each shower's own sampling layers counted from its first in
-*Translated*, and uniform w bins in *Local*; neither is ever smoothed. The grid
+*Per-shower translated*, and uniform w bins in *Local*; neither is ever smoothed. The grid
 is planned per dataset from the ingest-time energy-weighted 10⁻⁴ and 0.9999
 quantiles plus half a footprint (`grid/bounds.py`), so every selection shares
-its bin boundaries; 0.027% (*Translated*) and 0.035% (*Local*) of the production
-energy falls outside it, counted. A hit whose footprint is not wholly inside
-the translated grid is counted outside in every panel alike.
+its bin boundaries; 0.027% (*Per-shower translated*) and 0.035% (*Local*) of
+the production energy falls outside it, counted. A hit whose footprint is not
+wholly inside the per-shower translated grid is counted outside in every panel
+alike.
 
-**Everything else is the canonical frame's rules:** symmetric display windows at
+**Everything else is the D-frame's rules:** symmetric display windows at
 the energy-weighted 0.1st–99.9th percentile with the same floors and 20 mm
 snapping; the Continuous Field kernel on the transverse axes only, Gaussian
 below N = 50 and tent above; ⟨ρ⟩ = ΣE / (N·ΔA), which here sums both showers of
@@ -1050,22 +1136,23 @@ along both transverse axes, and along w in *Local*.
 
 **No separation, an offset.** The voxel-weighted centroid pair measures the A–B
 offset of two ensembles each relative to its own entry point: `offset_mm`, never
-a separation, which stays the laboratory D. `centroids.frame_mean` is the mean
+a separation, which stays the absolute-frame D. `centroids.frame_mean` is the mean
 per-event centroid (`centroid_*_trans` / `_local`) with its sample SD, drawn as a
 faint uncapped cross, and its Student-t 95% interval of the mean, drawn as capped
 whiskers — two quantities, two marks. At N = 1 the marker is labelled as that
 single event's own centroid and no cross or whisker is drawn. A mark end that
 would leave the window is clamped to its edge, with a caret in place of the
-cap and the full range in the tooltip, and the footnote counts such ends.
+cap and the full range in the tooltip, and the Details drawer counts such ends.
 Energy that falls outside the accumulation grid altogether
 (`frame.window.energy_fraction_outside`, `hits_outside`) is stated beside each
 panel's window share.
 
-**Directions.** *Translated* keeps every shower's laboratory azimuth, which is
+**Directions.** *Per-shower translated* keeps every shower's absolute-frame
+azimuth, which is
 near-uniform (R̄ = 0.012), so it draws the individual incident directions from
 the origin for ≤ 50 events and otherwise states R̄. In *Local* every direction
 is +w by construction, so an axis or a Rayleigh statistic could carry no
-information, and the footnote says so.
+information, and the Details drawer says so.
 
 **Measured on production** (seven selections, N = 3 … 20,268):
 
@@ -1076,18 +1163,19 @@ information, and the footnote says so.
 
 | Comb (worst lag-1 per axis; a comb is < −0.10) | Transverse | Depth |
 |---|---|---|
-| Translated, box overlap | +0.14 … +0.59 | — |
+| Per-shower translated, box overlap | +0.14 … +0.59 | — |
 | Local, k × k × 2 | +0.05 … +0.67 | +0.11 … +0.92 |
 | Local, k × k × 1 | −0.018 … +0.63 | +0.0003 … +0.49 |
 
 No comb is measured at any N, but at k_z = 1 the depth lag-1 falls to +0.0003
 (N = 5), so k_z = 2 is kept; it costs 1.1 s on the full selection.
 
-**Cost** on the full selection (DuckDB 10 GB, 10 threads): *Translated* 0.9–1.0 s
+**Cost** on the full selection (DuckDB 10 GB, 10 threads): *Per-shower
+translated* 0.9–1.0 s
 cold and 0.23 s for the drag preview; *Local* 2.5–2.7 s cold and 0.40 s for the
 preview; a cached re-render (channel, display mode, R) 23–34 ms. Both are
-pre-warmed after the canonical frame at start-up. Bundles are 2.7 MB
-(*Translated*, 162 × 132 × 60) and 2.9 MB (*Local*, 150 × 128 × 85).
+pre-warmed after the D-frame at start-up. Bundles are 2.7 MB
+(*Per-shower translated*, 162 × 132 × 60) and 2.9 MB (*Local*, 150 × 128 × 85).
 
 ### Display channels
 
@@ -1100,7 +1188,7 @@ pre-warmed after the canonical frame at start-up. Bundles are 2.7 MB
 | Energy-weighted Shap-CAM | ΣE·S, positive and negative parts kept as separate planes | signed log₁₀, ±(10⁻³ … 1) of the peak \|value\| | PuOr | \|v\| below 10⁻³ transparent, counted | each sign separately |
 
 The CAM column read is `{model}_{absolute|trans|local}_{gradcam|shapcam}`, the
-network of the selected model in the selected frame, the canonical frame taking
+network of the selected model in the selected frame, the D-frame taking
 the absolute networks; `meta.cam` names it with its normalisation. Angle- and
 energy-network maps are normalised per shower and segmentation maps per event,
 so an ensemble map mixes independently normalised maps: it shows *where* a
@@ -1137,7 +1225,8 @@ sequential ramp is chosen (the colour-map control is disabled and says why).
 
 The legends mark both signs and zero (`+10⁰ a.u.`, `±10⁻³`, `−10⁰ a.u.`; `+1.00`,
 `0`, `−1.00`). Every rendered negative number in the interface and the exported
-figures — ticks, legend ends, tooltips, captions, footnotes — is set with the
+figures — ticks, legend ends, tooltips, captions, the Details drawer — is set
+with the
 minus sign U+2212, never a hyphen (`static/js/format.js`, `calosrv/text.py`).
 
 ### Model performance cards
@@ -1160,7 +1249,7 @@ shower-A hits has no A prediction and is dropped from A, never zero-filled.
 two rows, so the unweighted per-hit counts see it twice. On the full production
 selection (20,268 events):
 
-| | Laboratory | Translated | Local |
+| | Absolute (`absolute`) | Per-shower translated (`trans`) | Local (`local`) |
 |---|---|---|---|
 | Voxel accuracy | 76.92% | 69.69% | 67.40% |
 | Energy-weighted MAE | 16.47% | 22.79% | 24.25% |
@@ -1176,7 +1265,7 @@ that network in `meta.network`. Its response is measured as served: at the
 maximum of eight D slices the fitted curves alone reached 67 KB of a 120 KB
 response, so while it is over 100 KB the curves are re-sampled at 150, 100, 75
 or 50 points — each point still the exact fitted Gaussian — and the step is
-stated in the energy footnote. A synthetic file with 1, 2, 7, 8, 14, 15, 19, 20
+stated in the energy panel's Details drawer. A synthetic file with 1, 2, 7, 8, 14, 15, 19, 20
 and 200 events per slice (`tests/synthetic_all_models.py`) checks every
 low-N rung against the budget.
 
@@ -1221,8 +1310,9 @@ curve peaks at `1/(σ√2π)`, so a thin slice with a poorly determined σ would
 flatten every well-measured slice beside it — measured on a test set, two
 10-event slices peaked at 2.52 and 2.09 GeV⁻¹ against a robust maximum of 0.38.
 Thin curves are therefore drawn de-weighted, adapt to the established range, and
-where one overflows it is clipped with a caret at the axis top and named in the
-footnote with its true peak. If no slice reaches N = 15 the axis is labelled
+where one overflows it is clipped with a caret at the axis top and named, with
+its true peak, in the energy card's notice (`#energy-sparse`) and the Details
+drawer. If no slice reaches N = 15 the axis is labelled
 *provisional*; if nothing estimable is drawn at all the density axis is left
 unlabelled rather than showing a 0–1 grid nothing is measured against.
 
@@ -1259,8 +1349,9 @@ empty-bin comb.
 > file, adjacent native columns alternate between 46.2% and 42.3% occupancy, and
 > the lag-1 autocorrelation of the detrended column profile is −0.25. The result
 > is a fine vertical comb which is **detector segmentation, not shower
-> structure**. The server measures this per request and the XY panel footnote
-> names it. Switching to Continuous Field merges the staggered pairs: the same
+> structure**. The server measures this per request; the XY panel's Details
+> button is flagged and its drawer names it, as does the ⓘ beside Spatial
+> Resolution. Switching to Continuous Field merges the staggered pairs: the same
 > selection at R = 150 measures +0.05 with 90% occupancy, and at R = 104 it is
 > +0.85 with 94%. This is the same effect `calodash/constants.py` documented for
 > the batch pipeline, where a 50.5 mm transverse bin was chosen for exactly this
@@ -1277,9 +1368,9 @@ cached native-resolution bundle, so changing R costs no database access.
 > 4.4 mm apart with a group pitch alternating 43.87 / 48.27 mm. Panels are
 > therefore positioned from physical millimetre extents, never from matrix shape.
 
-### Display modes in the canonical frame
+### Display modes in the Separation-Aligned frames
 
-In the canonical frame the two modes act on the uniform 20 mm accumulation grid,
+In the D-frame the two modes act on the uniform 20 mm accumulation grid,
 not on the lattice. They mean different things there, so the radios are
 relabelled and each frame keeps its own mode.
 
@@ -1301,10 +1392,10 @@ depth columns only (60 → 1920 px, rows untouched), so the browser's smooth
 upscale acts along the transverse rows, which the kernel reconstructed, and
 never blends two sampling layers.
 
-**Continuous Field** *(kernel reconstruction)* is where the canonical frame
+**Continuous Field** *(kernel reconstruction)* is where the D-frame
 opens. It reconstructs **x′ and y′ only** with a conservative kernel
 (`grid/kernel.py`, applied by `query/reconstruct.py`). R sets the display bins
-across the X′Y′ window. The kernel, not R, sets the resolution: no detail exists
+across the entry-panel (D–Y′) window. The kernel, not R, sets the resolution: no detail exists
 below the 20 mm grid or the 48 mm cell.
 
 | Selection | Kernel | Spread per 20 mm bin (RMS) | Total x′ blur, with the k × k footprint splat and the 20 mm binning |
@@ -1318,8 +1409,8 @@ below the 20 mm grid or the 48 mm cell.
 - **The switch at N = 50.** The tent is 29% narrower. Re-rendering the
   production N = 49 and N = 50 bundles with both kernels shows that the switch
   raises the displayed X′Y′ peak by 6–7% and the depth peaks by 4–5%. The
-  kernel sentence (`frame.reconstruction.note`, in the notices and the panel
-  footnote) discloses it.
+  kernel sentence (`frame.reconstruction.note`, in the notices and the panel's
+  Details drawer) discloses it.
 - **Which source bins.** Each axis is reconstructed from the full accumulation
   axis sliced to the window plus the kernel's reach: one bin for the tent,
   ⌈9σ/p⌉ + 1 for the Gaussian, whose tail is exactly zero past 9σ. Energy just
@@ -1338,8 +1429,8 @@ overshoot the peak. Point interpolation was rejected because it does not
 conserve energy. The display caption names the kernel, σ, its RMS spread, the
 total blur, the display pitch and the N gate.
 
-The translated and local frames use the same two modes on their own 20 mm
-grids, with the same labels.
+The Local and the legacy per-shower translated frames use the same two modes on
+their own 20 mm grids, with the same labels.
 
 **One mode per frame.** The state holds `display_lab` (default `native`, the
 hardware lattice), and `display_trans`, `display_local` and `display_canonical`
@@ -1351,8 +1442,8 @@ hash writes each key only when it differs from its default. A pre-split
 `#display=native` link still works: it is applied to the active frame, unless
 the link also carries that frame's own key. Canonical links written before the
 split never carried `display`, because Native was the default, so they would
-open in Continuous Field — and, since the laboratory frame became the default,
-they open in the laboratory frame unless they name `frame=canonical`.
+open in Continuous Field — and, since the Absolute frame became the default,
+they open in the Absolute frame unless they name `frame=canonical`.
 
 **Switching costs no scan.** A co-registered cache key names the frame kind,
 the selection, the sampling, the accumulation grid, k (and k_z), the footprint
@@ -1375,7 +1466,7 @@ E_reco_A = Σ(energy · segmentation_{f}_pred) · c_A
 ```
 
 where `{f}` is the selected frame's segmentation network (`absolute` for the
-laboratory and canonical frames, `trans`, `local`).
+Absolute frame and the D-frame, `trans`, `local`).
 
 Summing before dividing, rather than averaging per-event ratios, is deliberate: a
 per-event normalisation would force each event onto its own truth exactly and
@@ -1402,55 +1493,39 @@ meaningful, since 1 pt is then 4/3 logical px.
 > converted. Each colour drawn as text or axis chrome clears 4.5:1 against white,
 > asserted by `tests/test_export_assets.py` rather than judged by eye.
 
-**The figure carries its own disclosures.** The panel footnote travels into the
-image as a caption, together with the selection it was measured on and, for a
-zoomed panel, the displayed window in millimetres. This is not decoration: the
-footnotes hold the percentile-clipping count, the staggered-comb warning, the
-*provisional* density-axis basis and the true peak of any clipped low-N curve.
-The energy figure additionally embeds its fitted μ and σ as an aligned table,
-which on screen lives in HTML beside the chart and would otherwise be left
-behind. A figure that reached print without those sentences would be exactly the
-silent omission the rest of this interface exists to avoid.
-
-In SVG the caption band is an isolated **`<g id="figure-disclosure">`** spliced
-before `</svg>`, so a downstream tool can find, restyle or extract it. It has
-to be composed by our own code: zrender's SVG painter flattens the display
-list, so ECharts `graphic` groups never become `<g>` elements. `caption.js`
-serialises the *same* laid-out caption items the PNG draws as ECharts graphics
-— baseline at `offsetY + top + 0.71·fontSize`, since zrender centres text on
-its line — so the two formats cannot drift. Its sentences are read
+**The figure is the plot canvas only.** By directive, an exported figure holds
+the axes, the data raster, the vector overlays and the colour-scale legend, on
+`#FFFFFF` in `#111827` ink, and nothing else: no caption band is laid out under
+the plot, no height is reserved for one, nothing is spliced into the SVG after
+serialisation (there is no `<g id="figure-disclosure">` any more; the only
+post-processing is the `image-rendering: pixelated` hint on the embedded
+raster), and the energy figure carries no μ/σ table rows. This overrides the
+earlier rule that the figure carries its own disclosures. The methodology and
+the statistical disclosures a reader needs — the percentile-clipping counts,
+the staggered-comb warning, the display window and the energy it leaves out,
+ρ_ref with its reference, the display floor, the reconstruction note, the
+footprint and k, the ill-conditioned count, R̄′ / Rayleigh p / N for each
+ensemble axis, the *provisional* flag, the true peak of any clipped low-N
+curve, and whether the values came from the 10% sample — are the panel's
+**Details drawer** (`js/panel_notes.js`), which is what an author carries into
+the manuscript caption. The drawer's *Disclosures* section is read
 **structurally from the payload** (`static/js/export/disclosure.js`), not
-scraped from the on-screen footnote: a footnote is prose assembled for a card
-and may be shortened or rounded, whereas the figure must state what was
-*computed*.
+scraped from the prose: prose is assembled for a card and may be shortened or
+rounded, whereas a caption must state what was *computed*. The one sentence
+the figure keeps is the ramp's print title, which names the display floor.
 
-- **In the canonical frame** the sentences state:
-  - the frame definition, N and the events excluded without a frame;
-  - ⟨D_entry⟩ against ⟨D⟩;
-  - ρ_ref with its reference and the ramp bounds;
-  - the display floor: the undrawn bins and their energy share, or for Grad-CAM
-    the masking rule of the display mode;
-  - the symmetric display window ("x′ ±480 mm, y′ ±380 mm, symmetric about the
-    origin at the 0.1st–99.9th energy percentile") with any floor or clamp, and
-    the energy it leaves out after reconstruction;
-  - the provisional flag;
-  - the reconstruction note (kernel, σ, spread, total blur);
-  - the footprint and k, and the measured comb;
-  - the ill-conditioned count;
-  - R̄′ / Rayleigh p / N for each ensemble axis.
-- **In the laboratory frame** they state the ramp's clipping counts and the
-  staggered-comb note.
-- **In either frame** they state whether the values came from the 10% sample.
+`export/caption.js` now holds only the provenance sentences
+(`describeSelection`, `describeView`) and the display descriptor (`displayOf`,
+`kernelPhrase`); nothing in it is drawn into a figure.
 
-The live footnote still travels too, de-duplicated against these lines.
-
-**The provenance line and the file name read the display from the payload, not
-from the controls.** Both use R, the merge and the kernel (`caption.displayOf`,
-from `meta.resolution` and `frame.reconstruction`). The payload guard can lower
-R below the slider, and a figure labelled R150 that holds R112 bins is
-mislabelled. The provenance line names the grid, for example "canonical
-centre-of-separation frame, Gaussian kernel, σ = 10 mm on 7.5 mm display bins
-(R = 112)" or "raw 20 mm bins (Native Grid, no reconstruction)".
+**The drawer's provenance line and the file name read the display from the
+payload, not from the controls.** Both use R, the merge and the kernel
+(`caption.displayOf`, from `meta.resolution` and `frame.reconstruction`). The
+payload guard can lower R below the slider, and a figure labelled R150 that
+holds R112 bins is mislabelled. The provenance line names the grid, for example
+"Separation-Aligned (D-Frame), Translated, Gaussian kernel, σ = 10 mm on 7.5 mm
+display bins (R = 112)" or "Separation-Aligned (D-Frame), Translated, raw 20 mm
+bins (Native Grid, no reconstruction)".
 
 Two things change for white paper beyond the obvious inversion:
 
@@ -1462,14 +1537,15 @@ Two things change for white paper beyond the obvious inversion:
 - **The colour bar moves below the x axis.** A vertical bar costs about seven
   label widths, which on a 321 px figure is a quarter of the canvas.
 
-The canonical overlays change for print as well:
+The co-registered overlays change for print as well:
 
 - **The display floor is a hard contour.** `floorFadeDecades` is 0 in print, so
   the alpha is a pure step and never a division by zero. A gradient could band
-  or drop out on a printer. The caption therefore says "the dark outline is the
-  10⁻³ display floor, not a shower edge", and the ramp title appends "· below
-  10⁻³ not drawn", shortened to "· <10⁻³ not drawn" where a single column has no
-  room.
+  or drop out on a printer. The figure carries no caption to say so, which is
+  why the drawer's floor sentence — the edge of the colour is the display
+  floor, not the edge of the shower — belongs in the manuscript caption; the
+  ramp title appends "· below 10⁻³ not drawn", shortened to "· <10⁻³ not drawn"
+  where a single column has no room.
 - **The separation rule** is `#6b7280` instead of translucent white, which
   vanishes on paper and carries an alpha that PDF renderers composite
   unpredictably.
@@ -1483,15 +1559,15 @@ None of these three tokens is text, so none is held to the 4.5:1 ink floor.
 > is upscaled by an **integer** factor with smoothing off. Each pixel block is
 > one **payload bin**:
 >
-> - a detector cell in the lab frame;
-> - a raw 20 mm accumulation bin in the canonical Native Grid;
+> - a detector cell in the Absolute frame;
+> - a raw 20 mm accumulation bin in a co-registered Native Grid;
 > - a reconstructed display bin in the Continuous Field.
 >
 > Every one of them is a value the server computed, and interpolating between
-> them would invent values the payload does not contain. On the lab lattice that
+> them would invent values the payload does not contain. On the detector lattice that
 > would be resampling by point interpolation, which CLAUDE.md forbids. The
 > smoothing a Continuous Field figure shows was done on the server by the kernel
-> the caption names, not by the image scaler. Print takes the raster at one
+> the drawer names, not by the image scaler. Print takes the raster at one
 > pixel per payload bin, without either on-screen enlargement, and applies one
 > integer factor to both axes. The factor fills the printed width at 300 dpi
 > but keeps the long side at or below 4096 px, so a 60-layer depth raster a few
@@ -1509,12 +1585,12 @@ first rather than appearing to ignore the click.
 Names are deterministic: `[panel-id]_[slice]_[YYYYMMDD_HHMMSS].[svg|png]`, where
 the slice names only the axes actually narrowed, for the same reason the URL
 hash omits untouched bounds. The slice then names the display (`native` or
-`R112`, the payload's own), a non-laboratory frame (`trans`, `local`,
+`R112`, the payload's own), a non-Absolute frame (`trans`, `local`,
 `canonical`), and for a CAM channel the channel and its network (`gradcam`,
 `gradcamE`, `shapcam`, `shapcamE`; `seg`, `energy`, `angle`) — a density figure
 belongs to no network. A co-registered Continuous Field export appends the
 kernel last, as `gauss10` or `tent`, so the 90-character cap drops the kernel
-first. The energy panel names a non-laboratory segmentation frame. For example:
+first. The energy panel names a non-absolute segmentation frame. For example:
 `xy_D-257-258_R112_local_shapcamE_seg_gauss10_20260924_101500.svg`.
 
 ---
@@ -1552,7 +1628,7 @@ so tooltips stay quotable. The payloads use the 8-bit codes differently:
 | Energy-weighted Shap-CAM (`signed_log10`) | empty | \|v\| below 10⁻³ of the peak | codes 2–128 negative (2 = −10⁰, 128 = −10⁻³), 129–255 positive (129 = +10⁻³, 255 = +10⁰); `split_code` 129 | 2.4% per sign |
 
 The steps are finer than the eye resolves. The lab quantiser is byte-identical
-to its old formula. The client indexes a canonical colour table at
+to its old formula. The client indexes a co-registered payload's colour table at
 `round((code − min_code)/(max_code − min_code) · 255)`, so a drawn colour sits
 where the legend and `dequantize` put it.
 
@@ -1567,10 +1643,10 @@ full kinematic range; `data/dev/design/measurements.md` has every figure):
 |---|---|
 | Event-level endpoints: metric cards, energy panel | 7–13 ms |
 | Cache hit — channel, display mode, R, palette change (whole response) | 23–47 ms |
-| Laboratory frame, cold scan | 0.26–0.28 s |
-| Translated frame, cold / drag preview | 0.9–1.0 s / 0.23 s |
-| Canonical frame, cold (k = 2) / drag preview | 1.7 s / 0.27 s |
-| Local frame, cold (k = 2, k_z = 2) / drag preview | 2.5–2.7 s / 0.40 s |
+| Absolute frame, cold scan | 0.26–0.28 s |
+| Per-shower translated frame (legacy, `trans`), cold / drag preview | 0.9–1.0 s / 0.23 s |
+| D-frame (Separation-Aligned › Translated, `canonical`), cold (k = 2) / drag preview | 1.7 s / 0.27 s |
+| Separation-Aligned › Local (`local`), cold (k = 2, k_z = 2) / drag preview | 2.5–2.7 s / 0.40 s |
 
 The full-range bundles of the three co-registered frames are pre-warmed at
 start-up and after each ingest, one at a time. Every scan is plain sums in two
@@ -1606,8 +1682,15 @@ without shower A, an all-zero Shap-CAM map — read `hits_all_models_fixture.csv
 and skip without it; cut it, and a production subset, from an ingested archive
 with `tests/make_all_models_fixture.py fixture|subset` (it reads the event table
 and the Parquet archive, never the CSV). The JavaScript tests run the pure
-modules under Node; the browser tooltip test needs Playwright's Chromium and
-`CALOSRV_BROWSER_TESTS=1`. Every full-dataset job should run alone, with an
+modules under Node. `tests/test_layout_assets.py` pins the markup and CSS of
+the page shell from the source alone: the on-card footnotes gone, the sidebar
+toggle, the Details drawer, the two-tier frame control and the upload form
+inside Admin Settings. The browser tests are opt-in
+(`CALOSRV_BROWSER_TESTS=1`) and need Playwright's Chromium: the tooltip, admin
+panel and upload checks, and `tests/test_browser_layout.py`, which drives the
+sidebar toggle, the Details drawer, the frame selector (a `#frame=trans` link
+included), the entry panel's D axis and a plot-only export download.
+Every full-dataset job should run alone, with an
 explicit `DUCKDB_MEMORY_GB`, inside a memory-capped scope (`systemd-run --user
 --scope -p MemoryMax=14G -p MemorySwapMax=0`).
 
@@ -1623,9 +1706,9 @@ property the display relies on (columns telescope, W ≥ 0, energy conserved,
 σ → 0 is the box, the tent is `np.interp`, no displayed bin above the raw peak
 over 100 random matrices, flat fields stay flat, float32 input gives the
 float64 result) and the symmetric window on hand-computed cases. `tests/test_golden_lab.py`
-asserts that the laboratory-frame output on the demonstration dataset is
+asserts that the Absolute-frame (`frame=lab`) output on the demonstration dataset is
 **byte-identical** to `tests/golden/lab_demo.json`, so the shared code the
-canonical frame touches (`NativeBundle.axis`, `centroids`, `panels.shower_axes`)
+D-frame touches (`NativeBundle.axis`, `centroids`, `panels.shower_axes`)
 cannot move the lab picture unnoticed. It was regenerated once, deliberately,
 when the schema changed: on a 29-column derivation of the all-models dummy, before
 any code changed, so the new pipeline had to reproduce it unregenerated. It pins
@@ -1675,12 +1758,13 @@ calosrv/
   api/     deps routes_* frame_canonical frame_shower
   static/  index.html css/ js/
              js/      main api state labels scale palette decode dom textfit format frame_views
+                      axis_symbols panel_notes shell
              js/panels/   projection canonical_overlays marks tooltip energy metrics
              js/controls/ range_slider upload admin modal
              js/export/   tokens figure caption disclosure filename download menu
 ```
 
-The canonical frame is its own column of that layout, one responsibility per
+The D-frame is its own column of that layout, one responsibility per
 file.
 
 **Server:**
@@ -1697,8 +1781,8 @@ file.
 | `query/canonical_cache.py` | the cached bundle and its start-up warmer |
 | `api/frame_canonical.py` | the envelope assembly and the whole-response budget (`serve_within_budget`, shared by every co-registered frame) |
 | `query/planes.py` | the nine measurement planes every bundle carries and how each channel reads them |
-| `query/shower_frames.py` | the translated and local frames: statistics, the exact box-overlap and rotated sub-deposit scans, their caches and warmer |
-| `api/frame_shower.py` | the translated and local envelope: comb on both axes, superimposed centroids, `frame_mean`, directions |
+| `query/shower_frames.py` | the per-shower (`trans`, `local`) frames: statistics, the exact box-overlap and rotated sub-deposit scans, their caches and warmer |
+| `api/frame_shower.py` | the per-shower (`trans`, `local`) envelope: comb on both axes, superimposed centroids, `frame_mean`, directions |
 | `grid/bounds.py` | the dataset-wide frame extents measured at ingest, from which their grids are planned |
 | `db/archive.py`, `db/storage_guard.py` | the Parquet archive and its manifest; the refusal of RAM-backed storage |
 | `stats/metrics.py` | the card estimators: clustered ratios, residual summaries, Fisher-z correlation |
@@ -1712,13 +1796,19 @@ file.
 
 | File | Responsibility |
 |---|---|
-| `static/js/panels/canonical_overlays.js` | the light anchors, spread bars, separation rule and shape-coded centroids, with the legend sentence the footnote and the figure share |
+| `static/js/panels/canonical_overlays.js` | the light anchors, spread bars, separation rule and shape-coded centroids, with the legend sentence the drawer's *What is drawn* and *Marks and legend* sections share |
 | `static/js/panels/marks.js` | the clipped, hit-testable custom-series lines every frame draws its named overlays with, and the capped whisker of an interval of the mean |
-| `static/js/export/disclosure.js` | the structured figure disclosures, per frame kind and quantity |
-| `static/js/frame_views.js` | every frame's titles, captions, display captions and footnotes, as pure strings |
+| `static/js/export/disclosure.js` | the structured disclosures of the Details drawer, per frame kind and quantity, read from the payload's fields rather than from the prose |
+| `static/js/export/caption.js` | the provenance sentences (`describeSelection`, `describeView`) and the display descriptor (`displayOf`, `kernelPhrase`), read from the payload; nothing in it is drawn into a figure |
+| `static/js/export/figure.js` | the off-screen print render and its serialisation: the plot canvas only, under the swapped theme, in one synchronous block |
+| `static/js/frame_views.js` | every frame's titles, captions, display captions and the per-panel prose the drawer shows (`footnotes()`, `exportLegend()`), as pure strings |
+| `static/js/axis_symbols.js` | the symbol each spatial axis is written with, and the one client-side rule that writes the D-frame entry panel's horizontal axis as D; a leaf module every consumer that names an axis reads |
+| `static/js/panel_notes.js` | the Details drawer's text: one panel's methodology and disclosures as sections (*Selection*, *What is drawn*, *Disclosures*, *Marks and legend*, *Reading the density axis*), built from the functions above; `hazards()` flags the trigger |
+| `static/js/shell.js` | the collapsible sidebar (`localStorage`, never the hash) and the Details drawer: grid tracks snap, every chart re-lays itself out synchronously, text nodes only |
 | `static/js/format.js` | the typographic minus |
-| `static/js/controls/admin.js`, `static/js/controls/modal.js` | the Admin Settings panel; the dialog shell both dialogs share (focus, Escape, ARIA) |
-| `static/js/labels.js` | every choice's label, used by the panel and held equal to the sidebar's by a test |
+| `static/js/controls/admin.js`, `static/js/controls/modal.js` | the Admin Settings panel — the default view, the upload form (`controls/upload.js`) and the automatic-ingest report; the dialog shell (focus, Escape, ARIA) |
+| `static/js/controls/upload.js` | the upload form inside Admin Settings: naming checks before a byte is sent, the streaming upload or server-side ingest, and the job poll, which carries on after the panel is closed |
+| `static/js/labels.js` | every choice's label and `FRAME_TREE`, the one definition of the two-tier frame control; the admin panel builds from it and a test holds it equal to the sidebar's markup |
 | `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer, every explanation off the hovered chart |
 
 Three structural rules the layout exists to enforce:
@@ -1737,9 +1827,9 @@ Three structural rules the layout exists to enforce:
   what keeps a global style change invisible to the live charts. A hardcoded
   `fontSize: 10` or a read of `this.element.clientHeight` inside an option
   builder silently reintroduces the screen's geometry into the exported figure.
-- **The laboratory-frame path is never edited to add a frame.** The canonical
+- **The Absolute-frame (`lab`) path is never edited to add a frame.** The D-frame
   response is assembled beside the route in `api/frame_canonical.py`, the
-  translated and local ones in `api/frame_shower.py`, through the frame-generic
+  per-shower (`trans`, `local`) ones in `api/frame_shower.py`, through the frame-generic
   co-registered path and never through the lab route, and the only shared code
   they reach (`NativeBundle.axis`, `centroids`, `panels.shower_axes`) is pinned
   byte-identical by the golden snapshot test. The lab path changed twice,

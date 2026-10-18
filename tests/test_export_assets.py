@@ -157,7 +157,8 @@ def test_floor_tokens_exist_on_screen_and_in_print():
 
     The exporter swaps `THEME` wholesale, so a token defined only on screen
     would print in its screen value - a translucent white rule on white paper,
-    or the on-screen fade instead of the hard contour the caption names. None
+    or the on-screen fade instead of the hard contour the drawer's disclosure
+    names. None
     of them is ink, so none may sit in `PRINT_INK`, whose members must clear
     4.5:1: a reference rule that did would compete with the data.
     """
@@ -256,6 +257,9 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/panels/tooltip.js",
         "/static/js/frame_views.js",
         "/static/js/format.js",
+        "/static/js/axis_symbols.js",
+        "/static/js/panel_notes.js",
+        "/static/js/shell.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -274,6 +278,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/panels/canonical_overlays.js",
         "/static/js/panels/tooltip.js",
         "/static/js/frame_views.js",
+        "/static/js/panel_notes.js",
+        "/static/js/labels.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -283,9 +289,10 @@ def test_new_module_imports_are_stamped(client, path):
     the exact failure mode commit a0e00c3 exists to prevent: a fresh entry point
     importing a module the browser has been holding since before the feature.
 
-    `textfit.js` and `panels/marks.js` are deliberately absent from this list -
-    they are leaves with no imports of their own, so there is nothing in them to
-    stamp. They are reached, and therefore versioned, through their importers.
+    `textfit.js`, `panels/marks.js`, `axis_symbols.js` and `shell.js` are
+    deliberately absent from this list - they are leaves with no imports of
+    their own, so there is nothing in them to stamp. They are reached, and
+    therefore versioned, through their importers.
     """
     response = client.get(path)
     specifiers = re.findall(r"from\s+'(\.\.?/[^']+)'", response.text)
@@ -352,74 +359,111 @@ def test_export_modules_are_reachable_from_the_entry_point():
     assert (js_root / "textfit.js").resolve() in seen
     for module in ("marks.js", "canonical_overlays.js", "tooltip.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
-    for module in ("frame_views.js", "format.js"):
+    for module in ("frame_views.js", "format.js", "axis_symbols.js", "labels.js",
+                   "panel_notes.js", "shell.js"):
         assert (js_root / module).resolve() in seen, f"{module} is never imported"
 
 
-# ------------------------------------------------- the disclosure band --
+# ------------------------------------------------ the plot-only figure --
 
 
-def test_svg_export_splices_an_isolated_disclosure_group():
-    """Plan section 1.8: the SVG carries a `<g id="figure-disclosure">`.
+def _js_sources():
+    """Every non-vendor script under static/js, as (path, raw text)."""
+    return [
+        (path, path.read_text(encoding="utf-8"))
+        for path in sorted((STATIC / "js").rglob("*.js"))
+        if "vendor" not in path.parts
+    ]
 
-    zrender's SVG painter flattens `graphic` items, so the group can only come
-    from our own post-processing. The check is on the source: figure.js must
-    call `captionToSvg` and the id must be the one the plan names, so a reader
-    of the file can address the band.
+
+def test_no_disclosure_group_is_spliced_into_any_export():
+    """The figure is the plot: nothing names, builds or splices a disclosure band.
+
+    The earlier export laid out a caption band and inserted it before `</svg>`
+    as `<g id="figure-disclosure">`. By directive the figure now carries no
+    caption; the disclosures live in the panel's Details drawer instead.
+    """
+    for path, source in _js_sources():
+        assert "figure-disclosure" not in source, f"{path.name} still names the disclosure band"
+    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
+    assert "</svg>" not in figure, "figure.js still post-processes the SVG at its closing tag"
+    assert "captionToSvg" not in figure
+
+
+def test_the_exported_figure_is_strictly_the_plot_canvas():
+    """Plot area, axes, overlays and the colour-scale legend; no reserved height.
+
+    The bare word `caption` is not forbidden, because figure.js keeps
+    `import { displayOf } from './caption.js'` for the file name; what must be
+    gone is every caption-building symbol and every reservation of room below
+    the plot.
     """
     figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
-    caption = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
-    assert "captionToSvg(" in figure, "figure.js never serialises the caption band"
-    assert re.search(r"\bimport\b[^;]*\bcaptionToSvg\b", figure), (
-        "figure.js must import captionToSvg from caption.js"
-    )
-    assert 'id="figure-disclosure"' in caption
-    # The splice must land before the closing tag, not be appended after it.
-    assert "</svg>" in figure
+    for token in ("buildCaption", "captionToSvg", "offsetCaption", "spliceCaption",
+                  "caption.height", "reservedBottom", "fitTableRows", "describeSelection",
+                  "graphic"):
+        assert token not in figure, f"figure.js still carries {token}"
+    assert "panel.exportMetrics(width)" in figure
+    assert re.search(r"chart\.resize\(\{ width, height: metrics\.height \}\)", figure)
+    assert re.search(r"host\.style\.height = `\$\{metrics\.height\}px`", figure)
+    assert re.search(r"buildPrintOption\(panel, metrics\)", figure)
+    assert re.search(r"new Blob\(\[sharpenRasterHints\(serialized\)\]", figure)
+    assert "getDataURL(" in figure and "pixelRatio: PX_RATIO" in figure
+    assert "backgroundColor: THEME.chartBackground" in figure
+    build = re.search(r"function buildPrintOption\(.*?\n\}\n", figure, re.DOTALL)
+    assert build, "buildPrintOption not found"
+    assert "reservedBottom" not in build.group(0) and "graphic" not in build.group(0)
 
 
-def test_svg_caption_withholds_graphics_but_keeps_the_reserved_height():
-    """For SVG the caption items leave the option; the band's height does not.
-
-    Withholding the items is what lets the `<g>` be the only copy of the text.
-    Dropping the reservation with them would let the ramp slide down into the
-    space the band is then spliced over.
-    """
-    figure = _strip_comments((EXPORT_JS / "figure.js").read_text(encoding="utf-8"))
-    assert re.search(r"graphic:\s*format === 'svg' \? \[\]", figure), (
-        "the SVG option must carry no caption graphics"
-    )
-    assert "reservedBottom: caption.height" in figure
+def test_the_caption_module_keeps_only_provenance_and_the_display_descriptor():
+    """caption.js names the selection and the display; it draws nothing."""
+    stripped = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
+    exported = set(re.findall(r"export function (\w+)", stripped))
+    assert exported == {"describeSelection", "describeView", "displayOf", "kernelPhrase"}
+    for token in ("textfit", "THEME", "<g", "dominant-baseline"):
+        assert token not in stripped, f"caption.js still carries {token}"
+    assert re.search(r"from\s+'\.\./scale\.js'", stripped), "caption.js must keep a stamped sibling import"
 
 
-def test_caption_module_exports_the_svg_serialiser_and_accepts_disclosure():
-    source = _strip_comments((EXPORT_JS / "caption.js").read_text(encoding="utf-8"))
-    assert re.search(r"export function captionToSvg\s*\(", source)
-    signature = re.search(r"export function buildCaption\s*\(\{(.*?)\}", source, re.DOTALL)
-    assert signature, "buildCaption signature not found"
-    assert "disclosure" in signature.group(1)
-    # The serialiser positions text the way zrender draws it: centred on the
-    # line, 0.71 x the font size below the item's top.
-    assert 'dominant-baseline="central"' in source
-    assert "0.71 * fontSize" in source
-    # Styles come from each item, not from the (restored) THEME.
-    body = re.search(
-        r"export function captionToSvg\s*\(.*?\n\}\n", source, re.DOTALL
-    ).group(0)
-    assert "THEME" not in body
-
-
-def test_export_menu_forwards_the_disclosure():
+def test_export_menu_passes_only_the_figure_geometry_and_meta():
     source = _strip_comments((EXPORT_JS / "menu.js").read_text(encoding="utf-8"))
-    assert re.search(r"disclosure:\s*target\.disclosure", source)
+    call = re.search(r"exportPanel\(target\.panel, \{(.*?)\}\);", source, re.DOTALL)
+    assert call, "menu.js no longer calls exportPanel"
+    body = call.group(1)
+    for token in ("panelId", "format: choice.format", "widthMm: choice.widthMm",
+                  "meta: target.meta", "state"):
+        assert token in body, token
+    for token in ("footnote", "disclosure", "title:", "frame:", "selection:", "experiment"):
+        assert token not in body, f"menu.js still forwards {token}"
+    assert "getExperiment" not in source
+
+
+def test_the_export_resolver_hands_over_no_page_text():
+    """main.js resolves a panel and its response meta; it scrapes nothing off the page."""
+    source = _strip_comments((STATIC / "js" / "main.js").read_text(encoding="utf-8"))
+    block = re.search(r"attachExportMenus\(\{.*?\n\}\);", source, re.DOTALL)
+    assert block, "attachExportMenus block not found"
+    body = block.group(0)
+    assert "meta:" in body
+    for token in ("getElementById", "textContent", "figureDisclosure(", "exportLegend(",
+                  "footnote", "disclosure"):
+        assert token not in body, f"the export resolver still touches {token}"
+
+
+def test_export_controls_say_the_figure_is_plot_only():
+    markup = (STATIC / "index.html").read_text(encoding="utf-8")
+    titles = re.findall(r'<button class="mini" data-export="\w+"[^>]*title="([^"]*)"', markup)
+    assert len(titles) == len(PANEL_IDS)
+    for title in titles:
+        assert "plot area only" in title
 
 
 def test_disclosure_is_structural_not_scraped():
     """The disclosure module reads the payload, never the page.
 
-    Its whole reason to exist is that the footnote is prose assembled for the
-    screen. Reaching into the DOM would make it a second copy of that prose,
-    and it must import from scale.js so it sits inside the stamped graph.
+    Its sentences feed the Details drawer (panel_notes.js) beside the prose the
+    reader saw. Reaching into the DOM would make it a second copy of that
+    prose, and it must import from scale.js so it sits inside the stamped graph.
     """
     source = _strip_comments((EXPORT_JS / "disclosure.js").read_text(encoding="utf-8"))
     for forbidden in ("getElementById", "querySelector", "textContent", "innerText", "document."):
@@ -479,6 +523,7 @@ def test_floor_fade_is_guarded_before_it_divides():
 
 
 def test_print_disclosure_names_the_hard_floor_contour():
+    """Print draws a hard contour at the floor; the drawer says it is not a shower edge."""
     source = (EXPORT_JS / "disclosure.js").read_text(encoding="utf-8")
     assert "not a shower edge" in source
 
@@ -648,11 +693,25 @@ def test_no_tooltip_stacking_rule_ships():
 # ------------------------------------------- frames, channels and wording --
 
 
-def test_the_reference_frame_control_opens_in_the_laboratory_frame():
+def test_the_reference_frame_control_opens_in_the_absolute_frame():
+    """Two tiers, one stored key: Absolute checked, Translated the sub-default.
+
+    The primary radios name the view, the nested radios the sub-frame; no
+    radio named `frame` remains, and the legacy per-shower sub-option ships
+    hidden, to be revealed only while a link or a saved default holds the
+    frame on it (main.js `syncFrameControl`).
+    """
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    frames = re.findall(r'<input type="radio" name="frame" value="(\w+)"( checked)?', html)
-    assert [v for v, _ in frames] == ["lab", "trans", "local", "canonical"]
-    assert [v for v, c in frames if c] == ["lab"]
+    views = re.findall(r'<input type="radio" name="frame-view" value="(\w+)"( checked)?', html)
+    assert [v for v, _ in views] == ["absolute", "aligned"]
+    assert [v for v, c in views if c] == ["absolute"]
+    subs = re.findall(r'<input type="radio" name="frame-sub" value="(\w+)"( checked)?', html)
+    assert [v for v, _ in subs] == ["canonical", "local", "trans"]
+    assert [v for v, c in subs if c] == ["canonical"]
+    assert 'name="frame"' not in html
+    assert re.search(r'<fieldset class="choice-sub" id="frame-sub"[^>]*\shidden(?:\s|>)', html)
+    assert '<label class="choice" id="frame-sub-trans" hidden' in html
+    assert 'id="ctl-frame"' in html and 'data-frame="lab"' in html
     displays = re.findall(r'<input type="radio" name="display" value="(\w+)"( checked)?', html)
     assert [v for v, c in displays if c] == ["native"]
     channels = re.findall(r'<input type="radio" name="channel" value="(\w+)"', html)
@@ -689,6 +748,23 @@ def test_filename_names_frame_channel_and_model():
 
 def test_disclosure_covers_every_frame_kind():
     source = (EXPORT_JS / "disclosure.js").read_text(encoding="utf-8")
-    for phrase in ("Translated frame:", "Local frame", "Canonical centre-of-separation frame",
-                   "not a separation", "by construction", "box overlap", "rotated with their shower"):
+    for phrase in ("Per-shower translated frame (legacy):", "Separation-Aligned (D-Frame), Local",
+                   "Separation-Aligned (D-Frame), Translated", "not a separation", "by construction",
+                   "box overlap", "rotated with their shower", "written D on the entry panel"):
         assert phrase in source, phrase
+
+
+def test_no_retired_frame_vocabulary_ships():
+    """Laboratory → Absolute and Canonical → Separation-Aligned, everywhere a reader looks."""
+    retired = ("Laboratory", "laboratory frame", "laboratory 3-D", "laboratory (absolute)",
+               "Canonical centre-of-separation", "centre-of-separation frame")
+    js = STATIC / "js"
+    sources = [STATIC / "index.html", js / "labels.js", js / "frame_views.js", js / "main.js",
+               PANELS_JS / "projection.js", PANELS_JS / "canonical_overlays.js",
+               EXPORT_JS / "disclosure.js", EXPORT_JS / "caption.js", js / "controls" / "admin.js"]
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        text = (re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL) if path.suffix == ".html"
+                else _strip_comments(text))
+        for phrase in retired:
+            assert phrase not in text, f"{path.name} still says {phrase!r}"

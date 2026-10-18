@@ -54,17 +54,17 @@ export function closeExportMenu() {
 /**
  * Wire every `[data-export]` button on the page.
  *
- * `resolve(panelId)` returns `{ panel, title, footnote, selection, disclosure }`
- * for the panel that button belongs to, or null when there is nothing to
- * export yet. `disclosure` is the structured sentence list from
- * `export/disclosure.js` and may be absent.
+ * `resolve(panelId)` returns `{ panel, meta }` for the panel that button
+ * belongs to - the panel object and its response's own `meta`, which names
+ * the figure's content for the file name - or null when there is nothing to
+ * export yet. The figure is the plot alone; nothing else is handed over.
  */
-export function attachExportMenus({ resolve, state, getExperiment, onError }) {
+export function attachExportMenus({ resolve, state, onError }) {
   for (const button of document.querySelectorAll('[data-export]')) {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       if (open) { closeExportMenu(); return; }
-      openMenu(button, { resolve, state, getExperiment, onError });
+      openMenu(button, { resolve, state, onError });
     });
   }
   document.addEventListener('click', closeExportMenu);
@@ -104,7 +104,7 @@ function openMenu(button, context) {
   open = node;
 }
 
-function run(button, panelId, choice, { resolve, state, getExperiment, onError }) {
+function run(button, panelId, choice, { resolve, state, onError }) {
   const target = resolve(panelId);
   if (!target || !target.panel) {
     onError('Nothing to export yet — the panel has no data.');
@@ -124,14 +124,8 @@ function run(button, panelId, choice, { resolve, state, getExperiment, onError }
         panelId,
         format: choice.format,
         widthMm: choice.widthMm,
-        title: target.title,
-        footnote: target.footnote,
-        selection: target.selection,
-        frame: target.frame,
         meta: target.meta ?? null,
-        disclosure: target.disclosure,
         state,
-        experiment: getExperiment(),
       });
     } catch (error) {
       console.error('[calosrv] export failed', error);

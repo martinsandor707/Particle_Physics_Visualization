@@ -13,15 +13,17 @@ from .deps import CursorDep, FilterDep, RecordDep
 
 router = APIRouter()
 
-FRAME_WORDS = {"absolute": "laboratory (absolute)", "trans": "translated", "local": "local"}
+FRAME_WORDS = {
+    "absolute": "absolute (detector)", "trans": "per-shower translated", "local": "local",
+}
 
 #: Titles and captions per task. ``{frame}`` is the input frame of the network.
 MODEL_CAPTIONS = {
     "segmentation": {
         "title": "Segmentation Model",
         "caption": (
-            "The {frame}-frame segmentation network assigns each hit's energy between the "
-            "two showers, read from segmentation_{column}_pred against its truth "
+            "The segmentation network of the {frame} frame assigns each hit's energy between "
+            "the two showers, read from segmentation_{column}_pred against its truth "
             "E_A / E_voxel, which is fractional wherever both showers deposit in one cell. "
             "Classification uses the ≥ 0.5 majority on both sides; a cell shared by both "
             "showers is two rows, so unweighted counts see it twice. The headline is the "
@@ -33,17 +35,18 @@ MODEL_CAPTIONS = {
     "energy": {
         "title": "Energy Estimation Model",
         "caption": (
-            "The {frame}-frame energy network's per-shower estimate (energy_{column}_pred) "
-            "against the incident momentum, with no sampling-fraction calibration applied: "
-            "the network predicts the momentum scale directly. The headline is the "
-            "relative resolution σ of (pred − true) / true per shower."
+            "The energy network of the {frame} frame estimates each shower's energy "
+            "(energy_{column}_pred), compared here with the incident momentum with no "
+            "sampling-fraction calibration applied: the network predicts the momentum "
+            "scale directly. The headline is the relative resolution σ of "
+            "(pred − true) / true per shower."
         ),
         "primary": ["sigma_rel_a", "sigma_rel_b"],
     },
     "angle": {
         "title": "Incident Angle Estimation Model",
         "caption": (
-            "The {frame}-frame angle network predicts each shower's polar angle θ "
+            "The angle network of the {frame} frame predicts each shower's polar angle θ "
             "(angle_{column}_pred) against the incident θ; the azimuth φ is not predicted. "
             "θ does not wrap, so its mean residual is a meaningful bias. The headline is "
             "the θ resolution per shower, in mrad."
@@ -75,8 +78,11 @@ def get_model_performance(
     coord_system: str = Query(
         "lab",
         description=(
-            "lab | trans | local: the input frame the network was trained on. The "
-            "canonical view uses the absolute-frame (lab) networks."
+            "lab | trans | local: the input frame the network was trained on - lab the "
+            "absolute (detector) frame, trans the per-shower translated frame (legacy), "
+            "local the Separation-Aligned (D-Frame), Local (shower-fixed) frame. The "
+            "Separation-Aligned (D-Frame), Translated view (frame=canonical) uses the "
+            "absolute-frame (lab) networks."
         ),
     ),
     d_edges: str | None = Query(

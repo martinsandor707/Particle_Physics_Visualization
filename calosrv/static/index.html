@@ -14,6 +14,14 @@
 
   <!-- ============================================================= header -->
   <header class="header">
+    <button class="icon-button" id="sidebar-toggle" type="button"
+            aria-controls="sidebar" aria-expanded="true"
+            aria-label="Collapse the configuration sidebar" title="Collapse the sidebar">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+    </button>
     <div>
       <h1>Calorimeter Shower Reconstruction</h1>
       <div class="subtitle">Out-of-core diagnostic interface &mdash; DuckDB aggregation</div>
@@ -35,13 +43,12 @@
       <span class="dot"></span><span id="badge-exact">Exact</span>
     </div>
 
-    <button class="action primary" id="open-upload">Upload Dataset</button>
     <button class="action" id="open-admin" type="button"
-            title="Choose the view a new session opens on, and check the automatic ingest">Admin Settings</button>
+            title="Upload a dataset, choose the view a new session opens on, and check the automatic ingest">Admin Settings</button>
   </header>
 
   <!-- ============================================================ sidebar -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
 
     <h2>Filtering Parameters</h2>
 
@@ -95,7 +102,7 @@
         <div class="track"></div><div class="fill" id="d-fill"></div>
         <input type="range" id="d-lo" aria-label="D minimum slider"><input type="range" id="d-hi" aria-label="D maximum slider">
       </div>
-      <div class="hint" id="d-hint">3-D distance between the two shower centroids in the laboratory frame (<span class="mono">centroid_AB_distance</span>), used as D in every reference frame. The canonical frame also reports the transverse entry separation D<sub>entry</sub>.</div>
+      <div class="hint" id="d-hint">3-D distance between the two shower centroids in the absolute (detector) frame (<span class="mono">centroid_AB_distance</span>), used as D in every reference frame. The Separation-Aligned › Translated view also reports the transverse entry separation D<sub>entry</sub> and writes its entry-panel axis as D; Local superimposes each shower at its own entry point and has no separation axis.</div>
     </div>
 
     <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
@@ -105,26 +112,40 @@
     </label>
 
     <h2>
-      Reference Frame
+      <span id="frame-heading">Reference Frame</span>
       <button class="info-dot" id="info-frame" type="button" hidden
               aria-label="Reference frame notices">i</button>
     </h2>
-    <label class="choice" title="Detector coordinates as recorded: each event where it struck.">
-      <input type="radio" name="frame" value="lab" checked>
-      Laboratory <span class="muted">(detector coordinates)</span>
-    </label>
-    <label class="choice" title="Every hit is shifted by its own shower's entry point P₀; no rotation. The two showers of each event are superimposed at the origin.">
-      <input type="radio" name="frame" value="trans">
-      Translated <span class="muted">(each shower from its own entry point P₀)</span>
-    </label>
-    <label class="choice" title="Translated, then rotated by the shower's own R(θ, φ) so its incident direction lies along +w.">
-      <input type="radio" name="frame" value="local">
-      Local <span class="muted">(shower-fixed)</span>
-    </label>
-    <label class="choice" title="Every selected event is moved by one rigid-body motion so its two shower entry points sit at ∓D_entry/2 on the x′ axis with the front face at z′ = 0; the panels then show the ensemble-averaged energy density.">
-      <input type="radio" name="frame" value="canonical">
-      Canonical centre-of-separation <span class="muted">(SE(3) co-registered)</span>
-    </label>
+    <!-- Two tiers, one stored value: the radios here select a frame key
+         (lab / canonical / local / trans) through js/labels.js FRAME_TREE, and
+         main.js keeps them in step with state.frame. The legacy per-shower
+         translated frame has no radio of its own; its label is revealed only
+         while a #frame=trans link or a saved default holds the frame on it.
+         data-frame on the fieldset is the key the control currently reflects. -->
+    <fieldset class="choice-group" id="ctl-frame" aria-labelledby="frame-heading" data-frame="lab">
+      <label class="choice" title="Detector coordinates as recorded: each event where it struck.">
+        <input type="radio" name="frame-view" value="absolute" checked>
+        Absolute <span class="muted">(detector coordinates)</span>
+      </label>
+      <label class="choice" title="Every selected event is co-registered: Translated aligns each event's A→B separation with one axis, written D on the entry panel; Local puts each shower at its own entry point, rotated to its own incident direction.">
+        <input type="radio" name="frame-view" value="aligned" aria-controls="frame-sub">
+        Separation-Aligned (D-Frame) <span class="muted">(SE(3) co-registered)</span>
+      </label>
+      <fieldset class="choice-sub" id="frame-sub" aria-label="Separation-Aligned (D-Frame) alignment" hidden>
+        <label class="choice" title="Every selected event is moved by one rigid-body motion so its two shower entry points sit at D = ∓D_entry/2 on the D axis (x′) with the front face at z′ = 0; the panels then show the ensemble-averaged energy density.">
+          <input type="radio" name="frame-sub" value="canonical" checked>
+          Translated <span class="muted">(every event on its entry midpoint)</span>
+        </label>
+        <label class="choice" title="Each shower is moved to its own entry point P₀ and rotated by its own R(θ, φ) so its incident direction lies along +w; the two showers of each event are superimposed at the origin.">
+          <input type="radio" name="frame-sub" value="local">
+          Local <span class="muted">(shower-fixed)</span>
+        </label>
+        <label class="choice" id="frame-sub-trans" hidden title="Legacy per-shower frame: every hit is shifted by its own shower's entry point P₀, without rotation. Opened by a #frame=trans link or a saved default only.">
+          <input type="radio" name="frame-sub" value="trans">
+          Per-shower translated <span class="muted">(legacy: each shower from its own entry point P₀)</span>
+        </label>
+      </fieldset>
+    </fieldset>
     <div class="caption" id="frame-caption">&mdash;</div>
 
     <h2>
@@ -134,9 +155,10 @@
     </h2>
 
     <!-- The label text is rewritten per frame by syncDisplayControls() in
-         main.js: "Native" is the detector lattice in the lab frame and the raw
-         20 mm accumulation grid in a co-registered one. The markup carries the
-         laboratory wording because that is the frame the interface opens in. -->
+         main.js: "Native" is the detector lattice in the absolute frame and the
+         raw 20 mm accumulation grid in a co-registered one. The markup carries
+         the absolute-frame wording because that is the view the interface
+         opens in. -->
     <label class="choice">
       <input type="radio" name="display" value="native" checked>
       <span id="display-label-native">Native Detector Lattice <span class="muted">(hardware truth)</span></span>
@@ -192,7 +214,7 @@
       <input type="checkbox" id="opt-lock-scale" checked> Lock colour scale to dataset
     </label>
     <div id="ctl-rho-norm" hidden>
-      <div class="hint" style="margin-top:8px">Density normalisation <span class="muted">(co-registered frames)</span></div>
+      <div class="hint" style="margin-top:8px">Density normalisation <span class="muted">(Separation-Aligned frames)</span></div>
       <label class="choice" title="The ramp spans three decades below this selection's own peak ⟨ρ⟩; the peak value is stated on each panel.">
         <input type="radio" name="rho_norm" value="selection" checked>
         Relative to this selection's peak
@@ -229,6 +251,7 @@
       <span>Mean D <b id="stat-d">—</b></span>
       <span>Undefined D <b id="stat-nod">—</b></span>
       <span title="Reference peak of the co-registered density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
+      <span title="Entry panel: cells clipped to the ends of the colour ramp (absolute frame) or bins below the display floor (co-registered frames); the Details drawer states the rest">Clipped <b id="stat-clipped">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
@@ -236,157 +259,105 @@
 
     <section class="grid">
 
-      <div class="card">
+      <div class="card" data-panel="xy">
         <h2>
-          <span id="title-xy">XY Projection &mdash; Shower Entry</span> <span class="tag" id="tag-xy">entrance slab</span>
+          <span class="title" id="title-xy" title="Open the panel's methodology and disclosures">XY Projection &mdash; Shower Entry</span> <span class="tag" id="tag-xy">entrance slab</span>
           <span class="card-actions">
+            <button class="mini" data-inspect="xy" type="button" aria-controls="inspector" aria-expanded="false"
+                    title="Methodology and disclosures for this panel">Details</button>
             <button class="mini" data-roi="xy" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="xy" type="button" title="Restore the full detector extent">Reset</button>
             <button class="mini" data-export="xy" type="button"
-                    aria-haspopup="menu" title="Export this panel as a publication figure (white background, 300 DPI)">Export &#9662;</button>
+                    aria-haspopup="menu" title="Export this panel's plot as a publication figure (white background, 300 DPI, plot area only — see Details for its disclosures)">Export &#9662;</button>
           </span>
         </h2>
         <div class="plot" id="plot-xy"></div>
-        <p class="footnote" id="foot-xy">—</p>
       </div>
 
-      <div class="card">
+      <div class="card" data-panel="yz">
         <h2>
-          <span id="title-yz">YZ Projection &mdash; Longitudinal Evolution</span> <span class="tag">depth</span>
+          <span class="title" id="title-yz" title="Open the panel's methodology and disclosures">YZ Projection &mdash; Longitudinal Evolution</span> <span class="tag">depth</span>
           <span class="card-actions">
+            <button class="mini" data-inspect="yz" type="button" aria-controls="inspector" aria-expanded="false"
+                    title="Methodology and disclosures for this panel">Details</button>
             <button class="mini" data-roi="yz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="yz" type="button" title="Restore the full detector extent">Reset</button>
             <button class="mini" data-export="yz" type="button"
-                    aria-haspopup="menu" title="Export this panel as a publication figure (white background, 300 DPI)">Export &#9662;</button>
+                    aria-haspopup="menu" title="Export this panel's plot as a publication figure (white background, 300 DPI, plot area only — see Details for its disclosures)">Export &#9662;</button>
           </span>
         </h2>
         <div class="plot" id="plot-yz"></div>
-        <p class="footnote" id="foot-yz">—</p>
       </div>
 
-      <div class="card">
+      <div class="card" data-panel="xz">
         <h2>
-          <span id="title-xz">XZ Projection &mdash; Lateral Profile</span> <span class="tag">depth</span>
+          <span class="title" id="title-xz" title="Open the panel's methodology and disclosures">XZ Projection &mdash; Lateral Profile</span> <span class="tag">depth</span>
           <span class="card-actions">
+            <button class="mini" data-inspect="xz" type="button" aria-controls="inspector" aria-expanded="false"
+                    title="Methodology and disclosures for this panel">Details</button>
             <button class="mini" data-roi="xz" type="button" title="Zoom to the box holding 99% of the selected energy. Scroll to zoom, drag to pan.">Auto-fit RoI</button>
             <button class="mini" data-reset="xz" type="button" title="Restore the full detector extent">Reset</button>
             <button class="mini" data-export="xz" type="button"
-                    aria-haspopup="menu" title="Export this panel as a publication figure (white background, 300 DPI)">Export &#9662;</button>
+                    aria-haspopup="menu" title="Export this panel's plot as a publication figure (white background, 300 DPI, plot area only — see Details for its disclosures)">Export &#9662;</button>
           </span>
         </h2>
         <div class="plot" id="plot-xz"></div>
-        <p class="footnote" id="foot-xz">—</p>
       </div>
 
-      <div class="card">
+      <div class="card" data-panel="energy">
         <h2>
-          Reconstructed Energy vs. Separation D <span class="tag" id="tag-energy">calibrated</span>
+          <span class="title" id="title-energy" title="Open the panel's methodology and disclosures">Reconstructed Energy vs. Separation D</span> <span class="tag" id="tag-energy">calibrated</span>
           <button class="info-dot" id="info-density" type="button"
                   aria-label="About probability density">i</button>
           <span class="card-actions">
+            <button class="mini" data-inspect="energy" type="button" aria-controls="inspector" aria-expanded="false"
+                    title="Methodology and disclosures for this panel">Details</button>
             <span class="seg" role="group" aria-label="Shower selection">
               <button class="mini" data-shower="a" type="button">A</button>
               <button class="mini" data-shower="b" type="button">B</button>
               <button class="mini is-active" data-shower="both" type="button">Both</button>
             </span>
             <button class="mini" data-export="energy" type="button"
-                    aria-haspopup="menu" title="Export this panel as a publication figure (white background, 300 DPI)">Export &#9662;</button>
+                    aria-haspopup="menu" title="Export this panel's plot as a publication figure (white background, 300 DPI, plot area only — see Details for its disclosures)">Export &#9662;</button>
           </span>
         </h2>
         <div class="plot tall" id="plot-energy"></div>
         <div class="sparse-note" id="energy-sparse" hidden></div>
         <div id="fit-table"></div>
-        <p class="footnote" id="foot-energy">—</p>
       </div>
 
     </section>
   </main>
-</div>
 
-<!-- ============================================================== modal -->
-<div class="modal-backdrop" id="upload-modal" hidden>
-  <div class="modal" aria-labelledby="upload-title">
-    <h2 id="upload-title">Upload Dataset</h2>
-    <div class="modal-sub">Ingest an all-models calorimeter inference file &mdash; CSV or Parquet, in the 99-column <span class="mono">hits_all_models</span> schema &mdash; into an isolated experiment table.</div>
-
-    <div class="banner" id="upload-warning"></div>
-
-    <div class="row">
-      <label class="field" for="upload-table">Experiment name</label>
-      <input class="textinput" type="text" id="upload-table" placeholder="e.g. all_models" autocomplete="off">
-      <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
+  <!-- ============================================================ drawer -->
+  <!-- The Details drawer: one panel's methodology and statistical disclosures,
+       on demand. Opened from a card's Details button or its title row, written
+       by js/shell.js from js/panel_notes.js with text nodes only. It is a grid
+       column, so opening it narrows the chart column and every panel re-lays
+       itself out; it carries no z-index and stacks under the modal backdrop,
+       the tooltip layer and the popovers. -->
+  <aside class="inspector" id="inspector" aria-labelledby="inspector-title" hidden>
+    <div class="inspector-head">
+      <h2 id="inspector-title" tabindex="-1">Panel details</h2>
+      <button class="inspector-close" id="inspector-close" type="button"
+              aria-label="Close the details drawer" title="Close (Esc)">&times;</button>
     </div>
-
-    <div class="row" id="upload-replace-row" hidden>
-      <label class="choice"><input type="checkbox" id="upload-replace">
-        <span id="upload-replace-text">Replace the existing experiment</span></label>
-      <div class="hint">It is deleted before the new file is loaded, and not restored if that load fails.
-        Leave this unticked and choose another name to keep it.</div>
-    </div>
-
-    <div class="row">
-      <label class="field" for="upload-display">Display name <span class="muted">(optional)</span></label>
-      <input class="textinput" type="text" id="upload-display"
-             placeholder="Shown in the experiment list; the experiment name if empty" autocomplete="off">
-    </div>
-
-    <div class="row">
-      <label class="field">Upload mode</label>
-      <label class="choice"><input type="radio" name="upload-mode" value="create_new" checked>
-        <b>CREATE_NEW</b> &mdash; a clean, isolated experiment; an existing one of this name is replaced only if you tick Replace</label>
-      <label class="choice"><input type="radio" name="upload-mode" value="append">
-        <b>APPEND</b> &mdash; add rows to an existing experiment</label>
-      <div class="hint">Appending is rejected if the incoming event numbers overlap those already stored, since that would merge distinct physics events.</div>
-    </div>
-
-    <div class="row" id="upload-offset-row" hidden>
-      <label class="field" for="upload-offset">Event offset</label>
-      <input class="textinput" type="number" id="upload-offset" min="0" step="1" value="0">
-      <div class="hint">Added to every incoming event number, so a file that also numbers from zero can be appended. A refused append names the offset to use.</div>
-    </div>
-
-    <div class="row">
-      <label class="field">Source</label>
-      <label class="choice"><input type="radio" name="upload-source" value="browser" checked>
-        Upload from this computer</label>
-      <label class="choice"><input type="radio" name="upload-source" value="server">
-        Already on the server <span class="muted">(no transfer &mdash; best for large files)</span></label>
-    </div>
-
-    <div class="row" id="upload-browser-row">
-      <label class="field" for="upload-file">CSV or Parquet file</label>
-      <input class="textinput" type="file" id="upload-file"
-             accept=".csv,.txt,.parquet,text/csv,application/vnd.apache.parquet">
-      <div class="hint" id="upload-file-info"></div>
-    </div>
-
-    <div class="row" id="upload-server-row" hidden>
-      <label class="field" for="upload-server-file">Server-side file</label>
-      <select class="picker" id="upload-server-file"></select>
-      <div class="hint" id="upload-server-info"></div>
-    </div>
-
-    <div class="row" id="upload-progress-row" hidden>
-      <div class="hint" id="upload-status">Uploading…</div>
-      <div class="progress"><div id="upload-progress-bar"></div></div>
-    </div>
-
-    <div class="actions">
-      <button class="action" id="upload-cancel">Cancel</button>
-      <button class="action primary" id="upload-submit">Upload &amp; Ingest</button>
-    </div>
-  </div>
+    <div class="inspector-body" id="inspector-body"></div>
+  </aside>
 </div>
 
 <!-- ======================================================= admin settings -->
-<!-- The view a new session opens on when its link carries no view state, and
+<!-- The operator's panel: the view a new session opens on when its link
+     carries no view state, the dataset upload form (controls/upload.js) and
      the state of the automatic ingest. The radio groups are built from
-     js/labels.js by controls/admin.js, so they always match the sidebar. -->
+     js/labels.js by controls/admin.js, so they always match the sidebar; the
+     reference-frame choices are the sidebar's two tiers, composed. -->
 <div class="modal-backdrop" id="admin-modal" hidden>
   <div class="modal modal-wide" aria-labelledby="admin-title">
     <h2 id="admin-title">Admin Settings</h2>
-    <div class="modal-sub">Default view: what a new session opens on when its link carries no view.
-      Open links and bookmarks keep their own view, and saving does not change this session's.</div>
+    <div class="modal-sub">The default view a new session opens on when its link carries no view, a dataset
+      upload, and the drop-folder ingest. Open links and bookmarks keep their own view, and saving
+      defaults does not change this session's.</div>
 
     <div class="banner" id="admin-notice" hidden></div>
 
@@ -442,7 +413,7 @@
 
     <div class="admin-field" data-field="default_rho_norm">
       <div class="admin-head">
-        <span class="field">Density normalisation <span class="muted">(co-registered frames)</span></span>
+        <span class="field">Density normalisation <span class="muted">(Separation-Aligned frames)</span></span>
         <span class="chip"></span>
         <button class="mini" type="button" data-reset>Reset</button>
       </div>
@@ -456,10 +427,84 @@
       <a class="action" id="admin-open-default" href="/" target="_blank" rel="noopener"
          title="Open a new session without view state, which starts on the saved defaults">Open default view ↗</a>
       <span class="spacer"></span>
-      <button class="action" id="admin-cancel" type="button">Cancel</button>
+      <button class="action" id="admin-cancel" type="button">Close</button>
       <button class="action primary" id="admin-save" type="button">Save defaults</button>
     </div>
     <div class="hint" id="admin-status" aria-live="polite"></div>
+
+    <!-- The upload form, inside the panel: one dialog, one Escape, one focus
+         trap. Every id is the one controls/upload.js looks up. -->
+    <section class="admin-upload" aria-labelledby="admin-upload-title">
+      <div class="admin-head"><h3 id="admin-upload-title">Upload dataset</h3></div>
+      <div class="hint">Ingest an all-models calorimeter inference file &mdash; CSV or Parquet, in the 99-column <span class="mono">hits_all_models</span> schema &mdash; into an isolated experiment table, from this computer or from a file already on the server.</div>
+
+      <div class="banner" id="upload-warning" role="status" aria-live="polite" hidden></div>
+
+      <div class="row">
+        <label class="field" for="upload-table">Experiment name</label>
+        <input class="textinput" type="text" id="upload-table" placeholder="e.g. all_models" autocomplete="off">
+        <div class="hint">Lowercase letters, digits and underscores; must start with a letter.</div>
+      </div>
+
+      <div class="row" id="upload-replace-row" hidden>
+        <label class="choice"><input type="checkbox" id="upload-replace">
+          <span id="upload-replace-text">Replace the existing experiment</span></label>
+        <div class="hint">It is deleted before the new file is loaded, and not restored if that load fails.
+          Leave this unticked and choose another name to keep it.</div>
+      </div>
+
+      <div class="row">
+        <label class="field" for="upload-display">Display name <span class="muted">(optional)</span></label>
+        <input class="textinput" type="text" id="upload-display"
+               placeholder="Shown in the experiment list; the experiment name if empty" autocomplete="off">
+      </div>
+
+      <div class="row">
+        <label class="field">Upload mode</label>
+        <label class="choice"><input type="radio" name="upload-mode" value="create_new" checked>
+          <b>CREATE_NEW</b> &mdash; a clean, isolated experiment; an existing one of this name is replaced only if you tick Replace</label>
+        <label class="choice"><input type="radio" name="upload-mode" value="append">
+          <b>APPEND</b> &mdash; add rows to an existing experiment</label>
+        <div class="hint">Appending is rejected if the incoming event numbers overlap those already stored, since that would merge distinct physics events.</div>
+      </div>
+
+      <div class="row" id="upload-offset-row" hidden>
+        <label class="field" for="upload-offset">Event offset</label>
+        <input class="textinput" type="number" id="upload-offset" min="0" step="1" value="0">
+        <div class="hint">Added to every incoming event number, so a file that also numbers from zero can be appended. A refused append names the offset to use.</div>
+      </div>
+
+      <div class="row">
+        <label class="field">Source</label>
+        <label class="choice"><input type="radio" name="upload-source" value="browser" checked>
+          Upload from this computer</label>
+        <label class="choice"><input type="radio" name="upload-source" value="server">
+          Already on the server <span class="muted">(no transfer &mdash; best for large files)</span></label>
+      </div>
+
+      <div class="row" id="upload-browser-row">
+        <label class="field" for="upload-file">CSV or Parquet file</label>
+        <input class="textinput" type="file" id="upload-file"
+               accept=".csv,.txt,.parquet,text/csv,application/vnd.apache.parquet">
+        <div class="hint" id="upload-file-info"></div>
+      </div>
+
+      <div class="row" id="upload-server-row" hidden>
+        <label class="field" for="upload-server-file">Server-side file</label>
+        <select class="picker" id="upload-server-file"></select>
+        <div class="hint" id="upload-server-info"></div>
+      </div>
+
+      <div class="row" id="upload-progress-row" hidden>
+        <div class="hint" id="upload-status">Uploading…</div>
+        <div class="progress"><div id="upload-progress-bar"></div></div>
+      </div>
+
+      <div class="actions">
+        <button class="action" id="upload-clear" type="button" title="Empty the form and re-arm Upload &amp; Ingest">Clear form</button>
+        <button class="action primary" id="upload-submit" type="button">Upload &amp; Ingest</button>
+      </div>
+    </section>
 
     <section class="admin-ingest" aria-labelledby="admin-ingest-title">
       <div class="admin-head">
