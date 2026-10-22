@@ -397,6 +397,47 @@ input[type="file"]::file-selector-button:hover {
 .popover ul { margin: 4px 0 0; padding-left: 16px; }
 .popover li { margin: 3px 0; }
 
+/* A methodology explainer (the Entry anchor's i button): longer than a
+   notice, so wider, and scrolling inside the window rather than off it. */
+.popover.is-explainer {
+  max-width: min(440px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+.popover.is-explainer:focus { outline: none; }
+.popover.is-explainer:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.popover.is-explainer h3 { font-size: 12px; margin: 0 0 4px; }
+.popover.is-explainer h4 {
+  margin: 10px 0 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.popover.is-explainer p { margin: 0 0 6px; }
+.popover.is-explainer .formula {
+  padding: 5px 7px;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.popover.is-explainer .in-use {
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
 /* ------------------------------------------------------- card-header bits */
 
 .card-actions {

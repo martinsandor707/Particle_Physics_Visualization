@@ -149,7 +149,15 @@
            definitions are back-projected to the front face; the response
            reports how far apart they land, so the choice is a measured one. -->
       <fieldset class="choice-sub" id="anchor-sub" aria-label="D-frame entry anchor" hidden>
-        <div class="hint" style="margin:0 0 6px">Entry anchor</div>
+        <!-- The i button opens the methodology popup (frame_views.js
+             anchorExplainer): both definitions, their formulas, the measured
+             distance between them on this selection, and what switching changes. -->
+        <div class="hint" style="margin:0 0 6px">Entry anchor
+          <button class="info-dot is-neutral" id="info-anchor" type="button"
+                  aria-haspopup="dialog" aria-expanded="false"
+                  aria-label="How the two entry anchors are computed"
+                  title="How the two entry anchors are computed">i</button>
+        </div>
         <label class="choice" title="Each shower's 3-D centroid back-projected to the front face along its incident direction: the definition the D-frame shipped with.">
           <input type="radio" name="anchor" value="backprojected" checked>
           Back-projected 3-D centroid <span class="muted">(default)</span>

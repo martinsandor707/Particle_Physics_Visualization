@@ -17,45 +17,203 @@ Both honour the same scientific-integrity rules — see [CLAUDE.md](CLAUDE.md).
 
 ## Quick start
 
-```bash
-docker compose up --build
+This section is for physicists who want to run the dashboard on their own
+computer and have not used Git or Docker before. You need one account, three
+programs and six commands. After that the dashboard runs in your web browser.
+
+### What you need
+
+**A GitLab account with access to the data.** The code is public on GitHub, but
+its two data files are stored on the University of Debrecen GitLab server,
+<https://gitlab.inf.unideb.hu>, in the project `lr/epic`. Downloading them
+needs an account there with access to that project. Ask the project
+maintainers for access if you do not have it.
+
+When Git downloads the data it asks for a password, and that password must be
+a GitLab access token, not your usual password. To create one:
+
+1. Sign in at <https://gitlab.inf.unideb.hu>.
+2. Select your avatar, then **Edit profile** (on older GitLab versions,
+   **Preferences**), then **Access tokens**.
+3. Add a new token: give it any name, tick the **read_repository** scope and
+   create it.
+4. Copy the token straight away. GitLab shows it only once.
+
+**Three programs.** Install them, then open a new terminal window so that it
+finds them.
+
+| Program | Used for | Download |
+|---|---|---|
+| Git | downloading the code | <https://git-scm.com/downloads> |
+| Git LFS | downloading the two large data files | <https://git-lfs.com>, already included in Git for Windows |
+| Docker Desktop on Windows and macOS, or Docker Engine with the Compose plugin on Linux | running the dashboard | <https://docs.docker.com/get-started/get-docker/> |
+
+**Room on your computer.** About 12 GB of free disk space: the download takes
+5.5 GB, because Git keeps a second copy of each data file, and the loaded
+database another 5.2 GB. Docker must also be allowed at least 8 GB of memory:
+
+- **Windows:** Docker Desktop may use half of the computer's memory by default,
+  so a computer with 16 GB is enough.
+- **macOS:** in Docker Desktop, open **Settings → Resources** and set the
+  memory limit to at least 8 GB.
+- **Linux:** Docker may use all of the computer's memory.
+
+### Step 1: download the code and the data
+
+Open a terminal: **PowerShell** on Windows, **Terminal** on macOS and Linux.
+Every command below is typed the same way on all three systems. A new terminal
+starts in your home folder, which is a good place for the project. Run the
+commands one at a time and press Enter after each:
+
+```
+git lfs install
+git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false clone https://github.com/martinsandor707/Particle_Physics_Visualization.git
+cd Particle_Physics_Visualization
+git lfs pull
 ```
 
-Then open <http://localhost:8000>.
+1. `git lfs install` switches Git LFS on for your user account. It is needed
+   once per computer.
+2. The `clone` command downloads the code into a new folder named
+   `Particle_Physics_Visualization`. Its three `-c` settings tell Git to leave
+   the two large data files for the next step, so that a mistyped password
+   cannot leave a broken copy behind.
+3. `cd Particle_Physics_Visualization` moves into that folder. Run every later
+   command from inside it.
+4. `git lfs pull` downloads the two data files, 2.9 GB in all, into the folder
+   `ingest`. Git asks for a username and a password for `gitlab.inf.unideb.hu`.
+   Enter your GitLab username, then paste the access token as the password.
+   Nothing appears on screen while you paste a password, so just press Enter
+   afterwards. On Windows a sign-in window may open instead, asking for the
+   same two things.
 
-On a first boot the database is empty, so the server seeds a demonstration
-experiment from the full 1000 rows of `hits_all_models_dummy.csv` through
-exactly the same pipeline a real upload uses. No synthetic records are
-generated. That file holds only two events, both well separated, so the three
-spatial panels render correctly while the reconstructed-energy panel reports its
-two-event mean and width flagged as `moments (1 d.o.f.)` and draws the events
-themselves — no fitted curve, and a density axis left deliberately unlabelled.
-
-The boot log states the resolved hardware allocation:
+Then check that both files arrived:
 
 ```
-DuckDB memory ceiling : 16 GB  (DUCKDB_MEMORY_GB)
-DuckDB worker threads : 11  (of 12 host CPU cores)
+git lfs ls-files
 ```
+
+Each line must show an asterisk `*` between the code and the file name:
+
+```
+8712280518 * ingest/hits_all_models.parquet
+d88d42cc5b * ingest/hits_all_models_dummy.parquet
+```
+
+A dash `-` in place of the asterisk means that file was not downloaded. Run
+`git lfs pull` again; it is safe to repeat as often as needed.
+
+### Step 2: start the dashboard
+
+On Windows and macOS, start Docker Desktop first and wait until it says that it
+is running. Then, in the same terminal:
+
+```
+docker compose --env-file laptop.env up --build
+```
+
+When the terminal shows `Uvicorn running on http://0.0.0.0:8000`, open
+<http://localhost:8000> in your web browser. Leave the terminal open while you
+use the dashboard, because it runs for as long as that command does. Press
+Ctrl+C in the terminal to stop it.
+
+The file `laptop.env` sets how much memory the dashboard may use, sized for a
+computer that can give Docker 8 GB:
+
+```
+DUCKDB_MEMORY_GB=4
+CONTAINER_MEMORY_LIMIT=7g
+```
+
+If Docker may use 24 GB or more, you can leave out `--env-file laptop.env`. The
+dashboard then gives its database 16 GB and loads the data faster. Whichever you
+choose, use the same command every time you start it.
+
+### Step 3: wait for the first data load
+
+The first start takes a few minutes, and the page opens before it has finished.
+
+1. Docker builds the dashboard. This happens once, and again after an update;
+   it takes about a minute on a fast connection, longer on a slow one.
+2. The dashboard loads a built-in demonstration dataset of two events within
+   seconds, and the page opens on it.
+3. It then loads the files in the `ingest` folder, one after the other:
+   `hits_all_models.parquet`, the full dataset of 20,325 events, and
+   `hits_all_models_dummy.parquet`, the same two demonstration events.
+
+Until the full dataset is ready, a banner at the top of the page says that the
+default experiment `'hits_all_models'` is queued or ingesting, and the
+**Experiment** menu at the top lists it greyed out. When the terminal prints
+
+```
+Verification for 'hits_all_models': PASSED
+```
+
+reload the page and choose `hits_all_models — 20,325 events` in the
+**Experiment** menu. From then on, opening <http://localhost:8000> starts on it.
+On a desktop computer with `laptop.env`, the full dataset was ready 94 s after
+the start, and the dashboard used at most 4.6 GB of memory while loading it.
+Allow a few minutes on a laptop.
+
+The loaded data is kept in the project's `data` folder, so later starts take a
+few seconds and load nothing again. The files in `ingest` are never changed.
+After each start, the first view of each reference frame can take several
+seconds while it is computed; later views are fast.
+
+### Every day
+
+Run these in the project folder.
+
+- **Start the dashboard:** `docker compose --env-file laptop.env up`
+- **Stop it:** press Ctrl+C in its terminal, or run `docker compose down` in
+  another terminal.
+- **Update to the newest version**, with the same three settings as the clone
+  so that a failed data download cannot leave a half-updated copy:
+
+  ```
+  git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false pull
+  git lfs pull
+  docker compose --env-file laptop.env up --build
+  ```
+
+### If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| `git: 'lfs' is not a git command` | Git LFS is not installed. Install it, open a new terminal, and start again from `git lfs install`. |
+| `git lfs pull` reports `Authentication required`, `Access denied` or `credentials … not found` | The username or the token is wrong, the token lacks the **read_repository** scope, or your account has no access to `lr/epic`. Fix that, then run `git lfs pull` again. |
+| `Cannot connect to the Docker daemon`, `error during connect`, or `docker` is not found | Docker is not running or not installed. Start Docker Desktop and wait until it is running. On Linux, if you see `permission denied`, put `sudo` in front of the `docker` command. |
+| `port is already allocated` | Another program already uses port 8000, possibly an earlier copy of the dashboard. Run `docker compose down`, or close the other program, then start again. |
+| Several minutes after the start, the **Experiment** menu still has no `hits_all_models`, even after a reload | The full dataset was not loaded. Open **Admin Settings** at the top right and look under **Automatic ingest**: the line for `hits_all_models.parquet` gives the reason. *Is a Git LFS pointer* means the file was never downloaded: stop the dashboard, run `git lfs pull`, and start it again. |
+| The **Experiment** menu shows `hits_all_models — failed`, and a banner gives the reason; the terminal may also have shown `exited with code 137` | Loading usually fails because it ran out of memory. Give Docker more memory, or start with `--env-file laptop.env`, then load the dataset again: in **Admin Settings → Upload dataset**, choose **Already on the server**, pick `ingest/hits_all_models.parquet`, enter `hits_all_models` as the experiment name, tick **Replace the existing experiment**, and select **Upload & Ingest**. |
+
+The rest of this README is for developers and operators: configuration, data
+loading, the interface in detail, the API and the code layout. With the data
+already in place, `docker compose up --build` on its own does everything above
+with the default memory settings.
 
 ---
 
 ## Configuration
 
-Set in `docker-compose.yml`:
+Set in `docker-compose.yml`. The two memory values are read from the
+environment, so they change without editing the file: from an env file
+(`docker compose --env-file laptop.env up`, as the [Quick start](#quick-start)
+does) or from the shell.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DUCKDB_MEMORY_GB` | `16` | Integer memory ceiling for DuckDB. Override to `100` on the production server. |
+| `DUCKDB_MEMORY_GB` | `16` | Integer memory ceiling for DuckDB. `laptop.env` sets `4`; the production server sets `100`. |
+| `CONTAINER_MEMORY_LIMIT` | `20g` | Compose only: the container's `mem_limit` and `memswap_limit`, kept at least 3 GB above `DUCKDB_MEMORY_GB` (a test holds every profile to that). `laptop.env` sets `7g`. |
 | `PORT` | `8000` | HTTP listen port. |
 | `CALOSRV_DATA_DIR` | `/app/data` | Database, upload staging and DuckDB temp spill. |
 | `CALOSRV_SEED_CSV` | — | Override the baseline seed file. |
 | `CALOSRV_CACHE_ENTRIES` | `128` | Native-resolution matrix bundles held in the LRU. |
 | `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local). |
 | `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/host/ingest`, the repository's `./ingest`, read-only. |
-| `CALOSRV_AUTO_INGEST_SETTLE_S` | `30` | A dropped file modified more recently is taken to be still copying, and waits for the next scan. |
+| `CALOSRV_AUTO_INGEST_SETTLE_S` | `30` | A dropped file modified more recently is taken to be still copying; the scan runs again by itself one second after the window closes. |
 | `CALOSRV_CONFIG_PATH` | `<data dir>/config.json` | Where the [Admin Settings](#admin-settings-the-default-view) panel saves the default view. |
-| `CALOSRV_DEFAULT_DATASET`, `…_COORD_SYSTEM`, `…_MODEL`, `…_CHANNEL`, `…_DISPLAY_MODE`, `…_RHO_NORM` | unset | The default view's environment layer, beneath what the panel saves. Compose sets `CALOSRV_DEFAULT_DATASET=production_hits_all_models`. An invalid value is ignored with a warning. |
+| `CALOSRV_DEFAULT_DATASET`, `…_COORD_SYSTEM`, `…_MODEL`, `…_CHANNEL`, `…_DISPLAY_MODE`, `…_RHO_NORM` | unset | The default view's environment layer, beneath what the panel saves. Compose sets `CALOSRV_DEFAULT_DATASET=hits_all_models`, the experiment the drop folder creates from the tracked `ingest/hits_all_models.parquet`. An invalid value is ignored with a warning. |
 | `CALOSRV_ALLOW_RAM_STORAGE` | unset | `1` lets the database, temp and archive directories sit on tmpfs/ramfs/zram. The test suite sets it for its throw-away databases; nothing else should. |
 | `TMPDIR` | `/app/data/staging` | Where Starlette spools uploads before they are staged; kept on the data volume, never in a tmpfs `/tmp`. |
 
@@ -63,9 +221,9 @@ Set in `docker-compose.yml`:
 > `DUCKDB_MEMORY_GB` bounds DuckDB's buffer manager only — not the Python heap,
 > the NumPy result conversion, or the bundle caches. The caches are budgeted in
 > bytes (lab and canonical 256 MB each, translated and local 128 MB each,
-> `query/cache.py`), and `docker-compose.yml` sets `mem_limit: 20g` against the
-> 16 GB ceiling. It also sets `memswap_limit: 20g`, equal to `mem_limit`, so the
-> container gets no swap on top: on a host whose swap is zram, that swap is
+> `query/cache.py`), and `docker-compose.yml` sets `mem_limit` to
+> `CONTAINER_MEMORY_LIMIT` (20 GB) against the 16 GB ceiling. It sets
+> `memswap_limit` to the same value, so the container gets no swap on top: on a host whose swap is zram, that swap is
 > compressed RAM. Measured outside a memory cgroup, streaming the 24 GB CSV
 > through the page cache pushed 6.2 GB of *other* processes' pages into zram;
 > inside a 14 GB cgroup with no swap the same ingest peaked at 5.9 GB RSS with
@@ -164,7 +322,11 @@ ln hits_all_models.csv ingest/production_hits_all_models.csv   # a hard link cos
 - **Reported, not failed.** A file that fails its schema check is listed in the
   panel with the reason and left alone, instead of adding a failed experiment
   at every boot. A file modified within the settle window is taken to be still
-  copying.
+  copying, and the scan runs again by itself one second after the window
+  closes (`autoingest.SettleWatch`), so a dataset that `git lfs pull` wrote
+  moments before the start is still loaded at that start. A Git LFS pointer, a
+  tracked dataset that was never downloaded, is named as such, with the
+  command that downloads it.
 - **Never in the way.** The scan only decides and queues. The ingests run one
   at a time on the worker an upload uses, so the server answers at once. An
   ingest that crashes leaves a failed registry row, which the next boot treats
@@ -764,8 +926,10 @@ each shower's 3-D centroid back-projected to the front face along its incident
 direction; the reference notebook's origin is the shower's first-layer entry
 point P₀ (the energy-weighted centroid of its first populated layer, at that
 layer's z). Both are in the event table, so `anchor=backprojected|p0` on
-`frame=canonical` (the sidebar's *Entry anchor* radio under Translated) picks
-either: with `p0` the origin is the midpoint of the two P₀, each back-projected
+`frame=canonical` (the sidebar's *Entry anchor* radio under Translated, whose
+ⓘ button opens a popup with both definitions, their formulas, the distance
+measured between them on the current selection and what switching changes;
+`frame_views.js: anchorExplainer`) picks either: with `p0` the origin is the midpoint of the two P₀, each back-projected
 the short distance (z₀ − z_f) tan θ to the front face, and ψ the azimuth
 between them; `z′ = z − z_f` is untouched. The two definitions are measured
 against each other on every dataset — at ingest (`anchor_residual` in the

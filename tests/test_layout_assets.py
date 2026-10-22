@@ -269,3 +269,30 @@ def test_the_frame_grid_builds_cards_the_shell_and_the_export_menu_recognise():
     inspector = _strip_comments((JS / "event_inspector.js").read_text(encoding="utf-8"))
     assert "'/api/event'" in inspector and "'/api/event/pick'" in inspector
     assert "innerHTML" not in inspector
+
+
+# ------------------------------------------------- the entry-anchor explainer --
+
+
+def test_the_entry_anchor_has_an_explainer_button_inside_its_control():
+    html = _html()
+    assert html.count('id="info-anchor"') == 1
+    sub = re.search(r'<fieldset class="choice-sub" id="anchor-sub"(.*?)</fieldset>', html, re.DOTALL)
+    assert sub, "the anchor control is missing"
+    button = re.search(r'<button class="info-dot is-neutral" id="info-anchor"([^>]*)>i</button>', sub.group(1))
+    assert button, "the i button lives inside the anchor control, beside its heading"
+    for token in ('type="button"', 'aria-haspopup="dialog"', 'aria-expanded="false"',
+                  'aria-label="How the two entry anchors are computed"'):
+        assert token in button.group(1), token
+    assert sub.group(1).index('id="info-anchor"') < sub.group(1).index('name="anchor"')
+
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    body = re.search(r"function showExplainer\(trigger, explainer\) \{(.*?)\n\}", main, re.DOTALL)
+    assert body, "showExplainer is missing"
+    assert "textContent" in body.group(1) and "innerHTML" not in body.group(1), "text nodes only"
+    assert "stopPropagation" in body.group(1) and ".focus(" in body.group(1)
+    assert "anchorExplainer(frame, state.get('anchor'))" in main
+    assert "anchor: document.getElementById('info-anchor')" in main
+    css = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    rule = _rule(css, ".popover.is-explainer")
+    assert "max-height: calc(100vh - 16px)" in rule and "overflow-y: auto" in rule

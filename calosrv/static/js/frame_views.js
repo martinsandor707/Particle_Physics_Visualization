@@ -908,3 +908,130 @@ export function eventFrameSentence(payload, kind) {
     + `along +w; each ${footprint} × ${layer} footprint is split into k × k × k_z = ${k} × ${k} × ${kz} `
     + `sub-deposits rotated with the shower and binned on a ${pitch} grid${depth}.`;
 }
+
+/* ----------------------------------------- the entry-anchor explainer -- */
+
+/** The D-frame's two entry-anchor definitions, as the sidebar names them. */
+const ANCHOR_NAMES = Object.freeze({
+  backprojected: 'Back-projected 3-D centroid',
+  p0: 'First-layer entry point P₀',
+});
+
+const para = (text) => ({ kind: 'p', text });
+const formula = (text) => ({ kind: 'formula', text });
+
+/**
+ * The methodology popup of the sidebar's Entry anchor control.
+ *
+ * How the Translated D-frame is built from two entry points, how each
+ * definition finds them, how far apart the two land on the current
+ * selection, and what switching changes. Returns `{title, current,
+ * sections: [{heading, current, blocks: [{kind: 'p' | 'formula', text}]}]}`;
+ * pure, so every sentence can be checked under Node, and main.js renders it
+ * with text nodes.
+ *
+ * `choice` is the control's value and marks the definition in use;
+ * `frame` is the last D-frame response's `frame` block, whose
+ * `anchor_residual` - the distance between the two definitions, measured per
+ * shower on the selection - does not depend on which one is in use. Without
+ * a frame the definitions are still stated in full.
+ *
+ * Measured facts behind the wording: the file's `centroid_A_*` is the
+ * energy-weighted 3-D centroid of the cells labelled A, and `centroid_B_*`
+ * that of the cells labelled B and A+B (checked on production events with
+ * and without shared cells, to 0.0002 mm); P₀ counts A+B cells for both
+ * showers (ingest check `p0_definition`); the file records no true entry
+ * point.
+ */
+export function anchorExplainer(frame = null, choice = null) {
+  const current = choice === 'p0' || choice === 'backprojected'
+    ? choice : (frame?.anchor_choice === 'p0' ? 'p0' : 'backprojected');
+
+  const measured = [];
+  const residual = frame?.anchor_residual;
+  const a = residual?.a;
+  const b = residual?.b;
+  if (Number.isFinite(a?.median) && Number.isFinite(b?.median)) {
+    let text = 'On this selection the two entry points of a shower lie a median '
+      + `${num(a.median)} mm apart for shower A and ${num(b.median)} mm for shower B at the front face`;
+    if (Number.isFinite(a.p90) && Number.isFinite(b.p90)) {
+      text += ` (90th percentile ${num(a.p90)} and ${num(b.p90)} mm)`;
+    }
+    text += '.';
+    if (Number.isFinite(residual.footprint_mm) && Number.isFinite(a.over_footprint)
+      && Number.isFinite(b.over_footprint) && Number.isFinite(residual.n)) {
+      const showers = (n, label) => `${formatInt(n)} ${label} shower${n === 1 ? '' : 's'}`;
+      text += ` Of ${formatInt(residual.n)} events, ${showers(a.over_footprint, 'A')} and `
+        + `${showers(b.over_footprint, 'B')} differ by more than one cell footprint `
+        + `(${num(residual.footprint_mm, 1)} mm).`;
+    }
+    measured.push(para(text));
+  } else {
+    measured.push(para('The distance between the two is measured on every response of this view and '
+      + 'printed in the entry panel’s Details drawer once the panels have loaded.'));
+  }
+  measured.push(para('The file records no true entry point, so neither definition can be checked '
+    + 'against one: this distance is the size of the ambiguity, not the error of either.'));
+
+  const sections = [
+    {
+      heading: 'What the anchor sets',
+      current: false,
+      blocks: [
+        para('The Translated view moves every selected event by one rigid motion, built from two entry '
+          + 'points on the calorimeter’s front face z = z_f: one for shower A, one for shower B. Their '
+          + 'midpoint m becomes the origin, the direction from A’s entry point to B’s becomes +x′ '
+          + '(written D on the entry panel), and z′ = z − z_f. With ψ the azimuth of that A→B line, '
+          + 'every hit moves as'),
+        formula('x′ = cos ψ · (x − m_x) + sin ψ · (y − m_y)\ny′ = −sin ψ · (x − m_x) + cos ψ · (y − m_y)'),
+        para('Shower A then sits at D = −D_entry/2 and B at D = +D_entry/2, where D_entry is the distance '
+          + 'between the two entry points. The two choices differ only in which point of each shower is '
+          + 'taken as its entry point; the frame is built from it the same way.'),
+      ],
+    },
+    {
+      heading: `${ANCHOR_NAMES.backprojected} (default)`,
+      current: current === 'backprojected',
+      blocks: [
+        para('Starts from the shower’s energy-weighted 3-D centroid c over all of its cells: the file’s '
+          + 'centroid_A/B_x, _y, _z columns, where cells labelled A+B count with shower B. It lies inside '
+          + 'the shower, well behind the front face, and is slid back to the front face along the '
+          + 'shower’s own incident direction (θ, φ):'),
+        formula('entry = (c_x, c_y) − (c_z − z_f) · tan θ · (cos φ, sin φ)'),
+        para('It uses every cell of the shower. Its weakness is the long extrapolation: wherever the '
+          + 'shower’s energy sits off its incident line, that sideways offset is carried unchanged to '
+          + 'the front face.'),
+      ],
+    },
+    {
+      heading: ANCHOR_NAMES.p0,
+      current: current === 'p0',
+      blocks: [
+        para('Starts from P₀, the energy-weighted (x, y) centroid of the shower’s cells in its first '
+          + 'populated layer, at that layer’s depth z₀; cells labelled A+B count for both showers. P₀ is '
+          + 'the origin of the per-shower frames and of the reference notebook, and ingest verifies '
+          + 'this definition to 0.01 mm. It is slid back the short distance from z₀ to the front face '
+          + 'along the same direction:'),
+        formula('entry = P₀ − (z₀ − z_f) · tan θ · (cos φ, sin φ)'),
+        para('It is the measured point nearest to where the particle entered and needs almost no '
+          + 'extrapolation. Its weakness is that it rests on the cells of a single layer, which can be '
+          + 'few.'),
+      ],
+    },
+    { heading: 'How far apart they land', current: false, blocks: measured },
+    {
+      heading: 'What switching changes',
+      current: false,
+      blocks: [
+        para('Switching moves the origin and the rotation ψ of every event, and with them every hit, '
+          + 'every incident direction, D_entry, the anchor marks, the fitted panel windows and the '
+          + 'ensemble axes. It does not change the selection, D on the slider (the 3-D distance between '
+          + 'the two centroids in detector coordinates), the deposited energies or z′.'),
+        para('Where an event’s two entry points lie closer than 80 mm, ψ is poorly determined under '
+          + 'either definition; the entry panel’s Details drawer counts those events. The choice travels '
+          + 'in the page link (anchor=p0) and in an exported figure’s file name.'),
+      ],
+    },
+  ];
+  return { title: 'Entry anchor of the D-frame', current, sections };
+}

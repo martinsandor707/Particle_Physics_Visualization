@@ -220,6 +220,15 @@ async def lifespan(app: FastAPI):
     from .ingest import autoingest
 
     app.state.auto_ingest = autoingest.scan(database, settings, store)
+    # A file that arrived moments before this boot - a dataset `git lfs pull`
+    # had just written - waits out the settle window. Scan again for it then,
+    # rather than leaving it for the next start.
+    watch = autoingest.SettleWatch(
+        database, settings, store,
+        publish=lambda report: setattr(app.state, "auto_ingest", report),
+    )
+    app.state.settle_watch = watch
+    watch.after(app.state.auto_ingest)
 
     if not empty:
         # Warm the co-registered frames' full-range bundles for every ready
@@ -242,6 +251,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        watch.stop()
         jobs_mod.reset_job_store()
         reset_database()
 

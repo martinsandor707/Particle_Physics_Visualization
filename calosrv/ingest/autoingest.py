@@ -110,7 +110,7 @@ def candidates(root: Path, settle_s: float, now: float) -> tuple[list[Path], lis
                 name, None, "unsettled",
                 # A clock ahead of the server's gives a negative age: "just now".
                 f"Modified {max(age, 0.0):.0f} s ago. It is picked up once it has been unchanged for "
-                f"{settle_s:.0f} s: at the next start, or with Scan now.",
+                f"{settle_s:.0f} s, by a scan that then runs by itself, or with Scan now.",
             ))
             continue
         files.append(path)
@@ -155,6 +155,73 @@ def scan(database, settings: Settings, store) -> ScanReport:
         if entry.action != "exists":  # that line is logged where it is decided
             log.info("Automatic ingest: %s -> %s. %s", entry.file, entry.action, entry.detail)
     return report
+
+
+class SettleWatch:
+    """Scan again once the files a scan found still being written have settled.
+
+    A file modified within the settle window is taken to be still copying and
+    waits. At boot that window also catches a file that has only just arrived -
+    a dataset ``git lfs pull`` finished writing moments before ``docker compose
+    up`` - which would otherwise wait for the next start or for Scan now, so the
+    README's first start could quietly leave it out. Whenever a scan leaves
+    files waiting, one more scan therefore runs once they would be settled, and
+    again after that while any still are; each publishes its report where the
+    Admin Settings panel reads it. The scans stay idempotent, so a file that
+    settled and was queued in between is reported as queued, not queued twice.
+    """
+
+    def __init__(self, database, settings: Settings, store, publish) -> None:
+        self._database = database
+        self._settings = settings
+        self._store = store
+        self._publish = publish
+        self._lock = threading.Lock()
+        self._running = threading.Lock()
+        self._timer: threading.Timer | None = None
+        self._stopped = False
+
+    @property
+    def delay_s(self) -> float:
+        """One second past the settle window, so the waiting files have left it."""
+        return float(self._settings.auto_ingest_settle_s) + 1.0
+
+    def after(self, report: ScanReport) -> bool:
+        """Schedule one more scan when ``report`` left files settling; whether it did."""
+        waiting = [e.file for e in report.entries if e.action == "unsettled"]
+        if not report.enabled or not waiting:
+            return False
+        with self._lock:
+            if self._stopped:
+                return False
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(self.delay_s, self._run)
+            self._timer.daemon = True
+            self._timer.start()
+        log.info("Automatic ingest: %s still settling; scanning again in %.0f s",
+                 ", ".join(waiting), self.delay_s)
+        return True
+
+    def _run(self) -> None:
+        with self._running:
+            with self._lock:
+                if self._stopped:
+                    return
+                self._timer = None
+            report = scan(self._database, self._settings, self._store)
+            self._publish(report)
+        self.after(report)
+
+    def stop(self, timeout: float = 10.0) -> None:
+        """Cancel a pending scan and wait for a running one: called at shutdown."""
+        with self._lock:
+            self._stopped = True
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+        if self._running.acquire(timeout=timeout):
+            self._running.release()
 
 
 def _consider(database, settings: Settings, store, path: Path,
