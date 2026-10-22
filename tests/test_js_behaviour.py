@@ -2158,3 +2158,93 @@ def test_no_windowed_axis_sentence_carries_a_hyphen_minus(window_results):
              *r["notes"]["legend"], *r["notes"]["disclosures"], r["canonical"]["xz"]]
     for text in texts:
         assert not re.search(r"(?<![\w-])-\d", text), text
+
+
+# ------------------------------------------------ the entry-anchor explainer --
+
+_EXPLAINER_SCRIPT = """
+const [framesUrl, labelsUrl] = JSON.parse(process.argv[1]);
+globalThis.window = { location: { hash: '', pathname: '/' }, history: { replaceState() {} } };
+const { anchorExplainer } = await import(framesUrl);
+const { CHOICE_LABELS } = await import(labelsUrl);
+const residual = { a: { median: 46.4, p90: 133.4, over_footprint: 9620 },
+  b: { median: 45.2, p90: 132.6, over_footprint: 9382 }, footprint_mm: 48.6, n: 20268 };
+console.log(JSON.stringify({
+  labels: CHOICE_LABELS.anchor.map((c) => c.label),
+  measured: anchorExplainer({ anchor_choice: 'backprojected', anchor_residual: residual }, 'p0'),
+  bare: anchorExplainer(null, null),
+  payloadOnly: anchorExplainer({ anchor_choice: 'p0' }, null),
+  bogus: anchorExplainer(null, 'centroid'),
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def explainer_results() -> dict:
+    args = json.dumps([(JS / "frame_views.js").as_uri(), (JS / "labels.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _EXPLAINER_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _blocks(explainer, heading_start):
+    section = next(s for s in explainer["sections"] if s["heading"].startswith(heading_start))
+    return section, [b["text"] for b in section["blocks"]]
+
+
+def test_the_explainer_states_both_definitions_with_their_formulas(explainer_results):
+    r = explainer_results["measured"]
+    assert r["title"] == "Entry anchor of the D-frame"
+    assert [s["heading"] for s in r["sections"]] == [
+        "What the anchor sets", "Back-projected 3-D centroid (default)", "First-layer entry point P₀",
+        "How far apart they land", "What switching changes"]
+    # The headings are the sidebar's own labels for the two choices.
+    back_label, p0_label = explainer_results["labels"]
+    assert r["sections"][1]["heading"].startswith(back_label) and r["sections"][2]["heading"] == p0_label
+    formulas = [b["text"] for s in r["sections"] for b in s["blocks"] if b["kind"] == "formula"]
+    assert formulas == [
+        "x′ = cos ψ · (x − m_x) + sin ψ · (y − m_y)\ny′ = −sin ψ · (x − m_x) + cos ψ · (y − m_y)",
+        "entry = (c_x, c_y) − (c_z − z_f) · tan θ · (cos φ, sin φ)",
+        "entry = P₀ − (z₀ − z_f) · tan θ · (cos φ, sin φ)",
+    ]
+    _, back = _blocks(r, "Back-projected")
+    assert "energy-weighted 3-D centroid" in back[0] and "centroid_A/B_x, _y, _z" in back[0]
+    assert "cells labelled A+B count with shower B" in back[0]
+    assert "carried unchanged to the front face" in back[2]
+    _, p0 = _blocks(r, "First-layer")
+    assert "first populated layer" in p0[0] and "count for both showers" in p0[0] and "0.01 mm" in p0[0]
+    _, changes = _blocks(r, "What switching")
+    assert "does not change the selection, D on the slider" in changes[0]
+    assert "closer than 80 mm" in changes[1] and "anchor=p0" in changes[1]
+
+
+def test_the_explainer_quotes_the_measured_distance_when_it_has_one(explainer_results):
+    _, measured = _blocks(explainer_results["measured"], "How far")
+    assert measured[0] == (
+        "On this selection the two entry points of a shower lie a median 46 mm apart for shower A and "
+        "45 mm for shower B at the front face (90th percentile 133 and 133 mm). Of 20,268 events, 9,620 A "
+        "showers and 9,382 B showers differ by more than one cell footprint (48.6 mm).")
+    assert measured[1].startswith("The file records no true entry point")
+    _, bare = _blocks(explainer_results["bare"], "How far")
+    assert bare[0].endswith("printed in the entry panel’s Details drawer once the panels have loaded.")
+    assert bare[1].startswith("The file records no true entry point")
+
+
+def test_the_explainer_tags_the_definition_in_use(explainer_results):
+    def tagged(explainer):
+        return [s["heading"] for s in explainer["sections"] if s["current"]]
+    r = explainer_results
+    assert tagged(r["measured"]) == ["First-layer entry point P₀"], "the control's value wins"
+    assert r["measured"]["current"] == "p0"
+    assert tagged(r["bare"]) == ["Back-projected 3-D centroid (default)"]
+    assert tagged(r["payloadOnly"]) == ["First-layer entry point P₀"]
+    assert tagged(r["bogus"]) == ["Back-projected 3-D centroid (default)"]
+
+
+def test_no_explainer_sentence_carries_a_hyphen_minus(explainer_results):
+    for key in ("measured", "bare"):
+        for section in explainer_results[key]["sections"]:
+            for block in section["blocks"]:
+                assert not re.search(r"(?<![\w-])-\d", block["text"]), block["text"]
+                assert " - " not in block["text"], block["text"]

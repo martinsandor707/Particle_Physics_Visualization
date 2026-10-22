@@ -15,7 +15,8 @@ read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
   Settings and tick Replace.
 - **Large files.** Hard-link rather than copy: `ln ../hits_all_models.csv
   production_hits_all_models.csv` costs no disk. A file modified in the last
-  30 seconds is taken to be still copying and waits for the next scan.
+  30 seconds is taken to be still copying; the server scans again by itself
+  once it has been unchanged that long.
 - **Skipped.** Hidden files, temporary names (`.part`, `.tmp`, …), sub-folders
   and anything that is not `.csv` or `.parquet`. A file that fails the schema
   check is listed in the panel with the reason, and left alone.

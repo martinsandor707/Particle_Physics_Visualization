@@ -12,7 +12,10 @@ services:
       #     python -m calosrv.ingest --input /app/host/hits_all_models.csv --table all_models
       - .:/app/host:ro
     environment:
-      - DUCKDB_MEMORY_GB=16  # Override to 100 on production server
+      # DuckDB's memory ceiling in GB. 16 by default; `--env-file laptop.env`
+      # lowers it for a computer that can give Docker 8 GB (README, Quick
+      # start), and the production server sets 100.
+      - DUCKDB_MEMORY_GB=${DUCKDB_MEMORY_GB:-16}
       - PORT=8000
       # Uploads are spooled by Starlette before the route stages them; keep
       # that on the data volume, never in a tmpfs /tmp (which is RAM).
@@ -23,13 +26,15 @@ services:
       # an experiment that already exists is never replaced.
       - CALOSRV_AUTO_INGEST_DIR=/app/host/ingest
       # The default experiment a new session opens on, as a fallback beneath
-      # whatever the Admin Settings panel saves.
-      - CALOSRV_DEFAULT_DATASET=production_hits_all_models
+      # whatever the Admin Settings panel saves: the production dataset the
+      # drop folder ingests from ingest/hits_all_models.parquet.
+      - CALOSRV_DEFAULT_DATASET=hits_all_models
     # DuckDB's memory_limit accounts for its buffer manager only - not the Python
     # heap, NumPy result conversion or the bundle caches. Give the container
-    # DUCKDB_MEMORY_GB + 4 GB of headroom or ingest will be OOM-killed.
-    mem_limit: 20g
+    # DUCKDB_MEMORY_GB + 4 GB of headroom or ingest will be OOM-killed;
+    # laptop.env sets both together.
+    mem_limit: ${CONTAINER_MEMORY_LIMIT:-20g}
     # Without this the container may use as much swap again, and on a host
     # whose swap is zram that swap is compressed RAM.
-    memswap_limit: 20g
+    memswap_limit: ${CONTAINER_MEMORY_LIMIT:-20g}
     restart: unless-stopped

@@ -1,2 +1,9 @@
 ingest/hits_all_models_dummy.parquet filter=lfs diff=lfs merge=lfs -text
 ingest/hits_all_models.parquet filter=lfs diff=lfs merge=lfs -text
+# The demonstration CSV is data, baked into the image as the seed: kept
+# byte-identical on every platform, never converted to CRLF on Windows.
+hits_all_models_dummy.csv -text
+# Read by Docker on every platform, so kept with LF line endings.
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+*.env text eol=lf

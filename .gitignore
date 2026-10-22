@@ -219,6 +219,9 @@ __marimo__/
 
 
 *.csv
+# The 1 MB demonstration file is the image's seed (Dockerfile): without it a
+# fresh clone cannot build. Every other dataset stays out of git.
+!hits_all_models_dummy.csv
 *.parquet
 # calosrv runtime state (DuckDB database, upload staging, temp spill)
 data/

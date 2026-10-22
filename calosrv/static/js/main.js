@@ -15,6 +15,7 @@ import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './d
 import { attachExportMenus } from './export/menu.js';
 import {
   frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag, showerTag,
+  anchorExplainer,
 } from './frame_views.js';
 import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
 import {
@@ -118,6 +119,7 @@ const dom = {
     density: document.getElementById('info-density'),
     frame: document.getElementById('info-frame'),
     event: document.getElementById('info-event'),
+    anchor: document.getElementById('info-anchor'),
   },
   frameCaption: document.getElementById('frame-caption'),
   rhoNormControl: document.getElementById('ctl-rho-norm'),
@@ -317,13 +319,74 @@ function showPopover(anchor, texts, { neutral = false } = {}) {
 }
 
 function hidePopover() {
-  if (activePopover) {
-    activePopover.remove();
-    activePopover = null;
+  if (!activePopover) return;
+  const hadFocus = activePopover.contains(document.activeElement);
+  activePopover.remove();
+  activePopover = null;
+  // An explainer took the focus when it opened; give it back to its button.
+  if (popoverTrigger) {
+    popoverTrigger.setAttribute('aria-expanded', 'false');
+    if (hadFocus && popoverTrigger.isConnected) popoverTrigger.focus();
+    popoverTrigger = null;
   }
 }
 
+/**
+ * A popover holding a methodology explainer (`frame_views.js`): a title,
+ * then sections of paragraphs and formulas, the one in use tagged.
+ *
+ * Text nodes only. Unlike a notice popover it is long, so it scrolls when
+ * taller than the window, a click inside it (on its scrollbar, or to select a
+ * formula) does not close it, and it takes the focus so a keyboard or
+ * screen-reader user lands in it; Escape or a click elsewhere closes it and
+ * returns the focus to its button.
+ */
+function showExplainer(trigger, explainer) {
+  hidePopover();
+  const node = document.createElement('div');
+  node.className = 'popover is-neutral is-explainer';
+  node.setAttribute('role', 'dialog');
+  node.setAttribute('aria-label', explainer.title);
+  node.tabIndex = -1;
+  const title = document.createElement('h3');
+  title.textContent = explainer.title;
+  node.append(title);
+  for (const section of explainer.sections) {
+    const heading = document.createElement('h4');
+    heading.textContent = section.heading;
+    if (section.current) {
+      const tag = document.createElement('span');
+      tag.className = 'in-use';
+      tag.textContent = 'in use';
+      heading.append(' ', tag);
+    }
+    node.append(heading);
+    for (const block of section.blocks) {
+      const element = document.createElement('p');
+      if (block.kind === 'formula') element.className = 'formula';
+      element.textContent = block.text;
+      node.append(element);
+    }
+  }
+  node.addEventListener('click', (event) => event.stopPropagation());
+  document.body.appendChild(node);
+
+  // Beside the sidebar, level with its button: the control it explains stays
+  // in view, and so does the button, however near the window's foot it sits.
+  const box = trigger.getBoundingClientRect();
+  const sidebar = trigger.closest('.sidebar')?.getBoundingClientRect();
+  const left = sidebar ? sidebar.right + 10 : box.left;
+  node.style.top = `${Math.max(8, Math.min(window.innerHeight - node.offsetHeight - 8, box.top - 12))}px`;
+  node.style.left = `${Math.max(8, Math.min(window.innerWidth - node.offsetWidth - 8, left))}px`;
+  activePopover = node;
+  popoverTrigger = trigger;
+  trigger.setAttribute('aria-expanded', 'true');
+  node.focus({ preventScroll: true });
+}
+
 let activePopover = null;
+/* The button an explainer popover was opened from, while it is open. */
+let popoverTrigger = null;
 
 /* -------------------------------------------------------------- projections */
 
@@ -1231,6 +1294,13 @@ for (const [scope, dot] of Object.entries(dom.infoDots)) {
   dot.addEventListener('click', (event) => {
     event.stopPropagation();
     if (activePopover) { hidePopover(); return; }
+    if (scope === 'anchor') {
+      // The definitions, and the distance between them measured on the
+      // selection the panels show, when a D-frame response is in hand.
+      const frame = kindOf(lastProjections) === 'canonical' ? lastProjections.frame : null;
+      showExplainer(dot, anchorExplainer(frame, state.get('anchor')));
+      return;
+    }
     const texts = scope === 'density'
       ? [DENSITY_EXPLAINER]
       : JSON.parse(dot.dataset.notices || '[]');
@@ -1321,7 +1391,7 @@ const REQUIRED_IDS = [
   'stat-latency', 'stat-cache', 'banner', 'banner-text', 'banner-close', 'energy-sparse',
   'badge-memory', 'badge-threads', 'badge-exact', 'exact-badge',
   'tag-xy', 'tag-energy', 'title-xy', 'title-yz', 'title-xz', 'info-frame', 'frame-caption',
-  'ctl-frame', 'frame-sub', 'frame-sub-trans', 'anchor-sub', 'ctl-rho-norm', 'ctl-lock-scale',
+  'ctl-frame', 'frame-sub', 'frame-sub-trans', 'anchor-sub', 'info-anchor', 'ctl-rho-norm', 'ctl-lock-scale',
   'sidebar', 'sidebar-toggle', 'inspector', 'inspector-title', 'inspector-body', 'inspector-close',
   'display-caption', 'channel-caption', 'resolution', 'resolution-readout',
   'resolution-hint', 'display-label-native', 'display-label-continuous',

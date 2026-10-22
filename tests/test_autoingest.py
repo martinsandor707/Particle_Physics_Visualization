@@ -156,6 +156,7 @@ def test_a_file_still_being_written_waits_for_the_next_scan(ingested, drop):
     _put(drop, "arriving.csv", mtime=time.time())
     _, store, entries = _scan(ingested, drop, settle_s=30)
     assert entries["arriving.csv"].action == "unsettled"
+    assert entries["arriving.csv"].detail.endswith("by a scan that then runs by itself, or with Scan now.")
     assert store.submitted == []
 
 
@@ -277,3 +278,81 @@ def test_scan_now_is_refused_when_the_scanner_is_off(client):
     response = client.post("/api/admin/auto-ingest/scan")
     assert response.status_code == 409
     assert "CALOSRV_AUTO_INGEST_DIR" in response.json()["detail"]
+
+
+# ------------------------------------------- arrivals just before a boot --
+
+
+def _settings(ingested, drop, settle_s):
+    return dataclasses.replace(ingested["settings"], auto_ingest_dir=drop, auto_ingest_settle_s=settle_s)
+
+
+def test_a_file_still_settling_is_scanned_again_once_it_has(ingested, drop):
+    """A dataset `git lfs pull` wrote moments before the boot is still queued at that boot."""
+    _put(drop, "arriving.csv", mtime=time.time())
+    settings = _settings(ingested, drop, settle_s=1)
+    store = RecordingStore()
+    first = autoingest.scan(ingested["database"], settings, store)
+    assert {e.file: e.action for e in first.entries} == {"arriving.csv": "unsettled"}
+
+    published = []
+    watch = autoingest.SettleWatch(ingested["database"], settings, store, publish=published.append)
+    try:
+        assert watch.delay_s == 2.0
+        assert watch.after(first) is True
+        deadline = time.time() + 15
+        while not published and time.time() < deadline:
+            time.sleep(0.05)
+    finally:
+        watch.stop()
+    assert published, "the follow-up scan never ran"
+    assert {e.file: e.action for e in published[0].entries} == {"arriving.csv": "submitted"}
+    assert len(store.submitted) == 1, "queued once, by the follow-up"
+    assert len(published) == 1, "nothing was left settling, so nothing more is scheduled"
+
+
+def test_nothing_settling_schedules_nothing_and_stop_cancels_a_pending_scan(ingested, drop):
+    _put(drop, "settled.csv")
+    settings = _settings(ingested, drop, settle_s=1)
+    published = []
+    watch = autoingest.SettleWatch(ingested["database"], settings, RecordingStore(), publish=published.append)
+    assert watch.after(autoingest.scan(ingested["database"], settings, RecordingStore())) is False
+
+    _put(drop, "arriving.csv", mtime=time.time())
+    assert watch.after(autoingest.scan(ingested["database"], settings, RecordingStore())) is True
+    watch.stop()
+    time.sleep(watch.delay_s + 0.5)
+    assert published == [], "a stopped watch scans no more"
+    assert watch.after(autoingest.scan(ingested["database"], settings, RecordingStore())) is False
+
+
+def test_a_git_lfs_pointer_is_rejected_with_the_command_that_downloads_it(ingested, drop):
+    """A clone without the dataset download leaves pointers; the panel says what to run."""
+    pointer = drop / "hits_all_models.parquet"
+    pointer.write_text("version https://git-lfs.github.com/spec/v1\n"
+                       "oid sha256:871228051861c72bdc72b161ec87be298f92578c15778e21f8148aed817d2a2c\n"
+                       "size 2873386592\n")
+    os.utime(pointer, (OLD, OLD))
+    _, store, entries = _scan(ingested, drop)
+    entry = entries["hits_all_models.parquet"]
+    assert entry.action == "rejected"
+    assert entry.detail.startswith("hits_all_models.parquet is a Git LFS pointer, not the dataset")
+    assert "git lfs pull" in entry.detail and "Scan now" in entry.detail
+    assert store.submitted == []
+
+
+def test_the_repositorys_own_pointers_are_recognised_as_pointers():
+    """The pointer prefix the scan detects is the one git stores for the tracked datasets."""
+    import subprocess
+
+    from calosrv.ingest import formats
+
+    try:
+        done = subprocess.run(["git", "cat-file", "-p", "HEAD:ingest/hits_all_models.parquet"],
+                              capture_output=True, cwd=Path(__file__).resolve().parent.parent,
+                              timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pytest.skip("git is not available")
+    if done.returncode != 0:
+        pytest.skip("not a git checkout holding the tracked dataset")
+    assert done.stdout.startswith(formats._LFS_POINTER)

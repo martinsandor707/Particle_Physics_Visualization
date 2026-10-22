@@ -72,6 +72,10 @@ def scan_now(request: Request, settings: SettingsDep):
     database = request.app.state.database
     report = autoingest.scan(database, settings, jobs_mod.get_job_store(database))
     request.app.state.auto_ingest = report
+    # A file still being copied is scanned again once it has settled.
+    watch = getattr(request.app.state, "settle_watch", None)
+    if watch is not None:
+        watch.after(report)
     if not report.enabled:
         raise ConflictError(f"Automatic ingest is off: {report.reason}", reason=report.reason)
     return json_safe(report.as_dict())
