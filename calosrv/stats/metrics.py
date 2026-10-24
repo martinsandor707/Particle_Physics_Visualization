@@ -23,6 +23,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from . import gaussian
+from .gaussian import _Z_975
 
 
 def finite(value: float | None) -> float | None:
@@ -124,6 +125,10 @@ METHOD_T = "t"
 METHOD_RATIO = "ratio_t"
 METHOD_CHI2 = "chi2"
 METHOD_FISHER = "fisher_z"
+METHOD_JACKKNIFE = "jackknife_fisher_z"
+METHOD_WILSON = "wilson"
+METHOD_BOOTSTRAP = "bootstrap_percentile"
+METHOD_ORDER = "order_statistic"
 
 #: Below this many events a card shows its interval rather than its SE.
 SHOW_CI_BELOW_N = gaussian.MIN_CORE_SAMPLES
@@ -291,14 +296,86 @@ def correlation(x: np.ndarray, y: np.ndarray) -> Estimate:
     if n < 3 or x.std() == 0 or y.std() == 0:
         return Estimate(None, n=n, note="Too few showers, or no spread, for a correlation.")
     r = float(np.corrcoef(x, y)[0, 1])
-    if n < 4 or abs(r) >= 1.0:
+    interval = fisher_z_interval(r, n, label="95% Fisher-z interval")
+    if interval is None:
         return Estimate(r, n=n, note="Fisher-z interval needs N ≥ 4 and |r| < 1.")
-    se_z = 1.0 / math.sqrt(n - 3)
+    return Estimate(r, (1.0 - r * r) / math.sqrt(n - 3), interval, n)
+
+
+def fisher_z_interval(
+    r: float | None, n: int, *, se_z: float | None = None, dof: int | None = None,
+    label: str | None = None,
+) -> Interval | None:
+    """The 95% interval of a Pearson r on Fisher's z = atanh r.
+
+    Two forms, one owner. With ``se_z`` absent the ``n`` pairs are taken as
+    independent - each an event, the sampling unit here - so
+    ``SE_z = 1 / sqrt(n - 3)`` with the normal quantile. With ``se_z`` given it
+    is a grouped jackknife's standard error (``stats/jackknife.py``) on ``dof``
+    = groups - 1 degrees of freedom, and the quantile is Student-t: hits of one
+    event are not independent pairs, and their count would claim a precision
+    nobody has. ``None`` when N < 4, r is not finite or |r| = 1.
+    """
+    if r is None or not math.isfinite(r) or abs(r) >= 1.0 or n < 4:
+        return None
     z = math.atanh(r)
-    zq = 1.959963985
-    interval = Interval(math.tanh(z - zq * se_z), math.tanh(z + zq * se_z), METHOD_FISHER,
-                        "95% Fisher-z interval")
-    return Estimate(r, (1.0 - r * r) * se_z, interval, n)
+    if se_z is None:
+        half = _Z_975 / math.sqrt(n - 3)
+        method = METHOD_FISHER
+        text = label or f"95% Fisher-z interval, N = {n:,} events"
+    else:
+        if dof is None or dof < 1 or not math.isfinite(se_z) or se_z <= 0:
+            return None
+        half = gaussian.t_quantile_975(dof) * se_z
+        method = METHOD_JACKKNIFE
+        text = label or (f"95% event-grouped jackknife on Fisher z, {dof + 1} groups "
+                         f"(Student-t, {dof} dof)")
+    return Interval(math.tanh(z - half), math.tanh(z + half), method, text)
+
+
+def wilson_interval(k: int, n: int, z: float | None = None) -> Interval | None:
+    """The 95% Wilson score interval of a proportion ``k / n``; ``None`` at n = 0.
+
+    Unlike the Wald interval it never leaves [0, 1] and does not collapse to a
+    point at k = 0 or k = n, which is where small selections put it. The units
+    must be independent: events, or showers only where each event holds one.
+    """
+    n = int(n)
+    if n <= 0:
+        return None
+    k = min(max(int(k), 0), n)
+    q = _Z_975 if z is None else float(z)
+    p = k / n
+    d = 1.0 + q * q / n
+    centre = (p + q * q / (2.0 * n)) / d
+    half = (q / d) * math.sqrt(p * (1.0 - p) / n + q * q / (4.0 * n * n))
+    return Interval(max(0.0, centre - half), min(1.0, centre + half), METHOD_WILSON,
+                    "95% Wilson score interval")
+
+
+def proportion_estimate(k: int, n: int) -> Estimate:
+    """``k / n`` with its Wilson interval. No SE: the Wald SE is not the interval's basis."""
+    n = int(n)
+    if n <= 0:
+        return Estimate(None, n=0, note="No events in this selection.")
+    return Estimate(int(k) / n, None, wilson_interval(k, n), n)
+
+
+def mae_estimate(residuals: np.ndarray) -> Estimate:
+    """Mean absolute residual with its Student-t interval, clipped at zero and saying so."""
+    a = np.abs(np.asarray(residuals, dtype=np.float64))
+    a = a[np.isfinite(a)]
+    n = int(a.size)
+    if n == 0:
+        return Estimate(None, n=0, note="No showers in this selection.")
+    mae = float(a.mean())
+    if n < 2:
+        return Estimate(mae, n=1, note="N = 1: a single shower; no uncertainty can be estimated.")
+    se = float(a.std(ddof=1)) / math.sqrt(n)
+    t = gaussian.t_quantile_975(n - 1)
+    interval = Interval(mae - t * se, mae + t * se, METHOD_T,
+                        f"95% Student-t interval of the mean, {n - 1} dof")
+    return Estimate(mae, se, _clip(interval, (0.0, math.inf)), n)
 
 
 def ratio_sums_sql(num: str, den: str, alias: str) -> str:
@@ -320,4 +397,5 @@ __all__: Sequence[str] = (
     "finite", "ClassificationMetrics", "RegressionMetrics", "classification", "regression",
     "Interval", "Estimate", "Card", "ratio_estimate", "sqrt_estimate", "residual_summary",
     "ResidualSummary", "correlation", "ratio_sums_sql", "ratio_from_row",
+    "fisher_z_interval", "wilson_interval", "proportion_estimate", "mae_estimate",
 )

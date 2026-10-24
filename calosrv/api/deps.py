@@ -12,7 +12,7 @@ from ..config import Settings
 from ..db.connection import Database
 from ..db.registry import ExperimentRecord, require_ready
 from ..errors import UnknownTableError
-from ..query import filters
+from ..query import capabilities, filters
 from ..query.filters import FilterSpec
 
 
@@ -62,20 +62,49 @@ def resolve_table(
         )
     defaults = getattr(request.app.state, "defaults", None)
     wanted = defaults.configured("default_dataset") if defaults is not None else None
-    return next((record for record in ready if record.table_name == wanted), ready[0])
+    chosen = next((record for record in ready if record.table_name == wanted), None)
+    if chosen is not None:
+        return chosen
+    # A request that names no experiment comes from a page loading before the
+    # user has chosen one: prefer an experiment with hits, which every page can
+    # draw, over an aggregated one that serves only event-level views.
+    return next((r for r in ready if r.traits is not None and r.traits.has_hits), ready[0])
 
 
 RecordDep = Annotated[ExperimentRecord, Depends(resolve_table)]
 
 
+def capable(*gates: str, field: str = "table_name"):
+    """A dependency resolving the experiment and refusing it unless every gate is open.
+
+    ``record: Annotated[ExperimentRecord, capable("profile-w")]`` in a route
+    signature gives the record, or a 422 naming the missing capability and why.
+    FastAPI caches ``resolve_table`` per request, so it still runs once.
+    """
+
+    def dependency(record: RecordDep) -> ExperimentRecord:
+        capabilities.require(record, *gates, field=field)
+        return record
+
+    return Depends(dependency)
+
+
 def resolve_filter(
     record: RecordDep,
-    e1_min: float | None = Query(None, description="Lower bound on incoming_momentum_A (GeV)."),
-    e1_max: float | None = Query(None, description="Upper bound on incoming_momentum_A (GeV)."),
-    e2_min: float | None = Query(None, description="Lower bound on incoming_momentum_B (GeV)."),
-    e2_max: float | None = Query(None, description="Upper bound on incoming_momentum_B (GeV)."),
-    d_min: float | None = Query(None, description="Lower bound on centroid_AB_distance (mm)."),
-    d_max: float | None = Query(None, description="Upper bound on centroid_AB_distance (mm)."),
+    e1_min: float | None = Query(
+        None, description="Lower bound on incoming_momentum_A, or on the single shower's "
+                          "incoming_momentum (GeV)."),
+    e1_max: float | None = Query(
+        None, description="Upper bound on incoming_momentum_A, or on the single shower's "
+                          "incoming_momentum (GeV)."),
+    e2_min: float | None = Query(
+        None, description="Lower bound on incoming_momentum_B (GeV); two-shower data only."),
+    e2_max: float | None = Query(
+        None, description="Upper bound on incoming_momentum_B (GeV); two-shower data only."),
+    d_min: float | None = Query(
+        None, description="Lower bound on centroid_AB_distance (mm); two-shower data only."),
+    d_max: float | None = Query(
+        None, description="Upper bound on centroid_AB_distance (mm); two-shower data only."),
     include_undefined_d: bool = Query(
         False,
         description=(

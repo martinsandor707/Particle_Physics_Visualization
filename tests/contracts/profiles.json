@@ -1,0 +1,469 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/profiles (C7)",
+ "type": "object",
+ "required": [
+  "meta",
+  "kind",
+  "shower",
+  "depth",
+  "ensemble",
+  "marks",
+  "axes",
+  "notebook_scale",
+  "notes",
+  "filter"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "kind": {
+   "type": "string"
+  },
+  "shower": {
+   "enum": [
+    "a",
+    "b",
+    "both"
+   ]
+  },
+  "depth": {
+   "enum": [
+    "w",
+    "native"
+   ]
+  },
+  "ensemble": {
+   "type": "object",
+   "required": [
+    "n_showers",
+    "n_events",
+    "label",
+    "dof_note",
+    "provisional",
+    "n_single_cell"
+   ],
+   "properties": {
+    "n_showers": {
+     "type": "integer"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "label": {
+     "type": "string"
+    },
+    "dof_note": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "n_single_cell": {
+     "type": "integer"
+    }
+   }
+  },
+  "marks": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "key",
+     "label",
+     "meaning"
+    ],
+    "properties": {
+     "key": {
+      "enum": [
+       "mean",
+       "band",
+       "envelope",
+       "pooled"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "meaning": {
+      "type": "string"
+     }
+    }
+   },
+   "minItems": 4,
+   "maxItems": 4
+  },
+  "axes": {
+   "type": "object",
+   "propertyNames": {
+    "enum": [
+     "w",
+     "kt",
+     "r"
+    ]
+   },
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "symbol",
+     "unit",
+     "value_unit",
+     "pitch_mm",
+     "edges_cm",
+     "mean",
+     "band",
+     "envelope",
+     "pooled",
+     "n_present",
+     "outside",
+     "comb",
+     "y"
+    ],
+    "properties": {
+     "symbol": {
+      "type": "string"
+     },
+     "unit": {
+      "type": "string"
+     },
+     "value_unit": {
+      "type": "string"
+     },
+     "pitch_mm": {
+      "type": "number"
+     },
+     "edges_cm": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
+     },
+     "mean": {
+      "type": "array",
+      "items": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "band": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "required": [
+       "lo",
+       "hi"
+      ],
+      "properties": {
+       "lo": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "hi": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       }
+      }
+     },
+     "envelope": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "required": [
+       "lo",
+       "hi"
+      ],
+      "properties": {
+       "lo": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "hi": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       }
+      }
+     },
+     "pooled": {
+      "type": "object",
+      "required": [
+       "value",
+       "ci95_lo",
+       "ci95_hi"
+      ],
+      "properties": {
+       "value": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "ci95_lo": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "ci95_hi": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       }
+      }
+     },
+     "n_present": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "outside": {
+      "type": "object"
+     },
+     "comb": {
+      "type": [
+       "object",
+       "null"
+      ]
+     },
+     "y": {
+      "type": "object",
+      "required": [
+       "lo",
+       "hi",
+       "interval",
+       "provisional",
+       "clipped"
+      ],
+      "properties": {
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": "number"
+       },
+       "interval": {
+        "type": "number"
+       },
+       "provisional": {
+        "type": "boolean"
+       },
+       "clipped": {
+        "type": "object",
+        "required": [
+         "band",
+         "envelope",
+         "band_below_zero"
+        ],
+        "properties": {
+         "band": {
+          "type": "integer"
+         },
+         "envelope": {
+          "type": "integer"
+         },
+         "band_below_zero": {
+          "type": "integer"
+         }
+        }
+       }
+      }
+     },
+     "w_zero_rule": {
+      "type": [
+       "object",
+       "null"
+      ]
+     },
+     "splat": {
+      "type": [
+       "object",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "notebook_scale": {
+   "type": "boolean"
+  },
+  "notes": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}

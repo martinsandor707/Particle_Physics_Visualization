@@ -30,42 +30,48 @@ from ..errors import ValidationError
 
 @dataclass(frozen=True)
 class FilterSpec:
-    """A kinematic selection, resolved against an experiment's bounds."""
+    """A kinematic selection, resolved against an experiment's bounds.
+
+    ``axes`` names the filter axes the experiment has: all three for two-shower
+    data, only ``e1`` - the incident momentum of the single shower - for the
+    single-shower kinds. An absent axis is ``None`` and writes no clause and no
+    parameter: DuckDB refuses a named parameter the SQL does not use, so the
+    two must always be built from the same list.
+    """
 
     table_name: str
     e1_min: float
     e1_max: float
-    e2_min: float
-    e2_max: float
-    d_min: float
-    d_max: float
+    e2_min: float | None = None
+    e2_max: float | None = None
+    d_min: float | None = None
+    d_max: float | None = None
     include_undefined_d: bool = False
+    axes: tuple[str, ...] = ("e1", "e2", "d")
 
     def where_sql(self, alias: str = "") -> str:
         """The ``WHERE`` body for this selection."""
         p = f"{alias}." if alias else ""
-        clauses = [
-            f"{p}e1 BETWEEN $e1_min AND $e1_max",
-            f"{p}e2 BETWEEN $e2_min AND $e2_max",
-        ]
-        if self.include_undefined_d:
-            clauses.append(
-                f"({p}d IS NULL OR {p}d BETWEEN $d_min AND $d_max)"
-            )
-        else:
-            clauses.append(f"{p}d IS NOT NULL")
-            clauses.append(f"{p}d BETWEEN $d_min AND $d_max")
+        clauses = [f"{p}e1 BETWEEN $e1_min AND $e1_max"]
+        if "e2" in self.axes:
+            clauses.append(f"{p}e2 BETWEEN $e2_min AND $e2_max")
+        if "d" in self.axes:
+            if self.include_undefined_d:
+                clauses.append(
+                    f"({p}d IS NULL OR {p}d BETWEEN $d_min AND $d_max)"
+                )
+            else:
+                clauses.append(f"{p}d IS NOT NULL")
+                clauses.append(f"{p}d BETWEEN $d_min AND $d_max")
         return " AND ".join(clauses)
 
     def params(self) -> dict[str, Any]:
-        return {
-            "e1_min": self.e1_min,
-            "e1_max": self.e1_max,
-            "e2_min": self.e2_min,
-            "e2_max": self.e2_max,
-            "d_min": self.d_min,
-            "d_max": self.d_max,
-        }
+        out: dict[str, Any] = {"e1_min": self.e1_min, "e1_max": self.e1_max}
+        if "e2" in self.axes:
+            out.update(e2_min=self.e2_min, e2_max=self.e2_max)
+        if "d" in self.axes:
+            out.update(d_min=self.d_min, d_max=self.d_max)
+        return out
 
     def clamped(self, record: ExperimentRecord) -> "FilterSpec":
         """The same selection with every bound clamped to the dataset's range.
@@ -81,13 +87,13 @@ class FilterSpec:
         """
 
         def clamp_interval(
-            lo_req: float, hi_req: float, lo: float | None, hi: float | None
-        ) -> tuple[float, float]:
+            lo_req: float | None, hi_req: float | None, lo: float | None, hi: float | None
+        ) -> tuple[float | None, float | None]:
             # An interval that misses the data entirely must stay empty: clamping
             # its two ends independently would collapse it onto the data extreme
             # and resurrect the boundary event. Only an intersecting interval is
-            # equivalent to its clamped form.
-            if lo is None or hi is None:
+            # equivalent to its clamped form. An absent axis stays absent.
+            if lo_req is None or hi_req is None or lo is None or hi is None:
                 return lo_req, hi_req
             if hi_req < lo or lo_req > hi:
                 return lo_req, hi_req
@@ -102,6 +108,7 @@ class FilterSpec:
             e2_min=e2_min, e2_max=e2_max,
             d_min=d_min, d_max=d_max,
             include_undefined_d=self.include_undefined_d,
+            axes=self.axes,
         )
 
     def cache_key(self) -> tuple:
@@ -109,13 +116,14 @@ class FilterSpec:
 
         Bounds are rounded to six significant figures so that two slider
         positions a float ulp apart share a cache entry instead of each paying
-        for a full scan.
+        for a full scan. Absent axes are ``None``; the tuple keeps its shape and
+        ``table_name`` stays first, which cache invalidation relies on.
         """
         return (
             self.table_name,
-            round(self.e1_min, 6), round(self.e1_max, 6),
-            round(self.e2_min, 6), round(self.e2_max, 6),
-            round(self.d_min, 4), round(self.d_max, 4),
+            _round(self.e1_min, 6), _round(self.e1_max, 6),
+            _round(self.e2_min, 6), _round(self.e2_max, 6),
+            _round(self.d_min, 4), _round(self.d_max, 4),
             self.include_undefined_d,
         )
 
@@ -126,6 +134,10 @@ class FilterSpec:
             "d": [self.d_min, self.d_max],
             "include_undefined_d": self.include_undefined_d,
         }
+
+
+def _round(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
 
 
 def _resolve(
@@ -152,17 +164,40 @@ def build(
 
     An unset bound means "no restriction on this axis", which is the dataset's
     full extent - not zero, and not an arbitrary constant that would silently
-    exclude data on a dataset with a different energy range.
+    exclude data on a dataset with a different energy range. A single-shower
+    experiment has only the incident-momentum axis: a bound on the second
+    shower or on the A-B separation is refused naming the parameter, because a
+    silently ignored cut is a selection the reader believes was made.
     """
+    traits = record.traits
+    axes = traits.filter_axes if traits is not None else ("e1", "e2", "d")
+    if "e2" not in axes or "d" not in axes:
+        label = traits.label if traits is not None else "this"
+        for name, value in (("e2_min", e2_min), ("e2_max", e2_max),
+                            ("d_min", d_min), ("d_max", d_max)):
+            if value is not None and name[:-4] not in axes:
+                raise ValidationError(
+                    f"{name} does not apply to experiment {record.table_name!r}: it holds "
+                    f"{label} data, which has no second shower and no A–B separation.",
+                    field=name,
+                )
+        if include_undefined_d:
+            raise ValidationError(
+                f"include_undefined_d does not apply to experiment {record.table_name!r}: "
+                "it has no A–B separation.",
+                field="include_undefined_d",
+            )
+
     spec = FilterSpec(
         table_name=record.table_name,
         e1_min=_resolve(e1_min, record.e1_min, 0.0),
         e1_max=_resolve(e1_max, record.e1_max, 0.0),
-        e2_min=_resolve(e2_min, record.e2_min, 0.0),
-        e2_max=_resolve(e2_max, record.e2_max, 0.0),
-        d_min=_resolve(d_min, record.d_min, 0.0),
-        d_max=_resolve(d_max, record.d_max, 0.0),
+        e2_min=_resolve(e2_min, record.e2_min, 0.0) if "e2" in axes else None,
+        e2_max=_resolve(e2_max, record.e2_max, 0.0) if "e2" in axes else None,
+        d_min=_resolve(d_min, record.d_min, 0.0) if "d" in axes else None,
+        d_max=_resolve(d_max, record.d_max, 0.0) if "d" in axes else None,
         include_undefined_d=include_undefined_d,
+        axes=tuple(axes),
     )
 
     for label, lo, hi in (
@@ -170,7 +205,7 @@ def build(
         ("E2", spec.e2_min, spec.e2_max),
         ("D", spec.d_min, spec.d_max),
     ):
-        if lo > hi:
+        if lo is not None and hi is not None and lo > hi:
             raise ValidationError(
                 f"{label} range is inverted: minimum {lo:g} exceeds maximum "
                 f"{hi:g}.",

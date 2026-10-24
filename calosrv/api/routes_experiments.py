@@ -30,6 +30,7 @@ def list_experiments(
     ),
 ):
     records = experiments.list_all(con, include_pending=include_pending, settings=settings)
+    listed, lattices = experiments.deduplicate_lattices(records)
     cache = cache_mod.get_cache(settings.cache_entries)
     canonical_cache = cache_mod.get_cache(
         settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE
@@ -37,7 +38,10 @@ def list_experiments(
     # This route does not go through `envelope`, so it applies the non-finite
     # float guard itself; a dataset with a degenerate bound would otherwise 500.
     return json_safe({
-        "experiments": records,
+        "experiments": listed,
+        # Each distinct detector lattice once, keyed by the id every
+        # experiment's ``lattice.id`` names.
+        "lattices": lattices,
         # What a session opens on when its link carries no view state: the
         # Admin Settings panel's defaults, keyed by the interface's state names.
         # Delivered here so a cold boot needs no second round trip.

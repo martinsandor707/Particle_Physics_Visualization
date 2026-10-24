@@ -51,6 +51,20 @@ class ValidationError(ApiError):
     title = "Invalid request parameters"
 
 
+class CapabilityError(ValidationError):
+    """A request for a view the experiment's data cannot serve.
+
+    A single-shower experiment has no D-frame, an aggregated one has no hits,
+    and an experiment derived before the profile tables existed has no
+    profiles. The problem names the request field, the card or capability that
+    is missing, the experiment's kind and the reason in one sentence, so the
+    interface can show it beside the card rather than as a server failure.
+    """
+
+    error_type = "unsupported-capability"
+    title = "Not available for this experiment"
+
+
 class ConflictError(ApiError):
     status_code = 409
     error_type = "conflict"
