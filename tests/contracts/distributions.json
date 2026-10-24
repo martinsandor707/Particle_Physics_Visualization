@@ -1,0 +1,362 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/distributions (C4)",
+ "type": "object",
+ "required": [
+  "meta",
+  "quantity",
+  "edges",
+  "series",
+  "display",
+  "splat",
+  "comb",
+  "notes",
+  "filter"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "quantity": {
+   "type": "object",
+   "required": [
+    "key",
+    "label",
+    "unit",
+    "scale",
+    "source",
+    "weighting"
+   ],
+   "properties": {
+    "key": {
+     "enum": [
+      "u",
+      "v",
+      "w",
+      "energy",
+      "theta",
+      "phi",
+      "p"
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "scale": {
+     "enum": [
+      "linear",
+      "log10"
+     ]
+    },
+    "source": {
+     "enum": [
+      "hits",
+      "showers"
+     ]
+    },
+    "weighting": {
+     "type": "string"
+    }
+   }
+  },
+  "edges": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   }
+  },
+  "series": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "bin",
+     "label",
+     "n",
+     "offset",
+     "counts",
+     "below",
+     "above",
+     "resultant"
+    ],
+    "properties": {
+     "bin": {
+      "type": "integer"
+     },
+     "label": {
+      "type": "string"
+     },
+     "n": {
+      "type": "integer"
+     },
+     "offset": {
+      "type": "number"
+     },
+     "counts": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
+     },
+     "below": {
+      "type": "number"
+     },
+     "above": {
+      "type": "number"
+     },
+     "resultant": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "display": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "percentiles",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "percentiles": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "n_outside": {
+     "type": "number"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "splat": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "required": [
+    "regime",
+    "k",
+    "k_z",
+    "bin_mm",
+    "gap_free"
+   ],
+   "properties": {
+    "regime": {
+     "type": "string"
+    },
+    "k": {
+     "type": "integer"
+    },
+    "k_z": {
+     "type": "integer"
+    },
+    "bin_mm": {
+     "type": "number"
+    },
+    "gap_free": {
+     "type": "boolean"
+    }
+   }
+  },
+  "comb": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "required": [
+    "lag1",
+    "combed",
+    "measured_on"
+   ],
+   "properties": {
+    "lag1": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "combed": {
+     "type": "boolean"
+    },
+    "measured_on": {
+     "type": "string"
+    }
+   }
+  },
+  "notes": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}

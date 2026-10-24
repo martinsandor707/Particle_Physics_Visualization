@@ -183,7 +183,7 @@ class DefaultsStore:
                 resolved[key] = {"value": schema.BUILTIN[key], "source": SOURCE_BUILTIN}
 
         notices: list[str] = []
-        ready = [e for e in experiments if e.get("status") == "ready"]
+        ready = _ready_preferring_hits(experiments)
         dataset = resolved["default_dataset"]
         wanted = dataset["value"]
         if wanted is None:
@@ -259,11 +259,22 @@ class DefaultsStore:
         }
 
 
+def _ready_preferring_hits(experiments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ready experiments, those with hits first (each group oldest first).
+
+    The Physics page opens on the fallback experiment, and an aggregated one
+    has no hits to draw, so it is chosen only when nothing else is ready.
+    """
+    ready = [e for e in experiments if e.get("status") == "ready"]
+    with_hits = [e for e in ready if (e.get("capabilities") or {}).get("has_hits", True)]
+    return with_hits + [e for e in ready if e not in with_hits]
+
+
 def _effective_experiment(
     wanted: str | None, experiments: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
-    """The experiment a new session would open on: the wanted one if ready, else the oldest."""
-    ready = [e for e in experiments if e.get("status") == "ready"]
+    """The experiment a new session would open on: the wanted one if ready, else the oldest with hits."""
+    ready = _ready_preferring_hits(experiments)
     for experiment in ready:
         if experiment["table_name"] == wanted:
             return experiment

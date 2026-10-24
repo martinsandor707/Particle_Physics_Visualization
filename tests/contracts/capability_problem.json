@@ -1,0 +1,176 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "422 unsupported-capability problem",
+ "type": "object",
+ "required": [
+  "type",
+  "title",
+  "status",
+  "detail",
+  "field",
+  "capability",
+  "kind",
+  "reason"
+ ],
+ "properties": {
+  "type": {
+   "const": "/problems/unsupported-capability"
+  },
+  "title": {
+   "type": "string"
+  },
+  "status": {
+   "const": 422
+  },
+  "detail": {
+   "type": "string"
+  },
+  "field": {
+   "type": "string"
+  },
+  "capability": {
+   "type": "string"
+  },
+  "kind": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "reason": {
+   "type": "string"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}

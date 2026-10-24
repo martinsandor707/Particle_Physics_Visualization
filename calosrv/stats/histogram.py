@@ -125,3 +125,35 @@ def curve_axis(lo: float, hi: float, points: int = CURVE_POINTS) -> np.ndarray:
     if not hi > lo:
         hi = lo + 1.0
     return np.linspace(lo, hi, points, dtype=np.float64)
+
+
+@dataclass
+class CountHistogram:
+    """Plain counts on fixed edges, with what fell either side of them."""
+
+    counts: list[int]
+    n: int
+    n_in_range: int
+    n_below: int
+    n_above: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"counts": self.counts, "n": self.n, "n_in_range": self.n_in_range,
+                "n_below": self.n_below, "n_above": self.n_above}
+
+
+def count_histogram(values: np.ndarray, edges: np.ndarray) -> CountHistogram:
+    """Integer counts of the finite ``values`` on ``edges``; ``hi`` falls in the last bin.
+
+    Counts, not densities: the caller draws a KDE scaled to expected counts per
+    bin over them, and a reader can see that a bar of 3 is three events.
+    """
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    lo, hi = float(edges[0]), float(edges[-1])
+    below = int((finite < lo).sum())
+    above = int((finite > hi).sum())
+    inside = finite[(finite >= lo) & (finite <= hi)]
+    counts, _ = np.histogram(inside, bins=edges)
+    return CountHistogram([int(c) for c in counts], int(finite.size), int(inside.size),
+                          below, above)

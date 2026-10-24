@@ -46,6 +46,7 @@ from typing import Any
 
 import numpy as np
 
+from ..stats.circular import rayleigh_p as _rayleigh_p
 from ..stats.gaussian import t_quantile_975 as _t_quantile_975
 from .lattice import Axis, Lattice
 from .splat import uniform_edges
@@ -578,15 +579,9 @@ def minimum_gapless_subsample(footprint: float, pitch: float) -> int:
 # -------------------------------------------------------------- statistics --
 
 
-def rayleigh_p(n: int, resultant: float) -> float | None:
-    """Rayleigh test p-value that ``n`` directions with mean resultant length
-    ``resultant`` are drawn from a uniform circular distribution.
-
-    The large-sample form ``exp(-n R^2)``; adequate for the gating it drives.
-    """
-    if n is None or n < 2 or resultant is None or not math.isfinite(resultant):
-        return None
-    return float(math.exp(-n * resultant * resultant))
+#: The Rayleigh test's one owner is ``stats.circular``; re-exported under the
+#: name the frame queries have always used.
+rayleigh_p = _rayleigh_p
 
 
 #: Student-t quantiles come from the energy panel's table (``stats.gaussian``),

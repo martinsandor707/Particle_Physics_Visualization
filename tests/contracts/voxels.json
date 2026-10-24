@@ -1,0 +1,417 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/voxels (ensemble)",
+ "type": "object",
+ "required": [
+  "frame",
+  "grid",
+  "voxels",
+  "scale",
+  "rho",
+  "budget",
+  "topk",
+  "filter",
+  "meta"
+ ],
+ "properties": {
+  "frame": {
+   "type": "object",
+   "required": [
+    "kind",
+    "symbols",
+    "n_events",
+    "n_showers",
+    "provisional",
+    "splat",
+    "coordinates",
+    "comb"
+   ],
+   "properties": {
+    "kind": {
+     "enum": [
+      "local",
+      "canonical"
+     ]
+    },
+    "symbols": {
+     "type": "object"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_showers": {
+     "type": "integer"
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "splat": {
+     "type": "object"
+    },
+    "coordinates": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "comb": {
+     "type": [
+      "object",
+      "null"
+     ]
+    }
+   }
+  },
+  "grid": {
+   "type": "object",
+   "required": [
+    "pitch_mm",
+    "voxel_mm",
+    "half_x",
+    "half_y",
+    "x_centre0",
+    "y_centre0",
+    "z_centre0",
+    "n",
+    "alignment",
+    "partial_edge"
+   ],
+   "properties": {
+    "pitch_mm": {
+     "type": "number"
+    },
+    "voxel_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 3,
+     "maxItems": 3
+    },
+    "half_x": {
+     "type": "number"
+    },
+    "half_y": {
+     "type": "number"
+    },
+    "x_centre0": {
+     "type": "number"
+    },
+    "y_centre0": {
+     "type": "number"
+    },
+    "z_centre0": {
+     "type": "number"
+    },
+    "n": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 3,
+     "maxItems": 3
+    },
+    "alignment": {
+     "type": "string"
+    },
+    "partial_edge": {
+     "type": "object"
+    }
+   }
+  },
+  "voxels": {
+   "type": "object",
+   "required": [
+    "n",
+    "encoding",
+    "layer_counts",
+    "xy",
+    "code",
+    "order"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "encoding": {
+     "const": "layer-run-u8"
+    },
+    "layer_counts": {
+     "type": "string"
+    },
+    "xy": {
+     "type": "string"
+    },
+    "code": {
+     "type": "string"
+    },
+    "order": {
+     "type": "string"
+    }
+   }
+  },
+  "scale": {
+   "type": "object"
+  },
+  "rho": {
+   "type": "object",
+   "required": [
+    "rho_ref",
+    "unit",
+    "basis",
+    "floor_ratio",
+    "norm"
+   ],
+   "properties": {
+    "rho_ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "unit": {
+     "type": "string"
+    },
+    "basis": {
+     "type": "string"
+    },
+    "floor_ratio": {
+     "const": 0.001
+    },
+    "norm": {
+     "type": "string"
+    }
+   }
+  },
+  "budget": {
+   "type": "object",
+   "required": [
+    "cap",
+    "rank",
+    "n_populated",
+    "n_below_floor",
+    "n_above_floor",
+    "n_drawn",
+    "energy_fraction"
+   ],
+   "properties": {
+    "cap": {
+     "type": "integer"
+    },
+    "rank": {
+     "const": "energy"
+    },
+    "n_populated": {
+     "type": "integer"
+    },
+    "n_below_floor": {
+     "type": "integer"
+    },
+    "n_above_floor": {
+     "type": "integer"
+    },
+    "n_drawn": {
+     "type": "integer"
+    },
+    "energy_fraction": {
+     "type": "object",
+     "required": [
+      "drawn",
+      "below_floor",
+      "beyond_cap",
+      "outside_grid",
+      "partial_edge"
+     ],
+     "properties": {
+      "drawn": {
+       "type": "number"
+      },
+      "below_floor": {
+       "type": "number"
+      },
+      "beyond_cap": {
+       "type": "number"
+      },
+      "outside_grid": {
+       "type": "number"
+      },
+      "partial_edge": {
+       "type": "number"
+      }
+     }
+    }
+   }
+  },
+  "topk": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "exact",
+    "cached",
+    "notices"
+   ],
+   "properties": {
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "notices": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ },
+ "propertyNames": {
+  "not": {
+   "enum": [
+    "hits",
+    "points"
+   ]
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}
