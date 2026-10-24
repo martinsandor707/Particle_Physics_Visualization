@@ -132,12 +132,28 @@ def canonical_frame_cte(event_table: str, where: str, anchor: str = ANCHOR_BACKP
     )"""
 
 
-def shower_frame_cte(event_table: str, where: str, kind: str) -> str:
+#: The per-event gate of a two-shower per-shower frame: both showers placed.
+TWO_SHOWER_GATE = "d IS NOT NULL"
+
+
+def shower_frame_cte(
+    event_table: str, where: str, kind: str,
+    showers: tuple[str, ...] = ("a", "b"),
+    gate: str = TWO_SHOWER_GATE,
+    extra: dict[str, tuple[str, ...]] | None = None,
+) -> str:
     """A per-shower frame: ``fr(event_number, b, r11 .. r33, ax, ay, az)``, ``b`` 0 for A, 1 for B.
 
     *trans*: the identity about the shower's own P0. *local*: the notebook's
     ``R(theta, phi)`` about P0, its entries written exactly as the local scan
     always wrote them for its sub-deposit offsets.
+
+    ``showers`` and ``gate`` default to the two-shower frame (both showers of
+    every event with a defined separation); a single-shower experiment passes
+    ``("a",)`` and ``capabilities.frame_gate(record)``. ``extra`` adds columns
+    per shower, ``{name: (expression for A, expression for B)}`` - the own
+    shower's momentum bin, say - after the anchor. With the defaults the SQL
+    text is exactly what it always was.
     """
     if kind == KIND_TRANS:
         def rotation(_t: str, _f: str) -> str:
@@ -152,16 +168,33 @@ def shower_frame_cte(event_table: str, where: str, kind: str) -> str:
     else:  # pragma: no cover - guarded by the callers
         raise ValueError(f"not a per-shower frame: {kind!r}")
     rows = []
-    for b, shower in ((0, "a"), (1, "b")):
+    for b, shower in enumerate(showers):
         t = f"CAST(theta_{shower} AS DOUBLE)"
         f = f"CAST(phi_{shower} AS DOUBLE)"
+        more = "".join(f", {exprs[b]} AS {name}" for name, exprs in (extra or {}).items())
         rows.append(
             f"SELECT event_number, {b} AS b, {rotation(t, f)}, "
             f"CAST(p0{shower}x AS DOUBLE) AS ax, CAST(p0{shower}y AS DOUBLE) AS ay, "
-            f"CAST(p0{shower}z AS DOUBLE) AS az "
-            f"FROM {event_table} WHERE {where} AND d IS NOT NULL"
+            f"CAST(p0{shower}z AS DOUBLE) AS az{more} "
+            f"FROM {event_table} WHERE {where} AND {gate}"
         )
     return "fr AS (\n        " + "\n        UNION ALL\n        ".join(rows) + "\n    )"
+
+
+def subdeposit_offsets_cte(k: int, k_z: int, wx: float, wy: float, wz: float,
+                           name: str = "sub") -> str:
+    """``sub(ox, oy, oz)``: the ``k x k x k_z`` sub-deposit offsets over a cell's footprint box.
+
+    The construction of the local frame's splat (``shower_frames._local_sql``):
+    the centres of a regular subdivision of the ``wx x wy x wz`` box, in the
+    cell's own laboratory axes, to be rotated by the shower's ``R``.
+    """
+    return (f"{name} AS (\n"
+            f"        SELECT ((u.range + 0.5) / {int(k)} - 0.5) * {float(wx)!r}::DOUBLE AS ox,\n"
+            f"               ((v.range + 0.5) / {int(k)} - 0.5) * {float(wy)!r}::DOUBLE AS oy,\n"
+            f"               ((w.range + 0.5) / {int(k_z)} - 0.5) * {float(wz)!r}::DOUBLE AS oz\n"
+            f"        FROM range({int(k)}) u, range({int(k)}) v, range({int(k_z)}) w\n"
+            f"    )")
 
 
 def transform_sql(x: str, y: str, z: str | None, prefix: str = "") -> tuple[str, str, str]:
