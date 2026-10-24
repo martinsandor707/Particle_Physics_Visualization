@@ -35,6 +35,8 @@ LAB_CACHE = "lab"
 CANONICAL_CACHE = "canonical"
 TRANS_CACHE = "trans"
 LOCAL_CACHE = "local"
+#: Sums of the hit-level physics scans (C1, C4, C8, the features): small.
+PHYSICS_CACHE = "physics"
 
 #: Default byte budget per named cache. The entry count alone does not bound
 #: memory once bundles differ in size (a canonical bundle is several times a
@@ -45,6 +47,7 @@ DEFAULT_MAX_BYTES = {
     CANONICAL_CACHE: 256 * 1024 ** 2,
     TRANS_CACHE: 128 * 1024 ** 2,
     LOCAL_CACHE: 128 * 1024 ** 2,
+    PHYSICS_CACHE: 64 * 1024 ** 2,
 }
 
 
