@@ -157,6 +157,211 @@ def _archive_checks(con: duckdb.DuckDBPyConnection, source: str, pitch: float) -
     return dict(zip(names, row))
 
 
+# ------------------------------------------------- checks shared by every kind --
+
+def check_rows(
+    result: VerificationResult, con: duckdb.DuckDBPyConnection, source: Path | None,
+    archive_source: str, archive_rows: int, part_rows: int | None, source_format: str,
+) -> int:
+    """Every data row of the source reached the archive; returns the archive's rows.
+
+    The part just written holds the source's rows, and the manifest agrees
+    with the parts actually on disk (an append adds one part to several).
+    """
+    n_parquet = int(con.execute(f"SELECT count(*) FROM {archive_source}").fetchone()[0])
+    result.values["archive_rows"] = n_parquet
+    expected = (formats.count_rows(con, source, source_format)
+                if source is not None and source.is_file() else None)
+    if n_parquet != archive_rows:
+        result.fail("archive_row_count",
+                    f"The archive manifest lists {archive_rows:,} rows but its parts hold {n_parquet:,}.")
+    elif expected is not None and part_rows is not None and expected != part_rows:
+        result.fail("archive_row_count",
+                    f"The source file holds {expected:,} data rows but its archive part holds "
+                    f"{part_rows:,}.")
+    else:
+        result.passed("archive_row_count")
+    if n_parquet == 0:
+        result.fail("non_empty", "The archive is empty after ingestion.")
+    return n_parquet
+
+
+def check_projection(
+    result: VerificationResult, con: duckdb.DuckDBPyConnection, name: str, n_parquet: int
+) -> int:
+    """The projection is never larger than the archive, and both tables count the same events."""
+    proj_physical, event_physical = naming.proj_table(name), naming.event_table(name)
+    proj, event = quote(proj_physical), quote(event_physical)
+    n_proj = int(con.execute(f"SELECT count(*) FROM {proj}").fetchone()[0])
+    n_events = int(con.execute(f"SELECT count(*) FROM {event}").fetchone()[0])
+    result.values.update(proj_rows=n_proj, events=n_events)
+
+    # The projection may be smaller (sanitisation) but never larger.
+    if n_proj > n_parquet:
+        result.fail("projection_size",
+                    f"{proj_physical} has more rows ({n_proj:,}) than the archive ({n_parquet:,}).")
+    else:
+        dropped = n_parquet - n_proj
+        if dropped and dropped / n_parquet > 0.05:
+            result.warn("projection_size",
+                        f"Sanitisation removed {dropped:,} of {n_parquet:,} rows "
+                        f"({100.0 * dropped / n_parquet:.2f}%) as unphysical.")
+        else:
+            result.passed("projection_size")
+
+    # Event counts must agree between the derived tables.
+    n_proj_events = int(
+        con.execute(f"SELECT count(DISTINCT event_number) FROM {proj}").fetchone()[0]
+    )
+    if n_proj_events == n_events:
+        result.passed("event_count")
+    else:
+        result.warn("event_count",
+                    f"{event_physical} summarises {n_events:,} events but {proj_physical} "
+                    f"contains {n_proj_events:,}.")
+    return n_events
+
+
+def check_lattice_bounds(
+    result: VerificationResult, con: duckdb.DuckDBPyConnection, name: str,
+    lattice_n: tuple[int, int, int] | None, depth_mm: float | None, layer_pitch_mm: float,
+) -> None:
+    """Lattice and layer indices stay inside what was measured.
+
+    The own-shower layer kt counts whole layer pitches from the shower's
+    first layer, so it is bounded by the detector's depth in pitches - not by
+    the number of *populated* laboratory layers, which a small file can leave
+    below the full count (the demonstration file populates 56 of 60).
+    """
+    proj = quote(naming.proj_table(name))
+    idx = con.execute(f"SELECT max(ix), max(iy), max(iz), max(kt) FROM {proj}").fetchone()
+    if lattice_n and all(v is not None for v in idx):
+        nx, ny, nz = lattice_n
+        n_pitches = int(round(depth_mm / layer_pitch_mm)) + 1 if depth_mm is not None else nz
+        if idx[0] < nx and idx[1] < ny and idx[2] < nz and idx[3] < n_pitches:
+            result.passed("lattice_bounds")
+        else:
+            result.fail("lattice_bounds",
+                        f"Projection indices ({idx[0]}, {idx[1]}, {idx[2]}, kt {idx[3]}) exceed "
+                        f"the measured lattice ({nx}, {ny}, {nz}; {n_pitches} layer pitches).")
+
+
+def check_energy(result: VerificationResult, con: duckdb.DuckDBPyConnection, name: str) -> None:
+    """Deposited energy positive and finite in aggregate."""
+    event = quote(naming.event_table(name))
+    e_dep = con.execute(
+        f"SELECT sum(e_dep), count(*) FILTER (WHERE NOT isfinite(e_dep)) FROM {event}"
+    ).fetchone()
+    if e_dep[0] is None or not (e_dep[0] > 0) or e_dep[1]:
+        result.fail("energy_sanity",
+                    f"Total deposited energy is not a usable positive finite value "
+                    f"(sum={e_dep[0]}, non-finite events={e_dep[1]}).")
+    else:
+        result.passed("energy_sanity")
+
+
+# ------------------------------------------------- Group-1, layers, profiles --
+
+#: Relative tolerance of a per-shower sum against the same energy summed another way.
+SUM_TOLERANCE = 1e-9
+
+
+def check_derived(
+    result: VerificationResult, con: duckdb.DuckDBPyConnection, name: str,
+    showers: tuple[str, ...], profiles: dict | None = None,
+) -> None:
+    """Group-1, the layer table and the profile table against each other.
+
+    * Group-1 partitions the event: the showers' hit counts add up to the
+      event's exactly and their energies to within rounding.
+    * Each shower's cells appear once (``n_cells_s = n_hits_s``).
+    * The layers of a shower add up to its cells and energy.
+    * Every shower's profile on each axis holds its whole energy - the w bins
+      keep every sub-deposit and the ρ axis has an overflow bin - and the
+      negative-depth part matches Group-1's.
+    * The pooled profiles show no lattice comb.
+    """
+    event = quote(naming.event_table(name))
+    layers = quote(naming.layers_table(name))
+    profiles_table = quote(naming.profiles_table(name))
+    hits = " + ".join(f"n_hits_{s}" for s in showers)
+    energy = " + ".join(f"e_dep_{s}" for s in showers)
+    row = con.execute(
+        f"""SELECT count(*) FILTER (WHERE {hits} <> n_hits),
+                   max(abs(({energy}) - e_dep) / nullif(e_dep, 0)),
+                   {' + '.join(f"count(*) FILTER (WHERE n_cells_{s} <> n_hits_{s})" for s in showers)}
+            FROM {event}"""
+    ).fetchone()
+    bad_hits, worst_energy, cell_mismatch = int(row[0] or 0), row[1], int(row[2] or 0)
+    result.values.update(group1_energy_residual=worst_energy)
+    if bad_hits or _exceeds(worst_energy, 1e-12):
+        result.fail("group1_partition",
+                    f"The showers' Group-1 sums do not partition the event: {bad_hits:,} event(s) "
+                    f"with hit counts that do not add up, energy residual up to {worst_energy}.")
+    else:
+        result.passed("group1_partition")
+    if cell_mismatch:
+        result.warn("group1_cells",
+                    f"{cell_mismatch:,} shower(s) have more rows than distinct cells; a cell "
+                    "appears twice within one shower.")
+    else:
+        result.passed("group1_cells")
+
+    union = " UNION ALL ".join(
+        f"SELECT event_number, {i} AS shower, n_cells_{s} AS cells, e_dep_{s} AS e, "
+        f"w_neg_energy_{s} AS e_neg FROM {event} WHERE n_hits_{s} > 0"
+        for i, s in enumerate(showers))
+    row = con.execute(
+        f"""
+        WITH s AS ({union}),
+        l AS (SELECT event_number, shower, sum(n_cells) AS cells, sum(e_dep) AS e
+              FROM {layers} GROUP BY ALL),
+        p AS (SELECT event_number, shower, axis, sum(e) AS e, sum(e_wneg) AS e_neg
+              FROM {profiles_table} GROUP BY ALL)
+        SELECT (SELECT count(*) FROM s LEFT JOIN l USING (event_number, shower)
+                WHERE l.cells IS DISTINCT FROM s.cells),
+               (SELECT max(abs(l.e - s.e) / s.e) FROM s JOIN l USING (event_number, shower)),
+               (SELECT count(*) FROM s JOIN (SELECT DISTINCT event_number, shower, axis FROM p) a
+                       USING (event_number, shower)),
+               (SELECT count(*) FROM s),
+               (SELECT max(abs(p.e - s.e) / s.e) FROM s JOIN p USING (event_number, shower)),
+               (SELECT max(abs(p.e_neg - s.e_neg) / s.e) FROM s JOIN p USING (event_number, shower))
+        """
+    ).fetchone()
+    bad_cells, layer_e, n_axis_rows, n_showers, prof_e, prof_neg = row
+    result.values.update(layers_energy_residual=layer_e, profiles_energy_residual=prof_e,
+                         profiles_negative_residual=prof_neg)
+    if int(bad_cells or 0) or _exceeds(layer_e, SUM_TOLERANCE):
+        result.fail("layers_consistency",
+                    f"The per-layer table disagrees with the event table: {int(bad_cells or 0):,} "
+                    f"shower(s) with a different cell count, energy residual up to {layer_e}.")
+    else:
+        result.passed("layers_consistency")
+    if (int(n_axis_rows or 0) != 2 * int(n_showers or 0) or _exceeds(prof_e, SUM_TOLERANCE)
+            or _exceeds(prof_neg, SUM_TOLERANCE)):
+        result.fail("profiles_conservation",
+                    f"The profiles do not hold each shower's energy on both axes "
+                    f"({int(n_axis_rows or 0):,} shower-axes for {int(n_showers or 0):,} showers; "
+                    f"energy residual up to {prof_e}, negative-depth residual up to {prof_neg}).")
+    else:
+        result.passed("profiles_conservation")
+
+    comb = (profiles or {}).get("comb") or {}
+    threshold = comb.get("threshold", -0.10)
+    combed = [axis for axis in ("w", "r")
+              if comb.get(axis) is not None and comb[axis] < threshold]
+    measured = ", ".join(f"{axis} {comb[axis]:+.2f}" for axis in ("w", "r")
+                         if comb.get(axis) is not None)
+    if combed:
+        result.warn("profiles_comb", typographic(
+            f"The pooled profiles alternate bin to bin (lag-1 {measured}, threshold "
+            f"{threshold:+.2f}) on {', '.join(combed)}: the sub-deposit splat did not fill "
+            "every bin."))
+    elif measured:
+        result.notice("profiles_comb", typographic(
+            f"No comb in the pooled profiles (lag-1 {measured}; a comb is below {threshold:+.2f})."))
+
+
 def verify(
     con: duckdb.DuckDBPyConnection,
     name: str,
@@ -183,52 +388,11 @@ def verify(
     event_physical = naming.event_table(name)
     proj, event = quote(proj_physical), quote(event_physical)
 
-    n_parquet = int(con.execute(f"SELECT count(*) FROM {archive_source}").fetchone()[0])
-    n_proj = int(con.execute(f"SELECT count(*) FROM {proj}").fetchone()[0])
-    n_events = int(con.execute(f"SELECT count(*) FROM {event}").fetchone()[0])
-    result.values.update(archive_rows=n_parquet, proj_rows=n_proj, events=n_events)
-
-    # 1. Every data row of the source must have reached the archive: the part
-    #    just written holds the source's rows, and the manifest agrees with the
-    #    parts actually on disk (an append adds one part to several).
-    expected = (formats.count_rows(con, source, source_format)
-                if source is not None and source.is_file() else None)
-    if n_parquet != archive_rows:
-        result.fail("archive_row_count",
-                    f"The archive manifest lists {archive_rows:,} rows but its parts hold {n_parquet:,}.")
-    elif expected is not None and part_rows is not None and expected != part_rows:
-        result.fail("archive_row_count",
-                    f"The source file holds {expected:,} data rows but its archive part holds "
-                    f"{part_rows:,}.")
-    else:
-        result.passed("archive_row_count")
+    n_parquet = check_rows(result, con, source, archive_source, archive_rows, part_rows,
+                           source_format)
     if n_parquet == 0:
-        result.fail("non_empty", "The archive is empty after ingestion.")
         return result
-
-    # 2. The projection may be smaller (sanitisation) but never larger.
-    if n_proj > n_parquet:
-        result.fail("projection_size",
-                    f"{proj_physical} has more rows ({n_proj:,}) than the archive ({n_parquet:,}).")
-    else:
-        dropped = n_parquet - n_proj
-        if dropped and dropped / n_parquet > 0.05:
-            result.warn("projection_size",
-                        f"Sanitisation removed {dropped:,} of {n_parquet:,} rows "
-                        f"({100.0 * dropped / n_parquet:.2f}%) as unphysical.")
-        else:
-            result.passed("projection_size")
-
-    # 3. Event counts must agree between the derived tables.
-    n_proj_events = int(
-        con.execute(f"SELECT count(DISTINCT event_number) FROM {proj}").fetchone()[0]
-    )
-    if n_proj_events == n_events:
-        result.passed("event_count")
-    else:
-        result.warn("event_count",
-                    f"{event_physical} summarises {n_events:,} events but {proj_physical} "
-                    f"contains {n_proj_events:,}.")
+    n_events = check_projection(result, con, name, n_parquet)
 
     # 4. Undefined separation: exactly the events with no shower-A row.
     row = con.execute(
@@ -250,32 +414,8 @@ def verify(
     else:
         result.passed("undefined_separation")
 
-    # 5. Lattice and layer indices stay inside what was measured. The own-
-    #    shower layer kt counts whole layer pitches from the shower's first
-    #    layer, so it is bounded by the detector's depth in pitches - not by the
-    #    number of *populated* laboratory layers, which a small file can leave
-    #    below the full count (the demonstration file populates 56 of 60).
-    idx = con.execute(f"SELECT max(ix), max(iy), max(iz), max(kt) FROM {proj}").fetchone()
-    if lattice_n and all(v is not None for v in idx):
-        nx, ny, nz = lattice_n
-        n_pitches = int(round(depth_mm / layer_pitch_mm)) + 1 if depth_mm is not None else nz
-        if idx[0] < nx and idx[1] < ny and idx[2] < nz and idx[3] < n_pitches:
-            result.passed("lattice_bounds")
-        else:
-            result.fail("lattice_bounds",
-                        f"Projection indices ({idx[0]}, {idx[1]}, {idx[2]}, kt {idx[3]}) exceed "
-                        f"the measured lattice ({nx}, {ny}, {nz}; {n_pitches} layer pitches).")
-
-    # 6. Deposited energy positive and finite in aggregate.
-    e_dep = con.execute(
-        f"SELECT sum(e_dep), count(*) FILTER (WHERE NOT isfinite(e_dep)) FROM {event}"
-    ).fetchone()
-    if e_dep[0] is None or not (e_dep[0] > 0) or e_dep[1]:
-        result.fail("energy_sanity",
-                    f"Total deposited energy is not a usable positive finite value "
-                    f"(sum={e_dep[0]}, non-finite events={e_dep[1]}).")
-    else:
-        result.passed("energy_sanity")
+    check_lattice_bounds(result, con, name, lattice_n, depth_mm, layer_pitch_mm)
+    check_energy(result, con, name)
 
     # 7. Per-shower constancy (event table).
     spreads = con.execute(

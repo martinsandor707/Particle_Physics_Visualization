@@ -277,7 +277,10 @@ def _consider(database, settings: Settings, store, path: Path,
         display_name=path.stem,
         # The file belongs to whoever dropped it; the ingest reads it in place.
         delete_source=False,
+        kind=check.schema.kind,
+        schema=check.schema.label,
     )
     rows = f", {check.rows:,} rows" if check.rows is not None else ""
     return ScanEntry(path.name, name, "submitted",
-                     f"Queued as a {fmt.upper()} ingest ({size:,} bytes{rows}).", job_id=job.job_id)
+                     f"Queued as a {fmt.upper()} ingest ({size:,} bytes{rows}, "
+                     f"{check.schema.label}).", job_id=job.job_id)

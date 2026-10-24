@@ -13,6 +13,12 @@ field encountered would either abort the load or silently coerce.
 
 So the column types are pinned, ``nullstr`` is set explicitly, and errors are
 fatal rather than ignored.
+
+Every accepted input schema (``db/schemas.py``) is read the same way: the
+header decides which one a file is, by exact match, and that schema's pinned
+types drive the reader. An empty field is NULL in every schema - an undefined
+separation in ``hits_all_models``, no parent or no daughters in the species
+columns of ``standalone_hits``.
 """
 
 from __future__ import annotations
@@ -20,10 +26,10 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from ..db.ddl import HIT_COLUMNS, HIT_COLUMN_NAMES, SCHEMA_NAME
+from ..db import schemas
 from ..db.naming import quote
+from ..db.schemas import InputSchema
 from ..errors import IngestError
-from ..text import listed
 
 #: What an empty field means in this dataset.
 #:
@@ -36,13 +42,13 @@ from ..text import listed
 NULL_STRING = ""
 
 
-def columns_clause() -> str:
+def columns_clause(schema: InputSchema = schemas.DEFAULT) -> str:
     """The ``columns = {...}`` argument for ``read_csv``."""
-    entries = ", ".join(f"'{name}': '{sql_type}'" for name, sql_type in HIT_COLUMNS)
+    entries = ", ".join(f"'{name}': '{sql_type}'" for name, sql_type in schema.columns)
     return "{" + entries + "}"
 
 
-def read_csv_expression(path: Path) -> str:
+def read_csv_expression(path: Path, schema: InputSchema = schemas.DEFAULT) -> str:
     """A ``read_csv`` table function call with every option pinned.
 
     ``ignore_errors = false`` is the important one. A silently dropped row in a
@@ -57,33 +63,35 @@ def read_csv_expression(path: Path) -> str:
         f"nullstr = '{NULL_STRING}', "
         "ignore_errors = false, "
         "parallel = true, "
-        f"columns = {columns_clause()})"
+        f"columns = {columns_clause(schema)})"
     )
 
 
-def select_sql(path: Path, event_offset: int = 0) -> str:
-    """Every column in file order, typed by the pinned reader."""
-    if event_offset:
-        projected = ", ".join(
-            # Cast back to the pinned INTEGER: an offset that overflows it is
-            # an error here, not an INT64 part beside INT32 ones.
-            f"CAST(event_number + {int(event_offset)} AS INTEGER) AS event_number"
-            if c == "event_number"
-            else quote(c)
-            for c in HIT_COLUMN_NAMES
-        )
-    else:
-        projected = ", ".join(quote(c) for c in HIT_COLUMN_NAMES)
-    return f"SELECT {projected} FROM {read_csv_expression(path)}"
+def select_sql(path: Path, event_offset: int = 0,
+               schema: InputSchema = schemas.DEFAULT) -> str:
+    """Every column in file order, typed by the pinned reader.
 
-
-def validate_header(path: Path) -> None:
-    """Check the CSV header against the expected schema before loading.
-
-    Failing here costs a few milliseconds and produces a message naming the
-    offending column. Failing inside ``read_csv`` on a 24 GB file costs minutes
-    and produces a parser error about a row number.
+    The offset shifts the schema's event key. A schema with an archive order
+    writes its part sorted by it, so each row group holds whole, contiguous
+    events and a CSV- and a Parquet-sourced part agree row for row.
     """
+    key = schema.event_key
+    sql_type = schema.types[key]
+    projected = ", ".join(
+        # Cast back to the pinned type: an offset that overflows it is an
+        # error here, not an INT64 part beside INT32 ones.
+        f"CAST({quote(c)} + {int(event_offset)} AS {sql_type}) AS {quote(c)}"
+        if c == key and event_offset
+        else quote(c)
+        for c in schema.names
+    )
+    order = (" ORDER BY " + ", ".join(quote(c) for c in schema.archive_order)
+             if schema.archive_order else "")
+    return f"SELECT {projected} FROM {read_csv_expression(path, schema)}{order}"
+
+
+def read_header(path: Path) -> tuple[str, ...]:
+    """The CSV's first record, stripped."""
     try:
         with path.open("r", encoding="utf-8", newline="") as handle:
             header = next(csv.reader(handle), None)
@@ -96,44 +104,21 @@ def validate_header(path: Path) -> None:
             f"{path.name} is not a UTF-8 text CSV (byte {exc.start} cannot be decoded). "
             "Compressed files must be decompressed first."
         ) from exc
-
     if header is None:
         raise IngestError(f"{path.name} is empty.")
+    return tuple(name.strip() for name in header)
 
-    found = tuple(name.strip() for name in header)
-    if found == HIT_COLUMN_NAMES:
-        return
 
-    missing = [c for c in HIT_COLUMN_NAMES if c not in found]
-    unexpected = [c for c in found if c not in HIT_COLUMN_NAMES]
+def validate_header(path: Path) -> InputSchema:
+    """The accepted schema whose columns the CSV header is, in order.
 
-    n_expected = len(HIT_COLUMN_NAMES)
-    if missing or unexpected:
-        parts = []
-        if missing:
-            parts.append(f"missing columns: {listed(missing)}")
-        if unexpected:
-            parts.append(f"unexpected columns: {listed(unexpected)}")
-        message = (
-            f"{path.name} does not match the {SCHEMA_NAME} input schema "
-            f"({n_expected} columns; {'; '.join(parts)})."
-        )
-        if "voxel_fA_pred" in found:
-            message += (
-                " This looks like a retired v37 (hits_with_gradcam) file; re-export it "
-                f"in the {SCHEMA_NAME} format."
-            )
-        raise IngestError(message, expected=list(HIT_COLUMN_NAMES), found=list(found))
-
-    # Same names, different order. The pinned `columns` map is positional, so
-    # loading this file would put y values into the x column.
-    raise IngestError(
-        f"{path.name} has the expected {n_expected} columns but in a different order. "
-        "The reader is positional, so the file must be reordered before it can "
-        "be ingested.",
-        expected=list(HIT_COLUMN_NAMES),
-        found=list(found),
-    )
+    Failing here costs a few milliseconds and produces a message naming the
+    offending column. Failing inside ``read_csv`` on a 24 GB file costs minutes
+    and produces a parser error about a row number. Same names in another order
+    are refused too: the pinned ``columns`` map is positional, so loading such
+    a file would put y values into the x column.
+    """
+    return schemas.detect_header(path.name, read_header(path))
 
 
 def count_data_rows(path: Path) -> int:

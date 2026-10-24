@@ -28,6 +28,7 @@ from ..db import registry
 from ..errors import ApiError
 from . import pipeline
 from .pipeline import STAGES
+from .recipes import stages as stages_of
 from .stream import StagedFile
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ JOB_DONE = "done"
 JOB_FAILED = "failed"
 
 __all__ = ["STAGES", "IngestJob", "JobStore", "get_job_store", "reset_job_store"]
+
+#: A job that re-derives an experiment from its archive.
+MODE_REBUILD = "rebuild"
 
 
 @dataclass
@@ -63,6 +67,9 @@ class IngestJob:
     started_at: dt.datetime | None = None
     finished_at: dt.datetime | None = None
     result: dict[str, Any] = field(default_factory=dict)
+    #: The experiment kind and input schema, once the source is recognised.
+    kind: str | None = None
+    schema: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +89,8 @@ class IngestJob:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "result": self.result,
+            "kind": self.kind,
+            "schema": self.schema,
         }
 
 
@@ -134,6 +143,8 @@ class JobStore:
         event_offset: int = 0,
         delete_source: bool = True,
         force_reingest: bool = False,
+        kind: str | None = None,
+        schema: str | None = None,
     ) -> IngestJob:
         job = IngestJob(
             job_id=uuid.uuid4().hex[:16],
@@ -142,6 +153,8 @@ class JobStore:
             source_name=staged.original_name,
             size_bytes=staged.size_bytes,
             force_reingest=force_reingest,
+            kind=kind,
+            schema=schema,
         )
         with self._lock:
             self._jobs[job.job_id] = job
@@ -150,9 +163,25 @@ class JobStore:
         )
         return job
 
-    def _advance(self, job: IngestJob, stage_key: str) -> None:
+    def submit_rebuild(self, table_name: str, size_bytes: int = 0) -> IngestJob:
+        """Re-derive ``table_name`` from its archive, atomically, on the ingest worker."""
+        job = IngestJob(
+            job_id=uuid.uuid4().hex[:16],
+            table_name=table_name,
+            mode=MODE_REBUILD,
+            source_name="(archive)",
+            size_bytes=int(size_bytes),
+        )
+        with self._lock:
+            self._jobs[job.job_id] = job
+        self._executor.submit(self._run_rebuild, job)
+        return job
+
+    def _advance(self, job: IngestJob, stage_key: str, kind: str | None = None) -> None:
+        if kind:
+            job.kind = kind
         completed = 0.0
-        for key, label, weight in STAGES:
+        for key, label, weight in stages_of(job.kind, rebuild=job.mode == MODE_REBUILD):
             if key == stage_key:
                 job.stage = key
                 job.stage_label = label
@@ -186,7 +215,7 @@ class JobStore:
                     # before it was staged; ingest-local checks in its route.
                     check_space=False,
                     created_at=job.started_at.replace(tzinfo=None),
-                    progress=lambda stage: self._advance(job, stage),
+                    progress=lambda stage, kind: self._advance(job, stage, kind),
                     force_reingest=job.force_reingest,
                 )
 
@@ -203,14 +232,12 @@ class JobStore:
             job.progress = 1.0
             job.stage_label = "Ingestion complete" if result.ok else "Verification failed"
             if result.ok:
+                job.kind = result.record.kind
                 # The co-registered frames' full-range scans are the queries
                 # that take seconds; pay them now, off the request path.
-                from ..query import canonical_cache, shower_frames
+                from ..query import warming
 
-                shower_frames.warm(
-                    self._db, self._db.settings, [name],
-                    after=canonical_cache.warm(self._db, self._db.settings, [name]),
-                )
+                warming.warm(self._db, self._db.settings, [result.record])
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)
@@ -225,6 +252,39 @@ class JobStore:
             # is 24 GB that nothing needs once the archive and derived tables exist.
             if delete_source:
                 staged.unlink()
+
+    def _run_rebuild(self, job: IngestJob) -> None:
+        job.status = JOB_RUNNING
+        job.started_at = dt.datetime.now(dt.timezone.utc)
+        name = job.table_name
+        try:
+            with self._db.write_lock() as con:
+                result = pipeline.rebuild_atomic(
+                    con, self._db.settings, name,
+                    progress=lambda stage, kind: self._advance(job, stage, kind),
+                )
+            from ..query import cache as cache_mod
+
+            cache_mod.invalidate_all(name)
+            job.warnings = result.warnings
+            job.result = result.as_job_result()
+            job.status = JOB_DONE if result.ok else JOB_FAILED
+            job.error = None if result.ok else (
+                "The rebuild failed verification and was rolled back; the experiment is "
+                "served as it was. " + "; ".join(result.warnings))
+            job.progress = 1.0
+            job.stage_label = "Rebuild complete" if result.ok else "Rebuild rolled back"
+            if result.ok:
+                from ..query import warming
+
+                warming.warm(self._db, self._db.settings, [result.record])
+        except ApiError as exc:
+            job.status, job.error, job.stage_label = JOB_FAILED, exc.detail, "Rebuild failed"
+        except Exception as exc:  # noqa: BLE001 - the worker must never die silently
+            log.error("Rebuild of %r failed: %s\n%s", name, exc, traceback.format_exc())
+            job.status, job.error, job.stage_label = JOB_FAILED, str(exc), "Rebuild failed"
+        finally:
+            job.finished_at = dt.datetime.now(dt.timezone.utc)
 
     @staticmethod
     def _invalidate(name: str) -> None:

@@ -3,7 +3,12 @@
 Before this module the same eleven steps were written out three times - in the
 background job, in the command-line tool and in the test fixture - and kept in
 step by hand. They now all call :func:`run_ingest`; :func:`rebuild` re-derives
-every table from an existing archive without reading any source file.
+every table from an existing archive without reading any source file, and
+:func:`rebuild_atomic` does so inside one transaction, so readers keep the old
+tables until the new ones have verified.
+
+Which tables are derived, and how they are checked, depends on the input
+schema's kind; ``recipes.py`` holds one recipe per kind.
 
 Every stage records its wall time, the process's peak RSS so far, DuckDB's
 buffer-managed memory and its spill-file size, so the report shows which stage
@@ -14,117 +19,31 @@ from __future__ import annotations
 
 import copy
 import logging
-import resource
-import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
 from ..config import Settings
-from ..db import archive, catalog, registry
-from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION
+from ..db import archive, catalog, registry, schemas
+from ..db.ddl import KIND_TWO_SHOWER
 from ..errors import ExperimentExistsError, IngestError
-from . import derive_events, derive_proj, formats, lattice_fit, load, stream, verify as verify_mod
+from . import formats, load, recipes, stream
+from .recipes import DeriveContext
+from .result import IngestResult, _Stopwatch
 from .source_check import SourceCheck
 
 log = logging.getLogger(__name__)
 
-#: Ordered pipeline stages, reported so the interface can show real progress
-#: rather than a spinner. The weights are rough shares of total wall time on
-#: the production file and only turn a stage into a percentage.
-STAGES: tuple[tuple[str, str, float], ...] = (
-    ("archive", "Writing the Parquet archive", 0.50),
-    ("lattice", "Measuring the detector lattice", 0.03),
-    ("projection", "Building the projection table", 0.20),
-    ("events", "Building per-event statistics", 0.15),
-    ("sample", "Building the preview sample", 0.03),
-    ("verify", "Verifying the ingested data", 0.09),
-)
+#: The two-shower stage table, kept under its old name for the job store's
+#: callers; ``recipes.stages(kind)`` gives every kind's.
+STAGES: tuple[tuple[str, str, float], ...] = recipes.STAGES_BY_KIND[KIND_TWO_SHOWER]
+
+__all__ = ["STAGES", "IngestResult", "run_ingest", "rebuild", "rebuild_atomic"]
 
 
-@dataclass
-class IngestResult:
-    """Everything one ingest produced, for the job record and the CLI."""
-
-    record: registry.ExperimentRecord
-    n_hits: int = 0
-    n_events: int = 0
-    sanitation: dict[str, Any] = field(default_factory=dict)
-    calibration: dict[str, Any] = field(default_factory=dict)
-    verification: verify_mod.VerificationResult | None = None
-    timings: list[dict[str, Any]] = field(default_factory=list)
-    #: What reading the source did that a reader should know: a narrowed
-    #: column, NaN read as undefined. Informational, never a failure.
-    notices: list[str] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        return bool(self.verification and self.verification.ok)
-
-    @property
-    def warnings(self) -> list[str]:
-        failures = list(self.verification.warnings) if self.verification else []
-        return [*failures, *self.notices]
-
-    def as_job_result(self) -> dict[str, Any]:
-        lattice = self.record.lattice
-        return {
-            "n_hits": self.n_hits,
-            "n_events": self.n_events,
-            "n_events_no_d": self.record.n_events_no_d,
-            "sanitation": self.sanitation,
-            "calibration": self.calibration,
-            "lattice": {
-                "nx": lattice.x.n, "ny": lattice.y.n, "nz": lattice.z.n,
-                "x_uniform": lattice.x.is_uniform,
-                "y_uniform": lattice.y.is_uniform,
-                "z_uniform": lattice.z.is_uniform,
-            } if lattice else None,
-            "archive": {
-                "dir": self.record.archive_dir,
-                "parts": self.record.archive_parts,
-                "rows": self.record.archive_rows,
-                "bytes": self.record.archive_bytes,
-            },
-            "checks": self.verification.checks if self.verification else {},
-            "timings": self.timings,
-            "source": self.record.ingest_report.get("source"),
-        }
-
-
-class _Stopwatch:
-    def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
-        self._con = con
-        self._last = time.perf_counter()
-        self.stages: list[dict[str, Any]] = []
-
-    def mark(self, stage: str) -> None:
-        now = time.perf_counter()
-        try:
-            duck_mem = self._con.execute(
-                "SELECT coalesce(sum(memory_usage_bytes), 0) FROM duckdb_memory()"
-            ).fetchone()[0]
-            spill = self._con.execute(
-                "SELECT coalesce(sum(size), 0) FROM duckdb_temporary_files()"
-            ).fetchone()[0]
-        except duckdb.Error:  # pragma: no cover - diagnostics only
-            duck_mem, spill = None, None
-        entry = {
-            "stage": stage,
-            "seconds": round(now - self._last, 3),
-            # ru_maxrss is in KiB on Linux: the peak so far, not this stage's.
-            "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
-            "duckdb_memory_mb": round(int(duck_mem) / 1e6, 1) if duck_mem is not None else None,
-            "spill_mb": round(int(spill) / 1e6, 1) if spill is not None else None,
-        }
-        self.stages.append(entry)
-        log.info("Ingest stage %s: %.1f s, peak RSS %.0f MB, DuckDB %s MB, spill %s MB",
-                 stage, entry["seconds"], entry["peak_rss_mb"],
-                 entry["duckdb_memory_mb"], entry["spill_mb"])
-        self._last = now
+def _no_progress(_stage: str, _kind: str) -> None:
+    return None
 
 
 def _derive(
@@ -135,93 +54,23 @@ def _derive(
     manifest: archive.Manifest,
     build_sample: bool,
     watch: _Stopwatch,
-    progress: Callable[[str], None],
+    progress: Callable[[str, str], None],
     part_rows: int | None = None,
     check: SourceCheck | None = None,
 ) -> IngestResult:
-    """Everything after the archive: lattice, derived tables, verification."""
-    name = record.table_name
-    relation = archive.relation_sql(archive.part_paths(settings, name, manifest))
-
-    progress("lattice")
-    lattice = lattice_fit.measure_lattice(con, relation)
-    pitch = lattice_fit.layer_pitch(lattice.z.coords)
-    # Persist the lattice before the derived tables are verified: the
-    # lattice-bounds check reads it, and would otherwise skip itself silently.
-    record.lattice = lattice
-    registry.upsert(con, record)
-    watch.mark("lattice")
-
-    progress("projection")
-    sanitation = derive_proj.build(con, name, relation, pitch)
-    watch.mark("projection")
-
-    progress("events")
-    n_events = derive_events.build(con, name, relation)
-    calibration = derive_events.calibration(con, name)
-    bounds = lattice_fit.measure_bounds(con, name)
-    frame_bounds = lattice_fit.measure_frame_bounds(con, name, pitch)
-    cell_e_max, cell_e_p999 = derive_proj.measure_color_anchors(con, name, lattice.slab_iz)
-    watch.mark("events")
-
-    sample_rows = 0
-    if build_sample:
-        progress("sample")
-        sample_rows = derive_proj.build_sample(con, name, settings.sample_percent)
-        watch.mark("sample")
-
-    progress("verify")
-    verification = verify_mod.verify(
-        con, name, source, relation, manifest.rows, pitch, part_rows=part_rows,
-        lattice_n=(lattice.x.n, lattice.y.n, lattice.z.n),
-        depth_mm=float(lattice.z.hi - lattice.z.lo),
-        source_format=check.format if check else formats.CSV,
-        lattice=lattice,
-        removed_rows=sanitation.removed,
-    )
-    watch.mark("verify")
-
-    counts = con.execute(
-        "SELECT coalesce(sum(n_cells), 0), coalesce(sum(n_split_cells), 0), "
-        f"coalesce(sum(n_ab_rows), 0) FROM \"event_{name}\""
-    ).fetchone()
-    record.n_hits = sanitation.kept_rows
-    record.n_events = n_events
-    record.n_events_no_d = bounds["n_events_no_d"]
-    record.e1_min, record.e1_max = bounds["e1_min"], bounds["e1_max"]
-    record.e2_min, record.e2_max = bounds["e2_min"], bounds["e2_max"]
-    record.d_min, record.d_max = bounds["d_min"], bounds["d_max"]
-    record.overlaps = bounds["overlaps"]
-    record.cell_e_max, record.cell_e_p999 = cell_e_max, cell_e_p999
-    record.has_sample = sample_rows > 0
-    record.schema_name, record.schema_version = SCHEMA_NAME, SCHEMA_VERSION
-    record.archive_dir = archive.relative_dir(name)
-    record.archive_parts = len(manifest.parts)
-    record.archive_rows = manifest.rows
-    record.archive_bytes = manifest.bytes
-    record.n_cells, record.n_split_cells, record.n_ab_rows = (int(v) for v in counts)
-    record.frame_bounds = frame_bounds
-    calibration_report = {code: {"c_a": c_a, "c_b": c_b} for code, (c_a, c_b) in calibration.items()}
-    # A rebuild reads no source, so it keeps what the last ingest said about it.
-    source_report = check.as_dict() if check else (record.ingest_report or {}).get("source")
-    record.ingest_report = {
-        "sanitation": sanitation.as_dict(),
-        "calibration": calibration_report,
-        "timings": watch.stages,
-        "verification": verification.as_dict(),
-        "layer_pitch_mm": pitch,
-        "source": source_report,
-    }
-    record.status = registry.STATUS_READY if verification.ok else registry.STATUS_FAILED
-    record.error = None if verification.ok else "; ".join(verification.warnings)
-    registry.upsert(con, record)
-
-    return IngestResult(
-        record=record, n_hits=record.n_hits, n_events=n_events,
-        sanitation=sanitation.as_dict(), calibration=calibration_report,
-        verification=verification, timings=watch.stages,
-        notices=list(check.notices) if check else [],
-    )
+    """Everything after the archive, by the recipe of the archive's schema."""
+    schema = schemas.get(manifest.schema_name, manifest.schema_version)
+    if schema is None:
+        raise IngestError(
+            f"Experiment {record.table_name!r} holds an archive of the "
+            f"{manifest.schema_name} v{manifest.schema_version} schema, which this release "
+            "does not derive. Delete it and re-ingest the source file."
+        )
+    return recipes.derive(DeriveContext(
+        con=con, settings=settings, record=record, schema=schema, source=source,
+        manifest=manifest, build_sample=build_sample, watch=watch, progress=progress,
+        part_rows=part_rows, check=check,
+    ))
 
 
 def run_ingest(
@@ -237,7 +86,7 @@ def run_ingest(
     build_sample: bool = True,
     check_space: bool = True,
     created_at=None,
-    progress: Callable[[str], None] | None = None,
+    progress: Callable[[str, str], None] | None = None,
     force_reingest: bool = False,
 ) -> IngestResult:
     """Ingest one CSV or Parquet file into experiment ``name``. Caller holds the write lock.
@@ -256,11 +105,12 @@ def run_ingest(
     is read, so the file's checks all run first: a refused file never costs the
     experiment it would have replaced.
     """
-    progress = progress or (lambda _stage: None)
+    progress = progress or _no_progress
     watch = _Stopwatch(con)
     source_name = source_name or source.name
     fmt = formats.detect_format(source)
     check = formats.validate(con, source, fmt)
+    schema = check.schema
     if check_space:
         stream.check_free_space(
             settings.data_dir, source.stat().st_size,
@@ -295,11 +145,11 @@ def run_ingest(
             record.source_files = [*record.source_files, source_name]
         if record.created_at is None and created_at is not None:
             record.created_at = created_at
-        record.schema_name, record.schema_version = SCHEMA_NAME, SCHEMA_VERSION
+        record.schema_name, record.schema_version = schema.name, schema.version
         registry.upsert(con, record)
         return record
 
-    progress("archive")
+    progress("archive", schema.kind)
     if not appending:
         record = mark_ingesting()
         loaded = load.load_source(
@@ -351,10 +201,10 @@ def rebuild(
     name: str,
     *,
     build_sample: bool = True,
-    progress: Callable[[str], None] | None = None,
+    progress: Callable[[str, str], None] | None = None,
 ) -> IngestResult:
     """Re-derive every table of ``name`` from its archive, reading no source file."""
-    progress = progress or (lambda _stage: None)
+    progress = progress or _no_progress
     manifest = archive.read_manifest(settings, name)
     if manifest is None or not manifest.parts:
         raise IngestError(f"Experiment {name!r} has no archive to rebuild from.")
@@ -364,3 +214,35 @@ def rebuild(
     registry.upsert(con, record)
     watch = _Stopwatch(con)
     return _derive(con, settings, record, None, manifest, build_sample, watch, progress)
+
+
+def rebuild_atomic(
+    con: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    name: str,
+    *,
+    build_sample: bool = True,
+    progress: Callable[[str, str], None] | None = None,
+) -> IngestResult:
+    """:func:`rebuild` inside one transaction, committed only if it verifies.
+
+    Readers keep the old tables and the old registry row (DuckDB's snapshot
+    isolation) for the whole rebuild, so the experiment stays served. A
+    rebuild that fails verification, or raises, rolls back to exactly what
+    was there; the disk holds the old and the new tables side by side until
+    then.
+    """
+    con.execute("BEGIN TRANSACTION")
+    try:
+        result = rebuild(con, settings, name, build_sample=build_sample, progress=progress)
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
+    if result.ok:
+        con.execute("COMMIT")
+        log.info("Rebuild of %r committed", name)
+    else:
+        con.execute("ROLLBACK")
+        log.warning("Rebuild of %r failed verification and was rolled back: %s",
+                    name, "; ".join(result.warnings))
+    return result

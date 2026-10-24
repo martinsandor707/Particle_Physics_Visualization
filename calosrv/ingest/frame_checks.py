@@ -52,23 +52,36 @@ _USABLE = (
 )
 
 
+#: A single-shower file: every row is the one shower's, and there is no origin.
+_SINGLE = (("a", "TRUE"),)
+_USABLE_SINGLE = (
+    "isfinite(x) AND isfinite(y) AND isfinite(z) AND energy IS NOT NULL AND isfinite(energy) "
+    "AND energy > 0"
+)
+
+
 def p0_definition_residual(
-    con: duckdb.DuckDBPyConnection, source: str, event_table: str
+    con: duckdb.DuckDBPyConnection, source: str, event_table: str, single: bool = False
 ) -> dict[str, Any]:
     """The largest |P0 - first-layer centroid| over every shower, in mm, per axis.
 
     One grouped scan of the archive per shower side: the shower's first
     populated layer ``z0 = min z``, the energy-weighted ``(x, y)`` centroid of
-    its rows at that layer, compared with the event table's ``p0{a,b}{x,y,z}``.
+    its rows at that layer, compared with the event table's ``p0{a,b}{x,y,z}``
+    (``p0a*`` only for a single-shower experiment).
     Returns ``{"max_mm": float | None, "n_showers": int, "x": ..., "y": ..., "z": ...}``.
     """
+    sides, usable = (_SINGLE, _USABLE_SINGLE) if single else (_SHOWERS, _USABLE)
     parts = []
-    for shower, where in _SHOWERS:
+    for shower, where in sides:
         parts.append(f"""
         SELECT event_number, '{shower}' AS s, CAST(x AS DOUBLE) AS x, CAST(y AS DOUBLE) AS y,
                CAST(z AS DOUBLE) AS z, energy
-        FROM {source} WHERE {_USABLE} AND {where}""")
+        FROM {source} WHERE {usable} AND {where}""")
     rows_sql = " UNION ALL ".join(parts)
+    p0_b = "" if single else f"""
+            UNION ALL
+            SELECT event_number, 'b', p0bx, p0by, p0bz FROM {quote(event_table)}"""
     row = con.execute(
         f"""
         WITH s AS ({rows_sql}),
@@ -80,9 +93,7 @@ def p0_definition_residual(
             GROUP BY s.event_number, s.s, first.z0
         ),
         p0 AS (
-            SELECT event_number, 'a' AS s, p0ax AS px, p0ay AS py, p0az AS pz FROM {quote(event_table)}
-            UNION ALL
-            SELECT event_number, 'b', p0bx, p0by, p0bz FROM {quote(event_table)}
+            SELECT event_number, 'a' AS s, p0ax AS px, p0ay AS py, p0az AS pz FROM {quote(event_table)}{p0_b}
         )
         SELECT count(*), max(abs(px - cx)), max(abs(py - cy)), max(abs(pz - z0))
         FROM cen JOIN p0 USING (event_number, s)

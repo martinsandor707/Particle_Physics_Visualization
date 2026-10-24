@@ -20,10 +20,14 @@ are replicated identically on every hit row of an event, so the two agree - but
 ``max`` ignores nulls, and it is deterministic. The ingest verification asserts
 the constancy that makes this safe (``chk_p0_spread``, ``chk_pt_spread``).
 
-**Two independent scans.** The event aggregate and the cell census each read
-the archive on their own. A single ``WITH h AS (SELECT * ...)`` referenced by
-both could be materialised by the planner, which on the production file means
-24 million rows of 99 columns - about 10 GB - held at once.
+**Three independent scans.** The event aggregate, the cell census and the
+Group-1 sums (``db/group1.py``: everything core.py's per-shower features are
+rebuilt from) each read the archive on their own. A single ``WITH h AS
+(SELECT * ...)`` referenced by all of them could be materialised by the
+planner, which on the production file means 24 million rows of 99 columns -
+about 10 GB - held at once; and three narrow aggregates spill less than one
+wide one. The aggregate's SQL is untouched by Group-1, so its columns cannot
+change.
 """
 
 from __future__ import annotations
@@ -32,10 +36,11 @@ import logging
 
 import duckdb
 
-from ..db import naming
+from ..db import group1, naming
 from ..db.ddl import (
-    COORD_SYSTEMS, EVENT_COLUMN_NAMES, NETWORK_FRAME, SEG_STAT_COLUMNS, cam_bit,
-    create_event_table, csv_model_column, drop_table, frame_code, raw_cam_columns,
+    COORD_SYSTEMS, EVENT_COLUMN_NAMES, EVENT_COLUMNS_V2, NETWORK_FRAME, SEG_STAT_COLUMNS, cam_bit,
+    create_event_table, csv_model_column, drop_table, frame_code, group1_column, group1_columns,
+    raw_cam_columns,
 )
 from ..db.naming import quote
 from .derive_proj import keep_predicate
@@ -47,7 +52,12 @@ log = logging.getLogger(__name__)
 VOXEL_THRESHOLD = 0.5
 
 #: Columns filled by the cell census rather than the event aggregate.
-CELL_COLUMNS = ("n_cells", "n_split_cells", "e_split", "chk_bad_split")
+CELL_COLUMNS = ("n_cells", "n_split_cells", "e_split", "chk_bad_split",
+                "n_cells_a", "n_cells_b")
+
+#: Group-1 membership: shower B takes every row that is not A, 'A+B' included,
+#: as the projection's ``org`` rule and the network columns do.
+GROUP1_MEMBERS = {"a": "particle_origin = 'A'", "b": "particle_origin <> 'A'"}
 
 _IS_A = "particle_origin = 'A'"
 _NOT_A = "particle_origin <> 'A'"      # shower B, including the 'A+B' rows
@@ -171,21 +181,26 @@ def build(con: duckdb.DuckDBPyConnection, name: str, source: str) -> int:
     """Create ``event_<name>`` from the archive relation ``source``; returns the event count."""
     event_physical = naming.event_table(name)
     con.execute(drop_table(event_physical))
-    con.execute(create_event_table(event_physical))
+    con.execute(create_event_table(event_physical, EVENT_COLUMNS_V2))
 
     expressions = event_expressions()
     aggregate = ",\n            ".join(f"{sql} AS {col}" for col, sql in expressions.items())
     missing = [c for c in EVENT_COLUMN_NAMES if c not in expressions and c not in CELL_COLUMNS]
     assert not missing, f"no source for event columns {missing}"
+    group1_names = [n for n, _ in group1_columns(("a", "b"))]
+    names = [*EVENT_COLUMN_NAMES, *group1_names]
+    assert names == [n for n, _ in EVENT_COLUMNS_V2]
     select = ", ".join(
-        f"coalesce(c.{col}, 0) AS {col}" if col in CELL_COLUMNS else f"m.{col}"
-        for col in EVENT_COLUMN_NAMES
+        f"coalesce(c.{col}, 0) AS {col}" if col in CELL_COLUMNS
+        else f"g.{col}" if col in group1_names
+        else f"m.{col}"
+        for col in names
     )
 
     log.info("Building %s (per-event sufficient statistics, per-shower values)", event_physical)
     con.execute(
         f"""
-        INSERT INTO {quote(event_physical)} ({', '.join(EVENT_COLUMN_NAMES)})
+        INSERT INTO {quote(event_physical)} ({', '.join(names)})
         SELECT {select}
         FROM (
             SELECT
@@ -203,16 +218,23 @@ def build(con: duckdb.DuckDBPyConnection, name: str, source: str) -> int:
                    count(*) FILTER (WHERE k > 1)              AS n_split_cells,
                    coalesce(sum(e) FILTER (WHERE k > 1), 0.0) AS e_split,
                    count(*) FILTER (WHERE k > 1 AND NOT (k = 2 AND lo = 'A' AND hi = 'B'))
-                                                              AS chk_bad_split
+                                                              AS chk_bad_split,
+                   count(*) FILTER (WHERE in_a)               AS {group1_column("n_cells", "a")},
+                   count(*) FILTER (WHERE in_b)               AS {group1_column("n_cells", "b")}
             FROM (
                 SELECT event_number, cellID, count(*) AS k, sum(energy) AS e,
-                       min(particle_origin) AS lo, max(particle_origin) AS hi
+                       min(particle_origin) AS lo, max(particle_origin) AS hi,
+                       bool_or({GROUP1_MEMBERS["a"]}) AS in_a,
+                       bool_or({GROUP1_MEMBERS["b"]}) AS in_b
                 FROM {source}
                 WHERE {keep_predicate()}
                 GROUP BY event_number, cellID
             )
             GROUP BY event_number
         ) c USING (event_number)
+        LEFT JOIN (
+            {group1.scan_sql(source, keep_predicate(), GROUP1_MEMBERS)}
+        ) g USING (event_number)
         """
     )
 

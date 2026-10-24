@@ -77,6 +77,10 @@ def _lag1(profile: np.ndarray) -> float | None:
     return float(np.corrcoef(a, b)[0, 1])
 
 
+#: The comb statistic of a 1-D profile (the ingest-time profile check).
+profile_lag1 = _lag1
+
+
 def intensity_lag1(matrix: np.ndarray) -> dict[str, float | None]:
     """Lag-1 autocorrelation of the detrended *energy* profiles of a raster.
 

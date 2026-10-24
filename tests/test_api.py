@@ -234,22 +234,20 @@ def test_upload_rejects_a_bad_table_name(client):
 
 
 def test_upload_rejects_a_mismatched_schema(client):
-    """A wrong-schema file must fail during ingest, not corrupt a table."""
+    """A wrong-schema file is refused before a job is queued, naming its columns."""
     response = client.post(
         "/api/upload",
         files={"file": ("wrong.csv", b"alpha,beta\n1,2\n", "text/csv")},
         data={"table_name": "wrongschema", "mode": "create_new"},
     )
-    assert response.status_code == 202
-    job_id = response.json()["job"]["job_id"]
-
-    for _ in range(80):
-        job = client.get(f"/api/upload/{job_id}").json()
-        if job["status"] in ("done", "failed"):
-            break
-        time.sleep(0.1)
-    assert job["status"] == "failed"
-    assert "does not match the hits_all_models input schema" in (job["error"] or "")
+    assert response.status_code == 400
+    problem = response.json()
+    assert "does not match the hits_all_models input schema" in problem["detail"]
+    assert "Accepted inputs:" in problem["detail"]
+    assert problem["found"] == ["alpha", "beta"]
+    assert len(problem["expected"]) == 99
+    jobs = client.get("/api/upload").json()["jobs"]
+    assert not any(j["table_name"] == "wrongschema" for j in jobs)
 
 
 def test_append_to_a_missing_experiment_is_rejected(client):
@@ -269,6 +267,37 @@ def test_upload_info_warns_about_large_files(client):
     assert len(body["schema"]["columns"]) == len(HIT_COLUMN_NAMES) == 99
     assert body["schema"]["n_columns"] == 99
     assert body["schema"]["name"] == "hits_all_models"
+
+
+def test_upload_info_lists_every_accepted_schema(client):
+    body = client.get("/api/upload-info").json()
+    assert [s["name"] for s in body["schemas"]] == [
+        "hits_all_models", "standalone_hits", "standalone_events"]
+    assert [s["n_columns"] for s in body["schemas"]] == [99, 21, 59]
+    assert [s["kind"] for s in body["schemas"]] == [
+        "two_shower_hits", "single_shower_hits", "single_shower_events"]
+    assert body["accepted"].startswith("Accepted inputs: hits_all_models (99 columns)")
+
+
+def test_admin_rebuild_runs_as_a_job_and_keeps_the_experiment_ready(client):
+    name = "experiment_baseline"
+    assert client.post("/api/admin/experiments/no_such_experiment/rebuild").status_code == 404
+    response = client.post(f"/api/admin/experiments/{name}/rebuild")
+    assert response.status_code == 202
+    job = response.json()["job"]
+    assert job["mode"] == "rebuild" and job["source_name"] == "(archive)"
+    assert client.post(f"/api/admin/experiments/{name}/rebuild").status_code == 409
+    for _ in range(200):
+        job = client.get(f"/api/upload/{job['job_id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    assert job["kind"] == "two_shower_hits"
+    assert job["result"]["schema"]["name"] == "hits_all_models"
+    listed = {e["table_name"]: e for e in client.get("/api/experiments").json()["experiments"]}
+    assert listed[name]["status"] == "ready"
+    assert listed[name]["capabilities"]["derived"]["status"] == "current"
 
 
 def test_index_page_is_served(client):
