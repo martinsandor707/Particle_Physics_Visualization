@@ -25,7 +25,7 @@ import duckdb
 from ..errors import UnknownTableError
 from ..grid.bounds import FrameBounds
 from ..grid.lattice import Lattice, from_registry_row
-from . import naming
+from . import naming, schemas
 from .ddl import CREATE_REGISTRY, REGISTRY_COLUMNS, REGISTRY_SCHEMA
 
 log = logging.getLogger(__name__)
@@ -77,10 +77,32 @@ class ExperimentRecord:
     n_ab_rows: int = 0
     frame_bounds: FrameBounds | None = None
     ingest_report: dict[str, Any] = field(default_factory=dict)
+    derived_version: int | None = None
+    capabilities: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_ready(self) -> bool:
         return self.status == STATUS_READY
+
+    @property
+    def schema(self) -> schemas.InputSchema | None:
+        """The accepted input schema this experiment was ingested from, if any."""
+        return schemas.get(self.schema_name, self.schema_version)
+
+    @property
+    def kind(self) -> str | None:
+        schema = self.schema
+        return schema.kind if schema is not None else None
+
+    @property
+    def traits(self) -> schemas.KindTraits | None:
+        kind = self.kind
+        return schemas.TRAITS[kind] if kind is not None else None
+
+    @property
+    def derived_status(self) -> str:
+        """``current`` or ``stale`` derived tables (``unknown`` without a known schema)."""
+        return schemas.derived_status(self.kind, self.derived_version)
 
 
 def ensure_registry(con: duckdb.DuckDBPyConnection) -> None:
@@ -125,6 +147,13 @@ def _row_to_record(row: tuple) -> ExperimentRecord:
         except (TypeError, ValueError):
             log.warning("Unreadable ingest_report for %r", data["table_name"])
 
+    capabilities: dict[str, Any] = {}
+    if data.get("capabilities"):
+        try:
+            capabilities = json.loads(data["capabilities"])
+        except (TypeError, ValueError):
+            log.warning("Unreadable capabilities for %r", data["table_name"])
+
     return ExperimentRecord(
         table_name=data["table_name"],
         display_name=data["display_name"] or data["table_name"],
@@ -155,6 +184,8 @@ def _row_to_record(row: tuple) -> ExperimentRecord:
         n_ab_rows=int(data["n_ab_rows"] or 0),
         frame_bounds=FrameBounds.from_json(data["frame_bounds"]),
         ingest_report=report,
+        derived_version=int(data["derived_version"]) if data["derived_version"] is not None else None,
+        capabilities=capabilities,
     )
 
 
@@ -254,6 +285,9 @@ def upsert(con: duckdb.DuckDBPyConnection, record: ExperimentRecord) -> None:
         "frame_bounds": record.frame_bounds.to_json() if record.frame_bounds else None,
         "ingest_report": json.dumps(record.ingest_report, sort_keys=True, default=str)
         if record.ingest_report else None,
+        "derived_version": record.derived_version,
+        "capabilities": json.dumps(record.capabilities, sort_keys=True, default=str)
+        if record.capabilities else None,
     }
     missing = [c for c in REGISTRY_COLUMNS if c not in values]
     assert not missing, f"registry upsert does not set {missing}"

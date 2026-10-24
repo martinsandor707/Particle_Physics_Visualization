@@ -82,10 +82,31 @@ def _scan(ingested, drop, store=None, settle_s: int = 30):
     ("hits all models", "hits_all_models"),
     ("2026_run", "exp_2026_run"),
     ("__edge__", "edge"),
-    ("a" * 60, "a" * 48),
+    ("a" * 48, "a" * 48),
+    # Over 48 characters: the first word and the last words that fit, then a
+    # six-character fingerprint of the whole name.
+    ("a" * 60, "a" * 41 + "_3e342c"),
 ])
 def test_a_file_name_becomes_an_experiment_name(stem, name):
     assert naming.derive_experiment_name(stem) == name
+
+
+def test_long_simulation_file_names_stay_distinct_and_readable():
+    """All four s1/s2 electron files used to cut to one 48-character name."""
+    stems = [
+        "electron_standalone_N100000_M0_20GeV_reg_balanced_s1_v3",
+        "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3",
+        "electron_standalone_N100000_M0_20GeV_reg_balanced_s2_v3",
+        "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s2_v3",
+    ]
+    names = [naming.derive_experiment_name(s) for s in stems]
+    assert len(set(names)) == 4
+    assert all(len(n) <= 48 for n in names)
+    assert all(n.startswith("electron_") for n in names)
+    assert all(all(c in "0123456789abcdef" for c in n[-6:]) and n[-7] == "_" for n in names)
+    assert "_aggr_s1_v3_" in names[1] and "_s2_v3_" in names[2]
+    # Stable across processes (blake2b, not the salted built-in hash).
+    assert names == [naming.derive_experiment_name(s) for s in stems]
 
 
 @pytest.mark.parametrize("stem", ["experiment", "run_s10", "---", ""])
