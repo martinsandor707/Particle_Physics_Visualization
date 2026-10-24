@@ -64,11 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--rebuild", action="store_true",
         help=(
             "Re-derive every table of --table from its Parquet archive, reading no "
-            "source file. Direct mode only."
+            "source file, in one transaction: committed only if it verifies. With a "
+            "server running, the rebuild is handed to it."
         ),
     )
     parser.add_argument(
-        "--table", "-t", required=True,
+        "--compare-features", nargs=2, metavar=("HITS", "EVENTS"), default=None,
+        help=(
+            "Compare the features rebuilt from a single-shower hit experiment with an "
+            "aggregated experiment's, event by event (direct mode). Exit 0 when every "
+            "feature agrees to 1e-9."
+        ),
+    )
+    parser.add_argument(
+        "--table", "-t", default=None,
         help="Target experiment name (lowercase letters, digits, underscores).",
     )
     parser.add_argument(
@@ -121,40 +130,26 @@ def _server_is_running(base_url: str, timeout: float = 2.0) -> bool:
         return False
 
 
-def run_delegated(args: argparse.Namespace, base_url: str, source: Path) -> int:
-    """Hand the ingest to the running server and follow it to completion."""
-    name = naming.validate_experiment_name(args.table)
-    fields = {
-        "path": str(source),
-        "table_name": name,
-        "mode": args.mode,
-        "display_name": args.display_name or name,
-        "event_offset": str(args.event_offset),
-        "force_reingest": "true" if args.force_reingest else "false",
-    }
-    body = urllib.parse.urlencode(fields).encode()
+def _post(url: str, fields: dict[str, str] | None = None) -> tuple[dict | None, str | None]:
+    """POST a form (or nothing) and parse the JSON body; ``(None, detail)`` on an HTTP error."""
+    body = urllib.parse.urlencode(fields or {}).encode()
     request = urllib.request.Request(
-        f"{base_url}/api/ingest-local",
-        data=body,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-    log.info(
-        "A server is running at %s and holds the database lock; delegating the "
-        "ingest to it. The file is still read in place.", base_url,
+        url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            job = json.load(response)["job"]
+            return json.load(response), None
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
         try:
             detail = json.loads(detail).get("detail", detail)
         except json.JSONDecodeError:
             pass
-        log.error("Server rejected the ingest: %s", detail)
-        return 2
+        return None, detail
 
+
+def _follow(base_url: str, job: dict, name: str, verb: str = "Ingest") -> int:
+    """Poll a job on the server until it finishes; the CLI's exit code."""
     job_id = job["job_id"]
     last_stage = ""
     while True:
@@ -175,25 +170,81 @@ def run_delegated(args: argparse.Namespace, base_url: str, source: Path) -> int:
         if job["status"] == "done":
             result = job.get("result", {})
             log.info(
-                "Ingest of %r completed: %s hits, %s events",
-                name,
-                f"{result.get('n_hits', 0):,}",
-                f"{result.get('n_events', 0):,}",
+                "%s of %r completed: %s hits, %s events", verb, name,
+                f"{result.get('n_hits', 0):,}", f"{result.get('n_events', 0):,}",
             )
             for warning in job.get("warnings", []):
                 log.warning("  %s", warning)
             return 0
         if job["status"] == "failed":
-            log.error("Ingest failed: %s", job.get("error"))
+            log.error("%s failed: %s", verb, job.get("error"))
             return 1
 
 
-def _report(name: str, result: pipeline.IngestResult, elapsed: float) -> int:
+def run_rebuild_delegated(base_url: str, name: str) -> int:
+    """Hand a rebuild to the running server and follow it to completion."""
+    log.info("A server is running at %s; handing the rebuild of %r to it.", base_url, name)
+    body, detail = _post(f"{base_url}/api/admin/experiments/{urllib.parse.quote(name)}/rebuild")
+    if body is None:
+        log.error("Server rejected the rebuild: %s", detail)
+        return 2
+    return _follow(base_url, body["job"], name, verb="Rebuild")
+
+
+def run_compare(args: argparse.Namespace) -> int:
+    """``--compare-features HITS EVENTS``, in direct mode."""
+    from . import feature_parity
+
+    hits, events = (naming.validate_experiment_name(n) for n in args.compare_features)
+    settings = load_settings()
+    database = get_database(settings)
+    with database.read_cursor() as con:
+        report = feature_parity.compare(con, hits, events)
+    log.info("%s shared events, %s only in %s, %s only in %s", f"{report.n_shared:,}",
+             f"{report.n_hits_only:,}", hits, f"{report.n_events_only:,}", events)
+    log.info("Base columns equal: %s; deposited energy max relative difference %.3g",
+             ", ".join(f"{k} {'yes' if v else 'NO'}" for k, v in report.base_equal.items()),
+             report.energy_max_rel or 0.0)
+    for column, rel in sorted(report.max_rel.items(), key=lambda kv: -kv[1]):
+        log.info("  %-28s max rel %.3g (event %d)", column, rel, report.worst_event[column])
+    log.info("Feature parity %s (tolerance %.0e)", "PASSED" if report.ok else "FAILED",
+             report.tolerance)
+    return 0 if report.ok else 1
+
+
+def run_delegated(args: argparse.Namespace, base_url: str, source: Path) -> int:
+    """Hand the ingest to the running server and follow it to completion."""
+    name = naming.validate_experiment_name(args.table)
+    fields = {
+        "path": str(source),
+        "table_name": name,
+        "mode": args.mode,
+        "display_name": args.display_name or name,
+        "event_offset": str(args.event_offset),
+        "force_reingest": "true" if args.force_reingest else "false",
+    }
     log.info(
-        "Ingest of %r %s in %.1f s: %s hits, %s events, archive %s rows in %d part(s)",
-        name, "completed" if result.ok else "FAILED (verification)",
-        elapsed, f"{result.n_hits:,}", f"{result.n_events:,}",
-        f"{result.record.archive_rows:,}", result.record.archive_parts,
+        "A server is running at %s and holds the database lock; delegating the "
+        "ingest to it. The file is still read in place.", base_url,
+    )
+    body, detail = _post(f"{base_url}/api/ingest-local", fields)
+    if body is None:
+        log.error("Server rejected the ingest: %s", detail)
+        return 2
+    return _follow(base_url, body["job"], name)
+
+
+def _report(name: str, result: pipeline.IngestResult, elapsed: float) -> int:
+    schema = result.record.schema
+    if schema is not None and not schema.kind.endswith("_hits"):
+        content = f"{result.n_events:,} events ({schema.n_columns} event-level columns each)"
+    else:
+        content = f"{result.n_hits:,} hits, {result.n_events:,} events"
+    log.info(
+        "Ingest of %r (%s) %s in %.1f s: %s, archive %s rows in %d part(s)",
+        name, schema.label if schema else "unknown schema",
+        "completed" if result.ok else "FAILED (verification)",
+        elapsed, content, f"{result.record.archive_rows:,}", result.record.archive_parts,
     )
     for stage in result.timings:
         log.info("  %-10s %7.1f s  peak RSS %8.0f MB  DuckDB %8s MB  spill %8s MB",
@@ -205,6 +256,11 @@ def _report(name: str, result: pipeline.IngestResult, elapsed: float) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.compare_features:
+        return run_compare(args)
+    if not args.table:
+        log.error("--table is required.")
+        return 2
     name = naming.validate_experiment_name(args.table)
     settings = load_settings()
 
@@ -213,14 +269,16 @@ def run(args: argparse.Namespace) -> int:
             log.error("--rebuild reads the archive; do not pass --input with it.")
             return 2
         base_url = (args.server_url or settings.server_url).rstrip("/")
-        if _server_is_running(base_url):
-            log.error("A server is running and holds the database lock; stop it to rebuild.")
-            return 2
+        if not args.direct and _server_is_running(base_url):
+            return run_rebuild_delegated(base_url, name)
         database = get_database(settings)
         started = time.monotonic()
         with database.write_lock() as con:
             bootstrap(con, settings)
-            result = pipeline.rebuild(con, settings, name, build_sample=not args.no_sample)
+            result = pipeline.rebuild_atomic(con, settings, name, build_sample=not args.no_sample)
+        if not result.ok:
+            log.error("The rebuild failed verification and was rolled back; %r is unchanged.",
+                      name)
         return _report(name, result, time.monotonic() - started)
 
     if args.input is None:

@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..db import schemas
+from ..db.schemas import InputSchema
+
 
 @dataclass
 class SourceCheck:
@@ -25,10 +28,14 @@ class SourceCheck:
     nan_as_null: dict[str, int] = field(default_factory=dict)
     #: Sentences for the ingest report and the upload dialog.
     notices: list[str] = field(default_factory=list)
+    #: The accepted input schema the file was recognised as.
+    schema: InputSchema = schemas.DEFAULT
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "format": self.format,
+            "schema": {"name": self.schema.name, "version": self.schema.version,
+                       "kind": self.schema.kind},
             "rows": self.rows,
             "narrowed": list(self.narrowed),
             "nan_as_null": dict(self.nan_as_null),

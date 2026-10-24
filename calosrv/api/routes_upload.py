@@ -4,8 +4,13 @@ The request body is never buffered in memory. It is written through to the
 staging directory in 8 MiB chunks, so a multi-gigabyte upload costs one chunk of
 resident memory regardless of size.
 
-The response returns as soon as the file is on disk, carrying a job identifier.
-The ingest itself runs on a background worker and is polled through
+Before a job is queued, the staged file's input schema is recognised (one of
+``db/schemas.py``'s three) and checked: a file that matches none is refused
+there and then with a 400 naming the expected and the found columns, rather
+than accepted and failed later as a job.
+
+The response returns as soon as the file is on disk and checked, carrying a job
+identifier. The ingest itself runs on a background worker and is polled through
 ``GET /api/upload/{job_id}``, because it takes minutes on a large file and holds
 DuckDB's single write lock for the duration.
 """
@@ -13,13 +18,16 @@ DuckDB's single write lock for the duration.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
-from ..db import catalog, naming, registry
+from ..db import archive, catalog, naming, registry, schemas
 from ..db.ddl import HIT_COLUMN_NAMES, SCHEMA_NAME, SCHEMA_VERSION
 from ..errors import ConflictError, ExperimentExistsError, IngestError, NotFoundError, ValidationError
-from ..ingest import formats
+from ..ingest import formats, load
+from ..ingest.source_check import SourceCheck
 from ..ingest import jobs as jobs_mod
 from ..ingest import local as local_ingest
 from ..ingest import stream
@@ -66,6 +74,22 @@ def _check_target(database, settings, name: str, mode: str, force_reingest: bool
             "is loaded, and not restored if that load fails.",
             table_name=name, existing_status=present.status, queued_job=None,
         )
+
+
+def _check_source(database, settings, name: str, mode: str, path: Path, fmt: str) -> SourceCheck:
+    """Recognise the file's input schema; an append must match the archive's.
+
+    Runs the format's own check - the CSV header, or the Parquet footer and
+    its typed columns - on a read cursor. The worker validates again before
+    it loads, as defence in depth.
+    """
+    with database.read_cursor() as con:
+        check = formats.validate(con, path, fmt)
+    if mode == UploadMode.APPEND.value:
+        manifest = archive.read_manifest(settings, name)
+        if manifest is not None:
+            load.check_append_schema(name, manifest, check.schema)
+    return check
 
 
 @router.post("/api/upload", status_code=202, summary="Upload and ingest a CSV or Parquet dataset")
@@ -124,12 +148,15 @@ async def upload(
     # Now that the true size and format are known, re-check headroom before
     # committing the ingest; a chunked upload has no reliable content-length.
     # A compressed or truncated file is refused here rather than as a failed job.
+    # A file of no accepted schema is refused here, with the columns it has.
     try:
         fmt = formats.detect_format(staged.path)
         stream.check_free_space(
             settings.staging_dir, staged.size_bytes,
             formats.headroom_factor(settings, fmt, staged=True) - 2,
         )
+        check = await run_in_threadpool(_check_source, database, settings, name, mode,
+                                        staged.path, fmt)
     except Exception:
         staged.unlink()
         raise
@@ -144,6 +171,8 @@ async def upload(
         display_name=display_name,
         event_offset=event_offset,
         force_reingest=force_reingest,
+        kind=check.schema.kind,
+        schema=check.schema.label,
     )
 
     return {
@@ -190,10 +219,12 @@ def ingest_local(
     # The file is read in place, so no staging copy: the archive (about 0.12x a
     # CSV, near 1x a Parquet file), the derived tables and DuckDB spill still
     # need room.
+    fmt = formats.detect_format(source)
     check_free_space(
         settings.data_dir, source.stat().st_size,
-        formats.headroom_factor(settings, formats.detect_format(source), staged=False),
+        formats.headroom_factor(settings, fmt, staged=False),
     )
+    check = _check_source(database, settings, name, mode, source, fmt)
 
     cache_mod.invalidate_all(name)
 
@@ -213,6 +244,8 @@ def ingest_local(
         # dataset as a side effect of reading it would be indefensible.
         delete_source=False,
         force_reingest=force_reingest,
+        kind=check.schema.kind,
+        schema=check.schema.label,
     )
     return {"job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}
 
@@ -289,4 +322,8 @@ def upload_info(settings: SettingsDep):
                 "29-column v37 format is no longer accepted."
             ),
         },
+        # Every accepted input schema; ``schema`` above is the default one,
+        # kept as it was for clients that read only it.
+        "schemas": schemas.advertised(),
+        "accepted": schemas.accepted_sentence(),
     }

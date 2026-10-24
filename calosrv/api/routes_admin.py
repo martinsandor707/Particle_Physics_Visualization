@@ -2,7 +2,8 @@
 
 The panel reads the effective default view with ``GET /api/admin/config`` and
 saves changes with ``POST``; ``POST /api/admin/auto-ingest/scan`` is its Scan
-now. Scripts can use the same calls. No endpoint in this service is
+now, and ``POST /api/admin/experiments/{name}/rebuild`` its Rebuild derived
+tables. Scripts can use the same calls. No endpoint in this service is
 authenticated, and this one follows the same trust model as upload and delete:
 anyone who can reach the port can change what a new session opens on.
 """
@@ -14,7 +15,8 @@ from typing import Any
 from fastapi import APIRouter, Body, Request
 
 from ..admin.store import DefaultsStore
-from ..errors import ConflictError
+from ..db import archive, naming, registry
+from ..errors import ConflictError, IngestError, UnknownTableError
 from ..ingest import autoingest
 from ..ingest import jobs as jobs_mod
 from ..models.common import json_safe
@@ -79,3 +81,30 @@ def scan_now(request: Request, settings: SettingsDep):
     if not report.enabled:
         raise ConflictError(f"Automatic ingest is off: {report.reason}", reason=report.reason)
     return json_safe(report.as_dict())
+
+
+@router.post(
+    "/api/admin/experiments/{table_name}/rebuild", status_code=202,
+    summary="Rebuild an experiment's derived tables from its archive",
+)
+def rebuild(table_name: str, request: Request, con: CursorDep, settings: SettingsDep):
+    """Re-derive every table of an experiment from its Parquet archive, atomically.
+
+    How an experiment derived by an earlier release gains the tables the new
+    panels read. The rebuild runs in one transaction on the ingest worker:
+    the experiment stays served from its old tables until the new ones have
+    verified, and a rebuild that fails verification is rolled back.
+    """
+    name = naming.validate_experiment_name(table_name)
+    record = registry.get_experiment(con, name)
+    if record is None:
+        raise UnknownTableError(f"No experiment named {name!r} is registered.", table_name=name)
+    database = request.app.state.database
+    store = jobs_mod.get_job_store(database)
+    if name in store.active_names():
+        raise ConflictError(f"A job for {name!r} is already queued or running.", table_name=name)
+    manifest = archive.read_manifest(settings, name)
+    if manifest is None or not manifest.parts:
+        raise IngestError(f"Experiment {name!r} has no archive to rebuild from.", table_name=name)
+    job = store.submit_rebuild(name, size_bytes=manifest.bytes)
+    return {"job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}

@@ -36,8 +36,9 @@ import duckdb
 
 from ..db import naming
 from ..db.ddl import (
-    COORD_SYSTEMS, NETWORK_FRAME, PROJ_COLUMN_NAMES, create_proj_table, csv_model_column,
-    drop_table, raw_cam_columns, seg_column,
+    COORD_SYSTEMS, KIND_TWO_SHOWER, NETWORK_FRAME, PROJ_COLUMN_NAMES, PROJ_SINGLE_COLUMN_NAMES,
+    PROJ_SINGLE_COLUMNS, create_proj_table, csv_model_column, drop_table, raw_cam_columns,
+    seg_column,
 )
 from ..db.naming import quote
 
@@ -60,6 +61,8 @@ class SanitationReport:
     negative_energy: int = 0
     zero_energy: int = 0
     bad_origin: int = 0
+    #: Single-shower rows with no attributed particle: kept, and counted.
+    unknown_species: int = 0
 
     @property
     def removed(self) -> int:
@@ -92,7 +95,7 @@ def _frame_ok(p: str) -> str:
     )
 
 
-def keep_predicate(alias: str = "") -> str:
+def keep_predicate(alias: str = "", origin: bool = True) -> str:
     """The rows worth projecting, optionally qualified by a table alias.
 
     Zero-energy hits are dropped alongside negative ones: they contribute
@@ -100,20 +103,27 @@ def keep_predicate(alias: str = "") -> str:
     statistic that counts them overstates how much of the detector actually saw
     the shower. A row without finite per-shower coordinates, or with an origin
     other than A, B or 'A+B', cannot be placed in every frame and is dropped
-    from all of them, so the frames always describe the same hits.
+    from all of them, so the frames always describe the same hits. A
+    single-shower file has no origin column (``origin=False``): every row is
+    the one shower's.
     """
     p = f"{alias}." if alias else ""
-    return (
+    keep = (
         f"isfinite({p}x) AND isfinite({p}y) AND isfinite({p}z) "
         f"AND {p}energy IS NOT NULL AND isfinite({p}energy) AND {p}energy > 0 "
-        f"AND {_frame_ok(p)} "
-        f"AND {p}particle_origin IN ('A', 'B', 'A+B')"
+        f"AND {_frame_ok(p)}"
     )
+    if origin:
+        keep += f" AND {p}particle_origin IN ('A', 'B', 'A+B')"
+    return keep
 
 
-def audit(con: duckdb.DuckDBPyConnection, source: str) -> SanitationReport:
+def audit(con: duckdb.DuckDBPyConnection, source: str,
+          kind: str = KIND_TWO_SHOWER) -> SanitationReport:
     """Count each rejection rule separately, before anything is removed."""
     frame_bad = " OR ".join(f"{c} IS NULL OR NOT isfinite({c})" for c in FRAME_COORDINATES)
+    if kind != KIND_TWO_SHOWER:
+        return _audit_single(con, source, frame_bad)
     row = con.execute(
         f"""
         SELECT count(*),
@@ -142,6 +152,31 @@ def audit(con: duckdb.DuckDBPyConnection, source: str) -> SanitationReport:
         zero_energy=int(row[6]),
         bad_origin=int(row[7]),
         kept_rows=int(row[8]),
+    )
+
+
+def _audit_single(con: duckdb.DuckDBPyConnection, source: str, frame_bad: str) -> SanitationReport:
+    row = con.execute(
+        f"""
+        SELECT count(*),
+               count(*) FILTER (WHERE x IS NULL OR y IS NULL OR z IS NULL
+                                  OR NOT isfinite(x) OR NOT isfinite(y) OR NOT isfinite(z)),
+               count(*) FILTER (WHERE {frame_bad}),
+               count(*) FILTER (WHERE energy IS NULL),
+               count(*) FILTER (WHERE energy IS NOT NULL AND NOT isfinite(energy)),
+               count(*) FILTER (WHERE energy IS NOT NULL AND isfinite(energy)
+                                  AND energy < 0),
+               count(*) FILTER (WHERE energy IS NOT NULL AND isfinite(energy)
+                                  AND energy = 0),
+               count(*) FILTER (WHERE particle_type IS NULL AND {keep_predicate(origin=False)}),
+               count(*) FILTER (WHERE {keep_predicate(origin=False)})
+        FROM {source}
+        """
+    ).fetchone()
+    return SanitationReport(
+        total_rows=int(row[0]), null_coordinate=int(row[1]), null_frame_coordinate=int(row[2]),
+        null_energy=int(row[3]), non_finite_energy=int(row[4]), negative_energy=int(row[5]),
+        zero_energy=int(row[6]), unknown_species=int(row[7]), kept_rows=int(row[8]),
     )
 
 
@@ -194,25 +229,64 @@ def projection_select(layer_pitch_mm: float) -> list[str]:
     return [f"{expressions[c]} AS {c}" for c in PROJ_COLUMN_NAMES]
 
 
+def projection_select_single(layer_pitch_mm: float) -> list[str]:
+    """``expression AS column`` for every single-shower projection column, in table order."""
+    expressions: dict[str, str] = {
+        "event_number": "h.event_number",
+        "ix": "CAST(lx.i AS USMALLINT)",
+        "iy": "CAST(ly.i AS USMALLINT)",
+        "iz": "CAST(lz.i AS UTINYINT)",
+        "org": "CAST(0 AS UTINYINT)",
+        "xt": "h.x_trans",
+        "yt": "h.y_trans",
+        "kt": f"CAST(round(h.z_trans / {float(layer_pitch_mm)!r}) AS UTINYINT)",
+        "xl": "h.x_local",
+        "yl": "h.y_local",
+        "zl": "h.z_local",
+        "energy": "h.energy",
+        "e1": "h.incoming_momentum",
+        "particle_type": "h.particle_type",
+        "is_secondary": "h.is_secondary",
+        "parent_type": "h.parent_type",
+        "daughter_type": "h.daughter_type",
+    }
+    missing = [c for c in PROJ_SINGLE_COLUMN_NAMES if c not in expressions]
+    assert not missing, f"no source for projection columns {missing}"
+    return [f"{expressions[c]} AS {c}" for c in PROJ_SINGLE_COLUMN_NAMES]
+
+
 def build(
     con: duckdb.DuckDBPyConnection,
     name: str,
     source: str,
     layer_pitch_mm: float,
+    kind: str = KIND_TWO_SHOWER,
 ) -> SanitationReport:
-    """Create ``proj_<name>`` from the archive relation ``source``."""
-    proj_physical = naming.proj_table(name)
+    """Create ``proj_<name>`` from the archive relation ``source``.
 
-    report = audit(con, source)
+    A single-shower projection is written in (event, layer, row, column)
+    order: a total order, since each cell appears once per event, so the
+    table is deterministic and a one-event read touches one row group. The
+    two-shower table keeps the archive's order, which the golden lab snapshot
+    was taken against.
+    """
+    proj_physical = naming.proj_table(name)
+    two = kind == KIND_TWO_SHOWER
+
+    report = audit(con, source, kind)
     report.log()
 
     con.execute(drop_table(proj_physical))
-    con.execute(create_proj_table(proj_physical))
+    con.execute(create_proj_table(proj_physical) if two
+                else create_proj_table(proj_physical, PROJ_SINGLE_COLUMNS))
     _build_dictionaries(con, source)
 
     log.info("Building %s (lattice ordinals + per-shower frames)", proj_physical)
-    columns = ", ".join(PROJ_COLUMN_NAMES)
-    select = ",\n               ".join(projection_select(layer_pitch_mm))
+    names = PROJ_COLUMN_NAMES if two else PROJ_SINGLE_COLUMN_NAMES
+    columns = ", ".join(names)
+    select = ",\n               ".join(
+        projection_select(layer_pitch_mm) if two else projection_select_single(layer_pitch_mm))
+    order = "" if two else "\n        ORDER BY h.event_number, lz.i, ly.i, lx.i"
     con.execute(
         f"""
         INSERT INTO {quote(proj_physical)} ({columns})
@@ -221,7 +295,7 @@ def build(
         JOIN lat_x lx ON h.x = lx.v
         JOIN lat_y ly ON h.y = ly.v
         JOIN lat_z lz ON h.z = lz.v
-        WHERE {keep_predicate("h")}
+        WHERE {keep_predicate("h", origin=two)}{order}
         """
     )
 

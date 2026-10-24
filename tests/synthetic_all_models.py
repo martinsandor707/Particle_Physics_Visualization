@@ -6,7 +6,8 @@ events into as many events as asked, at chosen separations, each with its own
 incident momenta, and writes a file that passes ingest verification:
 
 * every field is copied verbatim from its template row except
-  ``event_number``, ``centroid_AB_distance``, the incident momenta, the three
+  ``event_number``, ``centroid_AB_distance``, the incident momenta and their
+  bins (⌊p⌋, the producer's rule), the three
   ``energy_*_true`` columns (the own shower's momentum, as verification
   demands) and ``energy``, which is scaled by the same factor as the shower's
   momentum so the reconstructed energies spread the way real ones do;
@@ -109,6 +110,9 @@ def write(
                     row[col["centroid_AB_distance"]] = repr(separation)
                     row[col["incoming_momentum_A"]] = repr(p_new["A"])
                     row[col["incoming_momentum_B"]] = repr(p_new["B"])
+                    # The producer's bin is floor(p); a rewritten momentum takes its bin.
+                    row[col["incoming_momentum_bin_A"]] = str(int(p_new["A"]))
+                    row[col["incoming_momentum_bin_B"]] = str(int(p_new["B"]))
                     for frame in _FRAMES:
                         row[col[f"energy_{frame}_true"]] = repr(p_new[shower])
                     row[col["energy"]] = repr(float(row[col["energy"]]) * scale)

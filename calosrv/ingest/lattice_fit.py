@@ -18,8 +18,10 @@ import duckdb
 import numpy as np
 
 from ..db import naming
+from ..db.ddl import KIND_TWO_SHOWER
 from ..db.naming import quote
 from ..errors import IngestError
+from ..grid import frame as frame_mod
 from ..grid.bounds import FRAME_AXES, QUANTILE_LEVELS, AxisBounds, FrameBounds, quantile_key
 from ..grid.lattice import Axis, Lattice
 from ..grid.slab import DEFAULT_SLAB_MM, slab_layer_count
@@ -102,15 +104,22 @@ def layer_pitch(z_coords: np.ndarray) -> float:
     return float(round(float(np.min(np.diff(coords))), 4))
 
 
-def measure_bounds(con: duckdb.DuckDBPyConnection, name: str) -> dict:
+def measure_bounds(con: duckdb.DuckDBPyConnection, name: str, kind: str = KIND_TWO_SHOWER) -> dict:
     """Kinematic bounds and the overlap classes present, from the event table.
 
     The E1/E2/D bounds are taken over *events*, not hit rows. A hit-weighted
     minimum would be identical, but a hit-weighted mean would not, and reading
     the per-event table keeps the rule "per-event quantities are aggregated per
-    event" visible rather than implicit.
+    event" visible rather than implicit. A single-shower experiment has only
+    the incident momentum: E2 and D are ``None``, and it has no overlap classes.
     """
     event = quote(naming.event_table(name))
+    if kind != KIND_TWO_SHOWER:
+        row = con.execute(f"SELECT min(e1), max(e1), count(*) FROM {event}").fetchone()
+        log.info("Bounds: p %.3f-%.3f GeV, %d events", row[0] or 0, row[1] or 0, row[2] or 0)
+        return {"e1_min": row[0], "e1_max": row[1], "e2_min": None, "e2_max": None,
+                "d_min": None, "d_max": None, "n_events": int(row[2] or 0),
+                "n_events_no_d": 0, "overlaps": []}
     row = con.execute(
         f"""
         SELECT min(e1), max(e1), min(e2), max(e2),
@@ -153,6 +162,28 @@ def measure_bounds(con: duckdb.DuckDBPyConnection, name: str) -> dict:
         bounds["n_events"], overlaps,
     )
     return bounds
+
+
+def measure_footprint(
+    con: duckdb.DuckDBPyConnection, name: str, lattice: Lattice
+) -> tuple[float, float]:
+    """The physical ``(w_x, w_y)`` cell footprint, from the populated ``(ix, iy)`` cells.
+
+    The pitch between adjacent cells sharing a row or a column (CLAUDE.md
+    section 2), not the sorted coordinate union whose 4.4 mm twins are
+    row-block offsets; the lattice-only estimate when too few cells say.
+    Measured once here and stored, so the query side reads it instead of
+    re-measuring.
+    """
+    cells = con.execute(f"SELECT DISTINCT ix, iy FROM {quote(naming.proj_table(name))}").fetchnumpy()
+    ix = np.asarray(np.ma.filled(np.ma.asarray(cells["ix"]), 0), dtype=np.int64)
+    iy = np.asarray(np.ma.filled(np.ma.asarray(cells["iy"]), 0), dtype=np.int64)
+    w_x, w_y = frame_mod.footprint_from_occupancy(ix, iy, lattice.x.coords, lattice.y.coords)
+    fallback_x, fallback_y = frame_mod.footprint_from_lattice(lattice)
+    footprint = (float(w_x) if w_x is not None and w_x > 0 else float(fallback_x),
+                 float(w_y) if w_y is not None and w_y > 0 else float(fallback_y))
+    log.info("Cell footprint: %.2f x %.2f mm from %d cells", footprint[0], footprint[1], ix.size)
+    return footprint
 
 
 def measure_frame_bounds(
