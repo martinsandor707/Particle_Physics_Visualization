@@ -14,6 +14,7 @@ acceptability, because a silently rewritten table name is its own bug.
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from ..errors import ValidationError
@@ -29,6 +30,11 @@ _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 HIT_PREFIX = "hit_"
 PROJ_PREFIX = "proj_"
 EVENT_PREFIX = "event_"
+LAYERS_PREFIX = "layers_"
+PROFILES_PREFIX = "profiles_"
+
+#: Every prefix, longest first where one could begin another (none do today).
+_PREFIXES = (PROFILES_PREFIX, LAYERS_PREFIX, HIT_PREFIX, PROJ_PREFIX, EVENT_PREFIX)
 
 #: Suffix of the Bernoulli-sampled companion to a projection table, used to
 #: serve the drag-preview tier described in the performance plan.
@@ -80,13 +86,40 @@ DIGIT_PREFIX = "exp_"
 _NOT_NAME_CHARACTER = re.compile(r"[^a-z0-9]+")
 
 
+#: Hex characters of the fingerprint a long name ends with.
+_DIGEST_HEX = 6
+_MAX_NAME = 48
+
+
+def _shorten(name: str) -> str:
+    """A name over 48 characters: its first word, its last words, a fingerprint.
+
+    Simulation files differ at the end of long names - ``..._s1_v3`` against
+    ``..._aggr_s1_v3`` - so a plain cut makes every one of them the same
+    experiment. Keeping the first word and as many trailing words as fit keeps
+    the distinguishing tail readable, and a six-character blake2b fingerprint
+    of the whole name keeps two names that still meet apart.
+    """
+    digest = hashlib.blake2b(name.encode("utf-8"), digest_size=_DIGEST_HEX // 2).hexdigest()
+    budget = _MAX_NAME - 1 - len(digest)
+    words = name.split("_")
+    head = words[0][:budget]
+    tail: list[str] = []
+    for word in reversed(words[1:]):
+        if len("_".join([head, word, *tail])) > budget:
+            break
+        tail.insert(0, word)
+    return f"{'_'.join([head, *tail]).rstrip('_')}_{digest}"
+
+
 def derive_experiment_name(stem: str) -> str:
     """The experiment name the automatic ingest gives a dropped file.
 
     The stem is lower-cased, every run of other characters becomes one
-    underscore, leading and trailing underscores go, a leading digit gets
-    :data:`DIGIT_PREFIX`, and the result is cut to 48 characters. That is a
-    derivation, not a sanitisation of user input into acceptability: the
+    underscore, leading and trailing underscores go and a leading digit gets
+    :data:`DIGIT_PREFIX`. A result over 48 characters keeps its first word and
+    its last words around a fingerprint of the whole (:func:`_shorten`). That is
+    a derivation, not a sanitisation of user input into acceptability: the
     result still has to pass :func:`validate_experiment_name`, so a reserved
     word or the sample suffix is refused rather than bent into something else.
 
@@ -95,7 +128,9 @@ def derive_experiment_name(stem: str) -> str:
     name = _NOT_NAME_CHARACTER.sub("_", stem.lower()).strip("_")
     if name[:1].isdigit():
         name = DIGIT_PREFIX + name
-    return validate_experiment_name(name[:48].rstrip("_"))
+    if len(name) > _MAX_NAME:
+        name = _shorten(name)
+    return validate_experiment_name(name)
 
 
 def hit_table(name: str) -> str:
@@ -122,6 +157,16 @@ def event_table(name: str) -> str:
     return f"{EVENT_PREFIX}{validate_experiment_name(name)}"
 
 
+def layers_table(name: str) -> str:
+    """Physical name of the per-(event, shower, layer) table for ``name``."""
+    return f"{LAYERS_PREFIX}{validate_experiment_name(name)}"
+
+
+def profiles_table(name: str) -> str:
+    """Physical name of the per-event depth and radial profile table for ``name``."""
+    return f"{PROFILES_PREFIX}{validate_experiment_name(name)}"
+
+
 def all_tables(name: str) -> tuple[str, ...]:
     """Every physical table belonging to one experiment, for drop/cleanup."""
     return (
@@ -129,17 +174,19 @@ def all_tables(name: str) -> tuple[str, ...]:
         proj_table(name),
         proj_table(name, sampled=True),
         event_table(name),
+        layers_table(name),
+        profiles_table(name),
     )
 
 
 def is_managed_table(physical_name: str) -> bool:
     """Whether a physical table name was created by this application."""
-    return physical_name.startswith((HIT_PREFIX, PROJ_PREFIX, EVENT_PREFIX))
+    return physical_name.startswith(_PREFIXES)
 
 
 def experiment_of(physical_name: str) -> str | None:
     """Recover the experiment name from a physical table name, if managed."""
-    for prefix in (HIT_PREFIX, PROJ_PREFIX, EVENT_PREFIX):
+    for prefix in _PREFIXES:
         if physical_name.startswith(prefix):
             base = physical_name[len(prefix) :]
             if prefix == PROJ_PREFIX and base.endswith(SAMPLE_SUFFIX):

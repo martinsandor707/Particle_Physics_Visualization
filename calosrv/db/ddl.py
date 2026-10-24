@@ -62,6 +62,26 @@ ORIGIN_AB = 2
 SCHEMA_NAME = "hits_all_models"
 SCHEMA_VERSION = 1
 
+#: The three kinds of experiment, one per accepted input schema
+#: (calosrv/db/schemas.py): two showers per event with the networks' outputs,
+#: one shower per event with its hits, and one shower per event as precomputed
+#: event-level features only.
+KIND_TWO_SHOWER = "two_shower_hits"
+KIND_SINGLE_HITS = "single_shower_hits"
+KIND_SINGLE_EVENTS = "single_shower_events"
+KINDS: tuple[str, ...] = (KIND_TWO_SHOWER, KIND_SINGLE_HITS, KIND_SINGLE_EVENTS)
+
+#: ``core.SHIFT_Z`` (reference_ipynb_notebooks/core.py:49): the calorimeter front
+#: face in raw z. Stored data keep raw z - the producer's v3 aggregate is computed
+#: on raw z, and both hit schemas share one lattice whose first layer sits at
+#: 3662.4 mm - so this is only a display offset, applied where a panel quotes a
+#: depth below the front face and labelled ``z − 3649 mm`` there.
+CORE_SHIFT_Z_MM = 3649.0
+
+#: A hit lies behind its shower's entry plane when ``z_local`` is below this,
+#: the notebooks' tolerance (High_energy_notebook, diagnose_negative_z).
+NEG_DEPTH_MM = -1e-6
+
 
 def _check(value: str, allowed, what: str) -> str:
     if value not in allowed:
@@ -183,6 +203,85 @@ NULLABLE_COLUMNS: tuple[str, ...] = tuple(
 )
 
 
+#: The 21 columns of the single-shower hit file (``*_standalone_..._v3.csv``),
+#: one row per cell of one event, in file order.
+#:
+#: Type choices worth defending:
+#:
+#: ``x``, ``y``, ``z`` are REAL: the producer writes float32 positions widened to
+#: float64 (``3662.39990234375``), so single precision holds them exactly and the
+#: measured lattice is bit-identical to the two-shower files'.
+#:
+#: The ``_trans`` and ``_local`` coordinates, ``energy`` and the incident
+#: kinematics are DOUBLE: they are genuine float64 values, and the event
+#: features are checked against the producer's aggregate at 10⁻⁹ - REAL would
+#: round them by 6 × 10⁻⁸ - while ``incoming_momentum_bin = ⌊p⌋`` is checked on
+#: integer boundaries that float32 rounding can cross.
+#:
+#: ``is_secondary`` is 0/1 as written (UTINYINT; a Parquet BOOLEAN is accepted).
+#: The three species columns are free text: ``particle_type`` has an open
+#: vocabulary (ions are written ``PDG_100ZZZAAA0``), ``daughter_type`` is a
+#: ``;``-joined list, and an empty field - no parent for a primary-tagged cell,
+#: no daughters - is read as NULL.
+STANDALONE_HIT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("event_number", "INTEGER"),
+    ("cellID", "BIGINT"),
+    ("x", "REAL"), ("y", "REAL"), ("z", "REAL"),
+    ("x_local", "DOUBLE"), ("y_local", "DOUBLE"), ("z_local", "DOUBLE"),
+    ("x_trans", "DOUBLE"), ("y_trans", "DOUBLE"), ("z_trans", "DOUBLE"),
+    ("energy", "DOUBLE"),
+    ("earliest_contribution_time", "REAL"),
+    ("incoming_momentum", "DOUBLE"),
+    ("incoming_theta", "DOUBLE"),
+    ("incoming_phi", "DOUBLE"),
+    ("incoming_momentum_bin", "UTINYINT"),
+    ("particle_type", "VARCHAR"),
+    ("is_secondary", "UTINYINT"),
+    ("parent_type", "VARCHAR"),
+    ("daughter_type", "VARCHAR"),
+)
+
+#: The seventeen per-frame features of ``core.calc_all_features_v3`` in its key
+#: order (core.py:503-510), without the two densities that follow per frame.
+CORE_FEATURES: tuple[str, ...] = (
+    "width", "height", "depth", "depth_range", "volume",
+    "centroid_x", "centroid_y", "centroid_z",
+    "mean_r", "std_r", "max_r", "weighted_r_mean",
+    "avg_theta", "avg_phi", "angular_spread",
+)
+
+#: The suffix each frame's features carry in the aggregated file.
+FEATURE_SUFFIX: dict[str, str] = {"abs": "", "trn": "_trans", "loc": "_local"}
+
+
+def _standalone_event_columns() -> tuple[tuple[str, str], ...]:
+    columns: list[tuple[str, str]] = [
+        ("event_id", "INTEGER"),
+        ("incoming_momentum", "DOUBLE"),
+        ("incoming_theta", "DOUBLE"),
+        ("incoming_phi", "DOUBLE"),
+        ("incoming_momentum_bin", "UTINYINT"),
+        ("num_hits", "INTEGER"),
+        ("total_hit_energy", "DOUBLE"),
+    ]
+    for code in ("abs", "trn", "loc"):
+        columns += [(f"{name}{FEATURE_SUFFIX[code]}", "DOUBLE") for name in CORE_FEATURES]
+    for code in ("abs", "trn", "loc"):
+        columns += [(f"{name}{FEATURE_SUFFIX[code]}", "DOUBLE")
+                    for name in ("numerical_density", "energy_density")]
+    # Not an energy: the producer's class label 1{incoming_momentum >= 2 GeV}.
+    columns.append(("energy", "DOUBLE"))
+    return tuple(columns)
+
+
+#: The 59 columns of the single-shower aggregated file
+#: (``*_standalone_..._aggr_..._v3.csv``), one row per event, in file order: the
+#: output of ``core.calc_all_features_v3`` on raw z, plus a trailing ``energy``
+#: that holds the class label 1{p ≥ 2 GeV}. ``event_id`` and the bin are exact
+#: integers; every feature is a float64 value.
+STANDALONE_EVENT_COLUMNS: tuple[tuple[str, str], ...] = _standalone_event_columns()
+
+
 # ----------------------------------------------------- projection table --
 
 
@@ -223,7 +322,36 @@ PROJ_COLUMNS: tuple[tuple[str, str, str], ...] = _proj_columns()
 PROJ_COLUMN_NAMES: tuple[str, ...] = tuple(name for name, *_ in PROJ_COLUMNS)
 
 
-def create_proj_table(physical: str) -> str:
+#: The projection table of a single-shower hit experiment. The shared columns
+#: keep the two-shower names and meanings, with the single shower as shower A
+#: (``org = 0``), so the frame and projection code reads both kinds; the
+#: networks' CAM and segmentation columns and the second-shower filter columns
+#: do not exist, and the four species columns are kept for the species views.
+PROJ_SINGLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("event_number", "INTEGER", ""),
+    ("ix", "USMALLINT", "laboratory x ordinal, 0 .. nx-1"),
+    ("iy", "USMALLINT", "laboratory y ordinal, 0 .. ny-1"),
+    ("iz", "UTINYINT", "laboratory sampling layer, 0 .. nz-1"),
+    ("org", "UTINYINT", "always 0: the single shower is shower A"),
+    ("xt", "REAL", "x_trans: x minus the shower's entry point P0"),
+    ("yt", "REAL", "y_trans"),
+    ("kt", "UTINYINT", "own-shower layer: round(z_trans / layer pitch)"),
+    ("xl", "REAL", "x_local: translated, then rotated by R(theta, phi)"),
+    ("yl", "REAL", "y_local"),
+    ("zl", "REAL", "z_local: depth along the incident direction"),
+    ("energy", "DOUBLE", ""),
+    ("e1", "DOUBLE", "incoming_momentum, per-event constant"),
+    ("particle_type", "VARCHAR", "the cell's attributed particle"),
+    ("is_secondary", "UTINYINT", "0: primary-tagged"),
+    ("parent_type", "VARCHAR", "NULL for a primary-tagged cell"),
+    ("daughter_type", "VARCHAR", "';'-joined daughters, NULL when none"),
+)
+PROJ_SINGLE_COLUMN_NAMES: tuple[str, ...] = tuple(name for name, *_ in PROJ_SINGLE_COLUMNS)
+
+
+def create_proj_table(
+    physical: str, columns: tuple[tuple[str, str, str], ...] = PROJ_COLUMNS
+) -> str:
     """DDL for the projection table - the interactive hot path.
 
     One row per hit, carrying the laboratory lattice ordinals, both per-shower
@@ -231,12 +359,13 @@ def create_proj_table(physical: str) -> str:
     x Grad-CAM / Shap-CAM), the three segmentation networks' voxel fractions and
     the per-event filter columns. DuckDB is columnar, so a query reads only the
     handful of these it names; the per-event constants (``event_number``,
-    ``e1``, ``e2``, ``d``, ``ovl``) compress to almost nothing.
+    ``e1``, ``e2``, ``d``, ``ovl``) compress to almost nothing. A single-shower
+    experiment passes :data:`PROJ_SINGLE_COLUMNS`.
     """
     # The separating comma goes before each line's comment, never after it.
     lines = []
-    for index, (name, sql_type, comment) in enumerate(PROJ_COLUMNS):
-        sep = "," if index < len(PROJ_COLUMNS) - 1 else ""
+    for index, (name, sql_type, comment) in enumerate(columns):
+        sep = "," if index < len(columns) - 1 else ""
         line = f"    {name:<13} {sql_type}{sep}"
         if comment:
             line += f"  -- {comment}"
@@ -302,7 +431,134 @@ EVENT_COLUMNS: tuple[tuple[str, str], ...] = _event_columns()
 EVENT_COLUMN_NAMES: tuple[str, ...] = tuple(name for name, _ in EVENT_COLUMNS)
 
 
-def create_event_table(physical: str) -> str:
+# --------------------------------------------------------- Group-1 columns --
+#
+# Per-shower sums of each event's hits from which every per-frame feature of
+# ``core.calc_all_features_v3`` (core.py:459-574) is rebuilt exactly, plus the
+# negative-depth counts (C9) and the energy-weighted transverse radius moments
+# (C7). Every name is built here - query code never writes one by hand.
+#
+# ``sum_e_rl``/``sum_e_rl2`` use the 2-D transverse radius ρ = √(x_local² +
+# y_local²), the notebook's radial-profile radius, which is not core.py's 3-D
+# ``r_local``. The standard deviations are stored as ``stddev_samp`` values
+# because recovering them from Σr and Σr² loses ~10⁻⁵ to cancellation where the
+# shower is narrow and far from the origin. φ is circular: its linear sums exist
+# only to reproduce core.py's arithmetic ``avg_phi`` and ``angular_spread`` for
+# parity, beside the circular sums ``sum_cos_phi``/``sum_sin_phi``.
+
+#: The frames Group-1 covers, by their frame code.
+GROUP1_FRAMES: tuple[str, ...] = ("abs", "trn", "loc")
+
+#: Per-shower stems, named ``{stem}_{shower}``.
+GROUP1_SHOWER_STEMS: tuple[tuple[str, str], ...] = (
+    ("n_hits", "BIGINT"),          # num_hits
+    ("e_dep", "DOUBLE"),           # total_hit_energy
+    ("n_cells", "BIGINT"),         # distinct cells of the shower
+    ("w_neg_hits", "BIGINT"),      # hits at z_local < NEG_DEPTH_MM
+    ("w_neg_energy", "DOUBLE"),    # their energy
+    ("sum_e_rl", "DOUBLE"),        # Σ E·ρ
+    ("sum_e_rl2", "DOUBLE"),       # Σ E·ρ²
+)
+
+#: Per-frame stems, named ``{stem}_{shower}_{frame}``.
+GROUP1_FRAME_STEMS: tuple[tuple[str, str], ...] = tuple(
+    (stem, "DOUBLE") for stem in (
+        "x_min", "x_max", "y_min", "y_max", "z_min", "z_max",
+        "sum_ex", "sum_ey", "sum_ez",
+        "sum_r", "sum_r2", "sd_r", "max_r", "sum_er",
+        "sum_theta", "sum_theta2", "sd_theta",
+        "sum_phi", "sd_phi",
+        "sum_cos_phi", "sum_sin_phi",
+    )
+)
+
+
+def group1_column(stem: str, shower: str, frame: str | None = None) -> str:
+    """The name of one Group-1 column, e.g. ``sd_r_a_loc`` or ``w_neg_hits_b``."""
+    _check(shower, ("a", "b"), "shower")
+    if frame is None:
+        _check(stem, tuple(s for s, _ in GROUP1_SHOWER_STEMS), "Group-1 shower stem")
+        return f"{stem}_{shower}"
+    _check(stem, tuple(s for s, _ in GROUP1_FRAME_STEMS), "Group-1 frame stem")
+    _check(frame, GROUP1_FRAMES, "Group-1 frame")
+    return f"{stem}_{shower}_{frame}"
+
+
+def group1_columns(showers: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """Every Group-1 column for the given showers, as ``(name, type)``: 70 per shower."""
+    columns: list[tuple[str, str]] = []
+    for shower in showers:
+        columns += [(group1_column(stem, shower), sql_type) for stem, sql_type in GROUP1_SHOWER_STEMS]
+        for frame in GROUP1_FRAMES:
+            columns += [(group1_column(stem, shower, frame), sql_type)
+                        for stem, sql_type in GROUP1_FRAME_STEMS]
+    return tuple(columns)
+
+
+#: The two-shower event table from derived version 2: today's columns, then
+#: Group-1 for both showers ('A+B' rows counted with B, as everywhere else).
+EVENT_COLUMNS_V2: tuple[tuple[str, str], ...] = EVENT_COLUMNS + group1_columns(("a", "b"))
+
+
+def _event_single_columns() -> tuple[tuple[str, str], ...]:
+    columns: list[tuple[str, str]] = [
+        ("event_number", "INTEGER PRIMARY KEY"),
+        ("e1", "DOUBLE"), ("e1_bin", "UTINYINT"),
+        ("theta_a", "DOUBLE"), ("phi_a", "DOUBLE"),
+    ]
+    # Energy-weighted 3-D centroids in the three frames (core.py:491-497; raw z).
+    for suffix in ("", "_t", "_l"):
+        columns += [(f"ca{axis}{suffix}", "DOUBLE") for axis in "xyz"]
+    columns += [(f"p0a{axis}", "DOUBLE") for axis in "xyz"]
+    columns += [
+        ("n_hits", "BIGINT"), ("n_a_rows", "BIGINT"), ("e_dep", "DOUBLE"),
+        ("n_primary_rows", "BIGINT"),      # rows with is_secondary = 0 (C11)
+        ("e_primary", "DOUBLE"),
+        ("primary_type", "VARCHAR"),       # particle_type of the most energetic primary row
+        ("n_null_species", "BIGINT"),
+        ("n_parent_mismatch", "BIGINT"),   # (parent_type IS NULL) <> (is_secondary = 0)
+        ("n_cells", "BIGINT"), ("n_dup_cells", "BIGINT"),
+        ("chk_p0_spread", "DOUBLE"),       # spread of x - x_trans etc. within the event
+        ("chk_pt_spread", "DOUBLE"),       # spread of p, theta, phi, bin within the event
+        ("chk_bin_rule", "BIGINT"),        # rows with incoming_momentum_bin <> floor(p)
+    ]
+    return tuple(columns) + group1_columns(("a",))
+
+
+#: The event table of a single-shower hit experiment: the shower-A names of the
+#: two-shower table where the meaning is the same, the species and consistency
+#: counts of the hit file, and Group-1 for shower ``a``.
+EVENT_SINGLE_COLUMNS: tuple[tuple[str, str], ...] = _event_single_columns()
+
+
+def _event_feature_columns() -> tuple[tuple[str, str], ...]:
+    columns: list[tuple[str, str]] = [
+        ("event_number", "INTEGER PRIMARY KEY"),   # event_id
+        ("e1", "DOUBLE"),                          # incoming_momentum
+        ("theta_a", "DOUBLE"), ("phi_a", "DOUBLE"),
+        ("e1_bin", "UTINYINT"),                    # incoming_momentum_bin
+        ("n_hits", "BIGINT"),                      # num_hits
+        ("e_dep", "DOUBLE"),                       # total_hit_energy
+    ]
+    for code in ("abs", "trn", "loc"):
+        columns += [(f"{name}{FEATURE_SUFFIX[code]}", "DOUBLE") for name in CORE_FEATURES]
+    for code in ("abs", "trn", "loc"):
+        columns += [(f"{name}{FEATURE_SUFFIX[code]}", "DOUBLE")
+                    for name in ("numerical_density", "energy_density")]
+    columns.append(("energy_class", "UTINYINT"))   # the file's trailing 'energy' label
+    return tuple(columns)
+
+
+#: The event table of an aggregated experiment: the 59 file columns, the shared
+#: names for the kinematics, deposit and hit count so selections and the
+#: response panels read every kind alike, and the trailing label renamed to what
+#: it is.
+EVENT_FEATURE_COLUMNS: tuple[tuple[str, str], ...] = _event_feature_columns()
+
+
+def create_event_table(
+    physical: str, columns: tuple[tuple[str, str], ...] = EVENT_COLUMNS
+) -> str:
     """DDL for the per-event summary of additive sufficient statistics.
 
     The design property that makes the interactive metrics cheap: accuracy, MAE
@@ -312,8 +568,55 @@ def create_event_table(physical: str) -> str:
     metrics roll up *exactly* over any selection, from about 20 000 rows, with
     no re-scan of the 24 million hit rows. The angle and energy networks predict
     one value per shower, so those live here too, once per event and shower.
+    The other kinds pass :data:`EVENT_SINGLE_COLUMNS` or
+    :data:`EVENT_FEATURE_COLUMNS`, and two-shower derived version 2 passes
+    :data:`EVENT_COLUMNS_V2`.
     """
-    body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in EVENT_COLUMNS)
+    body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in columns)
+    return f"CREATE TABLE IF NOT EXISTS {quote(physical)} (\n    {body}\n);"
+
+
+# ------------------------------------------------- layer and profile tables --
+
+#: Per-(event, shower, own-shower layer) sums: one row per populated layer.
+#: ``kt = round(z_trans / layer pitch)``; u, v = ``x_local``, ``y_local``.
+LAYERS_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("event_number", "INTEGER"),
+    ("shower", "UTINYINT"),        # 0 = A, 1 = B ('A+B' rows with B)
+    ("kt", "UTINYINT"),
+    ("e_dep", "DOUBLE"),
+    ("n_cells", "INTEGER"),
+    ("sum_eu", "DOUBLE"),          # Σ E·u
+    ("sum_ev", "DOUBLE"),          # Σ E·v
+    ("sum_erl", "DOUBLE"),         # Σ E·ρ, ρ = √(u² + v²)
+    ("sum_erl2", "DOUBLE"),        # Σ E·ρ²
+)
+
+#: The profile axes of :data:`PROFILES_COLUMNS`.
+PROFILE_AXIS_W = 0     # depth along the incident direction, bins of the layer pitch
+PROFILE_AXIS_R = 1     # transverse radius ρ, 10 mm bins, last bin the overflow
+
+#: Per-(event, shower, axis, bin) energy of the Local-frame footprint splat:
+#: one row per populated bin. ``e`` is every sub-deposit landing in the bin;
+#: ``e_wneg`` the part coming from hits at ``z_local < NEG_DEPTH_MM``, so the
+#: notebook's convention (drop those hits) is a subtraction, not a second key.
+PROFILES_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("event_number", "INTEGER"),
+    ("shower", "UTINYINT"),
+    ("axis", "UTINYINT"),
+    ("bin", "SMALLINT"),
+    ("e", "DOUBLE"),
+    ("e_wneg", "DOUBLE"),
+)
+
+
+def create_layers_table(physical: str) -> str:
+    body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in LAYERS_COLUMNS)
+    return f"CREATE TABLE IF NOT EXISTS {quote(physical)} (\n    {body}\n);"
+
+
+def create_profiles_table(physical: str) -> str:
+    body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in PROFILES_COLUMNS)
     return f"CREATE TABLE IF NOT EXISTS {quote(physical)} (\n    {body}\n);"
 
 
@@ -371,6 +674,9 @@ REGISTRY_SCHEMA: tuple[tuple[str, str], ...] = (
     ("n_ab_rows", "BIGINT"),
     ("frame_bounds", "VARCHAR"),      # JSON, see calosrv.grid.bounds
     ("ingest_report", "VARCHAR"),     # JSON: sanitation, calibration, timings, checks
+    # --- appended for the three-schema extension ---------------------------
+    ("derived_version", "INTEGER"),   # layout generation of the derived tables; NULL = 1
+    ("capabilities", "VARCHAR"),      # JSON: what ingest measured that the API advertises
 )
 
 REGISTRY_COLUMNS: tuple[str, ...] = tuple(name for name, _ in REGISTRY_SCHEMA)
