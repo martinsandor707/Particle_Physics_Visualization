@@ -7,11 +7,17 @@ here is stricter than the CSV header check where it can be: a string in a
 numeric column, a floating-point event number or an out-of-range integer is
 refused before anything is dropped, not discovered half way through a load.
 
-Every column is cast to its pinned ``ddl.HIT_COLUMNS`` type, so a Parquet-sourced
-archive part is interchangeable with a CSV-sourced one - the same types in the
-same order, read together and appendable to each other. A DOUBLE source narrowed
-to REAL is reported with what it costs: float32 round-off, at most 2⁻²⁴ ≈ 6 × 10⁻⁸
-relative, several orders below the detector's resolution.
+The file's set of column names decides which accepted input schema it is
+(``db/schemas.py``), and every column is cast to that schema's pinned type, so a
+Parquet-sourced archive part is interchangeable with a CSV-sourced one - the
+same types in the same order (and, where the schema sorts its parts, the same
+row order), read together and appendable to each other. A DOUBLE source
+narrowed to REAL is reported with what it costs: float32 round-off, at most
+2⁻²⁴ ≈ 6 × 10⁻⁸ relative, several orders below the detector's resolution.
+
+Two Parquet spellings are normalised to what the CSV reader produces: an empty
+string in a text column the schema allows to be empty is NULL, as an empty CSV
+field is, and a BOOLEAN where the schema stores 0/1 becomes 0/1.
 
 DuckDB's own Parquet reader does all of this; pyarrow is not needed.
 """
@@ -23,10 +29,10 @@ from pathlib import Path
 
 import duckdb
 
-from ..db.ddl import HIT_COLUMN_NAMES, HIT_COLUMNS, NULLABLE_COLUMNS, SCHEMA_NAME
+from ..db import schemas
 from ..db.naming import quote
+from ..db.schemas import InputSchema
 from ..errors import IngestError
-from ..text import listed
 from .source_check import SourceCheck
 
 #: DuckDB's names for the integer types a Parquet column can arrive as.
@@ -39,8 +45,6 @@ _TARGET_INTEGERS = frozenset({"INTEGER", "SMALLINT", "BIGINT", "UTINYINT"})
 
 #: pandas writes a non-default index as a column like this. It is not data.
 _PANDAS_INDEX = re.compile(r"^__index_level_\d+__$")
-
-_TYPES = dict(HIT_COLUMNS)
 
 
 def _literal(path: Path) -> str:
@@ -61,6 +65,12 @@ def _kind(sql_type: str) -> str:
         return "decimal"
     if base == "VARCHAR" or base.startswith("ENUM"):
         return "text"
+    if base == "BOOLEAN":
+        return "boolean"
+    if base == '"NULL"' or base == "NULL":
+        # An all-null Arrow column: no value to type, which only a column the
+        # schema allows to be empty may be.
+        return "null"
     return "other"
 
 
@@ -84,44 +94,27 @@ def count_rows(con: duckdb.DuckDBPyConnection, path: Path) -> int:
     ).fetchone()[0])
 
 
-def _check_columns(path: Path, found: dict[str, str]) -> list[str]:
-    """Refuse a missing or unexpected column; return the pandas index columns ignored."""
+def _detect(path: Path, found: dict[str, str]) -> tuple[InputSchema, list[str]]:
+    """The schema whose names the file holds; the pandas index columns ignored."""
     ignored = [name for name in found if _PANDAS_INDEX.match(name)]
-    missing = [c for c in HIT_COLUMN_NAMES if c not in found]
-    unexpected = [c for c in found if c not in _TYPES and c not in ignored]
-    if not missing and not unexpected:
-        return ignored
-    parts = []
-    if missing:
-        parts.append(f"missing columns: {listed(missing)}")
-    if unexpected:
-        parts.append(f"unexpected columns: {listed(unexpected)}")
-    message = (
-        f"{path.name} does not match the {SCHEMA_NAME} input schema "
-        f"({len(HIT_COLUMN_NAMES)} columns; {'; '.join(parts)})."
-    )
-    if "voxel_fA_pred" in found:
-        message += (
-            " This looks like a retired v37 (hits_with_gradcam) file; re-export it "
-            f"in the {SCHEMA_NAME} format."
-        )
-    raise IngestError(message, expected=list(HIT_COLUMN_NAMES), found=list(found))
+    names = [name for name in found if name not in ignored]
+    return schemas.detect_names(path.name, names), ignored
 
 
-def _check_types(path: Path, found: dict[str, str]) -> list[str]:
+def _check_types(path: Path, found: dict[str, str], schema: InputSchema) -> list[str]:
     """Refuse a column whose type cannot become the pinned one; return those narrowed."""
     wrong: list[str] = []
     narrowed: list[str] = []
-    for name, target in HIT_COLUMNS:
+    for name, target in schema.columns:
         source = found[name]
         kind = _kind(source)
         if target == "VARCHAR":
-            ok = kind == "text"
+            ok = kind == "text" or (kind == "null" and name in schema.empty_is_null)
             want = "text"
         elif target in _TARGET_INTEGERS:
             # A floating-point event number or cell ID would be rounded silently.
-            ok = kind == "integer"
-            want = "an integer type"
+            ok = kind == "integer" or (kind == "boolean" and name in schema.boolean_ok)
+            want = "an integer type" + (" or a boolean" if name in schema.boolean_ok else "")
         else:
             ok = kind in ("integer", "float", "decimal")
             want = "a number"
@@ -138,12 +131,13 @@ def _check_types(path: Path, found: dict[str, str]) -> list[str]:
 
 
 def _check_integer_ranges(
-    con: duckdb.DuckDBPyConnection, path: Path, found: dict[str, str]
+    con: duckdb.DuckDBPyConnection, path: Path, found: dict[str, str], schema: InputSchema
 ) -> None:
     """Every integer must fit its pinned type. A dry-run cast reads only those columns."""
     wider = [
-        (name, target) for name, target in HIT_COLUMNS
+        (name, target) for name, target in schema.columns
         if target in _TARGET_INTEGERS and found[name].upper() != target
+        and _kind(found[name]) == "integer"
     ]
     if not wider:
         return
@@ -166,10 +160,10 @@ def _check_integer_ranges(
 
 
 def _count_nan(
-    con: duckdb.DuckDBPyConnection, path: Path, found: dict[str, str]
+    con: duckdb.DuckDBPyConnection, path: Path, found: dict[str, str], schema: InputSchema
 ) -> dict[str, int]:
     """NaN in the columns where an undefined value has a meaning of its own."""
-    floating = [c for c in NULLABLE_COLUMNS if _kind(found[c]) == "float"]
+    floating = [c for c in schema.nan_as_null if _kind(found[c]) == "float"]
     if not floating:
         return {}
     counts = con.execute(
@@ -187,10 +181,11 @@ def validate(con: duckdb.DuckDBPyConnection, path: Path) -> SourceCheck:
     seconds on the production file rather than a full load.
     """
     found = describe(con, path)
-    ignored = _check_columns(path, found)
-    narrowed = _check_types(path, found)
-    _check_integer_ranges(con, path, found)
-    nan_as_null = _count_nan(con, path, found)
+    schema, ignored = _detect(path, found)
+    narrowed = _check_types(path, found, schema)
+    _check_integer_ranges(con, path, found, schema)
+    nan_as_null = _count_nan(con, path, found, schema)
+    booleans = [c for c in schema.boolean_ok if _kind(found[c]) == "boolean"]
 
     notices: list[str] = []
     if narrowed:
@@ -205,30 +200,40 @@ def validate(con: duckdb.DuckDBPyConnection, path: Path) -> SourceCheck:
             "columns were read as undefined (NULL), as an empty field is in a CSV: "
             + ", ".join(f"{c} ({n:,})" for c, n in nan_as_null.items()) + "."
         )
+    if booleans:
+        notices.append(f"BOOLEAN column(s) stored as 0/1: {', '.join(booleans)}.")
     if ignored:
         notices.append(f"pandas index column(s) ignored: {', '.join(ignored)}.")
     return SourceCheck(
         format="parquet", rows=count_rows(con, path), narrowed=narrowed,
-        nan_as_null=nan_as_null, notices=notices,
+        nan_as_null=nan_as_null, notices=notices, schema=schema,
     )
 
 
 def select_sql(path: Path, event_offset: int = 0, check: SourceCheck | None = None) -> str:
     """Every column in the schema's order, cast to its pinned type.
 
-    The event offset is applied before the cast, so an offset that overflows the
-    pinned INTEGER is an error here rather than an INT64 part beside INT32 ones.
-    NaN becomes NULL in the undefined-separation columns the check found it in.
+    The event offset is applied to the schema's event key before the cast, so
+    an offset that overflows the pinned type is an error here rather than an
+    INT64 part beside INT32 ones. NaN becomes NULL in the undefined-separation
+    columns the check found it in, an empty string NULL in the text columns
+    the schema allows to be empty, and the rows are written in the schema's
+    archive order when it has one.
     """
+    schema = check.schema if check else schemas.DEFAULT
     to_null = set(check.nan_as_null) if check else set()
     projected = []
-    for name, sql_type in HIT_COLUMNS:
+    for name, sql_type in schema.columns:
         column = quote(name)
-        if name == "event_number" and event_offset:
+        if name == schema.event_key and event_offset:
             value = f"CAST({column} + {int(event_offset)} AS {sql_type})"
+        elif name in schema.empty_is_null:
+            value = f"NULLIF(CAST({column} AS VARCHAR), '')"
         else:
             value = f"CAST({column} AS {sql_type})"
         if name in to_null:
             value = f"CASE WHEN isnan({column}) THEN NULL ELSE {value} END"
         projected.append(f"{value} AS {column}")
-    return f"SELECT {', '.join(projected)} FROM {_relation(path)}"
+    order = (" ORDER BY " + ", ".join(quote(c) for c in schema.archive_order)
+             if schema.archive_order else "")
+    return f"SELECT {', '.join(projected)} FROM {_relation(path)}{order}"

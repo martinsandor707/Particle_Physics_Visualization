@@ -10,8 +10,8 @@ from pathlib import Path
 import duckdb
 
 from ..config import Settings
-from ..db import archive, naming
-from ..db.ddl import SCHEMA_NAME, SCHEMA_VERSION, drop_table
+from ..db import archive, naming, schemas
+from ..db.ddl import drop_table
 from ..errors import EventRangeCollisionError, IngestError
 from . import formats
 from .source_check import SourceCheck
@@ -69,6 +69,20 @@ def check_append_collision(
         )
 
 
+def check_append_schema(name: str, manifest: archive.Manifest, schema: schemas.InputSchema) -> None:
+    """Refuse an append whose file is not the schema the experiment's archive holds."""
+    if (manifest.schema_name, manifest.schema_version) == (schema.name, schema.version):
+        return
+    held = schemas.get(manifest.schema_name, manifest.schema_version)
+    held_label = held.label if held else f"{manifest.schema_name} v{manifest.schema_version}"
+    raise IngestError(
+        f"Cannot append a {schema.label} file to experiment {name!r}: its archive holds "
+        f"the {held_label} schema.",
+        expected={"name": manifest.schema_name, "version": manifest.schema_version},
+        found={"name": schema.name, "version": schema.version},
+    )
+
+
 def load_source(
     con: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -106,12 +120,13 @@ def load_source(
             f"Unknown upload mode {mode!r}; expected one of {', '.join(VALID_MODES)}."
         )
     root = archive.archive_path(settings, name)
+    schema = check.schema if check is not None else schemas.DEFAULT
 
     if mode == MODE_CREATE_NEW:
         for table in naming.all_tables(name):
             con.execute(drop_table(table))
         archive.remove(settings, name)
-        manifest = archive.Manifest(SCHEMA_NAME, SCHEMA_VERSION)
+        manifest = archive.Manifest(schema.name, schema.version)
     else:
         manifest = archive.read_manifest(settings, name)
         if manifest is None or not manifest.parts:
@@ -119,30 +134,27 @@ def load_source(
                 f"Cannot append to experiment {name!r}: its archive is missing. "
                 "Re-ingest it with create_new first."
             )
-        if (manifest.schema_name, manifest.schema_version) != (SCHEMA_NAME, SCHEMA_VERSION):
-            raise IngestError(
-                f"Cannot append to experiment {name!r}: its archive holds the "
-                f"{manifest.schema_name} v{manifest.schema_version} schema."
-            )
+        check_append_schema(name, manifest, schema)
 
     root.mkdir(parents=True, exist_ok=True)
     part = archive.next_part_path(settings, name)
     tmp = part.with_name(part.name + archive.TMP_SUFFIX)
     log.info("Archiving %s into %s (mode=%s)", path.name, part, mode)
+    key = naming.quote(schema.event_key)
     try:
         written = con.execute(
             archive.copy_to_part_sql(formats.select_sql(path, fmt, event_offset, check), tmp)
         ).fetchone()
+        rows = int(written[0]) if written and written[0] is not None else int(
+            con.execute(f"SELECT count(*) FROM {archive.relation_sql([tmp])}").fetchone()[0]
+        )
+        # Read inside the try: a part whose range cannot be read is removed too.
+        bounds = con.execute(
+            f"SELECT min({key}), max({key}) FROM {archive.relation_sql([tmp])}"
+        ).fetchone()
     except duckdb.Error as exc:
         tmp.unlink(missing_ok=True)
         raise IngestError(f"DuckDB rejected {path.name}: {exc}") from exc
-    rows = int(written[0]) if written and written[0] is not None else int(
-        con.execute(f"SELECT count(*) FROM {archive.relation_sql([tmp])}").fetchone()[0]
-    )
-
-    bounds = con.execute(
-        f"SELECT min(event_number), max(event_number) FROM {archive.relation_sql([tmp])}"
-    ).fetchone()
     incoming = (int(bounds[0]), int(bounds[1])) if bounds and bounds[0] is not None else None
     if mode == MODE_APPEND:
         try:

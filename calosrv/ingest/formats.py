@@ -95,11 +95,10 @@ def detect_format(path: Path) -> str:
 
 
 def validate(con: duckdb.DuckDBPyConnection, path: Path, fmt: str) -> SourceCheck:
-    """Check a source against the input schema; raises ``IngestError`` if it does not fit."""
+    """Recognise a source's input schema; raises ``IngestError`` if it fits none."""
     if fmt == PARQUET:
         return parquet_spec.validate(con, path)
-    csv_spec.validate_header(path)
-    return SourceCheck(format=CSV)
+    return SourceCheck(format=CSV, schema=csv_spec.validate_header(path))
 
 
 def select_sql(path: Path, fmt: str, event_offset: int = 0,
@@ -107,7 +106,8 @@ def select_sql(path: Path, fmt: str, event_offset: int = 0,
     """The SELECT that reads every column of the source, typed as the archive stores it."""
     if fmt == PARQUET:
         return parquet_spec.select_sql(path, event_offset, check)
-    return csv_spec.select_sql(path, event_offset)
+    return csv_spec.select_sql(path, event_offset,
+                               check.schema if check else csv_spec.validate_header(path))
 
 
 def count_rows(con: duckdb.DuckDBPyConnection, path: Path, fmt: str) -> int:

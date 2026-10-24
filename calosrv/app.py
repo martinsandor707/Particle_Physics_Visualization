@@ -237,16 +237,20 @@ async def lifespan(app: FastAPI):
         # Background and best-effort. The admin panel's default experiment goes
         # first and its default model is the one warmed, so the view a new
         # session opens on is the one already paid for.
-        from .query import canonical_cache, shower_frames
+        from .query import warming
 
         defaults: DefaultsStore = app.state.defaults
         first = defaults.configured("default_dataset")
         model = defaults.configured("default_model") or "segmentation"
-        names = sorted((r.table_name for r in ready if r.is_ready), key=lambda n: n != first)
-        shower_frames.warm(
-            database, settings, names, model=model,
-            after=canonical_cache.warm(database, settings, names, model=model),
-        )
+        records = sorted((r for r in ready if r.is_ready), key=lambda r: r.table_name != first)
+        # The application's own demonstration experiment is rebuilt when an
+        # earlier release derived it; a user's experiment never is.
+        baseline = next((r for r in records if r.table_name == BASELINE_TABLE), None)
+        if baseline is not None and baseline.derived_status == "stale":
+            log.info("Rebuilding %s: its derived tables are from an earlier release", BASELINE_TABLE)
+            store.submit_rebuild(BASELINE_TABLE)
+            records = [r for r in records if r is not baseline]
+        warming.warm(database, settings, records, model=model)
 
     try:
         yield
