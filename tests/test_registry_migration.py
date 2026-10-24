@@ -103,6 +103,67 @@ def test_a_named_upsert_round_trips_every_new_field():
         assert getattr(back, field) == getattr(record, field), field
 
 
+def test_the_derived_version_and_capabilities_round_trip():
+    con = duckdb.connect()
+    registry.ensure_registry(con)
+    record = registry.ExperimentRecord(
+        table_name="single", status=registry.STATUS_READY,
+        schema_name="standalone_hits", schema_version=3, derived_version=1,
+        capabilities={"footprint_mm": [48.27, 48.6], "profiles": {"k": 6, "k_z": 2}},
+    )
+    registry.upsert(con, record)
+    back = registry.get_experiment(con, "single")
+    assert back.derived_version == 1
+    assert back.capabilities == record.capabilities
+    assert back.kind == "single_shower_hits" and back.traits.showers == ("a",)
+    assert back.derived_status == "current"
+
+
+def _ready_row(con, name: str, schema_name: str | None, version: int | None,
+               derived_version: int | None = None) -> None:
+    registry.upsert(con, registry.ExperimentRecord(
+        table_name=name, status=registry.STATUS_READY, schema_name=schema_name,
+        schema_version=version, derived_version=derived_version))
+
+
+def test_every_accepted_schema_is_served_at_boot_with_its_own_tables():
+    con = duckdb.connect()
+    registry.ensure_registry(con)
+    _ready_row(con, "two", "hits_all_models", 1)
+    _ready_row(con, "single", "standalone_hits", 3, derived_version=1)
+    _ready_row(con, "aggr", "standalone_events", 3, derived_version=1)
+    for table in ("proj_two", "event_two", "proj_single", "event_single", "layers_single",
+                  "profiles_single", "event_aggr"):
+        con.execute(f'CREATE TABLE "{table}" (event_number INTEGER)')
+    ready = {r.table_name for r in bootstrap.bootstrap(con)}
+    assert ready == {"two", "single", "aggr"}
+    # The pre-extension two-shower experiment is served as before, flagged stale.
+    assert registry.get_experiment(con, "two").derived_status == "stale"
+
+
+def test_a_missing_layer_table_fails_a_single_shower_experiment_but_not_a_stale_two_shower_one():
+    con = duckdb.connect()
+    registry.ensure_registry(con)
+    _ready_row(con, "two", "hits_all_models", 1)
+    _ready_row(con, "single", "standalone_hits", 3, derived_version=1)
+    for table in ("proj_two", "event_two", "proj_single", "event_single", "profiles_single"):
+        con.execute(f'CREATE TABLE "{table}" (event_number INTEGER)')
+    bootstrap.bootstrap(con)
+    assert registry.get_experiment(con, "two").status == registry.STATUS_READY
+    single = registry.get_experiment(con, "single")
+    assert single.status == registry.STATUS_FAILED and "layers_single" in single.error
+
+
+def test_an_unknown_schema_version_is_named_in_its_error():
+    con = duckdb.connect()
+    registry.ensure_registry(con)
+    _ready_row(con, "future", "standalone_hits", 9)
+    bootstrap.bootstrap(con)
+    record = registry.get_experiment(con, "future")
+    assert record.status == registry.STATUS_FAILED
+    assert record.error == "unsupported schema (standalone_hits v9): delete and re-ingest"
+
+
 # ---------------------------------------------------------- storage guard --
 
 MOUNTINFO = """\

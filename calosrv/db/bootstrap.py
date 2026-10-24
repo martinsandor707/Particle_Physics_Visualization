@@ -12,8 +12,8 @@ import logging
 import duckdb
 
 from ..config import Settings
-from . import archive, naming, registry
-from .ddl import SCHEMA_NAME, SCHEMA_VERSION
+from . import archive, naming, registry, schemas
+from .ddl import SCHEMA_NAME
 from .naming import quote
 
 log = logging.getLogger(__name__)
@@ -22,6 +22,16 @@ log = logging.getLogger(__name__)
 #: v37 schema. Its tables are never queried again; deleting it and ingesting
 #: the data in the hits_all_models format is the way forward.
 UNSUPPORTED_V37_ERROR = "unsupported schema (v37, retired): delete and re-ingest"
+
+
+def unsupported_error(record: registry.ExperimentRecord) -> str:
+    """Why a registry row names a schema this release cannot serve."""
+    if record.schema_name is None:
+        return UNSUPPORTED_V37_ERROR
+    return (
+        f"unsupported schema ({record.schema_name} v{record.schema_version}): "
+        "delete and re-ingest"
+    )
 
 
 def physical_tables(con: duckdb.DuckDBPyConnection) -> set[str]:
@@ -33,7 +43,7 @@ def physical_tables(con: duckdb.DuckDBPyConnection) -> set[str]:
 
 
 def _is_current_schema(record: registry.ExperimentRecord) -> bool:
-    return (record.schema_name, record.schema_version) == (SCHEMA_NAME, SCHEMA_VERSION)
+    return record.schema is not None
 
 
 def bootstrap(
@@ -57,13 +67,15 @@ def bootstrap(
         name = record.table_name
 
         if record.status != registry.STATUS_INGESTING and not _is_current_schema(record):
-            if record.error != UNSUPPORTED_V37_ERROR:
+            error = unsupported_error(record)
+            if record.error != error:
                 log.warning(
-                    "Experiment %r was ingested under a retired schema (%s); marking it "
-                    "failed. Delete it and ingest the data in the %s format.",
+                    "Experiment %r was ingested under a schema this release does not serve "
+                    "(%s); marking it failed. Delete it and ingest the data in an accepted "
+                    "format (%s).",
                     name, record.schema_name or "v37", SCHEMA_NAME,
                 )
-                registry.set_status(con, name, registry.STATUS_FAILED, UNSUPPORTED_V37_ERROR)
+                registry.set_status(con, name, registry.STATUS_FAILED, error)
             continue
 
         # A row still marked 'ingesting' means the process died mid-load. The
@@ -86,10 +98,11 @@ def bootstrap(
 
         # A registry row whose tables have been dropped out from under it (a
         # hand-edited database, a restored volume) would otherwise fail at query
-        # time with a confusing missing-table error.
-        required = {naming.proj_table(name), naming.event_table(name)}
-        if record.has_sample:
-            required.add(naming.proj_table(name, sampled=True))
+        # time with a confusing missing-table error. Which tables a kind needs
+        # depends on it: an aggregated experiment has only its event table.
+        required = schemas.required_tables(
+            name, record.kind, record.derived_version, record.has_sample
+        )
         missing = required - present
         if missing:
             log.warning(
@@ -101,6 +114,15 @@ def bootstrap(
                 f"Backing tables are missing: {', '.join(sorted(missing))}",
             )
             continue
+
+        # Derived tables older than this release's layout are served as before;
+        # the panels that need the newer tables stay off until a rebuild.
+        if record.derived_status == "stale":
+            log.info(
+                "Experiment %r has derived tables v%d (current v%d): served as before; "
+                "rebuild it from its archive to enable the panels that need the new tables.",
+                name, record.derived_version or 1, schemas.DERIVED_VERSION[record.kind],
+            )
 
         # The hot path never reads the archive, so a missing one does not stop
         # serving; it does stop append and rebuild, which say so themselves.
