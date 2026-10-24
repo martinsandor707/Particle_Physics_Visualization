@@ -29,8 +29,16 @@ from .ingest import jobs as jobs_mod
 from .logging_setup import configure_logging, log_boot_banner
 from .api import (
     routes_admin,
+    routes_correlations,
+    routes_distributions,
     routes_energy,
     routes_event,
+    routes_features,
+    routes_prediction,
+    routes_primaries,
+    routes_profiles,
+    routes_response,
+    routes_statistics,
     routes_window_axis,
     routes_experiments,
     routes_health,
@@ -316,6 +324,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_performance,
         routes_event,
         routes_window_axis,
+        routes_response,
+        routes_profiles,
+        routes_distributions,
+        routes_correlations,
+        routes_statistics,
+        routes_primaries,
+        routes_prediction,
+        routes_features,
     ):
         app.include_router(module.router)
 

@@ -321,7 +321,8 @@
    ],
    "required": [
     "series",
-    "interval",
+    "whisker",
+    "dispersion",
     "y"
    ],
    "properties": {
@@ -483,8 +484,27 @@
       }
      }
     },
-    "interval": {
-     "$ref": "#/$defs/interval"
+    "whisker": {
+     "type": "object",
+     "required": [
+      "method",
+      "label",
+      "level"
+     ],
+     "properties": {
+      "method": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      },
+      "level": {
+       "type": "number"
+      }
+     }
+    },
+    "dispersion": {
+     "type": "string"
     },
     "y": {
      "type": "object",
@@ -526,6 +546,7 @@
    ],
    "required": [
     "series",
+    "whisker",
     "y",
     "note"
    ],
@@ -538,6 +559,7 @@
        "key",
        "label",
        "kind",
+       "unit",
        "bins"
       ],
       "properties": {
@@ -553,6 +575,9 @@
          "response_ratio"
         ]
        },
+       "unit": {
+        "type": "string"
+       },
        "bins": {
         "type": "array",
         "items": {
@@ -562,15 +587,16 @@
           "label",
           "n",
           "p_mean",
-          "mu_gev",
-          "sigma_gev",
-          "sigma_ci95_gev",
+          "mu",
+          "sigma",
+          "sigma_ci95",
           "value",
           "ci95",
           "se_delta",
           "c4",
           "non_gaussian",
-          "momentum_spread"
+          "momentum_spread",
+          "weak"
          ],
          "properties": {
           "bin": {
@@ -588,19 +614,19 @@
             "null"
            ]
           },
-          "mu_gev": {
+          "mu": {
            "type": [
             "number",
             "null"
            ]
           },
-          "sigma_gev": {
+          "sigma": {
            "type": [
             "number",
             "null"
            ]
           },
-          "sigma_ci95_gev": {
+          "sigma_ci95": {
            "anyOf": [
             {
              "type": "array",
@@ -665,10 +691,32 @@
             "number",
             "null"
            ]
+          },
+          "weak": {
+           "type": "boolean"
           }
          }
         }
        }
+      }
+     }
+    },
+    "whisker": {
+     "type": "object",
+     "required": [
+      "method",
+      "label",
+      "level"
+     ],
+     "properties": {
+      "method": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      },
+      "level": {
+       "type": "number"
       }
      }
     },

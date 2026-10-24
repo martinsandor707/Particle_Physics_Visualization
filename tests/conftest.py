@@ -55,7 +55,7 @@ def pytest_collection_modifyitems(session, config, items):
     """
     booted = [
         item for item in items
-        if {"client", "live_server", "synthetic_client", "auto_client"}
+        if {"client", "live_server", "synthetic_client", "auto_client", "single_client"}
         & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
@@ -183,6 +183,69 @@ def synthetic_client(tmp_path_factory):
             if any(e["status"] in ("ready", "failed") for e in payload["experiments"]):
                 break
             time.sleep(0.25)
+        yield test_client
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+
+
+#: The experiments the ``single_client`` server holds besides the baseline.
+SINGLE_HITS_TABLE = "single_hits"
+SINGLE_EVENTS_TABLE = "single_events"
+BASELINE_TABLE = "experiment_baseline"
+
+
+@pytest.fixture(scope="module")
+def single_client(tmp_path_factory):
+    """A server holding all three kinds: the two-shower baseline, single-shower hits, an aggregate.
+
+    The baseline is seeded as in ``client``; the single-shower experiments
+    are ``synthetic_single_shower``'s files, ingested through the app's own
+    database under :data:`SINGLE_HITS_TABLE` and :data:`SINGLE_EVENTS_TABLE`.
+    """
+    import os
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest import pipeline
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    import synthetic_single_shower
+
+    if not SEED_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()
+
+    data_dir = tmp_path_factory.mktemp("single-data")
+    hits_csv, events_csv = data_dir / "single_hits.csv", data_dir / "single_events.csv"
+    synthetic_single_shower.write(hits_csv)
+    synthetic_single_shower.write_aggregated(hits_csv, events_csv)
+    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+
+    app = create_app(load_settings())
+    with TestClient(app) as test_client:
+        for _ in range(120):
+            payload = test_client.get("/api/experiments").json()
+            if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+            time.sleep(0.25)
+        database = app.state.database
+        with database.write_lock() as con:
+            for name, source in ((SINGLE_HITS_TABLE, hits_csv), (SINGLE_EVENTS_TABLE, events_csv)):
+                result = pipeline.run_ingest(con, database.settings, name, source)
+                assert result.ok, result.warnings
         yield test_client
 
     reset_database()
