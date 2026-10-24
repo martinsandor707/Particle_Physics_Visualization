@@ -20,6 +20,7 @@ lies beyond it does not.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -83,10 +84,12 @@ _NICE_INTERVALS = (0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0)
 _TARGET_TICKS = 6
 
 
-def nice_range(lo: float, hi: float) -> tuple[float, float, float]:
+def nice_range(lo: float, hi: float, fine: bool = False) -> tuple[float, float, float]:
     """Round a display range outward to clean tick boundaries.
 
-    Returns ``(lo, hi, interval)``.
+    Returns ``(lo, hi, interval)``. ``fine=True`` extends the ladder below 0.1
+    to any 1-2-5 × 10^e interval, for fractions, σ/μ and angles in radians,
+    whose whole span can be a few hundredths; the default ladder is unchanged.
 
     A percentile-derived bound is an arbitrary float - 9.197060758 GeV, say -
     and letting it terminate an axis puts that number on a tick label, where it
@@ -103,6 +106,8 @@ def nice_range(lo: float, hi: float) -> tuple[float, float, float]:
         return 0.0, 1.0, 0.2
 
     span = hi - lo
+    if fine:
+        return _fine_range(lo, hi, span)
     interval = _NICE_INTERVALS[-1]
     for candidate in _NICE_INTERVALS:
         if span / candidate <= _TARGET_TICKS * 2:
@@ -117,6 +122,26 @@ def nice_range(lo: float, hi: float) -> tuple[float, float, float]:
     # Float multiplication leaves dust like 9.600000000000001; the interval is
     # never finer than 0.1, so six decimals is far more than enough.
     return round(nice_lo, 6), round(nice_hi, 6), interval
+
+
+def _fine_range(lo: float, hi: float, span: float) -> tuple[float, float, float]:
+    """The smallest 1-2-5 × 10^e interval giving at most twice the target ticks."""
+    exponent = math.floor(math.log10(span / (_TARGET_TICKS * 2)))
+    interval = 10.0 ** (exponent + 1)
+    for mantissa in (1.0, 2.0, 5.0, 10.0):
+        candidate = mantissa * 10.0 ** exponent
+        if span / candidate <= _TARGET_TICKS * 2 * (1 + 1e-12):
+            interval = candidate
+            break
+    # 0.3 / 0.1 is 2.9999999999999996: a bound already on a tick must stay on it.
+    t_lo, t_hi = lo / interval, hi / interval
+    nice_lo = math.floor(t_lo + 1e-9 * max(1.0, abs(t_lo))) * interval
+    nice_hi = math.ceil(t_hi - 1e-9 * max(1.0, abs(t_hi))) * interval
+    if nice_hi <= nice_lo:
+        nice_hi = nice_lo + interval
+    # The interval has at most -exponent decimals; one more absorbs the dust.
+    digits = max(0, -exponent) + 1
+    return round(nice_lo, digits), round(nice_hi, digits), round(interval, digits)
 
 
 def percentile_clip(

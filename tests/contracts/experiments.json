@@ -1,0 +1,686 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/experiments",
+ "type": "object",
+ "required": [
+  "experiments",
+  "lattices",
+  "defaults",
+  "compute"
+ ],
+ "properties": {
+  "experiments": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/experiment"
+   }
+  },
+  "lattices": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "x",
+     "y",
+     "z"
+    ],
+    "properties": {
+     "x": {
+      "type": "object"
+     },
+     "y": {
+      "type": "object"
+     },
+     "z": {
+      "type": "object"
+     }
+    }
+   }
+  },
+  "defaults": {
+   "type": "object"
+  },
+  "compute": {
+   "type": "object"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  },
+  "capabilities": {
+   "type": "object",
+   "required": [
+    "kind",
+    "kind_label",
+    "n_showers",
+    "showers",
+    "has_hits",
+    "has_lattice",
+    "has_frame_bounds",
+    "networks",
+    "species",
+    "filters",
+    "group1_frames",
+    "model_runs",
+    "pages",
+    "panels",
+    "reasons",
+    "derived",
+    "measured"
+   ],
+   "properties": {
+    "kind": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events",
+      null
+     ]
+    },
+    "kind_label": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "n_showers": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2
+    },
+    "showers": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "maxItems": 2
+    },
+    "has_hits": {
+     "type": "boolean"
+    },
+    "has_lattice": {
+     "type": "boolean"
+    },
+    "has_frame_bounds": {
+     "type": "boolean"
+    },
+    "networks": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "species": {
+     "type": "boolean"
+    },
+    "filters": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "e1",
+       "e2",
+       "d"
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 3
+    },
+    "group1_frames": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "lab",
+       "trans",
+       "local"
+      ]
+     }
+    },
+    "model_runs": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     }
+    },
+    "pages": {
+     "type": "object",
+     "required": [
+      "physics",
+      "spatial",
+      "models"
+     ],
+     "properties": {
+      "physics": {
+       "type": "boolean"
+      },
+      "spatial": {
+       "type": "boolean"
+      },
+      "models": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false
+    },
+    "panels": {
+     "type": "object",
+     "required": [
+      "xy",
+      "yz",
+      "xz",
+      "energy",
+      "profile-w",
+      "profile-r",
+      "response-b1",
+      "response-b2",
+      "response-res",
+      "response-b3",
+      "distribution",
+      "correlation",
+      "statistics",
+      "perf-bins",
+      "pred-truth",
+      "pred-residuals",
+      "feat-table",
+      "feat-corr",
+      "feat-hist",
+      "feat-hist2d",
+      "prim-rate",
+      "vox-event",
+      "vox-ensemble",
+      "vox-species",
+      "vox-attention",
+      "negative-depth",
+      "window-axis",
+      "event-inspector",
+      "compare",
+      "frame-lab",
+      "frame-trans",
+      "frame-local",
+      "frame-canonical",
+      "xgboost"
+     ],
+     "properties": {
+      "xy": {
+       "type": "boolean"
+      },
+      "yz": {
+       "type": "boolean"
+      },
+      "xz": {
+       "type": "boolean"
+      },
+      "energy": {
+       "type": "boolean"
+      },
+      "profile-w": {
+       "type": "boolean"
+      },
+      "profile-r": {
+       "type": "boolean"
+      },
+      "response-b1": {
+       "type": "boolean"
+      },
+      "response-b2": {
+       "type": "boolean"
+      },
+      "response-res": {
+       "type": "boolean"
+      },
+      "response-b3": {
+       "type": "boolean"
+      },
+      "distribution": {
+       "type": "boolean"
+      },
+      "correlation": {
+       "type": "boolean"
+      },
+      "statistics": {
+       "type": "boolean"
+      },
+      "perf-bins": {
+       "type": "boolean"
+      },
+      "pred-truth": {
+       "type": "boolean"
+      },
+      "pred-residuals": {
+       "type": "boolean"
+      },
+      "feat-table": {
+       "type": "boolean"
+      },
+      "feat-corr": {
+       "type": "boolean"
+      },
+      "feat-hist": {
+       "type": "boolean"
+      },
+      "feat-hist2d": {
+       "type": "boolean"
+      },
+      "prim-rate": {
+       "type": "boolean"
+      },
+      "vox-event": {
+       "type": "boolean"
+      },
+      "vox-ensemble": {
+       "type": "boolean"
+      },
+      "vox-species": {
+       "type": "boolean"
+      },
+      "vox-attention": {
+       "type": "boolean"
+      },
+      "negative-depth": {
+       "type": "boolean"
+      },
+      "window-axis": {
+       "type": "boolean"
+      },
+      "event-inspector": {
+       "type": "boolean"
+      },
+      "compare": {
+       "type": "boolean"
+      },
+      "frame-lab": {
+       "type": "boolean"
+      },
+      "frame-trans": {
+       "type": "boolean"
+      },
+      "frame-local": {
+       "type": "boolean"
+      },
+      "frame-canonical": {
+       "type": "boolean"
+      },
+      "xgboost": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false
+    },
+    "reasons": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "xy",
+       "yz",
+       "xz",
+       "energy",
+       "profile-w",
+       "profile-r",
+       "response-b1",
+       "response-b2",
+       "response-res",
+       "response-b3",
+       "distribution",
+       "correlation",
+       "statistics",
+       "perf-bins",
+       "pred-truth",
+       "pred-residuals",
+       "feat-table",
+       "feat-corr",
+       "feat-hist",
+       "feat-hist2d",
+       "prim-rate",
+       "vox-event",
+       "vox-ensemble",
+       "vox-species",
+       "vox-attention",
+       "negative-depth",
+       "window-axis",
+       "event-inspector",
+       "compare",
+       "frame-lab",
+       "frame-trans",
+       "frame-local",
+       "frame-canonical",
+       "xgboost"
+      ]
+     },
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "derived": {
+     "type": "object",
+     "required": [
+      "version",
+      "current",
+      "status",
+      "notice"
+     ],
+     "properties": {
+      "version": {
+       "type": "integer"
+      },
+      "current": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "status": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "notice": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     }
+    },
+    "measured": {
+     "type": "object"
+    }
+   }
+  },
+  "experiment": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "display_name",
+    "status",
+    "n_events",
+    "bounds",
+    "schema",
+    "kind",
+    "frames",
+    "coord_systems",
+    "models",
+    "channels",
+    "capabilities"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "status": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "bounds": {
+     "type": "object",
+     "required": [
+      "e1",
+      "e2",
+      "d"
+     ],
+     "properties": {
+      "e1": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "e2": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "d": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 2
+      }
+     }
+    },
+    "schema": {
+     "type": "object",
+     "required": [
+      "name",
+      "version",
+      "n_columns"
+     ],
+     "properties": {
+      "name": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "version": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "n_columns": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     }
+    },
+    "kind": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "coord_systems": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "models": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "channels": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "capabilities": {
+     "$ref": "#/$defs/capabilities"
+    },
+    "lattice": {
+     "type": "object",
+     "required": [
+      "id",
+      "x",
+      "y",
+      "z"
+     ],
+     "properties": {
+      "id": {
+       "type": "string"
+      },
+      "x": {
+       "type": "object"
+      },
+      "y": {
+       "type": "object"
+      },
+      "z": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ }
+}

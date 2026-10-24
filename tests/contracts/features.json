@@ -1,0 +1,1289 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/features (D2-D5)",
+ "anyOf": [
+  {
+   "$ref": "#/$defs/view_catalog"
+  },
+  {
+   "$ref": "#/$defs/view_describe"
+  },
+  {
+   "$ref": "#/$defs/view_corr"
+  },
+  {
+   "$ref": "#/$defs/view_hist"
+  },
+  {
+   "$ref": "#/$defs/view_hist2d"
+  }
+ ],
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  },
+  "view_catalog": {
+   "type": "object",
+   "required": [
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes"
+   ],
+   "properties": {
+    "view": {
+     "const": "catalog"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "coord_system": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shower": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "label",
+       "lo",
+       "hi",
+       "n"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "label",
+       "unit",
+       "flags",
+       "circular",
+       "display_offset"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "flags": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "circular": {
+        "type": "boolean"
+       },
+       "display_offset": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "view_describe": {
+   "type": "object",
+   "required": [
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes",
+    "table"
+   ],
+   "properties": {
+    "view": {
+     "const": "describe"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "coord_system": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shower": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "label",
+       "lo",
+       "hi",
+       "n"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "label",
+       "unit",
+       "flags",
+       "circular",
+       "display_offset"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "flags": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "circular": {
+        "type": "boolean"
+       },
+       "display_offset": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "table": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "n",
+       "mean",
+       "sd",
+       "sd_population",
+       "min",
+       "q25",
+       "q50",
+       "q75",
+       "max",
+       "n_eps"
+      ],
+      "properties": {
+       "n": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "mean": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "sd": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "sd_population": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "min": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "q25": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "q50": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "q75": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "max": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "n_eps": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "circular": {
+        "type": "object",
+        "required": [
+         "mean_direction",
+         "resultant",
+         "circular_sd",
+         "rayleigh_p"
+        ],
+        "properties": {
+         "mean_direction": {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          }
+         },
+         "resultant": {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          }
+         },
+         "circular_sd": {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          }
+         },
+         "rayleigh_p": {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "view_corr": {
+   "type": "object",
+   "required": [
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes",
+    "class",
+    "n",
+    "n_excluded_eps",
+    "order",
+    "r",
+    "lo",
+    "hi",
+    "hatched",
+    "method"
+   ],
+   "properties": {
+    "view": {
+     "const": "corr"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "coord_system": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shower": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "label",
+       "lo",
+       "hi",
+       "n"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "label",
+       "unit",
+       "flags",
+       "circular",
+       "display_offset"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "flags": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "circular": {
+        "type": "boolean"
+       },
+       "display_offset": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "class": {
+     "type": [
+      "integer",
+      "string",
+      "null"
+     ]
+    },
+    "n": {
+     "type": "integer"
+    },
+    "n_excluded_eps": {
+     "type": "integer"
+    },
+    "order": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "r": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "hatched": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "method": {
+     "type": "string"
+    }
+   }
+  },
+  "view_hist": {
+   "type": "object",
+   "required": [
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes",
+    "feature",
+    "scale",
+    "axis",
+    "series",
+    "curve_x",
+    "comb"
+   ],
+   "properties": {
+    "view": {
+     "const": "hist"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "coord_system": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shower": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "label",
+       "lo",
+       "hi",
+       "n"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "label",
+       "unit",
+       "flags",
+       "circular",
+       "display_offset"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "flags": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "circular": {
+        "type": "boolean"
+       },
+       "display_offset": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "feature": {
+     "type": "string"
+    },
+    "scale": {
+     "type": "string"
+    },
+    "axis": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "bins",
+      "edges_rule",
+      "clipping",
+      "provisional",
+      "log10",
+      "quantum_mm",
+      "offset"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "edges_rule": {
+       "type": "string"
+      },
+      "clipping": {
+       "$ref": "#/$defs/clipping"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "log10": {
+       "type": "boolean"
+      },
+      "quantum_mm": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "offset": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     }
+    },
+    "series": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "n",
+       "n_in_range",
+       "n_below",
+       "n_above",
+       "n_nonpositive",
+       "draw",
+       "counts",
+       "kde",
+       "strip",
+       "drives_scale",
+       "message"
+      ],
+      "properties": {
+       "n": {
+        "type": "integer"
+       },
+       "n_in_range": {
+        "type": "integer"
+       },
+       "n_below": {
+        "type": "integer"
+       },
+       "n_above": {
+        "type": "integer"
+       },
+       "n_nonpositive": {
+        "type": "integer"
+       },
+       "draw": {
+        "enum": [
+         "histogram",
+         "strip",
+         "none"
+        ]
+       },
+       "counts": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "kde": {
+        "type": [
+         "object",
+         "null"
+        ],
+        "required": [
+         "bandwidth",
+         "rule",
+         "pdf",
+         "scale_to_counts"
+        ],
+        "properties": {
+         "bandwidth": {
+          "type": "number"
+         },
+         "rule": {
+          "type": "string"
+         },
+         "pdf": {
+          "type": "array",
+          "items": {
+           "type": "number"
+          }
+         },
+         "scale_to_counts": {
+          "type": "number"
+         }
+        }
+       },
+       "strip": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": "number"
+          }
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "drives_scale": {
+        "type": "boolean"
+       },
+       "message": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "curve_x": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "comb": {
+     "type": [
+      "object",
+      "null"
+     ]
+    }
+   }
+  },
+  "view_hist2d": {
+   "type": "object",
+   "required": [
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes",
+    "x",
+    "y",
+    "series",
+    "color"
+   ],
+   "properties": {
+    "view": {
+     "const": "hist2d"
+    },
+    "kind": {
+     "type": "string"
+    },
+    "coord_system": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shower": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "label",
+       "lo",
+       "hi",
+       "n"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
+       "lo": {
+        "type": "number"
+       },
+       "hi": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "label",
+       "unit",
+       "flags",
+       "circular",
+       "display_offset"
+      ],
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "flags": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "circular": {
+        "type": "boolean"
+       },
+       "display_offset": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "x": {
+     "type": "object",
+     "required": [
+      "feature",
+      "scale",
+      "lo",
+      "hi",
+      "bins"
+     ],
+     "properties": {
+      "feature": {
+       "type": "string"
+      },
+      "scale": {
+       "type": "string"
+      },
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      }
+     }
+    },
+    "y": {
+     "type": "object",
+     "required": [
+      "feature",
+      "scale",
+      "lo",
+      "hi",
+      "bins"
+     ],
+     "properties": {
+      "feature": {
+       "type": "string"
+      },
+      "scale": {
+       "type": "string"
+      },
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      }
+     }
+    },
+    "series": {
+     "type": "array",
+     "items": {
+      "anyOf": [
+       {
+        "type": "object",
+        "required": [
+         "n",
+         "draw",
+         "counts",
+         "max_count",
+         "outside"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "draw": {
+          "const": "histogram"
+         },
+         "counts": {
+          "type": "array",
+          "items": {
+           "type": "integer"
+          }
+         },
+         "max_count": {
+          "type": "integer"
+         },
+         "outside": {
+          "type": "object"
+         }
+        }
+       },
+       {
+        "type": "object",
+        "required": [
+         "n",
+         "draw",
+         "pairs"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "draw": {
+          "const": "pairs"
+         },
+         "pairs": {
+          "type": "array",
+          "items": {
+           "type": "array",
+           "items": {
+            "type": "number"
+           }
+          }
+         }
+        }
+       },
+       {
+        "type": "object",
+        "required": [
+         "n",
+         "draw"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "draw": {
+          "const": "none"
+         }
+        }
+       }
+      ]
+     }
+    },
+    "color": {
+     "type": "object",
+     "required": [
+      "scale"
+     ],
+     "properties": {
+      "scale": {
+       "const": "log10"
+      }
+     }
+    }
+   }
+  }
+ }
+}

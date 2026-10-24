@@ -1,0 +1,410 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/prediction-density",
+ "type": "object",
+ "required": [
+  "network",
+  "axes",
+  "density",
+  "identity",
+  "color",
+  "residual",
+  "thresholds",
+  "filter"
+ ],
+ "properties": {
+  "network": {
+   "type": "object",
+   "required": [
+    "model",
+    "frame"
+   ],
+   "properties": {
+    "model": {
+     "enum": [
+      "energy",
+      "angle"
+     ]
+    },
+    "frame": {
+     "type": "string"
+    }
+   }
+  },
+  "axes": {
+   "type": "object",
+   "required": [
+    "truth",
+    "pred"
+   ],
+   "properties": {
+    "truth": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "n",
+      "unit",
+      "label"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "n": {
+       "type": "integer"
+      },
+      "unit": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      }
+     }
+    },
+    "pred": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "n",
+      "unit",
+      "label"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "n": {
+       "type": "integer"
+      },
+      "unit": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
+  "density": {
+   "type": "object",
+   "propertyNames": {
+    "enum": [
+     "a",
+     "b"
+    ]
+   },
+   "additionalProperties": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/counts_block"
+     },
+     {
+      "$ref": "#/$defs/pairs_block"
+     }
+    ]
+   }
+  },
+  "identity": {
+   "type": "object",
+   "required": [
+    "from",
+    "to"
+   ],
+   "properties": {
+    "from": {
+     "type": "number"
+    },
+    "to": {
+     "type": "number"
+    }
+   }
+  },
+  "color": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "unit"
+   ],
+   "properties": {
+    "scale": {
+     "const": "log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    }
+   }
+  },
+  "residual": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "unit",
+    "axis",
+    "series"
+   ],
+   "properties": {
+    "quantity": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "axis": {
+     "type": "object"
+    },
+    "series": {
+     "type": "object"
+    }
+   }
+  },
+  "thresholds": {
+   "type": "object"
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  },
+  "counts_block": {
+   "type": "object",
+   "required": [
+    "encoding",
+    "shape",
+    "counts",
+    "n",
+    "n_in_range",
+    "max_count",
+    "outside"
+   ],
+   "properties": {
+    "encoding": {
+     "const": "counts"
+    },
+    "shape": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "counts": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "n": {
+     "type": "integer"
+    },
+    "n_in_range": {
+     "type": "integer"
+    },
+    "max_count": {
+     "type": "integer"
+    },
+    "outside": {
+     "type": "object",
+     "required": [
+      "truth_below",
+      "truth_above",
+      "pred_below",
+      "pred_above",
+      "total"
+     ],
+     "properties": {
+      "truth_below": {
+       "type": "integer"
+      },
+      "truth_above": {
+       "type": "integer"
+      },
+      "pred_below": {
+       "type": "integer"
+      },
+      "pred_above": {
+       "type": "integer"
+      },
+      "total": {
+       "type": "integer"
+      }
+     }
+    }
+   }
+  },
+  "pairs_block": {
+   "type": "object",
+   "required": [
+    "encoding",
+    "pairs",
+    "n"
+   ],
+   "properties": {
+    "encoding": {
+     "const": "pairs"
+    },
+    "pairs": {
+     "type": "array",
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     }
+    },
+    "n": {
+     "type": "integer"
+    }
+   }
+  }
+ }
+}

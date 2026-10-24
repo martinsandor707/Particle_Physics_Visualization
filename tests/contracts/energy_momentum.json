@@ -1,0 +1,413 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/energy-distribution?slice_by=momentum (B3)",
+ "type": "object",
+ "required": [
+  "slices",
+  "slice_counts",
+  "series",
+  "calibration",
+  "axis",
+  "benchmarks",
+  "n_events",
+  "scale",
+  "thresholds",
+  "slice_by",
+  "slicing",
+  "slice_axes",
+  "slice_counts_by_shower",
+  "outside_slices",
+  "counted"
+ ],
+ "properties": {
+  "slices": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "index",
+     "label",
+     "lo",
+     "hi"
+    ],
+    "properties": {
+     "index": {
+      "type": "integer"
+     },
+     "label": {
+      "type": "string"
+     },
+     "lo": {
+      "type": "number"
+     },
+     "hi": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "slice_counts": {
+   "type": "object"
+  },
+  "series": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   }
+  },
+  "calibration": {
+   "type": "object"
+  },
+  "axis": {
+   "type": "object",
+   "required": [
+    "unit",
+    "bins",
+    "per_slice",
+    "curve_points"
+   ],
+   "properties": {
+    "unit": {
+     "type": "string"
+    },
+    "bins": {
+     "type": "integer"
+    },
+    "per_slice": {
+     "const": true
+    },
+    "curve_points": {
+     "type": "integer"
+    }
+   }
+  },
+  "benchmarks": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   },
+   "maxItems": 0
+  },
+  "n_events": {
+   "type": "integer"
+  },
+  "scale": {
+   "type": "string"
+  },
+  "thresholds": {
+   "type": "object"
+  },
+  "slice_by": {
+   "const": "momentum"
+  },
+  "slicing": {
+   "type": "object",
+   "required": [
+    "mode",
+    "centres",
+    "half_width",
+    "role"
+   ],
+   "properties": {
+    "mode": {
+     "enum": [
+      "notebook",
+      "bins",
+      "list"
+     ]
+    },
+    "centres": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "half_width": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "role": {
+     "type": "string"
+    }
+   }
+  },
+  "slice_axes": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "slice",
+     "lo",
+     "hi",
+     "interval",
+     "clipping",
+     "provisional",
+     "curve_x",
+     "hist_centres",
+     "momentum"
+    ],
+    "properties": {
+     "slice": {
+      "type": "integer"
+     },
+     "lo": {
+      "type": "number"
+     },
+     "hi": {
+      "type": "number"
+     },
+     "interval": {
+      "type": "number"
+     },
+     "clipping": {
+      "$ref": "#/$defs/clipping"
+     },
+     "provisional": {
+      "type": "boolean"
+     },
+     "curve_x": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
+     },
+     "hist_centres": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
+     },
+     "momentum": {
+      "type": "object",
+      "required": [
+       "a",
+       "b"
+      ],
+      "properties": {
+       "a": {
+        "type": [
+         "object",
+         "null"
+        ],
+        "required": [
+         "mean",
+         "sd",
+         "n"
+        ],
+        "properties": {
+         "mean": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sd": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "n": {
+          "type": "integer"
+         }
+        }
+       },
+       "b": {
+        "type": [
+         "object",
+         "null"
+        ],
+        "required": [
+         "mean",
+         "sd",
+         "n"
+        ],
+        "properties": {
+         "mean": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sd": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "n": {
+          "type": "integer"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "slice_counts_by_shower": {
+   "type": "object"
+  },
+  "outside_slices": {
+   "type": "object",
+   "required": [
+    "a",
+    "b"
+   ],
+   "properties": {
+    "a": {
+     "type": "integer"
+    },
+    "b": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   }
+  },
+  "counted": {
+   "const": "showers"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}

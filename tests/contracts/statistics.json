@@ -1,0 +1,558 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/statistics (C1, C9)",
+ "type": "object",
+ "required": [
+  "meta",
+  "describe",
+  "n_events",
+  "negative_w",
+  "notes",
+  "filter"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "describe": {
+   "type": "object",
+   "required": [
+    "coord_system",
+    "rows",
+    "shifted_row",
+    "estimator",
+    "weighting_note"
+   ],
+   "properties": {
+    "coord_system": {
+     "enum": [
+      "lab",
+      "trans",
+      "local"
+     ]
+    },
+    "rows": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/describe_row"
+     }
+    },
+    "shifted_row": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/describe_row"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "estimator": {
+     "type": "string"
+    },
+    "weighting_note": {
+     "type": "string"
+    }
+   }
+  },
+  "n_events": {
+   "type": "integer"
+  },
+  "negative_w": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/negative_w"
+    },
+    {
+     "type": "null"
+    }
+   ]
+  },
+  "notes": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  },
+  "describe_row": {
+   "type": "object",
+   "required": [
+    "key",
+    "label",
+    "unit",
+    "count",
+    "mean",
+    "sd",
+    "sd_population",
+    "min",
+    "q25",
+    "q50",
+    "q75",
+    "max",
+    "ew_mean",
+    "ew_q25",
+    "ew_q50",
+    "ew_q75"
+   ],
+   "properties": {
+    "key": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "count": {
+     "type": "integer"
+    },
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd_population": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "min": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q25": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q50": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q75": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "max": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ew_mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ew_q25": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ew_q50": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ew_q75": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "display_offset_mm": {
+     "type": [
+      "number",
+      "null"
+     ]
+    }
+   }
+  },
+  "negative_w": {
+   "type": "object",
+   "required": [
+    "available",
+    "threshold_mm",
+    "unit",
+    "splits",
+    "affected",
+    "summary"
+   ],
+   "properties": {
+    "available": {
+     "type": "boolean"
+    },
+    "threshold_mm": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "splits": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "n_events",
+       "n_showers",
+       "events_with_any",
+       "events_with_any_ci95",
+       "showers_with_any",
+       "showers_with_any_ci95",
+       "hits",
+       "hits_fraction",
+       "hits_fraction_ci95",
+       "energy_gev",
+       "energy_fraction",
+       "energy_fraction_ci95"
+      ],
+      "properties": {
+       "key": {
+        "enum": [
+         "all",
+         "low",
+         "high",
+         "mid"
+        ]
+       },
+       "label": {
+        "type": "string"
+       },
+       "n_events": {
+        "type": "integer"
+       },
+       "n_showers": {
+        "type": "integer"
+       },
+       "events_with_any": {
+        "type": "integer"
+       },
+       "events_with_any_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "showers_with_any": {
+        "type": "integer"
+       },
+       "showers_with_any_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "hits": {
+        "type": "integer"
+       },
+       "hits_fraction": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "hits_fraction_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "energy_gev": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "energy_fraction": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "energy_fraction_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "affected": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "n",
+      "mean",
+      "sd",
+      "min",
+      "q25",
+      "q50",
+      "q75",
+      "max",
+      "n_over_half"
+     ],
+     "properties": {
+      "n": {
+       "type": "integer"
+      },
+      "mean": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "sd": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "min": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "q25": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "q50": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "q75": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "max": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "n_over_half": {
+       "type": "integer"
+      }
+     }
+    },
+    "summary": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

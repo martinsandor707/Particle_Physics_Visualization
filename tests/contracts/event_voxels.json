@@ -1,0 +1,324 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/event?format=voxels",
+ "type": "object",
+ "required": [
+  "event",
+  "voxels",
+  "filter"
+ ],
+ "properties": {
+  "event": {
+   "type": "object"
+  },
+  "voxels": {
+   "type": "object",
+   "required": [
+    "frame",
+    "regime",
+    "symbols",
+    "channel",
+    "geometry",
+    "cubes",
+    "scale",
+    "topk",
+    "cap",
+    "below_floor",
+    "species",
+    "notes"
+   ],
+   "properties": {
+    "frame": {
+     "enum": [
+      "lab",
+      "trans",
+      "local",
+      "canonical"
+     ]
+    },
+    "regime": {
+     "enum": [
+      "cells",
+      "subdeposit_splat"
+     ]
+    },
+    "symbols": {
+     "type": "object"
+    },
+    "channel": {
+     "enum": [
+      "energy",
+      "gradcam",
+      "shapcam",
+      "segerr",
+      "species"
+     ]
+    },
+    "geometry": {
+     "type": "object"
+    },
+    "cubes": {
+     "type": "object",
+     "required": [
+      "n",
+      "order",
+      "dtype",
+      "ix",
+      "iy",
+      "iz",
+      "code",
+      "flags",
+      "flag_bits"
+     ],
+     "properties": {
+      "n": {
+       "type": "integer"
+      },
+      "order": {
+       "type": "string"
+      },
+      "dtype": {
+       "type": "object"
+      },
+      "ix": {
+       "type": "string"
+      },
+      "iy": {
+       "type": "string"
+      },
+      "iz": {
+       "type": "string"
+      },
+      "code": {
+       "type": "string"
+      },
+      "flags": {
+       "type": "string"
+      },
+      "flag_bits": {
+       "type": "object"
+      }
+     }
+    },
+    "scale": {
+     "type": "object"
+    },
+    "topk": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     }
+    },
+    "cap": {
+     "type": "object",
+     "required": [
+      "limit",
+      "n_total",
+      "n_drawn",
+      "energy_total_gev",
+      "energy_drawn_gev",
+      "energy_beyond_gev",
+      "fraction_beyond",
+      "energy_outside_window_gev"
+     ],
+     "properties": {
+      "limit": {
+       "type": "integer"
+      },
+      "n_total": {
+       "type": "integer"
+      },
+      "n_drawn": {
+       "type": "integer"
+      },
+      "energy_total_gev": {
+       "type": "number"
+      },
+      "energy_drawn_gev": {
+       "type": "number"
+      },
+      "energy_beyond_gev": {
+       "type": "number"
+      },
+      "fraction_beyond": {
+       "type": "number"
+      },
+      "energy_outside_window_gev": {
+       "type": "number"
+      }
+     }
+    },
+    "below_floor": {
+     "type": "object",
+     "required": [
+      "n",
+      "drawn_as"
+     ],
+     "properties": {
+      "n": {
+       "type": "integer"
+      },
+      "drawn_as": {
+       "type": "string"
+      }
+     }
+    },
+    "species": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "propertyNames": {
+  "not": {
+   "enum": [
+    "hits",
+    "points"
+   ]
+  }
+ },
+ "$defs": {
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "clipping": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "low_percentile",
+    "high_percentile",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "properties": {
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "low_percentile": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "n_total": {
+     "type": "integer"
+    },
+    "n_below": {
+     "type": "integer"
+    },
+    "n_above": {
+     "type": "integer"
+    },
+    "n_outside": {
+     "type": "integer"
+    },
+    "fraction_outside": {
+     "type": "number"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object"
+  }
+ }
+}
