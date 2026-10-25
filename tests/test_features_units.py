@@ -17,9 +17,10 @@ from calosrv.db import ddl
 from calosrv.errors import CapabilityError, ValidationError
 from calosrv.query import correlations
 from calosrv.query import features as features_mod
+from calosrv.query import feature_axes, feature_corr, feature_describe, feature_hist
 from calosrv.query import features_catalog as catalog
 from calosrv.query import showers, stagger
-from calosrv.stats import circular
+from calosrv.stats import circular, momentum
 
 KIND_TABLES = {
     ddl.KIND_TWO_SHOWER: (ddl.EVENT_COLUMNS_V2, ("a", "b")),
@@ -94,16 +95,16 @@ def test_circular_variants_sql_on_known_sums():
 
 
 def test_measured_step_is_the_common_divisor_of_the_values():
-    assert features_mod._measured_step(np.array([102.5, 553.5, 861.0])) == pytest.approx(20.5)
+    assert feature_axes.measured_step(np.array([102.5, 553.5, 861.0])) == pytest.approx(20.5)
     lattice = (np.float32(3662.4) + np.arange(60, dtype=np.float32) * np.float32(20.5))
     sample = lattice.astype(np.float64)[[2, 9, 31]]
-    assert features_mod._measured_step(sample) == pytest.approx(20.5)
-    assert features_mod._measured_step(np.array([4.0])) is None
-    assert features_mod._measured_step(np.array([1.0, 1.37, 2.71])) is None
+    assert feature_axes.measured_step(sample) == pytest.approx(20.5)
+    assert feature_axes.measured_step(np.array([4.0])) is None
+    assert feature_axes.measured_step(np.array([1.0, 1.37, 2.71])) is None
 
 
 def test_snapped_edges_hold_whole_quanta_off_the_lattice():
-    edges, per_bin = features_mod._snapped_edges(100.0, 1100.0, 30, 20.5, 102.5)
+    edges, per_bin = feature_axes.snapped_edges(100.0, 1100.0, 30, 20.5, 102.5)
     assert per_bin == 2
     assert np.allclose(np.diff(edges), 41.0)
     assert edges[0] <= 100.0 and edges[-1] >= 1100.0
@@ -114,7 +115,7 @@ def test_snapped_edges_hold_whole_quanta_off_the_lattice():
 
 def test_auto_scale_and_its_refusals():
     def scale(fid, coord, requested, values):
-        return features_mod.resolve_scale(catalog.BY_ID[fid], coord, requested, values, "scale")[0]
+        return feature_axes.resolve_scale(catalog.BY_ID[fid], coord, requested, values, "scale")[0]
 
     wide = np.geomspace(1e-3, 1.0, 500)
     assert scale("total_hit_energy", "lab", "auto", wide) == "log"
@@ -133,18 +134,18 @@ def test_counting_noise_lag1_reference():
     """Independent counts give a detrended lag-1 of −10/72; a clean alternation is far below."""
     rng = np.random.default_rng(3)
     lags = [stagger.profile_lag1(rng.poisson(400.0, 400).astype(float)) for _ in range(300)]
-    assert np.mean(lags) == pytest.approx(features_mod.NOISE_LAG1, abs=0.02)
+    assert np.mean(lags) == pytest.approx(feature_axes.NOISE_LAG1, abs=0.02)
     combed = np.tile([400.0, 200.0], 30) + rng.normal(0, 5, 60)
-    verdict = features_mod._comb(combed)
+    verdict = feature_axes.measure_comb(combed)
     assert verdict["combed"] is True and verdict["lag1"] < verdict["threshold"]
-    flat = features_mod._comb(rng.poisson(400.0, 60).astype(float))
+    flat = feature_axes.measure_comb(rng.poisson(400.0, 60).astype(float))
     assert flat["combed"] is False
-    assert features_mod._comb(np.ones(10))["lag1"] is None
+    assert feature_axes.measure_comb(np.ones(10))["lag1"] is None
 
 
 def test_a_comb_is_blamed_on_the_lattice_only_where_there_is_one():
     def cause(fid, coord="lab"):
-        return features_mod.comb_cause(catalog.BY_ID[fid], coord)
+        return feature_axes.comb_cause(catalog.BY_ID[fid], coord)
 
     assert cause("width") == cause("height") == "lattice"          # irregular lattice
     assert cause("depth_range", "trans") == "lattice"              # whole layers
@@ -153,9 +154,9 @@ def test_a_comb_is_blamed_on_the_lattice_only_where_there_is_one():
     for fid in ("total_hit_energy", "centroid_x", "std_r"):
         assert cause(fid) is None
     combed = np.tile([400.0, 200.0], 30) + np.random.default_rng(5).normal(0, 5, 60)
-    lattice = features_mod._comb(combed, "lattice")
+    lattice = feature_axes.measure_comb(combed, "lattice")
     assert "segmentation" in lattice["note"] and lattice["cause"] == "lattice"
-    neutral = features_mod._comb(combed, None)
+    neutral = feature_axes.measure_comb(combed, None)
     assert neutral["combed"] is True and neutral["cause"] is None
     assert "segmentation, not" not in neutral["note"] and "noise alone" in neutral["note"]
 
@@ -177,18 +178,18 @@ def _bundle(n: int = 600, seed: int = 11) -> features_mod.FeatureBundle:
 
 
 def _label_classes(bundle):
-    classes = features_mod.momentum.binary_label()
-    return features_mod.ClassSet("label", classes, features_mod.momentum.assign(bundle.p, classes),
+    classes = momentum.binary_label()
+    return features_mod.ClassSet("label", classes, momentum.assign(bundle.p, classes),
                                  "incident momentum p")
 
 
 def test_corr_matrix_path_agrees_with_the_pairwise_path():
     bundle = _bundle()
     cs = _label_classes(bundle)
-    fast = features_mod.corr_view(bundle, cs, features_mod.POOLED, exclude_eps=True)
+    fast = feature_corr.corr_view(bundle, cs, features_mod.POOLED, exclude_eps=True)
     # One missing value in a feature sends the view down the per-pair path.
     bundle.values["std_r"][-1] = np.nan
-    slow = features_mod.corr_view(bundle, cs, features_mod.POOLED, exclude_eps=True)
+    slow = feature_corr.corr_view(bundle, cs, features_mod.POOLED, exclude_eps=True)
     order, k = fast["order"], len(fast["order"])
     position = 0
     for i in range(k):
@@ -221,8 +222,8 @@ def test_corr_matrix_path_agrees_with_the_pairwise_path():
 def test_corr_of_an_empty_class_is_served_empty():
     bundle = _bundle()
     cs = _label_classes(bundle)
-    cs.index[:] = cs.index.dtype.type(features_mod.momentum.OUTSIDE)
-    body = features_mod.corr_view(bundle, cs, 0, exclude_eps=True)
+    cs.index[:] = cs.index.dtype.type(momentum.OUTSIDE)
+    body = feature_corr.corr_view(bundle, cs, 0, exclude_eps=True)
     assert body["n"] == 0 and all(r is None for r in body["r"])
     assert all(c["value"] is None and c["reason"] for c in body["circular_cells"])
 
@@ -230,7 +231,7 @@ def test_corr_of_an_empty_class_is_served_empty():
 def test_describe_never_averages_an_azimuth():
     bundle = _bundle()
     cs = _label_classes(bundle)
-    table = features_mod.describe_view(bundle, cs, exclude_eps=False)["table"]
+    table = feature_describe.describe_view(bundle, cs, exclude_eps=False)["table"]
     for fid in ("avg_phi", "avg_phi_circ"):
         assert all(v is None for key in ("mean", "sd", "q50") for v in table[fid][key])
         assert all(0 <= r <= 1 for r in table[fid]["circular"]["resultant"])
@@ -245,10 +246,10 @@ def test_weak_classes_set_only_a_provisional_y_range(per_class, provisional_scal
     bundle = _bundle(n=5 * per_class)
     bundle.p = np.repeat([1.0, 2.0, 5.0, 10.0, 19.5], per_class)
     bundle.bin = np.floor(bundle.p).astype(np.int64)
-    classes = features_mod.momentum.windows(features_mod.momentum.FEATURE_CENTRES_GEV)
-    cs = features_mod.ClassSet("windows", classes, features_mod.momentum.assign(bundle.p, classes),
+    classes = momentum.windows(momentum.FEATURE_CENTRES_GEV)
+    cs = features_mod.ClassSet("windows", classes, momentum.assign(bundle.p, classes),
                                "incident momentum p")
-    body = features_mod.hist_view(bundle, cs, catalog.BY_ID["total_hit_energy"], "linear",
+    body = feature_hist.hist_view(bundle, cs, catalog.BY_ID["total_hit_energy"], "linear",
                                   False, None)
     assert body["axis"]["provisional"] and body["y_max"]["provisional"]
     assert all(s["draw"] == "strip" and len(s["strip"]) == per_class for s in body["series"])
@@ -276,8 +277,8 @@ def _window_bundle(sizes, seed=29):
     bundle.values["width"] = np.random.default_rng(seed).lognormal(5.8, 0.6, p.size)
     bundle.p = p
     bundle.bin = np.floor(p).astype(np.int64)
-    classes = features_mod.momentum.windows(features_mod.momentum.FEATURE_CENTRES_GEV)
-    cs = features_mod.ClassSet("windows", classes, features_mod.momentum.assign(p, classes),
+    classes = momentum.windows(momentum.FEATURE_CENTRES_GEV)
+    cs = features_mod.ClassSet("windows", classes, momentum.assign(p, classes),
                                "incident momentum p")
     return bundle, cs
 
@@ -287,7 +288,7 @@ def test_describe_intervals_c4_and_low_n_notes_follow_their_formulas():
     '1 d.o.f.' label at N = 2; with floored widths left out, the width's c4 is c4(6)."""
     bundle, cs = _window_bundle((2, 3, 8))
     bundle.values["width"][-2:] = 1e-6                     # two floored in the class of 8
-    body = features_mod.describe_view(bundle, cs, exclude_eps=True)
+    body = feature_describe.describe_view(bundle, cs, exclude_eps=True)
     table = body["table"]
     hits = table["num_hits"]
     for i, n in enumerate((2, 3, 8)):
@@ -335,7 +336,7 @@ def test_corr_serves_circular_measures_for_azimuths():
     bundle.values["avg_phi"] = phi
     bundle.values["avg_phi_circ"] = circular.wrap_angle(phi + rng.normal(0, 0.3, 40))
     bundle.values["total_hit_energy"] = 2.0 + np.cos(phi - 1.0) + 0.4 * rng.normal(size=40)
-    body = features_mod.corr_view(bundle, cs, 0, exclude_eps=False)
+    body = feature_corr.corr_view(bundle, cs, 0, exclude_eps=False)
     assert body["scale"] == correlations.R_SCALE
     cells = {(c["row"], c["col"]): c for c in body["circular_cells"]}
     for c in cells.values():
@@ -358,7 +359,7 @@ def test_corr_serves_circular_measures_for_azimuths():
     assert cells[("avg_phi", "avg_phi")]["value"] == 1.0
     # Moving the cut by π: the parity r changes, the circular measures do not.
     bundle.values["avg_phi"] = circular.wrap_angle(phi + math.pi) - math.pi
-    moved = {(c["row"], c["col"]): c for c in features_mod.corr_view(
+    moved = {(c["row"], c["col"]): c for c in feature_corr.corr_view(
         bundle, cs, 0, exclude_eps=False)["circular_cells"]}
     assert moved[("total_hit_energy", "avg_phi")]["value"] == pytest.approx(energy["value"],
                                                                             rel=1e-5)
@@ -370,7 +371,7 @@ def test_corr_serves_circular_measures_for_azimuths():
 def test_corr_gates_mardia_on_distinct_azimuths():
     bundle, cs = _window_bundle((30,), seed=37)
     bundle.values["avg_phi"] = np.resize([0.1, 1.4, 2.9, -2.2, -0.8, 2.0, -1.5], 30)
-    body = features_mod.corr_view(bundle, cs, 0, exclude_eps=False)
+    body = feature_corr.corr_view(bundle, cs, 0, exclude_eps=False)
     cell = next(c for c in body["circular_cells"]
                 if (c["row"], c["col"]) == ("width", "avg_phi"))
     assert (cell["n"], cell["n_azimuths"], cell["value"], cell["se"]) == (30, 7, None, None)
@@ -384,7 +385,7 @@ def test_floored_volumes_do_not_set_the_log_axis():
     log scale follow the measured volumes; the floored ones are counted below the axis."""
     bundle = _bundle()
     cs = _label_classes(bundle)
-    body = features_mod.hist_view(bundle, cs, catalog.BY_ID["volume"], "auto", False, None)
+    body = feature_hist.hist_view(bundle, cs, catalog.BY_ID["volume"], "auto", False, None)
     measured = bundle.values["volume"][~bundle.volume_floored()]
     assert body["axis"]["scale"] == "log"
     assert body["axis"]["lo"] > math.log10(np.percentile(measured, 1)) - 1.0

@@ -25,6 +25,7 @@ from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import capabilities, density, hit_sql, showers
 from ..query import features as features_mod
+from ..query import feature_corr, feature_describe, feature_hist
 from ..query import features_catalog as catalog
 from ..text import typographic
 from .deps import CursorDep, FilterDep, RecordDep
@@ -233,29 +234,29 @@ def get_features(
         body = _serve(lambda _: wrap(dict(payload)), 1)
     elif view == "describe":
         body = _serve(
-            lambda lvl: wrap(features_mod.describe_view(bundle, cs, eps, intervals=lvl == 0),
+            lambda lvl: wrap(feature_describe.describe_view(bundle, cs, eps, intervals=lvl == 0),
                              "the interval columns dropped" if lvl else None), 2)
     elif view == "corr":
         body = _serve(
-            lambda _: wrap(features_mod.corr_view(bundle, cs, which, eps)), 1)
+            lambda _: wrap(feature_corr.corr_view(bundle, cs, which, eps)), 1)
     elif view == "hist":
         def build_hist(lvl: int) -> dict[str, Any]:
             points, divisor = HIST_LEVELS[lvl]
             reduced = None if lvl == 0 else (
                 f"density curves at {points} points"
                 + (f", bins divided by {divisor}" if divisor > 1 else ""))
-            return wrap(features_mod.hist_view(bundle, cs, chosen, scale, eps, pitch,
+            return wrap(feature_hist.hist_view(bundle, cs, chosen, scale, eps, pitch,
                                                curve_points=points, bins_divisor=divisor), reduced)
         body = _serve(build_hist, len(HIST_LEVELS))
     else:
         filled = sum(1 for c in common["classes"] if c["n"])
-        default = (features_mod.HIST2D_BINS if filled <= features_mod.HIST2D_MANY_CLASSES
-                   else features_mod.HIST2D_BINS_MANY)
+        default = (feature_hist.HIST2D_BINS if filled <= feature_hist.HIST2D_MANY_CLASSES
+                   else feature_hist.HIST2D_BINS_MANY)
         steps = [default] + [b for b in HIST2D_LEVELS if b < default]
 
         def build_2d(lvl: int) -> dict[str, Any]:
             reduced = None if lvl == 0 else f"{steps[lvl]} bins per axis instead of {default}"
-            return wrap(features_mod.hist2d_view(bundle, cs, chosen, scale, y_scale, eps, pitch,
+            return wrap(feature_hist.hist2d_view(bundle, cs, chosen, scale, y_scale, eps, pitch,
                                                  bins=steps[lvl]), reduced)
         body = _serve(build_2d, len(steps))
     return body
