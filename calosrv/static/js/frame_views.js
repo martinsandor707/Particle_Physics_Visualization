@@ -23,7 +23,7 @@
 
 import { formatInt, formatSci, floorLabel, formatSigned, typographic } from './scale.js';
 import { FRAME_SYMBOLS, SEPARATION_AXIS } from './axis_symbols.js';
-import { beyondGridSentence, ordinal } from './export/disclosure.js';
+import { beyondGridSentence, ordinal, showersPerEvent } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
 import { centroidLegend, frameMeanOverflowText } from './panels/canonical_overlays.js';
 
@@ -127,7 +127,52 @@ export function frameView(kind) {
   return FRAME_VIEWS[kind] ?? FRAME_VIEWS.lab;
 }
 
-export function panelTitle(id, kind) {
+/* A single-shower experiment's per-shower frames say what they do without a
+ * partner shower or a separation D: every event holds one shower. */
+const SINGLE_CAPTIONS = {
+  trans: "Translated: every hit is moved by its own shower's entry point P₀ (the energy-weighted x, y "
+    + 'centroid of its first populated layer, at that layer’s z), without rotation, so every shower '
+    + 'sits at the origin. The depth panels draw individual incident directions from the origin for '
+    + '50 events or fewer; no averaged direction is drawn.',
+  local: "Shower-Aligned, Local: each shower is moved to its own entry point P₀, then rotated by its own "
+    + 'R(θ, φ): u and v are the lateral spread, w the depth along the incident direction. w is the '
+    + 'incident direction by construction, so no direction overlay is drawn.',
+};
+
+/**
+ * The sidebar caption of a frame. `nShowers` is the experiment's showers per
+ * event (capabilities `n_showers`); a single-shower experiment's per-shower
+ * frames are worded without a partner shower or D.
+ */
+export function frameCaption(kind, nShowers = 2) {
+  if (nShowers === 1 && SINGLE_CAPTIONS[kind]) return SINGLE_CAPTIONS[kind];
+  if (nShowers === 1 && kind === 'lab') {
+    return 'Absolute frame: detector coordinates as recorded, one shower per event. The depth panels '
+      + 'draw individual trajectories for selections of 50 events or fewer, otherwise the centre of '
+      + 'deposited energy per layer; no averaged direction is drawn in this frame.';
+  }
+  return frameView(kind).caption;
+}
+
+/* A single-shower experiment's per-shower frames, titled without the D-frame
+ * a single shower cannot have (its Translated is the per-shower translated
+ * frame, its aligned view Shower-Aligned). */
+const SINGLE_TITLES = {
+  trans: {
+    xy: 'Δx–Δy Projection — Shower Entry, Translated',
+    yz: 'Δy–Δz Projection — Longitudinal Evolution, Translated',
+    xz: 'Δx–Δz Projection — Lateral Profile, Translated',
+  },
+  local: {
+    xy: 'u–v Projection — Shower-fixed Entry, Shower-Aligned, Local',
+    yz: 'v–w Projection — Longitudinal Evolution, Shower-Aligned, Local',
+    xz: 'u–w Projection — Lateral Profile, Shower-Aligned, Local',
+  },
+};
+
+/** A panel's title; `nShowers` (capabilities `n_showers`) words a single shower's frames. */
+export function panelTitle(id, kind, nShowers = 2) {
+  if (nShowers === 1 && SINGLE_TITLES[kind]) return SINGLE_TITLES[kind][id];
   return frameView(kind).titles[id];
 }
 
@@ -236,9 +281,13 @@ export function entryTag(frame) {
   return `${symbol} ${num(entry.mean)} ± ${num(entry.ci95_half)} mm (95% t, N = ${formatInt(n)})`;
 }
 
-/** The XY tag of a per-shower frame: N events and 2N superimposed showers. */
-export function showerTag(frame) {
+/** The XY tag of a per-shower frame: N events and 2N superimposed showers (N showers for one per event). */
+export function showerTag(frame, nShowers = 2) {
   if (!(frame?.n_events > 0)) return '';
+  if (nShowers === 1) {
+    const n = frame.n_showers ?? frame.n_events;
+    return `N = ${formatInt(n)} shower${n === 1 ? '' : 's'}`;
+  }
   return `N = ${formatInt(frame.n_events)} · ${formatInt(frame.n_showers)} showers`;
 }
 
@@ -253,7 +302,7 @@ export function showerTag(frame) {
  * the absolute networks).
  */
 export function channelCaption({ channel, model = 'segmentation', frame = 'lab', payload = null,
-  display = null, weighting = 'energy' }) {
+  display = null, weighting = 'energy', nShowers = 2 }) {
   const kind = frame;
   const coregistered = COREGISTERED.includes(kind);
   const pf = kindOf(payload) === kind ? payload?.frame : null;
@@ -276,7 +325,7 @@ export function channelCaption({ channel, model = 'segmentation', frame = 'lab',
     }
     const basis = pf?.rho?.basis ?? 'raw 20 mm-grid peak';
     const unit = unitText(payload?.panels?.xy?.rho_unit);
-    const both = kind === 'trans' || kind === 'local'
+    const both = (kind === 'trans' || kind === 'local') && nShowers !== 1
       ? ' Both showers of every event are superimposed, so ⟨ρ⟩ sums the two.' : '';
     return `Average hit density ⟨ρ⟩ = ΣE / (N·ΔA) in ${unit}, drawn as a.u. relative to the stated `
       + `reference peak on a three-decade logarithmic ramp. Bins below ${floor} of ρ_ref are not drawn and the `
@@ -613,14 +662,20 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
  * centroid pair measures an A-B *offset* of two ensembles each relative to its
  * own entry point - never a separation, which stays the absolute-frame D.
  */
-export function showerFootnotes(payload, { isometric = {} } = {}) {
+export function showerFootnotes(payload, { isometric = {}, nShowers = null } = {}) {
   const f = payload.frame;
   const kind = f.kind;
   const sym = frameView(kind).symbols;
-  const title = kind === 'trans' ? 'Per-shower translated frame (legacy)' : 'Separation-Aligned (D-Frame), Local';
+  const single = showersPerEvent(payload, nShowers) === 1;
+  const title = single
+    ? (kind === 'trans' ? 'Translated (each shower from its own entry point)' : 'Shower-Aligned, Local')
+    : (kind === 'trans' ? 'Per-shower translated frame (legacy)' : 'Separation-Aligned (D-Frame), Local');
   if (!(f.n_events > 0)) {
-    const empty = `${title}: no selected event has a defined A-B separation `
-      + `(${formatInt(f.n_selected)} selected); the panels are empty.`;
+    const empty = single
+      ? `${title}: no selected shower has a defined entry point and incident direction `
+        + `(${formatInt(f.n_selected)} selected); the panels are empty.`
+      : `${title}: no selected event has a defined A-B separation `
+        + `(${formatInt(f.n_selected)} selected); the panels are empty.`;
     return { xy: `${payload.slab.note} ${empty}`, yz: empty, xz: empty };
   }
   const p = coregisteredParts(payload, isometric);
@@ -630,13 +685,18 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
   // A narrow D window has a sub-millimetre interval; "± 0 mm" would claim none.
   const ci = Number.isFinite(half)
     ? ` ± ${num(half, half < 10 ? 1 : 0)} mm (95% t-interval of the mean)` : '';
-  const base = `${title}: N = ${formatInt(f.n_events)} event${f.n_events === 1 ? '' : 's'}, `
-    + `${formatInt(f.n_showers)} showers superimposed at their own entry points`
-    + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no A-B separation)` : '')
-    + `; D is the absolute-frame 3-D centroid distance, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm${ci}.`;
+  const base = single
+    ? `${title}: N = ${formatInt(f.n_showers ?? f.n_events)} shower${(f.n_showers ?? f.n_events) === 1 ? '' : 's'}, `
+      + 'one per event, superimposed at their own entry points'
+      + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no entry point or incident direction)` : '')
+      + '.'
+    : `${title}: N = ${formatInt(f.n_events)} event${f.n_events === 1 ? '' : 's'}, `
+      + `${formatInt(f.n_showers)} showers superimposed at their own entry points`
+      + (f.n_excluded_no_frame ? ` (${formatInt(f.n_excluded_no_frame)} selected event(s) excluded: no A-B separation)` : '')
+      + `; D is the absolute-frame 3-D centroid distance, ⟨D⟩ = ${num(f.d_dataset?.mean)} mm${ci}.`;
   const centroids = centroidLegend(payload.centroids);
   const overflow = frameMeanOverflowText(payload);
-  const offset = ' The A–B offset of the superimposed centroids (offset_mm) is not a separation.';
+  const offset = single ? '' : ' The A–B offset of the superimposed centroids (offset_mm) is not a separation.';
   const splat = kind === 'trans'
     ? ` Each cell's ${num(f.footprint_mm?.[0], 1)} × ${num(f.footprint_mm?.[1], 1)} mm footprint is `
       + `integrated exactly by area-weighted box overlap on a ${f.pitch_mm} mm grid.`
@@ -661,7 +721,9 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
     const limit = payload.overlays?.max_trajectory_events ?? 50;
     if (paths.length) {
       direction = ` Dashed lines are the ${paths.length} individual incident directions, drawn from the `
-        + "origin along each event's absolute-frame (θ, φ) — magenta for shower A, blue for shower B.";
+        + (single
+          ? "origin along each shower's absolute-frame (θ, φ), one per event."
+          : "origin along each event's absolute-frame (θ, φ) — magenta for shower A, blue for shower B.");
     } else {
       const r = f.coherence?.r_a;
       direction = ' No averaged direction: the azimuth keeps its absolute-frame distribution '
@@ -693,17 +755,20 @@ export function showerFootnotes(payload, { isometric = {} } = {}) {
  * arbitrary; quoting the measured number on the page is what keeps the
  * omission honest rather than merely silent.
  */
-export function labFootnotes(payload) {
+export function labFootnotes(payload, { nShowers = null } = {}) {
   const overlays = payload.overlays || {};
+  const single = showersPerEvent(payload, nShowers) === 1;
   const resolution = payload.meta?.resolution || {};
   const stagger = payload.meta?.stagger || {};
   // The staggered-lattice comb is detector segmentation, not shower structure.
   // Saying so on the panel itself matters more than saying it in a banner,
   // because the panel is what gets screenshotted into a discussion.
   const combNote = stagger.staggered && resolution.mode === 'native' ? ` ⚠ ${stagger.note}` : '';
-  const xy = `${payload.slab.note} Diamond marks shower A, circle shower B; the dashed `
-    + 'line is the transverse separation between the ground-truth voxel-weighted '
-    + `entry centroids.${combNote}`;
+  const xy = single
+    ? `${payload.slab.note} ${singleCentroidSentence(payload.centroids)}${combNote}`
+    : `${payload.slab.note} Diamond marks shower A, circle shower B; the dashed `
+      + 'line is the transverse separation between the ground-truth voxel-weighted '
+      + `entry centroids.${combNote}`;
 
   const coherence = overlays.coherence || {};
   const paths = overlays.trajectories || [];
@@ -712,8 +777,11 @@ export function labFootnotes(payload) {
   if (paths.length) {
     direction =
       ` Dashed lines are the ${paths.length} individual incident trajectories, `
-      + "projected from each event's centroid and (θ, φ) — magenta for shower A, "
-      + 'blue for shower B. The centre of deposited energy is withheld at this size: '
+      + (single
+        ? "projected from each shower's centroid along its (θ, φ), one per event. "
+        : "projected from each event's centroid and (θ, φ) — magenta for shower A, "
+          + 'blue for shower B. ')
+      + 'The centre of deposited energy is withheld at this size: '
       + 'averaging the transverse position of a handful of showers that sit in '
       + 'different places has no common centre to converge on.';
   } else {
@@ -721,7 +789,7 @@ export function labFootnotes(payload) {
     const spread = Number.isFinite(r) ? `R̄ = ${r.toFixed(3)}` : 'near-uniform';
     direction =
       ' Solid lines are the centres of deposited energy per depth layer, measured from the '
-      + 'binned data on screen — magenta for shower A, blue for shower B: a property of the '
+      + (single ? 'binned data on screen: a property of the ' : 'binned data on screen — magenta for shower A, blue for shower B: a property of the ')
       + 'summed picture, not a direction. Individual trajectories are drawn only for selections '
       + `of ${limit} events or fewer; this one holds ${formatInt(payload.selection?.n_events)}. `
       + 'No single averaged trajectory is drawn over the whole face: the incident azimuth is '
@@ -749,14 +817,31 @@ export function labFootnotes(payload) {
 /* ----------------------------------------- the absolute frame's marks -- */
 
 /** The legend line of an absolute-frame depth panel's marks. */
-export function labLegend(payload) {
+export function labLegend(payload, { nShowers = null } = {}) {
   const paths = payload?.overlays?.trajectories || [];
+  const single = showersPerEvent(payload, nShowers) === 1;
   if (paths.length) {
     return `Dashed lines: the ${paths.length} individual incident trajectories, each from its event's `
-      + '3-D centroid along (θ, φ) — magenta shower A, blue shower B.';
+      + (single ? '3-D shower centroid along (θ, φ), one per event.' : '3-D centroid along (θ, φ) — magenta shower A, blue shower B.');
   }
-  return 'Solid lines: the centre of deposited energy per depth layer — magenta shower A, blue shower B — '
-    + 'a property of the summed picture, not a direction.';
+  return single
+    ? 'Solid line: the centre of deposited energy per depth layer, a property of the summed picture, not a direction.'
+    : 'Solid lines: the centre of deposited energy per depth layer — magenta shower A, blue shower B — '
+      + 'a property of the summed picture, not a direction.';
+}
+
+/**
+ * The absolute-frame entry panel's marks for one shower per event: the
+ * centroid markers the payload names (CENTROID_STYLE), and why no separation
+ * is drawn. Like the two-shower stars they are drawn without uncertainty
+ * marks; the sentence says what each one is.
+ */
+export function singleCentroidSentence(centroids) {
+  const names = Object.values(centroids || {})
+    .filter((set) => set && set.a && typeof set.label === 'string')
+    .map((set) => set.label);
+  const marked = names.length ? `Markers: ${names.join('; ')}, each a point estimate without an uncertainty mark. ` : '';
+  return `${marked}One shower per event, so no separation vector is drawn.`;
 }
 
 /**
@@ -793,12 +878,12 @@ export function geometrySentence(pointing) {
     + 'with anything physical.';
 }
 
-/** The three footnotes of any projections payload. */
-export function footnotes(payload, { isometric = {} } = {}) {
+/** The three footnotes of any projections payload; `nShowers` is the experiment's showers per event. */
+export function footnotes(payload, { isometric = {}, nShowers = null } = {}) {
   const kind = kindOf(payload);
   if (kind === 'canonical') return canonicalFootnotes(payload, { isometric });
-  if (kind === 'trans' || kind === 'local') return showerFootnotes(payload, { isometric });
-  return labFootnotes(payload);
+  if (kind === 'trans' || kind === 'local') return showerFootnotes(payload, { isometric, nShowers });
+  return labFootnotes(payload, { nShowers });
 }
 
 /**
@@ -808,11 +893,12 @@ export function footnotes(payload, { isometric = {} } = {}) {
  * same `centroidLegend`, so the screen, the footnote and the figure describe
  * one set of marks.
  */
-export function exportLegend(panelId, payload) {
+export function exportLegend(panelId, payload, { nShowers = null } = {}) {
   const kind = kindOf(payload);
   if (kind === 'trans' || kind === 'local') {
     if (panelId === 'xy') {
       const centroids = centroidLegend(payload?.centroids);
+      if (showersPerEvent(payload, nShowers) === 1) return centroids;
       return `${centroids ? `${centroids} ` : ''}The A–B offset of the superimposed centroids is not a separation.`;
     }
     if (kind === 'local') return 'w is the incident direction by construction; no direction is drawn.';

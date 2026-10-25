@@ -262,6 +262,11 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/shell.js",
         "/static/js/panels/frame_grid.js",
         "/static/js/event_inspector.js",
+        "/static/js/capabilities.js",
+        "/static/js/page_common.js",
+        "/static/js/lazy_cards.js",
+        "/static/js/physics_section.js",
+        "/static/js/controls/filter_block.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -284,6 +289,10 @@ def test_new_modules_are_served(client, path):
         "/static/js/labels.js",
         "/static/js/panels/frame_grid.js",
         "/static/js/event_inspector.js",
+        "/static/js/capabilities.js",
+        "/static/js/page_common.js",
+        "/static/js/physics_section.js",
+        "/static/js/controls/filter_block.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -364,7 +373,8 @@ def test_export_modules_are_reachable_from_the_entry_point():
     for module in ("marks.js", "canonical_overlays.js", "tooltip.js", "frame_grid.js"):
         assert (PANELS_JS / module).resolve() in seen, f"panels/{module} is never imported"
     for module in ("frame_views.js", "format.js", "axis_symbols.js", "labels.js",
-                   "panel_notes.js", "shell.js", "event_inspector.js"):
+                   "panel_notes.js", "shell.js", "event_inspector.js", "capabilities.js",
+                   "page_common.js", "lazy_cards.js", "physics_section.js", "controls/filter_block.js"):
         assert (js_root / module).resolve() in seen, f"{module} is never imported"
 
 
@@ -772,3 +782,19 @@ def test_no_retired_frame_vocabulary_ships():
                 else _strip_comments(text))
         for phrase in retired:
             assert phrase not in text, f"{path.name} still says {phrase!r}"
+
+
+def test_the_physics_panels_load_through_stamped_dynamic_imports(client):
+    """physics_section.js fetches each panel module on first use, under the page's stamp.
+
+    A dynamic `import('./panels/profile.js')` is requested at a bare URL of
+    its own like any static one, so it must carry the stamp too, or a fresh
+    page could pair with a panel module cached before it.
+    """
+    served = client.get("/static/js/physics_section.js").text
+    dynamic = re.findall(r"import\('(\.\.?/[^']+)'\)", served)
+    assert len(dynamic) == 6, dynamic
+    for spec in dynamic:
+        assert "?v=" in spec, f"unstamped dynamic import: {spec}"
+    main = client.get("/static/js/main.js").text
+    assert "./physics_section.js?v=" in main and "./capabilities.js?v=" in main

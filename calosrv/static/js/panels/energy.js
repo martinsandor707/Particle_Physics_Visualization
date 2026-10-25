@@ -1022,6 +1022,25 @@ export class EnergyPanel {
   setBusy(busy) {
     this.element.classList.toggle('is-busy', busy);
   }
+
+  /**
+   * Take the picture, the fitted-parameter table and the card's notices down
+   * and let go of the payload, so a relayout cannot repaint it: the page's
+   * experiment changed, and its data must not stay on screen.
+   */
+  clear() {
+    this.chart.clear();
+    this.lastPayload = null;
+    this.lastOpts = null;
+    this.liveGrid = null;
+    this.laidOut = null;
+    this.lastNotices = [];
+    this.tableElement?.replaceChildren();
+    if (this.noteElement) {
+      this.noteElement.replaceChildren();
+      this.noteElement.hidden = true;
+    }
+  }
 }
 
 /** A whisker end: a cap when the interval ends here, an arrow when it does not. */

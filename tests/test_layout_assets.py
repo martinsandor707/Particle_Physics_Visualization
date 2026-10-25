@@ -296,3 +296,194 @@ def test_the_entry_anchor_has_an_explainer_button_inside_its_control():
     css = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
     rule = _rule(css, ".popover.is-explainer")
     assert "max-height: calc(100vh - 16px)" in rule and "overflow-y: auto" in rule
+
+
+# ------------------------------------------------------ the physics section --
+
+
+def test_the_physics_section_sits_below_the_ensemble_grid():
+    html = _html()
+    assert html.count('<section class="grid physics-grid" id="physics-grid"') == 1
+    assert html.count('id="kind-notice"') == 1
+    order = [html.index(f'id="{section}"') for section in ("ensemble-grid", "kind-notice", "physics-grid",
+                                                            "compare-grid", "event-grid")]
+    assert order == sorted(order)
+    assert html.index('id="physics-grid"') < html.index("</main>")
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    assert ".grid[hidden] { display: none; }" in css
+    # Right after the .grid rule, outside the pinned @container and @media blocks.
+    assert css.index(".grid[hidden]") < css.index("@container main (max-width: 820px)")
+    for rule in (".card[hidden] { display: none; }", ".kind-notice[hidden] { display: none; }",
+                 ".card-error[hidden] { display: none; }"):
+        assert rule in css, rule
+
+
+def test_the_physics_section_snaps_like_every_other_track():
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    section = css[css.index("physics section"):]
+    assert "transition" not in _strip_comments(section)
+    controls = (STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    tail = controls[controls.index("physics card controls"):]
+    assert "transition" not in _strip_comments(tail)
+    assert ".seg[hidden] { display: none; }" in controls
+    assert "prefers-reduced-motion" not in css + controls
+
+
+def test_main_hides_the_physics_cards_with_the_ensemble_grid_and_lays_them_out():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    view = re.search(r"function applyViewMode\(\) \{(.*?)\n\}", main, re.DOTALL)
+    assert view, "applyViewMode is missing"
+    for token in ("setHidden('ensemble-grid'", "setHidden('physics-grid'", "setHidden('kind-notice'"):
+        assert token in view.group(1), token
+    relayout = re.search(r"function relayoutAll\(\) \{(.*?)\n\}", main, re.DOTALL)
+    assert "physics.relayout()" in relayout.group(1)
+    # The cards exist before the export menus are wired, so their Export buttons are.
+    assert main.index("new PhysicsSection(") < main.index("attachExportMenus({")
+    # The capability plan decides; a single shower's translated frame is shown.
+    assert "page1Plan(experiment)" in main
+    assert "if (pagePlan.frames.transPrimary) setHidden('frame-sub-trans', false);" in main
+    assert main.index("setHidden('frame-sub-trans', frame !== 'trans')") < main.index("pagePlan.frames.transPrimary")
+
+
+def test_the_physics_cards_have_the_page_card_anatomy():
+    source = (JS / "physics_section.js").read_text(encoding="utf-8")
+    code = _strip_comments(source)
+    for token in ("card.dataset.panel = id", "details.dataset.inspect = id", "exporter.dataset.export = id",
+                  "details.setAttribute('aria-controls', 'inspector')"):
+        assert token in code, token
+    assert "plot area only" in source
+    for forbidden in ("innerHTML", "insertAdjacentHTML", "dataset.shower", "dataset.roi", "dataset.reset"):
+        assert forbidden not in code, forbidden
+    lazy = _strip_comments((JS / "lazy_cards.js").read_text(encoding="utf-8"))
+    assert "new IntersectionObserver(" in lazy
+    # rootMargin '0px' is the plan's decision D3 (Martin): no card is asked for
+    # before it is in view, not the design's '200px 0px' prefetch margin.
+    assert "rootMargin = '0px'" in lazy
+
+
+def test_the_filter_block_and_the_kind_markup_carry_their_ids():
+    html = _html()
+    sidebar = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
+    for element_id in ("e1-label", "e1-hint", "filter-logic", "ctl-undefined-d", "ctl-e1", "ctl-e2", "ctl-d"):
+        assert sidebar.count(f'id="{element_id}"') == 1, element_id
+    for element_id in ("stat-d-item", "stat-nod-item", "stat-wneg-item", "stat-wneg", "energy-shower-toggle",
+                       "energy-b3-slices", "plot-energy-b3", "kind-banner", "kind-notice-title",
+                       "kind-notice-text"):
+        assert html.count(f'id="{element_id}"') == 1, element_id
+    assert '<span id="stat-wneg-item" hidden' in html
+    # The upload hint is schema-neutral: it names every accepted schema.
+    upload = html[html.index('<section class="admin-upload"'):html.index('<section class="admin-ingest"')]
+    for schema in ("hits_all_models", "standalone_hits", "standalone_events"):
+        assert schema in upload, schema
+    # The rebuild section lives in the admin panel, after the automatic ingest.
+    assert html.index('<section class="admin-ingest"') < html.index('<section class="admin-rebuild"') \
+        < html.index('id="tooltip-layer"')
+    admin = _strip_comments((JS / "controls" / "admin.js").read_text(encoding="utf-8"))
+    assert "/api/admin/experiments/${encodeURIComponent(name)}/rebuild" in admin
+    assert "innerHTML" not in admin
+
+
+def _function_body(source: str, name: str) -> str:
+    """The body of a top-level `function name(` or `async function name(` in a module."""
+    match = re.search(rf"(?:async )?function {name}\(.*?\) \{{(.*?)\n\}}", source, re.DOTALL)
+    assert match, f"{name} is missing"
+    return match.group(1)
+
+
+def test_every_loader_drops_a_response_that_lands_after_an_experiment_switch():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    # Each loader takes the generation before its request and checks it after:
+    # getJson lets go of a request once its headers are in, so an abort cannot
+    # stop its body landing on the next experiment's views.
+    for loader in ("loadProjections", "loadEnergy", "loadPlot4Grid", "loadPerformance", "loadCompare",
+                   "loadWindowAxis", "loadEventCount"):
+        body = _function_body(main, loader)
+        assert "const generation = viewGeneration;" in body, loader
+        assert "checkCurrent(generation);" in body, loader
+        assert body.index("const generation = viewGeneration;") < body.index("checkCurrent(generation);"), loader
+    clear = _function_body(main, "clearExperimentViews")
+    for token in ("viewGeneration += 1", "abortRequest(key)", "SPATIAL_ABORT_KEYS", "requestPreview.cancel()",
+                  "physics.reset()", "panel.clear()", "energyPanel.clear()", "plot4Grid?.clear()"):
+        assert token in clear, token
+    keys = re.search(r"const SPATIAL_ABORT_KEYS = \[(.*?)\];", main, re.DOTALL).group(1)
+    for key in ("'projections'", "'energy'", "'performance'", "'compare-lab'", "'compare-trans'", "'compare-local'",
+                "'window-axis-yz'", "'window-axis-xz'", "'event'", "'event-pick'"):
+        assert key in keys, key
+    # The workaround for panels without clear() is gone.
+    assert "clearPanel" not in main
+
+
+def test_only_the_latest_refresh_clears_the_busy_state_and_speaks():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    refresh = re.search(r"const refreshAll = debounce\(async \(\) => \{(.*?)\n\}, DEBOUNCE_MS\);", main, re.DOTALL)
+    assert refresh, "refreshAll is missing"
+    body = refresh.group(1)
+    assert "const token = ++refreshToken;" in body
+    assert "if (token !== refreshToken) return;" in body
+    assert "if (token === refreshToken) setBusy(false);" in body
+    # The event-level kind's Events count comes from /api/response's n_events.
+    assert "loadEventCount()" in body
+    assert "physics.payloadOf('response-b1')" in _function_body(main, "loadEventCount")
+
+
+def test_the_frame_carries_across_a_switch_of_kind_with_a_notice_in_the_kind_banner():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    activate = _function_body(main, "activateExperiment")
+    assert "carriedFrame(previousPlan, pagePlan, state.get('frame'))" in activate
+    assert activate.index("clearExperimentViews()") < activate.index("carriedFrame(")
+    assert "applyKindPlan(pagePlan, notices)" in activate
+    kind = _function_body(main, "applyKindPlan")
+    assert "kindBanner.show([plan.banner, plan.stale?.notice, ...notices].filter(Boolean))" in kind
+    # The fallback notices live in the kind banner, never the transient one a refresh rewrites.
+    assert "showBanner(fallbacks)" not in main
+
+
+def _div_span(html: str, start_tag: str) -> str:
+    """The markup of the `<div>` that opens with `start_tag`, up to its matching close."""
+    start = html.index(start_tag)
+    depth = 0
+    for match in re.finditer(r"<div\b|</div>", html[start:]):
+        depth += 1 if match.group(0) == "<div" else -1
+        if depth == 0:
+            return html[start:start + match.end()]
+    raise AssertionError(f"{start_tag} is never closed")
+
+
+def test_the_event_level_kind_hides_the_spatial_sidebar_groups():
+    html = _html()
+    sidebar = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
+    groups = {
+        "group-frame": ('Reference Frame', 'id="ctl-frame"', 'id="frame-caption"', 'id="opt-compare"'),
+        "group-resolution": ('Spatial Resolution', 'name="display"', 'id="resolution"', 'id="display-caption"'),
+        "group-channel": ('Display Channel', 'name="channel"', 'id="channel-caption"'),
+        "group-colormap": ('Colour Map', 'id="colormap"', 'id="opt-lock-scale"', 'id="ctl-rho-norm"'),
+    }
+    spans = {group: _div_span(sidebar, f'<div class="sidebar-group" id="{group}">') for group in groups}
+    for group, members in groups.items():
+        for member in members:
+            assert member in spans[group], (group, member)
+    # The filters, the Event Inspector and the model controls stay outside every group.
+    for kept in ('id="ctl-e1"', 'id="ctl-event"', 'name="model"', 'id="metrics"', 'id="opt-undefined-d"'):
+        assert kept in sidebar and not any(kept in span for span in spans.values()), kept
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    assert "for (const id of SPATIAL_GROUPS) setHidden(id, !plan.spatial);" in _function_body(main, "applyKindPlan")
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    assert ".sidebar-group[hidden] { display: none; }" in css
+    # A group's own first heading keeps its gap: only the sidebar's first heading loses it.
+    assert ".sidebar > h2:first-child { margin-top: 0; }" in css and ".sidebar h2:first-child" not in css
+
+
+def test_single_shower_plot_4_is_the_notebook_windows_with_a_link_to_the_1_gev_bins():
+    html = _html()
+    energy = html[html.index('data-panel="energy"'):html.index('id="kind-notice"')]
+    assert 'id="energy-b3-link"' in energy and "data-b3-slices" not in energy
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    assert "const PLOT4_CONTROLS = Object.freeze({ b3Slices: 'notebook' });" in main
+    assert "plot4Slices" not in main and "[data-b3-slices]" not in main
+    assert "physics.reveal('response-b3', { b3Slices: 'bins' })" in main
+    render = _function_body(main, "renderPlot4")
+    # The fit table and the key counts under the grid, as the energy panel has them.
+    assert "plot4Grid.renderTable(table)" in render and "writeSparseNote(dom.energySparse, plot4Sparse())" in render
+    kind = _function_body(main, "applyKindPlan")
+    assert "setHidden('fit-table', !plan.plot4);" in kind
+

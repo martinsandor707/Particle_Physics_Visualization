@@ -82,7 +82,9 @@
   padding-bottom: 5px;
   border-bottom: 1px solid var(--border);
 }
-.sidebar h2:first-child { margin-top: 0; }
+/* The sidebar's first heading only: a group's own first heading (below)
+   keeps the gap that separates it from the group above. */
+.sidebar > h2:first-child { margin-top: 0; }
 
 /* -------------------------------------------------------------------- main */
 
@@ -100,6 +102,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap);
 }
+/* `display: grid` beats the user agent's `[hidden] { display: none }`, so a
+   hidden grid needs its own rule: without it the 2x2 grid stayed on screen
+   above the Event Inspector and the compare-frames view. */
+.grid[hidden] { display: none; }
 
 /* The 2x2 grid is decided from the chart column, not the viewport: with the
    sidebar and the Details drawer both open the column loses up to 690 px, and
@@ -381,3 +387,76 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .is-busy { opacity: 0.55; transition: opacity 0.15s ease; }
+
+/* ------------------------------------------------------ physics section */
+
+/* The physics cards below the 2x2 grid (js/physics_section.js). The same
+   two-column grid and the same cards; a wide card spans both columns. Every
+   plot keeps a fixed height, so a card loading late never moves the cards
+   above it. Like every track here nothing is animated. */
+.physics-grid { margin-top: var(--gap); }
+.section-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.section-head h2 { font-size: 13px; white-space: nowrap; }
+.section-note { font-size: 11px; color: var(--muted); }
+.card[hidden] { display: none; }
+.card.is-wide { grid-column: 1 / -1; }
+.card .plot[hidden] { display: none; }
+
+/* The plot and the sentence that replaces it when a card has nothing to draw:
+   a failed request or a gate the server shut. The sentence sits over the
+   cleared plot, so the card keeps its height and no stale picture shows. */
+.plot-frame { position: relative; min-width: 0; }
+.card-table { overflow-x: auto; min-height: 140px; }
+.card-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 24px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--card);
+}
+.card-error[hidden] { display: none; }
+.card-error p { margin: 0; max-width: 60ch; }
+.card-error[data-kind="error"] { color: var(--danger); }
+
+/* In place of the 2x2 grid for an experiment with no hits. */
+.kind-notice {
+  padding: 18px 20px;
+  margin-bottom: var(--gap);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.kind-notice[hidden] { display: none; }
+.kind-notice h2 { font-size: 13px; margin-bottom: 6px; }
+.kind-notice p { margin: 0; font-size: 12px; color: var(--muted); max-width: 90ch; }
+
+/* What the active experiment cannot show: an informational banner, not an
+   error. The warning colour is kept: it states a limitation of the data. */
+.banner.is-info { border-style: dashed; }
+
+/* The sidebar groups that steer only the spatial panels (frame tier, display
+   resolution, channels, colour map): hidden for an experiment with no hits to
+   project, whose kind notice says why. */
+.sidebar-group[hidden] { display: none; }
+
+/* The response grid's key counts and fitted parameters on its physics card,
+   as plot 4 carries them on the energy card. The response grid's table has
+   seven columns, wider than plot 4's 2 x 2 cell at ordinary window widths
+   (616 px against a 426 px cell at 1280 px): it scrolls inside its card
+   rather than spilling over the neighbouring panel. */
+.card-fit-table, #fit-table { overflow-x: auto; }

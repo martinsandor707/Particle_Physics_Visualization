@@ -10,6 +10,14 @@
  * upload form (controls/upload.js, readied by `prepare()` on every open and
  * covered by this panel's focus trap and Escape) and the automatic ingest of
  * the drop folder, with live job status and a rescan.
+ *
+ * The last section lists each experiment's derived tables. One built by an
+ * earlier release is served as before, with the panels that need the newer
+ * tables shut and the server's reason on them; "Rebuild derived tables"
+ * re-derives every table from the experiment's archive (POST
+ * /api/admin/experiments/{name}/rebuild) on the ingest worker, in one
+ * transaction - the experiment stays served from its old tables until the new
+ * ones have verified - and the row follows the job until it is done.
  */
 
 import { ApiError, getJson, sendJson } from '../api.js';
@@ -71,10 +79,13 @@ function ownDisplay(frame) {
 }
 
 export class AdminModal {
-  constructor({ state, onIngested, upload = null }) {
+  constructor({ state, onIngested, upload = null, getExperiments = null }) {
     this.state = state;
     this.onIngested = onIngested || (() => {});
     this.upload = upload;
+    // The page's experiment catalogue (GET /api/experiments), which carries
+    // each experiment's derived-table status; read at render time.
+    this.getExperiments = getExperiments || (() => []);
     this.backdrop = document.getElementById('admin-modal');
     this.datasetSelect = document.getElementById('admin-dataset');
     this.saveButton = document.getElementById('admin-save');
@@ -84,6 +95,12 @@ export class AdminModal {
     this.ingestWhere = document.getElementById('admin-ingest-where');
     this.ingestTable = document.getElementById('admin-ingest-table');
     this.ingestRows = document.getElementById('admin-ingest-rows');
+    this.rebuildWhere = document.getElementById('admin-rebuild-where');
+    this.rebuildTable = document.getElementById('admin-rebuild-table');
+    this.rebuildRows = document.getElementById('admin-rebuild-rows');
+    this.rebuilds = new Map(); // table_name -> {job, error}
+    this.rebuildTimer = null;
+    this.rebuildLoop = null; // the polling loop that may schedule the next tick
 
     this.config = null; // the last GET or POST body
     this.form = {}; // field -> the value the form shows
@@ -93,7 +110,7 @@ export class AdminModal {
     this.pollTimer = null;
 
     this.shell = new ModalShell(this.backdrop, {
-      onClose: () => this.stopPolling(),
+      onClose: () => { this.stopPolling(); this.stopRebuildPolling(); },
       initialFocus: () => this.datasetSelect,
     });
 
@@ -150,6 +167,8 @@ export class AdminModal {
     this.shell.open();
     // Not awaited: the form reports through its own rows.
     this.upload?.prepare();
+    this.renderRebuild();
+    this.pollRebuilds();
     this.setStatus('Loading the saved defaults…');
     try {
       this.load(await getJson('/api/admin/config', {}, 'admin-config'));
@@ -430,5 +449,142 @@ export class AdminModal {
   setStatus(text, isError = false) {
     this.status.textContent = text;
     this.status.classList.toggle('is-error', isError);
+  }
+
+  /* ---------------------------------------------------- derived tables */
+
+  /**
+   * One row per ready experiment that states its derived tables: their
+   * version, whether they are current, and - for a stale one - the Rebuild
+   * action, or the progress of the rebuild under way.
+   */
+  renderRebuild() {
+    if (!this.rebuildRows) return;
+    const experiments = (this.getExperiments() || [])
+      .filter((e) => e.status === 'ready' && e.capabilities?.derived);
+    const stale = experiments.filter((e) => e.capabilities.derived.status === 'stale');
+    if (this.rebuildWhere) {
+      this.rebuildWhere.textContent = !experiments.length
+        ? 'No experiment reports its derived tables.'
+        : stale.length
+          ? `${formatInt(stale.length)} experiment${stale.length === 1 ? ' was' : 's were'} derived by an earlier `
+            + 'release: the panels that need the newer tables stay shut, with the reason shown, until it is '
+            + 'rebuilt from its archive. A rebuild runs on the ingest worker in one transaction; the '
+            + 'experiment stays served from its old tables until the new ones have verified.'
+          : 'Every experiment\'s derived tables are current.';
+    }
+    if (this.rebuildTable) this.rebuildTable.hidden = experiments.length === 0;
+    this.rebuildRows.replaceChildren(...experiments.map((e) => this.rebuildRow(e)));
+  }
+
+  rebuildRow(experiment) {
+    const derived = experiment.capabilities.derived;
+    const name = experiment.table_name;
+    const row = document.createElement('tr');
+    const label = document.createElement('td');
+    label.textContent = experiment.display_name || name;
+    label.title = name;
+    const status = document.createElement('td');
+    const action = document.createElement('td');
+    const run = this.rebuilds.get(name);
+    const version = `v${derived.version ?? '—'}`;
+    if (run?.job && (run.job.status === 'queued' || run.job.status === 'running')) {
+      status.textContent = run.job.status === 'queued'
+        ? `${version} · rebuild waiting for the ingest worker`
+        : `${version} · rebuilding (${Math.round((run.job.progress || 0) * 100)}%)`;
+    } else if (run?.error) {
+      status.textContent = `${version} · rebuild failed: ${run.error}`;
+      status.classList.add('admin-error');
+    } else if (derived.status === 'stale') {
+      status.textContent = `${version}, current release v${derived.current ?? '—'} · stale`;
+      if (derived.notice) status.title = derived.notice;
+    } else {
+      status.textContent = `${version} · current`;
+    }
+    const busy = run?.job && (run.job.status === 'queued' || run.job.status === 'running');
+    if (derived.status === 'stale' || busy || run?.error) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mini';
+      button.dataset.rebuild = name;
+      button.textContent = 'Rebuild derived tables';
+      button.disabled = Boolean(busy);
+      button.title = busy ? 'A rebuild of this experiment is under way.'
+        : 'Re-derive every table of this experiment from its Parquet archive, atomically.';
+      button.addEventListener('click', () => this.rebuild(name));
+      action.append(button);
+    }
+    row.append(label, status, action);
+    return row;
+  }
+
+  /** Start one experiment's rebuild and follow its job. */
+  async rebuild(name) {
+    this.rebuilds.set(name, { job: { status: 'queued', progress: 0 } });
+    this.renderRebuild();
+    try {
+      const reply = await sendJson('POST', `/api/admin/experiments/${encodeURIComponent(name)}/rebuild`);
+      this.rebuilds.set(name, { job: reply.job });
+      this.setStatus(`Rebuilding the derived tables of ${name} from its archive…`);
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : String(error);
+      this.rebuilds.set(name, { error: message });
+      this.setStatus(message, true);
+    }
+    this.renderRebuild();
+    this.pollRebuilds();
+  }
+
+  /** The rebuilds whose job is still queued or running, read afresh. */
+  pendingRebuilds() {
+    return [...this.rebuilds.entries()]
+      .filter(([, run]) => run.job?.job_id && (run.job.status === 'queued' || run.job.status === 'running'));
+  }
+
+  /**
+   * Follow the rebuilds under way while the panel is open.
+   *
+   * The list is read again on every tick: a rebuild that finished on the last
+   * tick has left `this.rebuilds`, and polling it again would reload the
+   * catalogue (and every physics card) once per tick until the other rebuilds
+   * finish.
+   */
+  pollRebuilds() {
+    this.stopRebuildPolling();
+    if (!this.pendingRebuilds().length || !this.shell.isOpen) return;
+    // One polling loop at a time: a rebuild started while a tick is awaiting
+    // restarts the loop, and the superseded tick schedules nothing.
+    const loop = {};
+    this.rebuildLoop = loop;
+    const tick = async () => {
+      this.rebuildTimer = null;
+      for (const [name, run] of this.pendingRebuilds()) {
+        try {
+          const job = await getJson(`/api/upload/${run.job.job_id}`, {}, `admin-rebuild-${name}`);
+          if (job.status === 'done') {
+            this.rebuilds.delete(name);
+            this.setStatus(`The derived tables of ${name} were rebuilt.`);
+            await this.onIngested(job);
+          } else if (job.status === 'failed') {
+            this.rebuilds.set(name, { error: job.error || 'see the server log' });
+          } else {
+            this.rebuilds.set(name, { job });
+          }
+        } catch {
+          // A restart forgets its jobs; the next open shows the catalogue's status.
+          this.rebuilds.delete(name);
+        }
+      }
+      this.renderRebuild();
+      if (this.rebuildLoop !== loop) return;
+      if (this.pendingRebuilds().length && this.shell.isOpen) this.rebuildTimer = setTimeout(tick, JOB_POLL_MS);
+    };
+    tick();
+  }
+
+  stopRebuildPolling() {
+    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = null;
+    this.rebuildLoop = null;
   }
 }

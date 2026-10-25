@@ -138,6 +138,8 @@ export const PRINT_TOKENS = {
   // Standard PuOr on white paper: its light centre marks zero there.
   divergingPalette: 'puor',
   divergingLinearPalette: 'puor',
+  // The circular-cell hatch: chrome, not ink, so outside PRINT_INK (4.8:1 on white).
+  hatch: '#6b7280',
 };
 
 /** Logical pixels for a figure of the given printed width. */
