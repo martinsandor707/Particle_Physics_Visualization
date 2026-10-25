@@ -30,6 +30,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from ..errors import ValidationError
+from ..text import typographic
 
 OUTSIDE = -2
 
@@ -38,6 +39,13 @@ FEATURE_CENTRES_GEV: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0, 19.5)
 HALF_WIDTH_GEV = 0.5
 LABEL_THRESHOLD_GEV = 2.0
 MAX_CLASSES = 24
+
+#: Bounds on a requested window, far beyond any momentum in these files (all
+#: below 20 GeV) and far inside a double: every edge ``c ± h`` written into the
+#: SQL is then a finite literal. A window of half-width 10 GeV already spans
+#: the whole momentum range.
+MAX_CENTRE_GEV = 1000.0
+MAX_HALF_WIDTH_GEV = 10.0
 
 KIND_WINDOW = "window"
 KIND_BIN = "bin"
@@ -49,7 +57,8 @@ MODE_LIST = "list"
 
 
 def _gev(value: float) -> str:
-    return f"{value:g}"
+    """A momentum for a label, U+2212 in any exponent (``1e−05``)."""
+    return typographic(f"{value:g}")
 
 
 @dataclass(frozen=True)
@@ -71,15 +80,26 @@ class MomentumClass:
 
 def windows(centres: Sequence[float] = CALIBRATION_CENTRES_GEV,
             half: float = HALF_WIDTH_GEV, field: str = "p_slices") -> list[MomentumClass]:
-    """Half-open windows ``[c - half, c + half)``; overlap or excess is a 422 on ``field``."""
-    if not math.isfinite(half) or half <= 0:
-        raise ValidationError(f"The window half-width must be positive; got {half!r}.", field=field)
+    """Half-open windows ``[c - half, c + half)``; overlap or excess is a 422 on ``field``.
+
+    Centres above :data:`MAX_CENTRE_GEV` and half-widths above
+    :data:`MAX_HALF_WIDTH_GEV` are refused too, so no edge can overflow to an
+    infinite SQL literal.
+    """
+    if not math.isfinite(half) or not 0 < half <= MAX_HALF_WIDTH_GEV:
+        raise ValidationError(
+            f"The window half-width must be a positive number of GeV up to "
+            f"{_gev(MAX_HALF_WIDTH_GEV)}; got {half!r}.", field=field)
     cs = sorted(float(c) for c in centres)
     if not cs:
         raise ValidationError("At least one momentum window is needed.", field=field)
     if len(cs) > MAX_CLASSES:
         raise ValidationError(f"At most {MAX_CLASSES} momentum windows; got {len(cs)}.",
                               field=field)
+    if not all(math.isfinite(c) and 0 < c <= MAX_CENTRE_GEV for c in cs):
+        raise ValidationError(
+            f"Momentum window centres must be positive numbers of GeV up to "
+            f"{_gev(MAX_CENTRE_GEV)}.", field=field)
     for a, b in zip(cs, cs[1:]):
         if b - a < 2 * half - 1e-12:
             raise ValidationError(
@@ -127,7 +147,8 @@ def relabel_bins(classes: Sequence[MomentumClass],
         k = int(c.lo)
         found = ranges.get(k)
         if found is not None and not (found[0] >= c.lo and found[1] < c.hi):
-            out.append(replace(c, label=f"bin {k} (p {found[0]:.3g}–{found[1]:.3g} GeV)"))
+            out.append(replace(c, label=typographic(
+                f"bin {k} (p {found[0]:.3g}–{found[1]:.3g} GeV)")))
             odd.append(k)
         else:
             out.append(c)
@@ -172,9 +193,7 @@ def parse_slicing(raw: str | None, half: float = HALF_WIDTH_GEV,
         raise ValidationError(
             f"p_slices must be 'notebook', 'bins' or comma-separated centres in GeV; got {raw!r}.",
             field="p_slices") from None
-    if not centres or not all(math.isfinite(c) and c > 0 for c in centres):
-        raise ValidationError("Momentum window centres must be positive numbers in GeV.",
-                              field="p_slices")
+    # windows() refuses an empty list, a centre out of bounds and an overlap.
     return MomentumSlicing(MODE_LIST, tuple(windows(centres, half)), half)
 
 

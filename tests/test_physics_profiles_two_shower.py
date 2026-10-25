@@ -87,6 +87,7 @@ def test_one_event_gives_a_band_but_no_interval(synthetic_client, table):
         assert block["band"] is not None and block["envelope"] is None
         assert all(v is None for v in block["pooled"]["ci95_lo"])
     assert any("G = 1 event" in note for note in payload["notes"])
+    assert not any("Capped envelope" in note for note in payload["notes"])
     _check(synthetic_client, table, payload, BOTH, where, params)
 
 
@@ -96,6 +97,8 @@ def test_two_events_give_an_envelope_on_one_degree_of_freedom(synthetic_client, 
     payload = _get(synthetic_client, table_name=table, d_min=50.0, d_max=100.0)
     assert (payload["ensemble"]["n_showers"], payload["ensemble"]["n_events"]) == (4, 2)
     assert payload["ensemble"]["label"] == "weak (N = 4)"
+    assert any("(1 degree of freedom)" in note for note in payload["notes"])
+    assert not any("1 degrees" in note for note in payload["notes"])
     for block in payload["axes"].values():
         assert block["envelope"]["dof"] == 1 and block["envelope"]["t"] == pytest.approx(12.706, abs=1e-3)
     _check(synthetic_client, table, payload, BOTH, where, params)

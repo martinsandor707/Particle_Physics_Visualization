@@ -112,4 +112,12 @@ def test_every_view_fits_the_budget(synthetic_client):
                 body = _get(synthetic_client, table_name=table, shower=shower, classes=classes,
                             **params)
                 assert density.wire_size(body) < density.RESPONSE_LIMIT
+                assert body["meta"]["budget"]["bytes"] == density.wire_size(body)
                 assert not [h for text in _strings(body) for h in signed_hyphens(text)]
+                if params["view"] == "corr":
+                    # Both azimuths of a hit kind sit off the colour scale.
+                    cells = body["circular_cells"]
+                    assert {c["row"] for c in cells} | {c["col"] for c in cells} >= {
+                        "avg_phi", "avg_phi_circ"}
+                    assert all(body["r"][c["position"]] is None for c in cells)
+                    assert body["scale"]["palette"] == "puor"

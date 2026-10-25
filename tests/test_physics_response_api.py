@@ -298,7 +298,8 @@ def test_b2_per_bin_numbers_match_numpy(single_client):
             assert (b["c4"] == approx(gaussian.c4(n), rel=1e-5)) if n < 15 else b["c4"] is None
             se = 100.0 * _ratio_se(dep, p)
             assert b["ratio_of_sums"]["ci95"] == approx(
-                [b["ratio_of_sums"]["value"] - _t(n) * se, b["ratio_of_sums"]["value"] + _t(n) * se],
+                [max(0.0, b["ratio_of_sums"]["value"] - _t(n) * se),
+                 b["ratio_of_sums"]["value"] + _t(n) * se],
                 rel=1e-4)
         else:
             assert b["sd"] is None and b["ci95"] is None and b["ratio_of_sums"]["ci95"] is None
@@ -664,6 +665,12 @@ def test_a_weak_series_never_sets_the_b1_range_but_is_counted_when_it_overflows(
     assert b["draw"] == "strip" and max(b["strip"]["values"]) == approx(30.0, rel=1e-4)
     # ... and the weak series' own moments are taken over all ten events, outlier included.
     assert b["fit"]["mu"] > 5.0 > a["fit"]["mu"]
+    # The summary marks the axis cuts are counted and named too, not only the events: shower B's
+    # mean (above 5%) and its band leave an axis that tops out below 4%.
+    assert axis["n_clipped_marks"] >= 2
+    clipped = {c["key"]: c["marks"] for c in axis["clipped_marks"]}
+    assert "b" not in clipped.get("a", []) and "mean" in clipped["b"]
+    assert any("summary mark" in n and "clipped, not rescaled" in n for n in body["notes"])
 
 
 def test_events_with_an_undefined_separation_are_counted_when_the_selection_leaves_them_out():
@@ -771,3 +778,54 @@ def test_event_columns_the_query_reads_exist_for_every_kind():
         for s in showers.of(record, "both"):
             for name in (s.momentum, s.momentum_bin, s.deposit):
                 assert name in columns, (kind, name)
+
+
+def test_a_provisional_b1_range_that_takes_percentiles_says_so_and_counts_what_lies_outside():
+    # Two showers of 19 events each: no series reaches N = 20, but 38 values pool, so the
+    # percentile cut applies and the one 30% event lies beyond the range.
+    rows = []
+    for i in range(19):
+        p = 2.0 + 0.25 * i
+        rows.append(_row(p, 0.03 * p * (1.0 + 0.02 * math.sin(i)),
+                         dep_b=(0.3 * p if i == 9 else 0.03 * p * (1.0 + 0.02 * math.cos(i)))))
+    con, record = _mini(rows)
+    result = response.compute(con, record, filters.build(record), showers.of(record, "both"),
+                              response.Request(parts=("b1",)))
+    clipping = result.as_dict()["b1"]["axis"]["clipping"]
+    assert result.b1_range.provisional and clipping["n_total"] == 38 and clipping["n_outside"] == 1
+    assert "Provisional range" in clipping["note"] and "percentile" in clipping["note"]
+    assert "spans the data" not in clipping["note"]
+    assert "1 of 38 values" in clipping["note"]
+    assert any("1 of 38 values" in w for w in result.warnings())
+
+
+def test_the_b1_note_names_only_the_upper_percentile_because_the_axis_starts_at_zero():
+    rows = [_row(2.0 + 0.25 * i, 0.03 * (2.0 + 0.25 * i) * (1.0 + 0.05 * math.sin(i)))
+            for i in range(60)]
+    con, record = _mini(rows)
+    result = response.compute(con, record, filters.build(record), showers.of(record, "both"),
+                              response.Request(parts=("b1",), clip_low=40.0, clip_high=60.0))
+    note = result.as_dict()["b1"]["axis"]["clipping"]["note"]
+    assert "zero-based" in note and "60th percentile" in note and "40" not in note
+
+
+def test_ratio_intervals_of_non_negative_sums_are_clipped_at_zero():
+    # Two events at very different fractions: the delta-method interval of the ratio of sums
+    # would run far below zero, quoting a negative calibration constant.
+    dep, p = np.array([0.02, 0.9]), np.array([10.0, 10.0])
+    for num, den in ((p, dep), (dep, p)):
+        estimate = response._ratio(num, den)
+        assert estimate.interval.lo == 0.0 and estimate.interval.hi > estimate.value
+    cal = response._calibration_block(response.Calibration(2, response._ratio(p, dep),
+                                                           response._ratio(dep, p)))
+    assert cal["ci95"][0] == 0.0 and "clipped at zero" in cal["label"]
+
+
+def test_resolution_bins_carry_the_one_degree_of_freedom_label_at_n_two():
+    rows = [_row(2.4, 0.07), _row(2.6, 0.081), _row(3.5, 0.1), _row(3.6, 0.11), _row(3.7, 0.105)]
+    con, record = _mini(rows)
+    body = response.compute(con, record, filters.build(record), showers.of(record, "both"),
+                            response.Request(parts=("resolution",))).as_dict()
+    bins = {(s["key"], b["bin"]): b for s in body["resolution"]["series"] for b in s["bins"]}
+    assert bins[("a", 2)]["n"] == 2 and bins[("a", 2)]["dof_note"] == "1 d.o.f."
+    assert bins[("a", 3)]["n"] == 3 and bins[("a", 3)]["dof_note"] is None

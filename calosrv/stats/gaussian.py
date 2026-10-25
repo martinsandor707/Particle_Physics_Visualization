@@ -355,7 +355,12 @@ def fit_gaussian(values: np.ndarray, label: str = "") -> GaussianFit:
         )
 
     sigma = float(finite.std(ddof=DDOF))
-    degenerate = sigma == 0.0
+    # Identical values whose mean is not exactly representable leave a rounding
+    # residue of ~1e-15 in the SD, and a curve of that width peaks near 1e14.
+    # The spread is a measured zero either way.
+    degenerate = sigma == 0.0 or float(np.ptp(finite)) == 0.0
+    if degenerate:
+        sigma = sigma_population = 0.0
     df = n - 1
 
     # Uncertainty on each moment. These are two different quantities: mu_error

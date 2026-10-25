@@ -64,11 +64,15 @@ def get_correlations(
     if analysis.selection.n_events == 0:
         warnings.append("No events match the current selection.")
 
+    # A cached hit scan cost nothing this time: its stored query_ms is the cold
+    # scan's, which a latency readout must not be shown again.
+    hit_ms = 0.0 if analysis.cached else analysis.hit.query_ms
+
     def respond(extra: list[str]) -> dict:
         meta = ApiMeta(
             table_name=record.table_name,
             exact=not decision.sampled,
-            query_ms=analysis.hit.query_ms + analysis.shower_w.query_ms,
+            query_ms=hit_ms + analysis.shower_w.query_ms,
             total_ms=timer.elapsed_ms,
             cached=analysis.cached,
             warnings=warnings + extra,

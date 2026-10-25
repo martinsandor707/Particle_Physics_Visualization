@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 
 import numpy as np
 import pytest
@@ -297,6 +298,22 @@ def test_the_figure_fits_the_contract_and_coarsens_when_asked(cursor, inspected)
         panel = tight["frames"][kind]["panels"]["xy"]
         assert panel["total"] + panel["energy_outside_window_gev"] == pytest.approx(
             body["event"]["shower"]["energy_gev"], rel=1e-9)
+
+
+def test_a_figure_still_over_the_limit_at_the_coarsest_grid_says_so(cursor, inspected):
+    """The guard stops at MAX_PITCH_MM; its last note must not claim the coarsening sufficed."""
+    event = inspected["events"][0]
+    body = inspected["bodies"][event, "a"]
+    assert not any("served as it is" in n for n in body["grid"]["notes"])
+    tight = event_inspector.inspect(cursor, inspected["record"], inspected["spec"], event, "a", "file",
+                                    inspected["footprint"], limit=1_000)
+    assert tight["grid"]["pitch_mm"] == event_inspector.MAX_PITCH_MM
+    *steps, last = tight["grid"]["notes"]
+    assert any("coarsened" in n for n in steps)
+    match = re.fullmatch(r"The response is still ([\d,]+) bytes at (\d+) mm and is served as it is\.", last)
+    assert match, last
+    assert int(match.group(1).replace(",", "")) >= 1_000
+    assert float(match.group(2)) == event_inspector.MAX_PITCH_MM
 
 
 # ----------------------------------------------------------------- route --

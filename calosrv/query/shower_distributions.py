@@ -189,6 +189,10 @@ def fetch(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filter
 # ------------------------------------------------------------------ series --
 
 
+# The request filter behind each shower choice's momentum bins (B has its own, e2).
+_MOMENTUM_FIELD = {"a": "e1", "b": "e2", "both": "shower"}
+
+
 @dataclass(frozen=True)
 class SeriesClass:
     """One series: a momentum bin, its label and how many showers it holds."""
@@ -198,23 +202,25 @@ class SeriesClass:
     n_showers: int
 
 
-def series_classes(sample: ShowerSample, mask: np.ndarray | None = None
-                   ) -> tuple[list[SeriesClass], list[str]]:
+def series_classes(sample: ShowerSample, mask: np.ndarray | None = None,
+                   field: str = "e1") -> tuple[list[SeriesClass], list[str]]:
     """The own momentum bins the (masked) showers occupy, labelled against their momenta.
 
     Returns the classes in bin order and the notices of any bin whose momenta
-    leave [k, k+1) (``stats.momentum.relabel_bins``).
+    leave [k, k+1) (``stats.momentum.relabel_bins``). More than
+    ``MAX_CLASSES`` populated bins is a 422 on ``field``, the incident-momentum
+    filter that drives them; empty bins in between draw no series and do not count.
     """
     keep = np.ones(sample.n, dtype=bool) if mask is None else np.asarray(mask, dtype=bool)
     mb, p = sample.mb[keep], sample.p[keep]
     present = np.unique(mb)
     if present.size == 0:
         return [], []
-    lo, hi = int(present[0]), int(present[-1])
-    if hi - lo + 1 > momentum.MAX_CLASSES:
+    if present.size > momentum.MAX_CLASSES:
         raise ValidationError(
-            f"The selection spans momentum bins {lo}–{hi}; the distribution card draws at most "
-            f"{momentum.MAX_CLASSES} bins. Narrow the incident-momentum range.", field="e1")
+            f"The selection populates {present.size} momentum bins ({int(present[0])}–"
+            f"{int(present[-1])}); the distribution card draws at most {momentum.MAX_CLASSES}. "
+            "Narrow the incident-momentum range.", field=field)
     wanted = {int(k) for k in present}
     ranges: dict[int, tuple[float, float]] = {}
     counts: dict[int, int] = {}
@@ -224,7 +230,9 @@ def series_classes(sample: ShowerSample, mask: np.ndarray | None = None
         counts[k] = int(in_bin.sum())
         if found.size:
             ranges[k] = (float(found.min()), float(found.max()))
-    classes = [c for c in momentum.unit_bins(lo, hi) if int(c.lo) in wanted]
+    classes = [momentum.MomentumClass(i, f"{k}–{k + 1} GeV", float(k), float(k + 1),
+                                      momentum.KIND_BIN, k + 0.5)
+               for i, k in enumerate(sorted(wanted))]
     classes, notices = momentum.relabel_bins(classes, ranges)
     return [SeriesClass(int(c.lo), c.label, counts[int(c.lo)]) for c in classes], notices
 
@@ -578,7 +586,7 @@ def prepare(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
     """θ, φ or p of the selection's showers, ready to render (event table only)."""
     selected = showers_mod.of(record, shower)
     sample = fetch(con, record, spec, selected)
-    classes, notices = series_classes(sample)
+    classes, notices = series_classes(sample, field=_MOMENTUM_FIELD.get(shower, "e1"))
     notes = [*kind_notes(record), *notices, *series_notes(classes, sample)]
     missing = int((~np.isfinite({"theta": sample.theta, "phi": sample.phi,
                                  "p": sample.p}[quantity])).sum())

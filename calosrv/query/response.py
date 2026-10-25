@@ -50,6 +50,7 @@ allowed to rescale it, and the overflow is counted.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -243,13 +244,20 @@ def fetch(
 
 
 def _ratio(num: np.ndarray, den: np.ndarray) -> metrics.Estimate:
-    """``sum(num) / sum(den)`` with events as clusters and a Student-t interval."""
+    """``sum(num) / sum(den)`` with events as clusters and a Student-t interval.
+
+    Both ratios served here (calibration, sampling fraction) are of non-negative
+    sums, so the interval is clipped at zero and the clip is stated wherever it is
+    quoted: a delta-method interval at small N otherwise quotes a negative
+    calibration constant or a negative sampling fraction.
+    """
     n = int(num.size)
     if n == 0:
         return metrics.Estimate(None, n=0, note="No events in this selection.")
     return metrics.ratio_estimate(
         float(num.sum()), float(den.sum()), float((num * num).sum()),
-        float((den * den).sum()), float((num * den).sum()), n)
+        float((den * den).sum()), float((num * den).sum()), n,
+        bounds=(0.0, math.inf))
 
 
 @dataclass(frozen=True)
@@ -276,10 +284,12 @@ def _calibration_block(cal: Calibration) -> dict[str, Any]:
         "n": cal.n,
         "method": metrics.METHOD_RATIO,
         "label": (
-            "c = Σ p / Σ E_dep over the whole selection, summed before dividing: the calibration "
-            "the energy panel applies, fitted once per shower and never per momentum bin. "
-            "The sampling fraction it implies is 100 / c. Interval: 95% Student-t on the "
-            "linearised ratio, events as clusters (n − 1 d.o.f.)."
+            "c = Σ p / Σ E_dep over the showers present in the selection, summed before "
+            "dividing: the calibration the energy panel applies, fitted once per shower and "
+            "never per momentum bin. A shower with no deposit is left out of both sums. "
+            "The sampling fraction it implies is 100 / c. Interval: 95% Student-t "
+            "on the linearised ratio, events as clusters (n − 1 d.o.f.), clipped at zero "
+            "because c is a ratio of non-negative sums."
         ),
     }
 
@@ -439,16 +449,23 @@ def _b1_range(samples: Sequence[Sample], request: Request) -> B1Range:
     provisional = not robust
     if total == 0:
         note = "No showers in this selection."
-    elif provisional:
-        note = (f"Provisional range: no series reaches N = {WEAK_N}, so the axis spans the data "
-                f"({lo:g}–{hi:g} {UNIT}), rounded outward to tick boundaries.")
     else:
-        note = (f"The axis, {lo:g}–{hi:g} {UNIT}, follows percentiles {request.clip_low:g}–"
-                f"{request.clip_high:g} of the pooled series with N ≥ {WEAK_N}, rounded "
-                f"outward to tick boundaries and zero-based; ")
-        note += (f"{outside:,} of {total:,} values ({100 * outside / total:.2f}%) lie outside it "
-                 "and are excluded from the view but not from the statistics."
-                 if outside else "no value lies outside it.")
+        if provisional and clip.applied:
+            head = (f"Provisional range: no series reaches N = {WEAK_N}, so it is set by the "
+                    f"{clip.n_total:,} pooled values of the weaker series, from zero to the "
+                    f"{request.clip_high:g}th percentile ({lo:g}–{hi:g} {UNIT}), rounded "
+                    "outward to tick boundaries; ")
+        elif provisional:
+            head = (f"Provisional range: no series reaches N = {WEAK_N}, so the axis spans the "
+                    f"data ({lo:g}–{hi:g} {UNIT}), rounded outward to tick boundaries; ")
+        else:
+            head = (f"The axis, {lo:g}–{hi:g} {UNIT}, runs from zero (zero-based) to the "
+                    f"{request.clip_high:g}th percentile of the pooled series with N ≥ "
+                    f"{WEAK_N}, rounded outward to tick boundaries; ")
+        note = head + (
+            f"{outside:,} of {total:,} values ({100 * outside / total:.2f}%) lie outside it "
+            "and are excluded from the view but not from the statistics."
+            if outside else "no value lies outside it.")
     clipping = {
         "lo": lo, "hi": hi,
         "low_percentile": request.clip_low, "high_percentile": request.clip_high,
@@ -512,8 +529,8 @@ def _b1_series(sample: Sample, cal: Calibration, rng: B1Range,
             "value": 100.0 * ratio.value,
             "ci95_lo": None if interval is None else 100.0 * interval.lo,
             "ci95_hi": None if interval is None else 100.0 * interval.hi,
-            "label": "Sum before divide: 100 · Σ E_dep / Σ p over the selection (1 / c, the "
-                     "calibration the energy panel applies)",
+            "label": "Sum before divide: 100 · Σ E_dep / Σ p over the showers present in the "
+                     "selection (1 / c); its 95% interval is clipped at zero",
         }
 
     if edges is not None and _histogram_drawable(sample):
@@ -532,18 +549,47 @@ def _b1_series(sample: Sample, cal: Calibration, rng: B1Range,
             "reference": reference, "message": _strip_message(fit)}
 
 
+def _clipped_marks(series: Sequence[dict[str, Any]], lo: float, hi: float) -> list[dict[str, Any]]:
+    """The summary marks of B1 that leave the axis ``[lo, hi]``, per series.
+
+    A mean marker, its capped whisker, the uncapped SD band and the 1 / c rule
+    are drawn on the same x axis as the events, and a range set by the robust
+    series (or by zero) can cut any of them. Each is listed by name, so the
+    drawer can count what the picture hides.
+    """
+    out = []
+    for s in series:
+        m, r = s["markers"] or {}, s["reference"] or {}
+        marks = {
+            "mean": (m.get("mu"), m.get("mu")),
+            "mean_ci95": (m.get("ci95_lo"), m.get("ci95_hi")),
+            "dispersion_band": (m.get("dispersion_lo"), m.get("dispersion_hi")),
+            "reference_rule": (r.get("value"), r.get("value")),
+            "reference_ci95": (r.get("ci95_lo"), r.get("ci95_hi")),
+        }
+        out_of_range = [name for name, (a, b) in marks.items()
+                        if a is not None and b is not None and (a < lo or b > hi)]
+        if out_of_range:
+            out.append({"key": s["key"], "marks": out_of_range})
+    return out
+
+
 def _b1(samples: Sequence[Sample], calibrations: dict[str, Calibration], rng: B1Range,
         request: Request, fidelity: Fidelity) -> dict[str, Any]:
     bins = _b1_bins(samples, request, fidelity)
     edges = histogram.axis_edges(rng.lo, rng.hi, bins) if bins else None
     centres = [] if edges is None else (0.5 * (edges[:-1] + edges[1:])).tolist()
+    series = [_b1_series(s, calibrations[s.key], rng, edges) for s in samples]
+    clipped = _clipped_marks(series, rng.lo, rng.hi)
     return {
         "axis": {
             "lo": rng.lo, "hi": rng.hi, "interval": rng.interval, "unit": UNIT,
             "bins": bins, "hist_centres": centres,
             "clipping": rng.clipping, "provisional": rng.provisional,
+            "n_clipped_marks": sum(len(c["marks"]) for c in clipped),
+            "clipped_marks": clipped,
         },
-        "series": [_b1_series(s, calibrations[s.key], rng, edges) for s in samples],
+        "series": series,
         "whisker": _t_whisker("mean of the per-event sampling fractions"),
         "dispersion": _dispersion("of the series"),
     }
@@ -693,6 +739,7 @@ def _resolution_bin(group: Group, fit: gaussian.GaussianFit, p: np.ndarray
         "sigma_ci95": list(fit.sigma_ci95) if fit.sigma_ci95 else None,
         "value": value, "ci95": ci, "se_delta": se,
         "c4": fit.sigma_bias_factor if 2 <= n < gaussian.MIN_CORE_SAMPLES else None,
+        "dof_note": _dof_note(n),
         "non_gaussian": fit.non_gaussian,
         "momentum_spread": (100.0 * float(p.std(ddof=gaussian.DDOF)) / p_mean
                             if n >= 2 and p_mean > 0 else None),
@@ -848,7 +895,7 @@ class Response:
                 "left, [k, k + 1); the notebook's pd.cut closes them on the right, which moves "
                 "only a shower exactly on an edge. The scaling factor is 1 / the mean of the "
                 "per-event fractions, as the notebook; the per-bin ratio of sums is in the "
-                "tooltip and never calibrates.")
+                "tooltip, never calibrates, and has its interval clipped at zero.")
             notes.append(f"B2: {_weak_bins(weak)} {_y_note(b2['y'])}")
         if resolution is not None:
             weak = sum(1 for s in resolution["series"] for b in s["bins"] if b["weak"])
@@ -875,6 +922,14 @@ class Response:
             "spectrum has a low-side containment tail, and its shape verdict (non_gaussian) "
             f"exists only from N = {WEAK_N}.")
         notes.append("B1: " + self.b1_range.clipping["note"])
+        axis = b1["axis"]
+        if axis["n_clipped_marks"]:
+            named = "; ".join(f"{c['key']}: {', '.join(c['marks'])}" for c in axis["clipped_marks"])
+            notes.append(
+                f"B1: {axis['n_clipped_marks']} summary mark{'s' if axis['n_clipped_marks'] != 1 else ''} "
+                f"(mean, whisker, SD band or 1 / c rule) leave{'' if axis['n_clipped_marks'] != 1 else 's'} "
+                f"the axis and {'are' if axis['n_clipped_marks'] != 1 else 'is'} clipped, not "
+                f"rescaled: {named}. The values are in the tooltips.")
         return notes
 
     def as_dict(self, fidelity: Fidelity = Fidelity()) -> dict[str, Any]:

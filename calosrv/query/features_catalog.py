@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..db import ddl, group1
-from ..errors import ValidationError
+from ..errors import CapabilityError, ValidationError
 from .showers import ShowerColumns
 
 #: core.py's ``eps``: the floor of width, height, depth and depth range (mm).
@@ -190,10 +190,12 @@ EPS_PAIR_FEATURES: tuple[str, ...] = tuple(f.id for f in FEATURES if f.eps == EP
 
 #: Why a feature's cells of the correlation matrix are hatched.
 HATCHED: dict[str, str] = {
-    "avg_phi": ("Linear correlation of a circular quantity: the arithmetic mean of φ is not "
-                "a direction, and its value jumps where a shower straddles the ±π cut."),
-    "avg_phi_circ": ("Linear correlation of a circular quantity: Pearson r of a mean "
-                     "direction depends on where the ±π cut falls."),
+    "avg_phi": ("An azimuth has no linear correlation: the cells carry Mardia's "
+                "circular–linear R, or the circular–circular r_c with the other azimuth. The "
+                "notebook's linear r, which jumps where a shower straddles the ±π cut, is kept "
+                "beside them for parity only."),
+    "avg_phi_circ": ("An azimuth has no linear correlation: the cells carry Mardia's "
+                     "circular–linear R, or the circular–circular r_c with the other azimuth."),
     "angular_spread": ("Contains a linear SD of φ, inflated by the ±π cut, so part of its "
                        "variance is the cut's position rather than the shower."),
 }
@@ -210,19 +212,27 @@ def offered(kind: str | None) -> tuple[Feature, ...]:
     return FEATURES
 
 
-def get(kind: str | None, feature_id: str, field_name: str = "feature") -> Feature:
-    """The offered feature ``feature_id``, or a 422 naming the request field."""
+def get(kind: str | None, feature_id: str, field_name: str = "feature",
+        capability: str = "feat-hist") -> Feature:
+    """The offered feature ``feature_id``, or a 422 naming the request field.
+
+    An id the catalogue knows but this kind's data cannot serve - a hit-kind
+    feature asked of the aggregate - is a capability refusal naming
+    ``capability`` (the view's card), so the interface can tell it from a typo.
+    """
     features = offered(kind)
     for feature in features:
         if feature.id == feature_id:
             return feature
-    extra = ""
     if feature_id in BY_ID and BY_ID[feature_id].hit_kinds_only:
-        extra = (" It needs the per-hit sums Σ cos φ and Σ sin φ, which only experiments with "
-                 "hits carry; the aggregate stores the arithmetic mean of φ only.")
+        reason = ("It needs the per-hit sums Σ cos φ and Σ sin φ, which only experiments with "
+                  "hits carry; the aggregate stores the arithmetic mean of φ only.")
+        raise CapabilityError(
+            f"{field_name}={feature_id!r} is not available for this experiment: {reason}",
+            field=field_name, capability=capability, kind=kind, reason=reason,
+        )
     raise ValidationError(
-        f"{field_name} must be one of {', '.join(f.id for f in features)}; got {feature_id!r}."
-        + extra,
+        f"{field_name} must be one of {', '.join(f.id for f in features)}; got {feature_id!r}.",
         field=field_name,
     )
 

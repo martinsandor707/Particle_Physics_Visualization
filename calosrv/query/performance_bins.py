@@ -43,8 +43,9 @@ the aggregate it is - a capped whisker is never the dispersion of the sample
 N = 15 (the core-refit floor); ``y_max`` is the outward 1-2-5 rounding of the
 largest interval end among the driving points. An under-powered point above it
 is clipped by the chart, so it is listed in ``overflow`` with its true value.
-When no point drives the scale the range is taken from the weak points and
-marked provisional.
+When no point drives the scale the range is taken from the weak points'
+values alone, never their whiskers, and marked provisional; a whisker beyond it
+is clipped and listed in ``overflow`` too.
 
 A shower without a prediction (an event with none of that shower's hits) is
 counted per bin in ``n_missing`` and dropped - never zero-filled.
@@ -389,12 +390,14 @@ def y_axis(series: Sequence[Series], axis: BinAxis, quantity: str,
     ``value`` is the outward rounding of the largest reach among the points
     with N ≥ 15; ``min`` is zero, or ``−value`` for a signed quantity.
     Under-powered points beyond it are clipped by the chart and listed with
-    their true values. With no driving point the range comes from the weak
-    ones and is provisional, and nothing can overflow it.
+    their true values. With no driving point the range comes from the point
+    values of the weak ones and is provisional; a whisker is never part of
+    that evidence (a t whisker at N = 2 is twelve standard errors wide), so any
+    whisker beyond the provisional range is clipped, counted and listed too.
     """
     signed = quantity in SIGNED
     strong: list[float] = []
-    weak: list[tuple[float, str, int, Point]] = []
+    weak: list[tuple[float, float, str, int, Point]] = []
     for s in series:
         for i, p in enumerate(s.points):
             value, lo, hi = p.triple(quantity)
@@ -404,17 +407,17 @@ def y_axis(series: Sequence[Series], axis: BinAxis, quantity: str,
             if p.drives_scale:
                 strong.append(top)
             else:
-                weak.append((top, s.key, i, p))
+                weak.append((top, abs(value) if signed else value, s.key, i, p))
     provisional = not strong
-    basis = [t for t, *_ in weak] if provisional else strong
+    basis = [core for _, core, *_ in weak] if provisional else strong
     peak = max(basis, default=None)
     top_value = None
     if peak is not None and peak > 0:
         top_value = clip_mod.nice_range(0.0, peak, fine=True)[1]
     overflow = []
     n_over = 0
-    if top_value is not None and not provisional:
-        for top, key, i, p in sorted(weak, key=lambda w: -w[0]):
+    if top_value is not None:
+        for top, _, key, i, p in sorted(weak, key=lambda w: -w[0]):
             if top <= top_value:
                 continue
             n_over += 1
@@ -434,7 +437,11 @@ def y_axis(series: Sequence[Series], axis: BinAxis, quantity: str,
     if provisional:
         out["note"] = typographic(
             f"Provisional: no point reaches N = {metrics.SHOW_CI_BELOW_N}, so this range comes "
-            "from under-powered points.")
+            "from the values of under-powered points, whiskers excluded.")
+        if n_over:
+            out["note"] += typographic(
+                f" {n_over} point{'s' if n_over != 1 else ''} reach{'' if n_over != 1 else 'es'} "
+                "beyond it with a whisker: clipped, with the true values listed.")
     elif n_over:
         out["note"] = typographic(
             f"{n_over} under-powered point{'s' if n_over != 1 else ''} (N < "
@@ -572,7 +579,8 @@ def _notes(model: str, axis: BinAxis) -> dict[str, str]:
         "scale": (
             f"A point drives the y range from N = {metrics.SHOW_CI_BELOW_N}. Under-powered "
             "points above it are clipped, with their true values in y_max.overflow; with no "
-            "driving point the range is provisional."),
+            "driving point the range is provisional, set by point values only, and any "
+            "whisker beyond it is clipped and listed likewise."),
     }
     if model == "angle":
         notes["angle"] = (

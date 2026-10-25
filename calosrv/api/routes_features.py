@@ -7,9 +7,10 @@ and ``hist2d`` (D5). Each view is its card's gate - ``feat-table``,
 built before the per-event feature sums existed is refused with the rebuild
 sentence instead of failing in SQL.
 
-Every response is measured on the wire against the 100 KB contract; a view
-that could exceed it sheds resolution in stated steps (curve points, then
-bins; the describe intervals) and says which it took.
+Every response is measured on the wire against the 100 KB contract, its own
+``meta.budget`` and any warning included; a view that could exceed it sheds
+resolution in stated steps (curve points, then bins; the describe intervals)
+and says which it took.
 """
 
 from __future__ import annotations
@@ -41,7 +42,9 @@ VIEW_GATES: dict[str, str] = {
 #: Whether floored events are left out by default. Only the correlations
 #: leave them out: there the floored volumes (up to 2 × 10⁹ hits/mm³ against a
 #: median of 2 × 10⁻⁷) would by themselves set every r involving a density.
-#: The others show every event and count the floored ones.
+#: The others show every event and count the floored ones; the histograms take
+#: their range and automatic scale from the measured values only, so the floors
+#: are a counted underflow rather than the end of the axis.
 EXCLUDE_EPS_DEFAULT: dict[str, bool] = {
     "catalog": False, "describe": False, "corr": True, "hist": False, "hist2d": False,
 }
@@ -75,24 +78,44 @@ def _pitch(record: ExperimentRecord) -> float | None:
         return None
 
 
-def _serve(build: Callable[[int], dict[str, Any]], levels: int) -> tuple[dict[str, Any], int, int]:
-    """Build at the first level whose body fits 100 KB: ``(body, bytes, level)``.
+#: Most passes :func:`_stamp` takes; a byte count changes length only at a power of ten.
+_STAMP_PASSES = 5
+
+
+def _stamp(body: dict[str, Any], level: int) -> int:
+    """Write ``meta.budget`` into ``body`` and return the size served, the stamp included.
+
+    The stamp's own digits count toward the size it states, so it is rewritten
+    until the two agree.
+    """
+    size = 0
+    for _ in range(_STAMP_PASSES):
+        body["meta"]["budget"] = {"bytes": size, "limit": density.RESPONSE_LIMIT, "level": level}
+        measured = density.wire_size(body)
+        if measured == size:
+            break
+        size = measured
+    return size
+
+
+def _serve(build: Callable[[int], dict[str, Any]], levels: int) -> dict[str, Any]:
+    """Build at the first level whose body, as served, fits the budget.
 
     Each level is a stated reduction the builder notes in the body itself; if
     even the last does not fit, the response says so rather than failing.
+    ``meta.budget.bytes`` is the size of the body returned, warning included.
     """
     body: dict[str, Any] = {}
-    size = level = 0
+    level = 0
     for level in range(levels):
         body = build(level)
-        size = density.wire_size(body)
-        if size <= density.RESPONSE_LIMIT:
-            break
-    else:
-        body["meta"]["warnings"].append(
-            f"The response is {size:,} bytes, still over the {density.RESPONSE_LIMIT:,}-byte "
-            "budget after every reduction.")
-    return body, size, level
+        if _stamp(body, level) <= density.RESPONSE_LIMIT:
+            return body
+    body["meta"]["warnings"].append(
+        f"The response is still over the {density.RESPONSE_LIMIT:,}-byte budget after every "
+        "reduction; meta.budget.bytes gives its size.")
+    _stamp(body, level)
+    return body
 
 
 @router.get("/api/features", summary="Event-feature explorer: describe, correlations, histograms")
@@ -169,7 +192,7 @@ def get_features(
         if not feature:
             raise ValidationError(f"view={view} needs a feature; the ids are listed by "
                                   "view=catalog.", field="feature")
-        chosen = catalog.get(record.kind, feature)
+        chosen = catalog.get(record.kind, feature, capability=gate)
     eps = EXCLUDE_EPS_DEFAULT[view] if exclude_eps is None else bool(exclude_eps)
 
     bundle, cached = features_mod.bundle_for(con, record, spec, coord_system, shower)
@@ -192,7 +215,8 @@ def get_features(
             notes={"view": view, "coord_system": coord_system, "shower": shower,
                    "classes": classes, "min_hits": features_mod.MIN_HITS},
         )
-        extra = [typographic(f"Reduced to stay under 100 KB: {reduced}.")] if reduced else []
+        extra = ([typographic(f"Reduced to stay under the {density.RESPONSE_LIMIT:,}-byte "
+                              f"budget: {reduced}.")] if reduced else [])
         return envelope(meta, view=view, **common, **payload,
                         notes=base_notes + view_notes + extra, filter=spec.as_dict())
 
@@ -206,13 +230,13 @@ def get_features(
                          "exclude_eps": dict(EXCLUDE_EPS_DEFAULT)},
             "thresholds": dict(features_mod.THRESHOLDS),
         }
-        body, size, level = _serve(lambda _: wrap(dict(payload)), 1)
+        body = _serve(lambda _: wrap(dict(payload)), 1)
     elif view == "describe":
-        body, size, level = _serve(
+        body = _serve(
             lambda lvl: wrap(features_mod.describe_view(bundle, cs, eps, intervals=lvl == 0),
                              "the interval columns dropped" if lvl else None), 2)
     elif view == "corr":
-        body, size, level = _serve(
+        body = _serve(
             lambda _: wrap(features_mod.corr_view(bundle, cs, which, eps)), 1)
     elif view == "hist":
         def build_hist(lvl: int) -> dict[str, Any]:
@@ -222,7 +246,7 @@ def get_features(
                 + (f", bins divided by {divisor}" if divisor > 1 else ""))
             return wrap(features_mod.hist_view(bundle, cs, chosen, scale, eps, pitch,
                                                curve_points=points, bins_divisor=divisor), reduced)
-        body, size, level = _serve(build_hist, len(HIST_LEVELS))
+        body = _serve(build_hist, len(HIST_LEVELS))
     else:
         filled = sum(1 for c in common["classes"] if c["n"])
         default = (features_mod.HIST2D_BINS if filled <= features_mod.HIST2D_MANY_CLASSES
@@ -233,7 +257,5 @@ def get_features(
             reduced = None if lvl == 0 else f"{steps[lvl]} bins per axis instead of {default}"
             return wrap(features_mod.hist2d_view(bundle, cs, chosen, scale, y_scale, eps, pitch,
                                                  bins=steps[lvl]), reduced)
-        body, size, level = _serve(build_2d, len(steps))
-
-    body["meta"]["budget"] = {"bytes": size, "limit": density.RESPONSE_LIMIT, "level": level}
+        body = _serve(build_2d, len(steps))
     return body

@@ -28,6 +28,7 @@ import duckdb
 from ..db import naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
+from ..grid import frame as frame_mod
 from ..text import typographic
 from . import showers as showers_mod
 from .filters import FilterSpec
@@ -300,7 +301,10 @@ def pointing(
     part of the D-frame's slope dispersion is made of.
 
     Returns, per shower, the residual's mean and SD in degrees, the median
-    ``r / tan theta`` beside the median centroid depth, and N.
+    ``r / tan theta`` beside the median centroid depth, and N. The note
+    follows the low-N table: the SD is labelled '1 d.o.f.' at N = 2 and weak
+    below twenty events, and one event gets its residual alone, without the
+    general claim about where the directions point.
     """
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
@@ -338,24 +342,43 @@ def pointing(
             "source_z_mm": float(row[3]) if row[3] is not None else None,
             "centroid_z_mm": float(row[4]) if row[4] is not None else None,
         }
+    measured = [out[s.key]["n"] for s in showers if out[s.key]["n"]]
+    # One event per measured shower: a residual each, no dispersion, and no
+    # ground for the general claim the note otherwise opens with.
+    single = bool(measured) and max(measured) == 1
     parts = []
     for s in showers:
         block = out[s.key]
         # Two showers are told apart by letter; a single shower needs no name.
         name = f"{s.key.upper()}: " if len(showers) > 1 else ""
-        if block["n"] >= 2 and block["sd_deg"] is not None:
+        n = block["n"]
+        if n >= 2 and block["sd_deg"] is not None:
             source = (f", r / tan θ = {block['source_z_mm']:,.0f} mm against a centroid depth of "
                       f"{block['centroid_z_mm']:,.0f} mm") if block["source_z_mm"] is not None else ""
-            parts.append(f"{name}{block['mean_deg']:+.1f}° ± {block['sd_deg']:.1f}° SD over N = {block['n']:,}{source}")
-        elif block["n"] == 1:
-            parts.append(f"{name}one event, residual {block['mean_deg']:+.1f}°" if name
-                         else f"{block['mean_deg']:+.1f}° for its one event")
-    out["note"] = typographic(
-        "Incident directions point at the detector origin: against the radial line through each "
-        "shower's 3-D centroid the residual is " + "; ".join(parts) + ". The azimuth is uniform over the "
-        "face only because the entry points are, so the showers entering one window share a direction: "
-        "zoom a depth panel and the ensemble axis of the events entering its window is drawn."
-    ) if parts else "Too few events to measure where the incident directions point."
+            # The low-N table: one degree of freedom at N = 2, weak below twenty.
+            weak = "" if n >= frame_mod.PROVISIONAL_N else " (1 d.o.f., weak)" if n == 2 else " (weak)"
+            parts.append(f"{name}{block['mean_deg']:+.1f}° ± {block['sd_deg']:.1f}° SD over N = {n:,}{weak}{source}")
+        elif n == 1:
+            parts.append(f"{name}{block['mean_deg']:+.1f}°" if single
+                         else f"{name}one event, residual {block['mean_deg']:+.1f}°")
+    whose = "each shower's" if len(showers) > 1 else "the shower's"
+    tail = (
+        ". The azimuth is uniform over the face only because the entry points are, so the showers "
+        "entering one window share a direction: zoom a depth panel and the ensemble axis of the events "
+        "entering its window is drawn."
+    )
+    if not parts:
+        out["note"] = "Too few events to measure where the incident directions point."
+    elif single:
+        out["note"] = typographic(
+            f"One event, so no dispersion: against the radial line through {whose} 3-D centroid its "
+            "incident direction's residual is " + "; ".join(parts) + tail
+        )
+    else:
+        out["note"] = typographic(
+            "Incident directions point at the detector origin: against the radial line through each "
+            "shower's 3-D centroid the residual is " + "; ".join(parts) + tail
+        )
     return out
 
 

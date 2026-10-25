@@ -348,16 +348,30 @@ def test_a_weak_point_inside_the_range_is_not_listed():
     assert y["overflow"] == [] and y["n_overflow"] == 0 and "note" not in y
 
 
-def test_with_no_driving_point_the_range_is_provisional_and_cannot_overflow():
+def test_with_no_driving_point_the_range_is_provisional_from_values_and_clips_whiskers():
     pred, true = group("energy", 14, seed=3)
     one = pb.point("energy", pred, true, 0, seed=(42, 0, 0, 0))
-    two = pb.point("energy", np.array([3.0]), np.array([1.0]), 0, seed=(42, 0, 0, 1))
+    two = pb.point("energy", np.array([1.5]), np.array([1.0]), 0, seed=(42, 0, 0, 1))
     y = pb.y_axis([series_of(one, two)], AXIS_2, "rmse")
-    assert y["provisional"] is True and y["overflow"] == [] and y["n_overflow"] == 0
-    assert "Provisional" in y["note"]
-    # Taken from the weak points: the larger reach, the single point's value (no interval).
-    reach = max(one.rmse.interval.hi, two.rmse.value)
+    assert y["provisional"] is True and "Provisional" in y["note"]
+    # Taken from the weak points' values: a t whisker never sets a provisional range.
+    reach = max(one.rmse.value, two.rmse.value)
     assert y["value"] == clip.nice_range(0.0, reach, fine=True)[1]
+    assert one.rmse.interval.hi > y["value"]
+    assert y["n_overflow"] == 1 and y["overflow"][0]["series"] == "absolute:a"
+    assert y["overflow"][0]["hi"] == sig(one.rmse.interval.hi)
+    assert "whisker" in y["note"] and "clipped" in y["note"]
+
+
+def test_one_wide_n_two_whisker_cannot_flatten_the_provisional_bars():
+    # Residuals 1 and 9 GeV at N = 2 (a t(1) whisker 12.7 standard errors wide), beside two
+    # N = 3 points near 2 GeV: the range follows the bars, the whisker is clipped and listed.
+    wide = pb.point("energy", np.array([2.0, 10.0]), np.array([1.0, 1.0]), 0, seed=(42, 0, 0, 0))
+    calm = [pb.point("energy", np.array([3.0, 3.1, 2.9]) + 2.0, np.array([3.0, 3.1, 2.9]), 0,
+                     seed=(42, 0, 0, k)) for k in (1, 2)]
+    y = pb.y_axis([series_of(wide, *calm)], AXIS_2, "mae")
+    assert y["provisional"] is True and y["value"] <= 2 * max(wide.mae.value, 2.5)
+    assert y["n_overflow"] >= 1 and y["overflow"][0]["n"] == 2
 
 
 def test_a_signed_quantity_gets_a_range_symmetric_about_zero():

@@ -212,6 +212,40 @@ def test_rayleigh_has_one_owner():
     assert circular.rayleigh_p(10, 0.3) == pytest.approx(math.exp(-0.9))
 
 
+def _js_by_definition(a: np.ndarray, b: np.ndarray) -> float:
+    """Jammalamadaka-SenGupta r_c written out from its definition, apart from the module."""
+    mean_a = np.angle(np.exp(1j * a).sum())
+    mean_b = np.angle(np.exp(1j * b).sum())
+    sa, sb = np.sin(a - mean_a), np.sin(b - mean_b)
+    return float((sa * sb).sum() / math.sqrt((sa * sa).sum() * (sb * sb).sum()))
+
+
+def test_circular_correlation_formula():
+    rng = np.random.default_rng(21)
+    a = rng.vonmises(1.0, 2.0, 400)
+    b = circular.wrap_angle(a + 0.6 + rng.vonmises(0.0, 4.0, 400))
+    r = circular.circular_correlation(a, b)
+    assert r == pytest.approx(_js_by_definition(a, b), abs=1e-12)
+    assert 0.5 < r < 1.0
+    # Unchanged by where either cut falls, sign-flipped by a reflection.
+    assert circular.circular_correlation(circular.wrap_angle(a + 2.5), b) == pytest.approx(r, abs=1e-12)
+    assert circular.circular_correlation(a, circular.wrap_angle(-b)) == pytest.approx(-r, abs=1e-12)
+    assert circular.circular_correlation(a, a) == pytest.approx(1.0)
+    noise = rng.uniform(-math.pi, math.pi, 400)
+    assert abs(circular.circular_correlation(a, noise)) < 0.15
+    # The sums form is what a grouped jackknife leaves groups out of.
+    u = np.column_stack([np.cos(a), np.sin(a), np.cos(b), np.sin(b)])
+    assert circular.circular_correlation_from_sums(400.0, u.sum(axis=0), u.T @ u) == pytest.approx(r)
+    # A Pearson r of the same angles moves with the cut; r_c does not.
+    shifted = circular.wrap_angle(a + 2.5)
+    assert abs(np.corrcoef(shifted, b)[0, 1] - np.corrcoef(a, b)[0, 1]) > 0.1
+    # Undefined: one pair, no spread, a non-finite angle left out.
+    assert circular.circular_correlation(a[:1], b[:1]) is None
+    assert circular.circular_correlation(np.full(5, 0.3), b[:5]) is None
+    with_nan = np.concatenate([a, [np.nan]])
+    assert circular.circular_correlation(with_nan, np.concatenate([b, [0.1]])) == pytest.approx(r)
+
+
 # ----------------------------------------------------------- jackknife --
 
 def _group_sums(data: np.ndarray, groups: np.ndarray):
@@ -255,6 +289,97 @@ def test_jackknife_gates():
     none = jackknife.fisher_jackknife(n_g[:1], s_g[:1], q_g[:1], n_events=2)
     assert np.isnan(none.r[0, 1])
     assert jackknife.n_groups(10) == 10 and jackknife.n_groups(10_000) == 64
+
+
+def test_sums_by_group_and_group_ids():
+    rng = np.random.default_rng(13)
+    data = rng.normal(size=(90, 3))
+    groups = rng.integers(0, 7, size=90) * 3          # ids with gaps: empty groups dropped
+    n_g, s_g, q_g = jackknife.sums_by_group(data, groups)
+    ref = _group_sums(data, groups)
+    for ours, theirs in zip((n_g, s_g, q_g), ref):
+        assert ours == pytest.approx(theirs, abs=1e-12)
+    # Every row its own group up to 64 events, then event_number mod 64, never negative.
+    assert jackknife.group_ids(np.array([7, 3, 99])).tolist() == [0, 1, 2]
+    many = np.arange(-40, 60)
+    ids = jackknife.group_ids(many)
+    assert ids.min() >= 0 and ids.max() < 64 and ids.tolist() == (many % 64).tolist()
+
+
+def test_vectorised_jackknife_forms_match_their_scalar_reference():
+    rng = np.random.default_rng(19)
+    r = rng.uniform(-1.0, 1.0, size=(300, 3))
+    r[:40, 2] = np.sign(r[:40, 2]) * (1.0 - 1e-15)        # two azimuths: collinear
+    r[40:60, 0] = np.nan                                    # cos without spread
+    r[60:70, :2] = np.nan                                   # x without spread
+    r[70:80, 2] = np.nan
+    stacked = jackknife.mardia_r_stack(r[:, 0], r[:, 1], r[:, 2])
+    for row, value in zip(r, stacked):
+        scalar = jackknife.mardia_r(*row)
+        assert (scalar is None and np.isnan(value)) or scalar == pytest.approx(value, abs=0.0)
+    data = rng.normal(size=(120, 4))
+    data[:, 3] = 2.0 * data[:, 0]                           # an exact pair
+    groups = np.arange(120) % 9
+    n_g, s_g, q_g = jackknife.sums_by_group(data, groups)
+    loo = jackknife.pearson_stack(n_g.sum() - n_g, s_g.sum(0) - s_g, q_g.sum(0) - q_g)
+    for g in range(n_g.size):
+        expected = jackknife.pearson_from_sums(n_g.sum() - n_g[g], s_g.sum(0) - s_g[g],
+                                               q_g.sum(0) - q_g[g])
+        assert np.array_equal(np.isnan(loo[g]), np.isnan(expected))
+        assert loo[g][~np.isnan(expected)] == pytest.approx(expected[~np.isnan(expected)])
+    # Rows left out weigh nothing, even non-finite ones; emptied groups are dropped.
+    keep = groups != 4
+    data[~keep, 1] = np.nan
+    kept = jackknife.Grouping.of(groups).sums(data, keep)
+    direct = jackknife.sums_by_group(data[keep], groups[keep])
+    assert kept[0].size == 8
+    for ours, theirs in zip(kept, direct):
+        assert ours == pytest.approx(theirs, abs=1e-12)
+
+
+def _mardia_by_regression(x: np.ndarray, phi: np.ndarray) -> float:
+    """√R² of x regressed on (1, cos φ, sin φ), by least squares - apart from the module."""
+    design = np.column_stack([np.ones_like(phi), np.cos(phi), np.sin(phi)])
+    beta, *_ = np.linalg.lstsq(design, x, rcond=None)
+    residual = x - design @ beta
+    return math.sqrt(max(0.0, 1.0 - residual @ residual / ((x - x.mean()) @ (x - x.mean()))))
+
+
+def test_mardia_gate_null_expectation_and_jackknife():
+    assert jackknife.mardia_gate(7).startswith("Mardia's R needs 8 distinct azimuths; this "
+                                               "selection has 7.")
+    assert jackknife.mardia_gate(8) is None and "this class has 3" in jackknife.mardia_gate(3, "this class")
+    assert jackknife.mardia_null_r2(3) is None and jackknife.mardia_null_r2(11) == pytest.approx(0.2)
+    rng = np.random.default_rng(17)
+    # Under no association R² averages 2/(N − 1): two regressors.
+    n = 12
+    r2 = []
+    for _ in range(4000):
+        phi = rng.uniform(-math.pi, math.pi, n)
+        r2.append(_mardia_by_regression(rng.normal(size=n), phi) ** 2)
+    assert np.mean(r2) == pytest.approx(jackknife.mardia_null_r2(n), rel=0.05)
+
+    def estimate(x, phi):
+        data = np.column_stack([x, np.cos(phi), np.sin(phi)])
+        return jackknife.mardia_jackknife(*jackknife.sums_by_group(data, np.arange(x.size)), 0, 1, 2)
+
+    # Three directions fit anything: R = 1 whatever x is - the reason for the gate.
+    phi = np.array([0.3, 2.1, -1.7])
+    assert estimate(rng.normal(size=3), phi) == (pytest.approx(1.0), None)
+    # Four groups: R, no SE (each leave-one-out sample of three is an exact fit).
+    phi4 = np.array([0.3, 2.1, -1.7, 1.0])
+    value, se = estimate(rng.normal(size=4), phi4)
+    assert value is not None and se is None
+    # From five groups the SE is the explicit leave-one-out one, and never clamped.
+    phi = rng.uniform(-math.pi, math.pi, 9)
+    x = np.cos(phi - 0.4) + 0.3 * rng.normal(size=9)
+    value, se = estimate(x, phi)
+    assert value == pytest.approx(_mardia_by_regression(x, phi), abs=1e-10)
+    loo = np.array([_mardia_by_regression(np.delete(x, k), np.delete(phi, k)) for k in range(9)])
+    assert se == pytest.approx(math.sqrt(8 / 9 * np.sum((loo - loo.mean()) ** 2)), rel=1e-8)
+    # An exact sinusoid over many directions: R = 1 in every sample, and a measured zero.
+    exact = estimate(np.cos(phi - 0.4), phi)
+    assert exact[0] == pytest.approx(1.0) and exact[1] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_mardia_r():

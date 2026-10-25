@@ -536,17 +536,30 @@ def _notes(blocks: dict[str, dict[str, Any]], est: profile_stats.ProfileEstimate
     who = f"N = {n:,} shower{'s' if n != 1 else ''}"
     if totals.clustered:
         who += f" in G = {g:,} event{'s' if g != 1 else ''}"
+    pooled_drawn = n >= 2
+    band_drawn = est is not None and est.sd is not None
+    envelope_drawn = est is not None and est.half95 is not None
     notes.append(
         f"Primary line: the per-shower mean of each shower's fraction of its own energy per bin "
-        f"({who}); every shower weighs the same. Dashed line: the pooled ratio of sums, Σ energy "
-        "in the bin over Σ shower energy, the notebook's estimator; it weights each shower by its "
-        "energy, so high-momentum showers dominate it.")
+        f"({who}); every shower weighs the same."
+        + (" Dashed line: the pooled ratio of sums, Σ energy in the bin over Σ shower energy, the "
+           "notebook's estimator; it weights each shower by its energy, so high-momentum showers "
+           "dominate it." if pooled_drawn else
+           " The pooled ratio of sums (the notebook's estimator) equals this shower's own "
+           "profile and is not drawn twice."))
     envelope = ("cluster-robust with the event as the cluster (the two showers of one event share "
                 "its geometry)" if totals.clustered else "each shower its own sampling unit")
-    notes.append(
-        "Shaded band: the sample SD of the per-shower fractions (ddof = 1), where individual "
-        f"showers lie. Capped envelope: the 95% Student-t interval of the mean, {envelope}. The "
-        "pooled line's capped interval is the linearised ratio interval with events as clusters.")
+    drawn_marks = []
+    if band_drawn:
+        drawn_marks.append("Shaded band: the sample SD of the per-shower fractions (ddof = 1), "
+                           "where individual showers lie.")
+    if envelope_drawn:
+        drawn_marks.append(f"Capped envelope: the 95% Student-t interval of the mean, {envelope}.")
+    if pooled_drawn and envelope_drawn:
+        drawn_marks.append("The pooled line's capped interval is the linearised ratio interval "
+                           "with events as clusters.")
+    if drawn_marks:
+        notes.append(" ".join(drawn_marks))
     if n == 1:
         notes.append("N = 1: single shower, not an ensemble. The line is that shower's own "
                      "profile; no band, envelope or interval can be drawn.")
@@ -557,7 +570,8 @@ def _notes(blocks: dict[str, dict[str, Any]], est: profile_stats.ProfileEstimate
             notes.append(f"G = {g} event: no interval of the mean can be estimated from one cluster, "
                          "so the envelope and the pooled interval are not drawn.")
         elif totals.clustered and g < profile_stats.PROVISIONAL_N:
-            notes.append(f"The intervals rest on G = {g} events ({g - 1} degrees of freedom), fewer "
+            dof = f"{g - 1} degree{'s' if g - 1 != 1 else ''} of freedom"
+            notes.append(f"The intervals rest on G = {g} events ({dof}), fewer "
                          f"than the {n} showers: the two showers of an event are not independent.")
         if est is not None and est.provisional:
             notes.append(f"N = {n} < {profile_stats.PROVISIONAL_N}: the summary is weak and the y "
