@@ -13,15 +13,20 @@ kinds then describe the same events.
 The rules each view follows (CLAUDE.md section 2 throughout):
 
 * **D2 describe** - pandas' describe() per class with both SD forms (ddof 1
-  and 0), the mean's Student-t interval and the SD's χ² interval beside them;
-  an azimuth gets the circular summary instead of a linear mean.
+  and 0), the mean's Student-t interval, the SD's χ² interval and standard
+  error beside them, c4 and the low-N notes taken at the N each feature
+  actually used; an azimuth gets the circular summary instead of a linear mean.
 * **D3 correlations** - Pearson r per class with its Fisher-z 95% interval,
   N = events, each event one independent observation. Floored volume factors
-  are left out only of the pairs whose values they corrupt.
+  are left out only of the pairs whose values they corrupt. An azimuth has no
+  linear r: its cells carry Mardia's circular-linear R, or the
+  circular-circular r_c of the two azimuths, with event-grouped jackknife
+  uncertainties, and never sit on the colour scale.
 * **D4 histograms** - integer counts on edges every class shares: the Rice
   count of the smallest drawn class, aligned to the lattice quantum where the
   values are quantised. A KDE from N ≥ 8, the histogram from N ≥ 15, the
-  events themselves below.
+  events themselves below. The range and the automatic scale follow the
+  measured values; events at core.py's floor are drawn and counted, not ranged.
 * **D5 2-D histograms** - dense integer counts against the deposited energy,
   the pairs themselves below N = 15.
 """
@@ -41,13 +46,14 @@ from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
 from ..errors import ValidationError
-from ..stats import circular, gaussian, histogram, kde, momentum
+from ..stats import circular, gaussian, histogram, jackknife, kde, momentum
 from ..stats import clip as clip_mod
 from ..stats import describe as describe_mod
 from ..stats.metrics import METHOD_FISHER, fisher_z_interval
 from ..text import typographic
 from . import features_catalog as catalog
 from . import physics_cache, showers, stagger
+from .correlations import R_SCALE
 from .features_catalog import Feature
 from .filters import FilterSpec
 
@@ -423,8 +429,16 @@ def notes(bundle: FeatureBundle, cs: ClassSet) -> list[str]:
 # -------------------------------------------------------------------- D2 --
 
 _DESCRIBE_KEYS = ("n", "n_missing", "mean", "mean_lo", "mean_hi", "sd", "sd_lo", "sd_hi",
-                  "sd_population", "min", "q25", "q50", "q75", "max", "n_eps")
-_CIRCULAR_KEYS = ("mean_direction", "resultant", "circular_sd", "rayleigh_p")
+                  "sd_population", "min", "q25", "q50", "q75", "max", "n_eps",
+                  "sd_se", "c4", "robust")
+_CIRCULAR_KEYS = ("mean_direction", "resultant", "circular_sd", "rayleigh_p", "note")
+
+
+def _sd_se(sd: float | None, n: int) -> float | None:
+    """The SD's standard error σ/√(2(N − 1)) under Gaussian values, as GaussianFit.sigma_error."""
+    if sd is None or n < gaussian.MIN_MOMENT_SAMPLES:
+        return None
+    return sd / math.sqrt(2.0 * (n - 1))
 
 
 def _intervals(v: np.ndarray) -> tuple[float, float, float, float] | None:
@@ -442,7 +456,15 @@ def _intervals(v: np.ndarray) -> tuple[float, float, float, float] | None:
 
 
 def _describe_feature(bundle: FeatureBundle, members: Sequence[np.ndarray], feature: Feature,
-                      exclude_eps: bool, intervals: bool) -> dict[str, Any]:
+                      exclude_eps: bool, intervals: bool,
+                      notes_by_n: dict[int, str]) -> dict[str, Any]:
+    """One feature's row of D2; ``notes_by_n`` collects describe()'s note for each N met.
+
+    describe()'s note is a function of N alone - N = 2 is one degree of freedom,
+    quartiles interpolate below 20 - so it travels once per N rather than in
+    every cell, which would double a many-class, small-N table. An azimuth's
+    note depends on its directions and stays in its circular block.
+    """
     values = bundle.display(feature)
     eps = bundle.eps_mask(feature)
     rows: dict[str, list[Any]] = {k: [] for k in _DESCRIBE_KEYS}
@@ -463,21 +485,29 @@ def _describe_feature(bundle: FeatureBundle, members: Sequence[np.ndarray], feat
         rows["n_eps"].append(n_eps)
         rows["min"].append(sig(d.min))
         rows["max"].append(sig(d.max))
+        # Every low-N label follows the N this feature actually described, after
+        # the non-finite and the excluded values - not the class size.
+        rows["robust"].append(d.n >= gaussian.MIN_ROBUST_SAMPLES)
         if feature.circular:
             # Never a linear mean, SD or quantile of an angle (CLAUDE.md section 2).
             for key in ("mean", "mean_lo", "mean_hi", "sd", "sd_lo", "sd_hi", "sd_population",
-                        "q25", "q50", "q75"):
+                        "q25", "q50", "q75", "sd_se", "c4"):
                 rows[key].append(None)
             summary = circular.describe_circular(finite)
             circ["mean_direction"].append(sig(summary.mean_direction))
             circ["resultant"].append(sig(summary.resultant))
             circ["circular_sd"].append(sig(summary.circular_sd))
             circ["rayleigh_p"].append(sig(summary.rayleigh_p))
+            circ["note"].append(typographic(summary.note) if summary.note else None)
             continue
         bounds = _intervals(finite) if intervals else None
         rows["mean"].append(sig(d.mean) if moments else None)
         rows["sd"].append(sig(d.sd) if moments else None)
         rows["sd_population"].append(sig(d.sd_population) if moments else None)
+        rows["sd_se"].append(sig(_sd_se(d.sd, d.n)) if moments else None)
+        rows["c4"].append(sig(gaussian.c4(d.n)) if moments else None)
+        if d.note:
+            notes_by_n.setdefault(d.n, typographic(d.note))
         for key, i in (("mean_lo", 0), ("mean_hi", 1), ("sd_lo", 2), ("sd_hi", 3)):
             rows[key].append(sig(bounds[i]) if bounds else None)
         for key in ("q25", "q50", "q75"):
@@ -496,7 +526,8 @@ def describe_view(bundle: FeatureBundle, cs: ClassSet, exclude_eps: bool,
     """D2: the describe() table per class and feature, as struct of arrays per feature."""
     members = [np.flatnonzero(cs.mask(c.index)) for c in cs.classes]
     sizes = [int(m.size) for m in members]
-    table = {f.id: _describe_feature(bundle, members, f, exclude_eps, intervals)
+    notes_by_n: dict[int, str] = {}
+    table = {f.id: _describe_feature(bundle, members, f, exclude_eps, intervals, notes_by_n)
              for f in catalog.offered(bundle.kind)}
     small = [c.label for c, n in zip(cs.classes, sizes) if 1 < n < gaussian.MIN_ROBUST_SAMPLES]
     view_notes = [
@@ -504,6 +535,11 @@ def describe_view(bundle: FeatureBundle, cs: ClassSet, exclude_eps: bool,
         "sample SD (ddof = 1) and sd_population the ddof = 0 form, for comparison with the "
         "notebook. The mean's 95% interval is Student-t, t(0.975, N − 1) · SD/√N; the SD's is "
         "the χ² interval, which assumes Gaussian values and is too narrow for a heavy tail.",
+        "sd_se = SD/√(2(N − 1)) is the SD's own standard error under the same Gaussian "
+        "assumption; c4(N) = E[s]/σ is the bias the ddof = 1 SD keeps (it still runs 11.4% low "
+        "at N = 3); robust marks N ≥ 20. All three use the N each feature actually "
+        "described, after non-finite and excluded values, and so does the note each cell "
+        "takes from notes_by_n at its own N - N = 2 is one degree of freedom.",
         "Azimuths get a circular summary - mean direction, mean resultant length R̄, circular "
         "SD and the Rayleigh p - and no linear mean, SD or quartile; min and max lie on "
         "(−π, π].",
@@ -518,13 +554,13 @@ def describe_view(bundle: FeatureBundle, cs: ClassSet, exclude_eps: bool,
             "depth and depth range by their own floor, the volume and both densities by any "
             "floored factor.")
     if not intervals:
-        view_notes.append("The interval columns were dropped to keep the response under 100 KB.")
+        view_notes.append("The interval columns were dropped to keep the response within its "
+                          "byte budget.")
     return {
         "table": table,
-        "class_stats": [{"index": c.index, "n": n,
-                         "c4": sig(gaussian.c4(n)) if n >= gaussian.MIN_MOMENT_SAMPLES else None,
-                         "robust": n >= gaussian.MIN_ROBUST_SAMPLES}
-                        for c, n in zip(cs.classes, sizes)],
+        # The class sizes; c4 and the robust flag are per feature in the table.
+        "class_stats": [{"index": c.index, "n": n} for c, n in zip(cs.classes, sizes)],
+        "notes_by_n": {str(n): notes_by_n[n] for n in sorted(notes_by_n)},
         "intervals": {
             "mean": "95% Student-t interval of the mean (uncertainty of the aggregate)",
             "sd": "95% χ² interval of the SD (assumes Gaussian values)",
@@ -571,16 +607,178 @@ def _cell(r: float | None, n: int, diagonal: bool) -> tuple[float | None, ...]:
     return sig(r), sig(interval.lo), sig(interval.hi)
 
 
+#: What each measure of an azimuth's cell in D3 is.
+CIRCULAR_MEASURES: dict[str, str] = {
+    "mardia": (
+        "Mardia's circular–linear R of the linear feature with (cos φ, sin φ) of the azimuth: "
+        "0 for no association to 1, unsigned because a circle has no order. se is its "
+        "event-grouped jackknife standard error; null_R2 = 2/(N − 1) is what R² averages with "
+        f"no association. Quoted from {jackknife.MIN_MARDIA_AZIMUTHS} distinct azimuths, its SE "
+        f"from {jackknife.MIN_MARDIA_GROUPS} event groups."),
+    "circular_circular": (
+        "The Jammalamadaka–SenGupta circular–circular correlation r_c of the two azimuths: "
+        "signed, in [−1, 1], unchanged by where the ±π cut falls. ci95 is a 95% event-grouped "
+        "jackknife interval on Fisher's z, se_z its standard error; the diagonal is 1 by "
+        "definition."),
+}
+
+
+class _AzimuthSums:
+    """One class's events in jackknife groups, ready for every azimuth cell of D3.
+
+    Each event is one observation, so the groups are events - one each up to
+    64, then event_number mod 64, as C8. The columns are every feature plus the
+    cosine and sine of each azimuth. When every value is finite a cell's rows
+    are all the events (``whole``) or all but the floored ones (``part``, which
+    only the cells of ``part_rows`` - the volume and the densities - use, so
+    it holds their columns and the azimuths'), so the grouped sums are taken
+    once per row set and each cell reads its columns out of them.
+    """
+
+    def __init__(self, features: Sequence[Feature], stack: np.ndarray, events: np.ndarray,
+                 part_rows: Sequence[int] = ()) -> None:
+        k = len(features)
+        self.columns: dict[int, tuple[int, int]] = {}     # azimuth row -> (cos, sin) column
+        self.distinct: dict[int, tuple[np.ndarray, int]] = {}
+        blocks = [stack]
+        for i, feature in enumerate(features):
+            if not feature.circular:
+                continue
+            angle = stack[i]
+            self.columns[i] = (k + 2 * len(self.columns), k + 2 * len(self.columns) + 1)
+            blocks.append(np.vstack([np.cos(angle), np.sin(angle)]))
+            finite = np.isfinite(angle)
+            index = np.full(angle.size, -1, dtype=np.int64)
+            values, index[finite] = np.unique(angle[finite], return_inverse=True)
+            self.distinct[i] = (index, int(values.size))
+        self.data = np.vstack(blocks).T
+        self.grouping = jackknife.Grouping.of(jackknife.group_ids(events))
+        angle_columns = [c for pair in self.columns.values() for c in pair]
+        self._layout = {"whole": list(range(self.data.shape[1])),
+                        "part": sorted(set(part_rows)) + angle_columns}
+        self._shared: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        self._shared_distinct: dict[tuple[int, str], int] = {}
+
+    def n_distinct(self, i: int, keep: np.ndarray, shared: str | None) -> int:
+        """Distinct values of azimuth ``i`` among the rows ``keep`` holds."""
+        index, size = self.distinct[i]
+        if shared == "whole":
+            return size
+        if shared is not None and (i, shared) in self._shared_distinct:
+            return self._shared_distinct[(i, shared)]
+        chosen = index[keep]
+        chosen = chosen[chosen >= 0]
+        count = int(np.count_nonzero(np.bincount(chosen, minlength=size))) if chosen.size else 0
+        if shared is not None:
+            self._shared_distinct[(i, shared)] = count
+        return count
+
+    def sums(self, columns: Sequence[int], keep: np.ndarray,
+             shared: str | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Grouped sums of ``columns`` over ``keep``; ``shared`` names a row set reused by many cells."""
+        if shared is None:
+            return self.grouping.sums(self.data[:, list(columns)], keep)
+        layout = self._layout[shared]
+        if shared not in self._shared:
+            self._shared[shared] = self.grouping.sums(self.data[:, layout],
+                                                      None if shared == "whole" else keep)
+        n_g, s_g, q_g = self._shared[shared]
+        idx = np.asarray([layout.index(c) for c in columns])
+        return n_g, s_g[:, idx], q_g[:, idx][:, :, idx]
+
+
+def _circular_cell(features: Sequence[Feature], stack: np.ndarray, sums: _AzimuthSums,
+                   keep: np.ndarray, shared: str | None, i: int, j: int,
+                   position: int) -> dict[str, Any]:
+    """One cell of D3 with an azimuth in it: Mardia's R, or r_c of two azimuths.
+
+    The notebook's linear r of ``avg_phi`` travels as ``parity_r`` only: no
+    interval, never on the colour scale.
+    """
+    fi, fj = features[i], features[j]
+    n = int(keep.sum())
+    cell: dict[str, Any] = {"position": position, "row": fi.id, "col": fj.id, "n": n,
+                            "measure": None, "n_azimuths": None, "value": None, "se": None,
+                            "se_z": None, "ci95": None, "null_R2": None, "reason": None,
+                            "parity_r": None}
+    if fi.circular and fj.circular:
+        cell["measure"] = "circular_circular"
+        if n < MIN_FISHER:
+            cell["reason"] = f"r_c is quoted from N = {MIN_FISHER}; this class has {n}."
+        else:
+            n_g, s_g, q_g = sums.sums(sums.columns[i] + sums.columns[j], keep, shared)
+            value = circular.circular_correlation_from_sums(float(n), s_g.sum(axis=0),
+                                                            q_g.sum(axis=0))
+            if value is None:
+                cell["reason"] = "An azimuth has no spread about its mean direction in this class."
+            elif i == j:
+                cell["value"] = 1.0
+            else:
+                cell["value"] = sig(value)
+                if n_g.size >= jackknife.MIN_JACKKNIFE_GROUPS:
+                    def r_c(n_: float, s_: np.ndarray, q_: np.ndarray) -> np.ndarray:
+                        v = circular.circular_correlation_from_sums(n_, s_, q_)
+                        return np.asarray(np.nan if v is None else v)
+
+                    loo = jackknife.grouped_jackknife(n_g, s_g, q_g, r_c)
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        se_z = jackknife.jackknife_se(np.arctanh(np.clip(loo, -1.0, 1.0)))
+                    interval = (fisher_z_interval(value, n, se_z=se_z, dof=int(n_g.size) - 1)
+                                if se_z is not None else None)
+                    cell["se_z"] = sig(se_z)
+                    if interval is not None:
+                        cell["ci95"] = [sig(interval.lo), sig(interval.hi)]
+    else:
+        cell["measure"] = "mardia"
+        a_i, x_i = (i, j) if fi.circular else (j, i)
+        cell["n_azimuths"] = n_azimuths = sums.n_distinct(a_i, keep, shared)
+        cell["null_R2"] = sig(jackknife.mardia_null_r2(n))
+        reason = jackknife.mardia_gate(n_azimuths, "this class")
+        if reason is None:
+            n_g, s_g, q_g = sums.sums((x_i,) + sums.columns[a_i], keep, shared)
+            value, se = jackknife.mardia_jackknife(n_g, s_g, q_g, 0, 1, 2)
+            if value is None:
+                reason = f"{features[x_i].id} has no spread in this class."
+            cell["value"], cell["se"] = sig(value), sig(se)
+        cell["reason"] = typographic(reason) if reason else None
+    if "avg_phi" in (fi.id, fj.id) and fi.notebook and fj.notebook and n >= MIN_FISHER:
+        cell["parity_r"] = sig(_pearson(stack[i, keep], stack[j, keep]))
+    return cell
+
+
 def corr_view(bundle: FeatureBundle, cs: ClassSet, which: int | str,
               exclude_eps: bool) -> dict[str, Any]:
-    """D3: Pearson r of every feature pair over one class, upper triangle with the diagonal."""
+    """D3: Pearson r of every feature pair over one class, upper triangle with the diagonal.
+
+    A cell with an azimuth in it has no r, lo or hi - it is hatched and off the
+    colour scale - and is described in ``circular_cells`` instead.
+    """
     features = catalog.offered(bundle.kind)
     mask = cs.mask(which)
     stack = np.vstack([bundle.values[f.id][mask] for f in features])
+    events = bundle.event_number[mask]
     floored = bundle.volume_floored()[mask]
     eps_pair = {i for i, f in enumerate(features) if f.id in catalog.EPS_PAIR_FEATURES}
+    circular_rows = {i for i, f in enumerate(features) if f.circular}
     excluded = floored if exclude_eps else np.zeros_like(floored)
-    if np.isfinite(stack).all():
+    finite = np.isfinite(stack)
+    all_finite = bool(finite.all())
+    azimuth_sums = (_AzimuthSums(features, stack, events, sorted(eps_pair))
+                    if circular_rows else None)
+
+    def kept(i: int, j: int) -> np.ndarray:
+        keep = finite[i] & finite[j]
+        if i in eps_pair or j in eps_pair:
+            keep &= ~excluded
+        return keep
+
+    def row_set(i: int, j: int) -> str | None:
+        """The shared row set of a pair when every value is finite, else ``None``."""
+        if not all_finite:
+            return None
+        return "part" if (i in eps_pair or j in eps_pair) and excluded.any() else "whole"
+
+    if all_finite:
         # Every pair sees the same events (less the floored ones where they are
         # left out): two matrix products instead of a masked pass per pair.
         whole, n_whole = _pearson_matrix(stack), stack.shape[1]
@@ -592,28 +790,39 @@ def corr_view(bundle: FeatureBundle, cs: ClassSet, which: int | str,
                 return float(part[i, j]), n_part
             return float(whole[i, j]), n_whole
     else:
-        finite = np.isfinite(stack)
-
         def pair(i: int, j: int) -> tuple[float | None, int]:
-            keep = finite[i] & finite[j]
-            if i in eps_pair or j in eps_pair:
-                keep &= ~excluded
+            keep = kept(i, j)
             n = int(keep.sum())
             return (_pearson(stack[i, keep], stack[j, keep]) if n >= MIN_FISHER else None), n
     cells: list[tuple[float | None, ...]] = []
     n_out: list[int] = []
+    circular_cells: list[dict[str, Any]] = []
+    position = 0
     for i in range(len(features)):
         for j in range(i, len(features)):
-            r, n = pair(i, j)
-            n_out.append(n)
-            cells.append(_cell(r, n, i == j))
+            if i in circular_rows or j in circular_rows:
+                # An azimuth has no linear r (CLAUDE.md section 2): off the scale.
+                keep = kept(i, j)
+                n_out.append(int(keep.sum()))
+                cells.append((None, None, None))
+                circular_cells.append(_circular_cell(features, stack, azimuth_sums, keep,
+                                                     row_set(i, j), i, j, position))
+            else:
+                r, n = pair(i, j)
+                n_out.append(n)
+                cells.append(_cell(r, n, i == j))
+            position += 1
     n_class = int(mask.sum())
     view_notes = [
         f"Pearson r over the events of the class, each event one independent observation; "
         f"the 95% interval is Fisher's z with SE 1/√(N − 3), N = events. r is quoted from "
         f"N = {MIN_FISHER}, where that interval first exists; the diagonal is 1 by definition.",
-        "Cells of avg_phi, avg_phi_circ and angular_spread are hatched: a linear correlation "
-        "of a circular quantity depends on where the ±π cut falls.",
+        "An azimuth (avg_phi, avg_phi_circ) has no linear correlation: a Pearson r of it "
+        "changes sign with where the ±π cut falls. Its cells are hatched with r empty and off "
+        "the colour scale, and carry Mardia's circular–linear R with a linear feature, or the "
+        "circular–circular r_c of the two azimuths (circular_cells). The notebook's linear r "
+        "of avg_phi is kept there as parity_r, with no interval, for comparison only. "
+        "angular_spread is hatched too: its linear SD of φ is inflated by the cut.",
         "Pearson r on features spanning many decades (the volume, both densities, the energy) "
         "stays dominated by their tails even with the floored events left out.",
     ]
@@ -637,9 +846,14 @@ def corr_view(bundle: FeatureBundle, cs: ClassSet, which: int | str,
         "hi": [cell[2] for cell in cells],
         "n_pairs": n_out,
         "hatched": {f.id: catalog.HATCHED[f.id] for f in features if f.id in catalog.HATCHED},
+        "circular_cells": circular_cells,
+        "circular_measures": {k: typographic(v) for k, v in CIRCULAR_MEASURES.items()},
+        "scale": dict(R_SCALE),
         "method": METHOD_FISHER,
         "interval": typographic("95% Fisher-z interval, N = events (iid)"),
-        "thresholds": {"fisher": MIN_FISHER},
+        "thresholds": {"fisher": MIN_FISHER, "mardia_azimuths": jackknife.MIN_MARDIA_AZIMUTHS,
+                       "mardia_groups": jackknife.MIN_MARDIA_GROUPS,
+                       "jackknife_groups": jackknife.MIN_JACKKNIFE_GROUPS},
         "view_notes": [typographic(t) for t in view_notes],
     }
 
@@ -833,16 +1047,29 @@ def _snapped_edges(lo: float, hi: float, bins: int, q: float,
 
 def plan_axis(feature: Feature, coord_system: str, per_class: Sequence[np.ndarray],
               scale: str, decades: float | None, bins_for: Any, pitch: float | None,
-              raw_pooled: np.ndarray) -> AxisPlan:
+              raw_pooled: np.ndarray,
+              range_per_class: Sequence[np.ndarray] | None = None) -> AxisPlan:
     """The shared axis of every class: range from the drawn classes, bins, quantum.
 
     ``per_class`` are the classes' values already on the axis (log10 on a log
-    axis); ``bins_for(drawn sizes)`` is the view's bin rule.
+    axis); ``bins_for(drawn sizes)`` is the view's bin rule. ``range_per_class``,
+    when given, are the values of each class that may set the range - its
+    measurements, without the floored values (CLAUDE.md section 2: display
+    ranges follow robust evidence) - while the disclosure still counts every
+    drawn value outside the range.
     """
     sizes = [int(v.size) for v in per_class]
-    drawn = [v for v in per_class if v.size >= histogram.MIN_HISTOGRAM_SAMPLES]
-    provisional = not drawn
-    pooled = np.concatenate(drawn or list(per_class) or [np.empty(0)])
+    drawn_idx = [i for i, n in enumerate(sizes) if n >= histogram.MIN_HISTOGRAM_SAMPLES]
+    provisional = not drawn_idx
+    pooled = np.concatenate([per_class[i] for i in drawn_idx] or list(per_class)
+                            or [np.empty(0)])
+    if range_per_class is None:
+        ranged = pooled
+    else:
+        ranged = np.concatenate([range_per_class[i] for i in drawn_idx] or list(range_per_class)
+                                or [np.empty(0)])
+        if ranged.size == 0:
+            ranged = pooled     # every drawn value is floored: nothing else to range on
     notes: list[str] = []
     interval: float | None = None
     if scale == "circular":
@@ -853,7 +1080,7 @@ def plan_axis(feature: Feature, coord_system: str, per_class: Sequence[np.ndarra
         notes.append("An azimuth is drawn on its full period (−π, π], cut at ±π, with no "
                      "percentile clip: a crop would invent an end where the values wrap.")
     else:
-        clip = clip_mod.percentile_clip(pooled)
+        clip = clip_mod.percentile_clip(ranged)
         lo, hi, interval = clip_mod.nice_range(clip.lo, clip.hi, fine=True)
         clipping = clip
     bins = int(bins_for([n for n in sizes if n >= histogram.MIN_HISTOGRAM_SAMPLES]))
@@ -869,13 +1096,17 @@ def plan_axis(feature: Feature, coord_system: str, per_class: Sequence[np.ndarra
             notes.append(f"{feature.id} should sit on a lattice of {quantum['value']} "
                          f"{quantum['unit']} but its values do not: bins are not aligned.")
     if scale != "circular":
-        # The disclosure counts the values outside the range actually drawn.
+        # The disclosure counts every drawn value outside the range actually
+        # drawn - floored ones included - against the extremes of all of them.
         a, b = float(edges[0]), float(edges[-1])
+        below, above = int((pooled < a).sum()), int((pooled > b).sum())
         clipping = clip_mod.ClipResult(
             lo=a, hi=b, low_percentile=clipping.low_percentile,
             high_percentile=clipping.high_percentile, n_total=int(pooled.size),
-            n_below=int((pooled < a).sum()), n_above=int((pooled > b).sum()),
-            data_min=clipping.data_min, data_max=clipping.data_max, applied=clipping.applied)
+            n_below=below, n_above=above,
+            data_min=float(pooled.min()) if pooled.size else None,
+            data_max=float(pooled.max()) if pooled.size else None,
+            applied=clipping.applied or below + above > 0)
     if provisional:
         notes.append(f"No class reaches N = {histogram.MIN_HISTOGRAM_SAMPLES}: the range is "
                      "taken from the under-powered classes and is provisional.")
@@ -883,13 +1114,38 @@ def plan_axis(feature: Feature, coord_system: str, per_class: Sequence[np.ndarra
                     decades, interval, notes)
 
 
-def _comb(counts: np.ndarray) -> dict[str, Any]:
-    """The lag-1 comb statistic of pooled counts, judged against counting noise."""
+#: What a comb in a feature's histogram can be blamed on, by its relation to a lattice.
+COMB_CAUSES: dict[str, str] = {
+    "lattice": ("its bins beat against values the detector lattice quantises, which is "
+                "segmentation, not shower structure."),
+    "integer": ("its bins beat against the integer values of the count, which is binning, not "
+                "shower structure."),
+}
+
+
+def comb_cause(feature: Feature, coord_system: str) -> str | None:
+    """``lattice``, ``integer`` or ``None``: what a measured comb of ``feature`` can be blamed on."""
+    quantum = feature.quantised_in(coord_system)
+    if feature.irregular_lattice or quantum == catalog.QUANTUM_LAYER:
+        return "lattice"
+    if quantum == catalog.QUANTUM_COUNT:
+        return "integer"
+    return None
+
+
+def _comb(counts: np.ndarray, cause: str | None = None) -> dict[str, Any]:
+    """The lag-1 comb statistic of pooled counts, judged against counting noise.
+
+    ``cause`` (:func:`comb_cause`) names what a comb is blamed on; a feature with
+    no lattice or integer relation gets the statistic stated neutrally, since
+    noise alone crosses the two-standard-error threshold about 2% of the time.
+    """
     bins = int(counts.size)
     minimum = 3 * stagger.DETREND_WINDOW
     if bins < minimum:
         return {"lag1": None, "bins": bins, "combed": None, "noise_reference": sig(NOISE_LAG1),
                 "threshold": None, "measured_on": "pooled counts of the drawn classes",
+                "cause": cause,
                 "note": f"Fewer than {minimum} bins: too short to measure a comb."}
     lag1 = stagger.profile_lag1(counts.astype(np.float64))
     pairs = bins - 2 * (stagger.DETREND_WINDOW // 2) - 1
@@ -898,22 +1154,28 @@ def _comb(counts: np.ndarray) -> dict[str, Any]:
     note = (f"Lag-1 autocorrelation of the detrended pooled counts {lag1:.2f}; counting noise "
             f"alone gives {NOISE_LAG1:.2f}, and a comb is called below {threshold:.2f} (two "
             "standard errors lower)." if lag1 is not None else "No variation to measure.")
-    if combed:
-        note += (" The histogram combs: its bins beat against values the detector lattice "
-                 "quantises, which is segmentation, not shower structure.")
+    if combed and cause in COMB_CAUSES:
+        note += f" The histogram combs: {COMB_CAUSES[cause]}"
+    elif combed:
+        note += (" The counts alternate beyond counting noise. This feature has no lattice or "
+                 "integer relation, so nothing is blamed on segmentation; noise alone crosses "
+                 "this threshold about 2% of the time.")
     return {"lag1": sig(lag1, 3), "bins": bins, "combed": combed,
             "noise_reference": sig(NOISE_LAG1, 3), "threshold": sig(threshold, 3),
-            "measured_on": "pooled counts of the drawn classes", "note": typographic(note)}
+            "measured_on": "pooled counts of the drawn classes", "cause": cause,
+            "note": typographic(note)}
 
 
 # -------------------------------------------------------------------- D4 --
 
 
-def _class_values(bundle: FeatureBundle, cs: ClassSet, feature: Feature,
-                  exclude_eps: bool) -> tuple[list[np.ndarray], list[int]]:
+def _class_values(bundle: FeatureBundle, cs: ClassSet, feature: Feature, exclude_eps: bool,
+                  ) -> tuple[list[np.ndarray], list[int], list[np.ndarray]]:
+    """``(values, n excluded, floored)`` per class; ``floored`` flags the values kept
+    that involve core.py's floor - drawn and counted, never ranged on."""
     values = bundle.display(feature)
     eps = bundle.eps_mask(feature)
-    out, excluded = [], []
+    out, excluded, floored = [], [], []
     for c in cs.classes:
         m = cs.mask(c.index)
         if exclude_eps and eps is not None:
@@ -922,7 +1184,17 @@ def _class_values(bundle: FeatureBundle, cs: ClassSet, feature: Feature,
         else:
             excluded.append(0)
         out.append(values[m])
-    return out, excluded
+        floored.append(eps[m] if eps is not None else np.zeros(int(m.sum()), dtype=bool))
+    return out, excluded, floored
+
+
+def _floored_note(n_floored: int, feature: Feature) -> str:
+    what = ("sit at core.py's 10⁻⁶ mm floor" if feature.eps == catalog.EPS_OWN
+            else "have a factor of the volume at core.py's 10⁻⁶ mm floor")
+    return (f"{n_floored:,} drawn events {what}: not measurements, so they set neither the "
+            "range nor the automatic scale. They stay in the counts and the normaliser, "
+            "counted per class (n_floored), and fall in n_below or n_above wherever the axis "
+            "does not reach them. exclude_eps=true leaves them out.")
 
 
 def _hist_message(n: int, feature: Feature, kde_notes: Sequence[str]) -> str | None:
@@ -947,20 +1219,25 @@ def hist_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
               exclude_eps: bool, pitch: float | None, curve_points: int = kde.CURVE_POINTS,
               bins_divisor: int = 1) -> dict[str, Any]:
     """D4: per-class counts on shared edges, KDE scaled to counts, strips below N = 15."""
-    raw, excluded = _class_values(bundle, cs, feature, exclude_eps)
+    raw, excluded, floored = _class_values(bundle, cs, feature, exclude_eps)
     sizes = [int(np.isfinite(v).sum()) for v in raw]
-    drawn_raw = [v for v, n in zip(raw, sizes) if n >= histogram.MIN_HISTOGRAM_SAMPLES]
-    pooled_raw = np.concatenate(drawn_raw or raw or [np.empty(0)])
-    resolved, decades = resolve_scale(feature, bundle.coord_system, scale, pooled_raw, "scale")
+    # The range and the automatic scale follow the measured values: a floored
+    # value is not a measurement, and >1% of them would pin the 1st percentile.
+    measured = [v[~f] for v, f in zip(raw, floored)]
+    drawn_measured = [v for v, n in zip(measured, sizes) if n >= histogram.MIN_HISTOGRAM_SAMPLES]
+    pooled_measured = np.concatenate(drawn_measured or measured or [np.empty(0)])
+    resolved, decades = resolve_scale(feature, bundle.coord_system, scale, pooled_measured,
+                                      "scale")
     on_axis = [to_axis(v, resolved) for v in raw]
     per_class = [v for v, _ in on_axis]
+    ranged = [to_axis(v, resolved)[0] for v in measured]
 
     def bins_for(drawn_sizes: list[int]) -> int:
         rice = histogram.adaptive_bins(min(drawn_sizes) if drawn_sizes else 0)
         return max(histogram.MIN_BINS, rice // max(1, bins_divisor))
 
     axis = plan_axis(feature, bundle.coord_system, per_class, resolved, decades, bins_for,
-                     pitch, np.concatenate(raw or [np.empty(0)]))
+                     pitch, np.concatenate(raw or [np.empty(0)]), range_per_class=ranged)
     width = axis.width
     q_axis = (float(axis.quantum["value"]) if axis.quantum and axis.quantum.get("verified")
               else None)
@@ -969,7 +1246,9 @@ def hist_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
     pooled_counts = np.zeros(axis.bins, dtype=np.int64)
     y_count = y_density = 0.0
     weak_peaks: list[tuple[int, float, float]] = []   # curves of classes that set no range
-    for c, values, (_, n_nonpositive), n_eps in zip(cs.classes, per_class, on_axis, excluded):
+    n_floored = [int(f.sum()) for f in floored]
+    for c, values, (_, n_nonpositive), n_eps, n_flo in zip(cs.classes, per_class, on_axis,
+                                                           excluded, n_floored):
         n = int(values.size)
         counted = histogram.count_histogram(values, axis.edges)
         drawn = n >= histogram.MIN_HISTOGRAM_SAMPLES
@@ -1003,6 +1282,7 @@ def hist_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
             "n_above": counted.n_above,
             "n_nonpositive": n_nonpositive,
             "n_excluded_eps": n_eps,
+            "n_floored": n_flo,
             "draw": "histogram" if drawn else ("strip" if n else "none"),
             "counts": counted.counts if drawn else [],
             "density_scale": sig(1.0 / (n * width)) if n and width > 0 else None,
@@ -1028,11 +1308,14 @@ def hist_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
                  "smaller classes, provisional" if weak_peaks
                  else "no class supports a density: the axis carries no density scale")
     has_scale = drawn_any or bool(weak_peaks)
-    comb = _comb(pooled_counts) if drawn_any and not feature.circular else None
+    comb = (_comb(pooled_counts, comb_cause(feature, bundle.coord_system))
+            if drawn_any and not feature.circular else None)
     view_notes = list(axis.notes)
     if exclude_eps and bundle.eps_mask(feature) is not None:
         view_notes.append("Events whose value of this feature involves a floor are left out "
                           "and counted per class (n_excluded_eps).")
+    if sum(n_floored):
+        view_notes.append(_floored_note(sum(n_floored), feature))
     if axis.scale == "log" and any(n for _, n in on_axis):
         view_notes.append("Values at or below zero have no place on a log axis: they are "
                           "counted per class (n_nonpositive) and left out of the counts, the "
@@ -1066,10 +1349,12 @@ def hist_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
 
 
 def _pairs(bundle: FeatureBundle, cs: ClassSet, fx: Feature, fy: Feature, exclude_eps: bool,
-           ) -> tuple[list[tuple[np.ndarray, np.ndarray]], list[int]]:
+           ) -> tuple[list[tuple[np.ndarray, np.ndarray]], list[int], list[np.ndarray]]:
+    """``(pairs, n excluded, floored)`` per class, ``floored`` flagging the kept pairs
+    whose x value involves core.py's floor."""
     x_all, y_all = bundle.display(fx), bundle.display(fy)
     eps = bundle.eps_mask(fx)
-    out, excluded = [], []
+    out, excluded, floored = [], [], []
     for c in cs.classes:
         m = cs.mask(c.index) & np.isfinite(x_all) & np.isfinite(y_all)
         if exclude_eps and eps is not None:
@@ -1078,7 +1363,8 @@ def _pairs(bundle: FeatureBundle, cs: ClassSet, fx: Feature, fy: Feature, exclud
         else:
             excluded.append(0)
         out.append((x_all[m], y_all[m]))
-    return out, excluded
+        floored.append(eps[m] if eps is not None else np.zeros(int(m.sum()), dtype=bool))
+    return out, excluded, floored
 
 
 def hist2d_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: str,
@@ -1086,19 +1372,20 @@ def hist2d_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: st
                 bins: int | None = None) -> dict[str, Any]:
     """D5: the feature against the deposited energy, dense integer counts per class."""
     fy = catalog.BY_ID[HIST2D_Y]
-    pairs, excluded = _pairs(bundle, cs, feature, fy, exclude_eps)
+    pairs, excluded, floored = _pairs(bundle, cs, feature, fy, exclude_eps)
     sizes = [int(x.size) for x, _ in pairs]
     drawn_idx = [i for i, n in enumerate(sizes) if n >= histogram.MIN_HISTOGRAM_SAMPLES]
-    source = [pairs[i] for i in drawn_idx] or pairs
-    pooled_x = np.concatenate([x for x, _ in source] or [np.empty(0)])
-    pooled_y = np.concatenate([y for _, y in source] or [np.empty(0)])
+    chosen = drawn_idx or list(range(len(pairs)))
+    # The feature axis is ranged and scaled on the measured values, as D4.
+    pooled_x = np.concatenate([pairs[i][0][~floored[i]] for i in chosen] or [np.empty(0)])
+    pooled_y = np.concatenate([pairs[i][1] for i in chosen] or [np.empty(0)])
     sx, dx = resolve_scale(feature, bundle.coord_system, scale, pooled_x, "scale")
     sy, dy = resolve_scale(fy, bundle.coord_system, y_scale, pooled_y, "y_scale")
 
     # A pair needs both coordinates on their axes: a non-positive value on a
     # log axis drops the pair, counted per axis.
-    placed, dropped = [], []
-    for x, y in pairs:
+    placed, dropped, placed_floored = [], [], []
+    for (x, y), f in zip(pairs, floored):
         keep = np.ones(x.size, dtype=bool)
         nx = ny = 0
         if sx == "log":
@@ -1111,17 +1398,21 @@ def hist2d_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: st
         ty = np.log10(y[keep]) if sy == "log" else y[keep]
         placed.append((tx, ty))
         dropped.append((nx, ny))
+        placed_floored.append(f[keep])
     n_classes = sum(1 for n in sizes if n > 0)
     default_bins = HIST2D_BINS if n_classes <= HIST2D_MANY_CLASSES else HIST2D_BINS_MANY
     nb = int(bins) if bins else default_bins
     x_axis = plan_axis(feature, bundle.coord_system, [x for x, _ in placed], sx, dx,
-                       lambda _: nb, pitch, np.concatenate([x for x, _ in pairs] or [np.empty(0)]))
+                       lambda _: nb, pitch, np.concatenate([x for x, _ in pairs] or [np.empty(0)]),
+                       range_per_class=[x[~f] for (x, _), f in zip(placed, placed_floored)])
     y_axis = plan_axis(fy, bundle.coord_system, [y for _, y in placed], sy, dy,
                        lambda _: nb, pitch, np.concatenate([y for _, y in pairs] or [np.empty(0)]))
     xe, ye = x_axis.edges, y_axis.edges
     series: list[dict[str, Any]] = []
     max_count = 0
-    for c, (x, y), (nx, ny), n_eps in zip(cs.classes, placed, dropped, excluded):
+    n_floored = [int(f.sum()) for f in placed_floored]
+    for c, (x, y), (nx, ny), n_eps, n_flo in zip(cs.classes, placed, dropped, excluded,
+                                                 n_floored):
         n = int(x.size)
         in_x = (x >= xe[0]) & (x <= xe[-1])
         in_y = (y >= ye[0]) & (y <= ye[-1])
@@ -1129,7 +1420,7 @@ def hist2d_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: st
                    "y_below": int((y < ye[0]).sum()), "y_above": int((y > ye[-1]).sum()),
                    "total": int((~(in_x & in_y)).sum())}
         base = {"index": c.index, "label": c.label, "n": n, "n_nonpositive_x": nx,
-                "n_nonpositive_y": ny, "n_excluded_eps": n_eps}
+                "n_nonpositive_y": ny, "n_excluded_eps": n_eps, "n_floored": n_flo}
         if n >= histogram.MIN_HISTOGRAM_SAMPLES:
             grid, _, _ = np.histogram2d(x[in_x & in_y], y[in_x & in_y], bins=[xe, ye])
             counts = grid.T.astype(np.int64)          # rows are y bins
@@ -1145,6 +1436,8 @@ def hist2d_view(bundle: FeatureBundle, cs: ClassSet, feature: Feature, scale: st
         else:
             series.append({**base, "draw": "none"})
     view_notes = list(dict.fromkeys(x_axis.notes + y_axis.notes))
+    if sum(n_floored):
+        view_notes.append(_floored_note(sum(n_floored), feature))
     if any(nx or ny for nx, ny in dropped):
         view_notes.append("Pairs with a value at or below zero on a log axis are left out and "
                           "counted per class and axis.")

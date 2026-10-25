@@ -23,6 +23,7 @@ import pytest
 from calosrv.db import naming
 from calosrv.db.naming import quote
 from calosrv.encode.numbers import sig
+from calosrv.errors import ValidationError
 from calosrv.query import (
     density, filters, hit_distributions, physics_cache, sampling, shower_distributions,
 )
@@ -213,7 +214,7 @@ def test_the_comb_is_measured_on_the_pooled_raw_profile_before_any_crop(cursor, 
         lag1 = profile_lag1(bundle.axes[axis].counts.sum(axis=0))
         assert wide["comb"]["lag1"] == sig(lag1, 3)
         assert narrow["comb"] == wide["comb"]
-        assert wide["comb"]["combed"] is bool(lag1 is not None and lag1 < -0.10)
+        assert wide["comb"]["combed"] is (None if lag1 is None else bool(lag1 < -0.10))
         assert (wide["comb"]["k"], wide["comb"]["k_z"], wide["comb"]["axis"]) == (2, 2, axis)
         assert "before any crop" in wide["comb"]["measured_on"]
         assert len(narrow["edges"]) < len(wide["edges"])
@@ -424,6 +425,11 @@ def test_coarsening_merges_whole_bins_and_conserves_every_count(cursor, c4, quan
         coarse = _hit(cursor, c4, quantity, coarsen=coarsen)[1]
     assert coarse["display"]["coarsened"] == coarsen
     assert len(coarse["edges"]) <= len(fine["edges"])
+    if quantity in ("u", "v", "w"):
+        # Whole merges: the coarse bin is exactly `coarsen` fine bins wide. (The window itself
+        # snaps outward to the coarser grid, so the edge sets need not nest.)
+        assert coarse["quantity"]["bin_width"] == pytest.approx(
+            coarsen * fine["quantity"]["bin_width"])
     for a, b in zip(fine["series"], coarse["series"]):
         assert a["bin"] == b["bin"]
         assert sum(a["counts"]) + a["below"] + a["above"] == pytest.approx(
@@ -541,3 +547,45 @@ def test_the_worst_case_shower_payloads_fit_the_budget(monkeypatch):
         body = shower_distributions.render(sample, classes, quantity, "hit", 1.0, 99.0)
         assert len(body["series"]) == 20
         assert density.wire_size(body) < 50_000, quantity
+
+
+# --------------------------------------------- unmeasured comb, caps, gate --
+
+
+def test_an_unmeasurable_comb_is_null_not_false():
+    short = np.arange(10.0)
+    block = hit_distributions.comb_block(short, "u", 40.0, 2, 2)
+    assert block["lag1"] is None and block["combed"] is None
+    assert "not measurable" in hit_distributions.comb_note(block)
+
+
+def _sample(mb, p=None) -> ShowerSample:
+    mb = np.asarray(mb, dtype=np.int64)
+    return ShowerSample(mb=mb, p=mb + 0.5 if p is None else p, theta=np.full(mb.size, 0.3),
+                        phi=np.zeros(mb.size), hits=np.ones(mb.size),
+                        placed=np.ones(mb.size, dtype=bool), n_no_bin=0)
+
+
+def test_the_class_cap_counts_populated_bins_and_names_the_driving_filter():
+    sparse, _ = shower_distributions.series_classes(_sample([0, 0, 30]))
+    assert [c.bin for c in sparse] == [0, 30] and [c.label for c in sparse] == ["0–1 GeV", "30–31 GeV"]
+    crowded = _sample(np.arange(shower_distributions.momentum.MAX_CLASSES + 1))
+    with pytest.raises(ValidationError) as caught:
+        shower_distributions.series_classes(crowded, field="e2")
+    assert "Narrow the incident-momentum range" in str(caught.value)
+    assert caught.value.extra["field"] == "e2"
+
+
+def test_shower_b_names_its_own_momentum_filter():
+    assert shower_distributions._MOMENTUM_FIELD == {"a": "e1", "b": "e2", "both": "shower"}
+
+
+def test_unplaced_showers_are_disclosed_with_their_hits(c4):
+    sample = _sample([0, 1, 1])
+    sample = ShowerSample(mb=sample.mb, p=sample.p, theta=sample.theta, phi=sample.phi,
+                          hits=np.array([5.0, 7.0, 11.0]),
+                          placed=np.array([True, False, False]), n_no_bin=0)
+    note = hit_distributions.unplaced_note(c4["record"], sample)
+    assert note is not None and "18" in note and "2 shower(s) are not drawn" in note
+    assert "separation is undefined" in note
+    assert hit_distributions.unplaced_note(c4["record"], _sample([0, 1])) is None

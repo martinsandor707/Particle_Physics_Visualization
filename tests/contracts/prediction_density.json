@@ -163,7 +163,8 @@
      "type": "number"
     },
     "vmax": {
-     "type": "number"
+     "type": "number",
+     "description": "log10 of the largest count, at least log10 2 whenever a counts encoding is present, so the scale never collapses to vmin = vmax."
     },
     "unit": {
      "type": "string"
@@ -172,7 +173,13 @@
      "const": "transparent"
     },
     "palette": {
-     "const": "viridis"
+     "enum": [
+      "viridis",
+      "cividis",
+      "plasma",
+      "turbo"
+     ],
+     "description": "The default palette that `ramp` describes; ramp.by_palette measures every offered sequential palette."
     },
     "note": {
      "type": "string"
@@ -183,7 +190,10 @@
       "from",
       "to",
       "stops",
-      "first_level"
+      "first_level",
+      "min_stop_contrast",
+      "clears_everywhere",
+      "by_palette"
      ],
      "properties": {
       "from": {
@@ -192,7 +202,9 @@
        "maximum": 1
       },
       "to": {
-       "const": 1.0
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
       },
       "stops": {
        "type": "array",
@@ -222,6 +234,275 @@
         },
         "against": {
          "const": "#1c2128"
+        }
+       }
+      },
+      "min_stop_contrast": {
+       "type": "number",
+       "description": "Lowest contrast of any stop against the card."
+      },
+      "clears_everywhere": {
+       "type": "boolean",
+       "description": "Every stop is at least 3:1 against the card."
+      },
+      "by_palette": {
+       "type": "object",
+       "required": [
+        "viridis",
+        "cividis",
+        "plasma",
+        "turbo"
+       ],
+       "description": "Measured start, stops and first-level colour of each sequential palette the interface offers.",
+       "additionalProperties": false,
+       "properties": {
+        "viridis": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "cividis": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "plasma": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "turbo": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
         }
        }
       }
@@ -755,7 +1036,8 @@
     "n",
     "n_in_range",
     "max_count",
-    "outside"
+    "outside",
+    "n_missing"
    ],
    "properties": {
     "encoding": {
@@ -810,6 +1092,29 @@
        "type": "integer"
       }
      }
+    },
+    "n_missing": {
+     "type": "object",
+     "required": [
+      "total",
+      "prediction",
+      "truth"
+     ],
+     "description": "Selected events this shower lost for a prediction or truth that is not finite (counted, never zero-filled): the total and each cause.",
+     "properties": {
+      "total": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "prediction": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "truth": {
+       "type": "integer",
+       "minimum": 0
+      }
+     }
     }
    }
   },
@@ -820,7 +1125,8 @@
     "pairs",
     "n",
     "n_in_range",
-    "outside"
+    "outside",
+    "n_missing"
    ],
    "properties": {
     "encoding": {
@@ -868,6 +1174,29 @@
       },
       "total": {
        "type": "integer"
+      }
+     }
+    },
+    "n_missing": {
+     "type": "object",
+     "required": [
+      "total",
+      "prediction",
+      "truth"
+     ],
+     "description": "Selected events this shower lost for a prediction or truth that is not finite (counted, never zero-filled): the total and each cause.",
+     "properties": {
+      "total": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "prediction": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "truth": {
+       "type": "integer",
+       "minimum": 0
       }
      }
     }

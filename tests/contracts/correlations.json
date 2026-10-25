@@ -14,6 +14,7 @@
   "method",
   "interval",
   "scale",
+  "mardia",
   "coord_system",
   "energy_scale",
   "notes",
@@ -155,7 +156,8 @@
         "R",
         "se",
         "per_shower_R",
-        "per_shower_se"
+        "per_shower_se",
+        "null_R2"
        ],
        "properties": {
         "R": {
@@ -187,6 +189,14 @@
           "null"
          ],
          "minimum": 0
+        },
+        "null_R2": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0,
+         "maximum": 1
         }
        }
       },
@@ -269,6 +279,44 @@
     },
     "label": {
      "type": "string"
+    }
+   }
+  },
+  "mardia": {
+   "type": "object",
+   "required": [
+    "n_azimuths",
+    "min_azimuths",
+    "min_groups",
+    "null_R2",
+    "reason"
+   ],
+   "properties": {
+    "n_azimuths": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "min_azimuths": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "min_groups": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "null_R2": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "minimum": 0,
+     "maximum": 1
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
     }
    }
   },

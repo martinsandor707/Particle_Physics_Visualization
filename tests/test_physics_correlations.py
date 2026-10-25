@@ -154,7 +154,8 @@ def test_the_jackknife_groups_are_events_up_to_64(record):
     few, _, _ = correlations.hit_scan_sql(record, spec, both, "local", "linear", 64)
     many, _, _ = correlations.hit_scan_sql(record, spec, both, "local", "linear", 65)
     assert "p.event_number AS g" in few
-    assert f"(p.event_number % {jackknife.MAX_GROUPS}) AS g" in many
+    g = jackknife.MAX_GROUPS
+    assert f"(((p.event_number % {g}) + {g}) % {g}) AS g" in many
 
 
 def test_two_events_are_below_every_gate_and_say_so(cursor, record):
@@ -173,6 +174,22 @@ def test_two_events_are_below_every_gate_and_say_so(cursor, record):
     assert body["interval"] == "none: a correlation needs at least 3 events; this selection has 2"
     assert body["weak"] is True
     assert any("at least 3 events" in note for note in body["notes"])
+    # Two events hold four showers at four azimuths: below Mardia's floor, said once.
+    assert body["mardia"]["n_azimuths"] == a.selection.n_azimuths == 4
+    assert body["mardia"]["reason"].startswith("Mardia's R needs 8 distinct azimuths")
+
+
+def test_the_selection_counts_distinct_azimuths_from_the_event_table(cursor, record):
+    """Mardia's gate counts directions, not events: SQL written apart from the module."""
+    spec = filters.build(record)
+    event = naming.quote(naming.event_table(record.table_name))
+    for shower, columns in (("a", ("phi_a",)), ("b", ("phi_b",)), ("both", ("phi_a", "phi_b"))):
+        union = " UNION ".join(f"SELECT {c} AS ph FROM {event} WHERE {spec.where_sql()}"
+                               for c in columns)
+        (expected,) = cursor.execute(f"SELECT count(DISTINCT ph) FROM ({union})",
+                                     spec.params()).fetchone()
+        picked = correlations.selection(cursor, record, spec, showers_mod.of(record, shower))
+        assert picked.n_azimuths == expected > 0, shower
 
 
 def test_variables_scale_and_weightings(cursor, record):

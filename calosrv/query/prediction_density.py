@@ -37,7 +37,7 @@ The angle network predicts θ only, so there is no azimuth residual to wrap.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import duckdb
@@ -71,12 +71,31 @@ CARD_HEX = "#1c2128"
 CARD_RGB = (28, 33, 40)
 MIN_CONTRAST = 3.0
 
-#: Viridis' anchors, as ``static/js/palette.js`` interpolates them into its 256-entry table.
-_VIRIDIS = (
-    (68, 1, 84), (72, 34, 115), (64, 67, 135), (52, 94, 141), (41, 120, 142),
-    (32, 144, 140), (34, 167, 132), (68, 190, 112), (121, 209, 81),
-    (189, 222, 38), (253, 231, 37),
-)
+#: The sequential palettes' anchors, as ``static/js/palette.js`` interpolates them into its
+#: 256-entry tables. ``tests/test_prediction_density_stats.py`` parses that file and asserts
+#: these are the same numbers, so the contrast measured here is the contrast the frontend draws.
+ANCHORS: dict[str, tuple[tuple[int, int, int], ...]] = {
+    "viridis": (
+        (68, 1, 84), (72, 34, 115), (64, 67, 135), (52, 94, 141), (41, 120, 142),
+        (32, 144, 140), (34, 167, 132), (68, 190, 112), (121, 209, 81),
+        (189, 222, 38), (253, 231, 37),
+    ),
+    "cividis": (
+        (0, 32, 76), (0, 42, 102), (0, 52, 110), (39, 63, 108), (60, 74, 107),
+        (76, 85, 107), (91, 97, 109), (108, 110, 111), (125, 123, 110),
+        (145, 137, 106), (165, 152, 99), (187, 168, 88), (209, 185, 73),
+        (232, 202, 51), (255, 221, 0),
+    ),
+    "plasma": (
+        (13, 8, 135), (70, 3, 159), (114, 1, 168), (156, 23, 158), (189, 55, 134),
+        (216, 87, 107), (237, 121, 83), (251, 159, 58), (253, 202, 38), (240, 249, 33),
+    ),
+    "turbo": (
+        (48, 18, 59), (70, 107, 227), (40, 187, 236), (49, 242, 153), (136, 255, 63),
+        (211, 231, 41), (253, 165, 49), (243, 84, 19), (190, 29, 3), (122, 4, 3),
+    ),
+}
+DEFAULT_PALETTE = "viridis"
 
 LABELS = {
     "energy": {
@@ -93,15 +112,20 @@ LABELS = {
 # ------------------------------------------------------------------ colour --
 
 
-def viridis(t: float) -> tuple[int, int, int]:
-    """The colour at ramp position ``t`` of the frontend's Viridis table (entry ``round(255 t)``)."""
+def palette_colour(name: str, t: float) -> tuple[int, int, int]:
+    """The colour at ramp position ``t`` of the frontend's table for ``name`` (entry ``round(255 t)``)."""
+    anchors = ANCHORS[name]
     index = int(min(1.0, max(0.0, t)) * 255 + 0.5)
-    s = index / 255 * (len(_VIRIDIS) - 1)
-    k = min(len(_VIRIDIS) - 2, int(s))
+    s = index / 255 * (len(anchors) - 1)
+    k = min(len(anchors) - 2, int(s))
     f = s - k
-    a, b = _VIRIDIS[k], _VIRIDIS[k + 1]
+    a, b = anchors[k], anchors[k + 1]
     r, g, b_ = (int(round(a[c] + (b[c] - a[c]) * f)) for c in range(3))
     return r, g, b_
+
+
+def viridis(t: float) -> tuple[int, int, int]:
+    return palette_colour("viridis", t)
 
 
 def luminance(rgb: Sequence[int]) -> float:
@@ -123,38 +147,81 @@ def hex_of(rgb: Sequence[int]) -> str:
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
 
-def ramp_start(step: float = 0.05) -> float:
+def ramp_start(name: str = DEFAULT_PALETTE, step: float = 0.05) -> float:
     """The first ramp position (a multiple of ``step``) that clears 3:1 against the card."""
     t = 0.0
-    while t < 1.0 and contrast(viridis(t), CARD_RGB) < MIN_CONTRAST:
+    while t < 1.0 and contrast(palette_colour(name, t), CARD_RGB) < MIN_CONTRAST:
         t = round(t + step, 10)
     return t
 
 
+def _table_contrast(name: str, lo: float, hi: float) -> float:
+    """The lowest contrast against the card of the table entries from ``lo`` to ``hi``."""
+    first, last = int(lo * 255 + 0.5), int(hi * 255 + 0.5)
+    return min(contrast(palette_colour(name, i / 255), CARD_RGB) for i in range(first, last + 1))
+
+
+def ramp_end(name: str, start: float, step: float = 0.05) -> float:
+    """The last ramp position (a multiple of ``step``) up to which every table entry clears 3:1.
+
+    1 for a ramp that brightens all the way; Turbo darkens to a red at its end,
+    so its peak is drawn where it still clears, not where the table stops.
+    """
+    t = 1.0
+    while t > start and _table_contrast(name, start, t) < MIN_CONTRAST:
+        t = round(t - step, 10)
+    return t
+
+
+def _ramp(name: str) -> dict[str, Any]:
+    """One palette's ramp: where a count of one starts, where the peak ends, and seven stops."""
+    start = ramp_start(name)
+    end = ramp_end(name, start)
+    first = palette_colour(name, start)
+    stops = [palette_colour(name, start + (end - start) * i / 6) for i in range(7)]
+    worst = _table_contrast(name, start, end)
+    return {
+        "from": start, "to": end, "stops": [hex_of(c) for c in stops],
+        "first_level": {"count": 1, "color": hex_of(first),
+                        "contrast": round(contrast(first, CARD_RGB), 2), "against": CARD_HEX},
+        # Over every table entry the ramp draws, not only the seven stops.
+        "min_stop_contrast": round(worst, 2), "clears_everywhere": worst >= MIN_CONTRAST,
+    }
+
+
 def color_block(vmax: float) -> dict[str, Any]:
-    """The log10 colour scale: where a count of one starts, and the stops from there to the peak."""
-    start = ramp_start()
-    first = viridis(start)
+    """The log10 colour scale: where a count of one starts, and the stops from there to the peak.
+
+    ``ramp`` is the default palette's; ``ramp.by_palette`` carries the measured start and
+    first-level colour of every sequential palette the interface offers, each against the
+    card, so a user's palette choice never lands a count of one below 3:1.
+    """
+    ramp = _ramp(DEFAULT_PALETTE)
+    start = ramp["from"]
+    first = palette_colour(DEFAULT_PALETTE, start)
     ratio = contrast(first, CARD_RGB)
-    plain = contrast(viridis(0.0), CARD_RGB)
-    stops = [hex_of(viridis(start + (1.0 - start) * i / 6)) for i in range(7)]
+    plain = contrast(palette_colour(DEFAULT_PALETTE, 0.0), CARD_RGB)
+    by_palette = {name: _ramp(name) for name in ANCHORS}
+    cut = {n: r["to"] for n, r in by_palette.items() if r["to"] < 1.0}
+    note = (
+        f"log10 of the showers per bin, empty bins transparent. A bin holding one shower "
+        f"is drawn at position {start:g} of Viridis, {hex_of(first)}, {ratio:.1f}:1 against "
+        f"the {CARD_HEX} card: the ramp's own first colour, "
+        f"{hex_of(palette_colour(DEFAULT_PALETTE, 0.0))}, is {plain:.2f}:1 and would make a "
+        "count of one disappear. Each offered palette has its own start in ramp.by_palette.")
+    if cut:
+        note += " " + "; ".join(
+            f"{n.capitalize()} darkens towards its end, so its peak is drawn at position {t:g}, "
+            f"the last that clears {MIN_CONTRAST:g}:1" for n, t in cut.items()) + "."
     return {
         "scale": "log10",
         "vmin": 0,
         "vmax": sig(vmax),
         "unit": "showers per bin",
         "empty": "transparent",
-        "palette": "viridis",
-        "ramp": {
-            "from": start, "to": 1.0, "stops": stops,
-            "first_level": {"count": 1, "color": hex_of(first),
-                            "contrast": round(ratio, 2), "against": CARD_HEX},
-        },
-        "note": typographic(
-            f"log10 of the showers per bin, empty bins transparent. A bin holding one shower "
-            f"is drawn at position {start:g} of Viridis, {hex_of(first)}, {ratio:.1f}:1 against "
-            f"the {CARD_HEX} card: the ramp's own first colour, {hex_of(viridis(0.0))}, is "
-            f"{plain:.2f}:1 and would make a count of one disappear."),
+        "palette": DEFAULT_PALETTE,
+        "ramp": {**ramp, "by_palette": by_palette},
+        "note": typographic(note),
     }
 
 
@@ -172,6 +239,8 @@ class Selection:
     n_events: int
     truth: dict[str, np.ndarray]
     pred: dict[str, np.ndarray]
+    #: Per shower, the selected events dropped for a prediction or a truth that is not finite.
+    n_missing: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def frame(self) -> str:
@@ -234,26 +303,31 @@ def read(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterS
     ).fetchnumpy()
     arrays = {k: np.ma.filled(np.ma.asarray(v).astype(np.float64), np.nan) for k, v in raw.items()}
     scale = _scale(model)
-    truth_by, pred_by = {}, {}
+    truth_by, pred_by, missing = {}, {}, {}
     for shower in showers:
         t, p = arrays[f"true_{shower}"], arrays[f"pred_{shower}"]
         keep = np.isfinite(t) & np.isfinite(p)
         truth_by[shower], pred_by[shower] = t[keep] * scale, p[keep] * scale
+        missing[shower] = {"total": int((~keep).sum()), "prediction": int((~np.isfinite(p)).sum()),
+                           "truth": int((~np.isfinite(t)).sum())}
     lo, hi = dataset_range(con, record, model, showers)
     n_events = int(next(iter(arrays.values())).size) if arrays else 0
-    return Selection(model, coord_system, lo, hi, n_events, truth_by, pred_by)
+    return Selection(model, coord_system, lo, hi, n_events, truth_by, pred_by, missing)
 
 
 # ----------------------------------------------------------------- density --
 
 
 def density_block(truth: np.ndarray, pred: np.ndarray, lo: float, hi: float,
-                  bins: int) -> dict[str, Any]:
+                  bins: int, n_missing: dict[str, int] | None = None) -> dict[str, Any]:
     """One shower's pairs: a dense count raster from N = 15, the pairs themselves below.
 
     ``counts`` is row-major with one row per prediction bin and one column
     per truth bin; a value on ``hi`` falls in the last bin, as in NumPy.
+    ``n_missing`` counts the selected events this shower lost for a prediction or a
+    truth that is not finite (a total, and each cause), never zero-filled.
     """
+    missing = {"total": 0, "prediction": 0, "truth": 0, **(n_missing or {})}
     n = int(truth.size)
     below_t, above_t = int((truth < lo).sum()), int((truth > hi).sum())
     below_p, above_p = int((pred < lo).sum()), int((pred > hi).sum())
@@ -266,6 +340,7 @@ def density_block(truth: np.ndarray, pred: np.ndarray, lo: float, hi: float,
             "encoding": "pairs",
             "pairs": [[sig(t), sig(p)] for t, p in zip(truth[order], pred[order])],
             "n": n, "n_in_range": n - outside["total"], "outside": outside,
+            "n_missing": missing,
         }
     edges = np.linspace(lo, hi, bins + 1)
     counts, _, _ = np.histogram2d(pred, truth, bins=[edges, edges])
@@ -278,6 +353,7 @@ def density_block(truth: np.ndarray, pred: np.ndarray, lo: float, hi: float,
         "n_in_range": int(counts.sum()),
         "max_count": int(counts.max()),
         "outside": outside,
+        "n_missing": missing,
     }
 
 
@@ -320,10 +396,12 @@ def residual_block(sel: Selection) -> dict[str, Any]:
     values, excluded = residuals(sel)
     labels = LABELS[sel.model]
     drawn = [s for s in sel.showers if values[s].size >= MIN_DENSITY_SAMPLES]
-    provisional = not drawn
     pooled = np.concatenate([values[s] for s in (drawn or sel.showers)] or [np.empty(0)])
     clipping = clip_mod.percentile_clip(pooled, low=clip_mod.DEFAULT_LOW_PERCENTILE,
                                         high=clip_mod.DEFAULT_HIGH_PERCENTILE, pad=0.05)
+    # Percentiles of fewer than 20 pooled values are noise and are not taken: the range is
+    # then the sample's own extent, which one outlier sets, and is provisional.
+    provisional = not drawn or not clipping.applied
     lo, hi, interval = clip_mod.nice_range(clipping.lo, clipping.hi, fine=True)
     bins = histogram.adaptive_bins(min(values[s].size for s in drawn) if drawn else 0)
     edges = histogram.axis_edges(lo, hi, bins)
@@ -354,7 +432,11 @@ def residual_block(sel: Selection) -> dict[str, Any]:
             "clipping": clipping.as_dict(),
             "provisional": provisional,
             "basis": (
-                f"pooled residuals of the showers with N ≥ {MIN_DENSITY_SAMPLES}" if drawn else
+                f"pooled residuals of the showers with N ≥ {MIN_DENSITY_SAMPLES}"
+                if drawn and clipping.applied else
+                f"pooled residuals of the showers with N ≥ {MIN_DENSITY_SAMPLES}: fewer than 20 "
+                "values, so their full extent is shown and the range is provisional"
+                if drawn else
                 f"every shower's residuals: none reaches N = {MIN_DENSITY_SAMPLES}, so this "
                 "range is provisional"),
             "outside": outside,
@@ -383,8 +465,10 @@ def _notes(sel: Selection) -> dict[str, str]:
             "silently."),
         "residual": (
             "The residual is the quantity of the model-performance cards. Its range is the "
-            "1st to 99th percentile of the showers with "
-            f"N ≥ {MIN_DENSITY_SAMPLES}, rounded outward; the showers beyond it are counted "
+            "1st to 99th percentile of the pooled residuals of the showers with "
+            f"N ≥ {MIN_DENSITY_SAMPLES}, rounded outward, when at least 20 are pooled "
+            "(axis.clipping.applied); below that the percentiles would be noise, the range is "
+            "the full extent and axis.provisional is set. The showers beyond it are counted "
             "in axis.outside. The mean's whisker is its Student-t interval and the σ band is "
             "the spread of the showers: two marks, two quantities."),
     }
@@ -416,6 +500,13 @@ def notices(sel: Selection, payload: dict[str, Any]) -> list[str]:
                 f"{MIN_DENSITY_SAMPLES} a density needs: its individual pairs are drawn."))
         elif not block["n"] and sel.n_events:
             out.append(f"{who} has no {sel.frame}-frame prediction in this selection.")
+        lost = block["n_missing"]
+        if lost["total"]:
+            out.append(typographic(
+                f"{who}: {lost['total']:,} selected event{'s' if lost['total'] != 1 else ''} "
+                f"{'were' if lost['total'] != 1 else 'was'} left out for want of a finite "
+                f"prediction ({lost['prediction']:,}) or truth ({lost['truth']:,}); counted, "
+                "never zero-filled."))
         if block["outside"]["total"]:
             o = block["outside"]
             out.append(typographic(
@@ -423,10 +514,14 @@ def notices(sel: Selection, payload: dict[str, Any]) -> list[str]:
                 f"(truth {o['truth_below']:,} below and {o['truth_above']:,} above, prediction "
                 f"{o['pred_below']:,} below and {o['pred_above']:,} above) and are counted, "
                 "not drawn."))
-    if payload["residual"]["axis"]["provisional"] and any(
-            s.size for s in sel.truth.values()):
-        out.append(typographic(
-            f"The residual range is provisional: no shower reaches N = {MIN_DENSITY_SAMPLES}."))
+    axis = payload["residual"]["axis"]
+    if axis["provisional"] and any(s.size for s in sel.truth.values()):
+        excluded = payload["residual"]["excluded"]["nonpositive_truth"]
+        drawn = any(sel.truth[k].size - excluded.get(k, 0) >= MIN_DENSITY_SAMPLES
+                    for k in sel.showers)
+        reason = ("fewer than 20 residuals are pooled, so it is their full extent" if drawn
+                  else f"no shower reaches N = {MIN_DENSITY_SAMPLES}")
+        out.append(typographic(f"The residual range is provisional: {reason}."))
     return out
 
 
@@ -434,11 +529,14 @@ def assemble(sel: Selection, residual: dict[str, Any], bins: int) -> dict[str, A
     """The payload for ``bins`` bins per axis (the residual block is built once, by the caller)."""
     labels = LABELS[sel.model]
     unit = sel.unit
-    density = {s: density_block(sel.truth[s], sel.pred[s], sel.lo, sel.hi, bins)
+    density = {s: density_block(sel.truth[s], sel.pred[s], sel.lo, sel.hi, bins,
+                                sel.n_missing.get(s))
                for s in sel.showers}
     peaks = [d["max_count"] for d in density.values()
              if d["encoding"] == "counts" and d["max_count"] > 0]
-    vmax = math.log10(max(peaks)) if peaks else 0.0
+    # Every drawn cell holding one shower would give log10 = 0 = vmin, a scale a renderer
+    # cannot normalise: the colour scale spans at least one count to two.
+    vmax = max(math.log10(max(peaks)), math.log10(2)) if peaks else 0.0
 
     def axis(label: str) -> dict[str, Any]:
         return {"lo": sig(sel.lo), "hi": sig(sel.hi), "n": bins, "unit": unit,

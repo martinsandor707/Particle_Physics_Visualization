@@ -22,7 +22,7 @@ import pytest
 
 from calosrv.db import ddl, schemas
 from calosrv.db.registry import ExperimentRecord
-from calosrv.errors import CapabilityError
+from calosrv.errors import CapabilityError, ValidationError
 from calosrv.query import density, filters, negative_depth
 from calosrv.stats import metrics
 from calosrv.stats.gaussian import t_quantile_975
@@ -249,9 +249,11 @@ def test_a_single_shower_experiment_has_one_shower_per_event():
 
 def test_an_unknown_shower_is_refused_naming_the_parameter(two_shower):
     con, record, spec = two_shower
-    with pytest.raises(CapabilityError) as refused:
+    with pytest.raises(ValidationError) as refused:
         negative_depth.summarise(con, record, spec, "c")
     assert refused.value.extra["field"] == "shower"
+    # A malformed choice, not a capability the data lacks.
+    assert not isinstance(refused.value, CapabilityError)
 
 
 def test_a_stale_experiment_is_unavailable_with_the_reason_and_not_an_error():

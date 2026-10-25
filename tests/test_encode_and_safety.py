@@ -285,6 +285,20 @@ def test_one_event_has_a_position_but_no_width():
     assert fit.insufficient is True
 
 
+def test_identical_values_are_degenerate_despite_a_rounding_residue():
+    """Twenty copies of a value whose mean is not exactly representable (6.9167).
+
+    numpy's SD of them is about 1e-15, not 0; a curve of that width would
+    peak near 1e14 and drive any density axis. The spread is a measured zero.
+    """
+    sample = np.full(20, 6.9167)
+    assert np.ptp(sample) == 0.0 and sample.std(ddof=1) > 0.0
+    fit = gaussian.fit_gaussian(sample)
+    assert fit.degenerate is True and fit.estimator == "degenerate"
+    assert fit.sigma == 0.0 and fit.sigma_population == 0.0
+    assert fit.mu == pytest.approx(6.9167)
+
+
 def test_thresholds_are_separately_gated():
     """One threshold used to answer three different questions.
 

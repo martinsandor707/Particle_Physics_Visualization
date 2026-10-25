@@ -68,7 +68,7 @@
         "type": "null"
        }
       ],
-      "description": "95% Student-t interval of c (linearised ratio, events as clusters); not clipped."
+      "description": "95% Student-t interval of c (linearised ratio, events as clusters), clipped at zero: c is a ratio of non-negative sums."
      },
      "se": {
       "type": [
@@ -112,7 +112,9 @@
       "bins",
       "hist_centres",
       "clipping",
-      "provisional"
+      "provisional",
+      "n_clipped_marks",
+      "clipped_marks"
      ],
      "properties": {
       "lo": {
@@ -141,6 +143,39 @@
       },
       "provisional": {
        "type": "boolean"
+      },
+      "n_clipped_marks": {
+       "type": "integer",
+       "description": "Summary marks (mean, capped whisker, SD band, 1 / c rule and its interval) that lie beyond [lo, hi]; clipped, not rescaled."
+      },
+      "clipped_marks": {
+       "type": "array",
+       "description": "Which marks leave the axis, per series.",
+       "items": {
+        "type": "object",
+        "required": [
+         "key",
+         "marks"
+        ],
+        "properties": {
+         "key": {
+          "type": "string"
+         },
+         "marks": {
+          "type": "array",
+          "items": {
+           "type": "string",
+           "enum": [
+            "mean",
+            "mean_ci95",
+            "dispersion_band",
+            "reference_rule",
+            "reference_ci95"
+           ]
+          }
+         }
+        }
+       }
       }
      }
     },
@@ -777,7 +812,8 @@
           "non_gaussian",
           "momentum_spread",
           "weak",
-          "sigma_se"
+          "sigma_se",
+          "dof_note"
          ],
          "properties": {
           "bin": {
@@ -891,6 +927,13 @@
             "null"
            ],
            "description": "Standard error of sigma, in the series unit."
+          },
+          "dof_note": {
+           "type": [
+            "string",
+            "null"
+           ],
+           "description": "'1 d.o.f.' at N = 2, a single-shower note at N = 1, else null."
           }
          }
         }

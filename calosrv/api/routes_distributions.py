@@ -7,9 +7,10 @@ per 1 GeV bin of each shower's own incident momentum, on one shared binning.
 are refused, naming ``quantity``, on an experiment that has none
 (``query/hit_distributions.py``).
 
-**Payload guard.** A response stays under the 100 KB contract by merging
-adjacent display bins two, then four at a time - whole bins, so every count is
-conserved - each step disclosed; a response still over at the last step is
+**Payload guard.** A response stays under the 100 KB contract by coarsening
+the display bins two, then four at a time - u, v, w and energy merge whole bins,
+θ, φ and p are re-binned over the same window, so every count is conserved
+either way - each step disclosed; a response still over at the last step is
 served as it is with a notice saying so, never silently.
 """
 
@@ -74,14 +75,16 @@ def _guarded(prepared: Prepared, make_meta: Callable[[list[str]], ApiMeta],
         warnings = list(prepared.warnings)
         if coarsen > 1:
             warnings.append(
-                f"Display bins merged {coarsen} at a time (whole adjacent bins, every count "
-                f"conserved) to keep the response under {limit:,} bytes.")
+                f"Display bins coarsened {coarsen} at a time over the same window (u, v, w and "
+                "hit energy merge whole adjacent bins; θ, φ and p are re-binned, so their edges "
+                f"need not nest; every count conserved) to keep the response under {limit:,} "
+                "bytes.")
         payload = envelope(make_meta(warnings), **prepared.render(coarsen), **extra)
         size = density.wire_size(payload)
         if size < limit:
             return payload
     payload["meta"]["warnings"].append(
-        f"The response is still {size:,} bytes with display bins merged {COARSEN_STEPS[-1]} at "
+        f"The response is still {size:,} bytes with display bins coarsened {COARSEN_STEPS[-1]} at "
         f"a time, over the {limit:,}-byte budget; it is served as it is.")
     return payload
 

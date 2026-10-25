@@ -188,3 +188,18 @@ def test_the_largest_synthetic_response_stays_far_under_the_contract(synthetic_c
     assert len(reply.content) < 0.6 * density.RESPONSE_LIMIT
     body = reply.json()
     assert not any("significant figures" in w for w in body["meta"]["warnings"])
+
+
+def test_the_response_calibration_is_the_energy_panels(synthetic_client):
+    """The two panels fit one ratio of sums over the showers present (an absent one:
+    tests/test_energy_momentum.py, on an in-memory table the fixtures cannot make)."""
+    window = {"d_min": 100.0, "d_max": 900.0}
+    events = _events(synthetic_client, "d BETWEEN 100 AND 900")
+    assert ((events.n_a_rows == 0) | (events.n_b_rows == 0)).sum() == 0
+    response = _get(synthetic_client, **window)
+    energy = synthetic_client.get("/api/energy-distribution", params=window).json()["calibration"]
+    assert response["calibration"]["a"]["c"] == approx(energy["c_a"], rel=1e-5)
+    assert response["calibration"]["b"]["c"] == approx(energy["c_b"], rel=1e-5)
+    label = response["calibration"]["a"]["label"]
+    assert "the calibration the energy panel applies" in label
+    assert "A shower with no deposit is left out of both sums" in label
