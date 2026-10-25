@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -452,12 +453,22 @@ class CanonicalBundle:
         )
 
 
-def _plane_columns(model: str) -> tuple[str, ...]:
-    """The projection columns the canonical planes of ``model`` read."""
-    return (
+def _plane_columns(model: str, planes: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """The projection columns the canonical planes of ``model`` read.
+
+    ``planes`` narrows them to the columns those planes' values name; ``None``
+    keeps all four, in the order the 2-D scans have always carried them.
+    """
+    columns = (
         ddl.cam_column(model, "lab", "gradcam"), ddl.cam_column(model, "lab", "shapcam"),
         ddl.seg_column("true", "lab"), ddl.seg_column("pred", "lab"),
     )
+    if planes is None:
+        return columns
+    values = [expr for plane, expr in planes_mod.measures("lab", model)
+              if plane in planes and expr is not None]
+    return tuple(c for c in columns
+                 if any(re.search(rf"\b{re.escape(c)}\b", value) for value in values))
 
 
 #: Planes whose outside-window mass is tracked besides energy.
@@ -493,19 +504,54 @@ def build_sql(
     and the kinematic filter's ``$e1_min`` ... ``$d_max``.
     """
     assert record.lattice is not None
+    measures = planes_mod.measures("lab", model)
+    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in measures)
+    base = _canonical_base_sql(record, spec, grid, k, sampled, model, anchor)
+    xy_sql = base + f"""
+    SELECT jx, jy, {sums}
+    FROM keyed WHERE iz <= {record.lattice.slab_iz}
+    GROUP BY jx, jy"""
+    depth_sql = base + f"""
+    SELECT GROUPING_ID(jx, jy, iz) AS gid, jx, jy, iz, {sums}
+    FROM keyed
+    GROUP BY GROUPING SETS ((jy, iz), (jx, iz))"""
+    return xy_sql, depth_sql
+
+
+def _canonical_base_sql(
+    record: ExperimentRecord,
+    spec: FilterSpec,
+    grid: CanonicalGrid,
+    k: int,
+    sampled: bool = False,
+    model: str = "segmentation",
+    anchor: str = ANCHOR_BACKPROJECTED,
+    planes: tuple[str, ...] | None = None,
+) -> str:
+    """The D-frame's keyed sub-deposits: ``WITH ... keyed(v_<plane>..., jx, jy, iz)``.
+
+    Every hit joined to its event's frame row, split into ``k x k``
+    sub-deposits over its footprint, rotated and binned; a sub-deposit
+    outside the window is keyed -1 on every axis. ``planes`` keeps only those
+    planes' values and the columns they read (the ensemble voxels,
+    ``query/voxels.py``); ``None`` keeps all nine, which is the text the 2-D
+    panels have always run.
+    """
+    assert record.lattice is not None
     k = int(max(1, k))
     n = k * k
     event = quote(naming.event_table(record.table_name))
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
-    measures = planes_mod.measures("lab", model)
+    measures = [(plane, expr) for plane, expr in planes_mod.measures("lab", model)
+                if planes is None or plane in planes]
     per_hit = ",\n               ".join(
         f"CAST({'1.0' if expr is None else expr} AS DOUBLE) / {n}.0 AS v_{plane}"
         for plane, expr in measures)
     carried = ", ".join(f"v_{plane}" for plane, _ in measures)
-    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in measures)
-    columns = ", ".join(_plane_columns(model))
+    # The 2-D scans always carry all four columns; a narrower plane set may carry none.
+    columns = "".join(f", {c}" for c in _plane_columns(model, planes))
     xc_sql, yc_sql, _ = frame_sql.transform_sql("xt", "yt", None)
-    base = f"""
+    return f"""
     WITH {frame_sql.canonical_frame_cte(event, spec.where_sql(), anchor)}, sub AS (
         SELECT (u.range + 0.5) / {k} - 0.5 AS fx, (v.range + 0.5) / {k} - 0.5 AS fy
         FROM range({k}) u, range({k}) v
@@ -513,7 +559,7 @@ def build_sql(
         SELECT p.iz, list_extract($x_coords, p.ix + 1) AS hx, list_extract($y_coords, p.iy + 1) AS hy,
                f.ax, f.ay, f.r11, f.r12, f.r21, f.r22,
                {per_hit}
-        FROM (SELECT event_number, ix, iy, iz, energy, {columns}
+        FROM (SELECT event_number, ix, iy, iz, energy{columns}
               FROM {proj} WHERE {spec.where_sql()}) p
         JOIN fr f USING (event_number)
     ), pts AS (
@@ -538,15 +584,6 @@ def build_sql(
                CASE WHEN outside THEN -1 ELSE iz END AS iz
         FROM binned
     )"""
-    xy_sql = base + f"""
-    SELECT jx, jy, {sums}
-    FROM keyed WHERE iz <= {record.lattice.slab_iz}
-    GROUP BY jx, jy"""
-    depth_sql = base + f"""
-    SELECT GROUPING_ID(jx, jy, iz) AS gid, jx, jy, iz, {sums}
-    FROM keyed
-    GROUP BY GROUPING SETS ((jy, iz), (jx, iz))"""
-    return xy_sql, depth_sql
 
 
 def _params(record: ExperimentRecord, spec: FilterSpec, footprint: tuple[float, float]) -> dict:

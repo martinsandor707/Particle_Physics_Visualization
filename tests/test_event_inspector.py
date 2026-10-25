@@ -275,6 +275,30 @@ def test_pick_is_the_notebooks_seeded_rule(cursor, inspected):
         f"SELECT event_number FROM {event} WHERE d IS NOT NULL AND n_hits > ? "
         "ORDER BY greatest(theta_a, theta_b) DESC, event_number LIMIT 20", [mean_hits]).fetchall()]
     assert first["pool"] == dense
+    # The default is the tilted rule, named as such.
+    assert first["rule_id"] == event_inspector.RULE_TILTED and first["seed_used"] is True
+
+
+def test_the_densest_rule_is_the_notebooks_idxmax_in_cells(cursor, inspected):
+    """``groupby('event_number').size().idxmax()``, counted in cells, ties to the lowest number."""
+    record, spec = inspected["record"], inspected["spec"]
+    picked = event_inspector.pick(cursor, record, spec, seed=3, rule=event_inspector.RULE_DENSEST)
+    event = quote(naming.event_table(record.table_name))
+    ranked = cursor.execute(
+        f"SELECT event_number, n_cells FROM {event} WHERE d IS NOT NULL "
+        "ORDER BY n_cells DESC, event_number LIMIT 20").fetchall()
+    assert picked["pool"] == [r[0] for r in ranked] and picked["event_number"] == ranked[0][0]
+    assert picked["n_cells"] == ranked[0][1]
+    # Deterministic: every seed gives the same event, and the body says the seed is unused.
+    again = event_inspector.pick(cursor, record, spec, seed=99, rule=event_inspector.RULE_DENSEST)
+    assert again["event_number"] == picked["event_number"]
+    assert picked["rule_id"] == "densest" and picked["seed_used"] is False and picked["seed"] == 3
+    assert "not used" in picked["rule"] and "drawn at random" not in picked["rule"]
+    from calosrv.errors import ValidationError
+
+    with pytest.raises(ValidationError) as err:
+        event_inspector.pick(cursor, record, spec, rule="brightest")
+    assert err.value.extra["field"] == "rule"
 
 
 def test_a_missing_event_or_shower_is_a_404(cursor, inspected):
@@ -322,6 +346,12 @@ def test_a_figure_still_over_the_limit_at_the_coarsest_grid_says_so(cursor, insp
 def test_the_event_route_serves_the_figure_under_budget(client):
     picked = client.get("/api/event/pick", params={"seed": 7}).json()
     assert picked["event_number"] in picked["pool"] and picked["seed"] == 7
+    # A pick that names no rule is the body it was before the rules: no rule_id.
+    assert "rule_id" not in picked and "seed_used" not in picked
+    densest = client.get("/api/event/pick", params={"rule": "densest"}).json()
+    assert densest["rule_id"] == "densest" and densest["event_number"] == densest["pool"][0]
+    bad = client.get("/api/event/pick", params={"rule": "brightest"})
+    assert bad.status_code == 422 and bad.json()["field"] == "rule"
     response = client.get("/api/event", params={"event_number": picked["event_number"], "shower": "b"})
     assert response.status_code == 200
     assert len(response.content) < density.RESPONSE_LIMIT

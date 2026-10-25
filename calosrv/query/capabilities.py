@@ -70,6 +70,8 @@ SINGLE_SHOWER_READY: frozenset[str] = frozenset({
     # translated and local frames, and the views built on them.
     "xy", "yz", "xz", "frame-lab", "frame-trans", "frame-local",
     "window-axis", "event-inspector", "compare",
+    # 3-D voxel views: event cubes (with the species channel) and the Local ensemble.
+    "vox-event", "vox-species", "vox-ensemble",
 })
 
 #: Gates whose route exists in this release. A card's gate stays shut, with
@@ -85,6 +87,7 @@ IMPLEMENTED: frozenset[str] = frozenset({
     # Page 2 cards.
     "perf-bins", "pred-truth", "pred-residuals",
     "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
+    "vox-event", "vox-species", "vox-ensemble", "vox-attention",
 })
 
 _NO_HITS = "This experiment holds event-level features only (the 59-column aggregate): it has no hits."
@@ -260,7 +263,9 @@ def of(record: ExperimentRecord) -> Capabilities:
             hit_gate(name, current, _stale(record))
     hit_gate("vox-event", lattice, _NO_LATTICE)
     hit_gate("vox-ensemble", bounds, _NO_FRAME_BOUNDS)
-    gate("vox-attention", networks and gates["vox-ensemble"], _NO_NETWORKS)
+    # A channel of either 3-D view: the event cubes need only the lattice, so a
+    # networked experiment draws its CAM cubes even without frame extents.
+    gate("vox-attention", networks and (gates["vox-event"] or gates["vox-ensemble"]), _NO_NETWORKS)
     gate("vox-species", traits.has_species and gates["vox-event"],
          _NO_SPECIES if not traits.has_species else _NOT_YET_SINGLE)
     gate("prim-rate", traits.has_species and single_ready("prim-rate"),
