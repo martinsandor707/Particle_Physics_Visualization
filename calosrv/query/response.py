@@ -938,6 +938,8 @@ class Response:
               if self.b1_range is not None else None)
         tree = {
             "kind": self.record.kind,
+            # Every card on the events-only kind reads its selection count here.
+            "n_events": self.n_events,
             "unit": UNIT,
             "calibration": {s.key: _calibration_block(self.calibrations[s.key])
                             for s in self.samples},

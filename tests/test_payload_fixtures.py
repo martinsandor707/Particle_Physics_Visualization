@@ -125,6 +125,14 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
 }
 
 
+#: Per route, payload fields that depend on what the process has cached: the
+#: ensemble cloud quotes the 2-D panels' comb only when their bundle is cached,
+#: and the boot-time warmers race the request. Stored as served, not compared.
+VOLATILE: dict[str, tuple[tuple[str, ...], ...]] = {
+    "/api/voxels": (("frame", "comb"), ("frame", "comb_source")),
+}
+
+
 def _masked(value):
     if isinstance(value, dict):
         return {k: _masked(v) for k, v in value.items() if k not in TIMING}
@@ -133,6 +141,29 @@ def _masked(value):
     if isinstance(value, str):
         return _BYTES.sub("# bytes", value)
     return value
+
+
+def _rounded(value):
+    """Floats to 12 significant figures: DuckDB's parallel float sums differ in the last bit
+    from run to run, which no reader of a payload could see."""
+    if isinstance(value, float):
+        return float(f"{value:.12g}")
+    if isinstance(value, dict):
+        return {k: _rounded(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rounded(v) for v in value]
+    return value
+
+
+def _comparable(path: str, body: dict) -> dict:
+    body = json.loads(json.dumps(body))
+    for keys in VOLATILE.get(path, ()):
+        node = body
+        for key in keys[:-1]:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(keys[-1], None)
+    return _rounded(body)
 
 
 def _check(client, name: str) -> None:
@@ -149,7 +180,8 @@ def _check(client, name: str) -> None:
                           encoding="utf-8")
         return
     assert stored.is_file(), f"{stored} missing: regenerate (see the module docstring)"
-    assert json.loads(stored.read_text(encoding="utf-8")) == _masked(body), (
+    recorded = _comparable(path, json.loads(stored.read_text(encoding="utf-8")))
+    assert recorded == _comparable(path, _masked(body)), (
         f"{name} changed: regenerate the payload fixtures (see the module docstring)")
 
 
