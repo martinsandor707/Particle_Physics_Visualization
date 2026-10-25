@@ -488,6 +488,7 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .seg { display: inline-flex; gap: 2px; }
+.seg[hidden] { display: none; }
 .seg .mini { border-radius: 0; }
 .seg .mini:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .seg .mini:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
@@ -614,3 +615,27 @@ input[type="file"]::file-selector-button:hover {
 /* Keyboard focus on the text buttons, which had none; links styled as buttons. */
 .action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 a.action { display: inline-block; text-decoration: none; }
+
+/* --------------------------------------------- physics card controls */
+
+/* A select inside a card toolbar (the distribution quantity, the frame of the
+   hit-level cards), sized like the .mini buttons beside it. */
+.mini-select {
+  padding: 2px 6px;
+  background: #21262d;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: #c9d1d9;
+  font-size: 10px;
+  line-height: 1.5;
+  max-width: 190px;
+}
+.mini-select:hover { border-color: var(--accent); }
+.mini-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mini-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.mini-select[hidden], .mini[hidden] { display: none; }
+.mini-select option { background: var(--canvas-alt); color: var(--text); }
+/* Plot 4's link to the full-width response card (a single shower's 1 GeV bins). */
+.card-link { display: inline-flex; }
+.card-link[hidden] { display: none; }
+

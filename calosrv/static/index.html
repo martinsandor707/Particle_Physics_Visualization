@@ -54,7 +54,7 @@
 
     <div class="control" id="ctl-e1">
       <div class="control-head">
-        <label for="e1-num-lo">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
+        <label for="e1-num-lo" id="e1-label">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
       </div>
       <div class="numeric-pair">
         <input class="numeric" type="number" id="e1-num-lo" step="0.05" aria-label="E1 minimum [GeV]">
@@ -66,7 +66,7 @@
         <div class="track"></div><div class="fill" id="e1-fill"></div>
         <input type="range" id="e1-lo" aria-label="E1 minimum slider"><input type="range" id="e1-hi" aria-label="E1 maximum slider">
       </div>
-      <div class="hint">True incident momentum of shower A (<span class="mono">incoming_momentum_A</span>).</div>
+      <div class="hint" id="e1-hint">True incident momentum of shower A (<span class="mono">incoming_momentum_A</span>).</div>
     </div>
 
     <div class="control" id="ctl-e2">
@@ -105,12 +105,17 @@
       <div class="hint" id="d-hint">3-D distance between the two shower centroids in the absolute (detector) frame (<span class="mono">centroid_AB_distance</span>), used as D in every reference frame. The Separation-Aligned › Translated view also reports the transverse entry separation D<sub>entry</sub> and writes its entry-panel axis as D; Local superimposes each shower at its own entry point and has no separation axis.</div>
     </div>
 
-    <div class="logic-note">Filters combine with logical <b>AND</b> (&amp;)</div>
+    <div class="logic-note" id="filter-logic">Filters combine with logical <b>AND</b> (&amp;)</div>
 
-    <label class="choice" title="Events where shower A deposited no energy have no defined separation. They are excluded by default and always counted.">
+    <label class="choice" id="ctl-undefined-d" title="Events where shower A deposited no energy have no defined separation. They are excluded by default and always counted.">
       <input type="checkbox" id="opt-undefined-d"> Include events with undefined D
     </label>
 
+    <!-- The sidebar groups that steer only the spatial panels (frame tier,
+         display resolution, channels, colour map) are wrapped so main.js can
+         hide them for an experiment with no hits to project; its kind notice
+         says why. -->
+    <div class="sidebar-group" id="group-frame">
     <h2>
       <span id="frame-heading">Reference Frame</span>
       <button class="info-dot" id="info-frame" type="button" hidden
@@ -177,6 +182,7 @@
       <input type="checkbox" id="opt-compare"> Compare frames side by side
       <span class="muted">(Absolute · Per-shower translated · Local)</span>
     </label>
+    </div>
 
     <h2>
       Event Inspector
@@ -218,6 +224,7 @@
       <div class="caption" id="event-caption" hidden>&mdash;</div>
     </div>
 
+    <div class="sidebar-group" id="group-resolution">
     <h2>
       Spatial Resolution
       <button class="info-dot" id="info-resolution" type="button" hidden
@@ -248,7 +255,9 @@
     </div>
 
     <div class="caption" id="display-caption">—</div>
+    </div>
 
+    <div class="sidebar-group" id="group-channel">
     <h2>Display Channel</h2>
     <label class="choice">
       <input type="radio" name="channel" value="density" checked>
@@ -271,7 +280,9 @@
       Energy-weighted Shap-CAM <span class="muted">(Σ E·CAM, signed)</span>
     </label>
     <div class="caption" id="channel-caption">—</div>
+    </div>
 
+    <div class="sidebar-group" id="group-colormap">
     <h2>Colour Map</h2>
     <select class="picker" id="colormap">
       <option value="viridis" selected>Viridis &mdash; perceptually uniform</option>
@@ -294,6 +305,7 @@
         Relative to the dataset peak
       </label>
     </div>
+    </div>
 
     <h2>Reconstruction Model</h2>
     <label class="choice"><input type="radio" name="model" value="segmentation" checked> Segmentation Model</label>
@@ -314,14 +326,24 @@
       <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
     </div>
 
+    <!-- What the active experiment cannot show, and why: no model predictions
+         (CLAUDE.md section 3, Missing Column Handling) or derived tables built
+         by an earlier release. Set per experiment by main.js from the
+         capability block; dismissed until the experiment changes. -->
+    <div class="banner is-info" id="kind-banner" role="status" hidden>
+      <span class="banner-text" id="kind-banner-text"></span>
+      <button class="banner-close" id="kind-banner-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+
     <div class="statusbar">
       <span>Events <b id="stat-events">—</b></span>
       <span>Hits <b id="stat-hits">—</b></span>
       <span>Deposited <b id="stat-edep">—</b></span>
-      <span>Mean D <b id="stat-d">—</b></span>
-      <span>Undefined D <b id="stat-nod">—</b></span>
+      <span id="stat-d-item">Mean D <b id="stat-d">—</b></span>
+      <span id="stat-nod-item">Undefined D <b id="stat-nod">—</b></span>
       <span title="Reference peak of the co-registered density ramp: this selection's own peak (autoscaled) or the whole dataset's">ρ<sub>ref</sub> <b id="stat-rho">—</b></span>
       <span title="Entry panel: cells clipped to the ends of the colour ramp (absolute frame) or bins below the display floor (co-registered frames); the Details drawer states the rest">Clipped <b id="stat-clipped">—</b></span>
+      <span id="stat-wneg-item" hidden title="Hits behind their shower's entry plane, w = z_local &lt; −10⁻⁶ mm (the notebook's tolerance), in the current selection">w &lt; 0 <b id="stat-wneg">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
       <span id="stat-cache" class="muted"></span>
@@ -382,20 +404,50 @@
           <span class="card-actions">
             <button class="mini" data-inspect="energy" type="button" aria-controls="inspector" aria-expanded="false"
                     title="Methodology and disclosures for this panel">Details</button>
-            <span class="seg" role="group" aria-label="Shower selection">
+            <span class="seg" id="energy-shower-toggle" role="group" aria-label="Shower selection">
               <button class="mini" data-shower="a" type="button">A</button>
               <button class="mini" data-shower="b" type="button">B</button>
               <button class="mini is-active" data-shower="both" type="button">Both</button>
+            </span>
+            <!-- A single shower's plot 4 draws the calibration notebook's six
+                 windows, which fit this cell; the producer's 1 GeV bins are
+                 on the full-width response card below, and this link
+                 scrolls there with them selected. -->
+            <span class="card-link" id="energy-b3-slices" hidden>
+              <button class="mini" id="energy-b3-link" type="button" aria-controls="physics-grid"
+                      title="Plot 4 draws the calibration notebook's windows: 1, 2, 5, 10, 15 and 19 GeV ± 0.5 GeV. The producer's 1 GeV momentum bins are drawn on the full-width Response vs. Incident Momentum p card below; this scrolls to it.">1 GeV bins &darr;</button>
             </span>
             <button class="mini" data-export="energy" type="button"
                     aria-haspopup="menu" title="Export this panel's plot as a publication figure (white background, 300 DPI, plot area only — see Details for its disclosures)">Export &#9662;</button>
           </span>
         </h2>
         <div class="plot tall" id="plot-energy"></div>
+        <!-- A single-shower experiment has no network to reconstruct with: its
+             plot 4 is the momentum-sliced response grid (B3), drawn here by a
+             ResponseGridPanel in place of the energy panel. -->
+        <div class="plot tall" id="plot-energy-b3" hidden></div>
         <div class="sparse-note" id="energy-sparse" hidden></div>
         <div id="fit-table"></div>
       </div>
 
+    </section>
+
+    <!-- In place of the 2x2 grid for an experiment with no hits (the event-level
+         aggregate): what it cannot show, and why. -->
+    <section class="kind-notice" id="kind-notice" hidden aria-labelledby="kind-notice-title">
+      <h2 id="kind-notice-title">No hits to project</h2>
+      <p id="kind-notice-text">&mdash;</p>
+    </section>
+
+    <!-- The physics cards below the 2x2 grid (js/physics_section.js builds
+         them): profiles, sampling fraction and resolution, the response grid,
+         distributions, correlations and the describe() table. Each loads when
+         it scrolls into view and follows the selection. -->
+    <section class="grid physics-grid" id="physics-grid" hidden aria-labelledby="physics-grid-title">
+      <div class="section-head">
+        <h2 id="physics-grid-title">Physics diagnostics</h2>
+        <span class="section-note">Each card loads when it scrolls into view and follows the selection.</span>
+      </div>
     </section>
 
     <!-- The compare-frames view: the selection in the Absolute, per-shower
@@ -536,7 +588,7 @@
          trap. Every id is the one controls/upload.js looks up. -->
     <section class="admin-upload" aria-labelledby="admin-upload-title">
       <div class="admin-head"><h3 id="admin-upload-title">Upload dataset</h3></div>
-      <div class="hint">Ingest an all-models calorimeter inference file &mdash; CSV or Parquet, in the 99-column <span class="mono">hits_all_models</span> schema &mdash; into an isolated experiment table, from this computer or from a file already on the server.</div>
+      <div class="hint">Ingest a calorimeter file &mdash; CSV or Parquet &mdash; into an isolated experiment table, from this computer or from a file already on the server. Three schemas are accepted: the two-shower all-models inference file (<span class="mono">hits_all_models</span>), the single-shower hit file (<span class="mono">standalone_hits</span>) and the single-shower event-level aggregate (<span class="mono">standalone_events</span>).</div>
 
       <div class="banner" id="upload-warning" role="status" aria-live="polite" hidden></div>
 
@@ -617,6 +669,19 @@
       <table class="table" id="admin-ingest-table" hidden>
         <thead><tr><th>File</th><th>Experiment</th><th>Result</th></tr></thead>
         <tbody id="admin-ingest-rows"></tbody>
+      </table>
+    </section>
+
+    <!-- Derived tables built by an earlier release: the experiment is served
+         as before, with the panels that need the newer tables shut and the
+         reason shown, until it is rebuilt here from its archive (POST
+         /api/admin/experiments/{name}/rebuild; controls/admin.js). -->
+    <section class="admin-rebuild" aria-labelledby="admin-rebuild-title">
+      <div class="admin-head"><h3 id="admin-rebuild-title">Derived tables</h3></div>
+      <div class="hint" id="admin-rebuild-where">&mdash;</div>
+      <table class="table" id="admin-rebuild-table" hidden>
+        <thead><tr><th>Experiment</th><th>Derived tables</th><th></th></tr></thead>
+        <tbody id="admin-rebuild-rows"></tbody>
       </table>
     </section>
   </div>

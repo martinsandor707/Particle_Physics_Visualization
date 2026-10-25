@@ -1,27 +1,49 @@
-/* Application bootstrap and control wiring. */
+/* Application bootstrap and control wiring.
+ *
+ * What the page shows is decided per experiment from its capability block
+ * (capabilities.js `page1Plan`): the 2 x 2 diagnostic for an experiment with
+ * hits, a notice in its place for the event-level aggregate; plot 4 as the
+ * separation-sliced energy reconstruction where networks exist, as the
+ * momentum-sliced response grid (B3) for a single shower; the physics cards
+ * below (physics_section.js) the experiment can serve, each shut card with
+ * the server's reason; the filter axes it has (controls/filter_block.js); and
+ * the missing-predictions banner where it has no networks (CLAUDE.md
+ * section 3). Switching experiment clears every picture of the previous one
+ * first, so a failed load never leaves another experiment's data on screen,
+ * and every loader drops a response that lands after the switch, so a late
+ * one never draws the previous experiment's data under the new one's name.
+ */
 
-import { getJson, debounce, ApiError, DEBOUNCE_MS } from './api.js';
+import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
 import { State, isCoregistered } from './state.js';
-import { RangeSlider } from './controls/range_slider.js';
 import { UploadForm } from './controls/upload.js';
 import { AdminModal } from './controls/admin.js';
+import { FilterBlock } from './controls/filter_block.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { FrameGrid, GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
-import { formatBytes, formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
+import { formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
 import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './dom.js';
 import { attachExportMenus } from './export/menu.js';
 import {
   frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag, showerTag,
-  anchorExplainer,
+  anchorExplainer, frameCaption, pct,
 } from './frame_views.js';
 import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
 import {
   projectionNotes, energyNotes, eventNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
 } from './panel_notes.js';
 import { Shell } from './shell.js';
+import { page1Plan, carriedFrame } from './capabilities.js';
+import {
+  Banner, describeError, escapeHtml, fillComputeBadges, fillExperimentSelect, chooseExperiment,
+  relabel, restoreLabel, relabelChoice, choiceTitle, writeSparseNote,
+} from './page_common.js';
+import {
+  PhysicsSection, cardRequest, cardOptions, physicsNotes, exportMeta as physicsExportMeta,
+} from './physics_section.js';
 
 const state = new State();
 
@@ -107,11 +129,63 @@ const compareGrid = new FrameGrid(document.getElementById('compare-grid-rows'), 
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
 const metricsPanel = new MetricsPanel('metrics', 'model-caption');
 
+/* The page's two banners: transient messages (dismissal keyed by content),
+ * and what the active experiment cannot show and why. */
+const banner = new Banner();
+const kindBanner = new Banner({ root: 'kind-banner', text: 'kind-banner-text', close: 'kind-banner-close' });
+
+/* What the page shows for the active experiment (capabilities.js); before one
+ * is adopted, the two-shower page with no physics cards. */
+let pagePlan = page1Plan(null);
+
+/* The physics cards below the 2 x 2 grid. Built now, before the export menus
+ * are wired, so their Export buttons are wired with the static ones; each
+ * card loads when it scrolls into view (.main is the scroll container). */
+const physics = new PhysicsSection(document.getElementById('physics-grid'), {
+  state,
+  root: document.querySelector('.main'),
+  getExperiment: () => activeExperiment,
+  onRendered: (id, payload) => {
+    buildNotes(id);
+    // The event-level kind has no projections to count its selection: any
+    // card's response that states the count (B1-B3 do) keeps it current.
+    if (!pagePlan.spatial && Number.isFinite(payload?.n_events)) setText('stat-events', formatInt(payload.n_events));
+  },
+  onError: (error, context) => reportError(error, context),
+  onOpenAdmin: () => adminModal?.open(),
+});
+
+/* Plot 4 of a single-shower experiment: the momentum-sliced response grid
+ * (B3), drawn by the physics section's ResponseGridPanel on its own host in
+ * the fourth card, created the first time it is needed. It always draws the
+ * calibration notebook's six windows, which fit the 2 x 2 cell; the 1 GeV
+ * bins are the full-width response card's below, which grows to fit every
+ * slice, and plot 4's link scrolls there (Martin's Phase 6 decision). */
+let plot4Grid = null;
+let lastPlot4 = null;
+const PLOT4_CONTROLS = Object.freeze({ b3Slices: 'notebook' });
+
+/* Every view of one experiment is drawn under this generation. Taking the
+ * views down for another experiment bumps it, so a response that arrives
+ * afterwards - its request already past the point an abort reaches, since
+ * getJson lets go of a request once its headers are in - is dropped instead
+ * of drawing the previous experiment's data under the new one's name. */
+let viewGeneration = 0;
+
+/** A response for a view that was taken down: dropped, like a superseded request. */
+function superseded() {
+  const error = new Error('Superseded by an experiment switch.');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** Throw `superseded()` when the views were taken down since `generation`. */
+function checkCurrent(generation) {
+  if (generation !== viewGeneration) throw superseded();
+}
+
 const dom = {
   experiment: document.getElementById('experiment-select'),
-  banner: document.getElementById('banner'),
-  bannerText: document.getElementById('banner-text'),
-  bannerClose: document.getElementById('banner-close'),
   energySparse: document.getElementById('energy-sparse'),
   infoDots: {
     resolution: document.getElementById('info-resolution'),
@@ -145,7 +219,6 @@ const dom = {
   resolutionHint: document.getElementById('resolution-hint'),
   colormap: document.getElementById('colormap'),
   lockScale: document.getElementById('opt-lock-scale'),
-  undefinedD: document.getElementById('opt-undefined-d'),
   compare: document.getElementById('opt-compare'),
 };
 
@@ -193,10 +266,12 @@ async function loadWindowAxis(id) {
   const panel = panels[id];
   const asked = windowOf(panel);
   if (!asked || kindOf(lastProjections) !== 'lab') return;
+  const generation = viewGeneration;
   try {
     const payload = await getJson('/api/window-axis', {
       ...state.filterParams(), panel: id, t_min: asked.t_min, t_max: asked.t_max,
     }, `window-axis-${id}`);
+    checkCurrent(generation);
     // The window may have moved on while the request was in flight.
     const now = windowOf(panel);
     if (!now || now.t_min !== asked.t_min || now.t_max !== asked.t_max) return;
@@ -210,7 +285,7 @@ async function loadWindowAxis(id) {
 let offeredFrames = offeredFramesOf(null);
 /* Warnings the projections, performance, event and comparison endpoints sent
  * with their last responses, merged into one banner. */
-const endpointWarnings = { projections: [], performance: [], event: [], compare: [] };
+const endpointWarnings = { projections: [], performance: [], event: [], compare: [], plot4: [] };
 
 /* The Event Inspector's controller: the sidebar picker, the pinned event and
  * the nine panels of the event grid. */
@@ -228,62 +303,32 @@ const inspector = new EventInspector({
   onViewMode: () => applyViewMode(),
 });
 
-/* ------------------------------------------------------------------ sliders */
+/* ------------------------------------------------------------------ filters */
 
-/* Each axis is quantised to its numeric step, so typing 2.05 and dragging to
- * 2.05 address the same grid point and round-trip through the URL unchanged. */
-const sliders = {
-  e1: new RangeSlider({
-    loId: 'e1-lo', hiId: 'e1-hi', fillId: 'e1-fill',
-    numLoId: 'e1-num-lo', numHiId: 'e1-num-hi',
-    step: 0.05, decimals: 2, unit: 'GeV',
-    onInput: ([lo, hi]) => { state.markTouched('e1'); state.set({ e1_min: lo, e1_max: hi }); requestPreview(); },
-    onCommit: ([lo, hi]) => { state.markTouched('e1'); state.set({ e1_min: lo, e1_max: hi }); refreshAll(); },
-  }),
-  e2: new RangeSlider({
-    loId: 'e2-lo', hiId: 'e2-hi', fillId: 'e2-fill',
-    numLoId: 'e2-num-lo', numHiId: 'e2-num-hi',
-    step: 0.05, decimals: 2, unit: 'GeV',
-    onInput: ([lo, hi]) => { state.markTouched('e2'); state.set({ e2_min: lo, e2_max: hi }); requestPreview(); },
-    onCommit: ([lo, hi]) => { state.markTouched('e2'); state.set({ e2_min: lo, e2_max: hi }); refreshAll(); },
-  }),
-  d: new RangeSlider({
-    loId: 'd-lo', hiId: 'd-hi', fillId: 'd-fill',
-    numLoId: 'd-num-lo', numHiId: 'd-num-hi',
-    step: 1, decimals: 0, unit: 'mm',
-    onInput: ([lo, hi]) => { state.markTouched('d'); state.set({ d_min: lo, d_max: hi }); requestPreview(); },
-    onCommit: ([lo, hi]) => { state.markTouched('d'); state.set({ d_min: lo, d_max: hi }); refreshAll(); },
-  }),
-};
+/* The E1, E2 and D sliders and the undefined-D option, adopted per experiment:
+ * a single shower filters on its incident momentum p alone. Dragging asks for
+ * the sampled preview, a release for the exact refresh. */
+const filters = new FilterBlock({
+  state,
+  onPreview: () => requestPreview(),
+  onCommit: () => refreshAll(),
+});
 
 /* ------------------------------------------------------------------ loading */
 
 function setBusy(busy) {
   for (const panel of Object.values(panels)) panel.setBusy(busy);
   energyPanel.setBusy(busy);
+  plot4Grid?.setBusy?.(busy);
   eventGrid.setBusy(busy);
   compareGrid.setBusy(busy);
 }
 
-/* Messages the user has dismissed, keyed by content.
- *
- * Keying by content rather than by a counter is what makes dismissal stick: the
- * same warning is re-sent on every response during a drag, and a naive banner
- * would pop straight back up. */
-const dismissed = new Set();
-
+/* Transient messages on the banner (page_common.js Banner): dismissal is keyed
+ * by content, so a warning re-sent on every response during a drag stays
+ * dismissed. */
 function showBanner(messages, isError = false) {
-  const list = (messages || []).filter(Boolean).filter((m) => !dismissed.has(m));
-  if (!list.length) {
-    setHidden('banner', true);
-    return;
-  }
-  setHidden('banner', false);
-  dom.banner.classList.toggle('is-error', isError);
-  setHtml('banner-text', list.length === 1
-    ? escapeHtml(list[0])
-    : `<ul>${list.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ul>`);
-  dom.banner.dataset.messages = JSON.stringify(list);
+  banner.show(messages, isError);
 }
 
 /**
@@ -481,7 +526,7 @@ function renderPanels(payload) {
 function compareRowTitle(kind, payload) {
   const sym = frameView(kind).symbols;
   const n = payload?.selection?.n_events;
-  return `${frameLabel(kind)} (${sym.x}, ${sym.y}, ${sym.z})`
+  return `${frameLabel(kind, pagePlan.nShowers)} (${sym.x}, ${sym.y}, ${sym.z})`
     + (Number.isFinite(n) ? ` · ${formatInt(n)} event${n === 1 ? '' : 's'}` : '');
 }
 
@@ -492,10 +537,12 @@ function compareRowTitle(kind, payload) {
  * every row is exactly what that frame shows on its own.
  */
 async function loadCompare() {
+  const generation = viewGeneration;
   const kinds = GRID_ROWS.filter((kind) => offeredFrames.includes(kind));
   const results = await Promise.all(kinds.map((kind) => getJson(
     '/api/projections', state.projectionParams(false, kind), `compare-${kind}`,
   )));
+  checkCurrent(generation);
   for (const kind of GRID_ROWS) comparePayloads[kind] = null;
   kinds.forEach((kind, index) => { comparePayloads[kind] = results[index]; });
   endpointWarnings.compare = results.flatMap((payload) => payload.meta?.warnings || []);
@@ -515,7 +562,7 @@ function renderCompare() {
     for (const col of GRID_COLS) {
       const panel = compareGrid.panel(kind, col);
       cells[col] = {
-        title: panelTitle(col, frameKind),
+        title: panelTitle(col, frameKind, pagePlan.nShowers),
         payload: payload.panels[col],
         opts: panelOptions(payload, col),
         isometric: col === 'xy' || (frameKind !== 'lab' && panel
@@ -524,9 +571,9 @@ function renderCompare() {
     }
     rows[kind] = { title: compareRowTitle(kind, payload), cells };
     const mode = payload.meta?.resolution?.mode === 'native' ? 'native' : 'Continuous Field';
-    modes.push(`${frameLabel(kind)}: ${mode}`);
+    modes.push(`${frameLabel(kind, pagePlan.nShowers)}: ${mode}`);
   }
-  const missing = GRID_ROWS.filter((kind) => !comparePayloads[kind]).map(frameLabel);
+  const missing = GRID_ROWS.filter((kind) => !comparePayloads[kind]).map((kind) => frameLabel(kind, pagePlan.nShowers));
   compareGrid.show(true);
   compareGrid.render(rows);
   setText('compare-grid-label', `${modes.join(' · ')}`
@@ -554,9 +601,13 @@ async function refreshCompare() {
  * the ensemble grid. The grid tracks snap, so one call is one layout.
  */
 function applyViewMode() {
-  const pinned = state.get('event') !== null;
-  const compare = !pinned && state.get('compare');
-  setHidden('ensemble-grid', pinned || compare);
+  const pinned = state.get('event') !== null && pagePlan.eventInspector;
+  const compare = !pinned && state.get('compare') && pagePlan.compare;
+  setHidden('ensemble-grid', pinned || compare || !pagePlan.spatial);
+  // An experiment without hits shows why, in place of the 2 x 2 grid.
+  setHidden('kind-notice', pinned || compare || pagePlan.spatial);
+  // The physics cards belong to the ensemble view: hidden with the 2 x 2.
+  setHidden('physics-grid', pinned || compare || !pagePlan.physics.length);
   eventGrid.show(pinned);
   compareGrid.show(compare);
   inspector.syncControls();
@@ -571,11 +622,20 @@ function applyViewMode() {
  * the page. The store is what the drawer shows and what the banner
  * de-duplicates against. */
 const panelNotes = { xy: null, yz: null, xz: null, energy: null };
+for (const id of physics.ids()) panelNotes[id] = null;
 
 /** Rebuild one panel's notes, flag its Details button and refresh the drawer. */
 function buildNotes(panelId) {
   let notes = null;
-  if (panelId === 'energy') {
+  if (panelId === 'energy' && pagePlan.plot4 === 'response-b3') {
+    // Plot 4 of a single shower is the response grid: its notes are B3's.
+    notes = lastPlot4 ? physicsNotes('response-b3', lastPlot4, {
+      state,
+      experiment: activeExperiment,
+      opts: plot4Grid?.lastOpts ?? {},
+      title: pagePlan.plot4Title,
+    }) : null;
+  } else if (panelId === 'energy') {
     notes = lastEnergy ? energyNotes({
       payload: lastEnergy,
       notices: energyPanel.lastNotices,
@@ -609,6 +669,8 @@ function buildNotes(panelId) {
       state,
       experiment: activeExperiment,
     }) : null;
+  } else if (physics.has(panelId)) {
+    notes = physics.notes(panelId, { state, experiment: activeExperiment });
   } else if (lastProjections && panels[panelId]) {
     notes = projectionNotes({
       payload: lastProjections,
@@ -652,8 +714,12 @@ function markDetails(panelId, notes) {
 function relayoutAll() {
   for (const panel of Object.values(panels)) panel.relayout();
   energyPanel.relayout();
+  plot4Grid?.relayout?.();
+  // How many slices plot 4's fixed-height grid fits depends on its width.
+  if (pagePlan.plot4 === 'response-b3' && lastPlot4) writeSparseNote(dom.energySparse, plot4Sparse());
   eventGrid.relayout();
   compareGrid.relayout();
+  physics.relayout();
 }
 
 /** The entry panel's clipping count, kept on the status bar. */
@@ -669,24 +735,42 @@ function clippedReadout(payload) {
   return Number.isFinite(n) && n > 0 ? `${formatInt(n)} bin${n === 1 ? '' : 's'} below floor` : '—';
 }
 
+/**
+ * The status bar's C9 readout: the share of the selection's energy behind its
+ * showers' entry plane, with its 95% interval, from the server's `all` split.
+ */
+function negativeReadout(block) {
+  if (!block) return '—';
+  if (block.available === false) return 'unavailable';
+  const all = (block.splits || []).find((split) => split.key === 'all') ?? block.splits?.[0];
+  const fraction = all?.energy_fraction;
+  if (!Number.isFinite(fraction)) return '—';
+  const ci = all.energy_fraction_ci95;
+  const interval = Array.isArray(ci) && ci.every(Number.isFinite) ? ` [${pct(ci[0])}, ${pct(ci[1])}]` : '';
+  return `${pct(fraction)}${interval} of energy`;
+}
+
 async function loadProjections(preview = false) {
+  const generation = viewGeneration;
   const params = state.projectionParams(preview);
   const payload = await getJson('/api/projections', params, 'projections');
+  checkCurrent(generation);
   lastProjections = payload;
 
   const kind = kindOf(payload);
   const coregistered = kind !== 'lab';
   renderPanels(payload);
-  for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, kind));
+  for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, kind, pagePlan.nShowers));
   writePanelNotes();
 
   const selection = payload.selection;
   setText('stat-events', formatInt(selection.n_events));
   setText('stat-hits', formatInt(selection.n_hits));
   setText('stat-edep', `${formatSci(selection.e_dep_total, 3)} GeV`);
-  setText('stat-d', selection.d.mean !== null
+  // One shower per event has no separation: no D, and no undefined-D count.
+  setText('stat-d', Number.isFinite(selection.d?.mean)
     ? `${formatNumber(selection.d.mean, 0)} mm` : '—');
-  setText('stat-nod', formatInt(selection.n_events_no_d));
+  setText('stat-nod', Number.isFinite(selection.n_events_no_d) ? formatInt(selection.n_events_no_d) : '—');
   // The density reference is a co-registered frame's "autoscaled" badge: a ramp
   // relative to the selection's own peak looks identical for a tenth of the
   // energy, so the reader is told which reference the colours are drawn against.
@@ -704,6 +788,13 @@ async function loadProjections(preview = false) {
   }
   setText('stat-rho', rhoBadge);
   setText('stat-clipped', clippedReadout(payload));
+  // C9: the Local frame states how much of the selection lies behind its
+  // own entry plane (w < −10⁻⁶ mm); the full summary is the readout's title.
+  const negative = kind === 'local' ? (payload.frame?.negative_w ?? null) : null;
+  setHidden('stat-wneg-item', !negative);
+  setText('stat-wneg', negativeReadout(negative));
+  const negativeItem = document.getElementById('stat-wneg-item');
+  if (negativeItem && negative?.summary) negativeItem.title = negative.summary;
   setText('stat-latency', `${formatNumber(payload.meta.total_ms, 1)} ms`);
   setText('stat-cache', payload.meta.cached ? 'cached' : 'scanned');
 
@@ -721,7 +812,7 @@ async function loadProjections(preview = false) {
   // named; a per-shower tag says how many showers are superimposed. `.sym`
   // keeps the tag's uppercase transform off the symbols.
   const extra = kind === 'canonical' ? entryTag(payload.frame)
-    : coregistered ? showerTag(payload.frame) : '';
+    : coregistered ? showerTag(payload.frame, pagePlan.nShowers) : '';
   if (extra) setHtml('tag-xy', `${slabTag} · <span class="sym">${extra}</span>`);
   else setText('tag-xy', slabTag);
 
@@ -750,6 +841,7 @@ function currentChannelCaption(payload = lastProjections) {
     payload: kindOf(payload) === state.get('frame') ? payload : null,
     display: state.get('display'),
     weighting: state.get('weighting'),
+    nShowers: pagePlan.nShowers,
   });
 }
 
@@ -795,6 +887,9 @@ function syncFrameControl() {
   }
   setHidden('frame-sub', view !== 'aligned');
   setHidden('frame-sub-trans', frame !== 'trans');
+  // A single shower's per-shower translated frame is its own Translated
+  // frame, offered beside Local rather than revealed only as a legacy link.
+  if (pagePlan.frames.transPrimary) setHidden('frame-sub-trans', false);
   // The entry anchor is a choice of the D-frame alone.
   setHidden('anchor-sub', frame !== 'canonical');
   for (const input of document.querySelectorAll('input[name="anchor"]')) {
@@ -802,7 +897,7 @@ function syncFrameControl() {
   }
   const control = document.getElementById('ctl-frame');
   if (control) control.dataset.frame = frame;
-  setText('frame-caption', frameView(frame).caption);
+  setText('frame-caption', frameCaption(frame, pagePlan.nShowers));
 }
 
 /** Switch the reference frame and refresh everything that depends on it. */
@@ -844,12 +939,19 @@ function applyControlAvailability() {
 /**
  * Grey out every frame, channel and model the active experiment does not
  * serve (from `/api/experiments`), and fall back from one a link asked for.
+ *
+ * A greyed frame carries the server's reason as its title; a single-shower
+ * experiment's frame tier is relabelled (Shower-Aligned, with its per-shower
+ * Translated frame) at runtime, the markup keeping the two-shower labels.
+ * A frame the experiment does not serve falls back to Absolute. Returns the
+ * one-line notices of every fallback, for the kind banner.
  */
 function applyCapabilities(experiment) {
   offeredFrames = offeredFramesOf(experiment);
+  const plan = pagePlan;
   const offered = {
-    channel: experiment?.channels ?? ['density', 'gradcam'],
-    model: experiment?.models ?? ['segmentation'],
+    channel: plan.channels,
+    model: plan.models,
   };
   const fallbacks = [];
 
@@ -859,6 +961,8 @@ function applyCapabilities(experiment) {
     const ok = offeredFrames.includes(input.value);
     input.disabled = !ok;
     input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+    relabelChoice(input, plan.frames.labels?.[input.value] ?? null);
+    choiceTitle(input, ok ? null : (plan.frames.disabled[input.value] ?? null));
   }
   for (const input of document.querySelectorAll('input[name="frame-view"]')) {
     const ok = input.value === 'aligned'
@@ -866,11 +970,16 @@ function applyCapabilities(experiment) {
       : offeredFrames.includes('lab');
     input.disabled = !ok;
     input.closest('.choice')?.classList.toggle('is-disabled', !ok);
+    relabelChoice(input, input.value === 'aligned' ? (plan.frames.labels?.aligned ?? null) : null);
+    const shut = plan.frames.disabled;
+    const reason = input.value === 'aligned' ? (shut.local ?? shut.canonical ?? shut.trans) : shut.lab;
+    choiceTitle(input, ok ? null : (reason ?? null));
   }
   if (!offeredFrames.includes(state.get('frame')) && offeredFrames.length) {
+    const fallback = offeredFrames.includes('lab') ? 'lab' : offeredFrames[0];
     fallbacks.push(`${frameLabel(state.get('frame'))} is not available for this experiment; `
-      + `showing ${frameLabel(offeredFrames[0])} instead.`);
-    state.set({ frame: offeredFrames[0] }, { silent: true });
+      + `showing ${frameLabel(fallback, plan.nShowers)} instead.`);
+    state.set({ frame: fallback }, { silent: true });
   }
   syncFrameControl();
 
@@ -886,14 +995,97 @@ function applyCapabilities(experiment) {
       state.set({ [name]: values[0] }, { silent: true });
     }
   }
-  if (fallbacks.length) {
-    restoreControlsFromState();
-    showBanner(fallbacks);
+  // Held in the kind banner, which stays until the experiment changes: the
+  // transient banner is rewritten by the refresh that follows at once.
+  if (fallbacks.length) restoreControlsFromState();
+  return fallbacks;
+}
+
+/* The sidebar groups that steer only the spatial panels: the frame tier
+ * (with the compare-frames toggle under it), the display resolution, the
+ * channels and the colour map. Hidden for an experiment with no hits to
+ * project (Martin's Phase 6 decision); its kind notice says why. */
+const SPATIAL_GROUPS = ['group-frame', 'group-resolution', 'group-channel', 'group-colormap'];
+
+/**
+ * The parts of the page the experiment's kind decides: plot 4, the status
+ * readouts, the Event Inspector and compare controls, the model cards, the
+ * sidebar groups and the banner that says what is missing - with `notices`,
+ * the one-line fallbacks of the activation, under it.
+ */
+function applyKindPlan(plan, notices = []) {
+  // Plot 4: the energy reconstruction, or a single shower's response grid,
+  // each with its fitted μ and σ in the table below it.
+  const grid = plan.plot4 === 'response-b3';
+  setHidden('plot-energy', plan.plot4 !== 'energy-d');
+  setHidden('plot-energy-b3', !grid);
+  setHidden('fit-table', !plan.plot4);
+  setHidden('energy-shower-toggle', plan.plot4 !== 'energy-d');
+  // The grid's link to the full-width card holding the 1 GeV bins.
+  setHidden('energy-b3-slices', !(grid && plan.physics.includes('response-b3') && !plan.disabled['response-b3']));
+  const title = document.getElementById('title-energy');
+  if (plan.plot4 && plan.plot4 !== 'energy-d') relabel(title, plan.plot4Title);
+  else restoreLabel(title);
+  if (plan.plot4 !== 'energy-d') {
+    // The energy panel's notices belong to its own payload; a card with
+    // nothing to draw says why instead.
+    setText('energy-sparse', plan.plot4Reason ?? '');
+    setHidden('energy-sparse', !plan.plot4Reason);
+  }
+
+  // No hits to project: the controls that steer only the projections go.
+  for (const id of SPATIAL_GROUPS) setHidden(id, !plan.spatial);
+
+  // A single shower has no separation to report.
+  setHidden('stat-d-item', !plan.status.d);
+  setHidden('stat-nod-item', !plan.status.d);
+  if (!plan.spatial) setHidden('stat-wneg-item', true);
+
+  // The Event Inspector and the compare view need hits; a single shower has
+  // one shower to inspect, so the shower choice goes.
+  const eventControl = document.getElementById('ctl-event');
+  eventControl?.classList.toggle('is-disabled', !plan.eventInspector);
+  if (eventControl) {
+    if (plan.eventInspector) eventControl.removeAttribute('title');
+    else eventControl.title = plan.reasons['event-inspector'] ?? 'Not available for this experiment.';
+  }
+  dom.compare.disabled = !plan.compare;
+  const compareControl = document.getElementById('ctl-compare');
+  compareControl?.classList.toggle('is-disabled', !plan.compare);
+  choiceTitle(dom.compare, plan.compare ? null : (plan.reasons.compare ?? null));
+  if (!plan.eventInspector && state.get('event') !== null) state.set({ event: null }, { silent: true });
+  if (!plan.compare && state.get('compare')) state.set({ compare: false }, { silent: true });
+  const twoShowers = plan.showers.includes('b');
+  for (const input of document.querySelectorAll('input[name="event-shower"]')) {
+    if (input.value === 'b') {
+      const choice = input.closest('.choice');
+      if (choice) choice.hidden = !twoShowers;
+    } else {
+      relabelChoice(input, twoShowers ? null : {
+        label: 'Shower',
+        detail: '(one per event)',
+        title: "The event's one shower: its own entry point P₀ and rotation R(θ, φ).",
+      });
+    }
+  }
+  if (!twoShowers && state.get('shower') === 'b') state.set({ shower: 'a' }, { silent: true });
+
+  // No networks: no model cards, and the banner CLAUDE.md section 3 asks for.
+  if (!plan.performance) {
+    metricsPanel.renderError('This experiment carries no reconstruction-network outputs.');
+    setText('model-caption', 'No reconstruction networks in this experiment: the model choice has nothing to drive.');
+  }
+  kindBanner.show([plan.banner, plan.stale?.notice, ...notices].filter(Boolean));
+  if (plan.notice) {
+    setText('kind-notice-title', plan.notice.title);
+    setText('kind-notice-text', plan.notice.text);
   }
 }
 
 async function loadEnergy() {
+  const generation = viewGeneration;
   const payload = await getJson('/api/energy-distribution', state.energyParams(), 'energy');
+  checkCurrent(generation);
   lastEnergy = payload;
   renderEnergy();
   setText('tag-energy', payload.calibration.applied ? 'calibrated' : 'deposited');
@@ -909,8 +1101,60 @@ function renderEnergy() {
   buildNotes('energy');
 }
 
+/** Plot 4 of a single shower: the response grid, B3, on its own host, on the notebook's windows. */
+async function loadPlot4Grid() {
+  const generation = viewGeneration;
+  const request = cardRequest('response-b3', {
+    filters: state.filterParams(), controls: PLOT4_CONTROLS, plan: pagePlan,
+  });
+  if (!request) return null;
+  if (!plot4Grid) {
+    // The 2 x 2 card has a fixed height: the grid fits it rather than growing the card.
+    // A resize that changes how many slices fit - one only the panel's own
+    // ResizeObserver sees - rewrites the card's sparse note with it.
+    plot4Grid = await physics.createPanel('ResponseGridPanel', document.getElementById('plot-energy-b3'), {
+      autoHeight: false,
+      onLayout: () => {
+        if (pagePlan.plot4 === 'response-b3' && lastPlot4) writeSparseNote(dom.energySparse, plot4Sparse());
+      },
+    });
+  }
+  // Plot 4 is one request at a time, whichever panel draws it.
+  const payload = await getJson(request.route, request.params, 'energy');
+  checkCurrent(generation);
+  lastPlot4 = payload;
+  endpointWarnings.plot4 = payload.meta?.warnings || [];
+  renderPlot4();
+  setText('tag-energy', payload.calibration?.applied ? 'calibrated' : 'deposited');
+  return payload;
+}
+
+/**
+ * Draw plot 4's response grid from the payload in hand, with its fitted μ
+ * and σ in the card's table and its key counts - low-N series, clipped
+ * curves, values beyond a slice axis, slices that did not fit - in the
+ * card's sparse note, as the energy panel does; then rebuild its notes.
+ */
+function renderPlot4() {
+  if (!lastPlot4 || !plot4Grid || pagePlan.plot4 !== 'response-b3') return;
+  plot4Grid.render(lastPlot4, cardOptions('response-b3', {
+    controls: PLOT4_CONTROLS, palette: state.get('palette'), plan: pagePlan, payload: lastPlot4,
+  }));
+  const table = document.getElementById('fit-table');
+  if (table && typeof plot4Grid.renderTable === 'function') plot4Grid.renderTable(table);
+  writeSparseNote(dom.energySparse, plot4Sparse());
+  buildNotes('energy');
+}
+
+/** Plot 4's response grid's key counts for the card's sparse note; [] without one. */
+function plot4Sparse() {
+  return plot4Grid && lastPlot4 && typeof plot4Grid.sparseLines === 'function' ? plot4Grid.sparseLines() : [];
+}
+
 async function loadPerformance() {
+  const generation = viewGeneration;
   const payload = await getJson('/api/model-performance', state.performanceParams(), 'performance');
+  checkCurrent(generation);
   metricsPanel.render(payload, payload.meta.total_ms);
   // The first performance warning is shown in the model caption; the rest
   // join the banner.
@@ -929,21 +1173,48 @@ function mergedWarnings() {
     ...['display-caption', 'channel-caption'].map((id) => document.getElementById(id)?.textContent || ''),
     ...(energyPanel.lastNotices || []),
     shell.inspected ? notesText(panelNotes[shell.inspected]) : '',
+    // Plot 4's response grid states its own warnings in its drawer and its sparse note.
+    pagePlan.plot4 === 'response-b3' ? notesText(panelNotes.energy) : '',
+    pagePlan.plot4 === 'response-b3' ? plot4Sparse().join(' ') : '',
   ].join(' ');
   return warningsNotShown([
     ...endpointWarnings.projections, ...endpointWarnings.performance,
     ...endpointWarnings.event, ...endpointWarnings.compare,
+    ...endpointWarnings.plot4, ...physics.warnings(),
   ], shown);
+}
+
+/**
+ * The event-level kind's Events count. It has no projections response to
+ * count its selection; /api/response states the selection's event count
+ * (`n_events`), read through the physics section's shared request, so the
+ * status bar is current whether or not a response card is in view and the
+ * cards that read it cost no second request. A failure is the cards' to
+ * report; the readout says '—'.
+ */
+async function loadEventCount() {
+  const generation = viewGeneration;
+  let payload = null;
+  try {
+    payload = await physics.payloadOf('response-b1');
+  } catch (error) {
+    if (isAbort(error)) throw error;
+  }
+  checkCurrent(generation);
+  setText('stat-events', Number.isFinite(payload?.n_events) ? formatInt(payload.n_events) : '—');
+  return payload;
 }
 
 /* ------------------------------------------------------------- orchestration */
 
 const requestPreview = debounce(async () => {
+  // The preview is the spatial panels' alone; the physics cards wait for the release.
+  if (!pagePlan.spatial) return;
   try {
     await loadProjections(true);
     showBanner(mergedWarnings());
   } catch (error) {
-    if (error.name !== 'AbortError') reportError(error, 'projection preview');
+    if (!isAbort(error)) reportError(error, 'projection preview');
   }
 }, DEBOUNCE_MS);
 
@@ -956,32 +1227,44 @@ const requestPreview = debounce(async () => {
  * that breaks the energy fit still has perfectly good spatial projections, and
  * the physicist should keep them.
  */
+/* The refresh in charge of the panels' busy state and of the banner: a
+ * refresh that a newer one overtook leaves both to the newer one. */
+let refreshToken = 0;
+
 const refreshAll = debounce(async () => {
   requestPreview.cancel();
+  const token = ++refreshToken;
   setBusy(true);
-  const jobs = [
-    ['spatial projections', () => loadProjections(false)],
-    ['energy distribution', () => loadEnergy()],
-    ['model performance', () => loadPerformance()],
-  ];
+  // What the experiment can show (capabilities.js): no projections without
+  // hits, plot 4 as the energy reconstruction or the response grid, no
+  // model cards without networks, and the physics cards in view.
+  const jobs = [];
+  if (pagePlan.spatial) jobs.push(['spatial projections', () => loadProjections(false)]);
+  else if (pagePlan.physics.includes('response-b1')) jobs.push(['selection count', () => loadEventCount()]);
+  if (pagePlan.plot4 === 'energy-d') jobs.push(['energy distribution', () => loadEnergy()]);
+  else if (pagePlan.plot4 === 'response-b3') jobs.push(['response grid', () => loadPlot4Grid()]);
+  if (pagePlan.performance) jobs.push(['model performance', () => loadPerformance()]);
+  if (pagePlan.physics.length) jobs.push(['physics panels', () => physics.refresh()]);
   // The grid on show follows the selection too: the pinned event's neighbours
   // and in-selection flag, or the three frames of the comparison.
-  if (state.get('event') !== null) jobs.push(['event inspector', () => inspector.load()]);
-  else if (state.get('compare')) jobs.push(['frame comparison', () => loadCompare()]);
+  if (state.get('event') !== null && pagePlan.eventInspector) jobs.push(['event inspector', () => inspector.load()]);
+  else if (state.get('compare') && pagePlan.compare) jobs.push(['frame comparison', () => loadCompare()]);
   try {
     const results = await Promise.allSettled(jobs.map(([, run]) => run()));
+    // Overtaken - by a newer refresh or an experiment switch: the newer one speaks.
+    if (token !== refreshToken) return;
     const failures = [];
     results.forEach((result, index) => {
       if (result.status !== 'rejected') return;
       const error = result.reason;
-      if (error?.name === 'AbortError') return;
+      if (isAbort(error)) return;
       console.error(`[calosrv] ${jobs[index][0]} failed`, error);
       failures.push(`${jobs[index][0]}: ${describeError(error)}`);
     });
     if (failures.length) showBanner(failures, true);
     else showBanner(mergedWarnings());
   } finally {
-    setBusy(false);
+    if (token === refreshToken) setBusy(false);
   }
 }, DEBOUNCE_MS);
 
@@ -990,16 +1273,8 @@ function repaint() {
   if (lastProjections) renderPanels(lastProjections);
   if (inspector.payload && state.get('event') !== null) inspector.render(inspector.payload);
   if (state.get('compare') && compareGrid.visible) renderCompare();
-}
-
-function describeError(error) {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof TypeError) {
-    // The signature of markup and script disagreeing about the document.
-    return `${error.message} (the page and its scripts may be out of step; `
-      + 'a hard reload should fix it)';
-  }
-  return String(error && error.message ? error.message : error);
+  renderPlot4();
+  physics.repaint();
 }
 
 function reportError(error, context = '') {
@@ -1013,9 +1288,7 @@ async function loadExperiments({ selectFirst = false } = {}) {
   const payload = await getJson('/api/experiments', {}, 'experiments');
   experiments = payload.experiments;
 
-  const compute = payload.compute;
-  setText('badge-memory', `${compute.duckdb_memory_gb} GB`);
-  setText('badge-threads', compute.threads);
+  fillComputeBadges(payload.compute);
 
   // A link without view state opens on the Admin Settings panel's defaults.
   // Taken once, before an experiment is chosen and before the first render,
@@ -1026,22 +1299,15 @@ async function loadExperiments({ selectFirst = false } = {}) {
     defaultNotices.push(...(payload.defaults.notices || []));
   }
 
-  setHtml('experiment-select', experiments.map((e) => {
-    const suffix = e.status === 'ready'
-      ? ` — ${formatInt(e.n_events)} events`
-      : ` — ${e.status}`;
-    const title = e.error ? ` title="${escapeHtml(e.error)}"` : '';
-    return `<option value="${escapeHtml(e.table_name)}"${e.status !== 'ready' ? ' disabled' : ''}${title}>`
-      + `${escapeHtml(e.display_name)}${suffix}</option>`;
-  }).join(''));
+  fillExperimentSelect(dom.experiment, experiments);
   // A failed experiment's reason, verbatim - for a retired schema it says
   // what to do about it.
   const failed = experiments.filter((e) => e.status === 'failed' && e.error)
     .map((e) => `${e.display_name || e.table_name}: ${e.error}`);
   if (failed.length || defaultNotices.length) showBanner([...defaultNotices, ...failed]);
 
-  const ready = experiments.filter((e) => e.status === 'ready');
-  if (!ready.length) {
+  const chosen = chooseExperiment(experiments, state.get('table_name'), { selectFirst });
+  if (!chosen) {
     showBanner([
       'No experiment has finished ingesting yet. Open Admin Settings → Upload dataset, ' +
       'or run the offline ingest CLI on the server.',
@@ -1049,71 +1315,110 @@ async function loadExperiments({ selectFirst = false } = {}) {
     return null;
   }
 
-  const wanted = state.get('table_name');
-  const chosen = (!selectFirst && ready.find((e) => e.table_name === wanted)) || ready[0];
   setVal('experiment-select', chosen.table_name);
   await activateExperiment(chosen);
   return chosen;
 }
 
+/**
+ * Open one experiment: its plan (what the page shows), its controls, its
+ * filters and bounds, then one refresh.
+ *
+ * Switching to another experiment first takes every picture of the previous
+ * one down, so a request that fails leaves an empty panel saying why rather
+ * than the last experiment's data under the new experiment's name.
+ */
 async function activateExperiment(experiment) {
+  const previous = activeExperiment;
+  const previousPlan = pagePlan;
   activeExperiment = experiment;
+  pagePlan = page1Plan(experiment);
   state.set({ table_name: experiment.table_name }, { silent: true });
-  applyCapabilities(experiment);
-
-  const bounds = experiment.bounds;
-  state.adoptBounds(bounds);
-
-  // An axis the user has not narrowed takes the full snapped domain. Passing
-  // the raw dataset bound instead would round it to the nearest grid point -
-  // 0.380 becomes 0.40 against a domain starting at 0.35 - which is not the
-  // full range, so the link would carry a bound that selects nothing.
-  const v = state.values;
-  const initial = (axis, lo, hi) => (state.isTouched(axis) ? [lo, hi] : null);
-
-  sliders.e1.setBounds(bounds.e1[0], bounds.e1[1], initial('e1', v.e1_min, v.e1_max));
-  sliders.e2.setBounds(bounds.e2[0], bounds.e2[1], initial('e2', v.e2_min, v.e2_max));
-
-  const hasD = bounds.d[0] !== null && bounds.d[1] !== null;
-  sliders.d.setDisabled(!hasD, 'N/A');
-  if (hasD) sliders.d.setBounds(bounds.d[0], bounds.d[1], initial('d', v.d_min, v.d_max));
-
-  // The sliders snap their domain outward to the step grid, so "the full range"
-  // is the snapped bound. The hash omits a bound only when it matches this.
-  state.setSliderDomains({
-    e1: [sliders.e1.min, sliders.e1.max],
-    e2: [sliders.e2.min, sliders.e2.max],
-    d: hasD ? [sliders.d.min, sliders.d.max] : null,
-  });
-
-  // Adopt whatever the sliders actually resolved to. The dataset bound 0.408
-  // snaps to 0.40, and leaving state on the raw value would both disagree with
-  // what the control shows and defeat the full-range test above, so every link
-  // would carry all six bounds.
-  const [e1Lo, e1Hi] = sliders.e1.value();
-  const [e2Lo, e2Hi] = sliders.e2.value();
-  const adopted = { e1_min: e1Lo, e1_max: e1Hi, e2_min: e2Lo, e2_max: e2Hi };
-  if (hasD) {
-    const [dLo, dHi] = sliders.d.value();
-    adopted.d_min = dLo;
-    adopted.d_max = dHi;
+  const notices = [];
+  if (previous && previous.table_name !== experiment.table_name) {
+    clearExperimentViews();
+    kindBanner.dismissed.clear();
+    // The frame across a change of kind: Local carries over; a frame the new
+    // experiment's radios do not offer falls back to Absolute, with one line
+    // saying so. A #frame=trans link or a saved default is not a switch, so
+    // it still opens the legacy per-shower frame.
+    const carried = carriedFrame(previousPlan, pagePlan, state.get('frame'));
+    if (carried.notice) {
+      state.set({ frame: carried.frame }, { silent: true });
+      notices.push(carried.notice);
+    }
   }
-  state.set(adopted, { silent: true });
-  state.writeHash();
+  notices.push(...applyCapabilities(experiment));
+  applyKindPlan(pagePlan, notices);
+  // The experiment's own filter axes and bounds; the domains are recorded
+  // before the one hash write, so a link carries no raw dataset bound.
+  filters.adopt(experiment, pagePlan.axes);
 
-  // The resolution slider's useful ceiling is set by the detector: beyond the
-  // native cell count no further detail exists, though splatting keeps the
-  // image free of gaps.
-  const nx = experiment.native_resolution ? experiment.native_resolution.xy[1] : 200;
-  dom.resolution.max = Math.max(100, Math.min(400, nx * 2));
-  // Remembered rather than written: a co-registered frame shows its own
-  // hint, and a later switch to the lab must find this experiment's lattice.
-  labResolutionHint = `Native transverse lattice is ${nx} cells; depth is fixed at `
-    + `${experiment.native_resolution ? experiment.native_resolution.yz[1] : '—'} sampling layers.`;
-  syncDisplayControls();
+  if (pagePlan.spatial) {
+    // The resolution slider's useful ceiling is set by the detector: beyond the
+    // native cell count no further detail exists, though splatting keeps the
+    // image free of gaps.
+    const nx = experiment.native_resolution ? experiment.native_resolution.xy[1] : 200;
+    dom.resolution.max = Math.max(100, Math.min(400, nx * 2));
+    // Remembered rather than written: a co-registered frame shows its own
+    // hint, and a later switch to the lab must find this experiment's lattice.
+    labResolutionHint = `Native transverse lattice is ${nx} cells; depth is fixed at `
+      + `${experiment.native_resolution ? experiment.native_resolution.yz[1] : '—'} sampling layers.`;
+  }
+  // The frame may have moved (a fallback, or a switch of kind): the controls
+  // it decides - the frame tier, the display radios, the density
+  // normalisation and the scale lock - follow it.
+  applyControlAvailability();
+  setText('channel-caption', currentChannelCaption(lastProjections));
 
+  physics.applyPlan(pagePlan);
+  if (previous && previous.table_name === experiment.table_name) physics.invalidate();
+  applyViewMode();
   refreshAll.flush();
 }
+
+/**
+ * Take down everything the previous experiment drew: the spatial panels,
+ * plot 4, the model cards, the status readouts, the notes and warnings, the
+ * physics cards and the comparison rows.
+ */
+function clearExperimentViews() {
+  // Every response still in flight belongs to the previous experiment: the
+  // ones an abort still reaches are aborted, and the generation drops the rest.
+  viewGeneration += 1;
+  requestPreview.cancel();
+  for (const request of Object.values(windowAxisRequests)) request.cancel();
+  for (const key of SPATIAL_ABORT_KEYS) abortRequest(key);
+  lastProjections = null;
+  lastEnergy = null;
+  lastPlot4 = null;
+  for (const panel of Object.values(panels)) panel.clear();
+  // The energy panel's clear empties the card's fit table and sparse note,
+  // which plot 4's response grid writes into too.
+  energyPanel.clear();
+  plot4Grid?.clear();
+  metricsPanel.renderError('—');
+  for (const id of STATUS_IDS) setText(id, '—');
+  setHidden('stat-wneg-item', true);
+  for (const key of Object.keys(endpointWarnings)) endpointWarnings[key] = [];
+  for (const kind of GRID_ROWS) comparePayloads[kind] = null;
+  physics.reset();
+  for (const id of Object.keys(panelNotes)) {
+    panelNotes[id] = null;
+    markDetails(id, null);
+    shell.refresh(id, null);
+  }
+}
+
+/* The status bar's readouts of one selection. */
+const STATUS_IDS = ['stat-events', 'stat-hits', 'stat-edep', 'stat-d', 'stat-nod', 'stat-rho', 'stat-clipped',
+  'stat-wneg', 'stat-latency', 'stat-cache'];
+
+/* The abort keys of every request outside the physics section (whose own
+ * keys `physics.reset()` aborts): the projections, plot 4, the model cards,
+ * the comparison rows, the windowed axes and the Event Inspector. */
+const SPATIAL_ABORT_KEYS = ['projections', 'energy', 'performance', 'compare-lab', 'compare-trans',
+  'compare-local', 'compare-canonical', 'window-axis-yz', 'window-axis-xz', 'event', 'event-pick'];
 
 /* ------------------------------------------------------------------- wiring */
 
@@ -1186,8 +1491,8 @@ for (const input of document.querySelectorAll('input[name="model"]')) {
 
 dom.colormap.addEventListener('change', () => {
   state.set({ palette: dom.colormap.value });
-  // A palette change is a pure repaint of data already held; it must not cost
-  // a round trip.
+  // A palette change is a pure repaint of data already held - the physics
+  // cards' and plot 4's included; it must not cost a round trip.
   repaint();
   // Carry the active shower filter across: re-rendering without it silently
   // reset the A/B toggle to Both on every colormap change.
@@ -1196,11 +1501,6 @@ dom.colormap.addEventListener('change', () => {
 
 dom.lockScale.addEventListener('change', () => {
   state.set({ lock_scale: dom.lockScale.checked });
-  refreshAll();
-});
-
-dom.undefinedD.addEventListener('change', () => {
-  state.set({ include_undefined_d: dom.undefinedD.checked });
   refreshAll();
 });
 
@@ -1251,6 +1551,13 @@ for (const button of document.querySelectorAll('[data-shower]')) {
   });
 }
 
+/* Plot 4 on a single shower draws the notebook's six windows; its link takes
+ * the reader to the full-width response card below, set to the producer's
+ * 1 GeV bins, which that card alone holds. */
+document.getElementById('energy-b3-link')?.addEventListener('click', () => {
+  physics.reveal('response-b3', { b3Slices: 'bins' });
+});
+
 /* ------------------------------------------------------------ figure export */
 
 /* The figure is the plot alone. What it shows is named from the response's
@@ -1276,6 +1583,12 @@ attachExportMenus({
     if (panelId.startsWith('compare-')) {
       const panel = compareGrid.panelById(panelId);
       return panel?.payload ? { panel, meta: comparePayloads[panelId.split('-')[1]]?.meta ?? null } : null;
+    }
+    const target = physics.exportTarget(panelId);
+    if (target !== undefined) return target;
+    if (panelId === 'energy' && pagePlan.plot4 === 'response-b3') {
+      // A single shower's plot 4 is the response grid; its own response names it.
+      return plot4Grid?.lastPayload && lastPlot4 ? { panel: plot4Grid, meta: physicsExportMeta(lastPlot4) } : null;
     }
     const get = EXPORT_PANELS[panelId];
     if (!get) return null;
@@ -1314,13 +1627,6 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') hidePopover();
 });
 
-dom.bannerClose.addEventListener('click', () => {
-  for (const message of JSON.parse(dom.banner.dataset.messages || '[]')) {
-    dismissed.add(message);
-  }
-  setHidden('banner', true);
-});
-
 /* The Admin Settings panel hosts the upload form. Each is constructed in its
  * own guard: a failure in either must not take the dashboard with it - the
  * panel is an operator's tool, the plots are everyone's - and a fault in the
@@ -1345,6 +1651,9 @@ try {
   adminModal = new AdminModal({
     state,
     upload: uploadForm,
+    // The catalogue carries each experiment's derived-table status, for the
+    // panel's Rebuild derived tables section.
+    getExperiments: () => experiments,
     // An automatic ingest that finishes while the panel is open joins the
     // experiment list at once, without switching away from the current view.
     onIngested: async () => { await loadExperiments({ selectFirst: false }); },
@@ -1404,6 +1713,11 @@ const REQUIRED_IDS = [
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi',
   'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi',
+  'physics-grid', 'kind-notice', 'kind-notice-title', 'kind-notice-text', 'kind-banner',
+  'kind-banner-text', 'kind-banner-close', 'stat-d-item', 'stat-nod-item', 'stat-wneg-item', 'stat-wneg',
+  'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d', 'energy-shower-toggle', 'energy-b3-slices',
+  'energy-b3-link', 'plot-energy-b3', 'ctl-e1', 'ctl-e2', 'ctl-d', 'ctl-event', 'ctl-compare',
+  'group-frame', 'group-resolution', 'group-channel', 'group-colormap',
 ];
 
 async function boot() {
@@ -1441,10 +1755,5 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('[calosrv] unhandled rejection', event.reason);
 });
 
-function escapeHtml(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
-}
 
 boot();

@@ -69,8 +69,21 @@ const ENUMS = {
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
-/** The filter sliders' steps (main.js), by which their domains snap outward. */
-const SLIDER_STEP = { e1: 0.05, e2: 0.05, d: 1 };
+/** The filter sliders' steps (controls/filter_block.js), by which their domains snap outward. */
+export const SLIDER_STEP = Object.freeze({ e1: 0.05, e2: 0.05, d: 1 });
+
+/** The three filter axes a link can carry, each a `<key>_min` / `<key>_max` pair. */
+const FILTER_KEYS = ['e1', 'e2', 'd'];
+
+/**
+ * A slider's domain: the physical range snapped outward to whole steps.
+ *
+ * The same arithmetic as RangeSlider.setBounds, so the domain the hash is
+ * compared against and the one the slider draws can never disagree.
+ */
+export function snapDomain(lo, hi, step) {
+  return [Math.floor(lo / step) * step, Math.ceil(hi / step) * step];
+}
 
 /** Each interface frame as the API's (coord_system, frame) pair. */
 export const API_FRAME = {
@@ -179,6 +192,9 @@ export class State {
     this.bounds = null;       // kinematic bounds of the active experiment
     this.domains = null;      // snapped slider domains, for the full-range test
     this.touched = new Set(); // axes the user has deliberately narrowed
+    // The active experiment's filter axes, as capabilities.js describes them;
+    // null until one is adopted, which means the two-shower set (e1, e2, d).
+    this.filterAxes = null;
     this.listeners = new Set();
     this.defaultsApplied = false; // applyDefaults runs at most once
     this.readHash();
@@ -261,16 +277,113 @@ export class State {
     return () => this.listeners.delete(listener);
   }
 
-  /** Parameters for the filter-bearing endpoints. */
+  /**
+   * Parameters for the filter-bearing endpoints.
+   *
+   * Only the active experiment's axes are sent: a single-shower experiment
+   * filters on e1 alone (its incident momentum p), and the server refuses an
+   * e2, d or include_undefined_d it has no axis for. Before an experiment is
+   * adopted, and for every two-shower one, these are the seven keys they
+   * always were, in the same order.
+   */
   filterParams() {
     const v = this.values;
-    return {
-      table_name: v.table_name,
-      e1_min: v.e1_min, e1_max: v.e1_max,
-      e2_min: v.e2_min, e2_max: v.e2_max,
-      d_min: v.d_min, d_max: v.d_max,
-      include_undefined_d: v.include_undefined_d,
-    };
+    const active = this.activeAxes();
+    const params = { table_name: v.table_name };
+    for (const key of FILTER_KEYS) {
+      if (!active.has(key)) continue;
+      params[`${key}_min`] = v[`${key}_min`];
+      params[`${key}_max`] = v[`${key}_max`];
+    }
+    if (active.has('d')) params.include_undefined_d = v.include_undefined_d;
+    return params;
+  }
+
+  /** The keys of the active filter axes; all three while none is adopted. */
+  activeAxes() {
+    return new Set(this.filterAxes ? this.filterAxes.map((axis) => axis.key) : FILTER_KEYS);
+  }
+
+  /**
+   * Adopt an experiment's filter axes (capabilities.js `filterAxes`).
+   *
+   * An axis the experiment does not have is cleared and untouched, and with D
+   * goes the undefined-D option: a two-shower link opened on a single-shower
+   * experiment must not carry an E₂ window into a request that would be
+   * refused, nor into the next link written. Silent; the caller writes the
+   * hash once the new bounds are adopted.
+   */
+  restrictAxes(axes) {
+    this.filterAxes = Array.isArray(axes) && axes.length ? axes : null;
+    const active = this.activeAxes();
+    const patch = {};
+    for (const key of FILTER_KEYS) {
+      if (active.has(key)) continue;
+      this.touched.delete(key);
+      patch[`${key}_min`] = null;
+      patch[`${key}_max`] = null;
+    }
+    if (!active.has('d')) patch.include_undefined_d = false;
+    this.set(patch, { silent: true });
+    return [...active];
+  }
+
+  /**
+   * Adopt an experiment's bounds onto the snapped slider domains, with one
+   * hash write.
+   *
+   * `adoptBounds` writes the hash before the slider domains are known, so for
+   * an instant a link carries the raw dataset bounds (0.408 rather than the
+   * full-range 0.40, which it then omits). Here the domains are recorded
+   * first - `snapDomain`, the sliders' own arithmetic - then every axis takes
+   * the bounds `adoptBounds` would give it, an untouched axis the whole
+   * snapped domain, and the hash is written once, already free of full-range
+   * bounds. An axis whose bounds are null (no D defined) keeps null values
+   * and no domain. Returns the domains by axis.
+   */
+  adoptSnappedBounds(bounds) {
+    this.bounds = bounds;
+    const active = this.activeAxes();
+    const domains = {};
+    for (const key of FILTER_KEYS) {
+      const range = bounds?.[key];
+      const valid = active.has(key) && Array.isArray(range)
+        && Number.isFinite(range[0]) && Number.isFinite(range[1]);
+      domains[key] = valid
+        ? snapDomain(range[0], range[1], this.stepOf(key)) : null;
+    }
+    this.setSliderDomains(domains);
+
+    const patch = {};
+    for (const key of FILTER_KEYS) {
+      const domain = domains[key];
+      if (!domain) continue;
+      const [lo, hi] = domain;
+      const loKey = `${key}_min`;
+      const hiKey = `${key}_max`;
+      if (!this.touched.has(key)) {
+        patch[loKey] = lo;
+        patch[hiKey] = hi;
+        continue;
+      }
+      // A touched axis may carry one bound only; the other is the full range.
+      const vlo = this.values[loKey] ?? lo;
+      const vhi = this.values[hiKey] ?? hi;
+      // The domain is already snapped outward, so a bound at its edge is in
+      // range; one beyond it (by more than rounding) is from another dataset.
+      const outOfRange = vlo < lo - 1e-9 || vhi > hi + 1e-9 || vlo > vhi;
+      patch[loKey] = outOfRange ? lo : vlo;
+      patch[hiKey] = outOfRange ? hi : vhi;
+    }
+    this.set(patch, { silent: true });
+    this.writeHash();
+    return domains;
+  }
+
+  /** The slider step of one axis: the adopted descriptor's, else the built-in one. */
+  stepOf(key) {
+    const axis = this.filterAxes?.find((a) => a.key === key);
+    return Number.isFinite(axis?.step) && axis.step > 0 ? axis.step : SLIDER_STEP[key];
   }
 
   /**

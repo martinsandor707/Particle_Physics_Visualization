@@ -54,6 +54,44 @@ const FRAME_DEFINITION = {
     + 'event are superimposed at the origin.',
 };
 
+/* A single-shower experiment's per-shower frames: one shower per event, so
+ * nothing is superimposed on a partner and no A–B offset or separation exists. */
+const SINGLE_DEFINITION = {
+  trans: 'Translated (each shower from its own entry point): every hit is moved by its shower\'s entry '
+    + 'point P₀ (energy-weighted x, y centroid of its first populated layer, at that layer\'s z); no '
+    + 'rotation; one shower per event, every one at the origin.',
+  local: 'Shower-Aligned, Local: every hit is moved by its shower\'s entry point P₀ (energy-weighted '
+    + 'x, y centroid of its first populated layer, at that layer\'s z) and rotated by that shower\'s '
+    + 'own R(θ, φ), so its incident direction lies along +w; one shower per event, every one at the origin.',
+};
+
+/**
+ * How many showers an event of this payload holds: the experiment's own
+ * count (capabilities `n_showers`) when the caller states it, else what the
+ * payload shows - a single-shower response reports no undefined-separation
+ * count (`selection.n_events_no_d: null`), and its negative-depth block
+ * counts one shower per event.
+ */
+export function showersPerEvent(payload, stated = null) {
+  if (stated === 1 || stated === 2) return stated;
+  const block = payload?.frame?.negative_w?.showers_per_event;
+  if (block === 1 || block === 2) return block;
+  const selection = payload?.selection;
+  return selection && selection.n_events_no_d === null ? 1 : 2;
+}
+
+/**
+ * The C9 sentence of the Local frame: how much of the selection lies behind
+ * its own entry plane, w = z_local < −10⁻⁶ mm (the notebook's tolerance), as
+ * the server summarised it with its intervals - or why it could not.
+ */
+export function negativeDepthSentence(block) {
+  if (!block || typeof block.summary !== 'string' || !block.summary) return '';
+  if (block.available === false) return block.summary;
+  return `Hits behind their shower's entry plane, ${block.summary}. They are drawn, counted in `
+    + 'every sum and normalised with their shower.';
+}
+
 const ENSEMBLE_LEGEND = 'Dashed line = mean direction, shaded band = sample spread '
   + '(SD) of per-event slopes, thin envelope = 95% t-interval of the mean.';
 
@@ -71,19 +109,21 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
   const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
   const canonical = kind === 'canonical';
   const coregistered = kind !== 'lab';
+  const single = showersPerEvent(payload, extra.nShowers) === 1;
   const panel = payload.panels?.[panelId] ?? null;
   const scale = panel?.scale ?? null;
   const out = [];
 
   if (coregistered) {
-    out.push(canonical && frame.anchor_choice === 'p0' ? FRAME_DEFINITION.canonical_p0 : FRAME_DEFINITION[kind]);
+    if (single && SINGLE_DEFINITION[kind]) out.push(SINGLE_DEFINITION[kind]);
+    else out.push(canonical && frame.anchor_choice === 'p0' ? FRAME_DEFINITION.canonical_p0 : FRAME_DEFINITION[kind]);
     if (panelId === 'xy' && typeof payload.slab?.note === 'string') out.push(payload.slab.note);
-    const counts = canonical ? frameCounts(frame) : showerCounts(frame);
+    const counts = canonical ? frameCounts(frame) : showerCounts(frame, single);
     if (counts) out.push(counts);
     if (frame.n_events === 0) {
-      out.push(canonical
-        ? 'No selected event has a defined frame; the panels are empty and no ensemble axis is drawn.'
-        : 'No selected event has a defined A-B separation; the panels are empty.');
+      if (canonical) out.push('No selected event has a defined frame; the panels are empty and no ensemble axis is drawn.');
+      else if (single) out.push('No selected shower has a defined entry point and incident direction; the panels are empty.');
+      else out.push('No selected event has a defined A-B separation; the panels are empty.');
     }
   }
 
@@ -124,8 +164,10 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
         for (const line of ensembleAxes(frame)) out.push(line);
       }
     } else if (panelId === 'xy') {
-      out.push('The A–B offset of the superimposed centroids is not a separation; D is the absolute-frame '
-        + '3-D centroid distance.');
+      if (!single) {
+        out.push('The A–B offset of the superimposed centroids is not a separation; D is the absolute-frame '
+          + '3-D centroid distance.');
+      }
       const overflow = frameMeanOverflowText(payload);
       if (overflow) out.push(overflow);
     } else if (kind === 'local') {
@@ -137,6 +179,10 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
         ? 'Dashed lines: individual incident directions from the origin along each event\'s absolute-frame (θ, φ).'
         : `No averaged direction is drawn: the azimuth keeps its absolute-frame distribution`
           + `${Number.isFinite(r) ? ` (R̄ = ${r.toFixed(3)})` : ''}.`);
+    }
+    if (kind === 'local' && panelId !== 'xy') {
+      const behind = negativeDepthSentence(frame.negative_w);
+      if (behind) out.push(behind);
     }
     if (typeof extra.isometric === 'boolean') {
       out.push(extra.isometric
@@ -196,9 +242,19 @@ function anchorOffsets(frame) {
 /* ------------------------------------------------------------ sentences -- */
 
 /** Counts of a per-shower frame: events, superimposed showers, 'A+B' hits, D. */
-function showerCounts(frame) {
+function showerCounts(frame, single = false) {
   const n = frame.n_events;
   if (!Number.isFinite(n)) return null;
+  if (single) {
+    // One shower per event: no partner, no 'A+B' cell, no separation.
+    const parts = [`N = ${formatInt(frame.n_showers ?? n)} ${plural(frame.n_showers ?? n, 'shower')} `
+      + 'superimposed at their own entry points, one per event'];
+    if (frame.n_excluded_no_frame > 0) {
+      parts.push(`${formatInt(frame.n_excluded_no_frame)} selected ${plural(frame.n_excluded_no_frame, 'event')} `
+        + 'excluded: no entry point or incident direction');
+    }
+    return `${parts.join('; ')}.`;
+  }
   const parts = [`N = ${formatInt(n)} ${n === 1 ? 'event' : 'events'}, `
     + `${formatInt(frame.n_showers ?? 2 * n)} showers superimposed at their own entry points`];
   if (frame.n_ab_hits > 0) {

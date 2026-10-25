@@ -146,6 +146,107 @@ export function customPolyline({
   };
 }
 
+/**
+ * Many capped whiskers as one custom series, one hoverable item per whisker.
+ *
+ * The physics panels draw an interval at every bin - the Student-t envelope of
+ * a profile mean, the χ² interval of σ/μ - and one series per whisker would
+ * mean dozens of series per chart. `points` is `[[at, lo, hi, datum], ...]`:
+ * a vertical whisker at x = `at` from y = `lo` to `hi`, or with `horizontal` a
+ * horizontal one at y = `at` from x = `lo` to `hi`.
+ *
+ * Reserved for the uncertainty of an aggregate, as `customWhisker` is
+ * (CLAUDE.md section 2). Per item, `datum.caps` ([lo, hi] booleans) drops the
+ * cap of an end clipped to the window, where `customCaret` marks it instead,
+ * and `datum.color` / `datum.opacity` override the series style.
+ * `offsetPx` shifts every whisker perpendicular to its shaft, in pixels (right
+ * for a vertical whisker, up for a horizontal one), so two showers measured at
+ * the same position stay apart and a summary row can sit above a baseline.
+ * `tooltip(datum, index)` returns the HTML of one item.
+ */
+export function customWhiskers({
+  name, points, capPx = 4, color, width, opacity = 1, z = 9, tooltip = null,
+  horizontal = false, offsetPx = 0,
+}) {
+  const items = points.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && Number.isFinite(p[2]));
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: !tooltip,
+    // One datum per whisker, so each is its own hover target.
+    data: items.map((p, index) => (horizontal ? [p[1], p[0], index] : [p[0], p[1], index])),
+    renderItem: (params, api) => {
+      const [at, lo, hi, datum = {}] = items[params.dataIndex];
+      const shift = (pt) => (horizontal ? [pt[0], pt[1] - offsetPx] : [pt[0] + offsetPx, pt[1]]);
+      const a = shift(api.coord(horizontal ? [lo, at] : [at, lo]));
+      const b = shift(api.coord(horizontal ? [hi, at] : [at, hi]));
+      const caps = datum.caps ?? [true, true];
+      // The cap runs perpendicular to the shaft.
+      const cap = (pt) => (horizontal
+        ? [[pt[0], pt[1] - capPx], [pt[0], pt[1] + capPx]]
+        : [[pt[0] - capPx, pt[1]], [pt[0] + capPx, pt[1]]]);
+      return {
+        type: 'polyline',
+        shape: {
+          points: [...(caps[0] ? cap(a) : []), a, b, ...(caps[1] ? cap(b) : [])],
+        },
+        style: {
+          fill: 'none',
+          stroke: datum.color ?? color,
+          lineWidth: width,
+          opacity: datum.opacity ?? opacity,
+        },
+      };
+    },
+    ...(tooltip ? { tooltip: { formatter: (p) => tooltip(items[p.dataIndex][3], p.dataIndex) } } : {}),
+  };
+}
+
+/**
+ * Invisible full-height hover targets, one per bin: the readout of a binned
+ * chart. `edges` are the n + 1 bin edges on the x axis; each bin's rect spans
+ * the whole plot height (`params.coordSys`), so the readout answers wherever
+ * the pointer is over the bin, not only on the ink of a thin step line.
+ *
+ * The fill is transparent but present, which zrender counts as fill when hit
+ * testing (see the header). Drawn under every mark (`z` 1), so a mark with a
+ * tooltip of its own still wins its hover. `tooltip(binIndex)` returns the
+ * readout's HTML; `position` is the panel's readout placement (beside the
+ * pointer), absent in print. `y` is any value inside the y axis, carried by
+ * each datum so it is valid on a log axis too (zero is not).
+ */
+export function binHoverSeries({ name, edges, tooltip, position = null, z = 1, y = 0 }) {
+  const bins = [];
+  for (let i = 0; i + 1 < (edges?.length ?? 0); i += 1) {
+    if (Number.isFinite(edges[i]) && Number.isFinite(edges[i + 1])) bins.push(i);
+  }
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: false,
+    data: bins.map((i) => [0.5 * (edges[i] + edges[i + 1]), y, i]),
+    renderItem: (params, api) => {
+      const i = bins[params.dataIndex];
+      const box = params.coordSys;
+      const x0 = api.coord([edges[i], y])[0];
+      const x1 = api.coord([edges[i + 1], y])[0];
+      return {
+        type: 'rect',
+        shape: { x: Math.min(x0, x1), y: box.y, width: Math.abs(x1 - x0), height: box.height },
+        style: { fill: 'rgba(0,0,0,0)', stroke: 'none' },
+      };
+    },
+    tooltip: {
+      formatter: (p) => tooltip(bins[p.dataIndex]),
+      ...(position ? { position } : {}),
+    },
+  };
+}
+
 /** A straight segment `from` → `to`; the same options as `customPolyline`. */
 export function customLine({ from, to, ...options }) {
   return customPolyline({ ...options, points: [from, to] });

@@ -84,6 +84,9 @@ const SCREEN = {
    * whose zero is border grey - and standard PuOr in print. */
   divergingPalette: 'puor_screen',
   divergingLinearPalette: 'puor_screen_linear',
+  /* The hatch of a correlation cell that pairs a circular variable: chrome,
+   * not ink, at the muted grey (5.3:1 on the card). Print takes #6b7280. */
+  hatch: '#8b949e',
 
   categorical: { min: 0.25, max: 1.0 },
   rampOrient: 'vertical',
