@@ -29,7 +29,7 @@ QUERY = Path(__file__).resolve().parent.parent / "calosrv" / "query"
 EVENT_TABLE_MODULES = (
     "summary", "energy", "performance", "performance_bins", "prediction_density", "response",
     "negative_depth", "shower_distributions", "primaries", "features_catalog", "features",
-    "profiles",
+    "feature_describe", "feature_corr", "feature_axes", "feature_hist", "profiles",
 )
 #: The modules that scan hits.
 HIT_MODULES = ("projections", "hit_distributions", "statistics", "correlations")
