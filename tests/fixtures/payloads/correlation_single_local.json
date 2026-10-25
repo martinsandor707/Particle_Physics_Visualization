@@ -1,0 +1,814 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "sample_percent": 100.0
+ },
+ "variables": [
+  {
+   "key": "u",
+   "label": "u (x_local)",
+   "unit": "mm",
+   "level": "hit",
+   "circular": false
+  },
+  {
+   "key": "v",
+   "label": "v (y_local)",
+   "unit": "mm",
+   "level": "hit",
+   "circular": false
+  },
+  {
+   "key": "w",
+   "label": "w (z_local, depth along the incident direction)",
+   "unit": "mm",
+   "level": "hit",
+   "circular": false
+  },
+  {
+   "key": "energy",
+   "label": "Hit energy E",
+   "unit": "GeV",
+   "level": "hit",
+   "circular": false
+  },
+  {
+   "key": "p",
+   "label": "Incident momentum p",
+   "unit": "GeV",
+   "level": "shower",
+   "circular": false
+  },
+  {
+   "key": "theta",
+   "label": "Incident polar angle θ",
+   "unit": "rad",
+   "level": "shower",
+   "circular": false
+  },
+  {
+   "key": "phi",
+   "label": "Incident azimuth φ",
+   "unit": "rad",
+   "level": "shower",
+   "circular": true
+  }
+ ],
+ "matrix": [
+  [
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.393535,
+    "ci95": [
+     0.361723,
+     0.424431
+    ],
+    "se_z": 0.0185698,
+    "n_eff": 2902.92,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.46093,
+    "ci95": [
+     0.350036,
+     0.559083
+    ],
+    "se_z": 0.066559,
+    "n_eff": 228.729,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": -0.0713791,
+    "ci95": [
+     -0.121638,
+     -0.0207549
+    ],
+    "se_z": 0.0253926,
+    "n_eff": 1553.9,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": -0.00230368,
+    "ci95": [
+     -0.037907,
+     0.0333055
+    ],
+    "se_z": 0.0178256,
+    "n_eff": 3150.1,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": -0.224511,
+    "ci95": [
+     -0.291261,
+     -0.155586
+    ],
+    "se_z": 0.035801,
+    "n_eff": 783.208,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": 0.393535,
+    "ci95": [
+     0.361723,
+     0.424431
+    ],
+    "se_z": 0.0185698,
+    "n_eff": 2902.92,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.224376,
+    "ci95": [
+     0.138146,
+     0.307229
+    ],
+    "se_z": 0.0446492,
+    "n_eff": 504.617,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.125518,
+    "ci95": [
+     0.0923097,
+     0.158448
+    ],
+    "se_z": 0.0168193,
+    "n_eff": 3537.96,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.00214672,
+    "ci95": [
+     -0.0285248,
+     0.0328142
+    ],
+    "se_z": 0.0153525,
+    "n_eff": 4245.72,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.133847,
+    "ci95": [
+     0.111807,
+     0.155755
+    ],
+    "se_z": 0.0111984,
+    "n_eff": 7977.19,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": 0.46093,
+    "ci95": [
+     0.350036,
+     0.559083
+    ],
+    "se_z": 0.066559,
+    "n_eff": 228.729,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.224376,
+    "ci95": [
+     0.138146,
+     0.307229
+    ],
+    "se_z": 0.0446492,
+    "n_eff": 504.617,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.365093,
+    "ci95": [
+     0.301127,
+     0.425789
+    ],
+    "se_z": 0.0360259,
+    "n_eff": 773.495,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.00562324,
+    "ci95": [
+     -0.0705327,
+     0.081714
+    ],
+    "se_z": 0.0381685,
+    "n_eff": 689.42,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.448456,
+    "ci95": [
+     0.431126,
+     0.465455
+    ],
+    "se_z": 0.0107523,
+    "n_eff": 8652.62,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": -0.0713791,
+    "ci95": [
+     -0.121638,
+     -0.0207549
+    ],
+    "se_z": 0.0253926,
+    "n_eff": 1553.9,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.125518,
+    "ci95": [
+     0.0923097,
+     0.158448
+    ],
+    "se_z": 0.0168193,
+    "n_eff": 3537.96,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.365093,
+    "ci95": [
+     0.301127,
+     0.425789
+    ],
+    "se_z": 0.0360259,
+    "n_eff": 773.495,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "hit",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.237932,
+    "ci95": [
+     0.140516,
+     0.330785
+    ],
+    "se_z": 0.0506065,
+    "n_eff": 393.469,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.575963,
+    "ci95": [
+     0.515073,
+     0.631069
+    ],
+    "se_z": 0.0434315,
+    "n_eff": 533.139,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": -0.00230368,
+    "ci95": [
+     -0.037907,
+     0.0333055
+    ],
+    "se_z": 0.0178256,
+    "n_eff": 3150.1,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.00214672,
+    "ci95": [
+     -0.0285248,
+     0.0328142
+    ],
+    "se_z": 0.0153525,
+    "n_eff": 4245.72,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.00562324,
+    "ci95": [
+     -0.0705327,
+     0.081714
+    ],
+    "se_z": 0.0381685,
+    "n_eff": 689.42,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.237932,
+    "ci95": [
+     0.140516,
+     0.330785
+    ],
+    "se_z": 0.0506065,
+    "n_eff": 393.469,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "shower_by_hits",
+    "per_shower_r": 1.0,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.011778,
+    "ci95": [
+     -0.142581,
+     0.165578
+    ],
+    "se_z": 0.077734,
+    "n_eff": 168.493,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "shower_by_hits",
+    "per_shower_r": -0.00131396,
+    "per_shower_ci95": [
+     -0.127954,
+     0.125368
+    ],
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "shower_by_hits",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": -0.224511,
+    "ci95": [
+     -0.291261,
+     -0.155586
+    ],
+    "se_z": 0.035801,
+    "n_eff": 783.208,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.133847,
+    "ci95": [
+     0.111807,
+     0.155755
+    ],
+    "se_z": 0.0111984,
+    "n_eff": 7977.19,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.448456,
+    "ci95": [
+     0.431126,
+     0.465455
+    ],
+    "se_z": 0.0107523,
+    "n_eff": 8652.62,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.575963,
+    "ci95": [
+     0.515073,
+     0.631069
+    ],
+    "se_z": 0.0434315,
+    "n_eff": 533.139,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": 0.011778,
+    "ci95": [
+     -0.142581,
+     0.165578
+    ],
+    "se_z": 0.077734,
+    "n_eff": 168.493,
+    "se_iid": 0.0108021,
+    "hatched": false,
+    "weighting": "shower_by_hits",
+    "per_shower_r": -0.00131396,
+    "per_shower_ci95": [
+     -0.127954,
+     0.125368
+    ],
+    "mardia": null
+   },
+   {
+    "r": 1.0,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": false,
+    "weighting": "shower_by_hits",
+    "per_shower_r": 1.0,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "shower_by_hits",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ],
+  [
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "hit_shower",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "shower_by_hits",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "shower_by_hits",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   },
+   {
+    "r": null,
+    "ci95": null,
+    "se_z": null,
+    "n_eff": null,
+    "se_iid": null,
+    "hatched": true,
+    "weighting": "shower_by_hits",
+    "per_shower_r": null,
+    "per_shower_ci95": null,
+    "mardia": null
+   }
+  ]
+ ],
+ "n_hits": 8573,
+ "n_events": 287,
+ "n_showers": 287,
+ "groups": 64,
+ "dof": 63,
+ "weak": false,
+ "method": "event-grouped jackknife, 64 groups (event_number mod 64)",
+ "interval": "95% event-grouped jackknife on Fisher z, 64 groups (Student-t, 63 dof)",
+ "scale": {
+  "palette": "puor",
+  "diverging": true,
+  "vmin": -1,
+  "vmax": 1,
+  "label": "Pearson r"
+ },
+ "mardia": {
+  "n_azimuths": 4,
+  "min_azimuths": 8,
+  "min_groups": 5,
+  "null_R2": 0.00699301,
+  "reason": "Mardia's R needs 8 distinct azimuths; this selection has 4. Three directions fit any variable exactly (R = 1), and a few cannot constrain a dependence on the direction."
+ },
+ "coord_system": "local",
+ "energy_scale": "linear",
+ "shower": "both",
+ "showers": [
+  "Shower"
+ ],
+ "weightings": {
+  "hit": "Each hit is one pair.",
+  "hit_shower": "Each hit is one pair; the shower's value repeats on every one of its hits, so a shower counts in proportion to its hits, which grow with its momentum.",
+  "shower_by_hits": "Both are per-shower values, aggregated from the event table with each shower weighted by its hit count, which reproduces the hit-level value; the per-shower value, each shower counted once, is given beside it."
+ },
+ "notes": [
+  "Hits are not independent pairs: p, θ and φ take one value per shower, repeated on every one of its hits, and the hits of one shower share its development. The sampling unit is the event. Intervals are a grouped jackknife on Fisher's z = atanh r over 64 event groups (Student-t on G − 1 degrees of freedom), quoted from 4 groups and |r| < 1. n_eff = 3 + 1/SE² is the number of independent pairs the interval is worth; se_iid = 1/√(N − 3) with N = 8,573 hits is the naive standard error a hit count would claim.",
+  "φ is circular, so it has no linear correlation: no Σφ or Σφ² is accumulated, and its cells are hatched with r empty. They carry Mardia's circular–linear R of the other variable with (cos φ, sin φ), from 0 (no association) to 1, with no sign because a circle has no order, quoted from 8 distinct azimuths, and its jackknife standard error from 5 event groups. R is never negative: with no association R² still averages 2/(N − 1) over N showers each counted once (null_R2, N = 287), the reference for per_shower_R; a hit-weighted R counts a shower by its hits and has no such simple reference.",
+  "Mardia's R needs 8 distinct azimuths; this selection has 4. Three directions fit any variable exactly (R = 1), and a few cannot constrain a dependence on the direction. The φ cells carry no R.",
+  "p, θ and φ are per-shower values: a cell pairing one with a hit variable counts each shower in proportion to its hits, as the notebook's hit-level matrix does. Pairs of two per-shower values come from the event table, weighted by hits, which equals the hit-level value, with the per-shower value (each shower counted once) beside it.",
+  "Hit energy is linear, as in the notebook: it spans about fifteen decades, so its r is set by the most energetic hits. energy_scale=log10 shows the bulk."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

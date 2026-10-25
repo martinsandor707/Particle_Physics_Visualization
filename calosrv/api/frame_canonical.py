@@ -417,18 +417,9 @@ def build_response(
                     "them changes nothing in the D-frame panels."
                 ),
             })
-        if stats.n_ill_conditioned:
-            notices.append({
-                "scope": "frame",
-                "text": (
-                    f"{stats.n_ill_conditioned:,} event(s) enter closer than "
-                    f"{frame_mod.ILL_CONDITIONED_D_MM:.0f} mm apart, so their rotation angle "
-                    "is dominated by the anchor uncertainty and effectively random. Their "
-                    "energy enters ⟨ρ⟩ averaged over azimuth, and their randomly oriented "
-                    "directions enter the ensemble-axis statistics (R̄′, Rayleigh p, "
-                    "dispersion band) as noise that pushes R̄′ down and p up."
-                ),
-            })
+        ill = ill_conditioned_notice(stats.n_ill_conditioned)
+        if ill:
+            notices.append({"scope": "frame", "text": ill})
         if rho_norm == density.NORM_DATASET:
             ref_k = rendered["rho"].get("ref_k")
             if ref_k and ref_k != k:
@@ -469,7 +460,7 @@ def build_response(
             notices.append({"scope": "frame", "text": reference})
         for note in axes["notes"]:
             notices.append({"scope": "frame", "text": note})
-        anchor_residual_text = _anchor_residual_notice(stats)
+        anchor_residual_text = anchor_residual_notice(stats)
         if anchor_residual_text:
             notices.append({"scope": "frame", "text": anchor_residual_text})
 
@@ -573,7 +564,41 @@ def build_response(
     return serve_within_budget(assemble, render, rendered, display)
 
 
-def _anchor_residual_notice(stats: FrameStats) -> str | None:
+def ill_conditioned_notice(n_ill: int, *, axis_statistics: bool = True) -> str | None:
+    """The D-frame's sentence for events whose entry anchors are too close to fix a rotation.
+
+    One owner for every D-frame view: the 2-D panels (with the ensemble axis
+    they draw) and the 3-D ensemble cloud (``axis_statistics=False``: it draws
+    no axis).
+    """
+    if not n_ill:
+        return None
+    text = (
+        f"{n_ill:,} event(s) enter closer than {frame_mod.ILL_CONDITIONED_D_MM:.0f} mm apart, "
+        "so their rotation angle is dominated by the anchor uncertainty and effectively "
+        "random. Their energy enters ⟨ρ⟩ averaged over azimuth"
+    )
+    if axis_statistics:
+        return text + (
+            ", and their randomly oriented directions enter the ensemble-axis statistics "
+            "(R̄′, Rayleigh p, dispersion band) as noise that pushes R̄′ down and p up."
+        )
+    return text + "."
+
+
+def ill_conditioned_event_notice(d_entry_mm: float | None) -> str | None:
+    """The single-event D-frame's sentence when its own entry anchors are too close."""
+    if d_entry_mm is None or not d_entry_mm < frame_mod.ILL_CONDITIONED_D_MM:
+        return None
+    return (
+        f"This event's entry points are {d_entry_mm:.0f} mm apart, closer than "
+        f"{frame_mod.ILL_CONDITIONED_D_MM:.0f} mm: its rotation angle is dominated by the "
+        "anchor uncertainty, so the orientation of the whole display about the depth axis "
+        "is effectively random."
+    )
+
+
+def anchor_residual_notice(stats: FrameStats) -> str | None:
     """How far the two anchor definitions sit apart over this selection, in words."""
     residual = stats.anchor_residual
     if not residual:

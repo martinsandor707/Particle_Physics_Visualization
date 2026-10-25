@@ -37,6 +37,10 @@ TRANS_CACHE = "trans"
 LOCAL_CACHE = "local"
 #: Sums of the hit-level physics scans (C1, C4, C8, the features): small.
 PHYSICS_CACHE = "physics"
+#: The ensemble 3-D accumulations of ``GET /api/voxels`` (``query/voxels.py``):
+#: int16 indices and float64 sums and peaks per populated voxel, an estimated
+#: 11 MB for the whole production selection in the D-frame (not yet measured).
+VOXEL_CACHE = "voxels"
 
 #: Default byte budget per named cache. The entry count alone does not bound
 #: memory once bundles differ in size (a canonical bundle is several times a
@@ -48,6 +52,7 @@ DEFAULT_MAX_BYTES = {
     TRANS_CACHE: 128 * 1024 ** 2,
     LOCAL_CACHE: 128 * 1024 ** 2,
     PHYSICS_CACHE: 64 * 1024 ** 2,
+    VOXEL_CACHE: 128 * 1024 ** 2,
 }
 
 

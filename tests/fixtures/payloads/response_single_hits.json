@@ -1,0 +1,986 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "parts": [
+   "b1",
+   "b2",
+   "resolution"
+  ]
+ },
+ "kind": "single_shower_hits",
+ "unit": "%",
+ "calibration": {
+  "a": {
+   "c": 105.996,
+   "sampling_fraction_pct": 0.943428,
+   "ci95": [
+    94.6198,
+    117.373
+   ],
+   "se": 5.77993,
+   "n": 287,
+   "method": "ratio_t",
+   "label": "c = Σ p / Σ E_dep over the showers present in the selection, summed before dividing: the calibration the energy panel applies, fitted once per shower and never per momentum bin. A shower with no deposit is left out of both sums. The sampling fraction it implies is 100 / c. Interval: 95% Student-t on the linearised ratio, events as clusters (n − 1 d.o.f.), clipped at zero because c is a ratio of non-negative sums."
+  }
+ },
+ "b1": {
+  "axis": {
+   "lo": 0.0,
+   "hi": 2.0,
+   "interval": 0.2,
+   "unit": "%",
+   "bins": 14,
+   "hist_centres": [
+    0.0714286,
+    0.214286,
+    0.357143,
+    0.5,
+    0.642857,
+    0.785714,
+    0.928571,
+    1.07143,
+    1.21429,
+    1.35714,
+    1.5,
+    1.64286,
+    1.78571,
+    1.92857
+   ],
+   "clipping": {
+    "lo": 0.0,
+    "hi": 2.0,
+    "low_percentile": 1.0,
+    "high_percentile": 99.0,
+    "n_total": 287,
+    "n_below": 0,
+    "n_above": 0,
+    "n_outside": 0,
+    "fraction_outside": 0.0,
+    "note": "The axis, 0–2 %, runs from zero (zero-based) to the 99th percentile of the pooled series with N ≥ 20, rounded outward to tick boundaries; no value lies outside it."
+   },
+   "provisional": false,
+   "n_clipped_marks": 0,
+   "clipped_marks": []
+  },
+  "series": [
+   {
+    "key": "a",
+    "label": "Shower",
+    "n": 287,
+    "n_dropped": 0,
+    "n_absent": 0,
+    "fit": {
+     "n": 287,
+     "mu": 0.943726,
+     "sigma": 0.81377,
+     "sigma_population": 0.812351,
+     "mu_error": 0.0480353,
+     "sigma_error": 0.0340254,
+     "mu_ci95": [
+      0.849179,
+      1.03827
+     ],
+     "sigma_ci95": [
+      0.752193,
+      0.886415
+     ],
+     "sigma_bias_factor": 0.999126,
+     "sigma_robust": 1.1856,
+     "non_gaussian": true,
+     "shape_testable": true,
+     "estimator": "moments",
+     "moments_subset": "all events of the series (the display clip removes none of them)"
+    },
+    "draw": "histogram",
+    "histogram": {
+     "density": [
+      1.7561,
+      1.73171,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.7561,
+      0.0,
+      1.7561
+     ],
+     "n_in_range": 287,
+     "n_below": 0,
+     "n_above": 0
+    },
+    "strip": null,
+    "markers": {
+     "mu": 0.943726,
+     "ci95_lo": 0.849179,
+     "ci95_hi": 1.03827,
+     "dispersion_lo": 0.129956,
+     "dispersion_hi": 1.7575
+    },
+    "reference": {
+     "value": 0.943428,
+     "ci95_lo": 0.84217,
+     "ci95_hi": 1.04469,
+     "label": "Sum before divide: 100 · Σ E_dep / Σ p over the showers present in the selection (1 / c); its 95% interval is clipped at zero"
+    },
+    "message": null
+   }
+  ],
+  "whisker": {
+   "method": "t",
+   "label": "95% Student-t interval of the mean of the per-event sampling fractions (n − 1 d.o.f.), at every N; the band is the sample SD, not this interval",
+   "level": 0.95
+  },
+  "dispersion": "Band: the sample standard deviation (ddof = 1) of the per-event sampling fraction of the series, uncapped. It is √N wider than the whisker, which is the 95% Student-t interval of the mean."
+ },
+ "b2": {
+  "series": [
+   {
+    "key": "a",
+    "label": "Shower",
+    "bins": [
+     {
+      "bin": 1,
+      "label": "1–2 GeV",
+      "lo": 1.0,
+      "hi": 2.0,
+      "n": 8,
+      "p_mean": 1.56524,
+      "p_sd": 0.383613,
+      "mean": 0.941319,
+      "sd": 0.868034,
+      "ci95": [
+       0.215509,
+       1.66713
+      ],
+      "se": 0.306896,
+      "sd_se": 0.231992,
+      "sd_ci95": [
+       0.573918,
+       1.76662
+      ],
+      "c4": 0.96503,
+      "dof_note": null,
+      "weak": true,
+      "scaling_factor": 106.234,
+      "ratio_of_sums": {
+       "value": 0.939628,
+       "ci95": [
+        0.202152,
+        1.6771
+       ]
+      }
+     },
+     {
+      "bin": 2,
+      "label": "2–3 GeV",
+      "lo": 2.0,
+      "hi": 3.0,
+      "n": 20,
+      "p_mean": 2.48505,
+      "p_sd": 0.273529,
+      "mean": 0.941319,
+      "sd": 0.833065,
+      "ci95": [
+       0.551437,
+       1.3312
+      ],
+      "se": 0.186279,
+      "sd_se": 0.135141,
+      "sd_ci95": [
+       0.633541,
+       1.21672
+      ],
+      "c4": null,
+      "dof_note": null,
+      "weak": false,
+      "scaling_factor": 106.234,
+      "ratio_of_sums": {
+       "value": 0.932722,
+       "ci95": [
+        0.539153,
+        1.32629
+       ]
+      }
+     },
+     {
+      "bin": 3,
+      "label": "3–4 GeV",
+      "lo": 3.0,
+      "hi": 4.0,
+      "n": 1,
+      "p_mean": 3.16019,
+      "p_sd": null,
+      "mean": 1.60334,
+      "sd": null,
+      "ci95": null,
+      "se": null,
+      "sd_se": null,
+      "sd_ci95": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "weak": true,
+      "scaling_factor": 62.3697,
+      "ratio_of_sums": {
+       "value": 1.60334,
+       "ci95": null
+      }
+     },
+     {
+      "bin": 4,
+      "label": "4–5 GeV",
+      "lo": 4.0,
+      "hi": 5.0,
+      "n": 1,
+      "p_mean": 4.5,
+      "p_sd": null,
+      "mean": 0.0289779,
+      "sd": null,
+      "ci95": null,
+      "se": null,
+      "sd_se": null,
+      "sd_ci95": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "weak": true,
+      "scaling_factor": 3450.91,
+      "ratio_of_sums": {
+       "value": 0.0289779,
+       "ci95": null
+      }
+     },
+     {
+      "bin": 5,
+      "label": "5–6 GeV",
+      "lo": 5.0,
+      "hi": 6.0,
+      "n": 15,
+      "p_mean": 5.54689,
+      "p_sd": 0.276902,
+      "mean": 1.00265,
+      "sd": 0.830061,
+      "ci95": [
+       0.542931,
+       1.46237
+      ],
+      "se": 0.214321,
+      "sd_se": 0.156867,
+      "sd_ci95": [
+       0.607709,
+       1.30906
+      ],
+      "c4": null,
+      "dof_note": null,
+      "weak": true,
+      "scaling_factor": 99.7357,
+      "ratio_of_sums": {
+       "value": 0.996505,
+       "ci95": [
+        0.534827,
+        1.45818
+       ]
+      }
+     },
+     {
+      "bin": 7,
+      "label": "7–8 GeV",
+      "lo": 7.0,
+      "hi": 8.0,
+      "n": 2,
+      "p_mean": 7.22742,
+      "p_sd": 0.120241,
+      "mean": 1.07029,
+      "sd": 1.14862,
+      "ci95": [
+       -9.2495,
+       11.3901
+      ],
+      "se": 0.812198,
+      "sd_se": 0.812198,
+      "sd_ci95": [
+       0.512451,
+       36.654
+      ],
+      "c4": 0.797885,
+      "dof_note": "1 d.o.f.",
+      "weak": true,
+      "scaling_factor": 93.4329,
+      "ratio_of_sums": {
+       "value": 1.06073,
+       "ci95": [
+        0.0,
+        11.3791
+       ]
+      }
+     },
+     {
+      "bin": 10,
+      "label": "10–11 GeV",
+      "lo": 10.0,
+      "hi": 11.0,
+      "n": 200,
+      "p_mean": 10.4986,
+      "p_sd": 0.289827,
+      "mean": 0.941319,
+      "sd": 0.814009,
+      "ci95": [
+       0.827815,
+       1.05482
+      ],
+      "se": 0.0575591,
+      "sd_se": 0.0408026,
+      "sd_ci95": [
+       0.741284,
+       0.902686
+      ],
+      "c4": null,
+      "dof_note": null,
+      "weak": false,
+      "scaling_factor": 106.234,
+      "ratio_of_sums": {
+       "value": 0.942737,
+       "ci95": [
+        0.829268,
+        1.05621
+       ]
+      }
+     },
+     {
+      "bin": 12,
+      "label": "12–13 GeV",
+      "lo": 12.0,
+      "hi": 13.0,
+      "n": 7,
+      "p_mean": 12.5139,
+      "p_sd": 0.239268,
+      "mean": 1.03892,
+      "sd": 0.888903,
+      "ci95": [
+       0.216796,
+       1.86105
+      ],
+      "se": 0.335974,
+      "sd_se": 0.256604,
+      "sd_ci95": [
+       0.572811,
+       1.9577
+      ],
+      "c4": 0.959369,
+      "dof_note": null,
+      "weak": true,
+      "scaling_factor": 96.2535,
+      "ratio_of_sums": {
+       "value": 1.03902,
+       "ci95": [
+        0.214858,
+        1.86318
+       ]
+      }
+     },
+     {
+      "bin": 15,
+      "label": "15–16 GeV",
+      "lo": 15.0,
+      "hi": 16.0,
+      "n": 14,
+      "p_mean": 15.5464,
+      "p_sd": 0.265666,
+      "mean": 0.826806,
+      "sd": 0.833949,
+      "ci95": [
+       0.34538,
+       1.30823
+      ],
+      "se": 0.222882,
+      "sd_se": 0.163551,
+      "sd_ci95": [
+       0.60457,
+       1.34349
+      ],
+      "c4": 0.980971,
+      "dof_note": null,
+      "weak": true,
+      "scaling_factor": 120.947,
+      "ratio_of_sums": {
+       "value": 0.831609,
+       "ci95": [
+        0.348572,
+        1.31465
+       ]
+      }
+     },
+     {
+      "bin": 19,
+      "label": "19–20 GeV",
+      "lo": 19.0,
+      "hi": 20.0,
+      "n": 19,
+      "p_mean": 19.5093,
+      "p_sd": 0.30114,
+      "mean": 0.977279,
+      "sd": 0.839795,
+      "ci95": [
+       0.572496,
+       1.38206
+      ],
+      "se": 0.192662,
+      "sd_se": 0.139966,
+      "sd_ci95": [
+       0.634563,
+       1.24189
+      ],
+      "c4": null,
+      "dof_note": null,
+      "weak": true,
+      "scaling_factor": 102.325,
+      "ratio_of_sums": {
+       "value": 0.980962,
+       "ci95": [
+        0.57642,
+        1.3855
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "whisker": {
+   "method": "t",
+   "label": "95% Student-t interval of the mean sampling fraction in the bin (n − 1 d.o.f.), at every N; the band is the sample SD, not this interval",
+   "level": 0.95
+  },
+  "dispersion": "Band: the sample standard deviation (ddof = 1) of the per-event sampling fraction in the bin, uncapped. It is √N wider than the whisker, which is the 95% Student-t interval of the mean.",
+  "y": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 2.0,
+   "interval": 0.2,
+   "provisional": false,
+   "n_clipped": 2
+  }
+ },
+ "resolution": {
+  "series": [
+   {
+    "key": "a",
+    "label": "Shower · calibrated energy c · E_dep",
+    "kind": "calibrated_energy",
+    "unit": "GeV",
+    "bins": [
+     {
+      "bin": 1,
+      "label": "1–2 GeV",
+      "n": 8,
+      "p_mean": 1.56524,
+      "mu": 1.55893,
+      "sigma": 1.5035,
+      "sigma_se": 0.401827,
+      "sigma_ci95": [
+       0.994067,
+       3.05991
+      ],
+      "value": 96.4441,
+      "ci95": [
+       63.7659,
+       196.282
+      ],
+      "se_delta": 41.7835,
+      "c4": 0.96503,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 24.5083,
+      "weak": true
+     },
+     {
+      "bin": 2,
+      "label": "2–3 GeV",
+      "n": 20,
+      "p_mean": 2.48505,
+      "mu": 2.45685,
+      "sigma": 2.20473,
+      "sigma_se": 0.357654,
+      "sigma_ci95": [
+       1.67668,
+       3.22007
+      ],
+      "value": 89.7379,
+      "ci95": [
+       68.2451,
+       131.065
+      ],
+      "se_delta": 23.1552,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": true,
+      "momentum_spread": 11.007,
+      "weak": false
+     },
+     {
+      "bin": 3,
+      "label": "3–4 GeV",
+      "n": 1,
+      "p_mean": 3.16019,
+      "mu": 5.3707,
+      "sigma": null,
+      "sigma_se": null,
+      "sigma_ci95": null,
+      "value": null,
+      "ci95": null,
+      "se_delta": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "non_gaussian": null,
+      "momentum_spread": null,
+      "weak": true
+     },
+     {
+      "bin": 4,
+      "label": "4–5 GeV",
+      "n": 1,
+      "p_mean": 4.5,
+      "mu": 0.13822,
+      "sigma": null,
+      "sigma_se": null,
+      "sigma_ci95": null,
+      "value": null,
+      "ci95": null,
+      "se_delta": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "non_gaussian": null,
+      "momentum_spread": null,
+      "weak": true
+     },
+     {
+      "bin": 5,
+      "label": "5–6 GeV",
+      "n": 15,
+      "p_mean": 5.54689,
+      "mu": 5.85896,
+      "sigma": 4.86582,
+      "sigma_se": 0.919554,
+      "sigma_ci95": [
+       3.56239,
+       7.6737
+      ],
+      "value": 83.0492,
+      "ci95": [
+       60.8025,
+       130.974
+      ],
+      "se_delta": 23.7375,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 4.99202,
+      "weak": true
+     },
+     {
+      "bin": 7,
+      "label": "7–8 GeV",
+      "n": 2,
+      "p_mean": 7.22742,
+      "mu": 8.12607,
+      "sigma": 8.66296,
+      "sigma_se": 6.12564,
+      "sigma_ci95": [
+       3.86493,
+       276.446
+      ],
+      "value": 106.607,
+      "ci95": [
+       47.5621,
+       3401.97
+      ],
+      "se_delta": 110.185,
+      "c4": 0.797885,
+      "dof_note": "1 d.o.f.",
+      "non_gaussian": null,
+      "momentum_spread": 1.66368,
+      "weak": true
+     },
+     {
+      "bin": 10,
+      "label": "10–11 GeV",
+      "n": 200,
+      "p_mean": 10.4986,
+      "mu": 10.4909,
+      "sigma": 9.07799,
+      "sigma_se": 0.455039,
+      "sigma_ci95": [
+       8.26695,
+       10.0669
+      ],
+      "value": 86.5319,
+      "ci95": [
+       78.801,
+       95.9585
+      ],
+      "se_delta": 6.84447,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": true,
+      "momentum_spread": 2.76062,
+      "weak": false
+     },
+     {
+      "bin": 12,
+      "label": "12–13 GeV",
+      "n": 7,
+      "p_mean": 12.5139,
+      "mu": 13.7818,
+      "sigma": 11.8263,
+      "sigma_se": 3.41394,
+      "sigma_ci95": [
+       7.62086,
+       26.0458
+      ],
+      "value": 85.8105,
+      "ci95": [
+       55.2964,
+       188.987
+      ],
+      "se_delta": 37.2585,
+      "c4": 0.959369,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.91202,
+      "weak": true
+     },
+     {
+      "bin": 15,
+      "label": "15–16 GeV",
+      "n": 14,
+      "p_mean": 15.5464,
+      "mu": 13.7038,
+      "sigma": 13.8757,
+      "sigma_se": 2.72124,
+      "sigma_ci95": [
+       10.0591,
+       22.3537
+      ],
+      "value": 101.254,
+      "ci95": [
+       73.404,
+       163.121
+      ],
+      "se_delta": 33.8396,
+      "c4": 0.980971,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.70886,
+      "weak": true
+     },
+     {
+      "bin": 19,
+      "label": "19–20 GeV",
+      "n": 19,
+      "p_mean": 19.5093,
+      "mu": 20.2855,
+      "sigma": 17.4537,
+      "sigma_se": 2.90895,
+      "sigma_ci95": [
+       13.1883,
+       25.8105
+      ],
+      "value": 86.0402,
+      "ci95": [
+       65.0135,
+       127.236
+      ],
+      "se_delta": 22.2278,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.54357,
+      "weak": true
+     }
+    ]
+   },
+   {
+    "key": "a",
+    "label": "Shower · response ratio E_dep / p",
+    "kind": "response_ratio",
+    "unit": "%",
+    "bins": [
+     {
+      "bin": 1,
+      "label": "1–2 GeV",
+      "n": 8,
+      "p_mean": 1.56524,
+      "mu": 0.941319,
+      "sigma": 0.868034,
+      "sigma_se": 0.231992,
+      "sigma_ci95": [
+       0.573918,
+       1.76662
+      ],
+      "value": 92.2147,
+      "ci95": [
+       60.9695,
+       187.675
+      ],
+      "se_delta": 38.8751,
+      "c4": 0.96503,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 24.5083,
+      "weak": true
+     },
+     {
+      "bin": 2,
+      "label": "2–3 GeV",
+      "n": 20,
+      "p_mean": 2.48505,
+      "mu": 0.941319,
+      "sigma": 0.833065,
+      "sigma_se": 0.135141,
+      "sigma_ci95": [
+       0.633541,
+       1.21672
+      ],
+      "value": 88.4998,
+      "ci95": [
+       67.3036,
+       129.257
+      ],
+      "se_delta": 22.6457,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": true,
+      "momentum_spread": 11.007,
+      "weak": false
+     },
+     {
+      "bin": 3,
+      "label": "3–4 GeV",
+      "n": 1,
+      "p_mean": 3.16019,
+      "mu": 1.60334,
+      "sigma": null,
+      "sigma_se": null,
+      "sigma_ci95": null,
+      "value": null,
+      "ci95": null,
+      "se_delta": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "non_gaussian": null,
+      "momentum_spread": null,
+      "weak": true
+     },
+     {
+      "bin": 4,
+      "label": "4–5 GeV",
+      "n": 1,
+      "p_mean": 4.5,
+      "mu": 0.0289779,
+      "sigma": null,
+      "sigma_se": null,
+      "sigma_ci95": null,
+      "value": null,
+      "ci95": null,
+      "se_delta": null,
+      "c4": null,
+      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+      "non_gaussian": null,
+      "momentum_spread": null,
+      "weak": true
+     },
+     {
+      "bin": 5,
+      "label": "5–6 GeV",
+      "n": 15,
+      "p_mean": 5.54689,
+      "mu": 1.00265,
+      "sigma": 0.830061,
+      "sigma_se": 0.156867,
+      "sigma_ci95": [
+       0.607709,
+       1.30906
+      ],
+      "value": 82.7868,
+      "ci95": [
+       60.6103,
+       130.56
+      ],
+      "se_delta": 23.6204,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 4.99202,
+      "weak": true
+     },
+     {
+      "bin": 7,
+      "label": "7–8 GeV",
+      "n": 2,
+      "p_mean": 7.22742,
+      "mu": 1.07029,
+      "sigma": 1.14862,
+      "sigma_se": 0.812198,
+      "sigma_ci95": [
+       0.512451,
+       36.654
+      ],
+      "value": 107.319,
+      "ci95": [
+       47.8798,
+       3424.69
+      ],
+      "se_delta": 111.316,
+      "c4": 0.797885,
+      "dof_note": "1 d.o.f.",
+      "non_gaussian": null,
+      "momentum_spread": 1.66368,
+      "weak": true
+     },
+     {
+      "bin": 10,
+      "label": "10–11 GeV",
+      "n": 200,
+      "p_mean": 10.4986,
+      "mu": 0.941319,
+      "sigma": 0.814009,
+      "sigma_se": 0.0408026,
+      "sigma_ci95": [
+       0.741284,
+       0.902686
+      ],
+      "value": 86.4754,
+      "ci95": [
+       78.7495,
+       95.8958
+      ],
+      "se_delta": 6.83733,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": true,
+      "momentum_spread": 2.76062,
+      "weak": false
+     },
+     {
+      "bin": 12,
+      "label": "12–13 GeV",
+      "n": 7,
+      "p_mean": 12.5139,
+      "mu": 1.03892,
+      "sigma": 0.888903,
+      "sigma_se": 0.256604,
+      "sigma_ci95": [
+       0.572811,
+       1.9577
+      ],
+      "value": 85.56,
+      "ci95": [
+       55.135,
+       188.435
+      ],
+      "se_delta": 37.0893,
+      "c4": 0.959369,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.91202,
+      "weak": true
+     },
+     {
+      "bin": 15,
+      "label": "15–16 GeV",
+      "n": 14,
+      "p_mean": 15.5464,
+      "mu": 0.826806,
+      "sigma": 0.833949,
+      "sigma_se": 0.163551,
+      "sigma_ci95": [
+       0.60457,
+       1.34349
+      ],
+      "value": 100.864,
+      "ci95": [
+       73.1211,
+       162.492
+      ],
+      "se_delta": 33.6241,
+      "c4": 0.980971,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.70886,
+      "weak": true
+     },
+     {
+      "bin": 19,
+      "label": "19–20 GeV",
+      "n": 19,
+      "p_mean": 19.5093,
+      "mu": 0.977279,
+      "sigma": 0.839795,
+      "sigma_se": 0.139966,
+      "sigma_ci95": [
+       0.634563,
+       1.24189
+      ],
+      "value": 85.9319,
+      "ci95": [
+       64.9316,
+       127.076
+      ],
+      "se_delta": 22.1835,
+      "c4": null,
+      "dof_note": null,
+      "non_gaussian": null,
+      "momentum_spread": 1.54357,
+      "weak": true
+     }
+    ]
+   }
+  ],
+  "value_unit": "%",
+  "whisker": {
+   "method": "chi2_over_mu",
+   "label": "95% χ² interval of σ divided by μ, [σ_lo/μ, σ_hi/μ] (N − 1 degrees of freedom): never negative, and skewed upward as the sampling distribution of σ is at small N. μ's own uncertainty is neglected; the delta-method standard error of σ/μ, which includes it, is se_delta. The χ² interval of σ itself is sigma_ci95, in the series' own unit.",
+   "level": 0.95
+  },
+  "y": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 140.0,
+   "interval": 20.0,
+   "provisional": false,
+   "n_clipped": 8
+  },
+  "note": "σ/μ in percent per 1 GeV bin of the shower's own momentum, from the unbiased (ddof = 1) width. Calibrated energy: c · E_dep with c fitted once over the whole selection. It includes the spread of the momentum inside the bin, σ_p/⟨p⟩, which alone gives σ/μ = 58% in a bin that spans 0–1 GeV. Response ratio: the spread of E_dep / p, which divides the momentum out and does not change with c. Below N = 15 the bias factor c4(N) of σ is quoted; below N = 20 the Gaussian-shape verdict is untestable and the bin is weak."
+ },
+ "notes": [
+  "The deposit E_dep is the shower's total hit energy in GeV, summed over its cells, and p its incident momentum: one shower per event.",
+  "The sampling fraction is f = E_dep / p per event and shower, in percent. A value no ratio can use is counted and dropped, never zero-filled. Every mean, SD, ratio and interval is taken over all the events of its series or bin; a display range clips the picture and nothing from the statistics.",
+  "Shower: c = Σ p / Σ E_dep = 105.996, a sampling fraction of 0.943% (sum before divide, N = 287 events), fitted once over the whole selection and never per momentum bin.",
+  "B1: the marker is the mean of the per-event fractions (its whisker the 95% Student-t interval of that mean, the band the sample SD) and the rule is the ratio of sums 100 · Σ E_dep / Σ p. They are two different numbers, because the fraction depends on the momentum and a ratio of sums weights an event by its momentum.",
+  "B1, Shower: mean of ratios 0.944%, ratio of sums 0.943%, a difference of 0.000 percentage points.",
+  "B1: bar heights are counts / (N × bin width) over all N events, so the area of the bars is the fraction of events inside the axis. No Gaussian curve is drawn: the spectrum has a low-side containment tail, and its shape verdict (non_gaussian) exists only from N = 20.",
+  "B1: The axis, 0–2 %, runs from zero (zero-based) to the 99th percentile of the pooled series with N ≥ 20, rounded outward to tick boundaries; no value lies outside it.",
+  "B2: bins are the producer's integer momentum bin of each shower, closed on the left, [k, k + 1); the notebook's pd.cut closes them on the right, which moves only a shower exactly on an edge. The scaling factor is 1 / the mean of the per-event fractions, as the notebook; the per-bin ratio of sums is in the tooltip, never calibrates, and has its interval clipped at zero.",
+  "B2: 8 bins with N < 20 are weak. The y range follows the bins with N ≥ 20. 2 bins draw a mark beyond it (clipped, not rescaled; the true values are in the tooltip).",
+  "Resolution: 16 bins with N < 20 are weak. The y range follows the bins with N ≥ 20. 8 bins draw a mark beyond it (clipped, not rescaled; the true values are in the tooltip)."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

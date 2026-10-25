@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -24,7 +25,8 @@ from .admin.store import DefaultsStore
 from .config import Settings, load_settings
 from .db import bootstrap as bootstrap_mod
 from .db.connection import get_database, reset_database
-from .errors import ApiError
+from .errors import ApiError, ValidationError
+from .text import typographic
 from .ingest import jobs as jobs_mod
 from .logging_setup import configure_logging, log_boot_banner
 from .api import (
@@ -45,6 +47,7 @@ from .api import (
     routes_performance,
     routes_projections,
     routes_upload,
+    routes_voxels,
 )
 
 log = logging.getLogger(__name__)
@@ -314,6 +317,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # A parameter of the wrong type or a missing required one: the same
+        # validation-error problem, naming the field, as every other refusal.
+        first = (exc.errors() or [{}])[0]
+        location = first.get("loc") or ()
+        field = str(location[-1]) if location else None
+        message = first.get("msg", "invalid value")
+        given = first.get("input")
+        detail = f"{field}: {message}" if field else message
+        if given is not None and not isinstance(given, (dict, list)):
+            detail += f"; got {given!r}"
+        return await api_error_handler(request, ValidationError(typographic(detail + "."), field=field))
+
     for module in (
         routes_health,
         routes_experiments,
@@ -332,6 +349,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_primaries,
         routes_prediction,
         routes_features,
+        routes_voxels,
     ):
         app.include_router(module.router)
 

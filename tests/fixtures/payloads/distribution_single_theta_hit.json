@@ -1,0 +1,263 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "quantity": "theta"
+ },
+ "quantity": {
+  "key": "theta",
+  "label": "θ — incident polar angle",
+  "unit": "rad",
+  "scale": "linear",
+  "source": "showers",
+  "weighting": "hit count (each shower weighted by its hits)",
+  "bin_width": 0.025,
+  "bin_unit": "rad"
+ },
+ "edges": [
+  0.28,
+  0.305,
+  0.33,
+  0.355,
+  0.38,
+  0.405,
+  0.43,
+  0.455,
+  0.48
+ ],
+ "series": [
+  {
+   "bin": 1,
+   "label": "1–2 GeV",
+   "n": 240,
+   "n_showers": 8,
+   "offset": 0,
+   "counts": [
+    132,
+    4,
+    0,
+    0,
+    52,
+    0,
+    0,
+    52
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 2,
+   "label": "2–3 GeV",
+   "n": 600,
+   "n_showers": 20,
+   "offset": 0,
+   "counts": [
+    330,
+    10,
+    0,
+    0,
+    130,
+    0,
+    0,
+    130
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 3,
+   "label": "3–4 GeV",
+   "n": 26,
+   "n_showers": 1,
+   "offset": 4,
+   "counts": [
+    26
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 4,
+   "label": "4–5 GeV",
+   "n": 1,
+   "n_showers": 1,
+   "offset": 4,
+   "counts": [
+    1
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 5,
+   "label": "5–6 GeV",
+   "n": 478,
+   "n_showers": 15,
+   "offset": 0,
+   "counts": [
+    264,
+    6,
+    0,
+    0,
+    104,
+    0,
+    0,
+    104
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 7,
+   "label": "7–8 GeV",
+   "n": 92,
+   "n_showers": 2,
+   "offset": 0,
+   "counts": [
+    66,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    26
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 10,
+   "label": "10–11 GeV",
+   "n": 6000,
+   "n_showers": 200,
+   "offset": 0,
+   "counts": [
+    3300,
+    100,
+    0,
+    0,
+    1300,
+    0,
+    0,
+    1300
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 12,
+   "label": "12–13 GeV",
+   "n": 174,
+   "n_showers": 7,
+   "offset": 0,
+   "counts": [
+    66,
+    4,
+    0,
+    0,
+    52,
+    0,
+    0,
+    52
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 15,
+   "label": "15–16 GeV",
+   "n": 428,
+   "n_showers": 14,
+   "offset": 0,
+   "counts": [
+    264,
+    8,
+    0,
+    0,
+    78,
+    0,
+    0,
+    78
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 19,
+   "label": "19–20 GeV",
+   "n": 534,
+   "n_showers": 19,
+   "offset": 0,
+   "counts": [
+    264,
+    10,
+    0,
+    0,
+    130,
+    0,
+    0,
+    130
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  }
+ ],
+ "display": {
+  "lo": 0.28,
+  "hi": 0.48,
+  "percentiles": [
+   1.0,
+   99.0
+  ],
+  "n_outside": 0,
+  "fraction_outside": 0.0,
+  "provisional": false,
+  "coarsened": 1,
+  "note": "Display range covers the 1st to 99th percentile of the pooled hit-weighted showers, rounded outward to 0.02 rad, then 8 Rice-rule bins (N = 15): 0.28 to 0.48 rad; nothing lies outside it."
+ },
+ "splat": null,
+ "comb": null,
+ "notes": [
+  "6 of 10 series hold fewer than 15 showers (1–2 GeV, 3–4 GeV, 4–5 GeV, 7–8 GeV, 12–13 GeV, 15–16 GeV): drawn as exact counts on the shared bins, but the shape of a handful of showers is not a distribution.",
+  "Hit-weighted: each shower counts once per hit, as in the reference notebook's 50 000-hit sample, but computed exactly from every shower's hit count. The bin count follows showers, because the hits of one shower share its value."
+ ],
+ "kind": "single_shower_hits",
+ "shower": "both",
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

@@ -1,20 +1,106 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "GET /api/voxels (ensemble)",
- "type": "object",
- "required": [
-  "frame",
-  "grid",
-  "voxels",
-  "scale",
-  "rho",
-  "budget",
-  "topk",
-  "filter",
-  "meta"
+ "description": "One branch per channel, chosen by meta.channel: each requires what the frontend reads for that channel (the log ramp and rho_ref for density; scale.ref, rho.cam_ref, meta.cam and budget.cam for the attention channels; split_code and diverging for Shap-CAM). Blocks never carry hits or points keys. negative_w is copied from statistics.json, where its shape is frozen.",
+ "anyOf": [
+  {
+   "$ref": "#/$defs/body_density"
+  },
+  {
+   "$ref": "#/$defs/body_gradcam_energy"
+  },
+  {
+   "$ref": "#/$defs/body_shapcam_energy"
+  }
  ],
- "properties": {
-  "frame": {
+ "$defs": {
+  "no_raw": {
+   "not": {
+    "enum": [
+     "hits",
+     "points"
+    ]
+   },
+   "description": "No block of the body carries raw hit or point arrays (CLAUDE.md 1.1)."
+  },
+  "splat": {
+   "type": "object",
+   "required": [
+    "regime",
+    "k",
+    "k_z",
+    "footprint_mm",
+    "gapless_k",
+    "gapless"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "regime": {
+     "enum": [
+      "subdeposit3d",
+      "subdeposit2d"
+     ]
+    },
+    "k": {
+     "type": "integer",
+     "minimum": 2
+    },
+    "k_z": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "footprint_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "gapless_k": {
+     "type": "integer"
+    },
+    "gapless": {
+     "type": "boolean"
+    },
+    "budget_rows": {
+     "type": "integer"
+    }
+   }
+  },
+  "depth": {
+   "type": "object",
+   "required": [
+    "policy",
+    "text",
+    "pitch_mm",
+    "n"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "policy": {
+     "enum": [
+      "uniform_bins",
+      "native_layers"
+     ]
+    },
+    "text": {
+     "type": "string"
+    },
+    "pitch_mm": {
+     "type": "number"
+    },
+    "n": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "frame_local": {
    "type": "object",
    "required": [
     "kind",
@@ -24,33 +110,83 @@
     "provisional",
     "splat",
     "coordinates",
-    "comb"
+    "comb",
+    "n_selected",
+    "n_excluded_no_frame",
+    "n_label",
+    "anchor",
+    "depth",
+    "comb_source",
+    "n_ill_conditioned",
+    "ill_conditioned_threshold_mm",
+    "anchor_residual",
+    "negative_w"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
     "kind": {
-     "enum": [
-      "local",
-      "canonical"
-     ]
+     "const": "local"
+    },
+    "title": {
+     "type": "string"
     },
     "symbols": {
      "type": "object"
     },
     "n_events": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_selected": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_excluded_no_frame": {
+     "type": "integer",
+     "minimum": 0
     },
     "n_showers": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "provisional": {
      "type": "boolean"
     },
-    "splat": {
-     "type": "object"
-    },
-    "coordinates": {
+    "n_label": {
      "type": [
       "string",
+      "null"
+     ]
+    },
+    "anchor": {
+     "const": "own_shower_entry_point"
+    },
+    "n_ill_conditioned": {
+     "type": "null"
+    },
+    "ill_conditioned_threshold_mm": {
+     "type": "null"
+    },
+    "anchor_residual": {
+     "type": "null"
+    },
+    "splat": {
+     "$ref": "#/$defs/splat"
+    },
+    "depth": {
+     "$ref": "#/$defs/depth"
+    },
+    "coordinates": {
+     "enum": [
+      "file",
+      "computed"
+     ]
+    },
+    "coordinate_check": {
+     "type": [
+      "object",
       "null"
      ]
     },
@@ -59,8 +195,139 @@
       "object",
       "null"
      ]
+    },
+    "comb_source": {
+     "type": "string"
+    },
+    "planned_from": {
+     "type": "string"
+    },
+    "negative_w": {
+     "$ref": "#/$defs/negative_w"
     }
+   },
+   "description": "The Local frame: no rotation from a separation, so no ill-conditioned count or anchor residual; the negative-depth summary of the selection."
+  },
+  "frame_canonical": {
+   "type": "object",
+   "required": [
+    "kind",
+    "symbols",
+    "n_events",
+    "n_showers",
+    "provisional",
+    "splat",
+    "coordinates",
+    "comb",
+    "n_selected",
+    "n_excluded_no_frame",
+    "n_label",
+    "anchor",
+    "depth",
+    "comb_source",
+    "n_ill_conditioned",
+    "ill_conditioned_threshold_mm",
+    "anchor_residual"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "kind": {
+     "const": "canonical"
+    },
+    "title": {
+     "type": "string"
+    },
+    "symbols": {
+     "type": "object"
+    },
+    "n_events": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_selected": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_excluded_no_frame": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_showers": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "n_label": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "anchor": {
+     "type": "string"
+    },
+    "n_ill_conditioned": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "ill_conditioned_threshold_mm": {
+     "type": "number"
+    },
+    "anchor_residual": {
+     "type": "object"
+    },
+    "splat": {
+     "$ref": "#/$defs/splat"
+    },
+    "depth": {
+     "$ref": "#/$defs/depth"
+    },
+    "coordinates": {
+     "type": "null"
+    },
+    "coordinate_check": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "comb": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "comb_source": {
+     "type": "string"
+    },
+    "planned_from": {
+     "type": "string"
+    }
+   },
+   "description": "The D-frame: the events entering closer than the threshold have an effectively random rotation, counted here and stated in the notices.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "negative_w"
+      ]
+     }
+    ]
    }
+  },
+  "frame": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/frame_local"
+    },
+    {
+     "$ref": "#/$defs/frame_canonical"
+    }
+   ]
   },
   "grid": {
    "type": "object",
@@ -74,8 +341,15 @@
     "z_centre0",
     "n",
     "alignment",
-    "partial_edge"
+    "partial_edge",
+    "n_fine",
+    "z_centres",
+    "z_uniform",
+    "extent_mm"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
     "pitch_mm": {
      "type": "number"
@@ -106,7 +380,8 @@
     "n": {
      "type": "array",
      "items": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
      },
      "minItems": 3,
      "maxItems": 3
@@ -115,7 +390,92 @@
      "type": "string"
     },
     "partial_edge": {
-     "type": "object"
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "n_voxels",
+      "energy_gev",
+      "energy_fraction",
+      "note"
+     ],
+     "properties": {
+      "x": {
+       "type": "boolean"
+      },
+      "y": {
+       "type": "boolean"
+      },
+      "n_voxels": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "energy_gev": {
+       "type": "number"
+      },
+      "energy_fraction": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "note": {
+       "type": "string"
+      }
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw"
+     }
+    },
+    "n_fine": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 3,
+     "maxItems": 3
+    },
+    "z_centres": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "z_uniform": {
+     "type": "boolean"
+    },
+    "extent_mm": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "properties": {
+      "x": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "y": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "z": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      }
+     }
     }
    }
   },
@@ -127,11 +487,17 @@
     "layer_counts",
     "xy",
     "code",
-    "order"
+    "order",
+    "dtype",
+    "min_code"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
     "n": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "encoding": {
      "const": "layer-run-u8"
@@ -147,21 +513,343 @@
     },
     "order": {
      "type": "string"
+    },
+    "dtype": {
+     "type": "object",
+     "required": [
+      "layer_counts",
+      "xy",
+      "code"
+     ],
+     "properties": {
+      "layer_counts": {
+       "const": "u16le"
+      },
+      "xy": {
+       "enum": [
+        "u8",
+        "u16le"
+       ]
+      },
+      "code": {
+       "const": "u8"
+      }
+     }
+    },
+    "min_code": {
+     "const": 2
+    },
+    "layout": {
+     "type": "string"
     }
    }
   },
-  "scale": {
-   "type": "object"
+  "scale_density": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "decades",
+    "floor",
+    "floor_ratio",
+    "floor_rule",
+    "unit",
+    "mode",
+    "norm",
+    "clipped_low",
+    "rho_ref",
+    "rho_unit"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "scale": {
+     "const": "log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "mode": {
+     "type": "string"
+    },
+    "locked": {
+     "type": "boolean"
+    },
+    "decades": {
+     "type": "number"
+    },
+    "norm": {
+     "type": "string"
+    },
+    "floor": {
+     "const": "transparent"
+    },
+    "floor_ratio": {
+     "const": 0.001
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "rho_ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "rho_unit": {
+     "const": "GeV/mm^3/event"
+    }
+   },
+   "description": "Density: log10 of rho_v / rho_ref over three decades.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "split_code"
+      ]
+     },
+     {
+      "required": [
+       "diverging"
+      ]
+     },
+     {
+      "required": [
+       "ref_name"
+      ]
+     }
+    ]
+   }
   },
-  "rho": {
+  "scale_gradcam_energy": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "decades",
+    "floor",
+    "floor_ratio",
+    "floor_rule",
+    "unit",
+    "mode",
+    "norm",
+    "clipped_low",
+    "quantity",
+    "ref",
+    "ref_unit",
+    "ref_name"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "scale": {
+     "const": "log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "mode": {
+     "type": "string"
+    },
+    "locked": {
+     "type": "boolean"
+    },
+    "decades": {
+     "type": "number"
+    },
+    "norm": {
+     "type": "string"
+    },
+    "floor": {
+     "const": "transparent"
+    },
+    "floor_ratio": {
+     "const": 0.001
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ref_unit": {
+     "const": "GeV/mm^3/event"
+    },
+    "ref_name": {
+     "const": "cam_ref"
+    },
+    "quantity": {
+     "const": "gradcam_energy"
+    }
+   },
+   "description": "Sum E x Grad-CAM: log10 of the value over cam_ref; scale.ref is rho.cam_ref, never the energy rho_ref.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "rho_ref"
+      ]
+     },
+     {
+      "required": [
+       "split_code"
+      ]
+     },
+     {
+      "required": [
+       "diverging"
+      ]
+     }
+    ]
+   }
+  },
+  "scale_shapcam_energy": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "decades",
+    "floor",
+    "floor_ratio",
+    "floor_rule",
+    "unit",
+    "mode",
+    "norm",
+    "clipped_low",
+    "quantity",
+    "ref",
+    "ref_unit",
+    "ref_name",
+    "split_code",
+    "diverging",
+    "positive_total",
+    "negative_total"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "scale": {
+     "const": "signed_log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "mode": {
+     "type": "string"
+    },
+    "locked": {
+     "type": "boolean"
+    },
+    "decades": {
+     "type": "number"
+    },
+    "norm": {
+     "type": "string"
+    },
+    "floor": {
+     "const": "transparent"
+    },
+    "floor_ratio": {
+     "const": 0.001
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ref_unit": {
+     "const": "GeV/mm^3/event"
+    },
+    "ref_name": {
+     "const": "cam_ref"
+    },
+    "quantity": {
+     "const": "shapcam_energy"
+    },
+    "split_code": {
+     "const": 129
+    },
+    "diverging": {
+     "const": true
+    },
+    "positive_total": {
+     "type": "number"
+    },
+    "negative_total": {
+     "type": "number"
+    }
+   },
+   "description": "Sum E x Shap-CAM, signed: the diverging signed-log ramp, codes below split_code negative.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "rho_ref"
+      ]
+     }
+    ]
+   }
+  },
+  "rho_density": {
    "type": "object",
    "required": [
     "rho_ref",
     "unit",
     "basis",
     "floor_ratio",
-    "norm"
+    "norm",
+    "floor",
+    "floor_basis",
+    "fine_voxel_mm",
+    "peak_drawn",
+    "provisional"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
     "rho_ref": {
      "type": [
@@ -170,7 +858,7 @@
      ]
     },
     "unit": {
-     "type": "string"
+     "const": "GeV/mm^3/event"
     },
     "basis": {
      "type": "string"
@@ -180,10 +868,263 @@
     },
     "norm": {
      "type": "string"
+    },
+    "floor": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "floor_basis": {
+     "const": "rho_ref"
+    },
+    "fine_voxel_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 3,
+     "maxItems": 3
+    },
+    "peak_drawn": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "bound": {
+     "type": "string"
+    },
+    "norm_note": {
+     "type": "string"
+    }
+   },
+   "description": "Density: the floor is 10^-3 of the energy rho_ref.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "cam_ref"
+      ]
+     },
+     {
+      "required": [
+       "cam_basis"
+      ]
+     }
+    ]
+   }
+  },
+  "rho_cam": {
+   "type": "object",
+   "required": [
+    "rho_ref",
+    "unit",
+    "basis",
+    "floor_ratio",
+    "norm",
+    "floor",
+    "floor_basis",
+    "fine_voxel_mm",
+    "peak_drawn",
+    "provisional",
+    "cam_ref",
+    "cam_basis",
+    "floor_note"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "rho_ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "unit": {
+     "const": "GeV/mm^3/event"
+    },
+    "basis": {
+     "type": "string"
+    },
+    "floor_ratio": {
+     "const": 0.001
+    },
+    "norm": {
+     "type": "string"
+    },
+    "floor": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "floor_basis": {
+     "const": "cam_ref"
+    },
+    "fine_voxel_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 3,
+     "maxItems": 3
+    },
+    "peak_drawn": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "bound": {
+     "type": "string"
+    },
+    "norm_note": {
+     "type": "string"
+    },
+    "cam_ref": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "cam_basis": {
+     "type": "string"
+    },
+    "floor_note": {
+     "type": "string"
+    }
+   },
+   "description": "Attention channels: the floor is 10^-3 of the channel's own cam_ref; rho_ref stays the energy reference."
+  },
+  "energy_parts": {
+   "type": "object",
+   "required": [
+    "drawn",
+    "below_floor",
+    "beyond_cap",
+    "outside_grid",
+    "partial_edge"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "drawn": {
+     "type": "number",
+     "minimum": 0
+    },
+    "below_floor": {
+     "type": "number",
+     "minimum": 0
+    },
+    "beyond_cap": {
+     "type": "number",
+     "minimum": 0
+    },
+    "outside_grid": {
+     "type": "number",
+     "minimum": 0
+    },
+    "partial_edge": {
+     "type": "number",
+     "minimum": 0
     }
    }
   },
-  "budget": {
+  "energy_fractions": {
+   "type": "object",
+   "required": [
+    "drawn",
+    "below_floor",
+    "beyond_cap",
+    "outside_grid",
+    "partial_edge"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "drawn": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "below_floor": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "beyond_cap": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "outside_grid": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "partial_edge": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    }
+   }
+  },
+  "budget_cam_block": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "unit",
+    "total",
+    "drawn",
+    "below_floor",
+    "beyond_cap",
+    "outside_grid",
+    "partial_edge"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "quantity": {
+     "enum": [
+      "gradcam_energy",
+      "shapcam_energy"
+     ]
+    },
+    "unit": {
+     "type": "string"
+    },
+    "total": {
+     "type": "number"
+    },
+    "drawn": {
+     "type": "number"
+    },
+    "below_floor": {
+     "type": "number"
+    },
+    "beyond_cap": {
+     "type": "number"
+    },
+    "outside_grid": {
+     "type": "number"
+    },
+    "partial_edge": {
+     "type": "number"
+    }
+   }
+  },
+  "budget_density": {
    "type": "object",
    "required": [
     "cap",
@@ -192,129 +1133,610 @@
     "n_below_floor",
     "n_above_floor",
     "n_drawn",
-    "energy_fraction"
+    "energy_fraction",
+    "cap_requested",
+    "n_beyond_cap",
+    "n_partial_edge",
+    "energy_total_gev",
+    "energy_gev",
+    "cam"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
     "cap": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "rank": {
      "const": "energy"
     },
     "n_populated": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "n_below_floor": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "n_above_floor": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
     },
     "n_drawn": {
-     "type": "integer"
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_beyond_cap": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_partial_edge": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "cap_requested": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "energy_total_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "energy_gev": {
+     "$ref": "#/$defs/energy_parts"
     },
     "energy_fraction": {
-     "type": "object",
-     "required": [
-      "drawn",
-      "below_floor",
-      "beyond_cap",
-      "outside_grid",
-      "partial_edge"
-     ],
-     "properties": {
-      "drawn": {
-       "type": "number"
-      },
-      "below_floor": {
-       "type": "number"
-      },
-      "beyond_cap": {
-       "type": "number"
-      },
-      "outside_grid": {
-       "type": "number"
-      },
-      "partial_edge": {
-       "type": "number"
-      }
-     }
+     "$ref": "#/$defs/energy_fractions"
+    },
+    "cam": {
+     "type": "null"
+    }
+   }
+  },
+  "budget_cam": {
+   "type": "object",
+   "required": [
+    "cap",
+    "rank",
+    "n_populated",
+    "n_below_floor",
+    "n_above_floor",
+    "n_drawn",
+    "energy_fraction",
+    "cap_requested",
+    "n_beyond_cap",
+    "n_partial_edge",
+    "energy_total_gev",
+    "energy_gev",
+    "cam"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "cap": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "rank": {
+     "const": "energy"
+    },
+    "n_populated": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_below_floor": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_above_floor": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_drawn": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_beyond_cap": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_partial_edge": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "cap_requested": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "energy_total_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "energy_gev": {
+     "$ref": "#/$defs/energy_parts"
+    },
+    "energy_fraction": {
+     "$ref": "#/$defs/energy_fractions"
+    },
+    "cam": {
+     "$ref": "#/$defs/budget_cam_block"
     }
    }
   },
   "topk": {
    "type": "array",
+   "maxItems": 64,
    "items": {
-    "type": "object"
+    "type": "object",
+    "required": [
+     "i",
+     "x",
+     "y",
+     "z",
+     "value",
+     "energy_gev"
+    ],
+    "propertyNames": {
+     "$ref": "#/$defs/no_raw"
+    },
+    "properties": {
+     "i": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "x": {
+      "type": "number"
+     },
+     "y": {
+      "type": "number"
+     },
+     "z": {
+      "type": "number"
+     },
+     "value": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "energy_gev": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    }
    }
   },
-  "filter": {
-   "$ref": "#/$defs/filter"
+  "meta_cam": {
+   "type": "object",
+   "required": [
+    "column",
+    "model",
+    "network_frame",
+    "normalisation",
+    "aggregation",
+    "note"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "column": {
+     "type": "string"
+    },
+    "model": {
+     "type": "string"
+    },
+    "network_frame": {
+     "type": "string"
+    },
+    "normalisation": {
+     "enum": [
+      "event",
+      "shower"
+     ]
+    },
+    "aggregation": {
+     "type": "string"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
   },
-  "meta": {
+  "meta_density": {
    "type": "object",
    "required": [
     "exact",
     "cached",
-    "notices"
+    "notices",
+    "warnings",
+    "frame",
+    "channel",
+    "model",
+    "sample_percent",
+    "cam",
+    "cache"
    ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
    "properties": {
+    "table_name": {
+     "type": "string"
+    },
     "exact": {
      "type": "boolean"
     },
     "cached": {
      "type": "boolean"
     },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
     "notices": {
      "type": "array",
      "items": {
       "type": "string"
      }
-    }
-   }
-  }
- },
- "propertyNames": {
-  "not": {
-   "enum": [
-    "hits",
-    "points"
-   ]
-  }
- },
- "$defs": {
-  "interval": {
-   "type": "object",
-   "required": [
-    "lo",
-    "hi",
-    "level",
-    "method",
-    "label"
-   ],
-   "properties": {
-    "lo": {
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "frame": {
+     "enum": [
+      "local",
+      "canonical"
+     ]
+    },
+    "channel": {
+     "const": "density"
+    },
+    "model": {
+     "type": "string"
+    },
+    "anchor": {
      "type": [
-      "number",
+      "string",
       "null"
      ]
     },
-    "hi": {
+    "coordinates": {
      "type": [
-      "number",
+      "string",
       "null"
      ]
     },
-    "level": {
+    "sample_percent": {
      "type": "number"
     },
-    "method": {
-     "type": "string"
+    "cache": {
+     "type": "object",
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw"
+     }
     },
-    "label": {
-     "type": "string"
+    "cam": {
+     "type": "null"
     }
    }
+  },
+  "meta_gradcam_energy": {
+   "type": "object",
+   "required": [
+    "exact",
+    "cached",
+    "notices",
+    "warnings",
+    "frame",
+    "channel",
+    "model",
+    "sample_percent",
+    "cam",
+    "cache"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
+    "notices": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "frame": {
+     "enum": [
+      "local",
+      "canonical"
+     ]
+    },
+    "channel": {
+     "const": "gradcam_energy"
+    },
+    "model": {
+     "type": "string"
+    },
+    "anchor": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "coordinates": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "sample_percent": {
+     "type": "number"
+    },
+    "cache": {
+     "type": "object",
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw"
+     }
+    },
+    "cam": {
+     "$ref": "#/$defs/meta_cam"
+    }
+   }
+  },
+  "meta_shapcam_energy": {
+   "type": "object",
+   "required": [
+    "exact",
+    "cached",
+    "notices",
+    "warnings",
+    "frame",
+    "channel",
+    "model",
+    "sample_percent",
+    "cam",
+    "cache"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
+    "notices": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "frame": {
+     "enum": [
+      "local",
+      "canonical"
+     ]
+    },
+    "channel": {
+     "const": "shapcam_energy"
+    },
+    "model": {
+     "type": "string"
+    },
+    "anchor": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "coordinates": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "sample_percent": {
+     "type": "number"
+    },
+    "cache": {
+     "type": "object",
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw"
+     }
+    },
+    "cam": {
+     "$ref": "#/$defs/meta_cam"
+    }
+   }
+  },
+  "body_density": {
+   "type": "object",
+   "required": [
+    "frame",
+    "grid",
+    "voxels",
+    "scale",
+    "rho",
+    "budget",
+    "topk",
+    "filter",
+    "meta"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "frame": {
+     "$ref": "#/$defs/frame"
+    },
+    "grid": {
+     "$ref": "#/$defs/grid"
+    },
+    "voxels": {
+     "$ref": "#/$defs/voxels"
+    },
+    "scale": {
+     "$ref": "#/$defs/scale_density"
+    },
+    "rho": {
+     "$ref": "#/$defs/rho_density"
+    },
+    "budget": {
+     "$ref": "#/$defs/budget_density"
+    },
+    "topk": {
+     "$ref": "#/$defs/topk"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
+    "meta": {
+     "$ref": "#/$defs/meta_density"
+    }
+   },
+   "description": "The body of channel=density."
+  },
+  "body_gradcam_energy": {
+   "type": "object",
+   "required": [
+    "frame",
+    "grid",
+    "voxels",
+    "scale",
+    "rho",
+    "budget",
+    "topk",
+    "filter",
+    "meta"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "frame": {
+     "$ref": "#/$defs/frame"
+    },
+    "grid": {
+     "$ref": "#/$defs/grid"
+    },
+    "voxels": {
+     "$ref": "#/$defs/voxels"
+    },
+    "scale": {
+     "$ref": "#/$defs/scale_gradcam_energy"
+    },
+    "rho": {
+     "$ref": "#/$defs/rho_cam"
+    },
+    "budget": {
+     "$ref": "#/$defs/budget_cam"
+    },
+    "topk": {
+     "$ref": "#/$defs/topk"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
+    "meta": {
+     "$ref": "#/$defs/meta_gradcam_energy"
+    }
+   },
+   "description": "The body of channel=gradcam_energy."
+  },
+  "body_shapcam_energy": {
+   "type": "object",
+   "required": [
+    "frame",
+    "grid",
+    "voxels",
+    "scale",
+    "rho",
+    "budget",
+    "topk",
+    "filter",
+    "meta"
+   ],
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "properties": {
+    "frame": {
+     "$ref": "#/$defs/frame"
+    },
+    "grid": {
+     "$ref": "#/$defs/grid"
+    },
+    "voxels": {
+     "$ref": "#/$defs/voxels"
+    },
+    "scale": {
+     "$ref": "#/$defs/scale_shapcam_energy"
+    },
+    "rho": {
+     "$ref": "#/$defs/rho_cam"
+    },
+    "budget": {
+     "$ref": "#/$defs/budget_cam"
+    },
+    "topk": {
+     "$ref": "#/$defs/topk"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
+    "meta": {
+     "$ref": "#/$defs/meta_shapcam_energy"
+    }
+   },
+   "description": "The body of channel=shapcam_energy."
   },
   "filter": {
    "type": "object",
@@ -363,55 +1785,354 @@
     }
    }
   },
-  "clipping": {
+  "negative_w": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/negative_w_available"
+    },
+    {
+     "$ref": "#/$defs/negative_w_unavailable"
+    }
+   ]
+  },
+  "negative_w_affected": {
    "type": "object",
    "required": [
-    "lo",
-    "hi",
-    "low_percentile",
-    "high_percentile",
-    "n_total",
-    "n_below",
-    "n_above",
-    "n_outside",
-    "fraction_outside",
-    "note"
+    "n",
+    "mean",
+    "sd",
+    "min",
+    "q25",
+    "q50",
+    "q75",
+    "max",
+    "n_over_half"
    ],
    "properties": {
-    "lo": {
-     "type": "number"
-    },
-    "hi": {
-     "type": "number"
-    },
-    "low_percentile": {
-     "type": "number"
-    },
-    "high_percentile": {
-     "type": "number"
-    },
-    "n_total": {
+    "n": {
      "type": "integer"
     },
-    "n_below": {
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "min": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q25": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q50": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q75": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "max": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n_over_half": {
      "type": "integer"
+    }
+   },
+   "description": "The notebook's describe() of the per-shower negative-depth hit fraction over the showers that have any: an unweighted mean of per-shower fractions, not the pooled hits_fraction."
+  },
+  "negative_w_available": {
+   "type": "object",
+   "required": [
+    "available",
+    "threshold_mm",
+    "unit",
+    "showers_per_event",
+    "splits",
+    "affected",
+    "intervals",
+    "summary"
+   ],
+   "properties": {
+    "available": {
+     "const": true
     },
-    "n_above": {
-     "type": "integer"
+    "threshold_mm": {
+     "type": "number",
+     "description": "The depth cut as a magnitude: a hit counts when w < -threshold_mm."
     },
-    "n_outside": {
-     "type": "integer"
+    "unit": {
+     "type": "string",
+     "description": "What the fractions are over: showers."
     },
-    "fraction_outside": {
-     "type": "number"
+    "showers_per_event": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2,
+     "description": "How many showers each event contributes to the selection: 2 pools both of a two-shower event, 1 for single-shower data or one chosen shower."
     },
-    "note": {
-     "type": "string"
+    "summary": {
+     "type": "string",
+     "description": "One line for the status bar, intervals in brackets, minus signs U+2212."
+    },
+    "splits": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "n_events",
+       "n_showers",
+       "events_with_any",
+       "events_with_any_ci95",
+       "showers_with_any",
+       "showers_with_any_ci95",
+       "hits",
+       "hits_total",
+       "hits_fraction",
+       "hits_fraction_ci95",
+       "energy_gev",
+       "energy_total_gev",
+       "energy_fraction",
+       "energy_fraction_ci95",
+       "note"
+      ],
+      "properties": {
+       "key": {
+        "enum": [
+         "all",
+         "low",
+         "high",
+         "mid"
+        ]
+       },
+       "label": {
+        "type": "string"
+       },
+       "n_events": {
+        "type": "integer"
+       },
+       "n_showers": {
+        "type": "integer"
+       },
+       "events_with_any": {
+        "type": "integer"
+       },
+       "events_with_any_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Wilson score interval on events: the primary interval for the share with any such hit."
+       },
+       "showers_with_any": {
+        "type": "integer"
+       },
+       "showers_with_any_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Wilson score interval on showers: null unless each event contributes one shower (showers_per_event = 1)."
+       },
+       "hits": {
+        "type": "integer",
+        "description": "Hits at w < -threshold_mm."
+       },
+       "hits_fraction": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "hits_fraction_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "energy_gev": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "Raw deposited energy of the hits at w < -threshold_mm, in GeV (not calibrated to the incident momentum)."
+       },
+       "energy_fraction": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "energy_fraction_ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "hits_total": {
+        "type": "integer",
+        "description": "All hits of the split's showers."
+       },
+       "energy_total_gev": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "Raw deposited energy of all hits of the split's showers, in GeV."
+       },
+       "note": {
+        "type": "string",
+        "description": "Low-N label of the split's fractions; empty when N is not small."
+       }
+      }
+     },
+     "minItems": 4,
+     "maxItems": 4
+    },
+    "affected": {
+     "$ref": "#/$defs/negative_w_affected"
+    },
+    "intervals": {
+     "type": "object",
+     "required": [
+      "hits_fraction",
+      "energy_fraction",
+      "events_with_any",
+      "showers_with_any"
+     ],
+     "properties": {
+      "hits_fraction": {
+       "type": "string"
+      },
+      "energy_fraction": {
+       "type": "string"
+      },
+      "events_with_any": {
+       "type": "string"
+      },
+      "showers_with_any": {
+       "type": "string"
+      }
+     },
+     "description": "Which interval each quantity carries, in a few words."
     }
    }
   },
-  "meta": {
-   "type": "object"
+  "negative_w_unavailable": {
+   "type": "object",
+   "required": [
+    "available",
+    "reason",
+    "threshold_mm",
+    "unit",
+    "showers_per_event",
+    "splits",
+    "affected",
+    "summary"
+   ],
+   "properties": {
+    "available": {
+     "const": false
+    },
+    "reason": {
+     "type": "string",
+     "description": "Why the counts cannot be served, e.g. derived tables to rebuild."
+    },
+    "threshold_mm": {
+     "type": "number",
+     "description": "The depth cut as a magnitude: a hit counts when w < -threshold_mm."
+    },
+    "unit": {
+     "type": "string",
+     "description": "What the fractions are over: showers."
+    },
+    "showers_per_event": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2,
+     "description": "How many showers each event contributes to the selection: 2 pools both of a two-shower event, 1 for single-shower data or one chosen shower."
+    },
+    "summary": {
+     "type": "string",
+     "description": "One line for the status bar, intervals in brackets, minus signs U+2212."
+    },
+    "splits": {
+     "type": "array",
+     "maxItems": 0
+    },
+    "affected": {
+     "type": "null"
+    }
+   }
   }
  }
 }

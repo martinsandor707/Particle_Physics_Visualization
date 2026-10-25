@@ -1,0 +1,594 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "event": 3,
+  "format": "voxels",
+  "shower": "a",
+  "frame": "local",
+  "channel": "energy",
+  "model": null,
+  "coordinates": "file",
+  "cam": null,
+  "notices": [
+   {
+    "scope": "event",
+    "text": "Coordinates: the file's own x/y/z_local; the motion (P₀ subtracted, then R(θ, φ) applied) was also applied to every cell here, and the two differ by at most 0.000106 mm (within the 0.01 mm tolerance)."
+   },
+   {
+    "scope": "event",
+    "text": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2847 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins."
+   },
+   {
+    "scope": "event",
+    "text": "Logarithmic ramp of the volumetric energy density E/V in GeV per mm³, from the 1st percentile of the drawn 20 mm voxels' positive densities (4.03e−16) to the brightest drawn voxel (8.38e−08). The floor is the voxels' own, not the cells': a voxel holds only the part of a moved footprint that overlaps it, so voxel densities run below cell densities, and a floor from the cells would draw a sparse shower wholly at the lowest colour; 14 voxels below the floor are drawn at the lowest colour and flagged."
+   },
+   {
+    "scope": "event",
+    "text": "The notebook's C5 display colours each hit's raw energy on a linear ramp with no floor; this view colours volumetric density on a logarithmic ramp with the 1st-percentile floor of its A1/C2 figure, because cell energies span many decades."
+   },
+   {
+    "scope": "event",
+    "text": "All 1,358 voxels are drawn."
+   }
+  ]
+ },
+ "event": {
+  "event_number": 3,
+  "in_selection": true,
+  "prev": 2,
+  "next": 4,
+  "n_hits": 66,
+  "n_cells": 66,
+  "d": null,
+  "e1": 7.3124483524875625,
+  "e2": null,
+  "overlap": null,
+  "shower": {
+   "key": "a",
+   "label": "Shower",
+   "n_hits": 66,
+   "energy_gev": 0.018872583663826055,
+   "momentum_gev": 7.3124483524875625,
+   "theta": 0.2840293786120049,
+   "phi": 2.163887079353561,
+   "theta_deg": 16.27368465219121,
+   "phi_deg": 123.9815969898493,
+   "p0": [
+    -878.5495236148946,
+    994.6329531612578,
+    3662.39990234375
+   ],
+   "first_layer_z": 3662.39990234375,
+   "direction": [
+    -0.156625680231552,
+    0.23236807825366038,
+    0.959934097998766
+   ]
+  },
+  "showers": [
+   {
+    "key": "a",
+    "label": "Shower",
+    "n_hits": 66,
+    "energy_gev": 0.018872583663826055,
+    "momentum_gev": 7.3124483524875625,
+    "theta": 0.2840293786120049,
+    "phi": 2.163887079353561,
+    "theta_deg": 16.27368465219121,
+    "phi_deg": 123.9815969898493,
+    "p0": [
+     -878.5495236148946,
+     994.6329531612578,
+     3662.39990234375
+    ],
+    "first_layer_z": 3662.39990234375,
+    "direction": [
+     -0.156625680231552,
+     0.23236807825366038,
+     0.959934097998766
+    ]
+   }
+  ],
+  "n_primary_cells": 0,
+  "primary_species": null,
+  "primary_note": "primary hit missing: no cell of this event is primary-tagged."
+ },
+ "coordinates": {
+  "source": "file",
+  "residual_max_mm": 0.00010576206614132388,
+  "tolerance_mm": 0.01,
+  "within_tolerance": true,
+  "note": "Coordinates: the file's own x/y/z_local; the motion (P₀ subtracted, then R(θ, φ) applied) was also applied to every cell here, and the two differ by at most 0.000106 mm (within the 0.01 mm tolerance)."
+ },
+ "window": {
+  "half_mm": 2846.9791381835935,
+  "pad": 1.15,
+  "min_half_mm": 150.0,
+  "axes": {
+   "x": [
+    -2846.9791381835935,
+    2846.9791381835935
+   ],
+   "y": [
+    -2846.9791381835935,
+    2846.9791381835935
+   ],
+   "z": [
+    -3033.2068756103513,
+    2660.7514007568357
+   ]
+  },
+  "rule": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2847 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins."
+ },
+ "footprint_mm": [
+  48.27001953125,
+  48.5999755859375,
+  20.5
+ ],
+ "voxels": {
+  "frame": "local",
+  "regime": "subdeposit_splat",
+  "symbols": {
+   "x": "u",
+   "y": "v",
+   "z": "w"
+  },
+  "channel": "energy",
+  "model": null,
+  "geometry": {
+   "cube_mm": [
+    20.0,
+    20.0,
+    20.5
+   ],
+   "axes": null,
+   "coords_rounding_mm": null,
+   "origin_mm": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "grid": {
+    "x0": -2260.0,
+    "y0": -2540.0,
+    "z0": -697.0,
+    "pitch_mm": 20.0,
+    "pitch_z_mm": 20.5,
+    "n": [
+     152,
+     144,
+     50
+    ],
+    "z_axis": "uniform"
+   },
+   "splat": {
+    "k": 12,
+    "k_z": 4,
+    "footprint_mm": [
+     48.27001953125,
+     48.5999755859375,
+     20.5
+    ]
+   },
+   "depth": {
+    "policy": "uniform_bins",
+    "note": "uniform bins of the layer pitch along w, never smoothed"
+   },
+   "note": "In this frame each cell is tilted by the shower's R(θ, φ), and an echarts-gl bar3D cube cannot tilt. Each cell's 48.27 × 48.60 × 20.5 mm footprint is therefore split into 12 × 12 × 4 equal sub-deposits that move with it, binned onto axis-aligned 20 × 20 × 20.5 mm voxels: energy is conserved, and k is chosen so the voxels converge on the footprints' area overlap (k = 4, enough for a projected panel, leaves empty voxels in 3-D). A voxel's centre is grid.x0 + (index + 0.5) × pitch along x and y, and grid.z0 + (index + 0.5) × pitch_z along depth."
+  },
+  "cubes": {
+   "n": 1358,
+   "order": "ascending energy",
+   "dtype": {
+    "ix": "u8",
+    "iy": "u8",
+    "iz": "u8",
+    "code": "u8",
+    "flags": "u8"
+   },
+   "ix": "k5JhYWFhkpKTZWZkZJSUZmWUlGJhYZOTZmNkYmOTZJNiY2JlYWVlY45iYmFtY2SSZG5jkW6OjmWPZWyRZGRua4+PkGyQkZGSbG5uj2yQj4+Qj5BsbW2QkW1ukW1tbWFfYF5gkGyQj46Oj49gYGqDg4NgiF5QTl9qdXJpY4xfZIlpaWaLjGVmZICCZk5hipOUlWZkj4+OjVBOamlngmFhX2CIaGdnh4NmjIqKUWBgdXOHiWlvX4BjaGdfipZPaoyMkAQCAgICdnVkaGpiamVmh45oa2hnbGlnZk1OgGdsaV9gXml1dXRxioqKiIpRY2WWlJaTlWBjiophYGBgYIhnaYtQT2JpZGVnZ3NpYGBgbm1oZ4iNi41YVWdnjQGIY2FnT2prZ42OjWBmjFBlYIJpi3VqZGNmZ2FggGKKd3V1X2Vxi4prbmRiaWxljWZoZmcBi4lhjo5gc2RlaIxqY2VxbGtqT09gaGiCZmaNal5fboxkgoJjc3RyV4Fnjo5mAgNpimOBgZBnaYiRZ2RpaWCMg2RpUIFqc2priGVna4ECBIlycnWJlWR0a2mJal9ldXRljoxuX5WVb2xubGtuZWVPAmxfj2dnZ2FkiGSTd2aCjW9haGmPaANlk1BQTWxujU5pZW5ujIFpUHRpVnRtUGxramlpZk9NXoJpkGmTlG9miYxgZWp3a2uLZmZhcXKIaYpvaolqi22JVJSOaGROa2mPc1B0T4iMi4uRY2NhTo1qjGaPc2qNjYmIYW2OjmZoXV9jc1WKjXFgZGphkm1jXmVxdGhmY2RtZV5fdHFqZWZoawNmjXZma42SX18BAWduimV0jk5kdU9kZldnYk9ibGllaYlpZmZPiXdmZWtzb2xuaWqFYmqUjWdqXnRpi2CPBGp0iZZik2iMT1BQlI2Mi2tlanVfjGRhamdlZV+OZYxuZVVljGNfaWONZWllZ19iYVxjk2ReZZWUVFJpi4thX2x2Z45OYmMEj5FzimKMaGBeamZnVpQDaotzZGhoiANkV2FeYGhpaWRraGloiYhOkGJgX2CLiVZqTWJkA2ZmdJVnZISEXYyNjVRpiVZXYW9ti2OJYWRpa3ZqaWpjaUREkGKKa2psk5KNk2BmcGaRcYuKfWpobV+VAnGRjm50Y2JkimlTUlJnZ49qa2lVYWCRaXJsZYNgjE9hbGpojWBfZWuLi3ZfZ3Rta2tiZ3NVV2CSZGBwa2lnaHGSbXp8j4uLimADdmhlg2aKA2hmZY6OVWpqkmZvUE5rQ0NDkpECanWMaJJgcGZTjmeMbI96cmdgYk9ndl9cXHBrYl9rk3BuAm9OT1docYxqZnORaoSGjG1fZnNOaHBmjHVyaI9VVJFjbYWNYGBgdW2Qk21ujo6RhYSEkGNTU1ZgaJF6TY1Tg1Ztk5FValZnXV5sYlRhi5Nnbl1dXmd8i2eSkoZrfV5OTWpfX15gXVSFkHBCQkKDeoxfkJBvjIxsbW5jT4xvY2NefGqMa2Fua1+OXo2KiW5QTUVEQpBSXoqRVI5eZGFgT5CNe4V8kV5vfE9PUl9tX15hiV+RkXBuX2BEjHCFiF9UkWBsjXtgZWOQX15dkmSSkVNURFxrkV+Ne4tiYXtjg4mFbWVkQnyLi4tuXWFhYlOSkIyKjkRhXYuNiHtie15gkFNiX4V9iWJkRGJibIROQ02EYYpfkXyRkmxDkW6KhGxOcI1kZGN8TWOSbZGNQopDYG9DQ2KNkWBDUGFhYGRrbpJhYG2LiU5giWJvRG+JjE5jbW1iiU9OimxrjIpjjItPTo1simyNT2VjZIuMjIxjY4tjZGQ=",
+   "iy": "jY11eHV4jIuNfX6AfYuMf4CMi3h3doyLf39+eHeMf4t2d3d9d35/fot3dnaAf4CMfX1+jn2Min6Nf32Of35/fo2Jjn2OjYyNf35/jH6Ni4mMio1/fX2MjH9+jX9+fnl8e3p5i36LjIuKi4p5enmCgoB6QXp1d3l5dXWCcW57fEF6fXuMiHR1d4B/bHZ5QIKDf3Nxbm1vb3h4d3Zxf3qChYJBfX16fIFsPz49d2ttdHQ/QYKDeYB5eXd6P4B1fIyIhAIBAQMCdXV3d3d6hXBzP29wb3h4jYtycXt5gXl0cnuEg3Z3dnhofnt+fnt3cXaBg4KAf316Pz1sbGxqez50hIl1dXWLcnNzcnR5goSDhIR6fH6Li4l4d3Z1hgM+dnqLeIWEc29sbHxqP3iDa4J6inaOe3txeoSDgXo+eHh4emlnfYqDhXV1hIRzi2pydHQCPD1rbm15dnZwfG14amlrcXJvd3Z6eXuAe3uJeIOChj10goF8Zmlnd4J2h4ZxBAGNQGuAgoaJd0CEe3x4eYVtgWxydoB1do6LQHV5dIECAkBtbXc/gmpnjXs+gmpydHR0iIeDhIGAhoeHjIyEcnF5A3NtbouKinNzP2uFeHGAbG6Cdo2GdwRsgXt6e4SFbnZ3doaFPYF4dnZ8enWFd4GAg4KLi3x6bIFyhoOBgG5re4t9coR3cXA8coFsZ2g/g4aEckCDP4V7eIKFeGx3cnJtdXd4eHyKi4mHdXaDe211iXKEdYuKhz99hISBgYF9eHd6aXF8im57eoJzhYR7bGxoZ3p4fHuEc3h4dG5vgoRyhAFrinZzc26GgoMDAnyEfWp3bHpxeXZ5dHmEcnd7g4Fre36LinJ7Pnd4eItmbYWDfIRvcoOBbXp0a3WMPWqFA412foF7iXOLent6gIqHPoN4c3Vtimp7jHtye2xucYmEanhrPnVrjHKHdYqCgWp0fXZ0hnJre4KCcHNwiYh8hIV4jG18dHMDgIJnfHM+dnV4i4RxeYECgYpodnSJfQRrd3BvcXx1dXqNe3B1fXx5hYGAgH+JfHdyenx1A3p5aICEdG9veIqJiHNzfHh5g4aHP3J9e3OKcneNdIx0cXJyhXw/cHCGiouFhXVzbnKFbIh9aXGLhYOBBGyGiYdoc3N5PXFwcnGDgoZyjIJ3fYSHdGmGenB8inl8gYJzhYJseXQ+PXZrcneGgYB9c2lyeGyKf4NtgnN1im2EamdmhIWEhWsCeHR6coo+A3V5eYaEeXFwh3pscHGCdnJ2gIICcnaIgol3boNzhYGJgoVnZ4lxb3t0d3Z3dWxxgX9zhmpsA217eniJbYlzgmd+dHJxiId2g2h6g22ChXhoi4NycIuAhW+IgYB/d2qBgIaFg4KFcnFwin1ycHd3ioZocIlxcXlriYh4g3iLdXWCfXNvhoqDhnd2dYJmg4qGhXGDZ3dxboFwbnd2dnFwimx1c3VwaISAgX9qf3+AgIJ+bYNrgH92aYKFgn5qgW6EdYSFhIJvbnR1c39xd4SLcoJ1iYFucImDaXJninZpaG9ucnCDd3d+hHeJf2prdXZzhGtxgnVxgXCAhGlviomJdnZ1iH6BgHNydHaDiHaDZ4B+bmd9cYFwg4t/dGmEgoVsd3B/f3F/gIOEg3WAdoGAgmiKaHaBgHJ+b3FogYCMc3+Ag3Juc29wgYFvimeJioJ1gWqDcYFwa4KLin9ob36JgX+CdIJ0f2x1c4qAgG50b4B/cImBa4Bvb4GDg2+Ag4tqdGuCgm6MgoKLgnBwgYOCgIOKgYBub4GBgoKBb4uLjIKCgIGMioGLios=",
+   "iz": "LCweHR0eLCwrHx4dHSwsHx4rKx4eHiwsHh0dHR0rHSseHh4eHR8fHSkdHR0hHh4rHiAeKiEqKR4rHiErHh4gICorKiArKiorISAhKyErKyorKyogICEqKyEhKyAhICMiISEhKyAqKioqKiojISAsKysjLSIeHCEfKSgfHSohJC4gHx8qKh8eHSwrJBwiLSwrKx8dKyspKR4dICAjLCMjIiEuIB8fKCsjLy8vHiMhJycuLSAhIisjIB8hLSweHykpKgMDAgEBKCceIB8iHx8eLSogHyAfIB8lIxwcLCMlJCIjIR8pKSchKSkoKCgdHh8tLCwsLCMiLy0jIyEhIy0jHyodHR0gHSQjIyggIyEhJSUgHikqKiofHiUlKgEuHSIjHiAfJSopKSMkLh0fISsfKicfJCIfIyMjKyMtKSknIiQhKSkfIB0eICEfKSMlIyUBLy4iKSkiJx0eICkfIyMhIB8fHh4iHyArJCMpICIhJy8dLCsiIyIhICwkKikeAwMfLiMsKyolIC0rHiMgHyIqLCQfHiskKCAfLh8kJiwDAi0iISctKyQjHyAtHyEjKCceLy4gISsrJyYlIB8gHx8eAyUhKiUlIx4dLiQsKCQsKiIiJSArHwMkKx4eHSAhKR0fHiUlLisfHScgHycgHiYmJCQlJB0cISwlKyAsKyEjKCoiJB8pHx8uHx4iIiEtHykhJC4fLyEpHyspHyMdICAqKB0oHSkqKSkqHR4jHCklKh4rJx8uLi4pIiYqKR8fIiEjIxkoKSIiJCAdLCAjIiMiIh8jIyMhHh0cKCEgHx4kIAIkKikjJiosIiECAh8mKCQnKhweKB0kJCAeHh0jJSUkHykkIyMeLigkIyAiIiUhHyAoHSArKiQkISggLyIrAx8oKCwiLCUpHh0dLC8vLyYkJCgiKSMjHx8eJCEqHikhIx4jLx4hHx0vHiUeHiIeIyAdLB4iIywsGhkgLy8jIiYpJCodHR0CKyojKR4uJB0cIB8kICwDJCkjHiUlKAIjHx4dHB8lJCMgHx8lKSgdKyMhISEuKSAfHSIeAyMjIywfHignIS4uLhokKCAfIiYlLh4oIh4kJSkgJCAeIBUUKiMuIB8lLCspKxwkIiQqIi4pJR8lJSIsAiEqLyYiHh0jLh8aGBgeHiogICUfIiIrJSImJCYiLx0iJSQkKiIiJCUuLigiJCglJiUiJCIaICIsJCIiJiUkJSErICUkKioqKCICKCQjJyQuAiQkIyopHyAgKyQiGBcfFRUULCsCJSguHywcIR4aKh8uJiokIiQdHR0kKCIhISIgIiIlKyIgAiEdHR8kIi8lHiIrJSgoLyYhHyIdHyEfKigiJCoZGSoiJicvIyMjKCEqKyYmKSkrKCgoKiIaGR8dJCslGC8aJh8hKyofJR8kIh0lIxkeKSsfJiIiIh8lKiQrKyclJSIYFyUcHB0cHBooKyEVFRQnJCoiKyoiKikhICAiGCoiIyIdJCUpJSMgJR0qHCkpKCEZGBUUFCsZISgrGiohHSMcFyopJCckKiIhJBcXGR0hHRwiKRwqKiEgHB0UKSIoKR0ZKhwgKiUcHh4rHCEhKyMrKhkZFCEgKx0qJCoiHSUjJygnIB8jFSUpKikhIR0jIhkrKikpKhUjISoqKCUdJBwiKxkjHCclKSIdFSMjIScXFBcnIigdKyUrKyEUKyEoJyEXISodHSMlGCMrISspFCgUIiEVFR4pKx0VGCIiHR4gISsdHSApKBciKR0hFSEpKhgdISAeKBgYKSAgKikdKikYGCkgKSAqGB4dHikpKSkeHikeHh4=",
+   "code": "AQEBAQEBAQEBAQEBAQEBAwMEBgkKCgwOEBQWFhcXFxcaGhscHR4fISEhISMjKSorKywuLi8vLzExMjQ0Njc4ODo8PD4/Pz8/QEBCQ0RHSEhISUlKSktLS01NTk5OTlBQUFBQU1NWVlZWW1tfX2BgYGBiZGVmZmhpampra2tsbG1tbW1ubm5ubm9vb29xcnJycnR0dHR0dHV1dXV1dXZ2dnZ2d3d3d3h4eXl5eXl5eXl5eXl5enp7e3t7e3t8fHx8fHx8fHx8fX19fX19fX19fX5+fn5+fn5/f39/f39/f39/f3+AgICAgICAgICAgICBgYGBgYGCgoKCgoKCgoKCgoODg4SEhISEhISEhYWFhYWFhYWFhYWFhYWFhYWGhoaGhoaGh4eHh4eHh4eHh4eHh4eHiIiIiIiIiYmJiYmJiYmJiYmJiYqKioqLi4uLi4uLi4uLi4uLi4uMjIyMjIyMjIyMjY2NjY2NjY2Njo6Ojo6Ojo6Ojo6Ojo+Pj4+Pj4+Pj4+Pj4+Pj4+Pj5CQkJCQkJCQkJCQkJGRkZGRkZGSkpKSkpKSkpKSkpKSkpKSk5OTk5OTk5OTk5OTlJSUlJSUlJSUlJSUlJWVlZWVlZWVlZaWlpaWlpaWlpaWlpaWlpaXl5eXl5eXl5eYmJiYmJiYmJiYmJiYmJiZmZmZmZmZmZmZmZmZmZmZmZqampqampqampqbm5ubm5ubm5ubm5ubm5ubm5ubm5ucnJycnJycnJycnJycnJycnJycnJydnZ2dnZ2dnZ2dnZ2enp6enp6enp6enp+fn5+fn5+fn5+fn5+fn5+foKCgoKCgoKCgoKCgoaGhoaGhoaGhoaGhoaGhoaGhoaKioqKioqKioqKioqKioqKjo6Ojo6Ojo6Ojo6OjpKSkpKSkpKSkpKSkpKSkpKSkpKSlpaWlpaWlpaWlpaWlpaWlpaWlpqampqampqampqampqampqampqanp6enp6enp6enp6enqKioqKioqKioqKioqampqampqampqampqampqampqqqqqqqqqqqqqqqqqqqqqqqqq6urq6urq6urq6urq6ysrKysrKysrKysrKysrKysrK2tra2tra2tra2tra2tra2tra6urq6urq6urq6urq6vr6+vr6+vr6+vr6+wsLCwsLCwsLCwsLCwsbGxsbGxsbGxsbGxsbGxsbGxsrKysrKysrKysrOzs7Ozs7Ozs7Ozs7S0tLS0tLS0tLS0tLW1tbW1tbW1tbW1tbW2tra2tra2tra2tra2tra2t7e3t7e3t7e3uLi4uLi4uLi4uLi4uLi5ubm5ubm5ubm5urq6urq6urq6urq6urq6uru7u7u7u7u8vLy8vLy8vLy8vL29vb29vb2+vr6+vr6+vr6+v7+/v7+/v7/AwMDAwMDAwcHBwcHBwcHBwcHBwcLCwsLDw8PDw8TExMXFxcXFxcXGxsbGxsbHx8fHx8fHyMjIyMjIyMnJycnJycnKysrKysrKysrLy8vLy8vLy8vLy8zMzMzMzM3Nzc7Ozs7Pz8/Pz8/Pz9DQ0NDQ0NDQ0NDQ0dHR0dHR0dHR0dHR0tLS0tLS0tLS0tLT09PT09PT09PU1NTU1NTV1dXV1dbW1tbW1tbW19fX19fY2NjY2NjY2NjY2NjZ2dnZ2dnZ2dra2trb29vb29vb29zc3Nzd3d3d3t7e3t7e3t7f39/f39/f39/f4ODg4ODg4ODg4ODg4eLi4uLj4+Pj4+Pk5OTl5eXl5ubm5ufo6Onp6enq6urr7Ozt7e3t7u7u7u7u7+/x8vLy8/P09fb3+Pn6/f8=",
+   "flags": "CAgICAgICAgICAgICAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+   "flag_bits": {
+    "shower": [
+     0,
+     1
+    ],
+    "primary": 2,
+    "below_floor": 3
+   },
+   "shower_codes": [
+    "Shower",
+    "—",
+    "—",
+    "—"
+   ]
+  },
+  "scale": {
+   "scale": "log10",
+   "vmin": -15.394885958384197,
+   "vmax": -7.07690967355553,
+   "unit": "GeV/mm^3",
+   "mode": "percentile",
+   "locked": true,
+   "global_vmax": 8.377034932048659e-08,
+   "clipped_low": 14,
+   "clipped_high": 0,
+   "empty_cells": 0,
+   "quantity": "energy_density",
+   "floor_density": 4.02822797888386e-16,
+   "top_density": 8.377034932048659e-08,
+   "floor_percentile": 1.0,
+   "floor_basis": "voxels",
+   "degenerate": false,
+   "min_code": 1,
+   "floor_rule": "Logarithmic ramp of the volumetric energy density E/V in GeV per mm³, from the 1st percentile of the drawn 20 mm voxels' positive densities (4.03e−16) to the brightest drawn voxel (8.38e−08). The floor is the voxels' own, not the cells': a voxel holds only the part of a moved footprint that overlaps it, so voxel densities run below cell densities, and a floor from the cells would draw a sparse shower wholly at the lowest colour; 14 voxels below the floor are drawn at the lowest colour and flagged."
+  },
+  "topk": [
+   {
+    "i": 1357,
+    "value": 8.377034932048659e-08,
+    "energy_gev": 0.00068691686442799
+   },
+   {
+    "i": 1356,
+    "value": 7.364426313888926e-08,
+    "energy_gev": 0.0006038829577388919
+   },
+   {
+    "i": 1355,
+    "value": 5.891541051111133e-08,
+    "energy_gev": 0.0004831063661911129
+   },
+   {
+    "i": 1354,
+    "value": 5.502706876911585e-08,
+    "energy_gev": 0.00045122196390674996
+   },
+   {
+    "i": 1353,
+    "value": 5.06304309079863e-08,
+    "energy_gev": 0.00041516953344548766
+   },
+   {
+    "i": 1352,
+    "value": 4.41865578833335e-08,
+    "energy_gev": 0.0003623297746433347
+   },
+   {
+    "i": 1351,
+    "value": 4.2477033859998664e-08,
+    "energy_gev": 0.00034831167765198907
+   },
+   {
+    "i": 1350,
+    "value": 4.054625959363509e-08,
+    "energy_gev": 0.00033247932866780776
+   },
+   {
+    "i": 1349,
+    "value": 3.589509649805265e-08,
+    "energy_gev": 0.0002943397912840317
+   },
+   {
+    "i": 1348,
+    "value": 3.4432239082411475e-08,
+    "energy_gev": 0.0002823443604757741
+   },
+   {
+    "i": 1347,
+    "value": 3.406047170173625e-08,
+    "energy_gev": 0.0002792958679542372
+   },
+   {
+    "i": 1346,
+    "value": 3.221936512326402e-08,
+    "energy_gev": 0.00026419879401076495
+   },
+   {
+    "i": 1345,
+    "value": 3.1298811834027905e-08,
+    "energy_gev": 0.0002566502570390288
+   },
+   {
+    "i": 1344,
+    "value": 3.085049801528942e-08,
+    "energy_gev": 0.00025297408372537325
+   },
+   {
+    "i": 1343,
+    "value": 2.8417536229609868e-08,
+    "energy_gev": 0.00023302379708280092
+   },
+   {
+    "i": 1342,
+    "value": 2.556394737900246e-08,
+    "energy_gev": 0.00020962436850782018
+   },
+   {
+    "i": 1341,
+    "value": 2.4778437438719976e-08,
+    "energy_gev": 0.0002031831869975038
+   },
+   {
+    "i": 1340,
+    "value": 2.3925232803425377e-08,
+    "energy_gev": 0.00019618690898808808
+   },
+   {
+    "i": 1339,
+    "value": 2.3812882618484114e-08,
+    "energy_gev": 0.00019526563747156972
+   },
+   {
+    "i": 1338,
+    "value": 2.322080495774471e-08,
+    "energy_gev": 0.00019041060065350663
+   },
+   {
+    "i": 1337,
+    "value": 2.2889079172634072e-08,
+    "energy_gev": 0.00018769044921559938
+   },
+   {
+    "i": 1336,
+    "value": 2.252569977424173e-08,
+    "energy_gev": 0.00018471073814878218
+   },
+   {
+    "i": 1335,
+    "value": 2.252569977424173e-08,
+    "energy_gev": 0.00018471073814878218
+   },
+   {
+    "i": 1334,
+    "value": 2.2093278941666764e-08,
+    "energy_gev": 0.00018116488732166747
+   },
+   {
+    "i": 1333,
+    "value": 2.197271145590736e-08,
+    "energy_gev": 0.00018017623393844033
+   },
+   {
+    "i": 1332,
+    "value": 2.1238516929999345e-08,
+    "energy_gev": 0.00017415583882599464
+   },
+   {
+    "i": 1331,
+    "value": 2.1010290334750783e-08,
+    "energy_gev": 0.00017228438074495643
+   },
+   {
+    "i": 1330,
+    "value": 1.9687772640016352e-08,
+    "energy_gev": 0.00016143973564813408
+   },
+   {
+    "i": 1329,
+    "value": 1.9629645084639867e-08,
+    "energy_gev": 0.00016096308969404692
+   },
+   {
+    "i": 1328,
+    "value": 1.9240095536417035e-08,
+    "energy_gev": 0.00015776878339861968
+   },
+   {
+    "i": 1327,
+    "value": 1.6918015040642558e-08,
+    "energy_gev": 0.00013872772333326896
+   },
+   {
+    "i": 1326,
+    "value": 1.6733490218356355e-08,
+    "energy_gev": 0.0001372146197905221
+   },
+   {
+    "i": 1325,
+    "value": 1.656995920625008e-08,
+    "energy_gev": 0.00013587366549125065
+   },
+   {
+    "i": 1324,
+    "value": 1.6387145755770788e-08,
+    "energy_gev": 0.00013437459519732045
+   },
+   {
+    "i": 1323,
+    "value": 1.6064049431576707e-08,
+    "energy_gev": 0.00013172520533892898
+   },
+   {
+    "i": 1322,
+    "value": 1.5649405917013966e-08,
+    "energy_gev": 0.00012832512851951452
+   },
+   {
+    "i": 1321,
+    "value": 1.5591111900199997e-08,
+    "energy_gev": 0.00012784711758163998
+   },
+   {
+    "i": 1320,
+    "value": 1.5349927818313225e-08,
+    "energy_gev": 0.00012586940811016843
+   },
+   {
+    "i": 1319,
+    "value": 1.512450077428363e-08,
+    "energy_gev": 0.00012402090634912576
+   },
+   {
+    "i": 1318,
+    "value": 1.3263728523155022e-08,
+    "energy_gev": 0.00010876257388987119
+   },
+   {
+    "i": 1317,
+    "value": 1.3159912663545573e-08,
+    "energy_gev": 0.0001079112838410737
+   },
+   {
+    "i": 1316,
+    "value": 1.3124110328174443e-08,
+    "energy_gev": 0.00010761770469103043
+   },
+   {
+    "i": 1315,
+    "value": 1.2887746049305619e-08,
+    "energy_gev": 0.00010567951760430607
+   },
+   {
+    "i": 1314,
+    "value": 1.2871915552581814e-08,
+    "energy_gev": 0.00010554970753117087
+   },
+   {
+    "i": 1313,
+    "value": 1.1932159928005449e-08,
+    "energy_gev": 9.784371140964469e-05
+   },
+   {
+    "i": 1312,
+    "value": 1.1610402478872337e-08,
+    "energy_gev": 9.520530032675317e-05
+   },
+   {
+    "i": 1311,
+    "value": 1.1584723997323635e-08,
+    "energy_gev": 9.49947367780538e-05
+   },
+   {
+    "i": 1310,
+    "value": 1.1409412173189422e-08,
+    "energy_gev": 9.355717982015326e-05
+   },
+   {
+    "i": 1309,
+    "value": 1.1143259113924134e-08,
+    "energy_gev": 9.13747247341779e-05
+   },
+   {
+    "i": 1307,
+    "value": 1.0795051350947185e-08,
+    "energy_gev": 8.851942107776692e-05
+   },
+   {
+    "i": 1308,
+    "value": 1.0795051350947185e-08,
+    "energy_gev": 8.851942107776692e-05
+   },
+   {
+    "i": 1306,
+    "value": 1.0488563344594518e-08,
+    "energy_gev": 8.600621942567505e-05
+   },
+   {
+    "i": 1305,
+    "value": 1.0331746428562852e-08,
+    "energy_gev": 8.472032071421539e-05
+   },
+   {
+    "i": 1304,
+    "value": 1.0160030368577888e-08,
+    "energy_gev": 8.331224902233868e-05
+   },
+   {
+    "i": 1303,
+    "value": 1.0126086181597271e-08,
+    "energy_gev": 8.303390668909762e-05
+   },
+   {
+    "i": 1302,
+    "value": 1.0014686193047391e-08,
+    "energy_gev": 8.212042678298861e-05
+   },
+   {
+    "i": 1301,
+    "value": 1.0012042238441362e-08,
+    "energy_gev": 8.209874635521916e-05
+   },
+   {
+    "i": 1300,
+    "value": 9.737739711360777e-09,
+    "energy_gev": 7.984946563315837e-05
+   },
+   {
+    "i": 1299,
+    "value": 9.620047768208509e-09,
+    "energy_gev": 7.888439169930977e-05
+   },
+   {
+    "i": 1298,
+    "value": 9.616859254129456e-09,
+    "energy_gev": 7.885824588386154e-05
+   },
+   {
+    "i": 1297,
+    "value": 9.234321035147597e-09,
+    "energy_gev": 7.57214324882103e-05
+   },
+   {
+    "i": 1296,
+    "value": 8.571299077303038e-09,
+    "energy_gev": 7.02846524338849e-05
+   },
+   {
+    "i": 1295,
+    "value": 8.366688487575502e-09,
+    "energy_gev": 6.860684559811911e-05
+   },
+   {
+    "i": 1294,
+    "value": 8.28497960312504e-09,
+    "energy_gev": 6.793683274562533e-05
+   }
+  ],
+  "topk_quantity": "energy_density",
+  "topk_unit": "GeV/mm^3",
+  "cap": {
+   "limit": 6000,
+   "requested": 6000,
+   "n_total": 1358,
+   "n_drawn": 1358,
+   "n_beyond": 0,
+   "rank": "energy",
+   "energy_total_gev": 0.018872583663826055,
+   "energy_drawn_gev": 0.01887258366382605,
+   "energy_beyond_gev": 0.0,
+   "fraction_beyond": 0.0,
+   "energy_outside_window_gev": 0.0,
+   "fraction_outside_window": 0.0
+  },
+  "below_floor": {
+   "n": 14,
+   "drawn_as": "lowest colour"
+  },
+  "species": null,
+  "notes": [
+   "The notebook's C5 display colours each hit's raw energy on a linear ramp with no floor; this view colours volumetric density on a logarithmic ramp with the 1st-percentile floor of its A1/C2 figure, because cell energies span many decades.",
+   "All 1,358 voxels are drawn."
+  ]
+ },
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

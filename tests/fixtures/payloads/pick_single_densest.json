@@ -1,0 +1,53 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": []
+ },
+ "event_number": 3,
+ "pool": [
+  3,
+  7,
+  11,
+  15,
+  19,
+  23,
+  27,
+  31,
+  35,
+  39,
+  43,
+  47,
+  51,
+  55,
+  59,
+  63,
+  67,
+  71,
+  75,
+  79
+ ],
+ "pool_size": 20,
+ "mean_hits": 29.871080139372822,
+ "n_events": 287,
+ "seed": 42,
+ "rule": "Among the 287 selected events with an incident direction and an entry point, the one with the most detector cells (66; ties go to the lowest event number) - the reference notebook's densest event, groupby('event_number').size().idxmax(), where one row is one cell. The choice is deterministic: the seed (42) is echoed and not used.",
+ "rule_id": "densest",
+ "seed_used": false,
+ "n_cells": 66,
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

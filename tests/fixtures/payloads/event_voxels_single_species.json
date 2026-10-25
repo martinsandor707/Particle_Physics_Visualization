@@ -1,0 +1,756 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "event": 3,
+  "format": "voxels",
+  "shower": "a",
+  "frame": "lab",
+  "channel": "species",
+  "model": null,
+  "coordinates": "file",
+  "cam": null,
+  "notices": [
+   {
+    "scope": "event",
+    "text": "Cube positions are the laboratory lattice coordinates measured at ingest; the per-shower coordinate columns are not read in this frame."
+   },
+   {
+    "scope": "event",
+    "text": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2267 mm here); cells snap it to whole cells, voxels to whole bins."
+   },
+   {
+    "scope": "event",
+    "text": "No floor: a categorical channel, every cube drawn in its species' colour."
+   },
+   {
+    "scope": "event",
+    "text": "All 66 cells are drawn."
+   }
+  ]
+ },
+ "event": {
+  "event_number": 3,
+  "in_selection": true,
+  "prev": 2,
+  "next": 4,
+  "n_hits": 66,
+  "n_cells": 66,
+  "d": null,
+  "e1": 7.3124483524875625,
+  "e2": null,
+  "overlap": null,
+  "shower": {
+   "key": "a",
+   "label": "Shower",
+   "n_hits": 66,
+   "energy_gev": 0.018872583663826055,
+   "momentum_gev": 7.3124483524875625,
+   "theta": 0.2840293786120049,
+   "phi": 2.163887079353561,
+   "theta_deg": 16.27368465219121,
+   "phi_deg": 123.9815969898493,
+   "p0": [
+    -878.5495236148946,
+    994.6329531612578,
+    3662.39990234375
+   ],
+   "first_layer_z": 3662.39990234375,
+   "direction": [
+    -0.156625680231552,
+    0.23236807825366038,
+    0.959934097998766
+   ]
+  },
+  "showers": [
+   {
+    "key": "a",
+    "label": "Shower",
+    "n_hits": 66,
+    "energy_gev": 0.018872583663826055,
+    "momentum_gev": 7.3124483524875625,
+    "theta": 0.2840293786120049,
+    "phi": 2.163887079353561,
+    "theta_deg": 16.27368465219121,
+    "phi_deg": 123.9815969898493,
+    "p0": [
+     -878.5495236148946,
+     994.6329531612578,
+     3662.39990234375
+    ],
+    "first_layer_z": 3662.39990234375,
+    "direction": [
+     -0.156625680231552,
+     0.23236807825366038,
+     0.959934097998766
+    ]
+   }
+  ],
+  "n_primary_cells": 0,
+  "primary_species": null,
+  "primary_note": "primary hit missing: no cell of this event is primary-tagged."
+ },
+ "coordinates": {
+  "source": "lattice",
+  "residual_max_mm": null,
+  "tolerance_mm": 0.01,
+  "within_tolerance": null,
+  "note": "Cube positions are the laboratory lattice coordinates measured at ingest; the per-shower coordinate columns are not read in this frame."
+ },
+ "window": {
+  "half_mm": 2267.2979278564453,
+  "pad": 1.15,
+  "min_half_mm": 150.0,
+  "axes": {
+   "x": [
+    -1784.210464477539,
+    2750.3853912353516
+   ],
+   "y": [
+    -1004.7978973388672,
+    3529.7979583740234
+   ],
+   "z": [
+    1446.3519744873047,
+    5980.947830200195
+   ]
+  },
+  "rule": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2267 mm here); cells snap it to whole cells, voxels to whole bins."
+ },
+ "footprint_mm": [
+  48.27001953125,
+  48.5999755859375,
+  20.5
+ ],
+ "voxels": {
+  "frame": "lab",
+  "regime": "cells",
+  "symbols": {
+   "x": "x",
+   "y": "y",
+   "z": "z"
+  },
+  "channel": "species",
+  "model": null,
+  "geometry": {
+   "cube_mm": [
+    48.27001953125,
+    48.5999755859375,
+    20.5
+   ],
+   "axes": {
+    "x": {
+     "i0": 12,
+     "coords": [
+      -1488.476,
+      -1484.072,
+      -1440.206,
+      -1435.802,
+      -1387.532,
+      -1383.127,
+      -1339.262,
+      -1334.857,
+      -1286.587,
+      -1282.183,
+      -1238.317,
+      -1233.913,
+      -1132.968,
+      -1032.024,
+      -983.754,
+      -979.349,
+      -931.079,
+      -882.809,
+      -830.135,
+      -781.865,
+      -777.461,
+      -733.595,
+      -729.191,
+      -680.921,
+      -676.516,
+      -632.651,
+      -628.246,
+      -579.976,
+      -575.572,
+      -531.706,
+      -527.302,
+      -479.032,
+      -430.762,
+      -378.087,
+      -325.413,
+      -224.468,
+      -176.198,
+      -127.928,
+      887.809,
+      936.079,
+      984.349,
+      1041.428,
+      1089.698,
+      1190.643,
+      1238.913,
+      1243.317,
+      1541.746,
+      1546.151,
+      1642.691,
+      2454.651
+     ]
+    },
+    "y": {
+     "i0": 1,
+     "coords": [
+      329.2,
+      478.8,
+      531.2,
+      579.8,
+      632.2,
+      680.8,
+      733.2,
+      781.8,
+      834.2,
+      882.8,
+      935.2,
+      983.8,
+      1036.2,
+      1084.8,
+      1185.8,
+      1286.8,
+      1339.2,
+      1387.8,
+      1440.2,
+      1488.8,
+      1541.2,
+      1589.8,
+      1690.8,
+      1743.2,
+      2147.2,
+      2195.8
+     ]
+    },
+    "z": {
+     "i0": 0,
+     "coords": [
+      3662.4,
+      3682.9,
+      3703.4,
+      3723.9,
+      3744.4,
+      3764.9
+     ]
+    }
+   },
+   "coords_rounding_mm": 0.001,
+   "origin_mm": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "grid": null,
+   "splat": null,
+   "depth": {
+    "policy": "native_layers",
+    "note": "the detector's own sampling layers"
+   },
+   "note": "One cube per detector cell, centred on its measured lattice coordinates, sized by the measured cell footprint (48.27 × 48.60 mm, the pitch between populated neighbours in one row or column) and the 20.5 mm layer pitch. Centre = axes.<a>.coords[index] − origin_mm; the lattice's x cells are irregular, so no index is ever turned into a position by a pitch."
+  },
+  "cubes": {
+   "n": 66,
+   "order": "ascending energy",
+   "dtype": {
+    "ix": "u8",
+    "iy": "u8",
+    "iz": "u8",
+    "code": "u8",
+    "flags": "u8"
+   },
+   "ix": "ABwVARIDGhgMFyUhExEQHRAWBBwgBg0bFAweGCUhGgcxHCAXGRIeGwQPHw4FEhEJCB0iHRECFRkJIBUdJAsRIwoQ",
+   "iy": "EggHEQoRBwoPCBgCDggJChYJEAkMFQYLBRIJBxkKCxIBDAEJDA4PDhEJBAYTBwkREgcEBxMSBxIUCQYOABEJAxIE",
+   "iz": "AAAAAAAABQAFBQUFBQAAAAAAAAAFAAAFBQAABQUFBQAAAAUFBQUAAAUFBQUAAAUAAAUAAAAABQAAAAUAAAAAAAAA",
+   "code": "BAMAAwMCAQACAAQDAAIAAAIEAAQCAAQBAgIDAAQDAAAAAgIBAgAABAQDAAICAgEAAwIAAgMCAAIBAQQCAQEAAQEC",
+   "flags": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "flag_bits": {
+    "shower": [
+     0,
+     1
+    ],
+    "primary": 2,
+    "below_floor": 3
+   },
+   "shower_codes": [
+    "Shower",
+    "—",
+    "—",
+    "—"
+   ]
+  },
+  "scale": {
+   "scale": "categorical",
+   "quantity": "species",
+   "unit": null,
+   "codes": [
+    {
+     "code": 0,
+     "name": "e-"
+    },
+    {
+     "code": 1,
+     "name": "e+"
+    },
+    {
+     "code": 2,
+     "name": "gamma"
+    },
+    {
+     "code": 3,
+     "name": "neutron"
+    },
+    {
+     "code": 4,
+     "name": "proton"
+    },
+    {
+     "code": 5,
+     "name": "pi+"
+    },
+    {
+     "code": 6,
+     "name": "pi-"
+    },
+    {
+     "code": 7,
+     "name": "other"
+    }
+   ],
+   "other_code": 7,
+   "floor_rule": "No floor: a categorical channel, every cube drawn in its species' colour."
+  },
+  "topk": [
+   {
+    "i": 65,
+    "value": 9.041029436035278e-08,
+    "energy_gev": 0.004347957295720021
+   },
+   {
+    "i": 64,
+    "value": 6.320904026105809e-08,
+    "energy_gev": 0.0030398110049628165
+   },
+   {
+    "i": 63,
+    "value": 3.2579782430259036e-08,
+    "energy_gev": 0.0015668072282345677
+   },
+   {
+    "i": 62,
+    "value": 3.218861284466567e-08,
+    "energy_gev": 0.0015479953366731318
+   },
+   {
+    "i": 61,
+    "value": 3.1604734014263875e-08,
+    "energy_gev": 0.0015199157884488621
+   },
+   {
+    "i": 60,
+    "value": 1.6570184859025906e-08,
+    "energy_gev": 0.0007968833268263897
+   },
+   {
+    "i": 59,
+    "value": 1.3712320898586876e-08,
+    "energy_gev": 0.0006594446585322707
+   },
+   {
+    "i": 58,
+    "value": 1.3470036176679943e-08,
+    "energy_gev": 0.0006477928479535109
+   },
+   {
+    "i": 57,
+    "value": 1.2773666384345417e-08,
+    "energy_gev": 0.0006143034522987202
+   },
+   {
+    "i": 56,
+    "value": 1.1076486078232064e-08,
+    "energy_gev": 0.0005326836816041799
+   },
+   {
+    "i": 55,
+    "value": 9.245764095778032e-09,
+    "energy_gev": 0.00044464170523011943
+   },
+   {
+    "i": 54,
+    "value": 8.632045513801752e-09,
+    "energy_gev": 0.00041512712168737545
+   },
+   {
+    "i": 53,
+    "value": 8.610931426434553e-09,
+    "energy_gev": 0.0004141117157442781
+   },
+   {
+    "i": 52,
+    "value": 7.430512541687278e-09,
+    "energy_gev": 0.0003573437233574145
+   },
+   {
+    "i": 51,
+    "value": 5.764918209212135e-09,
+    "energy_gev": 0.00027724296623864343
+   },
+   {
+    "i": 50,
+    "value": 5.073678655898133e-09,
+    "energy_gev": 0.00024400029094170464
+   },
+   {
+    "i": 49,
+    "value": 4.976270953161372e-09,
+    "energy_gev": 0.000239315818506679
+   },
+   {
+    "i": 48,
+    "value": 4.886767046578065e-09,
+    "energy_gev": 0.0002350114506647467
+   },
+   {
+    "i": 47,
+    "value": 4.04885919781794e-09,
+    "energy_gev": 0.0001947152922468035
+   },
+   {
+    "i": 46,
+    "value": 1.7529400927650974e-09,
+    "energy_gev": 8.430133669203546e-05
+   },
+   {
+    "i": 45,
+    "value": 9.786186529051851e-10,
+    "energy_gev": 4.7063137463832004e-05
+   },
+   {
+    "i": 44,
+    "value": 9.097069969841011e-10,
+    "energy_gev": 4.374907970921398e-05
+   },
+   {
+    "i": 43,
+    "value": 8.854133075826122e-10,
+    "energy_gev": 4.2580762264608024e-05
+   },
+   {
+    "i": 42,
+    "value": 8.507642044767936e-10,
+    "energy_gev": 4.0914438515692496e-05
+   },
+   {
+    "i": 41,
+    "value": 8.111376629695767e-10,
+    "energy_gev": 3.9008742804054475e-05
+   },
+   {
+    "i": 40,
+    "value": 7.962922380310895e-10,
+    "energy_gev": 3.829480559008976e-05
+   },
+   {
+    "i": 39,
+    "value": 7.296350874821755e-10,
+    "energy_gev": 3.508917014678616e-05
+   },
+   {
+    "i": 38,
+    "value": 5.606845751865055e-10,
+    "energy_gev": 2.696410410481861e-05
+   },
+   {
+    "i": 37,
+    "value": 5.554457233313135e-10,
+    "energy_gev": 2.6712160404091456e-05
+   },
+   {
+    "i": 36,
+    "value": 5.171195342795554e-10,
+    "energy_gev": 2.4869000457719104e-05
+   },
+   {
+    "i": 35,
+    "value": 5.168066921852152e-10,
+    "energy_gev": 2.485395544458074e-05
+   },
+   {
+    "i": 34,
+    "value": 5.116335031316246e-10,
+    "energy_gev": 2.4605169559667596e-05
+   },
+   {
+    "i": 33,
+    "value": 4.866267441734094e-10,
+    "energy_gev": 2.3402559604419356e-05
+   },
+   {
+    "i": 32,
+    "value": 4.3070682321472434e-10,
+    "energy_gev": 2.07132925245079e-05
+   },
+   {
+    "i": 31,
+    "value": 4.292342374157572e-10,
+    "energy_gev": 2.0642473817263423e-05
+   },
+   {
+    "i": 30,
+    "value": 4.2675025262039933e-10,
+    "energy_gev": 2.0523015520065684e-05
+   },
+   {
+    "i": 29,
+    "value": 3.262127983556747e-10,
+    "energy_gev": 1.5688028963986943e-05
+   },
+   {
+    "i": 28,
+    "value": 3.244660811903613e-10,
+    "energy_gev": 1.5604026896565136e-05
+   },
+   {
+    "i": 27,
+    "value": 3.1784812483857624e-10,
+    "energy_gev": 1.5285760134952656e-05
+   },
+   {
+    "i": 26,
+    "value": 2.9850637612558805e-10,
+    "energy_gev": 1.4355588432453489e-05
+   },
+   {
+    "i": 25,
+    "value": 2.829536371819148e-10,
+    "energy_gev": 1.360763550035655e-05
+   },
+   {
+    "i": 24,
+    "value": 2.6904225167148477e-10,
+    "energy_gev": 1.2938617546686745e-05
+   },
+   {
+    "i": 23,
+    "value": 2.556123521143618e-10,
+    "energy_gev": 1.2292754924810505e-05
+   },
+   {
+    "i": 22,
+    "value": 2.4971490731012023e-10,
+    "energy_gev": 1.200913856956996e-05
+   },
+   {
+    "i": 21,
+    "value": 2.026212798846927e-10,
+    "energy_gev": 9.744340269830091e-06
+   },
+   {
+    "i": 20,
+    "value": 1.5944934936018557e-10,
+    "energy_gev": 7.668141849922455e-06
+   },
+   {
+    "i": 19,
+    "value": 1.4726323694272683e-10,
+    "energy_gev": 7.082094688293157e-06
+   },
+   {
+    "i": 18,
+    "value": 1.4160424527191616e-10,
+    "energy_gev": 6.809945877191508e-06
+   },
+   {
+    "i": 17,
+    "value": 1.406452187032871e-10,
+    "energy_gev": 6.76382495041695e-06
+   },
+   {
+    "i": 16,
+    "value": 1.1871067896208008e-10,
+    "energy_gev": 5.708962307055575e-06
+   },
+   {
+    "i": 15,
+    "value": 1.1473108616021901e-10,
+    "energy_gev": 5.517578132507034e-06
+   },
+   {
+    "i": 14,
+    "value": 1.1408890117561303e-10,
+    "energy_gev": 5.486694559914178e-06
+   },
+   {
+    "i": 13,
+    "value": 1.1374298012985341e-10,
+    "energy_gev": 5.470058733813902e-06
+   },
+   {
+    "i": 12,
+    "value": 1.0989875110066213e-10,
+    "energy_gev": 5.285184392101541e-06
+   },
+   {
+    "i": 11,
+    "value": 8.152736922905214e-11,
+    "energy_gev": 3.9207650229238124e-06
+   },
+   {
+    "i": 10,
+    "value": 6.73542376191661e-11,
+    "energy_gev": 3.2391593338549815e-06
+   },
+   {
+    "i": 9,
+    "value": 6.403560496914555e-11,
+    "energy_gev": 3.079561655907379e-06
+   },
+   {
+    "i": 8,
+    "value": 5.1615920807017835e-11,
+    "energy_gev": 2.4822817029406287e-06
+   },
+   {
+    "i": 7,
+    "value": 4.938311866206003e-11,
+    "energy_gev": 2.374903130127068e-06
+   },
+   {
+    "i": 6,
+    "value": 1.5256647129866433e-11,
+    "energy_gev": 7.337134633378471e-07
+   },
+   {
+    "i": 5,
+    "value": 4.332682782992979e-13,
+    "energy_gev": 2.0836476476085815e-08
+   },
+   {
+    "i": 4,
+    "value": 2.595283879871207e-13,
+    "energy_gev": 1.248108255789396e-08
+   },
+   {
+    "i": 3,
+    "value": 1.6711987547062849e-13,
+    "energy_gev": 8.03702816093237e-09
+   },
+   {
+    "i": 2,
+    "value": 2.3753006153471868e-14,
+    "energy_gev": 1.1423152322525804e-09
+   }
+  ],
+  "topk_quantity": "energy_density",
+  "topk_unit": "GeV/mm^3",
+  "cap": {
+   "limit": 6000,
+   "requested": 6000,
+   "n_total": 66,
+   "n_drawn": 66,
+   "n_beyond": 0,
+   "rank": "energy",
+   "energy_total_gev": 0.018872583663826055,
+   "energy_drawn_gev": 0.018872583663826055,
+   "energy_beyond_gev": 0.0,
+   "fraction_beyond": 0.0,
+   "energy_outside_window_gev": 0.0,
+   "fraction_outside_window": 0.0
+  },
+  "below_floor": {
+   "n": 0,
+   "drawn_as": "not applicable: this channel's ramp has no floor"
+  },
+  "species": {
+   "codes_in": "cubes.code",
+   "legend": [
+    {
+     "code": 0,
+     "name": "e-",
+     "cells": 19,
+     "energy_gev": 0.0026118926369032187,
+     "energy_fraction": 0.13839613501936954,
+     "primary_cells": 0,
+     "cubes": 19
+    },
+    {
+     "code": 1,
+     "name": "e+",
+     "cells": 10,
+     "energy_gev": 0.0081925862429003,
+     "energy_fraction": 0.4340998767753991,
+     "primary_cells": 0,
+     "cubes": 10
+    },
+    {
+     "code": 2,
+     "name": "gamma",
+     "cells": 19,
+     "energy_gev": 0.006636880403148723,
+     "energy_fraction": 0.351667822560508,
+     "primary_cells": 0,
+     "cubes": 19
+    },
+    {
+     "code": 3,
+     "name": "neutron",
+     "cells": 9,
+     "energy_gev": 0.0006653491613833386,
+     "energy_fraction": 0.035254799938105125,
+     "primary_cells": 0,
+     "cubes": 9
+    },
+    {
+     "code": 4,
+     "name": "proton",
+     "cells": 9,
+     "energy_gev": 0.0007658752194904745,
+     "energy_fraction": 0.04058136570661825,
+     "primary_cells": 0,
+     "cubes": 9
+    }
+   ],
+   "parents": [
+    "e-",
+    "gamma"
+   ],
+   "daughters": [
+    "e-"
+   ],
+   "parent": "AAABAAAAAQEAAQAAAQABAQAAAQAAAQABAAAAAQAAAQEBAAABAAEBAAAAAQAAAAEBAAABAAAAAQABAQAAAQEBAQEA",
+   "n_daughters": "AAEBAAABAAABAAEAAQABAAEAAQEAAQEBAAABAQABAAEAAQEAAQAAAQEAAQAAAAEBAQAAAAABAQEAAQAAAQAAAQAB",
+   "daughter_mode": "/wAA//8A//8A/wD/AP8A/wD/AAD/AAAA//8AAP8A/wD/AAD/AP//AAD/AP///wAAAP////8AAAD/AP//AP//AP8A",
+   "purity": null,
+   "dtype": {
+    "parent": "u8",
+    "n_daughters": "u8",
+    "daughter_mode": "u8",
+    "purity": "u8 (/255)"
+   },
+   "none_code": 255,
+   "rule": "Stable codes across events: e−, e+, γ, neutron, proton, π+, π− take codes 0–6 and every other particle_type (ions, kaons, a missing value) code 7, whose members are listed; the notebook's per-event tab20 assignment is not used. A primary-tagged cell (is_secondary = 0) sets flag bit 2. Each cell shows its own particle_type, its parent (255: none, as for a primary-tagged cell) and the number and most frequent of its ;-joined daughters (255: none)."
+  },
+  "notes": [
+   "All 66 cells are drawn."
+  ]
+ },
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

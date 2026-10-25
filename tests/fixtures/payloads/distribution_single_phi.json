@@ -1,0 +1,233 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "quantity": "phi"
+ },
+ "quantity": {
+  "key": "phi",
+  "label": "φ — incident azimuth",
+  "unit": "rad",
+  "scale": "linear",
+  "source": "showers",
+  "weighting": "shower count",
+  "bin_width": 0.785398,
+  "bin_unit": "rad"
+ },
+ "edges": [
+  -3.14159,
+  -2.35619,
+  -1.5708,
+  -0.785398,
+  0.0,
+  0.785398,
+  1.5708,
+  2.35619,
+  3.14159
+ ],
+ "series": [
+  {
+   "bin": 1,
+   "label": "1–2 GeV",
+   "n": 8,
+   "n_showers": 8,
+   "offset": 3,
+   "counts": [
+    2,
+    2,
+    0,
+    2,
+    2
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.427844,
+   "rayleigh_p": 0.231
+  },
+  {
+   "bin": 2,
+   "label": "2–3 GeV",
+   "n": 20,
+   "n_showers": 20,
+   "offset": 3,
+   "counts": [
+    5,
+    5,
+    0,
+    5,
+    5
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.427844,
+   "rayleigh_p": 0.0257
+  },
+  {
+   "bin": 3,
+   "label": "3–4 GeV",
+   "n": 1,
+   "n_showers": 1,
+   "offset": 4,
+   "counts": [
+    1
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 4,
+   "label": "4–5 GeV",
+   "n": 1,
+   "n_showers": 1,
+   "offset": 4,
+   "counts": [
+    1
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": null,
+   "rayleigh_p": null
+  },
+  {
+   "bin": 5,
+   "label": "5–6 GeV",
+   "n": 15,
+   "n_showers": 15,
+   "offset": 3,
+   "counts": [
+    3,
+    4,
+    0,
+    4,
+    4
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.46237,
+   "rayleigh_p": 0.0405
+  },
+  {
+   "bin": 7,
+   "label": "7–8 GeV",
+   "n": 2,
+   "n_showers": 2,
+   "offset": 6,
+   "counts": [
+    1,
+    1
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.949243,
+   "rayleigh_p": 0.165
+  },
+  {
+   "bin": 10,
+   "label": "10–11 GeV",
+   "n": 200,
+   "n_showers": 200,
+   "offset": 3,
+   "counts": [
+    50,
+    50,
+    0,
+    50,
+    50
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.427844,
+   "rayleigh_p": 1.26e-16
+  },
+  {
+   "bin": 12,
+   "label": "12–13 GeV",
+   "n": 7,
+   "n_showers": 7,
+   "offset": 3,
+   "counts": [
+    2,
+    2,
+    0,
+    1,
+    2
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.393147,
+   "rayleigh_p": 0.339
+  },
+  {
+   "bin": 15,
+   "label": "15–16 GeV",
+   "n": 14,
+   "n_showers": 14,
+   "offset": 3,
+   "counts": [
+    4,
+    3,
+    0,
+    4,
+    3
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.419816,
+   "rayleigh_p": 0.0848
+  },
+  {
+   "bin": 19,
+   "label": "19–20 GeV",
+   "n": 19,
+   "n_showers": 19,
+   "offset": 3,
+   "counts": [
+    5,
+    5,
+    0,
+    4,
+    5
+   ],
+   "below": 0,
+   "above": 0,
+   "resultant": 0.412298,
+   "rayleigh_p": 0.0396
+  }
+ ],
+ "display": {
+  "lo": -3.14159,
+  "hi": 3.14159,
+  "percentiles": null,
+  "n_outside": 0,
+  "fraction_outside": 0.0,
+  "provisional": false,
+  "coarsened": 1,
+  "note": "Full period (−π, π] shown: an azimuth wraps, so it is never cropped to a percentile window and nothing lies outside it."
+ },
+ "splat": null,
+ "comb": null,
+ "notes": [
+  "6 of 10 series hold fewer than 15 showers (1–2 GeV, 3–4 GeV, 4–5 GeV, 7–8 GeV, 12–13 GeV, 15–16 GeV): drawn as exact counts on the shared bins, but the shape of a handful of showers is not a distribution.",
+  "R̄ is the mean resultant length of each series' showers' azimuths, one direction per shower in either weighting, with the Rayleigh p = exp(−N R̄²) beside it, from two showers up; φ is never averaged linearly."
+ ],
+ "kind": "single_shower_hits",
+ "shower": "both",
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}
