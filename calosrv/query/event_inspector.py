@@ -55,6 +55,12 @@ as measured.
 stored under the shower-A names: ``shower=b`` is refused naming the parameter,
 the event block's second momentum, separation and overlap class are null, and
 the pick rule ranks events by that shower's own polar angle.
+
+**Pick rules.** :func:`pick` serves two notebook rules: ``tilted`` (the
+default, Page 1's Event Inspector), the local-coords notebook's seeded draw
+from the densest, most tilted events; and ``densest`` (Page 2's 3-D displays,
+``query/voxel_event.py``), the High_energy notebook's event with the most
+cells. Both pick only events the per-shower frames can place.
 """
 
 from __future__ import annotations
@@ -202,16 +208,30 @@ def _neighbours(con, record, spec: FilterSpec, event_number: int) -> tuple[bool,
     return bool(row[0]), (int(row[1]) if row[1] is not None else None), (int(row[2]) if row[2] is not None else None)
 
 
-def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> dict[str, Any]:
-    """The notebook's ``_select_events``: a seeded draw from the densest, most tilted events.
+#: The pick rules: the local-coords notebook's seeded draw (the default, Page 1)
+#: and the High_energy notebook's densest event (Page 2's 3-D displays).
+RULE_TILTED = "tilted"
+RULE_DENSEST = "densest"
+RULES: tuple[str, ...] = (RULE_TILTED, RULE_DENSEST)
 
-    Events of the selection with more hits than the selection's mean, the
-    ``pool_size`` of them with the largest incident polar angle (the larger of
-    the two showers' here), and one drawn at random with ``seed``. The events
-    are those the per-shower frames can place (``capabilities.frame_gate``):
-    a defined separation for two showers; an incident direction and an entry
-    point for a single shower, ranked by its own polar angle.
+
+def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20,
+         rule: str = RULE_TILTED) -> dict[str, Any]:
+    """One event of the selection by a stated notebook rule; ``rule_id`` names it, ``rule`` says it.
+
+    ``tilted`` is the local-coords notebook's ``_select_events``: events with
+    more hits than the selection's mean, the ``pool_size`` of them with the
+    largest incident polar angle (the larger of the two showers' here), and one
+    drawn at random with ``seed``. ``densest`` is the High_energy notebook's
+    ``groupby('event_number').size().idxmax()``: the event with the most cells,
+    ties to the lowest event number - deterministic, so the seed is echoed and
+    unused (``seed_used``). Either way the events are those the per-shower
+    frames can place (``capabilities.frame_gate``): a defined separation for two
+    showers; an incident direction and an entry point for a single shower,
+    ranked by its own polar angle.
     """
+    if rule not in RULES:
+        raise ValidationError(f"rule must be one of {', '.join(RULES)}; got {rule!r}.", field="rule")
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
     params = spec.params()
@@ -227,6 +247,9 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> 
             "The selection holds no event with a defined separation to pick from." if two else
             "The selection holds no event with an incident direction and an entry point to pick from."
         )
+    if rule == RULE_DENSEST:
+        return _pick_densest(con, table, where, params, gate, two, int(n), float(mean_hits),
+                             int(seed), int(pool_size))
     rows = con.execute(
         f"""SELECT event_number FROM {table}
             WHERE {where} AND {gate} AND n_hits > $mean
@@ -242,14 +265,14 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> 
     rng = np.random.default_rng(int(seed))
     chosen = int(rng.choice(np.asarray(pool)))
     if two:
-        rule = (
+        sentence = (
             f"Among the {n:,} selected events with a defined separation, those with more hits "
             f"than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with the largest "
             "incident polar angle (the larger of the two showers'); one drawn at random with "
             f"seed {int(seed)} - the reference notebook's selection rule."
         )
     else:
-        rule = (
+        sentence = (
             f"Among the {n:,} selected events with an incident direction and an entry point, those "
             f"with more hits than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with "
             f"the largest incident polar angle; one drawn at random with seed {int(seed)} - the "
@@ -262,7 +285,42 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> 
         "mean_hits": float(mean_hits),
         "n_events": int(n),
         "seed": int(seed),
-        "rule": rule,
+        "rule": sentence,
+        "rule_id": RULE_TILTED,
+        "seed_used": True,
+    }
+
+
+def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: bool, n: int,
+                  mean_hits: float, seed: int, pool_size: int) -> dict[str, Any]:
+    """The densest placeable events by cell count, ties to the lowest number; the first is chosen."""
+    rows = con.execute(
+        f"""SELECT event_number, n_cells FROM {table}
+            WHERE {where} AND {gate}
+            ORDER BY n_cells DESC NULLS LAST, event_number ASC LIMIT {int(pool_size)}""", params,
+    ).fetchall()
+    pool = [int(r[0]) for r in rows]
+    cells = int(rows[0][1] or 0)
+    placed = ("with a defined separation" if two else "with an incident direction and an entry point")
+    sentence = (
+        f"Among the {n:,} selected events {placed}, the one with the most detector cells "
+        f"({cells:,}; ties go to the lowest event number) - the reference notebook's densest event, "
+        "groupby('event_number').size().idxmax()"
+        + (", counted in cells, since a split cell is two rows of the two-shower file" if two
+           else ", where one row is one cell")
+        + f". The choice is deterministic: the seed ({seed}) is echoed and not used."
+    )
+    return {
+        "event_number": pool[0],
+        "pool": pool,
+        "pool_size": int(pool_size),
+        "mean_hits": float(mean_hits),
+        "n_events": int(n),
+        "seed": int(seed),
+        "rule": sentence,
+        "rule_id": RULE_DENSEST,
+        "seed_used": False,
+        "n_cells": cells,
     }
 
 

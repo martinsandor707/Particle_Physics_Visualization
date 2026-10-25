@@ -1,0 +1,269 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "coord_system": "local",
+  "shower": "both",
+  "sample_percent": 100.0
+ },
+ "describe": {
+  "coord_system": "local",
+  "rows": [
+   {
+    "key": "u",
+    "label": "x_local (u)",
+    "unit": "mm",
+    "count": 8573,
+    "mean": -83.7852,
+    "sd": 389.107,
+    "sd_population": 389.084,
+    "min": -2198.97,
+    "q25": -290.685,
+    "q50": -127.569,
+    "q75": 0.0,
+    "max": 720.937,
+    "ew_mean": -130.694,
+    "ew_q25": -297.651,
+    "ew_q50": -179.936,
+    "ew_q75": -95.291
+   },
+   {
+    "key": "v",
+    "label": "y_local (v)",
+    "unit": "mm",
+    "count": 8573,
+    "mean": -83.4395,
+    "sd": 320.274,
+    "sd_population": 320.255,
+    "min": -2475.63,
+    "q25": -146.995,
+    "q50": -21.046,
+    "q75": 61.8433,
+    "max": 282.358,
+    "ew_mean": -15.5442,
+    "ew_q25": -39.8087,
+    "ew_q50": -21.0987,
+    "ew_q75": 68.2611
+   },
+   {
+    "key": "w",
+    "label": "z_local (w)",
+    "unit": "mm",
+    "count": 8573,
+    "mean": 116.922,
+    "sd": 196.579,
+    "sd_population": 196.568,
+    "min": -641.928,
+    "q25": 0.0,
+    "q50": 112.28,
+    "q75": 199.066,
+    "max": 896.122,
+    "ew_mean": 238.136,
+    "ew_q25": 67.5303,
+    "ew_q50": 185.869,
+    "ew_q75": 245.711
+   },
+   {
+    "key": "rho",
+    "label": "ρ = √(u² + v²)",
+    "unit": "mm",
+    "count": 8573,
+    "mean": 368.98,
+    "sd": 363.043,
+    "sd_population": 363.022,
+    "min": 0.0,
+    "q25": 159.358,
+    "q50": 304.276,
+    "q75": 480.5,
+    "max": 3311.23,
+    "ew_mean": 292.369,
+    "ew_q25": 165.21,
+    "ew_q50": 290.188,
+    "ew_q75": 322.518
+   },
+   {
+    "key": "energy",
+    "label": "Hit energy",
+    "unit": "GeV",
+    "count": 8573,
+    "mean": 0.00323887,
+    "sd": 0.00547087,
+    "sd_population": 0.00547055,
+    "min": 2.94816e-11,
+    "q25": 2.14622e-05,
+    "q50": 0.000790243,
+    "q75": 0.00415852,
+    "max": 0.0539647,
+    "ew_mean": 0.0124788,
+    "ew_q25": 0.00447406,
+    "ew_q50": 0.00935625,
+    "ew_q75": 0.0176461
+   }
+  ],
+  "shifted_row": null,
+  "n_hits": 8573,
+  "estimator": "Each hit is one observation and these columns are unweighted. count, mean, min and max are exact; the quartiles are exact too (linear interpolation between order statistics, the pandas describe() convention); sd is the unbiased sample estimator (ddof = 1) and sd_population the ddof = 0 form. No standard error of a mean is quoted: the hits of one shower are strongly correlated, so a hit count would claim a precision the events do not have.",
+  "weighting_note": "The ew columns weight every hit by its deposited energy. ew_mean = Σ E·a / Σ E exactly; the ew quartiles are read off 1 mm histograms of the weighted coordinate (0.01-decade bins of log10 E for the energy row) and are exact to one bin. They say where the energy sits, not where the hits are: a different weighting, not a correction of the unweighted columns."
+ },
+ "n_events": 287,
+ "negative_w": {
+  "available": true,
+  "threshold_mm": 1e-06,
+  "unit": "shower",
+  "showers_per_event": 1,
+  "splits": [
+   {
+    "key": "all",
+    "label": "All selected",
+    "n_events": 287,
+    "n_showers": 287,
+    "events_with_any": 143,
+    "events_with_any_ci95": [
+     0.440818,
+     0.555744
+    ],
+    "showers_with_any": 143,
+    "showers_with_any_ci95": [
+     0.440818,
+     0.555744
+    ],
+    "hits": 2061,
+    "hits_total": 8573,
+    "hits_fraction": 0.240406,
+    "hits_fraction_ci95": [
+     0.214253,
+     0.266559
+    ],
+    "energy_gev": 1.97588,
+    "energy_total_gev": 27.7669,
+    "energy_fraction": 0.0711598,
+    "energy_fraction_ci95": [
+     0.0600264,
+     0.0822932
+    ],
+    "note": ""
+   },
+   {
+    "key": "low",
+    "label": "p < 1 GeV",
+    "n_events": 0,
+    "n_showers": 0,
+    "events_with_any": 0,
+    "events_with_any_ci95": null,
+    "showers_with_any": 0,
+    "showers_with_any_ci95": null,
+    "hits": 0,
+    "hits_total": 0,
+    "hits_fraction": null,
+    "hits_fraction_ci95": null,
+    "energy_gev": 0.0,
+    "energy_total_gev": 0.0,
+    "energy_fraction": null,
+    "energy_fraction_ci95": null,
+    "note": "No showers in this split."
+   },
+   {
+    "key": "mid",
+    "label": "1 ≤ p ≤ 10 GeV",
+    "n_events": 47,
+    "n_showers": 47,
+    "events_with_any": 24,
+    "events_with_any_ci95": [
+     0.372425,
+     0.647244
+    ],
+    "showers_with_any": 24,
+    "showers_with_any_ci95": [
+     0.372425,
+     0.647244
+    ],
+    "hits": 348,
+    "hits_total": 1437,
+    "hits_fraction": 0.242171,
+    "hits_fraction_ci95": [
+     0.176427,
+     0.307916
+    ],
+    "energy_gev": 0.121508,
+    "energy_total_gev": 1.61566,
+    "energy_fraction": 0.0752066,
+    "energy_fraction_ci95": [
+     0.044909,
+     0.105504
+    ],
+    "note": ""
+   },
+   {
+    "key": "high",
+    "label": "p > 10 GeV",
+    "n_events": 240,
+    "n_showers": 240,
+    "events_with_any": 119,
+    "events_with_any_ci95": [
+     0.433144,
+     0.558654
+    ],
+    "showers_with_any": 119,
+    "showers_with_any_ci95": [
+     0.433144,
+     0.558654
+    ],
+    "hits": 1713,
+    "hits_total": 7136,
+    "hits_fraction": 0.24005,
+    "hits_fraction_ci95": [
+     0.211336,
+     0.268765
+    ],
+    "energy_gev": 1.85438,
+    "energy_total_gev": 26.1512,
+    "energy_fraction": 0.0709098,
+    "energy_fraction_ci95": [
+     0.0592263,
+     0.0825932
+    ],
+    "note": ""
+   }
+  ],
+  "affected": {
+   "n": 143,
+   "mean": 0.241846,
+   "sd": 0.166664,
+   "min": 0.0769231,
+   "q25": 0.0769231,
+   "q50": 0.0769231,
+   "q75": 0.409091,
+   "max": 0.409091,
+   "n_over_half": 0
+  },
+  "intervals": {
+   "hits_fraction": "95% Student-t, ratio of sums, events as clusters",
+   "energy_fraction": "95% Student-t, ratio of sums, events as clusters",
+   "events_with_any": "95% Wilson score, events",
+   "showers_with_any": "95% Wilson score, showers (one per event only)"
+  },
+  "summary": "w < −10⁻⁶ mm: 7.12% [6.00, 8.23] of energy, 24.04% [21.43, 26.66] of hits; 49.8% [44.1, 55.6] of showers (95% intervals in brackets)"
+ },
+ "notes": [
+  "u, v, w are each hit's position in its own shower's frame, w along the incident direction from the entry point P0, so w < 0 lies upstream of it (see the negative-depth block). ρ = √(u² + v²) is the 2-D transverse radius from the shower axis, the reference notebook's r_local; core.py's r_local is the 3-D distance and is not this quantity.",
+  "A hit is at negative depth when w = z_local < −10⁻⁶ mm in its own shower's frame, whatever frame the other numbers are drawn in. The counts come from the event table, so they are exact even on a preview. Energies are the raw deposited hit energies (GeV), not calibrated to the incident momentum; a share of them is unaffected by the calibration.",
+  "The hits of one shower share its development, and the two showers of an event share the event, so every fraction takes events as its sampling unit: a ratio of sums with the linearised cluster standard error and a Student-t interval, clipped to [0, 1].",
+  "The share of events with any such hit is a proportion and takes a Wilson score interval. The share of showers is given only where each event contributes one shower: the two showers of an event are not independent Bernoulli trials."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

@@ -1,0 +1,1494 @@
+{
+ "experiments": [
+  {
+   "table_name": "experiment_baseline",
+   "display_name": "Baseline (demonstration dataset)",
+   "status": "ready",
+   "error": null,
+   "source_files": [
+    "hits_all_models_dummy.csv"
+   ],
+   "n_hits": 1000,
+   "n_events": 2,
+   "n_events_no_d": 0,
+   "has_sample": true,
+   "overlap_classes": [
+    0
+   ],
+   "bounds": {
+    "e1": [
+     2.712594747543335,
+     17.876461029052734
+    ],
+    "e2": [
+     6.385610580444336,
+     12.54078197479248
+    ],
+    "d": [
+     2258.51123046875,
+     3077.028076171875
+    ]
+   },
+   "schema": {
+    "name": "hits_all_models",
+    "version": 1,
+    "n_columns": 99
+   },
+   "archive": {
+    "present": true,
+    "parts": 1,
+    "rows": 1000,
+    "bytes": 141866
+   },
+   "kind": "two_shower_hits",
+   "frames": [
+    "lab",
+    "trans",
+    "local",
+    "canonical"
+   ],
+   "coord_systems": [
+    "lab",
+    "trans",
+    "local"
+   ],
+   "models": [
+    "angle",
+    "energy",
+    "segmentation"
+   ],
+   "channels": [
+    "density",
+    "gradcam",
+    "gradcam_energy",
+    "shapcam",
+    "shapcam_energy"
+   ],
+   "capabilities": {
+    "kind": "two_shower_hits",
+    "kind_label": "two-shower hits",
+    "n_showers": 2,
+    "showers": [
+     "a",
+     "b"
+    ],
+    "has_hits": true,
+    "has_lattice": true,
+    "has_frame_bounds": true,
+    "networks": [
+     "angle",
+     "energy",
+     "segmentation"
+    ],
+    "species": false,
+    "filters": [
+     "e1",
+     "e2",
+     "d"
+    ],
+    "group1_frames": [
+     "lab",
+     "trans",
+     "local"
+    ],
+    "model_runs": [],
+    "pages": {
+     "physics": true,
+     "spatial": true,
+     "models": true
+    },
+    "panels": {
+     "xy": true,
+     "yz": true,
+     "xz": true,
+     "energy": true,
+     "profile-w": true,
+     "profile-r": true,
+     "response-b1": true,
+     "response-b2": true,
+     "response-res": true,
+     "response-b3": true,
+     "distribution": true,
+     "correlation": true,
+     "statistics": true,
+     "perf-bins": true,
+     "pred-truth": true,
+     "pred-residuals": true,
+     "feat-table": true,
+     "feat-corr": true,
+     "feat-hist": true,
+     "feat-hist2d": true,
+     "prim-rate": false,
+     "vox-event": true,
+     "vox-ensemble": true,
+     "vox-species": false,
+     "vox-attention": true,
+     "negative-depth": true,
+     "window-axis": true,
+     "event-inspector": true,
+     "compare": true,
+     "frame-lab": true,
+     "frame-trans": true,
+     "frame-local": true,
+     "frame-canonical": true,
+     "xgboost": false
+    },
+    "reasons": {
+     "vox-species": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
+     "prim-rate": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
+     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+    },
+    "derived": {
+     "version": 2,
+     "current": 2,
+     "status": "current",
+     "notice": null
+    },
+    "measured": {
+     "footprint_mm": [
+      48.27001953125,
+      48.5999755859375
+     ],
+     "momentum_bins": {
+      "hi": 17,
+      "lo": 2,
+      "n_off_rule": 0,
+      "rule": "floor(p)"
+     },
+     "profiles": {
+      "comb": {
+       "measured_on": "pooled ingest profile",
+       "r": 0.7927028125034593,
+       "threshold": -0.1,
+       "w": 0.43252508069432055
+      },
+      "k": 6,
+      "k_z": 2,
+      "neg_depth_mm": -1e-06,
+      "r_bin_mm": 10.0,
+      "r_bins": 50,
+      "w_bin_mm": 20.5
+     }
+    }
+   },
+   "lattice": {
+    "x": {
+     "n": 119,
+     "extent": [
+      -2399.1781005859375,
+      2807.9568481445312
+     ],
+     "mean_pitch": 41.115482653601696,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "y": {
+     "n": 35,
+     "extent": [
+      -377.8000030517578,
+      2220.10009765625
+     ],
+     "mean_pitch": 69.7529427023495,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "z": {
+     "n": 56,
+     "extent": [
+      3652.14990234375,
+      4851.39990234375
+     ],
+     "mean_pitch": 21.245454545454546,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "id": "3005c620c862",
+    "slab_mm": 120.0,
+    "slab_iz": 5,
+    "native_shapes": {
+     "xy": [
+      35,
+      119
+     ],
+     "yz": [
+      35,
+      56
+     ],
+     "xz": [
+      119,
+      56
+     ]
+    }
+   },
+   "native_resolution": {
+    "xy": [
+     35,
+     119
+    ],
+    "yz": [
+     35,
+     56
+    ],
+    "xz": [
+     119,
+     56
+    ]
+   },
+   "z_front": 3662.39990234375
+  },
+  {
+   "table_name": "single_hits",
+   "display_name": "single_hits",
+   "status": "ready",
+   "error": null,
+   "source_files": [
+    "single_hits.csv"
+   ],
+   "n_hits": 8573,
+   "n_events": 287,
+   "n_events_no_d": 0,
+   "has_sample": true,
+   "overlap_classes": [],
+   "bounds": {
+    "e1": [
+     1.0355231918074073,
+     19.9199191215521
+    ],
+    "e2": [
+     null,
+     null
+    ],
+    "d": [
+     null,
+     null
+    ]
+   },
+   "schema": {
+    "name": "standalone_hits",
+    "version": 3,
+    "n_columns": 21
+   },
+   "archive": {
+    "present": true,
+    "parts": 1,
+    "rows": 8573,
+    "bytes": 85557
+   },
+   "kind": "single_shower_hits",
+   "frames": [
+    "lab",
+    "trans",
+    "local"
+   ],
+   "coord_systems": [
+    "lab",
+    "trans",
+    "local"
+   ],
+   "models": [],
+   "channels": [
+    "density"
+   ],
+   "capabilities": {
+    "kind": "single_shower_hits",
+    "kind_label": "single-shower hits",
+    "n_showers": 1,
+    "showers": [
+     "a"
+    ],
+    "has_hits": true,
+    "has_lattice": true,
+    "has_frame_bounds": true,
+    "networks": [],
+    "species": true,
+    "filters": [
+     "e1"
+    ],
+    "group1_frames": [
+     "lab",
+     "trans",
+     "local"
+    ],
+    "model_runs": [],
+    "pages": {
+     "physics": true,
+     "spatial": true,
+     "models": true
+    },
+    "panels": {
+     "xy": true,
+     "yz": true,
+     "xz": true,
+     "energy": false,
+     "profile-w": true,
+     "profile-r": true,
+     "response-b1": true,
+     "response-b2": true,
+     "response-res": true,
+     "response-b3": true,
+     "distribution": true,
+     "correlation": true,
+     "statistics": true,
+     "perf-bins": false,
+     "pred-truth": false,
+     "pred-residuals": false,
+     "feat-table": true,
+     "feat-corr": true,
+     "feat-hist": true,
+     "feat-hist2d": true,
+     "prim-rate": true,
+     "vox-event": true,
+     "vox-ensemble": true,
+     "vox-species": true,
+     "vox-attention": false,
+     "negative-depth": true,
+     "window-axis": true,
+     "event-inspector": true,
+     "compare": true,
+     "frame-lab": true,
+     "frame-trans": true,
+     "frame-local": true,
+     "frame-canonical": false,
+     "xgboost": false
+    },
+    "reasons": {
+     "frame-canonical": "Needs two showers per event: the Separation-Aligned (D-Frame) is built from the A→B separation of the two entry points.",
+     "energy": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "perf-bins": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "pred-truth": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "pred-residuals": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "vox-attention": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+    },
+    "derived": {
+     "version": 1,
+     "current": 1,
+     "status": "current",
+     "notice": null
+    },
+    "measured": {
+     "footprint_mm": [
+      48.27001953125,
+      48.5999755859375
+     ],
+     "momentum_bins": {
+      "hi": 19,
+      "lo": 1,
+      "n_off_rule": 0,
+      "rule": "floor(p)"
+     },
+     "profiles": {
+      "comb": {
+       "measured_on": "pooled ingest profile",
+       "r": 0.7762678457591923,
+       "threshold": -0.1,
+       "w": 0.4012070446863741
+      },
+      "k": 6,
+      "k_z": 2,
+      "neg_depth_mm": -1e-06,
+      "r_bin_mm": 10.0,
+      "r_bins": 50,
+      "w_bin_mm": 20.5
+     },
+     "species": {
+      "n_types": 5,
+      "primary": {
+       "definition": "is_secondary = 0",
+       "events": 287,
+       "events_without": 216
+      },
+      "top": [
+       {
+        "cells": 2572,
+        "energy_fraction": 0.38350876362688036,
+        "name": "gamma",
+        "primary_cells": 0
+       },
+       {
+        "cells": 2573,
+        "energy_fraction": 0.22430082743487673,
+        "name": "e-",
+        "primary_cells": 71
+       },
+       {
+        "cells": 1286,
+        "energy_fraction": 0.19015187211509338,
+        "name": "e+",
+        "primary_cells": 0
+       },
+       {
+        "cells": 1071,
+        "energy_fraction": 0.10505922543515693,
+        "name": "neutron",
+        "primary_cells": 0
+       },
+       {
+        "cells": 1071,
+        "energy_fraction": 0.09697931138799257,
+        "name": "proton",
+        "primary_cells": 0
+       }
+      ]
+     }
+    }
+   },
+   "lattice": {
+    "x": {
+     "n": 62,
+     "extent": [
+      -2269.69384765625,
+      2860.6307983398438
+     ],
+     "mean_pitch": 76.22520972079919,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "y": {
+     "n": 27,
+     "extent": [
+      -428.30001068115234,
+      2220.10009765625
+     ],
+     "mean_pitch": 91.21538661076472,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "z": {
+     "n": 25,
+     "extent": [
+      3652.14990234375,
+      4636.14990234375
+     ],
+     "mean_pitch": 35.875,
+     "uniform": false,
+     "unit": "mm"
+    },
+    "id": "be10499257f2",
+    "slab_mm": 120.0,
+    "slab_iz": 5,
+    "native_shapes": {
+     "xy": [
+      27,
+      62
+     ],
+     "yz": [
+      27,
+      25
+     ],
+     "xz": [
+      62,
+      25
+     ]
+    }
+   },
+   "native_resolution": {
+    "xy": [
+     27,
+     62
+    ],
+    "yz": [
+     27,
+     25
+    ],
+    "xz": [
+     62,
+     25
+    ]
+   },
+   "z_front": 3662.39990234375
+  },
+  {
+   "table_name": "single_events",
+   "display_name": "single_events",
+   "status": "ready",
+   "error": null,
+   "source_files": [
+    "single_events.csv"
+   ],
+   "n_hits": 0,
+   "n_events": 286,
+   "n_events_no_d": 0,
+   "has_sample": false,
+   "overlap_classes": [],
+   "bounds": {
+    "e1": [
+     1.0355231918074073,
+     19.9199191215521
+    ],
+    "e2": [
+     null,
+     null
+    ],
+    "d": [
+     null,
+     null
+    ]
+   },
+   "schema": {
+    "name": "standalone_events",
+    "version": 3,
+    "n_columns": 59
+   },
+   "archive": {
+    "present": true,
+    "parts": 1,
+    "rows": 286,
+    "bytes": 29782
+   },
+   "kind": "single_shower_events",
+   "frames": [],
+   "coord_systems": [],
+   "models": [],
+   "channels": [],
+   "capabilities": {
+    "kind": "single_shower_events",
+    "kind_label": "single-shower event features",
+    "n_showers": 1,
+    "showers": [
+     "a"
+    ],
+    "has_hits": false,
+    "has_lattice": false,
+    "has_frame_bounds": false,
+    "networks": [],
+    "species": false,
+    "filters": [
+     "e1"
+    ],
+    "group1_frames": [
+     "lab",
+     "trans",
+     "local"
+    ],
+    "model_runs": [],
+    "pages": {
+     "physics": true,
+     "spatial": false,
+     "models": true
+    },
+    "panels": {
+     "xy": false,
+     "yz": false,
+     "xz": false,
+     "energy": false,
+     "profile-w": false,
+     "profile-r": false,
+     "response-b1": true,
+     "response-b2": true,
+     "response-res": true,
+     "response-b3": true,
+     "distribution": true,
+     "correlation": false,
+     "statistics": false,
+     "perf-bins": false,
+     "pred-truth": false,
+     "pred-residuals": false,
+     "feat-table": true,
+     "feat-corr": true,
+     "feat-hist": true,
+     "feat-hist2d": true,
+     "prim-rate": false,
+     "vox-event": false,
+     "vox-ensemble": false,
+     "vox-species": false,
+     "vox-attention": false,
+     "negative-depth": false,
+     "window-axis": false,
+     "event-inspector": false,
+     "compare": false,
+     "frame-lab": false,
+     "frame-trans": false,
+     "frame-local": false,
+     "frame-canonical": false,
+     "xgboost": false
+    },
+    "reasons": {
+     "frame-lab": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "frame-trans": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "frame-local": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "frame-canonical": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "xy": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "yz": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "xz": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "window-axis": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "event-inspector": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "compare": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "energy": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "correlation": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "statistics": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "profile-w": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "profile-r": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "negative-depth": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "perf-bins": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "pred-truth": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "pred-residuals": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "vox-event": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "vox-ensemble": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
+     "vox-attention": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "vox-species": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
+     "prim-rate": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
+     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+    },
+    "derived": {
+     "version": 1,
+     "current": 1,
+     "status": "current",
+     "notice": null
+    },
+    "measured": {
+     "features": {
+      "circular": [
+       "avg_phi"
+      ],
+      "partly_circular": [
+       "angular_spread"
+      ],
+      "source": "file"
+     },
+     "label": {
+      "column": "energy_class",
+      "counts": {
+       "0": 8,
+       "1": 278
+      },
+      "holds": true,
+      "rule": "p >= 2 GeV"
+     },
+     "momentum_bins": {
+      "hi": 19,
+      "lo": 1,
+      "n_off_rule": 0,
+      "rule": "floor(p)"
+     }
+    }
+   }
+  }
+ ],
+ "lattices": {
+  "3005c620c862": {
+   "x": {
+    "n": 119,
+    "coords": [
+     -2396.97607421875,
+     -2392.572021484375,
+     -2344.302001953125,
+     -2296.031982421875,
+     -2291.626953125,
+     -2247.761962890625,
+     -2243.35693359375,
+     -2195.0869140625,
+     -2190.68310546875,
+     -2146.81689453125,
+     -2142.4130859375,
+     -2094.14306640625,
+     -2089.738037109375,
+     -2045.873046875,
+     -2041.468017578125,
+     -1993.197998046875,
+     -1988.7939453125,
+     -1944.927978515625,
+     -1940.5240478515625,
+     -1892.2540283203125,
+     -1887.8489990234375,
+     -1843.9840087890625,
+     -1839.5789794921875,
+     -1791.3089599609375,
+     -1786.905029296875,
+     -1743.0389404296875,
+     -1738.635009765625,
+     -1690.364990234375,
+     -1685.9610595703125,
+     -1642.094970703125,
+     -1637.6910400390625,
+     -1589.4210205078125,
+     -1585.0159912109375,
+     -1541.1510009765625,
+     -1488.4759521484375,
+     -1484.072021484375,
+     -1440.2060546875,
+     -1435.802001953125,
+     -1387.531982421875,
+     -1383.126953125,
+     -1339.261962890625,
+     -1334.8570556640625,
+     -1286.5870361328125,
+     -1282.1829833984375,
+     -1238.3170166015625,
+     -1233.9129638671875,
+     -1185.6429443359375,
+     -1181.238037109375,
+     -1137.373046875,
+     -1132.968017578125,
+     -1032.0240478515625,
+     -983.7540283203125,
+     -979.3489990234375,
+     -935.4840087890625,
+     -931.0789794921875,
+     -882.8090209960938,
+     -878.405029296875,
+     -830.135009765625,
+     -781.864990234375,
+     -777.4609985351562,
+     -733.594970703125,
+     -729.1909790039062,
+     -680.9210205078125,
+     -676.5159912109375,
+     -632.6510009765625,
+     -628.2459716796875,
+     -579.9760131835938,
+     -575.572021484375,
+     -531.7059936523438,
+     -527.302001953125,
+     -479.0320129394531,
+     -474.62701416015625,
+     -430.7619934082031,
+     -426.35699462890625,
+     -378.0870056152344,
+     -325.4129943847656,
+     -224.46800231933594,
+     -176.197998046875,
+     -127.9280014038086,
+     -75.25399780273438,
+     786.864990234375,
+     835.135009765625,
+     839.5390014648438,
+     883.405029296875,
+     887.8090209960938,
+     936.0789794921875,
+     940.4840087890625,
+     984.3489990234375,
+     988.7540283203125,
+     1037.0240478515625,
+     1041.427978515625,
+     1085.2939453125,
+     1089.697998046875,
+     1137.968017578125,
+     1142.373046875,
+     1186.238037109375,
+     1190.6429443359375,
+     1238.9129638671875,
+     1243.3170166015625,
+     1291.5870361328125,
+     1339.8570556640625,
+     1344.261962890625,
+     1388.126953125,
+     1392.531982421875,
+     1440.802001953125,
+     1445.2060546875,
+     1489.072021484375,
+     1493.4759521484375,
+     1541.7459716796875,
+     1546.1510009765625,
+     1590.0159912109375,
+     1594.4210205078125,
+     1642.6910400390625,
+     1647.094970703125,
+     1690.9610595703125,
+     1695.364990234375,
+     1743.635009765625,
+     1748.0389404296875,
+     2454.65087890625
+    ],
+    "edges": [
+     -2399.1781005859375,
+     -2394.7740478515625,
+     -2368.43701171875,
+     -2320.1669921875,
+     -2293.8294677734375,
+     -2269.6944580078125,
+     -2245.5594482421875,
+     -2219.221923828125,
+     -2192.885009765625,
+     -2168.75,
+     -2144.614990234375,
+     -2118.278076171875,
+     -2091.9405517578125,
+     -2067.8055419921875,
+     -2043.6705322265625,
+     -2017.3330078125,
+     -1990.9959716796875,
+     -1966.8609619140625,
+     -1942.7260131835938,
+     -1916.3890380859375,
+     -1890.051513671875,
+     -1865.91650390625,
+     -1841.781494140625,
+     -1815.4439697265625,
+     -1789.1069946289062,
+     -1764.9719848632812,
+     -1740.8369750976562,
+     -1714.5,
+     -1688.1630249023438,
+     -1664.0280151367188,
+     -1639.8930053710938,
+     -1613.5560302734375,
+     -1587.218505859375,
+     -1563.08349609375,
+     -1514.8134765625,
+     -1486.2739868164062,
+     -1462.1390380859375,
+     -1438.0040283203125,
+     -1411.6669921875,
+     -1385.3294677734375,
+     -1361.1944580078125,
+     -1337.0595092773438,
+     -1310.7220458984375,
+     -1284.385009765625,
+     -1260.25,
+     -1236.114990234375,
+     -1209.7779541015625,
+     -1183.4404907226562,
+     -1159.3055419921875,
+     -1135.1705322265625,
+     -1082.4960327148438,
+     -1007.8890380859375,
+     -981.551513671875,
+     -957.41650390625,
+     -933.281494140625,
+     -906.9440002441406,
+     -880.6070251464844,
+     -854.27001953125,
+     -806.0,
+     -779.6629943847656,
+     -755.5279846191406,
+     -731.3929748535156,
+     -705.0559997558594,
+     -678.718505859375,
+     -654.58349609375,
+     -630.448486328125,
+     -604.1109924316406,
+     -577.7740173339844,
+     -553.6390075683594,
+     -529.5039978027344,
+     -503.16700744628906,
+     -476.8295135498047,
+     -452.6945037841797,
+     -428.5594940185547,
+     -402.2220001220703,
+     -351.75,
+     -274.9404983520508,
+     -200.33300018310547,
+     -152.0629997253418,
+     -101.59099960327148,
+     355.8054962158203,
+     811.0,
+     837.3370056152344,
+     861.4720153808594,
+     885.6070251464844,
+     911.9440002441406,
+     938.281494140625,
+     962.41650390625,
+     986.551513671875,
+     1012.8890380859375,
+     1039.2260131835938,
+     1063.3609619140625,
+     1087.4959716796875,
+     1113.8330078125,
+     1140.1705322265625,
+     1164.3055419921875,
+     1188.4404907226562,
+     1214.7779541015625,
+     1241.114990234375,
+     1267.4520263671875,
+     1315.7220458984375,
+     1342.0595092773438,
+     1366.1944580078125,
+     1390.3294677734375,
+     1416.6669921875,
+     1443.0040283203125,
+     1467.1390380859375,
+     1491.2739868164062,
+     1517.6109619140625,
+     1543.948486328125,
+     1568.08349609375,
+     1592.218505859375,
+     1618.5560302734375,
+     1644.8930053710938,
+     1669.0280151367188,
+     1693.1630249023438,
+     1719.5,
+     1745.8369750976562,
+     2101.3449096679688,
+     2807.9568481445312
+    ],
+    "extent": [
+     -2399.1781005859375,
+     2807.9568481445312
+    ],
+    "mean_pitch": 41.115482653601696,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "y": {
+    "n": 35,
+    "coords": [
+     -175.8000030517578,
+     228.1999969482422,
+     276.79998779296875,
+     329.20001220703125,
+     377.79998779296875,
+     430.20001220703125,
+     478.79998779296875,
+     531.2000122070312,
+     579.7999877929688,
+     632.2000122070312,
+     680.7999877929688,
+     733.2000122070312,
+     781.7999877929688,
+     834.2000122070312,
+     882.7999877929688,
+     935.2000122070312,
+     983.7999877929688,
+     1036.199951171875,
+     1084.800048828125,
+     1137.199951171875,
+     1185.800048828125,
+     1238.199951171875,
+     1286.800048828125,
+     1339.199951171875,
+     1387.800048828125,
+     1440.199951171875,
+     1488.800048828125,
+     1541.199951171875,
+     1589.800048828125,
+     1642.199951171875,
+     1690.800048828125,
+     1743.199951171875,
+     2046.199951171875,
+     2147.199951171875,
+     2195.800048828125
+    ],
+    "edges": [
+     -377.8000030517578,
+     26.199996948242188,
+     252.49999237060547,
+     303.0,
+     353.5,
+     404.0,
+     454.5,
+     505.0,
+     555.5,
+     606.0,
+     656.5,
+     707.0,
+     757.5,
+     808.0,
+     858.5,
+     909.0,
+     959.5,
+     1009.9999694824219,
+     1060.5,
+     1111.0,
+     1161.5,
+     1212.0,
+     1262.5,
+     1313.0,
+     1363.5,
+     1414.0,
+     1464.5,
+     1515.0,
+     1565.5,
+     1616.0,
+     1666.5,
+     1717.0,
+     1894.699951171875,
+     2096.699951171875,
+     2171.5,
+     2220.10009765625
+    ],
+    "extent": [
+     -377.8000030517578,
+     2220.10009765625
+    ],
+    "mean_pitch": 69.7529427023495,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "z": {
+    "n": 56,
+    "coords": [
+     3662.39990234375,
+     3682.89990234375,
+     3703.39990234375,
+     3723.89990234375,
+     3744.39990234375,
+     3764.89990234375,
+     3785.39990234375,
+     3805.89990234375,
+     3826.39990234375,
+     3846.89990234375,
+     3867.39990234375,
+     3887.89990234375,
+     3908.39990234375,
+     3928.89990234375,
+     3949.39990234375,
+     3969.89990234375,
+     3990.39990234375,
+     4010.89990234375,
+     4031.39990234375,
+     4051.89990234375,
+     4072.39990234375,
+     4092.89990234375,
+     4113.39990234375,
+     4133.89990234375,
+     4154.39990234375,
+     4174.89990234375,
+     4195.39990234375,
+     4215.89990234375,
+     4236.39990234375,
+     4256.89990234375,
+     4277.39990234375,
+     4297.89990234375,
+     4318.39990234375,
+     4338.89990234375,
+     4359.39990234375,
+     4379.89990234375,
+     4400.39990234375,
+     4420.89990234375,
+     4441.39990234375,
+     4461.89990234375,
+     4482.39990234375,
+     4502.89990234375,
+     4523.39990234375,
+     4543.89990234375,
+     4564.39990234375,
+     4584.89990234375,
+     4605.39990234375,
+     4625.89990234375,
+     4646.39990234375,
+     4666.89990234375,
+     4687.39990234375,
+     4707.89990234375,
+     4728.39990234375,
+     4748.89990234375,
+     4789.89990234375,
+     4830.89990234375
+    ],
+    "edges": [
+     3652.14990234375,
+     3672.64990234375,
+     3693.14990234375,
+     3713.64990234375,
+     3734.14990234375,
+     3754.64990234375,
+     3775.14990234375,
+     3795.64990234375,
+     3816.14990234375,
+     3836.64990234375,
+     3857.14990234375,
+     3877.64990234375,
+     3898.14990234375,
+     3918.64990234375,
+     3939.14990234375,
+     3959.64990234375,
+     3980.14990234375,
+     4000.64990234375,
+     4021.14990234375,
+     4041.64990234375,
+     4062.14990234375,
+     4082.64990234375,
+     4103.14990234375,
+     4123.64990234375,
+     4144.14990234375,
+     4164.64990234375,
+     4185.14990234375,
+     4205.64990234375,
+     4226.14990234375,
+     4246.64990234375,
+     4267.14990234375,
+     4287.64990234375,
+     4308.14990234375,
+     4328.64990234375,
+     4349.14990234375,
+     4369.64990234375,
+     4390.14990234375,
+     4410.64990234375,
+     4431.14990234375,
+     4451.64990234375,
+     4472.14990234375,
+     4492.64990234375,
+     4513.14990234375,
+     4533.64990234375,
+     4554.14990234375,
+     4574.64990234375,
+     4595.14990234375,
+     4615.64990234375,
+     4636.14990234375,
+     4656.64990234375,
+     4677.14990234375,
+     4697.64990234375,
+     4718.14990234375,
+     4738.64990234375,
+     4769.39990234375,
+     4810.39990234375,
+     4851.39990234375
+    ],
+    "extent": [
+     3652.14990234375,
+     4851.39990234375
+    ],
+    "mean_pitch": 21.245454545454546,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "slab_mm": 120.0,
+   "slab_iz": 5,
+   "native_shapes": {
+    "xy": [
+     35,
+     119
+    ],
+    "yz": [
+     35,
+     56
+    ],
+    "xz": [
+     119,
+     56
+    ]
+   }
+  },
+  "be10499257f2": {
+   "x": {
+    "n": 62,
+    "coords": [
+     -2195.0869140625,
+     -2045.873046875,
+     -2041.468017578125,
+     -1993.197998046875,
+     -1944.927978515625,
+     -1892.2540283203125,
+     -1887.8489990234375,
+     -1843.9840087890625,
+     -1839.5789794921875,
+     -1791.3089599609375,
+     -1786.905029296875,
+     -1743.0389404296875,
+     -1488.4759521484375,
+     -1484.072021484375,
+     -1440.2060546875,
+     -1435.802001953125,
+     -1387.531982421875,
+     -1383.126953125,
+     -1339.261962890625,
+     -1334.8570556640625,
+     -1286.5870361328125,
+     -1282.1829833984375,
+     -1238.3170166015625,
+     -1233.9129638671875,
+     -1132.968017578125,
+     -1032.0240478515625,
+     -983.7540283203125,
+     -979.3489990234375,
+     -931.0789794921875,
+     -882.8090209960938,
+     -830.135009765625,
+     -781.864990234375,
+     -777.4609985351562,
+     -733.594970703125,
+     -729.1909790039062,
+     -680.9210205078125,
+     -676.5159912109375,
+     -632.6510009765625,
+     -628.2459716796875,
+     -579.9760131835938,
+     -575.572021484375,
+     -531.7059936523438,
+     -527.302001953125,
+     -479.0320129394531,
+     -430.7619934082031,
+     -378.0870056152344,
+     -325.4129943847656,
+     -224.46800231933594,
+     -176.197998046875,
+     -127.9280014038086,
+     887.8090209960938,
+     936.0789794921875,
+     984.3489990234375,
+     1041.427978515625,
+     1089.697998046875,
+     1190.6429443359375,
+     1238.9129638671875,
+     1243.3170166015625,
+     1541.7459716796875,
+     1546.1510009765625,
+     1642.6910400390625,
+     2454.65087890625
+    ],
+    "edges": [
+     -2269.69384765625,
+     -2120.47998046875,
+     -2043.6705322265625,
+     -2017.3330078125,
+     -1969.06298828125,
+     -1918.5910034179688,
+     -1890.051513671875,
+     -1865.91650390625,
+     -1841.781494140625,
+     -1815.4439697265625,
+     -1789.1069946289062,
+     -1764.9719848632812,
+     -1615.7574462890625,
+     -1486.2739868164062,
+     -1462.1390380859375,
+     -1438.0040283203125,
+     -1411.6669921875,
+     -1385.3294677734375,
+     -1361.1944580078125,
+     -1337.0595092773438,
+     -1310.7220458984375,
+     -1284.385009765625,
+     -1260.25,
+     -1236.114990234375,
+     -1183.4404907226562,
+     -1082.4960327148438,
+     -1007.8890380859375,
+     -981.551513671875,
+     -955.2139892578125,
+     -906.9440002441406,
+     -856.4720153808594,
+     -806.0,
+     -779.6629943847656,
+     -755.5279846191406,
+     -731.3929748535156,
+     -705.0559997558594,
+     -678.718505859375,
+     -654.58349609375,
+     -630.448486328125,
+     -604.1109924316406,
+     -577.7740173339844,
+     -553.6390075683594,
+     -529.5039978027344,
+     -503.16700744628906,
+     -454.8970031738281,
+     -404.42449951171875,
+     -351.75,
+     -274.9404983520508,
+     -200.33300018310547,
+     -152.0629997253418,
+     379.9405097961426,
+     911.9440002441406,
+     960.2139892578125,
+     1012.8884887695312,
+     1065.56298828125,
+     1140.1704711914062,
+     1214.7779541015625,
+     1241.114990234375,
+     1392.531494140625,
+     1543.948486328125,
+     1594.4210205078125,
+     2048.6709594726562,
+     2860.6307983398438
+    ],
+    "extent": [
+     -2269.69384765625,
+     2860.6307983398438
+    ],
+    "mean_pitch": 76.22520972079919,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "y": {
+    "n": 27,
+    "coords": [
+     -175.8000030517578,
+     329.20001220703125,
+     478.79998779296875,
+     531.2000122070312,
+     579.7999877929688,
+     632.2000122070312,
+     680.7999877929688,
+     733.2000122070312,
+     781.7999877929688,
+     834.2000122070312,
+     882.7999877929688,
+     935.2000122070312,
+     983.7999877929688,
+     1036.199951171875,
+     1084.800048828125,
+     1185.800048828125,
+     1286.800048828125,
+     1339.199951171875,
+     1387.800048828125,
+     1440.199951171875,
+     1488.800048828125,
+     1541.199951171875,
+     1589.800048828125,
+     1690.800048828125,
+     1743.199951171875,
+     2147.199951171875,
+     2195.800048828125
+    ],
+    "edges": [
+     -428.30001068115234,
+     76.70000457763672,
+     404.0,
+     505.0,
+     555.5,
+     606.0,
+     656.5,
+     707.0,
+     757.5,
+     808.0,
+     858.5,
+     909.0,
+     959.5,
+     1009.9999694824219,
+     1060.5,
+     1135.300048828125,
+     1236.300048828125,
+     1313.0,
+     1363.5,
+     1414.0,
+     1464.5,
+     1515.0,
+     1565.5,
+     1640.300048828125,
+     1717.0,
+     1945.199951171875,
+     2171.5,
+     2220.10009765625
+    ],
+    "extent": [
+     -428.30001068115234,
+     2220.10009765625
+    ],
+    "mean_pitch": 91.21538661076472,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "z": {
+    "n": 25,
+    "coords": [
+     3662.39990234375,
+     3682.89990234375,
+     3703.39990234375,
+     3723.89990234375,
+     3744.39990234375,
+     3764.89990234375,
+     3785.39990234375,
+     3805.89990234375,
+     3826.39990234375,
+     3846.89990234375,
+     3867.39990234375,
+     3887.89990234375,
+     3908.39990234375,
+     3928.89990234375,
+     3949.39990234375,
+     3969.89990234375,
+     3990.39990234375,
+     4010.89990234375,
+     4031.39990234375,
+     4051.89990234375,
+     4072.39990234375,
+     4092.89990234375,
+     4215.89990234375,
+     4297.89990234375,
+     4523.39990234375
+    ],
+    "edges": [
+     3652.14990234375,
+     3672.64990234375,
+     3693.14990234375,
+     3713.64990234375,
+     3734.14990234375,
+     3754.64990234375,
+     3775.14990234375,
+     3795.64990234375,
+     3816.14990234375,
+     3836.64990234375,
+     3857.14990234375,
+     3877.64990234375,
+     3898.14990234375,
+     3918.64990234375,
+     3939.14990234375,
+     3959.64990234375,
+     3980.14990234375,
+     4000.64990234375,
+     4021.14990234375,
+     4041.64990234375,
+     4062.14990234375,
+     4082.64990234375,
+     4154.39990234375,
+     4256.89990234375,
+     4410.64990234375,
+     4636.14990234375
+    ],
+    "extent": [
+     3652.14990234375,
+     4636.14990234375
+    ],
+    "mean_pitch": 35.875,
+    "uniform": false,
+    "unit": "mm"
+   },
+   "slab_mm": 120.0,
+   "slab_iz": 5,
+   "native_shapes": {
+    "xy": [
+     27,
+     62
+    ],
+    "yz": [
+     27,
+     25
+    ],
+    "xz": [
+     62,
+     25
+    ]
+   }
+  }
+ },
+ "defaults": {
+  "table_name": "experiment_baseline",
+  "frame": "lab",
+  "model": "segmentation",
+  "channel": "density",
+  "display": null,
+  "rho_norm": "selection",
+  "notices": []
+ },
+ "compute": {
+  "duckdb_memory_gb": 2,
+  "threads": 2,
+  "cpu_cores": 24,
+  "debounce_ms": 150,
+  "sample_percent": 10.0,
+  "large_upload_warn_bytes": 536870912,
+  "canonical_cache": {
+   "name": "canonical",
+   "entries": 1,
+   "max_entries": 32,
+   "max_bytes": 268435456,
+   "bytes": 3431520,
+   "hits": 0,
+   "misses": 1,
+   "evictions": 0,
+   "hit_rate": 0.0
+  },
+  "trans_cache": {
+   "name": "trans",
+   "entries": 1,
+   "max_entries": 32,
+   "max_bytes": 134217728,
+   "bytes": 4239936,
+   "hits": 0,
+   "misses": 1,
+   "evictions": 0,
+   "hit_rate": 0.0
+  },
+  "local_cache": {
+   "name": "local",
+   "entries": 1,
+   "max_entries": 32,
+   "max_bytes": 134217728,
+   "bytes": 6864624,
+   "hits": 0,
+   "misses": 1,
+   "evictions": 0,
+   "hit_rate": 0.0
+  }
+ }
+}

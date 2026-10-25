@@ -1,0 +1,927 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "frame": "local",
+  "channel": "density",
+  "model": "segmentation",
+  "anchor": null,
+  "coordinates": "file",
+  "sample_percent": 100.0,
+  "cam": null,
+  "notices": [
+   "Local frame: 287 event(s), 287 shower(s) superimposed at their own entry points, each rotated so its incident direction is +w.",
+   "Each cell's 48.27 × 48.60 mm footprint was split into 6 × 6 × 2 sub-deposits, moved with its shower and binned on the 20 mm accumulation grid; pairs of bins were merged into 40 mm voxels centred on the origin. A drawn cube is axis-aligned and cannot tilt, so a rotated cell appears as the voxels its sub-deposits fall in.",
+   "Voxels below 10⁻³ of ρ_ref are not drawn: 300 voxel(s) holding 0.229% of the energy, counted.",
+   "Along v the accumulation grid holds an even number of 20 mm bins on each side of the origin, so the outermost voxel on each side is half a voxel wide. It lies at the far edge of the grid and is not drawn: 4 populated half-width voxel(s), 0.001694% of the energy, counted.",
+   "0.122% of the energy fell outside the accumulation grid; it is counted, not drawn.",
+   "Comb not measured here: it is measured by the 2-D Local panels on the raw 20 mm accumulation grid, before any merge or smoothing, and quoted here once they have been opened for this selection. No comb is measured on the merged 40 mm voxels.",
+   "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000106 mm (ingest-wide 1.14e−13 mm), within the 0.01 mm tolerance.",
+   "w is each shower's incident direction by construction; no ensemble axis is drawn because none could carry information.",
+   "ρ_ref is this selection's own raw 3-D peak; a dataset-wide reference is not offered for the 3-D view in this version."
+  ]
+ },
+ "frame": {
+  "kind": "local",
+  "title": "Local",
+  "symbols": {
+   "x": "u",
+   "y": "v",
+   "z": "w"
+  },
+  "n_events": 287,
+  "n_selected": 287,
+  "n_excluded_no_frame": 0,
+  "n_showers": 287,
+  "provisional": false,
+  "n_label": null,
+  "anchor": "own_shower_entry_point",
+  "n_ill_conditioned": null,
+  "ill_conditioned_threshold_mm": null,
+  "anchor_residual": null,
+  "splat": {
+   "regime": "subdeposit3d",
+   "k": 6,
+   "k_z": 2,
+   "footprint_mm": [
+    48.27001953125,
+    48.5999755859375
+   ],
+   "gapless_k": 4,
+   "gapless": true,
+   "budget_rows": 30000000
+  },
+  "depth": {
+   "policy": "uniform_bins",
+   "text": "uniform bins of the layer pitch along w, never merged or smoothed",
+   "pitch_mm": 20.5,
+   "n": 58
+  },
+  "coordinates": "file",
+  "coordinate_check": {
+   "source": "file",
+   "residual_max_mm": 0.00010576206614132388,
+   "tolerance_mm": 0.01,
+   "ingest_residual_mm": 1.1368683772161603e-13,
+   "ingest_residual_key": "rotation_residual_mm",
+   "within_tolerance": true,
+   "note": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000106 mm (ingest-wide 1.14e−13 mm), within the 0.01 mm tolerance."
+  },
+  "comb": null,
+  "comb_source": "Comb not measured here: it is measured by the 2-D Local panels on the raw 20 mm accumulation grid, before any merge or smoothing, and quoted here once they have been opened for this selection. No comb is measured on the merged 40 mm voxels.",
+  "planned_from": "dataset energy-weighted 10⁻⁴ and 0.9999 quantiles plus half a footprint",
+  "negative_w": {
+   "available": true,
+   "threshold_mm": 1e-06,
+   "unit": "shower",
+   "showers_per_event": 1,
+   "splits": [
+    {
+     "key": "all",
+     "label": "All selected",
+     "n_events": 287,
+     "n_showers": 287,
+     "events_with_any": 143,
+     "events_with_any_ci95": [
+      0.440818,
+      0.555744
+     ],
+     "showers_with_any": 143,
+     "showers_with_any_ci95": [
+      0.440818,
+      0.555744
+     ],
+     "hits": 2061,
+     "hits_total": 8573,
+     "hits_fraction": 0.240406,
+     "hits_fraction_ci95": [
+      0.214253,
+      0.266559
+     ],
+     "energy_gev": 1.97588,
+     "energy_total_gev": 27.7669,
+     "energy_fraction": 0.0711598,
+     "energy_fraction_ci95": [
+      0.0600264,
+      0.0822932
+     ],
+     "note": ""
+    },
+    {
+     "key": "low",
+     "label": "p < 1 GeV",
+     "n_events": 0,
+     "n_showers": 0,
+     "events_with_any": 0,
+     "events_with_any_ci95": null,
+     "showers_with_any": 0,
+     "showers_with_any_ci95": null,
+     "hits": 0,
+     "hits_total": 0,
+     "hits_fraction": null,
+     "hits_fraction_ci95": null,
+     "energy_gev": 0.0,
+     "energy_total_gev": 0.0,
+     "energy_fraction": null,
+     "energy_fraction_ci95": null,
+     "note": "No showers in this split."
+    },
+    {
+     "key": "mid",
+     "label": "1 ≤ p ≤ 10 GeV",
+     "n_events": 47,
+     "n_showers": 47,
+     "events_with_any": 24,
+     "events_with_any_ci95": [
+      0.372425,
+      0.647244
+     ],
+     "showers_with_any": 24,
+     "showers_with_any_ci95": [
+      0.372425,
+      0.647244
+     ],
+     "hits": 348,
+     "hits_total": 1437,
+     "hits_fraction": 0.242171,
+     "hits_fraction_ci95": [
+      0.176427,
+      0.307916
+     ],
+     "energy_gev": 0.121508,
+     "energy_total_gev": 1.61566,
+     "energy_fraction": 0.0752066,
+     "energy_fraction_ci95": [
+      0.044909,
+      0.105504
+     ],
+     "note": ""
+    },
+    {
+     "key": "high",
+     "label": "p > 10 GeV",
+     "n_events": 240,
+     "n_showers": 240,
+     "events_with_any": 119,
+     "events_with_any_ci95": [
+      0.433144,
+      0.558654
+     ],
+     "showers_with_any": 119,
+     "showers_with_any_ci95": [
+      0.433144,
+      0.558654
+     ],
+     "hits": 1713,
+     "hits_total": 7136,
+     "hits_fraction": 0.24005,
+     "hits_fraction_ci95": [
+      0.211336,
+      0.268765
+     ],
+     "energy_gev": 1.85438,
+     "energy_total_gev": 26.1512,
+     "energy_fraction": 0.0709098,
+     "energy_fraction_ci95": [
+      0.0592263,
+      0.0825932
+     ],
+     "note": ""
+    }
+   ],
+   "affected": {
+    "n": 143,
+    "mean": 0.241846,
+    "sd": 0.166664,
+    "min": 0.0769231,
+    "q25": 0.0769231,
+    "q50": 0.0769231,
+    "q75": 0.409091,
+    "max": 0.409091,
+    "n_over_half": 0
+   },
+   "intervals": {
+    "hits_fraction": "95% Student-t, ratio of sums, events as clusters",
+    "energy_fraction": "95% Student-t, ratio of sums, events as clusters",
+    "events_with_any": "95% Wilson score, events",
+    "showers_with_any": "95% Wilson score, showers (one per event only)"
+   },
+   "summary": "w < −10⁻⁶ mm: 7.12% [6.00, 8.23] of energy, 24.04% [21.43, 26.66] of hits; 49.8% [44.1, 55.6] of showers (95% intervals in brackets)"
+  }
+ },
+ "grid": {
+  "pitch_mm": 20.0,
+  "voxel_mm": [
+   40.0,
+   40.0,
+   20.5
+  ],
+  "half_x": 940.0,
+  "half_y": 1320.0,
+  "x_centre0": -920.0,
+  "y_centre0": -1280.0,
+  "z_centre0": -256.25,
+  "n": [
+   47,
+   65,
+   58
+  ],
+  "n_fine": [
+   94,
+   132,
+   58
+  ],
+  "z_centres": [
+   -256.25,
+   -235.75,
+   -215.25,
+   -194.75,
+   -174.25,
+   -153.75,
+   -133.25,
+   -112.75,
+   -92.25,
+   -71.75,
+   -51.25,
+   -30.75,
+   -10.25,
+   10.25,
+   30.75,
+   51.25,
+   71.75,
+   92.25,
+   112.75,
+   133.25,
+   153.75,
+   174.25,
+   194.75,
+   215.25,
+   235.75,
+   256.25,
+   276.75,
+   297.25,
+   317.75,
+   338.25,
+   358.75,
+   379.25,
+   399.75,
+   420.25,
+   440.75,
+   461.25,
+   481.75,
+   502.25,
+   522.75,
+   543.25,
+   563.75,
+   584.25,
+   604.75,
+   625.25,
+   645.75,
+   666.25,
+   686.75,
+   707.25,
+   727.75,
+   748.25,
+   768.75,
+   789.25,
+   809.75,
+   830.25,
+   850.75,
+   871.25,
+   891.75,
+   912.25
+  ],
+  "z_uniform": true,
+  "extent_mm": {
+   "x": [
+    -940.0,
+    940.0
+   ],
+   "y": [
+    -1300.0,
+    1300.0
+   ],
+   "z": [
+    -266.5,
+    922.5
+   ]
+  },
+  "alignment": "Fine 20 mm bins are merged in pairs about the origin on each transverse axis, so the origin (each shower's own entry point P0, on its w axis) runs through the centre of one 40 mm voxel column instead of along a voxel edge; depth is never merged.",
+  "partial_edge": {
+   "x": false,
+   "y": true,
+   "n_voxels": 4,
+   "energy_gev": 0.0004704155541526697,
+   "energy_fraction": 1.6942e-05,
+   "note": "Along v the accumulation grid holds an even number of 20 mm bins on each side of the origin, so the outermost voxel on each side is half a voxel wide. It lies at the far edge of the grid and is not drawn: 4 populated half-width voxel(s), 0.001694% of the energy, counted."
+  }
+ },
+ "voxels": {
+  "n": 428,
+  "encoding": "layer-run-u8",
+  "layer_counts": "BAAAAAMABAAEAAIAAAAFAAoABQAEAAsAEwAQAA8AFAATAAoAEAARABYAIgAoABcADwAJAAcACAAJAAUACQAIAAYAAQACAAQABgAEAAAAAAABAAYAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAYACAADAAQAAgA=",
+  "xy": "ABoBGgAbARsFGAYYBhkFGAYYBxgGGQgZCRkIGgkaCRkJGg4YDxgPGQ4bDhwOGA8YDhkPGQ4bDhwPHAYeECYQJxElECYRJhAnEScKHQ8gDyESIhYWDx8PIBAgDyEQIRQhFSEUIhUiFiIWFRYWFxYWFw0bDRwOHA8eEB4PHxAfFx8QIBYgFyAQIRUhFyEVIhcWDhwPHhAeDx8QHxcfDyAQIBYgFyAYIA4hDyEQIRchDx4PHxAfFh8XHw8gECARIBYgFyAYIA8hECEWIRchHBQdFBwVHRUPHg4fDx8QHxYfFx8PIBAgFSAWIBcgFSEWIRchFSISJhwUHRQcFR0VDx4OHw8fEB8WHxcfDyAVIBYgFyAUIRUhFiEUIhUiDx8QHw8gECAVIBcgFCEVIRYhFSIgGSEZIRoPHxAfDyAQIBUgFyAYIBQhFSEWIRchGCEVIiEZDx8QHw8gECAUIBUgGCAUIRUhFiEjISQhFSIjIiQiIyMPHxAfDyAQIBQgFSARIRIhFCEVISMhJCElIREiEiIUIiMiJCIlIiMjJCMlIxIdEx0QHhIeEx4OHw8fEB8THw4gDyAQIBQgFSAnIBEhEiEUIRUhJSEnIREiEiIUIiUiJiISIxMjFCMlIyYjEiQnJScmEh0THRAeER4SHhMeFB4OHw8fEB8RHxMfFB8OIA8gFCAnICggFCEVISchKCETIhQiFSISIxMjFCMVIxEkEiQTJBQkKCQRJRIlJyUoJScmKCYQHRAeER4THhQeDh8PHxAfER8THxQfDiAPIBQhFSEUIhUiFiITIxQjEiQTJBIlEB0RHRAeER4PHxAfER8OIA8gECAQIRQhFSEUIhUiER0RHhAfECAQIRQhFSEUIhUiDx8UIRUhEyIUIhUiJSUPHhAeDx8QHxQgFCEUIhUiDx4QHg8fEB8UIBUgFCEVIRUiFCAVIBQhFSEUIgocCxwKHQsdFCAVIBQhFSEUIgocCxwKHQsdFh4XHhcfFSELHBYeFx4YHhYfFx8XHhkWGRcZFhoWGRcaFxoWGhcMHAsdDB0MHgwcDB0NHQweHh0eHB8cHh0fHR4eHx4fHB8dER8QIBEgESEmIyYkER8RIBIgESEmIycjJiQnJBMMJyMnJBMLFAsTDBQMFAsUDA==",
+  "code": "RyNiXjxgPEaXTnE7CkggAhwzJBklTT1yC1IbPhYIkWFSnrR6dAxpRxEcRnqrVo47dmSKEw19QFEbTipGebPFV45eo1ZVUG4nI4+U3OFpeqOJtV4NcTZsh83MIGRniDOSrCY1OCBkGA46IKSQ67NJSKI1Up+fkGxIHwwgQD1XhJLYkCAgknRxexivkS0/b2M6VII0VK6DQC5iO5KkmKB+eVmBrFNARToqtbmwuUl4K5KoIBIsSW1UEsqwyKZoXJlsppoSm52hbDpzl30SUDKRX4LIpivHv19mvpqNUx96jb2ckUeAjXRqPnmDcCcUXyoeeIehsrPVXpSzvtGUT5WuOEcfaIpgUki2gqHVyki01NhfA4iwTUtDO2uDg2SGgaeLnE9xfaRkmZmyKpJwzaesl4uViYpPHBeiiiaCiaWtYlhPiiaPbLCXF5xGYLd4DHoXk1gzlIhvPz9nSV6Eq7NNhXu/tVNNZj4+lkbBqF9moz6Kb4JvRk2CykdHrGBaH42CgnNSOD5IlD4Vhy9QImNUnIUiIjuCVF+gRbOkVKlFX+as4r1tcYubrq7Fm6g=",
+  "order": "by depth w, then v, then u; layer_counts holds the number of voxels in each depth layer",
+  "dtype": {
+   "layer_counts": "u16le",
+   "xy": "u8",
+   "code": "u8"
+  },
+  "min_code": 2,
+  "layout": "x = x_centre0 + voxel_mm[0] · xy[2i], y = y_centre0 + voxel_mm[1] · xy[2i + 1], z = z_centres[layer]"
+ },
+ "scale": {
+  "scale": "log10",
+  "vmin": -3.0,
+  "vmax": 0.0,
+  "unit": "a.u.",
+  "mode": "relative",
+  "locked": false,
+  "global_vmax": 1.4150321529353583e-07,
+  "clipped_low": 300,
+  "empty_cells": 0,
+  "rho_ref": 1.4150321529353583e-07,
+  "rho_unit": "GeV/mm^3/event",
+  "decades": 3.0,
+  "norm": "selection",
+  "floor": "transparent",
+  "floor_ratio": 0.001,
+  "floor_rule": "drawn iff ρ_v ≥ 10⁻³ ρ_ref"
+ },
+ "rho": {
+  "rho_ref": 1.4150321529353583e-07,
+  "unit": "GeV/mm^3/event",
+  "basis": "raw 20 × 20 × 20.5 mm 3-D accumulation peak",
+  "floor_ratio": 0.001,
+  "norm": "selection",
+  "floor": 1.4150321529353582e-10,
+  "floor_basis": "rho_ref",
+  "fine_voxel_mm": [
+   20.0,
+   20.0,
+   20.5
+  ],
+  "peak_drawn": 8.188925500880741e-08,
+  "provisional": false,
+  "bound": "Each voxel is the mean of its four raw bins, empty ones counting zero, so no voxel exceeds ρ_ref.",
+  "norm_note": "ρ_ref is this selection's own raw 3-D peak; a dataset-wide reference is not offered for the 3-D view in this version."
+ },
+ "budget": {
+  "cap": 15000,
+  "rank": "energy",
+  "n_populated": 728,
+  "n_below_floor": 300,
+  "n_above_floor": 428,
+  "n_drawn": 428,
+  "n_beyond_cap": 0,
+  "n_partial_edge": 4,
+  "energy_total_gev": 27.766859348120573,
+  "energy_gev": {
+   "drawn": 27.669012164110924,
+   "below_floor": 0.06362277361371929,
+   "beyond_cap": 0.0,
+   "outside_grid": 0.03375399484177378,
+   "partial_edge": 0.0004704155541526697
+  },
+  "energy_fraction": {
+   "drawn": 0.996476116,
+   "below_floor": 0.00229132,
+   "beyond_cap": 0.0,
+   "outside_grid": 0.001215622,
+   "partial_edge": 1.6942e-05
+  },
+  "cam": null,
+  "cap_requested": 15000
+ },
+ "topk": [
+  {
+   "i": 108,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 51.25,
+   "value": 8.18893e-08,
+   "energy_gev": 0.770873
+  },
+  {
+   "i": 415,
+   "x": 600.0,
+   "y": 120.0,
+   "z": 850.75,
+   "value": 7.07516e-08,
+   "energy_gev": 0.666027
+  },
+  {
+   "i": 417,
+   "x": 600.0,
+   "y": 160.0,
+   "z": 850.75,
+   "value": 6.48556e-08,
+   "energy_gev": 0.610525
+  },
+  {
+   "i": 76,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 10.25,
+   "value": 6.23797e-08,
+   "energy_gev": 0.587217
+  },
+  {
+   "i": 75,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 10.25,
+   "value": 5.48522e-08,
+   "energy_gev": 0.516357
+  },
+  {
+   "i": 271,
+   "x": -160.0,
+   "y": 160.0,
+   "z": 194.75,
+   "value": 4.88009e-08,
+   "energy_gev": 0.459392
+  },
+  {
+   "i": 128,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 71.75,
+   "value": 4.87963e-08,
+   "energy_gev": 0.459349
+  },
+  {
+   "i": 245,
+   "x": -160.0,
+   "y": -80.0,
+   "z": 194.75,
+   "value": 4.51824e-08,
+   "energy_gev": 0.425329
+  },
+  {
+   "i": 266,
+   "x": -160.0,
+   "y": 120.0,
+   "z": 194.75,
+   "value": 4.45e-08,
+   "energy_gev": 0.418905
+  },
+  {
+   "i": 270,
+   "x": -200.0,
+   "y": 160.0,
+   "z": 194.75,
+   "value": 4.37556e-08,
+   "energy_gev": 0.411898
+  },
+  {
+   "i": 250,
+   "x": -240.0,
+   "y": -40.0,
+   "z": 194.75,
+   "value": 4.04788e-08,
+   "energy_gev": 0.381052
+  },
+  {
+   "i": 300,
+   "x": -200.0,
+   "y": 160.0,
+   "z": 215.25,
+   "value": 3.65079e-08,
+   "energy_gev": 0.343671
+  },
+  {
+   "i": 88,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 30.75,
+   "value": 3.60316e-08,
+   "energy_gev": 0.339187
+  },
+  {
+   "i": 89,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 30.75,
+   "value": 3.55253e-08,
+   "energy_gev": 0.334421
+  },
+  {
+   "i": 375,
+   "x": 0.0,
+   "y": -80.0,
+   "z": 399.75,
+   "value": 3.33558e-08,
+   "energy_gev": 0.313998
+  },
+  {
+   "i": 184,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 153.75,
+   "value": 3.31701e-08,
+   "energy_gev": 0.31225
+  },
+  {
+   "i": 267,
+   "x": -120.0,
+   "y": 120.0,
+   "z": 194.75,
+   "value": 3.31541e-08,
+   "energy_gev": 0.312099
+  },
+  {
+   "i": 209,
+   "x": -200.0,
+   "y": -80.0,
+   "z": 174.25,
+   "value": 3.19523e-08,
+   "energy_gev": 0.300786
+  },
+  {
+   "i": 186,
+   "x": -320.0,
+   "y": 0.0,
+   "z": 153.75,
+   "value": 3.183e-08,
+   "energy_gev": 0.299635
+  },
+  {
+   "i": 212,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 174.25,
+   "value": 3.09458e-08,
+   "energy_gev": 0.291311
+  },
+  {
+   "i": 62,
+   "x": -280.0,
+   "y": -40.0,
+   "z": -10.25,
+   "value": 2.92613e-08,
+   "energy_gev": 0.275454
+  },
+  {
+   "i": 425,
+   "x": -120.0,
+   "y": -800.0,
+   "z": 891.75,
+   "value": 2.86697e-08,
+   "energy_gev": 0.269885
+  },
+  {
+   "i": 362,
+   "x": -120.0,
+   "y": 40.0,
+   "z": 358.75,
+   "value": 2.61057e-08,
+   "energy_gev": 0.245748
+  },
+  {
+   "i": 353,
+   "x": -120.0,
+   "y": 40.0,
+   "z": 338.25,
+   "value": 2.47337e-08,
+   "energy_gev": 0.232833
+  },
+  {
+   "i": 213,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 174.25,
+   "value": 2.4565e-08,
+   "energy_gev": 0.231245
+  },
+  {
+   "i": 249,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 194.75,
+   "value": 2.42511e-08,
+   "energy_gev": 0.22829
+  },
+  {
+   "i": 216,
+   "x": -320.0,
+   "y": 0.0,
+   "z": 174.25,
+   "value": 2.42362e-08,
+   "energy_gev": 0.22815
+  },
+  {
+   "i": 418,
+   "x": 640.0,
+   "y": 160.0,
+   "z": 850.75,
+   "value": 2.35839e-08,
+   "energy_gev": 0.222009
+  },
+  {
+   "i": 223,
+   "x": -120.0,
+   "y": 40.0,
+   "z": 174.25,
+   "value": 2.30738e-08,
+   "energy_gev": 0.217207
+  },
+  {
+   "i": 169,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 133.25,
+   "value": 2.11707e-08,
+   "energy_gev": 0.199293
+  },
+  {
+   "i": 171,
+   "x": -280.0,
+   "y": 0.0,
+   "z": 133.25,
+   "value": 2.07662e-08,
+   "energy_gev": 0.195485
+  },
+  {
+   "i": 331,
+   "x": -120.0,
+   "y": 80.0,
+   "z": 276.75,
+   "value": 1.95865e-08,
+   "energy_gev": 0.184379
+  },
+  {
+   "i": 263,
+   "x": -120.0,
+   "y": 80.0,
+   "z": 194.75,
+   "value": 1.94817e-08,
+   "energy_gev": 0.183393
+  },
+  {
+   "i": 354,
+   "x": -80.0,
+   "y": 40.0,
+   "z": 338.25,
+   "value": 1.8871e-08,
+   "energy_gev": 0.177644
+  },
+  {
+   "i": 168,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 133.25,
+   "value": 1.86679e-08,
+   "energy_gev": 0.175732
+  },
+  {
+   "i": 81,
+   "x": 0.0,
+   "y": 0.0,
+   "z": 10.25,
+   "value": 1.86264e-08,
+   "energy_gev": 0.175342
+  },
+  {
+   "i": 34,
+   "x": -240.0,
+   "y": 240.0,
+   "z": -71.75,
+   "value": 1.83548e-08,
+   "energy_gev": 0.172785
+  },
+  {
+   "i": 269,
+   "x": -240.0,
+   "y": 160.0,
+   "z": 194.75,
+   "value": 1.8254e-08,
+   "energy_gev": 0.171835
+  },
+  {
+   "i": 349,
+   "x": -80.0,
+   "y": 40.0,
+   "z": 317.75,
+   "value": 1.79544e-08,
+   "energy_gev": 0.169016
+  },
+  {
+   "i": 109,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 51.25,
+   "value": 1.77679e-08,
+   "energy_gev": 0.167259
+  },
+  {
+   "i": 244,
+   "x": -200.0,
+   "y": -80.0,
+   "z": 194.75,
+   "value": 1.77513e-08,
+   "energy_gev": 0.167104
+  },
+  {
+   "i": 409,
+   "x": 600.0,
+   "y": 120.0,
+   "z": 830.25,
+   "value": 1.76879e-08,
+   "energy_gev": 0.166507
+  },
+  {
+   "i": 61,
+   "x": -320.0,
+   "y": -40.0,
+   "z": -10.25,
+   "value": 1.75973e-08,
+   "energy_gev": 0.165654
+  },
+  {
+   "i": 248,
+   "x": -320.0,
+   "y": -40.0,
+   "z": 194.75,
+   "value": 1.75258e-08,
+   "energy_gev": 0.164981
+  },
+  {
+   "i": 296,
+   "x": -80.0,
+   "y": 80.0,
+   "z": 215.25,
+   "value": 1.72163e-08,
+   "energy_gev": 0.162067
+  },
+  {
+   "i": 243,
+   "x": -240.0,
+   "y": -80.0,
+   "z": 194.75,
+   "value": 1.71257e-08,
+   "energy_gev": 0.161214
+  },
+  {
+   "i": 170,
+   "x": -320.0,
+   "y": 0.0,
+   "z": 133.25,
+   "value": 1.65427e-08,
+   "energy_gev": 0.155726
+  },
+  {
+   "i": 275,
+   "x": -200.0,
+   "y": 200.0,
+   "z": 194.75,
+   "value": 1.64286e-08,
+   "energy_gev": 0.154652
+  },
+  {
+   "i": 325,
+   "x": -120.0,
+   "y": 80.0,
+   "z": 256.25,
+   "value": 1.63438e-08,
+   "energy_gev": 0.153854
+  },
+  {
+   "i": 185,
+   "x": -280.0,
+   "y": -40.0,
+   "z": 153.75,
+   "value": 1.62457e-08,
+   "energy_gev": 0.152931
+  },
+  {
+   "i": 137,
+   "x": -80.0,
+   "y": 40.0,
+   "z": 71.75,
+   "value": 1.58159e-08,
+   "energy_gev": 0.148884
+  },
+  {
+   "i": 148,
+   "x": -80.0,
+   "y": 40.0,
+   "z": 92.25,
+   "value": 1.56916e-08,
+   "energy_gev": 0.147715
+  },
+  {
+   "i": 423,
+   "x": -120.0,
+   "y": -840.0,
+   "z": 891.75,
+   "value": 1.5638e-08,
+   "energy_gev": 0.14721
+  },
+  {
+   "i": 424,
+   "x": -160.0,
+   "y": -800.0,
+   "z": 891.75,
+   "value": 1.5638e-08,
+   "energy_gev": 0.14721
+  },
+  {
+   "i": 254,
+   "x": -320.0,
+   "y": 0.0,
+   "z": 194.75,
+   "value": 1.55797e-08,
+   "energy_gev": 0.146661
+  },
+  {
+   "i": 317,
+   "x": -80.0,
+   "y": 80.0,
+   "z": 235.75,
+   "value": 1.49733e-08,
+   "energy_gev": 0.140953
+  },
+  {
+   "i": 378,
+   "x": 0.0,
+   "y": -40.0,
+   "z": 399.75,
+   "value": 1.48248e-08,
+   "energy_gev": 0.139555
+  },
+  {
+   "i": 96,
+   "x": 0.0,
+   "y": 0.0,
+   "z": 30.75,
+   "value": 1.48108e-08,
+   "energy_gev": 0.139423
+  },
+  {
+   "i": 416,
+   "x": 640.0,
+   "y": 120.0,
+   "z": 850.75,
+   "value": 1.47399e-08,
+   "energy_gev": 0.138756
+  },
+  {
+   "i": 302,
+   "x": -200.0,
+   "y": 200.0,
+   "z": 215.25,
+   "value": 1.46032e-08,
+   "energy_gev": 0.137468
+  },
+  {
+   "i": 162,
+   "x": -80.0,
+   "y": 40.0,
+   "z": 112.75,
+   "value": 1.45136e-08,
+   "energy_gev": 0.136625
+  },
+  {
+   "i": 44,
+   "x": -280.0,
+   "y": 0.0,
+   "z": -30.75,
+   "value": 1.4423e-08,
+   "energy_gev": 0.135772
+  },
+  {
+   "i": 348,
+   "x": -120.0,
+   "y": 40.0,
+   "z": 317.75,
+   "value": 1.40962e-08,
+   "energy_gev": 0.132696
+  },
+  {
+   "i": 412,
+   "x": -240.0,
+   "y": 0.0,
+   "z": 850.75,
+   "value": 1.33832e-08,
+   "energy_gev": 0.125984
+  }
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

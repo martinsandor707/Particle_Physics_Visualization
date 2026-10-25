@@ -110,7 +110,7 @@ def _serve(build: Callable[[int], dict[str, Any]], levels: int) -> dict[str, Any
     level = 0
     for level in range(levels):
         body = build(level)
-        if _stamp(body, level) <= density.RESPONSE_LIMIT:
+        if _stamp(body, level) < density.RESPONSE_LIMIT:
             return body
     body["meta"]["warnings"].append(
         f"The response is still over the {density.RESPONSE_LIMIT:,}-byte budget after every "

@@ -62,18 +62,28 @@ def get_cache() -> cache_mod.BundleCache:
     return cache_mod.get_cache(MAX_ENTRIES, name=cache_mod.PHYSICS_CACHE)
 
 
-def get_or_compute(key: tuple, compute: Callable[[], Any], heavy: bool = True) -> tuple[Any, bool]:
+def get_or_compute(key: tuple, compute: Callable[[], Any], heavy: bool = True,
+                   cache: cache_mod.BundleCache | None = None) -> tuple[Any, bool]:
     """``(value, was_cached)`` for ``key``; ``key[0]`` must be the table name.
 
     ``heavy`` scans run one at a time across the process. A request for a key
     already being computed waits for that computation instead of repeating it.
+    ``cache`` stores the result somewhere other than the physics cache, for a
+    value that carries its own ``nbytes`` and would evict every physics card's
+    entry (the 3-D voxel bundles): the single flight and the heavy-scan gate
+    are the same.
     """
-    cache = get_cache()
+    wrapped = cache is None
+    store = get_cache() if wrapped else cache
+
+    def unwrap(stored: Any) -> Any:
+        return stored.value if wrapped else stored
+
     while True:
         with _flight_lock:
-            hit = cache.get_any([key])
+            hit = store.get_any([key])
             if hit is not None:
-                return hit.value, True
+                return unwrap(hit), True
             event = _in_flight.get(key)
             if event is None:
                 event = threading.Event()
@@ -88,16 +98,16 @@ def get_or_compute(key: tuple, compute: Callable[[], Any], heavy: bool = True) -
             event.wait()
             continue
         try:
-            def run() -> Entry:
+            def run() -> Any:
                 if heavy:
                     with _heavy:
                         value = compute()
                 else:
                     value = compute()
-                return Entry(value, nbytes_of(value))
+                return Entry(value, nbytes_of(value)) if wrapped else value
 
-            entry, cached = cache.get_or_compute(key, run)
-            return entry.value, cached
+            stored, cached = store.get_or_compute(key, run)
+            return unwrap(stored), cached
         finally:
             with _flight_lock:
                 _in_flight.pop(key, None)

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import time
 from collections.abc import Iterable
@@ -352,20 +353,36 @@ class ShowerBundle:
         )
 
 
-def _plane_columns(record: ExperimentRecord, model: str, kind: str) -> tuple[str, ...]:
-    """The CAM and segmentation columns the planes read; none without networks."""
+def _plane_columns(record: ExperimentRecord, model: str, kind: str,
+                   planes: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """The CAM and segmentation columns the planes read; none without networks.
+
+    ``planes`` narrows them to the columns those planes' values name (the
+    ensemble voxels read no segmentation or count-weighted plane); ``None``
+    keeps all four, in the order the 2-D scans have always carried them.
+    """
     if not planes_mod.has_networks(record):
         return ()
-    return (
+    columns = (
         ddl.cam_column(model, kind, "gradcam"), ddl.cam_column(model, kind, "shapcam"),
         ddl.seg_column("true", kind), ddl.seg_column("pred", kind),
     )
+    if planes is None:
+        return columns
+    values = [value for _, value in _values(record, model, kind, planes)]
+    return tuple(c for c in columns
+                 if any(re.search(rf"\b{re.escape(c)}\b", value) for value in values))
 
 
-def _values(record: ExperimentRecord, model: str, kind: str) -> list[tuple[str, str]]:
-    """``(plane, per-row value)`` of the planes the experiment measures; a count is the constant 1."""
+def _values(record: ExperimentRecord, model: str, kind: str,
+            planes: tuple[str, ...] | None = None) -> list[tuple[str, str]]:
+    """``(plane, per-row value)`` of the planes the experiment measures; a count is the constant 1.
+
+    ``planes`` keeps only those planes, in the measured order; ``None`` keeps every one.
+    """
     return [(plane, "1.0" if expr is None else expr)
-            for plane, expr in planes_mod.measures_for(record, kind, model)]
+            for plane, expr in planes_mod.measures_for(record, kind, model)
+            if planes is None or plane in planes]
 
 
 def _params(record: ExperimentRecord, spec: FilterSpec) -> dict[str, Any]:
@@ -639,23 +656,20 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch
 # ----------------------------------------------------- local: sub-deposits --
 
 
-def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled,
-               source=SOURCE_FILE) -> tuple[str, str]:
-    """The X'Y' (entrance slab) and depth queries of the local frame.
+def _local_base_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled,
+                    source=SOURCE_FILE, planes: tuple[str, ...] | None = None) -> str:
+    """The local frame's keyed sub-deposits: ``WITH ... keyed(kt, v_<plane>..., resid, jx, jy, jz)``.
 
     Each hit joins its own shower's SE(3) element - a 40 000-row CTE from the
     event table (``query/frame_sql.py``) - and is split into ``k x k x k_z``
     sub-deposits whose offsets over the cell's footprint box are rotated by
     that R. Every plane value is divided by the sub-deposit count once per
-    hit, before the split, so the aggregation is nine plain sums. A
-    sub-deposit outside the grid is binned at the sentinel key -1 on every
-    axis; its group carries the outside mass, so inside + outside equals the
-    hits' sums with no FILTER on the hot path. The slab panel runs as its own
-    query over slab rows only.
+    hit, before the split, so any aggregation over ``keyed`` is plain sums. A
+    sub-deposit outside the grid is keyed -1 on every axis.
 
-    ``source`` picks the file's own ``x/y/z_local`` or the motion's as the
-    sub-deposits' centre; the residual between the two rides along the depth
-    query as a ``max`` aggregate.
+    ``planes`` keeps only those planes' values and the columns they read (the
+    ensemble voxels, ``query/voxels.py``); ``None`` keeps every measured plane,
+    which is the text the 2-D panels have always run.
     """
     assert record.lattice is not None
     proj = quote(naming.proj_table(record.table_name, sampled=sampled))
@@ -666,14 +680,13 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
     z_edges = grid.axis("z").edges
     z0, z1 = float(z_edges[0]), float(z_edges[-1])
     n = k * k * k_z
-    values = _values(record, model, KIND_LOCAL)
+    values = _values(record, model, KIND_LOCAL, planes)
     per_hit = ",\n               ".join(
         f"CAST({value} AS DOUBLE) / {n}.0 AS v_{plane}" for plane, value in values)
     carried = ", ".join(f"v_{plane}" for plane, _ in values)
-    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in values)
-    columns = ", ".join(f"p.{c}" for c in _plane_columns(record, model, KIND_LOCAL))
+    columns = ", ".join(f"p.{c}" for c in _plane_columns(record, model, KIND_LOCAL, planes))
     cx, cy, cz = ("xf", "yf", "zf") if source == SOURCE_FILE else ("xc", "yc", "zc")
-    base = f"""
+    return f"""
     WITH {_hit_frame_sql(KIND_LOCAL, record, spec, columns, proj, event, layer_pitch)}, sub AS (
         SELECT ((u.range + 0.5) / {k} - 0.5) * {wx!r}::DOUBLE AS ox,
                ((v.range + 0.5) / {k} - 0.5) * {wy!r}::DOUBLE AS oy,
@@ -706,6 +719,26 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
                CASE WHEN outside THEN -1 ELSE iz_ END AS jz
         FROM binned
     )"""
+
+
+def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled,
+               source=SOURCE_FILE) -> tuple[str, str]:
+    """The X'Y' (entrance slab) and depth queries of the local frame.
+
+    Both aggregate :func:`_local_base_sql` over every measured plane: nine
+    plain sums. A sub-deposit outside the grid is binned at the sentinel key
+    -1 on every axis; its group carries the outside mass, so inside + outside
+    equals the hits' sums with no FILTER on the hot path. The slab panel runs
+    as its own query over slab rows only.
+
+    ``source`` picks the file's own ``x/y/z_local`` or the motion's as the
+    sub-deposits' centre; the residual between the two rides along the depth
+    query as a ``max`` aggregate.
+    """
+    values = _values(record, model, KIND_LOCAL)
+    sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in values)
+    base = _local_base_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sampled,
+                           source)
     xy_sql = base + f"""
     SELECT jx, jy, {sums}
     FROM keyed WHERE kt <= {record.lattice.slab_iz}
