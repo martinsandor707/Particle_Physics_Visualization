@@ -24,12 +24,18 @@
  * none of the display, frame, channel or kernel tokens: none of them changes
  * what it shows, and an `R150` on it would name bins it does not contain.
  *
+ * The filter tokens follow the experiment's own axes (`State.filterAxes`): a
+ * single-shower selection is named by its incident momentum, `p-2.00-5.00`.
+ * A figure with no network behind it - a physics card - names the frame and
+ * the quantity its response states, never the sidebar's frame.
+ *
  * An Event Inspector figure leads with its event and shower (`ev1234A`), from
  * the response's meta, so the nine figures of one event sort together and two
  * events of one selection never collide on everything but their timestamp.
  */
 
 import { apiFrame } from '../state.js';
+import { TWO_SHOWER_AXES } from '../capabilities.js';
 
 const MAX_SLICE = 90;
 
@@ -89,9 +95,10 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
     if (lo === null || hi === null) return;
     bounds.push(`${label}${lo.toFixed(digits)}-${hi.toFixed(digits)}`);
   };
-  push('e1', 'E1-', 2);
-  push('e2', 'E2-', 2);
-  push('d', 'D-', 0);
+  // The experiment's own axes: a single shower is named by its incident
+  // momentum (`p-2.00-5.00`), a two-shower selection by E1, E2 and D.
+  const axes = Array.isArray(state.filterAxes) && state.filterAxes.length ? state.filterAxes : TWO_SHOWER_AXES;
+  for (const axis of axes) push(axis.key, axis.token, axis.digits);
 
   const tokens = bounds.length ? bounds : ['full'];
   if (Number.isInteger(meta?.event)) {
@@ -120,10 +127,20 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
     if (kernel) tokens.push(kernel);
   } else {
     // The energy panel is the selected frame's segmentation reconstruction.
+    // A figure whose response names no network - a physics card, or the
+    // momentum-sliced response grid (`network: null`) - names the frame its
+    // own response was computed in, if any, and its quantity.
     const network = shownBy(state, meta).network;
-    const coord = network ? (network === 'absolute' ? 'lab' : network)
-      : apiFrame(state.get('frame')).coord_system;
-    if (coord !== 'lab') tokens.push(coord);
+    let coord;
+    if (network) coord = network === 'absolute' ? 'lab' : network;
+    else if (meta) coord = meta.coord_system ?? null;
+    else coord = apiFrame(state.get('frame')).coord_system;
+    if (coord && coord !== 'lab') tokens.push(coord);
+    if (typeof meta?.quantity === 'string') tokens.push(meta.quantity);
+    if (meta?.depth === 'native') tokens.push('native');
+    // A profile under the notebook's convention (hits behind the entry plane
+    // dropped) is a different figure from the default one.
+    if (meta?.notebook === true) tokens.push('notebook');
   }
   for (const item of extra) if (item) tokens.push(item);
 

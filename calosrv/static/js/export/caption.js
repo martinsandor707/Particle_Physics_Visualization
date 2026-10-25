@@ -14,12 +14,28 @@
  */
 
 import { typographic } from '../scale.js';
+import { TWO_SHOWER_AXES } from '../capabilities.js';
+import { showersPerEvent } from './disclosure.js';
+
+/** The filter axes a state describes: the active experiment's, else the two-shower set. */
+const filterAxesOf = (state) => (Array.isArray(state?.filterAxes) && state.filterAxes.length
+  ? state.filterAxes : TWO_SHOWER_AXES);
 
 /** How each co-registered frame is named in a provenance sentence. */
 const FRAME_PHRASE = {
   canonical: 'Separation-Aligned (D-Frame), Translated',
   trans: 'per-shower translated frame (legacy; each shower at its own P₀, no rotation)',
   local: 'Separation-Aligned (D-Frame), Local (shower-fixed, R(θ, φ))',
+};
+
+/* A single-shower experiment has no D-frame and no legacy frame: its aligned
+ * view is Shower-Aligned and its per-shower translated frame is its own
+ * Translated, as its panel titles and frame tier name them (frame_views.js,
+ * labels.js). The drawer's Selection line is what goes into a caption, so it
+ * must name the same frames. */
+const SINGLE_FRAME_PHRASE = {
+  trans: 'Translated (each shower from its own entry point P₀, no rotation)',
+  local: 'Shower-Aligned, Local (shower-fixed, R(θ, φ))',
 };
 
 /** How each network's input frame is named. */
@@ -78,23 +94,27 @@ export function describeSelection(
     const lo = state.get(`${axis}_min`);
     const hi = state.get(`${axis}_max`);
     if (lo === null || hi === null) return null;
-    return `${label} ${lo.toFixed(digits)}–${hi.toFixed(digits)} ${unit}`;
+    return `${label} ${typographic(lo.toFixed(digits))}–${typographic(hi.toFixed(digits))} ${unit}`;
   };
 
-  const filters = [
-    bound('e1', 'E₁', 'GeV', 2),
-    bound('e2', 'E₂', 'GeV', 2),
-    bound('d', 'D', 'mm', 0),
-  ].filter(Boolean);
+  // The experiment's own axes (State.filterAxes): a single shower is selected
+  // by its incident momentum p, not by E₁, and has no E₂ or D to name.
+  const axes = filterAxesOf(state);
+  const filters = axes.map((axis) => bound(axis.key, axis.symbol, axis.unit, axis.digits)).filter(Boolean);
   parts.push(filters.length
     ? `selection ${filters.join(', ')}`
     : 'full kinematic range');
 
-  if (state.get('include_undefined_d')) parts.push('including events with undefined D');
+  if (axes.some((axis) => axis.key === 'd') && state.get('include_undefined_d')) {
+    parts.push('including events with undefined D');
+  }
   if (filtersOnly) return `${parts.join(' · ')}.`;
 
   const kind = ['canonical', 'trans', 'local'].includes(frame?.kind) ? frame.kind : 'lab';
   const coregistered = kind !== 'lab';
+  // Showers per event: the experiment's own count, else what the response shows.
+  const single = showersPerEvent({ selection, frame }, experiment?.capabilities?.n_showers ?? null) === 1;
+  const phrases = single ? { ...FRAME_PHRASE, ...SINGLE_FRAME_PHRASE } : FRAME_PHRASE;
   const mode = display?.mode ?? state.get('display');
   const r = Number.isFinite(display?.r) ? display.r : state.get('resolution');
   // What the panel holds, from its response's meta where it says: the
@@ -111,7 +131,7 @@ export function describeSelection(
   } else if (coregistered) {
     // The D-frame names its anchor when it is not the default one.
     const name = kind === 'canonical' && frame.anchor_choice === 'p0'
-      ? `${FRAME_PHRASE[kind]}, anchored on P₀` : FRAME_PHRASE[kind];
+      ? `${phrases[kind]}, anchored on P₀` : phrases[kind];
     const pitch = Number.isFinite(frame.pitch_mm) ? frame.pitch_mm : null;
     const kernel = display ? kernelPhrase(display) : null;
     if (mode === 'native') {

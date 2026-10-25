@@ -55,7 +55,8 @@ def pytest_collection_modifyitems(session, config, items):
     """
     booted = [
         item for item in items
-        if {"client", "live_server", "synthetic_client", "auto_client", "single_client"}
+        if {"client", "live_server", "synthetic_client", "auto_client", "single_client",
+            "physics_live_server"}
         & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
@@ -334,6 +335,93 @@ def live_server(tmp_path_factory):
         pytest.fail("the server never reported a ready experiment")
 
     yield {"base": base, "playwright": playwright, "drop": drop}
+
+    server.should_exit = True
+    thread.join(timeout=10)
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()
+
+
+#: The two-shower copy the ``physics_live_server`` marks as built by an earlier
+#: release, so the cards that need the newer derived tables are shut.
+STALE_TWO_TABLE = "stale_two"
+
+
+@pytest.fixture(scope="module")
+def physics_live_server(tmp_path_factory):
+    """The real app on a real port, holding every kind the Physics page draws.
+
+    Seeded like ``live_server`` (the two-shower baseline), then given
+    ``synthetic_single_shower``'s two files as in ``single_client`` - the
+    single-shower hits (:data:`SINGLE_HITS_TABLE`) and the event-level
+    aggregate (:data:`SINGLE_EVENTS_TABLE`) - and a second ingest of the
+    demonstration CSV whose registry row claims derived tables v1
+    (:data:`STALE_TWO_TABLE`), so its profile cards are shut with the server's
+    rebuild notice. A separate server from ``live_server``: the existing
+    browser modules keep their one-experiment page.
+    """
+    import threading
+    import time
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    import httpx
+    import uvicorn
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest import pipeline
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.query.cache import reset_cache
+
+    import synthetic_single_shower
+
+    if not SEED_CSV.is_file():
+        pytest.skip("Demonstration CSV not present")
+
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()
+    data_dir = tmp_path_factory.mktemp("physics-browser-data")
+    hits_csv, events_csv = data_dir / "single_hits.csv", data_dir / "single_events.csv"
+    synthetic_single_shower.write(hits_csv)
+    synthetic_single_shower.write_aggregated(hits_csv, events_csv)
+    os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
+    os.environ["DUCKDB_MEMORY_GB"] = "2"
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+
+    app = create_app(load_settings())
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(240):
+        try:
+            payload = httpx.get(f"{base}/api/experiments", timeout=2).json()
+            if any(e["status"] == "ready" for e in payload["experiments"]):
+                break
+        except Exception:
+            pass
+        time.sleep(0.25)
+    else:
+        server.should_exit = True
+        pytest.fail("the server never reported a ready experiment")
+
+    database = app.state.database
+    with database.write_lock() as con:
+        for name, source in ((SINGLE_HITS_TABLE, hits_csv), (SINGLE_EVENTS_TABLE, events_csv),
+                             (STALE_TWO_TABLE, SEED_CSV)):
+            result = pipeline.run_ingest(con, database.settings, name, source)
+            assert result.ok, result.warnings
+        # Built by "an earlier release": the gates read the registry's version.
+        con.execute('UPDATE "experiment" SET derived_version = 1 WHERE table_name = ?', [STALE_TWO_TABLE])
+
+    yield {"base": base, "playwright": playwright}
 
     server.should_exit = True
     thread.join(timeout=10)

@@ -34,6 +34,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The server could not be reached at all: fetch itself failed (the network,
+ * a proxy dropping the connection, the service restarting). Unlike an
+ * ApiError it carries no answer from the server, so it may pass on its own
+ * and a retry is worth making; its message says what happened rather than
+ * fetch's bare "Failed to fetch".
+ */
+export class NetworkError extends Error {
+  constructor(cause) {
+    super('The server could not be reached (network failure); the request can be retried');
+    this.name = 'NetworkError';
+    this.cause = cause;
+  }
+}
+
 /** GET a JSON endpoint, aborting any earlier request under the same key. */
 export async function getJson(path, params = {}, key = path) {
   const previous = inFlight.get(key);
@@ -45,12 +60,37 @@ export async function getJson(path, params = {}, key = path) {
   let response;
   try {
     response = await fetch(buildUrl(path, params), { signal: controller.signal });
+  } catch (error) {
+    // A superseded request stays an AbortError; anything else fetch throws
+    // is a failure to reach the server.
+    if (error?.name === 'AbortError') throw error;
+    throw new NetworkError(error);
   } finally {
     if (inFlight.get(key) === controller) inFlight.delete(key);
   }
 
   if (!response.ok) throw new ApiError(await problemOf(response), response.status);
   return response.json();
+}
+
+/**
+ * Abort the request in flight under `key`, if any.
+ *
+ * For a view that is being torn down - an experiment change - whose late
+ * response must not land on the next experiment's cards. The awaiting caller
+ * receives the usual AbortError.
+ */
+export function abortRequest(key) {
+  const controller = inFlight.get(key);
+  if (!controller) return false;
+  inFlight.delete(key);
+  controller.abort();
+  return true;
+}
+
+/** Whether a failure is a superseded request rather than a fault. */
+export function isAbort(error) {
+  return error?.name === 'AbortError';
 }
 
 /** The RFC 7807 problem an error response carries, or one built from its status. */

@@ -1205,6 +1205,34 @@ export class ProjectionPanel {
     this.chart.resize();
   }
 
+  /**
+   * Take the picture down and let go of everything retained, so neither a
+   * relayout nor a zoom can repaint it: the page's experiment changed, and
+   * the previous experiment's data must not stay on screen. The pointer
+   * handlers go too (they read the payload); the next `render` attaches them
+   * afresh, and starts from the full extent.
+   */
+  clear() {
+    this.chart.clear();
+    const zr = this.chart.getZr?.();
+    for (const [event, key] of [['mousewheel', 'wheelHandler'], ['mousedown', 'downHandler'],
+      ['mousemove', 'moveHandler'], ['mouseup', 'upHandler'], ['globalout', 'upHandler'],
+      ['mousemove', 'tooltipHandler']]) {
+      if (this[key]) zr?.off(event, this[key]);
+    }
+    for (const key of ['wheelHandler', 'downHandler', 'moveHandler', 'upHandler', 'tooltipHandler']) this[key] = null;
+    this.payload = null;
+    this.raster = null;
+    this.lastOpts = null;
+    this.extent = null;
+    this.symbols = null;
+    this.view = null;
+    this.viewKey = null;
+    this.drag = null;
+    this.liveGrid = null;
+    this.laidOut = null;
+  }
+
   setBusy(busy) {
     this.element.classList.toggle('is-busy', busy);
   }

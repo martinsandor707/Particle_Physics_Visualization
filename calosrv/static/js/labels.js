@@ -46,6 +46,28 @@ export const FRAME_TREE = Object.freeze({
 /** The sub-frame Separation-Aligned opens on: "Translated (default on entering)". */
 export const DEFAULT_SUB = 'canonical';
 
+/* A single-shower experiment has no A→B separation to align on, so the frame
+ * tier is relabelled at runtime (main.js, `relabelChoice`): the view becomes
+ * "Shower-Aligned", and the per-shower translated frame - every shower moved to
+ * its own entry point, without rotation - is that kind's own Translated frame,
+ * shown as a sub-option of its own rather than as a legacy one. The D-frame's
+ * radio stays, disabled with the server's reason. The static radios keep their
+ * two-shower labels, which the tests pin; nothing here renames a stored key. */
+export const SINGLE_SHOWER_FRAME_LABELS = Object.freeze({
+  aligned: {
+    label: 'Shower-Aligned',
+    detail: '(each shower at its own entry point)',
+    title: 'Every selected shower is moved to its own entry point P₀: Translated keeps the '
+      + 'detector axes, Local also rotates it by its own R(θ, φ) so its incident direction lies along +w.',
+  },
+  trans: {
+    label: 'Translated',
+    detail: '(each shower from its own entry point P₀, no rotation)',
+    title: 'Each shower is moved to its own entry point P₀ - the energy-weighted x, y centroid of its '
+      + 'first populated layer, at that layer’s z - without rotation.',
+  },
+});
+
 const SUB_VALUES = FRAME_TREE.subs.map((sub) => sub.value);
 const ALIGNED = FRAME_TREE.views.find((view) => view.value === 'aligned');
 const ABSOLUTE = FRAME_TREE.views.find((view) => view.value === 'absolute');
@@ -102,10 +124,17 @@ export const CHOICE_LABELS = Object.freeze({
   ],
 });
 
-/** A frame key as the interface names it, for a banner or a chip. */
-export function frameLabel(frame) {
+/** A frame key as the interface names it, for a banner or a chip; `nShowers` 1 names a single shower's frames. */
+export function frameLabel(frame, nShowers = 2) {
+  if (nShowers === 1 && SINGLE_SHOWER_FRAME_NAMES[frame]) return SINGLE_SHOWER_FRAME_NAMES[frame];
   return CHOICE_LABELS.frame.find((choice) => choice.value === frame)?.label ?? String(frame);
 }
+
+/** A single shower's frames, by key, as its relabelled frame tier names them. */
+const SINGLE_SHOWER_FRAME_NAMES = {
+  trans: 'Translated',
+  local: 'Shower-Aligned › Local',
+};
 
 /**
  * The frame keys an experiment serves, in the interface's order.
