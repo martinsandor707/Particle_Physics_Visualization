@@ -16,7 +16,10 @@ look like, and this module answers each one:
 * **φ is circular.** A linear r of φ depends on where the cut at ±π falls.
   No Σφ, Σφ² or Σφ·v is ever accumulated: φ enters the scan only as cos φ and
   sin φ, and its cells carry r = null, hatched, with Mardia's circular-linear
-  R of the other variable and its jackknife SE.
+  R of the other variable and its jackknife SE. R is quoted only over
+  ``jackknife.MIN_MARDIA_AZIMUTHS`` distinct azimuths - counted from the event
+  table, not events - and its SE from ``jackknife.MIN_MARDIA_GROUPS`` groups,
+  with the null expectation of R² beside it.
 * **Per-shower values are weighted by multiplicity.** A hit-level pair weights
   each shower by its hit count, which grows with momentum. Pairs of two
   per-shower values (p, θ, φ among themselves) are therefore aggregated from
@@ -37,13 +40,15 @@ accumulated about a fixed offset - laboratory z about the front layer, x and y
 about the lattice centre, p about the middle of the selected momentum range -
 and ``Σ v² - (Σ v)² / n`` keeps the digits a narrow selection has left.
 
-**Two azimuths.** Mardia's R is the multiple correlation of a variable on
-(cos φ, sin φ), and its closed form divides by ``1 - r(cos, sin)²``. When a
-selection holds only two azimuths, cos φ and sin φ are collinear and the form
-is 0/0 in floating point; the multiple correlation is then the plain |r| on
-either one, which :func:`mardia_value` returns. Without that, rounding noise
-would decide R - and any leave-one-group-out sample reduced to two azimuths
-would put that noise into the jackknife SE.
+**Few azimuths.** Mardia's R is the multiple correlation of a variable on
+(cos φ, sin φ): an intercept and two slopes, so three azimuths fit any variable
+exactly and R = 1 whatever the data, and at the hit level it is then only the
+between-shower share of the variance. R is therefore gated on distinct
+azimuths, the design points of that fit, and a selection with only two -
+where cos φ and sin φ are collinear and the closed form is 0/0 - is never
+quoted. :func:`mardia_value` still returns the plain |r| there, so a
+leave-one-group-out sample reduced to two azimuths cannot put rounding noise
+into the jackknife SE.
 """
 
 from __future__ import annotations
@@ -51,7 +56,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 import duckdb
 import numpy as np
@@ -104,8 +109,11 @@ _COMPLETE = (
 
 #: Within this of |r(cos φ, sin φ)| = 1 the two are collinear (two azimuths at most).
 COLLINEAR_TOL = jackknife.COLLINEAR_TOL
-#: A jackknife SE of R below this is floating-point rounding of identical estimates.
-ROUNDING_SE = 1e-12
+
+#: The colour scale of a signed r: PuOr, symmetric about zero (CLAUDE.md
+#: section 2). D3's matrix (``query/features.py``) carries the same block.
+R_SCALE: dict[str, Any] = {"palette": "puor", "diverging": True, "vmin": -1, "vmax": 1,
+                           "label": "Pearson r"}
 
 #: Below this many events the matrix is labelled weak (CLAUDE.md's low-N table).
 WEAK_BELOW_EVENTS = gaussian.MIN_ROBUST_SAMPLES
@@ -209,6 +217,7 @@ class Selection:
     n_showers: int          # complete selected showers
     n_hits: int             # their hits, by the event table's counts
     n_incomplete: int       # selected showers missing p, θ or φ, left out of every sum
+    n_azimuths: int = 0     # distinct φ among the complete showers: Mardia's design points
 
 
 def _centred(expr: str, shift: float) -> str:
@@ -288,20 +297,21 @@ def _attr_cte(record: ExperimentRecord, spec: FilterSpec, showers: tuple[ShowerC
 
 def selection(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
               showers: tuple[ShowerColumns, ...]) -> Selection:
-    """Count the selection's events, showers and hits from the event table."""
+    """Count the selection's events, showers, hits and distinct azimuths from the event table."""
     row = con.execute(
         f"""
         WITH {_attr_cte(record, spec, showers)}
         SELECT count(DISTINCT event_number) FILTER (WHERE {_COMPLETE}),
                count(*) FILTER (WHERE {_COMPLETE}),
                coalesce(sum(nh) FILTER (WHERE {_COMPLETE}), 0),
-               count(*)
+               count(*),
+               count(DISTINCT ph) FILTER (WHERE {_COMPLETE})
         FROM sh
         """,
         spec.params(),
     ).fetchone()
-    n_events, n_showers, n_hits, n_present = (int(v or 0) for v in row)
-    return Selection(n_events, n_showers, n_hits, n_present - n_showers)
+    n_events, n_showers, n_hits, n_present, n_azimuths = (int(v or 0) for v in row)
+    return Selection(n_events, n_showers, n_hits, n_present - n_showers, n_azimuths)
 
 
 def event_sums_sql(record: ExperimentRecord, spec: FilterSpec,
@@ -415,6 +425,7 @@ class Analysis:
     mardia_hit: dict[int, Mardia] = field(default_factory=dict)        # x, y, z, E with φ
     mardia_shower_w: dict[int, Mardia] = field(default_factory=dict)   # p, θ with φ, hit-weighted
     mardia_shower_u: dict[int, Mardia] = field(default_factory=dict)   # p, θ with φ, per shower
+    mardia_reason: str | None = None   # why no Mardia R is quoted, else None
     sampled: bool = False
     sample_percent: float = 100.0
     cached: bool = False
@@ -469,25 +480,28 @@ def mardia_value(r_xc: float, r_xs: float, r_cs: float) -> float | None:
     return jackknife.mardia_r(r_xc, r_xs, r_cs)
 
 
-def mardia_statistic(x: int, c: int, s: int) -> Callable[[float, np.ndarray, np.ndarray], np.ndarray]:
-    """A jackknife statistic of Mardia's R (``jackknife.mardia_from_sums``, two azimuths handled)."""
-    return jackknife.mardia_from_sums(x, c, s)
+def _mardia(sums: MomentSums, x: int, c: int, s: int) -> Mardia:
+    """R of variable ``x`` with the angle whose cos, sin are ``c``, ``s``, and its jackknife SE.
 
-
-def _mardia(sums: MomentSums, fit: FisherJackknife, x: int, c: int, s: int) -> Mardia:
-    """R of variable ``x`` with the angle whose cos, sin are ``c``, ``s``; SE from G ≥ 4."""
-    value = mardia_value(float(fit.r[x, c]), float(fit.r[x, s]), float(fit.r[c, s]))
-    if value is None:
-        return Mardia()
-    se = None
-    if sums.groups >= jackknife.MIN_JACKKNIFE_GROUPS:
-        loo = jackknife.grouped_jackknife(sums.n, sums.s, sums.q, mardia_statistic(x, c, s))
-        se = jackknife.jackknife_se(loo)
-        # An R that every leave-one-out sample reproduces (two azimuths that fix the
-        # other variable, R = 1) has SE 0; what the sums leave is rounding, not spread.
-        if se is not None and se < ROUNDING_SE:
-            se = 0.0
+    Called only once :func:`mardia_reason` has passed the selection. The SE is
+    never clamped to zero: an exact fit in every leave-one-out sample is what
+    too few directions produce, and the azimuth gate rules that out first.
+    """
+    value, se = jackknife.mardia_jackknife(sums.n, sums.s, sums.q, x, c, s)
     return Mardia(value, se)
+
+
+def mardia_reason(a: Analysis) -> str | None:
+    """Why the selection's φ cells carry no Mardia R; ``None`` when they do.
+
+    The gate counts distinct azimuths, not events: showers sharing a direction
+    are one design point of the fit, however many events hold them.
+    """
+    reason = jackknife.mardia_gate(a.selection.n_azimuths)
+    if reason is None and azimuths(a) != "many":
+        reason = ("cos φ and sin φ are collinear: the selection's azimuths are at most two "
+                  "directions, which cannot constrain a dependence on the direction.")
+    return reason
 
 
 def azimuths(a: Analysis) -> str:
@@ -537,13 +551,14 @@ def analyse(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
         sampled=bool(sampled), sample_percent=float(sample_percent), cached=cached,
         planned_groups=planned,
     )
-    if n_events >= jackknife.MIN_R_EVENTS:
+    analysis.mardia_reason = mardia_reason(analysis)
+    if n_events >= jackknife.MIN_R_EVENTS and analysis.mardia_reason is None:
         for i in range(4):
-            analysis.mardia_hit[i] = _mardia(hit, hit_fit, _HIT_INDEX[i], _HIT_COS, _HIT_SIN)
+            analysis.mardia_hit[i] = _mardia(hit, _HIT_INDEX[i], _HIT_COS, _HIT_SIN)
         for i in (_P, _TH):
             x = _SHOWER_INDEX[i]
-            analysis.mardia_shower_w[i] = _mardia(shower_w, shower_w_fit, x, _SHOWER_COS, _SHOWER_SIN)
-            analysis.mardia_shower_u[i] = _mardia(shower_u, shower_u_fit, x, _SHOWER_COS, _SHOWER_SIN)
+            analysis.mardia_shower_w[i] = _mardia(shower_w, x, _SHOWER_COS, _SHOWER_SIN)
+            analysis.mardia_shower_u[i] = _mardia(shower_u, x, _SHOWER_COS, _SHOWER_SIN)
     return analysis
 
 
@@ -593,13 +608,20 @@ def _cell(r: float | None = None, ci: tuple[float, float] | None = None,
     }
 
 
-def _mardia_dict(weighted: Mardia, per_shower: Mardia | None = None) -> dict[str, Any] | None:
+def _null_r2(a: Analysis) -> float | None:
+    """E[R²] under no association over the selection's showers, each counted once."""
+    return jackknife.mardia_null_r2(a.selection.n_showers)
+
+
+def _mardia_dict(a: Analysis, weighted: Mardia,
+                 per_shower: Mardia | None = None) -> dict[str, Any] | None:
     if weighted.R is None and (per_shower is None or per_shower.R is None):
         return None
     return {
         "R": sig(weighted.R), "se": sig(weighted.se),
         "per_shower_R": sig(per_shower.R) if per_shower else None,
         "per_shower_se": sig(per_shower.se) if per_shower else None,
+        "null_R2": sig(_null_r2(a)),
     }
 
 
@@ -612,10 +634,10 @@ def _matrix_cell(a: Analysis, i: int, j: int) -> dict[str, Any]:
         if other == _PHI:
             return _cell(hatched=True, weighting=weighting)
         if other in _SHOWER_INDEX:
-            mardia = _mardia_dict(a.mardia_shower_w.get(other, Mardia()),
+            mardia = _mardia_dict(a, a.mardia_shower_w.get(other, Mardia()),
                                   a.mardia_shower_u.get(other, Mardia()))
         else:
-            mardia = _mardia_dict(a.mardia_hit.get(other, Mardia()))
+            mardia = _mardia_dict(a, a.mardia_hit.get(other, Mardia()))
         return _cell(hatched=True, weighting=weighting, mardia=mardia)
     if shower_i and shower_j:
         si, sj = _SHOWER_INDEX[i], _SHOWER_INDEX[j]
@@ -702,11 +724,16 @@ def _notes(a: Analysis) -> list[str]:
                  else "The selection's event numbers fall into")
         notes.append(f"{where} {g} of the {a.planned_groups} jackknife groups.")
     notes.append(
-        "φ is circular, so it has no linear correlation: no Σφ or Σφ² is accumulated, and its "
-        "cells are hatched with r empty. They carry Mardia's circular–linear R of the other "
-        "variable with (cos φ, sin φ), from 0 (no association) to 1, with no sign because a "
-        "circle has no order, and its jackknife standard error. R is never negative, so it is "
-        "biased upward when few events contribute.")
+        f"φ is circular, so it has no linear correlation: no Σφ or Σφ² is accumulated, and its "
+        f"cells are hatched with r empty. They carry Mardia's circular–linear R of the other "
+        f"variable with (cos φ, sin φ), from 0 (no association) to 1, with no sign because a "
+        f"circle has no order, quoted from {jackknife.MIN_MARDIA_AZIMUTHS} distinct azimuths, "
+        f"and its jackknife standard error from {jackknife.MIN_MARDIA_GROUPS} event groups. R "
+        f"is never negative: with no association R² still averages 2/(N − 1) over N showers "
+        f"each counted once (null_R2, N = {sel.n_showers:,}), the reference for per_shower_R; "
+        f"a hit-weighted R counts a shower by its hits and has no such simple reference.")
+    if a.mardia_reason is not None and sel.n_events >= jackknife.MIN_R_EVENTS:
+        notes.append(f"{a.mardia_reason} The φ cells carry no R.")
     notes.append(
         "p, θ and φ are per-shower values: a cell pairing one with a hit variable counts each "
         "shower in proportion to its hits, as the notebook's hit-level matrix does. Pairs of "
@@ -731,14 +758,6 @@ def _notes(a: Analysis) -> list[str]:
     flat = _no_spread(a)
     if flat:
         notes.append(f"No spread in this selection, so no correlation: {', '.join(flat)}.")
-    count = azimuths(a)
-    if count == "one":
-        notes.append("Every selected shower has the same azimuth: no association with φ can "
-                     "be measured.")
-    elif count == "two":
-        notes.append(
-            "The selected showers have only two azimuths, so cos φ and sin φ are collinear: R "
-            "is then the plain |r| with whichever of them varies (Mardia's formula is 0/0).")
     if a.sampled:
         notes.append(
             f"Drag preview: the hit cells come from the {a.sample_percent:g}% Bernoulli sample "
@@ -762,8 +781,14 @@ def render(a: Analysis) -> dict[str, Any]:
         "weak": a.selection.n_events < WEAK_BELOW_EVENTS,
         "method": typographic(_method(a)),
         "interval": typographic(_interval_label(a)),
-        "scale": {"palette": "puor", "diverging": True, "vmin": -1, "vmax": 1,
-                  "label": "Pearson r"},
+        "scale": dict(R_SCALE),
+        "mardia": {
+            "n_azimuths": a.selection.n_azimuths,
+            "min_azimuths": jackknife.MIN_MARDIA_AZIMUTHS,
+            "min_groups": jackknife.MIN_MARDIA_GROUPS,
+            "null_R2": sig(_null_r2(a)),
+            "reason": typographic(a.mardia_reason) if a.mardia_reason else None,
+        },
         "coord_system": a.coord_system,
         "energy_scale": a.energy_scale,
         "shower": a.shower,

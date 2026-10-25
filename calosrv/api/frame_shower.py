@@ -172,22 +172,26 @@ def _superimposed_pairs(pairs: dict[str, centroids.CentroidPair], symbols: dict[
 def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
     """Mean per-event centroid of each shower in this frame, with SD and t-interval.
 
-    Shower B's slots are null for a single-shower experiment.
+    Shower B's slots are null for a single-shower experiment, and every
+    shower's for an empty selection, which has no centroid to mark.
     """
+    n = stats.n_events
+
     def point(shower: str) -> dict[str, Any] | None:
-        if shower not in stats.mean:
+        if shower not in stats.mean or n == 0:
             return None
         m = stats.mean[shower]
         return {"x": m["x"].mean, "y": m["y"].mean, "z": m["z"].mean, "energy": None}
 
     def per(shower: str, attr: str) -> dict[str, float | None] | None:
-        if shower not in stats.mean:
+        if shower not in stats.mean or n == 0:
             return None
         return {axis: getattr(stats.mean[shower][axis], attr) for axis in "xyz"}
 
-    n = stats.n_events
     two = len(stats.showers) > 1
-    if n < 2:
+    if n == 0:
+        dof = None
+    elif n < 2:
         own = "centroids" if two else "centroid"
         dof = f"N = 1: a single event's own {own}; no dispersion or interval is defined."
     elif n < frame_mod.PROVISIONAL_N:
@@ -201,12 +205,13 @@ def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
     whose = "each shower's" if two else "the shower's"
     # One event has no ensemble to average: its marker is that event's own
     # centroid, and is labelled so wherever the label travels.
-    label = (
-        f"This single event's own centroid ({column}), relative to {whose} entry point: "
-        "not an ensemble mean"
-        if n < 2 else
-        f"Mean per-event centroid ({column}), relative to {whose} entry point"
-    )
+    if n == 0:
+        label = "No event in the selection: no centroid"
+    elif n < 2:
+        label = (f"This single event's own centroid ({column}), relative to {whose} entry point: "
+                 "not an ensemble mean")
+    else:
+        label = f"Mean per-event centroid ({column}), relative to {whose} entry point"
     return {
         "label": label,
         "a": point("a"),
@@ -442,7 +447,8 @@ def build_response(
                 "lock_scale and scale_mode are absolute-frame ramp controls and are ignored "
                 f"here: the {title} ramp is relative to the reference chosen by rho_norm."
             )})
-        if fit.provisional:
+        # An empty selection has no evidence to call weak, and no mean centroid.
+        if fit.provisional and stats.n_events:
             notices.append({"scope": "frame", "text": (
                 f"With {stats.n_events} event(s) the fitted display ranges and the mean centroids "
                 "rest on weak evidence and are labelled provisional."

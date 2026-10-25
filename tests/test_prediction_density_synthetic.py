@@ -383,6 +383,11 @@ def test_a_shower_without_a_prediction_is_not_a_pair_and_not_a_zero(synthetic_cl
     a, b = body["density"]["a"], body["density"]["b"]
     assert a["n"] == 186 and b["n"] == 286
     assert a["outside"]["pred_below"] == 0  # nothing was filled with zero
+    # The dropped showers are counted, by cause, and the meta warnings say so.
+    assert a["n_missing"] == {"total": 100, "prediction": 100, "truth": 0}
+    assert b["n_missing"]["total"] == 0
+    assert any(w.startswith("Shower A: 100 selected events were left out")
+               for w in body["meta"]["warnings"])
     assert body["residual"]["series"]["a"]["fit"]["n"] == 186
     # The other frame of the same shower is untouched.
     assert get(synthetic_client, model="energy", coord_system="trans")["density"]["a"]["n"] == 286

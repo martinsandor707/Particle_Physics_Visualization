@@ -24,7 +24,7 @@ from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE
 
 from calosrv.db import naming
 from calosrv.db.naming import quote
-from calosrv.query import density
+from calosrv.query import correlations, density
 from calosrv.query import features as features_mod
 from calosrv.query import features_catalog as catalog
 from calosrv.stats import histogram
@@ -42,6 +42,8 @@ def _get(client, **params):
     assert response.status_code == 200, response.text
     body = response.json()
     contract_check.check(body, "features", f"view_{params.get('view', 'catalog')}")
+    # The budget states the size served, its own stamp and any warning included.
+    assert body["meta"]["budget"]["bytes"] == density.wire_size(body) == len(response.content)
     return body
 
 
@@ -67,6 +69,8 @@ def _strings(node):
 def _close(a, b, rel=2e-5, abs_tol=1e-9):
     if a is None or b is None:
         return a is None and b is None
+    if isinstance(a, (str, bool)) or isinstance(b, (str, bool)):
+        return a == b
     return math.isclose(a, b, rel_tol=rel, abs_tol=abs_tol)
 
 
@@ -187,6 +191,44 @@ def test_corr_matrix_is_an_upper_triangle_with_fisher_intervals(single_client, t
     assert any(r is not None for r in small["r"])
 
 
+def test_corr_puts_no_azimuth_on_the_colour_scale(single_client):
+    """avg_phi has no linear r: its cells are off the PuOr scale and carry Mardia's R - gated
+    here, the fixture's showers sharing four directions - with the notebook's linear r beside
+    it for parity only. One linear cell's interval is pinned to Fisher's formula."""
+    body = _get(single_client, table_name=SINGLE_EVENTS_TABLE, view="corr", classes="label",
+                class_index="1")
+    assert body["scale"] == correlations.R_SCALE
+    order, k = body["order"], len(body["order"])
+
+    def cell(a, b):
+        i, j = sorted((order.index(a), order.index(b)))
+        return i * k - i * (i - 1) // 2 + (j - i)
+
+    for other in order:
+        position = cell("avg_phi", other)
+        assert body["r"][position] is None and body["lo"][position] is None
+    entries = {(c["row"], c["col"]): c for c in body["circular_cells"]}
+    assert len(entries) == k and all(c["position"] == cell(c["row"], c["col"])
+                                     for c in entries.values())
+    rows = _event_rows(single_client, SINGLE_EVENTS_TABLE, "avg_phi, width, n_hits",
+                       "energy_class = 1")
+    rows = {key: np.asarray(value, dtype=np.float64) for key, value in rows.items()}
+    width_phi = entries[("width", "avg_phi")]
+    assert width_phi["measure"] == "mardia" and width_phi["n"] == rows["width"].size
+    assert width_phi["n_azimuths"] == np.unique(rows["avg_phi"]).size == 4
+    assert width_phi["value"] is None and width_phi["reason"].startswith("Mardia's R needs 8")
+    assert width_phi["null_R2"] == pytest.approx(2 / (width_phi["n"] - 1), rel=1e-5)
+    assert width_phi["parity_r"] == pytest.approx(
+        np.corrcoef(rows["avg_phi"], rows["width"])[0, 1], rel=1e-5)
+    assert entries[("avg_phi", "avg_phi")]["parity_r"] == 1.0
+    # Fisher's z for a linear cell: tanh(atanh r ± 1.959964 / √(N − 3)).
+    position = cell("width", "num_hits")
+    r, n = body["r"][position], body["n_pairs"][position]
+    half = 1.959963985 / math.sqrt(n - 3)
+    assert body["lo"][position] == pytest.approx(math.tanh(math.atanh(r) - half), rel=2e-5)
+    assert body["hi"][position] == pytest.approx(math.tanh(math.atanh(r) + half), rel=2e-5)
+
+
 # ---------------------------------------------------------------- circular --
 
 
@@ -249,6 +291,47 @@ def test_histogram_ladder_follows_the_low_n_floors(single_client, table):
         if n:
             assert s["density_scale"] == pytest.approx(1.0 / (n * width), rel=1e-5)
     assert body["y_max"]["provisional"] is False and body["y_max"]["count"] > 0
+
+
+def test_floored_values_never_set_the_histogram_range(single_client):
+    """A quarter of the fixture's heights sit at core.py's 10⁻⁶ mm floor. They used to set
+    the 1st percentile and push scale=auto onto a twelve-decade log axis; now the measured
+    heights set the range and the floors are a counted underflow."""
+    rows = _event_rows(single_client, SINGLE_EVENTS_TABLE, "height", "n_hits >= 2")
+    height = np.asarray(rows["height"], dtype=np.float64)
+    floored = height <= 1e-6 * (1 + 1e-9)
+    assert floored.mean() > 0.01
+    kept = _get(single_client, table_name=SINGLE_EVENTS_TABLE, view="hist", feature="height",
+                classes="label")
+    dropped = _get(single_client, table_name=SINGLE_EVENTS_TABLE, view="hist", feature="height",
+                   classes="label", exclude_eps="true")
+    assert kept["exclude_eps"] is False and kept["scale"] == dropped["scale"] == "linear"
+    assert (kept["axis"]["lo"], kept["axis"]["hi"]) == (dropped["axis"]["lo"], dropped["axis"]["hi"])
+    assert kept["axis"]["lo"] > 100.0
+    assert sum(s["n_floored"] for s in kept["series"]) == int(floored.sum())
+    assert [s["n_floored"] for s in dropped["series"]] == [0, 0]
+    for s in kept["series"]:
+        assert s["n_below"] >= s["n_floored"]             # drawn below the axis, counted
+    assert kept["axis"]["clipping"]["data_min"] == pytest.approx(1e-6)
+    assert any("n_floored" in note for note in kept["notes"])
+    two_d = _get(single_client, table_name=SINGLE_EVENTS_TABLE, view="hist2d", feature="height",
+                 classes="label")
+    assert two_d["x"]["scale"] == "linear" and two_d["x"]["lo"] > 100.0
+    assert sum(s["n_floored"] for s in two_d["series"]) == int(floored.sum())
+
+
+def test_describe_labels_low_n_widths(single_client):
+    """The two-event class: '1 d.o.f.', the SD's standard error, c4(2) = √(2/π)."""
+    body = _get(single_client, table_name=SINGLE_HITS_TABLE, view="describe", classes="bins")
+    width = body["table"]["width"]
+    two = width["n"].index(2)
+    assert "1 d.o.f." in body["notes_by_n"]["2"]
+    assert width["sd_se"][two] == pytest.approx(width["sd"][two] / math.sqrt(2), rel=1e-5)
+    assert width["c4"][two] == pytest.approx(math.sqrt(2 / math.pi), rel=1e-5)
+    assert width["robust"][two] is False
+    assert set(body["class_stats"][0]) == {"index", "n"}
+    big = width["n"].index(200)
+    assert "200" not in body["notes_by_n"] and width["robust"][big] is True
 
 
 def test_quantised_features_bin_on_their_lattice(single_client):
@@ -351,9 +434,17 @@ def test_requests_the_data_cannot_serve_are_refused_by_field(single_client):
              class_index="99")
     _refused(single_client, "feature", table_name=hits, view="hist")
     _refused(single_client, "feature", table_name=hits, view="hist2d", feature="energy")
+    # A feature the aggregate cannot serve is a capability refusal, not a typo.
     problem = _refused(single_client, "feature", table_name=events, view="hist",
                        feature="avg_phi_circ")
+    contract_check.check(problem, "capability_problem")
+    assert problem["capability"] == "feat-hist" and problem["kind"] == "single_shower_events"
     assert "Σ cos φ" in problem["detail"]
+    problem = _refused(single_client, "feature", table_name=events, view="hist2d",
+                       feature="angular_spread_circ")
+    assert problem["capability"] == "feat-hist2d"
+    typo = _refused(single_client, "feature", table_name=events, view="hist", feature="widht")
+    assert typo["type"] == "/problems/validation-error"
     _refused(single_client, "scale", table_name=hits, view="hist", feature="width",
              scale="decibel")
     _refused(single_client, "y_scale", table_name=hits, view="hist2d", feature="width",
@@ -484,7 +575,9 @@ def test_the_guard_sheds_resolution_and_says_so(single_client, monkeypatch):
     monkeypatch.setattr(density, "RESPONSE_LIMIT", 45_000)
     hist = _get(single_client, view="hist", feature="centroid_x", **common)
     assert hist["meta"]["budget"]["level"] >= 1 and density.wire_size(hist) <= 45_000
-    assert any(note.startswith("Reduced to stay under 100 KB") for note in hist["notes"])
+    assert hist["meta"]["budget"]["limit"] == 45_000
+    assert any(note.startswith("Reduced to stay under the 45,000-byte budget")
+               for note in hist["notes"])
     assert len(hist["curve_x"]) == 80
     two_d = _get(single_client, view="hist2d", feature="width", **common)
     assert two_d["meta"]["budget"]["level"] >= 1 and two_d["x"]["bins"] < 32
@@ -498,3 +591,5 @@ def test_the_guard_sheds_resolution_and_says_so(single_client, monkeypatch):
     monkeypatch.setattr(density, "RESPONSE_LIMIT", 1_000)
     over = _get(single_client, view="corr", class_index="pooled", **common)
     assert any("still over" in warning for warning in over["meta"]["warnings"])
+    # The stated size includes the warning that says it is over.
+    assert over["meta"]["budget"]["bytes"] == density.wire_size(over) > 1_000

@@ -107,3 +107,52 @@ def describe_circular(phi: np.ndarray) -> CircularSummary:
         note = ""
     return CircularSummary(n, circular_mean(c, s) if n else None, resultant,
                            circular_sd(resultant), p, note)
+
+
+#: Below this mean square of sin(α − ᾱ) - a spread under a microradian - the
+#: angles have no spread about their mean direction: the quadratic form of the
+#: sums cancels to about 1e-16 per angle, and no correlation is quoted.
+_NO_SPREAD = 1e-12
+
+
+def circular_correlation_from_sums(n: float, s: np.ndarray, q: np.ndarray) -> float | None:
+    """Jammalamadaka-SenGupta r_c from the moment sums of (cos α, sin α, cos β, sin β).
+
+    ``s[i] = Σ u_i`` and ``q[i, j] = Σ u_i u_j`` over the four unit-vector
+    components. sin(α − ᾱ) = e_α · (cos α, sin α) with e_α = (−sin ᾱ, cos ᾱ),
+    so every sum :func:`circular_correlation` needs is a quadratic form of the
+    raw second moments - which lets a grouped jackknife leave groups out of the
+    sums. ``None`` below two pairs, without a mean direction, or without spread.
+    """
+    if not n >= 2:
+        return None
+    s = np.asarray(s, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+    mean_a = circular_mean(float(s[0]), float(s[1]))
+    mean_b = circular_mean(float(s[2]), float(s[3]))
+    if mean_a is None or mean_b is None:
+        return None
+    ea = np.array([-math.sin(mean_a), math.cos(mean_a)])
+    eb = np.array([-math.sin(mean_b), math.cos(mean_b)])
+    saa = float(ea @ q[0:2, 0:2] @ ea)
+    sbb = float(eb @ q[2:4, 2:4] @ eb)
+    if not (saa > _NO_SPREAD * n and sbb > _NO_SPREAD * n):
+        return None
+    r = float(ea @ q[0:2, 2:4] @ eb) / math.sqrt(saa * sbb)
+    return max(-1.0, min(1.0, r)) if math.isfinite(r) else None
+
+
+def circular_correlation(alpha: np.ndarray, beta: np.ndarray) -> float | None:
+    """The circular-circular correlation r_c of paired angles (Jammalamadaka & SenGupta 2001).
+
+    ``r_c = Σ sin(α − ᾱ) sin(β − β̄) / √(Σ sin²(α − ᾱ) · Σ sin²(β − β̄))``, with
+    ᾱ and β̄ the circular means: in [−1, 1], unchanged by rotating either angle
+    - so by where the ±π cut falls - and sign-flipped by reflecting one. A
+    Pearson r of two azimuths has neither property. Pairs with a non-finite
+    angle are left out.
+    """
+    a = np.asarray(alpha, dtype=np.float64)
+    b = np.asarray(beta, dtype=np.float64)
+    keep = np.isfinite(a) & np.isfinite(b)
+    u = np.column_stack([np.cos(a[keep]), np.sin(a[keep]), np.cos(b[keep]), np.sin(b[keep])])
+    return circular_correlation_from_sums(float(u.shape[0]), u.sum(axis=0), u.T @ u)

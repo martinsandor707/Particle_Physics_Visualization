@@ -324,7 +324,7 @@ def comb_block(native_pooled: np.ndarray, axis: str, width: float, k: int, k_z: 
     lag1 = profile_lag1(np.asarray(native_pooled, dtype=np.float64))
     return {
         "lag1": sig(lag1, 3),
-        "combed": bool(lag1 is not None and lag1 < COMB_THRESHOLD),
+        "combed": None if lag1 is None else bool(lag1 < COMB_THRESHOLD),
         "threshold": COMB_THRESHOLD,
         "axis": axis,
         "k": k,
@@ -526,7 +526,7 @@ def prepare(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
 
     if quantity == "energy":
         sample = base.fetch(con, record, spec, selected)
-        classes, notices = base.series_classes(sample)
+        classes, notices = base.series_classes(sample, field=base._MOMENTUM_FIELD.get(shower, "e1"))
         bundle, cached = physics_cache.get_or_compute(
             energy_key(record, spec, shower, decision.sampled),
             lambda: scan_energy(con, record, spec, shower, sampled=decision.sampled))
@@ -542,7 +542,8 @@ def prepare(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
             return body
     else:
         sample = base.fetch(con, record, spec, selected, gate=capabilities.frame_gate(record))
-        classes, notices = base.series_classes(sample, mask=sample.placed)
+        classes, notices = base.series_classes(sample, mask=sample.placed,
+                                                 field=base._MOMENTUM_FIELD.get(shower, "e1"))
         footprint = footprint_of(con, record)
         pitch = hit_sql.layer_pitch(record)
         k, k_z = splat_parameters(footprint)

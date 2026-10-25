@@ -583,6 +583,7 @@
     "notes",
     "table",
     "class_stats",
+    "notes_by_n",
     "exclude_eps",
     "thresholds"
    ],
@@ -672,7 +673,10 @@
        "q50",
        "q75",
        "max",
-       "n_eps"
+       "n_eps",
+       "sd_se",
+       "c4",
+       "robust"
       ],
       "properties": {
        "n": {
@@ -810,13 +814,41 @@
          ]
         }
        },
+       "sd_se": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
+        }
+       },
+       "c4": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0,
+         "maximum": 1
+        }
+       },
+       "robust": {
+        "type": "array",
+        "items": {
+         "type": "boolean"
+        }
+       },
        "circular": {
         "type": "object",
         "required": [
          "mean_direction",
          "resultant",
          "circular_sd",
-         "rayleigh_p"
+         "rayleigh_p",
+         "note"
         ],
         "properties": {
          "mean_direction": {
@@ -854,6 +886,15 @@
             "null"
            ]
           }
+         },
+         "note": {
+          "type": "array",
+          "items": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
          }
         }
        }
@@ -866,9 +907,7 @@
       "type": "object",
       "required": [
        "index",
-       "n",
-       "c4",
-       "robust"
+       "n"
       ],
       "properties": {
        "index": {
@@ -876,17 +915,15 @@
        },
        "n": {
         "type": "integer"
-       },
-       "c4": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "robust": {
-        "type": "boolean"
        }
-      }
+      },
+      "additionalProperties": false
+     }
+    },
+    "notes_by_n": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
      }
     },
     "intervals": {
@@ -931,7 +968,10 @@
     "n_pairs",
     "hatched",
     "method",
-    "interval"
+    "interval",
+    "circular_cells",
+    "circular_measures",
+    "scale"
    ],
    "properties": {
     "view": {
@@ -1081,6 +1121,154 @@
       "type": "string"
      }
     },
+    "circular_cells": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "position",
+       "row",
+       "col",
+       "n",
+       "measure",
+       "n_azimuths",
+       "value",
+       "se",
+       "se_z",
+       "ci95",
+       "null_R2",
+       "reason",
+       "parity_r"
+      ],
+      "properties": {
+       "position": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "row": {
+        "type": "string"
+       },
+       "col": {
+        "type": "string"
+       },
+       "n": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "measure": {
+        "enum": [
+         "mardia",
+         "circular_circular"
+        ]
+       },
+       "n_azimuths": {
+        "type": [
+         "integer",
+         "null"
+        ],
+        "minimum": 0
+       },
+       "value": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "minimum": -1,
+        "maximum": 1
+       },
+       "se": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "minimum": 0
+       },
+       "se_z": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "minimum": 0
+       },
+       "ci95": {
+        "anyOf": [
+         {
+          "type": "array",
+          "items": {
+           "type": "number",
+           "minimum": -1,
+           "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "null_R2": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "minimum": 0,
+        "maximum": 1
+       },
+       "reason": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "parity_r": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "minimum": -1,
+        "maximum": 1
+       }
+      }
+     }
+    },
+    "circular_measures": {
+     "type": "object",
+     "required": [
+      "mardia",
+      "circular_circular"
+     ],
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "scale": {
+     "type": "object",
+     "required": [
+      "palette",
+      "diverging",
+      "vmin",
+      "vmax",
+      "label"
+     ],
+     "properties": {
+      "palette": {
+       "const": "puor"
+      },
+      "diverging": {
+       "const": true
+      },
+      "vmin": {
+       "const": -1
+      },
+      "vmax": {
+       "const": 1
+      },
+      "label": {
+       "type": "string"
+      }
+     }
+    },
     "method": {
      "const": "fisher_z"
     },
@@ -1217,6 +1405,7 @@
        "n_above",
        "n_nonpositive",
        "n_excluded_eps",
+       "n_floored",
        "draw",
        "counts",
        "density_scale",
@@ -1249,6 +1438,10 @@
        },
        "n_excluded_eps": {
         "type": "integer"
+       },
+       "n_floored": {
+        "type": "integer",
+        "minimum": 0
        },
        "draw": {
         "enum": [
@@ -1349,6 +1542,7 @@
       "noise_reference",
       "threshold",
       "measured_on",
+      "cause",
       "note"
      ],
      "properties": {
@@ -1378,6 +1572,13 @@
       },
       "measured_on": {
        "type": "string"
+      },
+      "cause": {
+       "enum": [
+        "lattice",
+        "integer",
+        null
+       ]
       },
       "note": {
        "type": "string"
@@ -1555,6 +1756,7 @@
          "index",
          "label",
          "n",
+         "n_floored",
          "draw",
          "counts",
          "max_count",
@@ -1578,6 +1780,10 @@
          },
          "n_excluded_eps": {
           "type": "integer"
+         },
+         "n_floored": {
+          "type": "integer",
+          "minimum": 0
          },
          "draw": {
           "const": "histogram"
@@ -1626,6 +1832,7 @@
          "index",
          "label",
          "n",
+         "n_floored",
          "draw",
          "pairs",
          "outside"
@@ -1648,6 +1855,10 @@
          },
          "n_excluded_eps": {
           "type": "integer"
+         },
+         "n_floored": {
+          "type": "integer",
+          "minimum": 0
          },
          "draw": {
           "const": "pairs"
@@ -1699,6 +1910,7 @@
          "index",
          "label",
          "n",
+         "n_floored",
          "draw"
         ],
         "properties": {
@@ -1719,6 +1931,10 @@
          },
          "n_excluded_eps": {
           "type": "integer"
+         },
+         "n_floored": {
+          "type": "integer",
+          "minimum": 0
          },
          "draw": {
           "const": "none"

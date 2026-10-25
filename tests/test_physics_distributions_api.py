@@ -184,7 +184,7 @@ def test_the_guard_merges_whole_bins_and_says_so(single_client, monkeypatch):
     assert density.wire_size(merged) < size - 300
     assert merged["display"]["coarsened"] == 2
     assert merged["quantity"]["bin_width"] == 2 * plain["quantity"]["bin_width"]
-    assert any("merged 2 at a time" in w for w in merged["meta"]["warnings"])
+    assert any("coarsened 2 at a time" in w for w in merged["meta"]["warnings"])
     for a, b in zip(plain["series"], merged["series"]):
         assert sum(a["counts"]) + a["below"] + a["above"] == pytest.approx(
             sum(b["counts"]) + b["below"] + b["above"])

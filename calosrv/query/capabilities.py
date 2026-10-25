@@ -227,8 +227,11 @@ def of(record: ExperimentRecord) -> Capabilities:
         hit_gate("frame-canonical", lattice, _NO_LATTICE)
 
     # The 2 x 2 diagnostic and the views built on the lab lattice.
-    for name in ("xy", "yz", "xz", "window-axis", "event-inspector"):
+    for name in ("xy", "yz", "xz", "window-axis"):
         hit_gate(name, lattice, _NO_LATTICE)
+    # The Event Inspector draws the per-shower frames beside the lab lattice,
+    # so it needs their extents as well.
+    hit_gate("event-inspector", lattice and bounds, _NO_LATTICE if not lattice else _NO_FRAME_BOUNDS)
     hit_gate("compare", bounds, _NO_FRAME_BOUNDS)
     if networks:
         gate("energy", True)

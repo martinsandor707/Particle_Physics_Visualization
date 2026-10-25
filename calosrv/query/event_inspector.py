@@ -633,6 +633,11 @@ def inspect(
                      "coarser form and are served as measured.")
         pitch *= 2.0
     assert body is not None
+    if size >= limit:
+        # Out of coarser grids with the panels still over: the step notes above
+        # say what was tried, and this one says it did not suffice.
+        body["grid"]["notes"].append(
+            f"The response is still {size:,} bytes at {pitch:.0f} mm and is served as it is.")
 
     momentum = event[selected.momentum]
     body.update({

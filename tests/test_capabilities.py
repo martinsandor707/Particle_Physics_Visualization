@@ -96,6 +96,22 @@ def test_require_raises_the_problem_contract():
         capabilities.require(TWO, "no-such-card")
 
 
+def test_the_event_inspector_needs_the_frame_extents_as_well_as_the_lattice(record):
+    """It draws the per-shower frames, so a record without their extents is refused, not a 500."""
+    import dataclasses
+
+    assert record.lattice is not None and record.frame_bounds is not None
+    assert capabilities.of(record).can("event-inspector")
+    unbounded = dataclasses.replace(record, frame_bounds=None)
+    caps = capabilities.of(unbounded)
+    assert not caps.can("event-inspector") and not caps.can("frame-trans")
+    assert caps.reasons["event-inspector"] == caps.reasons["frame-trans"]
+    assert caps.can("frame-lab") and caps.can("xy") and caps.can("window-axis")
+    with pytest.raises(CapabilityError) as err:
+        capabilities.require(unbounded, "event-inspector")
+    assert err.value.to_problem()["capability"] == "event-inspector"
+
+
 def test_stale_two_shower_experiment_names_the_rebuild():
     stale = _record(schemas.HITS_ALL_MODELS, derived_version=1)
     caps = capabilities.of(stale)
@@ -228,9 +244,16 @@ def test_shower_choices_per_kind():
     assert [s.key for s in showers.of(TWO, "b")] == ["b"]
     assert [s.label for s in showers.of(SINGLE_HITS)] == ["Shower"]
     assert showers.of(SINGLE_HITS, "a") == showers.of(SINGLE_HITS, "both")
-    for bad, record in (("b", SINGLE_HITS), ("b", SINGLE_EVENTS), ("c", TWO)):
+    # Shower B where there is one shower per event: a capability the kind lacks.
+    for record in (SINGLE_HITS, SINGLE_EVENTS):
         with pytest.raises(CapabilityError) as err:
-            showers.of(record, bad)
+            showers.of(record, "b")
         assert err.value.extra["field"] == "shower"
         contract_check.check(err.value.to_problem(), "capability_problem")
+    # A choice outside a | b | both is the plain validation error on every kind.
+    for record in (TWO, SINGLE_HITS, SINGLE_EVENTS):
+        with pytest.raises(ValidationError) as invalid:
+            showers.of(record, "c")
+        assert not isinstance(invalid.value, CapabilityError)
+        assert invalid.value.extra["field"] == "shower"
     assert showers.of(SINGLE_EVENTS)[0].origin_sql is None

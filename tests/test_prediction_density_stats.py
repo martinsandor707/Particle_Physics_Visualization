@@ -350,3 +350,90 @@ def test_the_whole_payload_is_far_under_the_contract_at_every_bin_count():
     sizes = {b: density.wire_size(pd.assemble(sel, residual, b)) for b in pd.BINS_LADDER}
     assert sizes[64] < 0.5 * density.RESPONSE_LIMIT
     assert sizes[128] > sizes[96] > sizes[64] > sizes[48] > sizes[32] > sizes[24] > sizes[16]
+
+
+# --------------------------------------- palettes, thin residual axes, missing --
+
+
+def _palette_js_anchors():
+    import re
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "calosrv/static/js/palette.js").read_text()
+    body = text[text.index("const ANCHORS = {"):text.index("const CARD")]
+    out = {}
+    for name, rows in re.findall(r"(\w+): \[\s*((?:\[[\d, ]+\],?\s*)+)\]", body):
+        out[name] = tuple(tuple(int(v) for v in row.split(",")) for row in re.findall(r"\[([\d, ]+)\]", rows))
+    return out
+
+
+def test_the_palette_anchors_are_the_frontends():
+    assert pd.ANCHORS == _palette_js_anchors()
+
+
+@pytest.mark.parametrize("name", ("viridis", "cividis", "plasma", "turbo"))
+def test_every_offered_palette_has_a_measured_first_level_at_three_to_one(name):
+    ramp = pd.color_block(1.0)["ramp"]["by_palette"][name]
+    first = ramp["first_level"]
+    colour = pd.palette_colour(name, ramp["from"])
+    assert first["color"] == pd.hex_of(colour) and first["against"] == "#1c2128"
+    assert wcag(colour, pd.CARD_RGB) >= 3.0 and first["contrast"] >= 3.0
+    if ramp["from"] > 0:
+        assert wcag(pd.palette_colour(name, round(ramp["from"] - 0.05, 10)), pd.CARD_RGB) < 3.0
+    assert ramp["stops"][0] == first["color"] and len(ramp["stops"]) == 7
+    # Every table entry the ramp draws, from a count of one to the peak, clears 3:1.
+    lo, hi = int(ramp["from"] * 255 + 0.5), int(ramp["to"] * 255 + 0.5)
+    worst = min(wcag(pd.palette_colour(name, i / 255), pd.CARD_RGB) for i in range(lo, hi + 1))
+    assert worst >= 3.0 and ramp["clears_everywhere"] is True
+    assert ramp["min_stop_contrast"] == pytest.approx(worst, abs=0.01)
+    assert ramp["stops"][-1] == pd.hex_of(pd.palette_colour(name, ramp["to"]))
+    if ramp["to"] < 1.0:
+        # The end is the last position that clears: one step on, it would not.
+        beyond = round(ramp["to"] + 0.05, 10)
+        assert min(wcag(pd.palette_colour(name, i / 255), pd.CARD_RGB)
+                   for i in range(lo, int(beyond * 255 + 0.5) + 1)) < 3.0
+    assert (ramp["to"] < 1.0) is (name == "turbo")
+
+
+def test_the_default_ramp_is_viridis_and_unchanged():
+    ramp = pd.color_block(1.0)["ramp"]
+    assert ramp["from"] == pytest.approx(0.4) and ramp["first_level"]["color"] == "#29788e"
+    assert ramp["by_palette"]["viridis"]["stops"] == ramp["stops"]
+
+
+def test_a_lone_drawn_shower_below_twenty_residuals_is_provisional_and_says_it_is_the_full_range():
+    sel = selection(a=(17, 0.05), b=(5, 0.05))
+    sel.pred["a"] = sel.truth["a"] * (1.0 + np.r_[np.full(16, 0.01), 3.0])
+    block = pd.residual_block(sel)
+    axis = block["axis"]
+    assert axis["clipping"]["applied"] is False
+    assert axis["provisional"] is True and "full extent" in axis["basis"]
+    assert axis["hi"] >= 3.0
+    payload = pd.assemble(sel, block, 32)
+    assert any("residual range is provisional" in n and "fewer than 20" in n
+               for n in pd.notices(sel, payload))
+
+
+def test_a_shower_dropped_for_a_missing_value_is_counted_and_warned_about():
+    sel = selection(a=(40, 0.05), b=(40, 0.05))
+    sel.n_events = 50
+    sel.n_missing = {"a": {"total": 10, "prediction": 7, "truth": 3},
+                     "b": {"total": 0, "prediction": 0, "truth": 0}}
+    payload = pd.assemble(sel, pd.residual_block(sel), 32)
+    assert payload["density"]["a"]["n_missing"] == {"total": 10, "prediction": 7, "truth": 3}
+    assert payload["density"]["b"]["n_missing"]["total"] == 0
+    for block in payload["density"].values():
+        contract_check.check(json.loads(json.dumps(block)), "prediction_density", at="counts_block")
+    text = pd.notices(sel, payload)
+    assert any(w.startswith("Shower A: 10 selected events were left out") and "prediction (7)" in w
+               for w in text)
+    assert not any(w.startswith("Shower B: 0") for w in text)
+
+
+def test_a_scale_where_every_cell_holds_one_shower_still_spans_a_range():
+    sel = pd.Selection("energy", "lab", 0.0, 20.0, 20,
+                       {"a": np.linspace(0.5, 19.5, 20), "b": np.linspace(0.5, 19.5, 20)},
+                       {"a": np.linspace(0.5, 19.5, 20)[::-1], "b": np.linspace(0.5, 19.5, 20)})
+    payload = pd.assemble(sel, pd.residual_block(sel), 64)
+    assert all(d["max_count"] == 1 for d in payload["density"].values())
+    assert payload["color"]["vmax"] > payload["color"]["vmin"]
+    assert payload["color"]["vmax"] == sig(math.log10(2))

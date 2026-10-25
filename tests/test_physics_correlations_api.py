@@ -15,6 +15,7 @@ the query module on the app's own database.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -178,8 +179,33 @@ def test_r_and_the_jackknife_match_sql_leave_one_group_out(single_client):
             assert cell["se_iid"] == pytest.approx(1 / math.sqrt(payload["n_hits"] - 3), rel=ROUNDED)
 
 
-def test_phi_cells_carry_mardia_r_from_the_same_hits(single_client):
+def _phi_cells(payload: dict) -> list[dict]:
+    return [payload["matrix"][i][PHI] for i in range(PHI)]
+
+
+def test_mardia_r_is_gated_on_distinct_azimuths_not_events(single_client):
+    """287 events, but the fixture's showers are copies of four templates: four azimuths.
+    Mardia's R regresses on (cos φ, sin φ), so four directions cannot constrain it."""
     payload = _get(single_client, table_name=SINGLE_HITS_TABLE)
+    record = _record(single_client, SINGLE_HITS_TABLE)
+    with single_client.app.state.database.read_cursor() as con:
+        (azimuths,) = con.execute(f"SELECT count(DISTINCT phi_a) FROM {_event_table(record)} "
+                                  "WHERE n_hits > 0").fetchone()
+    assert payload["n_events"] == 287 and azimuths == 4
+    assert payload["mardia"]["n_azimuths"] == 4
+    assert (payload["mardia"]["min_azimuths"], payload["mardia"]["min_groups"]) == (8, 5)
+    assert payload["mardia"]["null_R2"] == pytest.approx(2 / (287 - 1), rel=ROUNDED)
+    assert payload["mardia"]["reason"].startswith("Mardia's R needs 8 distinct azimuths; this "
+                                                  "selection has 4.")
+    assert all(cell["mardia"] is None and cell["hatched"] for cell in _phi_cells(payload))
+    assert any(note.endswith("The φ cells carry no R.") for note in payload["notes"])
+
+
+def test_phi_cells_carry_mardia_r_from_the_same_hits(single_client, monkeypatch):
+    # The fixture holds four azimuths; with the floor lowered to four the quoted path runs.
+    monkeypatch.setattr(jackknife, "MIN_MARDIA_AZIMUTHS", 4)
+    payload = _get(single_client, table_name=SINGLE_HITS_TABLE)
+    assert payload["mardia"]["reason"] is None and payload["mardia"]["min_azimuths"] == 4
     record = _record(single_client, SINGLE_HITS_TABLE)
     spec = filters.build(record)
     sql, params = _hits_sql(record, spec)
@@ -192,6 +218,7 @@ def test_phi_cells_carry_mardia_r_from_the_same_hits(single_client):
                                           _corr(con, sql, params, name, "s"), r_cs)
             assert 0.0 <= mardia["R"] <= 1.0 and mardia["se"] > 0
             assert mardia["R"] == pytest.approx(expected, rel=ROUNDED)
+            assert mardia["null_R2"] == pytest.approx(2 / (payload["n_showers"] - 1), rel=ROUNDED)
             per_shower = mardia["per_shower_R"]
             assert (per_shower is not None) == (name in ("mom", "th"))
         # Per shower, each counted once: the event table's own rows.
@@ -242,6 +269,40 @@ def test_the_low_n_gates_follow_the_event_count(single_client):
     assert any(note.startswith("Weak (N = 4 events)") and "3.18" in note for note in four["notes"])
 
 
+@pytest.mark.parametrize("k, azimuths", [(3, 3), (4, 4), (5, 4)])
+def test_mardia_cells_at_three_four_and_five_events(single_client, monkeypatch, k, azimuths):
+    """The review's case: at N = 3 the per-shower R of p and θ with φ was identically 1, and at
+    N = 4 its jackknife SE was served as exactly 0. Below eight distinct azimuths no R is
+    quoted at all; with the floor lowered to three, N = 3 shows why (R = 1 whatever the
+    data), N = 4 has too few groups for an SE, and N = 5's SE is measured, never clamped."""
+    record = _record(single_client, SINGLE_HITS_TABLE)
+    bounds = _first_events_of_bin(single_client, record, k)
+    payload = _get(single_client, table_name=SINGLE_HITS_TABLE, **bounds)
+    assert (payload["n_events"], payload["mardia"]["n_azimuths"]) == (k, azimuths)
+    assert payload["mardia"]["reason"] is not None
+    assert all(cell["mardia"] is None for cell in _phi_cells(payload))
+
+    monkeypatch.setattr(jackknife, "MIN_MARDIA_AZIMUTHS", 3)
+    lowered = _get(single_client, table_name=SINGLE_HITS_TABLE, **bounds)
+    p_phi, theta_phi = lowered["matrix"][4][PHI]["mardia"], lowered["matrix"][5][PHI]["mardia"]
+    if k == 3:
+        # Three directions against intercept, cos φ and sin φ: an exact fit.
+        assert p_phi["per_shower_R"] == pytest.approx(1.0, abs=1e-6)
+        assert theta_phi["per_shower_R"] == pytest.approx(1.0, abs=1e-6)
+        assert p_phi["null_R2"] is None             # E[R²] = 2/(N − 1) needs N ≥ 4
+    for cell in _phi_cells(lowered):
+        mardia = cell["mardia"]
+        if mardia is None:
+            continue
+        if k < 5:
+            assert mardia["se"] is None and mardia["per_shower_se"] is None
+        else:
+            assert mardia["se"] is None or mardia["se"] > 0
+    if k == 5:
+        assert p_phi["per_shower_se"] > 0 and theta_phi["per_shower_se"] > 0
+        assert p_phi["null_R2"] == pytest.approx(2 / 4, rel=ROUNDED)
+
+
 def test_an_aggregated_experiment_has_no_hits_and_is_refused(single_client):
     problem = _refused(single_client, "table_name", table_name=SINGLE_EVENTS_TABLE)
     contract_check.check(problem, "capability_problem")
@@ -253,6 +314,9 @@ def test_an_aggregated_experiment_has_no_hits_and_is_refused(single_client):
 def test_bad_choices_are_refused_naming_the_field(single_client):
     contract_check.check(_refused(single_client, "shower", table_name=SINGLE_HITS_TABLE, shower="b"),
                          "capability_problem")
+    # A shower outside a | b | both is a typo, not a capability the data lacks.
+    typo = _refused(single_client, "shower", table_name=SINGLE_HITS_TABLE, shower="c")
+    assert typo["type"] == "/problems/validation-error" and "capability" not in typo
     _refused(single_client, "coord_system", table_name=SINGLE_HITS_TABLE, coord_system="canonical")
     _refused(single_client, "energy_scale", table_name=SINGLE_HITS_TABLE, energy_scale="ln")
     _refused(single_client, "e2_min", table_name=SINGLE_HITS_TABLE, e2_min=1.0)
@@ -273,6 +337,24 @@ def test_preview_below_the_threshold_is_exact_and_a_repeat_is_cached(single_clie
     assert first["meta"]["exact"] is True and first["meta"]["sample_percent"] == 100.0
     assert again["meta"]["cached"] is True
     assert again["matrix"] == first["matrix"]
+
+
+def test_a_cached_scan_reports_no_scan_time(single_client, monkeypatch):
+    """meta.query_ms of a cache hit holds only the event-table read, never the stored
+    duration of the cold hit scan."""
+    original = correlations.compute
+
+    def slow_cached(*args, **kwargs):
+        body, analysis = original(*args, **kwargs)
+        analysis.hit = dataclasses.replace(analysis.hit, query_ms=1.0e6)
+        return body, analysis
+
+    monkeypatch.setattr(correlations, "compute", slow_cached)
+    params = dict(table_name=SINGLE_HITS_TABLE, coord_system="lab")
+    _get(single_client, **params)
+    again = _get(single_client, **params)
+    assert again["meta"]["cached"] is True
+    assert again["meta"]["query_ms"] < 1.0e6
 
 
 def test_a_response_over_the_contract_is_served_and_says_so(single_client, monkeypatch):

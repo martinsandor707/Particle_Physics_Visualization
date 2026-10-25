@@ -61,14 +61,16 @@ or the event-level aggregate (one deposit series). What changes, and why:
   move with the slicing, and a slice can never be calibrated onto its own truth.
 * **Each slice has its own energy axis.** A 1 GeV window and a 19 GeV window on
   one shared 0-25 GeV axis leave the first one or two bins across its peak. A
-  slice's range is set only by its series that reach the histogram floor;
-  where none does, the range comes from the few showers there are and is
-  marked provisional. The bin *count* is shared - the Rice rule of the
-  smallest drawn series - so no histogram is finer than its statistics.
+  slice's range is set only by its series drawn as histograms; where none is,
+  the range comes from the few showers there are and is marked provisional.
+  The bin *count* is shared - the Rice rule of the smallest drawn series - so
+  no histogram is finer than its statistics.
 * **No benchmarks.** The stated 5% isolated-shower reference means nothing for
   a single shower. Each slice instead carries the measured mean incident
   momentum of its showers, with its sample SD and the Student-t 95% interval
   of the mean, so linearity reads directly against the calibrated energies.
+  The marker takes the low-N table's labels and, below the core-refit floor,
+  the SD's own uncertainty, as every other width does.
 
 The marks of every series come from :func:`_build_series`, the D panel's own
 ladder. The momentum-only keys are emitted only in this view, so the D-sliced
@@ -78,7 +80,6 @@ payload is unchanged byte for byte.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -91,7 +92,7 @@ from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
 from ..errors import ValidationError
 from ..stats import clip as clip_mod
-from ..stats import gaussian, histogram
+from ..stats import gaussian, histogram, metrics
 from ..stats import momentum as momentum_mod
 from ..stats.slices import Slice, build_slices, case_sql
 from ..text import typographic
@@ -146,6 +147,39 @@ DEGENERATE_MESSAGE = (
 )
 
 
+#: The momentum view's sentences, shipped once per payload instead of once per
+#: series: up to 40 series repeat three messages and four estimator notes, and
+#: at 8-14 showers a series that repetition alone put a 20-bin view over the
+#: 100 KB contract. Each is N-free; the panel prefixes "N = n: " from fit.n.
+#: A series' message is texts.message["degenerate"] when fit.degenerate, else
+#: texts.message[draw] (no entry for "histogram"); its note is
+#: texts.estimator_note[fit.estimator], except a core refit, whose note names
+#: its own iterations and stays on the series.
+MOMENTUM_TEXTS: dict[str, Any] = {
+    "prefix": "N = {n}: ",
+    "message": {
+        "curve+strip": STRIP_MESSAGE.split(": ", 1)[1],
+        "strip": NO_CURVE_MESSAGE.split(": ", 1)[1].format(
+            threshold=gaussian.MIN_CURVE_SAMPLES),
+        "degenerate": "all at one energy to floating-point precision. The width is a "
+                      "measured zero rather than an unknown, and no density curve is drawn: "
+                      "a delta is not a density and would put an unbounded spike on the axis.",
+    },
+    "estimator_note": {
+        "moments": f"μ and σ are plain sample moments (ddof = {gaussian.DDOF}), σ quoted with "
+                   "its standard error and its χ² 95% interval; no core refit below the "
+                   f"{gaussian.MIN_CORE_SAMPLES}-event floor, so a curve, where drawn, is "
+                   "de-weighted and does not set the axis scale.",
+        "moments_1dof": f"μ and σ are plain sample moments (ddof = {gaussian.DDOF}); σ is one "
+                        "pairwise difference (1 d.o.f.), quoted with its χ² 95% interval.",
+        "mean_only": "A single event fixes a position and nothing else; no width exists to "
+                     "report.",
+        "degenerate": "Every event shares one energy: the width is a measured zero, not an "
+                      "unknown.",
+        "none": "No events.",
+    },
+}
+
 def _round(value: float) -> float:
     """Six significant figures - well beyond display precision, far smaller.
 
@@ -194,7 +228,7 @@ class SeriesFit:
     #: the slice is below the histogram floor.
     strip: list[float] = field(default_factory=list)
     strip_truncated: bool = False
-    message: str = ""
+    message: str | None = ""
 
     def markers(self) -> dict[str, float] | None:
         """The mean marker's two interval spans - deliberately kept apart.
@@ -324,7 +358,7 @@ def _build_series(
     fit.n_in_range = int(((finite >= lo) & (finite <= hi)).sum())
 
     n = fit.n
-    drawable = fit.sigma_core is not None and (fit.sigma_core or 0) > 0
+    drawable = _has_width(fit)
 
     if n >= histogram.MIN_HISTOGRAM_SAMPLES and drawable:
         curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core)
@@ -373,6 +407,24 @@ def _build_series(
 build_series = _build_series
 
 
+def _has_width(fit: gaussian.GaussianFit) -> bool:
+    """Whether a fit can carry a curve or a histogram: a delta is not a density."""
+    return fit.sigma_core is not None and (fit.sigma_core or 0) > 0
+
+
+def _draws_histogram(values: np.ndarray) -> bool:
+    """Whether :func:`_build_series` draws ``values`` as a histogram, by its own rule.
+
+    Asked of the fit rather than of the values: identical values whose mean
+    is not exactly representable leave the fit a width of order 1e-17, and the
+    ladder draws whatever the fit says.
+    """
+    if values.size < histogram.MIN_HISTOGRAM_SAMPLES:
+        return False
+    fit = gaussian.fit_gaussian(values)
+    return fit.n >= histogram.MIN_HISTOGRAM_SAMPLES and _has_width(fit)
+
+
 def _fetch(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -388,6 +440,8 @@ def _fetch(
     table = quote(naming.event_table(record.table_name))
     sums = {stem: ddl.seg_stat_column(stem, frame_code)
             for stem in ("e_a_pred", "e_b_pred", "e_a_true", "e_b_true")}
+    present = ", ".join(f"COALESCE({s.present_sql}, FALSE) AS present_{s.key}"
+                        for s in showers_mod.of(record))
     return con.execute(
         f"""
         SELECT
@@ -395,7 +449,8 @@ def _fetch(
             {sums['e_a_pred']} AS e_a_pred, {sums['e_b_pred']} AS e_b_pred,
             {sums['e_a_true']} AS e_a_true, {sums['e_b_true']} AS e_b_true,
             CAST(e1 AS DOUBLE)          AS e1,
-            CAST(e2 AS DOUBLE)          AS e2
+            CAST(e2 AS DOUBLE)          AS e2,
+            {present}
         FROM {table}
         WHERE {spec.where_sql()}
         """,
@@ -435,10 +490,16 @@ def compute(
     e2 = np.nan_to_num(np.asarray(columns["e2"], dtype=np.float64))
 
     # --- Stage 2: sampling-fraction calibration, fitted on this selection ----
-    dep_a_true = float(raw["e_a_true"].sum())
-    dep_b_true = float(raw["e_b_true"].sum())
-    c_a = float(e1.sum() / dep_a_true) if dep_a_true > 0 else None
-    c_b = float(e2.sum() / dep_b_true) if dep_b_true > 0 else None
+    # Over the showers present, as /api/response: a shower that deposited
+    # nothing says nothing about the sampling fraction, so its momentum stays
+    # out of the numerator. absent_calibration_notice() says how many.
+    present = {k: np.asarray(columns[f"present_{k}"], dtype=bool) for k in ("a", "b")}
+    dep_a_true = float(raw["e_a_true"][present["a"]].sum())
+    dep_b_true = float(raw["e_b_true"][present["b"]].sum())
+    c_a = float(e1[present["a"]].sum() / dep_a_true) if dep_a_true > 0 else None
+    c_b = float(e2[present["b"]].sum() / dep_b_true) if dep_b_true > 0 else None
+    n_absent = {k: int((~present[k]).sum()) for k in ("a", "b")}
+    notices = [absent_calibration_notice(n_absent)] if any(n_absent.values()) else []
 
     if calibrated and c_a and c_b:
         factor = {"a": c_a, "b": c_b}
@@ -571,6 +632,7 @@ def compute(
         benchmarks=benchmarks,
         n_events=n_events,
         scale=scale,
+        notices=notices,
     )
 
 
@@ -598,7 +660,7 @@ DEPOSIT_LABEL = "Shower - deposit"
 
 #: Headroom above a slice's clipped range, a fraction of its span, as the D
 #: panel's axis has; the lower bound is pinned at zero.
-_AXIS_PAD = 0.05
+AXIS_PAD = 0.05
 
 #: The aggregate's censored-sample sentence; its one owner is ``db/schemas.py``.
 CENSORED_AGGREGATE_NOTICE = schemas.CENSORED_AGGREGATE_NOTICE
@@ -680,6 +742,9 @@ class MomentumSample:
     #: Per series key: the raw deposit the series draws.
     values: dict[str, np.ndarray]
     notices: list[str] = field(default_factory=list)
+    #: The frame whose segmentation split every series and the calibration
+    #: read (``ddl.NETWORK_FRAME``); None for a single shower, which has none.
+    segmentation_frame: str | None = None
 
 
 def _floats(column: Any) -> np.ndarray:
@@ -803,7 +868,27 @@ def fetch_momentum(
         deposit={k: np.nan_to_num(_floats(columns[f"dep_{k}"])) for k in keys},
         values={m.key: np.nan_to_num(_floats(columns[f"v_{m.key}"])) for m in chosen},
         notices=notices,
+        segmentation_frame=(ddl.NETWORK_FRAME[coord_system]
+                            if record.kind == ddl.KIND_TWO_SHOWER else None),
     )
+
+
+#: The measured-momentum marker's quantities, named once per payload rather
+#: than in every marker: twenty slices of two showers sit close to the budget.
+MOMENTUM_MARKER: dict[str, Any] = {
+    "mean": "Mean incident momentum p of the slice's showers (GeV).",
+    "sd": "Sample SD of p (ddof = 1): an uncapped band, √N wider than the whisker.",
+    "ci95": {
+        "method": metrics.METHOD_T,
+        "level": metrics.CI_LEVEL,
+        "label": "95% Student-t interval of the mean p (N − 1 d.o.f.): a capped whisker.",
+    },
+    "sd_ci95": {
+        "method": metrics.METHOD_CHI2,
+        "level": metrics.CI_LEVEL,
+        "label": "95% χ² interval of the SD (N − 1 d.o.f.), asymmetric.",
+    },
+}
 
 
 def _momentum_marker(p: np.ndarray) -> dict[str, Any]:
@@ -811,50 +896,90 @@ def _momentum_marker(p: np.ndarray) -> dict[str, Any]:
 
     ``sd`` is the dispersion of the momenta (an uncapped band); ``ci95`` is the
     Student-t 95% interval of their mean (a capped whisker). They differ by
-    sqrt(N), and both are named so neither can be drawn as the other.
+    sqrt(N), and :data:`MOMENTUM_MARKER` names both so neither can be drawn as
+    the other.
+
+    The numbers and the low-N gates are :func:`gaussian.fit_gaussian`'s, as
+    every width on the panel. ``low_n`` is null from the robust floor (N = 20).
+    Below it, it carries a ``label`` - "weak (N = n)", or "single shower" at
+    N = 1 - and only the keys that apply: ``dof_note`` "1 d.o.f." at N = 2;
+    below the core-refit floor (N = 15), the SD's standard error ``sd_se``,
+    its chi-squared interval ``sd_ci95`` and the bias factor ``c4``, because a
+    bare SD of a few momenta reads far more precise than it is. Keys that do
+    not apply are left out rather than shipped null: forty markers sit close
+    to the budget.
     """
-    finite = p[np.isfinite(p)]
-    n = int(finite.size)
-    if n == 0:
-        return {"mean": None, "sd": None, "n": 0, "ci95": None}
-    mean = float(finite.mean())
-    if n < gaussian.MIN_MOMENT_SAMPLES:
-        return {"mean": sig(mean), "sd": None, "n": n, "ci95": None}
-    sd = float(finite.std(ddof=gaussian.DDOF))
-    half = gaussian.t_quantile_975(n - 1) * sd / math.sqrt(n)
-    return {"mean": sig(mean), "sd": sig(sd), "n": n, "ci95": [sig(mean - half), sig(mean + half)]}
+    fit = gaussian.fit_gaussian(p)
+    n = fit.n
+    marker: dict[str, Any] = {
+        "mean": sig(fit.mu),
+        "sd": sig(fit.sigma),
+        "n": n,
+        "ci95": [sig(fit.mu_ci95[0]), sig(fit.mu_ci95[1])] if fit.mu_ci95 else None,
+        "low_n": None,
+    }
+    if n == 0 or n >= gaussian.MIN_ROBUST_SAMPLES:
+        return marker
+    low_n: dict[str, Any] = {
+        "label": "single shower (N = 1)" if n == 1 else f"weak (N = {n})"}
+    if n == gaussian.MIN_MOMENT_SAMPLES:
+        low_n["dof_note"] = "1 d.o.f."
+    if fit.sigma is not None and fit.sigma_ci95 and n < gaussian.MIN_CORE_SAMPLES:
+        low_n["sd_se"] = sig(fit.sigma_error)
+        low_n["sd_ci95"] = [sig(fit.sigma_ci95[0]), sig(fit.sigma_ci95[1])]
+        low_n["c4"] = sig(fit.sigma_bias_factor)
+    marker["low_n"] = low_n
+    return marker
+
+
+#: How a slice's energy range was set (``slice_axes[].clipping.rule``).
+RULE_PERCENTILE = "percentile"
+RULE_FULL_RANGE = "full_range"
 
 
 @dataclass
 class _SliceAxis:
-    """One slice's energy range, and what it was set from."""
+    """One slice's energy range, what it was set from, and what lies beyond it."""
 
     lo: float
     hi: float
     interval: float
+    #: The rule's range on the values that set it, before rounding outward.
     clipping: clip_mod.ClipResult
     provisional: bool
     driven_by: list[str]
+    #: Every value of every series in the slice, and those beyond the drawn axis.
     n_values: int
-    n_outside: int
+    n_below: int
+    n_above: int
+
+    @property
+    def n_outside(self) -> int:
+        return self.n_below + self.n_above
 
 
 def _slice_axis(
-    parts: Sequence[tuple[MomentumSeries, np.ndarray]], clip_low: float, clip_high: float
+    parts: Sequence[tuple[MomentumSeries, np.ndarray]], histogrammed: Sequence[bool],
+    clip_low: float, clip_high: float,
 ) -> _SliceAxis:
-    """A slice's display range from its series that reach the histogram floor.
+    """A slice's display range from its series drawn as histograms.
 
-    A slice with no such series takes its range from the few showers it has,
-    and the range is marked provisional. ``n_outside`` counts every value of
-    every series in the slice beyond the displayed range - the strip points of
-    a thin series included - so the clip is disclosed exactly.
+    ``histogrammed`` says which of ``parts`` those are (:func:`_draws_histogram`):
+    the series at the histogram floor or above that have a width. A series of
+    identical values is drawn as a strip at any N, so it does not set the
+    range either. A slice with no such series takes its range from the few
+    showers it has, and the range is marked provisional. The lower bound is
+    pinned at zero, so ``clip_low`` does not move it. The counts beyond the
+    range are taken against the axis as drawn, over every value of every
+    series in the slice - the strip points of a thin series included - so the
+    clip is disclosed exactly.
     """
-    robust = [(m, v) for m, v in parts if v.size >= histogram.MIN_HISTOGRAM_SAMPLES]
+    robust = [part for part, drawn in zip(parts, histogrammed) if drawn]
     provisional = not robust
     basis = robust or list(parts)
     clipping = clip_mod.percentile_clip(
         np.concatenate([v for _, v in basis]),
-        low=clip_low, high=clip_high, floor_at_zero=True, pad=_AXIS_PAD,
+        low=clip_low, high=clip_high, floor_at_zero=True, pad=AXIS_PAD,
     )
     # fine=True extends the tick ladder below 0.1 for uncalibrated deposits of
     # a few hundredths of a GeV; above a span of 1.2 it equals the default.
@@ -864,16 +989,54 @@ def _slice_axis(
         lo=lo, hi=hi, interval=interval, clipping=clipping, provisional=provisional,
         driven_by=[m.key for m, _ in basis],
         n_values=int(everything.size),
-        n_outside=int(((everything < lo) | (everything > hi)).sum()),
+        n_below=int((everything < lo).sum()),
+        n_above=int((everything > hi).sum()),
     )
 
 
-def _clipping_dict(clipping: clip_mod.ClipResult) -> dict[str, Any]:
-    data = clipping.as_dict()
-    for key in ("lo", "hi", "data_min", "data_max"):
-        data[key] = sig(data[key])
-    data["note"] = typographic(data["note"])
-    return data
+def _axis_note(axis: _SliceAxis) -> str:
+    """The rule a slice's range actually followed, and what lies beyond it."""
+    c = axis.clipping
+    start = "0" if c.lo == 0 else "the smallest value"
+    if c.applied:
+        rule = (f"From {start} to the {clip_mod.ordinal(c.high_percentile)} percentile of "
+                f"the {c.n_total:,} values that set it plus {100 * AXIS_PAD:g}%")
+    else:
+        rule = (f"From {start} to the largest of the {c.n_total:,} values that set it, "
+                "too few for percentiles")
+    n = axis.n_outside
+    beyond = (
+        "no value lies beyond it" if n == 0
+        else f"{n:,} of {axis.n_values:,} values {'lies' if n == 1 else 'lie'} beyond it"
+    )
+    return typographic(f"{rule}, rounded out to whole ticks; {beyond}.")
+
+
+def _clipping_dict(axis: _SliceAxis) -> dict[str, Any]:
+    """A slice's clip disclosure, its counts taken against the axis as drawn.
+
+    ``lo`` and ``hi`` are the rule's bounds on the ``n_basis`` values that set
+    the range, before rounding outward. ``n_total`` and the counts beyond are
+    every value in the slice against the drawn axis, so ``n_outside`` is the
+    slice's ``n_outside_axis`` and the note cannot contradict it. No lower
+    percentile is reported: the lower bound is pinned at zero.
+    """
+    c = axis.clipping
+    return {
+        "rule": RULE_PERCENTILE if c.applied else RULE_FULL_RANGE,
+        "lo": sig(c.lo),
+        "hi": sig(c.hi),
+        "high_percentile": c.high_percentile,
+        "data_min": sig(c.data_min),
+        "data_max": sig(c.data_max),
+        "n_basis": c.n_total,
+        "n_total": axis.n_values,
+        "n_below": axis.n_below,
+        "n_above": axis.n_above,
+        "n_outside": axis.n_outside,
+        "fraction_outside": round(axis.n_outside / axis.n_values, 6) if axis.n_values else 0.0,
+        "note": _axis_note(axis),
+    }
 
 
 #: The fit's floats, shipped at six significant figures in the momentum view.
@@ -890,7 +1053,8 @@ def _compact(fitted: SeriesFit) -> SeriesFit:
     The D panel ships its fit block at full precision, and that payload is
     pinned. This view carries up to four series in each of twenty slices, and
     the digits past the sixth are budget, not information. Its sentences get
-    U+2212 for every signed number.
+    U+2212 for every signed number, and the ones every series repeats are
+    hoisted to :data:`MOMENTUM_TEXTS`.
     """
     fit = fitted.fit
     for name in _FIT_FLOATS:
@@ -899,10 +1063,42 @@ def _compact(fitted: SeriesFit) -> SeriesFit:
         span = getattr(fit, name)
         if span is not None:
             setattr(fit, name, (sig(span[0]), sig(span[1])))
-    fitted.message = typographic(fitted.message)
-    fit.estimator_note = typographic(fit.estimator_note)
+    # The repeated sentences travel once, in MOMENTUM_TEXTS; a core refit's
+    # note names its own iterations and stays.
+    fitted.message = None
+    fit.estimator_note = (typographic(fit.estimator_note) if fit.estimator == "core_refit"
+                          else None)
     fit.note = typographic(fit.note)
     return fitted
+
+
+def no_deposit_notice(n_absent: int) -> str:
+    """The sentence for showers that deposited nothing, owned beside the calibration.
+
+    Such a shower has no response, sits in no slice and, as in
+    :func:`compute` and ``/api/response``, stays out of the calibration: a
+    shower with no deposit says nothing about the sampling fraction.
+    """
+    if n_absent == 1:
+        return ("1 shower deposited no energy (no hits): it has no response to draw, is in "
+                "no slice and is left out of the calibration.")
+    return (f"{n_absent:,} showers deposited no energy (no hits): they have no response to "
+            "draw, are in no slice and are left out of the calibration.")
+
+
+def absent_calibration_notice(n_absent: dict[str, int]) -> str:
+    """The D panel's sentence for selected events in which a shower deposited nothing.
+
+    Only ``include_undefined_d`` admits them (a shower with no hits has no
+    centroid, so no D). Their deposit is drawn as zero in the undefined-D
+    slice, as it always was; what the sentence names is the calibration,
+    which leaves them out exactly as :func:`no_deposit_notice` says.
+    """
+    parts = [f"{n:,} selected event{'' if n == 1 else 's'} {'has' if n == 1 else 'have'} "
+             f"no shower-{k.upper()} hits" for k, n in n_absent.items() if n]
+    return ("; ".join(parts) + ": a shower with no deposit cannot inform the sampling "
+            "fraction, so it is left out of that shower's calibration (its zero deposit is "
+            "still counted in its slice).")
 
 
 def build_by_momentum(
@@ -917,12 +1113,15 @@ def build_by_momentum(
     keys = [s.key for s in sample.showers]
 
     # --- Calibration: per shower, over the whole selection -------------------
-    # Every shower counts, in a slice or not, exactly as the D panel's, so the
-    # constants are one selection's and do not move with the slicing.
+    # Every shower that deposited energy counts, in a slice or not, exactly as
+    # the D panel's, so the constants are one selection's and do not move with
+    # the slicing. A shower with no deposit is left out, as in compute() and
+    # /api/response; no_deposit_notice() says so.
     c: dict[str, float | None] = {}
     for k in keys:
-        deposited = float(sample.deposit[k].sum())
-        momentum_sum = float(np.nan_to_num(sample.momentum[k]).sum())
+        present = sample.present[k]
+        deposited = float(sample.deposit[k][present].sum())
+        momentum_sum = float(np.nan_to_num(sample.momentum[k][present]).sum())
         c[k] = momentum_sum / deposited if deposited > 0 else None
     applied = bool(calibrated and all(c.values()))
     if applied:
@@ -949,9 +1148,14 @@ def build_by_momentum(
 
     # One bin count for every slice, set by the smallest series whose histogram
     # is drawn, so no histogram on the panel is finer than its own statistics.
+    # The same series, and only they, set their slice's range.
+    histogrammed = {
+        index: [_draws_histogram(v) for _, v in slice_parts]
+        for index, slice_parts in parts.items()
+    }
     drawn = [
-        int(v.size) for slice_parts in parts.values() for _, v in slice_parts
-        if v.size >= histogram.MIN_HISTOGRAM_SAMPLES and np.ptp(v) > 0
+        int(v.size) for index, slice_parts in parts.items()
+        for (_, v), shown in zip(slice_parts, histogrammed[index]) if shown
     ]
     resolved_bins = (
         int(bins) if bins is not None
@@ -964,7 +1168,7 @@ def build_by_momentum(
         slice_parts = parts[cls.index]
         if not slice_parts:
             continue
-        axis = _slice_axis(slice_parts, clip_low, clip_high)
+        axis = _slice_axis(slice_parts, histogrammed[cls.index], clip_low, clip_high)
         edges_array = histogram.axis_edges(axis.lo, axis.hi, resolved_bins)
         curve_x = histogram.curve_axis(axis.lo, axis.hi, curve_points)
         for m, sample_values in slice_parts:
@@ -984,9 +1188,7 @@ def build_by_momentum(
             "driven_by": axis.driven_by,
             "n_values": axis.n_values,
             "n_outside_axis": axis.n_outside,
-            "clipping": _clipping_dict(axis.clipping),
-            "curve_x": sig_list(curve_x),
-            "hist_centres": sig_list(0.5 * (edges_array[:-1] + edges_array[1:])),
+            "clipping": _clipping_dict(axis),
             "momentum": marker,
         })
 
@@ -1013,7 +1215,7 @@ def build_by_momentum(
                 "c = sum(incoming_momentum) / sum(deposited energy"
                 + (" attributed by ground truth" if "b" in keys else "")
                 + "), fitted per shower over the whole active selection, every shower "
-                "included whether or not its momentum falls in a slice"
+                "that deposited energy included whether or not its momentum falls in a slice"
             ),
         },
         axis={
@@ -1021,6 +1223,10 @@ def build_by_momentum(
             "bins": resolved_bins,
             "per_slice": True,
             "curve_points": int(curve_points),
+            # Twenty slices of 50-200 x positions and their bin centres were
+            # 9 KB of numbers that follow from three: shipped as the rule.
+            "grid": ("per slice: curve x = linspace(lo, hi, curve_points); histogram edges = "
+                     "linspace(lo, hi, bins + 1)"),
         },
         benchmarks=[],
         n_events=sample.n_events,
@@ -1037,6 +1243,9 @@ def build_by_momentum(
             "counted": "showers",
             "series_set": sample.series_set,
             "no_deposit": per_shower({k: int((~sample.present[k]).sum()) for k in keys}),
+            "segmentation_frame": sample.segmentation_frame,
+            "momentum_marker": MOMENTUM_MARKER,
+            "texts": MOMENTUM_TEXTS,
         },
         notices=list(sample.notices),
     )

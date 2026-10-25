@@ -10,7 +10,11 @@ the only channel. What the data cannot serve is refused with a 422
 ``/problems/unsupported-capability`` naming the request field: the D-frame
 (``frame``), an attention channel (``channel``), shower B (``shower``), and
 every hit view of the aggregate. The two-shower output these views share is
-pinned elsewhere (``test_golden_lab.py``, ``test_frames_shower.py``, ...).
+pinned by ``test_golden_two_shower.py`` - the served JSON of the lab,
+per-shower translated and local projections, the window axis, the pick and
+the Event Inspector on the demonstration file, generated from the release
+before single showers existed - and the lab panels again by
+``test_golden_lab.py``.
 """
 
 from __future__ import annotations
@@ -34,10 +38,13 @@ from calosrv.text import signed_hyphens
 HITS = {"table_name": SINGLE_HITS_TABLE}
 EVENTS = {"table_name": SINGLE_EVENTS_TABLE}
 
-#: Bins of the synthetic file holding one, two and seven events.
+#: Bins of the synthetic file holding one, two, seven, nineteen and twenty events.
 ONE_EVENT = {"e1_min": 3.0, "e1_max": 3.99}
 TWO_EVENTS = {"e1_min": 7.0, "e1_max": 7.99}
 SEVEN_EVENTS = {"e1_min": 12.0, "e1_max": 12.99}
+NINETEEN_EVENTS = {"e1_min": 19.0, "e1_max": 19.9999}
+TWENTY_EVENTS = {"e1_min": 2.0, "e1_max": 2.9999}
+EMPTY = {"e1_min": 0.0, "e1_max": 0.5}
 
 
 def _get(client, url: str, **params):
@@ -203,10 +210,14 @@ def test_the_lab_overlays_carry_one_shower(single_client, db):
         assert many["axes"][name]["b"] == [] and any(p is not None for p in many["axes"][name]["a"])
     coherence, pointing = many["coherence"], many["pointing"]
     assert coherence["r_b"] is None and coherence["theta_b_mean"] is None
-    c, s, n = _event_values(db, "SELECT avg(cos(phi_a)), avg(sin(phi_a)), count(*) FROM {event}")
+    c, s, theta, n = _event_values(
+        db, "SELECT avg(cos(phi_a)), avg(sin(phi_a)), avg(theta_a), count(*) FROM {event} "
+            "WHERE phi_a IS NOT NULL")
     assert coherence["n"] == n and coherence["r_a"] == pytest.approx(math.hypot(c, s))
+    assert coherence["theta_a_mean"] == pytest.approx(theta, rel=1e-12)
     assert pointing["b"] is None and pointing["a"]["n"] == n
     assert "A:" not in pointing["note"] and "B:" not in pointing["note"]
+    assert "weak" not in pointing["note"] and "d.o.f." not in pointing["note"]
 
     few = _get(single_client, "/api/projections", **HITS, **SEVEN_EVENTS)["overlays"]
     assert few["axes"] == {} and len(few["trajectories"]) == 7
@@ -216,7 +227,23 @@ def test_the_lab_overlays_carry_one_shower(single_client, db):
 
     one = _get(single_client, "/api/projections", **HITS, **ONE_EVENT)["overlays"]
     assert len(one["trajectories"]) == 1 and one["pointing"]["a"]["sd_deg"] is None
-    assert "for its one event" in one["pointing"]["note"]
+    # One event is a residual, not grounds for where the directions point.
+    assert one["pointing"]["note"].startswith("One event, so no dispersion")
+    assert "point at the detector origin" not in one["pointing"]["note"]
+
+
+@pytest.mark.parametrize("bounds,n,label", [
+    (TWO_EVENTS, 2, " (1 d.o.f., weak)"), (SEVEN_EVENTS, 7, " (weak)"),
+    (NINETEEN_EVENTS, 19, " (weak)"), (TWENTY_EVENTS, 20, ""),
+], ids=["n2", "n7", "n19", "n20"])
+def test_the_pointing_note_follows_the_low_n_table(single_client, bounds, n, label):
+    """The residual SD is one degree of freedom at N = 2 and weak below twenty, as everywhere."""
+    pointing = _get(single_client, "/api/projections", **HITS, **bounds)["overlays"]["pointing"]
+    assert pointing["a"]["n"] == n and pointing["a"]["sd_deg"] is not None
+    assert f"SD over N = {n}{label}" in pointing["note"]
+    assert pointing["note"].startswith("Incident directions point at the detector origin")
+    if not label:
+        assert "weak" not in pointing["note"] and "d.o.f." not in pointing["note"]
 
 
 @pytest.mark.parametrize("display", ["native", "continuous"])
@@ -265,16 +292,26 @@ def test_the_per_shower_frames_superimpose_one_shower_per_event(single_client, d
 
 
 @pytest.mark.parametrize("kind", ["trans", "local"])
-@pytest.mark.parametrize("bounds", [ONE_EVENT, TWO_EVENTS, SEVEN_EVENTS], ids=["n1", "n2", "n7"])
+@pytest.mark.parametrize("bounds", [ONE_EVENT, TWO_EVENTS, SEVEN_EVENTS, NINETEEN_EVENTS, TWENTY_EVENTS],
+                         ids=["n1", "n2", "n7", "n19", "n20"])
 def test_the_per_shower_frames_follow_the_low_n_table(single_client, kind, bounds):
     body = _get(single_client, "/api/projections", **HITS, coord_system=kind, display="continuous", **bounds)
     mean, n = body["centroids"]["frame_mean"], body["frame"]["n_events"]
-    assert body["frame"]["fit"]["provisional"] is True
+    texts = [notice["text"] for notice in body["meta"]["notices"]]
+    weak = n < frame_mod.PROVISIONAL_N
+    assert n in (1, 2, 7, 19, 20)
+    assert body["frame"]["fit"]["provisional"] is weak
+    # The weak-evidence sentence stands exactly where the ranges are provisional.
+    assert any("weak evidence" in text for text in texts) is weak
     if n == 1:
         assert "not an ensemble mean" in mean["label"] and mean["sd"]["a"]["x"] is None
         assert "own centroid;" in mean["dof_note"]
-    else:
+    elif weak:
         assert mean["ci95_half"]["a"]["x"] is not None and "weak evidence" in mean["dof_note"]
+    else:
+        assert mean["ci95_half"]["a"]["x"] is not None and mean["label"].startswith("Mean per-event")
+        assert "weak" not in mean["dof_note"] and "provisional" not in mean["dof_note"]
+        assert not any("provisional" in text for text in texts)
     if kind == "trans":
         paths = body["overlays"]["trajectories"]
         assert len(paths) == n and all(set(p) == {"event", "a"} for p in paths)
@@ -327,6 +364,43 @@ def test_the_frame_sql_keeps_the_two_shower_text_and_gates_one_shower_on_its_fra
             assert "UNION ALL" not in sql and "p.d " not in sql and gate in sql
 
 
+def test_an_event_with_no_frame_is_excluded_from_n_and_said_so(db):
+    """``frame_gate``'s exclusion, on a copy of the experiment with one incident direction removed.
+
+    Every synthetic event is placeable, so the copy is two temporary views on
+    the read cursor - the event table with one ``theta_a`` nulled, and the
+    projection table as it is - under a name no other test uses.
+    """
+    import dataclasses
+
+    from calosrv.api import frame_shower
+    from calosrv.models.common import Timer
+
+    record = db["record"]
+    probe = dataclasses.replace(record, table_name=f"{SINGLE_HITS_TABLE}_probe")
+    event = quote(naming.event_table(SINGLE_HITS_TABLE))
+    with db["database"].read_cursor() as con:
+        (first,) = con.execute(f"SELECT min(event_number) FROM {event}").fetchone()
+        con.execute(
+            f"CREATE TEMP VIEW {quote(naming.event_table(probe.table_name))} AS SELECT * REPLACE "
+            f"(CASE WHEN event_number = {int(first)} THEN NULL ELSE theta_a END AS theta_a) FROM {event}")
+        con.execute(f"CREATE TEMP VIEW {quote(naming.proj_table(probe.table_name))} AS "
+                    f"SELECT * FROM {quote(naming.proj_table(SINGLE_HITS_TABLE))}")
+        spec = filters.build(probe)
+        stats = shower_frames.shower_statistics(con, probe, spec, "trans", "segmentation")
+        assert stats.n_selected == 287 and stats.n_events == stats.n_showers == 286
+        assert stats.n_excluded_no_frame == 1
+        body = frame_shower.build_response(
+            con, probe, spec, db["settings"], kind="trans", resolution=150, display="native",
+            channel="density", model="segmentation", weighting="energy", rho_norm="selection",
+            preview=False, timer=Timer())
+    assert body["frame"]["n_excluded_no_frame"] == 1 and body["frame"]["n_events"] == 286
+    texts = [notice["text"] for notice in body["meta"]["notices"]]
+    assert ("1 selected event(s) have no incident direction or entry point P0; they are excluded "
+            "from N and from every per-shower translated panel.") in texts
+    assert not any("A-B" in text or "shower-A" in text for text in texts)
+
+
 @pytest.mark.parametrize("kind", ["trans", "local"])
 def test_computed_coordinates_and_the_dataset_reference_serve_one_shower(single_client, kind):
     computed = _get(single_client, "/api/projections", **HITS, coord_system=kind, coordinates="computed")
@@ -338,9 +412,18 @@ def test_computed_coordinates_and_the_dataset_reference_serve_one_shower(single_
 
 @pytest.mark.parametrize("kind", ["lab", "trans", "local"])
 def test_an_empty_selection_is_served_as_empty(single_client, kind):
-    body = _get(single_client, "/api/projections", **HITS, coord_system=kind, e1_min=0.0, e1_max=0.5)
+    body = _get(single_client, "/api/projections", **HITS, coord_system=kind, **EMPTY)
     assert body["selection"]["n_events"] == 0
     assert body["centroids"]["energy_voxel"]["a"]["x"] is None
+    if kind == "lab":
+        return
+    # No event, so no marker to label and no evidence to call weak.
+    mean = body["centroids"]["frame_mean"]
+    assert mean["n"] == 0 and mean["label"] == "No event in the selection: no centroid"
+    assert mean["a"] is None and mean["b"] is None and mean["dof_note"] is None
+    assert mean["sd"] == {"a": None, "b": None} and mean["ci95_half"] == {"a": None, "b": None}
+    texts = [notice["text"] for notice in body["meta"]["notices"]]
+    assert not any("weak evidence" in text or "N = 1" in text for text in texts)
 
 
 def test_an_empty_selection_has_no_event_to_pick(single_client):
@@ -376,6 +459,13 @@ def test_the_window_axis_has_one_shower_block(single_client, db):
     narrow = _get(single_client, "/api/window-axis", **HITS, **ONE_EVENT, panel="yz", t_min=-1e5, t_max=1e5)
     assert narrow["a"]["n"] == 1 and narrow["a"]["label"] == "single event, not an ensemble"
     assert narrow["a"]["band"] is None and narrow["b"] is None
+    # The low-N table: one degree of freedom at N = 2, weak below twenty, neither at twenty.
+    two = _get(single_client, "/api/window-axis", **HITS, **TWO_EVENTS, panel="xz", t_min=-1e5, t_max=1e5)
+    assert two["a"]["n"] == 2 and two["a"]["dof_note"] == "1 d.o.f." and two["a"]["label"] == "weak (N = 2)"
+    assert "(1 d.o.f.)" in two["notes"][0] and "weak (N = 2)" in two["notes"][0]
+    twenty = _get(single_client, "/api/window-axis", **HITS, **TWENTY_EVENTS, panel="xz", t_min=-1e5, t_max=1e5)
+    assert twenty["a"]["n"] == 20 and twenty["a"]["dof_note"] is None and twenty["a"]["label"] == ""
+    assert "weak" not in twenty["notes"][0]
     empty = _get(single_client, "/api/window-axis", **HITS, panel="yz", t_min=1e6, t_max=1e6 + 1)
     assert empty["a"]["n"] == 0 and "no selected event enters" in empty["notes"][0]
 

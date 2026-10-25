@@ -281,7 +281,10 @@
      ]
     },
     "combed": {
-     "type": "boolean"
+     "type": [
+      "boolean",
+      "null"
+     ]
     },
     "measured_on": {
      "type": "string"

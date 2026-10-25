@@ -156,6 +156,12 @@ def test_pointing_measures_the_directions_against_the_radial_line(cursor, record
         assert block["centroid_z_mm"] == pytest.approx(np.median(cz))
     assert out["note"].startswith("Incident directions point at the detector origin")
     assert not signed_hyphens(out["note"]), out["note"]
+    # The low-N table: the demonstration file's two events give one degree of freedom.
+    for shower in ("a", "b"):
+        n = out[shower]["n"]
+        label = " (1 d.o.f., weak)" if n == 2 else " (weak)" if n < 20 else ""
+        assert f"{shower.upper()}: " in out["note"]
+        assert f"SD over N = {n:,}{label}" in out["note"]
 
 
 # -------------------------------------------------------------- the route --

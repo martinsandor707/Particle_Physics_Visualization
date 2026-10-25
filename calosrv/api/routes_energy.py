@@ -9,7 +9,9 @@ Two slicings share the panel's machinery, marks and budget guard:
   momentum, ``p_slices`` choosing the windows or the producer's 1 GeV bins.
 
 A parameter that belongs to the other slicing is refused naming it, never
-ignored: a cut the reader believes was made must have been made.
+ignored: a cut the reader believes was made must have been made. A momentum
+view of more fitted series than the 100 KB contract carries is refused too,
+naming the parameter that would bring it under, rather than served over it.
 """
 
 from __future__ import annotations
@@ -47,7 +49,12 @@ SLICE_MODES: tuple[str, ...] = (SLICE_D, SLICE_MOMENTUM)
 Responder = Callable[[int, int | None, list[str]], dict]
 
 
-def within_budget(respond: Responder) -> dict:
+#: The still-over notice's remedies, per slicing: a D panel has no series choice.
+REMEDY_D = "a narrower selection or fewer slices bring it under"
+REMEDY_MOMENTUM = "a narrower selection, fewer slices or fewer series bring it under"
+
+
+def within_budget(respond: Responder, remedy: str = REMEDY_D) -> dict:
     """The panel under the payload contract, coarsened only as far as it must be.
 
     The panel grows with its slices: at the maximum of eight D slices, each with
@@ -61,6 +68,8 @@ def within_budget(respond: Responder) -> dict:
     2. the shared histogram bin count is halved, down to ``MIN_BINS``;
     3. if the body is still over, it is served as it is, and the response says
        so - withholding a slice or a series would hide data, not disclose it.
+       The size it quotes is the body's with that sentence in it, and
+       ``remedy`` says what would bring it under.
     """
     body = respond(histogram.CURVE_POINTS, None, [])
     first = size = density.wire_size(body)
@@ -88,19 +97,30 @@ def within_budget(respond: Responder) -> dict:
         taken.append(bins)
         body = respond(points, bins, notes + [typographic(
             f"Histograms drawn with {bins} bins instead of {start} "
-            f"({' → '.join(str(b) for b in taken)}, halved at each step) to keep the "
-            f"response under the {density.RESPONSE_LIMIT:,}-byte contract; every "
-            "histogram keeps its range, and the fitted numbers do not depend on the bins."
+            f"({' → '.join(str(b) for b in taken)}: halved at each step, never below "
+            f"{histogram.MIN_BINS}) to keep the response under the "
+            f"{density.RESPONSE_LIMIT:,}-byte contract; every histogram keeps its range, "
+            "and the fitted numbers do not depend on the bins."
         )])
         size = density.wire_size(body)
     if size >= density.RESPONSE_LIMIT:
-        body["meta"]["warnings"].append(typographic(
-            f"The response is still {size:,} bytes with the curves sampled at {points} "
-            f"points and {bins} histogram bins, the coarsest this panel draws, over the "
-            f"{density.RESPONSE_LIMIT:,}-byte contract. It is served as it is rather than "
-            "with any slice or series withheld; a narrower selection, fewer slices or "
-            "fewer series bring it under."
-        ))
+        warnings = body["meta"]["warnings"]
+        # The sentence quotes the size of the body that carries it; its own
+        # digits move that size, so settle on a fixed point (two passes).
+        claimed = size
+        for _ in range(4):
+            notice = typographic(
+                f"The response is still {claimed:,} bytes with the curves sampled at "
+                f"{points} points and {bins} histogram bins, the coarsest this panel "
+                f"draws, over the {density.RESPONSE_LIMIT:,}-byte contract. It is served "
+                f"as it is rather than with any slice or series withheld; {remedy}."
+            )
+            served = density.wire_size(
+                {**body, "meta": {**body["meta"], "warnings": warnings + [notice]}})
+            if served == claimed:
+                break
+            claimed = served
+        warnings.append(notice)
     return body
 
 
@@ -152,6 +172,45 @@ def _refuse_oversized(record: ExperimentRecord, p_slices: str | None, series: st
         )
 
 
+#: The most fitted series a two-shower momentum view carries: its slices times
+#: the series each draws (two for series=truth or model, four for all).
+#: Measured through the guard on constructed production-scale samples
+#: (tests/test_energy_momentum.py pins it), with the sentences every series
+#: repeated hoisted to energy.MOMENTUM_TEXTS: at the coarsest rendering (50
+#: curve points) twenty slices of truth or model are 87-92 KB at every density
+#: from 8 to 1,000 showers per series, and twenty-four slices are over even
+#: there; series=all fits twelve windows and not thirteen. The bound keeps
+#: twenty, not the twenty-two that just fit, so the sparsest view keeps 8%
+#: headroom at the coarsest rendering. A single shower's 24 windows are 24
+#: series and fit.
+MAX_TWO_SHOWER_SERIES = 40
+
+
+def _refuse_too_many_series(sample: energy.MomentumSample) -> None:
+    """A two-shower view of more series than the contract carries is a 422 on p_slices.
+
+    Counted from the slices themselves - the windows asked for, or every 1 GeV
+    bin the selection spans, populated or not - before anything is fitted,
+    never from how many of them happen to hold showers.
+    """
+    if len(sample.showers) != 2:
+        return
+    slices, per_slice = len(sample.slicing.classes), len(sample.series)
+    if slices * per_slice <= MAX_TWO_SHOWER_SERIES:
+        return
+    narrower = (" or narrow the selection's momentum range"
+                if sample.slicing.uses_bin_column else "")
+    raise ValidationError(
+        f"p_slices makes {slices} momentum slices of {per_slice} series each "
+        f"(series={sample.series_set}), {slices * per_slice} fitted series on two-shower "
+        f"data. The {density.RESPONSE_LIMIT:,}-byte response contract carries at most "
+        f"{MAX_TWO_SHOWER_SERIES}: {MAX_TWO_SHOWER_SERIES // 2} slices with series=truth "
+        f"or series=model, {MAX_TWO_SHOWER_SERIES // 4} with series=all. Choose fewer "
+        f"momentum windows{narrower}.",
+        field="p_slices",
+    )
+
+
 def _half_width(p_slices: str | None, p_half_width: float | None) -> float:
     """The window half-width in GeV; the 1 GeV bins take none."""
     if p_half_width is None:
@@ -162,9 +221,11 @@ def _half_width(p_slices: str | None, p_half_width: float | None) -> float:
             "(p_slices=bins) have none.",
             field="p_half_width",
         )
-    if not (math.isfinite(p_half_width) and p_half_width > 0):
+    if not (math.isfinite(p_half_width)
+            and 0 < p_half_width <= momentum_mod.MAX_HALF_WIDTH_GEV):
         raise ValidationError(
-            f"p_half_width must be a positive number of GeV; got {p_half_width!r}.",
+            f"p_half_width must be a positive number of GeV up to "
+            f"{momentum_mod.MAX_HALF_WIDTH_GEV:g}; got {p_half_width!r}.",
             field="p_half_width",
         )
     return float(p_half_width)
@@ -300,6 +361,7 @@ def get_energy_distribution(
                 "momentum scale; the isolated-reference benchmarks are hidden "
                 "because they would not be comparable."
             )
+        warnings.extend(result.notices)
         empty = [
             s.label for s in result.slices if result.slice_counts.get(s.index, 0) == 0
         ]
@@ -360,8 +422,10 @@ def _by_momentum(
         con, record, spec, p_slices=p_slices, half_width=half_width,
         series=series, coord_system=coord_system,
     )
+    _refuse_too_many_series(sample)
     # Only the model split is a network's output; the truth split and a single
-    # shower's deposit are not, and the payload names no network for them.
+    # shower's deposit are not, and the payload names no network for them. The
+    # frame of the split, truth or model, is the payload's segmentation_frame.
     network = (
         {"model": "segmentation", "frame": ddl.NETWORK_FRAME[coord_system]}
         if any(m.kind == "pred" for m in sample.series) else None
@@ -385,16 +449,7 @@ def _by_momentum(
         )
         return envelope(meta, **result.as_dict(), filter=spec.as_dict())
 
-    return within_budget(respond)
-
-
-def _ordinal(value: float) -> str:
-    """``1`` -> ``1st``, ``99`` -> ``99th``, ``2.5`` -> ``2.5th``."""
-    if not float(value).is_integer():
-        return f"{value:g}th"
-    n = int(value)
-    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
+    return within_budget(respond, REMEDY_MOMENTUM)
 
 
 def momentum_warnings(result: energy.EnergyDistribution) -> list[str]:
@@ -414,10 +469,18 @@ def momentum_warnings(result: energy.EnergyDistribution) -> list[str]:
     axes = block.get("slice_axes", [])
     clipped = [a for a in axes if a["n_outside_axis"]]
     if clipped:
-        low, high = axes[0]["clipping"]["low_percentile"], axes[0]["clipping"]["high_percentile"]
+        # The rules each slice's own clipping block names: the lower bound is
+        # pinned at zero, and a slice set by too few values for percentiles
+        # runs to the largest of them.
+        high = clip_mod.ordinal(axes[0]["clipping"]["high_percentile"])
+        full = any(a["clipping"]["rule"] == energy.RULE_FULL_RANGE for a in axes)
+        start = "0" if all(a["lo"] == 0 for a in axes) else "0 or its lowest value"
         warnings.append(
-            f"Each slice's energy axis spans the {_ordinal(low)} to {_ordinal(high)} "
-            f"percentile of the showers that set it; {sum(a['n_outside_axis'] for a in clipped):,} of "
+            f"Each slice's energy axis runs from {start} to the {high} percentile of the "
+            f"series that set it plus {100 * energy.AXIS_PAD:g}%,"
+            + (" or to their largest value where they are too few for percentiles,"
+               if full else "")
+            + f" rounded out to whole ticks; {sum(a['n_outside_axis'] for a in clipped):,} of "
             f"{sum(a['n_values'] for a in axes):,} values lie beyond their slice's axis ("
             + "; ".join(f"{labels[a['slice']]}: {a['n_outside_axis']:,}" for a in clipped)
             + ") and are excluded from the view but not from the statistics."
@@ -429,7 +492,8 @@ def momentum_warnings(result: energy.EnergyDistribution) -> list[str]:
             "in: " + "; ".join(provisional) + ". Those energy axes are set from the few "
             "showers there are and are provisional."
         )
-    if not result.calibration["applied"]:
+    # An empty selection draws nothing, so there is no energy to qualify.
+    if not result.calibration["applied"] and result.series:
         warnings.append(
             "Energies are raw deposited sums, not calibrated to the incident momentum "
             "scale; the measured mean-momentum markers are on that scale and are not "
@@ -453,12 +517,8 @@ def momentum_warnings(result: energy.EnergyDistribution) -> list[str]:
     absent = block.get("no_deposit", {})
     n_absent = sum(v for v in absent.values() if v)
     if n_absent:
-        one = n_absent == 1
-        warnings.append(
-            f"{n_absent:,} shower{'' if one else 's'} deposited no energy (no hits): "
-            f"{'it has' if one else 'they have'} no response to draw and "
-            f"{'is' if one else 'are'} in no slice."
-        )
+        # Owned beside the calibration, so it changes when the calibration does.
+        warnings.append(energy.no_deposit_notice(n_absent))
 
     thin = named(s for s in result.series if s.draw != "histogram")
     if thin:

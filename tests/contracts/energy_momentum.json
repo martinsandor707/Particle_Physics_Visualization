@@ -21,6 +21,9 @@
   "counted",
   "series_set",
   "no_deposit",
+  "segmentation_frame",
+  "momentum_marker",
+  "texts",
   "filter"
  ],
  "properties": {
@@ -114,7 +117,8 @@
     "unit",
     "bins",
     "per_slice",
-    "curve_points"
+    "curve_points",
+    "grid"
    ],
    "properties": {
     "unit": {
@@ -128,6 +132,9 @@
     },
     "curve_points": {
      "type": "integer"
+    },
+    "grid": {
+     "type": "string"
     }
    }
   },
@@ -197,8 +204,6 @@
      "interval",
      "clipping",
      "provisional",
-     "curve_x",
-     "hist_centres",
      "momentum",
      "driven_by",
      "n_values",
@@ -218,22 +223,10 @@
       "type": "number"
      },
      "clipping": {
-      "$ref": "#/$defs/clipping"
+      "$ref": "#/$defs/slice_clipping"
      },
      "provisional": {
       "type": "boolean"
-     },
-     "curve_x": {
-      "type": "array",
-      "items": {
-       "type": "number"
-      }
-     },
-     "hist_centres": {
-      "type": "array",
-      "items": {
-       "type": "number"
-      }
      },
      "momentum": {
       "type": "object",
@@ -243,84 +236,17 @@
       ],
       "properties": {
        "a": {
-        "type": [
-         "object",
-         "null"
-        ],
-        "required": [
-         "mean",
-         "sd",
-         "n",
-         "ci95"
-        ],
-        "properties": {
-         "mean": {
-          "type": [
-           "number",
-           "null"
-          ]
-         },
-         "sd": {
-          "type": [
-           "number",
-           "null"
-          ]
-         },
-         "n": {
-          "type": "integer"
-         },
-         "ci95": {
-          "type": [
-           "array",
-           "null"
-          ],
-          "items": {
-           "type": "number"
-          },
-          "minItems": 2,
-          "maxItems": 2
-         }
-        }
+        "$ref": "#/$defs/momentum_marker"
        },
        "b": {
-        "type": [
-         "object",
-         "null"
-        ],
-        "required": [
-         "mean",
-         "sd",
-         "n",
-         "ci95"
-        ],
-        "properties": {
-         "mean": {
-          "type": [
-           "number",
-           "null"
-          ]
+        "anyOf": [
+         {
+          "type": "null"
          },
-         "sd": {
-          "type": [
-           "number",
-           "null"
-          ]
-         },
-         "n": {
-          "type": "integer"
-         },
-         "ci95": {
-          "type": [
-           "array",
-           "null"
-          ],
-          "items": {
-           "type": "number"
-          },
-          "minItems": 2,
-          "maxItems": 2
+         {
+          "$ref": "#/$defs/momentum_marker"
          }
-        }
+        ]
        }
       }
      },
@@ -457,6 +383,75 @@
      ]
     }
    }
+  },
+  "segmentation_frame": {
+   "enum": [
+    "absolute",
+    "trans",
+    "local",
+    null
+   ]
+  },
+  "momentum_marker": {
+   "type": "object",
+   "required": [
+    "mean",
+    "sd",
+    "ci95",
+    "sd_ci95"
+   ],
+   "properties": {
+    "mean": {
+     "type": "string"
+    },
+    "sd": {
+     "type": "string"
+    },
+    "ci95": {
+     "$ref": "#/$defs/interval_name"
+    },
+    "sd_ci95": {
+     "$ref": "#/$defs/interval_name"
+    }
+   }
+  },
+  "texts": {
+   "type": "object",
+   "required": [
+    "prefix",
+    "message",
+    "estimator_note"
+   ],
+   "description": "The sentences every series would otherwise repeat, once per payload and N-free; the panel prefixes 'prefix' with n = fit.n. message: texts.message['degenerate'] when fit.degenerate, else texts.message[draw]; note: texts.estimator_note[fit.estimator], except core_refit, whose note stays on fit.estimator_note.",
+   "properties": {
+    "prefix": {
+     "type": "string"
+    },
+    "message": {
+     "type": "object",
+     "required": [
+      "curve+strip",
+      "strip",
+      "degenerate"
+     ],
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "estimator_note": {
+     "type": "object",
+     "required": [
+      "moments",
+      "moments_1dof",
+      "mean_only",
+      "degenerate",
+      "none"
+     ],
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   }
   }
  },
  "$defs": {
@@ -537,53 +532,6 @@
     },
     "include_undefined_d": {
      "type": "boolean"
-    }
-   }
-  },
-  "clipping": {
-   "type": "object",
-   "required": [
-    "lo",
-    "hi",
-    "low_percentile",
-    "high_percentile",
-    "n_total",
-    "n_below",
-    "n_above",
-    "n_outside",
-    "fraction_outside",
-    "note"
-   ],
-   "properties": {
-    "lo": {
-     "type": "number"
-    },
-    "hi": {
-     "type": "number"
-    },
-    "low_percentile": {
-     "type": "number"
-    },
-    "high_percentile": {
-     "type": "number"
-    },
-    "n_total": {
-     "type": "integer"
-    },
-    "n_below": {
-     "type": "integer"
-    },
-    "n_above": {
-     "type": "integer"
-    },
-    "n_outside": {
-     "type": "integer"
-    },
-    "fraction_outside": {
-     "type": "number"
-    },
-    "note": {
-     "type": "string"
     }
    }
   },
@@ -700,7 +648,10 @@
        "type": "string"
       },
       "estimator_note": {
-       "type": "string"
+       "type": [
+        "string",
+        "null"
+       ]
       },
       "degenerate": {
        "type": "boolean"
@@ -833,6 +784,189 @@
      }
     },
     "message": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "interval_name": {
+   "type": "object",
+   "required": [
+    "method",
+    "level",
+    "label"
+   ],
+   "properties": {
+    "method": {
+     "enum": [
+      "t",
+      "chi2"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "momentum_marker": {
+   "type": "object",
+   "required": [
+    "mean",
+    "sd",
+    "n",
+    "ci95",
+    "low_n"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "ci95": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "low_n": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/low_n"
+      }
+     ]
+    }
+   }
+  },
+  "low_n": {
+   "type": "object",
+   "required": [
+    "label"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "dof_note": {
+     "const": "1 d.o.f."
+    },
+    "sd_se": {
+     "type": "number",
+     "minimum": 0
+    },
+    "sd_ci95": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "c4": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    }
+   }
+  },
+  "slice_clipping": {
+   "type": "object",
+   "required": [
+    "rule",
+    "lo",
+    "hi",
+    "high_percentile",
+    "data_min",
+    "data_max",
+    "n_basis",
+    "n_total",
+    "n_below",
+    "n_above",
+    "n_outside",
+    "fraction_outside",
+    "note"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "rule": {
+     "enum": [
+      "percentile",
+      "full_range"
+     ]
+    },
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "high_percentile": {
+     "type": "number"
+    },
+    "data_min": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "data_max": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n_basis": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_total": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_below": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_above": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_outside": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "fraction_outside": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "note": {
      "type": "string"
     }
    }

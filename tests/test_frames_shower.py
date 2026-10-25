@@ -320,6 +320,47 @@ def test_a_single_event_marker_is_labelled_as_that_events_own_centroid(cursor, s
     assert mean["label"].startswith("This single event's own centroid")
     assert "not an ensemble mean" in mean["label"] and mean["dof_note"].startswith("N = 1")
 
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_an_empty_selection_has_no_marker_and_says_so(cursor, shower, kind):
+    """N = 0 is not N = 1: no centroid, no dispersion note, nothing for the legend to name."""
+    from calosrv.api import frame_shower
+
+    record = shower["record"]
+    empty = filters.build(record, e1_min=float(record.e1_max) + 1.0, e1_max=float(record.e1_max) + 2.0)
+    stats = shower_frames.shower_statistics(cursor, record, empty, kind, "segmentation")
+    assert stats.n_events == 0
+    mean = frame_shower._frame_mean(stats, kind)
+    assert mean["label"] == "No event in the selection: no centroid" and mean["dof_note"] is None
+    assert mean["a"] is None and mean["b"] is None and mean["n"] == 0
+    assert mean["sd"] == {"a": None, "b": None} and mean["ci95_half"] == {"a": None, "b": None}
+
+
+def test_the_all_zero_map_counts_are_read_per_attention_kind(cursor, shower):
+    """Grad-CAM and Shap-CAM all-zero-map events are counted from their own bits, never swapped.
+
+    The demonstration events have no all-zero map, so the count is checked on
+    a temporary view of the event table that sets the Grad-CAM bit on every
+    event and the Shap-CAM bit on the first only.
+    """
+    import dataclasses
+
+    record = shower["record"]
+    probe = dataclasses.replace(record, table_name=f"{record.table_name}_camzero")
+    event = quote(naming.event_table(record.table_name))
+    first, n = cursor.execute(f"SELECT min(event_number), count(*) FROM {event} WHERE d IS NOT NULL").fetchone()
+    assert n >= 2
+    for kind in KINDS:
+        for model in ddl.MODELS:
+            gc = 1 << ddl.cam_bit(model, kind, "gradcam")
+            sc = 1 << ddl.cam_bit(model, kind, "shapcam")
+            cursor.execute(
+                f"CREATE OR REPLACE TEMP VIEW {quote(naming.event_table(probe.table_name))} AS "
+                f"SELECT * REPLACE (CASE WHEN event_number = {int(first)} THEN {gc | sc} ELSE {gc} END "
+                f"AS cam_zero_mask) FROM {event}")
+            stats = shower_frames.shower_statistics(cursor, probe, filters.build(probe), kind, model)
+            assert stats.cam_zero == {"gradcam": n, "shapcam": 1}, (kind, model)
+
 def test_the_grid_is_the_datasets_not_the_selections(cursor, shower):
     record, settings, footprint = shower["record"], shower["settings"], shower["footprint"]
     narrow = filters.build(record, e1_max=float(record.e1_max) * 0.9)

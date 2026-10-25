@@ -246,17 +246,24 @@ def test_the_range_comes_from_the_driving_points(synthetic_client, model, params
                     top = max(ends) if ends else abs(value)
                 else:
                     top = hi if hi is not None else value
-                (strong if s["drives_scale"][i] else weak).append((top, s["key"], block["bins"]["index"][i]))
+                core = abs(value) if signed else value
+                (strong if s["drives_scale"][i] else weak).append(
+                    (top, core, s["key"], block["bins"]["index"][i]))
         if strong:
             expected = clip.nice_range(0.0, max(t for t, *_ in strong), fine=True)[1]
             assert not spec["provisional"] and spec["value"] == pytest.approx(expected, rel=1e-5)
+        else:
+            # Provisional: set by the weak points' values alone, whiskers excluded.
+            assert spec["provisional"] and "Provisional" in spec["note"]
+            peak = max((c for _, c, *_ in weak), default=0.0)
+            if peak > 0:
+                assert spec["value"] == pytest.approx(
+                    clip.nice_range(0.0, peak, fine=True)[1], rel=1e-5)
+        if spec["value"] is not None:
             listed = {(o["series"], o["bin"]) for o in spec["overflow"]}
-            exceeding = {(k, b) for t, k, b in weak if t > spec["value"]}
+            exceeding = {(k, b) for t, _, k, b in weak if t > spec["value"]}
             assert spec["n_overflow"] == len(exceeding)
             assert listed <= exceeding and (len(listed) == len(exceeding) or len(listed) == 24)
-        else:
-            assert spec["provisional"] and spec["overflow"] == []
-            assert "Provisional" in spec["note"]
         assert spec["min"] == (-spec["value"] if signed else 0.0)
 
 
