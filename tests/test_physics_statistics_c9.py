@@ -334,3 +334,11 @@ def test_wilson_is_the_shared_implementation(two_shower):
     whole = negative_depth.summarise(con, record, spec)["splits"][0]
     ref = metrics.wilson_interval(whole["events_with_any"], whole["n_events"])
     assert whole["events_with_any_ci95"] == [float(f"{ref.lo:.6g}"), float(f"{ref.hi:.6g}")]
+
+
+def test_the_rationale_is_worded_for_the_number_of_showers():
+    two, one = negative_depth.rationale(2), negative_depth.rationale(1)
+    assert any("two showers of an event" in text for text in two)
+    assert not any("two showers" in text for text in one)
+    assert any("one shower per event" in text for text in one)
+    assert two[0] == one[0] and MINUS in one[0]

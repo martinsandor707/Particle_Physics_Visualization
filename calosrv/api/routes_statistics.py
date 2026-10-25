@@ -91,7 +91,7 @@ def get_statistics(
     notes = statistics.notes(record, coord_system, scope, scan, n_hits,
                              decision.sampled, decision.percent)
     if negative_w["available"]:
-        notes += negative_depth.rationale()
+        notes += negative_depth.rationale(len(record.traits.showers))
 
     def respond(extra: list[str]) -> dict:
         meta = ApiMeta(
