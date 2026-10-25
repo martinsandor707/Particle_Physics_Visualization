@@ -47,7 +47,7 @@ from ..grid import frame as frame_mod
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 from ..models.common import ApiMeta, Timer, envelope
 from ..text import fmt_signed, typographic
-from ..query import canonical, centroids, density, reconstruct, sampling, summary, window
+from ..query import canonical, centroids, density, negative_depth, reconstruct, sampling, summary, window
 from ..query import frame_sql
 from ..query import planes as planes_mod
 from ..query import shower_frames
@@ -301,6 +301,11 @@ def build_response(
     # Two showers per event, or one: what the notices may say about 'A+B'
     # hits, the separation D and the events without one.
     two = len(showers_mod.of(record)) == 2
+    # C9 in the Local frame, where w is the depth it is defined on: the hits
+    # upstream of each shower's entry point, from the event table's Group-1
+    # sums. Computed once, outside the budget guard's re-renders; a stale
+    # experiment gets available: false and the reason.
+    negative_w = negative_depth.summarise(con, record, spec) if kind == KIND_LOCAL else None
     symbols = shower_frames.SYMBOLS[kind]
     names = _panel_names(symbols)
     title = FRAME_TITLE[kind]
@@ -502,6 +507,8 @@ def build_response(
         if coherence is not None:
             frame_block["coherence"] = {"r_a": coherence.get("r_a"), "r_b": coherence.get("r_b"),
                                         "n": coherence.get("n")}
+        if negative_w is not None:
+            frame_block["negative_w"] = negative_w
 
         meta = ApiMeta(
             table_name=record.table_name,

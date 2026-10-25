@@ -410,7 +410,7 @@ def fit_gaussian(values: np.ndarray, label: str = "") -> GaussianFit:
     elif refit.applied:
         estimator = "core_refit"
         estimator_note = (
-            f"Iterated +/-{CORE_SIGMA:g} sigma core refit over {refit.n:,} of "
+            f"Iterated ±{CORE_SIGMA:g}σ core refit over {refit.n:,} of "
             f"{n:,} events in {refit.iterations} iteration"
             f"{'s' if refit.iterations != 1 else ''}"
             + (

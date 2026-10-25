@@ -85,7 +85,7 @@ from typing import Any, Sequence
 import duckdb
 import numpy as np
 
-from ..db import ddl, naming
+from ..db import ddl, naming, schemas
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
@@ -386,13 +386,14 @@ def _fetch(
     whose voxel fractions split each event's deposited energy.
     """
     table = quote(naming.event_table(record.table_name))
-    f = frame_code
+    sums = {stem: ddl.seg_stat_column(stem, frame_code)
+            for stem in ("e_a_pred", "e_b_pred", "e_a_true", "e_b_true")}
     return con.execute(
         f"""
         SELECT
             {case_sql(slices)}          AS slice_index,
-            e_a_pred_{f} AS e_a_pred, e_b_pred_{f} AS e_b_pred,
-            e_a_true_{f} AS e_a_true, e_b_true_{f} AS e_b_true,
+            {sums['e_a_pred']} AS e_a_pred, {sums['e_b_pred']} AS e_b_pred,
+            {sums['e_a_true']} AS e_a_true, {sums['e_b_true']} AS e_b_true,
             CAST(e1 AS DOUBLE)          AS e1,
             CAST(e2 AS DOUBLE)          AS e2
         FROM {table}
@@ -599,12 +600,8 @@ DEPOSIT_LABEL = "Shower - deposit"
 #: panel's axis has; the lower bound is pinned at zero.
 _AXIS_PAD = 0.05
 
-CENSORED_AGGREGATE_NOTICE = (
-    "This experiment is the producer's event-level aggregate, which leaves out "
-    "every single-hit event: its lowest-momentum slices hold fewer showers than "
-    "were simulated, and their mean response is biased high, because single-hit "
-    "showers deposit the least. The hit-level file of the same run keeps them."
-)
+#: The aggregate's censored-sample sentence; its one owner is ``db/schemas.py``.
+CENSORED_AGGREGATE_NOTICE = schemas.CENSORED_AGGREGATE_NOTICE
 
 
 @dataclass(frozen=True)
@@ -619,10 +616,8 @@ class MomentumSeries:
 
 
 def _segmentation_column(stem: str, coord_system: str) -> str:
-    """``e_a_true`` -> ``e_a_true_trn``: a per-frame segmentation sum of the event table."""
-    if stem not in {name for name, _ in ddl.SEG_STAT_COLUMNS}:
-        raise ValueError(f"unknown segmentation sum {stem!r}")
-    return f"{stem}_{ddl.frame_code(coord_system)}"
+    """``e_a_true`` -> ``e_a_true_trn``: a per-frame segmentation sum (``ddl.seg_stat_column``)."""
+    return ddl.seg_stat_column(stem, coord_system)
 
 
 def momentum_series(
@@ -895,7 +890,7 @@ def _compact(fitted: SeriesFit) -> SeriesFit:
     The D panel ships its fit block at full precision, and that payload is
     pinned. This view carries up to four series in each of twenty slices, and
     the digits past the sixth are budget, not information. Its sentences get
-    U+2212 for every signed number (``+/-2.5 sigma`` reads ``+/−2.5``).
+    U+2212 for every signed number.
     """
     fit = fitted.fit
     for name in _FIT_FLOATS:

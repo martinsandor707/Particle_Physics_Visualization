@@ -36,9 +36,9 @@ from ..text import typographic
 from . import showers
 from .filters import FilterSpec
 
-#: The event-table column holding the tagged rows of each event
-#: (``ddl.EVENT_SINGLE_COLUMNS``): rows with ``is_secondary = 0``.
-PRIMARY_ROWS = "n_primary_rows"
+#: The event-table column holding the tagged rows of each event (rows with
+#: ``is_secondary = 0``), as the shower vocabulary names it.
+PRIMARY_ROWS = showers.primary_rows_column()
 
 #: The count distribution runs 0 .. TOP_BUCKET, the last bucket holding that many or more.
 TOP_BUCKET = 10

@@ -67,7 +67,7 @@ from typing import Any
 import duckdb
 import numpy as np
 
-from ..db import naming
+from ..db import ddl, naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode import matrix as matrix_encode
@@ -495,7 +495,7 @@ def inspect(
     event = _event_row(con, record, event_number)
     in_selection, prev_event, next_event = _neighbours(con, record, spec, event_number)
     rows = _rows(con, record, event_number, shower, pitch_z)
-    p0 = np.array([event[f"p0{shower}x"], event[f"p0{shower}y"], event[f"p0{shower}z"]], dtype=np.float64)
+    p0 = np.array([event[ddl.p0_column(shower, axis)] for axis in "xyz"], dtype=np.float64)
     theta, phi = event[selected.theta], event[selected.phi]
     # Two showers are told apart by letter; a single shower is named as such.
     label = SHOWERS[shower] if two else selected.label

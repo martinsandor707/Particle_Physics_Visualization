@@ -129,6 +129,8 @@ METHOD_JACKKNIFE = "jackknife_fisher_z"
 METHOD_WILSON = "wilson"
 METHOD_BOOTSTRAP = "bootstrap_percentile"
 METHOD_ORDER = "order_statistic"
+#: The chi-squared interval of sigma divided by mu: the resolution's whisker.
+METHOD_CHI2_RATIO = "chi2_over_mu"
 
 #: Below this many events a card shows its interval rather than its SE.
 SHOW_CI_BELOW_N = gaussian.MIN_CORE_SAMPLES

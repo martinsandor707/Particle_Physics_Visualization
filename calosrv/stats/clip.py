@@ -68,12 +68,23 @@ class ClipResult:
         if not self.applied or self.n_outside == 0:
             return "Full data range shown."
         return (
-            f"Display range covers the {self.low_percentile:g}th to "
-            f"{self.high_percentile:g}th percentile; {self.n_outside:,} of "
+            f"Display range covers the {ordinal(self.low_percentile)} to "
+            f"{ordinal(self.high_percentile)} percentile; {self.n_outside:,} of "
             f"{self.n_total:,} values ({100 * self.fraction_outside:.2f}%) lie "
             "outside it and are excluded from the view but not from the "
             "statistics."
         )
+
+
+def ordinal(value: float) -> str:
+    """``1st``, ``2nd``, ``99th``, ``0.1th``: the English ordinal of a percentile level."""
+    text = f"{float(value):g}"
+    if "." in text or "e" in text:
+        return f"{text}th"
+    number = int(text)
+    if number % 100 in (11, 12, 13):
+        return f"{number}th"
+    return f"{number}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th') }"
 
 
 #: Candidate tick intervals, in ascending order of the range they suit.

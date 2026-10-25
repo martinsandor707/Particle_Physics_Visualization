@@ -18,7 +18,7 @@ import pytest
 
 import contract_check
 from calosrv.db import naming
-from calosrv.errors import CapabilityError, ValidationError
+from calosrv.errors import ValidationError
 from calosrv.models.common import ApiMeta, envelope
 from calosrv.query import correlations, density, filters, hit_sql
 from calosrv.query import showers as showers_mod
@@ -223,7 +223,7 @@ def test_unknown_parameters_are_refused_naming_the_field(cursor, record):
     for kwargs, field, error in (
         ({"coord_system": "canonical"}, "coord_system", ValidationError),
         ({"energy_scale": "ln"}, "energy_scale", ValidationError),
-        ({"shower": "c"}, "shower", CapabilityError),
+        ({"shower": "c"}, "shower", ValidationError),
     ):
         with pytest.raises(error) as raised:
             correlations.compute(cursor, record, spec, **kwargs)

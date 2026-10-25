@@ -132,21 +132,30 @@ def fisher_jackknife(n_g: np.ndarray, s_g: np.ndarray, q_g: np.ndarray,
     return FisherJackknife(r, se, lo, hi, n_eff, groups, int(n_events))
 
 
+#: Within this of |r(cos, sin)| = 1 the two are collinear: the angle takes two values at most.
+COLLINEAR_TOL = 1e-9
+
+
 def mardia_r(r_xc: float, r_xs: float, r_cs: float) -> float | None:
     """Mardia's circular-linear correlation of x with an angle, from its cos and sin.
 
     ``R = sqrt((r_xc² + r_xs² - 2 r_xc r_xs r_cs) / (1 - r_cs²))`` in [0, 1]: how
     well x is predicted by the direction, with no sign because a circle has no
-    order. ``None`` when cos and sin are perfectly correlated (one direction).
+    order. Where cos and sin are collinear (two azimuths) the form is 0/0 and
+    would return rounding noise; there, and where one of them has no spread (two
+    azimuths mirrored about an axis), the multiple correlation on (cos, sin) is
+    the |r| on the one that varies. ``None`` when neither varies (one azimuth)
+    or x does not.
     """
-    values = (r_xc, r_xs, r_cs)
-    if any(v is None or not math.isfinite(v) for v in values):
-        return None
-    den = 1.0 - r_cs * r_cs
-    if not den > 0:
-        return None
-    num = r_xc * r_xc + r_xs * r_xs - 2.0 * r_xc * r_xs * r_cs
-    return math.sqrt(min(1.0, max(0.0, num / den)))
+    if r_cs is not None and math.isfinite(r_cs) and 1.0 - abs(r_cs) > COLLINEAR_TOL:
+        if any(v is None or not math.isfinite(v) for v in (r_xc, r_xs)):
+            return None
+        num = r_xc * r_xc + r_xs * r_xs - 2.0 * r_xc * r_xs * r_cs
+        return math.sqrt(min(1.0, max(0.0, num / (1.0 - r_cs * r_cs))))
+    for r in (r_xc, r_xs):
+        if r is not None and math.isfinite(r):
+            return min(1.0, abs(r))
+    return None
 
 
 def mardia_from_sums(x: int, c: int, s: int) -> Callable[[float, np.ndarray, np.ndarray], np.ndarray]:

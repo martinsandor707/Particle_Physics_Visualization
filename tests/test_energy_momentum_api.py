@@ -268,21 +268,20 @@ def test_two_shower_series_sets(synthetic_client):
 @pytest.mark.parametrize("p_slices", [None, "bins", "3,7,12"])
 @pytest.mark.parametrize("series", ["truth", "model", "all"])
 @pytest.mark.parametrize("calibrated", [True, False])
-def test_every_two_shower_view_fits_or_says_so(synthetic_client, p_slices, series, calibrated):
+def test_every_two_shower_view_fits_or_is_refused(synthetic_client, p_slices, series, calibrated):
     params = {"series": series, "calibrated": calibrated}
     if p_slices:
         params["p_slices"] = p_slices
+    if (p_slices, series) == ("bins", "all"):
+        # The densest view - every bin, all four series - cannot fit even at the
+        # coarsest rendering, so it is refused naming the parameter to change.
+        response = synthetic_client.get(ROUTE, params={"slice_by": "momentum", **params})
+        assert response.status_code == 422
+        assert response.json()["field"] == "series"
+        assert "series=truth or series=model" in response.json()["detail"]
+        return
     body, size = _momentum(synthetic_client, **params)
-    if size >= density.RESPONSE_LIMIT:
-        # Only the densest view - every bin, all four series - is over even at
-        # the coarsest rendering, and it says so. Its bins start at the floor of
-        # eight (the Rice count of 15 showers), so there is nothing to halve.
-        assert (p_slices, series) == ("bins", "all"), size
-        warnings = body["meta"]["warnings"]
-        assert warnings[0].startswith("Density curves sampled at 50 points")
-        assert body["axis"]["bins"] == histogram.MIN_BINS
-        assert body["axis"]["curve_points"] == 50
-        assert f"sampled at 50 points and {histogram.MIN_BINS} histogram bins" in warnings[-1]
+    assert size < density.RESPONSE_LIMIT, (params, size)
     if not calibrated:
         assert body["scale"] == "deposited"
         assert any("not calibrated" in w for w in body["meta"]["warnings"])

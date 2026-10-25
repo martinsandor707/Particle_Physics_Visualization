@@ -25,10 +25,12 @@ the resolution exist to show.
 standard error and the interval along the axis would change meaning from one
 bin to the next). The sample standard deviation is a different quantity
 answering a different question, an uncapped band that is sqrt(N) wider than
-the whisker. The resolution ``sigma / mu`` is a ratio of two estimates: its
-whisker is the delta-method Student-t interval, which carries the uncertainty
-of ``mu`` as well as that of ``sigma``, and the chi-squared interval of ``sigma``
-alone travels beside it in the series' own unit.
+the whisker. The resolution ``sigma / mu`` is a ratio of two estimates; its
+whisker is the chi-squared interval of ``sigma`` divided by ``mu``, which is
+never negative and carries the right skew of ``sigma``'s sampling distribution
+at small N. ``mu``'s own uncertainty, smaller by a factor of about
+``sigma / mu`` at every N, is neglected and the note says so; the delta-method
+standard error, which includes it, travels beside it for the tooltip.
 
 **Why the resolution has two series.** The resolution of the calibrated energy
 ``c * E_dep`` in a 1 GeV bin of the incident momentum includes the spread of the
@@ -54,7 +56,7 @@ from typing import Any, Sequence
 import duckdb
 import numpy as np
 
-from ..db import ddl, naming
+from ..db import ddl, naming, schemas
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import SIGNIFICANT, plain, sig
@@ -89,18 +91,9 @@ MAX_STRIP_POINTS = 200
 #: Headroom above the highest robust mark, so it does not sit on the axis edge.
 HEADROOM = 0.05
 
-METHOD_DELTA_T = "delta_t"
 KIND_CALIBRATED = "calibrated_energy"
 KIND_RATIO = "response_ratio"
 
-#: The producer's single-hit omission, measured on the electron file
-#: (``data.md`` A2 and A5): said on every response of the aggregate kind.
-_CENSORED = (
-    "The producer's 59-column aggregate leaves out events with a single hit: on the electron "
-    "file that removed 249 of 100,000 events (193 of them in momentum bin 0, 12 in bin 1), so "
-    "the events per bin are 4,807 to 5,000 and not 5,000, and the bin-0 mean sampling "
-    "fraction is biased high (+2.7%). This sample is not balanced."
-)
 
 _DEPOSIT_NOTE = {
     ddl.KIND_TWO_SHOWER: (
@@ -185,6 +178,19 @@ class Sample:
     @property
     def n(self) -> int:
         return int(self.dep.size)
+
+
+def _bin_census(samples: Sequence[Sample]) -> str:
+    """The selection's own events per momentum bin, measured: the aggregate's imbalance in figures."""
+    bins = np.concatenate([s.bin for s in samples]) if samples else np.array([])
+    if bins.size == 0:
+        return ""
+    _, counts = np.unique(bins, return_counts=True)
+    lo, hi = int(counts.min()), int(counts.max())
+    if lo == hi:
+        return f" In this selection each of its {counts.size} momentum bins holds {lo:,} events."
+    return (f" In this selection its {counts.size} momentum bins hold {lo:,} to {hi:,} events, "
+            "so the sample is not balanced.")
 
 
 def _floats(column: Any) -> np.ndarray:
@@ -661,9 +667,10 @@ def _b2(samples: Sequence[Sample], groups: dict[str, list[Group]]) -> dict[str, 
 # ---------------------------------------------------------- resolution --
 
 _WHISKER_LABEL = (
-    "95% Student-t interval, ± t(0.975, N − 1) × the delta-method standard error of σ/μ, "
-    "which includes the uncertainty of μ. At small N it is symmetric and can cross zero, where "
-    "the axis cuts it. The 95% χ² interval of σ alone is in sigma_ci95, in the series' own unit."
+    "95% χ² interval of σ divided by μ, [σ_lo/μ, σ_hi/μ] (N − 1 degrees of freedom): never "
+    "negative, and skewed upward as the sampling distribution of σ is at small N. μ's own "
+    "uncertainty is neglected; the delta-method standard error of σ/μ, which includes it, is "
+    "se_delta. The χ² interval of σ itself is sigma_ci95, in the series' own unit."
 )
 
 
@@ -676,8 +683,8 @@ def _resolution_bin(group: Group, fit: gaussian.GaussianFit, p: np.ndarray
     ci = None
     if fit.resolution is not None and fit.resolution_error is not None:
         value, se = 100.0 * fit.resolution, 100.0 * fit.resolution_error
-        half = gaussian.t_quantile_975(n - 1) * se
-        ci = [value - half, value + half]
+        if fit.sigma_ci95 is not None and fit.mu and fit.mu > 0:
+            ci = [100.0 * limit / fit.mu for limit in fit.sigma_ci95]
     p_mean = float(p.mean())
     record = {
         "bin": int(cls.lo), "label": cls.label,
@@ -693,7 +700,8 @@ def _resolution_bin(group: Group, fit: gaussian.GaussianFit, p: np.ndarray
     }
     extent = None
     if value is not None:
-        extent = Extent(min(value, ci[0]), max(value, ci[1]), value, n >= WEAK_N)
+        lo, hi = (ci[0], ci[1]) if ci else (value, value)
+        extent = Extent(min(value, lo), max(value, hi), value, n >= WEAK_N)
     return record, extent
 
 
@@ -729,7 +737,8 @@ def _resolution(samples: Sequence[Sample], calibrations: dict[str, Calibration],
     return {
         "series": series,
         "value_unit": UNIT,
-        "whisker": {"method": METHOD_DELTA_T, "label": _WHISKER_LABEL, "level": metrics.CI_LEVEL},
+        "whisker": {"method": metrics.METHOD_CHI2_RATIO, "label": _WHISKER_LABEL,
+                    "level": metrics.CI_LEVEL},
         "y": _y_axis(extents),
         "note": (
             "σ/μ in percent per 1 GeV bin of the shower's own momentum, from the unbiased "
@@ -816,7 +825,7 @@ class Response:
             "clips the picture and nothing from the statistics.",
         ]
         if self.record.kind == ddl.KIND_SINGLE_EVENTS:
-            notes.append(_CENSORED)
+            notes.append(schemas.CENSORED_AGGREGATE_NOTICE + _bin_census(self.samples))
         if self.undefined_d:
             notes.append(
                 f"{self.undefined_d:,} of the experiment's {self.record.n_events:,} events have "

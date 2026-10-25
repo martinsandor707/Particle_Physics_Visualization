@@ -358,7 +358,7 @@ def test_momentum_view_numbers_are_compact_and_typeset(record):
         for text in (series["message"], fit["estimator_note"], fit["note"]):
             assert not signed_hyphens(text), text
     core = [s for s in payload["series"] if s["fit"]["estimator"] == "core_refit"]
-    assert core and "+/−" in core[0]["fit"]["estimator_note"]
+    assert core and "±2.5σ" in core[0]["fit"]["estimator_note"]
 
 
 # ------------------------------------------------------------ budget guard --

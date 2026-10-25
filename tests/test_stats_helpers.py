@@ -268,7 +268,10 @@ def test_mardia_r():
     noise = rng.normal(size=2000)
     r = np.corrcoef(np.column_stack([noise, np.cos(phi), np.sin(phi)]).T)
     assert jackknife.mardia_r(r[0, 1], r[0, 2], r[1, 2]) < 0.1
-    assert jackknife.mardia_r(0.1, 0.2, 1.0) is None
+    # Two azimuths: cos and sin collinear, R is the |r| on the one that varies.
+    assert jackknife.mardia_r(0.1, 0.2, 1.0) == pytest.approx(0.1)
+    assert jackknife.mardia_r(float("nan"), -0.3, float("nan")) == pytest.approx(0.3)
+    assert jackknife.mardia_r(float("nan"), float("nan"), float("nan")) is None
 
 
 # ------------------------------------------------------------- profile --
