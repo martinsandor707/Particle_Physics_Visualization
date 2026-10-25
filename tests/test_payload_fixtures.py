@@ -135,15 +135,8 @@ def _masked(value):
     return value
 
 
-#: Every single_client entry before any synthetic_client one: booting the second
-#: module fixture resets the database the first one serves from.
-_ORDER = sorted(PAYLOADS, key=lambda name: PAYLOADS[name][0])
-
-
-@pytest.mark.parametrize("name", _ORDER)
-def test_recorded_payloads_are_current_and_satisfy_their_contract(request, name):
-    fixture, path, params, contract = PAYLOADS[name]
-    client = request.getfixturevalue(fixture)
+def _check(client, name: str) -> None:
+    _, path, params, contract = PAYLOADS[name]
     reply = client.get(path, params=params)
     assert reply.status_code == 200, reply.text
     body = reply.json()
@@ -158,3 +151,26 @@ def test_recorded_payloads_are_current_and_satisfy_their_contract(request, name)
     assert stored.is_file(), f"{stored} missing: regenerate (see the module docstring)"
     assert json.loads(stored.read_text(encoding="utf-8")) == _masked(body), (
         f"{name} changed: regenerate the payload fixtures (see the module docstring)")
+
+
+def _named(fixture: str) -> list[str]:
+    return [name for name, entry in PAYLOADS.items() if entry[0] == fixture]
+
+
+# The booted clients are requested by name, not through getfixturevalue: the
+# collection hook in conftest.py runs every booted-server test before the
+# ingested-database tests by reading the fixtures a test declares, and a
+# booted module that ran late would close the session's shared connection.
+
+@pytest.mark.parametrize("name", _named("single_client"))
+def test_single_client_payloads_are_current_and_satisfy_their_contract(single_client, name):
+    _check(single_client, name)
+
+
+@pytest.mark.parametrize("name", _named("synthetic_client"))
+def test_synthetic_client_payloads_are_current_and_satisfy_their_contract(synthetic_client, name):
+    _check(synthetic_client, name)
+
+
+def test_every_payload_names_a_booted_client():
+    assert {entry[0] for entry in PAYLOADS.values()} == {"single_client", "synthetic_client"}
