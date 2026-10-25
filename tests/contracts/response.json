@@ -5,6 +5,7 @@
  "required": [
   "meta",
   "kind",
+  "n_events",
   "unit",
   "calibration",
   "b1",
@@ -888,7 +889,7 @@
              "type": "null"
             }
            ],
-           "description": "The whisker: 95% Student-t interval on the delta-method SE of σ/μ, in percent; symmetric, not clipped, and can cross zero at small N."
+           "description": "The whisker: the χ² 95% interval of σ divided by μ, in percent (μ's own uncertainty neglected and said so); never negative, skewed upward at small N. The delta-method SE travels beside it for the tooltip."
           },
           "se_delta": {
            "type": [
@@ -992,6 +993,11 @@
   },
   "filter": {
    "$ref": "#/$defs/filter"
+  },
+  "n_events": {
+   "type": "integer",
+   "minimum": 0,
+   "description": "Events in the selection (the largest per-shower selection); the status bar's count."
   }
  },
  "$defs": {
