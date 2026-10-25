@@ -27,6 +27,7 @@ bit for bit.
 
 from __future__ import annotations
 
+from ..db import ddl
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 
 ANCHOR_BACKPROJECTED = "backprojected"
@@ -135,6 +136,9 @@ def canonical_frame_cte(event_table: str, where: str, anchor: str = ANCHOR_BACKP
 #: The per-event gate of a two-shower per-shower frame: both showers placed.
 TWO_SHOWER_GATE = "d IS NOT NULL"
 
+#: The ``b`` index of each shower's frame rows, as the projection's ``org`` maps hits to them.
+SHOWER_INDEX: dict[str, int] = {"a": 0, "b": 1}
+
 
 def shower_frame_cte(
     event_table: str, where: str, kind: str,
@@ -168,14 +172,18 @@ def shower_frame_cte(
     else:  # pragma: no cover - guarded by the callers
         raise ValueError(f"not a per-shower frame: {kind!r}")
     rows = []
-    for b, shower in enumerate(showers):
+    for shower in showers:
+        # The frame row's index is the shower's own (0 for A, 1 for B), never its
+        # position in ``showers``: a frame of B alone must still join B's hits.
+        b = SHOWER_INDEX[shower]
         t = f"CAST(theta_{shower} AS DOUBLE)"
         f = f"CAST(phi_{shower} AS DOUBLE)"
         more = "".join(f", {exprs[b]} AS {name}" for name, exprs in (extra or {}).items())
         rows.append(
             f"SELECT event_number, {b} AS b, {rotation(t, f)}, "
-            f"CAST(p0{shower}x AS DOUBLE) AS ax, CAST(p0{shower}y AS DOUBLE) AS ay, "
-            f"CAST(p0{shower}z AS DOUBLE) AS az{more} "
+            f"CAST({ddl.p0_column(shower, 'x')} AS DOUBLE) AS ax, "
+            f"CAST({ddl.p0_column(shower, 'y')} AS DOUBLE) AS ay, "
+            f"CAST({ddl.p0_column(shower, 'z')} AS DOUBLE) AS az{more} "
             f"FROM {event_table} WHERE {where} AND {gate}"
         )
     return "fr AS (\n        " + "\n        UNION ALL\n        ".join(rows) + "\n    )"

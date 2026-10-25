@@ -54,6 +54,7 @@ class InputSchema:
     empty_is_null: tuple[str, ...] = ()         # VARCHAR '' read as NULL on the Parquet path
     boolean_ok: tuple[str, ...] = ()            # integer targets that also accept a Parquet BOOLEAN
     hints: tuple[tuple[str, str], ...] = ()     # (marker column in a refused file, sentence)
+    caveat: str = ""                            # what every view of such an experiment must say
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -115,6 +116,17 @@ STANDALONE_HITS = InputSchema(
     boolean_ok=("is_secondary",),
 )
 
+#: The producer's aggregate is a censored sample: one owner for the sentence every
+#: view of it carries. The figures a view quotes beside it are measured on the
+#: experiment in hand, never the electron file's.
+CENSORED_AGGREGATE_NOTICE = (
+    "This experiment is the producer's event-level aggregate, a censored sample: it leaves "
+    "out every event with a single hit (its spatial SDs are undefined), so its momentum bins "
+    "are not balanced, the lowest bins lose the most events, and their mean response is "
+    "biased high, because single-hit showers deposit the least. The hit-level file of the "
+    "same run keeps them."
+)
+
 STANDALONE_EVENTS = InputSchema(
     name="standalone_events",
     version=3,
@@ -125,6 +137,7 @@ STANDALONE_EVENTS = InputSchema(
     event_key="event_id",
     archive_order=("event_id",),
     hints=(("gnn_logical_node", _V2_AGGREGATE_HINT),),
+    caveat=CENSORED_AGGREGATE_NOTICE,
 )
 
 #: Every accepted schema, the default first: an unrecognised file is reported

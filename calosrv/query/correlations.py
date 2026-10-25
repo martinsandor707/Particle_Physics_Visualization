@@ -103,7 +103,7 @@ _COMPLETE = (
 )
 
 #: Within this of |r(cos φ, sin φ)| = 1 the two are collinear (two azimuths at most).
-COLLINEAR_TOL = 1e-9
+COLLINEAR_TOL = jackknife.COLLINEAR_TOL
 #: A jackknife SE of R below this is floating-point rounding of identical estimates.
 ROUNDING_SE = 1e-12
 
@@ -465,35 +465,13 @@ def _check(record: ExperimentRecord, coord_system: str, energy_scale: str) -> No
 
 
 def mardia_value(r_xc: float, r_xs: float, r_cs: float) -> float | None:
-    """Mardia's R of x with an angle from r(x, cos), r(x, sin), r(cos, sin), in [0, 1].
-
-    :func:`jackknife.mardia_r` where cos and sin are not collinear; where they
-    are (two azimuths), or where one has no spread (two azimuths mirrored about
-    an axis), the multiple correlation on (cos, sin) is the |r| on the one that
-    varies. ``None`` when neither varies (one azimuth) or x does not.
-    """
-    if math.isfinite(r_cs) and 1.0 - abs(r_cs) > COLLINEAR_TOL:
-        return jackknife.mardia_r(r_xc, r_xs, r_cs)
-    for r in (r_xc, r_xs):
-        if math.isfinite(r):
-            return min(1.0, abs(r))
-    return None
+    """Mardia's R of x with an angle from r(x, cos), r(x, sin), r(cos, sin), in [0, 1]: :func:`jackknife.mardia_r`."""
+    return jackknife.mardia_r(r_xc, r_xs, r_cs)
 
 
 def mardia_statistic(x: int, c: int, s: int) -> Callable[[float, np.ndarray, np.ndarray], np.ndarray]:
-    """A jackknife statistic: :func:`mardia_value` of variable ``x`` with angle (``c``, ``s``).
-
-    ``jackknife.mardia_from_sums`` with the two-azimuth case handled, so a
-    leave-one-group-out sample that keeps only two azimuths adds no rounding
-    noise to the SE.
-    """
-
-    def statistic(n: float, sums: np.ndarray, q: np.ndarray) -> np.ndarray:
-        r = jackknife.pearson_from_sums(n, sums, q)
-        value = mardia_value(float(r[x, c]), float(r[x, s]), float(r[c, s]))
-        return np.asarray(np.nan if value is None else value)
-
-    return statistic
+    """A jackknife statistic of Mardia's R (``jackknife.mardia_from_sums``, two azimuths handled)."""
+    return jackknife.mardia_from_sums(x, c, s)
 
 
 def _mardia(sums: MomentSums, fit: FisherJackknife, x: int, c: int, s: int) -> Mardia:
@@ -609,8 +587,8 @@ def _cell(r: float | None = None, ci: tuple[float, float] | None = None,
         "se_iid": sig(se_iid),
         "hatched": bool(hatched),
         "weighting": weighting,
-        "event_weighted_r": sig(event_r),
-        "event_weighted_ci95": [sig(event_ci[0]), sig(event_ci[1])] if event_ci else None,
+        "per_shower_r": sig(event_r),
+        "per_shower_ci95": [sig(event_ci[0]), sig(event_ci[1])] if event_ci else None,
         "mardia": mardia,
     }
 
@@ -620,8 +598,8 @@ def _mardia_dict(weighted: Mardia, per_shower: Mardia | None = None) -> dict[str
         return None
     return {
         "R": sig(weighted.R), "se": sig(weighted.se),
-        "event_weighted_R": sig(per_shower.R) if per_shower else None,
-        "event_weighted_se": sig(per_shower.se) if per_shower else None,
+        "per_shower_R": sig(per_shower.R) if per_shower else None,
+        "per_shower_se": sig(per_shower.se) if per_shower else None,
     }
 
 

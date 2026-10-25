@@ -761,13 +761,17 @@ export class ProjectionPanel {
       const style = CENTROID_STYLE[key];
       if (!style) continue;
 
+      // A single-shower experiment has one shower: b is null, and the lone
+      // marker is named without a shower letter.
+      const lone = pair.b === null || pair.b === undefined;
       for (const [shower, point] of [['A', pair.a], ['B', pair.b]]) {
+        if (!point) continue;
         const cx = point[col.name];
         const cy = point[row.name];
         if (cx === null || cy === null || cx === undefined || cy === undefined) continue;
         series.push({
           type: 'scatter',
-          name: `${pair.label} — ${shower}`,
+          name: lone ? pair.label : `${pair.label} — ${shower}`,
           symbol: shower === 'A' ? 'diamond' : 'circle',
           symbolSize: style.size * THEME.markerScale,
           data: [[cx, cy]],
@@ -779,7 +783,7 @@ export class ProjectionPanel {
           },
           tooltip: {
             formatter: () =>
-              `${pair.label}<br/>Shower ${shower}<br/>` +
+              `${pair.label}<br/>${lone ? '' : `Shower ${shower}<br/>`}` +
               `${symbolOf(col)} = ${formatSigned(cx, 1)} mm<br/>` +
               `${symbolOf(row)} = ${formatSigned(cy, 1)} mm`,
           },
@@ -1352,6 +1356,9 @@ function labelOffset(ax, ay, bx, by) {
 
 const CENTROID_STYLE = {
   truth_voxel: { size: 15, opacity: 1.0, vector: true },
+  // A single-shower experiment's energy-weighted centroid: one shower, no
+  // network split and no separation vector.
+  energy_voxel: { size: 15, opacity: 1.0, vector: false },
   pred_voxel: { size: 11, opacity: 0.75, vector: false },
   truth_dataset: { size: 9, opacity: 0.5, vector: false },
   // The canonical frame's replacement for truth_dataset: the dataset centroids

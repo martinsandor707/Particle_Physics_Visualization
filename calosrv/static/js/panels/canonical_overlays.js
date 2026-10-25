@@ -55,6 +55,8 @@ const PLUS = 'path://M2,0H4V2H6V4H4V6H2V4H0V2H2Z';
 /** How each canonical centroid set is drawn. `open` means outline only. */
 export const CANONICAL_CENTROID_STYLE = {
   truth_voxel: { symbol: 'circle', open: false, shape: 'filled dot' },
+  // The single-shower counterpart of truth_voxel: never together with it.
+  energy_voxel: { symbol: 'circle', open: false, shape: 'filled dot' },
   pred_voxel: { symbol: 'circle', open: true, shape: 'open ring' },
   canonical_mean: { symbol: PLUS, open: false, shape: '+' },
   // Never together with canonical_mean: one is canonical, the other per-shower.

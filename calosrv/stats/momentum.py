@@ -89,14 +89,18 @@ def windows(centres: Sequence[float] = CALIBRATION_CENTRES_GEV,
                           KIND_WINDOW, c) for i, c in enumerate(cs)]
 
 
-def unit_bins(lo_bin: int, hi_bin: int) -> list[MomentumClass]:
-    """One class per integer bin ``lo_bin .. hi_bin`` of the producer's bin column."""
+def unit_bins(lo_bin: int, hi_bin: int, field: str = "p_slices") -> list[MomentumClass]:
+    """One class per integer bin ``lo_bin .. hi_bin`` of the producer's bin column.
+
+    More than :data:`MAX_CLASSES` is a 422 on ``field``, the request parameter
+    that chose the binning.
+    """
     lo_bin, hi_bin = int(lo_bin), int(hi_bin)
     if hi_bin < lo_bin:
         return []
     if hi_bin - lo_bin + 1 > MAX_CLASSES:
         raise ValidationError(f"At most {MAX_CLASSES} momentum bins; the data span "
-                              f"{hi_bin - lo_bin + 1}.", field="p_slices")
+                              f"{hi_bin - lo_bin + 1}.", field=field)
     return [MomentumClass(i, f"{k}–{k + 1} GeV", float(k), float(k + 1), KIND_BIN, k + 0.5)
             for i, k in enumerate(range(lo_bin, hi_bin + 1))]
 

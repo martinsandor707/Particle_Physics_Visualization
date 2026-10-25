@@ -102,7 +102,7 @@ def test_catalog_offers_each_kind_its_features(single_client):
     assert {f["id"]: f for f in trans["features"]}["depth"]["display_offset"] is None
     # The aggregate is a censored sample and says so; it is never called balanced.
     notes = " ".join(events["notes"])
-    assert "censored" in notes and "never called balanced" in notes
+    assert "censored sample" in notes and "not balanced" in notes
     assert events["n_excluded_single_hit"] == 0 and hits["n_excluded_single_hit"] == 1
     assert hits["frames"] == ["lab", "trans", "local"] and events["showers"] == ["a"]
 

@@ -25,7 +25,7 @@ quantity of the model-performance cards: (pred − true) / true for energy,
 Δθ in mrad for angle. Its range is the 1st-99th percentile of the showers that
 carry statistical weight (N ≥ 15; every shower, labelled provisional, when none
 does), rounded outward and disclosed; the bin count follows the smaller drawn
-shower. Each shower goes through ``energy._build_series``, so a density
+shower. Each shower goes through ``energy.build_series``, so a density
 histogram appears from N = 15, the core-refit Gaussian curve from N = 8, the
 individual events below, and every mean carries its Student-t whisker apart
 from the sample's σ band. Bias, σ and RMSE come with their own intervals from
@@ -53,7 +53,7 @@ from ..text import typographic
 from . import performance_bins
 from . import showers as showers_mod
 from .energy import THRESHOLDS as ENERGY_THRESHOLDS
-from .energy import _build_series as build_series
+from .energy import build_series
 from .filters import FilterSpec
 from .performance import MRAD_PER_RAD
 

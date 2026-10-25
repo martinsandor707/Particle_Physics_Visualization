@@ -81,8 +81,8 @@ def test_prediction_density_refuses_an_experiment_without_networks(single_client
     response = single_client.get("/api/prediction-density", params={
         "table_name": table, "model": model})
     problem = assert_capability_problem(response, kind=KINDS[table])
-    # The gates of the two cards, not the route's own wording.
-    assert problem["capability"] in ("pred-truth", "pred-residuals")
+    # The missing capability, named as E2 names it.
+    assert problem["capability"] == "networks" and problem["field"] == "model"
 
 
 def test_prediction_density_still_serves_the_baseline(single_client):

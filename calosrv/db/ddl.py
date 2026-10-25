@@ -428,6 +428,47 @@ def _event_columns() -> tuple[tuple[str, str], ...]:
 
 #: The per-event summary: additive sufficient statistics and per-shower values.
 EVENT_COLUMNS: tuple[tuple[str, str], ...] = _event_columns()
+
+#: The suffix of a shower's 3-D centroid columns per frame code (``cax``, ``cax_t``, ``cax_l``).
+CENTROID_SUFFIX: dict[str, str] = {"abs": "", "trn": "_t", "loc": "_l"}
+
+
+def centroid_column(shower: str, axis: str, frame: str = "abs") -> str:
+    """A shower's energy-weighted 3-D centroid column, e.g. ``cbx`` or ``cay_l`` (raw z in abs)."""
+    _check(shower, ("a", "b"), "shower")
+    _check(axis, ("x", "y", "z"), "axis")
+    _check(frame, tuple(CENTROID_SUFFIX), "frame")
+    return f"c{shower}{axis}{CENTROID_SUFFIX[frame]}"
+
+
+def seg_stat_column(stem: str, frame: str) -> str:
+    """A per-frame segmentation sum of the event table, e.g. ``e_a_true_abs`` or ``n_tp_loc``.
+
+    ``frame`` is a coordinate system (``lab``, ``trans``, ``local``) or its code
+    (``abs``, ``trn``, ``loc``).
+    """
+    _check(stem, tuple(name for name, _ in SEG_STAT_COLUMNS), "segmentation sum")
+    code = frame if frame in GROUP1_FRAMES else frame_code(frame)
+    return f"{stem}_{code}"
+
+
+def prediction_columns(stem: str, shower: str, coord_system: str) -> tuple[str, str]:
+    """``(truth, prediction)`` of a per-shower network, e.g. ``(en_true_a, en_pred_a_trn)``.
+
+    ``stem`` is ``en`` (the energy network) or ``th`` (the polar angle). The truth
+    is the shower's own and the same for every frame; the prediction is the
+    network trained in ``coord_system``'s frame.
+    """
+    _check(stem, ("en", "th"), "network stem")
+    _check(shower, ("a", "b"), "shower")
+    return f"{stem}_true_{shower}", f"{stem}_pred_{shower}_{frame_code(coord_system)}"
+
+
+def p0_column(shower: str, axis: str) -> str:
+    """A shower's entry point P0 column (``x - x_trans`` over its rows), e.g. ``p0bz``."""
+    _check(shower, ("a", "b"), "shower")
+    _check(axis, ("x", "y", "z"), "axis")
+    return f"p0{shower}{axis}"
 EVENT_COLUMN_NAMES: tuple[str, ...] = tuple(name for name, _ in EVENT_COLUMNS)
 
 
