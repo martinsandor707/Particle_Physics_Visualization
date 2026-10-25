@@ -3,6 +3,13 @@
 The frontend never receives raw hit rows. What it gets is three quantised
 rasters plus the constants needed to read physical values back out of them,
 which for the native lattice is around 35 KB in total.
+
+What an experiment cannot serve is refused before any scan, through the
+capability owner (``query/capabilities.py``), with a 422 naming the request
+field: an aggregated experiment has no hits at all, a single-shower one has no
+D-frame (``frame``) and no networks, so only the density channel
+(``channel``). A single-shower experiment's ``model`` is accepted and has
+nothing to select.
 """
 
 from __future__ import annotations
@@ -20,10 +27,12 @@ from ..grid.resolution import (
     plan_resolution,
 )
 from ..db import ddl
+from ..db.registry import ExperimentRecord
 from ..encode.scale import SCALE_MODES, MODE_DECADES
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import cache as cache_mod
+from ..query import capabilities
 from ..query import centroids, density, frame_sql, panels, planes, projections, sampling
 from ..query import stagger as stagger_mod
 from ..query import summary
@@ -31,6 +40,21 @@ from . import frame_canonical
 from .deps import CursorDep, FilterDep, RecordDep, SettingsDep
 
 router = APIRouter()
+
+
+def _require(record: ExperimentRecord, frame: str, coord_system: str, channel: str) -> None:
+    """Refuse a view the experiment's data cannot serve, naming the request field.
+
+    The panels need hits; the D-frame needs two showers per event
+    (``frame``); a frame needs what it is built from - the lattice, or the
+    per-shower extents measured at ingest (``coord_system``); an attention
+    channel needs the networks' outputs (``channel``).
+    """
+    caps = capabilities.require(record, "xy", "yz", "xz")
+    if frame == frame_canonical.FRAME_CANONICAL:
+        capabilities.require(record, "frame-canonical", field="frame")
+    capabilities.require(record, f"frame-{coord_system}", field="coord_system")
+    capabilities.require_choice(record, "channel", channel, caps.channels, "channel")
 
 
 @router.get("/api/projections", summary="Pre-aggregated XY, YZ and XZ projections")
@@ -70,13 +94,17 @@ def get_projections(
     ),
     model: str = Query(
         "segmentation",
-        description="angle | energy | segmentation: the network whose CAM maps are shown.",
+        description=(
+            "angle | energy | segmentation: the network whose CAM maps are shown. A "
+            "single-shower experiment has no networks: the value is accepted and selects nothing."
+        ),
     ),
     channel: str | None = Query(
         None,
         description=(
             "density (default), gradcam, gradcam_energy (sum of E x Grad-CAM), shapcam "
-            "(signed), shapcam_energy (sum of E x Shap-CAM, signed)."
+            "(signed), shapcam_energy (sum of E x Shap-CAM, signed). The attention channels "
+            "need the networks' outputs: a single-shower experiment offers density only."
         ),
     ),
     mode: str | None = Query(
@@ -113,7 +141,8 @@ def get_projections(
             "rigid-body motion so that its shower entry points lie at ∓D_entry/2 on x′ "
             "(which the entry panel writes as D) and the front face at z′ = 0, and the "
             "panels show the ensemble-averaged energy density. Requires "
-            "coord_system=lab: the D-frame is built from absolute (detector) coordinates."
+            "coord_system=lab: the D-frame is built from absolute (detector) coordinates, and "
+            "two showers per event: a single-shower experiment refuses it (422, field=frame)."
         ),
     ),
     rho_norm: str = Query(
@@ -190,6 +219,7 @@ def get_projections(
             f"coord_system={coord_system!r}.",
             field="coordinates",
         )
+    _require(record, frame, coord_system, channel)
 
     if coord_system != "lab":
         from . import frame_shower

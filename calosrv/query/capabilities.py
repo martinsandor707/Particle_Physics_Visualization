@@ -60,7 +60,17 @@ ALL_GATES: tuple[str, ...] = PAGE1_CARDS + PAGE2_CARDS + OTHER_GATES
 
 #: Gates whose query code handles a single-shower experiment. A gate is added
 #: here by the change that teaches its queries to read one shower.
-SINGLE_SHOWER_READY: frozenset[str] = frozenset()
+SINGLE_SHOWER_READY: frozenset[str] = frozenset({
+    # Page 1 physics cards: written per kind from the start.
+    "response-b1", "response-b2", "response-res", "response-b3",
+    "profile-w", "profile-r", "distribution", "correlation", "statistics", "negative-depth",
+    # Page 2 cards that read the event table or Group-1.
+    "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
+    # The 2 x 2 diagnostic's spatial panels in the absolute, per-shower
+    # translated and local frames, and the views built on them.
+    "xy", "yz", "xz", "frame-lab", "frame-trans", "frame-local",
+    "window-axis", "event-inspector", "compare",
+})
 
 #: Gates whose route exists in this release. A card's gate stays shut, with
 #: :data:`_NOT_IMPLEMENTED` as its reason, until the change that lands its
@@ -69,6 +79,12 @@ IMPLEMENTED: frozenset[str] = frozenset({
     "xy", "yz", "xz", "energy",
     "window-axis", "event-inspector", "compare",
     "frame-lab", "frame-trans", "frame-local", "frame-canonical",
+    # Page 1 physics cards.
+    "response-b1", "response-b2", "response-res", "response-b3",
+    "profile-w", "profile-r", "distribution", "correlation", "statistics", "negative-depth",
+    # Page 2 cards.
+    "perf-bins", "pred-truth", "pred-residuals",
+    "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
 })
 
 _NO_HITS = "This experiment holds event-level features only (the 59-column aggregate): it has no hits."

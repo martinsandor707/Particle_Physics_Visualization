@@ -90,7 +90,8 @@
        "number",
        "null"
       ]
-     }
+     },
+     "description": "k / n: the fraction of the bin's events with no primary-tagged hit row."
     },
     "lo": {
      "type": "array",
@@ -99,7 +100,8 @@
        "number",
        "null"
       ]
-     }
+     },
+     "description": "Lower end of the 95% Wilson score interval of fraction (events are the units)."
     },
     "hi": {
      "type": "array",
@@ -108,7 +110,8 @@
        "number",
        "null"
       ]
-     }
+     },
+     "description": "Upper end of the 95% Wilson score interval of fraction."
     }
    }
   },
@@ -130,7 +133,8 @@
      "type": "array",
      "items": {
       "type": "integer"
-     }
+     },
+     "description": "Exact event counts for 0 … 9 tagged rows and, last, 10 or more (top_bucket)."
     },
     "top_bucket": {
      "type": "string"

@@ -26,6 +26,11 @@ Everything is aggregated at the **native lattice resolution**. Resampling to the
 requested display resolution happens afterwards in NumPy, from a cached bundle
 (see ``cache.py`` and ``grid/splat.py``), which is what makes changing the
 resolution or the display mode cost milliseconds instead of another scan.
+
+A single-shower experiment has no networks, so its scans sum the energy and
+hit-count planes only (``planes.measures_for``) and its bundle says it holds
+one shower per event; the centroid and shower-axis code reads that instead of
+splitting energy between two showers by a segmentation fraction it lacks.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..grid.lattice import Axis, Lattice
 from . import planes as planes_mod
+from . import showers as showers_mod
 from .filters import FilterSpec
 
 log = logging.getLogger(__name__)
@@ -89,6 +95,9 @@ class NativeBundle:
     n_hits: int
     #: The network whose CAM planes the bundle holds (density ignores it).
     model: str = "segmentation"
+    #: The showers of each event: ``("a", "b")``, or ``("a",)`` for a
+    #: single-shower experiment, whose bundle measures ``e`` and ``n`` only.
+    showers: tuple[str, ...] = ("a", "b")
 
     def panel(self, name: str) -> Panel:
         return {"xy": self.xy, "yz": self.yz, "xz": self.xz}[name]
@@ -119,11 +128,12 @@ def build_sql(
 
     The XY query sums the entrance slab (``iz <= slab_iz``) by ``(ix, iy)``;
     the depth query sums every selected row with ``GROUP BY GROUPING SETS
-    ((iy, iz), (ix, iz))``. Every plane is a plain sum in both.
+    ((iy, iz), (ix, iz))``. Every plane is a plain sum in both; an experiment
+    without networks sums only the planes it has (``planes.measures_for``).
     """
     assert record.lattice is not None
     aggregates = []
-    for plane, expr in planes_mod.measures("lab", model):
+    for plane, expr in planes_mod.measures_for(record, "lab", model):
         agg = "count(*)" if expr is None else f"sum({expr})"
         aggregates.append(f"{agg} AS {plane}")
     sums = (','+chr(10)+'    ').join(aggregates)
@@ -158,9 +168,13 @@ def fetch_native(
     sampled: bool = False,
     model: str = "segmentation",
 ) -> NativeBundle:
-    """Run the single-scan aggregation and assemble native-resolution matrices."""
+    """Run the single-scan aggregation and assemble native-resolution matrices.
+
+    Only the planes the experiment measures are read back; the others stay zero.
+    """
     lattice = record.lattice
     assert lattice is not None
+    measured = planes_mod.measured_planes(record)
 
     xy_sql, depth_sql = build_sql(record, spec, sampled, model)
     started = time.perf_counter()
@@ -192,7 +206,7 @@ def fetch_native(
             return
         r = rows[mask].astype(np.intp)
         c = cols[mask].astype(np.intp)
-        for plane in PLANES:
+        for plane in measured:
             values = np.asarray(source[plane], dtype=np.float64)[mask]
             np.nan_to_num(values, copy=False)
             panel.planes[plane][r, c] = values
@@ -226,6 +240,7 @@ def fetch_native(
         query_ms=query_ms,
         n_hits=n_hits,
         model=model,
+        showers=tuple(s.key for s in showers_mod.of(record)),
     )
 
 

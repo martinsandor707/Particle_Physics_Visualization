@@ -39,6 +39,13 @@ which needs no ``*_trans`` / ``*_local`` columns at all. Either way the
 largest difference between the two over the selection is aggregated in the
 same scan and reported with every response, beside the ingest-time figure,
 so a reader can see that the two are interchangeable - or that they are not.
+
+**One shower per event.** A single-shower experiment is co-registered the same
+way, its one shower under the shower-A names: every event with an incident
+direction and an entry point is placed (``capabilities.frame_gate``), there is
+no separation to gate on, no 'A+B' row and no network, so its scans sum the
+energy and hit-count planes only (``planes.measures_for``) and the other planes
+stay zero.
 """
 
 from __future__ import annotations
@@ -65,7 +72,8 @@ from . import frame_sql
 from . import planes as planes_mod
 from .canonical import Moments, _column
 from . import cache as cache_mod
-from . import canonical, density, filters
+from . import canonical, capabilities, density, filters
+from . import showers as showers_mod
 from .filters import FilterSpec
 from .frame_sql import SOURCE_COMPUTED, SOURCE_FILE
 from .projections import GID_XY, GID_XZ, GID_YZ, PLANES, Panel
@@ -120,6 +128,9 @@ class ShowerStats:
     phi_resultant: dict[str, float | None]
     #: Events whose selected network's Grad-CAM / Shap-CAM map is all zero.
     cam_zero: dict[str, int]
+    #: The showers of each event: ``("a", "b")``, or ``("a",)`` for a
+    #: single-shower experiment.
+    showers: tuple[str, ...] = ("a", "b")
 
     @property
     def n_excluded_no_frame(self) -> int:
@@ -127,7 +138,7 @@ class ShowerStats:
 
     @property
     def n_showers(self) -> int:
-        return 2 * self.n_events
+        return len(self.showers) * self.n_events
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -156,31 +167,47 @@ def shower_statistics(
     As in the canonical frame, only events with a defined separation are
     co-registered: an event without shower A has no D and is excluded from N
     even when ``include_undefined_d`` admits it elsewhere; the count is reported.
+    A single-shower experiment places every event with an incident direction
+    and an entry point (``capabilities.frame_gate``); it has no separation, no
+    'A+B' rows and no networks' maps, so its D moments and B slots are null
+    and its 'A+B' and all-zero-map counts zero.
     """
     table = quote(naming.event_table(record.table_name))
     suffix = "_t" if kind == KIND_TRANS else "_l"
     where = spec.where_sql()
+    showers = showers_mod.of(record)
+    two = len(showers) == 2
     centroid = []
-    for shower in "ab":
+    for shower in (sh.key for sh in showers):
         for axis in "xyz":
             c = f"CAST(c{shower}{axis}{suffix} AS DOUBLE)"
             centroid.append(f"avg({c}), median({c}), stddev_samp({c}), min({c}), max({c}), count({c})")
-    gc_bit = 1 << ddl.cam_bit(model, kind, "gradcam")
-    sc_bit = 1 << ddl.cam_bit(model, kind, "shapcam")
+    resultants = ",\n            ".join(
+        f"avg(cos(CAST({sh.phi} AS DOUBLE))), avg(sin(CAST({sh.phi} AS DOUBLE)))" for sh in showers)
+    if two:
+        gc_bit = 1 << ddl.cam_bit(model, kind, "gradcam")
+        sc_bit = 1 << ddl.cam_bit(model, kind, "shapcam")
+        per_event = (
+            "coalesce(sum(n_ab_rows), 0),\n            "
+            f"max(greatest({', '.join(sh.theta for sh in showers)})),\n            "
+            "avg(d), median(d), stddev_samp(d), min(d), max(d)"
+        )
+        cam = (f"count(*) FILTER (WHERE (cam_zero_mask & {gc_bit}) <> 0),\n            "
+               f"count(*) FILTER (WHERE (cam_zero_mask & {sc_bit}) <> 0)")
+    else:
+        # One shower per event: no 'A+B' rows, no separation, no networks' maps.
+        per_event = f"0,\n            max({showers[0].theta}),\n            NULL, NULL, NULL, NULL, NULL"
+        cam = "0, 0"
     row = con.execute(
         f"""
         SELECT
             (SELECT count(*) FROM {table} WHERE {where})    AS n_selected,
-            count(*), coalesce(sum(n_hits), 0), coalesce(sum(n_ab_rows), 0),
-            max(greatest(theta_a, theta_b)),
-            avg(d), median(d), stddev_samp(d), min(d), max(d),
+            count(*), coalesce(sum(n_hits), 0), {per_event},
             {", ".join(centroid)},
-            avg(cos(CAST(phi_a AS DOUBLE))), avg(sin(CAST(phi_a AS DOUBLE))),
-            avg(cos(CAST(phi_b AS DOUBLE))), avg(sin(CAST(phi_b AS DOUBLE))),
-            count(*) FILTER (WHERE (cam_zero_mask & {gc_bit}) <> 0),
-            count(*) FILTER (WHERE (cam_zero_mask & {sc_bit}) <> 0)
+            {resultants},
+            {cam}
         FROM {table}
-        WHERE {where} AND d IS NOT NULL
+        WHERE {where} AND {capabilities.frame_gate(record)}
         """,
         spec.params(),
     ).fetchone()
@@ -192,7 +219,7 @@ def shower_statistics(
     n_events = int(row[1] or 0)
     mean: dict[str, dict[str, Moments]] = {}
     i = 10
-    for shower in "ab":
+    for shower in (sh.key for sh in showers):
         mean[shower] = {}
         for axis in "xyz":
             mean[shower][axis] = Moments(f(i), f(i + 1), f(i + 2), f(i + 3), f(i + 4), int(row[i + 5] or 0))
@@ -204,6 +231,12 @@ def shower_statistics(
             return None
         return float(math.hypot(f(c), f(s)))
 
+    # Every shower slot is present; one the experiment lacks stays null.
+    phi_resultant: dict[str, float | None] = {"a": None, "b": None}
+    for shower in (sh.key for sh in showers):
+        phi_resultant[shower] = resultant(i, i + 1)
+        i += 2
+
     return ShowerStats(
         kind=kind,
         n_selected=int(row[0] or 0),
@@ -211,10 +244,11 @@ def shower_statistics(
         n_hits=int(row[2] or 0),
         n_ab=int(row[3] or 0),
         theta_max=f(4),
-        d_dataset=Moments(f(5), f(6), f(7), f(8), f(9), n_events),
+        d_dataset=Moments(f(5), f(6), f(7), f(8), f(9), n_events if two else 0),
         mean=mean,
-        phi_resultant={"a": resultant(i, i + 1), "b": resultant(i + 2, i + 3)},
-        cam_zero={"gradcam": int(row[i + 4] or 0), "shapcam": int(row[i + 5] or 0)},
+        phi_resultant=phi_resultant,
+        cam_zero={"gradcam": int(row[i] or 0), "shapcam": int(row[i + 1] or 0)},
+        showers=tuple(sh.key for sh in showers),
     )
 
 
@@ -256,6 +290,11 @@ class ShowerBundle:
     @property
     def splat_regime(self) -> str:
         return SPLAT_REGIME[self.kind]
+
+    @property
+    def showers(self) -> tuple[str, ...]:
+        """The showers of each event, as the centroid and axis code reads them."""
+        return self.stats.showers
 
     @property
     def symbols(self) -> dict[str, str]:
@@ -313,16 +352,20 @@ class ShowerBundle:
         )
 
 
-def _plane_columns(model: str, kind: str) -> tuple[str, ...]:
+def _plane_columns(record: ExperimentRecord, model: str, kind: str) -> tuple[str, ...]:
+    """The CAM and segmentation columns the planes read; none without networks."""
+    if not planes_mod.has_networks(record):
+        return ()
     return (
         ddl.cam_column(model, kind, "gradcam"), ddl.cam_column(model, kind, "shapcam"),
         ddl.seg_column("true", kind), ddl.seg_column("pred", kind),
     )
 
 
-def _values(model: str, kind: str) -> list[tuple[str, str]]:
-    """``(plane, per-row value)``; a count is the constant 1."""
-    return [(plane, "1.0" if expr is None else expr) for plane, expr in planes_mod.measures(kind, model)]
+def _values(record: ExperimentRecord, model: str, kind: str) -> list[tuple[str, str]]:
+    """``(plane, per-row value)`` of the planes the experiment measures; a count is the constant 1."""
+    return [(plane, "1.0" if expr is None else expr)
+            for plane, expr in planes_mod.measures_for(record, kind, model)]
 
 
 def _params(record: ExperimentRecord, spec: FilterSpec) -> dict[str, Any]:
@@ -345,6 +388,13 @@ def _hit_frame_sql(kind: str, record: ExperimentRecord, spec: FilterSpec, column
     largest difference ``resid`` and the rotation entries ``r11 .. r33``, so
     the two scans below choose a source and aggregate the residual without
     repeating any of it.
+
+    ``fr`` holds one row per shower of the experiment, gated as
+    ``capabilities.frame_gate`` says: two showers of every event with a
+    defined separation, or the one shower of every event with an incident
+    direction and an entry point. ``columns`` (the CAM and segmentation
+    columns) is empty for an experiment without networks. For a two-shower
+    experiment the SQL text is exactly what it always was.
     """
     xc, yc, zc = frame_sql.transform_sql("hx", "hy", "hz", "f.")
     if kind == KIND_TRANS:
@@ -352,16 +402,23 @@ def _hit_frame_sql(kind: str, record: ExperimentRecord, spec: FilterSpec, column
                     f"CAST(p.kt AS DOUBLE) * {float(layer_pitch)!r}::DOUBLE")
     else:
         file_xyz = ("CAST(p.xl AS DOUBLE)", "CAST(p.yl AS DOUBLE)", "CAST(p.zl AS DOUBLE)")
-    return f"""{frame_sql.shower_frame_cte(event, spec.where_sql(), kind)}, hit AS (
-        SELECT p.event_number, p.kt, p.energy, {columns},
+    showers = tuple(sh.key for sh in showers_mod.of(record))
+    frame = frame_sql.shower_frame_cte(event, spec.where_sql(), kind, showers=showers,
+                                       gate=capabilities.frame_gate(record))
+    # A two-shower hit's event needs a defined separation, as its frame row
+    # does; a single-shower projection table has no separation column.
+    hit_gate = " AND p.d IS NOT NULL" if len(showers) == 2 else ""
+    carried = f", {columns}" if columns else ""
+    return f"""{frame}, hit AS (
+        SELECT p.event_number, p.kt, p.energy{carried},
                {file_xyz[0]} AS xf, {file_xyz[1]} AS yf, {file_xyz[2]} AS zf,
                {xc} AS xc, {yc} AS yc, {zc} AS zc,
                f.r11, f.r12, f.r13, f.r21, f.r22, f.r23, f.r31, f.r32, f.r33
-        FROM (SELECT p.event_number, p.org, p.kt, p.xt, p.yt, p.xl, p.yl, p.zl, p.energy, {columns},
+        FROM (SELECT p.event_number, p.org, p.kt, p.xt, p.yt, p.xl, p.yl, p.zl, p.energy{carried},
                      list_extract($x_coords, p.ix + 1) AS hx,
                      list_extract($y_coords, p.iy + 1) AS hy,
                      list_extract($z_coords, p.iz + 1) AS hz
-              FROM {proj} p WHERE {spec.where_sql("p")} AND p.d IS NOT NULL) p
+              FROM {proj} p WHERE {spec.where_sql("p")}{hit_gate}) p
         JOIN fr f ON p.event_number = f.event_number
                  AND f.b = CASE WHEN p.org = {ddl.ORIGIN_A} THEN 0 ELSE 1 END
     ), src AS (
@@ -445,10 +502,10 @@ def _trans_sql(record, spec, grid, footprint, model, sampled, layer_pitch,
     p = float(grid.pitch)
     rx = wx / p - math.floor(wx / p)
     ry = wy / p - math.floor(wy / p)
-    values = _values(model, KIND_TRANS)
+    values = _values(record, model, KIND_TRANS)
     per_hit = ",\n               ".join(f"CAST({value} AS DOUBLE) AS v_{plane}" for plane, value in values)
     carried = ", ".join(f"v_{plane}" for plane, _ in values)
-    columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_TRANS))
+    columns = ", ".join(f"p.{c}" for c in _plane_columns(record, model, KIND_TRANS))
     if source == SOURCE_FILE:
         pos_x, pos_y, pos_k = "xf", "yf", "kt"
     else:
@@ -523,6 +580,8 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch
 
     n_x, n_y, n_z = grid.n_x, grid.n_y, grid.n_z
     wx, wy = footprint
+    # Only the measured planes come back from the scan; the others stay zero.
+    measured = planes_mod.measured_planes(record)
     xy_panel = Panel("xy", "y", "x", {name: np.zeros(grid.shape_xy) for name in PLANES})
     yz_panel = Panel("yz", "y", "z", {name: np.zeros(grid.shape_yz) for name in PLANES})
     xz_panel = Panel("xz", "x", "z", {name: np.zeros(grid.shape_xz) for name in PLANES})
@@ -536,7 +595,7 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch
         ax, bx = box_overlap_operator(n_x, wx, grid.pitch, lo_x, hi_x)
         ay, by = box_overlap_operator(n_y, wy, grid.pitch, lo_y, hi_y)
         nkx, nky = hi_x - lo_x + 1, hi_y - lo_y + 1
-        for plane in PLANES:
+        for plane in measured:
             m = {suffix: _dense(ky, kx, np.nan_to_num(_column(xy_cols, f"{plane}_{suffix}")),
                                 lo_y, nky, lo_x, nkx)
                  for suffix in ("00", "10", "01", "11")}
@@ -562,7 +621,7 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch
         keys, layers = keys[keep], layers[keep]
         lo, hi = int(keys.min()), int(keys.max())
         a_mat, b_mat = box_overlap_operator(n_bins, width, grid.pitch, lo, hi)
-        for plane in PLANES:
+        for plane in measured:
             m0 = _dense(keys, layers, np.nan_to_num(_column(depth_cols, f"{plane}_0")[rows][keep]),
                         lo, hi - lo + 1, 0, n_z)
             m1 = _dense(keys, layers,
@@ -572,7 +631,7 @@ def _fetch_trans(con, record, spec, grid, footprint, model, sampled, layer_pitch
 
     out_rows = (gid == GID_XZ) & (kt == OUTSIDE_KEY)
     outside = {plane: float(np.nan_to_num(_column(depth_cols, f"{plane}_0")[out_rows]).sum())
-               for plane in PLANES}
+               for plane in measured}
     n_hits = int(round(float(xz_panel.planes["n"].sum()) + outside["n"]))
     return (xy_panel, yz_panel, xz_panel), outside, n_hits, query_ms, _residual(depth_cols)
 
@@ -607,12 +666,12 @@ def _local_sql(record, spec, grid, footprint, layer_pitch, k, k_z, model, sample
     z_edges = grid.axis("z").edges
     z0, z1 = float(z_edges[0]), float(z_edges[-1])
     n = k * k * k_z
-    values = _values(model, KIND_LOCAL)
+    values = _values(record, model, KIND_LOCAL)
     per_hit = ",\n               ".join(
         f"CAST({value} AS DOUBLE) / {n}.0 AS v_{plane}" for plane, value in values)
     carried = ", ".join(f"v_{plane}" for plane, _ in values)
     sums = ", ".join(f"sum(v_{plane}) AS {plane}" for plane, _ in values)
-    columns = ", ".join(f"p.{c}" for c in _plane_columns(model, KIND_LOCAL))
+    columns = ", ".join(f"p.{c}" for c in _plane_columns(record, model, KIND_LOCAL))
     cx, cy, cz = ("xf", "yf", "zf") if source == SOURCE_FILE else ("xc", "yc", "zc")
     base = f"""
     WITH {_hit_frame_sql(KIND_LOCAL, record, spec, columns, proj, event, layer_pitch)}, sub AS (
@@ -670,6 +729,8 @@ def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model,
     xy = Panel("xy", "y", "x", {name: np.zeros(grid.shape_xy) for name in PLANES})
     yz = Panel("yz", "y", "z", {name: np.zeros(grid.shape_yz) for name in PLANES})
     xz = Panel("xz", "x", "z", {name: np.zeros(grid.shape_xz) for name in PLANES})
+    # Only the measured planes come back from the scan; the others stay zero.
+    measured = planes_mod.measured_planes(record)
 
     def keys(columns, name):
         return np.nan_to_num(_column(columns, name), nan=-2).astype(np.int64)
@@ -678,7 +739,7 @@ def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model,
         # The sentinel -1 (outside) and absent keys never index a bin.
         n_rows, n_cols = panel.planes["e"].shape
         keep = mask & (rows >= 0) & (rows < n_rows) & (cols >= 0) & (cols < n_cols)
-        for plane in PLANES:
+        for plane in measured:
             panel.planes[plane][rows[keep], cols[keep]] = np.nan_to_num(_column(columns, plane)[keep])
 
     scatter(xy, xy_cols, np.ones(len(xy_cols["jx"]), dtype=bool), keys(xy_cols, "jy"), keys(xy_cols, "jx"))
@@ -689,7 +750,7 @@ def _fetch_local(con, record, spec, grid, footprint, layer_pitch, k, k_z, model,
 
     outside_rows = (gid == GID_XZ) & (jx == -1) & (jz == -1)
     outside = {plane: float(np.nan_to_num(_column(depth_cols, plane)[outside_rows]).sum())
-               for plane in PLANES}
+               for plane in measured}
     n_hits = int(round(float(xz.planes["n"].sum()) + outside["n"]))
     return (xy, yz, xz), outside, n_hits, query_ms, _residual(depth_cols)
 
@@ -780,9 +841,25 @@ def trajectories_from_origin(
 
     The translated frame does not rotate, so each shower keeps its laboratory
     direction (theta, phi) and starts at its own entry point - the origin.
-    Same shape as ``summary.trajectories`` with the anchor at (0, 0, 0).
+    Same shape as ``summary.trajectories`` with the anchor at (0, 0, 0). The
+    events are those the frame places (``capabilities.frame_gate``); a
+    single-shower experiment's entries carry ``a`` only.
     """
     table = quote(naming.event_table(record.table_name))
+    showers = showers_mod.of(record)
+    if len(showers) == 1:
+        shower = showers[0]
+        rows = con.execute(
+            f"""
+            SELECT event_number, CAST({shower.theta} AS DOUBLE), CAST({shower.phi} AS DOUBLE)
+            FROM {table}
+            WHERE {spec.where_sql()} AND {capabilities.frame_gate(record)}
+            ORDER BY event_number LIMIT {int(limit)}
+            """,
+            spec.params(),
+        ).fetchall()
+        return [{"event": int(event), "a": {"theta": ta, "phi": pa, "x": 0.0, "y": 0.0, "z": 0.0}}
+                for event, ta, pa in rows]
     rows = con.execute(
         f"""
         SELECT event_number, CAST(theta_a AS DOUBLE), CAST(phi_a AS DOUBLE),

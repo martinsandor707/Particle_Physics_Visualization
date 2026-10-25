@@ -44,6 +44,9 @@ resultant and its Rayleigh p are reported for the record, not used as the
 gate. Below two events nothing is an ensemble: one event gets its own
 trajectory labelled as such; two get a band with one degree of freedom,
 said so; fewer than twenty are labelled weak, as the D-frame's table does.
+
+A single-shower experiment has one shower per event, stored under the
+shower-A names: it gets one block, ``a``, and ``b`` is null.
 """
 
 from __future__ import annotations
@@ -60,7 +63,10 @@ from ..db.registry import ExperimentRecord
 from ..errors import ValidationError
 from ..grid import frame as frame_mod
 from ..text import typographic
+from . import showers as showers_mod
 from .filters import FilterSpec
+from .showers import ShowerColumns
+from .summary import centroid_columns, centroid_defined
 
 #: The depth panels and the transverse coordinate each one plots.
 PANELS: dict[str, str] = {"yz": "y", "xz": "x"}
@@ -71,17 +77,16 @@ LEAN_RATIO_MIN = 1.0
 #: Depth stations the band and envelope are evaluated at (the band is exact at each).
 STATIONS = 9
 
-_SHOWERS = {"a": "A", "b": "B"}
-
 
 def _finite(value: Any) -> bool:
     return value is not None and math.isfinite(float(value))
 
 
-def _query(con, table: str, where: str, params: dict[str, Any], shower: str, axis: str) -> dict[str, Any]:
+def _query(con, table: str, where: str, params: dict[str, Any], shower: ShowerColumns,
+           axis: str) -> dict[str, Any]:
     """One shower's aggregates over the events entering the window."""
-    th, ph = f"CAST(theta_{shower} AS DOUBLE)", f"CAST(phi_{shower} AS DOUBLE)"
-    cx, cy, cz = (f"CAST(c{shower}{a} AS DOUBLE)" for a in "xyz")
+    th, ph = f"CAST({shower.theta} AS DOUBLE)", f"CAST({shower.phi} AS DOUBLE)"
+    cx, cy, cz = centroid_columns(shower)
     te = "xe" if axis == "x" else "ye"
     st = "sx" if axis == "x" else "sy"
     row = con.execute(
@@ -89,8 +94,8 @@ def _query(con, table: str, where: str, params: dict[str, Any], shower: str, axi
         WITH ev AS (
             SELECT {th} AS th, {ph} AS ph, {cx} AS cx, {cy} AS cy, {cz} AS cz
             FROM {table}
-            WHERE {where} AND theta_{shower} IS NOT NULL AND phi_{shower} IS NOT NULL
-              AND c{shower}x IS NOT NULL AND c{shower}y IS NOT NULL AND c{shower}z IS NOT NULL
+            WHERE {where} AND {shower.theta} IS NOT NULL AND {shower.phi} IS NOT NULL
+              AND {centroid_defined(shower)}
         ), dir AS (
             SELECT *, tan(th) * cos(ph) AS sx, tan(th) * sin(ph) AS sy FROM ev
         ), face AS (
@@ -184,13 +189,13 @@ def _block(agg: dict[str, Any], shower: str, z_front: float, depth_max: float,
     return out
 
 
-def _note(block: dict[str, Any], shower: str, axis: str, t_min: float, t_max: float) -> str:
-    name = _SHOWERS[shower]
+def _note(block: dict[str, Any], shower: ShowerColumns, axis: str, t_min: float, t_max: float) -> str:
+    name = shower.label
     n = block["n"]
     window = f"{axis} ∈ [{t_min:.0f}, {t_max:.0f}] mm"
     if n == 0:
-        return typographic(f"Shower {name}: no selected event enters the window {window}; no axis is drawn.")
-    head = f"Shower {name}: N = {n:,} of {block['n_selection']:,} selected events enter the window {window}"
+        return typographic(f"{name}: no selected event enters the window {window}; no axis is drawn.")
+    head = f"{name}: N = {n:,} of {block['n_selection']:,} selected events enter the window {window}"
     if n == 1:
         return typographic(f"{head}; the dashed line is that event's own incident trajectory, not an ensemble, "
                            "so no dispersion band or interval can be drawn.")
@@ -228,7 +233,11 @@ def window_axis(
     t_min: float,
     t_max: float,
 ) -> dict[str, Any]:
-    """The two showers' windowed axes on one depth panel, over the events entering ``[t_min, t_max]``."""
+    """Each shower's windowed axis on one depth panel, over the events entering ``[t_min, t_max]``.
+
+    ``a`` and ``b`` for a two-shower experiment; ``b`` is null where there is
+    one shower per event.
+    """
     if panel not in PANELS:
         raise ValidationError(f"panel must be one of {', '.join(PANELS)}; got {panel!r}.", field="panel")
     if not (_finite(t_min) and _finite(t_max)) or not float(t_max) > float(t_min):
@@ -241,8 +250,10 @@ def window_axis(
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
     params = {**spec.params(), "zf": z_front, "t0": float(t_min), "t1": float(t_max)}
-    blocks = {s: _block(_query(con, table, where, params, s, axis), s, z_front, depth_max, t_min, t_max)
-              for s in _SHOWERS}
+    showers = showers_mod.of(record)
+    blocks = {s.key: _block(_query(con, table, where, params, s, axis), s.key, z_front, depth_max,
+                            t_min, t_max)
+              for s in showers}
     return {
         "panel": panel,
         "axis": axis,
@@ -252,8 +263,8 @@ def window_axis(
         "stations": STATIONS,
         "lean_ratio_min": LEAN_RATIO_MIN,
         "a": blocks["a"],
-        "b": blocks["b"],
-        "notes": [_note(blocks[s], s, axis, t_min, t_max) for s in _SHOWERS],
+        "b": blocks.get("b"),
+        "notes": [_note(blocks[s.key], s, axis, t_min, t_max) for s in showers],
         "rule": RULE,
         "elapsed_ms": (time.perf_counter() - started) * 1000.0,
     }

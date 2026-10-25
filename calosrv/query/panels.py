@@ -38,6 +38,7 @@ from ..encode import quantize, topk
 from ..encode import scale as scale_mod
 from ..grid import splat
 from ..grid.resolution import MODE_NATIVE, ResolutionPlan
+from . import centroids
 from . import planes as planes_mod
 # The channel vocabulary lives in planes.py; re-exported here for callers.
 from .planes import (
@@ -225,7 +226,9 @@ def shower_axes(bundle: NativeBundle, panel_name: str) -> dict[str, Any]:
 
     The attribution between showers uses the fractional voxel weights, for the
     same reason ``centroids.py`` does: the categorical ``particle_origin`` label
-    discards the overlap region, which is the region under study.
+    discards the overlap region, which is the region under study. A
+    single-shower bundle has nothing to attribute: its one axis weights every
+    hit by its energy, and ``b`` stays empty.
 
     Computed in NumPy from the cached native-resolution bundle, so it costs no
     database access and is free on a cache hit.
@@ -236,10 +239,13 @@ def shower_axes(bundle: NativeBundle, panel_name: str) -> dict[str, Any]:
     row_axis = bundle.axis(panel.row_axis)
 
     energy = panel.planes["e"]
-    weights = {
-        "a": panel.planes["efa_true"],
-        "b": np.clip(energy - panel.planes["efa_true"], 0.0, None),
-    }
+    if len(centroids.showers_of(bundle)) == 1:
+        weights = {"a": energy}
+    else:
+        weights = {
+            "a": panel.planes["efa_true"],
+            "b": np.clip(energy - panel.planes["efa_true"], 0.0, None),
+        }
 
     depth = bundle.axis("z").coords
     out: dict[str, Any] = {"depth": [float(v) for v in depth], "a": [], "b": []}

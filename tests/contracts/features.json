@@ -147,118 +147,285 @@
    }
   },
   "meta": {
-   "type": "object"
-  },
-  "view_catalog": {
    "type": "object",
    "required": [
-    "view",
-    "kind",
-    "coord_system",
-    "shower",
-    "classes",
-    "n_outside_classes",
-    "n_excluded_single_hit",
-    "features",
-    "notes"
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "budget"
    ],
    "properties": {
-    "view": {
-     "const": "catalog"
-    },
-    "kind": {
+    "table_name": {
      "type": "string"
     },
-    "coord_system": {
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "budget": {
+     "type": "object",
+     "required": [
+      "bytes",
+      "limit",
+      "level"
+     ],
+     "properties": {
+      "bytes": {
+       "type": "integer"
+      },
+      "limit": {
+       "type": "integer"
+      },
+      "level": {
+       "type": "integer"
+      }
+     }
+    }
+   }
+  },
+  "class_entry": {
+   "type": "object",
+   "required": [
+    "index",
+    "label",
+    "lo",
+    "hi",
+    "n",
+    "kind"
+   ],
+   "properties": {
+    "index": {
+     "type": "integer"
+    },
+    "label": {
+     "type": "string"
+    },
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n": {
+     "type": "integer"
+    },
+    "kind": {
+     "enum": [
+      "window",
+      "bin",
+      "label"
+     ]
+    },
+    "centre": {
+     "type": [
+      "number",
+      "null"
+     ]
+    }
+   }
+  },
+  "feature_entry": {
+   "type": "object",
+   "required": [
+    "id",
+    "label",
+    "unit",
+    "flags",
+    "circular",
+    "display_offset",
+    "scales",
+    "hatched"
+   ],
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "flags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "circular": {
+     "type": "boolean"
+    },
+    "display_offset": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "scales": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "linear",
+       "log",
+       "circular"
+      ]
+     },
+     "minItems": 1
+    },
+    "hatched": {
      "type": [
       "string",
       "null"
      ]
+    }
+   }
+  },
+  "quantum": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "required": [
+    "value",
+    "unit",
+    "source",
+    "verified",
+    "snapped",
+    "anchor",
+    "per_bin"
+   ],
+   "properties": {
+    "value": {
+     "type": "number"
     },
-    "shower": {
+    "unit": {
+     "enum": [
+      "mm",
+      "hits"
+     ]
+    },
+    "source": {
+     "type": "string"
+    },
+    "verified": {
+     "type": "boolean"
+    },
+    "snapped": {
+     "type": "boolean"
+    },
+    "anchor": {
+     "type": "number"
+    },
+    "per_bin": {
      "type": [
-      "string",
+      "integer",
+      "null"
+     ]
+    }
+   }
+  },
+  "axis": {
+   "type": "object",
+   "required": [
+    "feature",
+    "label",
+    "unit",
+    "scale",
+    "lo",
+    "hi",
+    "bins",
+    "edges",
+    "edges_rule",
+    "clipping",
+    "provisional",
+    "log10",
+    "quantum_mm",
+    "quantum",
+    "offset"
+   ],
+   "properties": {
+    "feature": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "scale": {
+     "enum": [
+      "linear",
+      "log",
+      "circular"
+     ]
+    },
+    "lo": {
+     "type": "number"
+    },
+    "hi": {
+     "type": "number"
+    },
+    "bins": {
+     "type": "integer"
+    },
+    "edges": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 2
+    },
+    "edges_rule": {
+     "type": "string"
+    },
+    "clipping": {
+     "$ref": "#/$defs/clipping"
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "log10": {
+     "type": "boolean"
+    },
+    "quantum_mm": {
+     "type": [
+      "number",
       "null"
      ]
     },
-    "classes": {
-     "type": "array",
-     "items": {
-      "type": "object",
-      "required": [
-       "index",
-       "label",
-       "lo",
-       "hi",
-       "n"
-      ],
-      "properties": {
-       "index": {
-        "type": "integer"
-       },
-       "label": {
-        "type": "string"
-       },
-       "lo": {
-        "type": "number"
-       },
-       "hi": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "n": {
-        "type": "integer"
-       }
-      }
-     }
+    "quantum": {
+     "$ref": "#/$defs/quantum"
     },
-    "n_outside_classes": {
-     "type": "integer"
+    "offset": {
+     "type": [
+      "number",
+      "null"
+     ]
     },
-    "n_excluded_single_hit": {
-     "type": "integer"
+    "decades": {
+     "type": [
+      "number",
+      "null"
+     ]
     },
-    "features": {
-     "type": "array",
-     "items": {
-      "type": "object",
-      "required": [
-       "id",
-       "label",
-       "unit",
-       "flags",
-       "circular",
-       "display_offset"
-      ],
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "label": {
-        "type": "string"
-       },
-       "unit": {
-        "type": "string"
-       },
-       "flags": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "circular": {
-        "type": "boolean"
-       },
-       "display_offset": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
-     }
+    "interval": {
+     "type": [
+      "number",
+      "null"
+     ]
     },
     "notes": {
      "type": "array",
@@ -268,71 +435,80 @@
     }
    }
   },
-  "view_describe": {
+  "view_catalog": {
    "type": "object",
    "required": [
+    "meta",
+    "filter",
     "view",
     "kind",
     "coord_system",
     "shower",
     "classes",
+    "class_mode",
+    "n_events",
     "n_outside_classes",
     "n_excluded_single_hit",
     "features",
     "notes",
-    "table"
+    "frames",
+    "showers",
+    "class_sets",
+    "views",
+    "defaults",
+    "thresholds"
    ],
    "properties": {
     "view": {
-     "const": "describe"
+     "const": "catalog"
+    },
+    "meta": {
+     "$ref": "#/$defs/meta"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
     },
     "kind": {
-     "type": "string"
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events"
+     ]
     },
     "coord_system": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "lab",
+      "trans",
+      "local"
      ]
     },
     "shower": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "a",
+      "b"
      ]
     },
     "classes": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "index",
-       "label",
-       "lo",
-       "hi",
-       "n"
-      ],
-      "properties": {
-       "index": {
-        "type": "integer"
-       },
-       "label": {
-        "type": "string"
-       },
-       "lo": {
-        "type": "number"
-       },
-       "hi": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "n": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/class_entry"
      }
+    },
+    "class_mode": {
+     "enum": [
+      "windows",
+      "bins",
+      "label"
+     ]
+    },
+    "class_basis": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_selected": {
+     "type": "integer"
     },
     "n_outside_classes": {
      "type": "integer"
@@ -343,42 +519,137 @@
     "features": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "id",
-       "label",
-       "unit",
-       "flags",
-       "circular",
-       "display_offset"
-      ],
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "label": {
-        "type": "string"
-       },
-       "unit": {
-        "type": "string"
-       },
-       "flags": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "circular": {
-        "type": "boolean"
-       },
-       "display_offset": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
+      "$ref": "#/$defs/feature_entry"
+     },
+     "minItems": 1
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
      }
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "lab",
+       "trans",
+       "local"
+      ]
+     }
+    },
+    "showers": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     }
+    },
+    "class_sets": {
+     "type": "object"
+    },
+    "views": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "boolean"
+     }
+    },
+    "defaults": {
+     "type": "object"
+    },
+    "thresholds": {
+     "type": "object"
+    }
+   }
+  },
+  "view_describe": {
+   "type": "object",
+   "required": [
+    "meta",
+    "filter",
+    "view",
+    "kind",
+    "coord_system",
+    "shower",
+    "classes",
+    "class_mode",
+    "n_events",
+    "n_outside_classes",
+    "n_excluded_single_hit",
+    "features",
+    "notes",
+    "table",
+    "class_stats",
+    "exclude_eps",
+    "thresholds"
+   ],
+   "properties": {
+    "view": {
+     "const": "describe"
+    },
+    "meta": {
+     "$ref": "#/$defs/meta"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
+    "kind": {
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events"
+     ]
+    },
+    "coord_system": {
+     "enum": [
+      "lab",
+      "trans",
+      "local"
+     ]
+    },
+    "shower": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/class_entry"
+     }
+    },
+    "class_mode": {
+     "enum": [
+      "windows",
+      "bins",
+      "label"
+     ]
+    },
+    "class_basis": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_selected": {
+     "type": "integer"
+    },
+    "n_outside_classes": {
+     "type": "integer"
+    },
+    "n_excluded_single_hit": {
+     "type": "integer"
+    },
+    "features": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/feature_entry"
+     },
+     "minItems": 1
     },
     "notes": {
      "type": "array",
@@ -392,6 +663,7 @@
       "type": "object",
       "required": [
        "n",
+       "n_missing",
        "mean",
        "sd",
        "sd_population",
@@ -412,6 +684,15 @@
          ]
         }
        },
+       "n_missing": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
        "mean": {
         "type": "array",
         "items": {
@@ -421,7 +702,43 @@
          ]
         }
        },
+       "mean_lo": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "mean_hi": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
        "sd": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "sd_lo": {
+        "type": "array",
+        "items": {
+         "type": [
+          "number",
+          "null"
+         ]
+        }
+       },
+       "sd_hi": {
         "type": "array",
         "items": {
          "type": [
@@ -542,82 +859,131 @@
        }
       }
      }
+    },
+    "class_stats": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "index",
+       "n",
+       "c4",
+       "robust"
+      ],
+      "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "n": {
+        "type": "integer"
+       },
+       "c4": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "robust": {
+        "type": "boolean"
+       }
+      }
+     }
+    },
+    "intervals": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "exclude_eps": {
+     "type": "boolean"
+    },
+    "thresholds": {
+     "type": "object"
     }
    }
   },
   "view_corr": {
    "type": "object",
    "required": [
+    "meta",
+    "filter",
     "view",
     "kind",
     "coord_system",
     "shower",
     "classes",
+    "class_mode",
+    "n_events",
     "n_outside_classes",
     "n_excluded_single_hit",
     "features",
     "notes",
     "class",
+    "class_label",
     "n",
     "n_excluded_eps",
+    "exclude_eps",
     "order",
     "r",
     "lo",
     "hi",
+    "n_pairs",
     "hatched",
-    "method"
+    "method",
+    "interval"
    ],
    "properties": {
     "view": {
      "const": "corr"
     },
+    "meta": {
+     "$ref": "#/$defs/meta"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
     "kind": {
-     "type": "string"
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events"
+     ]
     },
     "coord_system": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "lab",
+      "trans",
+      "local"
      ]
     },
     "shower": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "a",
+      "b"
      ]
     },
     "classes": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "index",
-       "label",
-       "lo",
-       "hi",
-       "n"
-      ],
-      "properties": {
-       "index": {
-        "type": "integer"
-       },
-       "label": {
-        "type": "string"
-       },
-       "lo": {
-        "type": "number"
-       },
-       "hi": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "n": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/class_entry"
      }
+    },
+    "class_mode": {
+     "enum": [
+      "windows",
+      "bins",
+      "label"
+     ]
+    },
+    "class_basis": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_selected": {
+     "type": "integer"
     },
     "n_outside_classes": {
      "type": "integer"
@@ -628,42 +994,9 @@
     "features": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "id",
-       "label",
-       "unit",
-       "flags",
-       "circular",
-       "display_offset"
-      ],
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "label": {
-        "type": "string"
-       },
-       "unit": {
-        "type": "string"
-       },
-       "flags": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "circular": {
-        "type": "boolean"
-       },
-       "display_offset": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
-     }
+      "$ref": "#/$defs/feature_entry"
+     },
+     "minItems": 1
     },
     "notes": {
      "type": "array",
@@ -672,11 +1005,17 @@
      }
     },
     "class": {
-     "type": [
-      "integer",
-      "string",
-      "null"
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "const": "pooled"
+      }
      ]
+    },
+    "class_label": {
+     "type": "string"
     },
     "n": {
      "type": "integer"
@@ -684,11 +1023,24 @@
     "n_excluded_eps": {
      "type": "integer"
     },
-    "order": {
+    "exclude_eps": {
+     "type": "boolean"
+    },
+    "eps_pair_features": {
      "type": "array",
      "items": {
       "type": "string"
      }
+    },
+    "order": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1
+    },
+    "layout": {
+     "type": "string"
     },
     "r": {
      "type": "array",
@@ -717,6 +1069,12 @@
       ]
      }
     },
+    "n_pairs": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
     "hatched": {
      "type": "object",
      "additionalProperties": {
@@ -724,18 +1082,28 @@
      }
     },
     "method": {
+     "const": "fisher_z"
+    },
+    "interval": {
      "type": "string"
+    },
+    "thresholds": {
+     "type": "object"
     }
    }
   },
   "view_hist": {
    "type": "object",
    "required": [
+    "meta",
+    "filter",
     "view",
     "kind",
     "coord_system",
     "shower",
     "classes",
+    "class_mode",
+    "n_events",
     "n_outside_classes",
     "n_excluded_single_hit",
     "features",
@@ -745,59 +1113,61 @@
     "axis",
     "series",
     "curve_x",
-    "comb"
+    "comb",
+    "y_max",
+    "exclude_eps"
    ],
    "properties": {
     "view": {
      "const": "hist"
     },
+    "meta": {
+     "$ref": "#/$defs/meta"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
     "kind": {
-     "type": "string"
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events"
+     ]
     },
     "coord_system": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "lab",
+      "trans",
+      "local"
      ]
     },
     "shower": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "a",
+      "b"
      ]
     },
     "classes": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "index",
-       "label",
-       "lo",
-       "hi",
-       "n"
-      ],
-      "properties": {
-       "index": {
-        "type": "integer"
-       },
-       "label": {
-        "type": "string"
-       },
-       "lo": {
-        "type": "number"
-       },
-       "hi": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "n": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/class_entry"
      }
+    },
+    "class_mode": {
+     "enum": [
+      "windows",
+      "bins",
+      "label"
+     ]
+    },
+    "class_basis": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_selected": {
+     "type": "integer"
     },
     "n_outside_classes": {
      "type": "integer"
@@ -808,42 +1178,9 @@
     "features": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "id",
-       "label",
-       "unit",
-       "flags",
-       "circular",
-       "display_offset"
-      ],
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "label": {
-        "type": "string"
-       },
-       "unit": {
-        "type": "string"
-       },
-       "flags": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "circular": {
-        "type": "boolean"
-       },
-       "display_offset": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
-     }
+      "$ref": "#/$defs/feature_entry"
+     },
+     "minItems": 1
     },
     "notes": {
      "type": "array",
@@ -855,75 +1192,46 @@
      "type": "string"
     },
     "scale": {
+     "enum": [
+      "linear",
+      "log",
+      "circular"
+     ]
+    },
+    "requested_scale": {
      "type": "string"
     },
     "axis": {
-     "type": "object",
-     "required": [
-      "lo",
-      "hi",
-      "bins",
-      "edges_rule",
-      "clipping",
-      "provisional",
-      "log10",
-      "quantum_mm",
-      "offset"
-     ],
-     "properties": {
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "bins": {
-       "type": "integer"
-      },
-      "edges_rule": {
-       "type": "string"
-      },
-      "clipping": {
-       "$ref": "#/$defs/clipping"
-      },
-      "provisional": {
-       "type": "boolean"
-      },
-      "log10": {
-       "type": "boolean"
-      },
-      "quantum_mm": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "offset": {
-       "type": [
-        "number",
-        "null"
-       ]
-      }
-     }
+     "$ref": "#/$defs/axis"
     },
     "series": {
      "type": "array",
      "items": {
       "type": "object",
       "required": [
+       "index",
+       "label",
        "n",
        "n_in_range",
        "n_below",
        "n_above",
        "n_nonpositive",
+       "n_excluded_eps",
        "draw",
        "counts",
+       "density_scale",
        "kde",
        "strip",
        "drives_scale",
        "message"
       ],
       "properties": {
+       "index": {
+        "type": "integer"
+       },
+       "label": {
+        "type": "string"
+       },
        "n": {
         "type": "integer"
        },
@@ -939,6 +1247,9 @@
        "n_nonpositive": {
         "type": "integer"
        },
+       "n_excluded_eps": {
+        "type": "integer"
+       },
        "draw": {
         "enum": [
          "histogram",
@@ -952,6 +1263,12 @@
          "type": "integer"
         }
        },
+       "density_scale": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
        "kde": {
         "type": [
          "object",
@@ -961,7 +1278,8 @@
          "bandwidth",
          "rule",
          "pdf",
-         "scale_to_counts"
+         "scale_to_counts",
+         "per"
         ],
         "properties": {
          "bandwidth": {
@@ -978,6 +1296,12 @@
          },
          "scale_to_counts": {
           "type": "number"
+         },
+         "n_outside_grid": {
+          "type": "integer"
+         },
+         "per": {
+          "type": "string"
          }
         }
        },
@@ -987,7 +1311,8 @@
           "type": "array",
           "items": {
            "type": "number"
-          }
+          },
+          "maxItems": 14
          },
          {
           "type": "null"
@@ -1016,18 +1341,120 @@
      "type": [
       "object",
       "null"
-     ]
+     ],
+     "required": [
+      "lag1",
+      "bins",
+      "combed",
+      "noise_reference",
+      "threshold",
+      "measured_on",
+      "note"
+     ],
+     "properties": {
+      "lag1": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "combed": {
+       "type": [
+        "boolean",
+        "null"
+       ]
+      },
+      "noise_reference": {
+       "type": "number"
+      },
+      "threshold": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "measured_on": {
+       "type": "string"
+      },
+      "note": {
+       "type": "string"
+      }
+     }
+    },
+    "y_max": {
+     "type": "object",
+     "required": [
+      "count",
+      "density",
+      "provisional",
+      "overflow"
+     ],
+     "properties": {
+      "count": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "density": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "overflow": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "index",
+         "peak_count",
+         "peak_density"
+        ],
+        "properties": {
+         "index": {
+          "type": "integer"
+         },
+         "peak_count": {
+          "type": "number"
+         },
+         "peak_density": {
+          "type": "number"
+         }
+        }
+       }
+      }
+     }
+    },
+    "exclude_eps": {
+     "type": "boolean"
+    },
+    "y_axis": {
+     "type": "object"
+    },
+    "thresholds": {
+     "type": "object"
     }
    }
   },
   "view_hist2d": {
    "type": "object",
    "required": [
+    "meta",
+    "filter",
     "view",
     "kind",
     "coord_system",
     "shower",
     "classes",
+    "class_mode",
+    "n_events",
     "n_outside_classes",
     "n_excluded_single_hit",
     "features",
@@ -1035,59 +1462,60 @@
     "x",
     "y",
     "series",
-    "color"
+    "color",
+    "exclude_eps"
    ],
    "properties": {
     "view": {
      "const": "hist2d"
     },
+    "meta": {
+     "$ref": "#/$defs/meta"
+    },
+    "filter": {
+     "$ref": "#/$defs/filter"
+    },
     "kind": {
-     "type": "string"
+     "enum": [
+      "two_shower_hits",
+      "single_shower_hits",
+      "single_shower_events"
+     ]
     },
     "coord_system": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "lab",
+      "trans",
+      "local"
      ]
     },
     "shower": {
-     "type": [
-      "string",
-      "null"
+     "enum": [
+      "a",
+      "b"
      ]
     },
     "classes": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "index",
-       "label",
-       "lo",
-       "hi",
-       "n"
-      ],
-      "properties": {
-       "index": {
-        "type": "integer"
-       },
-       "label": {
-        "type": "string"
-       },
-       "lo": {
-        "type": "number"
-       },
-       "hi": {
-        "type": [
-         "number",
-         "null"
-        ]
-       },
-       "n": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/class_entry"
      }
+    },
+    "class_mode": {
+     "enum": [
+      "windows",
+      "bins",
+      "label"
+     ]
+    },
+    "class_basis": {
+     "type": "string"
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "n_selected": {
+     "type": "integer"
     },
     "n_outside_classes": {
      "type": "integer"
@@ -1098,42 +1526,9 @@
     "features": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "id",
-       "label",
-       "unit",
-       "flags",
-       "circular",
-       "display_offset"
-      ],
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "label": {
-        "type": "string"
-       },
-       "unit": {
-        "type": "string"
-       },
-       "flags": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "circular": {
-        "type": "boolean"
-       },
-       "display_offset": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
-     }
+      "$ref": "#/$defs/feature_entry"
+     },
+     "minItems": 1
     },
     "notes": {
      "type": "array",
@@ -1142,58 +1537,13 @@
      }
     },
     "x": {
-     "type": "object",
-     "required": [
-      "feature",
-      "scale",
-      "lo",
-      "hi",
-      "bins"
-     ],
-     "properties": {
-      "feature": {
-       "type": "string"
-      },
-      "scale": {
-       "type": "string"
-      },
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "bins": {
-       "type": "integer"
-      }
-     }
+     "$ref": "#/$defs/axis"
     },
     "y": {
-     "type": "object",
-     "required": [
-      "feature",
-      "scale",
-      "lo",
-      "hi",
-      "bins"
-     ],
-     "properties": {
-      "feature": {
-       "type": "string"
-      },
-      "scale": {
-       "type": "string"
-      },
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "bins": {
-       "type": "integer"
-      }
-     }
+     "$ref": "#/$defs/axis"
+    },
+    "layout": {
+     "type": "string"
     },
     "series": {
      "type": "array",
@@ -1202,6 +1552,8 @@
        {
         "type": "object",
         "required": [
+         "index",
+         "label",
          "n",
          "draw",
          "counts",
@@ -1209,7 +1561,22 @@
          "outside"
         ],
         "properties": {
+         "index": {
+          "type": "integer"
+         },
+         "label": {
+          "type": "string"
+         },
          "n": {
+          "type": "integer"
+         },
+         "n_nonpositive_x": {
+          "type": "integer"
+         },
+         "n_nonpositive_y": {
+          "type": "integer"
+         },
+         "n_excluded_eps": {
           "type": "integer"
          },
          "draw": {
@@ -1225,19 +1592,61 @@
           "type": "integer"
          },
          "outside": {
-          "type": "object"
+          "type": "object",
+          "required": [
+           "x_below",
+           "x_above",
+           "y_below",
+           "y_above",
+           "total"
+          ],
+          "properties": {
+           "x_below": {
+            "type": "integer"
+           },
+           "x_above": {
+            "type": "integer"
+           },
+           "y_below": {
+            "type": "integer"
+           },
+           "y_above": {
+            "type": "integer"
+           },
+           "total": {
+            "type": "integer"
+           }
+          }
          }
         }
        },
        {
         "type": "object",
         "required": [
+         "index",
+         "label",
          "n",
          "draw",
-         "pairs"
+         "pairs",
+         "outside"
         ],
         "properties": {
+         "index": {
+          "type": "integer"
+         },
+         "label": {
+          "type": "string"
+         },
          "n": {
+          "type": "integer"
+         },
+         "n_nonpositive_x": {
+          "type": "integer"
+         },
+         "n_nonpositive_y": {
+          "type": "integer"
+         },
+         "n_excluded_eps": {
           "type": "integer"
          },
          "draw": {
@@ -1249,6 +1658,36 @@
            "type": "array",
            "items": {
             "type": "number"
+           },
+           "minItems": 2,
+           "maxItems": 2
+          },
+          "maxItems": 14
+         },
+         "outside": {
+          "type": "object",
+          "required": [
+           "x_below",
+           "x_above",
+           "y_below",
+           "y_above",
+           "total"
+          ],
+          "properties": {
+           "x_below": {
+            "type": "integer"
+           },
+           "x_above": {
+            "type": "integer"
+           },
+           "y_below": {
+            "type": "integer"
+           },
+           "y_above": {
+            "type": "integer"
+           },
+           "total": {
+            "type": "integer"
            }
           }
          }
@@ -1257,11 +1696,28 @@
        {
         "type": "object",
         "required": [
+         "index",
+         "label",
          "n",
          "draw"
         ],
         "properties": {
+         "index": {
+          "type": "integer"
+         },
+         "label": {
+          "type": "string"
+         },
          "n": {
+          "type": "integer"
+         },
+         "n_nonpositive_x": {
+          "type": "integer"
+         },
+         "n_nonpositive_y": {
+          "type": "integer"
+         },
+         "n_excluded_eps": {
           "type": "integer"
          },
          "draw": {
@@ -1275,13 +1731,45 @@
     "color": {
      "type": "object",
      "required": [
-      "scale"
+      "scale",
+      "vmin",
+      "vmax",
+      "max_count",
+      "unit",
+      "empty"
      ],
      "properties": {
       "scale": {
        "const": "log10"
+      },
+      "vmin": {
+       "type": "number"
+      },
+      "vmax": {
+       "type": "number"
+      },
+      "max_count": {
+       "type": "integer"
+      },
+      "unit": {
+       "type": "string"
+      },
+      "empty": {
+       "const": "transparent"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "note": {
+       "type": "string"
       }
      }
+    },
+    "exclude_eps": {
+     "type": "boolean"
+    },
+    "thresholds": {
+     "type": "object"
     }
    }
   }

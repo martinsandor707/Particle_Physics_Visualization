@@ -12,7 +12,8 @@
   "axes",
   "notebook_scale",
   "notes",
-  "filter"
+  "filter",
+  "convention"
  ],
  "properties": {
   "meta": {
@@ -42,7 +43,9 @@
     "label",
     "dof_note",
     "provisional",
-    "n_single_cell"
+    "n_single_cell",
+    "clustered",
+    "n_dropped"
    ],
    "properties": {
     "n_showers": {
@@ -65,6 +68,12 @@
     },
     "n_single_cell": {
      "type": "integer"
+    },
+    "clustered": {
+     "type": "boolean"
+    },
+    "n_dropped": {
+     "type": "integer"
     }
    }
   },
@@ -75,7 +84,9 @@
     "required": [
      "key",
      "label",
-     "meaning"
+     "meaning",
+     "drawn",
+     "style"
     ],
     "properties": {
      "key": {
@@ -90,6 +101,12 @@
       "type": "string"
      },
      "meaning": {
+      "type": "string"
+     },
+     "drawn": {
+      "type": "boolean"
+     },
+     "style": {
       "type": "string"
      }
     }
@@ -121,7 +138,10 @@
      "n_present",
      "outside",
      "comb",
-     "y"
+     "y",
+     "label",
+     "w_zero_rule",
+     "splat"
     ],
     "properties": {
      "symbol": {
@@ -158,7 +178,9 @@
       ],
       "required": [
        "lo",
-       "hi"
+       "hi",
+       "over",
+       "under"
       ],
       "properties": {
        "lo": {
@@ -177,6 +199,18 @@
           "number",
           "null"
          ]
+        }
+       },
+       "over": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "under": {
+        "type": "array",
+        "items": {
+         "type": "integer"
         }
        }
       }
@@ -188,7 +222,12 @@
       ],
       "required": [
        "lo",
-       "hi"
+       "hi",
+       "over",
+       "under",
+       "t",
+       "dof",
+       "cluster"
       ],
       "properties": {
        "lo": {
@@ -208,6 +247,30 @@
           "null"
          ]
         }
+       },
+       "over": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "under": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "t": {
+        "type": "number"
+       },
+       "dof": {
+        "type": "integer"
+       },
+       "cluster": {
+        "enum": [
+         "event",
+         "shower"
+        ]
        }
       }
      },
@@ -216,7 +279,11 @@
       "required": [
        "value",
        "ci95_lo",
-       "ci95_hi"
+       "ci95_hi",
+       "method",
+       "label",
+       "over",
+       "under"
       ],
       "properties": {
        "value": {
@@ -245,6 +312,30 @@
           "null"
          ]
         }
+       },
+       "method": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "label": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "over": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "under": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
        }
       }
      },
@@ -255,13 +346,111 @@
       }
      },
      "outside": {
-      "type": "object"
+      "type": "object",
+      "required": [
+       "below_fraction",
+       "above_fraction",
+       "mean_below_fraction",
+       "mean_above_fraction",
+       "window_cm",
+       "window_source"
+      ],
+      "properties": {
+       "below_fraction": {
+        "type": "number"
+       },
+       "above_fraction": {
+        "type": "number"
+       },
+       "mean_below_fraction": {
+        "type": "number"
+       },
+       "mean_above_fraction": {
+        "type": "number"
+       },
+       "window_cm": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+       },
+       "window_source": {
+        "enum": [
+         "dataset",
+         "selection",
+         "fixed"
+        ]
+       },
+       "overflow_from_cm": {
+        "type": "number"
+       }
+      }
      },
      "comb": {
       "type": [
        "object",
        "null"
-      ]
+      ],
+      "required": [
+       "lag1",
+       "combed",
+       "threshold",
+       "measured_on",
+       "n_bins",
+       "ingest_lag1",
+       "k",
+       "k_z",
+       "regime"
+      ],
+      "properties": {
+       "lag1": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "combed": {
+        "type": [
+         "boolean",
+         "null"
+        ]
+       },
+       "threshold": {
+        "type": "number"
+       },
+       "measured_on": {
+        "type": "string"
+       },
+       "n_bins": {
+        "type": "integer"
+       },
+       "ingest_lag1": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "k": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "k_z": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "regime": {
+        "enum": [
+         "local_subdeposit_splat",
+         "native_layers"
+        ]
+       }
+      }
      },
      "y": {
       "type": "object",
@@ -290,7 +479,10 @@
         "required": [
          "band",
          "envelope",
-         "band_below_zero"
+         "band_below_zero",
+         "envelope_below_zero",
+         "pooled_interval",
+         "pooled_interval_below_zero"
         ],
         "properties": {
          "band": {
@@ -301,6 +493,15 @@
          },
          "band_below_zero": {
           "type": "integer"
+         },
+         "envelope_below_zero": {
+          "type": "integer"
+         },
+         "pooled_interval": {
+          "type": "integer"
+         },
+         "pooled_interval_below_zero": {
+          "type": "integer"
          }
         }
        }
@@ -310,16 +511,103 @@
       "type": [
        "object",
        "null"
-      ]
+      ],
+      "required": [
+       "at_cm",
+       "bin_edge",
+       "energy_fraction_below",
+       "mean_fraction_below",
+       "hit_level_c9",
+       "neg_depth_mm"
+      ],
+      "properties": {
+       "at_cm": {
+        "type": "number"
+       },
+       "bin_edge": {
+        "type": "boolean"
+       },
+       "energy_fraction_below": {
+        "type": "number"
+       },
+       "mean_fraction_below": {
+        "type": "number"
+       },
+       "hit_level_c9": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "neg_depth_mm": {
+        "type": "number"
+       }
+      }
      },
      "splat": {
       "type": [
        "object",
        "null"
-      ]
+      ],
+      "required": [
+       "regime",
+       "k",
+       "k_z",
+       "footprint_mm",
+       "bin_mm",
+       "spacing_mm",
+       "gap_free"
+      ],
+      "properties": {
+       "regime": {
+        "const": "local_subdeposit_splat"
+       },
+       "k": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "k_z": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "footprint_mm": {
+        "type": [
+         "array",
+         "null"
+        ],
+        "items": {
+         "type": "number"
+        }
+       },
+       "bin_mm": {
+        "type": "number"
+       },
+       "spacing_mm": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "gap_free": {
+        "type": [
+         "boolean",
+         "null"
+        ]
+       }
+      }
+     },
+     "label": {
+      "type": "string"
      }
     }
-   }
+   },
+   "required": [
+    "r"
+   ]
   },
   "notebook_scale": {
    "type": "boolean"
@@ -332,6 +620,29 @@
   },
   "filter": {
    "$ref": "#/$defs/filter"
+  },
+  "convention": {
+   "type": "object",
+   "required": [
+    "notebook",
+    "label",
+    "neg_depth_mm",
+    "dropped_energy_fraction"
+   ],
+   "properties": {
+    "notebook": {
+     "type": "boolean"
+    },
+    "label": {
+     "type": "string"
+    },
+    "neg_depth_mm": {
+     "type": "number"
+    },
+    "dropped_energy_fraction": {
+     "type": "number"
+    }
+   }
   }
  },
  "$defs": {

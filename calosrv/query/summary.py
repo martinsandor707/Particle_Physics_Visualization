@@ -9,6 +9,12 @@ distance and is not one. The same trap applies to the mean E1, the mean E2, and
 the average of the dataset's own centroid columns. Keeping all of them in this
 module, which never touches the projection table, makes the rule structural
 rather than a comment someone can miss.
+
+A single-shower experiment has one shower per event, stored under the
+shower-A names, and no second momentum, no separation D and no B centroid.
+Every function here reads the experiment's showers (``query/showers.py``) and
+returns the same keys, with ``null`` where the quantity does not exist rather
+than a zero that would read as a measurement.
 """
 
 from __future__ import annotations
@@ -23,16 +29,37 @@ from ..db import naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..text import typographic
+from . import showers as showers_mod
 from .filters import FilterSpec
+from .showers import ShowerColumns
+
+
+def centroid_columns(shower: ShowerColumns) -> tuple[str, str, str]:
+    """A shower's energy-weighted 3-D centroid in the event table (raw z), as DOUBLE expressions.
+
+    ``cax, cay, caz`` (``cbx ..`` for B) in both hit kinds; the single shower
+    is stored under the shower-A names.
+    """
+    x, y, z = (f"CAST(c{shower.key}{axis} AS DOUBLE)" for axis in "xyz")
+    return x, y, z
+
+
+def centroid_defined(shower: ShowerColumns) -> str:
+    """The event-table predicate: the shower's 3-D centroid is defined."""
+    return " AND ".join(f"c{shower.key}{axis} IS NOT NULL" for axis in "xyz")
 
 
 @dataclass
 class SelectionSummary:
-    """Per-event statistics for the active selection."""
+    """Per-event statistics for the active selection.
+
+    For a single-shower experiment the D statistics, ``e2_mean``,
+    ``n_events_no_d``, ``centroid_b`` and the separation are ``None``.
+    """
 
     n_events: int
     n_hits: int
-    n_events_no_d: int
+    n_events_no_d: int | None
     e_dep_total: float
     d_mean: float | None
     d_median: float | None
@@ -42,8 +69,9 @@ class SelectionSummary:
     e1_mean: float | None
     e2_mean: float | None
     centroid_a: dict[str, float | None]
-    centroid_b: dict[str, float | None]
+    centroid_b: dict[str, float | None] | None
     dataset_separation_mm: float | None
+    label: str = "Dataset centroids (per-event average)"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -61,12 +89,52 @@ class SelectionSummary:
             "e1_mean": self.e1_mean,
             "e2_mean": self.e2_mean,
             "centroid_dataset": {
-                "label": "Dataset centroids (per-event average)",
+                "label": self.label,
                 "a": self.centroid_a,
                 "b": self.centroid_b,
                 "separation_mm": self.dataset_separation_mm,
             },
         }
+
+
+def _summarise_single(
+    con: duckdb.DuckDBPyConnection, table: str, spec: FilterSpec, shower: ShowerColumns,
+) -> SelectionSummary:
+    """One shower per event: no separation, no second momentum, no B centroid."""
+    cx, cy, cz = centroid_columns(shower)
+    row = con.execute(
+        f"""
+        SELECT
+            count(*)                               AS n_events,
+            coalesce(sum(n_hits), 0)               AS n_hits,
+            coalesce(sum(e_dep), 0.0)              AS e_dep_total,
+            avg(CAST({shower.momentum} AS DOUBLE)) AS e1_mean,
+            avg({cx})                              AS cax,
+            avg({cy})                              AS cay,
+            avg({cz})                              AS caz
+        FROM {table}
+        WHERE {spec.where_sql()}
+        """,
+        spec.params(),
+    ).fetchone()
+
+    def value(index: int) -> float | None:
+        v = row[index]
+        return float(v) if v is not None else None
+
+    return SelectionSummary(
+        n_events=int(row[0] or 0),
+        n_hits=int(row[1] or 0),
+        n_events_no_d=None,
+        e_dep_total=float(row[2] or 0.0),
+        d_mean=None, d_median=None, d_sd=None, d_min=None, d_max=None,
+        e1_mean=value(3),
+        e2_mean=None,
+        centroid_a={"x": value(4), "y": value(5), "z": value(6)},
+        centroid_b=None,
+        dataset_separation_mm=None,
+        label="Dataset centroid (per-event average)",
+    )
 
 
 def summarise(
@@ -76,6 +144,9 @@ def summarise(
 ) -> SelectionSummary:
     """Summarise the selected events. Roughly 20 000 rows; sub-millisecond."""
     table = quote(naming.event_table(record.table_name))
+    showers = showers_mod.of(record)
+    if len(showers) == 1:
+        return _summarise_single(con, table, spec, showers[0])
     row = con.execute(
         f"""
         SELECT
@@ -161,20 +232,25 @@ def angular_coherence(
     filters. A single averaged trajectory line would therefore point in an
     arbitrary direction while looking authoritative, which is why one is never
     drawn; individual events are shown instead, and only when few enough to read.
+
+    Over every shower of the experiment: a single-shower experiment reports
+    ``r_a`` and a null ``r_b``.
     """
     table = quote(naming.event_table(record.table_name))
+    showers = showers_mod.of(record)
+    sums = ",\n            ".join(
+        f"avg(cos(CAST({s.phi} AS DOUBLE))), avg(sin(CAST({s.phi} AS DOUBLE))), "
+        f"avg(CAST({s.theta} AS DOUBLE))"
+        for s in showers
+    )
+    defined = " AND ".join(f"{s.phi} IS NOT NULL" for s in showers)
     row = con.execute(
         f"""
         SELECT
-            count(*)                                        AS n,
-            avg(cos(CAST(phi_a AS DOUBLE)))                 AS ca,
-            avg(sin(CAST(phi_a AS DOUBLE)))                 AS sa,
-            avg(cos(CAST(phi_b AS DOUBLE)))                 AS cb,
-            avg(sin(CAST(phi_b AS DOUBLE)))                 AS sb,
-            avg(CAST(theta_a AS DOUBLE))                    AS theta_a,
-            avg(CAST(theta_b AS DOUBLE))                    AS theta_b
+            count(*) AS n,
+            {sums}
         FROM {table}
-        WHERE {spec.where_sql()} AND phi_a IS NOT NULL AND phi_b IS NOT NULL
+        WHERE {spec.where_sql()} AND {defined}
         """,
         spec.params(),
     ).fetchone()
@@ -184,12 +260,18 @@ def angular_coherence(
             return None
         return float(math.hypot(float(cos_mean), float(sin_mean)))
 
+    r: dict[str, float | None] = {}
+    theta: dict[str, float | None] = {}
+    for j, s in enumerate(showers):
+        r[s.key] = resultant(row[1 + 3 * j], row[2 + 3 * j])
+        theta[s.key] = float(row[3 + 3 * j]) if row[3 + 3 * j] is not None else None
+
     return {
         "n": int(row[0] or 0),
-        "r_a": resultant(row[1], row[2]),
-        "r_b": resultant(row[3], row[4]),
-        "theta_a_mean": float(row[5]) if row[5] is not None else None,
-        "theta_b_mean": float(row[6]) if row[6] is not None else None,
+        "r_a": r.get("a"),
+        "r_b": r.get("b"),
+        "theta_a_mean": theta.get("a"),
+        "theta_b_mean": theta.get("b"),
         "note": (
             "Incident azimuth is near-uniform over this selection, so no single "
             "averaged trajectory is drawn; it would point in an arbitrary "
@@ -222,17 +304,19 @@ def pointing(
     """
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
-    out: dict[str, Any] = {}
-    for shower in ("a", "b"):
-        th, ph = f"CAST(theta_{shower} AS DOUBLE)", f"CAST(phi_{shower} AS DOUBLE)"
-        cx, cy, cz = (f"CAST(c{shower}{a} AS DOUBLE)" for a in "xyz")
+    showers = showers_mod.of(record)
+    # Every shower slot is present; one a single-shower experiment lacks is null.
+    out: dict[str, Any] = {"a": None, "b": None}
+    for s in showers:
+        th, ph = f"CAST({s.theta} AS DOUBLE)", f"CAST({s.phi} AS DOUBLE)"
+        cx, cy, cz = centroid_columns(s)
         row = con.execute(
             f"""
             WITH ev AS (
                 SELECT {th} AS th, {ph} AS ph, {cx} AS cx, {cy} AS cy, {cz} AS cz
                 FROM {table}
-                WHERE {where} AND theta_{shower} IS NOT NULL AND phi_{shower} IS NOT NULL
-                  AND c{shower}x IS NOT NULL AND c{shower}y IS NOT NULL AND c{shower}z IS NOT NULL
+                WHERE {where} AND {s.theta} IS NOT NULL AND {s.phi} IS NOT NULL
+                  AND {centroid_defined(s)}
             ), res AS (
                 SELECT atan2(sin(ph - atan2(cy, cx)), cos(ph - atan2(cy, cx))) AS r,
                        CASE WHEN tan(th) > 0 THEN sqrt(cx * cx + cy * cy) / tan(th) END AS zs, cz
@@ -247,7 +331,7 @@ def pointing(
         def deg(value):
             return math.degrees(float(value)) if value is not None and math.isfinite(float(value)) else None
 
-        out[shower] = {
+        out[s.key] = {
             "n": n,
             "mean_deg": deg(row[1]) if n else None,
             "sd_deg": deg(row[2]) if n >= 2 else None,
@@ -255,14 +339,17 @@ def pointing(
             "centroid_z_mm": float(row[4]) if row[4] is not None else None,
         }
     parts = []
-    for shower, name in (("a", "A"), ("b", "B")):
-        block = out[shower]
+    for s in showers:
+        block = out[s.key]
+        # Two showers are told apart by letter; a single shower needs no name.
+        name = f"{s.key.upper()}: " if len(showers) > 1 else ""
         if block["n"] >= 2 and block["sd_deg"] is not None:
             source = (f", r / tan θ = {block['source_z_mm']:,.0f} mm against a centroid depth of "
                       f"{block['centroid_z_mm']:,.0f} mm") if block["source_z_mm"] is not None else ""
-            parts.append(f"{name}: {block['mean_deg']:+.1f}° ± {block['sd_deg']:.1f}° SD over N = {block['n']:,}{source}")
+            parts.append(f"{name}{block['mean_deg']:+.1f}° ± {block['sd_deg']:.1f}° SD over N = {block['n']:,}{source}")
         elif block["n"] == 1:
-            parts.append(f"{name}: one event, residual {block['mean_deg']:+.1f}°")
+            parts.append(f"{name}one event, residual {block['mean_deg']:+.1f}°" if name
+                         else f"{block['mean_deg']:+.1f}° for its one event")
     out["note"] = typographic(
         "Incident directions point at the detector origin: against the radial line through each "
         "shower's 3-D centroid the residual is " + "; ".join(parts) + ". The azimuth is uniform over the "
@@ -285,20 +372,24 @@ def trajectories(
     energy at all in shower A, so they have no entry point to project from.
 
     The payload is tiny - fifty events times ten floats - so it rides along with
-    the projections response rather than costing a second round trip.
+    the projections response rather than costing a second round trip. A
+    single-shower experiment's entries carry ``a`` only.
     """
     table = quote(naming.event_table(record.table_name))
+    showers = showers_mod.of(record)
+    first = showers[0]
+    columns = ",\n               ".join(
+        f"CAST({s.theta} AS DOUBLE), CAST({s.phi} AS DOUBLE), {', '.join(centroid_columns(s))}"
+        for s in showers
+    )
     rows = con.execute(
         f"""
         SELECT event_number,
-               CAST(theta_a AS DOUBLE), CAST(phi_a AS DOUBLE),
-               CAST(cax AS DOUBLE), CAST(cay AS DOUBLE), CAST(caz AS DOUBLE),
-               CAST(theta_b AS DOUBLE), CAST(phi_b AS DOUBLE),
-               CAST(cbx AS DOUBLE), CAST(cby AS DOUBLE), CAST(cbz AS DOUBLE)
+               {columns}
         FROM {table}
         WHERE {spec.where_sql()}
-          AND theta_a IS NOT NULL AND phi_a IS NOT NULL
-          AND cax IS NOT NULL AND cay IS NOT NULL AND caz IS NOT NULL
+          AND {first.theta} IS NOT NULL AND {first.phi} IS NOT NULL
+          AND {centroid_defined(first)}
         ORDER BY event_number
         LIMIT {int(limit)}
         """,
@@ -307,19 +398,13 @@ def trajectories(
 
     out: list[dict[str, Any]] = []
     for r in rows:
-        entry = {
-            "event": int(r[0]),
-            "a": {
-                "theta": r[1], "phi": r[2],
-                "x": r[3], "y": r[4], "z": r[5],
-            },
-        }
-        # Shower B can be undefined independently of A.
-        if all(v is not None for v in r[6:11]):
-            entry["b"] = {
-                "theta": r[6], "phi": r[7],
-                "x": r[8], "y": r[9], "z": r[10],
-            }
+        entry: dict[str, Any] = {"event": int(r[0])}
+        for j, s in enumerate(showers):
+            theta, phi, x, y, z = r[1 + 5 * j: 6 + 5 * j]
+            # The first shower is gated above; shower B can be undefined
+            # independently of A.
+            if j == 0 or all(v is not None for v in (theta, phi, x, y, z)):
+                entry[s.key] = {"theta": theta, "phi": phi, "x": x, "y": y, "z": z}
         out.append(entry)
     return out
 
