@@ -17,6 +17,7 @@ The figures quoted were measured on the electron files on 2026-10-24 (data chara
 | Seed consistency, s1 against s2 | / and /models | s2 files | 3 |
 | Fixed-energy class comparisons (1, 2, 5, 10, 20 GeV) | /models | ddsim proton files | 4 |
 | C6 species voxels and C11 on two-shower events | /models | hits_all_models schema v2 | 5 |
+| Engineering follow-ups (shared size guard, inspector splat k, D-frame cloud cap, φ-spread fixture) | — | nothing; review each | 8 |
 
 Until a bundle is loaded, /models shows: "No model-run artefacts are loaded: the XGBoost views E1, E3, E4 and E5 are deferred (see TODO.md)." The catalogue's capability block carries `model_runs: []` and the `xgboost` gate shut, with that reason.
 
@@ -244,3 +245,25 @@ Two notebook changes are needed:
   is the mean of the per-event centroids, an aggregate, and drawn without its dispersion or interval. Giving it an
   uncapped SD band and a Student-t interval (CLAUDE.md §2) changes the shared lab payload and the golden lab
   snapshot, so it is one deliberate change for two-shower and single-shower data at once.
+
+## 8. Engineering follow-ups found while building (2026-10-25)
+
+Not blocked by data; each is a deliberate change with its own review.
+
+- **Route-local size guards.** Nine physics routes (correlations, distributions, energy, features, performance,
+  prediction, profiles, response, statistics) each carry their own budget loop beside `api/budget.serve_measured`,
+  which the two voxel routes use. Moving them onto it gives one owner for the measure-shrink-disclose rule; their
+  over-budget sentences are pinned by tests, so each move must keep its wording or change it on purpose.
+- **Event-inspector Local panels.** The 2-D Local rasters of the Event Inspector still splat each cell with k = 4,
+  k_z = 2 (pinned by the two-shower golden). In 3-D the same k left 1.6–7.8% of the voxels empty against a k = 32
+  reference, which is why the voxel cubes use k = 12. The 2-D comb statistic is measured on every response and
+  found none on real data (R5), but the 2-D convergence has not been measured the same way.
+- **The D-frame cloud at full selection.** At the 15,000-voxel cap the full production D-frame selection leaves
+  15.5% of its energy beyond the cap (stated in the payload). A coarser D-frame voxel (60 mm) would draw more of
+  it within the same bytes; whether that is the better picture is a display decision.
+- **A fixture with azimuth spread.** Every test fixture clones two to four template showers, so none reaches the
+  eight distinct azimuths from which Mardia's circular-linear R is quoted; the quoted path is tested on numpy
+  samples and with a lowered floor. A fixture with a continuous φ would test it end to end.
+- **The C9 block's `hits` count.** `negative_w.splits[].hits` is an integer count, not a hit array, but it is the
+  one `hits` key in a 3-D body and the no-hit-array walker exempts it by name; renaming it (e.g. `n_hits`) would
+  change the frozen statistics contract and its frontend reader together.
