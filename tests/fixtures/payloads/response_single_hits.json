@@ -10,6 +10,7 @@
   ]
  },
  "kind": "single_shower_hits",
+ "n_events": 287,
  "unit": "%",
  "calibration": {
   "a": {
