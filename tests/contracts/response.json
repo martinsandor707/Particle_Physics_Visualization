@@ -41,13 +41,15 @@
       "type": [
        "number",
        "null"
-      ]
+      ],
+      "description": "Σ incident momentum / Σ deposited energy over the whole selection (sum before divide), fitted once per shower."
      },
      "sampling_fraction_pct": {
       "type": [
        "number",
        "null"
-      ]
+      ],
+      "description": "100 Σ E_dep / Σ p, the sampling fraction c implies, in percent."
      },
      "ci95": {
       "anyOf": [
@@ -65,16 +67,19 @@
        {
         "type": "null"
        }
-      ]
+      ],
+      "description": "95% Student-t interval of c (linearised ratio, events as clusters); not clipped."
      },
      "se": {
       "type": [
        "number",
        "null"
-      ]
+      ],
+      "description": "Standard error of c."
      },
      "n": {
-      "type": "integer"
+      "type": "integer",
+      "description": "Events (clusters) the ratio was taken over."
      },
      "method": {
       "type": "string"
@@ -92,7 +97,9 @@
    ],
    "required": [
     "axis",
-    "series"
+    "series",
+    "whisker",
+    "dispersion"
    ],
    "properties": {
     "axis": {
@@ -152,7 +159,8 @@
        "fit",
        "markers",
        "reference",
-       "message"
+       "message",
+       "n_absent"
       ],
       "properties": {
        "key": {
@@ -165,7 +173,8 @@
         "type": "integer"
        },
        "n_dropped": {
-        "type": "integer"
+        "type": "integer",
+        "description": "Present events dropped for a non-finite or negative deposit, or a non-positive momentum."
        },
        "draw": {
         "enum": [
@@ -181,16 +190,25 @@
         ],
         "required": [
          "density",
-         "n_in_range"
+         "n_in_range",
+         "n_below",
+         "n_above"
         ],
         "properties": {
          "density": {
           "type": "array",
           "items": {
            "type": "number"
-          }
+          },
+          "description": "Counts / (N × bin width) over all N events of the series, per percent: the bars' area is the fraction of events inside the axis."
          },
          "n_in_range": {
+          "type": "integer"
+         },
+         "n_below": {
+          "type": "integer"
+         },
+         "n_above": {
           "type": "integer"
          }
         }
@@ -221,7 +239,128 @@
         }
        },
        "fit": {
-        "type": "object"
+        "type": "object",
+        "description": "Plain sample moments (ddof = 1) of all events of the series; no core refit.",
+        "required": [
+         "n",
+         "mu",
+         "sigma",
+         "sigma_population",
+         "mu_error",
+         "sigma_error",
+         "mu_ci95",
+         "sigma_ci95",
+         "sigma_bias_factor",
+         "sigma_robust",
+         "non_gaussian",
+         "shape_testable",
+         "estimator",
+         "moments_subset"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "mu": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sigma": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sigma_population": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "mu_error": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sigma_error": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "mu_ci95": {
+          "anyOf": [
+           {
+            "type": "array",
+            "items": {
+             "type": [
+              "number",
+              "null"
+             ]
+            },
+            "minItems": 2,
+            "maxItems": 2
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "sigma_ci95": {
+          "anyOf": [
+           {
+            "type": "array",
+            "items": {
+             "type": [
+              "number",
+              "null"
+             ]
+            },
+            "minItems": 2,
+            "maxItems": 2
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "sigma_bias_factor": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "sigma_robust": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "non_gaussian": {
+          "type": [
+           "boolean",
+           "null"
+          ]
+         },
+         "shape_testable": {
+          "type": "boolean"
+         },
+         "estimator": {
+          "enum": [
+           "none",
+           "mean_only",
+           "moments_1dof",
+           "moments",
+           "degenerate"
+          ]
+         },
+         "moments_subset": {
+          "type": "string"
+         }
+        }
        },
        "markers": {
         "type": [
@@ -266,7 +405,8 @@
            "null"
           ]
          }
-        }
+        },
+        "description": "The mean of the per-event fractions: ci95 is the capped 95% Student-t interval of the mean, dispersion the uncapped ± sample SD band. Null below N = 2."
        },
        "reference": {
         "type": [
@@ -301,16 +441,27 @@
          "label": {
           "type": "string"
          }
-        }
+        },
+        "description": "The ratio of sums 100 Σ E_dep / Σ p with its own 95% Student-t interval: a different estimator from the mean marker."
        },
        "message": {
         "type": [
          "string",
          "null"
         ]
+       },
+       "n_absent": {
+        "type": "integer",
+        "description": "Selected events that hold no hit rows of this shower; not part of the series."
        }
       }
      }
+    },
+    "whisker": {
+     "$ref": "#/$defs/whisker"
+    },
+    "dispersion": {
+     "type": "string"
     }
    }
   },
@@ -361,7 +512,10 @@
           "dof_note",
           "weak",
           "scaling_factor",
-          "ratio_of_sums"
+          "ratio_of_sums",
+          "sd_se",
+          "sd_ci95",
+          "c4"
          ],
          "properties": {
           "bin": {
@@ -386,7 +540,8 @@
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Mean incident momentum of the bin's events (GeV): the x position."
           },
           "p_sd": {
            "type": [
@@ -404,7 +559,8 @@
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Sample SD (ddof = 1): the uncapped band, √N wider than the whisker."
           },
           "ci95": {
            "anyOf": [
@@ -422,7 +578,8 @@
             {
              "type": "null"
             }
-           ]
+           ],
+           "description": "95% Student-t interval of the mean at every N; null below N = 2; not clipped."
           },
           "se": {
            "type": [
@@ -437,13 +594,15 @@
            ]
           },
           "weak": {
-           "type": "boolean"
+           "type": "boolean",
+           "description": "N < 20."
           },
           "scaling_factor": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "The notebook's 1 / mean of the per-event fractions."
           },
           "ratio_of_sums": {
            "type": "object",
@@ -476,7 +635,41 @@
               }
              ]
             }
-           }
+           },
+           "description": "100 Σ E_dep / Σ p of the bin with its interval; tooltip only, never calibrates."
+          },
+          "sd_se": {
+           "type": [
+            "number",
+            "null"
+           ],
+           "description": "Standard error of the SD, σ / √(2 (N − 1))."
+          },
+          "sd_ci95": {
+           "anyOf": [
+            {
+             "type": "array",
+             "items": {
+              "type": [
+               "number",
+               "null"
+              ]
+             },
+             "minItems": 2,
+             "maxItems": 2
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "Asymmetric 95% χ² interval of the SD, in percent."
+          },
+          "c4": {
+           "type": [
+            "number",
+            "null"
+           ],
+           "description": "Bias factor E[s]/σ of the SD, quoted for 2 ≤ N < 15 only."
           }
          }
         }
@@ -485,23 +678,7 @@
      }
     },
     "whisker": {
-     "type": "object",
-     "required": [
-      "method",
-      "label",
-      "level"
-     ],
-     "properties": {
-      "method": {
-       "type": "string"
-      },
-      "label": {
-       "type": "string"
-      },
-      "level": {
-       "type": "number"
-      }
-     }
+     "$ref": "#/$defs/whisker"
     },
     "dispersion": {
      "type": "string"
@@ -533,7 +710,8 @@
        "type": "boolean"
       },
       "n_clipped": {
-       "type": "integer"
+       "type": "integer",
+       "description": "Bins drawing a mark (point, band or whisker) beyond [lo, hi], clipped or cut at zero, not rescaled."
       }
      }
     }
@@ -548,7 +726,8 @@
     "series",
     "whisker",
     "y",
-    "note"
+    "note",
+    "value_unit"
    ],
    "properties": {
     "series": {
@@ -576,7 +755,8 @@
         ]
        },
        "unit": {
-        "type": "string"
+        "type": "string",
+        "description": "Unit of mu, sigma and sigma_ci95: GeV for the calibrated energy, % for the response ratio."
        },
        "bins": {
         "type": "array",
@@ -596,7 +776,8 @@
           "c4",
           "non_gaussian",
           "momentum_spread",
-          "weak"
+          "weak",
+          "sigma_se"
          ],
          "properties": {
           "bin": {
@@ -618,13 +799,15 @@
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Mean of the series' quantity, in the series unit."
           },
           "sigma": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Unbiased (ddof = 1) width, in the series unit."
           },
           "sigma_ci95": {
            "anyOf": [
@@ -642,13 +825,15 @@
             {
              "type": "null"
             }
-           ]
+           ],
+           "description": "95% χ² interval of σ alone, in the series unit; μ's uncertainty is not in it."
           },
           "value": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "σ/μ in percent."
           },
           "ci95": {
            "anyOf": [
@@ -666,34 +851,46 @@
             {
              "type": "null"
             }
-           ]
+           ],
+           "description": "The whisker: 95% Student-t interval on the delta-method SE of σ/μ, in percent; symmetric, not clipped, and can cross zero at small N."
           },
           "se_delta": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Delta-method standard error of σ/μ in percent; includes μ's uncertainty."
           },
           "c4": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "Bias factor E[s]/σ, quoted for 2 ≤ N < 15 only."
           },
           "non_gaussian": {
            "type": [
             "boolean",
             "null"
-           ]
+           ],
+           "description": "Gaussian-shape verdict; null (untestable) below N = 20."
           },
           "momentum_spread": {
            "type": [
             "number",
             "null"
-           ]
+           ],
+           "description": "σ_p/⟨p⟩ of the bin's events in percent."
           },
           "weak": {
            "type": "boolean"
+          },
+          "sigma_se": {
+           "type": [
+            "number",
+            "null"
+           ],
+           "description": "Standard error of sigma, in the series unit."
           }
          }
         }
@@ -702,23 +899,7 @@
      }
     },
     "whisker": {
-     "type": "object",
-     "required": [
-      "method",
-      "label",
-      "level"
-     ],
-     "properties": {
-      "method": {
-       "type": "string"
-      },
-      "label": {
-       "type": "string"
-      },
-      "level": {
-       "type": "number"
-      }
-     }
+     "$ref": "#/$defs/whisker"
     },
     "y": {
      "type": "object",
@@ -753,6 +934,10 @@
     },
     "note": {
      "type": "string"
+    },
+    "value_unit": {
+     "const": "%",
+     "description": "Unit of value, ci95, se_delta, momentum_spread and y."
     }
    }
   },
@@ -896,6 +1081,25 @@
   },
   "meta": {
    "type": "object"
+  },
+  "whisker": {
+   "type": "object",
+   "required": [
+    "method",
+    "label",
+    "level"
+   ],
+   "properties": {
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    },
+    "level": {
+     "type": "number"
+    }
+   }
   }
  }
 }

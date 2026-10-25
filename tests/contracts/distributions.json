@@ -11,7 +11,9 @@
   "splat",
   "comb",
   "notes",
-  "filter"
+  "filter",
+  "kind",
+  "shower"
  ],
  "properties": {
   "meta": {
@@ -25,7 +27,9 @@
     "unit",
     "scale",
     "source",
-    "weighting"
+    "weighting",
+    "bin_width",
+    "bin_unit"
    ],
    "properties": {
     "key": {
@@ -59,6 +63,18 @@
     },
     "weighting": {
      "type": "string"
+    },
+    "bin_width": {
+     "type": "number",
+     "minimum": 0
+    },
+    "bin_unit": {
+     "enum": [
+      "mm",
+      "decade",
+      "rad",
+      "GeV"
+     ]
     }
    }
   },
@@ -80,38 +96,60 @@
      "counts",
      "below",
      "above",
-     "resultant"
+     "resultant",
+     "n_showers",
+     "rayleigh_p"
     ],
     "properties": {
      "bin": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
      },
      "label": {
       "type": "string"
      },
      "n": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
      },
      "offset": {
-      "type": "number"
+      "type": "integer",
+      "minimum": 0
      },
      "counts": {
       "type": "array",
       "items": {
-       "type": "number"
+       "type": "number",
+       "minimum": 0
       }
      },
      "below": {
-      "type": "number"
+      "type": "number",
+      "minimum": 0
      },
      "above": {
-      "type": "number"
+      "type": "number",
+      "minimum": 0
      },
      "resultant": {
       "type": [
        "number",
        "null"
-      ]
+      ],
+      "minimum": 0,
+      "maximum": 1
+     },
+     "n_showers": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "rayleigh_p": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
      }
     }
    }
@@ -124,7 +162,9 @@
     "percentiles",
     "n_outside",
     "fraction_outside",
-    "note"
+    "note",
+    "provisional",
+    "coarsened"
    ],
    "properties": {
     "lo": {
@@ -152,13 +192,26 @@
      ]
     },
     "n_outside": {
-     "type": "number"
+     "type": "number",
+     "minimum": 0
     },
     "fraction_outside": {
-     "type": "number"
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
     },
     "note": {
      "type": "string"
+    },
+    "provisional": {
+     "type": "boolean"
+    },
+    "coarsened": {
+     "enum": [
+      1,
+      2,
+      4
+     ]
     }
    }
   },
@@ -172,11 +225,13 @@
     "k",
     "k_z",
     "bin_mm",
-    "gap_free"
+    "gap_free",
+    "per_hit",
+    "footprint_mm"
    ],
    "properties": {
     "regime": {
-     "type": "string"
+     "const": "subdeposit3d"
     },
     "k": {
      "type": "integer"
@@ -189,6 +244,18 @@
     },
     "gap_free": {
      "type": "boolean"
+    },
+    "per_hit": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "footprint_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 3,
+     "maxItems": 3
     }
    }
   },
@@ -200,7 +267,11 @@
    "required": [
     "lag1",
     "combed",
-    "measured_on"
+    "measured_on",
+    "threshold",
+    "axis",
+    "k",
+    "k_z"
    ],
    "properties": {
     "lag1": {
@@ -214,6 +285,24 @@
     },
     "measured_on": {
      "type": "string"
+    },
+    "threshold": {
+     "type": "number"
+    },
+    "axis": {
+     "enum": [
+      "u",
+      "v",
+      "w"
+     ]
+    },
+    "k": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "k_z": {
+     "type": "integer",
+     "minimum": 1
     }
    }
   },
@@ -225,6 +314,26 @@
   },
   "filter": {
    "$ref": "#/$defs/filter"
+  },
+  "kind": {
+   "enum": [
+    "two_shower_hits",
+    "single_shower_hits",
+    "single_shower_events"
+   ]
+  },
+  "shower": {
+   "enum": [
+    "a",
+    "b",
+    "both"
+   ]
+  },
+  "edges_log10": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   }
   }
  },
  "$defs": {

@@ -3,12 +3,145 @@
  "title": "GET /api/model-performance?slice_by=momentum_bin (E2)",
  "type": "object",
  "required": [
+  "meta",
+  "n_events",
+  "network",
   "cards",
+  "by_slice",
+  "slices",
+  "notes",
+  "model",
+  "filter",
   "by_momentum_bin"
  ],
  "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "n_events": {
+   "type": "integer"
+  },
+  "network": {
+   "type": "object",
+   "required": [
+    "model",
+    "frame"
+   ],
+   "properties": {
+    "model": {
+     "enum": [
+      "energy",
+      "angle"
+     ]
+    },
+    "frame": {
+     "type": "string"
+    }
+   }
+  },
   "cards": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "sub",
+     "unit",
+     "value",
+     "se",
+     "interval",
+     "n",
+     "show",
+     "primary",
+     "shower",
+     "note"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "label": {
+      "type": "string"
+     },
+     "sub": {
+      "type": "string"
+     },
+     "unit": {
+      "type": "string"
+     },
+     "value": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "se": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "interval": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/interval"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "n": {
+      "type": "integer"
+     },
+     "show": {
+      "enum": [
+       "ci",
+       "se"
+      ]
+     },
+     "primary": {
+      "type": "boolean"
+     },
+     "shower": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "note": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "by_slice": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   }
+  },
+  "slices": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   }
+  },
+  "notes": {
    "type": "object"
+  },
+  "model": {
+   "type": "object",
+   "required": [
+    "title",
+    "caption",
+    "primary",
+    "network"
+   ]
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
   },
   "by_momentum_bin": {
    "$ref": "#/$defs/by_momentum_bin"
@@ -143,19 +276,63 @@
    }
   },
   "meta": {
-   "type": "object"
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "model",
+    "coord_system",
+    "slice_by"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "model": {
+     "enum": [
+      "energy",
+      "angle"
+     ]
+    },
+    "coord_system": {
+     "enum": [
+      "lab",
+      "trans",
+      "local"
+     ]
+    },
+    "slice_by": {
+     "const": "momentum_bin"
+    }
+   }
   },
   "by_momentum_bin": {
    "type": "object",
    "required": [
     "model",
     "frames",
+    "n_events",
     "quantities",
     "bins",
     "series",
     "y_max",
     "thresholds",
     "bootstrap",
+    "excluded",
     "notes"
    ],
    "properties": {
@@ -172,7 +349,34 @@
      }
     },
     "quantities": {
-     "type": "object"
+     "type": "object",
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "label",
+       "unit",
+       "signed",
+       "definition",
+       "interval"
+      ],
+      "properties": {
+       "label": {
+        "type": "string"
+       },
+       "unit": {
+        "type": "string"
+       },
+       "signed": {
+        "type": "boolean"
+       },
+       "definition": {
+        "type": "string"
+       },
+       "interval": {
+        "type": "string"
+       }
+      }
+     }
     },
     "bins": {
      "type": "object",
@@ -232,9 +436,6 @@
        "median_rel_lo",
        "median_rel_hi",
        "median_rel_method",
-       "median_rel_order_lo",
-       "median_rel_order_hi",
-       "median_rel_order_coverage",
        "bias",
        "bias_lo",
        "bias_hi"
@@ -494,8 +695,11 @@
       "type": "object",
       "required": [
        "value",
+       "min",
        "provisional",
-       "overflow"
+       "overflow",
+       "n_overflow",
+       "signed"
       ],
       "properties": {
        "value": {
@@ -510,11 +714,69 @@
        "overflow": {
         "type": "array",
         "items": {
-         "type": "object"
+         "type": "object",
+         "required": [
+          "series",
+          "bin",
+          "n",
+          "value",
+          "lo",
+          "hi"
+         ],
+         "properties": {
+          "series": {
+           "type": "string"
+          },
+          "bin": {
+           "type": "integer"
+          },
+          "n": {
+           "type": "integer"
+          },
+          "value": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "lo": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "hi": {
+           "type": [
+            "number",
+            "null"
+           ]
+          }
+         }
         }
+       },
+       "min": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "n_overflow": {
+        "type": "integer"
+       },
+       "signed": {
+        "type": "boolean"
+       },
+       "note": {
+        "type": "string"
        }
       }
-     }
+     },
+     "required": [
+      "rmse",
+      "mae",
+      "median_rel",
+      "bias"
+     ]
     },
     "thresholds": {
      "type": "object",
@@ -563,7 +825,36 @@
      }
     },
     "notes": {
-     "type": "object"
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     },
+     "required": [
+      "showers",
+      "own_bin",
+      "frames",
+      "calibration",
+      "whiskers",
+      "scale"
+     ]
+    },
+    "n_events": {
+     "type": "integer"
+    },
+    "excluded": {
+     "type": "object",
+     "required": [
+      "unbinned",
+      "nonpositive_true"
+     ],
+     "properties": {
+      "unbinned": {
+       "type": "object"
+      },
+      "nonpositive_true": {
+       "type": "object"
+      }
+     }
     }
    }
   }

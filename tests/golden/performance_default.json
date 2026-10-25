@@ -1,0 +1,1068 @@
+{
+ "default": {
+  "meta": {
+   "table_name": "experiment_baseline",
+   "exact": true,
+   "cached": false,
+   "warnings": [],
+   "model": "segmentation",
+   "coord_system": "lab"
+  },
+  "n_events": 2,
+  "network": {
+   "model": "segmentation",
+   "frame": "absolute"
+  },
+  "cards": [
+   {
+    "id": "accuracy",
+    "label": "Voxel accuracy",
+    "sub": "assignment at fA ≥ 0.5 on both sides",
+    "unit": "fraction",
+    "value": 0.999,
+    "se": 0.001842000000094463,
+    "interval": {
+     "lo": 0.9755955479987998,
+     "hi": 1.0,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": null,
+    "note": ""
+   },
+   {
+    "id": "wmae",
+    "label": "Energy-weighted MAE",
+    "sub": "fraction of energy mis-assigned",
+    "unit": "fraction",
+    "value": 0.013633679229288617,
+    "se": 0.022729013933494722,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.30242853026827254,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": null,
+    "note": ""
+   },
+   {
+    "id": "mae",
+    "label": "Voxel MAE",
+    "sub": "unweighted; dominated by the lowest-energy hits",
+    "unit": "",
+    "value": 0.009524636685189762,
+    "se": 0.015011814561987316,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.2002647525098006,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": null,
+    "note": ""
+   },
+   {
+    "id": "rmse",
+    "label": "Voxel RMSE",
+    "sub": "on the fraction itself",
+    "unit": "",
+    "value": 0.04169923307137796,
+    "se": 0.03631693623046214,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.20055538826602515,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, inf]; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": null,
+    "note": ""
+   },
+   {
+    "id": "f1_a",
+    "label": "F1 (shower A)",
+    "sub": "2·TP / (predicted A + true A)",
+    "unit": "",
+    "value": 0.9979716024340771,
+    "se": 0.0027977897461521845,
+    "interval": {
+     "lo": 0.9624228859194675,
+     "hi": 1.0,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": null,
+    "note": ""
+   },
+   {
+    "id": "split_cells",
+    "label": "Split cells",
+    "sub": "cells holding energy of both showers (two rows each)",
+    "unit": "fraction",
+    "value": 0.0,
+    "se": 0.0,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.0,
+     "level": 0.95,
+     "method": "ratio_t",
+     "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio)"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": null,
+    "note": "A property of the data, not of the network: every such cell is two rows, so the unweighted per-hit counts see it twice."
+   }
+  ],
+  "by_slice": [
+   {
+    "slice": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "n_events": 2,
+    "classification": {
+     "n_voxels": 1000,
+     "accuracy": 0.999,
+     "precision_a": 1.0,
+     "recall_a": 0.9959514170040485,
+     "f1_a": 0.9979716024340771
+    },
+    "regression": {
+     "mae": 0.009524636685189762,
+     "mae_energy_weighted": 0.013633679229288617,
+     "rmse": 0.04169923307137796
+    },
+    "cards": [
+     {
+      "id": "accuracy",
+      "label": "Voxel accuracy",
+      "sub": "assignment at fA ≥ 0.5 on both sides",
+      "unit": "fraction",
+      "value": 0.999,
+      "se": 0.001842000000094463,
+      "interval": {
+       "lo": 0.9755955479987998,
+       "hi": 1.0,
+       "level": 0.95,
+       "method": "ratio_t",
+       "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": null,
+      "note": ""
+     },
+     {
+      "id": "wmae",
+      "label": "Energy-weighted MAE",
+      "sub": "fraction of energy mis-assigned",
+      "unit": "fraction",
+      "value": 0.013633679229288617,
+      "se": 0.022729013933494722,
+      "interval": {
+       "lo": 0.0,
+       "hi": 0.30242853026827254,
+       "level": 0.95,
+       "method": "ratio_t",
+       "label": "95% Student-t interval, 1 dof; events as clusters (linearised ratio), clipped to [0, 1]"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": null,
+      "note": ""
+     }
+    ]
+   }
+  ],
+  "slices": [
+   {
+    "index": 0,
+    "label": "D < 50 mm",
+    "lo": 0.0,
+    "hi": 50.0
+   },
+   {
+    "index": 1,
+    "label": "50 ≤ D < 100 mm",
+    "lo": 50.0,
+    "hi": 100.0
+   },
+   {
+    "index": 2,
+    "label": "100 ≤ D < 150 mm",
+    "lo": 100.0,
+    "hi": 150.0
+   },
+   {
+    "index": 3,
+    "label": "150 ≤ D < 200 mm",
+    "lo": 150.0,
+    "hi": 200.0
+   },
+   {
+    "index": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "lo": 200.0,
+    "hi": null
+   }
+  ],
+  "notes": {
+   "uncertainty": "Each card quotes its standard error and a 95% interval of the statistic over the selected events; below N = 15 the interval is shown beside the SE, with the card's small-sample caveats.",
+   "mae": "Unweighted voxel MAE counts every hit equally. Per-hit energies span fifteen decades, so it is dominated by the lowest-energy hits, where the assignment is physically irrelevant.",
+   "mae_energy_weighted": "Energy-weighted MAE is the fraction of deposited energy the network mis-assigns between the two showers: the headline figure.",
+   "clusters": "The hits of one event share a shower, so the uncertainty treats events as clusters (linearised ratio of sums, Student-t)."
+  },
+  "classification": {
+   "n_voxels": 1000,
+   "accuracy": 0.999,
+   "precision_a": 1.0,
+   "recall_a": 0.9959514170040485,
+   "f1_a": 0.9979716024340771
+  },
+  "regression": {
+   "mae": 0.009524636685189762,
+   "mae_energy_weighted": 0.013633679229288617,
+   "rmse": 0.04169923307137796
+  },
+  "model": {
+   "title": "Segmentation Model",
+   "caption": "The segmentation network of the absolute (detector) frame assigns each hit's energy between the two showers, read from segmentation_absolute_pred against its truth E_A / E_voxel, which is fractional wherever both showers deposit in one cell. Classification uses the ≥ 0.5 majority on both sides; a cell shared by both showers is two rows, so unweighted counts see it twice. The headline is the energy-weighted MAE, exact over the selection: the fraction of deposited energy assigned to the wrong shower.",
+   "primary": [
+    "accuracy",
+    "wmae"
+   ],
+   "network": {
+    "model": "segmentation",
+    "frame": "absolute"
+   }
+  },
+  "filter": {
+   "e1": [
+    2.712594747543335,
+    17.876461029052734
+   ],
+   "e2": [
+    6.385610580444336,
+    12.54078197479248
+   ],
+   "d": [
+    2258.51123046875,
+    3077.028076171875
+   ],
+   "include_undefined_d": false
+  }
+ },
+ "energy": {
+  "meta": {
+   "table_name": "experiment_baseline",
+   "exact": true,
+   "cached": false,
+   "warnings": [],
+   "model": "energy",
+   "coord_system": "lab"
+  },
+  "n_events": 2,
+  "network": {
+   "model": "energy",
+   "frame": "absolute"
+  },
+  "cards": [
+   {
+    "id": "sigma_rel_a",
+    "label": "Energy resolution A",
+    "sub": "σ of (pred − true) / true, ddof = 1",
+    "unit": "fraction",
+    "value": 0.030807615655241833,
+    "se": 0.02178427394201034,
+    "interval": {
+     "lo": 0.013744636927171755,
+     "hi": 0.9831105205842336,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "a",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_rel_a",
+    "label": "Relative bias A",
+    "sub": "mean of (pred − true) / true",
+    "unit": "fraction",
+    "value": 0.09520153869365278,
+    "se": 0.02178427394201034,
+    "interval": {
+     "lo": -0.1815894460135306,
+     "hi": 0.37199252340083616,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "rmse_a",
+    "label": "RMSE A",
+    "sub": "√mean (pred − true)²",
+    "unit": "GeV",
+    "value": 0.9547781488287147,
+    "se": 0.4246534812904422,
+    "interval": {
+     "lo": 0.0,
+     "hi": 3.34886447572396,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "corr_a",
+    "label": "Correlation A",
+    "sub": "Pearson r, pred vs. true",
+    "unit": "",
+    "value": null,
+    "se": null,
+    "interval": null,
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": "Too few showers, or no spread, for a correlation."
+   },
+   {
+    "id": "sigma_rel_b",
+    "label": "Energy resolution B",
+    "sub": "σ of (pred − true) / true, ddof = 1",
+    "unit": "fraction",
+    "value": 0.02198821284516317,
+    "se": 0.015548014408988025,
+    "interval": {
+     "lo": 0.009809912120957017,
+     "hi": 0.7016720676741904,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "b",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_rel_b",
+    "label": "Relative bias B",
+    "sub": "mean of (pred − true) / true",
+    "unit": "fraction",
+    "value": -0.0164647470264106,
+    "se": 0.015548014408988025,
+    "interval": {
+     "lo": -0.21401781810701243,
+     "hi": 0.18108832405419123,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   },
+   {
+    "id": "rmse_b",
+    "label": "RMSE B",
+    "sub": "√mean (pred − true)²",
+    "unit": "GeV",
+    "value": 0.14477591910326598,
+    "se": 0.07193149371773681,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.5344149289289803,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   },
+   {
+    "id": "corr_b",
+    "label": "Correlation B",
+    "sub": "Pearson r, pred vs. true",
+    "unit": "",
+    "value": null,
+    "se": null,
+    "interval": null,
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": "Too few showers, or no spread, for a correlation."
+   }
+  ],
+  "by_slice": [
+   {
+    "slice": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "n_events": 2,
+    "cards": [
+     {
+      "id": "sigma_rel_a",
+      "label": "Energy resolution A",
+      "sub": "σ of (pred − true) / true, ddof = 1",
+      "unit": "fraction",
+      "value": 0.030807615655241833,
+      "se": 0.02178427394201034,
+      "interval": {
+       "lo": 0.013744636927171755,
+       "hi": 0.9831105205842336,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "a",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     },
+     {
+      "id": "sigma_rel_b",
+      "label": "Energy resolution B",
+      "sub": "σ of (pred − true) / true, ddof = 1",
+      "unit": "fraction",
+      "value": 0.02198821284516317,
+      "se": 0.015548014408988025,
+      "interval": {
+       "lo": 0.009809912120957017,
+       "hi": 0.7016720676741904,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "b",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     }
+    ]
+   }
+  ],
+  "slices": [
+   {
+    "index": 0,
+    "label": "D < 50 mm",
+    "lo": 0.0,
+    "hi": 50.0
+   },
+   {
+    "index": 1,
+    "label": "50 ≤ D < 100 mm",
+    "lo": 50.0,
+    "hi": 100.0
+   },
+   {
+    "index": 2,
+    "label": "100 ≤ D < 150 mm",
+    "lo": 100.0,
+    "hi": 150.0
+   },
+   {
+    "index": 3,
+    "label": "150 ≤ D < 200 mm",
+    "lo": 150.0,
+    "hi": 200.0
+   },
+   {
+    "index": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "lo": 200.0,
+    "hi": null
+   }
+  ],
+  "notes": {
+   "uncertainty": "Each card quotes its standard error and a 95% interval of the statistic over the selected events; below N = 15 the interval is shown beside the SE, with the card's small-sample caveats.",
+   "showers": "Showers A and B are reported separately, each with its own N; an event without shower-A hits has no A prediction and is dropped from A, never zero-filled."
+  },
+  "model": {
+   "title": "Energy Estimation Model",
+   "caption": "The energy network of the absolute (detector) frame estimates each shower's energy (energy_absolute_pred), compared here with the incident momentum with no sampling-fraction calibration applied: the network predicts the momentum scale directly. The headline is the relative resolution σ of (pred − true) / true per shower.",
+   "primary": [
+    "sigma_rel_a",
+    "sigma_rel_b"
+   ],
+   "network": {
+    "model": "energy",
+    "frame": "absolute"
+   }
+  },
+  "filter": {
+   "e1": [
+    2.712594747543335,
+    17.876461029052734
+   ],
+   "e2": [
+    6.385610580444336,
+    12.54078197479248
+   ],
+   "d": [
+    2258.51123046875,
+    3077.028076171875
+   ],
+   "include_undefined_d": false
+  }
+ },
+ "angle": {
+  "meta": {
+   "table_name": "experiment_baseline",
+   "exact": true,
+   "cached": false,
+   "warnings": [],
+   "model": "angle",
+   "coord_system": "lab"
+  },
+  "n_events": 2,
+  "network": {
+   "model": "angle",
+   "frame": "absolute"
+  },
+  "cards": [
+   {
+    "id": "sigma_theta_a",
+    "label": "θ resolution A",
+    "sub": "σ of θ_pred − θ_true, ddof = 1",
+    "unit": "mrad",
+    "value": 9.104709729293116,
+    "se": 6.4380019903182975,
+    "interval": {
+     "lo": 4.062012813871551,
+     "hi": 290.54296255512764,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "a",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_theta_a",
+    "label": "θ bias A",
+    "sub": "mean of θ_pred − θ_true",
+    "unit": "mrad",
+    "value": -15.021994709968567,
+    "se": 6.4380019903182975,
+    "interval": {
+     "lo": -96.82324799895285,
+     "hi": 66.77925857901572,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "rmse_theta_a",
+    "label": "θ RMSE A",
+    "sub": "√mean (θ_pred − θ_true)²",
+    "unit": "mrad",
+    "value": 16.343445006903103,
+    "se": 5.917456925420544,
+    "interval": {
+     "lo": 0.0,
+     "hi": 52.19908220501111,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "sigma_theta_b",
+    "label": "θ resolution B",
+    "sub": "σ of θ_pred − θ_true, ddof = 1",
+    "unit": "mrad",
+    "value": 0.34364432933357447,
+    "se": 0.2429932355880737,
+    "interval": {
+     "lo": 0.15331490082283497,
+     "hi": 10.966131208841785,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "b",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_theta_b",
+    "label": "θ bias B",
+    "sub": "mean of θ_pred − θ_true",
+    "unit": "mrad",
+    "value": 0.16899406909942627,
+    "se": 0.2429932355880737,
+    "interval": {
+     "lo": -2.918477982282638,
+     "hi": 3.2564661204814906,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   },
+   {
+    "id": "rmse_theta_b",
+    "label": "θ RMSE B",
+    "sub": "√mean (θ_pred − θ_true)²",
+    "unit": "mrad",
+    "value": 0.29598092494676537,
+    "se": 0.13874007472964642,
+    "interval": {
+     "lo": 0.0,
+     "hi": 1.0635476662190362,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   }
+  ],
+  "by_slice": [
+   {
+    "slice": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "n_events": 2,
+    "cards": [
+     {
+      "id": "sigma_theta_a",
+      "label": "θ resolution A",
+      "sub": "σ of θ_pred − θ_true, ddof = 1",
+      "unit": "mrad",
+      "value": 9.104709729293116,
+      "se": 6.4380019903182975,
+      "interval": {
+       "lo": 4.062012813871551,
+       "hi": 290.54296255512764,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "a",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     },
+     {
+      "id": "sigma_theta_b",
+      "label": "θ resolution B",
+      "sub": "σ of θ_pred − θ_true, ddof = 1",
+      "unit": "mrad",
+      "value": 0.34364432933357447,
+      "se": 0.2429932355880737,
+      "interval": {
+       "lo": 0.15331490082283497,
+       "hi": 10.966131208841785,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "b",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     }
+    ]
+   }
+  ],
+  "slices": [
+   {
+    "index": 0,
+    "label": "D < 50 mm",
+    "lo": 0.0,
+    "hi": 50.0
+   },
+   {
+    "index": 1,
+    "label": "50 ≤ D < 100 mm",
+    "lo": 50.0,
+    "hi": 100.0
+   },
+   {
+    "index": 2,
+    "label": "100 ≤ D < 150 mm",
+    "lo": 100.0,
+    "hi": 150.0
+   },
+   {
+    "index": 3,
+    "label": "150 ≤ D < 200 mm",
+    "lo": 150.0,
+    "hi": 200.0
+   },
+   {
+    "index": 4,
+    "label": "D ≥ 200 mm (well separated)",
+    "lo": 200.0,
+    "hi": null
+   }
+  ],
+  "notes": {
+   "uncertainty": "Each card quotes its standard error and a 95% interval of the statistic over the selected events; below N = 15 the interval is shown beside the SE, with the card's small-sample caveats.",
+   "showers": "Showers A and B are reported separately, each with its own N; an event without shower-A hits has no A prediction and is dropped from A, never zero-filled."
+  },
+  "model": {
+   "title": "Incident Angle Estimation Model",
+   "caption": "The angle network of the absolute (detector) frame predicts each shower's polar angle θ (angle_absolute_pred) against the incident θ; the azimuth φ is not predicted. θ does not wrap, so its mean residual is a meaningful bias. The headline is the θ resolution per shower, in mrad.",
+   "primary": [
+    "sigma_theta_a",
+    "sigma_theta_b"
+   ],
+   "network": {
+    "model": "angle",
+    "frame": "absolute"
+   }
+  },
+  "filter": {
+   "e1": [
+    2.712594747543335,
+    17.876461029052734
+   ],
+   "e2": [
+    6.385610580444336,
+    12.54078197479248
+   ],
+   "d": [
+    2258.51123046875,
+    3077.028076171875
+   ],
+   "include_undefined_d": false
+  }
+ },
+ "energy_local_edges": {
+  "meta": {
+   "table_name": "experiment_baseline",
+   "exact": true,
+   "cached": false,
+   "warnings": [],
+   "model": "energy",
+   "coord_system": "local"
+  },
+  "n_events": 2,
+  "network": {
+   "model": "energy",
+   "frame": "local"
+  },
+  "cards": [
+   {
+    "id": "sigma_rel_a",
+    "label": "Energy resolution A",
+    "sub": "σ of (pred − true) / true, ddof = 1",
+    "unit": "fraction",
+    "value": 0.013744889960908599,
+    "se": 0.00971910489802137,
+    "interval": {
+     "lo": 0.0061322019928690165,
+     "hi": 0.438617063912335,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "a",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_rel_a",
+    "label": "Relative bias A",
+    "sub": "mean of (pred − true) / true",
+    "unit": "fraction",
+    "value": -0.03078347529395138,
+    "se": 0.00971910489802137,
+    "interval": {
+     "lo": -0.1542744221282109,
+     "hi": 0.09270747154030815,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "rmse_a",
+    "label": "RMSE A",
+    "sub": "√mean (pred − true)²",
+    "unit": "GeV",
+    "value": 0.27736753460452385,
+    "se": 0.11692422938608794,
+    "interval": {
+     "lo": 0.0,
+     "hi": 0.9492465149688162,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": ""
+   },
+   {
+    "id": "corr_a",
+    "label": "Correlation A",
+    "sub": "Pearson r, pred vs. true",
+    "unit": "",
+    "value": null,
+    "se": null,
+    "interval": null,
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "a",
+    "note": "Too few showers, or no spread, for a correlation."
+   },
+   {
+    "id": "sigma_rel_b",
+    "label": "Energy resolution B",
+    "sub": "σ of (pred − true) / true, ddof = 1",
+    "unit": "fraction",
+    "value": 0.0670380204267065,
+    "se": 0.04740303884104645,
+    "interval": {
+     "lo": 0.029908619394394077,
+     "hi": 2.139269195583535,
+     "level": 0.95,
+     "method": "chi2",
+     "label": "95% χ² interval of σ, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": true,
+    "shower": "b",
+    "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+   },
+   {
+    "id": "bias_rel_b",
+    "label": "Relative bias B",
+    "sub": "mean of (pred − true) / true",
+    "unit": "fraction",
+    "value": 0.007327609450511478,
+    "se": 0.04740303884104645,
+    "interval": {
+     "lo": -0.5949754020638247,
+     "hi": 0.6096306209648477,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean, 1 dof"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   },
+   {
+    "id": "rmse_b",
+    "label": "RMSE B",
+    "sub": "√mean (pred − true)²",
+    "unit": "GeV",
+    "value": 0.5179696047707533,
+    "se": 0.19576880091121932,
+    "interval": {
+     "lo": 0.0,
+     "hi": 1.6867505640022975,
+     "level": 0.95,
+     "method": "t",
+     "label": "95% Student-t interval of the mean squared residual, 1 dof; square root of the MSE interval"
+    },
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": ""
+   },
+   {
+    "id": "corr_b",
+    "label": "Correlation B",
+    "sub": "Pearson r, pred vs. true",
+    "unit": "",
+    "value": null,
+    "se": null,
+    "interval": null,
+    "n": 2,
+    "show": "ci",
+    "primary": false,
+    "shower": "b",
+    "note": "Too few showers, or no spread, for a correlation."
+   }
+  ],
+  "by_slice": [
+   {
+    "slice": 2,
+    "label": "D ≥ 1500 mm (well separated)",
+    "n_events": 2,
+    "cards": [
+     {
+      "id": "sigma_rel_a",
+      "label": "Energy resolution A",
+      "sub": "σ of (pred − true) / true, ddof = 1",
+      "unit": "fraction",
+      "value": 0.013744889960908599,
+      "se": 0.00971910489802137,
+      "interval": {
+       "lo": 0.0061322019928690165,
+       "hi": 0.438617063912335,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "a",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     },
+     {
+      "id": "sigma_rel_b",
+      "label": "Energy resolution B",
+      "sub": "σ of (pred − true) / true, ddof = 1",
+      "unit": "fraction",
+      "value": 0.0670380204267065,
+      "se": 0.04740303884104645,
+      "interval": {
+       "lo": 0.029908619394394077,
+       "hi": 2.139269195583535,
+       "level": 0.95,
+       "method": "chi2",
+       "label": "95% χ² interval of σ, 1 dof"
+      },
+      "n": 2,
+      "show": "ci",
+      "primary": true,
+      "shower": "b",
+      "note": "ddof = 1 makes the variance unbiased, not σ: expected s/σ = c4 = 0.798 at N = 2. Gaussian shape untestable below N = 20."
+     }
+    ]
+   }
+  ],
+  "slices": [
+   {
+    "index": 0,
+    "label": "D < 500 mm",
+    "lo": 0.0,
+    "hi": 500.0
+   },
+   {
+    "index": 1,
+    "label": "500 ≤ D < 1500 mm",
+    "lo": 500.0,
+    "hi": 1500.0
+   },
+   {
+    "index": 2,
+    "label": "D ≥ 1500 mm (well separated)",
+    "lo": 1500.0,
+    "hi": null
+   }
+  ],
+  "notes": {
+   "uncertainty": "Each card quotes its standard error and a 95% interval of the statistic over the selected events; below N = 15 the interval is shown beside the SE, with the card's small-sample caveats.",
+   "showers": "Showers A and B are reported separately, each with its own N; an event without shower-A hits has no A prediction and is dropped from A, never zero-filled."
+  },
+  "model": {
+   "title": "Energy Estimation Model",
+   "caption": "The energy network of the local frame estimates each shower's energy (energy_local_pred), compared here with the incident momentum with no sampling-fraction calibration applied: the network predicts the momentum scale directly. The headline is the relative resolution σ of (pred − true) / true per shower.",
+   "primary": [
+    "sigma_rel_a",
+    "sigma_rel_b"
+   ],
+   "network": {
+    "model": "energy",
+    "frame": "local"
+   }
+  },
+  "filter": {
+   "e1": [
+    2.712594747543335,
+    17.876461029052734
+   ],
+   "e2": [
+    6.385610580444336,
+    12.54078197479248
+   ],
+   "d": [
+    2258.51123046875,
+    3077.028076171875
+   ],
+   "include_undefined_d": false
+  }
+ }
+}

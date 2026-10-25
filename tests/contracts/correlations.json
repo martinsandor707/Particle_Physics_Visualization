@@ -17,7 +17,11 @@
   "coord_system",
   "energy_scale",
   "notes",
-  "filter"
+  "filter",
+  "weak",
+  "shower",
+  "showers",
+  "weightings"
  ],
  "properties": {
   "meta": {
@@ -54,7 +58,9 @@
       "type": "boolean"
      }
     }
-   }
+   },
+   "minItems": 7,
+   "maxItems": 7
   },
   "matrix": {
    "type": "array",
@@ -71,14 +77,17 @@
       "hatched",
       "weighting",
       "event_weighted_r",
-      "mardia"
+      "mardia",
+      "event_weighted_ci95"
      ],
      "properties": {
       "r": {
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "minimum": -1,
+       "maximum": 1
       },
       "ci95": {
        "anyOf": [
@@ -102,31 +111,40 @@
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "minimum": 0
       },
       "n_eff": {
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "minimum": 0
       },
       "se_iid": {
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "minimum": 0
       },
       "hatched": {
        "type": "boolean"
       },
       "weighting": {
-       "type": "string"
+       "enum": [
+        "hit",
+        "hit_shower",
+        "shower_by_hits"
+       ]
       },
       "event_weighted_r": {
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "minimum": -1,
+       "maximum": 1
       },
       "mardia": {
        "type": [
@@ -135,38 +153,85 @@
        ],
        "required": [
         "R",
-        "se"
+        "se",
+        "event_weighted_R",
+        "event_weighted_se"
        ],
        "properties": {
         "R": {
          "type": [
           "number",
           "null"
-         ]
+         ],
+         "minimum": 0,
+         "maximum": 1
         },
         "se": {
          "type": [
           "number",
           "null"
-         ]
+         ],
+         "minimum": 0
+        },
+        "event_weighted_R": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0,
+         "maximum": 1
+        },
+        "event_weighted_se": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
         }
        }
+      },
+      "event_weighted_ci95": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "minItems": 2,
+         "maxItems": 2
+        },
+        {
+         "type": "null"
+        }
+       ]
       }
      }
-    }
-   }
+    },
+    "minItems": 7,
+    "maxItems": 7
+   },
+   "minItems": 7,
+   "maxItems": 7
   },
   "n_hits": {
-   "type": "integer"
+   "type": "integer",
+   "minimum": 0
   },
   "n_events": {
-   "type": "integer"
+   "type": "integer",
+   "minimum": 0
   },
   "n_showers": {
-   "type": "integer"
+   "type": "integer",
+   "minimum": 0
   },
   "groups": {
-   "type": "integer"
+   "type": "integer",
+   "minimum": 0,
+   "maximum": 64
   },
   "dof": {
    "type": [
@@ -186,7 +251,8 @@
     "palette",
     "diverging",
     "vmin",
-    "vmax"
+    "vmax",
+    "label"
    ],
    "properties": {
     "palette": {
@@ -200,6 +266,9 @@
     },
     "vmax": {
      "const": 1
+    },
+    "label": {
+     "type": "string"
     }
    }
   },
@@ -224,6 +293,35 @@
   },
   "filter": {
    "$ref": "#/$defs/filter"
+  },
+  "weak": {
+   "type": "boolean"
+  },
+  "shower": {
+   "enum": [
+    "a",
+    "b",
+    "both"
+   ]
+  },
+  "showers": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "minItems": 1,
+   "maxItems": 2
+  },
+  "weightings": {
+   "type": "object",
+   "required": [
+    "hit",
+    "hit_shower",
+    "shower_by_hits"
+   ],
+   "additionalProperties": {
+    "type": "string"
+   }
   }
  },
  "$defs": {

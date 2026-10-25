@@ -24,6 +24,12 @@ notices:
   inside the scan (``query/frame_sql.py``) - and the largest difference
   between the two over the selection, beside the ingest-time figure.
 
+**One shower per event.** A single-shower experiment is served by the same
+code: one shower is superimposed per event, so its one ``energy_voxel``
+centroid has no partner and no offset, ``frame_mean`` and the coherence carry
+``a`` only, and the notices never mention 'A+B' hits, the separation D or
+events without one.
+
 Order of work, window floors, kernel gates and the whole-response budget are
 the canonical frame's (``frame_canonical.py``).
 """
@@ -45,6 +51,7 @@ from ..query import canonical, centroids, density, reconstruct, sampling, summar
 from ..query import frame_sql
 from ..query import planes as planes_mod
 from ..query import shower_frames
+from ..query import showers as showers_mod
 from ..query import stagger as stagger_mod
 from ..query.filters import FilterSpec
 from ..query.shower_frames import ShowerBundle, ShowerStats
@@ -140,10 +147,17 @@ def _comb_report(bundle: ShowerBundle, n_events: int) -> dict[str, Any]:
 
 
 def _superimposed_pairs(pairs: dict[str, centroids.CentroidPair], symbols: dict[str, str]) -> dict[str, Any]:
-    """Voxel centroid pairs with the A-B distance renamed to what it is here."""
+    """Voxel centroid pairs with the A-B distance renamed to what it is here.
+
+    A single shower's centroid has no partner, so no offset either.
+    """
     out = {}
     for key, pair in pairs.items():
         data = pair.as_dict()
+        if pair.b is None:
+            data["offset_mm"] = None
+            out[key] = data
+            continue
         data["offset_mm"] = data.pop("separation_mm")
         data["separation_mm"] = None
         data["offset_note"] = (
@@ -156,17 +170,26 @@ def _superimposed_pairs(pairs: dict[str, centroids.CentroidPair], symbols: dict[
 
 
 def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
-    """Mean per-event centroid of each shower in this frame, with SD and t-interval."""
-    def point(shower: str) -> dict[str, Any]:
+    """Mean per-event centroid of each shower in this frame, with SD and t-interval.
+
+    Shower B's slots are null for a single-shower experiment.
+    """
+    def point(shower: str) -> dict[str, Any] | None:
+        if shower not in stats.mean:
+            return None
         m = stats.mean[shower]
         return {"x": m["x"].mean, "y": m["y"].mean, "z": m["z"].mean, "energy": None}
 
-    def per(shower: str, attr: str) -> dict[str, float | None]:
+    def per(shower: str, attr: str) -> dict[str, float | None] | None:
+        if shower not in stats.mean:
+            return None
         return {axis: getattr(stats.mean[shower][axis], attr) for axis in "xyz"}
 
     n = stats.n_events
+    two = len(stats.showers) > 1
     if n < 2:
-        dof = "N = 1: a single event's own centroids; no dispersion or interval is defined."
+        own = "centroids" if two else "centroid"
+        dof = f"N = 1: a single event's own {own}; no dispersion or interval is defined."
     elif n < frame_mod.PROVISIONAL_N:
         dof = (
             f"N = {n}: SD with ddof = 1 and a Student-t 95% interval on {n - 1} degree(s) of "
@@ -175,13 +198,14 @@ def _frame_mean(stats: ShowerStats, kind: str) -> dict[str, Any]:
     else:
         dof = f"N = {n}: SD with ddof = 1 and a Student-t 95% interval on {n - 1} degrees of freedom."
     column = "centroid_*_trans" if kind == KIND_TRANS else "centroid_*_local"
+    whose = "each shower's" if two else "the shower's"
     # One event has no ensemble to average: its marker is that event's own
     # centroid, and is labelled so wherever the label travels.
     label = (
-        f"This single event's own centroid ({column}), relative to each shower's entry point: "
+        f"This single event's own centroid ({column}), relative to {whose} entry point: "
         "not an ensemble mean"
         if n < 2 else
-        f"Mean per-event centroid ({column}), relative to each shower's entry point"
+        f"Mean per-event centroid ({column}), relative to {whose} entry point"
     )
     return {
         "label": label,
@@ -274,6 +298,9 @@ def build_response(
     lattice = record.lattice
     decision = sampling.decide(record, preview, settings.sample_percent)
     footprint = canonical.cell_footprint(con, record)
+    # Two showers per event, or one: what the notices may say about 'A+B'
+    # hits, the separation D and the events without one.
+    two = len(showers_mod.of(record)) == 2
     symbols = shower_frames.SYMBOLS[kind]
     names = _panel_names(symbols)
     title = FRAME_TITLE[kind]
@@ -308,8 +335,8 @@ def build_response(
 
     selection_dict = summary.summarise(con, record, spec).as_dict()
     selection_dict["centroid_dataset"]["label"] = (
-        f"Dataset centroids (absolute-frame per-event average; not drawn in the {title} "
-        "frame - see centroids.frame_mean)"
+        f"Dataset centroid{'s' if two else ''} (absolute-frame per-event average; not drawn in "
+        f"the {title} frame - see centroids.frame_mean)"
     )
 
     if kind == KIND_TRANS:
@@ -353,6 +380,11 @@ def build_response(
             "superimposed at their own entry points"
             + (", each rotated so its incident direction is +w" if kind == KIND_LOCAL else "")
             + ". ⟨ρ⟩ is energy per event and per mm², so it sums both showers of an event."
+        ) if two else (
+            f"{title.capitalize()} frame: {stats.n_showers:,} shower(s), one per event, superimposed "
+            "at their own entry points"
+            + (", each rotated so its incident direction is +w" if kind == KIND_LOCAL else "")
+            + ". ⟨ρ⟩ is energy per event and per mm²."
         )})
         notices.append({"scope": "frame", "text": comb["note"]})
         notices.append({"scope": "frame", "text": _floor_notice(channel, display, rendered["panels"], names)})
@@ -361,6 +393,9 @@ def build_response(
             notices.append({"scope": "frame", "text": (
                 f"{stats.n_excluded_no_frame:,} selected event(s) have no A-B separation (no "
                 f"shower-A centroid); they are excluded from N and from every {title} panel."
+            ) if two else (
+                f"{stats.n_excluded_no_frame:,} selected event(s) have no incident direction or "
+                f"entry point P0; they are excluded from N and from every {title} panel."
             )})
         if spec.include_undefined_d:
             notices.append({"scope": "separation", "text": (
@@ -421,7 +456,8 @@ def build_response(
                 "x, y centroid of that shower's first populated layer, at that layer's depth"
                 + (" - and rotated by that shower's R(θ, φ), so its incident direction is +w"
                    if kind == KIND_LOCAL else "")
-                + ". D (the slider) is the absolute-frame 3-D centroid distance."
+                + (". D (the slider) is the absolute-frame 3-D centroid distance." if two else
+                   ". One shower per event: there is no separation D.")
             ),
             "symbols": symbols,
             "pitch_mm": grid.pitch,
