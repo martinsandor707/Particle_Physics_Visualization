@@ -490,3 +490,20 @@ def test_no_single_shower_sentence_signs_a_number_with_a_hyphen(single_client):
             if path.endswith(("data", ".table_name", "source_files")):
                 continue
             assert not signed_hyphens(text), (path, signed_hyphens(text))
+
+
+# ------------------------------------------------------- C9 in the Local frame --
+
+@pytest.mark.parametrize("table", [SINGLE_HITS_TABLE, BASELINE_TABLE])
+def test_the_local_frame_carries_the_negative_depth_block(single_client, table):
+    """The Local frame embeds /api/statistics' C9 block for the same selection, and only it."""
+    local = _get(single_client, "/api/projections", table_name=table, coord_system="local")
+    block = local["frame"]["negative_w"]
+    contract_check.check(block, "statistics", at="negative_w")
+    stats = _get(single_client, "/api/statistics", table_name=table)
+    assert block == stats["negative_w"]
+    assert block["available"] is True and "−" in block["summary"]
+    trans = _get(single_client, "/api/projections", table_name=table, coord_system="trans")
+    assert "negative_w" not in trans["frame"]
+    lab = _get(single_client, "/api/projections", table_name=table)
+    assert "frame" not in lab

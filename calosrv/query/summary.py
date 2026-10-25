@@ -40,13 +40,13 @@ def centroid_columns(shower: ShowerColumns) -> tuple[str, str, str]:
     ``cax, cay, caz`` (``cbx ..`` for B) in both hit kinds; the single shower
     is stored under the shower-A names.
     """
-    x, y, z = (f"CAST(c{shower.key}{axis} AS DOUBLE)" for axis in "xyz")
+    x, y, z = (f"CAST({shower.centroid(axis)} AS DOUBLE)" for axis in "xyz")
     return x, y, z
 
 
 def centroid_defined(shower: ShowerColumns) -> str:
     """The event-table predicate: the shower's 3-D centroid is defined."""
-    return " AND ".join(f"c{shower.key}{axis} IS NOT NULL" for axis in "xyz")
+    return " AND ".join(f"{shower.centroid(axis)} IS NOT NULL" for axis in "xyz")
 
 
 @dataclass

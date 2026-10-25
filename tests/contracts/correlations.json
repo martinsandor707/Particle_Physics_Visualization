@@ -76,9 +76,9 @@
       "se_iid",
       "hatched",
       "weighting",
-      "event_weighted_r",
+      "per_shower_r",
       "mardia",
-      "event_weighted_ci95"
+      "per_shower_ci95"
      ],
      "properties": {
       "r": {
@@ -138,7 +138,7 @@
         "shower_by_hits"
        ]
       },
-      "event_weighted_r": {
+      "per_shower_r": {
        "type": [
         "number",
         "null"
@@ -154,8 +154,8 @@
        "required": [
         "R",
         "se",
-        "event_weighted_R",
-        "event_weighted_se"
+        "per_shower_R",
+        "per_shower_se"
        ],
        "properties": {
         "R": {
@@ -173,7 +173,7 @@
          ],
          "minimum": 0
         },
-        "event_weighted_R": {
+        "per_shower_R": {
          "type": [
           "number",
           "null"
@@ -181,7 +181,7 @@
          "minimum": 0,
          "maximum": 1
         },
-        "event_weighted_se": {
+        "per_shower_se": {
          "type": [
           "number",
           "null"
@@ -190,7 +190,7 @@
         }
        }
       },
-      "event_weighted_ci95": {
+      "per_shower_ci95": {
        "anyOf": [
         {
          "type": "array",

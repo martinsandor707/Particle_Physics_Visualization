@@ -109,7 +109,7 @@ def _check_matrix(payload: dict) -> None:
     for i, row in enumerate(matrix):
         for j, cell in enumerate(row):
             mirror = matrix[j][i]
-            for key in ("r", "ci95", "se_z", "n_eff", "event_weighted_r", "mardia"):
+            for key in ("r", "ci95", "se_z", "n_eff", "per_shower_r", "mardia"):
                 assert cell[key] == mirror[key], (i, j, key)
             if PHI in (i, j):
                 assert cell["hatched"] and cell["r"] is None and cell["ci95"] is None
@@ -149,8 +149,8 @@ def test_single_shower_matrix_is_served_under_the_contract(single_client, coord_
     assert payload["filter"]["e2"] == [None, None] and payload["meta"]["exact"] is True
     _check_matrix(payload)
     # Per-shower pairs carry the per-shower (unweighted) value beside the hit-weighted one.
-    assert payload["matrix"][4][5]["event_weighted_r"] is not None
-    assert payload["matrix"][0][4]["event_weighted_r"] is None
+    assert payload["matrix"][4][5]["per_shower_r"] is not None
+    assert payload["matrix"][0][4]["per_shower_r"] is None
 
 
 def test_r_and_the_jackknife_match_sql_leave_one_group_out(single_client):
@@ -192,16 +192,16 @@ def test_phi_cells_carry_mardia_r_from_the_same_hits(single_client):
                                           _corr(con, sql, params, name, "s"), r_cs)
             assert 0.0 <= mardia["R"] <= 1.0 and mardia["se"] > 0
             assert mardia["R"] == pytest.approx(expected, rel=ROUNDED)
-            per_shower = mardia["event_weighted_R"]
+            per_shower = mardia["per_shower_R"]
             assert (per_shower is not None) == (name in ("mom", "th"))
         # Per shower, each counted once: the event table's own rows.
         row = con.execute(
             f"SELECT corr(e1, theta_a), corr(theta_a, cos(phi_a)), corr(theta_a, sin(phi_a)), "
             f"corr(cos(phi_a), sin(phi_a)) FROM {event} WHERE {spec.where_sql()} AND n_hits > 0",
             spec.params()).fetchone()
-    assert payload["matrix"][4][5]["event_weighted_r"] == pytest.approx(row[0], rel=ROUNDED)
+    assert payload["matrix"][4][5]["per_shower_r"] == pytest.approx(row[0], rel=ROUNDED)
     theta_phi = payload["matrix"][5][PHI]["mardia"]
-    assert theta_phi["event_weighted_R"] == pytest.approx(
+    assert theta_phi["per_shower_R"] == pytest.approx(
         jackknife.mardia_r(row[1], row[2], row[3]), rel=ROUNDED)
     assert payload["matrix"][PHI][PHI]["mardia"] is None
     assert any("Mardia" in note for note in payload["notes"])
@@ -326,7 +326,7 @@ def test_two_shower_jackknife_and_hit_weighting_match_sql(synthetic_client):
                     UNION ALL
                     SELECT e2, theta_b FROM {event} WHERE {spec.where_sql()} AND n_b_rows + n_ab_rows > 0)""",
             spec.params()).fetchone()
-    assert payload["matrix"][4][5]["event_weighted_r"] == pytest.approx(rows[0], rel=ROUNDED)
+    assert payload["matrix"][4][5]["per_shower_r"] == pytest.approx(rows[0], rel=ROUNDED)
 
 
 def test_a_small_separation_slice_is_weak_with_one_group_per_event(synthetic_client):

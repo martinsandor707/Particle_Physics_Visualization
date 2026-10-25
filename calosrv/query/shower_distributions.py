@@ -48,7 +48,7 @@ from typing import Any
 import duckdb
 import numpy as np
 
-from ..db import ddl, naming
+from ..db import ddl, naming, schemas
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig
@@ -548,11 +548,7 @@ def render(sample: ShowerSample, classes: Sequence[SeriesClass], quantity: str, 
 def kind_notes(record: ExperimentRecord) -> list[str]:
     """What every C4 quantity of this experiment's kind must say."""
     if record.kind == ddl.KIND_SINGLE_EVENTS:
-        return [
-            "This experiment is the producer's event-level aggregate, which omits every event "
-            "with a single hit: the populations of its momentum bins are not balanced, and the "
-            "lowest bin loses the most events."
-        ]
+        return [schemas.CENSORED_AGGREGATE_NOTICE]
     if record.kind == ddl.KIND_TWO_SHOWER:
         return [
             "Each shower sits in its own momentum bin: shower A by incoming_momentum_bin_A, "

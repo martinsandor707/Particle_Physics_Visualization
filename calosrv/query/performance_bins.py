@@ -112,8 +112,7 @@ def network_columns(model: str, coord_system: str, shower: str) -> tuple[str, st
     frame goes through :func:`ddl.frame_code`: both are allowlisted, so a
     request string never becomes a column name.
     """
-    stem = STEMS[model]
-    return f"{stem}_true_{shower}", f"{stem}_pred_{shower}_{ddl.frame_code(coord_system)}"
+    return ddl.prediction_columns(STEMS[model], shower, coord_system)
 
 
 def require_networks(record: ExperimentRecord) -> capabilities.Capabilities:

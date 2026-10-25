@@ -2248,3 +2248,59 @@ def test_no_explainer_sentence_carries_a_hyphen_minus(explainer_results):
             for block in section["blocks"]:
                 assert not re.search(r"(?<![\w-])-\d", block["text"]), block["text"]
                 assert " - " not in block["text"], block["text"]
+
+
+# ------------------------------------------------- single-shower centroids --
+#
+# A single-shower experiment's lab payload carries one shower per centroid set
+# (``b: null``). The lab panels' addCentroids used to read ``pair.b`` and throw;
+# the per-shower frames' overlays skip a null B. Both are executed here.
+
+_SINGLE_CENTROID_SCRIPT = """
+const [projectionUrl, overlaysUrl] = JSON.parse(process.argv[1]);
+const { ProjectionPanel } = await import(projectionUrl);
+const ov = await import(overlaysUrl);
+const col = { name: 'x', symbol: 'x', lo: -1000, hi: 1000 };
+const row = { name: 'y', symbol: 'y', lo: -1000, hi: 1000 };
+const lab = {
+  energy_voxel: { label: 'Energy-weighted centroid', a: { x: 10, y: -5, z: 3700 }, b: null,
+                  separation_mm: null },
+  truth_dataset: { label: 'Dataset centroid', a: { x: 11, y: -4, z: 3710 }, b: null,
+                   separation_mm: null },
+};
+const out = {};
+const series = [];
+ProjectionPanel.prototype.addCentroids.call({}, series, lab, col, row, true);
+out.lab = series.map((s) => ({ name: s.name, data: s.data,
+                               tip: s.tooltip.formatter() }));
+const frame = [];
+ov.addCanonicalCentroids(frame, { energy_voxel: { label: 'Energy-weighted centroid',
+  a: { x: 0, y: 0 }, b: null } }, col, row);
+out.frame = frame.length;
+out.legend = ov.centroidLegend({ energy_voxel: { label: 'Energy-weighted centroid',
+  a: { x: 0, y: 0 }, b: null } });
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def single_centroid_results() -> dict:
+    args = json.dumps([(JS / "panels" / "projection.js").as_uri(),
+                       (JS / "panels" / "canonical_overlays.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _SINGLE_CENTROID_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_single_shower_lab_centroids_draw_without_a_second_shower(single_centroid_results):
+    lab = single_centroid_results["lab"]
+    assert [s["name"] for s in lab] == ["Energy-weighted centroid", "Dataset centroid"]
+    assert lab[0]["data"] == [[10, -5]]
+    # One shower: no shower letter, and the negative coordinate takes U+2212.
+    assert "Shower" not in lab[0]["tip"] and "−5" in lab[0]["tip"]
+
+
+def test_single_shower_frame_centroid_is_drawn_and_named(single_centroid_results):
+    assert single_centroid_results["frame"] >= 1
+    assert "Energy-weighted centroid" in single_centroid_results["legend"]

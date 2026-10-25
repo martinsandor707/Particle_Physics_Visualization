@@ -358,7 +358,7 @@ def test_resolution_numbers_match_numpy_for_both_series(single_client):
     assert set(kinds) == {"calibrated_energy", "response_ratio"}
     assert kinds["calibrated_energy"]["unit"] == "GeV" and kinds["response_ratio"]["unit"] == "%"
     assert res["value_unit"] == "%"
-    assert res["whisker"]["method"] == "delta_t" and res["whisker"]["level"] == 0.95
+    assert res["whisker"]["method"] == "chi2_over_mu" and res["whisker"]["level"] == 0.95
 
     for kind, series in kinds.items():
         for b in series["bins"]:
@@ -380,12 +380,14 @@ def test_resolution_numbers_match_numpy_for_both_series(single_client):
             assert b["sigma_se"] == approx(sigma / math.sqrt(2.0 * df), rel=REL)
             assert b["value"] == approx(100.0 * r, rel=REL)
             assert b["se_delta"] == approx(100.0 * se, rel=1e-4)
-            half = _t(n) * 100.0 * se
-            assert b["ci95"] == approx([100.0 * r - half, 100.0 * r + half], rel=1e-4)
-            # The chi-squared interval of sigma alone, in the series' own unit.
-            assert b["sigma_ci95"] == approx(
-                [sigma * math.sqrt(df / gaussian.chi2_quantile(df, upper=True)),
-                 sigma * math.sqrt(df / gaussian.chi2_quantile(df, upper=False))], rel=1e-4)
+            # The chi-squared interval of sigma alone, in the series' own unit ...
+            chi2 = [sigma * math.sqrt(df / gaussian.chi2_quantile(df, upper=True)),
+                    sigma * math.sqrt(df / gaussian.chi2_quantile(df, upper=False))]
+            assert b["sigma_ci95"] == approx(chi2, rel=1e-4)
+            # ... and the whisker is that interval over mu: never negative, skewed up.
+            assert b["ci95"] == approx([100.0 * chi2[0] / mu, 100.0 * chi2[1] / mu], rel=1e-4)
+            assert 0.0 < b["ci95"][0] < b["value"] < b["ci95"][1]
+            assert b["ci95"][1] - b["value"] > b["value"] - b["ci95"][0]
             assert b["momentum_spread"] == approx(100.0 * p.std(ddof=1) / p.mean(), rel=REL)
             assert (b["c4"] == approx(gaussian.c4(n), rel=1e-5)) if n < 15 else b["c4"] is None
             assert (b["non_gaussian"] is None) if n < 20 else isinstance(b["non_gaussian"], bool)
@@ -406,8 +408,10 @@ def test_resolution_interval_at_two_events_is_one_degree_of_freedom(single_clien
     body = _get(single_client, SINGLE_HITS_TABLE)
     for series in body["resolution"]["series"]:
         b = _bin_of(series, 7)                       # two events
-        half = (b["ci95"][1] - b["ci95"][0]) / 2.0
-        assert half / b["se_delta"] == approx(12.706, rel=1e-3)
+        # One degree of freedom: sigma's 95% chi-squared range spans 0.446 to 31.9 times
+        # the estimate, so the whisker runs from 0.446 to 31.9 times sigma/mu.
+        assert b["ci95"][0] / b["value"] == approx(math.sqrt(1 / gaussian.chi2_quantile(1, upper=True)), rel=1e-3)
+        assert b["ci95"][1] / b["value"] == approx(math.sqrt(1 / gaussian.chi2_quantile(1, upper=False)), rel=1e-3)
         assert b["c4"] == approx(0.797885, rel=1e-4) and b["weak"] is True
 
 
@@ -496,8 +500,12 @@ def test_an_empty_selection_is_served_and_says_so(single_client):
 def test_the_aggregate_says_it_is_censored_and_not_balanced(single_client):
     body = _get(single_client, SINGLE_EVENTS_TABLE)
     note = next(n for n in body["notes"] if "single hit" in n)
-    assert "249" in note and "4,807 to 5,000" in note and "not balanced" in note
-    assert "biased high" in note
+    assert note.startswith(schemas.CENSORED_AGGREGATE_NOTICE)
+    # The figures are this experiment's, measured, never the electron file's.
+    ev = _events(single_client, SINGLE_EVENTS_TABLE)
+    counts = ev["e1_bin"].value_counts()
+    assert f"{counts.min():,} to {counts.max():,} events" in note and "not balanced" in note
+    assert "biased high" in note and "249" not in note
     # The hit-level kinds keep every event and carry no such note.
     for table in (SINGLE_HITS_TABLE, BASELINE_TABLE):
         assert not any("not balanced" in n for n in _get(single_client, table)["notes"])

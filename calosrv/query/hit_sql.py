@@ -130,9 +130,10 @@ def group_key(n_events: int, p: str = "p") -> tuple[str, int]:
     """``(SQL, G)``: the jackknife group of a hit's event, and the number of groups.
 
     With no more events than ``jackknife.MAX_GROUPS`` every event is its own
-    group - a delete-one-event jackknife; above, ``event_number % G``.
+    group - a delete-one-event jackknife; above, the event number modulo G,
+    taken non-negative so a negative event number cannot open a group of its own.
     """
     groups = jackknife.n_groups(n_events)
     if n_events <= jackknife.MAX_GROUPS:
         return f"{p}.event_number", groups
-    return f"({p}.event_number % {groups})", groups
+    return f"((({p}.event_number % {groups}) + {groups}) % {groups})", groups

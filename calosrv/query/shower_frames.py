@@ -173,14 +173,14 @@ def shower_statistics(
     and its 'A+B' and all-zero-map counts zero.
     """
     table = quote(naming.event_table(record.table_name))
-    suffix = "_t" if kind == KIND_TRANS else "_l"
+    frame = "trn" if kind == KIND_TRANS else "loc"
     where = spec.where_sql()
     showers = showers_mod.of(record)
     two = len(showers) == 2
     centroid = []
-    for shower in (sh.key for sh in showers):
+    for shower in showers:
         for axis in "xyz":
-            c = f"CAST(c{shower}{axis}{suffix} AS DOUBLE)"
+            c = f"CAST({shower.centroid(axis, frame)} AS DOUBLE)"
             centroid.append(f"avg({c}), median({c}), stddev_samp({c}), min({c}), max({c}), count({c})")
     resultants = ",\n            ".join(
         f"avg(cos(CAST({sh.phi} AS DOUBLE))), avg(sin(CAST({sh.phi} AS DOUBLE)))" for sh in showers)

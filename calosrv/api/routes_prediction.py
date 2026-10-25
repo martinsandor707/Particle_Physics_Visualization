@@ -11,16 +11,13 @@ to plot - its reconstruction is the energy panel.
 
 from __future__ import annotations
 
-from typing import Annotated
-
 from fastapi import APIRouter, Query
 
 from ..db import ddl
-from ..db.registry import ExperimentRecord
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
-from ..query import density, prediction_density
-from .deps import CursorDep, FilterDep, capable
+from ..query import capabilities, density, performance_bins, prediction_density
+from .deps import CursorDep, FilterDep, RecordDep
 
 router = APIRouter()
 
@@ -37,7 +34,7 @@ SEGMENTATION_REFUSAL = (
 )
 def get_prediction_density(
     con: CursorDep,
-    record: Annotated[ExperimentRecord, capable("pred-truth", "pred-residuals", field="model")],
+    record: RecordDep,
     spec: FilterDep,
     model: str = Query(
         "energy",
@@ -60,6 +57,9 @@ def get_prediction_density(
     ),
 ):
     timer = Timer()
+    # No networks: the same refusal as E2, naming the capability that is missing.
+    performance_bins.require_networks(record)
+    capabilities.require(record, "pred-truth", "pred-residuals", field="model")
     if model == "segmentation":
         raise ValidationError(SEGMENTATION_REFUSAL, field="model")
     for name, value, allowed in (("model", model, prediction_density.MODELS),

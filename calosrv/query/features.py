@@ -36,7 +36,7 @@ from typing import Any, Sequence
 import duckdb
 import numpy as np
 
-from ..db import ddl, naming
+from ..db import ddl, naming, schemas
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
@@ -377,10 +377,7 @@ def notes(bundle: FeatureBundle, cs: ClassSet) -> list[str]:
     if bundle.kind == ddl.KIND_SINGLE_EVENTS:
         out.append(
             "Features are the producer's aggregate (core.calc_all_features_v3 on raw z), read "
-            "as stored. The aggregate omits every single-hit event - 249 of 100,000 on the "
-            "electron v3 file, 193 of them in the lowest 1 GeV bin - so it is a censored "
-            "sample: its classes are not balanced (4,807 to 5,000 events per 1 GeV bin there) "
-            "and the lowest bins' means are shifted. It is never called balanced.")
+            "as stored. " + schemas.CENSORED_AGGREGATE_NOTICE)
         out.append(
             "avg_phi is the file's arithmetic mean of the hits' azimuths, kept for parity; an "
             "azimuth wraps, so it is not a direction and is never drawn as one. Its circular "

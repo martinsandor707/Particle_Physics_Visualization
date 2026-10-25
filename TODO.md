@@ -239,3 +239,8 @@ Two notebook changes are needed:
 
 - The model-run import and the E1/E3/E4/E5 panels (§1.4).
 - Species and seed layouts (§2, §3), the fixed-energy schema (§4), schema v2 (§5).
+- Lab centroid stars, both kinds together (decided 2026-10-25 to keep them as they are for now). The
+  energy-weighted centroid of the summed selection is a property of the drawn picture; the dataset-centroid star
+  is the mean of the per-event centroids, an aggregate, and drawn without its dispersion or interval. Giving it an
+  uncapped SD band and a Student-t interval (CLAUDE.md §2) changes the shared lab payload and the golden lab
+  snapshot, so it is one deliberate change for two-shower and single-shower data at once.

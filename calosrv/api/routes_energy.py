@@ -132,6 +132,26 @@ def _refuse(field: str, value: object, mode: str) -> None:
     )
 
 
+def _refuse_oversized(record: ExperimentRecord, p_slices: str | None, series: str | None) -> None:
+    """The one momentum view that cannot fit 100 KB is refused, never served over budget.
+
+    Two showers in every 1 GeV bin with both the truth and the model split are 80
+    fitted series: 148,703 B on the synthetic two-shower fixture and about 167 KB at
+    production scale even at the coarsest rendering the guard reaches. Truth or model
+    alone fits, and the momentum windows take all four (decided 2026-10-25).
+    """
+    if ((p_slices or "").strip().lower() == momentum_mod.MODE_BINS
+            and (series or "").strip().lower() == energy.SERIES_ALL
+            and len(capabilities.of(record).showers) == 2):
+        raise ValidationError(
+            "series=all with p_slices=bins draws 80 fitted series on two-shower data, more "
+            f"than the {density.RESPONSE_LIMIT:,}-byte response contract can carry. Choose "
+            "series=truth or series=model with the 1 GeV bins, or keep series=all with the "
+            "momentum windows (p_slices=notebook or a list of centres).",
+            field="series",
+        )
+
+
 def _half_width(p_slices: str | None, p_half_width: float | None) -> float:
     """The window half-width in GeV; the 1 GeV bins take none."""
     if p_half_width is None:
@@ -246,6 +266,7 @@ def get_energy_distribution(
     mode = _slice_mode(record, slice_by)
     if mode == SLICE_MOMENTUM:
         _refuse("d_edges", d_edges, mode)
+        _refuse_oversized(record, p_slices, series)
         return _by_momentum(
             con, record, spec, timer,
             p_slices=p_slices, half_width=_half_width(p_slices, p_half_width),
