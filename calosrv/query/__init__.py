@@ -12,7 +12,8 @@ plausible-looking wrong answer. Those aggregates live in the event-table
 modules - ``summary.py``, ``energy.py``, ``performance.py``,
 ``performance_bins.py``, ``prediction_density.py``, ``response.py``,
 ``negative_depth.py``, ``shower_distributions.py``, ``primaries.py`` and the
-feature explorer (``features_catalog.py``, ``features.py``) - which read
+feature explorer (``features_catalog.py``, ``features.py``, ``feature_describe.py``,
+``feature_corr.py``, ``feature_axes.py``, ``feature_hist.py``) - which read
 ``event_<name>``; ``profiles.py`` reads the per-(event, shower) tables
 ``profiles_<name>`` and ``layers_<name>`` with the event table's per-shower
 energies. The hit modules - ``projections.py``, ``hit_distributions.py``,
