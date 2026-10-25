@@ -116,10 +116,22 @@ def threshold_label() -> str:
     return f"{THRESHOLD_MM:g}"
 
 
-def rationale() -> list[str]:
-    """:data:`RATIONALE` with the cut written in, minus signs typographic."""
+#: The two sentences that speak of an event's two showers, for one shower per event.
+_RATIONALE_ONE_SHOWER: tuple[str, ...] = (
+    RATIONALE[0],
+    "The hits of one shower share its development, so every fraction takes events as its "
+    "sampling unit: a ratio of sums with the linearised cluster standard error and a Student-t "
+    "interval, clipped to [0, 1].",
+    "The share of events with any such hit is a proportion and takes a Wilson score interval; "
+    "with one shower per event it is also the share of showers.",
+)
+
+
+def rationale(n_showers: int = 2) -> list[str]:
+    """:data:`RATIONALE` with the cut written in, minus signs typographic, worded for the kind."""
     cut = threshold_label()
-    return [typographic(text.replace("{threshold}", cut)) for text in RATIONALE]
+    texts = RATIONALE if n_showers > 1 else _RATIONALE_ONE_SHOWER
+    return [typographic(text.replace("{threshold}", cut)) for text in texts]
 
 
 def _fetch(con: duckdb.DuckDBPyConnection, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
