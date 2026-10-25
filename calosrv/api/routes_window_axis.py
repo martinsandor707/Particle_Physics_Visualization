@@ -3,16 +3,21 @@
 The absolute frame's one sanctioned ensemble direction, licensed per window
 by measurement (``query/window_axis.py``): the client asks for it whenever a
 depth panel is zoomed to a transverse window narrower than the detector, and
-draws nothing of the kind at full extent.
+draws nothing of the kind at full extent. An aggregated experiment has no
+depth panels and is refused (422, ``/problems/unsupported-capability``); a
+single-shower one gets its one shower's block and a null ``b``.
 """
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
+from ..db.registry import ExperimentRecord
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import window_axis
-from .deps import CursorDep, FilterDep, RecordDep
+from .deps import CursorDep, FilterDep, capable
 
 router = APIRouter()
 
@@ -20,7 +25,7 @@ router = APIRouter()
 @router.get("/api/window-axis", summary="The mean incident trajectory of the events entering a depth panel's window")
 def get_window_axis(
     con: CursorDep,
-    record: RecordDep,
+    record: Annotated[ExperimentRecord, capable("window-axis")],
     spec: FilterDep,
     panel: str = Query(..., description="yz | xz: the depth panel, which fixes the transverse coordinate."),
     t_min: float = Query(..., description="Lower edge of the displayed transverse window, in mm."),

@@ -1,17 +1,41 @@
-"""``GET /api/model-performance`` - the sidebar metric cards of one network."""
+"""``GET /api/model-performance`` - the sidebar metric cards of one network.
+
+``slice_by`` picks the breakdown beside the cards: ``d`` (the default, and
+unchanged byte for byte) the separation slices, ``momentum_bin`` the E2 view of
+Page 2 - RMSE, MAE, median relative error and bias per shower across the
+incident-momentum bins, for every network frame the experiment offers
+(``query/performance_bins.py``). The cards, ``by_slice`` and ``slices`` are the
+same in both modes. An experiment without reconstruction networks is refused
+whatever is asked of it.
+"""
 
 from __future__ import annotations
+
+from typing import Sequence
 
 from fastapi import APIRouter, Query
 
 from ..db import ddl
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
-from ..query import performance
+from ..query import density, performance, performance_bins
 from ..stats.slices import parse_edges
 from .deps import CursorDep, FilterDep, RecordDep
 
 router = APIRouter()
+
+#: The breakdowns beside the cards: separation slices, or incident-momentum bins.
+SLICE_CHOICES = ("d", "momentum_bin")
+
+#: The payload guard's steps, in order: significant figures, whether the order-statistic
+#: cross-check arrays are kept, and what the step says about itself. The first is the
+#: payload as built; the whiskers keep their meaning at every step.
+BUDGET_STEPS = (
+    (6, True, None),
+    (6, False, "the order-statistic cross-check arrays (median_rel_order_lo, _hi and "
+               "_coverage) are left out"),
+    (4, False, "numbers are rounded to 4 significant figures"),
+)
 
 FRAME_WORDS = {
     "absolute": "absolute (detector)", "trans": "per-shower translated", "local": "local",
@@ -88,32 +112,81 @@ def get_model_performance(
     d_edges: str | None = Query(
         None, description="Separation-distance slice edges for the breakdown."
     ),
+    slice_by: str = Query(
+        "d",
+        description=(
+            "d | momentum_bin: the breakdown beside the cards. d is the separation slices "
+            "(by_slice). momentum_bin adds by_momentum_bin for the energy and angle networks: "
+            "per shower, in the shower's own incident-momentum bin, for every network frame "
+            "the experiment offers; the segmentation network is refused because its "
+            "quality belongs to the whole event."
+        ),
+    ),
 ):
     timer = Timer()
     for name, value, allowed in (("model", model, ddl.MODELS),
-                                 ("coord_system", coord_system, ddl.COORD_SYSTEMS)):
+                                 ("coord_system", coord_system, ddl.COORD_SYSTEMS),
+                                 ("slice_by", slice_by, SLICE_CHOICES)):
         if value not in allowed:
             raise ValidationError(
                 f"{name} must be one of {', '.join(allowed)}; got {value!r}.", field=name,
             )
+    performance_bins.require_networks(record)
+    if slice_by == "momentum_bin" and model == "segmentation":
+        raise ValidationError(performance_bins.SEGMENTATION_REFUSAL, field="slice_by")
     report = performance.compute(
         con, record, spec, model=model, coord_system=coord_system, edges=parse_edges(d_edges),
     )
+    by_bin = slice_by == "momentum_bin"
+    bins = performance_bins.compute(con, record, spec, model) if by_bin else None
 
-    warnings: list[str] = []
-    if report.n_events == 0:
-        warnings.append("No events match the current selection.")
+    def respond(step: int = 0, disclosed: Sequence[str] = ()) -> dict:
+        notes = {"model": model, "coord_system": coord_system}
+        warnings: list[str] = []
+        if report.n_events == 0:
+            warnings.append("No events match the current selection.")
+        extra: dict = {}
+        if bins is not None:
+            digits, keep_order, _ = BUDGET_STEPS[step]
+            notes["slice_by"] = slice_by
+            warnings += [*bins.warnings(), *disclosed]
+            extra["by_momentum_bin"] = bins.as_dict(digits=digits, keep_order=keep_order)
+        meta = ApiMeta(
+            table_name=record.table_name,
+            exact=True,
+            total_ms=timer.elapsed_ms,
+            warnings=warnings,
+            notes=notes,
+        )
+        return envelope(
+            meta,
+            **report.as_dict(),
+            model=_context(model, coord_system),
+            filter=spec.as_dict(),
+            **extra,
+        )
 
-    meta = ApiMeta(
-        table_name=record.table_name,
-        exact=True,
-        total_ms=timer.elapsed_ms,
-        warnings=warnings,
-        notes={"model": model, "coord_system": coord_system},
-    )
-    return envelope(
-        meta,
-        **report.as_dict(),
-        model=_context(model, coord_system),
-        filter=spec.as_dict(),
-    )
+    body = respond()
+    if bins is None:
+        return body
+    # Six series of twenty bins come to about 40 KB, so this guard is for a dataset with
+    # more bins than the producers write: it sheds the order-statistic cross-check
+    # arrays and then two significant figures, and says so. A body still over the
+    # contract after both is served as it is, with that said too.
+    first = size = density.wire_size(body)
+    disclosed: list[str] = []
+    for step in range(1, len(BUDGET_STEPS)):
+        if size < density.RESPONSE_LIMIT:
+            break
+        disclosed.append(
+            f"Over the {density.RESPONSE_LIMIT:,}-byte contract at {first:,} bytes, so "
+            f"{BUDGET_STEPS[step][2]}; the whiskers keep their meaning."
+        )
+        body = respond(step, disclosed)
+        size = density.wire_size(body)
+    if size >= density.RESPONSE_LIMIT:
+        disclosed.append(
+            f"Served as it is: {size:,} bytes against the {density.RESPONSE_LIMIT:,}-byte "
+            "contract after every reduction.")
+        body = respond(len(BUDGET_STEPS) - 1, disclosed)
+    return body

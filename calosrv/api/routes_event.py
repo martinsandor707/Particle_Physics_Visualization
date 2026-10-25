@@ -5,27 +5,41 @@ nine server-rendered rasters - original, translated, local; X-Y, X-Z, Y-Z -
 with the incident direction, the first-layer plane, the origin and the
 principal-axis tilt, under the 100 KB contract. ``GET /api/event/pick``
 reproduces the notebook's selection rule for a seeded, stated choice.
+
+Both need hits and the lattice: an aggregated experiment is refused (422,
+``/problems/unsupported-capability``). A single-shower experiment has one
+shower per event, so ``shower=b`` is refused naming the parameter.
 """
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
+from ..db.registry import ExperimentRecord
 from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import canonical, event_inspector, frame_sql
-from .deps import CursorDep, FilterDep, RecordDep
+from ..query import showers as showers_mod
+from .deps import CursorDep, FilterDep, capable
 
 router = APIRouter()
+
+#: The experiment, refused unless it can serve the Event Inspector.
+InspectableDep = Annotated[ExperimentRecord, capable("event-inspector")]
 
 
 @router.get("/api/event", summary="One shower of one event in the original, translated and local frames")
 def get_event(
     con: CursorDep,
-    record: RecordDep,
+    record: InspectableDep,
     spec: FilterDep,
     event_number: int = Query(..., description="The event to draw."),
-    shower: str = Query("a", description="a | b: which of the event's two showers."),
+    shower: str = Query(
+        "a",
+        description="a | b: which of the event's two showers; a single-shower experiment has only a.",
+    ),
     coordinates: str = Query(
         frame_sql.SOURCE_FILE,
         description=(
@@ -38,6 +52,8 @@ def get_event(
     timer = Timer()
     if shower not in event_inspector.SHOWERS:
         raise ValidationError(f"shower must be a or b; got {shower!r}.", field="shower")
+    # One of the experiment's own showers: b is refused where there is one per event.
+    showers_mod.of(record, shower)
     if coordinates not in frame_sql.SOURCES:
         raise ValidationError(
             f"coordinates must be one of {', '.join(frame_sql.SOURCES)}; got {coordinates!r}.",
@@ -68,7 +84,7 @@ def get_event(
 @router.get("/api/event/pick", summary="The reference notebook's event selection rule, seeded")
 def pick_event(
     con: CursorDep,
-    record: RecordDep,
+    record: InspectableDep,
     spec: FilterDep,
     seed: int = Query(42, ge=0, description="Seed of the random draw from the pool."),
     pool_size: int = Query(20, ge=1, le=200, description="Size of the largest-angle pool."),

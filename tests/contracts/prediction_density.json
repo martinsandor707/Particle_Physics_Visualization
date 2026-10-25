@@ -3,13 +3,16 @@
  "title": "GET /api/prediction-density",
  "type": "object",
  "required": [
+  "meta",
   "network",
+  "n_events",
   "axes",
   "density",
   "identity",
   "color",
   "residual",
   "thresholds",
+  "notes",
   "filter"
  ],
  "properties": {
@@ -45,7 +48,8 @@
       "hi",
       "n",
       "unit",
-      "label"
+      "label",
+      "zero_based"
      ],
      "properties": {
       "lo": {
@@ -62,6 +66,9 @@
       },
       "label": {
        "type": "string"
+      },
+      "zero_based": {
+       "type": "boolean"
       }
      }
     },
@@ -72,7 +79,8 @@
       "hi",
       "n",
       "unit",
-      "label"
+      "label",
+      "zero_based"
      ],
      "properties": {
       "lo": {
@@ -89,6 +97,9 @@
       },
       "label": {
        "type": "string"
+      },
+      "zero_based": {
+       "type": "boolean"
       }
      }
     }
@@ -111,7 +122,11 @@
       "$ref": "#/$defs/pairs_block"
      }
     ]
-   }
+   },
+   "required": [
+    "a",
+    "b"
+   ]
   },
   "identity": {
    "type": "object",
@@ -134,7 +149,11 @@
     "scale",
     "vmin",
     "vmax",
-    "unit"
+    "unit",
+    "empty",
+    "palette",
+    "ramp",
+    "note"
    ],
    "properties": {
     "scale": {
@@ -148,6 +167,65 @@
     },
     "unit": {
      "type": "string"
+    },
+    "empty": {
+     "const": "transparent"
+    },
+    "palette": {
+     "const": "viridis"
+    },
+    "note": {
+     "type": "string"
+    },
+    "ramp": {
+     "type": "object",
+     "required": [
+      "from",
+      "to",
+      "stops",
+      "first_level"
+     ],
+     "properties": {
+      "from": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "to": {
+       "const": 1.0
+      },
+      "stops": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 2
+      },
+      "first_level": {
+       "type": "object",
+       "required": [
+        "count",
+        "color",
+        "contrast",
+        "against"
+       ],
+       "properties": {
+        "count": {
+         "const": 1
+        },
+        "color": {
+         "type": "string"
+        },
+        "contrast": {
+         "type": "number",
+         "minimum": 3
+        },
+        "against": {
+         "const": "#1c2128"
+        }
+       }
+      }
+     }
     }
    }
   },
@@ -157,7 +235,8 @@
     "quantity",
     "unit",
     "axis",
-    "series"
+    "series",
+    "excluded"
    ],
    "properties": {
     "quantity": {
@@ -167,18 +246,335 @@
      "type": "string"
     },
     "axis": {
-     "type": "object"
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "interval",
+      "bins",
+      "clipping",
+      "provisional",
+      "basis",
+      "outside",
+      "curve_x",
+      "hist_centres"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "interval": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "clipping": {
+       "$ref": "#/$defs/clipping"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "basis": {
+       "type": "string"
+      },
+      "outside": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "object",
+        "required": [
+         "n",
+         "below",
+         "above"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "below": {
+          "type": "integer"
+         },
+         "above": {
+          "type": "integer"
+         }
+        }
+       }
+      },
+      "curve_x": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "hist_centres": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
     },
     "series": {
-     "type": "object"
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "required": [
+      "a",
+      "b"
+     ],
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "shower",
+       "kind",
+       "slice",
+       "fit",
+       "draw",
+       "drives_scale",
+       "estimator",
+       "histogram",
+       "curve",
+       "curve_peak",
+       "strip",
+       "markers",
+       "message",
+       "estimates"
+      ],
+      "properties": {
+       "draw": {
+        "enum": [
+         "histogram",
+         "curve+strip",
+         "strip"
+        ]
+       },
+       "drives_scale": {
+        "type": "boolean"
+       },
+       "fit": {
+        "type": "object"
+       },
+       "histogram": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "strip": {
+        "type": "object",
+        "required": [
+         "values",
+         "n_shown",
+         "truncated"
+        ]
+       },
+       "markers": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "estimates": {
+        "type": "object",
+        "required": [
+         "bias",
+         "sigma",
+         "rmse"
+        ],
+        "properties": {
+         "bias": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "sigma": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "rmse": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "excluded": {
+     "type": "object",
+     "required": [
+      "nonpositive_truth"
+     ]
     }
    }
   },
   "thresholds": {
-   "type": "object"
+   "type": "object",
+   "required": [
+    "moment",
+    "curve",
+    "histogram",
+    "core",
+    "robust",
+    "density2d"
+   ],
+   "properties": {
+    "moment": {
+     "type": "integer"
+    },
+    "curve": {
+     "type": "integer"
+    },
+    "histogram": {
+     "type": "integer"
+    },
+    "core": {
+     "type": "integer"
+    },
+    "robust": {
+     "type": "integer"
+    },
+    "density2d": {
+     "type": "integer"
+    }
+   }
   },
   "filter": {
    "$ref": "#/$defs/filter"
+  },
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "n_events": {
+   "type": "integer"
+  },
+  "notes": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
   }
  },
  "$defs": {
@@ -310,7 +706,45 @@
    }
   },
   "meta": {
-   "type": "object"
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "model",
+    "coord_system"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "model": {
+     "enum": [
+      "energy",
+      "angle"
+     ]
+    },
+    "coord_system": {
+     "enum": [
+      "lab",
+      "trans",
+      "local"
+     ]
+    }
+   }
   },
   "counts_block": {
    "type": "object",
@@ -384,7 +818,9 @@
    "required": [
     "encoding",
     "pairs",
-    "n"
+    "n",
+    "n_in_range",
+    "outside"
    ],
    "properties": {
     "encoding": {
@@ -399,10 +835,41 @@
       },
       "minItems": 2,
       "maxItems": 2
-     }
+     },
+     "maxItems": 14
     },
     "n": {
      "type": "integer"
+    },
+    "n_in_range": {
+     "type": "integer"
+    },
+    "outside": {
+     "type": "object",
+     "required": [
+      "truth_below",
+      "truth_above",
+      "pred_below",
+      "pred_above",
+      "total"
+     ],
+     "properties": {
+      "truth_below": {
+       "type": "integer"
+      },
+      "truth_above": {
+       "type": "integer"
+      },
+      "pred_below": {
+       "type": "integer"
+      },
+      "pred_above": {
+       "type": "integer"
+      },
+      "total": {
+       "type": "integer"
+      }
+     }
     }
    }
   }

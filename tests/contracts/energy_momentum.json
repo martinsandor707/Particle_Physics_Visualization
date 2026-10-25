@@ -3,6 +3,7 @@
  "title": "GET /api/energy-distribution?slice_by=momentum (B3)",
  "type": "object",
  "required": [
+  "meta",
   "slices",
   "slice_counts",
   "series",
@@ -17,7 +18,10 @@
   "slice_axes",
   "slice_counts_by_shower",
   "outside_slices",
-  "counted"
+  "counted",
+  "series_set",
+  "no_deposit",
+  "filter"
  ],
  "properties": {
   "slices": {
@@ -50,16 +54,59 @@
    }
   },
   "slice_counts": {
-   "type": "object"
+   "type": "object",
+   "additionalProperties": {
+    "type": "integer"
+   }
   },
   "series": {
    "type": "array",
    "items": {
-    "type": "object"
+    "$ref": "#/$defs/series"
    }
   },
   "calibration": {
-   "type": "object"
+   "type": "object",
+   "required": [
+    "c_a",
+    "c_b",
+    "sampling_fraction_a",
+    "sampling_fraction_b",
+    "applied",
+    "method"
+   ],
+   "properties": {
+    "c_a": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "c_b": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sampling_fraction_a": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sampling_fraction_b": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "applied": {
+     "type": "boolean"
+    },
+    "method": {
+     "type": "string"
+    }
+   }
   },
   "axis": {
    "type": "object",
@@ -152,7 +199,10 @@
      "provisional",
      "curve_x",
      "hist_centres",
-     "momentum"
+     "momentum",
+     "driven_by",
+     "n_values",
+     "n_outside_axis"
     ],
     "properties": {
      "slice": {
@@ -200,7 +250,8 @@
         "required": [
          "mean",
          "sd",
-         "n"
+         "n",
+         "ci95"
         ],
         "properties": {
          "mean": {
@@ -217,6 +268,17 @@
          },
          "n": {
           "type": "integer"
+         },
+         "ci95": {
+          "type": [
+           "array",
+           "null"
+          ],
+          "items": {
+           "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
          }
         }
        },
@@ -228,7 +290,8 @@
         "required": [
          "mean",
          "sd",
-         "n"
+         "n",
+         "ci95"
         ],
         "properties": {
          "mean": {
@@ -245,16 +308,63 @@
          },
          "n": {
           "type": "integer"
+         },
+         "ci95": {
+          "type": [
+           "array",
+           "null"
+          ],
+          "items": {
+           "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
          }
         }
        }
       }
+     },
+     "driven_by": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1
+     },
+     "n_values": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "n_outside_axis": {
+      "type": "integer",
+      "minimum": 0
      }
     }
    }
   },
   "slice_counts_by_shower": {
-   "type": "object"
+   "type": "object",
+   "required": [
+    "a",
+    "b"
+   ],
+   "properties": {
+    "a": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer"
+     }
+    },
+    "b": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "additionalProperties": {
+      "type": "integer"
+     }
+    }
+   }
   },
   "outside_slices": {
    "type": "object",
@@ -276,6 +386,77 @@
   },
   "counted": {
    "const": "showers"
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "warnings",
+    "network"
+   ],
+   "properties": {
+    "exact": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "network": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "model",
+      "frame"
+     ],
+     "properties": {
+      "model": {
+       "const": "segmentation"
+      },
+      "frame": {
+       "enum": [
+        "absolute",
+        "trans",
+        "local"
+       ]
+      }
+     }
+    }
+   }
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "series_set": {
+   "enum": [
+    "truth",
+    "model",
+    "all",
+    "deposit"
+   ]
+  },
+  "no_deposit": {
+   "type": "object",
+   "required": [
+    "a",
+    "b"
+   ],
+   "properties": {
+    "a": {
+     "type": "integer"
+    },
+    "b": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   }
   }
  },
  "$defs": {
@@ -408,6 +589,253 @@
   },
   "meta": {
    "type": "object"
+  },
+  "series": {
+   "type": "object",
+   "required": [
+    "key",
+    "label",
+    "shower",
+    "kind",
+    "slice",
+    "fit",
+    "draw",
+    "drives_scale",
+    "estimator",
+    "histogram",
+    "curve",
+    "curve_peak",
+    "strip",
+    "markers",
+    "message"
+   ],
+   "properties": {
+    "key": {
+     "enum": [
+      "e_a_pred",
+      "e_b_pred",
+      "e_a_true",
+      "e_b_true",
+      "e_dep"
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "shower": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    },
+    "kind": {
+     "enum": [
+      "pred",
+      "true",
+      "deposit"
+     ]
+    },
+    "slice": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "fit": {
+     "type": "object",
+     "required": [
+      "n",
+      "mu",
+      "sigma",
+      "mu_core",
+      "sigma_core",
+      "mu_ci95",
+      "sigma_ci95",
+      "sigma_bias_factor",
+      "estimator",
+      "estimator_note",
+      "degenerate",
+      "non_gaussian",
+      "n_in_range",
+      "note"
+     ],
+     "properties": {
+      "n": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "mu": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "sigma": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "mu_ci95": {
+       "type": [
+        "array",
+        "null"
+       ],
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "sigma_ci95": {
+       "type": [
+        "array",
+        "null"
+       ],
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "estimator": {
+       "type": "string"
+      },
+      "estimator_note": {
+       "type": "string"
+      },
+      "degenerate": {
+       "type": "boolean"
+      },
+      "non_gaussian": {
+       "type": [
+        "boolean",
+        "null"
+       ]
+      },
+      "n_in_range": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "note": {
+       "type": "string"
+      }
+     }
+    },
+    "draw": {
+     "enum": [
+      "histogram",
+      "curve+strip",
+      "strip"
+     ]
+    },
+    "drives_scale": {
+     "type": "boolean"
+    },
+    "estimator": {
+     "type": "string"
+    },
+    "histogram": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "counts",
+      "n",
+      "n_in_range"
+     ],
+     "properties": {
+      "counts": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      },
+      "n": {
+       "type": "integer"
+      },
+      "n_in_range": {
+       "type": "integer"
+      }
+     }
+    },
+    "curve": {
+     "type": "object",
+     "required": [
+      "y"
+     ],
+     "properties": {
+      "y": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     }
+    },
+    "curve_peak": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "strip": {
+     "type": "object",
+     "required": [
+      "values",
+      "n_shown",
+      "truncated"
+     ],
+     "properties": {
+      "values": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      },
+      "n_shown": {
+       "type": "integer"
+      },
+      "truncated": {
+       "type": "boolean"
+      }
+     }
+    },
+    "markers": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "mu",
+      "ci95_lo",
+      "ci95_hi",
+      "dispersion_lo",
+      "dispersion_hi"
+     ],
+     "properties": {
+      "mu": {
+       "type": "number"
+      },
+      "ci95_lo": {
+       "type": "number"
+      },
+      "ci95_hi": {
+       "type": "number"
+      },
+      "dispersion_lo": {
+       "type": "number"
+      },
+      "dispersion_hi": {
+       "type": "number"
+      }
+     }
+    },
+    "message": {
+     "type": "string"
+    }
+   }
   }
  }
 }

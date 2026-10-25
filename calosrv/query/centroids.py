@@ -36,6 +36,12 @@ through the measured coordinate arrays. Because an index is an *ordinal* over
 the coordinates that actually occur, that mapping is exact - a bin index
 recovers the true cell coordinate, not a bin centre - so there is no
 quantisation error here at all.
+
+**One shower per event.** A single-shower experiment has no second shower to
+attribute energy to and no segmentation network, so there is nothing to split
+and no separation: its one centroid, ``energy_voxel``, weights every hit by its
+energy, and its ``b`` and ``separation_mm`` are null rather than an empty
+shower B or a distance to nothing.
 """
 
 from __future__ import annotations
@@ -46,6 +52,9 @@ from typing import Any
 import numpy as np
 
 from .projections import NativeBundle, Panel
+
+#: The showers of a bundle that does not say: two, as the D-frame's always are.
+TWO_SHOWERS: tuple[str, ...] = ("a", "b")
 
 
 @dataclass(frozen=True)
@@ -61,18 +70,25 @@ class Centroid:
 
 @dataclass(frozen=True)
 class CentroidPair:
+    """Shower A's and shower B's centroids; ``b`` is ``None`` for a single shower."""
+
     label: str
     a: Centroid
-    b: Centroid
+    b: Centroid | None
     separation_mm: float | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "label": self.label,
             "a": self.a.as_dict(),
-            "b": self.b.as_dict(),
+            "b": self.b.as_dict() if self.b is not None else None,
             "separation_mm": self.separation_mm,
         }
+
+
+def showers_of(bundle: Any) -> tuple[str, ...]:
+    """The showers a bundle holds per event; a bundle that does not say holds two."""
+    return tuple(getattr(bundle, "showers", TWO_SHOWERS))
 
 
 def _weighted_mean(weights: np.ndarray, coords: np.ndarray, axis: int) -> float | None:
@@ -136,6 +152,22 @@ def _pair_from_panel(
     return CentroidPair(label=label, a=a, b=b, separation_mm=separation)
 
 
+def _single_from_panel(panel: Panel, bundle: NativeBundle, label: str, z_panel: Panel) -> CentroidPair:
+    """The one shower's energy-weighted centroid: x, y from ``panel``, depth from ``z_panel``.
+
+    Every hit belongs to the shower, so the weight is the energy itself.
+    """
+    energy = panel.planes["e"]
+    centroid = Centroid(
+        x=_weighted_mean(energy, bundle.axis(panel.col_axis).coords, axis=1),
+        y=_weighted_mean(energy, bundle.axis(panel.row_axis).coords, axis=0),
+        # The YZ panel is (y, z), so depth is the column axis.
+        z=_weighted_mean(z_panel.planes["e"], bundle.axis("z").coords, axis=1),
+        energy=float(energy.sum()),
+    )
+    return CentroidPair(label=label, a=centroid, b=None, separation_mm=None)
+
+
 def compute(bundle: NativeBundle) -> dict[str, CentroidPair]:
     """Both voxel-weighted centroid pairs, at the shower entrance.
 
@@ -143,7 +175,16 @@ def compute(bundle: NativeBundle) -> dict[str, CentroidPair]:
     definition of D: the transverse separation between the two showers' entry
     centroids. The depth coordinate is taken from the YZ panel, which spans the
     full instrumented depth.
+
+    A single-shower bundle has one centroid, ``energy_voxel``, weighted by the
+    hits' energy, at the same entrance and depth.
     """
+    if len(showers_of(bundle)) == 1:
+        return {
+            "energy_voxel": _single_from_panel(
+                bundle.xy, bundle, "Shower centroid (energy-weighted voxels)", z_panel=bundle.yz,
+            ),
+        }
     return {
         "truth_voxel": _pair_from_panel(
             bundle.xy, bundle, "efa_true", "Ground truth (voxel-weighted)",

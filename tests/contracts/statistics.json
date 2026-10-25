@@ -20,6 +20,7 @@
     "coord_system",
     "rows",
     "shifted_row",
+    "n_hits",
     "estimator",
     "weighting_note"
    ],
@@ -52,6 +53,10 @@
     },
     "weighting_note": {
      "type": "string"
+    },
+    "n_hits": {
+     "type": "integer",
+     "description": "Hits of the selected showers in the selected events, exact (from the event table). A row's count is the number of rows it was computed from: smaller only on a preview sample."
     }
    }
   },
@@ -318,29 +323,123 @@
      "type": [
       "number",
       "null"
-     ]
+     ],
+     "description": "On the laboratory frame's shifted z row only: the offset subtracted from z."
+    },
+    "note": {
+     "type": "string",
+     "description": "Present when N is too small for the numbers to be read at face value."
     }
    }
   },
   "negative_w": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/negative_w_available"
+    },
+    {
+     "$ref": "#/$defs/negative_w_unavailable"
+    }
+   ]
+  },
+  "negative_w_affected": {
+   "type": "object",
+   "required": [
+    "n",
+    "mean",
+    "sd",
+    "min",
+    "q25",
+    "q50",
+    "q75",
+    "max",
+    "n_over_half"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "min": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q25": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q50": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "q75": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "max": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n_over_half": {
+     "type": "integer"
+    }
+   },
+   "description": "The notebook's describe() of the per-shower negative-depth hit fraction over the showers that have any: an unweighted mean of per-shower fractions, not the pooled hits_fraction."
+  },
+  "negative_w_available": {
    "type": "object",
    "required": [
     "available",
     "threshold_mm",
     "unit",
+    "showers_per_event",
     "splits",
     "affected",
+    "intervals",
     "summary"
    ],
    "properties": {
     "available": {
-     "type": "boolean"
+     "const": true
     },
     "threshold_mm": {
-     "type": "number"
+     "type": "number",
+     "description": "The depth cut as a magnitude: a hit counts when w < -threshold_mm."
     },
     "unit": {
-     "type": "string"
+     "type": "string",
+     "description": "What the fractions are over: showers."
+    },
+    "showers_per_event": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2,
+     "description": "How many showers each event contributes to the selection: 2 pools both of a two-shower event, 1 for single-shower data or one chosen shower."
+    },
+    "summary": {
+     "type": "string",
+     "description": "One line for the status bar, intervals in brackets, minus signs U+2212."
     },
     "splits": {
      "type": "array",
@@ -356,11 +455,14 @@
        "showers_with_any",
        "showers_with_any_ci95",
        "hits",
+       "hits_total",
        "hits_fraction",
        "hits_fraction_ci95",
        "energy_gev",
+       "energy_total_gev",
        "energy_fraction",
-       "energy_fraction_ci95"
+       "energy_fraction_ci95",
+       "note"
       ],
       "properties": {
        "key": {
@@ -399,7 +501,8 @@
          {
           "type": "null"
          }
-        ]
+        ],
+        "description": "Wilson score interval on events: the primary interval for the share with any such hit."
        },
        "showers_with_any": {
         "type": "integer"
@@ -420,10 +523,12 @@
          {
           "type": "null"
          }
-        ]
+        ],
+        "description": "Wilson score interval on showers: null unless each event contributes one shower (showers_per_event = 1)."
        },
        "hits": {
-        "type": "integer"
+        "type": "integer",
+        "description": "Hits at w < -threshold_mm."
        },
        "hits_fraction": {
         "type": [
@@ -453,7 +558,8 @@
         "type": [
          "number",
          "null"
-        ]
+        ],
+        "description": "Raw deposited energy of the hits at w < -threshold_mm, in GeV (not calibrated to the incident momentum)."
        },
        "energy_fraction": {
         "type": [
@@ -478,79 +584,100 @@
           "type": "null"
          }
         ]
+       },
+       "hits_total": {
+        "type": "integer",
+        "description": "All hits of the split's showers."
+       },
+       "energy_total_gev": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "Raw deposited energy of all hits of the split's showers, in GeV."
+       },
+       "note": {
+        "type": "string",
+        "description": "Low-N label of the split's fractions; empty when N is not small."
        }
       }
-     }
+     },
+     "minItems": 4,
+     "maxItems": 4
     },
     "affected": {
-     "type": [
-      "object",
-      "null"
-     ],
+     "$ref": "#/$defs/negative_w_affected"
+    },
+    "intervals": {
+     "type": "object",
      "required": [
-      "n",
-      "mean",
-      "sd",
-      "min",
-      "q25",
-      "q50",
-      "q75",
-      "max",
-      "n_over_half"
+      "hits_fraction",
+      "energy_fraction",
+      "events_with_any",
+      "showers_with_any"
      ],
      "properties": {
-      "n": {
-       "type": "integer"
+      "hits_fraction": {
+       "type": "string"
       },
-      "mean": {
-       "type": [
-        "number",
-        "null"
-       ]
+      "energy_fraction": {
+       "type": "string"
       },
-      "sd": {
-       "type": [
-        "number",
-        "null"
-       ]
+      "events_with_any": {
+       "type": "string"
       },
-      "min": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "q25": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "q50": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "q75": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "max": {
-       "type": [
-        "number",
-        "null"
-       ]
-      },
-      "n_over_half": {
-       "type": "integer"
+      "showers_with_any": {
+       "type": "string"
       }
-     }
+     },
+     "description": "Which interval each quantity carries, in a few words."
+    }
+   }
+  },
+  "negative_w_unavailable": {
+   "type": "object",
+   "required": [
+    "available",
+    "reason",
+    "threshold_mm",
+    "unit",
+    "showers_per_event",
+    "splits",
+    "affected",
+    "summary"
+   ],
+   "properties": {
+    "available": {
+     "const": false
+    },
+    "reason": {
+     "type": "string",
+     "description": "Why the counts cannot be served, e.g. derived tables to rebuild."
+    },
+    "threshold_mm": {
+     "type": "number",
+     "description": "The depth cut as a magnitude: a hit counts when w < -threshold_mm."
+    },
+    "unit": {
+     "type": "string",
+     "description": "What the fractions are over: showers."
+    },
+    "showers_per_event": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2,
+     "description": "How many showers each event contributes to the selection: 2 pools both of a two-shower event, 1 for single-shower data or one chosen shower."
     },
     "summary": {
-     "type": "string"
+     "type": "string",
+     "description": "One line for the status bar, intervals in brackets, minus signs U+2212."
+    },
+    "splits": {
+     "type": "array",
+     "maxItems": 0
+    },
+    "affected": {
+     "type": "null"
     }
    }
   }

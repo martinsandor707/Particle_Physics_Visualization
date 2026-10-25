@@ -27,11 +27,19 @@ field.
 the CAM columns belong to: only segmentation predicts where the energy went.
 The column names come from :mod:`calosrv.db.ddl`'s allowlisted builders; a
 request string never reaches the SQL.
+
+**An experiment without networks measures two planes.** A single-shower hit
+file has no CAM or segmentation columns, so its scans sum ``e`` and ``n``
+only (:func:`measures_for`). Its bundles still carry every :data:`PLANES` key,
+the planes it did not measure left at zero, so the renderers, the guards and
+the caches read every kind alike; the density channel is all it can serve, and
+the routes refuse the CAM channels before any scan.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ..db import ddl
 
@@ -111,6 +119,38 @@ def measures(coord_system: str, model: str) -> tuple[tuple[str, str | None], ...
         ("esn", f"energy * least(CAST({sc} AS DOUBLE), 0.0)"),
         ("s", f"CAST({sc} AS DOUBLE)"),
     )
+
+
+#: The planes an experiment without networks measures: energy and the hit count.
+DENSITY_MEASURES: tuple[tuple[str, str | None], ...] = (("e", "energy"), ("n", None))
+
+
+def has_networks(source: Any) -> bool:
+    """Whether an experiment carries the networks' per-hit outputs.
+
+    ``source`` is the experiment's registry record or its ``Capabilities``:
+    both expose ``traits``. An experiment of no served schema has none.
+    """
+    traits = getattr(source, "traits", None)
+    return bool(traits is not None and traits.has_networks)
+
+
+def measures_for(source: Any, coord_system: str, model: str) -> tuple[tuple[str, str | None], ...]:
+    """:func:`measures` for an experiment with networks, :data:`DENSITY_MEASURES` otherwise.
+
+    ``source`` is the record or its ``Capabilities``. For a two-shower
+    experiment this is exactly :func:`measures`, so its SQL is unchanged.
+    """
+    if has_networks(source):
+        return measures(coord_system, model)
+    return DENSITY_MEASURES
+
+
+def measured_planes(source: Any) -> tuple[str, ...]:
+    """The planes a scan of this experiment fills, in :data:`PLANES` order; the rest stay zero."""
+    if has_networks(source):
+        return PLANES
+    return tuple(plane for plane, _ in DENSITY_MEASURES)
 
 
 def cam_note(model: str, coord_system: str, channel: str) -> dict | None:

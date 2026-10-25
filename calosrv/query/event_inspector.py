@@ -50,6 +50,11 @@ where the plane ``z = z0`` lands - and the origin itself.
 and are coarsened by doubling, and disclosed, until the whole response fits
 the 100 KB contract; the lattice panels have no coarser form and are served
 as measured.
+
+**One shower per event.** A single-shower experiment's event has one shower,
+stored under the shower-A names: ``shower=b`` is refused naming the parameter,
+the event block's second momentum, separation and overlap class are null, and
+the pick rule ranks events by that shower's own polar angle.
 """
 
 from __future__ import annotations
@@ -73,7 +78,8 @@ from ..grid import frame as frame_mod
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 from ..stats import shape
 from ..text import typographic
-from . import density, frame_sql, shower_frames
+from . import capabilities, density, frame_sql, shower_frames
+from . import showers as showers_mod
 from .filters import FilterSpec
 
 #: The notebook's window rule: margin multiplier and smallest half-width.
@@ -132,18 +138,31 @@ class ShowerRows:
         return int(self.energy.size)
 
 
+#: The event-table fields the figure reads, and those only a two-shower event has.
+_EVENT_FIELDS: tuple[str, ...] = (
+    "event_number", "e1", "e2", "d", "ovl", "n_hits", "n_a_rows", "n_b_rows", "n_ab_rows",
+    "theta_a", "phi_a", "theta_b", "phi_b", "p0ax", "p0ay", "p0az", "p0bx", "p0by", "p0bz",
+)
+_TWO_SHOWER_FIELDS: frozenset[str] = frozenset({
+    "e2", "d", "ovl", "n_b_rows", "n_ab_rows", "theta_b", "phi_b", "p0bx", "p0by", "p0bz",
+})
+
+
 def _event_row(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, event_number: int) -> dict[str, Any]:
+    """The event's fields; a single-shower event has no B, D or E2 column and reads them as null."""
     table = quote(naming.event_table(record.table_name))
+    two = len(showers_mod.of(record)) == 2
+    present = [name for name in _EVENT_FIELDS if two or name not in _TWO_SHOWER_FIELDS]
     cursor = con.execute(
-        f"""SELECT event_number, e1, e2, d, ovl, n_hits, n_a_rows, n_b_rows, n_ab_rows,
-                   theta_a, phi_a, theta_b, phi_b, p0ax, p0ay, p0az, p0bx, p0by, p0bz
-            FROM {table} WHERE event_number = ?""", [int(event_number)],
+        f"SELECT {', '.join(present)} FROM {table} WHERE event_number = ?", [int(event_number)],
     )
     names = [d[0] for d in cursor.description]
     row = cursor.fetchone()
     if row is None:
         raise NotFoundError(f"No event {event_number} in experiment {record.table_name!r}.")
-    return dict(zip(names, row))
+    fields = {name: None for name in _EVENT_FIELDS}
+    fields.update(zip(names, row))
+    return fields
 
 
 def _rows(con, record, event_number: int, shower: str, pitch: float) -> ShowerRows:
@@ -188,30 +207,54 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> 
 
     Events of the selection with more hits than the selection's mean, the
     ``pool_size`` of them with the largest incident polar angle (the larger of
-    the two showers' here), and one drawn at random with ``seed``.
+    the two showers' here), and one drawn at random with ``seed``. The events
+    are those the per-shower frames can place (``capabilities.frame_gate``):
+    a defined separation for two showers; an incident direction and an entry
+    point for a single shower, ranked by its own polar angle.
     """
     table = quote(naming.event_table(record.table_name))
     where = spec.where_sql()
     params = spec.params()
+    showers = showers_mod.of(record)
+    two = len(showers) == 2
+    gate = capabilities.frame_gate(record)
+    angle = f"greatest({', '.join(s.theta for s in showers)})" if two else showers[0].theta
     mean_hits, n = con.execute(
-        f"SELECT avg(n_hits), count(*) FROM {table} WHERE {where} AND d IS NOT NULL", params,
+        f"SELECT avg(n_hits), count(*) FROM {table} WHERE {where} AND {gate}", params,
     ).fetchone()
     if not n:
-        raise NotFoundError("The selection holds no event with a defined separation to pick from.")
+        raise NotFoundError(
+            "The selection holds no event with a defined separation to pick from." if two else
+            "The selection holds no event with an incident direction and an entry point to pick from."
+        )
     rows = con.execute(
         f"""SELECT event_number FROM {table}
-            WHERE {where} AND d IS NOT NULL AND n_hits > $mean
-            ORDER BY greatest(theta_a, theta_b) DESC, event_number LIMIT {int(pool_size)}""",
+            WHERE {where} AND {gate} AND n_hits > $mean
+            ORDER BY {angle} DESC, event_number LIMIT {int(pool_size)}""",
         {**params, "mean": float(mean_hits)},
     ).fetchall()
     pool = [int(r[0]) for r in rows]
     if not pool:
         rows = con.execute(
-            f"SELECT event_number FROM {table} WHERE {where} AND d IS NOT NULL "
+            f"SELECT event_number FROM {table} WHERE {where} AND {gate} "
             f"ORDER BY n_hits DESC, event_number LIMIT {int(pool_size)}", params).fetchall()
         pool = [int(r[0]) for r in rows]
     rng = np.random.default_rng(int(seed))
     chosen = int(rng.choice(np.asarray(pool)))
+    if two:
+        rule = (
+            f"Among the {n:,} selected events with a defined separation, those with more hits "
+            f"than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with the largest "
+            "incident polar angle (the larger of the two showers'); one drawn at random with "
+            f"seed {int(seed)} - the reference notebook's selection rule."
+        )
+    else:
+        rule = (
+            f"Among the {n:,} selected events with an incident direction and an entry point, those "
+            f"with more hits than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with "
+            f"the largest incident polar angle; one drawn at random with seed {int(seed)} - the "
+            "reference notebook's selection rule."
+        )
     return {
         "event_number": chosen,
         "pool": pool,
@@ -219,12 +262,7 @@ def pick(con, record, spec: FilterSpec, seed: int = 42, pool_size: int = 20) -> 
         "mean_hits": float(mean_hits),
         "n_events": int(n),
         "seed": int(seed),
-        "rule": (
-            f"Among the {n:,} selected events with a defined separation, those with more hits "
-            f"than the mean ({float(mean_hits):.1f}); of those the {len(pool)} with the largest "
-            "incident polar angle (the larger of the two showers'); one drawn at random with "
-            f"seed {int(seed)} - the reference notebook's selection rule."
-        ),
+        "rule": rule,
     }
 
 
@@ -435,10 +473,16 @@ def inspect(
     footprint: tuple[float, float] | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """The nine-panel figure of one shower of one event, budgeted under the contract."""
+    """The nine-panel figure of one shower of one event, budgeted under the contract.
+
+    ``shower`` must be one of the experiment's: ``b`` is refused (422,
+    ``field=shower``) where there is one shower per event.
+    """
     assert record.lattice is not None and record.frame_bounds is not None
     if shower not in SHOWERS:
         raise ValidationError(f"shower must be a or b; got {shower!r}.", field="shower")
+    selected = showers_mod.of(record, shower)[0]
+    two = len(showers_mod.of(record)) == 2
     if source not in frame_sql.SOURCES:
         raise ValidationError(f"coordinates must be one of {', '.join(frame_sql.SOURCES)}; got {source!r}.",
                               field="coordinates")
@@ -452,11 +496,13 @@ def inspect(
     in_selection, prev_event, next_event = _neighbours(con, record, spec, event_number)
     rows = _rows(con, record, event_number, shower, pitch_z)
     p0 = np.array([event[f"p0{shower}x"], event[f"p0{shower}y"], event[f"p0{shower}z"]], dtype=np.float64)
-    theta, phi = event[f"theta_{shower}"], event[f"phi_{shower}"]
-    label = SHOWERS[shower]
+    theta, phi = event[selected.theta], event[selected.phi]
+    # Two showers are told apart by letter; a single shower is named as such.
+    label = SHOWERS[shower] if two else selected.label
     if rows.n == 0 or any(v is None for v in (theta, phi, *p0)):
         raise NotFoundError(
-            f"Event {event_number} has no hit attributed to shower {label}"
+            f"Event {event_number} has no hit attributed to "
+            + (f"shower {label}" if two else "its shower")
             + ("" if rows.n else ", so no entry point P0 and no frame") + "."
         )
     theta, phi = float(theta), float(phi)
@@ -588,7 +634,7 @@ def inspect(
         pitch *= 2.0
     assert body is not None
 
-    momentum = event["e1"] if shower == "a" else event["e2"]
+    momentum = event[selected.momentum]
     body.update({
         "event": {
             "event_number": int(event_number),
