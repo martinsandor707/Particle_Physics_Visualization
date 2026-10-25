@@ -248,8 +248,8 @@
  "notes": [
   "x, y, z are the measured cell-centre coordinates of the detector lattice, read through the stored coordinate arrays; the x lattice is irregular, so its quartiles are lattice positions. z is the raw detector depth. The row z − 3649 mm is the reference notebook's display offset (core.SHIFT_Z) as a labelled row, not another coordinate: volume, densities and centroid_z stay on the raw z.",
   "A hit is at negative depth when w = z_local < −10⁻⁶ mm in its own shower's frame, whatever frame the other numbers are drawn in. The counts come from the event table, so they are exact even on a preview. Energies are the raw deposited hit energies (GeV), not calibrated to the incident momentum; a share of them is unaffected by the calibration.",
-  "The hits of one shower share its development, and the two showers of an event share the event, so every fraction takes events as its sampling unit: a ratio of sums with the linearised cluster standard error and a Student-t interval, clipped to [0, 1].",
-  "The share of events with any such hit is a proportion and takes a Wilson score interval. The share of showers is given only where each event contributes one shower: the two showers of an event are not independent Bernoulli trials."
+  "The hits of one shower share its development, so every fraction takes events as its sampling unit: a ratio of sums with the linearised cluster standard error and a Student-t interval, clipped to [0, 1].",
+  "The share of events with any such hit is a proportion and takes a Wilson score interval; with one shower per event it is also the share of showers."
  ],
  "filter": {
   "e1": [
