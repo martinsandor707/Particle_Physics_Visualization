@@ -42,8 +42,7 @@
  * taper fades both arms symmetrically by |v|.
  */
 
-import { lookupTable } from './palette.js';
-import { THEME, fadesAtFloor, floorExponent, rampPalette } from './scale.js';
+import { THEME, fadesAtFloor, floorExponent, rampPalette, rampTable } from './scale.js';
 
 /** base64 -> Uint8Array, without a data: URL round trip. */
 export function decodeBase64(text) {
@@ -101,15 +100,23 @@ function axisLookup(axis, cells) {
  * on a lab payload; rescaled onto the full table when the payload carries a
  * `below_code`, because its ramp spans only codes `min_code`..`max_code`.
  *
+ * Colours come from `scale.rampTable`: on screen every sequential ramp runs
+ * over its 3:1 run against the card (Martin's decision D-2), and a tapered
+ * relative ramp reaches its first 3:1 colour where the taper reaches full
+ * opacity; print keeps the full ramp. `legible: false` opts out (the
+ * exporter's one-pixel-per-bin raster); `signed: true` folds the raw
+ * Shap-CAM linear ramp's arms onto their 3:1 starts (the 3-D cubes).
+ *
  * Alpha is a pure step - 255 on the ramp, 0 off it - unless the ramp is a
  * relative log density *and* `fadeDecades` is a finite positive number. Only
  * then is it tapered, and only then is anything divided by it: the print
  * token is 0, and a NaN or ±Infinity must not reach a division that would
  * write NaN into ImageData (which the canvas silently reads as 0).
  */
-export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDecades) {
+export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDecades,
+  { legible = true, signed = false } = {}) {
   const scale = payload.scale || {};
-  const rgb = lookupTable(rampPalette(scale, paletteName));
+  const rgb = rampTable(scale, rampPalette(scale, paletteName), { legible, signed, fadeDecades });
   const table = new Uint8ClampedArray(256 * 4);
   const emptyCode = payload.empty_code ?? 0;
   const belowCode = Number.isInteger(payload.below_code) ? payload.below_code : null;
@@ -198,7 +205,8 @@ const BLOCK_UPSCALE_MAX = 32;
 export function renderRaster(payload, paletteName, { screen = true } = {}) {
   const [rows, cols] = payload.shape;
   const codes = decodeBase64(payload.data);
-  const table = codeTable(payload, paletteName);
+  // The exporter's raster (`screen: false`) keeps the full ramp, as print does.
+  const table = codeTable(payload, paletteName, THEME.floorFadeDecades, { legible: screen });
 
   const colLookup = axisLookup(payload.axes.col, cols);
   const rowLookup = axisLookup(payload.axes.row, rows);

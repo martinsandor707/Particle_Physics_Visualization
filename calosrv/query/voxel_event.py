@@ -73,10 +73,13 @@ error are linear on
 ascending energy (the notebook's draw order, bright cubes last), and the
 energy beyond the cap is counted beside the energy outside the window.
 
-**Window.** The notebook's rule (``event_inspector._window_half``) on the
-drawn frame's own coordinates: one half-width, 1.15 × half the cloud's
-largest extent, never below 150 mm; symmetric about the origin across the
-beam in the frames centred on one (Local, D-frame).
+**Window.** The Event Inspector's (``event_inspector._window``, Martin's
+decision D-3) on the drawn frame's own coordinates: one half-width, the
+widest energy-weighted 0.1st-99.9th percentile range of the cells plus one
+cell footprint, never below 150 mm, snapped outward to 20 mm; symmetric about the origin across the beam in the frames
+centred on one (Local, D-frame). The notebook's rule, 1.15 × half the
+cloud's largest extent, let one stray cell set the box. The cells beyond the
+window and their energy are counted in ``cap`` and the drawer.
 """
 
 from __future__ import annotations
@@ -104,7 +107,7 @@ from ..grid.frame import KIND_CANONICAL, KIND_LOCAL, KIND_TRANS
 from ..text import typographic
 from . import capabilities, density, event_inspector, frame_sql, planes, shower_frames
 from . import showers as showers_mod
-from .event_inspector import _event_row, _grid_edges, _lattice_crop, _mid, _neighbours, _window_half
+from .event_inspector import _event_row, _grid_edges, _lattice_crop, _neighbours, _window
 from .filters import FilterSpec
 
 # ------------------------------------------------------------ vocabulary --
@@ -538,6 +541,8 @@ class Builder:
     k: int = 0
     k_z: int = 0
     first_pitch: float | None = None
+    #: The cells whose centres lie outside the window (counted, not drawn): {n_cells, n_cells_total}.
+    outside_cells: dict[str, int] = field(default_factory=dict)
     canonical: dict[str, Any] | None = None
     dictionaries: dict[str, list[str]] = field(default_factory=dict)
     build_notes: list[str] = field(default_factory=list)
@@ -829,14 +834,20 @@ class Builder:
             "fraction_beyond": energy_beyond / total if total > 0 else 0.0,
             "energy_outside_window_gev": float(cubes.outside_gev),
             "fraction_outside_window": float(cubes.outside_gev) / total if total > 0 else 0.0,
+            "cells_outside_window": int(self.outside_cells.get("n_cells", 0)),
         }
         what = "cells" if self.regime == REGIME_CELLS else "voxels"
+        n_out = int(self.outside_cells.get("n_cells", 0))
+        inside = " inside the window" if n_out else ""
         cap_note = (
-            f"All {n_total:,} {what} are drawn." if not beyond.size else
-            f"The {drawn.size:,} most energetic of {n_total:,} {what} are drawn (cap {cap:,}, ranked by "
+            f"All {n_total:,} {what}{inside} are drawn." if not beyond.size else
+            f"The {drawn.size:,} most energetic of {n_total:,} {what}{inside} are drawn (cap {cap:,}, ranked by "
             f"energy); the {beyond.size:,} beyond the cap hold {energy_beyond:.4g} GeV, "
             f"{100.0 * cap_block['fraction_beyond']:.3g}% of the drawn showers' energy, counted and not drawn."
         )
+        if n_out > 0:
+            cap_note += (f" {n_out:,} of the event's {int(self.outside_cells.get('n_cells_total', 0)):,} cells "
+                         "lie outside the window and are counted, not drawn.")
         if cubes.outside_gev > 0:
             cap_note += (f" {cubes.outside_gev:.4g} GeV ({100.0 * cap_block['fraction_outside_window']:.3g}%) "
                          "falls outside the window and is counted, not drawn.")
@@ -1170,15 +1181,18 @@ class Builder:
     def _window_block(self) -> dict[str, Any]:
         centred = self.frame in (KIND_LOCAL, KIND_CANONICAL)
         return {
-            "half_mm": self.half, "pad": event_inspector.WINDOW_PAD,
+            "half_mm": self.half, "percentiles": list(event_inspector.WINDOW_PERCENTILES),
             "min_half_mm": event_inspector.WINDOW_MIN_HALF_MM,
             "axes": {axis: [float(v) for v in self.windows[axis]] for axis in "xyz"},
             "rule": typographic(
-                f"One half-width for the three axes: {event_inspector.WINDOW_PAD:g} × half the largest "
-                f"extent of the drawn cells in this frame, never below "
-                f"{event_inspector.WINDOW_MIN_HALF_MM:.0f} mm ({self.half:.0f} mm here)"
+                f"One half-width for the three axes: the widest energy-weighted "
+                f"{event_inspector.window_percentiles_text()} percentile range of the drawn showers' cells "
+                f"in this frame, plus one cell footprint so the cells at either end are drawn whole, never "
+                f"below {event_inspector.WINDOW_MIN_HALF_MM:.0f} mm and snapped outward to "
+                f"{event_inspector.WINDOW_SNAP_MM:.0f} mm ({self.half:.0f} mm here)"
                 + ("; symmetric about the origin across the beam" if centred else "")
-                + "; cells snap it to whole cells, voxels to whole bins."),
+                + "; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted "
+                "with the cap, below."),
         }
 
 
@@ -1286,12 +1300,18 @@ def build(
         centres = lab
 
     centred = frame in (KIND_LOCAL, KIND_CANONICAL)
-    half = _window_half([centres[:, 0], centres[:, 1], centres[:, 2]],
-                        centres[:, :2] if centred else np.zeros((0, 2)))
-    windows = {
-        axis: ((-half, half) if centred and axis != "z" else
-               (_mid(centres[:, i]) - half, _mid(centres[:, i]) + half))
-        for i, axis in enumerate("xyz")
+    # The event window (event_inspector._window, Martin's decision D-3): the energy-weighted
+    # 0.1st-99.9th percentile of the cells on each axis, one half-width, never below 150 mm.
+    half, centre = _window({axis: centres[:, i] for i, axis in enumerate("xyz")}, rows.energy,
+                           centred=("x", "y") if centred else (), pad=max(fp[0], fp[1], pitch_z))
+    windows = {axis: (centre[axis] - half, centre[axis] + half) for axis in "xyz"}
+    inside_rows = np.ones(rows.n, dtype=bool)
+    for i, axis in enumerate("xyz"):
+        inside_rows &= (centres[:, i] >= windows[axis][0]) & (centres[:, i] <= windows[axis][1])
+    keys = np.column_stack([rows.ix, rows.iy, rows.iz]).astype(np.int64)
+    outside_cells = {
+        "n_cells": int(np.unique(keys[~inside_rows], axis=0).shape[0]) if (~inside_rows).any() else 0,
+        "n_cells_total": int(np.unique(keys, axis=0).shape[0]),
     }
     # The cell frames' floor: the 1st percentile of the drawn cells' positive densities (one
     # volume, so of energies). The splat frames take theirs from the drawn voxels (_energy_range).
@@ -1305,6 +1325,7 @@ def build(
         footprint=(float(fp[0]), float(fp[1])), pitch_z=pitch_z, event=event,
         in_selection=in_selection, prev_event=prev_event, next_event=next_event, infos=infos,
         rows=rows, cells=cells, centres=centres, rotation=rotation, half=half, windows=windows,
+        outside_cells=outside_cells,
         floor=floor, residual=residual, canonical=canonical_info, started=started,
     )
     if canonical_info is not None:

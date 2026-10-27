@@ -116,24 +116,63 @@ def test_one_ramp_for_all_nine_panels(inspected):
         assert "1st percentile" in scale["rule"]
 
 
-def test_the_window_is_the_notebooks_rule_and_the_rasters_lie_inside_it(cursor, inspected):
+def _percentile_cells(values, weights):
+    """The cells at the energy-weighted 0.1st and 99.9th percentiles, re-derived for the test."""
+    order = np.argsort(values, kind="stable")
+    v, c = values[order], np.cumsum(np.clip(weights[order], 0, None))
+    total = c[-1]
+    i0 = min(int(np.searchsorted(c, 0.001 * total, side="right")), v.size - 1)
+    i1 = min(max(int(np.searchsorted(c, 0.999 * total, side="left")), i0), v.size - 1)
+    return float(v[i0]), float(v[i1])
+
+
+def test_the_window_is_the_energy_weighted_percentile_rule_and_the_rasters_lie_inside_it(cursor, inspected):
+    """Decision D-3: the widest energy-weighted 0.1-99.9% range over the six coordinates, floor 150 mm."""
     record = inspected["record"]
+    assert event_inspector.WINDOW_PERCENTILES == (0.1, 99.9)
     for (event, shower), body in inspected["bodies"].items():
         proj = quote(naming.proj_table(record.table_name))
         origin = "org = 0" if shower == "a" else "org IN (1, 2)"
         rows = cursor.execute(
-            f"SELECT ix, iy, iz, xl, yl, zl FROM {proj} WHERE event_number = ? AND {origin}",
+            f"SELECT ix, iy, iz, xt, yt, kt, xl, yl, zl, energy FROM {proj} WHERE event_number = ? AND {origin}",
             [event]).fetchnumpy()
         lat = record.lattice
         x, y, z = (lat.axis(a).coords[np.asarray(rows[i], int)] for a, i in (("x", "ix"), ("y", "iy"), ("z", "iz")))
+        xt, yt = (np.asarray(rows[c], float) for c in ("xt", "yt"))
+        zt = np.asarray(rows["kt"], float) * body["footprint_mm"][2]
         xl, yl, zl = (np.asarray(rows[c], float) for c in ("xl", "yl", "zl"))
-        half = 0.5 * max(np.ptp(v) for v in (x, y, z, xl, yl, zl))
-        half = max(half, np.abs(xl).max(), np.abs(yl).max())
-        half = max(half * event_inspector.WINDOW_PAD, event_inspector.WINDOW_MIN_HALF_MM)
+        energy = np.asarray(rows["energy"], float)
+        snap = event_inspector.WINDOW_SNAP_MM
+        half = 0.0
+        for v in (x, y, z, xt, yt, zt, zl):
+            lo, hi = _percentile_cells(v, energy)
+            centre = round(0.5 * (lo + hi) / snap) * snap
+            half = max(half, hi - centre, centre - lo)
+        for v in (xl, yl):
+            half = max(half, *map(abs, _percentile_cells(v, energy)))
+        # Plus one cell footprint (the cells at either end drawn whole), floor 150 mm, snapped to 20 mm.
+        half = max(math.ceil((half + max(body["footprint_mm"])) / snap - 1e-9) * snap,
+                   event_inspector.WINDOW_MIN_HALF_MM)
+        assert body["window"]["percentiles"] == [0.1, 99.9]
+        assert "0.1st–99.9th percentile" in body["window"]["rule"]
+        assert "nine" not in body["window"]["rule"] and "nine" not in body["scale"]["rule"]
+        # The cells beyond each frame's window are counted (D-3), and the rule names them.
+        for kind in event_inspector.FRAMES:
+            out = body["frames"][kind]["outside_window"]
+            cells = np.unique(np.column_stack([rows["ix"], rows["iy"], rows["iz"]]), axis=0).shape[0]
+            assert out["n_cells_total"] == cells and 0 <= out["n_cells"] <= cells
+            # Each axis leaves at most 0.1% of the energy past either end of its percentile range.
+            assert 0.0 <= out["fraction"] <= 0.006 + 1e-12
+            if out["n_cells"]:
+                assert f"{out['n_cells']:,} of {cells:,} cells" in body["window"]["rule"]
         assert body["window"]["half_mm"] == pytest.approx(half)
         for kind in event_inspector.FRAMES:
             frame = body["frames"][kind]
             assert frame["half_mm"] == pytest.approx(half)
+            # The window edges are 20 mm bin edges, so the grid rasters end on them (the 150 mm floor aside).
+            for axis in ("xyz" if half > event_inspector.WINDOW_MIN_HALF_MM else ""):
+                for edge in frame["window"][axis]:
+                    assert edge / snap == pytest.approx(round(edge / snap), abs=1e-9), (kind, axis, edge)
             for axis in "xyz":
                 lo, hi = frame["window"][axis]
                 assert hi - lo == pytest.approx(2 * half)

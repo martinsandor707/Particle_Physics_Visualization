@@ -32,6 +32,8 @@ Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 
 from __future__ import annotations
 
+import math
+
 import os
 import re
 from urllib.parse import parse_qs, urlparse
@@ -84,6 +86,11 @@ _ZOOM = """(id) => {
   return { w: el.clientWidth, h: el.clientHeight, size: grid.viewControl.orthographicSize, right: grid.right,
            alpha: grid.viewControl.alpha, beta: grid.viewControl.beta };
 }"""
+
+
+def _gl_height(width):
+    """voxels.js glPlotHeight: (width - LEGEND_RIGHT) / FIT_ASPECT, within [360, 560] px."""
+    return max(360, min(560, math.floor((width - 60) / FIT_ASPECT + 0.5)))  # JS Math.round
 
 
 def _fitted(zoom):
@@ -246,9 +253,10 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
     return found
 
 
-#: The most of a paired projection's plot its plain readout may cover beside the pointer
-#: (measured at most 0.33 at 1600 x 900 on the synthetic single shower; 0.64 before the 1 : 1 pair).
-PROJECTION_READOUT_SHARE = 0.4
+#: The most of a paired projection's plot its plain readout may cover beside the pointer: Page 1's cap
+#: (test_browser_physics.py READOUT_SHARE, Martin's tooltip rule). A larger readout leaves the plot
+#: as an explanation does (panels/tooltip.js placeTooltip); the 1 : 1 pair's five-line readout is 33%.
+PROJECTION_READOUT_SHARE = 0.2
 #: A projection's plain bin readout opens on a coordinate in millimetres (test_browser_tooltip.py's rule):
 #: ProjectionPanel places it from its own cell handler, not from a series-level `position`.
 COORDINATE = re.compile(r"^\S+ = [\u2212-]?[\d.]+ mm$")
@@ -275,10 +283,16 @@ def _projection_readouts(found, where):
         assert tip["left"] >= -0.5 and tip["top"] >= -0.5 and tip["right"] <= vw + 0.5 and tip["bottom"] <= vh + 0.5, at
         assert all(probe["onTop"]), at
         assert not (tip["left"] <= x <= tip["right"] and tip["top"] <= y <= tip["bottom"]), f"{at}: on the pointer"
-        assert _beside(tip, x, y), f"{at}: the bin readout left the pointer ({tip})"
         plot = boxes["plot"]
         area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
-        worst = max(worst, _overlap(tip, plot) / area if area else 0.0)
+        share = _overlap(tip, plot) / area if area else 0.0
+        if _beside(tip, x, y):
+            # Beside the pointer, read against the bin under it, only while it covers at most the cap.
+            assert share <= PROJECTION_READOUT_SHARE + 1e-3, f"{at}: a readout covers {share:.0%} of the plot ({tip})"
+        else:
+            # One that would cover more would hide the panel: it leaves the plot like an explanation.
+            assert share == 0.0, f"{at}: the bin readout left the pointer but stayed over the plot ({tip})"
+        worst = max(worst, share)
     return rest, worst
 
 
@@ -523,7 +537,8 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
             assert state["message"] is None, (card_id, state)
         for card_id in GL_CARDS:
             state = page.evaluate(_CARD, card_id)
-            assert "bar3D" in state["seriesTypes"] and state["height"] >= 500, state
+            # The plot's height follows its width (P-18, voxels.js glPlotHeight).
+            assert "bar3D" in state["seriesTypes"] and state["height"] == _gl_height(state["width"]), state
             assert page.evaluate(f"() => echarts.getInstanceByDom(document.getElementById('plot-{card_id}'))"
                                  ".getOption().grid3D[0].viewControl.projection") == "orthographic"
         live = page.evaluate(_LIVE_GL)
@@ -536,19 +551,22 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
         # The ensemble box is the paired projections' window; its drawer gives the grid's extent.
         title, headings, body = _drawer(page, "vox-ensemble")
         assert "cropped to the paired projections' window" in body and "The accumulation grid spans" in body
-        # The opening zoom keeps the box and its axis titles inside the card: at 1600 px the 3-D card is
-        # narrower than FIT_ASPECT, so the size is widened; a narrower window refits the zoom alone, and the
-        # reader's rotation stays.
+        # The opening zoom keeps the box and its axis titles inside the card. The plot's height follows
+        # its width, so at 1600 px the view fits at the camera's own size, with no widened zoom and no
+        # empty bands; a narrower window sets a lower height and refits the zoom alone, and the reader's
+        # rotation stays.
         for card_id in GL_CARDS:
             zoom = page.evaluate(_ZOOM, card_id)
-            assert zoom["size"] == pytest.approx(_fitted(zoom), abs=0.06) and zoom["size"] > CAMERA_SIZE, (card_id, zoom)
+            assert zoom["h"] == _gl_height(zoom["w"]), (card_id, zoom)
+            assert zoom["size"] == pytest.approx(_fitted(zoom), abs=0.06), (card_id, zoom)
+            assert zoom["size"] <= CAMERA_SIZE * 1.01, (card_id, zoom)
         page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-event'))"
                       ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
         wide = page.evaluate(_ZOOM, "vox-event")
         page.set_viewport_size({"width": 1440, "height": 900})
         page.wait_for_timeout(1500)
         zoom = page.evaluate(_ZOOM, "vox-event")
-        assert zoom["w"] < wide["w"] and zoom["size"] > wide["size"], (wide, zoom)
+        assert zoom["w"] < wide["w"] and zoom["h"] < wide["h"] and zoom["h"] == _gl_height(zoom["w"]), (wide, zoom)
         assert zoom["size"] == pytest.approx(_fitted(zoom), abs=0.06), zoom
         assert (zoom["alpha"], zoom["beta"]) == (10, 70), zoom
         browser.close()

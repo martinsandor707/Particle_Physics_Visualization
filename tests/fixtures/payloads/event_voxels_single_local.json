@@ -18,7 +18,7 @@
    },
    {
     "scope": "event",
-    "text": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2847 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins."
+    "text": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (2540 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
    },
    {
     "scope": "event",
@@ -103,24 +103,27 @@
   "note": "Coordinates: the file's own x/y/z_local; the motion (P₀ subtracted, then R(θ, φ) applied) was also applied to every cell here, and the two differ by at most 0.000234 mm (within the 0.01 mm tolerance)."
  },
  "window": {
-  "half_mm": 2846.9791381835935,
-  "pad": 1.15,
+  "half_mm": 2540.0,
+  "percentiles": [
+   0.1,
+   99.9
+  ],
   "min_half_mm": 150.0,
   "axes": {
    "x": [
-    -2846.9791381835935,
-    2846.9791381835935
+    -2540.0,
+    2540.0
    ],
    "y": [
-    -2846.9791381835935,
-    2846.9791381835935
+    -2540.0,
+    2540.0
    ],
    "z": [
-    -3033.2068756103513,
-    2660.7514007568357
+    -2720.0,
+    2360.0
    ]
   },
-  "rule": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2847 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins."
+  "rule": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (2540 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
  },
  "footprint_mm": [
   48.27001953125,
@@ -564,7 +567,8 @@
    "energy_beyond_gev": 0.0,
    "fraction_beyond": 0.0,
    "energy_outside_window_gev": 0.0,
-   "fraction_outside_window": 0.0
+   "fraction_outside_window": 0.0,
+   "cells_outside_window": 0
   },
   "below_floor": {
    "n": 14,

@@ -193,6 +193,10 @@ def _is_readout(plot, probe) -> bool:
     return plot != "plot-energy" and not probe["overlay"] and bool(COORDINATE.match(probe["firstLine"]))
 
 
+#: The most of its plot a readout may cover beside the pointer (test_browser_physics.py, tooltip.js).
+READOUT_SHARE = 0.2
+
+
 def _beside(tip, x, y) -> bool:
     """Right or left of the pointer by the gap, or above or below it by the gap."""
     horizontal = abs(tip["left"] - (x + GAP_PX)) < 1.5 or abs(tip["right"] - (x - GAP_PX)) < 1.5
@@ -225,7 +229,14 @@ def test_tooltips_are_readable_and_keep_the_hovered_panel_visible(live_server, v
             f"{where}: the tooltip sits on the pointer")
         if _is_readout(plot, probe):
             readouts += 1
-            assert _beside(tip, x, y), f"{where}: the bin readout left the pointer ({tip})"
+            # Martin's tooltip rule (fix round C, P-6): a readout stays beside the pointer while it
+            # covers at most 20% of the plot there; one that would cover more leaves the plot.
+            area = (probe["plot"]["right"] - probe["plot"]["left"]) * (probe["plot"]["bottom"] - probe["plot"]["top"])
+            if _beside(tip, x, y):
+                assert _overlap(tip, probe["plot"]) <= READOUT_SHARE * area + 0.5, (
+                    f"{where}: a readout beside the pointer covers more than 20% of the plot ({tip})")
+            else:
+                assert _overlap(tip, probe["plot"]) < 0.5, f"{where}: the bin readout left the pointer ({tip})"
         else:
             # Off the chart wherever it fits on some side of it; failing that, off the
             # plot - only the panel's own axes and margins may then be covered.
@@ -284,8 +295,20 @@ def test_a_tip_lands_where_it_was_placed_after_a_scroll_and_a_drag(live_server, 
         browser.close()
     assert probe, "no readout after the scroll and the drag"
     x, y = point
-    assert _beside(probe["tip"], x, y), f"the tip was drawn away from its place: {probe['tip']} for {point}"
-    assert abs(probe["tip"]["top"] - (y - LIFT_PX)) < 1.5, (probe["tip"], point)
+    tip = probe["tip"]
+    if _beside(tip, x, y):
+        assert abs(tip["top"] - (y - LIFT_PX)) < 1.5, (tip, point)
+    else:
+        # A readout that would cover more than 20% of the plot beside the pointer is placed just
+        # outside the chart instead (P-6), level with the pointer: it must land exactly there.
+        chart, (vw, vh), h = probe["chart"], probe["viewport"], tip["bottom"] - tip["top"]
+        assert abs(tip["left"] - (chart["right"] + GAP_PX)) < 1.5 or abs(tip["right"] - (chart["left"] - GAP_PX)) < 1.5, \
+            f"the tip was drawn away from its place: {tip} for {point}"
+        # Level with the pointer unless clamped at the content area's top (under the header) or bottom;
+        # a stale transform moved tips 120-240 px, which this catches.
+        clamped = tip["top"] <= 60 or tip["bottom"] >= vh - 6
+        assert abs(tip["top"] - (y - h / 2)) < 1.5 or clamped, (tip, point)
+        assert _overlap(tip, probe["plot"]) < 0.5, (tip, point)
 
 
 def test_a_hidden_tip_never_grows_the_document(live_server):

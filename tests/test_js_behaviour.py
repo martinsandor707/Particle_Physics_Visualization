@@ -77,7 +77,8 @@ out.canonicalEnds = {
   palette0: Array.from(palette.slice(0, 3)),
   palette255: Array.from(palette.slice(255 * 3, 256 * 3)),
 };
-const lab = codeTable(payloads.lab, 'viridis', 0.5);
+// The legacy palette[code] mapping is the full ramp (`legible: false`: the exporter's raster, print).
+const lab = codeTable(payloads.lab, 'viridis', 0.5, { legible: false });
 let identical = lab[3] === 0;
 for (let code = 1; code < 256; code += 1) {
   identical = identical
@@ -87,6 +88,16 @@ for (let code = 1; code < 256; code += 1) {
     && lab[code * 4 + 3] === 255;
 }
 out.labIdentical = identical;
+// On screen every opaque code is drawn from the ramp's 3:1 run (decision D-2).
+const rgba = (table) => Array.from({ length: 256 }, (_, code) => Array.from(table.slice(code * 4, code * 4 + 4)));
+out.screen = {
+  lab: rgba(codeTable(payloads.lab, 'viridis', 0.5)),
+  canonical: rgba(tapered),
+  attention: rgba(codeTable(payloads.attention, 'viridis', 0.5)),
+  labCividis: rgba(codeTable(payloads.lab, 'cividis', 0.5)),
+  labPlasma: rgba(codeTable(payloads.lab, 'plasma', 0.5)),
+  labTurbo: rgba(codeTable(payloads.lab, 'turbo', 0.5)),
+};
 out.attention = alphas(codeTable(payloads.attention, 'viridis', 0.5));
 
 // State: the hash is read at construction and written on every set().
@@ -214,7 +225,41 @@ def test_a_canonical_ramp_spans_the_whole_palette(results):
 
 
 def test_the_lab_table_is_the_legacy_palette_mapping(results):
+    """Off screen (the exporter's raster, `legible: false`) a lab table is still palette[code]."""
     assert results["labIdentical"]
+
+
+def _lin(c: float) -> float:
+    v = c / 255
+    return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+
+def _contrast(a, b) -> float:
+    def lum(rgb):
+        r, g, bb = (_lin(c) for c in rgb[:3])
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bb
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+CARD = (28, 33, 40)
+
+
+@pytest.mark.parametrize("name", ["lab", "canonical", "attention", "labCividis", "labPlasma", "labTurbo"])
+def test_no_opaque_raster_colour_is_under_three_to_one_on_the_card(results, name):
+    """Decision D-2: the 2 × 2, the compare-frames grid and the Event Inspector paint every opaque
+    bin from the ramp's 3:1 run; a tapered relative ramp reaches it where the taper turns opaque."""
+    table = results["screen"][name]
+    opaque = [rgba for rgba in table if rgba[3] >= 0.99 * 255]
+    assert opaque
+    worst = min(_contrast(rgba, CARD) for rgba in opaque)
+    assert worst >= 3.0, (name, worst)
+    if name == "lab":
+        # The lowest drawn code (1) is Viridis at 0.376, #24868e-ish, no longer #440154 (1.06:1).
+        assert table[1][:3] != [68, 1, 84] and _contrast(table[1], CARD) >= 3.0
+    if name == "canonical":
+        # The faded half decade climbs from the palette's first colour, so the field still dissolves.
+        assert table[2][3] == 0 and table[2][:3] == [68, 1, 84]
 
 
 def test_attention_is_never_tapered(results):
@@ -325,7 +370,7 @@ const overlay = [363, 184];
 const small = [198, 150];
 const out = {
   option: t.tooltipOption(), withPosition: typeof t.tooltipOption(() => [0, 0]).position,
-  gap: t.READOUT_GAP_PX, edge: t.EDGE_MARGIN_PX, layer: t.TOOLTIP_LAYER, cases: {},
+  gap: t.READOUT_GAP_PX, edge: t.EDGE_MARGIN_PX, layer: t.TOOLTIP_LAYER, cases: {}, readoutShare: t.READOUT_SHARE,
 };
 const run = (name, layout, geom, pointer, size, prefer) => {
   const g = { ...layout, ...geom, pointer, size, ...(prefer ? { prefer } : {}) };
@@ -350,7 +395,7 @@ const sweep = [];
 for (let x = 1030; x < 1498; x += 6) {
   for (const size of [readout, bigReadout, [269, 77]]) {
     const at = t.placeTooltip({ ...wide, ...panel2, pointer: [x, 250], size, prefer: 'pointer' });
-    sweep.push({ x, mode: at.mode, dx: at.x - x, right: at.x + size[0] - x });
+    sweep.push({ x, size, mode: at.mode, dx: at.x - x, right: at.x + size[0] - x });
   }
 }
 out.sweep = sweep;
@@ -465,12 +510,21 @@ def test_every_chart_tooltip_is_mounted_where_nothing_clips_it(tooltip_results):
     assert "position" not in option and tooltip_results["withPosition"] == "function"
 
 
-def test_the_bin_readout_stays_beside_the_pointer_whatever_its_size(tooltip_results):
+def test_a_short_readout_stays_beside_the_pointer_and_a_large_one_leaves_the_plot(tooltip_results):
+    """Martin's tooltip rule (P-6): a readout covering at most 20% of its plot stays at the pointer.
+
+    The 240 × 73 readout is 14% of the 470 × 270 plot and keeps its place; the
+    323 × 115 one is 29% and would hide the panel being hovered, so it leaves
+    the plot as an explanation does.
+    """
     gap = tooltip_results["gap"]
-    for name in ("readout", "bigReadout"):
-        case = tooltip_results["cases"][name]
-        assert case["at"]["mode"] == "pointer", name
-        assert [case["at"]["x"], case["at"]["y"]] == [case["pointer"][0] + gap, case["pointer"][1] - 8], name
+    assert tooltip_results["readoutShare"] == 0.2
+    case = tooltip_results["cases"]["readout"]
+    assert case["at"]["mode"] == "pointer"
+    assert [case["at"]["x"], case["at"]["y"]] == [case["pointer"][0] + gap, case["pointer"][1] - 8]
+    big = tooltip_results["cases"]["bigReadout"]
+    assert big["at"]["mode"] in ("outside-chart", "outside-plot"), big["at"]
+    assert _overlap(_tip(big), big["plot"]) == 0
 
 
 def test_the_bin_readout_flips_left_at_the_edge_of_the_content(tooltip_results):
@@ -481,11 +535,24 @@ def test_the_bin_readout_flips_left_at_the_edge_of_the_content(tooltip_results):
 
 
 def test_a_readout_sweep_never_jumps_off_the_chart(tooltip_results):
-    """The review's hop: readouts of three sizes along a row stay beside the pointer."""
+    """The review's hop: along a row, a short readout follows the pointer and a large one keeps one side.
+
+    Each size keeps one placement over the whole sweep, so no readout hops
+    between the pointer and the neighbouring panel as the pointer moves.
+    """
     gap = tooltip_results["gap"]
+    by_size = {}
     for step in tooltip_results["sweep"]:
-        assert step["mode"] == "pointer", step
-        assert step["dx"] == gap or step["right"] == -gap, step
+        by_size.setdefault(tuple(step["size"]), []).append(step)
+    plot_area = (1498 - 1028) * (400 - 130)
+    for size, steps in by_size.items():
+        if size[0] * size[1] <= 0.2 * plot_area:
+            for step in steps:
+                assert step["mode"] == "pointer", step
+                assert step["dx"] == gap or step["right"] == -gap, step
+        else:
+            assert {step["mode"] for step in steps} == {"outside-chart"}, size
+            assert len({step["x"] + step["dx"] for step in steps}) == 1, "the large readout hopped"
 
 
 def test_every_explanation_leaves_the_chart_however_small(tooltip_results):
