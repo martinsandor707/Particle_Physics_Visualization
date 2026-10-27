@@ -59,7 +59,7 @@
   },
   "model_file": "xgboost_electron/standalone_angle_s1_model.json",
   "sha256": "4678827eb3f3",
-  "analysis_version": 2,
+  "analysis_version": 3,
   "split": {
    "reproduced": false,
    "ratio_42": 1.03163,
