@@ -22,6 +22,18 @@ This repository contains two complementary halves. **Choose by dataset size**; d
 **B. Out-of-core client–server service** — the `calosrv/` package, packaged in Docker.
   - A FastAPI + DuckDB service performs every spatial transformation, dynamic binning and statistical reduction **server-side**, returning only pre-aggregated visual payloads (< 100 KB) to an Apache ECharts frontend.
   - **Use when** the dataset cannot be shipped to a browser at all. The production file `hits_all_models.csv` is 24 GB / 24,161,893 hit rows across 20,325 events, with 99 columns: three coordinate frames and three networks' predictions and per-hit Grad-CAM / Shap-CAM maps; no client-side architecture can open it, which is why this half exists. It replaces `hits_with_gradcam_v37.csv` (7.4 GB, 29 columns), whose schema is retired; figures below credited to production v37 were measured on that file, whose lattice and incident kinematics the new one shares.
+  - **The data arrive as Parquet.** Every CSV left the repository on 2026-10-27. The production data are now ZSTD-compressed Parquet: `ingest/hits_all_models.parquet` (2.9 GB, level 3), converted from the CSV above. The suite and the image seed from `hits_all_models_dummy.parquet`.
+  - **Three input schemas, two pages.**
+    - The service ingests three schemas, as CSV or Parquet, from the drop folder or the Admin upload:
+      - `hits_all_models` v1: two showers, 99 columns;
+      - `standalone_hits` v3: one shower, one row per cell, 21 columns;
+      - `standalone_events` v3: the 59-column event-level aggregate of `core.calc_all_features_v3`.
+    - What each kind serves is decided in one place, `calosrv/query/capabilities.py`. Every card a kind cannot serve says why.
+    - Page 1 (`/`, Physics) holds the 4-grid diagnostic of §5 and the physics section below it. Page 2 (`/models`, Models) holds the network and XGBoost analysis, the feature explorer and the 3-D views. Both pages read one API and one URL hash.
+  - **XGBoost runs in the service, never in the browser.**
+    - The notebooks' regressors live in `xgboost_models/`, one per species, task and seed; the s1 models are used. A folder scan (`CALOSRV_MODEL_DIR`) finds them and pairs each with the aggregate experiment of the same species and seed.
+    - A background job reproduces the notebooks' analyses and stores the results in DuckDB: the hold-out predictions, the 5-fold refit, the thresholded classification, the depth-3 surrogate tree and the gain importance.
+    - `/api/xgboost` serves pre-aggregated views of them under the same 100 KB rule.
   - The frontend must **never** receive raw hit-point arrays.
   - Rationale is recorded here because a previous revision of this file prohibited FastAPI outright. That prohibition was written for architecture A and is retained as a constraint *on* A: a batch compiler must not acquire a server. It does not apply to B.
 
@@ -77,6 +89,12 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - The same caution applies to any ensemble mean of a *position*: averaging the transverse centroid across a handful of showers that sit in different places has no common centre to converge on. The energy-weighted shower axis is an ensemble statistic and is only meaningful with many events.
   - **The one sanctioned exception is an averaged direction drawn after SE(3) co-registration into the Separation-Aligned (D-Frame), API `canonical` — the centre-of-separation frame, hereafter the D-frame** (`calosrv/grid/frame.py`, `calosrv/query/ensemble.py`). Once every event is translated to the midpoint of its two back-projected entry points and rotated so the A→B separation lies along $+x'$, the directions become coherent: measured on production `hits_all_models.csv`, the transverse mean resultant length $\bar R'$ is 0.78–0.82 for well-separated showers (D 2700–3000 mm, N = 500) and 0.12 for overlapping ones (D 20–40 mm, N = 950, every event below the 80 mm ill-conditioning threshold; Rayleigh $p \approx 5 \times 10^{-7}$), against 0.012 in the absolute (detector) frame. (On v37 the overlapping figure was 0.34.) That measurement, not the change of coordinates, is what licenses the mark, and it is re-measured on every response. The drawn axis must carry its **dispersion band** (sample SD of the per-event slopes, an uncapped shaded wedge) and its **Student-$t$ 95% mean envelope** as two separate, named marks; $\bar R'$, the Rayleigh $p = \exp(-N \bar R'^2)$ and $N$ are always printed beside it, and an axis with $p > 0.05$ is drawn faded, never hidden. Numbers are reported from $N \ge 2$ and marks are gated as the low-N table in `README.md` / `plan.md` describes: a single event gets its own two lines labelled as such with no band; below $N = 20$ the coherence is labelled weak and the fitted ranges provisional. The absolute-frame prohibition above is unchanged.
   - **Recorded exception: the windowed ensemble axis of the absolute frame** (`calosrv/query/window_axis.py`, `GET /api/window-axis`). The azimuth is uniform over the face but not random. Measured on production `hits_all_models.csv`: every shower's incident direction points at the detector origin — its azimuth equals the azimuth of its own position, φ = atan2(y, x) with R̄ = 1.000, and tan θ · z = r (the 3-D centroid's r / tan θ is 3,860 mm against its own z of 3,892 mm), residual 1.8° SD against that radial line (`summary.pointing`, reported on every lab and D-frame response). The azimuth is uniform only because the entry positions are, so the showers entering one window share a direction: in 300 mm windows of the entry position (262 windows with N ≥ 20) the median R̄(φ) is 0.999 and the mean lean over the depth is 346 mm against a 33 mm dispersion band. Therefore, when a depth panel is zoomed to a transverse window narrower than the detector, the mean trajectory of the selected events whose back-projected entry point lies in that window is drawn, with the sample SD of their per-event trajectories at each depth as an uncapped band and the Student-$t$ 95% interval of the mean as a thin envelope, two separate named marks. The gate is the lean against the fan, $|\bar s| \ge \text{SD}(s)$, drawn faded otherwise with the reason stated; the Rayleigh test is reported but not used as the gate, because a strip across the face flips the azimuth while the projected slope stays coherent. The low-N table applies unchanged. Nothing of the kind is drawn at full extent, where the prohibition above stands, and the per-layer energy centroid the depth panels draw for larger selections is named *centre of deposited energy*, a property of the summed picture, never a direction. Part of the D-frame band is this geometry, and its drawer says so.
+  - **The aggregate's `avg_phi` is not a direction.** In `standalone_events` v3 and in the XGBoost inputs, it is `core.calc_all_features_v3`'s *arithmetic* mean of the hits' φ.
+    - It is offered for parity with the producer's file and the models only.
+    - It is flagged circular and never drawn as a direction.
+    - Its correlation cells are hatched. They carry Mardia's circular–linear R, or r_c with another azimuth, beside the notebook's linear r.
+    - The hit kinds offer `avg_phi_circ`, the mean direction atan2(Σ sin φ, Σ cos φ), which only per-hit sums can give. They also offer `angular_spread_circ` beside core's `angular_spread`, whose linear SD of φ the ±π cut inflates.
+    - The angle model's predicted φ is never coloured or averaged linearly on the XGBoost surrogate card. Its boxes print a circular mean, with R̄, behind a Rayleigh gate.
 * **Perceptual Uniformity**:
   - Use strictly colorblind-safe palettes: **Viridis**, **Cividis**, **Plasma**, **Turbo**, or **ColorBrewer**.
   - **STRICTLY FORBIDDEN**: Rainbow, Jet, or non-monotonic spectral colormaps.
@@ -85,6 +103,20 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - **Every rendered negative number is set with the minus sign U+2212**, never the ASCII hyphen: axis ticks, colour-scale ends, tooltips, captions, footnotes, server notices and exported SVG text (`static/js/format.js`, `calosrv/text.py`). JSON numbers are untouched.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
+  - **Recorded exception: the orthographic 3-D views of the Models page** (`static/js/voxels.js`, `voxel_views.js`; data from `query/voxel_event.py` and `query/voxels.py`).
+    - **What may be drawn in 3-D.** One event's cells and the selection's co-registered cloud. Where the energy sits in depth and around the axis is what a reader looks for there, and two projections lose it.
+    - **How it is held:**
+      - an orthographic camera, never perspective;
+      - one scale on all three axes, 1:1:1 in millimetres, with the box proportional to the physical spans;
+      - in the Absolute and per-shower translated frames, cubes that are measured cells: one per cell, sized by the measured footprint and the layer pitch;
+      - in Local and the D-frame, where a tilted cell cannot be drawn as a cube, axis-aligned voxels of a stated splat grid: 20 mm sub-deposit voxels for one event (coarser only where 256 voxels per axis cannot cover the shower), 40 mm voxels merged about the origin for the cloud;
+      - flat shading, with no lights;
+      - colour scales and display floors stated as on the 2-D panels;
+      - an opening zoom fitted to the card, so no axis title leaves the canvas.
+    - **Why.** Occlusion and foreshortening make a 3-D view unreadable as a measurement. It orients, and the numbers live elsewhere:
+      - every 3-D card stands beside its three paired 2-D projections, which carry the quantities and are the exportable figures;
+      - the 3-D card has no export;
+      - a page holds at most two WebGL contexts, and the card says so where WebGL is unavailable.
   - Maintain a high-contrast scientific dark theme: canvas `#0d1117` / `#161b22`, card panels `#1c2128`, borders `#30363d`, text `#e6edf3` / `#8b949e`.
 * **Outlier Clipping for Readability**:
   - These datasets contain genuine outliers, and per-hit energies span ~15 decades. Fitting an axis or colour ramp to the full data range spends nearly all of it on a handful of extreme values.
@@ -160,6 +192,10 @@ When working with calorimeter simulation datasets in this repository:
 
 * **Detector Coordinates & Geometry**:
   - $Z$: Longitudinal shower depth into the calorimeter. $Z = 0$ is the entrance plane.
+    - **The z convention is raw z.** Every file, the Parquet archive and every derived table keep the detector's raw z, on the one 212 × 104 × 60 lattice both hit schemas share: the first layer is at 3662.4 mm, then 60 layers at 20.5 mm. The producer's aggregate was computed on raw z.
+    - `core.SHIFT_Z = 3649` mm (`ddl.CORE_SHIFT_Z_MM`) is only a display offset. It applies where a card quotes depth below the front face, labelled `z − 3649 mm` there.
+    - Volumes, densities and `centroid_z` stay raw.
+    - In the per-shower frames, z = 0 is each shower's own first populated layer.
   - $X, Y$: Transverse coordinates perpendicular to beam entry.
   - $D$: Transverse separation distance between the entrance centroids of Shower A and Shower B at $Z = 0$.
 * **Synchronized 4-Grid Diagnostic Layout**:
@@ -176,3 +212,17 @@ When working with calorimeter simulation datasets in this repository:
   - The four on-card footnotes are replaced by a per-panel **Details** drawer (`<aside id="inspector">`, `js/shell.js`, text from `js/panel_notes.js`): the former footnote's home, opened from each card's Details button — the keyboard trigger, flagged with a warning dot when the panel carries a hazard — or its title row, in sections Selection / What is drawn / Disclosures / Marks and legend, plus Reading the density axis on the energy panel. The key counts stay on screen without opening it: the energy card's `#energy-sparse` notices (which also carry the energy-axis clipping note), the status-bar ρ_ref and **Clipped** readouts (`#stat-clipped`: clipped ramp cells in the Absolute frame, bins below the display floor in a co-registered frame), and the sidebar's info dots (the comb and frame notices).
   - Exported SVG/PNG figures are the plot canvas only, by directive: axes, raster, overlays and the colour-scale legend on `#FFFFFF` in `#111827` ink, with no caption band, no reserved bottom height, no `<g id="figure-disclosure">` and no μ/σ table rows. This overrides the earlier rule that the figure carries its own disclosures; the drawer's text is what goes into a manuscript caption.
   - The dataset upload form lives inside the **Admin Settings** panel, between the default-view form and the Automatic ingest section; there is no header upload button. The panel's Close button closes it, a running ingest survives closing, and a Clear form button resets it.
+* **Models page (Page 2) requirements**:
+  - **Cards.** It holds:
+    - the networks' per-momentum-bin performance (E2);
+    - prediction against truth and its residuals;
+    - the feature explorer (table, correlations, histogram, 2-D histogram), which draws one shower at a time on two-shower data and never pools A and B;
+    - the primary-tag rate;
+    - the two 3-D views of the recorded exception above;
+    - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
+  - **E4 judges surrogate fidelity per output.**
+    - Each output's own R² and MAE are printed.
+    - The "low surrogate fidelity" warning is judged per output, below R² 0.5.
+    - The average is never judged and never printed alone. On electrons, φ is 0.978 and θ is 0.004, and the average of 0.49 would hide both.
+  - **E5 shows the top 15 features by gain.** The plot counts the rest, and the drawer lists every feature with its numbers. There is no "show all" toggle.
+  - **The training-split check.** An analysis whose training split is not reproduced is still shown, and its cards and its Admin row carry the hazard. Reproduced means the validation/training MSE at `random_state` 42 clears the largest of 99 other seeds by the stated margin.

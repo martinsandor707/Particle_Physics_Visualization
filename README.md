@@ -214,7 +214,7 @@ does) or from the shell.
 | `CALOSRV_DEBOUNCE_MS` | `150` | The debounce the server advertises to the frontend (`compute.debounce_ms` in `GET /api/experiments`). |
 | `CALOSRV_SERVER_URL` | `http://127.0.0.1:<PORT>` | Where `python -m calosrv.ingest` looks for a running server to delegate to. |
 | `CALOSRV_LOCAL_INGEST_DIR` | `/app/host` | The one root that server-side ingest (**Already on the server**, `POST /api/ingest-local`) may read. Empty, or a directory that does not exist, turns it off. |
-| `CALOSRV_MODEL_DIR` | `xgboost_models/` beside `calosrv`; `/app/host/xgboost_models` in the container | The folder scanned for shipped XGBoost models. Used by the Models page, which this README documents separately. |
+| `CALOSRV_MODEL_DIR` | `xgboost_models/` beside `calosrv` when it exists (or when the container's mount does not); otherwise `/app/host/xgboost_models`, where compose mounts the repository read-only | The folder scanned for shipped XGBoost models (see [The XGBoost analysis](#the-xgboost-analysis)). One directory per species, `xgboost_<species>/` (lowercase letters and digits, starting with a letter), holding `standalone_<task>_s<seed>_model.json` with `<task>` `momentum` or `angle` and `<seed>` an integer. Any other `.json` in a species directory, a symbolic link, a file over 256 MB, or a file that is not an XGBoost `reg:squarederror` gbtree model with named features (one target for momentum, two for angle) is listed in Admin Settings with its reason and left out. A folder that does not exist is reported there and is not fatal. |
 | `CALOSRV_CACHE_ENTRIES` | `128` | Native-resolution matrix bundles held in the LRU. |
 | `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local) and of the ensemble voxel-cloud LRU. |
 | `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/host/ingest`, the repository's `./ingest`, read-only. |
@@ -781,6 +781,11 @@ tables from it:
     measured at ingest on the pooled profiles, against a threshold of lag-1
     < −0.10: none on the production file (+0.78 along w, +0.90 along ρ) or on the
     electron file (+0.80, +0.67).
+- **The XGBoost analysis tables.** An event-level aggregate paired with shipped
+  models also has six `xgb*_<name>` tables (`xgbrun_`, `xgbpred_`, `xgbfold_`,
+  `xgbimp_`, `xgbbin_`, `xgbtree_`), written by the background analysis in one
+  transaction and dropped with the experiment ([What it
+  stores](#what-it-stores)).
 - **The registry** (`experiment`) gained two columns, appended, so an older
   database migrates by `ALTER TABLE` alone. `derived_version` is the layout
   generation of the derived tables (a NULL reads as 1; the current ones are 2
@@ -852,7 +857,10 @@ result. The panel also holds the **Upload dataset** form (see
 [drop folder](#drop-folder-automatic-ingest)'s last scan, with live job status
 and **Scan now**; its Derived tables section lists each experiment's
 derived-table version and runs a [rebuild](#rebuilding-derived-tables); its
-**Close** button closes the whole panel, and a running ingest survives that.
+**XGBoost model runs** section, after it, lists the [XGBoost
+analysis](#the-xgboost-analysis) of every event-level aggregate and holds the
+**Rescan models** action; its **Close** button closes the whole panel, and a
+running ingest survives that.
 
 Each setting resolves through four layers, highest first:
 
@@ -906,6 +914,25 @@ call is still a function of its parameters: the defaults govern the interface's
 cold boot, plus one API case, where a request naming no experiment opens the
 default one.
 
+**XGBoost model runs.** Below the Derived tables, a section lists the models
+folder and, per event-level aggregate experiment, its pairing with the shipped
+models (species, seed and the two model files, or the reason none pairs) and
+where its [analysis](#the-xgboost-analysis) stands: queued; analysing, with the
+step it is on (*n* of 18); done, with its duration; failed, with the error; stale,
+with what changed; waiting for the experiment; or not paired. A task whose
+training split was not reproduced is named on the row, so a "done" analysis never
+hides it. The list is the read-only `GET /api/admin/model-runs` (its **Refresh**
+button reads it again, and it polls itself while an analysis is queued or
+running). **Rescan models** is `POST /api/admin/model-runs/scan`: it rescans the
+folder, re-pairs every aggregate, compares each stored analysis with everything
+it was computed from, the feature and label values included, and queues every
+missing or stale one; a failed analysis whose inputs have not changed is left
+alone, and one already queued or running is never queued twice. **Re-analyse** on
+a row (`POST /api/admin/model-runs/{table_name}/analyse`) queues that
+experiment's analysis even when the stored one is current, and is disabled while
+one is under way. The Models page has no Admin Settings of its own; its link goes
+to `/?admin=1`.
+
 **Trust model.** No endpoint of this service is authenticated, and the panel is
 no exception. Like upload and delete, it is open to anyone who can reach the
 port, which compose publishes on all interfaces. Keep the port on a trusted
@@ -915,8 +942,9 @@ network.
 
 **Two pages, one API and one view state.** *Physics* at `/` holds the 2 × 2
 diagnostic of the next sections with the [physics section](#the-physics-section)
-below it. *Models* at `/models` holds the network and feature analysis and the
-3-D views. The header's page tabs link between them, and each link carries the
+below it. *Models* at `/models` holds the network and feature analysis, the XGBoost
+model views and the 3-D views, and is documented in [The Models
+page](#the-models-page). The header's page tabs link between them, and each link carries the
 view: its `href` takes `location.hash` when it is clicked, because the interface
 writes the hash with `history.replaceState`, which fires no event. Both pages
 read the same `/api/experiments` catalogue and the same hash. Admin Settings
@@ -2486,6 +2514,815 @@ first. The energy panel names a non-absolute segmentation frame. For example:
 
 ---
 
+## The Models page
+
+*Models* at `/models` is the second page of the interface. Page 1 asks how a
+reconstruction behaves in the detector; this page asks how well a model
+predicted, which per-event features separate the momentum classes, and what one
+event or the whole selection looks like in three dimensions. It shares the
+experiment, the filters, the reference frame and the reconstruction model with
+Page 1 through the URL hash, so a tab switch carries the view across (see [The
+interface](#the-interface)). Its own state keys are `feature`, `fclass`,
+`fshower`, `voxel_event`, `voxel_shower`, `voxel_channel`, `ens_channel`,
+`xgb_task` and `xgb_label`; like every key they are written only when they
+differ from the built-in value, and none reuses a Page 1 key (`event` and
+`shower` pin Page 1's Event Inspector and are never read here).
+
+Every card on the page follows the anatomy of a Page 1 card: Details first in
+the toolbar (the same [drawer](#the-interface), with the same four sections plus
+a card's own headings), a plot-only Export where the card is a chart, tooltips
+mounted on `#tooltip-layer` that never cover the hovered plot, and every
+negative number set with U+2212. A card loads when it scrolls into view and
+again only when its request changes. A request the server refused (a 422 from a
+shut gate) stays refused for that request; a transient failure shows its error
+with a Retry. Switching experiment aborts the requests in flight, drops every
+cached response and blanks every card before anything is drawn, and each card
+checks its request key after its response lands, so a late response never draws
+the previous experiment's data under the new one's name.
+
+The sections, in page order: **Model performance** (three cards), **XGBoost
+model** (four cards), **Event features** (four cards), **Primaries** (one card)
+and the **3-D views** (two pairs of a 3-D card and three 2-D projections).
+
+### What each kind of experiment shows
+
+The page is planned from the experiment's capability block
+(`static/js/capabilities.js`, `page2Plan`, the Models twin of Page 1's
+`page1Plan`), never from a guess about its kind, and the block is the server's
+(`query/capabilities.py`, [The capability block](#the-capability-block)). A card
+the experiment cannot serve is shut with the server's sentence, or its section
+is left out; nothing is substituted for what is missing.
+
+| Section | `two_shower_hits` | `single_shower_hits` | `single_shower_events` (aggregate) |
+|---|---|---|---|
+| Model performance | The energy and angle networks' per-shower predictions, in every input frame at once (segmentation has no per-shower prediction) | Absent: no networks | The **XGBoost** hold-out series, once an analysis is done; otherwise absent |
+| XGBoost model | Absent | Absent | Shown when a model run pairs with the experiment; its cards open when the analysis is done and current |
+| Event features | Both showers, each in its own right, in the Absolute, per-shower translated and Local frames, rebuilt from the per-event Group-1 sums | Shower A, same frames | The producer's own feature columns, as stored |
+| Primaries | Absent: the species columns are not in the two-shower export | The share of events with no primary-tagged hit | Absent: no hits |
+| 3-D views | One event (Absolute, per-shower translated, Local) and the ensemble cloud (Local, D-frame); attention channels from the networks | One event (Absolute, per-shower translated, Local) with the species channel; the ensemble cloud in the Local frame | Absent: no hits |
+
+The reasons are the capability block's: a hit-level gate that needs the derived
+tables is shut on a [stale experiment](#rebuilding-derived-tables) with the
+rebuild sentence, and the features section stays on show for it so the sentence
+has somewhere to be read. Two banners and a caption say what the experiment lacks.
+
+- **No network predictions** (CLAUDE.md §3). An experiment without
+  reconstruction-network outputs says so in a prominent banner: the network
+  performance cards and the attention channels of the 3-D views are unavailable,
+  and no prediction is substituted. Where an XGBoost regressor pairs with the
+  experiment, the banner says instead that the performance cards draw that
+  regressor on its 20% validation split.
+- **No model run is loaded.** An experiment with no paired model run, of any
+  kind, carries an info banner naming the four XGBoost views and saying why none
+  pairs with it: its kind, or the [pairing](#the-xgboost-analysis)'s reason. It
+  disappears as soon as a model run pairs.
+- **Caption: another frame was drawn.** A view that has no data in the selected frame
+  draws in a fallback and says so under its title, and the fallback is never
+  written back to the link. The feature cards serve the Absolute, per-shower
+  translated and Local frames; the D-frame has no per-event feature sums, so the
+  cards fall back to Absolute. The ensemble cloud is co-registered only, so
+  Absolute and per-shower translated fall back to Local. The event pair falls
+  back to Absolute when the D-frame is selected (see [The 3-D
+  views](#the-3-d-views)). A network reads the frame it was trained on, and the
+  D-frame uses the absolute-frame networks; that is the definition of the
+  D-frame's networks, not a fallback. An aggregate offers no frame, and its
+  feature cards send no `coord_system`, so the API's default, Absolute, is served
+  (the API serves all three).
+
+### Network performance by momentum bin (E2)
+
+`GET /api/model-performance?slice_by=momentum_bin` asks the question Page 1's
+separation slices do not: how a network behaves across the momentum range. An
+event holds two showers of two momenta, so it has no single momentum bin; each
+shower is placed by its own producer bin (`e1_bin` for A, `e2_bin` for B, never
+`floor(p)` recomputed) and the two are separate series with their own N. The bin
+axis comes from the whole event table, so it does not move with the selection.
+A shower without a prediction is counted per bin and dropped, never
+zero-filled. The segmentation network is refused here: its quality belongs to the
+whole event.
+
+**What is drawn.** One statistic at a time (RMSE, MAE, median relative error,
+bias; the angle task adds the median absolute error), as grouped bars that start
+at zero (a signed bias runs down from zero) at fixed offsets inside their
+1 GeV bin, so the x axis stays the momentum in GeV and an empty bin is a gap.
+Colour is the input frame (ColorBrewer Set2 on the dark screen, its Dark2
+partner in print: Absolute, per-shower translated, Local, then XGBoost, the order
+the importance card uses for frames); a solid bar is shower A and a light wash
+with a solid outline shower B.
+
+**Whiskers are intervals of the plotted statistic**, never the spread of the
+showers in the bin:
+
+| Statistic | Whisker | From |
+|---|---|---|
+| RMSE | the square root of the Student-t interval of the mean squared residual | N ≥ 2 |
+| MAE, bias | Student-t interval of the mean absolute / signed residual (MAE clipped at zero) | N ≥ 2 |
+| Median relative error | distribution-free order-statistic interval | N ≥ 6 |
+| Median relative error | seeded percentile bootstrap (B = 2,000; each group seeds its own, `SeedSequence([42, frame, shower, bin, quantity])`, so an interval never depends on which other series a request asked for), the order-statistic interval kept beside it as a cross-check | N ≥ 20 |
+
+A value is reported from N = 1 without an interval, because a value claims
+something about a sample and an interval something about its population; a bar
+of fewer than two showers is drawn faded and dash-outlined.
+
+**The y range follows robust evidence.** A bin drives the scale only from
+N = 15 (the core-refit floor); `y_max` is the outward 1-2-5 rounding of the
+largest interval end among the driving bins. An under-powered bar or whisker
+above it is clipped at the axis with a caret, its true values in the tooltip and
+its count in the drawer. When no bin reaches N = 15 the range comes from the weak
+bins' values alone, never their whiskers, and is labelled provisional on the
+axis.
+
+**The angle network predicts θ only.** Residuals are in milliradians and a
+relative error |Δθ|/θ grows like 1/θ at small θ, so each angle point also
+carries the median |Δθ| in mrad, the smallest true θ and how many showers lie
+below 0.1 rad; the drawer states them.
+
+**The XGBoost series (aggregate experiments).** With `model=energy|angle` the
+route answers the shipped regressor's hold-out as one series of the same shape
+(code `xgb`, no cards, no separation slices). Only the 20% validation rows are
+drawn, because the other 80% trained the model and would flatter it; the
+selection applies to them, and the training rows it selects are counted in
+`split.n_training_excluded` and not drawn. The momentum model answers
+`model=energy` and carries no frame, because it reads the features of all three
+frames at once. The angle task adds **φ as a quantity group of its own**: RMSE,
+MAE and median |Δφ| of the residual wrapped to (−π, π], in mrad, with no
+relative error (meaningless for an azimuth) and no bias (the mean of a wrapped
+residual averages a circular quantity). The statistic control disables what a
+series does not report.
+
+The payload is measured as served and a body over 100 KB sheds the
+order-statistic arrays, then two significant figures, and says so; the whiskers
+keep their meaning at every step.
+
+### Prediction against truth, and residuals
+
+`GET /api/prediction-density` feeds two cards from one request: **predicted
+against true** (a density of pairs) and the **residual histogram** beneath it.
+The energy and angle networks predict one number per shower, so an event
+contributes two pairs, A and B, kept apart; the segmentation network is refused
+by name, its reconstruction being Page 1's energy panel.
+
+- **Axes that do not move.** Truth and prediction share one range, taken from
+  the whole event table whatever the selection (outward 1-2-5 rounding; the
+  energy axis floored at zero), and the panel is square at 1:1, so the identity
+  line is the diagonal and the picture does not shift as a filter changes.
+  Pairs beyond the axes are counted per side in `outside`, so
+  `n_in_range + outside.total == n`.
+- **Density from N = 15.** A shower with fewer than 15 pairs gets its individual
+  pairs drawn instead of a density: one or two showers per cell would be a
+  statement about the binning. Counts are on a log₁₀ ramp that starts at the
+  first position clearing 3:1 against the card, because Viridis' own first
+  colour is 1.06:1 against `#1c2128` and a cell of a single shower would vanish
+  while being "drawn"; the payload states that colour. Bins per axis are 64 by
+  default (16 to 128) and step down, with a notice, if the body would pass
+  100 KB.
+- **The residual** is the quantity of Page 1's cards: (pred − true)/true for
+  energy and Δθ in mrad for angle. It goes through the energy panel's ladder:
+  the range is the 1st to 99th percentile of the showers with statistical weight
+  (N ≥ 15; every shower, labelled provisional, when none has), rounded outward
+  and disclosed; the bin count follows the smaller drawn shower; a density
+  histogram from N = 15, the core-refit Gaussian from N = 8, the individual
+  events below that; every mean carries its Student-t whisker apart from the
+  sample's σ band; bias, σ and RMSE carry their own intervals
+  (`metrics.residual_summary`).
+- **φ residuals are circular.** The XGBoost angle regressor predicts φ as well,
+  chosen with `label=phi` (θ by default; the networks predict θ only, so
+  `label=phi` is a 422 on two-shower data). The wrapped residual keeps its
+  histogram and its RMSE, but its arithmetic mean, the mean's whisker and the σ
+  band, the bias, σ/μ and the moment σ are withheld: null with a note, never
+  numbers, because the arithmetic mean of a wrapped quantity is not its centre.
+  Its centre and spread are the circular **mean direction** (with Fisher's
+  large-sample 95% interval from N = 25, `fisher_large_sample`), the mean
+  resultant length R̄, the circular SD √(−2 ln R̄) and the Rayleigh p, all in
+  mrad. A Gaussian curve is drawn only as a *fit of the core* (the iterated
+  ±2.5σ window, N ≥ 15, only where the window does not wrap) and is named so. The
+  card draws no mean marker, whisker or σ band for φ.
+- **XGBoost on an aggregate** draws one series: the hold-out rows within the
+  selection, labelled as the validation split (`source` `xgb`, `network.frame`
+  `xgb`), with the split check's warning on the card when it failed.
+
+### The feature explorer
+
+`GET /api/features` serves four cards from one cached per-event bundle: a
+`catalog` of the features and class sizes, then `describe`, `corr`, `hist` and
+`hist2d`. One request reads the event table once, with no hit scan, and
+everything a view varies (classes, feature, scale, the floor exclusion) is a
+NumPy step over the cached arrays; each view is its card's gate, so a
+two-shower experiment built before the Group-1 columns is refused with the
+rebuild sentence rather than failing in SQL. Every response is measured on the
+wire against 100 KB and sheds resolution in stated steps (curve points, then
+bins; the describe intervals).
+
+**The features.** The nineteen the notebooks give XGBoost (`core.calc_all_features_v3`:
+width, height, depth, depth range, volume, hit count, deposited energy, the
+three centroid coordinates, mean, SD, maximum and energy-weighted radius, mean
+θ, mean φ, angular spread and the two densities), plus two hit-kind companions,
+`avg_phi_circ` and `angular_spread_circ`, which only per-hit sums can give. A hit
+kind rebuilds them from the Group-1 sums through the one copy of core.py's
+formulas; the aggregate reads the producer's values under the file's names. Each
+feature carries what a reader must know before trusting a number:
+
+- **Circular.** `avg_phi` is core.py's *arithmetic* mean of the hits' φ, kept
+  because the producer's file and the XGBoost inputs use it; it is not a
+  direction and is never drawn as one. `angular_spread` contains a *linear* SD of
+  φ, which the ±π cut inflates (70.6% of the electron file's tail above 0.5 rad
+  sits at a centroid azimuth beyond ±2.5 rad); the `_circ` companions use the
+  circular mean and SD.
+- **Floored.** core.py floors width, height, depth and depth range at 10⁻⁶ mm, so
+  a floored factor makes the volume tiny and both densities enormous (up to
+  2 × 10⁹ hits/mm³ against a median of 2 × 10⁻⁷ on the electron file).
+- **Quantised.** Depth and depth range in the Absolute and per-shower translated
+  frames are whole numbers of the 20.5 mm layer, and the hit count is an integer:
+  their histogram bins align to that quantum, and no log axis is offered. Width
+  and height take values on the irregular x and y lattice differences, where no
+  quantum exists, so their histograms measure a comb.
+- **Display offset.** The Absolute-frame depth is quoted below the front face,
+  `z − 3649 mm`; volumes, densities and `centroid_z` stay raw.
+
+**Showers, frames, classes.** Showers with fewer than two hits are left out on
+every kind, as the producer's aggregate leaves them out (their SDs do not
+exist), and are counted. Features are per shower and the two showers are never
+pooled: on two-shower data a **Shower A / B toggle** (`fshower`, default `a`,
+never written to the hash) is on all four cards and a `shower` parameter goes on
+every feature request; a single-shower experiment sends none and has only A (B is
+refused). The momentum **classes** are the features notebook's windows
+(1, 2, 5, 10 and 19.5 GeV, each ± 0.5 GeV), or the binary label p < 2 GeV against
+p ≥ 2 GeV (an aggregate's stored label, with a notice if it disagrees with p);
+the API also takes the producer's 1 GeV bins (`classes=bins`, which needs a
+`class_index` for the correlation view). Events outside every class are counted,
+never drawn.
+
+**describe (D2, a table).** pandas' `describe()` per class, with the cell
+statistic chosen between median [IQR], mean ± SD and min … max. Each cell's
+tooltip carries N, the mean's Student-t interval, the SD's χ² interval and its
+standard error, c₄(N) and the low-N notes taken at the N that feature actually
+used. A cell from fewer than 20 showers is flagged; "mean ± SD" quotes the
+spread of the showers, not an interval, and N = 2 is marked as one degree of
+freedom. A circular feature gets the mean direction and R̄ in place of a linear
+mean, SD or quartile. It is a DOM table, so it has no export.
+
+**corr (D3).** Pearson r per class (or pooled) with its Fisher-z 95% interval,
+from N = 4 (SE = 1/√(N − 3)), each event one independent observation, on PuOr
+symmetric about zero, linear on [−1, +1] (folded on the dark screen, standard in
+print, as on Page 1), lower triangle only. Floored volume factors are left out
+only of the pairs whose values they corrupt (the volume and the two densities;
+on by default for this view, off elsewhere, where the floored events are counted
+instead). An azimuth has no linear r: its cells are hatched, never on the colour
+scale, and carry Mardia's circular-linear R, or the circular-circular r_c of two
+azimuths, with event-grouped jackknife uncertainties; the notebook's linear r of
+`avg_phi` is in its tooltip for parity only.
+
+**hist (D4).** Integer counts on edges every class shares: the Rice count of the
+smallest drawn class, aligned to the lattice quantum where values are quantised.
+The CLAUDE.md ladder applies per class: the events themselves below N = 15 (at
+most 14, in the tinted, captioned band whose heights are drawing offsets), a
+density histogram from N = 15, a Gaussian KDE (Silverman bandwidth) from N = 8,
+and a KDE is never drawn on an azimuth, which is shown on its full period
+(−π, π]. The scale is automatic (logarithmic for a positive feature spanning a
+decade or more) or chosen. The range and the density axis follow the measured
+values of the series with weight, so events at core.py's floor are a counted
+underflow, not the end of the axis; an under-powered curve above the range is
+clipped with a caret carrying its true peak; a range from weak evidence is
+labelled provisional. The lag-1 comb statistic of the pooled counts is measured
+against counting noise (−10/72, derived for independent counts and not the
+occupancy threshold of the staggered lattice) and reported.
+
+**hist2d (D5).** Each class as a small multiple of the feature against the
+deposited energy, on edges and one log colour scale shared by every multiple (48
+bins per axis, 32 beyond six classes, fewer if the budget demands), an empty bin
+transparent, and the events themselves below N = 15.
+
+### The primary-tag rate
+
+`GET /api/primaries` (single-shower hit experiments, whose files tag each hit
+row with the particle attributed to its cell and flag the primary with
+`is_secondary = 0`) draws, per 1 GeV bin, the fraction of selected events that
+hold no primary-tagged hit row. An event is the unit, so the fraction is a
+binomial proportion of independent events and its capped, asymmetric whisker is
+the 95% Wilson score interval, never the Wald interval, which collapses to a
+point at zero events and leaves [0, 1] at small N. It is quoted from N = 1,
+honestly wide, and a bin below N = 20 is called out. The y axis is the whole
+0–100% a proportion can take. The selection's overall fraction is a dotted rule;
+its interval is in its tooltip, not drawn, so the rule does not read as a band of
+dispersion. How many tagged rows an event holds (0 to 10, the last bucket "10 or
+more") is exact counts with no whisker, in the drawer. The payload quotes a
+reference measurement of the electron file (most events hold no primary-tagged
+row, reversing the roadmap's expectation), labelled as a measurement of that file
+and not of the selection on screen. The card reads the event table only; no hit
+is scanned.
+
+### The 3-D views
+
+**A recorded exception.** CLAUDE.md forbids 3-D projections as chartjunk; the
+reference notebooks' 3-D event and species displays are kept under a stated
+exception, and every 3-D drawer quotes it. The view is **orthographic** (no
+perspective, so no length is foreshortened), draws **one millimetre the same
+length on all three axes** (1:1:1 from the physical spans, never from a matrix
+shape), draws every cube at the **measured size** of what it stands for, uses
+**flat, unlit colour** (`shading: 'color'`; lighting would modulate the
+brightness that encodes the value), and stands **always beside three paired 2-D
+projections** that carry the same selection quantitatively. A rotated 3-D
+picture is not a publication figure, so a 3-D card has **no export**; the
+projections beside it are the exportable figures, and the drawer says so. A cube
+hides whatever lies behind it from the current viewpoint, and the drawer says
+that too. Cubes are placed through the payload's coordinates, never by
+`index × pitch` (the x lattice is irregular).
+
+**Rendering.** The 3-D views draw with the vendored `echarts-gl`, loaded by this
+page only. At most **two WebGL contexts** exist, one for the event chart and one
+for the ensemble chart, created the first time their pair draws and never
+disposed (a change of experiment clears them). Availability is probed once with
+a transient context; without WebGL, or without the renderer, a 3-D card says so
+in a notice and asks the server for nothing, and its projections still load. A
+lost context shows a notice of the same kind and the chart is rebuilt from the
+payload in hand when it is restored. echarts-gl's bar3D draws columns from zero,
+so a floating cube is an invisible spacer bar of the cube's base height with the
+cube stacked on it; cubes the colour taper makes translucent are a series of
+their own, because echarts-gl turns a series' depth writes off once any item is
+translucent. The camera opens at the angles `alpha` 25° and `beta` 40°.
+
+**The opening zoom is fitted to the card's width.** An orthographic camera fixes
+its height and takes its width from the viewport, so a card narrower than the box
+cut the view's sides (the vertical axis title first). `orthographicFit` measures
+the card: the box, its ticks and its axis titles span 1.134 times the viewport
+height (measured in Chromium on a 100-unit cube, the widest box), so a plot area
+narrower than 1.16 times its height (the card's width less the 60 px of the colour
+legend) widens the opening size from 160 just enough to keep them inside. A resize
+refits the zoom only and keeps the reader's rotation and pan; a blank or lost
+chart is never refitted.
+
+**One event (C5, C6).** `GET /api/event?format=voxels` draws one event as cubes in
+one frame. The cubes need hits and the lattice; a raster request is never refused
+over a cube-only parameter (`frame`, `channel`, `model`, `cap`), and the cubes
+refuse a `cap` outside 100 to 15,000 (default 6,000).
+
+- *Two regimes.* In the Absolute and per-shower translated frames one cube is one
+  detector cell at its measured lattice coordinates, sized by the measured cell
+  footprint (48.27 × 48.60 mm) and the 20.5 mm layer pitch. The rows of one cell
+  are merged (energies summed, network values energy-weighted) and a 2-bit code
+  records whose rows the cell holds (A, B, an `'A+B'` row, or a split cell). In
+  the Local frame and the D-frame a cell is tilted or turned, which a bar3D cube
+  cannot be, so each footprint is split into k × k (× k_z) equal sub-deposits that
+  move with the frame and are binned onto axis-aligned voxels of a 20 mm grid,
+  the Event Inspector's own energy-conserving splat. k is chosen by convergence
+  (k = 12, k_z = 4 in Local, k_z = 1 in the D-frame, measured against a k = 32
+  reference), not by the 2-D gap-free rule written for panels that sum an axis;
+  the pitch coarsens only while a transverse axis would pass 256 voxels, and
+  then as the size budget demands.
+- *Channels.* Volumetric energy density E/V (GeV/mm³) on a log ramp from a floor
+  to the brightest drawn cube: the floor is the 1st percentile of the positive
+  densities *of what is drawn*, not of the detector's cells (a voxel holds only
+  the part of a tilted footprint that overlaps it, so voxel densities run below
+  cell densities); a cube below the floor is drawn at the lowest colour and
+  counted, and a frame whose cubes all share one density says its ramp is
+  degenerate. Grad-CAM and the segmentation error |f_A,pred − f_A,true| are linear
+  on [0, 1]; Shap-CAM is signed, linear on [−1, +1] on the folded PuOr; these
+  three need the networks' columns. The **species** channel (single-shower hit
+  files) takes stable global codes (e⁻, e⁺, γ, n, p, π⁺, π⁻, then "other" in
+  grey) on a qualitative palette whose every pair stays apart under simulated
+  deuteranopia and protanopia, never the notebook's per-event assignment; a
+  species legend hides a species or isolates one; primary-tagged cubes get a halo
+  (at most the 12 most energetic, the rest named in their tooltips).
+- *Cap and window.* Cubes are ranked by energy and the `cap` most energetic are
+  drawn, in ascending energy (the notebook's draw order, bright cubes last); the
+  energy beyond the cap is counted beside the energy outside the window. The
+  window is the notebook's rule on the drawn frame's own coordinates: one
+  half-width, 1.15 × half the cloud's largest extent, never below 150 mm,
+  symmetric about the origin across the beam in the frames centred on one.
+- *Which event.* The link's `voxel_event`, or, with none, the densest event of
+  the selection (`GET /api/event/pick?rule=densest`, the High-energy notebook's
+  rule: most cells, ties to the lowest number), never written to the link. The
+  card has an event box, previous and next, **Densest**, and **Pick**, which draws
+  seeded from the most tilted of the dense events (the local-coords notebook's
+  rule; each click takes the next seed) and states the rule in the drawer.
+  Showers: A, B or both, **both only in the Absolute frame** (each per-shower
+  frame holds one shower at its own entry point). The API also serves the
+  D-frame's cubes (two showers per event), but the pair draws Absolute there, as
+  below.
+- *The pair.* The three projections are the Event Inspector's rasters
+  (`GET /api/event`, Page 1) of the same event in the same frame and shower, so
+  the pair shows one picture twice; a channel change asks for new cubes only,
+  because the raster is energy density in every channel. The D-frame has no
+  per-event raster, so the pair draws Absolute there and says so under its
+  titles. When the cubes show both showers, the projections show shower A and
+  say so.
+- *Budget.* The whole body is measured as served against 100 KB
+  (`api/budget.serve_measured`): while it is over, the splat pitch is lowered and
+  then the cube cap, with a stated sentence. The cubes are integers and a
+  quantised colour code packed as base64, never a hit row; the 64 brightest carry
+  exact values and every other value is read back from its 8-bit code and labelled
+  so.
+
+**The selection (the ensemble cloud).** `GET /api/voxels` draws the whole
+selection's energy as a cloud of axis-aligned **40 mm voxels** in the Local frame
+(every shower on its own entry point and incident direction) or the D-frame
+(two showers per event). The per-shower translated frame is refused (its exact
+box-overlap splat has no 3-D accumulation) and so is the D-frame on one shower
+per event.
+
+- *One scan, two levels.* The keyed sub-deposits of the 2-D panels' frames are
+  aggregated to the raw 20 mm 3-D grid and, in the same query, to 40 mm voxels
+  that keep each voxel's raw fine-bin *peaks*, so the reference density is the raw
+  grid's maximum. The fine bins of each transverse axis are paired across the
+  origin, so the origin (each shower's entry point, or the midpoint of the two)
+  runs through the middle of a voxel column rather than along an edge, where it
+  would split the shower core over four columns.
+- *Density, floor, cap.* ρ_v = E_v/(N·dV_v) in GeV/mm³ per event, relative to the
+  raw 20 mm grid's 3-D peak ρ_ref (a voxel is the mean of its four fine bins, so
+  ρ_v ≤ ρ_ref always). A voxel is drawn iff ρ_v ≥ 10⁻³ ρ_ref (the energy-weighted
+  CAM channels: |value| ≥ 10⁻³ of the channel's own raw peak, diverging on PuOr
+  for the signed one). Of those voxels the brightest `cap` by energy are shipped
+  (default 15,000, 1,000 to 15,000), one stated rule for every channel. Every
+  joule lands in exactly one of *drawn*, *below the floor*, *beyond the cap*,
+  *half-width edge voxel* or *outside the grid*, and the five fractions sum to one.
+- *Packing.* Layer runs: one u16 count per depth layer, then an (x, y) ordinal pair
+  and one colour code per voxel, three bytes a voxel, about 60 KB of base64 at the
+  full cap. Depth is the grid's own layer centres, never assumed uniform (the
+  D-frame's are the native layers). The whole body is guarded against 100 KB like
+  every route's: a step is priced from what a voxel costs, then measured, and the
+  cap moves to the largest that fits, with the sentence.
+- *Comb.* The comb is never re-measured here, since a merged grid would hide it.
+  The route quotes the matching 2-D bundle's raw-grid measurement, with its source,
+  when that bundle is cached, and otherwise says the 2-D panels measure it.
+- *D-frame disclosures travel with the cloud*: events entering closer than 80 mm
+  apart have a rotation fixed by anchor noise and enter averaged over azimuth;
+  the Local frame carries the selection's negative-depth summary. **No ensemble
+  direction is drawn** on the cloud in either frame; the D-frame's 2-D projections
+  carry its measured axes with their band and envelope.
+- *The box is cropped to the projections' window.* The cloud is paired with the
+  Physics page's Native Grid projections of the same frame and channel, so the 2-D
+  bins are the cloud's raw accumulation bins. The 3-D box is cropped to the union
+  of the three projections' axis ranges (`pairedWindow`: each transverse axis
+  symmetric about the origin at the energy-weighted 0.1st to 99.9th percentile, the
+  recorded window of the co-registered frames), so the cloud and its projections
+  show one region. A voxel is placed by its centre; those outside are counted with
+  their share of the shipped cloud's value (read back from the colour codes, and
+  the drawer says so) and are not drawn, the box extent in the drawer being the
+  full accumulation grid. If the projections did not load, the box is the whole
+  grid and says so.
+- *Controls.* The channel (density, energy-weighted Grad-CAM, energy-weighted
+  Shap-CAM) and a camera reset; the frame is the page's (Absolute and per-shower
+  translated fall back to Local).
+
+### The XGBoost cards
+
+Four cards read `GET /api/xgboost?view=cv|binary|surrogate|importance` (with
+`task=momentum|angle`; `binary` is the momentum task only and a 422 for angle).
+Each reproduces what the `XGBoost-Reg-*` notebooks compute, on the experiment's
+own event table, from the stored [analysis](#the-xgboost-analysis). **They are
+dataset-wide, as the notebook computes them**: the selection does not apply, the
+payload says so (`filtered: false` and one sentence), and the card sends only
+the experiment and the task. The Selection section of each drawer therefore
+leads with that sentence and the run (species, seed, model file and its
+sha256, XGBoost version, analysis version, the rows and the split), and every
+card carries the [split check](#the-training-split-check) as a disclosure and,
+when it fails, a hazard flag. Task and, for the surrogate, the output (φ or θ)
+are page state in the link.
+
+**E1, five-fold cross-validation.** `KFold(5, shuffle=True, random_state=42)` over
+all rows; each fold refits the notebook's regressor (`reg:squarederror`, 100
+trees, learning rate 0.1, `random_state=42`) on four fifths and scores the fifth,
+with MAE, MSE, RMSE and R². One small multiple per metric, each on its own scale.
+
+- *Two marks, two quantities.* A fold value is one observation, so it is an open
+  ring. The aggregate is the mean of the five, a filled diamond with a capped
+  whisker that is the uncertainty of the mean: **Nadeau and Bengio's corrected
+  resampled t interval** with 4 degrees of freedom (t = 2.776). Any two folds
+  share three quarters of their training rows, so their values are not
+  independent and s²/k would understate the variance of their mean; the
+  correction uses SE² = (1/k + n_test/n_train)·s² = 0.45 s² instead of s²/5. The
+  plain sample SD of the folds is a different quantity (their spread), is in the
+  mean's tooltip beside the SE, and has no mark since the folds are drawn.
+- *Scales.* The error metrics are magnitudes and start at zero. R² is read near 1,
+  where folds differ in the third decimal, so its axis runs from a round value
+  below the lowest fold or interval end up to 1, with a break mark on the axis and
+  the start in the panel title (the offset label CLAUDE.md asks of a truncated
+  scale); an R² at or below zero, or a spread over half the unit range, gets the
+  plain axis from zero. Intervals are clipped to the range a metric can take
+  (errors ≥ 0, R² ≤ 1) and the card says which were.
+- *The angle task* has two rows. The top is the notebook's parity numbers
+  (sklearn's uniform average over φ and θ, φ unwrapped, in rad), labelled so and
+  never on one axis with the per-label values, since an unwrapped azimuth error of
+  2π − ε would set the scale and flatten θ. The bottom is per label, in mrad: θ's
+  MAE, RMSE and R², and φ's MAE and RMSE of the residual wrapped to (−π, π], with
+  no R², which is undefined for an azimuth. This notebook cell fits the angle
+  task on `[incoming_theta, incoming_phi]`, whereas the shipped model predicts
+  `[incoming_phi, incoming_theta]`; the drawer says so.
+- *The refits are what the notebook computed*: refitting on the reproduced 80%
+  recreates the shipped electron momentum model exactly (max |Δpred| = 0), and
+  XGBoost's result does not depend on the thread count.
+
+**E3, thresholding at 2 GeV on a 99 : 1 sample.** From the validation split,
+class 0 is p < 2 GeV and class 1 p > 10 GeV (p > 2 GeV when fewer than 50
+validation rows lie above 10, and the card says so); pandas' seeded sampler draws
+1,980 and 20 rows (fewer where a pool is short), shuffled, and the shipped
+momentum regressor is thresholded at 2 GeV. The **confusion matrix is counts**,
+which carry no interval and no colour ramp (at 99 : 1 a ramp would say only that
+class 0 is large); each cell prints its count and its share of the true class.
+Beside it, accuracy and the per-class recall and precision are proportions k/n of
+independent rows, each a point with a capped, asymmetric **95% Wilson score
+interval**, which never leaves [0, 1] and does not collapse at 0 or 1 (a perfect
+recall of 20 of 20 has a lower limit of 0.839). The **balanced accuracy**, the
+mean of the two recalls with the class sizes fixed by the sample design, carries
+**Newcombe's MOVER interval** built from the two recalls' Wilson limits and
+clipped to [0, 1], named in its own legend entry so the methods never mix: a
+class classified perfectly still contributes its Wilson half-width, which a
+bootstrap of the rows or a Wald interval loses. A rate whose denominator is empty
+is undefined and drawn as no point. The notebook's support-weighted precision,
+recall and F1 are in the drawer for parity, labelled as dominated by the majority
+class and given without intervals. The minority class has at most 20 rows and
+the card states its size and that its intervals are correspondingly wide.
+
+**E4, the depth-3 surrogate tree.** `DecisionTreeRegressor(max_depth=3,
+random_state=42)` is fitted, as in the notebook, to the shipped booster's own
+predictions on all rows, in-sample. It is **a description of the booster, not an
+estimate**: each of its at most 15 nodes prints its rule (feature, the feature's
+frame, threshold), the rows that reach it, and the mean of the booster's
+predictions over them ± the within-node SD, an uncapped spread with no whisker.
+
+- *Fidelity is judged per output.* The tree is fitted to every output at once and
+  sklearn's score averages them, which can hide an output the tree does not
+  describe at all. Each output's own R² and MAE are printed, a "low surrogate
+  fidelity" warning is raised for each output whose own R² is below **0.5**, and
+  the average is never judged nor printed alone (an R² that rounds to 1 while its
+  MAE is above 0 prints as "> 0.999999").
+- *φ is never coloured and never averaged linearly.* A sequential ramp would put
+  −2.7 and +2.7 rad, 0.8 rad apart on the circle, at its two ends, and CLAUDE.md
+  sanctions no cyclic ramp. A φ box prints the **circular mean** of the booster's
+  predicted azimuths over its rows ± the circular SD √(−2 ln R̄), with R̄; where the
+  Rayleigh p = exp(−n R̄²) exceeds 0.05 the rows share no direction and the box
+  says "no common direction" instead of a mean (**boxes behind a Rayleigh gate**).
+  sklearn's linear mean, which the notebook printed, is only in the tooltip and the
+  drawer, named as parity.
+- *Colour and layout.* θ and the momentum are coloured by the node value on the
+  user's sequential ramp narrowed to the run that clears 3:1 against the card in
+  force (Viridis from 0.376 on `#1c2128`, up to 0.600 on white), leaves filled and
+  splits outlined in their value's colour. The tree is drawn top-down (≤ left,
+  > right) when every box's text fits its share of the width, otherwise as an
+  indented outline in depth-first order, which a single-column export always is.
+
+**E5, gain importance.** The bar, from zero, is the shipped booster's normalised
+gain (`feature_importances_`, summing to 1): one model, never the folds' mean. On a
+line of its own under the bar, the five refits' normalised gains are open dots
+(five observations) and their mean is a short tick inside a thin capped bracket,
+its corrected resampled t interval (as E1), clipped to [0, 1], the range of a
+share, with a per-feature flag. The bar and the bracket never share a line.
+Colour is the feature's frame (Absolute, per-shower translated, Local, or none for
+a count) in ColorBrewer qualitative hues, in the order the performance card uses.
+The plot is a fixed 330 px that holds about fifteen readable rows, so the card
+draws the **top 15** of the features that carry any gain, in the shipped order,
+and **counts the rest on the plot**: the used features beyond fifteen, and the
+features no model ever split on. The Details drawer **lists every one of the 52
+features** with its numbers (shipped and fold gains, mean, SD, interval, and the
+raw `get_score` gain, weight and cover). A gain importance says how much a
+feature's splits reduced the training loss, not how much the prediction depends
+on it, and correlated features share or swap their gain between refits.
+
+### The XGBoost analysis
+
+#### Where the models come from
+
+The repository ships the regressors the notebooks trained, one momentum and one angle model per species and seed, each reading the
+52 event-level features of the v3 aggregate. The service finds them by scanning
+a folder, `CALOSRV_MODEL_DIR` (see [Configuration](#configuration)), and computes
+every card itself from the model and the experiment's data, once, in the
+background. It does not ship precomputed figures. The folder looks like this:
+
+```
+xgboost_models/
+  xgboost_electron/
+    standalone_momentum_s1_model.json     # one target: the incident momentum
+    standalone_angle_s1_model.json        # two targets: [incoming_phi, incoming_theta]
+  xgboost_muon/ …    xgboost_pion/ …    xgboost_proton/ …
+```
+
+The libraries are `xgboost-cpu==3.2.0` and `scikit-learn`; the CPU wheel avoids the NCCL payload of
+the plain `xgboost` wheel. Everything is keyed by (species, seed), and the
+pairing takes whatever seed the source file's name declares. Only seed-1 models
+and aggregates ship today.
+
+#### What is refused, and why
+
+The scan never raises: an unusable file is listed with its reason and left out, so one bad file cannot stop the server.
+
+| Refused | Because |
+|---|---|
+| a file or directory that does not follow `xgboost_<species>/standalone_<task>_s<seed>_model.json` | the name is the only declaration of species, task and seed |
+| a task other than `momentum` or `angle` | those are what the notebooks trained |
+| a symbolic link (file or species directory), a non-regular file, a file over 256 MB (checked before reading) | the folder is mounted from the host; a link out of it, to `/dev/zero` say, would hang the boot scan or publish a file nobody meant to |
+| invalid JSON, JSON nested too deeply to parse, or a header that is not an XGBoost gbtree model | one bad file must not stop the scan of the others |
+| no feature names, or a feature named twice | the columns could not be matched to the event table |
+| an objective other than `reg:squarederror` | the notebooks and the refits use it |
+| a momentum model with other than one target, an angle model with other than two | the task names the output count |
+
+An experiment pairs only when all of these hold; otherwise the pairing is refused
+with a sentence naming what is missing, which travels to the capability block and
+Admin Settings.
+
+- it is the event-level aggregate kind (the models read its 52 v3 features);
+- it was built from **one** source file, whose name parses as
+  `<species>_standalone_…_aggr_s<seed>_v<n>` and ends there (a cut such as
+  `…_aggr_s1_v3_head` is a different set of rows, on which the notebook's split
+  means nothing);
+- both tasks' models exist for that species and seed;
+- every feature of both models maps, through the `ddl` vocabulary, to a column of
+  the event table (an angle model that needs a feature the table lacks refuses
+  the pairing, naming it).
+
+A run itself fails, with its reason, when the experiment holds fewer than ten
+events (the 80/20 split and five folds need that), when a label is missing or not
+finite (dropping rows would move the notebook's split), or when the [output order
+check](#the-training-split-check) finds the angle model's φ and θ outputs swapped.
+
+#### The background analysis
+
+One analysis runs at a time, on a worker of its own with a single slot, never on the ingest worker (which would hold every upload
+behind it) and never under the write lock (which would stall every write in the
+process). It reads the event table through a read cursor, computes with half the
+cores (`nthread = max(1, cores // 2)`) so the server keeps answering, and takes the
+write lock only for the one transaction that stores the result. It is queued
+
+- after an aggregate experiment becomes ready (an ingest, the drop folder or a
+  rebuild);
+- at every start, for each ready paired experiment whose stored analysis is
+  missing or stale (never at import time);
+- by **Rescan models** and **Re-analyse** in Admin Settings.
+
+Queueing is a test-and-set under one lock: an analysis already queued or running
+is never queued twice nor reset to "queued", whichever of the boot check, a scan,
+the ingest hook and Re-analyse gets there first. There are eighteen steps (the
+read, the split check and hold-out predictions of each task, five fold refits per
+task, the 99 : 1 sample, a surrogate per task, the gain importances, the write);
+the capability block's reason reads "Analysing: *n* of 18 steps" while it runs, so
+the cards say why they are shut. Each experiment's status is held in memory:
+`unpaired`, `not_ready`, `queued`, `running`, `done`, `failed` and `stale`, tied
+to the registry row's creation time, so an experiment replaced by a new ingest is
+a new experiment and a deleted one is forgotten. A server shutdown cancels what
+is queued and lets the run in progress stop at its next step boundary, so it never
+queries a database the application is closing.
+
+#### What it stores
+
+Six tables per experiment, written together, under the write lock, in one transaction (drop, create, insert, commit), so a reader sees the
+previous analysis or the new one and a failed write leaves the previous one in
+place. `DELETE /api/experiments/{name}` drops them with the experiment.
+
+| Table | Holds |
+|---|---|
+| `xgbrun_<name>` | one row per task: species, seed, model file and sha256, labels, features, library versions, analysis version, row counts, the split check, surrogate fidelity, timings |
+| `xgbpred_<name>` | the shipped models' predictions on the 20% validation rows (E2, prediction against truth) |
+| `xgbfold_<name>` | E1: every fold's metrics, overall and per label |
+| `xgbimp_<name>` | E5: the shipped booster's gain, weight and cover, and each fold's normalised gain |
+| `xgbbin_<name>` | E3: the 2,000-row sample (class, prediction, thresholded class) |
+| `xgbtree_<name>` | E4: the tree's nodes with their per-output means and variances |
+
+#### Staleness and re-analysis
+
+A stored analysis is current while every input it was computed from is unchanged, and its stamp records them all: the analysis
+version (`ANALYSIS_VERSION`, bumped whenever a change would change a stored
+number), each model file's sha256, the versions of XGBoost, scikit-learn, numpy
+and pandas, the event count with a sha256 of the `event_number` column in order,
+and a sha256 of every value the analysis reads (the momentum bins, the labels and
+each model's features, with their names, dtypes and shapes). Any difference makes
+it stale and `stale_reasons` says which. The value hash needs the whole feature
+table read, so it is compared only where an analysis may be queued: the worker
+before it recomputes, the boot check and **Rescan models**. A rebuild that
+re-derives the event table byte for byte leaves the analysis current and costs one
+read.
+
+- `GET /api/admin/model-runs` is **read-only**: it rescans the folder (headers are
+  cached by size and modification time), re-pairs every aggregate experiment,
+  compares the cheap part of the stamp and may report an analysis `stale`, but
+  queues nothing.
+- `POST /api/admin/model-runs/scan` (**Rescan models**) compares the whole stamp
+  and queues every missing or stale analysis, unless its last attempt failed on
+  exactly these inputs; it answers with the list the `GET` reads.
+- `POST /api/admin/model-runs/{table_name}/analyse` (**Re-analyse**) recomputes
+  even a current analysis. A failed analysis is not retried by a scan while its
+  inputs are unchanged, only by Re-analyse, a restart or a changed input, so a
+  broken model does not fail in a loop. It is a 404 for an unregistered
+  experiment, a 422 with the pairing's reason for one that does not pair or is not
+  ready, and a 409 while an analysis of it is queued or running.
+- A stored table this release cannot read (written by a release whose columns
+  differ) reads as missing and is re-run; an event table that cannot be read for
+  the check is recorded as a failed analysis with the reason, never a 500.
+
+#### The training-split check
+
+The hold-out cards are only honest if the 20% validation rows are rows the shipped model never saw. The notebook's split is
+`train_test_split(test_size=0.2, random_state=42)` over the rows in file order, and
+the analysis checks that it reproduced it: a model predicts the rows it was
+trained on better than the rest, so its **validation/training MSE at
+`random_state` 42 must exceed that same ratio at every other seed**. The per-row
+errors are computed once, from one prediction of every row, and each seed only
+re-indexes them; the others are the **99 seeds 0 to 99 without 42**. The check
+passes only when `ratio_42 > margin × max(ratio at the 99 others)`, with a
+**margin of 1.05 for momentum and 1.6 for angle**. The angle margin is larger
+because its per-row errors are dominated by a few rows whose unwrapped φ residual
+is near 2π, so its ratio varies far more from seed to seed (the errors are the
+training loss's own, unwrapped; wrapping φ was measured to separate worse). On
+errors permuted across rows, which is what a split not reproduced looks like,
+the check fails 99.995% of trials for momentum and 99.975% for angle (20,000 per
+task; the largest permuted ratio was 1.067 and 2.311); the earlier rule, above
+seeds 0 and 7 only, passed about one in three.
+
+When it fails the run is flagged *split not reproduced*, with the three numbers in
+the sentence, on every card that draws the model's predictions (the XGBoost cards,
+E2, prediction against truth, and the Admin Settings row, per task). It is never
+hidden by a "done" status. The payload carries `ratio_42`, the maximum of the
+others and the seed that gave it, `n_others`, the median, the `margin` and the
+`headroom` (`ratio_42` over that maximum), with every one of the 99 other ratios
+and their seeds (`ratio_others`, `seeds_others`). The archive's event order is also
+recorded: if `event_number` was not strictly increasing in the archive, the cards
+say that the event order may not be the file order the notebook split.
+
+**The output order check.** The angle model's outputs are stored as φ then θ. Each
+output's mean squared error against both labels is computed (φ's wrapped) before
+anything is stored, and the diagonal must be the smaller of its row; a swap fails
+the run, rather than storing and serving the two under the wrong labels.
+
+#### Measured on real data
+
+The four seed-1 aggregates in `ingest/` (electron 99,751 events, muon 99,417,
+pion 99,687, proton 99,089) were analysed through the application's own queue on
+the development database (`data/dev/single/r5_xgboost.json`), and every
+XGBoost-related route was then called once per task and aggregate: 48 requests,
+all answered 200.
+
+| | Electron | Muon | Pion | Proton |
+|---|---|---|---|---|
+| Analysis time (18 steps, one worker) | 16.0 s | 9.9 s | 9.3 s | 9.1 s |
+
+All four queued together finished in 44.5 s. The largest response of the 48 was
+23,914 B (the prediction density of the proton's φ output); the XGBoost views
+were 5,493 to 18,366 B (the angle importance the largest), E2 10,866 to 16,815 B
+and the prediction densities 22,816 to 23,914 B, each answered in at most
+46.4 ms, all well under the 100 KB contract.
+
+**The split check** (validation/training MSE at `random_state` 42, against the
+largest of the 99 other seeds and the seed that gave it; headroom is their ratio,
+to be read against the margin):
+
+| Species | Momentum (margin 1.05) | Headroom | Angle (margin 1.6) | Headroom |
+|---|---|---|---|---|
+| electron | 1.497 vs 1.068 (seed 71) | 1.402 | 17.31 vs 5.088 (seed 27) | 3.401 |
+| muon | 1.106 vs 1.018 (seed 27) | 1.087 | 33.39 vs 2.781 (seed 9) | 12.01 |
+| pion | 1.277 vs 1.056 (seed 62) | 1.210 | 6.450 vs 1.709 (seed 75) | 3.775 |
+| proton | 1.262 vs 1.078 (seed 87) | 1.170 | 3.303 vs 1.526 (seed 51) | 2.165 |
+
+Every shipped model passes; the least margin is the muon momentum model, 1.087
+against 1.05.
+
+**E3, the 99 : 1 sample** (class 1 is 20 rows for every species and was recalled
+in full; class 0 is 1,980 rows, 1,932 for the pion and 1,841 for the proton, whose
+pools were shorter):
+
+| | Accuracy | Recall, class 0 | Precision, class 1 | Balanced accuracy |
+|---|---|---|---|---|
+| electron | 0.8815 | 0.8803 | 0.0778 | 0.9402 |
+| muon | 0.4265 | 0.4207 | 0.0171 | 0.7104 |
+| pion | 0.7065 | 0.7034 | 0.0337 | 0.8517 |
+| proton | 0.7829 | 0.7806 | 0.0472 | 0.8903 |
+
+For the electron (20 of 20 and 1,743 of 1,980 correct) the balanced accuracy is
+0.9402 with a MOVER interval of [0.8592, 0.9469]; the bootstrap interval it
+replaced was [0.933, 0.947], which discarded the uncertainty of the 20-row class
+that was classified perfectly. Precision of class 1 is low for every species (0.017 to 0.078) although its recall is 1: at 99 : 1 even the electron's 237 false positives (of 1,980 class-0 rows) swamp its 20 true ones, which is why the card draws the per-class rates and keeps the weighted metrics for parity only.
+
+**E4, fidelity per output** (R² of the surrogate against the booster; MAE in the
+output's unit). The electron angle surrogate is why the warning is judged per
+output:
+
+| | Momentum R² (MAE, GeV) | Angle φ R² | Angle θ R² | sklearn's average |
+|---|---|---|---|---|
+| electron | 0.859 (1.595) | 0.978 | 0.0039 | 0.491 |
+| muon | 0.462 (1.323) | 0.981 | 0.0002 | 0.491 |
+| pion | 0.664 (2.427) | 0.965 | 0.0505 | 0.508 |
+| proton | 0.784 (1.924) | 0.963 | 0.0171 | 0.490 |
+
+Every angle surrogate describes φ (R² 0.963 to 0.981) and says almost nothing
+about θ (0.0002 to 0.05), yet sklearn's average sits at 0.490 to 0.508, straddling
+the 0.5 threshold: judged on the average the pion surrogate would pass and the
+other three fail, by chance, and none would be told which output is the problem.
+Judged per output, θ is flagged for all four. The muon momentum surrogate (R²
+0.462) is flagged too. For the electron angle model the root node's linear φ mean
+is −0.002 but its R̄ is 0.003, so it has no direction; the leaves have R̄ 0.94 to
+0.98.
+
+**φ residuals are circular, and the numbers show it.** The electron φ residual has
+an arithmetic mean of −0.020 mrad with a moment SD of 67.1 mrad, whereas its
+circular mean is +0.079 mrad, R̄ 0.99853 and circular SD 54.3 mrad.
+
+**What the other cards read** (E1 means over the five folds, R² for the momentum
+task / for the angle parity average): electron 0.955 / 0.998, muon 0.254 / 0.998,
+pion 0.856 / 0.990, proton 0.875 / 0.989. E5's largest gain: the electron
+momentum booster puts 58.0% of its gain on `num_hits` (then `mean_r` 6.95% and
+`weighted_r_mean` 5.28%) and the muon's puts 22.0% on `max_r`; the angle models'
+largest are `avg_phi` for the electron (61.0%) and muon (80.6%) and `centroid_y`
+for the pion (70.2%) and proton (65.9%).
+
+---
+
 ## API
 
 All endpoints return pre-aggregated payloads; none returns a raw hit array.
@@ -2518,8 +3355,8 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/upload-info` | Upload limits and the disk headroom per format, and the accepted schemas: `schemas` (each with `name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns`, `note`) and `accepted`, the one-sentence list. `schema` still describes `hits_all_models` alone. |
 | `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Unknown values return 422 naming the field. |
-| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. |
-| `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. |
+| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). |
+| `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. `rule=tilted` (the default, and the only one a request naming none gets, byte for byte as before) or `densest`: the event with the most cells, ties to the lowest event number, which the 3-D event view opens on. |
 | `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. A stale experiment is refused with the rebuild it needs. |
@@ -2527,14 +3364,23 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
-| `GET /api/model-performance` | `cards[]` of the network `model` in `coord_system`, each with SE and a named 95% interval, and the per-slice breakdown. |
+| `GET /api/model-performance` | `cards[]` of the network `model` (`segmentation` default, `energy`, `angle`) in `coord_system`, each with SE and a named 95% interval, and the per-slice breakdown. `slice_by=d` (default; `d_edges`) gives the separation slices; `slice_by=momentum_bin` adds `by_momentum_bin`, the Models page's E2: per shower, in its own producer momentum bin, for every network frame the experiment offers (RMSE, MAE, median relative error, bias; the angle task adds the median absolute error), and is a 422 on `slice_by` for `segmentation`. An experiment without networks is refused, **except** an aggregate whose XGBoost analysis is done: `slice_by=momentum_bin` with `model=energy\|angle` answers the shipped regressor's 20% validation split as one series (code `xgb`, `cards: []`, `run`, `split`), the angle task adding φ as its own quantity group; any other request on an aggregate is a 422 naming the field ([E2](#network-performance-by-momentum-bin-e2)). |
+| `GET /api/prediction-density` | The Models page's prediction-against-truth and residual cards. `model=energy\|angle` (default `energy`; `segmentation` is a 422), `coord_system=lab\|trans\|local` (the network's input frame; unused by an aggregate), `bins` (16–128, default 64; stepped down with a notice when the body would reach 100 KB), `label=theta\|phi` (the XGBoost angle regressor's output, θ by default; the networks predict θ only, so `phi` is a 422 on two-shower data). Per shower (A and B kept apart), a count density on dataset-wide axes, the identity line, and the residual block on the energy panel's ladder; `residual.statistics` is `linear` or `circular` (φ). On an aggregate with its analysis done: the hold-out rows within the selection, one shower, `source` `xgb` ([Prediction](#prediction-against-truth-and-residuals)). |
+| `GET /api/features` | The feature explorer, one cached per-event bundle. `view=catalog\|describe\|corr\|hist\|hist2d` (default `catalog`: the features, flags, class sizes and which views the experiment serves), `coord_system=lab\|trans\|local` (default `lab`), `shower=a\|b` (default `a`; `b` is refused where there is one shower), `classes=windows\|bins\|label`, `class_index` (`corr`: a class index or `pooled`, the default; required with `classes=bins`), `feature` (`hist` and `hist2d`, an id from the catalog), `scale=auto\|linear\|log`, `y_scale=auto\|linear\|log` (`hist2d`), `exclude_eps` (leave out events whose value involves core.py's 10⁻⁶ mm floor; default true for `corr`, false elsewhere). Each view is its card's capability gate (`feat-table`, `feat-corr`, `feat-hist`, `feat-hist2d`); a body that could reach 100 KB sheds resolution in stated steps and says which, and `meta.budget` gives its measured size ([The feature explorer](#the-feature-explorer)). |
+| `GET /api/primaries` | C11, single-shower hit experiments only (a 422 on any other kind): per 1 GeV bin, the events with no primary-tagged hit row, with their 95% Wilson interval, the whole selection's fraction, and the exact count of primary-tagged rows per event. Filters only. |
+| `GET /api/voxels` | The ensemble 3-D cloud of a co-registered frame: 40 mm voxels, floored at 10⁻³ of the raw peak, capped by energy, layer-run packed under the 100 KB contract. `frame=local\|canonical` (default `local`; `trans` is refused; `canonical` needs two showers), `channel=density\|gradcam_energy\|shapcam_energy` (the attention channels need the networks), `model` (the network whose CAM an attention channel reads), `anchor` (`frame=canonical`) and `coordinates` (`frame=local`) as `/api/projections`, `cap` (1,000–15,000, default 15,000; lowered, with a sentence, when the body would pass 100 KB), `preview`. Needs the frame extents (`vox-ensemble`) ([The 3-D views](#the-3-d-views)). |
+| `GET /api/xgboost` | The XGBoost views, read from the stored analysis; dataset-wide (`filtered: false`), the selection's parameters being accepted and not applied. `view` (required) `cv\|binary\|surrogate\|importance` (E1, E3, E4, E5), `task=momentum\|angle` (default `momentum`; `view=binary` with `angle` is a 422). Every payload carries a `run` block (species, seed, model file, sha256, the split check) and warns when the split was not reproduced. Refused (422, capability `xgboost`) with the analysis's own sentence while the analysis is queued, running, failed or stale, and for an experiment that pairs with no models ([The XGBoost cards](#the-xgboost-cards)). |
+| `GET /api/admin/model-runs` | **Read-only.** The models folder's scan (`models`: its files and the rejected ones with reasons), and per aggregate experiment its pairing, `status`, step, timings and the stored runs (`split`: `reproduced`, `ratio_42`, `max_others`, `seed_of_max`, `n_others`, `margin`). It re-pairs and compares the cheap part of the stamp, may report an analysis `stale`, and queues nothing. |
+| `POST /api/admin/model-runs/scan` | Rescan models: re-pair, compare the whole stamp (the values included) and queue every missing or stale analysis; answers with the list the `GET` reads. Idempotent. |
+| `POST /api/admin/model-runs/{table_name}/analyse` | Re-analyse: queue one experiment's analysis even when current. 202 with `{run, poll}`; 404 for an unregistered experiment, 422 (with the pairing's reason) for one that does not pair or is not ready, 409 while an analysis of it is queued or running. |
 | `GET /api/health`, `GET /api/health/db` | Liveness with the resolved memory and thread allocation; database readiness. |
-| `GET /api/health` | Liveness, with the resolved memory and thread allocation. |
 
-The routes of the Models page (`/api/model-performance?slice_by=momentum_bin`,
-`/api/prediction-density`, `/api/features`, `/api/primaries`, `/api/voxels`,
-`/api/event?format=voxels`, `/api/xgboost` and the model-run admin routes) are
-documented with that page.
+The routes of the Models page are the `slice_by=momentum_bin` mode of
+`/api/model-performance`, `/api/prediction-density`, `/api/features`,
+`/api/primaries`, `/api/voxels`, `/api/event?format=voxels` with the `densest`
+rule of `/api/event/pick`, `/api/xgboost` and the model-run admin routes; each
+row above links to the card it serves, and [The Models page](#the-models-page)
+documents what they draw and the rule behind every mark.
 
 Interactive documentation at <http://localhost:8000/docs>.
 
@@ -2556,13 +3402,21 @@ always present (`tests/contracts/experiments.json`):
   `response-b3`, `distribution`, `correlation` and `statistics`, plus the frame
   gates (`frame-lab`, `frame-trans`, `frame-local`, `frame-canonical`) and the
   views built on them (`window-axis`, `event-inspector`, `compare`,
-  `negative-depth`), and the Models page's;
+  `negative-depth`), and the Models page's: its cards (`perf-bins`, `pred-truth`,
+  `pred-residuals`, `feat-table`, `feat-corr`, `feat-hist`, `feat-hist2d`,
+  `prim-rate`, `vox-event`, `vox-ensemble`), the 3-D channels (`vox-attention`,
+  `vox-species`) and `xgboost`, one gate for the four XGBoost cards, open while
+  the experiment's analysis is done and current; on an aggregate it also opens the
+  performance and prediction cards, which draw the XGBoost series there;
 - `reasons`: for each shut gate, the sentence the card shows;
 - `derived`: `{version, current, status, notice}` of the derived tables;
 - `measured`: what ingest measured (cell footprint, profile splat and its comb,
   the momentum-bin range and rule, the species facts, the label rule);
-- `model_runs`: the XGBoost models paired with an aggregate experiment, which
-  the Models page documents.
+- `model_runs`: the XGBoost models paired with an aggregate experiment, one entry
+  per task (`task`, `species`, `seed`, `model_file`, `labels`, `status`, and
+  `n_holdout` and `split_reproduced`, null until the analysis is done); empty
+  when nothing pairs. It is read from the worker's state in memory, so the block
+  stays free of SQL. See [The XGBoost analysis](#the-xgboost-analysis).
 
 The lists `frames`, `coord_systems`, `models` and `channels` beside it are always
 present too, possibly empty, so the browser's two-shower fallbacks never fire.
@@ -2656,6 +3510,20 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
   `reference_ipynb_notebooks/core.py` imports TensorFlow and cannot be imported
   by a test. Nothing in them is a measurement: they test shapes, gates and
   parity, never physics.
+- **XGBoost fixtures.** `xgb_sources` (session scope, read-only) writes five
+  aggregates from `synthetic_single_shower` with the same bins as above, and
+  trains tiny regressors (20 trees of depth 4, the notebook's objective and 80%
+  split, the momentum and the `[phi, theta]` angle task) into a models folder laid
+  out as `xgboost_<species>/…`, so the whole [XGBoost
+  analysis](#the-xgboost-analysis) runs on files built in the test. The aggregates
+  exercise each outcome of the pairing and the job: electron seed 1 pairs and is
+  analysed; muon seed 1 pairs with an angle model that needs a feature the event
+  table lacks, so the pairing is refused naming it; proton seed 2 has no models;
+  pion seed 1 pairs but holds too few events, so its analysis fails; a plainly
+  named file pairs with nothing. The models folder also holds a stray text
+  file, which the scanner ignores, and a file naming a task it rejects. `tests/test_xgboost_{discovery,analysis,api,
+  staleness}.py` run on it, and compare the stored predictions and fold values row
+  for row with `analysis.run` on the source file.
 - **Real-data cuts** are git-ignored and small, and the tests that read them skip
   without them. `tests/make_all_models_fixture.py fixture` cuts
   `hits_all_models_fixture.csv` (split cells, `'A+B'` rows, an overlap-100
@@ -2688,16 +3556,39 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 
 | Variable | Effect |
 |---|---|
-| `CALOSRV_BROWSER_TESTS=1` | runs the browser modules (`tests/test_browser_*.py`: admin, anchor, event, layout, physics, tooltip, upload, window axis) against a live server, in Playwright's Chromium. `test_browser_physics.py` drives the Physics page on a seeded single-shower server |
+| `CALOSRV_BROWSER_TESTS=1` | runs the browser modules (`tests/test_browser_*.py`: admin, anchor, event, layout, models, physics, tooltip, upload, window axis) against a live server, in Playwright's Chromium. `test_browser_physics.py` drives the Physics page on a seeded single-shower server, and `test_browser_models.py` the Models page on the `models_live_server` fixture (see below); the 3-D cards draw there in Chromium's SwiftShader WebGL (`--use-angle=swiftshader`) |
 | `CALOSRV_TEST_SUBSET_CSV=<path>` | runs `tests/test_canonical_subset.py` on a production subset |
 | `CALOSRV_XGB_REAL=1` | runs `tests/test_xgboost_real.py`, which reads the four 100,000-event aggregates in `ingest/` |
 | `CALOSRV_WRITE_PAYLOAD_FIXTURES=1` | rewrites `tests/fixtures/payloads/` instead of comparing |
 | `CALOSRV_WRITE_GOLDEN=1` | rewrites the energy panel's golden (`tests/test_energy_momentum_api.py::test_default_d_payload_is_byte_identical`) |
 
+**The browser tests need Playwright and its Chromium.** The `playwright` package
+is not in the `dev` extras: the live-server fixtures `importorskip` it, so
+without it the browser modules skip. Install the package into the virtual
+environment and then fetch the browser it drives:
+
+```bash
+uv pip install --python .venv/bin/python playwright
+.venv/bin/python -m playwright install chromium
+CALOSRV_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_models.py
+```
+
 The Node tests need `node` on the `PATH` and skip silently without it, so check
-`command -v node` first. The booted fixtures (`client`, `synthetic_client`,
-`single_client`) share one process-wide DuckDB, and each boot resets it: group a
-module's tests by fixture, and never interleave two.
+`command -v node` first. The booted fixtures share one process-wide DuckDB, and
+each boot resets it: group a module's tests by fixture, and never interleave two.
+`conftest.py` orders the collected tests by fixture for exactly this reason.
+
+| Fixture | What it boots |
+|---|---|
+| `client` | the app booted against an empty database, so seeding the two-shower demonstration is exercised; through `TestClient` |
+| `synthetic_client` | a server seeded from the synthetic low-N two-shower file of `synthetic_all_models` |
+| `single_client` | all three kinds: the baseline, a single-shower hit experiment and an aggregate |
+| `xgb_client` | the baseline and the five XGBoost aggregates of `xgb_sources`, which arrive through the drop folder so the whole lifecycle runs (the ingest worker builds each, the queue hook hands the paired ones to the model-run worker); it waits until every analysis has settled. The models folder is `CALOSRV_MODEL_DIR` |
+| `xgb_boot` | no server: it only cleans the environment, for a test that boots, stops and boots again itself through the `booted_app` context manager |
+| `live_server`, `physics_live_server`, `models_live_server` | the real app on a real port in a thread of this process, for Playwright. `live_server` holds the seeded baseline and `physics_live_server` every kind the Physics page draws. `models_live_server` holds the two-shower demonstration, the synthetic single-shower hits and the electron aggregate paired with its models, whose analysis has finished before the first page opens; `start_models_server` and `stop_models_server` are plain functions so a scratch script can boot the same server |
+
+`wait_for_model_runs` polls the read-only admin list until the named analyses
+have settled, and `train_xgb_models` trains the tiny models.
 
 **Real-data runs are serial and capped.** A full-dataset job runs alone, never
 beside another, in a memory-capped scope with an explicit `DUCKDB_MEMORY_GB`, a
@@ -2804,33 +3695,63 @@ calosrv/
            event_inspector window_axis
            profiles response shower_distributions hit_distributions correlations statistics
            negative_depth
+           performance_bins prediction_density primaries features features_catalog
+           feature_axes feature_corr feature_describe feature_hist voxels voxel_event
+  modelruns/ discovery pairing analysis store jobs views
   stats/   gaussian histogram slices metrics clip shape
            describe median kde momentum profile circular jackknife
-  encode/  scale quantize matrix topk numbers
+  encode/  scale quantize matrix topk numbers voxels
   api/     deps budget routes_* frame_canonical frame_shower
   static/  index.html models.html css/ js/
              js/      main api state labels scale palette decode dom textfit format frame_views
                       axis_symbols panel_notes shell event_inspector
                       capabilities lazy_cards physics_section page_common
+                      models_main models_cards models_notes xgb_notes
+                      voxels voxel_views voxel_notes event_cells
              js/panels/   projection canonical_overlays marks tooltip energy metrics frame_grid
                           chart_panel profile response response_grid distribution correlation
-                          statistics
+                          statistics perf_bins hist2d feature_table rates
+                          xgb_cv xgb_binary xgb_tree xgb_importance
              js/controls/ range_slider upload admin modal filter_block
              js/export/   tokens figure caption disclosure filename download menu
              js/vendor/   echarts.min.js echarts-gl.min.js echarts-gl.LICENSE.txt
 ```
 
-The Models page (`/models`) has its own modules, which this README documents
-separately: `models_main`, `models_cards`, `models_notes`, `voxels`,
-`voxel_views`, `voxel_notes` and `event_cells` under `js/`, `perf_bins`, `hist2d`,
-`feature_table` and `rates` under `js/panels/`, `css/models.css`, and on the
-server `query/` `performance_bins`, `prediction_density`, `features`,
-`features_catalog`, `feature_{axes,corr,describe,hist}`, `primaries`, `voxels` and
-`voxel_event`, `encode/voxels`, `api/routes_{features,prediction,primaries,voxels,xgboost}`
-and `modelruns/`.
+The Models page (`/models`, [documented above](#the-models-page)) has its own
+modules, listed here ahead of the D-frame's:
+
+**Server (Page 2):**
+
+| File | Responsibility |
+|---|---|
+| `modelruns/discovery.py` | the scan of the models folder: header parse with the standard library, sha256, the rejected files with their reasons; never raises, reads only regular files under 256 MB, caches headers by path, size and modification time |
+| `modelruns/pairing.py` | an aggregate experiment against the catalogue: species and seed from the source file name, both tasks present, every model feature mapped through the `ddl` vocabulary to an event-table column; pure |
+| `modelruns/analysis.py` | the notebooks' E1–E5 on arrays (numpy, pandas, XGBoost, scikit-learn; no HTTP, no database): the split and its check, the output-order check, the fold refits, the 99 : 1 sample, the surrogate trees, the importances; `ANALYSIS_VERSION` |
+| `modelruns/store.py` | the six `xgb*_` tables, the read the analysis starts from, the one transactional write, and the stamp (`stale_reasons`) |
+| `modelruns/jobs.py` | the single-slot worker, the per-experiment statuses, the boot, ingest and Rescan hooks, the test-and-set queue |
+| `modelruns/views.py` | the payloads of `GET /api/xgboost`: the run and split blocks, E1's corrected resampled t, E3's Wilson and MOVER intervals, the surrogate's per-output fidelity and circular nodes, E5's folds |
+| `query/performance_bins.py` | E2: per shower and momentum bin, the statistics with their intervals, the robust y range, and the XGBoost series with φ |
+| `query/prediction_density.py` | the pairs' density on dataset-wide axes, the residual on the energy panel's ladder, the circular φ block, the XGBoost hold-out |
+| `query/features.py`, `features_catalog.py`, `feature_axes.py`, `feature_describe.py`, `feature_corr.py`, `feature_hist.py` | the feature explorer: the cached bundle and its classes; the catalogue and each feature's flags; the axis plans and the comb verdict; D2; D3; D4 and D5 |
+| `query/primaries.py` | C11, from the event table's `n_primary_rows` |
+| `query/voxels.py`, `query/voxel_event.py`, `encode/voxels.py` | the ensemble cloud (two-level scan, floor, cap, layer-run packing) and one event's cubes (cell and splat regimes, channels, window); the byte packing |
+| `api/routes_features.py`, `routes_prediction.py`, `routes_primaries.py`, `routes_voxels.py`, `routes_xgboost.py` | the Models page's routes; `routes_performance.py`, `routes_event.py` and `routes_admin.py` carry its other modes |
+
+**Client (Page 2):**
+
+| File | Responsibility |
+|---|---|
+| `static/models.html`, `static/css/models.css` | the page, which loads `echarts-gl` as well as ECharts, and its card and 3-D layout |
+| `static/js/models_main.js` | the bootstrap: the experiment switch that clears every picture, the banners, the sidebar controls, the drawer |
+| `static/js/models_cards.js` | the 2-D cards: their requests, shared where two cards read one, their controls, lazy loading, refusals and retries |
+| `static/js/models_notes.js`, `xgb_notes.js` | the Details drawer's text for the network, feature and primaries cards, and for the four XGBoost cards, with their structural hazards |
+| `static/js/panels/perf_bins.js`, `hist2d.js`, `feature_table.js`, `rates.js` | E2's grouped bars; the density of pairs and the feature small multiples; the describe table; the Wilson rate; the residual and feature histograms reuse `distribution.js` and the matrix `correlation.js` |
+| `static/js/panels/xgb_cv.js`, `xgb_binary.js`, `xgb_tree.js`, `xgb_importance.js` | E1, E3, E4, E5 |
+| `static/js/voxels.js` | the 3-D payload decoders and the echarts-gl option, pure: placement through the payload's coordinates, floating cubes by stacking, the opening zoom, the crop to the projections' window |
+| `static/js/voxel_views.js`, `voxel_notes.js`, `event_cells.js` | the two 3-D pairs and their controls and WebGL handling; their drawers; the 2-D cells' helpers shared with the Event Inspector |
 
 The D-frame is its own column of that layout, one responsibility per
-file.
+file. The two tables below are Page 1's.
 
 **Server:**
 
