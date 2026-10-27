@@ -21,7 +21,7 @@ Around the plan:
   panel module that fails to load, a response that lands after an experiment
   switch, the notes routed by builder name and the export targets;
 * ``page_common.js``: the page tabs' hrefs carry the hash at click time;
-* ``controls/admin.js``: the model-runs list read defensively, and Rescan models:
+* ``controls/admin.js``: the model-runs list as the route serves it, and Rescan models:
   a POST to the scan route, then the list read again with GET, which queues
   nothing.
 
@@ -961,15 +961,6 @@ const group = common.choiceGroup(document.createElement('fieldset'), {
 });
 out.group = [...group.inputs].map(([v, input]) => [v, input.checked, input.disabled, input.parent.title]);
 
-out.runs = admin.modelRunRows({ dir: '/app/host/xgboost_models', runs: [
-  { table_name: 'electron_s1_aggr', display_name: 'electron', paired: true, species: 'electron', seed: 1,
-    models: [{ path: 'xgboost_electron/standalone_momentum_s1_model.json' }], status: 'running', progress: 0.4 },
-  { table_name: 'single_hits', paired: false, reason: 'Not an event-level aggregate.' },
-  { experiment: 'muon_s1_aggr', pairing: { paired: true, species: 'muon', seed: 1, models: [] },
-    analysis: { status: 'failed', error: 'boom' } },
-] });
-out.status = out.runs.map((row) => admin.runStatusText(row));
-out.flat = admin.modelRunRows([{ table_name: 'x', paired: true, status: 'done', seconds: 41.6 }]).map(admin.runStatusText);
 // The route as built (calosrv/api/routes_admin.py): pairing and analysis flat on each run.
 out.served = admin.modelRunRows({ models: { dir: '/app/host/xgboost_models' }, runs: [
   { table_name: 'electron_s1_aggr', display_name: 'electron', paired: true, species: 'electron', seed: 1,
@@ -982,7 +973,6 @@ out.served = admin.modelRunRows({ models: { dir: '/app/host/xgboost_models' }, r
   { table_name: 'muon_s1_aggr', paired: true, species: 'muon', seed: 1, models: [], status: 'done', reason: null,
     error: null, step: 7, steps: 7, progress: 1, duration_s: 61.2 },
 ] }).map((row) => [row.models.length, admin.runStatusText(row)]);
-out.empty = admin.modelRunRows({});
 // The backend's recording of the list: each finished run's split checks, per task.
 const recordedRuns = admin.modelRunRows(load(JSON.parse(process.argv[1])[2]));
 out.recorded = recordedRuns.map((row) => ({ name: row.table_name, status: row.status, splits: row.splits,
@@ -1030,15 +1020,10 @@ def test_a_finished_analysis_says_which_split_was_not_reproduced(tabs_results):
     assert all(not r["warning"] for name, r in rows.items() if not name.startswith("electron_"))
 
 
-def test_the_model_runs_list_is_read_defensively(tabs_results):
-    rows = tabs_results["runs"]
-    assert [r["table_name"] for r in rows] == ["electron_s1_aggr", "single_hits", "muon_s1_aggr"]
-    assert rows[0]["models"] == ["xgboost_electron/standalone_momentum_s1_model.json"]
-    assert [r["status"] for r in rows] == ["running", "unpaired", "failed"]
-    assert tabs_results["status"] == ["analysing (40%)", "not paired: Not an event-level aggregate.", "failed: boom"]
-    assert tabs_results["flat"] == ["done in 42 s"]
+def test_the_model_runs_list_reads_the_served_shape(tabs_results):
+    """Pairing and analysis flat on each run, as `GET /api/admin/model-runs` serves them; the shapes from before
+    the route settled are no longer read (tests/test_js_admin_model_runs.py holds the reader to the recording)."""
     assert tabs_results["served"] == [[2, "analysing (3 of 7)"], [0, "failed: MemoryError"], [0, "done in 61 s"]]
-    assert tabs_results["empty"] == []
 
 
 # ------------------------------------------------------- rescan models --
