@@ -85,6 +85,7 @@ import {
   formatSigned, unitSuffix,
 } from './scale.js';
 import { QUALITATIVE } from './palette.js';
+import { measureText } from './textfit.js';
 import { tooltipOption } from './panels/tooltip.js';
 import { escapeHtml, mutedLine, wrapTooltip } from './panels/chart_panel.js';
 
@@ -99,52 +100,420 @@ export const CAMERA = Object.freeze({
   beta: 40,
 });
 
-/** Pixels the colour legend reserves on the right of the 3-D viewport (grid3D `right`). */
+/**
+ * The least strip, px, the colour legend reserves on the right of the 3-D
+ * plot (grid3D `right`); a legend whose labels are wider takes more
+ * (`legendStrip`).
+ */
 export const LEGEND_RIGHT = 60;
 
+/** Pixels every mark of the opening view keeps from each edge of its viewport. */
+export const FIT_PAD = 8;
+
 /**
- * The narrowest viewport, width over height, that holds the opening view at
- * `CAMERA.orthographicSize`. echarts-gl fixes an orthographic camera's
- * height at that size and derives its width from the viewport, so a narrower
- * viewport cuts the view's sides, the vertical axis title first. Measured in
- * Chromium on a 100-unit cube (an event's window, the widest box) at the
- * opening angles: the box, its ticks and its axis titles span 1.134 times the
- * viewport's height (636 of 561 px), plus 8 px each side. A flatter box (a
- * co-registered cloud) needs less.
+ * echarts-gl's grid3D tick-label margin (its `axisLabel.margin` default),
+ * in world units: the label's anchor sits this far off the axis line, so the
+ * gap scales with the zoom while the text itself stays a constant size in
+ * pixels. The axis title's gap is `AXIS_NAME_GAP`, also in world units.
+ */
+export const AXIS_LABEL_MARGIN = 8;
+
+/** echarts-gl's grid3D tick length (`axisTick.length` default), world units. */
+export const AXIS_TICK_LENGTH = 3;
+
+/**
+ * How close to echarts-gl's 1 : 2 label-alignment threshold an axis's
+ * normalised screen slope must be for the fit to hold both of its
+ * placements (`viewItems`).
+ */
+export const ALIGN_BAND = 0.08;
+
+/** The height, px, of one line of axis text in echarts-gl's label atlas: zrender's line height for 10 px type (read from the live labels). */
+export const AXIS_TEXT_LINE = 10;
+
+/** echarts-gl adds this to `orthographicSize` (`setFromViewControlModel`, `baseOrthoSize`). */
+export const BASE_ORTHO_SIZE = 1;
+
+/** The zoom range the reader may scroll through; the opening fit is clamped to it. */
+export const ORTHO_SIZE_RANGE = Object.freeze([20, 600]);
+
+/**
+ * The narrowest plot, width over height, that holds a 100-unit cube at the
+ * camera's own size, measured in Chromium at the opening angles (636 of
+ * 561 px, plus 8 px a side). Only the plot's height before its first model
+ * uses it (`glPlotHeight` without a frame); every drawn box is fitted from
+ * its own projection (`orthographicFit`).
  */
 export const FIT_ASPECT = 1.16;
 
-/**
- * The opening orthographic size for a `width` × `height` px chart whose
- * viewport gives up `right` px to the legend: the camera's own wherever the
- * viewport is wide enough, else widened just enough that the opening view
- * keeps every cube, tick and axis title inside the canvas.
- */
-export function orthographicFit(width, height, right = 0) {
-  const w = width - right;
-  if (!(w > 0 && height > 0)) return CAMERA.orthographicSize;
-  const need = (FIT_ASPECT * height) / w;
-  return need > 1 ? Math.round(CAMERA.orthographicSize * need * 10) / 10 : CAMERA.orthographicSize;
-}
-
-/** The 3-D plot's height bounds, px: a stacked or wide card is 560 px tall, a narrow one no less than 360. */
+/** The 3-D plot's height bounds, px: a stacked or wide card is at most 560 px tall, a narrow one no less than 360. */
 export const GL_HEIGHT_MIN = 360;
 export const GL_HEIGHT_MAX = 560;
 
+/** Degrees to radians. */
+const RAD = Math.PI / 180;
+
 /**
- * The 3-D plot's height for a plot `width` px wide: the height at which the
- * opening view exactly fills the viewport left of the legend,
- * `(width − LEGEND_RIGHT) / FIT_ASPECT`, within [360, 560] px. A narrow card
- * then needs no widened zoom (`orthographicFit` stays at the camera's own
- * size) and leaves no empty band above and below the box; only below
- * 360 px of height does the zoom widen again. Set by voxel_views.js on the
- * plot element before the chart is created and on every resize, never
- * through CSS, so the layout snaps with no transition.
+ * The screen axes of echarts-gl's orbit camera at `alpha`, `beta` degrees,
+ * as world vectors: `u` right, `v` up, `w` towards the viewer.
+ *
+ * Read from the vendored OrbitControl: `setAlpha` stores θ = α, `setBeta`
+ * φ = −β, and `_updateTransform` sets the camera's rotation to
+ * `rotateY(−φ) · rotateX(−θ)` (quaternion, right-multiplied), so the
+ * camera's local axes are the columns of R_y(β) R_x(−α). Its position
+ * direction there, (sin(θ + π/2) cos(φ + π/2), −cos(θ + π/2),
+ * sin(θ + π/2) sin(φ + π/2)), is `w`, as it must be. An orthographic
+ * camera then maps a world point P to the screen plane (u·P, v·P), at
+ * `viewport height / (orthographicSize + 1)` px per world unit on both axes
+ * (`_setOrthoSize`: height `size + baseOrthoSize`, width from the viewport's
+ * aspect), about the camera's centre, the box's centre at the opening view.
  */
-export function glPlotHeight(width) {
+export function cameraAxes(alpha = CAMERA.alpha, beta = CAMERA.beta) {
+  const a = alpha * RAD;
+  const b = beta * RAD;
+  return {
+    u: [Math.cos(b), 0, -Math.sin(b)],
+    v: [-Math.sin(a) * Math.sin(b), Math.cos(a), -Math.sin(a) * Math.cos(b)],
+    w: [Math.cos(a) * Math.sin(b), Math.sin(a), Math.cos(a) * Math.cos(b)],
+  };
+}
+
+const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+
+/** A text's width in px for the fit: measured on a canvas, estimated without one (Node). */
+function textWidth(text, fontPx) {
+  const w = measureText(text, fontPx, THEME.fontFamily);
+  return Number.isFinite(w) ? w : String(text).length * 0.6 * fontPx;
+}
+
+/**
+ * The opening view's frame: what `openingView` keeps inside the canvas.
+ * `box` the grid3D box (`boxSizes`); `ticks` the three tick plans
+ * (`axisTicks`, keyed by frame axis z, x, y) and `names` the axis titles
+ * (`axisNames`), both optional; `cloud` the drawn cubes' extent on the
+ * opening camera's screen plane (`cloudExtent`), or null, when the box's
+ * eight corners stand in for them. Returns `{box: {width, height, depth},
+ * cloud, x, y, z}`: per echarts-gl axis (x3D the depth, y3D the frame's x,
+ * z3D its y), its labelled ticks `{at, w, h}` (`at` the fraction along the
+ * axis from its minimum, `w` × `h` the text in px) and its title `{w, h}` or
+ * null.
+ */
+export function glFrame(box, ticks = null, names = null, cloud = null) {
+  const axis = (plan, name) => {
+    const labels = [];
+    if (plan) {
+      const lo = plan.min + plan.origin;
+      const hi = plan.max + plan.origin;
+      const step = plan.labelStep ?? plan.step;
+      if (hi > lo && step > 0 && (hi - lo) / step < 200) {
+        for (let k = Math.ceil(lo / step - 1e-6); k * step <= hi + step * 1e-6; k += 1) {
+          const value = k * step;
+          labels.push({
+            at: Math.min(1, Math.max(0, (value - lo) / (hi - lo))),
+            w: textWidth(typographic(String(Math.round(value))), THEME.fontLabel),
+            h: AXIS_TEXT_LINE,
+          });
+        }
+      }
+    }
+    return { labels, name: name ? { w: textWidth(name, THEME.fontName), h: AXIS_TEXT_LINE } : null };
+  };
+  return {
+    box: { width: box.boxWidth, height: box.boxHeight, depth: box.boxDepth },
+    cloud,
+    x: axis(ticks?.z, names?.depth),
+    y: axis(ticks?.x, names?.x),
+    z: axis(ticks?.y, names?.y),
+  };
+}
+
+/**
+ * The drawn cubes' extent on the opening camera's screen plane, in world
+ * units about the box centre: `{alpha, beta, left, right, bottom, top}`, each
+ * cube's centre projected and widened by its own projected half-size, or
+ * null with no cube. The box is the server's window, so its corners are often
+ * empty: the fit holds the cubes, the axes and their text, not the corners.
+ * `lo` the box minimum in mm (`voxelBounds`), `box` its grid3D sizes.
+ */
+export function cloudExtent(model, lo, box, camera = CAMERA) {
+  const { u, v } = cameraAxes(camera.alpha, camera.beta);
+  const S = box.S;
+  const W = box.boxWidth;
+  const H = box.boxHeight;
+  const D = box.boxDepth;
+  const hX = (S * model.box.z) / 2;
+  const hY = (S * model.box.y) / 2;
+  const hZ = (S * model.box.x) / 2;
+  const ex = Math.abs(u[0]) * hX + Math.abs(u[1]) * hY + Math.abs(u[2]) * hZ;
+  const ey = Math.abs(v[0]) * hX + Math.abs(v[1]) * hY + Math.abs(v[2]) * hZ;
+  let left = Infinity;
+  let right = -Infinity;
+  let bottom = Infinity;
+  let top = -Infinity;
+  for (let i = 0; i < model.n; i += 1) {
+    if (!inCrop(model, i)) continue;
+    const p = [S * (model.z[i] - lo.z) - W / 2, S * (model.y[i] - lo.y) - H / 2, D / 2 - S * (model.x[i] - lo.x)];
+    const x = dot(u, p);
+    const y = dot(v, p);
+    if (x - ex < left) left = x - ex;
+    if (x + ex > right) right = x + ex;
+    if (y - ey < bottom) bottom = y - ey;
+    if (y + ey > top) top = y + ey;
+  }
+  if (!(right >= left)) return null;
+  return { alpha: camera.alpha, beta: camera.beta, left, right, bottom, top };
+}
+
+/** A sprite's px extent about its anchor for echarts-gl's alignment (`setSpriteAlign`, margin 0). */
+function spriteSpan(size, align) {
+  if (align === 'left' || align === 'bottom') return [0, size];
+  if (align === 'right' || align === 'top') return [-size, 0];
+  return [-size / 2, size / 2];
+}
+
+/**
+ * Every mark of a frame's opening view on the screen plane, as echarts-gl
+ * lays it out: `[{x, y, l, r, b, t}]`, the anchor (x, y) in world units
+ * about the box centre (x right, y up) and the px it spans left, right,
+ * below and above it (negative l, b to the left and below). `aspect` is the
+ * viewport's width over its height.
+ *
+ * The cubes are the frame's cloud (`cloudExtent`), four untexted points at
+ * its extremes; a frame without one stands the box's eight corners in for
+ * them. Each axis's line and ticks are drawn about a pixel wide, a tick
+ * `AXIS_TICK_LENGTH` units long at both ends of the axis and at every round
+ * value. Each axis follows the grid3D view
+ * (`_updateFaceVisibility`, `_updateAxisLinePosition`,
+ * `_updateAxisLabelAlign`): of each pair of opposite faces the one nearer the
+ * camera is hidden, the axis lines run along edges of the visible faces, and
+ * their labels and title sit `AXIS_LABEL_MARGIN` and `AXIS_NAME_GAP` world
+ * units off the line, mirrored with the line where its face flips. An axis
+ * whose line runs flatter than 1 : 2 on the normalised screen centres its
+ * text above or below its anchor, by the side of the box centre its middle
+ * is on; a steeper one sets its text to the left or right, by the same rule.
+ * Within `ALIGN_BAND` of that threshold both placements are held.
+ *
+ * Confirmed in Chromium: the box's corners projected through the chart's own
+ * camera (`viewMatrix`, `projectionMatrix`) land where `cameraAxes` puts
+ * them to 0.1 px, and the label sprites' measured sizes and alignments are
+ * the ones assumed here (design/two-page/fix-z-report.md).
+ */
+export function viewItems(frame, aspect = 1, camera = CAMERA) {
+  const { u, v, w } = cameraAxes(camera.alpha, camera.beta);
+  const W = frame.box.width;
+  const H = frame.box.height;
+  const D = frame.box.depth;
+  const items = [];
+  const push = (p, l = 0, r = 0, b = 0, t = 0) => items.push({ x: dot(u, p), y: dot(v, p), l, r, b, t });
+  const cloud = frame.cloud;
+  if (cloud && cloud.alpha === camera.alpha && cloud.beta === camera.beta) {
+    for (const x of [cloud.left, cloud.right]) for (const y of [cloud.bottom, cloud.top]) items.push({ x, y, l: 0, r: 0, b: 0, t: 0 });
+  } else {
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) push([sx * W / 2, sy * H / 2, sz * D / 2]);
+  }
+  // grid3D's world: x3D along X over ±W/2, z3D (up) along Y over ±H/2, y3D along Z from +D/2 (its minimum) to −D/2.
+  const flipX = w[0] < 0; // the +X face is nearer: hidden
+  const flipY = w[1] < 0;
+  const flipZ = w[2] < 0;
+  const m = flipY ? H / 2 : -H / 2;
+  const p = flipZ ? -D / 2 : D / 2;
+  const axes = {
+    x: { at: (f) => [-W / 2 + f * W, m, p], off: [0, 0, flipZ ? -1 : 1] },
+    y: { at: (f) => [flipX ? -W / 2 : W / 2, m, D / 2 - f * D], off: [flipX ? -1 : 1, 0, 0] },
+    z: { at: (f) => [flipX ? W / 2 : -W / 2, -H / 2 + f * H, p], off: [0, 0, flipZ ? -1 : 1] },
+  };
+  for (const [dim, geo] of Object.entries(axes)) {
+    const spec = frame[dim];
+    if (!spec) continue;
+    const e0 = geo.at(0);
+    const e1 = geo.at(1);
+    const mid = geo.at(0.5);
+    // The axis line and its ticks, each about a pixel wide. echarts places a
+    // tick at both ends of the axis, so the ticks' outer ends span a segment
+    // parallel to the line from end to end.
+    const tick = (f) => geo.at(f).map((c, k) => c + geo.off[k] * AXIS_TICK_LENGTH);
+    for (const p of [e0, e1, tick(0), tick(1)]) push(p, -1, 1, -1, 1);
+    const dx = dot(u, e1) - dot(u, e0);
+    const dy = dot(v, e1) - dot(v, e0);
+    const slope = Math.abs((dy / dx) * aspect);
+    const flat = [['center', dot(v, mid) > 0 ? 'bottom' : 'top']];
+    const steep = [[dot(u, mid) > 0 ? 'left' : 'right', 'middle']];
+    // Near echarts-gl's 1 : 2 threshold a pixel of layout can flip it: hold both placements.
+    const aligns = Math.abs(slope - 0.5) < ALIGN_BAND ? [...flat, ...steep] : (slope < 0.5 ? flat : steep);
+    const place = (f, gap, text) => {
+      const at = geo.at(f).map((c, k) => c + geo.off[k] * gap);
+      for (const [h, vAlign] of aligns) {
+        const [l, r] = spriteSpan(text.w, h);
+        const [b, t] = spriteSpan(text.h, vAlign);
+        push(at, l, r, b, t);
+      }
+    };
+    for (const label of spec.labels ?? []) place(label.at, AXIS_LABEL_MARGIN, label);
+    if (spec.name) place(0.5, AXIS_NAME_GAP, spec.name);
+  }
+  return items;
+}
+
+/**
+ * How far a frame's marks reach from the box centre at `s` px per world
+ * unit: `{left, right, top, bottom}` in px.
+ */
+export function viewExtents(items, s) {
+  const e = { left: -Infinity, right: -Infinity, top: -Infinity, bottom: -Infinity };
+  for (const it of items) {
+    e.left = Math.max(e.left, -(s * it.x + it.l));
+    e.right = Math.max(e.right, s * it.x + it.r);
+    e.top = Math.max(e.top, s * it.y + it.t);
+    e.bottom = Math.max(e.bottom, -(s * it.y + it.b));
+  }
+  return e;
+}
+
+/**
+ * The largest px-per-world-unit scale at which the marks span at most
+ * `spanW` px across and `spanH` px down (`viewExtents`, left + right and
+ * top + bottom). Both spans grow with the scale (a maximum of lines in s),
+ * so the bound is found by bisection. 0 when even the text alone does not
+ * fit, Infinity when nothing grows.
+ */
+export function fitScale(items, spanW, spanH) {
+  const fits = (s) => {
+    const e = viewExtents(items, s);
+    return e.left + e.right <= spanW && e.top + e.bottom <= spanH;
+  };
+  if (!fits(0)) return 0;
+  let hi = 1;
+  while (fits(hi)) {
+    hi *= 2;
+    if (hi > 1e6) return Infinity;
+  }
+  let lo = hi / 2 > 0 && fits(hi / 2) ? hi / 2 : 0;
+  for (let k = 0; k < 60; k += 1) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+/** A frame for a box alone, no text: a 100-unit cube by default. */
+export function boxFrame(boxWidth = BOX_UNITS, boxDepth = BOX_UNITS, boxHeight = BOX_UNITS) {
+  return glFrame({ boxWidth, boxDepth, boxHeight });
+}
+
+/**
+ * The opening view of a `width` × `height` px plot whose right `right` px
+ * are the legend's: `{size, left, top, width, height}`, the orthographic
+ * size and the camera's viewport (grid3D `left`, `top`, `width`, `height`,
+ * px). `size` is the smallest at which every corner of the frame's box,
+ * every tick label and every axis title (`viewItems`) keeps `FIT_PAD` px
+ * from each edge of the area left of the legend.
+ *
+ * The marks are not symmetric about the box (the titles hang below and to
+ * one side), so the box is not centred in the area: its marks are. The
+ * viewport is centred on the box's centre, where the camera puts it, keeps
+ * the area's aspect (the labels' alignment follows the viewport's aspect)
+ * and is scaled up until it covers the whole area, so no mark is clipped;
+ * where it reaches past the canvas nothing is drawn. The camera keeps its
+ * pivot at the box's centre, so the box turns in place.
+ */
+export function openingView(width, height, right = 0, frame = null) {
+  const w = width - right;
+  // No size known: the camera's own size over the area left of the legend (echarts lays it out from `right`).
+  const fallback = { size: CAMERA.orthographicSize, left: 0, top: 0, width: null, height: null };
+  if (!(w > 2 * FIT_PAD && height > 2 * FIT_PAD)) return fallback;
+  const items = viewItems(frame ?? boxFrame(), w / height);
+  const s = fitScale(items, w - 2 * FIT_PAD, height - 2 * FIT_PAD);
+  if (!(s > 0) || !Number.isFinite(s)) return fallback;
+  const e = viewExtents(items, s);
+  // The box centre, with the marks centred in the area.
+  const cx = FIT_PAD + e.left + (w - 2 * FIT_PAD - e.left - e.right) / 2;
+  const cy = FIT_PAD + e.top + (height - 2 * FIT_PAD - e.top - e.bottom) / 2;
+  const k = Math.max((2 * Math.max(cx, w - cx)) / w, (2 * Math.max(cy, height - cy)) / height);
+  const vw = k * w;
+  const vh = k * height;
+  const round = (x) => Math.round(x * 10) / 10;
+  const size = Math.ceil(((vh / s) - BASE_ORTHO_SIZE) * 10) / 10;
+  return {
+    size: Math.max(ORTHO_SIZE_RANGE[0], Math.min(ORTHO_SIZE_RANGE[1], size)),
+    left: round(cx - vw / 2),
+    top: round(cy - vh / 2),
+    width: round(vw),
+    height: round(vh),
+  };
+}
+
+/** The opening orthographic size alone (`openingView`). */
+export function orthographicFit(width, height, right = 0, frame = null) {
+  return openingView(width, height, right, frame).size;
+}
+
+/**
+ * The 3-D plot's height for a plot `width` px wide, `right` px of it the
+ * legend's: with a `frame`, the height the box's opening view needs once its
+ * marks fill the width left of the legend (`viewExtents` at the
+ * width-limited scale, plus `FIT_PAD` above and below), within
+ * [360, 560] px. A flat or wide box then takes a lower card, with no empty
+ * band above and below; a tall one is 560 px and fitted to that height.
+ * Without a frame (before the first model), `(width − right) / FIT_ASPECT`,
+ * the cube's. It depends on the box, the width and the opening angles only,
+ * never on the reader's rotation, so the card does not move while it turns.
+ * Set by voxel_views.js on the plot element, never through CSS, so the
+ * layout snaps with no transition.
+ */
+export function glPlotHeight(width, right = LEGEND_RIGHT, frame = null) {
   if (!(width > 0)) return GL_HEIGHT_MAX;
-  const fit = Math.round((width - LEGEND_RIGHT) / FIT_ASPECT);
-  return Math.max(GL_HEIGHT_MIN, Math.min(GL_HEIGHT_MAX, fit));
+  const clamp = (h) => Math.max(GL_HEIGHT_MIN, Math.min(GL_HEIGHT_MAX, h));
+  const w = width - right;
+  if (!frame || !(w > 2 * FIT_PAD)) return clamp(Math.round(w / FIT_ASPECT));
+  let height = GL_HEIGHT_MAX;
+  // The labels' alignment follows the viewport's aspect, so settle it in a few passes.
+  for (let pass = 0; pass < 4; pass += 1) {
+    const items = viewItems(frame, w / height);
+    const s = fitScale(items, w - 2 * FIT_PAD, Infinity);
+    if (!(s > 0) || !Number.isFinite(s)) return GL_HEIGHT_MAX;
+    const e = viewExtents(items, s);
+    const next = clamp(Math.ceil(e.top + e.bottom + 2 * FIT_PAD));
+    if (next === height) break;
+    height = next;
+  }
+  return height;
+}
+
+/**
+ * The px the colour legend takes from the right of the 3-D plot: the
+ * vertical visualMap (`scale.visualMap`: inset `right`, as wide as its bar
+ * or its widest label line) and a diverging ramp's zero label left of its
+ * bar (`scale.rampMidLabel`), plus `FIT_PAD`; at least `LEGEND_RIGHT`, and
+ * 0 with no legend.
+ */
+export function legendStrip(legend, mid = null) {
+  if (!legend) return 0;
+  const lines = (Array.isArray(legend.text) ? legend.text : []).flatMap((t) => String(t).split('\n'));
+  const component = Math.max(legend.itemWidth ?? 0, ...lines.map((line) => textWidth(line, THEME.fontSmall)));
+  let strip = (legend.right ?? 0) + component;
+  if (mid?.style?.text && Number.isFinite(mid.right)) strip = Math.max(strip, mid.right + textWidth(mid.style.text, THEME.fontSmall));
+  return Math.max(LEGEND_RIGHT, Math.ceil(strip + FIT_PAD));
+}
+
+/**
+ * A model's opening fit before its option is built: `{frame, right}`, the
+ * frame `orthographicFit` and `glPlotHeight` keep inside the canvas and the
+ * legend's strip. voxel_views.js sizes the plot from it, then builds the
+ * option at that size.
+ */
+export function voxelFit(model, palette = 'viridis') {
+  const { lo, hi, span } = voxelBounds(model);
+  const box = boxSizes(span);
+  const ticks = {
+    z: axisTicks(lo.z, hi.z, box.boxWidth),
+    x: axisTicks(lo.x, hi.x, box.boxDepth),
+    y: axisTicks(lo.y, hi.y, box.boxHeight),
+  };
+  const legend = voxelLegend(model, palette);
+  return {
+    frame: glFrame(box, ticks, model.symbols ? axisNames(model.symbols) : null, cloudExtent(model, lo, box)),
+    right: legendStrip(legend, legend ? rampMidLabel(model.scale) : null),
+  };
 }
 
 /** echarts-gl draws a series without depth writes once an item's alpha is below this. */
@@ -927,14 +1296,17 @@ export function partitionCubes(model, rgba, hidden = null) {
 /**
  * The echarts-gl option of one model.
  *
- * Returns `{option, roles, bounds, box, drawn, skipped, noValue, hidden,
- * translucent, cropped, primaries, halos}`: `roles[seriesIndex]`
+ * Returns `{option, roles, bounds, box, ticks, fit, drawn, skipped, noValue,
+ * hidden, translucent, cropped, primaries, halos}`: `fit` is `{frame,
+ * right}` (`voxelFit`), which the section keeps to refit on resize;
+ * `roles[seriesIndex]`
  * says what each series is (`spacer`, `cube` with the payload indices of its
  * items in data order, or `halo`), which the tooltip and the tests read.
  * `opts`: `palette`; `hidden` a Set of species codes the isolate toggles
  * hide; `position` the tooltip's placement callback (tooltip.js); `qualitative`
  * the species palette name; `viewport` the chart's `{width, height}` in px,
- * which sets the opening orthographic size (`orthographicFit`).
+ * which sets the opening view (`openingView`: the orthographic size and the
+ * camera's viewport).
  */
 export function voxelOption(model, {
   palette = 'viridis', hidden = null, position = null, qualitative = 'species', viewport = null,
@@ -1007,13 +1379,17 @@ export function voxelOption(model, {
 
   const names = axisNames(model.symbols);
   const legend = voxelLegend(model, palette);
+  // A diverging ramp marks its zero ("0", or the undrawn ±10⁻³ band), as the 2-D panels do.
+  const mid = legend ? rampMidLabel(model.scale) : null;
+  const frame = glFrame(box, ticks, names, cloudExtent(model, lo, box));
   const formatter = (params) => {
     const role = roles[params?.seriesIndex];
     if (!role || role.role !== 'cube') return '';
     return voxelTooltip(model, role.members[params.dataIndex]);
   };
-  // Room on the right for the 2-D colour legend.
-  const right = legend ? LEGEND_RIGHT : 0;
+  // Room on the right for the 2-D colour legend; the opening view fits the area left of it.
+  const right = legendStrip(legend, mid);
+  const view = openingView(viewport?.width, viewport?.height, right, frame);
   const option = {
     backgroundColor: THEME.chartBackground,
     animation: false,
@@ -1025,7 +1401,9 @@ export function voxelOption(model, {
       boxHeight: box.boxHeight,
       viewControl: {
         ...CAMERA,
-        orthographicSize: orthographicFit(viewport?.width, viewport?.height, right),
+        orthographicSize: view.size,
+        minOrthographicSize: ORTHO_SIZE_RANGE[0],
+        maxOrthographicSize: ORTHO_SIZE_RANGE[1],
         damping: 0,
         autoRotate: false,
         animation: false,
@@ -1038,6 +1416,11 @@ export function voxelOption(model, {
       axisLine: { lineStyle: { color: THEME.border } },
       splitLine: { show: false },
       splitArea: { show: false },
+      // The camera's viewport (`openingView`): centred on the box, sized to cover the area.
+      left: view.left,
+      top: view.top,
+      width: view.width,
+      height: view.height,
       right,
     },
     xAxis3D: axis3D(names.depth, ticks.z, { nameGap: AXIS_NAME_GAP }),
@@ -1047,8 +1430,6 @@ export function voxelOption(model, {
   };
   if (legend) {
     option.visualMap = legend;
-    // A diverging ramp marks its zero ("0", or the undrawn ±10⁻³ band), as the 2-D panels do.
-    const mid = rampMidLabel(model.scale);
     if (mid) option.graphic = [mid];
   }
   return {
@@ -1057,6 +1438,7 @@ export function voxelOption(model, {
     bounds,
     box,
     ticks,
+    fit: { frame, right },
     drawn: parts.opaque.length + parts.translucent.length,
     skipped: parts.skipped,
     noValue: parts.noValue,
