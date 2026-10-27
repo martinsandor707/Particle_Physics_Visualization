@@ -3109,24 +3109,33 @@ cube stacked on it; cubes the colour taper makes translucent are a series of
 their own, because echarts-gl turns a series' depth writes off once any item is
 translucent. The camera opens at the angles `alpha` 25° and `beta` 40°.
 
-**The opening zoom is fitted to the card's width.** An orthographic camera fixes
-its height and takes its width from the viewport, so a card narrower than the box
-cut the view's sides (the vertical axis title first). `orthographicFit` measures
-the card: the box, its ticks and its axis titles span 1.134 times the viewport
-height (measured in Chromium on a 100-unit cube, the widest box), so a plot area
-narrower than 1.16 times its height (the card's width less the 60 px of the colour
-legend) widens the opening size from 160 just enough to keep them inside. A resize
-refits the zoom only and keeps the reader's rotation and pan; a blank or lost
-chart is never refitted.
+**The opening view is fitted to the box it draws.**
+- **The fit.** `voxels.js` `openingView` projects everything the card draws through echarts-gl's own orbit camera
+  and grid3D layout: the drawn cubes, the axis lines and their end ticks, every tick label and the three axis
+  titles. It then picks the smallest orthographic size that keeps them all 8 px inside the area left of the colour
+  legend.
+- **Centring.** The marks are centred through the camera's viewport (grid3D `left`/`top`/`width`/`height`), so
+  titles hanging below and to one side waste no room. The rotation pivot stays at the box centre.
+- **The legend strip** is measured from the legend itself: 82 px beside an event's ramp, 119 px beside the cloud's.
+  - Before this, a fixed `right: 60` never applied, because grid3D's default `width: '100%'` overrides it, so the
+    marks ran under the legend.
+- **Why it is computed.** The old constant fit was measured on a cube. It opened a flat per-axis box, such as the
+  synthetic single-shower event 3 at 4,040 × 1,480 × 300 mm, at under half the card.
+- **Measured in Chromium:**
+  - the camera's own matrices project the box to within 0.1 px of the model;
+  - at windows 1440, 1600 and 1920 px wide, both cards of both kinds fill 91–97% of their limiting dimension, with
+    at least 7 px to spare on every edge.
+- **On resize**, one call refits the plot's height, the zoom and the viewport, and keeps the reader's rotation and
+  pan. A blank or lost chart is never refitted.
 
-**The plot's height follows the card's width, and the ticks are round.** The
-3-D plot is h = clamp(round((w − 60) / 1.16), 360, 560) px tall for a plot area
-w px wide (`voxels.js` `glPlotHeight`): the height at which the opening view
-fills the viewport left of the 60 px colour legend, so a narrow card no longer
-leaves an empty band above and below the box. `voxel_views.js` `fitPlotHeight`
-sets it inline before the chart is created and on every resize, never through
-CSS, so the layout snaps with no transition. Measured at windows 1440, 1600 and
-1920 px wide, the plot is 506 × 384, 586 × 453 and 746 × 560 px. The axes take
+**The plot's height follows the box, and the ticks are round.**
+- **The height** is what the marks need once they fill the width, plus the pads, kept within 360–560 px
+  (`voxels.js` `glPlotHeight`). It depends on the box and the width only, so it never moves while a reader rotates.
+- **When it is set.** `voxel_views.js` sets it before the chart is drawn and on every resize, never through CSS, so
+  the layout snaps with no transition.
+- **Where bands remain.** An empty band above and below the box is left only where the plot sits at its 360 px
+  floor: a flat box needs less height than that at a narrow card.
+- **The axes** take
 ECharts' own step, `nice(span / splitNumber)` (`niceStep`), with each axis's
 origin rounded to floor(lo / step) · step so the cubes, spacers and halos sit at
 mm − origin and the ticks fall on round millimetres. Three facts about
@@ -4116,9 +4125,10 @@ others in `tests/`):
 - **No source pinned.** The test that `main.js` takes `depthIsometric` and
   `ensembleCellOptions` from `event_cells.js` reads the module structurally,
   comments stripped, rather than matching its text.
-- **The browser tests** hold both pages to the 20% readout cap, the Models page's
-  3-D plot height to `glPlotHeight(w)`, and (`test_browser_models.py`) φ's axis
-  text "wrapped to (−3142, 3142]".
+- **The browser tests** hold both pages to the 20% readout cap. In `test_browser_models.py` they check the Models page's
+  3-D cards on canvas pixels: at 1440, 1600 and 1920 px every card keeps at least 4 px to spare and fills at least 80%
+  of its limiting dimension (`test_the_3d_cards_open_fitted_to_their_box`). They also check φ's axis text
+  "wrapped to (−3142, 3142]".
 
 `tests/test_canonical_subset.py` runs only when `CALOSRV_TEST_SUBSET_CSV` points
 at a 99-column subset of the production file (`tests/make_all_models_fixture.py

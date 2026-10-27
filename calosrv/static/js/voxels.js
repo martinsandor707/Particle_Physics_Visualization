@@ -1187,8 +1187,9 @@ function onStep(v, step) {
 
 /**
  * The least distance, in box units, between two labelled ticks. At the
- * opening zoom a box unit is about 2.3 px at a 1600 px window, and a label
- * such as "3600" about 26 px wide, so ticks closer than this overprint. A
+ * opening zoom a box unit is about 2.3 px at a 1600 px window for a cube
+ * (a flat box opens closer, about 5-6 px, which only spreads its labels),
+ * and a label such as "3600" about 26 px wide, so ticks closer than this overprint. A
  * per-axis event window makes a short side (the synthetic single-shower
  * event 3's 300 mm depth in a 4,040 mm box is 7.4 units) where two ticks
  * would sit 5 units apart; there only every k-th tick is labelled.
