@@ -76,6 +76,12 @@ DELIBERATE = (
     "G1-3: an empty per-shower frame selection labels centroids.frame_mean 'No event in the "
     "selection: no centroid', with null a, b, sd, ci95_half and dof_note instead of 'N = 1: a "
     "single event's own centroids', and drops the 'With 0 event(s) ... weak evidence' notice.",
+    "Fix round C, decision D-3 (P-16) and R-2: /api/event's window is the widest energy-weighted "
+    "0.1st-99.9th percentile range of the shower's cells (floor 150 mm, window.percentiles in place "
+    "of window.pad), frames.<f>.outside_window counts the cells beyond it and window.rule names "
+    "them; a grid raster's window-bound end snaps inward; window.rule and scale.rule say 'every "
+    "panel of this event' instead of 'all nine panels'. /api/projections, /api/window-axis and "
+    "/api/event/pick are unchanged.",
 )
 
 #: The demonstration file holds two events (E1 2.71 and 17.88 GeV).
