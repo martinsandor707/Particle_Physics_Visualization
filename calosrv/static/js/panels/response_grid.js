@@ -68,6 +68,7 @@ import {
   showerColour, niceCeil, coarseInterval, FINE_STEPS, legibleOpacity, sigmaText, referenceRule, dispersionBar,
   chartLegend,
 } from './chart_panel.js';
+import { curveAreaLine } from './distribution.js';
 
 /** Smallest sub-plot width before a column is dropped (px), on screen. */
 export const GRID_MIN_CELL_PX = 150;
@@ -316,6 +317,10 @@ export function fitText(payload, entry, sliceLabel) {
   if (Number.isFinite(fit.sigma_bias_factor) && (fit.n ?? 0) < (payload.thresholds?.core ?? 15)) {
     lines.push(mutedLine(`bias factor c₄(N) = ${num(fit.sigma_bias_factor, 4)}`));
   }
+  // The curve's area against the histogram it overlays (CLAUDE.md: a curve drawn
+  // over a histogram shares its normalisation).
+  const area = curveOf(entry) ? curveAreaLine(entry, 'events') : null;
+  if (area) lines.push(area);
   const note = estimatorNote(payload, entry);
   if (note) lines.push(mutedLine(note));
   const message = seriesMessage(payload, entry);

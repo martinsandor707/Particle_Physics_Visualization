@@ -19,7 +19,7 @@
  * from structure only, never by matching text.
  */
 
-import { Notes, SECTION, PHYSICS_HEADINGS } from './panel_notes.js';
+import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText } from './panels/chart_panel.js';
@@ -281,6 +281,7 @@ export function residualNotes({ payload, state = null, experiment = null, title 
   ] : [
     'Shower colour as on the Physics page: A pink, B blue and dashed on two-shower data, and a single shower in the accent blue. From N = 15 a series\' mean is a long-dashed vertical with its 95% Student-t interval of the mean as two thin hairlines; its spread is the histogram itself.',
     `Below N = ${HISTOGRAM_FLOOR} a series sits in the tinted, captioned band at the foot: its events as ticks, its mean with the capped Student-t whisker and an uncapped ± 1 SD bar, the spread of the events - two marks, two quantities; heights there are drawing offsets.`,
+    CURVE_AREA_NOTE,
     'A caret marks a curve, a mark or showers beyond the axis.',
   ]);
   notes.section(MODELS_HEADINGS.estimators, model.entries.map((e) => {

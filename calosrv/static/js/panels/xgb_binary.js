@@ -245,17 +245,6 @@ export function otherIntervalLegend(model, width = Infinity) {
 }
 
 /**
- * The legend name of the balanced accuracy's interval: the method the
- * payload names (Newcombe's MOVER combination of the two classes' Wilson
- * limits, as the server ships it), never assumed here.
- */
-export function otherIntervalName(model) {
-  const r = model.rates.find((x) => x.method && x.method !== 'wilson');
-  if (!r) return OTHER_INTERVAL_NAME;
-  return `${r.intervalLabel || r.method} (${r.short.toLowerCase()})`;
-}
-
-/**
  * Where the matrix and the rates go: `{stacked, top, matrix: {x, y, cell,
  * headW, headH, keyY, noteY}, grid: {left, top, width, height}, height}`.
  * `height` null (an export) sizes the figure from the width.
