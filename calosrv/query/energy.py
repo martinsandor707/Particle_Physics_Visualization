@@ -350,6 +350,11 @@ def _build_series(
 
     A width of exactly zero forces ``strip`` at any N: a delta is not a density,
     and drawing one as a curve would put an infinite spike on the axis.
+
+    Beside a histogram, the core curve is on the histogram's normalisation:
+    its area is :func:`gaussian.curve_area`, the events the Gaussian describes
+    over the ``n_in_range`` the bars are divided by. ``curve_peak`` is that
+    curve's peak, so a scale or a clipping test read from it sees the drawn curve.
     """
     finite = sample[np.isfinite(sample)]
     fit = gaussian.fit_gaussian(sample, label=f"{label}, {slice_label}")
@@ -361,14 +366,20 @@ def _build_series(
     drawable = _has_width(fit)
 
     if n >= histogram.MIN_HISTOGRAM_SAMPLES and drawable:
-        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core)
+        hist = histogram.density_histogram(sample, edges_array)
+        # One normalisation for the bars and the curve: the histogram divides by
+        # the events it holds, so the curve's area is the events the Gaussian
+        # describes over that same count (decision D-7). Below one when the core
+        # window cut a tail, so the curve claims only the core's share.
+        peak = _curve_amplitude(fit, hist.n_in_range)
+        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core, peak)
         return SeriesFit(
             key=key, label=label, shower=shower, kind=kind,
             slice_index=slice_index, fit=fit,
-            hist=histogram.density_histogram(sample, edges_array),
+            hist=hist,
             draw="histogram", drives_scale=True,
             curve_y=_round_all(curve),
-            curve_peak=_round(gaussian.unit_area_amplitude(fit.sigma_core)),
+            curve_peak=_round(peak),
         )
 
     # Below the histogram floor the events themselves are the honest mark.
@@ -377,13 +388,16 @@ def _build_series(
     truncated = bool(ordered.size > MAX_STRIP_POINTS)
 
     if n >= gaussian.MIN_CURVE_SAMPLES and drawable:
-        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core)
+        # No histogram shares the axis: the curve is the density of the n events
+        # it was fitted to, and keeps unit area (no core refit runs below 15).
+        peak = _curve_amplitude(fit, n)
+        curve = gaussian.gaussian_curve(curve_x, fit.mu_core, fit.sigma_core, peak)
         return SeriesFit(
             key=key, label=label, shower=shower, kind=kind,
             slice_index=slice_index, fit=fit, hist=None,
             draw="curve+strip", drives_scale=False,
             curve_y=_round_all(curve),
-            curve_peak=_round(gaussian.unit_area_amplitude(fit.sigma_core)),
+            curve_peak=_round(peak),
             strip=strip, strip_truncated=truncated,
             message=STRIP_MESSAGE.format(n=n),
         )
@@ -405,6 +419,11 @@ def _build_series(
 #: The ladder under its public name, for the panels that draw a distribution
 #: with the same marks (the prediction residuals of Page 2, the B3 view).
 build_series = _build_series
+
+
+def _curve_amplitude(fit: gaussian.GaussianFit, n_normaliser: int) -> float:
+    """Peak of the drawn core Gaussian, its area ``gaussian.curve_area(fit, n_normaliser)``."""
+    return gaussian.unit_area_amplitude(fit.sigma_core) * gaussian.curve_area(fit, n_normaliser)
 
 
 def _has_width(fit: gaussian.GaussianFit) -> bool:

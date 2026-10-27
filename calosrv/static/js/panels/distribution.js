@@ -497,6 +497,38 @@ function residualFitLines(r, s) {
   return lines;
 }
 
+/**
+ * The drawn curve's area, as a tooltip line; null without a curve (decision D-7).
+ *
+ * Beside a histogram the server draws the Gaussian on the bars' normalisation:
+ * its area is the events it describes over the `n_in_range` the bars are divided
+ * by, read back here as curve_peak · σ_core · √(2π). Below one when the ±2.5σ core
+ * window cut a tail the curve does not describe; above one when events it
+ * describes lie outside the axis. With no histogram it is a unit-area density.
+ */
+export function curveAreaLine(s, noun = 'events') {
+  const peak = s?.curve_peak;
+  const sigma = s?.core_fit?.sigma ?? s?.fit?.sigma_core;
+  if (!Number.isFinite(peak) || !(sigma > 0) || !s?.curve?.y) return null;
+  const area = peak * sigma * Math.sqrt(2 * Math.PI);
+  const held = s.draw === 'histogram' ? s.histogram?.n_in_range : null;
+  if (!Number.isFinite(held) || held <= 0) {
+    return `curve area 1: a density of the ${formatInt(s.fit?.n)} ${noun} it was fitted to `
+      + mutedLine('(no histogram shares its scale)');
+  }
+  if (Math.abs(area - 1) < 5e-4) {
+    return `curve area 1: the Gaussian describes all ${formatInt(held)} ${noun} the histogram holds`;
+  }
+  if (area < 1) {
+    return `area = share of ${noun} in the Gaussian core, ${formatPercent(area, 0)}: `
+      + `it describes ${num(area * held, 1)} of the ${formatInt(held)} ${noun} the histogram holds `
+      + mutedLine('(the core window cut a tail the curve does not describe; '
+        + 'the core count is divided by 0.981, the window\'s own coverage of the Gaussian)');
+  }
+  return `curve area ${num(area, 3)}: the Gaussian describes ${num(area * held, 1)} ${noun}, `
+    + `${formatInt(held)} of them inside the axis ${mutedLine('(the rest lie outside the histogram\'s range)')}`;
+}
+
 /** The residual model: one entry per shower. Pure; `opts.shower` is 'a' | 'b' | 'both'. */
 export function residualModel(payload, opts = {}) {
   const r = payload.residual;
@@ -528,6 +560,7 @@ export function residualModel(payload, opts = {}) {
       below: out.below ?? 0, above: out.above ?? 0, message: s.message ?? '',
       tip: [head, ...residualFitLines(r, s), ...(s.message ? [mutedLine(s.message)] : [])].join('<br/>'),
       curveName: s.core_fit ? 'Gaussian fit of the core' : 'fitted Gaussian',
+      curveArea: curveAreaLine(s, 'showers'),
       circular: s.circular ?? null,
       // An azimuth's ticks carry its circular summary: it has no marker row to hold it.
       circularTip: circular ? circularResidualLines(r, s).join('<br/>') : null,
@@ -633,6 +666,7 @@ function fittedOption(model, opts = {}, metrics = {}) {
     const points = e.curve.filter((p) => Number.isFinite(p[1])).map((p) => [p[0], Math.min(p[1], yTop)]);
     const robust = e.curveDrives;
     const tip = `${e.tip}<br/>${mutedLine(`${e.curveName}${robust ? '' : `, from fewer than ${HISTOGRAM_FLOOR}: drawn thin and faint, never setting the axis`}`)}`
+      + (e.curveArea ? `<br/>${e.curveArea}` : '')
       + (clipped ? `<br/>${mutedLine(`peak ${num(peak, 4)} lies above the axis: clipped at the caret`)}` : '');
     series.push(withColour(customPolyline({
       name: e.label, points, color: e.colour, width: (robust ? 1.6 : 1.1) * THEME.lineAxis,

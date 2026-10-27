@@ -522,7 +522,8 @@ def build_response(
                 **({"cam": planes_mod.cam_note(model, "lab", channel)}
                    if planes_mod.view(channel).is_cam else {}),
                 "sample_percent": decision.percent if decision.sampled else 100.0,
-                "stagger": comb,
+                # No meta.stagger: it was an exact copy of frame.comb, whose
+                # measured_on CLAUDE.md names (review R-4). The lab frame keeps it.
                 "notices": notices,
                 "cache": cache_mod.get_cache(
                     settings.canonical_cache_entries, name=cache_mod.CANONICAL_CACHE

@@ -1790,3 +1790,85 @@ def test_the_hatch_has_its_own_token_on_screen_and_in_print(out):
     ink = re.search(r"export const PRINT_INK = \{(.*?)\};", tokens_src, re.DOTALL).group(1)
     assert "hatch" not in ink, "the hatch is chrome, not ink"
     assert re.search(r"hatch: '#6b7280'", tokens_src)
+
+
+# ------------------------------------------- fix round P1: curve area, compaction --
+
+_P1_SCRIPT = r"""
+import fs from 'node:fs';
+const [jsRoot, fixtureDir] = JSON.parse(process.argv[1]);
+const imp = (p) => import(`${jsRoot}/${p}`);
+const fv = await imp('frame_views.js');
+const pn = await imp('panel_notes.js');
+const dist = await imp('panels/distribution.js');
+const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
+const local = load('projections_single_local');
+const lab = load('projections_base_lab');
+const pred = load('pred_density_xgb_energy');
+const withCopy = JSON.parse(JSON.stringify(local));
+withCopy.meta.notices.push({ scope: 'frame', text: local.frame.coordinates.note });
+const thin = { draw: 'curve+strip', curve_peak: 1 / Math.sqrt(2 * Math.PI), curve: { y: [0.1] },
+  fit: { n: 10, sigma_core: 1 }, histogram: null };
+const energy = pn.energyNotes({ payload: load('energy_d_two') });
+const out = {
+  local: { notices: local.meta.notices, restored: fv.frameNotices(local), hasStagger: 'stagger' in local.meta,
+    comb: local.frame.comb.note, coordinates: local.frame.coordinates.note },
+  labUnchanged: JSON.stringify(fv.frameNotices(lab)) === JSON.stringify(lab.meta.notices ?? []),
+  labHasStagger: 'stagger' in lab.meta,
+  idempotent: fv.frameNotices(withCopy).filter((n) => n.text === local.frame.coordinates.note).length,
+  ramp: { lab: pn.rampStartNote(lab.panels.xy.scale, 'viridis'), local: pn.rampStartNote(local.panels.xy.scale, 'viridis'),
+    signed: pn.rampStartNote({ scale: 'signed_log10', diverging: true }, 'viridis'), none: pn.rampStartNote(null) },
+  area: { a: dist.curveAreaLine(pred.residual.series.a, 'showers'), thin: dist.curveAreaLine(thin),
+    model: dist.residualModel(pred).entries.map((e) => e.curveArea) },
+  energyDensity: energy.sections.find((s) => s.heading === 'Reading the density axis')?.lines ?? [],
+  explainer: pn.DENSITY_EXPLAINER, curveNote: pn.CURVE_AREA_NOTE,
+};
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def p1() -> dict:
+    args = json.dumps([JS.as_uri(), str(FIXTURES)])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _P1_SCRIPT, args],
+                          capture_output=True, text=True, timeout=120, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_frame_dot_keeps_its_order_without_the_coordinates_copy(p1):
+    """Review R-4: the server stops repeating frame.coordinates.note; the client puts it back in place."""
+    local = p1["local"]
+    assert not local["hasStagger"] and p1["labHasStagger"], "meta.stagger stays in the lab frame only"
+    assert all(n["text"] != local["coordinates"] for n in local["notices"])
+    restored = local["restored"]
+    assert len(restored) == len(local["notices"]) + 1
+    texts = [n["text"] for n in restored]
+    # The order the server sent before: summary, comb, floor, coordinates, then the rest.
+    assert [n["scope"] for n in restored] == ["frame"] * len(restored)
+    assert texts[0].startswith("Local frame:") and texts[1] == local["comb"]
+    assert texts[2].startswith("Bins below") and texts[3] == local["coordinates"]
+    assert texts[4:] == [n["text"] for n in local["notices"][3:]]
+    assert p1["labUnchanged"] and p1["idempotent"] == 1
+
+
+def test_the_spatial_drawers_name_the_legible_ramp_start(p1):
+    ramp = p1["ramp"]
+    assert "Viridis from 0.376 of its range" in ramp["lab"] and "fades in" not in ramp["lab"]
+    assert "fades in across the 0.5 decade" in ramp["local"] and "Viridis from 0.376" in ramp["local"]
+    for text in (ramp["lab"], ramp["local"]):
+        assert "3:1 contrast against the card" in text
+        assert "exported figure carries the full ramp" in text
+    assert ramp["signed"] == "" and ramp["none"] == ""
+
+
+def test_the_core_curve_names_its_area(p1):
+    """Decision D-7: on pred_density_xgb_energy the core of 47 of 62 holds 79% of the 61 in range."""
+    a = p1["area"]["a"]
+    assert a.startswith("area = share of showers in the Gaussian core, 79%"), a
+    assert "of the 61 showers the histogram holds" in a
+    assert p1["area"]["model"][0] == a
+    assert p1["area"]["thin"].startswith("curve area 1: a density of the 10 events")
+    assert "integrates to 1.0" in p1["explainer"] and "The curve integrates" not in p1["explainer"]
+    assert p1["curveNote"] in p1["energyDensity"]
+    assert not HYPHEN_NUMBER.search(a)

@@ -455,7 +455,8 @@ def render_panel(
             below, attention, hits, native, decades, signed=bool(scale.diverging),
             what="attention" if channel == CHANNEL_GRADCAM else "attribution",
         )
-        exact = topk.top_cells(np.where(below, np.nan, attention), signed=scale.diverging)
+        exact = topk.top_cells(np.where(below, np.nan, attention), signed=scale.diverging,
+                               significant=topk.SIGNIFICANT)
         mask_arg = below
     elif view.is_cam:
         # Energy-weighted CAM: sum(E * CAM) per bin as an areal density, like
@@ -481,7 +482,7 @@ def render_panel(
         encoded = ratio
         below = undrawn
         exact = topk.top_cells(np.where(undrawn | ~populated, np.nan, value),
-                               signed=view.kind == KIND_SIGNED)
+                               signed=view.kind == KIND_SIGNED, significant=topk.SIGNIFICANT)
         mask_arg = None
     else:
         ratio = density / rho_ref if rho_ref > 0 else np.zeros_like(density)
@@ -492,7 +493,7 @@ def render_panel(
         below = quantize.below_floor_mask(ratio, scale)
         # Exact values are shipped in physical units; the client divides by
         # ``scale.rho_ref`` for the a.u. reading. Undrawn bins are not offered.
-        exact = topk.top_cells(np.where(below, np.nan, density))
+        exact = topk.top_cells(np.where(below, np.nan, density), significant=topk.SIGNIFICANT)
         mask_arg = None
 
     payload = matrix_encode.encode_matrix(

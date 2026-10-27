@@ -398,7 +398,8 @@ def build_response(
         )})
         notices.append({"scope": "frame", "text": comb["note"]})
         notices.append({"scope": "frame", "text": _floor_notice(channel, display, rendered["panels"], names)})
-        notices.append({"scope": "frame", "text": coordinate_block["note"]})
+        # The coordinates note travels once, in frame.coordinates.note; the client
+        # puts it into the frame dot after the floor notice (frame_views.frameNotices).
         if stats.n_excluded_no_frame:
             notices.append({"scope": "frame", "text": (
                 f"{stats.n_excluded_no_frame:,} selected event(s) have no A-B separation (no "
@@ -533,7 +534,8 @@ def build_response(
                 "weighting": weighting,
                 **({"cam": planes_mod.cam_note(model, kind, channel)} if cam_view.is_cam else {}),
                 "sample_percent": decision.percent if decision.sampled else 100.0,
-                "stagger": comb,
+                # No meta.stagger: it was an exact copy of frame.comb, whose
+                # measured_on CLAUDE.md names (review R-4). The lab frame keeps it.
                 "notices": notices,
                 "cache": shower_frames.cache_for(settings, kind).info(),
             },

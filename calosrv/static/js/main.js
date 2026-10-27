@@ -30,7 +30,7 @@ import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './d
 import { attachExportMenus } from './export/menu.js';
 import {
   frameView, kindOf, panelTitle, displayCaption, channelCaption, entryTag, showerTag,
-  anchorExplainer, frameCaption, pct,
+  anchorExplainer, frameCaption, pct, frameNotices,
 } from './frame_views.js';
 import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
 import {
@@ -752,7 +752,8 @@ async function loadProjections(preview = false) {
   dom.exactBadge.classList.toggle('is-warn', !exact);
 
   const resolution = payload.meta.resolution;
-  const stagger = payload.meta.stagger || {};
+  // The co-registered frames ship the comb once, in frame.comb (review R-4).
+  const stagger = payload.meta.stagger ?? payload.frame?.comb ?? {};
   setText('display-caption', displayCaption(kind, resolution, coregistered ? payload.frame : null));
   setText('channel-caption', currentChannelCaption(payload));
 
@@ -767,7 +768,7 @@ async function loadProjections(preview = false) {
 
   // Persistent explanations go to the sidebar info dots; the banner keeps only
   // transient, actionable messages.
-  const notices = payload.meta.notices || [];
+  const notices = frameNotices(payload);
   if (!coregistered && stagger.staggered && resolution.mode === 'native' && stagger.note) {
     notices.push({ scope: 'resolution', text: stagger.note });
   }

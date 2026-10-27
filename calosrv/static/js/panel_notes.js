@@ -32,7 +32,7 @@ import {
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols } from './axis_symbols.js';
-import { formatSci, formatInt } from './scale.js';
+import { formatSci, formatInt, legibleSpan, rampPalette, THEME } from './scale.js';
 import { profileAxisKey, ensembleLabel } from './panels/profile.js';
 import { gridSlices, subplotScale, seriesMessage, estimatorNote } from './panels/response_grid.js';
 import { sigmaText, clampInterval } from './panels/chart_panel.js';
@@ -58,16 +58,25 @@ export const ENERGY_MARKS =
   + 'reference benchmarks at μ ± σ: stated widths, not fits.';
 
 export const DENSITY_EXPLAINER =
-  'A probability density is not a probability. The curve integrates to 1.0 over '
+  'A probability density is not a probability. A density integrates to 1.0 over '
   + 'the energy axis, so its height carries units of GeV⁻¹ and legitimately '
   + 'exceeds 1.0 wherever the distribution is narrow — a resolution of '
   + 'σ = 0.4 GeV already peaks near 1.0 GeV⁻¹, and anything sharper peaks higher. '
   + 'A tall peak therefore means good resolution, not a probability above one. '
-  + 'For the same reason a curve integrating to 1.0 says nothing about how many '
+  + 'For the same reason a density integrating to 1.0 says nothing about how many '
   + 'events it was built from: the peak height of a fit from nine events and one '
   + 'from ninety thousand are equally tall for equal σ. The event ticks along the '
   + 'baseline are what carry the sample size, which is why a thin slice is drawn '
   + 'with its events beneath it and is never allowed to set the axis scale.';
+
+/** The fitted curve's area beside a histogram (decision D-7), for the energy panels' drawers. */
+export const CURVE_AREA_NOTE =
+  'Beside a histogram the fitted Gaussian is drawn on the histogram\'s normalisation: its area is the share '
+  + 'of the histogram\'s events the Gaussian describes. Where the ±2.5σ core refit cut a non-Gaussian tail, '
+  + 'that is the core\'s share (its event count divided by 0.981, the window\'s own coverage of the Gaussian, '
+  + 'over the events the histogram holds), so the curve stands below the bars by the tail it does not describe. '
+  + 'Where the window cut nothing the area is 1, or slightly more when events lie beyond the energy axis. Below '
+  + 'the histogram floor the curve is a unit-area density of its own events.';
 
 /** The Event Inspector's marks: every one belongs to the one shower drawn. */
 export const EVENT_MARKS =
@@ -77,6 +86,30 @@ export const EVENT_MARKS =
   + 'X′Z′ panel the tilted line w = tan θ · u it maps to, which has no image on the other local '
   + 'panels); ✕ = the shower origin P₀, in the shower’s colour. No ensemble statistic is drawn: '
   + 'every mark belongs to this one shower, and the principal-axis tilt is printed, not drawn.';
+
+/**
+ * What the lowest drawn colour of a spatial panel's sequential ramp means on
+ * screen (fix round C, decision D-2), and that the exported figure keeps the
+ * full ramp. '' for a signed ramp, whose folded PuOr arms are unchanged, and
+ * for a ramp drawn in full. `palette` is the chosen sequential palette's key.
+ */
+export function rampStartNote(scale, palette = 'viridis') {
+  if (!scale) return '';
+  const span = legibleSpan(scale, rampPalette(scale, palette ?? 'viridis'));
+  if (!span) return '';
+  const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
+  const start = `${name} from ${num(span.from, 3)} of its range`;
+  const exported = 'The exported figure carries the full ramp, from the palette\'s first colour, on white.';
+  if (span.taperEnd > 0) {
+    return `On screen the ramp fades in across the ${num(THEME.floorFadeDecades, 1)} decade above the display floor `
+      + `and reaches its first colour with at least 3:1 contrast against the card (${start}) where the fade turns `
+      + 'opaque; every opaque bin is drawn at that colour or brighter, so the darkest opaque colour marks the top '
+      + `of the fade, not the floor. ${exported}`;
+  }
+  return 'On screen the ramp starts at its first colour with at least 3:1 contrast against the card '
+    + `(${start}), so the lowest drawn colour is the bottom of the colour scale, a bin below the ramp floor `
+    + `included, and not the palette's darkest colour. ${exported}`;
+}
 
 /** The semantic axes of each Event Inspector panel: column, row. */
 const EVENT_PANEL_AXES = { xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] };
@@ -152,8 +185,10 @@ export function projectionNotes({
   const windowed = kind === 'lab' && panelId !== 'xy' ? windowAxis : null;
   if (windowed) disclosures.push(...windowAxisDisclosures(windowed));
   notes.section(SECTION.disclosures, disclosures);
-  if (kind !== 'lab') notes.section(SECTION.legend, [exportLegend(panelId, payload, { nShowers })]);
-  else if (panelId !== 'xy') notes.section(SECTION.legend, [labLegend(payload, { nShowers }), windowAxisLegend(windowed)]);
+  const ramp = rampStartNote(panel.scale, state?.get?.('palette'));
+  if (kind !== 'lab') notes.section(SECTION.legend, [exportLegend(panelId, payload, { nShowers }), ramp]);
+  else if (panelId !== 'xy') notes.section(SECTION.legend, [labLegend(payload, { nShowers }), windowAxisLegend(windowed), ramp]);
+  else notes.section(SECTION.legend, [ramp]);
   return notes.done(hazards(payload, panelId));
 }
 
@@ -204,7 +239,7 @@ export function energyNotes({
   if (clipping && clipping.applied && clipping.n_outside) disclosures.push(clipping.note);
   disclosures.push(...(notices || []));
   notes.section(SECTION.disclosures, disclosures);
-  notes.section(SECTION.density, [DENSITY_EXPLAINER]);
+  notes.section(SECTION.density, [DENSITY_EXPLAINER, CURVE_AREA_NOTE]);
   return notes.done(hazards(payload, 'energy'));
 }
 
@@ -283,7 +318,7 @@ export function eventNotes({
     ? `Principal axis of the energy-weighted cloud in the local frame: ${num(axis.tilt_deg, 1)}° from +w `
       + `over ${formatInt(axis.n)} cells - the notebook's check on the rotation, printed in the row label.`
     : 'Principal axis: untestable below 3 populated cells, so no tilt is quoted.';
-  notes.section(SECTION.legend, [EVENT_MARKS, tilt]);
+  notes.section(SECTION.legend, [EVENT_MARKS, tilt, rampStartNote(panel.scale, state?.get?.('palette'))]);
   return notes.done(hazards(payload, panelId));
 }
 
@@ -322,7 +357,7 @@ export function hazards(payload, panelId) {
   const frame = payload.frame || null;
   if (meta.exact === false) out.push('sampled preview');
   if (kindOf(payload) === 'lab') {
-    if (panelId === 'xy' && meta.stagger?.staggered && meta.resolution?.mode === 'native') {
+    if (panelId === 'xy' && (meta.stagger ?? frame?.comb)?.staggered && meta.resolution?.mode === 'native') {
       out.push('measured lattice comb');
     }
     return out;
@@ -788,7 +823,7 @@ export function responseGridNotes({ payload, state = null, experiment = null, sh
     `μ and σ of every series are in the fit table: σ with its standard error and, below N = ${payload.thresholds?.core ?? 15}, `
       + 'its asymmetric χ² 95% interval and its bias factor c₄(N).',
   ]);
-  notes.section(SECTION.density, [DENSITY_EXPLAINER]);
+  notes.section(SECTION.density, [DENSITY_EXPLAINER, CURVE_AREA_NOTE]);
   return notes.done(hazards(payload, 'response-b3'));
 }
 

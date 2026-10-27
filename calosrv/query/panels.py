@@ -160,7 +160,8 @@ def render_panel(
         encode_kwargs["populated"] = populated
         # Exact values in GeV (E x CAM), not the ratio the raster encodes.
         encode_kwargs["top"] = topk.top_cells(
-            np.where(populated, resampled, np.nan), signed=view.kind == KIND_SIGNED
+            np.where(populated, resampled, np.nan), signed=view.kind == KIND_SIGNED,
+            significant=topk.SIGNIFICANT,
         )
         payload = matrix_encode.encode_matrix(
             ratio, scale,
@@ -183,6 +184,7 @@ def render_panel(
         col_axis=ops["col_axis"],
         panel=panel_name,
         native=ops["native"],
+        top_significant=topk.SIGNIFICANT,
     )
     return payload, resampled
 
@@ -340,6 +342,7 @@ def render_all(
                     col_axis=col_name,
                     panel=name,
                     native=native,
+                    top_significant=topk.SIGNIFICANT,
                 )
                 panels[name]["scale"]["shared_with"] = "yz+xz"
 

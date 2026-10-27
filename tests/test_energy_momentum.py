@@ -279,7 +279,16 @@ def test_per_slice_axes_share_the_bin_count(record):
             # figures mu_core and sigma_core are shipped at).
             x = np.linspace(a["lo"], a["hi"], histogram.CURVE_POINTS)
             fit = series["fit"]
-            expected = gaussian.gaussian_curve(x, fit["mu_core"], fit["sigma_core"])
+            # On the histogram's normalisation (decision D-7): the area is the
+            # events the Gaussian describes over the events the bars hold.
+            area = 1.0
+            if series["histogram"] is not None:
+                described = (fit["n_core"] / gaussian.CORE_WINDOW_COVERAGE
+                             if fit["core_applied"] and fit["n_core"] < fit["n"] else fit["n"])
+                area = described / series["histogram"]["n_in_range"]
+            amplitude = gaussian.unit_area_amplitude(fit["sigma_core"]) * area
+            expected = gaussian.gaussian_curve(x, fit["mu_core"], fit["sigma_core"], amplitude)
+            assert series["curve_peak"] == pytest.approx(amplitude, rel=1e-5)
             assert series["curve"]["y"] == pytest.approx(expected, rel=1e-3, abs=1e-9)
     # Only the slices whose series reach the histogram floor set a range.
     assert [a["provisional"] for a in axes] == [False, False, True]

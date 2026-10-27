@@ -69,6 +69,7 @@ def encode_matrix(
     below_mask: np.ndarray | None = None,
     top: list[dict[str, Any]] | None = None,
     populated: np.ndarray | None = None,
+    top_significant: int | None = None,
 ) -> dict[str, Any]:
     """Encode one panel: raster, scale, geometry, and exact peak values.
 
@@ -86,7 +87,9 @@ def encode_matrix(
     ``top`` supplies the exact-value list instead of deriving it from
     ``matrix``: a canonical panel encodes a ratio to ``rho_ref`` but quotes
     exact values of the physical density, and computing the discarded list
-    was a third of the render time at high R.
+    was a third of the render time at high R. ``top_significant`` rounds the
+    derived list (``topk.top_cells``); the projections panels pass
+    ``topk.SIGNIFICANT``.
     """
     signed = scale.scale == SCALE_SIGNED_LOG
     if signed:
@@ -131,7 +134,8 @@ def encode_matrix(
         "axes": {"row": row, "col": col},
         "occupancy": round(quantize.occupancy(codes, min_code), 6),
         "total": total,
-        "topk": topk.top_cells(matrix, k, signed=signed or scale.diverging) if top is None else top,
+        "topk": (topk.top_cells(matrix, k, signed=signed or scale.diverging, significant=top_significant)
+                 if top is None else top),
     })
     if below_code is not None:
         payload["below_floor_cells"] = int((codes == below_code).sum())
