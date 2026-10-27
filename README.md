@@ -2001,7 +2001,9 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 .venv/bin/python -m pytest
 ```
 
-The suite ingests the 1000-row `hits_all_models_dummy.csv`. Tests that need
+The suite ingests the 1000-row `hits_all_models_dummy.parquet` (the image's seed;
+the tests of the CSV reader use a CSV copy of it that `tests/seed.py` writes under
+`data/dev/test-seed/` on first use). Tests that need
 real-data cases — split cells, `'A+B'` rows, an overlap-100 event, events
 without shower A, an all-zero Shap-CAM map — read `hits_all_models_fixture.csv`
 and skip without it; cut it, and a production subset, from an ingested archive

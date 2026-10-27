@@ -2045,7 +2045,7 @@
      0.0833982,
      0.0830863,
      0.0826803,
-     0.0821817,
+     0.0821816,
      0.081592,
      0.0809133,
      0.080148,
@@ -2777,7 +2777,7 @@
      0.0109353,
      0.0102265,
      0.0095516,
-     0.00891009,
+     0.0089101,
      0.00830127
     ]
    },
@@ -4170,7 +4170,7 @@
      0.0447192,
      0.0449175,
      0.0450823,
-     0.0452134,
+     0.0452133,
      0.0453103,
      0.0453728,
      0.0454009,
@@ -5824,10 +5824,10 @@
   }
  ],
  "calibration": {
-  "c_a": 138.3336667997922,
-  "c_b": 136.05576578121273,
-  "sampling_fraction_a": 0.007228898236661952,
-  "sampling_fraction_b": 0.007349927393801675,
+  "c_a": 138.33366135685728,
+  "c_b": 136.05576194290455,
+  "sampling_fraction_a": 0.007228898521093249,
+  "sampling_fraction_b": 0.007349927601152588,
   "applied": true,
   "method": "c = sum(incoming_momentum) / sum(deposited energy attributed by ground truth), fitted per shower over the whole active selection, every shower that deposited energy included whether or not its momentum falls in a slice"
  },

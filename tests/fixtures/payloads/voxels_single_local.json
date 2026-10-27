@@ -17,7 +17,7 @@
    "Along v the accumulation grid holds an even number of 20 mm bins on each side of the origin, so the outermost voxel on each side is half a voxel wide. It lies at the far edge of the grid and is not drawn: 4 populated half-width voxel(s), 0.001694% of the energy, counted.",
    "0.122% of the energy fell outside the accumulation grid; it is counted, not drawn.",
    "Comb not measured here: it is measured by the 2-D Local panels on the raw 20 mm accumulation grid, before any merge or smoothing, and quoted here once they have been opened for this selection. No comb is measured on the merged 40 mm voxels.",
-   "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000106 mm (ingest-wide 1.14e−13 mm), within the 0.01 mm tolerance.",
+   "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000234 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance.",
    "w is each shower's incident direction by construction; no ensemble axis is drawn because none could carry information.",
    "ρ_ref is this selection's own raw 3-D peak; a dataset-wide reference is not offered for the 3-D view in this version."
   ]
@@ -61,12 +61,12 @@
   "coordinates": "file",
   "coordinate_check": {
    "source": "file",
-   "residual_max_mm": 0.00010576206614132388,
+   "residual_max_mm": 0.0002339101192774251,
    "tolerance_mm": 0.01,
-   "ingest_residual_mm": 1.1368683772161603e-13,
+   "ingest_residual_mm": 0.00027314867702443735,
    "ingest_residual_key": "rotation_residual_mm",
    "within_tolerance": true,
-   "note": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000106 mm (ingest-wide 1.14e−13 mm), within the 0.01 mm tolerance."
+   "note": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000234 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance."
   },
   "comb": null,
   "comb_source": "Comb not measured here: it is measured by the 2-D Local panels on the raw 20 mm accumulation grid, before any merge or smoothing, and quoted here once they have been opened for this selection. No comb is measured on the merged 40 mm voxels.",
@@ -312,7 +312,7 @@
    "x": false,
    "y": true,
    "n_voxels": 4,
-   "energy_gev": 0.0004704155541526697,
+   "energy_gev": 0.0004704155695938654,
    "energy_fraction": 1.6942e-05,
    "note": "Along v the accumulation grid holds an even number of 20 mm bins on each side of the origin, so the outermost voxel on each side is half a voxel wide. It lies at the far edge of the grid and is not drawn: 4 populated half-width voxel(s), 0.001694% of the energy, counted."
   }
@@ -339,10 +339,10 @@
   "unit": "a.u.",
   "mode": "relative",
   "locked": false,
-  "global_vmax": 1.4150321529353583e-07,
+  "global_vmax": 1.4150322105026585e-07,
   "clipped_low": 300,
   "empty_cells": 0,
-  "rho_ref": 1.4150321529353583e-07,
+  "rho_ref": 1.4150322105026585e-07,
   "rho_unit": "GeV/mm^3/event",
   "decades": 3.0,
   "norm": "selection",
@@ -351,19 +351,19 @@
   "floor_rule": "drawn iff ρ_v ≥ 10⁻³ ρ_ref"
  },
  "rho": {
-  "rho_ref": 1.4150321529353583e-07,
+  "rho_ref": 1.4150322105026585e-07,
   "unit": "GeV/mm^3/event",
   "basis": "raw 20 × 20 × 20.5 mm 3-D accumulation peak",
   "floor_ratio": 0.001,
   "norm": "selection",
-  "floor": 1.4150321529353582e-10,
+  "floor": 1.4150322105026585e-10,
   "floor_basis": "rho_ref",
   "fine_voxel_mm": [
    20.0,
    20.0,
    20.5
   ],
-  "peak_drawn": 8.188925500880741e-08,
+  "peak_drawn": 8.18892573307227e-08,
   "provisional": false,
   "bound": "Each voxel is the mean of its four raw bins, empty ones counting zero, so no voxel exceeds ρ_ref.",
   "norm_note": "ρ_ref is this selection's own raw 3-D peak; a dataset-wide reference is not offered for the 3-D view in this version."
@@ -377,13 +377,13 @@
   "n_drawn": 428,
   "n_beyond_cap": 0,
   "n_partial_edge": 4,
-  "energy_total_gev": 27.766859348120573,
+  "energy_total_gev": 27.766860287995968,
   "energy_gev": {
-   "drawn": 27.669012164110924,
-   "below_floor": 0.06362277361371929,
+   "drawn": 27.66901310078933,
+   "below_floor": 0.06362277568731334,
    "beyond_cap": 0.0,
-   "outside_grid": 0.03375399484177378,
-   "partial_edge": 0.0004704155541526697
+   "outside_grid": 0.03375399594973407,
+   "partial_edge": 0.0004704155695938654
   },
   "energy_fraction": {
    "drawn": 0.996476116,

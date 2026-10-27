@@ -23,7 +23,7 @@ def test_baseline_is_seeded_from_the_whole_demonstration_csv(client):
     assert baseline["status"] == "ready"
     assert baseline["n_hits"] == 1000
     assert baseline["n_events"] == 2
-    assert "hits_all_models_dummy.csv" in baseline["source_files"]
+    assert "hits_all_models_dummy.parquet" in baseline["source_files"]
 
 
 def test_experiments_reports_the_compute_allocation(client):

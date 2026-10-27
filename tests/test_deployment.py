@@ -58,21 +58,21 @@ def _gigabytes(size: str) -> float:
 
 
 def test_the_image_builds_from_files_git_tracks():
-    """`COPY` of an untracked file fails the build on a fresh clone, as the seed CSV once did."""
+    """`COPY` of an untracked file fails the build on a fresh clone, as the seed file once did."""
     tracked = _tracked()
     sources = []
     for line in _read("Dockerfile").splitlines():
         parts = line.split()
         if parts[:1] == ["COPY"] and not any(p.startswith("--from") for p in parts):
             sources.extend(parts[1:-1])
-    assert "hits_all_models_dummy.csv" in sources
+    assert "hits_all_models_dummy.parquet" in sources
     for source in sources:
         if source.endswith("/") or (ROOT / source).is_dir():
             assert any(path.startswith(source.rstrip("/") + "/") for path in tracked), source
         else:
             assert source in tracked, f"the Dockerfile copies {source}, which a fresh clone does not have"
     ignore = _read(".dockerignore")
-    assert "!hits_all_models_dummy.csv" in ignore
+    assert "!hits_all_models_dummy.parquet" in ignore
 
 
 # ------------------------------------------------- memory, and the profile --
@@ -124,7 +124,7 @@ def test_the_default_experiment_is_the_one_the_tracked_dataset_becomes():
 
 def test_files_docker_reads_keep_their_line_endings_on_windows():
     attributes = _read(".gitattributes")
-    for rule in ("hits_all_models_dummy.csv -text", "Dockerfile text eol=lf",
+    for rule in ("hits_all_models_dummy.parquet -text", "Dockerfile text eol=lf",
                  "docker-compose.yml text eol=lf", "*.env text eol=lf"):
         assert rule in attributes, rule
 

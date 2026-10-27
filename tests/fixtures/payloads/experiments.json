@@ -6,7 +6,7 @@
    "status": "ready",
    "error": null,
    "source_files": [
-    "hits_all_models_dummy.csv"
+    "hits_all_models_dummy.parquet"
    ],
    "n_hits": 1000,
    "n_events": 2,
@@ -272,7 +272,7 @@
     "present": true,
     "parts": 1,
     "rows": 8573,
-    "bytes": 85557
+    "bytes": 84342
    },
    "kind": "single_shower_hits",
    "frames": [
@@ -380,9 +380,9 @@
      "profiles": {
       "comb": {
        "measured_on": "pooled ingest profile",
-       "r": 0.7762678457591923,
+       "r": 0.7762678451718923,
        "threshold": -0.1,
-       "w": 0.4012070446863741
+       "w": 0.40120704382341094
       },
       "k": 6,
       "k_z": 2,
@@ -401,31 +401,31 @@
       "top": [
        {
         "cells": 2572,
-        "energy_fraction": 0.38350876362688036,
+        "energy_fraction": 0.383508763789354,
         "name": "gamma",
         "primary_cells": 0
        },
        {
         "cells": 2573,
-        "energy_fraction": 0.22430082743487673,
+        "energy_fraction": 0.22430082734228632,
         "name": "e-",
         "primary_cells": 71
        },
        {
         "cells": 1286,
-        "energy_fraction": 0.19015187211509338,
+        "energy_fraction": 0.19015187212235815,
         "name": "e+",
         "primary_cells": 0
        },
        {
         "cells": 1071,
-        "energy_fraction": 0.10505922543515693,
+        "energy_fraction": 0.10505922538040714,
         "name": "neutron",
         "primary_cells": 0
        },
        {
         "cells": 1071,
-        "energy_fraction": 0.09697931138799257,
+        "energy_fraction": 0.09697931136559441,
         "name": "proton",
         "primary_cells": 0
        }
@@ -534,7 +534,7 @@
     "present": true,
     "parts": 1,
     "rows": 286,
-    "bytes": 29782
+    "bytes": 29716
    },
    "kind": "single_shower_events",
    "frames": [],

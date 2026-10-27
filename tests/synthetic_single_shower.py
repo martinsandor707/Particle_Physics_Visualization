@@ -2,7 +2,7 @@
 
 The real electron files are not in the repository, so the tests that must
 always run build their own from the two-event demonstration file
-``hits_all_models_dummy.csv``: each of its four showers becomes a template, and
+``hits_all_models_dummy.parquet``: each of its four showers becomes a template, and
 each event of the output is one template shower, written in the 21-column
 ``standalone_hits`` v3 layout at a new incident momentum.
 
@@ -36,8 +36,10 @@ from typing import Sequence
 
 import numpy as np
 
+import seed
+
 REPO = Path(__file__).resolve().parent.parent
-TEMPLATE_CSV = REPO / "hits_all_models_dummy.csv"
+TEMPLATE_FILE = seed.SEED_FILE
 
 #: Events per 1 GeV bin, one population per low-N rung, and the bins they sit in.
 LOW_N_COUNTS: tuple[int, ...] = (1, 2, 7, 8, 14, 15, 19, 20, 200)
@@ -53,10 +55,7 @@ _SPECIES = ("e-", "gamma", "e+", "gamma", "e-", "neutron", "proton")
 
 
 def _templates(hits_per_shower: int) -> list[dict]:
-    with TEMPLATE_CSV.open(newline="") as handle:
-        reader = csv.reader(handle)
-        header = next(reader)
-        rows = list(reader)
+    header, rows = seed.rows(TEMPLATE_FILE)
     col = {name: i for i, name in enumerate(header)}
     by_event: dict[str, list[list[str]]] = defaultdict(list)
     for row in rows:
