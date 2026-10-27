@@ -25,7 +25,7 @@ from .admin.store import DefaultsStore
 from .config import Settings, load_settings
 from .db import bootstrap as bootstrap_mod
 from .db.connection import get_database, reset_database
-from .errors import ApiError, ValidationError
+from .errors import ApiError, NotFoundError, ValidationError
 from .text import typographic
 from .ingest import jobs as jobs_mod
 from .logging_setup import configure_logging, log_boot_banner
@@ -362,15 +362,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         log.info("Static asset version: %s", fingerprint)
 
-        @app.get("/", include_in_schema=False)
-        async def index() -> HTMLResponse:
+        def _page(filename: str) -> HTMLResponse:
             # Stamp every asset URL, and never let the page itself be cached:
             # a stale page would reference a stale stamp and defeat the whole
             # mechanism.
-            html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+            path = STATIC_DIR / filename
+            if not path.is_file():
+                raise NotFoundError(f"{filename} is not part of this build.")
+            html = path.read_text(encoding="utf-8")
             html = _ASSET_URL.sub(rf'\1="\2?v={fingerprint}"', html)
             return HTMLResponse(
                 html, headers={"Cache-Control": "no-cache, must-revalidate"}
             )
+
+        @app.get("/", include_in_schema=False)
+        async def index() -> HTMLResponse:
+            return _page("index.html")
+
+        @app.get("/models", include_in_schema=False)
+        async def models() -> HTMLResponse:
+            # Page 2: network and XGBoost analysis, the feature explorer, the 3-D views.
+            return _page("models.html")
 
     return app
