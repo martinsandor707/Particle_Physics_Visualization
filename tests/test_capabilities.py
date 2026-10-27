@@ -65,9 +65,32 @@ def test_single_shower_kinds_never_offer_two_shower_views():
     assert "no hits" in capabilities.of(SINGLE_EVENTS).reasons["xy"]
 
 
-def test_xgboost_is_always_shut_and_says_where_to_look():
-    for record in (SINGLE_HITS, SINGLE_EVENTS, TWO):
-        assert "TODO.md" in capabilities.of(record).reasons["xgboost"]
+def test_xgboost_is_shut_without_an_analysis_and_says_why():
+    """Without the model-run worker (no app), no kind opens the gate, and each says why.
+
+    The hit kinds name the aggregate kind the models need; an aggregate whose
+    source file names no species and seed says so; one that names them waits
+    for the worker. ``model_runs`` stays empty, so Page 2's notice shows.
+    """
+    for record in (SINGLE_HITS, TWO):
+        caps = capabilities.of(record)
+        assert not caps.can("xgboost") and "single_shower_events" in caps.reasons["xgboost"]
+        assert caps.as_dict()["model_runs"] == []
+    caps = capabilities.of(SINGLE_EVENTS)
+    assert not caps.can("xgboost") and "source file is not recorded" in caps.reasons["xgboost"]
+    import dataclasses
+
+    named = dataclasses.replace(SINGLE_EVENTS, source_files=[
+        "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.parquet"])
+    caps = capabilities.of(named)
+    assert not caps.can("xgboost") and "not checked this experiment yet" in caps.reasons["xgboost"]
+    # On the aggregate kind the performance cards draw the XGBoost series, so they
+    # are shut with its reason - still naming the missing networks.
+    for card in capabilities.XGB_SERIES_CARDS:
+        assert not caps.can(card)
+        assert "network" in caps.reasons[card] and "not checked" in caps.reasons[card]
+    # Two-shower data keeps the networks' gates.
+    assert capabilities.of(TWO).can("perf-bins")
 
 
 def test_capability_block_matches_contract():

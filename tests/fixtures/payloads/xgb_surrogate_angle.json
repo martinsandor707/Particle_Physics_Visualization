@@ -1,0 +1,254 @@
+{
+ "meta": {
+  "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+  "exact": true,
+  "warnings": [],
+  "view": "surrogate",
+  "task": "angle"
+ },
+ "run": {
+  "species": "electron",
+  "seed": 1,
+  "task": "angle",
+  "labels": [
+   "phi",
+   "theta"
+  ],
+  "label_units": {
+   "phi": "rad",
+   "theta": "rad"
+  },
+  "model_file": "xgboost_electron/standalone_angle_s1_model.json",
+  "sha256": "4678827eb3f3",
+  "analysis_version": 1,
+  "split": {
+   "reproduced": true,
+   "ratio_42": 1.03163,
+   "ratio_others": [
+    0.802838,
+    0.909423
+   ],
+   "seeds_others": [
+    0,
+    7
+   ],
+   "rule": "validation / training MSE of the shipped model at random_state 42 must exceed the same ratio at random_state 0 and 7: a model predicts the rows it was trained on better than the rest",
+   "warning": null
+  },
+  "xgboost_version": "3.2.0",
+  "n_rows": 307,
+  "n_train": 245,
+  "n_holdout": 62,
+  "test_size": 0.2,
+  "archive_increasing": true
+ },
+ "filtered": false,
+ "selection_note": "Computed once on the whole experiment, as the notebook does; the selection does not apply.",
+ "filter": {
+  "e1": [
+   0.012118219512702866,
+   19.70456381908061
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ },
+ "view": "surrogate",
+ "task": "angle",
+ "labels": [
+  "phi",
+  "theta"
+ ],
+ "units": {
+  "phi": "rad",
+  "theta": "rad"
+ },
+ "nodes": [
+  {
+   "id": 0,
+   "depth": 0,
+   "left": 1,
+   "right": 4,
+   "leaf": false,
+   "feature": "max_r_trans",
+   "frame": "trans",
+   "threshold": 1135.87,
+   "n": 307,
+   "impurity": 0.670049,
+   "values": {
+    "phi": 1.39809,
+    "theta": 0.362904
+   },
+   "sd": {
+    "phi": 1.15561,
+    "theta": 0.0682061
+   }
+  },
+  {
+   "id": 1,
+   "depth": 1,
+   "left": 2,
+   "right": 3,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 2.08781e-05,
+   "n": 153,
+   "impurity": 0.100799,
+   "values": {
+    "phi": 0.306254,
+    "theta": 0.353309
+   },
+   "sd": {
+    "phi": 0.447542,
+    "theta": 0.036119
+   }
+  },
+  {
+   "id": 2,
+   "depth": 2,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 77,
+   "impurity": 0.0,
+   "values": {
+    "phi": 0.75088,
+    "theta": 0.389192
+   },
+   "sd": {
+    "phi": 0.0,
+    "theta": 0.0
+   }
+  },
+  {
+   "id": 3,
+   "depth": 2,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 76,
+   "impurity": 0.0,
+   "values": {
+    "phi": -0.144223,
+    "theta": 0.316953
+   },
+   "sd": {
+    "phi": 0.0,
+    "theta": 0.0
+   }
+  },
+  {
+   "id": 4,
+   "depth": 1,
+   "left": 5,
+   "right": 6,
+   "leaf": false,
+   "feature": "std_r_trans",
+   "frame": "trans",
+   "threshold": 335.768,
+   "n": 154,
+   "impurity": 0.0549953,
+   "values": {
+    "phi": 2.48283,
+    "theta": 0.372438
+   },
+   "sd": {
+    "phi": 0.31968,
+    "theta": 0.088292
+   }
+  },
+  {
+   "id": 5,
+   "depth": 2,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 77,
+   "impurity": 0.0,
+   "values": {
+    "phi": 2.80251,
+    "theta": 0.46073
+   },
+   "sd": {
+    "phi": 0.0,
+    "theta": 0.0
+   }
+  },
+  {
+   "id": 6,
+   "depth": 2,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 77,
+   "impurity": 0.0,
+   "values": {
+    "phi": 2.16315,
+    "theta": 0.284146
+   },
+   "sd": {
+    "phi": 0.0,
+    "theta": 0.0
+   }
+  }
+ ],
+ "n_nodes": 7,
+ "rule": "left: feature ≤ threshold; right: feature > threshold",
+ "fidelity": {
+  "r2": 1.0,
+  "mae": 0.0,
+  "unit": "rad",
+  "outputs": {
+   "phi": {
+    "r2": 1.0,
+    "mae": 0.0
+   },
+   "theta": {
+    "r2": 1.0,
+    "mae": 0.0
+   }
+  },
+  "against": "the shipped booster's own predictions on every row, in-sample, as the notebook measures it"
+ },
+ "tree": {
+  "max_depth": 3,
+  "random_state": 42,
+  "criterion": "squared_error",
+  "n_rows": 307,
+  "target": "the shipped booster's predictions"
+ },
+ "color_domain": {
+  "phi": [
+   -0.144223,
+   2.80251
+  ],
+  "theta": [
+   0.284146,
+   0.46073
+  ]
+ },
+ "notes": {
+  "description": "A description of the booster, not an estimate: each node shows its number of rows, the mean of the booster's predictions over them and their SD, the spread within the node (no whisker).",
+  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node, averaged over the outputs for the angle task; sd is each output's own within-node SD.",
+  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe."
+ }
+}

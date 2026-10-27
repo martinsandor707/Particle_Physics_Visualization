@@ -1,0 +1,645 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/xgboost?view=surrogate (E4, depth-3 surrogate tree)",
+ "type": "object",
+ "required": [
+  "meta",
+  "run",
+  "filtered",
+  "selection_note",
+  "filter",
+  "view",
+  "task",
+  "labels",
+  "units",
+  "nodes",
+  "n_nodes",
+  "rule",
+  "fidelity",
+  "tree",
+  "color_domain",
+  "notes"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "run": {
+   "$ref": "#/$defs/run"
+  },
+  "filtered": {
+   "const": false
+  },
+  "selection_note": {
+   "type": "string"
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "view": {
+   "const": "surrogate"
+  },
+  "task": {
+   "enum": [
+    "momentum",
+    "angle"
+   ]
+  },
+  "labels": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "momentum",
+     "phi",
+     "theta"
+    ]
+   },
+   "minItems": 1,
+   "maxItems": 2
+  },
+  "units": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
+  },
+  "nodes": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "depth",
+     "left",
+     "right",
+     "leaf",
+     "feature",
+     "frame",
+     "threshold",
+     "n",
+     "impurity",
+     "values",
+     "sd"
+    ],
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+     },
+     "left": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "right": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "leaf": {
+      "type": "boolean"
+     },
+     "feature": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "frame": {
+      "anyOf": [
+       {
+        "enum": [
+         "absolute",
+         "trans",
+         "local",
+         "none"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "threshold": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "n": {
+      "type": "integer"
+     },
+     "impurity": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "values": {
+      "type": "object",
+      "propertyNames": {
+       "enum": [
+        "momentum",
+        "phi",
+        "theta"
+       ]
+      },
+      "additionalProperties": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "sd": {
+      "type": "object",
+      "propertyNames": {
+       "enum": [
+        "momentum",
+        "phi",
+        "theta"
+       ]
+      },
+      "additionalProperties": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     }
+    }
+   },
+   "minItems": 1,
+   "maxItems": 15
+  },
+  "n_nodes": {
+   "type": "integer",
+   "minimum": 1,
+   "maximum": 15
+  },
+  "rule": {
+   "type": "string"
+  },
+  "fidelity": {
+   "type": "object",
+   "required": [
+    "r2",
+    "mae",
+    "unit",
+    "outputs",
+    "against"
+   ],
+   "properties": {
+    "r2": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "mae": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "unit": {
+     "type": "string"
+    },
+    "outputs": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "r2",
+       "mae"
+      ],
+      "properties": {
+       "r2": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "mae": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "against": {
+     "type": "string"
+    }
+   }
+  },
+  "tree": {
+   "type": "object",
+   "required": [
+    "max_depth",
+    "random_state",
+    "criterion",
+    "n_rows",
+    "target"
+   ],
+   "properties": {
+    "max_depth": {
+     "const": 3
+    },
+    "random_state": {
+     "const": 42
+    },
+    "criterion": {
+     "type": "string"
+    },
+    "n_rows": {
+     "type": "integer"
+    },
+    "target": {
+     "type": "string"
+    }
+   }
+  },
+  "color_domain": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "array",
+    "items": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "minItems": 2,
+    "maxItems": 2
+   }
+  },
+  "notes": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
+  }
+ },
+ "propertyNames": {
+  "not": {
+   "enum": [
+    "rows",
+    "predictions",
+    "hits"
+   ]
+  }
+ },
+ "$defs": {
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "view",
+    "task"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "view": {
+     "const": "surrogate"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    }
+   }
+  },
+  "split": {
+   "type": "object",
+   "required": [
+    "reproduced",
+    "ratio_42",
+    "ratio_others",
+    "seeds_others",
+    "rule",
+    "warning"
+   ],
+   "properties": {
+    "reproduced": {
+     "type": "boolean"
+    },
+    "ratio_42": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ratio_others": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "seeds_others": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "rule": {
+     "type": "string"
+    },
+    "warning": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "run": {
+   "type": "object",
+   "required": [
+    "species",
+    "seed",
+    "task",
+    "labels",
+    "label_units",
+    "model_file",
+    "sha256",
+    "analysis_version",
+    "split",
+    "xgboost_version",
+    "n_rows",
+    "n_train",
+    "n_holdout",
+    "test_size"
+   ],
+   "properties": {
+    "species": {
+     "type": "string"
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "labels": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "momentum",
+       "phi",
+       "theta"
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 2
+    },
+    "label_units": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "analysis_version": {
+     "type": "integer"
+    },
+    "split": {
+     "$ref": "#/$defs/split"
+    },
+    "xgboost_version": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "n_rows": {
+     "type": "integer"
+    },
+    "n_train": {
+     "type": "integer"
+    },
+    "n_holdout": {
+     "type": "integer"
+    },
+    "test_size": {
+     "type": "number"
+    },
+    "archive_increasing": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    }
+   }
+  },
+  "summary": {
+   "type": "object",
+   "required": [
+    "mean",
+    "sd",
+    "se",
+    "t95",
+    "n",
+    "dof",
+    "t",
+    "clipped"
+   ],
+   "properties": {
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "se": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "t95": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "n": {
+     "type": "integer"
+    },
+    "dof": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "t": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "clipped": {
+     "type": "boolean"
+    }
+   }
+  },
+  "t_interval": {
+   "type": "object",
+   "required": [
+    "label",
+    "level",
+    "dof",
+    "t",
+    "method"
+   ],
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "level": {
+     "type": "number"
+    },
+    "dof": {
+     "type": "integer"
+    },
+    "t": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

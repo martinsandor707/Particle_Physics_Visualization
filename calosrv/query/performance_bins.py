@@ -636,3 +636,269 @@ def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
     columns = read_selection(con, record, spec, model, frames)
     shower_keys = tuple(sh.key for sh in showers_mod.of(record, "both"))
     return build(columns, axis, model, frames, shower_keys)
+
+
+# ------------------------------------------------- the XGBoost series (E2) --
+#
+# An aggregate experiment carries no networks; its E2 view is the shipped
+# XGBoost regressor of its species and seed on the notebook's 20 % validation
+# split (``calosrv/modelruns``), as one series of the same shape. Only the
+# validation rows are drawn - the other 80 % trained the model and would
+# flatter it - and the selection applies to them. The angle task adds the
+# azimuth as a quantity group of its own: residuals wrapped to (−π, π], no
+# relative error (a relative error of an azimuth means nothing) and no bias
+# (the mean of a wrapped residual is an average of a circular quantity).
+
+#: The XGBoost series: its code and label, and its frame position in the seed rule.
+XGB_CODE = "xgb"
+XGB_FRAME_INDEX = len(ddl.COORD_SYSTEMS)
+XGB_TASK: dict[str, str] = {"energy": "momentum", "angle": "angle"}
+
+#: φ's quantities, numbered after :data:`QUANTITIES` in the bootstrap seed.
+PHI_QUANTITIES: tuple[str, ...] = ("phi_rmse", "phi_mae", "phi_median_abs")
+PHI_QUANTITY_INDEX: dict[str, int] = {q: len(QUANTITIES) + i for i, q in enumerate(PHI_QUANTITIES)}
+
+
+def require_xgb(record: ExperimentRecord, field: str = "model") -> capabilities.Capabilities:
+    """Refuse an aggregate experiment whose XGBoost analysis cannot serve the series.
+
+    Unpaired, it has nothing to draw: refused as an experiment without networks
+    (capability ``networks``), the pairing's reason appended. Paired but not
+    analysed - queued, running, failed or stale - it is refused on the
+    ``xgboost`` capability with the worker's sentence.
+    """
+    caps = capabilities.of(record)
+    if caps.can("xgboost"):
+        return caps
+    reason = caps.reasons.get("perf-bins") or caps.reasons.get("xgboost", "")
+    capability = "xgboost" if caps.model_runs else "networks"
+    raise CapabilityError(
+        f"Model performance is not available for experiment {record.table_name!r}: {reason}",
+        field=field, capability=capability, kind=caps.kind, reason=reason,
+        table_name=record.table_name,
+    )
+
+
+def phi_point(pred: np.ndarray, true: np.ndarray, n_missing: int, seed: Sequence[int]) -> Point:
+    """φ's statistics of one bin: RMSE, MAE and median |Δφ| of the wrapped residual, in mrad."""
+    from ..stats.circular import wrap_angle
+
+    pred = np.asarray(pred, dtype=np.float64)
+    true = np.asarray(true, dtype=np.float64)
+    residual = wrap_angle(pred - true) * MRAD_PER_RAD
+    summary = metrics.residual_summary(residual)
+    absent = metrics.Estimate(None, n=int(residual.size),
+                              note="Not defined for an azimuth (its residual is circular).")
+    return Point(
+        n=int(residual.size), n_missing=int(n_missing),
+        rmse=summary.rmse, mae=metrics.mae_estimate(residual), bias=absent,
+        median_rel=median.MedianEstimate(None, int(residual.size), None, None, None,
+                                         "Not defined for an azimuth."),
+        median_abs=median.median_estimate(np.abs(residual),
+                                          seed=[*seed, PHI_QUANTITY_INDEX["phi_median_abs"]]),
+    )
+
+
+@dataclass
+class XgbSeries(Series):
+    """The XGBoost validation-split series: the network series' fields, plus φ for angle."""
+
+    phi_points: list[Point] | None = None
+
+    @property
+    def frame(self) -> str:
+        return XGB_CODE
+
+    @property
+    def key(self) -> str:
+        return f"{XGB_CODE}:{self.shower}"
+
+    def as_dict(self, digits: int = SIGNIFICANT, keep_order: bool = True) -> dict[str, Any]:
+        from ..modelruns.views import SERIES_LABEL
+
+        out = super().as_dict(digits, keep_order)
+        out["network"] = {"model": self.model, "frame": XGB_CODE}
+        out["coord_system"] = XGB_CODE
+        out = {"code": XGB_CODE, "label": SERIES_LABEL, **out}
+        if self.phi_points is not None:
+            pts = self.phi_points
+            for name, attr in (("phi_rmse", "rmse"), ("phi_mae", "mae"),
+                               ("phi_median_abs", "median_abs")):
+                triples = [p.triple(attr) for p in pts]
+                out[name] = sig_list([t[0] for t in triples], digits)
+                out[f"{name}_lo"] = sig_list([t[1] for t in triples], digits)
+                out[f"{name}_hi"] = sig_list([t[2] for t in triples], digits)
+            out["phi_mae_se"] = sig_list([p.mae.se for p in pts], digits)
+            out["phi_median_abs_method"] = [_method(p.median_abs) for p in pts]
+        return out
+
+
+def xgb_quantity_table(model: str) -> dict[str, dict[str, Any]]:
+    """The network table for θ (or momentum), and φ's three quantities for angle."""
+    table = quantity_table(model)
+    if model != "angle":
+        return table
+    median_interval = table["median_abs"]["interval"]
+    error = "Δφ = φ_pred − φ_true wrapped to (−π, π]"
+    phi = {
+        "phi_rmse": {"label": "RMSE of φ", "unit": "mrad", "signed": False,
+                     "definition": f"√mean (Δφ)², {error}", "interval": table["rmse"]["interval"]},
+        "phi_mae": {"label": "MAE of φ", "unit": "mrad", "signed": False,
+                    "definition": f"mean |Δφ|, {error}", "interval": table["mae"]["interval"]},
+        "phi_median_abs": {"label": "Median absolute error of φ", "unit": "mrad", "signed": False,
+                           "definition": f"median |Δφ|, {error}", "interval": median_interval},
+    }
+    return {**table, **{k: {f: typographic(v) if isinstance(v, str) else v for f, v in d.items()}
+                        for k, d in phi.items()}}
+
+
+@dataclass
+class XgbReport(MomentumBinReport):
+    """E2 on an aggregate experiment: the XGBoost series and how the split selects it."""
+
+    run: dict[str, Any] = field(default_factory=dict)
+    split: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def frames(self) -> list[str]:
+        return [XGB_CODE]
+
+    def warnings(self) -> list[str]:
+        out = list(self.axis.notices)
+        for s in self.series:
+            if s.points and not any(p.n for p in s.points) and any(p.n_missing for p in s.points):
+                out.append(typographic(
+                    f"The XGBoost {self.model} prediction is missing for every validation event "
+                    "of this selection: each is counted in n_missing and none is drawn."))
+        if not self.split.get("reproduced", True):
+            out.append(self.run["split"]["warning"])
+        return out
+
+    def as_dict(self, digits: int = SIGNIFICANT, keep_order: bool = True) -> dict[str, Any]:
+        out = super().as_dict(digits, keep_order)
+        quantities = xgb_quantity_table(self.model)
+        out["quantities"] = quantities
+        y_max = {q: y_axis(self.series, self.axis, q, digits) for q in quantity_table(self.model)}
+        if self.model == "angle":
+            phi_series = [Series(s.model, "lab", s.shower, s.phi_points or []) for s in self.series]
+            for name, attr in (("phi_rmse", "rmse"), ("phi_mae", "mae"),
+                               ("phi_median_abs", "median_abs")):
+                block = y_axis(phi_series, self.axis, attr, digits)
+                for entry in block["overflow"]:
+                    entry["series"] = f"{XGB_CODE}:a"
+                y_max[name] = block
+            out["quantity_groups"] = {"theta": list(quantity_table("angle")),
+                                      "phi": list(PHI_QUANTITIES)}
+        out["y_max"] = y_max
+        out["source"] = XGB_CODE
+        out["series_label"] = typographic(self.run.get("series_label", ""))
+        out["split"] = self.split
+        out["bootstrap"] = {
+            **out["bootstrap"],
+            "seed_rule": (f"numpy SeedSequence([42, {XGB_FRAME_INDEX}, 0, bin, quantity]): "
+                          f"{XGB_FRAME_INDEX} is the XGBoost series after the three network "
+                          "frames, quantity the position in rmse, mae, median_rel, bias, "
+                          "median_abs, phi_rmse, phi_mae, phi_median_abs"),
+        }
+        return out
+
+
+def _xgb_notes(model: str, axis: BinAxis) -> dict[str, str]:
+    notes = {
+        "series": (
+            "The shipped XGBoost regressor of this experiment's species and seed, on the "
+            "notebook's 20 % validation split (train_test_split(test_size=0.2, "
+            "random_state=42)): the rows it was not trained on. The selection applies to them; "
+            "the training rows it selects are counted in split.n_training_excluded and not "
+            "drawn."),
+        "showers": (
+            "One shower per event, so one series. An event without a finite prediction or truth "
+            "is counted per bin in n_missing and dropped, never zero-filled."),
+        "own_bin": (
+            "Each event is placed in the producer's momentum bin (e1_bin) over the whole "
+            "dataset, so the axis does not move with the selection."),
+        "frames": (
+            "The model reads 52 event-level features of the absolute, per-shower translated "
+            "and local frames at once, so the series has no input frame."),
+        "calibration": (
+            "The regressor predicts the momentum scale directly; no sampling-fraction "
+            "calibration is applied."),
+        "whiskers": (
+            "Every whisker is the 95% interval of the aggregate it sits on (its interval is "
+            "named in quantities), never the dispersion of the events in the bin. A bin of "
+            f"one event has a value and no whisker, and the median has none below N = "
+            f"{median.MIN_ORDER_N}."),
+        "scale": (
+            f"A point drives the y range from N = {metrics.SHOW_CI_BELOW_N}. Under-powered "
+            "points above it are clipped, with their true values in y_max.overflow; with no "
+            "driving point the range is provisional, set by point values only."),
+    }
+    if model == "angle":
+        notes["angle"] = (
+            "θ is drawn as the networks' θ: residuals in mrad, a relative error |Δθ| / θ that "
+            "grows like 1 / θ at small θ, the median |Δθ|, the smallest true θ and the count "
+            f"below {SMALL_THETA_RAD:g} rad. φ is its own quantity group (phi_rmse, phi_mae, "
+            "phi_median_abs): its residual is wrapped to (−π, π] and in mrad, with no relative "
+            "error and no bias, because φ is an azimuth. The notebook's angle bars showed φ "
+            "only; both are offered.")
+    if axis.notices:
+        notes["labels"] = " ".join(axis.notices)
+    return {k: typographic(v) for k, v in notes.items()}
+
+
+def compute_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
+                model: str) -> XgbReport:
+    """The XGBoost series of an aggregate experiment over the selection's validation rows."""
+    from ..modelruns import store as xgb_store
+    from ..modelruns import views as xgb_views
+
+    if model not in MODELS:
+        raise ValidationError(
+            f"slice_by=momentum_bin applies to {' and '.join(MODELS)}; got model {model!r}.",
+            field="model")
+    require_xgb(record)
+    task = XGB_TASK[model]
+    runs = xgb_store.read_runs(con, record.table_name)
+    if runs is None or task not in runs:
+        reason = "The stored XGBoost analysis is missing; Admin Settings › Model runs re-analyses it."
+        raise CapabilityError(
+            f"Model performance is not available for experiment {record.table_name!r}: {reason}",
+            field="model", capability="xgboost", kind=record.kind, reason=reason,
+            table_name=record.table_name)
+    axis = dataset_axis(con, record)
+    where = spec.where_sql("e")
+    rows = xgb_store.read_holdout(con, record, task, where, spec.params())
+    n_selected = xgb_store.count_selected(con, record, where, spec.params())
+    bins = rows["bin"]
+    label = "momentum" if task == "momentum" else "theta"
+    true, pred = rows[f"true_{label}"], rows[f"pred_{label}"]
+    both = np.isfinite(true) & np.isfinite(pred)
+    phi_ok = None
+    if task == "angle":
+        phi_true, phi_pred = rows["true_phi"], rows["pred_phi"]
+        phi_ok = np.isfinite(phi_true) & np.isfinite(phi_pred)
+    points, phi_points = [], ([] if task == "angle" else None)
+    for k in axis.numbers:
+        in_bin = bins == k
+        chosen = in_bin & both
+        seed = (median.BOOTSTRAP_SEED, XGB_FRAME_INDEX, 0, k)
+        points.append(point(model, pred[chosen], true[chosen], int((in_bin & ~both).sum()), seed))
+        if phi_points is not None:
+            pick = in_bin & phi_ok
+            phi_points.append(phi_point(phi_pred[pick], phi_true[pick],
+                                        int((in_bin & ~phi_ok).sum()), seed))
+    series = XgbSeries(model, "lab", "a", points, phi_points=phi_points)
+    n_val = int(bins.size)
+    run = xgb_views.run_block(runs, task)
+    run["series_label"] = xgb_views.SERIES_LABEL
+    split = {
+        "n_selected": n_selected, "n_validation": n_val,
+        "n_training_excluded": n_selected - n_val,
+        "fraction": xgb_views.TEST_SIZE,
+        "rule": "train_test_split(np.arange(n), test_size=0.2, random_state=42) over the "
+                "event table in event_number order (the producer file's order)",
+        "reproduced": run["split"]["reproduced"],
+    }
+    unbinned = {"a": int((~np.isfinite(bins)).sum())}
+    return XgbReport(model, axis, [series], n_val, unbinned, _xgb_notes(model, axis),
+                     run=run, split=split)

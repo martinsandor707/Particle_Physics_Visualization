@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "GET /api/prediction-density",
+ "title": "GET /api/prediction-density; on an aggregate experiment, the XGBoost validation-split series",
  "type": "object",
  "required": [
   "meta",
@@ -31,6 +31,16 @@
     },
     "frame": {
      "type": "string"
+    },
+    "source": {
+     "const": "xgb"
+    },
+    "label": {
+     "enum": [
+      "momentum",
+      "theta",
+      "phi"
+     ]
     }
    }
   },
@@ -69,6 +79,9 @@
       },
       "zero_based": {
        "type": "boolean"
+      },
+      "circular": {
+       "const": true
       }
      }
     },
@@ -100,6 +113,9 @@
       },
       "zero_based": {
        "type": "boolean"
+      },
+      "circular": {
+       "const": true
       }
      }
     }
@@ -124,9 +140,9 @@
     ]
    },
    "required": [
-    "a",
-    "b"
-   ]
+    "a"
+   ],
+   "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
   },
   "identity": {
    "type": "object",
@@ -613,8 +629,7 @@
       ]
      },
      "required": [
-      "a",
-      "b"
+      "a"
      ],
      "additionalProperties": {
       "type": "object",
@@ -801,7 +816,8 @@
         }
        }
       }
-     }
+     },
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
     },
     "excluded": {
      "type": "object",
@@ -856,6 +872,30 @@
    "additionalProperties": {
     "type": "string"
    }
+  },
+  "source": {
+   "const": "xgb"
+  },
+  "labels": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "momentum",
+     "theta",
+     "phi"
+    ]
+   },
+   "minItems": 1,
+   "maxItems": 2
+  },
+  "n_selected": {
+   "type": "integer"
+  },
+  "split": {
+   "$ref": "#/$defs/xgb_split"
+  },
+  "run": {
+   "$ref": "#/$defs/xgb_run"
   }
  },
  "$defs": {
@@ -1023,6 +1063,21 @@
       "lab",
       "trans",
       "local"
+     ]
+    },
+    "source": {
+     "const": "xgb"
+    },
+    "label": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "momentum",
+      "theta",
+      "phi",
+      null
      ]
     }
    }
@@ -1199,6 +1254,79 @@
        "minimum": 0
       }
      }
+    }
+   }
+  },
+  "xgb_split": {
+   "type": "object",
+   "required": [
+    "n_selected",
+    "n_validation",
+    "n_training_excluded",
+    "fraction",
+    "rule",
+    "reproduced"
+   ],
+   "properties": {
+    "n_selected": {
+     "type": "integer"
+    },
+    "n_validation": {
+     "type": "integer"
+    },
+    "n_training_excluded": {
+     "type": "integer"
+    },
+    "fraction": {
+     "type": "number"
+    },
+    "rule": {
+     "type": "string"
+    },
+    "reproduced": {
+     "type": "boolean"
+    }
+   }
+  },
+  "xgb_run": {
+   "type": "object",
+   "required": [
+    "species",
+    "seed",
+    "task",
+    "labels",
+    "model_file",
+    "sha256",
+    "analysis_version",
+    "split"
+   ],
+   "properties": {
+    "species": {
+     "type": "string"
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "split": {
+     "type": "object",
+     "required": [
+      "reproduced",
+      "ratio_42",
+      "ratio_others",
+      "warning"
+     ]
     }
    }
   }

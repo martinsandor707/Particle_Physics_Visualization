@@ -1,0 +1,401 @@
+{
+ "meta": {
+  "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+  "exact": true,
+  "warnings": [],
+  "view": "cv",
+  "task": "angle"
+ },
+ "run": {
+  "species": "electron",
+  "seed": 1,
+  "task": "angle",
+  "labels": [
+   "phi",
+   "theta"
+  ],
+  "label_units": {
+   "phi": "rad",
+   "theta": "rad"
+  },
+  "model_file": "xgboost_electron/standalone_angle_s1_model.json",
+  "sha256": "4678827eb3f3",
+  "analysis_version": 1,
+  "split": {
+   "reproduced": true,
+   "ratio_42": 1.03163,
+   "ratio_others": [
+    0.802838,
+    0.909423
+   ],
+   "seeds_others": [
+    0,
+    7
+   ],
+   "rule": "validation / training MSE of the shipped model at random_state 42 must exceed the same ratio at random_state 0 and 7: a model predicts the rows it was trained on better than the rest",
+   "warning": null
+  },
+  "xgboost_version": "3.2.0",
+  "n_rows": 307,
+  "n_train": 245,
+  "n_holdout": 62,
+  "test_size": 0.2,
+  "archive_increasing": true
+ },
+ "filtered": false,
+ "selection_note": "Computed once on the whole experiment, as the notebook does; the selection does not apply.",
+ "filter": {
+  "e1": [
+   0.012118219512702866,
+   19.70456381908061
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ },
+ "view": "cv",
+ "task": "angle",
+ "labels": [
+  "theta",
+  "phi"
+ ],
+ "n_rows": 307,
+ "kfold": {
+  "n_splits": 5,
+  "shuffle": true,
+  "random_state": 42
+ },
+ "hyperparameters": {
+  "objective": "reg:squarederror",
+  "random_state": 42,
+  "n_estimators": 100,
+  "learning_rate": 0.1
+ },
+ "metrics": [
+  {
+   "id": "mae",
+   "label": "MAE",
+   "unit": "rad",
+   "definition": "mean |pred − true|"
+  },
+  {
+   "id": "mse",
+   "label": "MSE",
+   "unit": "rad²",
+   "definition": "mean (pred − true)²"
+  },
+  {
+   "id": "rmse",
+   "label": "RMSE",
+   "unit": "rad",
+   "definition": "√MSE"
+  },
+  {
+   "id": "r2",
+   "label": "R²",
+   "unit": "",
+   "definition": "1 − Σ(pred − true)² / Σ(true − mean true)²"
+  }
+ ],
+ "parity_label": "notebook parity: the mean over φ and θ, φ unwrapped",
+ "folds": [
+  {
+   "fold": 0,
+   "n_train": 245,
+   "n_val": 62,
+   "metrics": {
+    "mae": 6.55012e-05,
+    "mse": 6.31294e-09,
+    "rmse": 7.9454e-05,
+    "r2": 0.999999
+   },
+   "per_label": {
+    "theta": {
+     "mae": 0.0689991,
+     "rmse": 0.0822564,
+     "r2": 0.999999
+    },
+    "phi": {
+     "mae": 0.0620033,
+     "rmse": 0.0765491
+    }
+   }
+  },
+  {
+   "fold": 1,
+   "n_train": 245,
+   "n_val": 62,
+   "metrics": {
+    "mae": 6.09784e-05,
+    "mse": 5.76704e-09,
+    "rmse": 7.5941e-05,
+    "r2": 0.999999
+   },
+   "per_label": {
+    "theta": {
+     "mae": 0.0638505,
+     "rmse": 0.0778961,
+     "r2": 0.999999
+    },
+    "phi": {
+     "mae": 0.0581064,
+     "rmse": 0.0739343
+    }
+   }
+  },
+  {
+   "fold": 2,
+   "n_train": 246,
+   "n_val": 61,
+   "metrics": {
+    "mae": 5.9067e-05,
+    "mse": 5.57019e-09,
+    "rmse": 7.46337e-05,
+    "r2": 0.999999
+   },
+   "per_label": {
+    "theta": {
+     "mae": 0.0553058,
+     "rmse": 0.0713534,
+     "r2": 0.999999
+    },
+    "phi": {
+     "mae": 0.0628282,
+     "rmse": 0.0777758
+    }
+   }
+  },
+  {
+   "fold": 3,
+   "n_train": 246,
+   "n_val": 61,
+   "metrics": {
+    "mae": 4.8265e-05,
+    "mse": 4.5008e-09,
+    "rmse": 6.7088e-05,
+    "r2": 0.999999
+   },
+   "per_label": {
+    "theta": {
+     "mae": 0.0472855,
+     "rmse": 0.0653666,
+     "r2": 0.999999
+    },
+    "phi": {
+     "mae": 0.0492444,
+     "rmse": 0.0687664
+    }
+   }
+  },
+  {
+   "fold": 4,
+   "n_train": 246,
+   "n_val": 61,
+   "metrics": {
+    "mae": 6.80797e-05,
+    "mse": 6.6744e-09,
+    "rmse": 8.1697e-05,
+    "r2": 0.999999
+   },
+   "per_label": {
+    "theta": {
+     "mae": 0.0712031,
+     "rmse": 0.0843372,
+     "r2": 0.999999
+    },
+    "phi": {
+     "mae": 0.0649564,
+     "rmse": 0.0789686
+    }
+   }
+  }
+ ],
+ "summary": {
+  "mae": {
+   "mean": 6.03783e-05,
+   "sd": 7.65455e-06,
+   "se": 3.42322e-06,
+   "t95": [
+    5.08754e-05,
+    6.98811e-05
+   ],
+   "n": 5,
+   "dof": 4,
+   "t": 2.776,
+   "clipped": false
+  },
+  "mse": {
+   "mean": 5.76508e-09,
+   "sd": 8.31174e-10,
+   "se": 3.71712e-10,
+   "t95": [
+    4.7332e-09,
+    6.79695e-09
+   ],
+   "n": 5,
+   "dof": 4,
+   "t": 2.776,
+   "clipped": false
+  },
+  "rmse": {
+   "mean": 7.57628e-05,
+   "sd": 5.59907e-06,
+   "se": 2.50398e-06,
+   "t95": [
+    6.88117e-05,
+    8.27138e-05
+   ],
+   "n": 5,
+   "dof": 4,
+   "t": 2.776,
+   "clipped": false
+  },
+  "r2": {
+   "mean": 0.999999,
+   "sd": 4.02847e-08,
+   "se": 1.80159e-08,
+   "t95": [
+    0.999999,
+    0.999999
+   ],
+   "n": 5,
+   "dof": 4,
+   "t": 2.776,
+   "clipped": false
+  }
+ },
+ "per_label": {
+  "theta": {
+   "unit": "mrad",
+   "metrics": [
+    {
+     "id": "mae",
+     "label": "MAE",
+     "unit": "mrad",
+     "definition": "mean |pred − true|"
+    },
+    {
+     "id": "rmse",
+     "label": "RMSE",
+     "unit": "mrad",
+     "definition": "√MSE"
+    },
+    {
+     "id": "r2",
+     "label": "R²",
+     "unit": "",
+     "definition": "1 − Σ(pred − true)² / Σ(true − mean true)²"
+    }
+   ],
+   "summary": {
+    "mae": {
+     "mean": 0.0613288,
+     "sd": 0.0099522,
+     "se": 0.00445076,
+     "t95": [
+      0.0489735,
+      0.0736841
+     ],
+     "n": 5,
+     "dof": 4,
+     "t": 2.776,
+     "clipped": false
+    },
+    "rmse": {
+     "mean": 0.0762419,
+     "sd": 0.00785199,
+     "se": 0.00351152,
+     "t95": [
+      0.066494,
+      0.0859899
+     ],
+     "n": 5,
+     "dof": 4,
+     "t": 2.776,
+     "clipped": false
+    },
+    "r2": {
+     "mean": 0.999999,
+     "sd": 8.05115e-08,
+     "se": 3.60058e-08,
+     "t95": [
+      0.999999,
+      0.999999
+     ],
+     "n": 5,
+     "dof": 4,
+     "t": 2.776,
+     "clipped": false
+    }
+   },
+   "residual": "θ_pred − θ_true"
+  },
+  "phi": {
+   "unit": "mrad",
+   "metrics": [
+    {
+     "id": "mae",
+     "label": "MAE",
+     "unit": "mrad",
+     "definition": "mean |pred − true|"
+    },
+    {
+     "id": "rmse",
+     "label": "RMSE",
+     "unit": "mrad",
+     "definition": "√MSE"
+    }
+   ],
+   "summary": {
+    "mae": {
+     "mean": 0.0594277,
+     "sd": 0.00620902,
+     "se": 0.00277676,
+     "t95": [
+      0.0517194,
+      0.067136
+     ],
+     "n": 5,
+     "dof": 4,
+     "t": 2.776,
+     "clipped": false
+    },
+    "rmse": {
+     "mean": 0.0751988,
+     "sd": 0.00405126,
+     "se": 0.00181178,
+     "t95": [
+      0.0701693,
+      0.0802283
+     ],
+     "n": 5,
+     "dof": 4,
+     "t": 2.776,
+     "clipped": false
+    }
+   },
+   "residual": "φ_pred − φ_true wrapped to (−π, π]"
+  }
+ },
+ "interval": {
+  "label": "95 % Student-t interval of the mean over 5 folds (4 d.o.f.)",
+  "level": 0.95,
+  "dof": 4,
+  "t": 2.776,
+  "method": "t"
+ },
+ "notes": {
+  "folds": "Each fold refits the notebook's regressor (objective reg:squarederror, 100 trees, learning rate 0.1, random_state 42) on four fifths of the rows of KFold(5, shuffle=True, random_state=42) and scores the fifth. A fold value is one observation and is drawn as a dot.",
+  "interval": "The mean of the five folds carries the 95 % Student-t interval of the mean (4 d.o.f., t = 2.776): the uncertainty of the aggregate. The SD beside it is the spread of the folds, a different quantity, and is not a whisker.",
+  "refit": "The refits are what the notebook computed: refitting on the reproduced 80 % split recreates the shipped model exactly, and XGBoost's result does not depend on the thread count.",
+  "parity": "notebook parity: the mean over φ and θ, φ unwrapped. sklearn's uniform average of the two outputs' metrics on the raw labels, in rad, as the notebook prints them; an R² or a squared error of an azimuth that is not wrapped counts a residual of 2π − ε as a large error.",
+  "per_label": "Per label, in mrad: θ's MAE, RMSE and R²; φ's MAE and RMSE of the residual wrapped to (−π, π], and no R², which is undefined for an azimuth.",
+  "order": "This notebook cell fits the angle task on [incoming_theta, incoming_phi], the order its prepare_data builds; the shipped model predicts [incoming_phi, incoming_theta]."
+ }
+}

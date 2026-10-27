@@ -6,7 +6,11 @@ Page 2 - RMSE, MAE, median relative error and bias per shower across the
 incident-momentum bins, for every network frame the experiment offers
 (``query/performance_bins.py``). The cards, ``by_slice`` and ``slices`` are the
 same in both modes. An experiment without reconstruction networks is refused
-whatever is asked of it.
+whatever is asked of it - except an aggregate experiment whose XGBoost analysis
+is done: ``slice_by=momentum_bin`` with ``model=energy`` or ``angle`` serves the
+shipped regressor's 20 % validation split as one series of the same shape
+(code ``xgb``; the angle task adds φ as its own quantity group), with no cards
+and no separation slices, which belong to the two-shower networks.
 """
 
 from __future__ import annotations
@@ -131,6 +135,8 @@ def get_model_performance(
             raise ValidationError(
                 f"{name} must be one of {', '.join(allowed)}; got {value!r}.", field=name,
             )
+    if record.kind == ddl.KIND_SINGLE_EVENTS:
+        return _xgboost(con, record, spec, model, coord_system, slice_by, timer)
     performance_bins.require_networks(record)
     if slice_by == "momentum_bin" and model == "segmentation":
         raise ValidationError(performance_bins.SEGMENTATION_REFUSAL, field="slice_by")
@@ -182,6 +188,76 @@ def get_model_performance(
             f"Over the {density.RESPONSE_LIMIT:,}-byte contract at {first:,} bytes, so "
             f"{BUDGET_STEPS[step][2]}; the whiskers keep their meaning."
         )
+        body = respond(step, disclosed)
+        size = density.wire_size(body)
+    if size >= density.RESPONSE_LIMIT:
+        disclosed.append(
+            f"Served as it is: {size:,} bytes against the {density.RESPONSE_LIMIT:,}-byte "
+            "contract after every reduction.")
+        body = respond(len(BUDGET_STEPS) - 1, disclosed)
+    return body
+
+
+#: The aggregate kind's refusal of what only the two-shower networks serve.
+XGB_SLICE_REFUSAL = (
+    "An aggregate experiment draws the XGBoost series by incident-momentum bin only: "
+    "slice_by=momentum_bin with model=energy or model=angle. The separation slices and the "
+    "segmentation network need two showers per event."
+)
+
+
+def _xgboost(con, record, spec, model: str, coord_system: str, slice_by: str, timer: Timer) -> dict:
+    """E2 of an aggregate experiment: the XGBoost validation-split series, in E2's shape."""
+    performance_bins.require_xgb(record)
+    if slice_by != "momentum_bin" or model == "segmentation":
+        raise ValidationError(XGB_SLICE_REFUSAL, field="slice_by" if slice_by != "momentum_bin"
+                              else "model")
+    report = performance_bins.compute_xgb(con, record, spec, model)
+    titles = {"energy": "XGBoost momentum regressor", "angle": "XGBoost angle regressor"}
+    run = report.run
+
+    def respond(step: int = 0, disclosed: Sequence[str] = ()) -> dict:
+        digits, keep_order, _ = BUDGET_STEPS[step]
+        warnings: list[str] = []
+        if report.split["n_selected"] == 0:
+            warnings.append("No events match the current selection.")
+        warnings += [*report.warnings(), *disclosed]
+        meta = ApiMeta(
+            table_name=record.table_name, exact=True, total_ms=timer.elapsed_ms,
+            warnings=warnings,
+            notes={"model": model, "coord_system": coord_system, "slice_by": slice_by,
+                   "source": performance_bins.XGB_CODE},
+        )
+        caption = (
+            f"The shipped XGBoost {run['task']} regressor of {run['species']} seed {run['seed']} "
+            f"({run['model_file']}) on the notebook's 20 % validation split: "
+            f"{report.split['n_validation']:,} of the {report.split['n_selected']:,} selected "
+            "events. It reads 52 event-level features of all three frames, so it has no input "
+            "frame; coord_system does not apply.")
+        return envelope(
+            meta,
+            n_events=report.split["n_selected"],
+            network={"model": model, "frame": performance_bins.XGB_CODE},
+            cards=[], by_slice=[], slices=[],
+            notes={"cards": ("The metric cards and the separation slices belong to the "
+                             "two-shower networks; an aggregate experiment draws the XGBoost "
+                             "series by momentum bin only.")},
+            model={"title": titles[model], "caption": caption, "primary": [],
+                   "network": {"model": model, "frame": performance_bins.XGB_CODE}},
+            filter=spec.as_dict(),
+            run=run,
+            by_momentum_bin=report.as_dict(digits=digits, keep_order=keep_order),
+        )
+
+    body = respond()
+    first = size = density.wire_size(body)
+    disclosed: list[str] = []
+    for step in range(1, len(BUDGET_STEPS)):
+        if size < density.RESPONSE_LIMIT:
+            break
+        disclosed.append(
+            f"Over the {density.RESPONSE_LIMIT:,}-byte contract at {first:,} bytes, so "
+            f"{BUDGET_STEPS[step][2]}; the whiskers keep their meaning.")
         body = respond(step, disclosed)
         size = density.wire_size(body)
     if size >= density.RESPONSE_LIMIT:

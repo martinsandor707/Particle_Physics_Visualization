@@ -1,0 +1,1345 @@
+{
+ "meta": {
+  "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+  "exact": true,
+  "warnings": [],
+  "view": "importance",
+  "task": "angle"
+ },
+ "run": {
+  "species": "electron",
+  "seed": 1,
+  "task": "angle",
+  "labels": [
+   "phi",
+   "theta"
+  ],
+  "label_units": {
+   "phi": "rad",
+   "theta": "rad"
+  },
+  "model_file": "xgboost_electron/standalone_angle_s1_model.json",
+  "sha256": "4678827eb3f3",
+  "analysis_version": 1,
+  "split": {
+   "reproduced": true,
+   "ratio_42": 1.03163,
+   "ratio_others": [
+    0.802838,
+    0.909423
+   ],
+   "seeds_others": [
+    0,
+    7
+   ],
+   "rule": "validation / training MSE of the shipped model at random_state 42 must exceed the same ratio at random_state 0 and 7: a model predicts the rows it was trained on better than the rest",
+   "warning": null
+  },
+  "xgboost_version": "3.2.0",
+  "n_rows": 307,
+  "n_train": 245,
+  "n_holdout": 62,
+  "test_size": 0.2,
+  "archive_increasing": true
+ },
+ "filtered": false,
+ "selection_note": "Computed once on the whole experiment, as the notebook does; the selection does not apply.",
+ "filter": {
+  "e1": [
+   0.012118219512702866,
+   19.70456381908061
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ },
+ "view": "importance",
+ "task": "angle",
+ "features": [
+  {
+   "name": "height",
+   "rank": 1,
+   "frame": "absolute",
+   "shipped": 0.952908,
+   "raw": {
+    "gain": 27.0935,
+    "weight": 21.0,
+    "cover": 242.143
+   },
+   "folds": [
+    0.948785,
+    0.949353,
+    0.947194,
+    0.949614,
+    0.948195
+   ],
+   "fold_mean": 0.948628,
+   "fold_sd": 0.000970514,
+   "fold_t95": [
+    0.947423,
+    0.949833
+   ]
+  },
+  {
+   "name": "num_hits",
+   "rank": 2,
+   "frame": "none",
+   "shipped": 0.0431344,
+   "raw": {
+    "gain": 1.22641,
+    "weight": 56.0,
+    "cover": 124.554
+   },
+   "folds": [
+    0.046642,
+    0.0459037,
+    0.0475687,
+    0.0451564,
+    0.0472423
+   ],
+   "fold_mean": 0.0465026,
+   "fold_sd": 0.000984102,
+   "fold_t95": [
+    0.0452809,
+    0.0477243
+   ]
+  },
+  {
+   "name": "depth",
+   "rank": 3,
+   "frame": "absolute",
+   "shipped": 0.0033711,
+   "raw": {
+    "gain": 0.0958484,
+    "weight": 19.0,
+    "cover": 245.0
+   },
+   "folds": [
+    0.00379612,
+    0.00402172,
+    0.00447874,
+    0.00447025,
+    0.0037776
+   ],
+   "fold_mean": 0.00410889,
+   "fold_sd": 0.000347328,
+   "fold_t95": [
+    0.00367769,
+    0.00454008
+   ]
+  },
+  {
+   "name": "width",
+   "rank": 4,
+   "frame": "absolute",
+   "shipped": 0.000586644,
+   "raw": {
+    "gain": 0.0166797,
+    "weight": 18.0,
+    "cover": 123.0
+   },
+   "folds": [
+    0.000776984,
+    0.000721764,
+    0.00075893,
+    0.00075904,
+    0.000785214
+   ],
+   "fold_mean": 0.000760386,
+   "fold_sd": 2.44312e-05,
+   "fold_t95": [
+    0.000730056,
+    0.000790717
+   ]
+  },
+  {
+   "name": "angular_spread",
+   "rank": 5,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "angular_spread_local",
+   "rank": 6,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "angular_spread_trans",
+   "rank": 7,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_phi",
+   "rank": 8,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_phi_local",
+   "rank": 9,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_phi_trans",
+   "rank": 10,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_theta",
+   "rank": 11,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_theta_local",
+   "rank": 12,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "avg_theta_trans",
+   "rank": 13,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_x",
+   "rank": 14,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_x_local",
+   "rank": 15,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_x_trans",
+   "rank": 16,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_y",
+   "rank": 17,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_y_local",
+   "rank": 18,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_y_trans",
+   "rank": 19,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_z",
+   "rank": 20,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_z_local",
+   "rank": 21,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "centroid_z_trans",
+   "rank": 22,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "depth_local",
+   "rank": 23,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "depth_range",
+   "rank": 24,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "depth_range_local",
+   "rank": 25,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "depth_range_trans",
+   "rank": 26,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "depth_trans",
+   "rank": 27,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "energy_density",
+   "rank": 28,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "energy_density_local",
+   "rank": 29,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "energy_density_trans",
+   "rank": 30,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "height_local",
+   "rank": 31,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "height_trans",
+   "rank": 32,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "max_r",
+   "rank": 33,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "max_r_local",
+   "rank": 34,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "max_r_trans",
+   "rank": 35,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "mean_r",
+   "rank": 36,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "mean_r_local",
+   "rank": 37,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "mean_r_trans",
+   "rank": 38,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "numerical_density",
+   "rank": 39,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "numerical_density_local",
+   "rank": 40,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "numerical_density_trans",
+   "rank": 41,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "std_r",
+   "rank": 42,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "std_r_local",
+   "rank": 43,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "std_r_trans",
+   "rank": 44,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "volume",
+   "rank": 45,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "volume_local",
+   "rank": 46,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "volume_trans",
+   "rank": 47,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "weighted_r_mean",
+   "rank": 48,
+   "frame": "absolute",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "weighted_r_mean_local",
+   "rank": 49,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "weighted_r_mean_trans",
+   "rank": 50,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "width_local",
+   "rank": 51,
+   "frame": "local",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "width_trans",
+   "rank": 52,
+   "frame": "trans",
+   "shipped": 0.0,
+   "raw": {
+    "gain": 0.0,
+    "weight": 0.0,
+    "cover": 0.0
+   },
+   "folds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "fold_mean": 0.0,
+   "fold_sd": 0.0,
+   "fold_t95": [
+    0.0,
+    0.0
+   ]
+  }
+ ],
+ "n_features": 52,
+ "n_used": 4,
+ "measure": {
+  "shipped": "the shipped booster's feature_importances_: each feature's average split gain, divided by the sum over the features",
+  "raw": "get_score: gain the average gain of the feature's splits, weight the number of splits, cover the average number of rows they cover",
+  "folds": "the same normalised gain of each of the five cross-validation refits"
+ },
+ "frames": {
+  "absolute": "detector coordinates",
+  "trans": "per-shower translated",
+  "local": "local (shower-fixed)",
+  "none": "no frame (a count)"
+ },
+ "frames_present": [
+  "absolute",
+  "local",
+  "none",
+  "trans"
+ ],
+ "interval": {
+  "label": "95 % Student-t interval of the mean over 5 folds (4 d.o.f.)",
+  "level": 0.95,
+  "dof": 4,
+  "t": 2.776,
+  "method": "t",
+  "clip": "clipped to [0, 1], the range of a share"
+ },
+ "notes": {
+  "bar": "The bar is one model, the shipped one; the dots are the five refitted folds and the envelope their mean's Student-t interval, so the bar is never read as the folds' mean.",
+  "gain": "A gain importance says how much a feature's splits reduced the training loss, not how much the prediction depends on it; correlated features share or swap their gain between refits."
+ }
+}

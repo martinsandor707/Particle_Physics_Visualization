@@ -136,7 +136,7 @@
     "reasons": {
      "vox-species": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
      "prim-rate": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
-     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+     "xgboost": "The XGBoost models read the 52 event-level features of an aggregate experiment (single_shower_events); this experiment is two-shower hits."
     },
     "derived": {
      "version": 2,
@@ -358,7 +358,7 @@
      "pred-truth": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
      "pred-residuals": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
      "vox-attention": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
-     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+     "xgboost": "The XGBoost models read the 52 event-level features of an aggregate experiment (single_shower_events); this experiment is single-shower hits."
     },
     "derived": {
      "version": 1,
@@ -620,15 +620,15 @@
      "profile-w": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
      "profile-r": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
      "negative-depth": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
-     "perf-bins": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
-     "pred-truth": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
-     "pred-residuals": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
+     "perf-bins": "This experiment carries no reconstruction-network outputs; its cards draw the XGBoost series instead, which is not available: No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>).",
+     "pred-truth": "This experiment carries no reconstruction-network outputs; its cards draw the XGBoost series instead, which is not available: No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>).",
+     "pred-residuals": "This experiment carries no reconstruction-network outputs; its cards draw the XGBoost series instead, which is not available: No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>).",
      "vox-event": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
      "vox-ensemble": "This experiment holds event-level features only (the 59-column aggregate): it has no hits.",
      "vox-attention": "This experiment carries no reconstruction-network outputs; network panels need the hits_all_models schema.",
      "vox-species": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
      "prim-rate": "Needs the particle_type and is_secondary columns of the single-shower hit files; the two-shower export does not carry them (TODO.md, item 5).",
-     "xgboost": "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+     "xgboost": "No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>)."
     },
     "derived": {
      "version": 1,

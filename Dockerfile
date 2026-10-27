@@ -11,7 +11,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dependencies first so the layer caches across source edits.
+# Dependencies first so the layer caches across source edits. The XGBoost
+# model analysis (calosrv/modelruns) needs xgboost and scikit-learn; the CPU
+# wheel, because the plain xgboost wheel carries a 1.1 GB NCCL payload the
+# service never uses. The models are read from the repository mount,
+# /app/host/xgboost_models, unless CALOSRV_MODEL_DIR names another folder.
 COPY pyproject.toml /app/pyproject.toml
 RUN pip install --upgrade pip \
     && pip install \
@@ -20,7 +24,9 @@ RUN pip install --upgrade pip \
         "duckdb==1.5.5" \
         "numpy>=1.26,<3" \
         "pandas>=2.0,<3" \
-        "python-multipart>=0.0.12"
+        "python-multipart>=0.0.12" \
+        "xgboost-cpu==3.2.0" \
+        "scikit-learn>=1.5,<2"
 
 COPY calosrv /app/calosrv
 

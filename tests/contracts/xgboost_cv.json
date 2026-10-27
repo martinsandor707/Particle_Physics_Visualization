@@ -1,0 +1,784 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/xgboost?view=cv (E1, five-fold cross-validation)",
+ "type": "object",
+ "required": [
+  "meta",
+  "run",
+  "filtered",
+  "selection_note",
+  "filter",
+  "view",
+  "task",
+  "labels",
+  "n_rows",
+  "kfold",
+  "hyperparameters",
+  "metrics",
+  "parity_label",
+  "folds",
+  "summary",
+  "per_label",
+  "interval",
+  "notes"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "run": {
+   "$ref": "#/$defs/run"
+  },
+  "filtered": {
+   "const": false
+  },
+  "selection_note": {
+   "type": "string"
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "view": {
+   "const": "cv"
+  },
+  "task": {
+   "enum": [
+    "momentum",
+    "angle"
+   ]
+  },
+  "labels": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "momentum",
+     "phi",
+     "theta"
+    ]
+   },
+   "minItems": 1,
+   "maxItems": 2
+  },
+  "n_rows": {
+   "type": "integer"
+  },
+  "kfold": {
+   "type": "object",
+   "required": [
+    "n_splits",
+    "shuffle",
+    "random_state"
+   ],
+   "properties": {
+    "n_splits": {
+     "const": 5
+    },
+    "shuffle": {
+     "const": true
+    },
+    "random_state": {
+     "const": 42
+    }
+   }
+  },
+  "hyperparameters": {
+   "type": "object",
+   "required": [
+    "objective",
+    "random_state",
+    "n_estimators",
+    "learning_rate"
+   ],
+   "properties": {
+    "objective": {
+     "const": "reg:squarederror"
+    },
+    "random_state": {
+     "const": 42
+    },
+    "n_estimators": {
+     "const": 100
+    },
+    "learning_rate": {
+     "const": 0.1
+    }
+   }
+  },
+  "metrics": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "unit",
+     "definition"
+    ],
+    "properties": {
+     "id": {
+      "enum": [
+       "mae",
+       "mse",
+       "rmse",
+       "r2"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "unit": {
+      "type": "string"
+     },
+     "definition": {
+      "type": "string"
+     }
+    }
+   },
+   "minItems": 4,
+   "maxItems": 4
+  },
+  "parity_label": {
+   "type": "string"
+  },
+  "folds": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "fold",
+     "n_train",
+     "n_val",
+     "metrics",
+     "per_label"
+    ],
+    "properties": {
+     "fold": {
+      "type": "integer"
+     },
+     "n_train": {
+      "type": "integer"
+     },
+     "n_val": {
+      "type": "integer"
+     },
+     "metrics": {
+      "type": "object",
+      "required": [
+       "mae",
+       "mse",
+       "rmse",
+       "r2"
+      ],
+      "properties": {
+       "mae": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "mse": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "rmse": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "r2": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     },
+     "per_label": {
+      "anyOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "required": [
+         "theta",
+         "phi"
+        ],
+        "properties": {
+         "theta": {
+          "type": "object",
+          "required": [
+           "mae",
+           "rmse",
+           "r2"
+          ],
+          "properties": {
+           "mae": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "rmse": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "r2": {
+            "type": [
+             "number",
+             "null"
+            ]
+           }
+          }
+         },
+         "phi": {
+          "type": "object",
+          "required": [
+           "mae",
+           "rmse"
+          ],
+          "properties": {
+           "mae": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "rmse": {
+            "type": [
+             "number",
+             "null"
+            ]
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   "minItems": 5,
+   "maxItems": 5
+  },
+  "summary": {
+   "type": "object",
+   "required": [
+    "mae",
+    "mse",
+    "rmse",
+    "r2"
+   ],
+   "properties": {
+    "mae": {
+     "$ref": "#/$defs/summary"
+    },
+    "mse": {
+     "$ref": "#/$defs/summary"
+    },
+    "rmse": {
+     "$ref": "#/$defs/summary"
+    },
+    "r2": {
+     "$ref": "#/$defs/summary"
+    }
+   }
+  },
+  "per_label": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "required": [
+      "theta",
+      "phi"
+     ],
+     "properties": {
+      "theta": {
+       "type": "object",
+       "required": [
+        "unit",
+        "metrics",
+        "summary",
+        "residual"
+       ],
+       "properties": {
+        "unit": {
+         "const": "mrad"
+        },
+        "metrics": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "id",
+           "label",
+           "unit",
+           "definition"
+          ],
+          "properties": {
+           "id": {
+            "enum": [
+             "mae",
+             "mse",
+             "rmse",
+             "r2"
+            ]
+           },
+           "label": {
+            "type": "string"
+           },
+           "unit": {
+            "type": "string"
+           },
+           "definition": {
+            "type": "string"
+           }
+          }
+         },
+         "minItems": 2,
+         "maxItems": 3
+        },
+        "summary": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/$defs/summary"
+         }
+        },
+        "residual": {
+         "type": "string"
+        }
+       }
+      },
+      "phi": {
+       "type": "object",
+       "required": [
+        "unit",
+        "metrics",
+        "summary",
+        "residual"
+       ],
+       "properties": {
+        "unit": {
+         "const": "mrad"
+        },
+        "metrics": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "id",
+           "label",
+           "unit",
+           "definition"
+          ],
+          "properties": {
+           "id": {
+            "enum": [
+             "mae",
+             "mse",
+             "rmse",
+             "r2"
+            ]
+           },
+           "label": {
+            "type": "string"
+           },
+           "unit": {
+            "type": "string"
+           },
+           "definition": {
+            "type": "string"
+           }
+          }
+         },
+         "minItems": 2,
+         "maxItems": 3
+        },
+        "summary": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/$defs/summary"
+         }
+        },
+        "residual": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "interval": {
+   "$ref": "#/$defs/t_interval"
+  },
+  "notes": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
+  }
+ },
+ "propertyNames": {
+  "not": {
+   "enum": [
+    "rows",
+    "predictions",
+    "hits"
+   ]
+  }
+ },
+ "$defs": {
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "view",
+    "task"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "view": {
+     "const": "cv"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    }
+   }
+  },
+  "split": {
+   "type": "object",
+   "required": [
+    "reproduced",
+    "ratio_42",
+    "ratio_others",
+    "seeds_others",
+    "rule",
+    "warning"
+   ],
+   "properties": {
+    "reproduced": {
+     "type": "boolean"
+    },
+    "ratio_42": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ratio_others": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "seeds_others": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "rule": {
+     "type": "string"
+    },
+    "warning": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "run": {
+   "type": "object",
+   "required": [
+    "species",
+    "seed",
+    "task",
+    "labels",
+    "label_units",
+    "model_file",
+    "sha256",
+    "analysis_version",
+    "split",
+    "xgboost_version",
+    "n_rows",
+    "n_train",
+    "n_holdout",
+    "test_size"
+   ],
+   "properties": {
+    "species": {
+     "type": "string"
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "labels": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "momentum",
+       "phi",
+       "theta"
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 2
+    },
+    "label_units": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "analysis_version": {
+     "type": "integer"
+    },
+    "split": {
+     "$ref": "#/$defs/split"
+    },
+    "xgboost_version": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "n_rows": {
+     "type": "integer"
+    },
+    "n_train": {
+     "type": "integer"
+    },
+    "n_holdout": {
+     "type": "integer"
+    },
+    "test_size": {
+     "type": "number"
+    },
+    "archive_increasing": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    }
+   }
+  },
+  "summary": {
+   "type": "object",
+   "required": [
+    "mean",
+    "sd",
+    "se",
+    "t95",
+    "n",
+    "dof",
+    "t",
+    "clipped"
+   ],
+   "properties": {
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "se": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "t95": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "n": {
+     "type": "integer"
+    },
+    "dof": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "t": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "clipped": {
+     "type": "boolean"
+    }
+   }
+  },
+  "t_interval": {
+   "type": "object",
+   "required": [
+    "label",
+    "level",
+    "dof",
+    "t",
+    "method"
+   ],
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "level": {
+     "type": "number"
+    },
+    "dof": {
+     "type": "integer"
+    },
+    "t": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}
