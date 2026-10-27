@@ -42,7 +42,21 @@ detector's depth with its cubes in a few percent of the box). The cells
 beyond the window are counted per frame (``frames.<f>.outside_window``) and
 named in ``window.rule``; each panel states the energy it leaves out. Depth
 is cropped the same way, which the ensemble frames never do and the
-inspector says it does. The window is what the axes span. The raster under
+inspector says it does. The window is what the axes span.
+
+**Per-axis windows** (``window=per_axis``, Martin's decision of 2026-10-27,
+the Models page's event pair). One half-width per axis of each frame: the
+axis's own energy-weighted 0.1st-99.9th percentile range, plus one cell
+footprint across the beam and one layer pitch along depth (the larger of the
+two on every axis of the local frame, whose rotation tilts a cell's footprint
+into depth), never below 150 mm, snapped outward to 20 mm; u and v stay
+centred on the shower's axis. Stray cells far across the beam then no longer
+stretch the depth axis: on the synthetic single-shower event 3 the shared
+half-width ran the box 4 m deep against a 1.23 m detector. The panels stay
+1:1 by being sized from their two millimetre spans and letterboxed. The 3-D
+event (``query/voxel_event.py``) takes the same rule on the same
+coordinates, so its box and its three projections agree to the millimetre.
+The default stays ``shared``: Page 1's nine panels keep one scale. The raster under
 it covers only the populated part - the cells inside the window, the grid
 bins the splat can reach, the layers the detector has - so everything
 between the raster and the window edge is empty by construction and is
@@ -90,7 +104,7 @@ from ..encode import scale as scale_mod
 from ..errors import NotFoundError, ValidationError
 from ..grid import footprint as footprint_mod
 from ..grid import frame as frame_mod
-from ..grid.frame import KIND_LOCAL, KIND_TRANS
+from ..grid.frame import KIND_CANONICAL, KIND_LOCAL, KIND_TRANS
 from ..stats import shape
 from ..text import typographic
 from . import capabilities, density, frame_sql, shower_frames
@@ -103,6 +117,13 @@ WINDOW_PERCENTILES = (frame_mod.WINDOW_LOW_PERCENTILE, frame_mod.WINDOW_HIGH_PER
 WINDOW_MIN_HALF_MM = 150.0
 #: The window's half-width and centres snap to whole bins of the grids' starting pitch.
 WINDOW_SNAP_MM = 20.0
+
+#: The window rules of ``/api/event``: one half-width for every axis of the event (the
+#: default, Page 1's Event Inspector) or one per axis of each frame (the Models page's event
+#: pair, and the default of its 3-D cubes).
+WINDOW_SHARED = "shared"
+WINDOW_PER_AXIS = "per_axis"
+WINDOW_MODES: tuple[str, ...] = (WINDOW_SHARED, WINDOW_PER_AXIS)
 
 #: The notebook's colour floor: this percentile of the event's positive cell densities.
 FLOOR_PERCENTILE = 1.0
@@ -395,6 +416,67 @@ def _window(coords: dict[str, np.ndarray], energy: np.ndarray, centred: tuple[st
     return max(math.ceil((half + pad) / snap - 1e-9) * snap, WINDOW_MIN_HALF_MM), centres
 
 
+def window_pads(kind: str, footprint, pitch_z: float) -> dict[str, float]:
+    """The margin each axis of a per-axis window adds, so the cells at either end are drawn whole.
+
+    One cell footprint across the beam and one layer pitch along depth; in the
+    local frame, whose rotation tilts a cell's footprint into depth (and its
+    depth into the transverse axes), the larger of the two on every axis.
+    """
+    transverse = float(max(footprint[0], footprint[1]))
+    if kind == KIND_LOCAL:
+        every = max(transverse, float(pitch_z))
+        return {"x": every, "y": every, "z": every}
+    return {"x": transverse, "y": transverse, "z": float(pitch_z)}
+
+
+def _window_per_axis(coords: dict[str, np.ndarray], energy: np.ndarray, centred: tuple[str, ...],
+                     pads: dict[str, float]) -> tuple[dict[str, float], dict[str, float]]:
+    """One half-width per coordinate, and each coordinate's window centre.
+
+    :func:`_window`'s rule taken axis by axis: each coordinate's
+    energy-weighted 0.1st-99.9th percentile range of cell centres - half the
+    range about its snapped centre, or the larger excursion from the origin
+    for a coordinate in ``centred`` - plus that coordinate's pad, snapped
+    outward to whole ``WINDOW_SNAP_MM`` bins and never below
+    ``WINDOW_MIN_HALF_MM``.
+    """
+    snap = WINDOW_SNAP_MM
+    halves: dict[str, float] = {}
+    centres: dict[str, float] = {}
+    for name, values in coords.items():
+        lo, hi = _weighted_range(values, energy)
+        if name in centred:
+            centres[name] = 0.0
+            half = max(abs(lo), abs(hi))
+        else:
+            centres[name] = round(0.5 * (lo + hi) / snap) * snap
+            half = max(hi - centres[name], centres[name] - lo)
+        halves[name] = max(math.ceil((half + pads[name]) / snap - 1e-9) * snap, WINDOW_MIN_HALF_MM)
+    return halves, centres
+
+
+def frame_window(xyz: np.ndarray, energy: np.ndarray, kind: str, footprint,
+                 pitch_z: float) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """A frame's per-axis window: ``({axis: half}, {axis: (lo, hi)})``.
+
+    ``xyz`` is the cells' centres in the frame ``kind`` (lab, trans, local or
+    canonical); the frames centred on an origin (local, canonical) keep their
+    transverse windows symmetric about it. The Event Inspector's per-axis
+    rasters and the 3-D event both call this, so a box and its projections
+    agree to the millimetre.
+    """
+    centred = ("x", "y") if kind in (KIND_LOCAL, KIND_CANONICAL) else ()
+    halves, centres = _window_per_axis({a: xyz[:, i] for i, a in enumerate("xyz")}, energy, centred,
+                                       window_pads(kind, footprint, pitch_z))
+    return halves, {a: (centres[a] - halves[a], centres[a] + halves[a]) for a in "xyz"}
+
+
+def halves_text(halves: dict[str, float], symbols: dict[str, str]) -> str:
+    """'x 2,040 mm, y 2,040 mm, z 160 mm' in the frame's symbols."""
+    return ", ".join(f"{symbols.get(a, a)} {halves[a]:,.0f} mm" for a in "xyz")
+
+
 def _distinct(keys: np.ndarray) -> int:
     return int(np.unique(keys, axis=0).shape[0]) if keys.shape[0] else 0
 
@@ -632,6 +714,59 @@ def _encode(matrix: np.ndarray, r_edges: np.ndarray, c_edges: np.ndarray, name: 
     return payload
 
 
+def check_window(window: str) -> None:
+    """Refuse a window rule the service does not have, naming the parameter."""
+    if window not in WINDOW_MODES:
+        raise ValidationError(f"window must be one of {', '.join(WINDOW_MODES)}; got {window!r}.",
+                              field="window")
+
+
+_FRAME_NAMES = {"lab": "detector", KIND_TRANS: "translated", KIND_LOCAL: "local"}
+
+
+def _window_block(half: float, halves: dict[str, dict[str, float]] | None,
+                  window_outside: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """``window``: the rule, its numbers and what it leaves out.
+
+    The shared block is the one Page 1 has always been served (the golden
+    snapshot pins it); the per-axis block adds ``mode`` and each frame's
+    ``half_mm_axes``, and ``half_mm`` is then the largest of them.
+    """
+    if halves is None:
+        return {
+            "half_mm": half, "percentiles": list(WINDOW_PERCENTILES), "min_half_mm": WINDOW_MIN_HALF_MM,
+            "rule": typographic(
+                f"One half-width for every panel of this event: the widest energy-weighted "
+                f"{window_percentiles_text()} percentile range of its cells over "
+                f"x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the "
+                f"cells at either end are drawn whole, never below {WINDOW_MIN_HALF_MM:.0f} mm and snapped "
+                f"outward to {WINDOW_SNAP_MM:.0f} mm ({half:.0f} mm here); lattice panels snap it outward to "
+                "whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble "
+                "frames never do. "
+                + _outside_sentence(window_outside)
+            ),
+        }
+    per_frame = "; ".join(f"{_FRAME_NAMES[kind]} {halves_text(halves[kind], SYMBOLS[kind])}"
+                          for kind in FRAMES)
+    return {
+        "mode": WINDOW_PER_AXIS,
+        "half_mm": half, "half_mm_axes": {kind: dict(halves[kind]) for kind in FRAMES},
+        "percentiles": list(WINDOW_PERCENTILES), "min_half_mm": WINDOW_MIN_HALF_MM,
+        "rule": typographic(
+            f"Per-axis half-widths for every panel of this event: each axis's own energy-weighted "
+            f"{window_percentiles_text()} percentile range of its cells (u and v about the shower's own "
+            "axis), plus one cell footprint across the beam and one layer pitch along depth (the larger "
+            "of the two on every local axis, which the rotation tilts into depth) so the cells at either "
+            f"end are drawn whole, never below {WINDOW_MIN_HALF_MM:.0f} mm and snapped outward to "
+            f"{WINDOW_SNAP_MM:.0f} mm - here {per_frame}. Every panel stays 1:1, sized from its two "
+            "millimetre spans and letterboxed; lattice panels snap the window outward to whole cells, "
+            "grid panels to whole bins; depth is cropped to the event, which the ensemble frames never "
+            "do. "
+            + _outside_sentence(window_outside)
+        ),
+    }
+
+
 def inspect(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -641,11 +776,14 @@ def inspect(
     source: str = frame_sql.SOURCE_FILE,
     footprint: tuple[float, float] | None = None,
     limit: int | None = None,
+    window: str = WINDOW_SHARED,
 ) -> dict[str, Any]:
     """The nine-panel figure of one shower of one event, budgeted under the contract.
 
     ``shower`` must be one of the experiment's: ``b`` is refused (422,
-    ``field=shower``) where there is one shower per event.
+    ``field=shower``) where there is one shower per event. ``window`` is the
+    window rule: ``shared`` (one half-width for every panel, the default) or
+    ``per_axis`` (one per axis of each frame, :func:`frame_window`).
     """
     assert record.lattice is not None and record.frame_bounds is not None
     if shower not in SHOWERS:
@@ -655,6 +793,7 @@ def inspect(
     if source not in frame_sql.SOURCES:
         raise ValidationError(f"coordinates must be one of {', '.join(frame_sql.SOURCES)}; got {source!r}.",
                               field="coordinates")
+    check_window(window)
     started = time.perf_counter()
     limit = density.RESPONSE_LIMIT if limit is None else int(limit)
     lat = record.lattice
@@ -687,21 +826,29 @@ def inspect(
     else:
         trans_xyz, local_xyz = translated, local
 
-    # One window for every panel of the event: the energy-weighted 0.1st-99.9th percentile of
-    # the cells over all six coordinates, local u and v centred on the origin.
-    half, centre = _window(
-        {"x": rows.lab[:, 0], "y": rows.lab[:, 1], "z": rows.lab[:, 2],
-         "tx": trans_xyz[:, 0], "ty": trans_xyz[:, 1], "tz": trans_xyz[:, 2],
-         "u": local_xyz[:, 0], "v": local_xyz[:, 1], "w": local_xyz[:, 2]},
-        rows.energy, centred=("u", "v"), pad=max(fp[0], fp[1], pitch_z))
-    windows = {
-        "lab": {a: (centre[a] - half, centre[a] + half) for a in "xyz"},
-        KIND_TRANS: {a: (centre[f"t{a}"] - half, centre[f"t{a}"] + half) for a in "xyz"},
-        KIND_LOCAL: {a: (centre[k] - half, centre[k] + half) for a, k in zip("xyz", "uvw")},
-    }
+    frame_xyz = {"lab": rows.lab, KIND_TRANS: trans_xyz, KIND_LOCAL: local_xyz}
+    halves: dict[str, dict[str, float]] | None = None
+    if window == WINDOW_PER_AXIS:
+        # One half-width per axis of each frame (frame_window), local u and v centred on the origin.
+        halves, windows = {}, {}
+        for kind, xyz in frame_xyz.items():
+            halves[kind], windows[kind] = frame_window(xyz, rows.energy, kind, fp, pitch_z)
+        half = max(h for frame_halves in halves.values() for h in frame_halves.values())
+    else:
+        # One window for every panel of the event: the energy-weighted 0.1st-99.9th percentile of
+        # the cells over all six coordinates, local u and v centred on the origin.
+        half, centre = _window(
+            {"x": rows.lab[:, 0], "y": rows.lab[:, 1], "z": rows.lab[:, 2],
+             "tx": trans_xyz[:, 0], "ty": trans_xyz[:, 1], "tz": trans_xyz[:, 2],
+             "u": local_xyz[:, 0], "v": local_xyz[:, 1], "w": local_xyz[:, 2]},
+            rows.energy, centred=("u", "v"), pad=max(fp[0], fp[1], pitch_z))
+        windows = {
+            "lab": {a: (centre[a] - half, centre[a] + half) for a in "xyz"},
+            KIND_TRANS: {a: (centre[f"t{a}"] - half, centre[f"t{a}"] + half) for a in "xyz"},
+            KIND_LOCAL: {a: (centre[k] - half, centre[k] + half) for a, k in zip("xyz", "uvw")},
+        }
     keys = np.column_stack([rows.ix, rows.iy, rows.iz])
-    window_outside = {kind: _outside(xyz, rows.energy, keys, windows[kind])
-               for kind, xyz in (("lab", rows.lab), (KIND_TRANS, trans_xyz), (KIND_LOCAL, local_xyz))}
+    window_outside = {kind: _outside(xyz, rows.energy, keys, windows[kind]) for kind, xyz in frame_xyz.items()}
     k = frame_mod.minimum_gapless_subsample(max(fp), START_PITCH_MM)
     k = max(frame_mod.MIN_SUBSAMPLE, min(frame_mod.MAX_SUBSAMPLE, k))
     k_z = frame_mod.LOCAL_K_Z
@@ -751,7 +898,9 @@ def inspect(
                 # The axes span the window; the rasters cover `raster`, the populated part.
                 "window": {axis: [float(v) for v in windows[kind][axis]] for axis in "xyz"},
                 "raster": extents[kind],
-                "half_mm": half,
+                "half_mm": half if halves is None else max(halves[kind].values()),
+                # Per-axis windows only: the half-width of each axis (the shared rule has one).
+                **({} if halves is None else {"half_mm_axes": dict(halves[kind])}),
                 # The cells whose centres lie outside this frame's window, counted, not drawn.
                 "outside_window": window_outside[kind],
                 "panels": panels,
@@ -852,19 +1001,7 @@ def inspect(
                 + f" the {shower_frames.COORDINATE_TOLERANCE_MM:g} mm tolerance)."
             ),
         },
-        "window": {
-            "half_mm": half, "percentiles": list(WINDOW_PERCENTILES), "min_half_mm": WINDOW_MIN_HALF_MM,
-            "rule": typographic(
-                f"One half-width for every panel of this event: the widest energy-weighted "
-                f"{window_percentiles_text()} percentile range of its cells over "
-                f"x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the "
-                f"cells at either end are drawn whole, never below {WINDOW_MIN_HALF_MM:.0f} mm and snapped "
-                f"outward to {WINDOW_SNAP_MM:.0f} mm ({half:.0f} mm here); lattice panels snap it outward to "
-                "whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble "
-                "frames never do. "
-                + _outside_sentence(window_outside)
-            ),
-        },
+        "window": _window_block(half, halves, window_outside),
         "footprint_mm": [float(fp[0]), float(fp[1]), pitch_z],
         "elapsed_ms": (time.perf_counter() - started) * 1000.0,
     })

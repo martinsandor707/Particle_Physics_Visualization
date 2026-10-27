@@ -389,7 +389,8 @@ export function voxelProjectionNotes({
   if (!payload) return null;
   let notes = null;
   if (pair === 'event') {
-    // The inspector's window is shared by its nine panels; this pair has three.
+    // The inspector's window is shared by its nine panels; this pair has three, and asks for
+    // per-axis half-widths (`window=per_axis`), which eventNotes names axis by axis.
     notes = eventNotes({
       payload, kind: frameKind, panelId, view, state, experiment, windowScope: 'all three projections',
     });

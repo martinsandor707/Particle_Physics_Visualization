@@ -210,7 +210,9 @@ function topkMap(entries) {
  * flags, shower, primary, below, window, scale, symbols, topk, ...}`, the
  * arrays in payload order (ascending energy: the notebook's draw order, the
  * brightest cubes last). `box` is the cube size `{x, y, z}` in mm and
- * `window` the server's equal half-width window `{x, y, z: [lo, hi]}`.
+ * `window` the server's window `{x, y, z: [lo, hi]}`: one half-width per axis
+ * by default (`window.mode` 'per_axis'), the spans then unequal and the box
+ * still 1:1:1 (`boxSizes`); one for all three under 'shared'.
  */
 export function decodeEventVoxels(payload) {
   const vox = payload?.voxels;
@@ -815,6 +817,16 @@ function onStep(v, step) {
 }
 
 /**
+ * The least distance, in box units, between two labelled ticks. At the
+ * opening zoom a box unit is about 2.3 px at a 1600 px window, and a label
+ * such as "3600" about 26 px wide, so ticks closer than this overprint. A
+ * per-axis event window makes a short side (the synthetic single-shower
+ * event 3's 300 mm depth in a 4,040 mm box is 7.4 units) where two ticks
+ * would sit 5 units apart; there only every k-th tick is labelled.
+ */
+export const MIN_LABEL_UNITS = 10;
+
+/**
  * The tick plan of one display axis over `[lo, hi]` mm whose box side is
  * `world` units long (P-17): `splitNumber` about five ticks on the longest
  * side and fewer on a short one, so a co-registered cloud's depth does not
@@ -826,14 +838,19 @@ function onStep(v, step) {
  * millimetres once the labels add the origin back. An axis end is labelled
  * only where it is itself a tick (`showMin`, `showMax`, and the formatter
  * blanks any off-grid value), so no end overprints its neighbouring round tick.
+ * `labelStep` is the step of the labelled ticks: `step`, or a whole multiple
+ * of it on a side too short for every tick to carry a label
+ * (`MIN_LABEL_UNITS`); every tick is still drawn.
  */
 export function axisTicks(lo, hi, world = BOX_UNITS) {
   const splitNumber = Math.max(2, Math.round((5 * world) / BOX_UNITS));
   const step = niceStep(hi - lo, splitNumber);
   const origin = Math.floor(lo / step + 1e-9) * step;
+  const units = hi > lo ? (step * world) / (hi - lo) : Infinity;
+  const labelStep = units >= MIN_LABEL_UNITS ? step : step * Math.ceil(MIN_LABEL_UNITS / units);
   return {
-    step, origin, splitNumber, min: lo - origin, max: hi - origin,
-    showMin: onStep(lo - origin, step), showMax: onStep(hi - origin, step),
+    step, labelStep, origin, splitNumber, min: lo - origin, max: hi - origin,
+    showMin: onStep(lo, labelStep), showMax: onStep(hi, labelStep),
   };
 }
 
@@ -859,7 +876,8 @@ function axis3D(name, ticks, { nameGap = null } = {}) {
       showMaxLabel: ticks.showMax,
       // echarts-gl ignores showMin/MaxLabel and labels the axis ends it adds, so an end
       // off the step grid is blanked here: only the round ticks are labelled.
-      formatter: (v) => (onStep(Number(v), ticks.step)
+      // On a short side only every labelStep-th millimetre is labelled (`axisTicks`).
+      formatter: (v) => (onStep(Number(v) + ticks.origin, ticks.labelStep ?? ticks.step)
         ? typographic(String(Math.round(Number(v) + ticks.origin))) : ''),
     },
     splitLine: { show: false },

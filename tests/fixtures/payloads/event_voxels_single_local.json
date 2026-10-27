@@ -10,6 +10,7 @@
   "channel": "energy",
   "model": null,
   "coordinates": "file",
+  "window": "per_axis",
   "cam": null,
   "notices": [
    {
@@ -18,7 +19,7 @@
    },
    {
     "scope": "event",
-    "text": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (2540 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
+    "text": "Per-axis half-widths: each axis's own energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint on every axis, the larger of the footprint and the layer pitch, since the rotation tilts the cells into depth, so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (u 2,260 mm, v 2,540 mm, w 520 mm here). The box keeps one scale on all three axes (1:1:1), so each side is as long as its axis's span; the paired projections take the same rule; symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
    },
    {
     "scope": "event",
@@ -103,7 +104,13 @@
   "note": "Coordinates: the file's own x/y/z_local; the motion (P₀ subtracted, then R(θ, φ) applied) was also applied to every cell here, and the two differ by at most 0.000234 mm (within the 0.01 mm tolerance)."
  },
  "window": {
+  "mode": "per_axis",
   "half_mm": 2540.0,
+  "half_mm_axes": {
+   "x": 2260.0,
+   "y": 2540.0,
+   "z": 520.0
+  },
   "percentiles": [
    0.1,
    99.9
@@ -111,19 +118,19 @@
   "min_half_mm": 150.0,
   "axes": {
    "x": [
-    -2540.0,
-    2540.0
+    -2260.0,
+    2260.0
    ],
    "y": [
     -2540.0,
     2540.0
    ],
    "z": [
-    -2720.0,
-    2360.0
+    -700.0,
+    340.0
    ]
   },
-  "rule": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (2540 mm here); symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
+  "rule": "Per-axis half-widths: each axis's own energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint on every axis, the larger of the footprint and the layer pitch, since the rotation tilts the cells into depth, so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (u 2,260 mm, v 2,540 mm, w 520 mm here). The box keeps one scale on all three axes (1:1:1), so each side is as long as its axis's span; the paired projections take the same rule; symmetric about the origin across the beam; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
  },
  "footprint_mm": [
   48.27001953125,

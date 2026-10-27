@@ -213,7 +213,10 @@ export function energyNotes({
  * frame (`kind`: lab | trans | local), one projection (`panelId`: xy | xz |
  * yz). `payload` is the whole `/api/event` response. `windowScope` names the
  * panels that share the window: the inspector's nine by default, the three
- * projections beside the Models page's 3-D event view there.
+ * projections beside the Models page's 3-D event view there. A per-axis
+ * window (the Models page asks for `window=per_axis`) names each axis's
+ * half-width (`frames.<f>.half_mm_axes`); Page 1's shared window keeps its
+ * one-half-width sentence.
  */
 export function eventNotes({
   payload, kind, panelId, view = null, state = null, experiment = null, windowScope = 'all nine panels',
@@ -236,12 +239,24 @@ export function eventNotes({
   }
   notes.section(SECTION.selection, selection);
 
-  const half = Number.isFinite(frame.half_mm) ? `${num(frame.half_mm, 0)} mm` : 'one';
+  // A per-axis window (`/api/event?window=per_axis`, the Models page) carries each axis's
+  // half-width; the shared one (Page 1) has one for every axis, and its sentence is unchanged.
+  const halves = frame.half_mm_axes;
+  let axesLine;
+  if (halves && ['x', 'y', 'z'].every((a) => Number.isFinite(halves[a]))) {
+    const each = ['x', 'y', 'z'].map((a) => `${symbols[a] ?? a} ${num(halves[a], 0)} mm`).join(', ');
+    axesLine = `Axes 1:1 (isometric), per-axis half-widths ${each} on ${windowScope}: each panel is sized `
+      + 'from its two millimetre spans and letterboxed, so the tilt reads at its true angle; the raster '
+      + 'covers the populated part of the window and the rest is empty.';
+  } else {
+    const half = Number.isFinite(frame.half_mm) ? `${num(frame.half_mm, 0)} mm` : 'one';
+    axesLine = `Axes 1:1 (isometric), ${half} half-width on every axis of ${windowScope}, so the tilt reads at `
+      + 'its true angle; the raster covers the populated part of the window and the rest is empty.';
+  }
   notes.section(SECTION.drawn, [
     eventFrameSentence(payload, kind),
     payload.window?.rule ?? '',
-    `Axes 1:1 (isometric), ${half} half-width on every axis of ${windowScope}, so the tilt reads at `
-    + 'its true angle; the raster covers the populated part of the window and the rest is empty.',
+    axesLine,
   ]);
 
   const disclosures = [payload.scale?.rule ?? ''];

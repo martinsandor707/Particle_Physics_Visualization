@@ -34,8 +34,8 @@ from calosrv.db import ddl, naming, registry
 from calosrv.db.naming import quote
 from calosrv.encode import voxels as encode_voxels
 from calosrv.grid import frame as frame_mod
-from calosrv.errors import CapabilityError
-from calosrv.query import canonical, capabilities, density, filters, voxel_event
+from calosrv.errors import CapabilityError, NotFoundError
+from calosrv.query import canonical, capabilities, density, event_inspector, filters, voxel_event
 from calosrv.text import signed_hyphens, typographic
 
 ROUTE = "/api/event"
@@ -756,9 +756,13 @@ def test_the_d_frame_draws_both_showers_on_native_layers(single_client):
     np.testing.assert_allclose(z["coords"], record.lattice.z.coords[z["i0"]:z["i0"] + len(z["coords"])] - zf,
                                atol=5e-4)
     assert geometry["grid"]["n"][2] == len(z["coords"])
-    # Every populated layer is a depth index: iz - i0.
+    # Every populated layer inside the depth window is a depth index: iz - i0. The per-axis window
+    # crops depth to its own percentile range, so a stray layer beyond it is counted, not drawn.
+    lo, hi = body["window"]["axes"]["z"]
+    depth = record.lattice.z.coords[rows["iz"].astype(int)] - zf
     layers = set(int(v) - z["i0"] for v in rows["iz"])
-    assert set(_cubes(body)["iz"].tolist()) == layers
+    inside = set(int(v) - z["i0"] for v, d in zip(rows["iz"], depth) if lo <= d <= hi)
+    assert inside <= set(_cubes(body)["iz"].tolist()) <= layers
     d_frame = body["event"]["d_frame"]
     assert d_frame["anchor"] == "backprojected" and d_frame["d_entry_mm"] > 0
     # One shower in the event's D-frame: its own rows, the same frame.
@@ -1423,3 +1427,113 @@ def test_tilted_pick_by_name_carries_its_rule_id(single_client):
     assert named["pool"] == bare["pool"] and named["event_number"] == bare["event_number"]
     bad = single_client.get("/api/event/pick", params={**HITS, "rule": "brightest"})
     assert bad.status_code == 422 and bad.json()["field"] == "rule"
+
+
+# ------------------------------------------------------------ per-axis window --
+#
+# Martin's decision of 2026-10-27: the Models page's 3-D event and its three
+# projections take one half-width per axis; Page 1's Event Inspector keeps one
+# shared half-width (tests/test_event_inspector.py pins that body).
+
+
+def _shared_and_per_axis(con, table: str, event: int, frame: str, shower: str):
+    record = _record(con, table)
+    footprint = canonical.cell_footprint(con, record)
+    return tuple(voxel_event.build(con, record, filters.build(record), event, frame, shower, "energy",
+                                   footprint=footprint, window=window)
+                 for window in ("shared", "per_axis"))
+
+
+def test_the_cubes_default_to_the_per_axis_window_and_say_so(single_client):
+    body = _served(single_client, **HITS, event_number=3, frame="lab")
+    window = body["window"]
+    assert window["mode"] == "per_axis" and body["meta"]["window"] == "per_axis"
+    assert window["rule"].startswith("Per-axis half-widths")
+    assert window["rule"] in [n["text"] for n in body["meta"]["notices"]]
+    # The rule names each axis's half-width, in the frame's symbols.
+    for axis in "xyz":
+        assert f"{axis} {window['half_mm_axes'][axis]:,.0f} mm" in window["rule"]
+        lo, hi = window["axes"][axis]
+        assert hi - lo >= 2 * window["half_mm_axes"][axis] - 1e-9
+    assert window["half_mm"] == max(window["half_mm_axes"].values())
+    shared = _served(single_client, **HITS, event_number=3, frame="lab", window="shared")
+    assert shared["window"]["mode"] == "shared" and shared["meta"]["window"] == "shared"
+    assert set(shared["window"]["half_mm_axes"].values()) == {shared["window"]["half_mm"]}
+
+
+def test_single_shower_event_3_is_no_deeper_than_the_detector(single_client):
+    """Stray cells far across the beam no longer stretch the depth axis (the shared box ran 4 m deep)."""
+    with _con(single_client) as con:
+        record = _record(con, SINGLE_HITS_TABLE)
+        lat = record.lattice
+        pitch_z = float(record.frame_bounds.layer_pitch_mm)
+        shared, per_axis = _shared_and_per_axis(con, SINGLE_HITS_TABLE, 3, "lab", "a")
+        rows = _rows(con, SINGLE_HITS_TABLE, 3)
+    detector = float(lat.z.coords.max() - lat.z.coords.min()) + pitch_z   # 60 layers of 20.5 mm
+    span = lambda builder, axis: builder.windows[axis][1] - builder.windows[axis][0]  # noqa: E731
+    assert span(shared, "z") > detector + 2 * pitch_z, "the shared half-width carried x's spread into depth"
+    assert span(per_axis, "z") <= detector + 2 * pitch_z
+    # Its own depth is a few layers, so the depth window is the 150 mm floor about them.
+    z = lat.z.coords[rows["iz"].astype(int)]
+    assert float(z.max() - z.min()) + 2 * pitch_z < 2 * event_inspector.WINDOW_MIN_HALF_MM
+    assert span(per_axis, "z") == pytest.approx(2 * event_inspector.WINDOW_MIN_HALF_MM)
+    assert per_axis.windows["z"][0] <= z.min() and z.max() <= per_axis.windows["z"][1]
+    # The axis whose range set the shared half-width keeps its window.
+    widest = max("xy", key=lambda a: per_axis.halves[a])
+    assert per_axis.halves[widest] == shared.half
+    assert per_axis.windows[widest] == pytest.approx(shared.windows[widest])
+    # The cubes drawn are the cells inside the per-axis box; those outside are counted.
+    body = per_axis.assemble(voxel_event.MAX_CAP, per_axis.first_pitch)
+    assert body["voxels"]["cubes"]["n"] + body["voxels"]["cap"]["cells_outside_window"] \
+        == body["event"]["n_cells"]
+
+
+@pytest.mark.parametrize("frame,shower", [("lab", "both"), ("lab", "a"), ("trans", "a"), ("local", "a"),
+                                          ("canonical", "both")])
+def test_a_two_shower_box_is_unchanged_where_the_spans_were_equal(single_client, frame, shower):
+    """Per axis, the half-width never exceeds the shared one, and an axis at the shared one keeps its window."""
+    with _con(single_client) as con:
+        checked = 0
+        for event in _events(con, BASELINE_TABLE):
+            try:
+                shared, per_axis = _shared_and_per_axis(con, BASELINE_TABLE, event, frame, shower)
+            except NotFoundError:  # an event the frame cannot place (no D-frame, no such shower)
+                continue
+            checked += 1
+            pad_shared = max(*shared.footprint, shared.pitch_z)
+            for axis in "xyz":
+                assert per_axis.halves[axis] <= shared.half + 1e-9, (event, axis)
+                # Equal spans: the same window, to the millimetre. Depth adds one layer pitch, not
+                # a footprint, outside Local, so its equality is checked only where the pads agree.
+                pads = per_axis.halves[axis] == shared.half and (
+                    axis != "z" or frame == "local" or pad_shared == per_axis.pitch_z)
+                if pads:
+                    assert per_axis.windows[axis] == pytest.approx(shared.windows[axis]), (event, axis)
+            body = per_axis.assemble(voxel_event.MAX_CAP, per_axis.first_pitch)
+            _check_body_contract(body)
+    assert checked >= 1
+
+
+def _check_body_contract(body: dict) -> None:
+    window = body["window"]
+    assert window["mode"] == "per_axis"
+    for axis in "xyz":
+        lo, hi = window["axes"][axis]
+        assert hi - lo == pytest.approx(2 * window["half_mm_axes"][axis])
+
+
+@pytest.mark.parametrize("table,event", [(SINGLE_HITS_TABLE, 3), (BASELINE_TABLE, 0)])
+@pytest.mark.parametrize("frame", ["lab", "trans", "local"])
+def test_the_box_and_its_projections_span_the_same_millimetres(single_client, table, event, frame):
+    """The pair asks both halves for window=per_axis; they read the same coordinates, so they agree."""
+    params = {"table_name": table, "event_number": event, "shower": "a", "window": "per_axis"}
+    vox = _served(single_client, **params, frame=frame)
+    response = single_client.get(ROUTE, params=params)
+    assert response.status_code == 200, response.text[:400]
+    raster = response.json()
+    assert raster["window"]["mode"] == "per_axis"
+    projection = raster["frames"][frame]
+    for axis in "xyz":
+        assert vox["window"]["axes"][axis] == pytest.approx(projection["window"][axis], abs=1e-9), axis
+        assert vox["window"]["half_mm_axes"][axis] == projection["half_mm_axes"][axis]
+    assert vox["voxels"]["cap"]["cells_outside_window"] == projection["outside_window"]["n_cells"]
