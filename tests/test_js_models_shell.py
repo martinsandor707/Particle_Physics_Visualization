@@ -2,18 +2,18 @@
 
 What the page shows for an experiment is decided from its capability block
 (``capabilities.js`` ``page2Plan``), checked on the recorded catalogue of all
-three kinds (``tests/fixtures/payloads/experiments.json``) and on a
-**hand-made copy** of its event-level aggregate with an XGBoost model run
-paired and the ``xgboost`` gate open: the backend's recording of such an
-experiment does not exist yet, so the copy states what that block is expected
-to carry (``model_runs`` per xgboost.md section 2.4, the ``xgboost`` gate and
-the performance gates open). Replace it with the recording once there is one.
+three kinds (``tests/fixtures/payloads/experiments.json``) and on the backend's
+recording of an event-level aggregate paired with its XGBoost models
+(``experiments_xgb.json``, recorded from ``xgb_client``: the electron seed-1
+aggregate, both analyses done, the ``xgboost`` gate and the performance gates
+open; its angle run honestly "split not reproduced").
 
 Around the plan:
 
 * ``state.js``: the Models page's keys round-trip through the hash, an
   invalid value keeps the default, a default is never written, a link with
-  any of them is not a cold boot, and ``event`` is never touched by them;
+  any of them is not a cold boot, and ``event`` and ``shower`` are never
+  touched by them (the feature explorer's shower is its own ``fshower``);
 * ``models_cards.js``: each card's request per kind (routes, parameters,
   abort keys), the segmentation network's notice, the frame fallbacks; on a
   fake document the cards' anatomy, one request shared by the cards that read
@@ -38,37 +38,39 @@ from test_js_physics_shell import _FAKE_DOM, JS, NODE, _path, _run
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
-#: The hand-made aggregate with a paired model run (see the module docstring).
+#: The recorded aggregate whose XGBoost analyses are done (see the module docstring).
 _OPEN_GATE = r"""
-const openGate = (catalogue) => {
-  const e = structuredClone(catalogue.experiments.find((x) => x.capabilities.kind === 'single_shower_events'));
-  e.table_name = 'electron_s1_aggr';
-  e.capabilities.model_runs = [
-    { task: 'momentum', species: 'electron', seed: 1, model_file: 'xgboost_electron/standalone_momentum_s1_model.json',
-      labels: ['incoming_momentum'], n_holdout: 19951, split_reproduced: true, status: 'done' },
-    { task: 'angle', species: 'electron', seed: 1, model_file: 'xgboost_electron/standalone_angle_s1_model.json',
-      labels: ['incoming_phi', 'incoming_theta'], n_holdout: 19951, split_reproduced: true, status: 'done' },
-  ];
-  for (const id of ['xgboost', 'perf-bins', 'pred-truth', 'pred-residuals']) {
-    e.capabilities.panels[id] = true;
-    delete e.capabilities.reasons[id];
-  }
-  return e;
+const openGate = () => {
+  const recorded = load(globalThis.XGB_CATALOGUE);
+  const e = recorded.experiments.find((x) => x.capabilities.kind === 'single_shower_events'
+    && x.capabilities.panels.xgboost === true);
+  if (!e) throw new Error('experiments_xgb.json holds no aggregate with its XGBoost gate open');
+  return structuredClone(e);
 };
 """
 
+
+def _with_xgb(paths: list) -> list:
+    """The script arguments, with the recorded XGBoost catalogue's path appended."""
+    return [*paths, _path("experiments_xgb")]
+
+
+#: Where each script reads the recorded XGBoost catalogue's path from (its last argument).
+_XGB_ARG = "globalThis.XGB_CATALOGUE = JSON.parse(process.argv[1]).at(-1);\n"
+
 # ----------------------------------------------------------- the plan --
 
-_PLAN_SCRIPT = _FAKE_DOM + _OPEN_GATE + r"""
+_PLAN_SCRIPT = _FAKE_DOM + _OPEN_GATE + _XGB_ARG + r"""
 const [capsUrl, cataloguePath] = JSON.parse(process.argv[1]);
 const catalogue = load(cataloguePath);
 const caps = await import(capsUrl);
 const out = {};
 const exps = Object.fromEntries(catalogue.experiments.map((e) => [e.capabilities.kind, e]));
 out.plans = Object.fromEntries(Object.entries(exps).map(([kind, e]) => [kind, caps.page2Plan(e)]));
-out.open = caps.page2Plan(openGate(catalogue));
+out.openExperiment = openGate();
+out.open = caps.page2Plan(openGate());
 // A run paired but its analysis still running: the section shows, its cards say why.
-const running = openGate(catalogue);
+const running = openGate();
 running.capabilities.panels.xgboost = false;
 running.capabilities.reasons.xgboost = 'Analysing: 3 of 7 steps.';
 running.capabilities.model_runs[0].status = 'running';
@@ -94,7 +96,7 @@ console.log(JSON.stringify(out));
 
 @pytest.fixture(scope="module")
 def plan_results() -> dict:
-    return _run(_PLAN_SCRIPT, [(JS / "capabilities.js").as_uri(), _path("experiments")])
+    return _run(_PLAN_SCRIPT, _with_xgb([(JS / "capabilities.js").as_uri(), _path("experiments")]))
 
 
 PERF = ["perf-bins", "pred-truth", "pred-residuals"]
@@ -166,17 +168,26 @@ def test_the_events_only_plan_keeps_the_features_and_hides_the_hit_sections(plan
 
 
 def test_a_paired_aggregate_opens_the_xgboost_section_and_hides_its_notice(plan_results):
-    """On the hand-made copy with the gate open (module docstring)."""
+    """On the backend's recording of a paired aggregate (experiments_xgb.json)."""
+    experiment = plan_results["openExperiment"]
+    assert experiment["capabilities"]["kind"] == "single_shower_events"
+    assert [r["status"] for r in experiment["capabilities"]["model_runs"]] == ["done", "done"]
     plan = plan_results["open"]
     assert plan["sections"]["xgb"] is True and plan["sections"]["perf"] is True
     for card in XGB:
+        assert plan["cards"][card] == {"shown": True, "enabled": True, "reason": None}, card
+    for card in PERF:
         assert plan["cards"][card] == {"shown": True, "enabled": True, "reason": None}, card
     assert plan["xgbNotice"] is None
     # No networks, but real XGBoost predictions: the banner says which are drawn.
     assert plan["banner"] == plan_results["texts"]["instead"]
     assert plan["xgb"]["tasks"] == ["momentum", "angle"]
     assert plan["xgb"]["labels"] == {"momentum": ["momentum"], "angle": ["phi", "theta"]}
-    assert plan["xgb"]["status"] == "ready" and plan["xgb"]["splitReproduced"] is True
+    assert plan["xgb"]["status"] == "ready"
+    # The recorded angle model does not reproduce its split (xgb-fixer-report.md, F5): the plan says so.
+    runs = {r["task"]: r for r in experiment["capabilities"]["model_runs"]}
+    assert runs["momentum"]["split_reproduced"] is True and runs["angle"]["split_reproduced"] is False
+    assert plan["xgb"]["splitReproduced"] is False
 
 
 def test_a_running_analysis_shows_the_xgboost_cards_shut_with_the_servers_sentence(plan_results):
@@ -215,17 +226,17 @@ const { State, DEFAULTS, FEATURE_KEYS } = await import(stateUrl);
 const labels = await import(labelsUrl);
 const out = {};
 const fresh = (hash) => { window.location.hash = hash; replaced = []; return new State(); };
-const link = '#feature=depth&fclass=label&voxel_event=12&voxel_shower=both&voxel_channel=species'
+const link = '#feature=depth&fclass=label&fshower=b&voxel_event=12&voxel_shower=both&voxel_channel=species'
   + '&ens_channel=gradcam_energy&xgb_task=angle&xgb_label=phi';
 let s = fresh(link);
-out.read = Object.fromEntries(['feature', 'fclass', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
+out.read = Object.fromEntries(['feature', 'fclass', 'fshower', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
   'xgb_task', 'xgb_label', 'event', 'shower'].map((k) => [k, s.get(k)]));
 out.cold = s.coldBoot;
 s.writeHash();
 out.written = window.location.hash;
-s = fresh('#feature=bogus&fclass=bins&voxel_event=-1&voxel_shower=c&voxel_channel=density&ens_channel=energy'
+s = fresh('#feature=bogus&fclass=bins&fshower=both&voxel_event=-1&voxel_shower=c&voxel_channel=density&ens_channel=energy'
   + '&xgb_task=energy&xgb_label=psi');
-out.invalid = Object.fromEntries(['feature', 'fclass', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
+out.invalid = Object.fromEntries(['feature', 'fclass', 'fshower', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
   'xgb_task', 'xgb_label'].map((k) => [k, s.get(k)]));
 out.invalidCold = s.coldBoot;
 s = fresh('#voxel_event=1.5');
@@ -238,11 +249,15 @@ s.set({ xgb_task: 'angle', voxel_event: 7 });
 out.setHash = window.location.hash;
 s.set({ xgb_task: 'momentum', voxel_event: null });
 out.backHash = window.location.hash;
+s.set({ fshower: 'b' });
+out.showerHash = window.location.hash;
+s.set({ fshower: 'a' });
+out.showerBack = window.location.hash;
 // The Physics page's keys survive a write from the Models page, and the reverse.
 s = fresh('#event=3&compare=true&feature=width');
 s.set({ fclass: 'label' });
 out.mixed = window.location.hash;
-out.defaults = Object.fromEntries(['feature', 'fclass', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
+out.defaults = Object.fromEntries(['feature', 'fclass', 'fshower', 'voxel_event', 'voxel_shower', 'voxel_channel', 'ens_channel',
   'xgb_task', 'xgb_label'].map((k) => [k, DEFAULTS[k]]));
 out.featureKeys = [...FEATURE_KEYS];
 out.labelKeys = labels.FEATURES.map((f) => f.key);
@@ -259,14 +274,14 @@ def state_results() -> dict:
 
 def test_the_models_keys_round_trip_through_the_hash(state_results):
     r = state_results
-    assert r["read"] == {"feature": "depth", "fclass": "label", "voxel_event": 12, "voxel_shower": "both",
-                         "voxel_channel": "species", "ens_channel": "gradcam_energy", "xgb_task": "angle",
-                         "xgb_label": "phi", "event": None, "shower": "a"}
+    assert r["read"] == {"feature": "depth", "fclass": "label", "fshower": "b", "voxel_event": 12,
+                         "voxel_shower": "both", "voxel_channel": "species", "ens_channel": "gradcam_energy",
+                         "xgb_task": "angle", "xgb_label": "phi", "event": None, "shower": "a"}
     assert r["cold"] is False
     written = dict(part.split("=") for part in r["written"].lstrip("#").split("&"))
-    assert written == {"feature": "depth", "fclass": "label", "voxel_event": "12", "voxel_shower": "both",
-                       "voxel_channel": "species", "ens_channel": "gradcam_energy", "xgb_task": "angle",
-                       "xgb_label": "phi"}
+    assert written == {"feature": "depth", "fclass": "label", "fshower": "b", "voxel_event": "12",
+                       "voxel_shower": "both", "voxel_channel": "species", "ens_channel": "gradcam_energy",
+                       "xgb_task": "angle", "xgb_label": "phi"}
 
 
 def test_an_invalid_models_value_keeps_its_default_but_the_link_is_still_a_view_link(state_results):
@@ -280,9 +295,11 @@ def test_the_models_defaults_are_never_written(state_results):
     assert r["defaultHash"] == "" and r["cleanCold"] is True
     assert r["setHash"] == "#voxel_event=7&xgb_task=angle"
     assert r["backHash"] == ""
-    assert r["defaults"] == {"feature": "num_hits", "fclass": "windows", "voxel_event": None, "voxel_shower": "a",
-                             "voxel_channel": "energy", "ens_channel": "density", "xgb_task": "momentum",
-                             "xgb_label": "theta"}
+    # The feature explorer's shower: B is written, its default A never is.
+    assert r["showerHash"] == "#fshower=b" and r["showerBack"] == ""
+    assert r["defaults"] == {"feature": "num_hits", "fclass": "windows", "fshower": "a", "voxel_event": None,
+                             "voxel_shower": "a", "voxel_channel": "energy", "ens_channel": "density",
+                             "xgb_task": "momentum", "xgb_label": "theta"}
 
 
 def test_neither_page_strips_the_others_keys(state_results):
@@ -299,25 +316,27 @@ def test_the_feature_names_follow_the_states_feature_keys(state_results):
 
 # ------------------------------------------------------- the requests --
 
-_REQUEST_SCRIPT = _FAKE_DOM + _OPEN_GATE + r"""
+_REQUEST_SCRIPT = _FAKE_DOM + _OPEN_GATE + _XGB_ARG + r"""
 const [cardsUrl, capsUrl, cataloguePath] = JSON.parse(process.argv[1]);
 const catalogue = load(cataloguePath);
 const cards = await import(cardsUrl);
 const caps = await import(capsUrl);
 const exps = Object.fromEntries(catalogue.experiments.map((e) => [e.capabilities.kind, e]));
 const plans = Object.fromEntries(Object.entries(exps).map(([k, e]) => [k, caps.page2Plan(e)]));
-plans.open = caps.page2Plan(openGate(catalogue));
+const recorded = openGate();
+plans.open = caps.page2Plan(recorded);
 const filters = {
   two: { table_name: 'experiment_baseline', e1_min: 1, e1_max: 20, e2_min: 1, e2_max: 20, d_min: 0, d_max: 900,
     include_undefined_d: false },
   one: { table_name: 'single_hits', e1_min: 1, e1_max: 20 },
   events: { table_name: 'single_events', e1_min: 1, e1_max: 20 },
-  open: { table_name: 'electron_s1_aggr', e1_min: 1, e1_max: 20 },
+  open: { table_name: recorded.table_name, e1_min: 1, e1_max: 20 },
 };
+var out_open_table = recorded.table_name;
 const kinds = { two: 'two_shower_hits', one: 'single_shower_hits', events: 'single_shower_events', open: 'open' };
 const out = { requests: {}, notices: {}, options: {}, captions: {} };
 const view = (extra = {}) => ({ frame: 'lab', model: 'segmentation', feature: 'num_hits', fclass: 'windows',
-  xgb_task: 'momentum', xgb_label: 'theta', ...extra });
+  fshower: 'a', xgb_task: 'momentum', xgb_label: 'theta', ...extra });
 for (const [k, kind] of Object.entries(kinds)) {
   out.requests[k] = {};
   for (const spec of cards.MODELS_CARDS) {
@@ -367,6 +386,14 @@ out.options = {
   tree: cards.cardOptions('xgb-surrogate', { plan: plans.open, view: view({ xgb_task: 'angle', xgb_label: 'phi' }) }),
   binary: cards.cardOptions('xgb-binary', { plan: plans.open, view: view({ xgb_task: 'angle' }) }),
 };
+// The feature explorer's shower: on every feature card of two-shower data, never on one shower.
+out.featureShower = {
+  b: Object.fromEntries(['feat-table', 'feat-corr', 'feat-hist', 'feat-hist2d'].map((id) => [id,
+    cards.cardRequest(id, { filters: filters.two, plan: plans.two_shower_hits, view: view({ fshower: 'b' }) }).params.shower])),
+  singleLinkB: cards.cardRequest('feat-hist', { filters: filters.one, plan: plans.single_shower_hits, view: view({ fshower: 'b' }) }).params,
+  control: cards.cardControls('feat-hist').map((c) => c.name),
+};
+out.openTable = out_open_table;
 out.abortKeys = cards.ABORT_KEYS;
 out.segmentationNotice = cards.SEGMENTATION_NOTICE;
 console.log(JSON.stringify(out));
@@ -375,8 +402,8 @@ console.log(JSON.stringify(out));
 
 @pytest.fixture(scope="module")
 def request_results() -> dict:
-    return _run(_REQUEST_SCRIPT, [(JS / "models_cards.js").as_uri(), (JS / "capabilities.js").as_uri(),
-                                  _path("experiments")])
+    return _run(_REQUEST_SCRIPT, _with_xgb([(JS / "models_cards.js").as_uri(), (JS / "capabilities.js").as_uri(),
+                                            _path("experiments")]))
 
 
 def test_the_abort_keys_are_the_interfaces(request_results):
@@ -409,24 +436,26 @@ def test_the_performance_cards_ask_for_the_selected_task(request_results):
 
 
 def test_a_paired_aggregate_asks_for_the_xgboost_task_and_output(request_results):
+    table = request_results["openTable"]
+    assert table.startswith("electron_m0_20gev_reg_balanced_aggr_s1_v3_")
     r = request_results["xgbAngle"]
     assert r["perf"]["params"]["model"] == "angle"
     assert r["pred"]["params"]["label"] == "phi" and "coord_system" not in r["pred"]["params"]
     assert r["surrogate"] == {"route": "/api/xgboost", "abortKey": "models-xgb-surrogate",
-                              "params": {"table_name": "electron_s1_aggr", "view": "surrogate", "task": "angle"}}
+                              "params": {"table_name": table, "view": "surrogate", "task": "angle"}}
     open_ = request_results["requests"]["open"]
     # The momentum model answers the energy task.
     assert open_["perf-bins"]["params"]["model"] == "energy"
-    assert open_["xgb-binary"]["params"] == {"table_name": "electron_s1_aggr", "view": "binary"}
+    assert open_["xgb-binary"]["params"] == {"table_name": table, "view": "binary"}
     for card in ("xgb-cv", "xgb-importance"):
-        assert open_[card]["params"] == {"table_name": "electron_s1_aggr", "view": card.split("-")[1],
+        assert open_[card]["params"] == {"table_name": table, "view": card.split("-")[1],
                                          "task": "momentum"}, "the XGBoost views take no selection"
 
 
 def test_the_feature_cards_ask_in_their_frame_with_their_classes(request_results):
     two = request_results["requests"]["two"]
     assert two["feat-table"]["params"] == {**_TWO_FILTERS, "view": "describe", "classes": "windows",
-                                           "coord_system": "lab"}
+                                           "coord_system": "lab", "shower": "a"}
     assert two["feat-corr"]["params"]["class_index"] == "pooled"
     assert two["feat-hist"]["params"]["feature"] == "num_hits" and "scale" not in two["feat-hist"]["params"]
     assert two["prim-rate"] == {"route": "/api/primaries", "abortKey": "models-prim", "params": _TWO_FILTERS}
@@ -438,6 +467,16 @@ def test_the_feature_cards_ask_in_their_frame_with_their_classes(request_results
     # The aggregate has no hits: no frame, and only its own nineteen features.
     assert "coord_system" not in f["circOnAggregate"]["params"]
     assert f["circOnAggregate"]["params"]["feature"] == "num_hits"
+
+
+def test_every_feature_card_asks_for_the_selected_shower_on_two_shower_data(request_results):
+    """The A/B toggle: `fshower` goes with every feat-* request; one-shower data sends none, even from a B link."""
+    f = request_results["featureShower"]
+    assert f["b"] == {"feat-table": "b", "feat-corr": "b", "feat-hist": "b", "feat-hist2d": "b"}
+    for card in FEATURES:
+        assert request_results["requests"]["two"][card]["params"]["shower"] == "a", card
+    assert "shower" not in f["singleLinkB"], "B does not exist on one shower: the server would refuse it"
+    assert f["control"][0] == "fshower"
 
 
 def test_a_single_shower_request_carries_no_second_shower_axis(request_results):
@@ -473,7 +512,7 @@ _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, 
 
 # --------------------------------------------------- the section on a page --
 
-_SECTION_SCRIPT = _FAKE_DOM + _OPEN_GATE + r"""
+_SECTION_SCRIPT = _FAKE_DOM + r"""
 const [cardsUrl, stateUrl, capsUrl, cataloguePath, fixturePaths] = JSON.parse(process.argv[1]);
 const catalogue = load(cataloguePath);
 const fixtures = loadAll(fixturePaths);
@@ -551,6 +590,7 @@ const section = new cards.ModelsSection(hosts, {
 });
 const all = Object.values(hosts).flatMap((h) => h.children);
 const cardOf = (id) => all.find((c) => c.dataset.panel === id);
+const FEATURES_IDS = ['feat-table', 'feat-corr', 'feat-hist', 'feat-hist2d'];
 out.anatomy = all.map((card) => {
   const h2 = card.children[0];
   const buttons = h2.children[1].children;
@@ -622,6 +662,21 @@ select.dispatch('change');
 await settle();
 out.afterFeature = { calls: calls.slice(beforeFeature), feature: state.get('feature') };
 
+// The shower toggle: shown on two-shower data, it writes `fshower` and reloads the four feature cards.
+const showerButtons = (id) => cardOf(id).find((el) => el.getAttribute?.('aria-label') === 'Shower');
+out.showerToggle = { shown: FEATURES_IDS.map((id) => [id, !showerButtons(id).hidden]) };
+const beforeShower = calls.length;
+cardOf('feat-corr').find((el) => el.dataset.featureShower === 'b').click();
+await settle();
+out.showerToggle.calls = calls.slice(beforeShower);
+out.showerToggle.state = state.get('fshower');
+out.showerToggle.hash = window.location.hash;
+out.showerToggle.changes = changes.at(-1);
+out.showerToggle.pressed = FEATURES_IDS.map((id) => cardOf(id).find((el) => el.dataset.featureShower === 'b').getAttribute('aria-pressed'));
+cardOf('feat-table').find((el) => el.dataset.featureShower === 'a').click();
+await settle();
+out.showerToggle.back = { state: state.get('fshower'), hash: window.location.hash };
+
 // A refusal stays refused; a transient failure offers a Retry and is asked again.
 failNext = { path: '/api/features', status: 422 };
 section.controls = { ...section.controls, corrClass: '2' };
@@ -663,6 +718,7 @@ await settle();
 out.late = { rendered: rendered.length - rendersBefore, payload: section.payloadOf('prim-rate'),
   cache: section.cache.size, busy: primCard.classList.contains('is-loading') };
 out.singleHidden = Object.fromEntries(all.map((c) => [c.dataset.panel, c.hidden]));
+out.singleShowerShown = FEATURES_IDS.map((id) => !cardOf(id).find((el) => el.getAttribute?.('aria-label') === 'Shower').hidden);
 
 // A panel module not built yet: the card says so, without a Retry, and is not asked again.
 state.set({ table_name: 'single_hits' }, { silent: true });
@@ -778,6 +834,19 @@ def test_a_feature_change_reloads_only_the_cards_that_read_it(section_results):
     assert section_results["featureOptions"] == 21
 
 
+def test_the_shower_toggle_writes_its_own_key_and_reloads_the_feature_cards(section_results):
+    t = section_results["showerToggle"]
+    assert all(shown for _, shown in t["shown"]), "shown on two-shower data"
+    assert t["state"] == "b" and t["changes"] == {"fshower": "b"} and "fshower=b" in t["hash"]
+    assert "event=" not in t["hash"] and "&shower=" not in t["hash"] and not t["hash"].startswith("#shower=")
+    views = sorted(c.split("view=")[1].split("&")[0] for c in t["calls"])
+    assert views == ["corr", "describe", "hist", "hist2d"]
+    assert all("shower=b" in c for c in t["calls"])
+    assert t["pressed"] == ["true"] * 4, "every feature card shows the one shared value"
+    assert t["back"]["state"] == "a" and "fshower" not in t["back"]["hash"]
+    assert section_results["singleShowerShown"] == [False] * 4, "one shower: no toggle"
+
+
 def test_a_refusal_stays_refused_and_a_transient_failure_is_retried(section_results):
     r = section_results
     assert r["refused"]["hidden"] is False and r["refused"]["retry"] is False and "422" in r["refused"]["text"]
@@ -855,13 +924,18 @@ out.served = admin.modelRunRows({ models: { dir: '/app/host/xgboost_models' }, r
     error: null, step: 7, steps: 7, progress: 1, duration_s: 61.2 },
 ] }).map((row) => [row.models.length, admin.runStatusText(row)]);
 out.empty = admin.modelRunRows({});
+// The backend's recording of the list: each finished run's split checks, per task.
+const recordedRuns = admin.modelRunRows(load(JSON.parse(process.argv[1])[2]));
+out.recorded = recordedRuns.map((row) => ({ name: row.table_name, status: row.status, splits: row.splits,
+  text: admin.runStatusText(row), warning: admin.splitWarning(row) }));
 console.log(JSON.stringify(out));
 """
 
 
 @pytest.fixture(scope="module")
 def tabs_results() -> dict:
-    return _run(_TABS_SCRIPT, [(JS / "page_common.js").as_uri(), (JS / "controls" / "admin.js").as_uri()])
+    return _run(_TABS_SCRIPT, [(JS / "page_common.js").as_uri(), (JS / "controls" / "admin.js").as_uri(),
+                               _path("model_runs_admin")])
 
 
 def test_a_tab_href_carries_the_hash_and_keeps_its_query(tabs_results):
@@ -880,6 +954,21 @@ def test_the_tabs_compute_their_href_when_followed(tabs_results):
 def test_a_choice_group_is_built_from_labels(tabs_results):
     assert tabs_results["group"] == [["segmentation", False, True, "Not in this experiment."],
                                      ["energy", True, False, ""]]
+
+
+def test_a_finished_analysis_says_which_split_was_not_reproduced(tabs_results):
+    """The admin split block {reproduced, ratio_42, max_others, seed_of_max, n_others, margin}, per task."""
+    rows = {r["name"]: r for r in tabs_results["recorded"]}
+    (electron,) = [r for name, r in rows.items() if name.startswith("electron_")]
+    assert electron["status"] == "done"
+    assert [s["task"] for s in electron["splits"]] == ["momentum", "angle"]
+    assert set(electron["splits"][0]) == {"task", "reproduced", "ratio_42", "max_others", "seed_of_max", "n_others",
+                                          "margin"}
+    assert electron["text"].startswith("done in ") and "; split not reproduced (angle: " in electron["text"]
+    assert electron["warning"] == ("split not reproduced (angle: validation / training MSE 1.03 at random_state 42 "
+                                   "against at most 1.24 at random_state 55, 1.6× required)")
+    assert "momentum" not in electron["warning"]
+    assert all(not r["warning"] for name, r in rows.items() if not name.startswith("electron_"))
 
 
 def test_the_model_runs_list_is_read_defensively(tabs_results):

@@ -211,10 +211,12 @@ export function energyNotes({
 /**
  * The notes of one Event Inspector panel: one shower of one event in one
  * frame (`kind`: lab | trans | local), one projection (`panelId`: xy | xz |
- * yz). `payload` is the whole `/api/event` response.
+ * yz). `payload` is the whole `/api/event` response. `windowScope` names the
+ * panels that share the window: the inspector's nine by default, the three
+ * projections beside the Models page's 3-D event view there.
  */
 export function eventNotes({
-  payload, kind, panelId, view = null, state = null, experiment = null,
+  payload, kind, panelId, view = null, state = null, experiment = null, windowScope = 'all nine panels',
 }) {
   const frame = payload?.frames?.[kind];
   const panel = frame?.panels?.[panelId];
@@ -238,7 +240,7 @@ export function eventNotes({
   notes.section(SECTION.drawn, [
     eventFrameSentence(payload, kind),
     payload.window?.rule ?? '',
-    `Axes 1:1 (isometric), ${half} half-width on every axis of all nine panels, so the tilt reads at `
+    `Axes 1:1 (isometric), ${half} half-width on every axis of ${windowScope}, so the tilt reads at `
     + 'its true angle; the raster covers the populated part of the window and the rest is empty.',
   ]);
 

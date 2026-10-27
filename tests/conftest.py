@@ -65,7 +65,7 @@ def pytest_collection_modifyitems(session, config, items):
     booted = [
         item for item in items
         if {"client", "live_server", "synthetic_client", "auto_client", "single_client",
-            "physics_live_server", "xgb_client", "xgb_boot"}
+            "physics_live_server", "xgb_client", "xgb_boot", "models_live_server"}
         & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
@@ -626,3 +626,127 @@ def physics_live_server(tmp_path_factory):
     reset_job_store()
     reset_cache()
     clean_boot_env()
+
+
+#: The aggregate the ``models_live_server`` pairs with its XGBoost models.
+MODELS_XGB_TABLE = xgb_table(XGB_SOURCE)
+
+
+def start_models_server(data_dir: Path, drop: Path, sources: dict, *, port: int | None = None,
+                        timeout_s: float = 240.0) -> dict:
+    """Boot the app on a real port holding every kind the Models page draws.
+
+    The two-shower demonstration (the baseline seed), ``synthetic_single_shower``'s
+    hits (:data:`SINGLE_HITS_TABLE`), and the electron seed-1 aggregate of
+    ``xgb_sources`` arriving through the drop folder, with ``xgb_sources``' models
+    folder, so the whole lifecycle runs: the ingest worker builds it, the queue
+    hook hands it to the model-run worker, and this waits - through the read-only
+    ``GET /api/admin/model-runs`` - until its analysis is done. Returns
+    ``{base, server, thread, app}``; :func:`stop_models_server` stops it.
+    A function, not only a fixture, so a scratch script can boot the same server.
+    """
+    import shutil
+    import threading
+    import time
+
+    import httpx
+    import uvicorn
+
+    from calosrv.app import create_app
+    from calosrv.config import load_settings
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest import pipeline
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.modelruns.jobs import reset_model_runs
+    from calosrv.query.cache import reset_cache
+
+    import synthetic_single_shower
+
+    reset_database()
+    reset_job_store()
+    reset_model_runs()
+    reset_cache()
+    clean_boot_env()
+    hits_csv = data_dir / "single_hits.csv"
+    synthetic_single_shower.write(hits_csv)
+    shutil.copyfile(sources["electron"], drop / XGB_SOURCE)
+    os.environ.update({
+        "CALOSRV_DATA_DIR": str(data_dir), "DUCKDB_MEMORY_GB": "2", "CALOSRV_SEED_CSV": str(SEED_FILE),
+        "CALOSRV_AUTO_INGEST_DIR": str(drop), "CALOSRV_AUTO_INGEST_SETTLE_S": "0",
+        "CALOSRV_MODEL_DIR": str(sources["models"]),
+    })
+
+    app = create_app(load_settings())
+    port = port or _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+    handle = {"base": base, "server": server, "thread": thread, "app": app}
+
+    def ready() -> set[str]:
+        try:
+            listed = httpx.get(f"{base}/api/experiments", timeout=2).json()["experiments"]
+        except Exception:
+            return set()
+        return {e["table_name"] for e in listed if e["status"] == "ready"}
+
+    deadline = time.monotonic() + timeout_s
+    while BASELINE_TABLE not in ready():
+        if time.monotonic() > deadline:
+            stop_models_server(handle)
+            raise RuntimeError("the server never reported its baseline ready")
+        time.sleep(0.25)
+    database = app.state.database
+    with database.write_lock() as con:
+        result = pipeline.run_ingest(con, database.settings, SINGLE_HITS_TABLE, hits_csv)
+        assert result.ok, result.warnings
+    # The aggregate arrives through the drop folder; its analysis follows on the model-run worker.
+    while True:
+        runs = {}
+        if MODELS_XGB_TABLE in ready():
+            try:
+                listed = httpx.get(f"{base}/api/admin/model-runs", timeout=5).json()["runs"]
+                runs = {r["table_name"]: r["status"] for r in listed}
+            except Exception:
+                runs = {}
+        if runs.get(MODELS_XGB_TABLE) == "done":
+            break
+        if runs.get(MODELS_XGB_TABLE) in ("failed", "unpaired", "stale") or time.monotonic() > deadline:
+            stop_models_server(handle)
+            raise RuntimeError(f"the paired aggregate's analysis did not finish: {runs}")
+        time.sleep(0.25)
+    return handle
+
+
+def stop_models_server(handle: dict) -> None:
+    """Stop a server :func:`start_models_server` booted and reset every process-wide singleton."""
+    from calosrv.db.connection import reset_database
+    from calosrv.ingest.jobs import reset_job_store
+    from calosrv.modelruns.jobs import reset_model_runs
+    from calosrv.query.cache import reset_cache
+
+    handle["server"].should_exit = True
+    handle["thread"].join(timeout=15)
+    reset_model_runs()
+    reset_database()
+    reset_job_store()
+    reset_cache()
+    clean_boot_env()
+
+
+@pytest.fixture(scope="module")
+def models_live_server(tmp_path_factory, xgb_sources):
+    """The real app on a real port for the Models page (``start_models_server``).
+
+    A separate server from ``live_server`` and ``physics_live_server``: the
+    existing browser modules keep their own experiments, and this one adds the
+    paired XGBoost aggregate the Models page's model sections need.
+    """
+    playwright = pytest.importorskip("playwright.sync_api")
+    if not SEED_FILE.is_file():
+        pytest.skip("Demonstration file not present")
+    handle = start_models_server(tmp_path_factory.mktemp("models-browser-data"),
+                                 tmp_path_factory.mktemp("models-browser-drop"), xgb_sources)
+    yield {"base": handle["base"], "playwright": playwright}
+    stop_models_server(handle)

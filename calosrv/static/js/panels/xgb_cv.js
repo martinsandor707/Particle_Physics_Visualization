@@ -80,6 +80,20 @@ export function intervalName(payloadOrDof = 4) {
 }
 export const BREAK_NAME = 'Axis break: R² axis does not start at 0';
 
+/**
+ * How the SE of a fold mean is named: the server's `se` is the Nadeau–Bengio
+ * corrected SE, √(variance_factor) × SD, when the interval says it is
+ * (`interval.method` 'corrected_resampled_t'); the plain s/√k otherwise.
+ */
+export function seName(payload, summary = null) {
+  const corrected = payload?.interval?.method === 'corrected_resampled_t';
+  const factor = summary?.variance_factor ?? payload?.interval?.variance_factor;
+  if (!corrected) return 'SE of the mean';
+  return Number.isFinite(factor)
+    ? `corrected SE of the mean (√${sigFigs(factor, 3)} × SD: the folds share training rows)`
+    : 'corrected SE of the mean (the folds share training rows)';
+}
+
 const METRIC_TITLES = Object.freeze({ mae: 'MAE', mse: 'MSE', rmse: 'RMSE', r2: 'R²' });
 const LABEL_SYMBOLS = Object.freeze({ theta: 'θ', phi: 'φ', momentum: 'p' });
 const LABEL_LONG = Object.freeze({
@@ -203,6 +217,7 @@ export function cvModel(payload) {
     dof,
     t: payload.interval?.t ?? null,
     intervalLabel: intervalName(payload),
+    seName: (summary) => seName(payload, summary),
     folds: folds.map((f) => ({ fold: f.fold, n_train: f.n_train, n_val: f.n_val })),
     rows,
     clipped,
@@ -397,7 +412,8 @@ export function meanTip(model, panel, slot) {
     `<b>${escapeHtml(panel.title)} · ${escapeHtml(slot.long)}: mean of ${formatInt(s.n ?? slot.values.length)} folds = ${u(s.mean)}</b>`,
     `${escapeHtml(model.intervalLabel)}: [${u(lo)}, ${u(hi)}]${Number.isFinite(s.t) ? ` (t = ${sigFigs(s.t, 4)})` : ''}`
       + ` ${mutedLine('- the capped whisker, the uncertainty of the mean')}`,
-    `SD of the folds ${spread(s.sd)} (ddof 1): their spread, a different quantity, not drawn; SE of the mean ${spread(s.se)}`,
+    `SD of the folds ${spread(s.sd)} (ddof 1): their spread, a different quantity, not drawn; `
+      + `${escapeHtml(model.seName ? model.seName(s) : 'SE of the mean')} ${spread(s.se)}`,
     `folds: ${slot.values.map((v) => escapeHtml(metricText(v, panel.metric, ''))).join(', ')}`,
   ];
   if (s.clipped) lines.push(mutedLine('the interval was clipped by the server to the range the metric can take'));

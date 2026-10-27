@@ -22,6 +22,7 @@ import { FilterBlock } from './controls/filter_block.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { FrameGrid, GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
+import { depthIsometric, ensembleCellOptions } from './event_cells.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
 import { formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
@@ -436,72 +437,20 @@ let popoverTrigger = null;
 /* -------------------------------------------------------------- projections */
 
 /**
- * Whether a depth panel may keep a 1:1 metric aspect.
- *
- * In the absolute (detector) frame the depth panels span 5200 mm against
- * 1210 mm of depth, where a true aspect would be an unusable sliver, so they
- * fill the card. A co-registered frame crops each panel to where the energy is, and for
- * most selections the two spans are comparable, so 1:1 becomes affordable. It
- * is used when the letterboxed plot would still keep at least 45% of the
- * card's width and the span ratio sits inside the export clamp [0.45, 1.3].
- */
-function depthIsometric(panel, payload) {
-  const { col, row } = payload.axes;
-  const colSpan = col.hi - col.lo;
-  const rowSpan = row.hi - row.lo;
-  if (!(colSpan > 0 && rowSpan > 0)) return false;
-  const ratio = rowSpan / colSpan;
-  if (ratio < 0.45 || ratio > 1.3) return false;
-  const width = panel.element.clientWidth;
-  const height = panel.element.clientHeight;
-  if (!(width > 0 && height > 0)) return false;
-  const scale = Math.min(width / colSpan, height / rowSpan);
-  return colSpan * scale >= 0.45 * width;
-}
-
-/**
  * The options one spatial panel of a projections payload renders with - the
- * ensemble grid's and the compare-frames view's cells alike.
+ * ensemble grid's and the compare-frames view's cells alike (event_cells.js
+ * `ensembleCellOptions`, shared with the Models page's projections).
  *
  * The entry panel carries the centroids and, in the absolute frame, the
  * separation vector; the depth panels carry the measured shower axes (lab)
  * and the individual incident trajectories when few enough events are
- * selected to read (lab, and from the origin in the translated frame).
- * `showerKey` names which transverse coordinate a depth panel plots, so the
- * projection of the direction vector picks sin(phi) or cos(phi) correctly. In
+ * selected to read (lab, and from the origin in the translated frame). In
  * the canonical frame both give way to the two ensemble axes; the local frame
- * draws no direction.
+ * draws no direction. Whether a depth panel keeps a 1:1 aspect is
+ * `depthIsometric`, from the same module.
  */
 function panelOptions(payload, id) {
-  const palette = state.get('palette');
-  const overlays = payload.overlays || {};
-  const kind = kindOf(payload);
-  const canonical = kind === 'canonical';
-  const coregistered = kind !== 'lab';
-  const frame = coregistered ? payload.frame : null;
-  // `resolution` is retained in each panel's `lastOpts`, so the exporter
-  // names the R and kernel the payload was built with - which the payload
-  // guard may have lowered below what the slider says.
-  const common = {
-    palette, frame, tableName: payload.meta?.table_name,
-    resolution: payload.meta?.resolution ?? null,
-    weighting: payload.meta?.weighting ?? state.get('weighting'),
-  };
-  const anchors = canonical ? (overlays.anchors || null) : null;
-  if (id === 'xy') {
-    return { ...common, centroids: payload.centroids, showVector: kind === 'lab', anchors };
-  }
-  const ensemble = overlays.ensemble_axes || {};
-  return {
-    ...common,
-    axes: kind === 'lab' ? overlays.axes?.[id] : null,
-    trajectories: kind === 'lab' || kind === 'trans' ? (overlays.trajectories || []) : null,
-    showerKey: id === 'yz' ? 'y' : 'x',
-    ensembleAxes: canonical ? ensemble[id] || null : null,
-    ensembleMeta: canonical ? frame?.ensemble || null : null,
-    anchors,
-    depthBounds: canonical ? { front: 0, back: frame.depth_mm } : null,
-  };
+  return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'));
 }
 
 /** Draw the three spatial panels from a projections payload. */

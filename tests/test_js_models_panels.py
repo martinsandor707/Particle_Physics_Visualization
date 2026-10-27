@@ -384,6 +384,9 @@ function measureInk(theme) {
   const c = (colour) => palette.contrast(cp.rgbOf(colour), card);
   const res = {};
   res.perf = Object.values(perf.sourceColours(['absolute', 'trans', 'local', 'xgb'])).map(c);
+  // The hues themselves, in the order absolute, trans, local, XGBoost; and the checked palette's stops.
+  res.perfHues = perf.sourceColours(['xgb', 'local', 'absolute', 'trans']);
+  res.qualitative = palette.qualitativeStops(theme === 'screen' ? 'set2' : 'dark2', 4);
   res.rates = [c(scale.THEME.accent), c(scale.THEME.muted)];
   res.pairs = [c(scale.THEME.accent), c(scale.THEME.showerA), c(scale.THEME.showerB)];
   res.counts = {};
@@ -918,6 +921,19 @@ def test_every_colour_a_reader_must_see_clears_three_to_one(out, theme):
         assert min(values) >= 2.95, (palette, values)
     for palette, values in ink["classes"].items():
         assert min(values) >= 3, palette
+
+
+@pytest.mark.parametrize("theme", ["screen", "print"])
+def test_the_networks_take_the_checked_qualitative_hues_in_the_importance_cards_order(out, theme):
+    """E2: palette.js qualitativeStops('set2'|'dark2', 4) in the order absolute, trans, local, XGBoost.
+
+    The order is E5's (absolute, trans, local, none), so a frame reads the same on both cards.
+    ColorBrewer's own fourth colours fail the colour-vision check (palette.js); the checked stops do not.
+    """
+    ink = out["contrast"][theme]
+    hues = ink["perfHues"]
+    assert [hues[k] for k in ("absolute", "trans", "local", "xgb")] == ink["qualitative"]
+    assert "#e78ac3" not in hues.values() and "#e7298a" not in hues.values()
 
 
 def test_no_rendered_number_uses_an_ascii_hyphen(out):

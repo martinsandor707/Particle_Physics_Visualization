@@ -13,6 +13,21 @@
    height, so a card loading late never moves the cards above it. */
 .models-grid { margin-top: var(--gap); }
 
+/* A card's toolbar wraps inside the card. The Models page's cards carry more
+   controls than the Physics page's (the feature explorer: shower, feature,
+   classes, axis scale; the 3-D event: event, shower, channel, camera), and an
+   unwrapped toolbar ran up to 212 px past its card at 1280 px. The group keeps
+   its place right of the title, wrapping under it when the title leaves no
+   room, and its controls wrap among themselves, right-aligned. */
+.models-grid .card-actions,
+.voxels-grid .card-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* The frame a card draws in when it is not the selected one: one muted line
    under the title, never over the plot. */
 .card-caption {
@@ -38,20 +53,56 @@
 /* ---------------------------------------------------------- 3-D views */
 
 /* The host js/voxel_views.js fills. Each 3-D card sits beside its three
-   paired 2-D projections: the 3-D card spans their three rows. */
+   paired 2-D projections: the 3-D card spans their three rows.
+
+   The two columns are equal. At 3 : 2 the projections' column left the
+   Local entry panel (a 2 : 1 isometric window beside its ramp) a 277 x 141 px
+   plot at 1600 px, and its five-line bin readout, which stays beside the
+   pointer, covered up to 64% of it; at 1 : 1 the plots are 399 px wide and
+   the readout covers at most 33% (tests/test_browser_models.py prints the
+   shares). The 3-D card keeps 606 x 560 px, and its opening zoom widens to
+   that width (voxels.js orthographicFit), so no axis title leaves the canvas. */
 .voxels-grid { margin-top: var(--gap); display: grid; gap: var(--gap); min-width: 0; }
 .voxels-grid[hidden] { display: none; }
 .voxels-pending { margin: 0; font-size: 12px; color: var(--muted); }
 .voxel-pair {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--gap);
   min-width: 0;
 }
-.voxel-3d { grid-row: span 3; }
+/* The 3-D card keeps its own height at the top of its three rows: the
+   projection column beside it is the taller one, and a stretched 3-D card
+   would grow an empty band under its fixed-height plot. */
+.voxel-3d { grid-row: span 3; align-self: start; }
 .plot.gl { height: 560px; }
 .voxel-legend { font-size: 11px; color: var(--muted); }
 .gl-notice { font-size: 12px; color: var(--muted); }
+
+/* The 3-D event card's event-number input: room for six digits. */
+.mini-select[data-voxel-event] { width: 7em; }
+
+/* The species legend under the 3-D event: one wrapping row of entries, each
+   a toggle, its swatch, its counts and an "only" button. The swatch's colour
+   is the species' own (voxels.js speciesLegend), set as --swatch per row. */
+.voxel-species {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.voxel-species li { display: inline-flex; align-items: center; gap: 6px; }
+.voxel-species label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.voxel-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--swatch, var(--muted));
+}
+.voxel-species-name { color: var(--text); }
 
 /* Side by side needs room for both toolbars; below that the pair stacks. */
 @container main (max-width: 980px) {

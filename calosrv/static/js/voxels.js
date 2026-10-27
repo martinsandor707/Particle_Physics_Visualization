@@ -81,7 +81,7 @@
 import { decodeBase64, codeTable, dequantize } from './decode.js';
 import {
   THEME, MINUS, visualMap, rampPalette, rampMidLabel, typographic, formatSci, formatInt, formatPercent,
-  formatSigned,
+  formatSigned, unitSuffix,
 } from './scale.js';
 import { QUALITATIVE } from './palette.js';
 import { tooltipOption } from './panels/tooltip.js';
@@ -97,6 +97,34 @@ export const CAMERA = Object.freeze({
   alpha: 25,
   beta: 40,
 });
+
+/** Pixels the colour legend reserves on the right of the 3-D viewport (grid3D `right`). */
+export const LEGEND_RIGHT = 60;
+
+/**
+ * The narrowest viewport, width over height, that holds the opening view at
+ * `CAMERA.orthographicSize`. echarts-gl fixes an orthographic camera's
+ * height at that size and derives its width from the viewport, so a narrower
+ * viewport cuts the view's sides, the vertical axis title first. Measured in
+ * Chromium on a 100-unit cube (an event's window, the widest box) at the
+ * opening angles: the box, its ticks and its axis titles span 1.134 times the
+ * viewport's height (636 of 561 px), plus 8 px each side. A flatter box (a
+ * co-registered cloud) needs less.
+ */
+export const FIT_ASPECT = 1.16;
+
+/**
+ * The opening orthographic size for a `width` × `height` px chart whose
+ * viewport gives up `right` px to the legend: the camera's own wherever the
+ * viewport is wide enough, else widened just enough that the opening view
+ * keeps every cube, tick and axis title inside the canvas.
+ */
+export function orthographicFit(width, height, right = 0) {
+  const w = width - right;
+  if (!(w > 0 && height > 0)) return CAMERA.orthographicSize;
+  const need = (FIT_ASPECT * height) / w;
+  return need > 1 ? Math.round(CAMERA.orthographicSize * need * 10) / 10 : CAMERA.orthographicSize;
+}
 
 /** echarts-gl draws a series without depth writes once an item's alpha is below this. */
 export const OPAQUE_ALPHA = 0.99;
@@ -443,12 +471,6 @@ export function speciesLegend(model, hidden = new Set(), qualitative = 'species'
   });
 }
 
-/** The continuous legend's scale: the event ramp's unit written as a reader writes it. */
-function legendScale(scale) {
-  if (scale?.unit === 'GeV/mm^3') return { ...scale, unit: 'GeV/mm³' };
-  return scale;
-}
-
 /** The label a provisional ramp carries on its top line (CLAUDE.md: provisional on the scale itself). */
 export const PROVISIONAL_TAG = 'provisional';
 
@@ -460,7 +482,8 @@ export const PROVISIONAL_TAG = 'provisional';
 export function voxelLegend(model, palette = 'viridis') {
   const scale = model.scale;
   if (!scale || scale.scale === 'categorical' || scale.degenerate) return null;
-  const legend = visualMap(legendScale(scale), rampPalette(scale, palette), { seriesIndex: [] });
+  // The ramp's unit is written by scale.js `unitSuffix` (GeV/mm^3 as GeV/mm³), as on every 2-D ramp.
+  const legend = visualMap(scale, rampPalette(scale, palette), { seriesIndex: [] });
   if (model.provisional && Array.isArray(legend.text)) {
     legend.text = [`${PROVISIONAL_TAG}\n${legend.text[0]}`, ...legend.text.slice(1)];
   }
@@ -470,12 +493,95 @@ export function voxelLegend(model, palette = 'viridis') {
 /* ------------------------------------------------------------ geometry -- */
 
 /**
+ * The window of the 2-D projections paired with the cloud, per axis of the
+ * cloud's frame, `{x: [lo, hi], y, z}` in mm, or null when the response does
+ * not give all three.
+ *
+ * Each projection crops to its own window: in a co-registered frame
+ * symmetric about the origin on the transverse axes, at the energy-weighted
+ * 0.1st-99.9th percentile with the floors and 20 mm snapping of CLAUDE.md's
+ * recorded exceptions (calosrv/query/window.py `symmetric_axis`). The entry
+ * panel (xy) and the two depth panels each window a transverse axis, so an
+ * axis takes the widest of the panels that show it: every bin a projection
+ * draws lies inside the 3-D box, and the box is never narrower than any
+ * projection on that axis. Depth is the depth panels' own range.
+ */
+export function pairedWindow(projections) {
+  const panels = projections?.panels;
+  if (!panels) return null;
+  const out = {};
+  for (const id of ['xy', 'yz', 'xz']) {
+    for (const side of ['col', 'row']) {
+      const axis = panels[id]?.axes?.[side];
+      if (!axis || !['x', 'y', 'z'].includes(axis.name) || !Number.isFinite(axis.lo) || !Number.isFinite(axis.hi)) continue;
+      const seen = out[axis.name];
+      out[axis.name] = seen ? [Math.min(seen[0], axis.lo), Math.max(seen[1], axis.hi)] : [axis.lo, axis.hi];
+    }
+  }
+  return ['x', 'y', 'z'].every((a) => out[a] && out[a][1] > out[a][0]) ? out : null;
+}
+
+/** The magnitude a cube's colour code stands for, for the cropped share (null without one). */
+function codeMagnitude(model, i) {
+  const value = codeValue(model, model.code[i]);
+  return Number.isFinite(value) ? Math.abs(value) : null;
+}
+
+/**
+ * The ensemble cloud cropped to `window` (`pairedWindow`): a copy of the model
+ * whose `crop` says which cubes lie inside - a cube belongs where its centre
+ * is, as a bin does - and what the crop leaves out: the number of cubes and
+ * their share of the drawn cloud's summed value, read back from the colour
+ * codes (every voxel has the same volume, so for the density channel it is
+ * the energy share, to the codes' quantisation). The box is then the window,
+ * widened to whole cubes; the grid extent stays on the model for the drawer.
+ * `window` null: no crop (the projections did not load), and `crop.window`
+ * is null so the drawer says the box is the whole grid.
+ */
+export function cropToWindow(model, window) {
+  if (!model || model.kind !== 'ensemble') return model;
+  const inside = new Uint8Array(model.n);
+  let nInside = 0;
+  let sumIn = 0;
+  let sumOut = 0;
+  for (let i = 0; i < model.n; i += 1) {
+    const keep = !window || ['x', 'y', 'z'].every((a) => model[a][i] >= window[a][0] && model[a][i] <= window[a][1]);
+    inside[i] = keep ? 1 : 0;
+    const m = codeMagnitude(model, i);
+    if (keep) {
+      nInside += 1;
+      if (m !== null) sumIn += m;
+    } else if (m !== null) {
+      sumOut += m;
+    }
+  }
+  const total = sumIn + sumOut;
+  return {
+    ...model,
+    crop: {
+      window: window ?? null,
+      extent: model.extent,
+      inside,
+      nInside,
+      nOutside: model.n - nInside,
+      shareOutside: total > 0 ? sumOut / total : 0,
+    },
+  };
+}
+
+/** Whether cube `i` is drawn by the model's crop (every cube without one). */
+function inCrop(model, i) {
+  return !model.crop || model.crop.inside[i] === 1;
+}
+
+/**
  * The box the cubes are drawn in, per axis `[lo, hi]` in mm: the server's
- * window (event) or grid extent (ensemble), widened to hold every whole cube,
- * so a shifted coordinate is never negative.
+ * window (event), or the paired projections' window where the cloud was
+ * cropped to it (`cropToWindow`), else the grid extent (ensemble), widened to
+ * hold every whole cube drawn, so a shifted coordinate is never negative.
  */
 export function voxelBounds(model) {
-  const base = model.kind === 'ensemble' ? model.extent : model.window;
+  const base = model.kind === 'ensemble' ? (model.crop?.window ?? model.extent) : model.window;
   const lo = {};
   const hi = {};
   for (const a of ['x', 'y', 'z']) {
@@ -483,6 +589,7 @@ export function voxelBounds(model) {
     hi[a] = Number.isFinite(base?.[a]?.[1]) ? base[a][1] : -Infinity;
   }
   for (let i = 0; i < model.n; i += 1) {
+    if (!inCrop(model, i)) continue;
     for (const a of ['x', 'y', 'z']) {
       const half = model.box[a] / 2;
       const c = model[a][i];
@@ -531,7 +638,7 @@ const fixed = (value, digits = 1) => typographic(Number(value).toFixed(digits));
 
 /** The unit a model's values are written in, for a reader. */
 function valueUnit(model) {
-  if (model.kind === 'event' && model.scale?.unit === 'GeV/mm^3') return 'GeV/mm³';
+  if (model.kind === 'event' && model.scale?.unit === 'GeV/mm^3') return unitSuffix(model.scale.unit);
   return '';
 }
 
@@ -678,10 +785,14 @@ export function partitionCubes(model, rgba, hidden = null) {
   const translucent = [];
   let noValue = 0;
   let hiddenCount = 0;
+  let cropped = 0;
   const categorical = model.scale?.scale === 'categorical';
   for (let i = 0; i < model.n; i += 1) {
     const alpha = rgba[i * 4 + 3] / 255;
-    if (!(alpha > 0)) {
+    if (!inCrop(model, i)) {
+      // Outside the paired projections' window: counted apart, never "skipped" by the taper.
+      cropped += 1;
+    } else if (!(alpha > 0)) {
       noValue += 1;
     } else if (categorical && hidden?.has(model.code[i])) {
       hiddenCount += 1;
@@ -689,22 +800,23 @@ export function partitionCubes(model, rgba, hidden = null) {
       (alpha >= OPAQUE_ALPHA ? opaque : translucent).push(i);
     }
   }
-  return { opaque, translucent, noValue, hidden: hiddenCount, skipped: noValue + hiddenCount };
+  return { opaque, translucent, noValue, hidden: hiddenCount, skipped: noValue + hiddenCount, cropped };
 }
 
 /**
  * The echarts-gl option of one model.
  *
  * Returns `{option, roles, bounds, box, drawn, skipped, noValue, hidden,
- * translucent, primaries, halos}`: `roles[seriesIndex]`
+ * translucent, cropped, primaries, halos}`: `roles[seriesIndex]`
  * says what each series is (`spacer`, `cube` with the payload indices of its
  * items in data order, or `halo`), which the tooltip and the tests read.
  * `opts`: `palette`; `hidden` a Set of species codes the isolate toggles
  * hide; `position` the tooltip's placement callback (tooltip.js); `qualitative`
- * the species palette name.
+ * the species palette name; `viewport` the chart's `{width, height}` in px,
+ * which sets the opening orthographic size (`orthographicFit`).
  */
 export function voxelOption(model, {
-  palette = 'viridis', hidden = null, position = null, qualitative = 'species',
+  palette = 'viridis', hidden = null, position = null, qualitative = 'species', viewport = null,
 } = {}) {
   const rgba = cubeColours(model, palette, { qualitative });
   const bounds = voxelBounds(model);
@@ -772,6 +884,8 @@ export function voxelOption(model, {
     if (!role || role.role !== 'cube') return '';
     return voxelTooltip(model, role.members[params.dataIndex]);
   };
+  // Room on the right for the 2-D colour legend.
+  const right = legend ? LEGEND_RIGHT : 0;
   const option = {
     backgroundColor: THEME.chartBackground,
     animation: false,
@@ -783,6 +897,7 @@ export function voxelOption(model, {
       boxHeight: box.boxHeight,
       viewControl: {
         ...CAMERA,
+        orthographicSize: orthographicFit(viewport?.width, viewport?.height, right),
         damping: 0,
         autoRotate: false,
         animation: false,
@@ -795,8 +910,7 @@ export function voxelOption(model, {
       axisLine: { lineStyle: { color: THEME.border } },
       splitLine: { show: false },
       splitArea: { show: false },
-      // Room on the right for the 2-D colour legend.
-      right: legend ? 60 : 0,
+      right,
     },
     xAxis3D: axis3D(names.depth, span.z, lo.z, box.boxWidth),
     yAxis3D: axis3D(names.x, span.x, lo.x, box.boxDepth),
@@ -819,6 +933,7 @@ export function voxelOption(model, {
     noValue: parts.noValue,
     hidden: parts.hidden,
     translucent: parts.translucent.length,
+    cropped: parts.cropped,
     primaries: drawnPrimaries.length,
     halos: halos.length,
   };

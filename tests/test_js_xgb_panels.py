@@ -30,6 +30,7 @@ changing only the fields the server would change. Skipped without `node`.
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -269,12 +270,40 @@ scale.restoreScreenTheme();
   v.treeCircular = walk(tree.xgbTreeOption(circ, { label: 'phi' }, { width: 1100, height: 330 }));
   v.treeCircularNotes = pack(xn.xgbTreeNotes({ payload: circ, label: 'phi' }));
   const told = clone(load('xgb_surrogate_angle'));
-  told.color = { theta: { coloured: false } };
+  // The backend's own instruction (label_info[], color_by), not the panel's guess.
+  told.label_info = told.label_info.map((l) => (l.name === 'theta' ? { ...l, coloured: false } : l));
+  told.color_by.theta = false;
   v.treeTold = tree.treeModel(told, { label: 'theta' }).coloured;
+  // An older payload without per-node circular statistics: the linear mean, named and flagged.
+  const noCirc = clone(load('xgb_surrogate_angle'));
+  for (const n of noCirc.nodes) delete n.circular;
+  v.treeNoCircular = { boxes: tree.treeModel(noCirc, { label: 'phi' }).nodes.map((n) => tree.nodeLines(n).at(-1)),
+    notes: pack(xn.xgbTreeNotes({ payload: noCirc, label: 'phi' })) };
+  // The electron angle surrogate's measured fidelities (R5c): phi 0.978, theta 0.004, average 0.491.
+  const real = clone(load('xgb_surrogate_angle'));
+  real.fidelity.outputs = { phi: { r2: 0.978, mae: 0.0503 }, theta: { r2: 0.004, mae: 0.0118 } };
+  real.fidelity.r2 = 0.491;
+  v.treeFidelity = {};
+  for (const label of ['phi', 'theta']) {
+    const m = tree.treeModel(real, { label });
+    v.treeFidelity[label] = { texts: tree.fidelityTexts(m), fidelity: m.fidelity,
+      header: walk(tree.xgbTreeOption(real, { label }, { width: 1100, height: 330 })).graphics.map((g) => g.text).filter(Boolean),
+      notes: pack(xn.xgbTreeNotes({ payload: real, label })) };
+  }
+  v.r2Texts = [tree.fidelityR2Text(1, 0), tree.fidelityR2Text(1, 0.2), tree.fidelityR2Text(0.999999, 0.1), tree.fidelityR2Text(0.24, 3)];
+  // The Rayleigh gate: a node whose predicted azimuths share no direction prints no mean.
+  const spread = clone(load('xgb_surrogate_angle'));
+  spread.nodes[0].circular.phi = { mean: 2.5, resultant: 0.05 };
+  spread.nodes[0].n = 100;
+  const sm = tree.treeModel(spread, { label: 'phi' });
+  const root = sm.nodes.find((n) => n.depth === 0);
+  v.treeRayleigh = { box: tree.nodeLines(root).at(-1), tip: tree.nodeTip(sm, root), circ: tree.circularOf(root, 'phi') };
   const clipped = clone(load('xgb_importance_momentum'));
   clipped.features[4].clipped = true;
   v.importanceClipped = { chart: walk(imps.xgbImportanceOption(clipped, {}, { width: 1100, height: 330 })),
     notes: pack(xn.xgbImportanceNotes({ payload: clipped })) };
+  v.cvMeanTip = walk(cv.xgbCvOption(load('xgb_cv_momentum'), {}, { width: 560, height: 330 })).series
+    .filter((x) => x.name === 'Mean of the folds').flatMap((x) => x.items.map((i) => i.tip));
   const many = clone(load('xgb_importance_momentum'));
   many.features.forEach((f, i) => { f.shipped = (52 - i) / 1378; });
   const manyModel = imps.importanceModel(many);
@@ -534,6 +563,18 @@ def test_a_corrected_interval_is_drawn_under_the_payloads_own_name(out):
 # -------------------------------------------------------------------- E3 --
 
 
+def test_the_balanced_accuracy_carries_the_recorded_mover_interval(out):
+    payload = _load("xgb_binary")
+    ba = next(r for r in payload["rates"] if r["id"] == "balanced_accuracy")
+    assert ba["interval"]["method"] == "mover" and "MOVER" in ba["interval"]["label"]
+    chart = out["screen"]["binary"]["card"]
+    assert any(name.startswith(ba["interval"]["label"]) for name in chart["legend"])
+    narrow = out["print"]["binary"]["export"]["legend"]
+    assert any("MOVER" in name for name in narrow), "the narrow legend keeps the method's name"
+    rates = " ".join(out["notes"]["binary"]["sections"]["Rates"])
+    assert ba["interval"]["label"] in rates and "bootstrap" not in rates
+
+
 def test_rates_carry_wilson_whiskers_on_the_full_percent_scale(out):
     payload = _load("xgb_binary")
     chart = out["screen"]["binary"]["card"]
@@ -654,13 +695,71 @@ def test_the_tree_is_an_outline_that_fits_a_single_column_export(out):
 
 
 def test_a_circular_statistic_per_node_is_printed_and_explained(out):
+    """φ is never averaged arithmetically on the card: each box prints circular.phi (CLAUDE.md section 2)."""
     chart = out["variants"]["treeCircular"]
     (nodes,) = _named(chart, r"^Surrogate tree nodes$")
     assert all(any("R̄" in (e["text"] or "") for e in i["leaves"]) for i in nodes["items"])
     assert all("resultant length" in i["tip"] for i in nodes["items"])
     notes = out["variants"]["treeCircularNotes"]
     assert "Circular quantities" in notes["headings"]
-    assert "linear mean of an azimuth" in notes["hazards"]
+    # The recorded tree's own circular.phi: each box prints its circular mean, never the linear one.
+    chart = out["screen"]["tree"]["xgb_surrogate_angle"]["phi"]["1100"]["chart"]
+    (nodes,) = _named(chart, r"^Surrogate tree nodes$")
+    payload = _load("xgb_surrogate_angle")
+    for item, node in zip(nodes["items"], payload["nodes"]):
+        texts = " ".join(e["text"] or "" for e in item["leaves"])
+        assert "circ." in texts or "no common direction" in texts
+        assert "linear mean" in item["tip"] and "notebook parity" in item["tip"]
+    recorded = out["notes"]["tree"]["xgb_surrogate_angle:phi"]
+    assert "linear mean of an azimuth" not in recorded["hazards"]
+    circular = " ".join(recorded["sections"]["Circular quantities"])
+    assert payload["notes"]["circular"] in circular and "Rayleigh" in circular
+    # Without the statistic (an older payload) the box names the linear mean and the drawer flags it.
+    old = out["variants"]["treeNoCircular"]
+    assert all(box.startswith("linear ") for box in old["boxes"])
+    assert "linear mean of an azimuth" in old["notes"]["hazards"]
+
+
+def test_a_node_whose_azimuths_share_no_direction_prints_no_mean(out):
+    r = out["variants"]["treeRayleigh"]
+    assert r["circ"]["directed"] is False and r["circ"]["p"] == pytest.approx(math.exp(-100 * 0.05 ** 2))
+    assert r["box"].startswith("no common direction") and "2.5" not in r["box"]
+    assert "no mean is printed" in r["tip"]
+
+
+def test_surrogate_fidelity_is_printed_and_judged_per_output(out):
+    """Martin (2026-10-27): the warning per output below R² 0.5; never on, or only, the average."""
+    for label, entry in out["variants"]["treeFidelity"].items():
+        outputs = {o["label"]: o for o in entry["fidelity"]["outputs"]}
+        assert outputs["theta"]["low"] is True and outputs["phi"]["low"] is False
+        assert entry["notes"]["hazards"].count("low surrogate fidelity (θ)") == 1
+        assert not any("(φ)" in h or "φ, θ" in h for h in entry["notes"]["hazards"])
+        subtitle = entry["texts"][0]
+        assert "φ R² 0.978" in subtitle and "θ R² 0.004" in subtitle and "0.491" not in subtitle
+        assert "low fidelity: θ below R² 0.5" in subtitle
+        assert any("φ R² 0.978" in t and "θ R² 0.004" in t for t in entry["header"]), "both outputs on the card"
+        disclosures = " ".join(entry["notes"]["sections"]["Disclosures"])
+        assert "below 0.5" in disclosures and "never judged" in disclosures and "R² 0.491" in disclosures
+        assert "θ: R² 0.004 is below 0.5" in disclosures and "φ: R² 0.978 is below" not in disclosures
+    # The recorded near-perfect fixture prints its exact 1 beside an MAE of 0, never "R² 1" from a rounding.
+    assert out["variants"]["r2Texts"] == ["1", "> 0.999999", "0.9999990", "0.240"]
+    recorded = out["notes"]["tree"]["xgb_surrogate_angle:theta"]
+    assert not any(h.startswith("low surrogate fidelity") for h in recorded["hazards"])
+    assert "φ R² 1, MAE 0 rad; θ R² 1, MAE 0 rad" in recorded["sections"]["Disclosures"][0]
+    momentum = out["notes"]["tree"]["xgb_surrogate_momentum:momentum"]
+    assert "low surrogate fidelity" in momentum["hazards"]
+    assert momentum["sections"]["Disclosures"][0].startswith("Fidelity to the booster: R² 0.240, MAE 3.57 GeV")
+
+
+def test_the_cv_mean_names_the_corrected_se(out):
+    payload = _load("xgb_cv_momentum")
+    assert payload["interval"]["method"] == "corrected_resampled_t"
+    tips = out["variants"]["cvMeanTip"]
+    assert tips and all("corrected SE of the mean (√0.45 × SD" in t for t in tips)
+    folds = out["notes"]["cv"]["xgb_cv_momentum"]["sections"]["Fold values"]
+    assert any("corrected SE" in line for line in folds)
+    legend = out["screen"]["cv"]["xgb_cv_momentum"]["card"]["legend"]
+    assert payload["interval"]["label"] in legend, "the payload's Nadeau–Bengio label names the whisker"
 
 
 # -------------------------------------------------------------------- E5 --
@@ -720,6 +819,32 @@ def test_rows_beyond_the_top_n_and_unused_features_are_counted_and_listed(out):
     assert any("37 more with gain" in g["text"] for g in many["chart"]["graphics"])
     disclosures = " ".join(many["notes"]["sections"]["Disclosures"])
     assert "beyond the first 15" in disclosures and "width_trans" in disclosures
+
+
+def test_the_drawer_lists_every_feature_with_its_numbers(out):
+    """Martin (2026-10-27): the top 15 with gain on the plot; every feature, with its numbers, in the drawer."""
+    for name in IMPORTANCE:
+        payload = _load(name)
+        listed = out["notes"]["importance"][name]["sections"]["Features"]
+        assert len(listed) == len(payload["features"]) == payload["n_features"]
+        for feature in payload["features"]:
+            (line,) = [l for l in listed if l.startswith(f"{feature['rank']}. {feature['name']} [")]
+            assert "shipped" in line and "folds" in line and "interval" in line and "gain" in line
+        never = [l for l in listed if "never split on, not drawn" in l]
+        assert len(never) == out["screen"]["importance"][name]["unused"]
+    many = out["variants"]["importanceMany"]["notes"]["sections"]["Features"]
+    assert sum("beyond the first 15 with gain" in l for l in many) == 37
+    clipped = " ".join(out["notes"]["importance"]["xgb_importance_momentum"]["sections"]["Disclosures"])
+    assert "3 fold-mean intervals clipped to [0, 1]" in clipped
+
+
+def test_a_features_summary_leaves_the_chart_like_every_explanation():
+    """E5's row tooltip is six lines of explanation: chart-level placement, never the pointer readout."""
+    source = (JS / "panels" / "xgb_importance.js").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    code = "\n".join(line.split("//")[0] for line in code.splitlines())
+    assert "readoutPosition" not in code
+    assert "wrapTooltip(tooltipOption(opts.tooltipPosition ?? null))" in code
 
 
 def test_a_clipped_importance_interval_is_disclosed(out):
