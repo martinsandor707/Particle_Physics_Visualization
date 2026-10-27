@@ -385,13 +385,25 @@ export function chartLegend(data, extra = {}) {
  * The grid's top inset under a legend of `names`: one row on screen (it
  * scrolls), as many as the printed legend wraps to (THEME.legendWrap), so a
  * second row never overprints the plot. `ChartPanel.exportMetrics` reads it.
+ * `wrap: true` (opt-in) counts the rows on screen too, for a legend built with
+ * `wrappedLegend`, which wraps instead of paging.
  */
-export function legendTop(names, plotWidthPx) {
+export function legendTop(names, plotWidthPx, { wrap = false } = {}) {
   const pad = axisPadding();
   const names2 = (names ?? []).map((n) => String(n?.name ?? n));
   const rows = !names2.length ? 1
-    : (THEME.legendWrap ? Math.max(1, legendRows(names2, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1);
+    : ((THEME.legendWrap || wrap) ? Math.max(1, legendRows(names2, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1);
   return pad.top + rows * 1.6 * THEME.fontLabel;
+}
+
+/**
+ * A legend that wraps into rows over the plot's width on screen as in print,
+ * never paging: every entry, interval names included, stays readable. Pair it
+ * with `legendTop(names, plotWidthPx, {wrap: true})`, which counts the same
+ * rows over the same width (`left` and `right` are the grid's insets).
+ */
+export function wrappedLegend(data, { left, right, ...extra } = {}) {
+  return chartLegend(data, { type: 'plain', left, right, ...extra });
 }
 
 /**

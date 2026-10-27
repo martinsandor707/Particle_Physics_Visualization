@@ -163,10 +163,15 @@ export function customPolyline({
  * for a vertical whisker, up for a horizontal one), so two showers measured at
  * the same position stay apart and a summary row can sit above a baseline.
  * `tooltip(datum, index)` returns the HTML of one item.
+ *
+ * `casing` ({color, width}, opt-in; absent by default, so every existing
+ * chart draws exactly as before) lays a wider stroke under each whisker: a
+ * whisker drawn over a filled bar clears 3:1 against the fill and the card
+ * alike when a dark casing frames its light ink (E2, review P-3).
  */
 export function customWhiskers({
   name, points, capPx = 4, color, width, opacity = 1, z = 9, tooltip = null,
-  horizontal = false, offsetPx = 0,
+  horizontal = false, offsetPx = 0, casing = null,
 }) {
   const items = points.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]) && Number.isFinite(p[2]));
   return {
@@ -187,7 +192,7 @@ export function customWhiskers({
       const cap = (pt) => (horizontal
         ? [[pt[0], pt[1] - capPx], [pt[0], pt[1] + capPx]]
         : [[pt[0] - capPx, pt[1]], [pt[0] + capPx, pt[1]]]);
-      return {
+      const ink = {
         type: 'polyline',
         shape: {
           points: [...(caps[0] ? cap(a) : []), a, b, ...(caps[1] ? cap(b) : [])],
@@ -199,6 +204,13 @@ export function customWhiskers({
           opacity: datum.opacity ?? opacity,
         },
       };
+      if (!casing) return ink;
+      // The casing first, so the ink sits on it; square ends so it frames the caps too.
+      const under = {
+        ...ink,
+        style: { ...ink.style, stroke: casing.color, lineWidth: casing.width, lineCap: 'square' },
+      };
+      return { type: 'group', children: [under, ink] };
     },
     ...(tooltip ? { tooltip: { formatter: (p) => tooltip(items[p.dataIndex][3], p.dataIndex) } } : {}),
   };
