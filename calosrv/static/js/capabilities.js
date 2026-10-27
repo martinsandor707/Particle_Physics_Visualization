@@ -441,7 +441,10 @@ function xgbBlock(caps, runs, open) {
  * - `cards`: `{shown, enabled, reason}` for every card, the server's sentence
  *   on a shut one.
  * - `models` / `networks`: the reconstruction networks; `frames`: the frames
- *   the sidebar offers and the server's reason for each one it does not.
+ *   the sidebar offers and the server's reason for each one it does not;
+ *   `featureFrames`: the frames the feature explorer is served in (the
+ *   server's `group1_frames`; an event-level aggregate, which has no sidebar
+ *   frame control, offers them on the feature cards themselves).
  * - `xgb`: the paired model runs (`model_runs`), their tasks and labels, and
  *   where the analysis stands.
  * - `voxels`: what the 3-D views offer (VoxelSection.applyPlan reads it).
@@ -556,6 +559,8 @@ export function page2Plan(experiment) {
       transPrimary: single && offered.includes('trans'),
       labels: single ? SINGLE_SHOWER_FRAME_LABELS : null,
     },
+    featureFrames: Array.isArray(experiment?.capabilities?.group1_frames)
+      ? [...experiment.capabilities.group1_frames] : [],
     xgb,
     voxels,
     banner,

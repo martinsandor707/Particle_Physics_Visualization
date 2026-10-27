@@ -24,7 +24,7 @@ from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import density, performance, performance_bins
 from ..stats.slices import parse_edges
-from .deps import CursorDep, FilterDep, RecordDep
+from .deps import CursorDep, FilterDep, RecordDep, SettingsDep
 
 router = APIRouter()
 
@@ -99,6 +99,7 @@ def get_model_performance(
     con: CursorDep,
     record: RecordDep,
     spec: FilterDep,
+    settings: SettingsDep,
     model: str = Query(
         "segmentation",
         description="segmentation | energy | angle: which task's network is evaluated.",
@@ -136,7 +137,7 @@ def get_model_performance(
                 f"{name} must be one of {', '.join(allowed)}; got {value!r}.", field=name,
             )
     if record.kind == ddl.KIND_SINGLE_EVENTS:
-        return _xgboost(con, record, spec, model, coord_system, slice_by, timer)
+        return _xgboost(con, record, spec, model, coord_system, slice_by, timer, settings.threads)
     performance_bins.require_networks(record)
     if slice_by == "momentum_bin" and model == "segmentation":
         raise ValidationError(performance_bins.SEGMENTATION_REFUSAL, field="slice_by")
@@ -144,7 +145,9 @@ def get_model_performance(
         con, record, spec, model=model, coord_system=coord_system, edges=parse_edges(d_edges),
     )
     by_bin = slice_by == "momentum_bin"
-    bins = performance_bins.compute(con, record, spec, model) if by_bin else None
+    # The groups' bootstraps run on the service's own thread allocation (/api/health "threads").
+    bins = (performance_bins.compute(con, record, spec, model, workers=settings.threads)
+            if by_bin else None)
 
     def respond(step: int = 0, disclosed: Sequence[str] = ()) -> dict:
         notes = {"model": model, "coord_system": coord_system}
@@ -206,13 +209,14 @@ XGB_SLICE_REFUSAL = (
 )
 
 
-def _xgboost(con, record, spec, model: str, coord_system: str, slice_by: str, timer: Timer) -> dict:
+def _xgboost(con, record, spec, model: str, coord_system: str, slice_by: str, timer: Timer,
+             workers: int = 1) -> dict:
     """E2 of an aggregate experiment: the XGBoost validation-split series, in E2's shape."""
     performance_bins.require_xgb(record)
     if slice_by != "momentum_bin" or model == "segmentation":
         raise ValidationError(XGB_SLICE_REFUSAL, field="slice_by" if slice_by != "momentum_bin"
                               else "model")
-    report = performance_bins.compute_xgb(con, record, spec, model)
+    report = performance_bins.compute_xgb(con, record, spec, model, workers=workers)
     titles = {"energy": "XGBoost momentum regressor", "angle": "XGBoost angle regressor"}
     run = report.run
 

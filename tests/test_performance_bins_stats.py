@@ -21,8 +21,37 @@ from calosrv.encode.numbers import sig
 from calosrv.errors import CapabilityError, ValidationError
 from calosrv.query import density, showers
 from calosrv.query import performance_bins as pb
-from calosrv.stats import clip, gaussian, median, metrics
+from calosrv.stats import gaussian, median, metrics
 from calosrv.text import signed_hyphens
+
+
+# ---------------------------------------------------- reference formulas --
+
+#: The axis-top mantissas (performance_bins.TOP_MANTISSAS), restated independently.
+_TOPS = (1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0)
+
+
+def nice_top(peak: float) -> float:
+    """The smallest m × 10^k, m in _TOPS, at or above ``peak``."""
+    k = math.floor(math.log10(peak))
+    candidates = [m * 10.0 ** e for e in (k, k + 1) for m in _TOPS]
+    return min(c for c in candidates if c >= peak * (1 - 1e-9))
+
+
+def rmse_interval(r: np.ndarray, seed) -> tuple[float, float]:
+    """Decision D-4, restated: the χ² interval (scipy's quantiles) to N = 19, the bootstrap from 20."""
+    from scipy.stats import chi2
+
+    r = np.asarray(r, dtype=np.float64)
+    n = r.size
+    rmse = math.sqrt(np.mean(r ** 2))
+    if n < 20:
+        return (rmse * math.sqrt(n / chi2.ppf(0.975, n)), rmse * math.sqrt(n / chi2.ppf(0.025, n)))
+    rng = np.random.default_rng(np.random.SeedSequence(list(seed)))
+    sq = r ** 2
+    means = sq[rng.integers(0, n, size=(2000, n))].mean(axis=1)
+    lo, hi = np.quantile(np.sqrt(means), [0.025, 0.975])
+    return float(lo), float(hi)
 
 LADDER = (0, 1, 2, 5, 6, 7, 14, 15, 19, 20, 200)
 
@@ -64,10 +93,15 @@ def test_a_point_equals_numpy(model, n):
         assert p.rmse.interval is None and p.mae.interval is None and p.bias.interval is None
         return
     t = gaussian.t_quantile_975(n - 1)
-    sq, ab = r ** 2, np.abs(r)
-    half = t * sq.std(ddof=1) / math.sqrt(n)
-    assert p.rmse.interval.lo == pytest.approx(math.sqrt(max(0.0, sq.mean() - half)))
-    assert p.rmse.interval.hi == pytest.approx(math.sqrt(sq.mean() + half))
+    ab = np.abs(r)
+    # Decision D-4: χ² below N = 20 (the tabulated quantiles, to 3 decimals), seeded bootstrap above.
+    lo, hi = rmse_interval(r, seed=(42, 0, 0, 5, pb.QUANTITY_INDEX["rmse"]))
+    rel = 1e-3 if n < 20 else 1e-6
+    assert p.rmse.interval.lo == pytest.approx(lo, rel=rel)
+    assert p.rmse.interval.hi == pytest.approx(hi, rel=rel)
+    assert p.rmse.interval.method == ("chi2_rmse" if n < 20 else "bootstrap_percentile")
+    if n < 20:
+        assert "normally distributed residuals" in p.rmse.interval.label
     half = t * ab.std(ddof=1) / math.sqrt(n)
     assert p.mae.interval.lo == pytest.approx(max(0.0, ab.mean() - half))
     assert p.mae.interval.hi == pytest.approx(ab.mean() + half)
@@ -328,7 +362,7 @@ def test_the_range_comes_from_the_driving_points_and_a_weak_point_overflows_it()
     weak = pb.point("energy", weak_true * 6.0, weak_true, 0, seed=(42, 0, 0, 1))
     y = pb.y_axis([series_of(strong, weak)], AXIS_2, "rmse")
     assert not y["provisional"] and y["min"] == 0.0 and not y["signed"]
-    assert y["value"] == clip.nice_range(0.0, strong.rmse.interval.hi, fine=True)[1]
+    assert y["value"] == pytest.approx(nice_top(strong.rmse.interval.hi))
     assert y["value"] >= strong.rmse.interval.hi
     assert y["n_overflow"] == 1 and len(y["overflow"]) == 1
     over = y["overflow"][0]
@@ -356,7 +390,7 @@ def test_with_no_driving_point_the_range_is_provisional_from_values_and_clips_wh
     assert y["provisional"] is True and "Provisional" in y["note"]
     # Taken from the weak points' values: a t whisker never sets a provisional range.
     reach = max(one.rmse.value, two.rmse.value)
-    assert y["value"] == clip.nice_range(0.0, reach, fine=True)[1]
+    assert y["value"] == pytest.approx(nice_top(reach))
     assert one.rmse.interval.hi > y["value"]
     assert y["n_overflow"] == 1 and y["overflow"][0]["series"] == "absolute:a"
     assert y["overflow"][0]["hi"] == sig(one.rmse.interval.hi)

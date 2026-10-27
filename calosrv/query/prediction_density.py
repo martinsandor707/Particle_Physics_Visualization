@@ -24,8 +24,10 @@ position whose contrast is at least 3:1 and the payload states that colour.
 quantity of the model-performance cards: (pred − true) / true for energy,
 Δθ in mrad for angle. Its range is the 1st-99th percentile of the showers that
 carry statistical weight (N ≥ 15; every shower, labelled provisional, when none
-does), rounded outward and disclosed; the bin count follows the smaller drawn
-shower. Each shower goes through ``energy.build_series``, so a density
+does), rounded outward and disclosed; the bin width is Freedman-Diaconis's
+2 · IQR · N^(−1/3) of the drawn showers, clamped to 8-120 bins (decision D-8,
+an exception to the Rice rule for prediction residuals, whose heavy tails set
+the range while the IQR follows the core). Each shower goes through ``energy.build_series``, so a density
 histogram appears from N = 15, the core-refit Gaussian curve from N = 8, the
 individual events below, and every mean carries its Student-t whisker apart
 from the sample's σ band. Bias, σ and RMSE come with their own intervals from
@@ -35,9 +37,10 @@ The angle network predicts θ only, so there is no azimuth residual to wrap.
 
 **The XGBoost series of an aggregate experiment** (:func:`read_xgb`) is the
 shipped regressor on the notebook's 20 % validation split, restricted to the
-selection: one shower, the same payload. Its angle task predicts φ as well as
-θ, chosen with ``label``; φ's residual is wrapped to (−π, π] (an azimuth's
-error of 2π − ε is a small one) and its axes are stated not to wrap.
+selection: one shower, the same payload, labelled as the momentum it predicts.
+Its angle task predicts φ as well as θ, chosen with ``label``; φ's residual is
+wrapped to (−π, π] (an azimuth's error of 2π − ε is a small one), and its axes
+are its fixed period [−π, π] in mrad, stated not to wrap.
 
 **φ's residual is circular** (:func:`circular_series`, CLAUDE.md section 2:
 never average a circular quantity). Its histogram and RMSE stand, but its
@@ -123,10 +126,20 @@ LABELS = {
     },
     "phi": {
         "truth": "True incident azimuth φ", "pred": "Predicted azimuth φ",
-        "residual": "Azimuth residual φ_pred − φ_true, wrapped to (−π, π]",
+        # One unit on the axis: (−π, π] rad is (−3142, 3142] in the axis's mrad.
+        "residual": "Azimuth residual φ_pred − φ_true, wrapped to (−3142, 3142]",
         "residual_unit": "mrad",
     },
+    # The XGBoost regressor of an aggregate predicts the incident momentum (its label is
+    # incoming_momentum), not an energy: for μ, π and p the two differ.
+    "momentum": {
+        "truth": "True incident momentum", "pred": "Predicted momentum",
+        "residual": "Relative momentum residual (pred − true) / true", "residual_unit": "fraction",
+    },
 }
+
+#: The azimuth's period in mrad: φ's prediction-against-truth axes, whatever the data.
+PHI_AXIS_MRAD = math.pi * MRAD_PER_RAD
 
 #: The XGBoost series' code, and the labels its angle task predicts.
 XGB_CODE = "xgb"
@@ -281,7 +294,11 @@ class Selection:
 
     @property
     def labels(self) -> dict[str, str]:
-        return LABELS["phi" if self.label == "phi" else self.model]
+        if self.label == "phi":
+            return LABELS["phi"]
+        if self.source == XGB_CODE and self.model == "energy":
+            return LABELS["momentum"]
+        return LABELS[self.model]
 
     @property
     def unit(self) -> str:
@@ -558,7 +575,8 @@ def residual_block(sel: Selection) -> dict[str, Any]:
     # then the sample's own extent, which one outlier sets, and is provisional.
     provisional = not drawn or not clipping.applied
     lo, hi, interval = clip_mod.nice_range(clipping.lo, clipping.hi, fine=True)
-    bins = histogram.adaptive_bins(min(values[s].size for s in drawn) if drawn else 0)
+    # Decision D-8: the Freedman-Diaconis width of the drawn showers, not the Rice count.
+    bins, bin_width = histogram.freedman_diaconis_bins([values[s] for s in drawn], lo, hi)
     edges = histogram.axis_edges(lo, hi, bins)
     curve_x = histogram.curve_axis(lo, hi, histogram.CURVE_POINTS)
 
@@ -588,6 +606,12 @@ def residual_block(sel: Selection) -> dict[str, Any]:
         "statistics": "circular" if sel.label == "phi" else "linear",
         "axis": {
             "lo": lo, "hi": hi, "interval": interval, "bins": bins,
+            "bin_rule": typographic(
+                histogram.FREEDMAN_DIACONIS_RULE + (
+                    "" if bin_width is not None or not drawn else
+                    "; no drawn series has a positive IQR, so the Rice count of the smallest "
+                    "is used")),
+            "bin_width": sig((hi - lo) / bins) if bins else None,
             "clipping": clipping.as_dict(),
             "provisional": provisional,
             "basis": (
@@ -659,8 +683,9 @@ def _xgb_notes(sel: Selection) -> dict[str, str]:
             "counted in residual.excluded.")
     elif sel.label == "phi":
         notes["angle"] = (
-            "φ is an azimuth. The axes are the angle in mrad as stored and do not wrap: a "
-            "prediction near −π for a truth near +π is a small error drawn in a far corner. "
+            "φ is an azimuth. The axes span its period, −π to π (±3141.6 mrad), whatever the "
+            "selection, with ticks at multiples of π/2; they do not wrap: a prediction near −π "
+            "for a truth near +π is a small error drawn in a far corner. "
             "The residual below is wrapped to (−π, π], so it measures that error as it is; "
             "the regressor's raw output can leave (−π, π], and is counted in outside when it "
             "leaves the axis.")
@@ -838,7 +863,11 @@ def read_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Fil
     found = con.execute(
         f"SELECT min(CAST({column} AS DOUBLE)), max(CAST({column} AS DOUBLE)) "
         f"FROM {quote(naming.event_table(record.table_name))}").fetchone()
-    lo, hi = _axis_range([v for v in found if v is not None], scale, model)
+    if chosen == "phi":
+        # An azimuth has a fixed period; a rounding of the data's extent would cut it or pad it.
+        lo, hi = -PHI_AXIS_MRAD, PHI_AXIS_MRAD
+    else:
+        lo, hi = _axis_range([v for v in found if v is not None], scale, model)
     run = xgb_views.run_block(runs, task)
     n_val = int(t.size)
     split = {

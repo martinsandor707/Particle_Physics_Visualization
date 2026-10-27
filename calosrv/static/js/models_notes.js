@@ -27,7 +27,8 @@ import { perfModel, perfQuantities, SOURCE_LABELS } from './panels/perf_bins.js'
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
 import { featureRows, FEATURE_STATS, ROBUST_N } from './panels/feature_table.js';
-import { featureCorrMatrix } from './panels/correlation.js';
+import { featureCorrMatrix, containsZero } from './panels/correlation.js';
+import { FEATURE_FRAME_NAMES } from './labels.js';
 import { rateBins, WIDE_BELOW_N } from './panels/rates.js';
 
 /** The drawer titles by card id; the shell's card title wins when it passes one. */
@@ -98,7 +99,10 @@ export function perfBinsNotes({ payload, state = null, experiment = null, title 
     return notes.done([]);
   }
   const block = payload.by_momentum_bin;
-  const task = model.model === 'angle' ? 'polar-angle network' : 'energy network';
+  const xgb = block.source === 'xgb';
+  // The aggregate's XGBoost regressor predicts the incident momentum, not an energy (P-5).
+  const task = xgb ? `XGBoost ${model.model === 'angle' ? 'angle' : 'momentum'} regressor`
+    : (model.model === 'angle' ? 'polar-angle network' : 'energy network');
   const sources = [...new Set(model.series.map((s) => SOURCE_LABELS[s.source] ?? s.source))];
   notes.section(SECTION.selection, [
     selectionLine(state, experiment),
@@ -127,10 +131,11 @@ export function perfBinsNotes({ payload, state = null, experiment = null, title 
     disclosures.push('No bar or whisker leaves the axis.');
   }
   const points = model.series.flatMap((s) => s.points);
-  const weak = points.filter((p) => p.weak).length;
-  if (weak) disclosures.push(`${plural(weak, 'bar')} of fewer than ${formatInt(model.thresholds.interval ?? 2)} showers: a value with no interval, drawn faded.`);
-  const noCi = points.filter((p) => !p.weak && !(Number.isFinite(p.lo) && Number.isFinite(p.hi))).length;
-  if (noCi) disclosures.push(`${plural(noCi, 'bar')} without an interval at this sample size (the median's needs N ≥ ${formatInt(model.thresholds.order_statistic ?? 6)}).`);
+  const noun = model.noun ?? 'shower';
+  const single = points.filter((p) => p.single).length;
+  if (single) disclosures.push(`${plural(single, 'bin')} of one ${noun}, drawn as a dot: one ${noun} is an observation, not an aggregate, so it has no interval and no bar.`);
+  const weak = points.filter((p) => p.weak && !p.single).length;
+  if (weak) disclosures.push(`${plural(weak, 'bar')} without an interval, drawn faded: the ${q.label ?? model.quantity} has one from N = ${formatInt(model.intervalFloor)}.`);
   const missing = model.series.reduce((sum, s) => sum + s.points.reduce((a, p) => a + (p.n_missing || 0), 0), 0);
   if (missing) disclosures.push(`${plural(missing, 'shower')} without a prediction, dropped from their bins and never zero-filled.`);
   const unbinned = Object.entries(block.excluded?.unbinned ?? {}).filter(([, v]) => v > 0);
@@ -148,9 +153,10 @@ export function perfBinsNotes({ payload, state = null, experiment = null, title 
   notes.section(SECTION.disclosures, disclosures);
 
   notes.section(SECTION.legend, [
-    'Colour is the network\'s input frame (ColorBrewer qualitative hues, each ≥ 3:1 against the card); a solid bar is shower A, a light wash with a solid outline shower B.',
-    `The capped whisker is the 95% interval of the plotted statistic - ${q.interval ?? 'as the server names it'} - never the spread of the showers in the bin.`,
-    'A faded, dash-outlined bar has no interval. A caret at the axis marks a bar or whisker clipped there. The readout lists every series of the bin under the pointer.',
+    xgb ? 'Colour is the series (ColorBrewer qualitative hues, each ≥ 3:1 against the card): the XGBoost regressor on its validation split, one shower per event.'
+      : 'Colour is the network\'s input frame (ColorBrewer qualitative hues, each ≥ 3:1 against the card); a solid bar is shower A, a light wash with a solid outline shower B, and their legend swatches are drawn the same way.',
+    `The capped whisker is the 95% interval of the plotted statistic - ${q.interval ?? 'as the server names it'} - never the spread of the ${noun}s in the bin. It is light ink on a dark casing, so it reads over any bar and over the card.`,
+    `A faded, dash-outlined bar has no interval. A dot is a bin of one ${noun}: an observation, not an aggregate. A caret at the axis marks a bar, dot or whisker clipped there. The readout lists every series of the bin under the pointer.`,
   ]);
   notes.section(MODELS_HEADINGS.estimators, [
     ...perfQuantities(payload).map((x) => {
@@ -238,6 +244,9 @@ export function residualNotes({ payload, state = null, experiment = null, title 
     `${r.quantity}${r.unit ? ` [${r.unit}]` : ''}; ${model.entries.map((e) => `${e.label} N = ${formatInt(e.n)}`).join(', ') || 'no shower'}.`,
   ]);
   const drawn = [payload.notes?.residual ?? ''];
+  if (r.axis?.bin_rule) {
+    drawn.push(`Bins: ${sentence(r.axis.bin_rule)}${Number.isFinite(r.axis.bins) ? ` Here ${formatInt(r.axis.bins)} bins${Number.isFinite(r.axis.bin_width) ? ` of ${num(r.axis.bin_width)}${unit}` : ''}.` : ''}`);
+  }
   for (const e of model.entries) {
     const what = circular
       ? (e.hist ? `a density histogram from zero${e.curve ? ' with the Gaussian fit of its core' : ''}` : 'its residuals as ticks in the reserved band, with no summary marks')
@@ -266,11 +275,11 @@ export function residualNotes({ payload, state = null, experiment = null, title 
   if (payload.meta?.exact === false) disclosures.push('Sampled preview: the exact numbers follow.');
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, circular ? [
-    'Shower colour (one shower the accent). φ is an azimuth: no mean rule, whisker or ± 1 SD bar is drawn, because an arithmetic mean and σ of a wrapped residual are not its centre and spread. Its circular mean direction, R̄ and circular SD are listed below and in the tooltip.',
+    'One shower is drawn in the accent blue, as on the Physics page. φ is an azimuth: no mean rule, whisker or ± 1 SD bar is drawn, because an arithmetic mean and σ of a wrapped residual are not its centre and spread. Its circular mean direction, R̄ and circular SD are listed below and in the tooltip.',
     `From N = ${HISTOGRAM_FLOOR} the histogram is the spread; its curve, where drawn, is the Gaussian fit of the core only. Below N = ${HISTOGRAM_FLOOR} the residuals sit as ticks in the tinted, captioned band at the foot; heights there are drawing offsets.`,
     'A caret marks a curve or residuals beyond the axis.',
   ] : [
-    'Shower colour (A pink, B blue and dashed; one shower the accent). From N = 15 a series\' mean is a long-dashed vertical with its 95% Student-t interval of the mean as two thin hairlines; its spread is the histogram itself.',
+    'Shower colour as on the Physics page: A pink, B blue and dashed on two-shower data, and a single shower in the accent blue. From N = 15 a series\' mean is a long-dashed vertical with its 95% Student-t interval of the mean as two thin hairlines; its spread is the histogram itself.',
     `Below N = ${HISTOGRAM_FLOOR} a series sits in the tinted, captioned band at the foot: its events as ticks, its mean with the capped Student-t whisker and an uncapped ± 1 SD bar, the spread of the events - two marks, two quantities; heights there are drawing offsets.`,
     'A caret marks a curve, a mark or showers beyond the axis.',
   ]);
@@ -298,11 +307,17 @@ export function residualNotes({ payload, state = null, experiment = null, title 
 
 /* ============================================================= D2-D5 == */
 
+/** A features response's frame, named as the interface names it (the API key when unknown). */
+export function featureFrameName(payload) {
+  const key = payload?.coord_system;
+  return FEATURE_FRAME_NAMES[key] ?? key ?? '—';
+}
+
 /** The selection line of a features response: frame, shower, classes. */
 function featureSelection(payload) {
   const classes = (payload.classes ?? []).map((c) => `${c.label} (N = ${formatInt(c.n)})`);
   const lines = [
-    `${plural(payload.n_selected ?? payload.n_events ?? 0, 'shower')} selected; frame ${payload.coord_system ?? '—'}`
+    `${plural(payload.n_selected ?? payload.n_events ?? 0, 'shower')} selected; frame: ${featureFrameName(payload)}`
       + `${payload.shower ? `, shower ${String(payload.shower).toUpperCase()}` : ''}; classes by ${payload.class_basis ?? payload.class_mode ?? '—'}: ${classes.join(', ')}.`,
   ];
   if (payload.n_outside_classes) lines.push(`${plural(payload.n_outside_classes, 'shower')} in no class: counted, never drawn.`);
@@ -355,7 +370,7 @@ export function featureCorrNotes({ payload, state = null, experiment = null, tit
   const m = featureCorrMatrix(payload);
   notes.section(SECTION.selection, [
     selectionLine(state, experiment),
-    `${payload.class_label ?? payload.class ?? 'all classes'}: N = ${formatInt(payload.n)} showers; frame ${payload.coord_system ?? '—'}${payload.shower ? `, shower ${String(payload.shower).toUpperCase()}` : ''}.`,
+    `${payload.class_label ?? payload.class ?? 'all classes'}: N = ${formatInt(payload.n)} showers; frame: ${featureFrameName(payload)}${payload.shower ? `, shower ${String(payload.shower).toUpperCase()}` : ''}.`,
     payload.exclude_eps && payload.n_excluded_eps
       ? `${plural(payload.n_excluded_eps, 'shower')} with a floored factor left out of the pairs with ${(payload.eps_pair_features ?? []).join(', ')}.` : '',
   ]);
@@ -368,6 +383,8 @@ export function featureCorrNotes({ payload, state = null, experiment = null, tit
   const disclosures = [payload.interval ? `Interval: ${payload.interval}.` : ''];
   const untestable = linear.filter((c) => !c.ci95).length;
   if (untestable) disclosures.push(`${plural(untestable, 'cell')} carry r without an interval (fewer than ${formatInt(payload.thresholds?.fisher ?? 4)} showers).`);
+  const faded = linear.filter((c) => containsZero(c)).length;
+  if (faded) disclosures.push(`${plural(faded, 'cell')} drawn faded: the 95% interval contains 0${untestable ? ', or there is none' : ''}, so the sample cannot tell the correlation from none.`);
   const quiet = cells.filter((c) => c.hatched && c.circular && !Number.isFinite(c.circular.value));
   if (quiet.length) disclosures.push(`${plural(quiet.length, 'azimuth cell')} without a circular measure: ${quiet[0].circular.reason ?? 'not estimable at this sample size'}`);
   const notR = cells.filter((c) => !c.hatched && !Number.isFinite(c.r)).length;
@@ -376,6 +393,7 @@ export function featureCorrNotes({ payload, state = null, experiment = null, tit
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
     'Each cell is coloured by r; its tooltip gives r, the 95% interval and N. Where a cell is too small for it the printed r is dropped and the tooltip carries it.',
+    'A faded cell is one whose 95% interval contains 0 (or that has no interval): its r is printed, but its colour does not claim an association the sample cannot tell from none.',
     'A hatched cell off the colour scale pairs an azimuth; a hatched cell on the colour scale pairs angular_spread, whose r is coloured with a caution.',
   ]);
   notes.section(MODELS_HEADINGS.circular, [

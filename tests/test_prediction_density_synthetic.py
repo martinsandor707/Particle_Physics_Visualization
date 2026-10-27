@@ -197,7 +197,11 @@ def test_the_residual_axis_is_the_percentile_clip_of_the_drawn_showers(synthetic
     assert (axis["lo"], axis["hi"], axis["interval"]) == pytest.approx(expected, rel=1e-6)
     assert axis["provisional"] is False
     assert axis["clipping"]["n_outside"] == clipped.n_outside
-    assert axis["bins"] == 14
+    # Decision D-8: the Freedman-Diaconis width, the widest of the drawn showers, over the axis.
+    widths = [2 * np.subtract(*np.percentile(r, [75, 25])) * r.size ** (-1 / 3) for r in values]
+    assert axis["bins"] == max(8, min(120, math.ceil((axis["hi"] - axis["lo"]) / max(widths) - 1e-9)))
+    assert axis["bin_width"] == pytest.approx((axis["hi"] - axis["lo"]) / axis["bins"], rel=1e-5)
+    assert "Freedman" in axis["bin_rule"] and "Rice" in axis["bin_rule"]
     for shower in ("a", "b"):
         o = axis["outside"][shower]
         r = values[0 if shower == "a" else 1]

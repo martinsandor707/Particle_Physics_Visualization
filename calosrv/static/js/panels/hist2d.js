@@ -33,7 +33,10 @@
  * pred-truth grid is square - 1:1, as the identity line ŷ = y needs to be
  * the diagonal - and the identity is drawn as a named dashed line. D5's two
  * axes are different quantities, so its grids take a plain aspect. A log10
- * feature axis carries log10 values (edges, pairs) and says so in its name.
+ * feature axis carries log10 values (edges, pairs) and says so in its name;
+ * its end labels are printed only where an end is a decade, so no tick reads
+ * 0.316228. An azimuth axis (XGBoost's φ, in rad or mrad) spans its period
+ * with ticks at multiples of π/2, written in π whatever the unit.
  *
  * The panel sizes its own height from its width (`autoHeight`, the
  * ResponseGridPanel pattern), so a 19-class D5 grows rather than shrinking
@@ -117,10 +120,21 @@ function predShowers(payload, shower) {
   return keys.filter((k) => (payload.density[k]?.n ?? 0) > 0 || keys.length === 1);
 }
 
+/** How many axis units one radian is, for an azimuth axis: 1 in rad, 1000 in mrad; null otherwise. */
+export function radianScale(unit) {
+  if (unit === 'rad') return 1;
+  if (unit === 'mrad') return 1000;
+  return null;
+}
+
 /** An axis description of the pred-truth response. */
 function predAxis(ax) {
   // An azimuth axis (XGBoost's φ) is flagged by the server; its ticks are then written in π.
-  return { lo: ax.lo, hi: ax.hi, n: ax.n, unit: ax.unit, label: ax.label, log10: false, circular: ax.circular === true && ax.unit === 'rad' };
+  const perRad = ax.circular === true ? radianScale(ax.unit) : null;
+  return {
+    lo: ax.lo, hi: ax.hi, n: ax.n, unit: ax.unit, label: ax.label, log10: false,
+    circular: perRad !== null, perRad: perRad ?? 1,
+  };
 }
 
 /**
@@ -166,7 +180,7 @@ export function predTruthModel(payload, opts = {}) {
 function featureAxis(ax) {
   return {
     lo: ax.lo, hi: ax.hi, n: ax.bins, unit: ax.unit, label: ax.label, feature: ax.feature,
-    log10: Boolean(ax.log10), circular: ax.scale === 'circular', interval: ax.interval ?? null,
+    log10: Boolean(ax.log10), circular: ax.scale === 'circular', perRad: radianScale(ax.unit) ?? 1, interval: ax.interval ?? null,
     provisional: Boolean(ax.provisional),
   };
 }
@@ -255,11 +269,28 @@ export function hist2dLayout(n, width, { square = false, height = null } = {}) {
 
 /* ------------------------------------------------------------- option -- */
 
-/** Tick labels of an axis: log10 values as their powers, azimuths in π. */
+/** Tick labels of an axis: log10 values as their powers, azimuths in π (from rad or mrad). */
 function axisFormatter(ax) {
   if (ax.log10) return (v) => logTick(10 ** Number(v));
-  if (ax.circular) return piLabel;
+  if (ax.circular) return (v) => piLabel(Number(v) / (ax.perRad ?? 1));
   return tickLabel;
+}
+
+/** Whether a log10 axis end is a whole decade, which alone gets an end label. */
+export function isDecade(v) {
+  return Number.isFinite(v) && Math.abs(v - Math.round(v)) < 1e-9;
+}
+
+/** The tick options of one axis: π/2 steps on an azimuth, end labels only at decades on a log10 axis. */
+function tickOptions(ax, interval) {
+  if (ax.circular) return { interval: (Math.PI / 2) * (ax.perRad ?? 1) };
+  return interval ? { interval } : {};
+}
+
+/** A value axis with its end labels shown only at decades when it is a log10 axis (P-23). */
+function withDecadeEnds(axis, ax) {
+  if (!ax.log10) return axis;
+  return { ...axis, axisLabel: { ...axis.axisLabel, showMinLabel: isDecade(ax.lo), showMaxLabel: isDecade(ax.hi) } };
 }
 
 /** An axis name with its unit, log flag and provisional flag. */
@@ -281,7 +312,7 @@ function cellTip(model, panel, ix, iy, count) {
   const x = model.x;
   const y = model.y;
   const xName = model.kind === 'pred' ? 'truth' : (x.feature ?? 'x');
-  const yName = model.kind === 'pred' ? 'prediction' : (y.feature ?? 'y');
+  const yName = model.kind === 'pred' ? 'prediction' : (y.feature ?? 'E');
   return [
     `<b>${escapeHtml(panel.label)}: ${formatInt(count)} ${model.noun.replace(/s$/, count === 1 ? '' : 's')}</b>`,
     `${escapeHtml(xName)} ${spanText(x, model.xEdges[ix], model.xEdges[ix + 1])}${x.unit ? ` ${escapeHtml(x.unit)}` : ''}`,
@@ -293,7 +324,7 @@ function cellTip(model, panel, ix, iy, count) {
 /** The tooltip of one pair drawn as a point. */
 function pairTip(model, panel, pair) {
   const xName = model.kind === 'pred' ? 'truth' : (model.x.feature ?? 'x');
-  const yName = model.kind === 'pred' ? 'prediction' : (model.y.feature ?? 'y');
+  const yName = model.kind === 'pred' ? 'prediction' : (model.y.feature ?? 'E');
   const show = (ax, v) => (ax.log10 ? `${logTick(10 ** v)} (log₁₀ ${num(v)})` : num(v, 4));
   return [
     `<b>${escapeHtml(panel.label)}: one ${model.noun.replace(/s$/, '')}</b>`,
@@ -338,21 +369,19 @@ export function hist2dOption(payload, opts = {}, metrics = {}) {
     const cell = layout.cells[k];
     grids.push({ left: cell.left, top: cell.top, width: cell.width, height: cell.height });
     const bottomRow = cell.row === layout.rows - 1 || k + layout.cols >= model.panels.length;
-    xAxes.push({
-      ...valueAxis({
-        gridIndex: k, min: x.lo, max: x.hi, formatter: axisFormatter(x), fontSize: THEME.fontSmall,
-        name: bottomRow ? axisName(x, model.kind === 'pred' ? 'truth' : 'x', cell.width) : '',
-        ...(x.circular ? { interval: Math.PI / 2 } : (xInterval(cell) ? { interval: xInterval(cell) } : {})),
-      }),
-    });
-    yAxes.push({
-      ...valueAxis({
-        gridIndex: k, min: y.lo, max: y.hi, formatter: axisFormatter(y), fontSize: THEME.fontSmall,
-        name: cell.col === 0 ? axisName(y, model.kind === 'pred' ? 'prediction' : 'y', cell.height) : '',
-        nameGap: 3.4 * THEME.fontLabel,
-        ...(y.circular ? { interval: Math.PI / 2 } : (yInterval(cell) ? { interval: yInterval(cell) } : {})),
-      }),
-    });
+    xAxes.push(withDecadeEnds(valueAxis({
+      gridIndex: k, min: x.lo, max: x.hi, formatter: axisFormatter(x), fontSize: THEME.fontSmall,
+      name: bottomRow ? axisName(x, model.kind === 'pred' ? 'truth' : (x.feature ?? 'x'), cell.width) : '',
+      ...tickOptions(x, xInterval(cell)),
+    }), x));
+    // D5's y axis is the deposited energy: its last-resort name is E [GeV], never the
+    // transverse coordinate's letter (P-21).
+    yAxes.push(withDecadeEnds(valueAxis({
+      gridIndex: k, min: y.lo, max: y.hi, formatter: axisFormatter(y), fontSize: THEME.fontSmall,
+      name: cell.col === 0 ? axisName(y, model.kind === 'pred' ? 'prediction' : 'E', cell.height) : '',
+      nameGap: 3.4 * THEME.fontLabel,
+      ...tickOptions(y, yInterval(cell)),
+    }), y));
     graphic.push({
       type: 'text', silent: true,
       style: {

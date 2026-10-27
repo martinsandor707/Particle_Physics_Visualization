@@ -20,8 +20,37 @@ import contract_check
 from conftest import BASELINE_TABLE
 from calosrv.db import ddl, naming
 from calosrv.query import density
-from calosrv.stats import clip, gaussian, median
+from calosrv.stats import gaussian, median
 from calosrv.text import signed_hyphens
+
+
+# ---------------------------------------------------- reference formulas --
+
+#: The axis-top mantissas (performance_bins.TOP_MANTISSAS), restated independently.
+_TOPS = (1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0)
+
+
+def nice_top(peak: float) -> float:
+    """The smallest m × 10^k, m in _TOPS, at or above ``peak``."""
+    k = math.floor(math.log10(peak))
+    candidates = [m * 10.0 ** e for e in (k, k + 1) for m in _TOPS]
+    return min(c for c in candidates if c >= peak * (1 - 1e-9))
+
+
+def rmse_interval(r: np.ndarray, seed) -> tuple[float, float]:
+    """Decision D-4, restated: the χ² interval (scipy's quantiles) to N = 19, the bootstrap from 20."""
+    from scipy.stats import chi2
+
+    r = np.asarray(r, dtype=np.float64)
+    n = r.size
+    rmse = math.sqrt(np.mean(r ** 2))
+    if n < 20:
+        return (rmse * math.sqrt(n / chi2.ppf(0.975, n)), rmse * math.sqrt(n / chi2.ppf(0.025, n)))
+    rng = np.random.default_rng(np.random.SeedSequence(list(seed)))
+    sq = r ** 2
+    means = sq[rng.integers(0, n, size=(2000, n))].mean(axis=1)
+    lo, hi = np.quantile(np.sqrt(means), [0.025, 0.975])
+    return float(lo), float(hi)
 
 FRAME_CODES = {"lab": "abs", "trans": "trn", "local": "loc"}
 STEMS = {"energy": "en", "angle": "th"}
@@ -75,8 +104,8 @@ def group(table, model, coord, shower, k, bounds):
             "rel": np.abs(p - t) / t, "true": t}
 
 
-def approx(value):
-    return pytest.approx(value, rel=1e-5, abs=1e-9)
+def approx(value, rel=1e-5):
+    return pytest.approx(value, rel=rel, abs=1e-9)
 
 
 def quoted_bytes(notice):
@@ -122,10 +151,14 @@ def test_every_number_matches_numpy_over_the_event_table(synthetic_client, table
                         assert s[key][i] is None
                     continue
                 n, t = o["n"], gaussian.t_quantile_975(o["n"] - 1)
-                sq, ab = r ** 2, np.abs(r)
-                half = t * sq.std(ddof=1) / math.sqrt(n)
-                assert s["rmse_lo"][i] == approx(math.sqrt(max(0.0, sq.mean() - half)))
-                assert s["rmse_hi"][i] == approx(math.sqrt(sq.mean() + half))
+                ab = np.abs(r)
+                # Decision D-4, with the documented seed [42, frame, shower, bin, 0].
+                seed = (42, ddl.COORD_SYSTEMS.index(coord), ("a", "b").index(shower), k, 0)
+                lo, hi = rmse_interval(r, seed)
+                rel = 1e-3 if n < 20 else 1e-5
+                assert s["rmse_lo"][i] == approx(lo, rel=rel)
+                assert s["rmse_hi"][i] == approx(hi, rel=rel)
+                assert s["rmse_method"][i] == ("chi2_rmse" if n < 20 else "bootstrap_percentile")
                 half = t * ab.std(ddof=1) / math.sqrt(n)
                 assert s["mae_lo"][i] == approx(max(0.0, ab.mean() - half))
                 assert s["mae_hi"][i] == approx(ab.mean() + half)
@@ -250,15 +283,14 @@ def test_the_range_comes_from_the_driving_points(synthetic_client, model, params
                 (strong if s["drives_scale"][i] else weak).append(
                     (top, core, s["key"], block["bins"]["index"][i]))
         if strong:
-            expected = clip.nice_range(0.0, max(t for t, *_ in strong), fine=True)[1]
+            expected = nice_top(max(t for t, *_ in strong))
             assert not spec["provisional"] and spec["value"] == pytest.approx(expected, rel=1e-5)
         else:
             # Provisional: set by the weak points' values alone, whiskers excluded.
             assert spec["provisional"] and "Provisional" in spec["note"]
             peak = max((c for _, c, *_ in weak), default=0.0)
             if peak > 0:
-                assert spec["value"] == pytest.approx(
-                    clip.nice_range(0.0, peak, fine=True)[1], rel=1e-5)
+                assert spec["value"] == pytest.approx(nice_top(peak), rel=1e-5)
         if spec["value"] is not None:
             listed = {(o["series"], o["bin"]) for o in spec["overflow"]}
             exceeding = {(k, b) for t, _, k, b in weak if t > spec["value"]}
@@ -335,7 +367,8 @@ def test_the_quantities_name_their_intervals(synthetic_client):
     quantities = get(synthetic_client, "energy")["by_momentum_bin"]["quantities"]
     assert set(quantities) == {"rmse", "mae", "median_rel", "bias"}
     assert quantities["rmse"]["unit"] == "GeV" and quantities["median_rel"]["unit"] == "fraction"
-    assert "square root" in quantities["rmse"]["interval"]
+    assert "χ²" in quantities["rmse"]["interval"] and "bootstrap" in quantities["rmse"]["interval"]
+    assert "normally distributed residuals" in quantities["rmse"]["interval"]
     assert "Student-t" in quantities["mae"]["interval"] and "clipped at 0" in quantities["mae"]["interval"]
     assert "bootstrap" in quantities["median_rel"]["interval"]
     assert "order-statistic" in quantities["median_rel"]["interval"]
@@ -500,3 +533,15 @@ def test_a_bin_column_that_disagrees_with_the_momenta_is_labelled_by_number_and_
     assert block["notes"]["labels"] in body["meta"]["warnings"]
     assert "disagrees" in block["notes"]["labels"]
     contract_check.check(body, "performance_momentum")
+
+
+def test_the_groups_run_on_the_services_own_thread_allocation(synthetic_client, monkeypatch):
+    """The pool is bounded by Settings.threads, the figure /api/health reports, never os.cpu_count()."""
+    from calosrv.query import performance_bins as pb
+
+    seen = []
+    real = pb.map_groups
+    monkeypatch.setattr(pb, "map_groups", lambda fn, tasks, workers=1: seen.append(workers) or real(fn, tasks, workers))
+    get(synthetic_client, "energy")
+    threads = synthetic_client.get("/api/health").json()["threads"]
+    assert seen == [threads]
