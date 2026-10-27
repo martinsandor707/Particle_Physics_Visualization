@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",
+    # The opt-in browser tests (CALOSRV_BROWSER_TESTS=1); Chromium itself comes from
+    # `python -m playwright install chromium`.
+    "playwright>=1.62",
 ]
 
 [project.scripts]
