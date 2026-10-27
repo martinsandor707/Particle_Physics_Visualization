@@ -72,20 +72,29 @@ export function runLines(payload, experiment = null) {
   return lines;
 }
 
-/** The split check, as a disclosure. */
+/**
+ * The split check, as a disclosure: seed 42's ratio against the largest of
+ * the other seeds the server compared (`max_others`, `seed_of_max`), never
+ * the 99 ratios themselves.
+ */
 export function splitLines(payload) {
   const run = payload?.run ?? {};
   const split = run.split;
   const out = [];
   if (split) {
-    const others = (split.ratio_others ?? []).map((v) => sigFigs(v, 3));
-    const seeds = split.seeds_others ?? [0, 7];
-    const measured = `validation / training MSE of the shipped model is ${sigFigs(split.ratio_42, 3)} at random_state 42`
-      + `${others.length ? `, against ${others.join(' and ')} at random_state ${seeds.join(' and ')}` : ''}`;
+    const nOthers = split.n_others ?? split.ratio_others?.length ?? 0;
+    const against = Number.isFinite(split.max_others)
+      ? `, against at most ${sigFigs(split.max_others, 3)} at the ${formatInt(nOthers)} other seeds (random_state ${split.seed_of_max})`
+      : '';
+    const measured = `validation / training MSE of the shipped model is ${sigFigs(split.ratio_42, 3)} at random_state 42${against}`;
     if (split.reproduced === false) {
-      out.push(`Split not reproduced: ${split.warning ?? measured}. The hold-out rows may include rows the model was trained on.`);
+      const warning = split.warning ?? `${measured}; the hold-out rows may include rows the model was trained on.`;
+      out.push(/^Split not reproduced/.test(warning) ? warning : `Split not reproduced: ${warning.replace(/\.?$/, '.')}`);
     } else {
-      out.push(`Split check passed: ${measured}; the rule: ${split.rule ?? 'the 42 ratio must exceed the others'}.`);
+      const margin = Number.isFinite(split.headroom) && Number.isFinite(split.margin)
+        ? ` (${sigFigs(split.headroom, 3)} times the largest, where ${sigFigs(split.margin, 3)} is required)`
+        : '';
+      out.push(`Split check passed: ${measured}${margin}. The rule: ${split.rule ?? 'the ratio at random_state 42 must exceed the others.'}`);
     }
   }
   if (run.archive_increasing === false) {

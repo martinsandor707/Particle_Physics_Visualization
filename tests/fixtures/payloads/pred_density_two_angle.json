@@ -8397,6 +8397,7 @@
  "residual": {
   "quantity": "Polar-angle residual θ_pred − θ_true",
   "unit": "mrad",
+  "statistics": "linear",
   "axis": {
    "lo": -25.0,
    "hi": 5.0,
@@ -9318,7 +9319,7 @@
  "notes": {
   "pairs": "Each count is a shower: shower A and shower B of an event are separate pairs and are drawn apart. Below N = 15 pairs a shower gets its individual (truth, prediction) pairs instead of a density, because a cell of one or two showers would be set by the binning, not by the network.",
   "axes": "Truth and prediction share one range taken from the whole event table, whatever the selection, so the identity line is the diagonal and the picture does not move when a filter changes. Showers beyond it are counted in outside, never dropped silently.",
-  "residual": "The residual is the quantity of the model-performance cards. Its range is the 1st to 99th percentile of the pooled residuals of the showers with N ≥ 15, rounded outward, when at least 20 are pooled (axis.clipping.applied); below that the percentiles would be noise, the range is the full extent and axis.provisional is set. The showers beyond it are counted in axis.outside. The mean's whisker is its Student-t interval and the σ band is the spread of the showers: two marks, two quantities.",
+  "residual": "The residual is the quantity of the model-performance cards. Its range is the 1st to 99th percentile of the pooled residuals of the showers with N ≥ 15, rounded outward, when at least 20 are pooled (axis.clipping.applied); below that the percentiles would be noise, the range is the full extent and axis.provisional is set. The showers beyond it are counted in axis.outside. From N = 15 a series is a density histogram, which is its spread, with its fitted Gaussian; its mean is a long-dashed rule with the 95 % Student-t interval of the mean as two thin hairlines. Below N = 15 its events are drawn in a reserved band, with the mean's capped Student-t whisker and an uncapped ± 1 SD bar, the spread of the events: two marks, two quantities.",
   "angle": "The angle network predicts the polar angle θ only, so there is no azimuth residual and nothing to wrap. Axes and residuals are in mrad."
  },
  "filter": {

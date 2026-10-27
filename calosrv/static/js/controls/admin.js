@@ -20,9 +20,12 @@
  * ones have verified - and the row follows the job until it is done.
  *
  * Below it, the XGBoost model runs: each event-level aggregate paired with
- * the shipped models of its species and seed (GET /api/admin/model-runs),
- * where its analysis stands, and a Re-analyse action (POST
- * /api/admin/model-runs/{table_name}/analyse) that queues the analysis again.
+ * the shipped models of its species and seed (GET /api/admin/model-runs,
+ * read-only: it reports an analysis stale and queues nothing), where its
+ * analysis stands, a Rescan models action (POST /api/admin/model-runs/scan)
+ * that rescans the models folder and queues every missing or stale analysis,
+ * and a Re-analyse action per row (POST
+ * /api/admin/model-runs/{table_name}/analyse) that queues one again.
  * The section is built here rather than in the markup, so the page needs no
  * ids for it; a server without the routes (404) is said to have none.
  * The Models page has no Admin Settings of its own: its header link opens
@@ -695,7 +698,15 @@ export class AdminModal {
     refresh.textContent = 'Refresh';
     refresh.title = 'Read the pairings and the state of each analysis again';
     refresh.addEventListener('click', () => this.loadModelRuns());
-    head.append(title, spacer, refresh);
+    const rescan = document.createElement('button');
+    rescan.type = 'button';
+    rescan.className = 'mini';
+    rescan.dataset.rescanModels = '';
+    rescan.textContent = 'Rescan models';
+    rescan.title = 'Rescan the models folder and queue the analysis of every experiment whose '
+      + 'stored analysis is missing or stale (a changed model file, library or data)';
+    rescan.addEventListener('click', () => this.rescanModels());
+    head.append(title, spacer, refresh, rescan);
     const where = document.createElement('div');
     where.className = 'hint';
     where.textContent = '—';
@@ -715,7 +726,7 @@ export class AdminModal {
     section.append(head, where, table);
     // Last in the panel, after the derived tables.
     modal.append(section);
-    Object.assign(this.runs, { section, where, table, body, refresh });
+    Object.assign(this.runs, { section, where, table, body, refresh, rescan });
   }
 
   /** Read the model-runs list; a server without the route has none to show. */
@@ -810,6 +821,30 @@ export class AdminModal {
     }
     tr.append(name, models, status, action);
     return tr;
+  }
+
+  /**
+   * Rescan models: the scan queues every missing or stale analysis; the list
+   * is then read again from GET, which follows what was queued.
+   */
+  async rescanModels() {
+    const button = this.runs?.rescan;
+    if (button) button.disabled = true;
+    try {
+      const payload = await sendJson('POST', '/api/admin/model-runs/scan');
+      const queued = modelRunRows(payload).filter(runPending).length;
+      this.setStatus(queued
+        ? `Models rescanned: ${formatInt(queued)} XGBoost analys${queued === 1 ? 'is' : 'es'} queued or running.`
+        : 'Models rescanned: every paired analysis is current, failed on unchanged inputs or unpaired.');
+    } catch (error) {
+      const message = error instanceof ApiError && error.status === 404
+        ? 'Rescanning the models is not available in this build.'
+        : (error instanceof ApiError ? error.message : String(error?.message ?? error));
+      this.setStatus(message, true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+    await this.loadModelRuns();
   }
 
   /** Queue one experiment's analysis again, then follow it. */

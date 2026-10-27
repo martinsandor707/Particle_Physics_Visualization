@@ -2,7 +2,7 @@
  "models": {
   "dir": "<the test's temporary models folder>",
   "found": true,
-  "scanned_at": "2026-10-27T13:38:50+00:00",
+  "scanned_at": "2026-10-27T14:33:51+00:00",
   "files": [
    {
     "path": "xgboost_electron/standalone_angle_s1_model.json",
@@ -168,12 +168,12 @@
      "split": {
       "reproduced": true,
       "ratio_42": 6.7307550552912305,
-      "ratio_others": [
-       0.2656193784801426,
-       0.6659089821018862
-      ]
+      "max_others": 4.995205163166778,
+      "seed_of_max": 53,
+      "n_others": 99,
+      "margin": 1.05
      },
-     "analysis_version": 1
+     "analysis_version": 2
     },
     {
      "task": "angle",
@@ -183,37 +183,37 @@
      "n_train": 245,
      "n_holdout": 62,
      "split": {
-      "reproduced": true,
+      "reproduced": false,
       "ratio_42": 1.031634788562244,
-      "ratio_others": [
-       0.8028375690098838,
-       0.9094228248811518
-      ]
+      "max_others": 1.2447918484680947,
+      "seed_of_max": 55,
+      "n_others": 99,
+      "margin": 1.6
      },
-     "analysis_version": 1
+     "analysis_version": 2
     }
    ],
-   "queued_at": "2026-10-27T13:38:50+00:00",
-   "started_at": "2026-10-27T13:38:50+00:00",
-   "finished_at": "2026-10-27T13:38:50+00:00",
-   "duration_s": 0.53,
+   "queued_at": "2026-10-27T14:33:50+00:00",
+   "started_at": "2026-10-27T14:33:50+00:00",
+   "finished_at": "2026-10-27T14:33:51+00:00",
+   "duration_s": 0.59,
    "timings": {
-    "binary thresholding sample": 0.007,
-    "cross-validation fold 1 of 5 (angle)": 0.024,
-    "cross-validation fold 1 of 5 (momentum)": 0.035,
-    "cross-validation fold 2 of 5 (angle)": 0.031,
+    "binary thresholding sample": 0.01,
+    "cross-validation fold 1 of 5 (angle)": 0.027,
+    "cross-validation fold 1 of 5 (momentum)": 0.034,
+    "cross-validation fold 2 of 5 (angle)": 0.021,
     "cross-validation fold 2 of 5 (momentum)": 0.031,
-    "cross-validation fold 3 of 5 (angle)": 0.03,
-    "cross-validation fold 3 of 5 (momentum)": 0.031,
-    "cross-validation fold 4 of 5 (angle)": 0.037,
-    "cross-validation fold 4 of 5 (momentum)": 0.026,
+    "cross-validation fold 3 of 5 (angle)": 0.027,
+    "cross-validation fold 3 of 5 (momentum)": 0.029,
+    "cross-validation fold 4 of 5 (angle)": 0.021,
+    "cross-validation fold 4 of 5 (momentum)": 0.024,
     "cross-validation fold 5 of 5 (angle)": 0.026,
-    "cross-validation fold 5 of 5 (momentum)": 0.03,
+    "cross-validation fold 5 of 5 (momentum)": 0.032,
     "gain importances": 0.001,
-    "split check and holdout predictions (angle)": 0.006,
-    "split check and holdout predictions (momentum)": 0.06,
+    "split check and holdout predictions (angle)": 0.032,
+    "split check and holdout predictions (momentum)": 0.082,
     "surrogate tree (angle)": 0.003,
-    "surrogate tree (momentum)": 0.076
+    "surrogate tree (momentum)": 0.08
    }
   },
   {
@@ -310,9 +310,9 @@
    "progress": 0.0,
    "stale_reasons": [],
    "runs": [],
-   "queued_at": "2026-10-27T13:38:50+00:00",
-   "started_at": "2026-10-27T13:38:50+00:00",
-   "finished_at": "2026-10-27T13:38:50+00:00",
+   "queued_at": "2026-10-27T14:33:51+00:00",
+   "started_at": "2026-10-27T14:33:51+00:00",
+   "finished_at": "2026-10-27T14:33:51+00:00",
    "duration_s": 0.01,
    "timings": {}
   },

@@ -38,6 +38,14 @@ shipped regressor on the notebook's 20 % validation split, restricted to the
 selection: one shower, the same payload. Its angle task predicts φ as well as
 θ, chosen with ``label``; φ's residual is wrapped to (−π, π] (an azimuth's
 error of 2π − ε is a small one) and its axes are stated not to wrap.
+
+**φ's residual is circular** (:func:`circular_series`, CLAUDE.md section 2:
+never average a circular quantity). Its histogram and RMSE stand, but its
+arithmetic mean, the mean's whisker and the σ band, the bias, σ/μ and the
+moment σ are withheld - null, never numbers. Its centre and spread are the
+circular mean direction (with Fisher's large-sample 95 % interval), the mean
+resultant length R̄ and the circular SD √(−2 ln R̄). A Gaussian curve is drawn
+only as a fit of the core (the iterated ±2.5σ window, N ≥ 15), labelled so.
 """
 
 from __future__ import annotations
@@ -53,8 +61,9 @@ from ..db import ddl, naming
 from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
+from ..stats import circular as circular_mod
 from ..stats import clip as clip_mod
-from ..stats import histogram, metrics
+from ..stats import gaussian, histogram, metrics
 from ..text import typographic
 from . import performance_bins
 from . import showers as showers_mod
@@ -403,14 +412,138 @@ def residuals(sel: Selection) -> tuple[dict[str, np.ndarray], dict[str, int]]:
             excluded[shower] = int(t.size - positive.sum())
             out[shower] = (p[positive] - t[positive]) / t[positive]
         elif sel.label == "phi":
-            from ..stats.circular import wrap_angle
-
             excluded[shower] = 0
-            out[shower] = wrap_angle((p - t) / MRAD_PER_RAD) * MRAD_PER_RAD
+            out[shower] = circular_mod.wrap_angle((p - t) / MRAD_PER_RAD) * MRAD_PER_RAD
         else:
             excluded[shower] = 0
             out[shower] = p - t
     return out, excluded
+
+
+#: The fit fields that describe a line: an arithmetic mean, a moment width and what is built on
+#: them. None is a statistic of an azimuth, so φ's residual carries each as null.
+LINEAR_FIT_FIELDS: tuple[str, ...] = (
+    "mu", "sigma", "sigma_population", "sigma_robust", "resolution", "resolution_core",
+    "mu_error", "sigma_error", "resolution_error", "mu_ci95", "sigma_ci95",
+    "sigma_bias_factor", "sigma_unbiased", "non_gaussian",
+)
+
+#: Fewest residuals for Fisher's large-sample interval of a mean direction (Fisher 1993, 4.4.4).
+MIN_DIRECTION_INTERVAL = 25
+
+CORE_FIT_LABEL = (
+    "Gaussian fit of the core: the iterated ±2.5σ window of the wrapped residual, where it "
+    "does not wrap. It describes the core's shape only; it is not the width or the centre of "
+    "the whole distribution, whose spread is the circular SD.")
+
+
+def direction_interval(radians: np.ndarray, mean: float | None,
+                       resultant: float | None) -> dict[str, Any] | None:
+    """Fisher's large-sample 95 % interval of a mean direction, in radians; ``None`` below N = 25.
+
+    δ = (1 − ρ₂) / (2 R̄²) with ρ₂ = mean cos 2(θ − θ̄) is the circular
+    dispersion and σ = √(δ / n) the standard error; the interval is
+    θ̄ ± arcsin(1.96 σ) (Fisher 1993, eqs 4.21 and 4.22).
+    """
+    a = np.asarray(radians, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    n = int(a.size)
+    if n < MIN_DIRECTION_INTERVAL or mean is None or not resultant:
+        return None
+    rho2 = float(np.mean(np.cos(2.0 * (a - mean))))
+    se = math.sqrt(max(0.0, (1.0 - rho2) / (2.0 * resultant * resultant)) / n)
+    z = 1.959963984540054 * se
+    if z >= 1.0:
+        return None
+    half = math.asin(z)
+    return {"lo": mean - half, "hi": mean + half, "se": se}
+
+
+def circular_block(sample_mrad: np.ndarray) -> dict[str, Any]:
+    """The wrapped residual's centre and spread on the circle, in mrad."""
+    radians = np.asarray(sample_mrad, dtype=np.float64) / MRAD_PER_RAD
+    summary = circular_mod.describe_circular(radians)
+    interval = direction_interval(radians, summary.mean_direction, summary.resultant)
+
+    def mrad(value: float | None) -> float | None:
+        return None if value is None else sig(value * MRAD_PER_RAD)
+
+    note = summary.note
+    if not note and interval is None and summary.n >= 2:
+        note = (f"N = {summary.n}: below the {MIN_DIRECTION_INTERVAL} residuals Fisher's "
+                "large-sample interval of the mean direction needs; none is quoted.")
+    return {
+        "n": summary.n,
+        "unit": "mrad",
+        "mean_direction": mrad(summary.mean_direction),
+        "mean_direction_se": mrad(interval["se"]) if interval else None,
+        "mean_direction_interval": None if interval is None else {
+            "lo": mrad(interval["lo"]), "hi": mrad(interval["hi"]), "level": 0.95,
+            "method": "fisher_large_sample",
+            "label": "95 % large-sample interval of the mean direction (Fisher 1993, 4.4.4)"},
+        "resultant": sig(summary.resultant),
+        "circular_sd": mrad(summary.circular_sd),
+        "rayleigh_p": sig(summary.rayleigh_p),
+        "definition": ("mean direction atan2(Σ sin, Σ cos) of the wrapped residuals; mean "
+                       "resultant length R̄ = |Σ e^{iθ}| / n in [0, 1]; circular SD √(−2 ln R̄)"),
+        "note": typographic(note),
+    }
+
+
+def _withheld(n: int, what: str) -> dict[str, Any]:
+    """An estimate φ's residual does not have: null, with the reason."""
+    return {"value": None, "se": None, "interval": None, "n": n, "note": typographic(
+        f"Not quoted for an azimuth: {what}. The circular mean direction, R̄ and the circular "
+        "SD are its centre and spread (series.circular).")}
+
+
+def circular_series(entry: dict[str, Any], sample_mrad: np.ndarray,
+                    rmse: dict[str, Any]) -> dict[str, Any]:
+    """A φ residual series: the ladder's histogram and events, with every linear statistic nulled.
+
+    ``entry`` is ``build_series(...).as_dict()`` of the wrapped residual. Its
+    marks of a line - the mean marker with its whisker and σ band - and the
+    fit's arithmetic mean, moment widths and ratios become null; the core
+    refit's Gaussian stays, labelled as a fit of the core, only where it ran
+    (N ≥ 15) and its window does not reach the ±π cut.
+    """
+    out = dict(entry)
+    fit = dict(out["fit"])
+    n = int(fit.get("n") or 0)
+    mu_core, sigma_core = fit.get("mu_core"), fit.get("sigma_core")
+    core = bool(fit.get("core_applied")) and sigma_core is not None and sigma_core > 0 and (
+        abs(mu_core) + gaussian.CORE_SIGMA * sigma_core < math.pi * MRAD_PER_RAD)
+    for key in LINEAR_FIT_FIELDS:
+        fit[key] = None
+    fit["note"] = ""
+    if core:
+        out["core_fit"] = {"mu": sig(mu_core), "sigma": sig(sigma_core), "n": int(fit["n_core"]),
+                           "unit": "mrad", "label": typographic(CORE_FIT_LABEL)}
+    else:
+        fit["mu_core"] = fit["sigma_core"] = None
+        fit["estimator"] = "circular"
+        fit["estimator_note"] = typographic(
+            f"N = {n}: summarised on the circle only. A Gaussian of the core needs the "
+            f"{gaussian.MIN_CORE_SAMPLES}-residual core refit, and no curve is drawn without it.")
+        out["core_fit"] = None
+        out["curve"] = {"y": None}
+        out["curve_peak"] = None
+        if out["draw"] == "curve+strip":
+            out["draw"] = "strip"
+    if out["draw"] != "histogram":
+        out["message"] = typographic(
+            f"N = {n}: the individual residuals are drawn; an azimuth's residual has no "
+            "arithmetic mean or σ to mark, and its circular statistics are in the tooltip.")
+    out["fit"] = fit
+    out["markers"] = None
+    out["circular"] = circular_block(sample_mrad)
+    out["estimates"] = {
+        "bias": _withheld(n, "an arithmetic mean of a wrapped residual is not its centre"),
+        "sigma": _withheld(n, "a moment σ of a wrapped residual is set by the few residuals "
+                              "near ±π, not by its width"),
+        "rmse": rmse,
+    }
+    return out
 
 
 def residual_block(sel: Selection) -> dict[str, Any]:
@@ -439,16 +572,20 @@ def residual_block(sel: Selection) -> dict[str, Any]:
             edges_array=edges, curve_x=curve_x,
         )
         summary = metrics.residual_summary(sample)
-        series[shower] = {
-            **fitted.as_dict(),
-            "estimates": {"bias": _estimate(summary.bias), "sigma": _estimate(summary.sigma),
-                          "rmse": _estimate(summary.rmse)},
-        }
+        if sel.label == "phi":
+            series[shower] = circular_series(fitted.as_dict(), sample, _estimate(summary.rmse))
+        else:
+            series[shower] = {
+                **fitted.as_dict(),
+                "estimates": {"bias": _estimate(summary.bias), "sigma": _estimate(summary.sigma),
+                              "rmse": _estimate(summary.rmse)},
+            }
         outside[shower] = {"n": int(sample.size), "below": int((sample < lo).sum()),
                            "above": int((sample > hi).sum())}
     return {
         "quantity": labels["residual"],
         "unit": labels["residual_unit"],
+        "statistics": "circular" if sel.label == "phi" else "linear",
         "axis": {
             "lo": lo, "hi": hi, "interval": interval, "bins": bins,
             "clipping": clipping.as_dict(),
@@ -473,6 +610,23 @@ def residual_block(sel: Selection) -> dict[str, Any]:
 # ------------------------------------------------------------------ report --
 
 
+#: What the residual card draws for a linear residual, in the words of its Details drawer.
+MARKS_NOTE = (
+    "From N = 15 a series is a density histogram, which is its spread, with its fitted Gaussian; "
+    "its mean is a long-dashed rule with the 95 % Student-t interval of the mean as two thin "
+    "hairlines. Below N = 15 its events are drawn in a reserved band, with the mean's capped "
+    "Student-t whisker and an uncapped ± 1 SD bar, the spread of the events: two marks, two "
+    "quantities.")
+
+CIRCULAR_RESIDUAL_NOTE = (
+    "φ is an azimuth, so its residual is wrapped to (−π, π] and summarised on the circle: no "
+    "arithmetic mean, whisker or σ band is drawn, and no bias, σ or σ/μ is quoted. Its centre "
+    "is the circular mean direction, with Fisher's large-sample 95 % interval, and its spread "
+    "the mean resultant length R̄ and the circular SD √(−2 ln R̄) (series.circular). The "
+    "histogram and the RMSE of the wrapped residual stand; a Gaussian curve is drawn only as "
+    "a fit of the core, labelled so (series.core_fit).")
+
+
 def _xgb_notes(sel: Selection) -> dict[str, str]:
     notes = {
         "series": (
@@ -494,8 +648,7 @@ def _xgb_notes(sel: Selection) -> dict[str, str]:
             "The residual is the quantity of the model-performance card. Its range is the "
             "1st to 99th percentile of the residuals when at least 20 are drawn "
             "(axis.clipping.applied); below that it is their full extent and axis.provisional "
-            "is set. The mean's whisker is its Student-t interval and the σ band is the spread "
-            "of the events: two marks, two quantities."),
+            "is set. " + (CIRCULAR_RESIDUAL_NOTE if sel.label == "phi" else MARKS_NOTE)),
     }
     if sel.model == "energy":
         notes["calibration"] = (
@@ -538,8 +691,7 @@ def _notes(sel: Selection) -> dict[str, str]:
             f"N ≥ {MIN_DENSITY_SAMPLES}, rounded outward, when at least 20 are pooled "
             "(axis.clipping.applied); below that the percentiles would be noise, the range is "
             "the full extent and axis.provisional is set. The showers beyond it are counted "
-            "in axis.outside. The mean's whisker is its Student-t interval and the σ band is "
-            "the spread of the showers: two marks, two quantities."),
+            "in axis.outside. " + MARKS_NOTE),
     }
     if sel.model == "energy":
         notes["calibration"] = (
@@ -672,7 +824,8 @@ def read_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Fil
 
     task = performance_bins.XGB_TASK[model]
     chosen = label or XGB_LABELS[model][0]
-    runs = xgb_store.read_runs(con, record.table_name)
+    # The gate is open, but the tables can still be gone: refused (422), never a 500.
+    runs = xgb_views.require_runs(con, record, task, field="model")
     where = spec.where_sql("e")
     rows = xgb_store.read_holdout(con, record, task, where, spec.params())
     n_selected = xgb_store.count_selected(con, record, where, spec.params())
@@ -686,7 +839,7 @@ def read_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Fil
         f"SELECT min(CAST({column} AS DOUBLE)), max(CAST({column} AS DOUBLE)) "
         f"FROM {quote(naming.event_table(record.table_name))}").fetchone()
     lo, hi = _axis_range([v for v in found if v is not None], scale, model)
-    run = xgb_views.run_block(runs, task) if runs and task in runs else {}
+    run = xgb_views.run_block(runs, task)
     n_val = int(t.size)
     split = {
         "n_selected": n_selected, "n_validation": n_val,

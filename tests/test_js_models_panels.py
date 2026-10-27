@@ -243,6 +243,22 @@ for (const name of %(pred)s) {
   }
   out.residual.none = walk(dist.residualOption(none, {}, W));
 }
+{
+  // The XGBoost azimuth residual: circular statistics, no line marks.
+  const phi = load('pred_density_xgb_phi');
+  out.residual.phi = walk(dist.residualOption(phi, {}, W));
+  // Below the histogram floor: the residuals as ticks, still no summary marks.
+  const few = clone(phi);
+  const a = few.residual.series.a;
+  a.draw = 'strip'; a.histogram = null; a.curve = { y: null }; a.curve_peak = null; a.drives_scale = false;
+  a.core_fit = null; a.strip = { values: [-30, -2, 0.5, 4, 2900], n_shown: 5, truncated: false };
+  a.fit = { ...a.fit, n: 5, mu_core: null, sigma_core: null };
+  out.residual.phiStrip = walk(dist.residualOption(few, {}, W));
+  // A payload that still carried line markers: an azimuth draws none of them anyway.
+  const stray = clone(few);
+  stray.residual.series.a.markers = { mu: 0.1, ci95_lo: -0.2, ci95_hi: 0.4, dispersion_lo: -1, dispersion_hi: 1.2 };
+  out.residual.phiStray = walk(dist.residualOption(stray, {}, W));
+}
 
 /* ---- D4 ------------------------------------------------------------------ */
 for (const name of %(hists)s) {
@@ -321,6 +337,7 @@ for (const name of %(corrs)s) {
   n.perf = Object.fromEntries(%(perf)s.map((p) => [p, pack(mn.perfBinsNotes({ payload: load(p), state: stub, experiment: ex, quantity: 'median_rel' }))]));
   n.pred = Object.fromEntries(%(pred)s.map((p) => [p, pack(mn.predTruthNotes({ payload: load(p), palette: 'plasma' }))]));
   n.residual = Object.fromEntries(%(pred)s.map((p) => [p, pack(mn.residualNotes({ payload: load(p) }))]));
+  n.residualPhi = pack(mn.residualNotes({ payload: load('pred_density_xgb_phi') }));
   n.table = Object.fromEntries(%(describe)s.map((p) => [p, pack(mn.featureTableNotes({ payload: load(p), stat: 'mean' }))]));
   n.corr = Object.fromEntries(%(corrs)s.map((p) => [p, pack(mn.featureCorrNotes({ payload: load(p) }))]));
   n.hist = Object.fromEntries(%(hists)s.map((p) => [p, pack(mn.featureHistNotes({ payload: load(p) }))]));
@@ -434,7 +451,7 @@ def _all_charts(out: dict):
         yield from out["pred"][name]["charts"].values()
         yield out["residual"][name]["chart"]
     yield out["pred"]["pairs"]
-    for key in ("strip", "thin", "over", "none"):
+    for key in ("strip", "thin", "over", "none", "phi", "phiStrip", "phiStray"):
         yield out["residual"][key]
     for name in HISTS:
         yield out["hist"][name]["density"]
@@ -616,6 +633,49 @@ def test_a_thin_curve_above_the_robust_range_is_clipped_with_its_true_peak(out):
     chart = out["residual"]["over"]
     carets = _named(chart, r"^Shower B residual · fitted Gaussian \(clipped\)$")
     assert len(carets) == 1 and "lies above the axis" in carets[0]["items"][0]["tip"]
+
+
+@pytest.mark.parametrize("key", ["phi", "phiStrip", "phiStray"])
+def test_the_azimuth_residual_draws_no_mean_whisker_or_sd_bar(out, key):
+    """CLAUDE.md section 2: never average a circular quantity - no line statistic is drawn."""
+    chart = out["residual"][key]
+    assert not _named(chart, r" · mean( 95% interval)?$") and not _named(chart, r" · mean · 95% interval$")
+    assert not _named(chart, r" · SD band$")
+    tips = " ".join(i["tip"] or "" for s in chart["series"] for i in s["items"])
+    assert "circular mean direction" in tips and "R̄" in tips
+    assert "mean residual (bias)" not in tips and "σ = " not in tips
+    assert _named(chart, r"^zero residual \(prediction = truth\)$")
+
+
+def test_the_azimuth_residual_names_its_curve_a_fit_of_the_core(out):
+    chart = out["residual"]["phi"]
+    tips = " ".join(i["tip"] or "" for s in chart["series"] for i in s["items"])
+    assert "Gaussian fit of the core" in tips
+    events = _named(out["residual"]["phiStrip"], r"\(events\)$")
+    assert events and not _named(out["residual"]["phiStrip"], r"^reserved summary band$") is None
+
+
+def test_the_azimuth_residual_drawer_names_the_circular_statistics(out):
+    notes = out["notes"]["residualPhi"]
+    legend = " ".join(notes["sections"]["Marks and legend"])
+    assert "no mean rule, whisker or ± 1 SD bar" in legend and "circular SD" in legend
+    (estimator,) = [lines for heading, lines in notes["sections"].items() if heading not in
+                    ("Selection", "What is drawn", "Disclosures", "Marks and legend")]
+    text = " ".join(estimator)
+    assert "circular mean direction" in text and "R̄" in text and "no bias, σ or σ/μ" in text
+    assert "bias −" not in text and "bias 0" not in text
+    drawn = " ".join(notes["sections"]["What is drawn"])
+    assert "no arithmetic mean, whisker or σ band" in drawn and "Gaussian fit of its core" in drawn
+    _no_hyphen_numbers(notes["sections"][h] for h in notes["sections"])
+
+
+def test_the_linear_residual_drawer_agrees_with_the_servers_note(out):
+    """The drawer's legend and the server's own residual note describe the same marks."""
+    notes = out["notes"]["residual"]["pred_density_two_energy"]
+    drawn = " ".join(notes["sections"]["What is drawn"])
+    legend = " ".join(notes["sections"]["Marks and legend"])
+    for words in ("long-dashed", "two thin hairlines", "uncapped ± 1 SD bar", "the spread of the events"):
+        assert words in drawn and words in legend, words
 
 
 def test_with_no_estimable_density_the_axis_is_unlabelled_and_the_panel_says_so(out):

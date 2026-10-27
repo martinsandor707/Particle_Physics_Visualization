@@ -9,8 +9,13 @@ notebook read its CSV - so no database is involved.
 * The refit on the reproduced 80 % recreates the shipped electron momentum
   model exactly (max |Δpred| = 0), on the thread count the service uses: the
   claim the stored cross-validation rests on.
-* The split check passes for every species and both tasks.
-* The whole analysis runs on the electron file; its duration is printed.
+* The split check passes for every species and both tasks: seed 42's
+  validation / training MSE exceeds the largest of 99 other seeds' by the
+  task's margin (``analysis.SPLIT_MARGIN``); row-permuted errors fail it.
+* Each angle output predicts its own label better than the other one.
+* The whole analysis runs on the electron file; its duration is printed, and
+  E3's balanced accuracy keeps the perfectly classified minority class's
+  uncertainty (Newcombe MOVER; the bootstrap it replaced gave [0.933, 0.947]).
 
     CALOSRV_XGB_REAL=1 .venv/bin/python -m pytest -q -s tests/test_xgboost_real.py
 """
@@ -88,10 +93,30 @@ def test_the_split_check_passes_for_every_species(species):
     data, models = _dataset(species)
     for task, labels in TASK_LABELS.items():
         regressor = analysis.load_model(models[task], model_threads())
-        pred = regressor.predict(data.features[task])
+        pred = np.asarray(regressor.predict(data.features[task]), dtype=np.float64)
         truth = np.column_stack([data.labels[label] for label in labels])
-        ratios = analysis.split_ratios(np.asarray(pred, dtype=np.float64), truth)
-        assert analysis.reproduced(ratios), (species, task, ratios)
+        ratios = analysis.split_ratios(pred, truth)
+        split = analysis.split_summary(ratios, task)
+        print(f"\n{species} {task}: ratio_42 {split['ratio_42']:.4g}, max of 99 others "
+              f"{split['max_others']:.4g} (seed {split['seed_of_max']}), headroom "
+              f"{split['headroom']:.4g} against the margin {split['margin']:g}")
+        assert analysis.reproduced(ratios, task), (species, task, split)
+        # Row-permuted errors: a split the model was not trained on fails the check.
+        n = truth.shape[0]
+        e2 = ((pred.reshape(n, -1) - truth.reshape(n, -1)) ** 2).mean(axis=1)
+        rng = np.random.default_rng(1)
+        splits = [analysis.split_indices(n, seed) for seed in (42, *analysis.CHECK_SEEDS)]
+        passed = 0
+        for _ in range(20):
+            e = e2[rng.permutation(n)]
+            permuted = {seed: e[va].mean() / e[tr].mean()
+                        for seed, (tr, va) in zip((42, *analysis.CHECK_SEEDS), splits)}
+            passed += analysis.reproduced(permuted, task)
+        assert passed == 0, (species, task, passed)
+        if task == "angle":
+            errors = analysis.output_order(task, pred, truth, labels)
+            print(f"{species} output order: {errors}")
+            analysis.check_output_order(task, errors)
 
 
 def test_the_whole_analysis_runs_on_the_electron_file():
@@ -107,6 +132,21 @@ def test_the_whole_analysis_runs_on_the_electron_file():
         assert t.split_reproduced and len(t.folds) == 5
         assert len(t.tree) <= 15 and t.surrogate_r2 is not None
     assert result.binary.n_0 + result.binary.n_1 == 2000
+    from calosrv.modelruns import views
+
+    b = result.binary
+    tp = int(((b.y_true == 1) & (b.y_pred == 1)).sum())
+    fn = int(((b.y_true == 1) & (b.y_pred == 0)).sum())
+    tn = int(((b.y_true == 0) & (b.y_pred == 0)).sum())
+    fp = int(((b.y_true == 0) & (b.y_pred == 1)).sum())
+    balanced = views.balanced_interval(tn, fp, fn, tp)
+    print(f"E3: tp {tp} fn {fn} tn {tn} fp {fp}; balanced accuracy {balanced['value']:.4f} "
+          f"[{balanced['lo']:.4f}, {balanced['hi']:.4f}]")
+    assert balanced["lo"] < 0.9 < balanced["value"]
+    # E4: φ's nodes carry the circular mean and R̄ of the booster's predictions.
+    angle = result.tasks["angle"]
+    assert all(0.0 <= n["circular"]["phi"]["resultant"] <= 1.0 for n in angle.tree)
+    print("E4 fidelity per output:", angle.surrogate_outputs)
     importance = result.tasks["momentum"].importance
     top = max(importance, key=lambda f: importance[f][0])
     assert top == "num_hits"

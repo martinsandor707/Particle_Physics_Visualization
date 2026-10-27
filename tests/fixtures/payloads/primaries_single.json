@@ -4,7 +4,7 @@
   "exact": true,
   "warnings": []
  },
- "definition": "An event has no primary when none of its hit rows has is_secondary = 0, the producer's primary-particle tag. Each bar is the fraction of the selected events that have none, an event being the unit.",
+ "definition": "An event has no primary when none of its hit rows has is_secondary = 0, the producer's primary-particle tag. Each point is the fraction of the selected events that have none, an event being the unit.",
  "overall": {
   "n_events": 287,
   "n_no_primary": 216,
@@ -133,7 +133,7 @@
   "top_bucket": "≥ 10"
  },
  "notes": [
-  "An event has no primary when none of its hit rows has is_secondary = 0, the producer's primary-particle tag. Each bar is the fraction of the selected events that have none, an event being the unit. Bars start at zero.",
+  "An event has no primary when none of its hit rows has is_secondary = 0, the producer's primary-particle tag. Each point is the fraction of the selected events that have none, an event being the unit. The rate axis starts at zero.",
   "Whiskers are 95% Wilson score intervals of the fraction, events being the independent units. The Wald interval is not used: it collapses at zero events and leaves [0, 1] at small N. 8 bins with N < 20 have a correspondingly wide interval.",
   "Bins are the producer's integer momentum bin, closed on the left, labelled with the momenta found in them.",
   "The count distribution is exact, not an estimate: the number of primary-tagged hit rows per event, 0 to 9, and a last bucket of 10 or more.",

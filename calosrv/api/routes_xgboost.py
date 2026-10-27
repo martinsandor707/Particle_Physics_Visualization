@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from ..errors import CapabilityError, ValidationError
+from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
-from ..modelruns import store, views
+from ..modelruns import views
 from ..query import capabilities
 from .deps import CursorDep, FilterDep, RecordDep
 
@@ -52,13 +52,7 @@ def get_xgboost(
             "view=binary thresholds the momentum regressor at 2 GeV; the angle task has no class "
             "boundary. Use task=momentum.", field="task")
     capabilities.require(record, "xgboost", field="view")
-    runs = store.read_runs(con, record.table_name)
-    if runs is None or task not in runs:
-        reason = "The stored XGBoost analysis is missing; Admin Settings › Model runs re-analyses it."
-        raise CapabilityError(
-            f"xgboost is not available for experiment {record.table_name!r}: {reason}",
-            field="view", capability="xgboost", kind=record.kind, reason=reason,
-            table_name=record.table_name)
+    runs = views.require_runs(con, record, task, field="view")
     if view == "cv":
         body = views.cv_view(con, record, runs, task)
     elif view == "binary":
