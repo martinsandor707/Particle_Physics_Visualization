@@ -18,11 +18,25 @@
  *
  * For the angle task the two outputs share the tree; `opts.label` (φ or θ)
  * chooses which output the nodes print and are coloured by - a repaint, not a
- * new request - and the tooltip carries both. A φ node value is sklearn's
- * linear mean of predicted azimuths, which is not a direction (CLAUDE.md
- * section 2: never average a circular quantity). It is kept for notebook
- * parity, printed with the node's mean resultant length R̄ where the payload
- * gives one, never coloured (`labelColoured`), and every φ tooltip says so.
+ * new request - and the tooltip carries both. φ is never averaged
+ * arithmetically on the card (CLAUDE.md section 2): a φ box prints the
+ * circular mean of the booster's predicted azimuths over the node's rows
+ * (`circular.phi`), ± the circular SD √(−2 ln R̄), with the mean resultant
+ * length R̄; where the Rayleigh test p = exp(−n R̄²) exceeds 0.05 the rows
+ * share no direction and the box says so instead of printing a mean. The
+ * sklearn linear mean the notebook printed stays in the tooltip and the
+ * drawer, named as parity, never as a direction. φ is never coloured
+ * (`labelColoured`).
+ *
+ * ## Fidelity per output
+ *
+ * The tree is fitted to every output at once, and sklearn's score averages
+ * them; an average can hide an output the tree does not describe at all (the
+ * electron angle surrogate: φ R² 0.978, θ 0.004, average 0.49). So each
+ * output's own R² and MAE are printed, the "low surrogate fidelity" warning is
+ * judged per output below `LOW_FIDELITY_R2`, and the average is never judged
+ * nor printed alone. An R² prints the digits that tell it from 1 (E1's
+ * `r2Text`).
  *
  * ## Colour
  *
@@ -47,6 +61,7 @@
 import { THEME, axisPadding, formatInt, formatPercent } from '../scale.js';
 import { SEQUENTIAL_PALETTES } from '../palette.js';
 import { measureText, wrapText } from '../textfit.js';
+import { r2Text } from './xgb_cv.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, emptyChartOption, fitName,
@@ -65,6 +80,23 @@ export const FRAME_WORDS = Object.freeze({
 });
 
 const LABEL_WORDS = Object.freeze({ momentum: 'momentum p', phi: 'azimuth φ', theta: 'polar angle θ' });
+/** Each output's symbol, as the fidelity line and the warnings name it. */
+export const LABEL_SYMBOLS = Object.freeze({ momentum: 'p', phi: 'φ', theta: 'θ' });
+
+/** Below this R², an output is flagged "low surrogate fidelity" (Martin, 2026-10-27): judged per output. */
+export const LOW_FIDELITY_R2 = 0.5;
+/** The Rayleigh test level at which a node's predicted azimuths share a direction. */
+export const RAYLEIGH_ALPHA = 0.05;
+
+/**
+ * A fidelity R² as printed: E1's `r2Text` (the digits that tell it from 1).
+ * The payload ships six significant figures, so an R² that rounds to 1 is
+ * exact only when its MAE is 0 as well; otherwise it is "> 0.999999".
+ */
+export function fidelityR2Text(r2, mae = null) {
+  if (r2 === 1 && Number.isFinite(mae) && mae > 0) return '> 0.999999';
+  return r2Text(r2);
+}
 
 /* ---------------------------------------------------------------- model -- */
 
@@ -83,6 +115,7 @@ export function treeLabel(payload, wanted) {
  */
 export function labelColoured(payload, label) {
   const said = [
+    labelInfo(payload, label)?.coloured,
     payload?.color?.[label]?.coloured, payload?.color?.[label]?.colored, payload?.colour?.[label]?.coloured,
     payload?.colour?.[label], payload?.color_by?.[label],
   ].find((v) => typeof v === 'boolean');
@@ -90,6 +123,34 @@ export function labelColoured(payload, label) {
   const domain = payload?.color_domain?.[label];
   if (!Array.isArray(domain) || !domain.every(Number.isFinite)) return false;
   return label !== 'phi';
+}
+
+/** The server's word on one output (`label_info[]`: `{name, coloured, reason}`), or null. */
+export function labelInfo(payload, label) {
+  const list = Array.isArray(payload?.label_info) ? payload.label_info : [];
+  return list.find((entry) => entry?.name === label) ?? null;
+}
+
+/**
+ * A node's circular statistic of one output, from `circular.<label>`: the
+ * circular mean, R̄, the circular SD √(−2 ln R̄) and the Rayleigh p =
+ * exp(−n R̄²) over its n rows (CLAUDE.md's form). `directed` says whether the
+ * rows share a direction (p ≤ 0.05); one row is its own direction. Null
+ * without a statistic.
+ */
+export function circularOf(node, label) {
+  const c = node?.circular?.[label];
+  if (!c || !Number.isFinite(c.resultant)) return null;
+  const R = Math.min(1, Math.max(0, c.resultant));
+  const n = node.n ?? 0;
+  const p = n > 0 ? Math.exp(-n * R * R) : null;
+  return {
+    mean: Number.isFinite(c.mean) ? c.mean : null,
+    resultant: R,
+    sd: R > 0 ? Math.sqrt(-2 * Math.log(R)) : Infinity,
+    p,
+    directed: n === 1 || (p !== null && p <= RAYLEIGH_ALPHA && Number.isFinite(c.mean)),
+  };
 }
 
 /** The palette the nodes are coloured on: the user's sequential ramp, else Viridis. */
@@ -133,12 +194,12 @@ export function treeModel(payload, opts = {}) {
       threshold: n.threshold,
       n: n.n,
       share: nRows > 0 ? n.n / nRows : null,
+      label,
       value,
       sd: n.sd?.[label] ?? null,
       values: n.values ?? {},
       sds: n.sd ?? {},
       circular: n.circular ?? {},
-      resultant: n.circular?.[label]?.resultant ?? null,
       impurity: n.impurity,
       left: n.left,
       right: n.right,
@@ -156,23 +217,55 @@ export function treeModel(payload, opts = {}) {
   };
   visit(root.id, null, null, []);
   const list = [...nodes.values()];
-  const fid = payload.fidelity ?? {};
-  const own = fid.outputs?.[label] ?? null;
+  const labels = payload.labels ?? [label];
+  const units = payload.units ?? payload.run?.label_units ?? {};
   return {
     task: payload.task,
     label,
-    labels: payload.labels ?? [label],
+    labels,
     unit,
-    units: payload.units ?? payload.run?.label_units ?? {},
+    units,
     coloured,
+    info: Object.fromEntries(labels.map((l) => [l, labelInfo(payload, l)])),
     domain,
     ramp,
     root: root.id,
     nodes: list,
     byId: nodes,
     maxDepth: Math.max(...list.map((n) => n.depth)),
-    fidelity: { r2: own?.r2 ?? fid.r2 ?? null, mae: own?.mae ?? fid.mae ?? null, unit: own ? unit : (fid.unit ?? unit), overall: fid },
+    fidelity: fidelityModel(payload, labels, units),
     nRows,
+  };
+}
+
+/**
+ * The fidelity of the tree to the booster, per output: `{outputs: [{label,
+ * symbol, r2, mae, unit, low}], low: [labels], average, threshold, against}`.
+ * The server's own `statement` prints three significant figures ("R² 1" for a
+ * near-perfect tree), so the card composes its sentence from `outputs`. A single-output tree's own fidelity is its output's; an angle
+ * tree's average (sklearn's score) is kept for the drawer and never judged.
+ */
+export function fidelityModel(payload, labels, units = {}) {
+  const fid = payload?.fidelity ?? {};
+  const per = fid.outputs ?? {};
+  const outputs = labels.map((l) => {
+    const own = per[l] ?? (labels.length === 1 ? { r2: fid.r2, mae: fid.mae } : null);
+    const r2 = Number.isFinite(own?.r2) ? own.r2 : null;
+    return {
+      label: l,
+      symbol: LABEL_SYMBOLS[l] ?? l,
+      r2,
+      mae: Number.isFinite(own?.mae) ? own.mae : null,
+      unit: units[l] ?? (labels.length === 1 ? fid.unit ?? '' : ''),
+      low: r2 !== null && r2 < LOW_FIDELITY_R2,
+    };
+  });
+  return {
+    outputs,
+    low: outputs.filter((o) => o.low).map((o) => o.label),
+    average: labels.length > 1 && Number.isFinite(fid.r2) ? fid.r2 : null,
+    threshold: LOW_FIDELITY_R2,
+    against: fid.against ?? null,
   };
 }
 
@@ -181,10 +274,22 @@ export function ruleText(node) {
   return `${node.feature} ≤ ${sigFigs(node.threshold, 4)}`;
 }
 
-/** "value ± SD" of a node, without the unit (the ramp's title carries it). */
-export function valueText(node) {
-  const r = Number.isFinite(node.resultant) ? ` · R̄ ${sigFigs(node.resultant, 2)}` : '';
-  return `${sigFigs(node.value, 3)} ± ${sigFigs(node.sd, 3)}${r}`;
+/**
+ * "value ± SD" of a node, without the unit (the ramp's title carries it). An
+ * azimuth with a circular statistic prints its circular mean ± circular SD
+ * and R̄, or "no common direction" with R̄ where the Rayleigh test finds none;
+ * without one (an older payload) the linear mean, named as such.
+ */
+export function valueText(node, label = node.label) {
+  if (label === 'phi') {
+    const c = circularOf(node, 'phi');
+    if (c) {
+      if (!c.directed) return `no common direction · R̄ ${sigFigs(c.resultant, 2)}`;
+      return `circ. ${sigFigs(c.mean, 3)} ± ${sigFigs(c.sd, 3)} · R̄ ${sigFigs(c.resultant, 2)}`;
+    }
+    return `linear ${sigFigs(node.value, 3)} ± ${sigFigs(node.sd, 3)}`;
+  }
+  return `${sigFigs(node.value, 3)} ± ${sigFigs(node.sd, 3)}`;
 }
 
 /** The lines a node's box prints. */
@@ -332,20 +437,28 @@ export function nodeTip(model, node) {
   }
   for (const label of model.labels) {
     const unit = model.units?.[label] ?? (label === model.label ? model.unit : '');
+    const u = unit ? ` ${escapeHtml(unit)}` : '';
+    const word = escapeHtml(LABEL_WORDS[label] ?? label);
+    const drawn = label === model.label ? '' : ` ${mutedLine('(not drawn)')}`;
     const v = node.values?.[label];
     const s = node.sds?.[label];
-    const linear = label === 'phi' ? 'linear mean' : 'mean';
-    lines.push(`${escapeHtml(LABEL_WORDS[label] ?? label)}: ${linear} of the booster's predictions ${sigFigs(v, 4)}`
-      + ` ± ${sigFigs(s, 4)}${unit ? ` ${escapeHtml(unit)}` : ''} (within-node SD)${label === model.label ? '' : ` ${mutedLine('(not drawn)')}`}`);
-    const circ = node.circular?.[label];
-    if (circ && (Number.isFinite(circ.resultant) || Number.isFinite(circ.mean))) {
-      lines.push(`${escapeHtml(LABEL_WORDS[label] ?? label)}: circular mean ${sigFigs(circ.mean, 4)}, mean resultant length R̄ = ${sigFigs(circ.resultant, 3)}`
-        + ` ${mutedLine('(R̄ near 1: the predictions point one way; near 0: no common direction)')}`);
+    const c = label === 'phi' ? circularOf(node, label) : null;
+    if (c) {
+      const R = `mean resultant length R̄ = ${sigFigs(c.resultant, 3)}, Rayleigh p = ${sigFigs(c.p, 2)} over ${formatInt(node.n)} rows`;
+      lines.push(c.directed
+        ? `${word}: circular mean of the booster's predictions ${sigFigs(c.mean, 4)} ± ${sigFigs(c.sd, 3)}${u} `
+          + `(circular SD √(−2 ln R̄)); ${R}${drawn}`
+        : `${word}: no common direction - ${R}, so no mean is printed${drawn}`);
+      lines.push(mutedLine(`sklearn's linear mean ${sigFigs(v, 4)} ± ${sigFigs(s, 4)}${unit ? ` ${unit}` : ''} `
+        + '(notebook parity; a linear mean of an azimuth is not a direction)'));
+    } else {
+      const linear = label === 'phi' ? 'linear mean' : 'mean';
+      lines.push(`${word}: ${linear} of the booster's predictions ${sigFigs(v, 4)} ± ${sigFigs(s, 4)}${u} (within-node SD)${drawn}`);
     }
   }
   if (Number.isFinite(node.impurity)) lines.push(mutedLine(`impurity ${sigFigs(node.impurity, 4)} (sklearn's: the variance, averaged over the outputs)`));
-  lines.push(mutedLine('a description of the booster on these rows: no interval'));
-  if (model.labels.includes('phi')) {
+  lines.push(mutedLine('a description of the booster on these rows: within-node spread, no interval'));
+  if (model.labels.includes('phi') && !model.nodes.some((n) => circularOf(n, 'phi'))) {
     lines.push(mutedLine('φ: sklearn\'s linear mean of predicted azimuths, kept for notebook parity - not a mean direction; never coloured'));
   }
   return lines.join('<br/>');
@@ -359,12 +472,31 @@ export function rampTitle(model) {
   return `Node mean of the ${what}${model.unit ? ` [${model.unit}]` : ''}`;
 }
 
-/** The screen subtitle: the fidelity, the depth and the rows. */
-export function fidelityText(model) {
+/** One output's fidelity, "θ R² 0.004, MAE 0.012 rad" (no symbol for a single-output tree). */
+export function outputFidelityText(o, { symbol = true, mae = true } = {}) {
+  const head = symbol ? `${o.symbol} ` : '';
+  const m = mae && Number.isFinite(o.mae) ? `, MAE ${sigFigs(o.mae, 3)}${o.unit ? ` ${o.unit}` : ''}` : '';
+  return `${head}R² ${fidelityR2Text(o.r2, o.mae)}${m}`;
+}
+
+/**
+ * The screen subtitle: each output's own fidelity (never the average alone),
+ * the outputs below the warning threshold, and the rows. Longest first, for
+ * `fitName`.
+ */
+export function fidelityTexts(model) {
   const fid = model.fidelity;
-  const mae = Number.isFinite(fid.mae) ? `, MAE ${sigFigs(fid.mae, 3)}${fid.unit ? ` ${fid.unit}` : ''}` : '';
-  const which = model.labels.length > 1 ? ` (${LABEL_WORDS[model.label] ?? model.label})` : '';
-  return `Fidelity to the booster${which}: R² ${sigFigs(fid.r2, 3)}${mae}; in-sample on ${formatInt(model.nRows)} rows`;
+  const many = fid.outputs.length > 1;
+  const low = fid.outputs.filter((o) => o.low).map((o) => o.symbol);
+  const warn = !low.length ? ''
+    : (many ? ` - low fidelity: ${low.join(', ')} below R² ${fid.threshold}` : ` - low fidelity: below R² ${fid.threshold}`);
+  const full = fid.outputs.map((o) => outputFidelityText(o, { symbol: many })).join('; ');
+  const short = fid.outputs.map((o) => outputFidelityText(o, { symbol: many, mae: false })).join('; ');
+  return [
+    `Fidelity to the booster: ${full}${warn}; in-sample on ${formatInt(model.nRows)} rows`,
+    `Fidelity to the booster: ${short}${warn}`,
+    `${short} to the booster${!low.length ? '' : (many ? ` (low: ${low.join(', ')})` : ' (low)')}`,
+  ];
 }
 
 /** The header: subtitle (screen only) and the colour ramp, as graphic elements. */
@@ -380,14 +512,13 @@ function headerGraphics(model, width) {
       type: 'text', silent: true,
       style: {
         x: side, y: 0.6 * f, fill: THEME.text, fontSize: THEME.fontLabel, fontFamily: THEME.fontFamily,
-        text: fitName([fidelityText(model), `R² ${sigFigs(model.fidelity.r2, 3)} to the booster`],
-          twoRows ? width - 2 * side : width - 2 * side - rampW - 12 * f),
+        text: fitName(fidelityTexts(model), twoRows ? width - 2 * side : width - 2 * side - rampW - 12 * f),
       },
     });
   }
   if (!model.coloured) {
     const text = model.label === 'phi'
-      ? ['φ is not coloured: its node values are linear means kept for notebook parity, and an azimuth wraps', 'φ: not coloured (an azimuth wraps)']
+      ? ['φ is not coloured (an azimuth wraps): each box prints the circular mean and R̄', 'φ: not coloured (an azimuth wraps)']
       : ['This output is not coloured', 'Not coloured'];
     out.push({
       type: 'text', silent: true,

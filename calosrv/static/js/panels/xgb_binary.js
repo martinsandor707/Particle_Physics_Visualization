@@ -25,9 +25,11 @@
  * 95 % Wilson score interval (CLAUDE.md section 2: the uncertainty of the
  * plotted aggregate; the Wald interval, which collapses at k = 0 or k = n, is
  * never used). The balanced accuracy is a mean of two rates, so its whisker is
- * the interval the server names for it (a seeded percentile bootstrap, or a
- * Newcombe/MOVER combination of the two classes' Wilson limits): a second
- * legend entry carrying the payload's label, so the methods never mix. The rates run
+ * the interval the server names for it - Newcombe's MOVER interval from the
+ * two class recalls' Wilson limits (`method` 'mover'), which keeps the
+ * uncertainty of a class classified perfectly where a bootstrap of the rows
+ * would collapse it - in a second legend entry carrying the payload's label,
+ * so the methods never mix. The rates run
  * as rows against the full 0-100 % scale a proportion can take, so the
  * labels read horizontally and nothing is clipped. A rate whose denominator
  * is empty (precision with no row predicted in the class) is undefined: no
@@ -56,7 +58,8 @@ export const WIDE_BELOW_N = 30;
 
 export const POINT_NAME = 'Rate (point estimate)';
 export const WILSON_NAME = '95% Wilson score interval';
-export const BOOTSTRAP_NAME = '95% percentile bootstrap interval';
+/** The balanced accuracy's interval name when the payload names none (never assumed to be a method). */
+export const OTHER_INTERVAL_NAME = '95% interval (balanced accuracy)';
 export const CELL_NAME = 'Confusion counts';
 
 /** Short row labels; the payload's long label is in the tooltip. */
@@ -118,7 +121,6 @@ export function binaryModel(payload) {
       // A rate whose denominator is the minority class rests on its rows.
       minority: id === `recall_${minorityClass}`,
       undefined: !Number.isFinite(r.value),
-      nUndefinedReplicates: r.n_undefined_replicates ?? 0,
     };
   });
   return {
@@ -169,7 +171,6 @@ export function rateTip(rate, model) {
     lines.push(`${escapeHtml(rate.intervalLabel ?? '95% interval')} [${pc(rate.lo)}, ${pc(rate.hi)}] `
       + `${mutedLine('- the capped whisker, the uncertainty of the rate')}`);
   }
-  if (rate.nUndefinedReplicates) lines.push(mutedLine(`${formatInt(rate.nUndefinedReplicates)} bootstrap replicates left the rate undefined and were dropped`));
   if (rate.minority && model.minority) lines.push(mutedLine(`rests on the ${formatInt(model.minority.n)} rows of the minority class: the interval is correspondingly wide`));
   else if (Number.isFinite(rate.n) && rate.n < WIDE_BELOW_N) lines.push(mutedLine(`rests on ${formatInt(rate.n)} rows: the interval is correspondingly wide`));
   if (rate.note) lines.push(mutedLine(rate.note));
@@ -178,7 +179,7 @@ export function rateTip(rate, model) {
 
 /* --------------------------------------------------------------- layout -- */
 
-/** The legend's names, in order (the bootstrap entry only when a rate uses it). */
+/** The legend's names, in order (the balanced accuracy's own interval only when a rate carries one). */
 export function binaryLegendNames(model, width = Infinity) {
   const names = [POINT_NAME, WILSON_NAME];
   if (model.rates.some((r) => r.method && r.method !== 'wilson')) names.push(otherIntervalLegend(model, width));
@@ -194,7 +195,7 @@ const METHOD_WORDS = Object.freeze({ bootstrap_percentile: 'percentile bootstrap
  */
 export function otherIntervalLegend(model, width = Infinity) {
   const r = model.rates.find((x) => x.method && x.method !== 'wilson');
-  if (!r) return BOOTSTRAP_NAME;
+  if (!r) return OTHER_INTERVAL_NAME;
   const word = METHOD_WORDS[r.method] ?? String(r.method).replace(/_/g, ' ');
   return fitName([otherIntervalName(model), `95% ${word} interval (${r.short.toLowerCase()})`, `95% ${word} interval`],
     width - 2 * axisPadding().right - 26);
@@ -202,12 +203,12 @@ export function otherIntervalLegend(model, width = Infinity) {
 
 /**
  * The legend name of the balanced accuracy's interval: the method the
- * payload names (a percentile bootstrap, or a Newcombe/MOVER combination of
- * the two classes' Wilson limits), never assumed here.
+ * payload names (Newcombe's MOVER combination of the two classes' Wilson
+ * limits, as the server ships it), never assumed here.
  */
 export function otherIntervalName(model) {
   const r = model.rates.find((x) => x.method && x.method !== 'wilson');
-  if (!r) return BOOTSTRAP_NAME;
+  if (!r) return OTHER_INTERVAL_NAME;
   return `${r.intervalLabel || r.method} (${r.short.toLowerCase()})`;
 }
 

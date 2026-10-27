@@ -17,46 +17,26 @@
  */
 
 import { getJson } from './api.js';
-import { THEME } from './scale.js';
 import { setText, setHidden } from './dom.js';
 import { eventRowLabel, eventSelectionLine } from './frame_views.js';
 import { GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
+import { EVENT_PANEL_AXES, eventCellTitle, eventCellOptions } from './event_cells.js';
 
-/** Each panel's two axes as semantic names: column (horizontal), row (vertical). */
-export const PANEL_AXES = Object.freeze({ xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] });
-
-/** The notebook's seed for the first pick; later picks take the next seeds. */
-const FIRST_SEED = 42;
-
+/* The cells' options and titles have one owner, event_cells.js, which the
+ * Models page's 3-D event view shares; they keep their names here. Each
+ * panel's two axes as semantic names: column (horizontal), row (vertical). */
+export const PANEL_AXES = EVENT_PANEL_AXES;
 /** The two symbols of a panel, in the panel's own order (X-Y, X-Z, Y-Z). */
-export function cellTitle(frame, col) {
-  const symbols = frame?.symbols ?? {};
-  const [a, b] = { xy: ['x', 'y'], xz: ['x', 'z'], yz: ['y', 'z'] }[col];
-  return `${symbols[a] ?? a}–${symbols[b] ?? b}`;
-}
-
+export const cellTitle = eventCellTitle;
 /**
  * The options one cell renders with: the frame's equal half-width window
  * for this panel's two axes, the frame's marks, the shower's colour, and a
- * framed, isometric plot. `resolution: {mode: 'native'}` says what the bins
- * are - raw lattice cells or raw grid bins, no reconstruction - for the
- * drawer and the export file name.
+ * framed, isometric plot (event_cells.js `eventCellOptions`).
  */
-export function cellOptions(payload, kind, col, palette) {
-  const frame = payload.frames[kind];
-  const shower = payload.event.shower;
-  const [c, r] = PANEL_AXES[col];
-  return {
-    palette,
-    framed: true,
-    tableName: payload.meta?.table_name,
-    viewKey: `${payload.event.event_number}|${shower.key}|${kind}`,
-    window: { col: frame.window[c], row: frame.window[r] },
-    marks: frame.marks,
-    markColour: shower.key === 'b' ? THEME.showerB : THEME.showerA,
-    resolution: { mode: 'native' },
-  };
-}
+export const cellOptions = eventCellOptions;
+
+/** The notebook's seed for the first pick; later picks take the next seeds. */
+const FIRST_SEED = 42;
 
 export class EventInspector {
   /**
