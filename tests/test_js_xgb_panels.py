@@ -747,6 +747,11 @@ def _all_notes(out):
     yield from out["notes"]["importance"].values()
 
 
+def _split_lines(notes):
+    return [line for line in notes["sections"]["Disclosures"]
+            if line.startswith(("Split check passed", "Split not reproduced"))]
+
+
 def test_notes_lead_with_the_four_sections_and_the_run(out):
     section = out["notes"]["section"]
     standard = [section["selection"], section["drawn"], section["disclosures"], section["legend"]]
@@ -756,7 +761,22 @@ def test_notes_lead_with_the_four_sections_and_the_run(out):
         assert selection[0] == "Computed once on the whole experiment, as the notebook does; the selection does not apply."
         joined = " ".join(selection)
         assert "Species electron, seed 1" in joined and "sha256" in joined and "standalone_" in joined
-        assert any("Split check passed" in line for line in notes["sections"]["Disclosures"])
+        assert len(_split_lines(notes)) == 1
+
+
+def test_the_split_line_follows_the_payload_and_names_the_largest_other_seed(out):
+    # The recorded momentum model reproduces the split; the recorded angle model,
+    # which barely overfits its synthetic labels, honestly does not.
+    cv = out["notes"]["cv"]
+    passed = _split_lines(cv["xgb_cv_momentum"])[0]
+    assert passed.startswith("Split check passed")
+    assert "at most 5 at the 99 other seeds (random_state 53)" in passed and "1.05 is required" in passed
+    failed = _split_lines(cv["xgb_cv_angle"])
+    assert failed[0].startswith("Split not reproduced") and failed[0].count("Split not reproduced") == 1
+    assert "split not reproduced" in cv["xgb_cv_angle"]["hazards"]
+    assert "split not reproduced" not in cv["xgb_cv_momentum"]["hazards"]
+    for notes in _all_notes(out):
+        assert all(len(line) < 700 for line in _split_lines(notes))   # never the 99 ratios
 
 
 def test_the_angle_cv_drawer_names_parity_the_wrapped_phi_and_the_label_order(out):

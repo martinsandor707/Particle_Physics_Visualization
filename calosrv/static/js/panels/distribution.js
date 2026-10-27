@@ -63,6 +63,12 @@
  * never gets a linear kernel (its `kde` is null). Counts beyond the axis, and
  * D4's eps-floored values, are counted per series in the tooltips and the
  * drawer.
+ *
+ * The XGBoost azimuth residual (`residual.statistics: 'circular'`) is wrapped
+ * to (−π, π] and has no line statistics: the server sends no markers, so no
+ * mean rule, whisker or SD bar is drawn, and its tooltip quotes the circular
+ * mean direction, R̄ and the circular SD instead of a mean and σ. Its curve,
+ * where there is one, is the Gaussian fit of the core, named so.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatSci, formatPercent, typographic } from '../scale.js';
@@ -441,8 +447,37 @@ export function featureHistModel(payload, opts = {}) {
   };
 }
 
+/** The circular sentences of an azimuth residual: mean direction with its interval, R̄, circular SD. */
+export function circularResidualLines(r, s) {
+  const c = s.circular ?? {};
+  const unit = r.unit && r.unit !== 'fraction' ? ` ${r.unit}` : '';
+  const lines = [];
+  if (Number.isFinite(c.mean_direction)) {
+    const iv = c.mean_direction_interval;
+    lines.push(`circular mean direction ${num(c.mean_direction)}${unit}`
+      + (iv ? `, 95% interval [${num(iv.lo)}, ${num(iv.hi)}]${unit} ${mutedLine(`(${iv.label ?? 'large-sample'}: the precision of the direction)`)}` : ''));
+  }
+  if (Number.isFinite(c.resultant)) {
+    lines.push(`mean resultant length R̄ = ${num(c.resultant, 4)}${Number.isFinite(c.circular_sd) ? `, circular SD ${num(c.circular_sd)}${unit}` : ''} `
+      + mutedLine('(the spread of the residuals on the circle)'));
+  }
+  const core = s.core_fit;
+  if (core && Number.isFinite(core.sigma)) {
+    lines.push(`Gaussian fit of the core: centre ${num(core.mu)}${unit}, width ${num(core.sigma)}${unit} over ${formatInt(core.n)} residuals `
+      + mutedLine('(the core\'s shape only, not the width of the whole distribution)'));
+  }
+  if (s.estimates?.rmse && Number.isFinite(s.estimates.rmse.value)) {
+    const e = s.estimates.rmse;
+    lines.push(`RMSE ${num(e.value)}${unit}${e.interval ? `, 95% interval [${num(e.interval.lo)}, ${num(e.interval.hi)}]` : ''}`);
+  }
+  lines.push(mutedLine('an azimuth: no arithmetic mean, bias or σ is quoted or drawn'));
+  if (c.note) lines.push(mutedLine(c.note));
+  return lines;
+}
+
 /** The fit sentence of a residual series: mean with its interval, σ with its SE (and χ² and c₄ below the floor). */
 function residualFitLines(r, s) {
+  if (r.statistics === 'circular' || s.circular) return circularResidualLines(r, s);
   const fit = s.fit ?? {};
   const m = s.markers ?? {};
   const unit = r.unit && r.unit !== 'fraction' ? ` ${r.unit}` : '';
@@ -480,16 +515,22 @@ export function residualModel(payload, opts = {}) {
     const curve = ys ? xs.map((x, i) => [x, ys[i]]) : null;
     const strip = s.draw !== 'histogram' ? (s.strip?.values ?? []) : null;
     const out = axis.outside?.[s.shower] ?? {};
+    const circular = r.statistics === 'circular' || Boolean(s.circular);
     const head = `<b>${escapeHtml(s.label)}</b>: ${formatInt(s.fit?.n)} shower${s.fit?.n === 1 ? '' : 's'}`
       + `${hist ? `, density histogram: count / (N · bin width), from zero` : ''}`;
     return {
       key: s.shower, label: s.label, colour, dash: s.shower === 'b' && nShowers > 1 ? 'dashed' : null, n: s.fit?.n ?? 0,
       hist, curve, curveDrives: Boolean(s.drives_scale), curvePeak: s.curve_peak ?? null,
       strip, stripTruncated: Boolean(s.strip?.truncated), stripShown: s.strip?.n_shown ?? null,
-      markers: s.markers ?? null, band: s.draw !== 'histogram', none: !hist && !curve && !strip?.length && !s.markers,
+      // An azimuth's residual has no mean or SD to mark, whatever a payload sends.
+      markers: circular ? null : (s.markers ?? null), band: s.draw !== 'histogram',
+      none: !hist && !curve && !strip?.length && !(circular ? null : s.markers),
       below: out.below ?? 0, above: out.above ?? 0, message: s.message ?? '',
       tip: [head, ...residualFitLines(r, s), ...(s.message ? [mutedLine(s.message)] : [])].join('<br/>'),
-      curveName: 'fitted Gaussian',
+      curveName: s.core_fit ? 'Gaussian fit of the core' : 'fitted Gaussian',
+      circular: s.circular ?? null,
+      // An azimuth's ticks carry its circular summary: it has no marker row to hold it.
+      circularTip: circular ? circularResidualLines(r, s).join('<br/>') : null,
       fit: s.fit ?? {},
     };
   });
@@ -714,6 +755,7 @@ function addBandRow(series, model, row, { lo, hi }) {
       tooltip: (d) => `${escapeHtml(e.label)}: one ${model.noun.replace(/s$/, '')} at ${xText(model, d.x, 4)}${unit}`
         + `<br/>${mutedLine(`one of ${formatInt(e.n)}${truncated}`)}`
         + (e.message ? `<br/>${mutedLine(e.message)}` : '')
+        + (e.circularTip ? `<br/>${e.circularTip}` : '')
         + `<br/>${mutedLine(OFFSET_NOTE)}`,
     }), e.colour));
     const out = [];

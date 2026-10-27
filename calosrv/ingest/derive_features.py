@@ -25,23 +25,16 @@ from typing import Any
 
 import duckdb
 
-from ..db import naming
+from ..db import ddl, naming
 from ..db.ddl import EVENT_FEATURE_COLUMNS, create_event_table, drop_table
 from ..db.naming import quote
 from ..errors import IngestError
 
 log = logging.getLogger(__name__)
 
-#: Derived name -> the aggregate file's column.
-RENAMED: dict[str, str] = {
-    "event_number": "event_id",
-    "e1": "incoming_momentum",
-    "theta_a": "incoming_theta",
-    "phi_a": "incoming_phi",
-    "e1_bin": "incoming_momentum_bin",
-    "n_hits": "num_hits",
-    "e_dep": "total_hit_energy",
-}
+#: Derived name -> the aggregate file's column. One owner: the ``ddl`` vocabulary, which the
+#: XGBoost pairing reads the same way (``energy_class`` -> ``energy`` included).
+RENAMED: dict[str, str] = ddl.PRODUCER_RENAMED
 
 
 @dataclass
@@ -63,8 +56,6 @@ class FeatureReport:
 
 
 def _source_column(name: str) -> str:
-    if name == "energy_class":
-        return "energy"
     return RENAMED.get(name, name)
 
 

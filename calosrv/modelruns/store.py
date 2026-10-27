@@ -9,9 +9,22 @@ half of each, and a failed write leaves the previous one in place.
 
 **The stamp.** A stored analysis is current while every input it was computed
 from is unchanged: :data:`analysis.ANALYSIS_VERSION`, each model file's sha256,
-the versions of XGBoost, scikit-learn, numpy and pandas, and the experiment's
-event count with a sha256 of its ``event_number`` column in order. Any
-difference makes it stale, and :func:`stale_reasons` says which.
+the versions of XGBoost, scikit-learn, numpy and pandas, the experiment's
+event count with a sha256 of its ``event_number`` column in order, and a
+sha256 of every value the analysis read (:meth:`analysis.Dataset.value_hash`:
+the momentum bins, the labels and each model's features). Any difference makes
+it stale, and :func:`stale_reasons` says which.
+
+The value hash needs the whole feature table read, so it is compared where an
+analysis may be queued - the worker before it recomputes (after an ingest or a
+rebuild, on Re-analyse), the boot check and ``POST /api/admin/model-runs/scan``
+(:func:`expected_stamp` with ``values=True``) - and not by the Admin Settings
+list's ``GET``, which compares the cheap part of the stamp only and queues
+nothing.
+
+A stored analysis that cannot be read - a table from a release whose columns
+differ, a malformed row - reads as missing (:func:`read_runs` returns
+``None``), so it is re-run rather than crashing the check.
 
 Column names reach SQL only from the ``ddl`` vocabulary (the pairing's
 mapped columns) and table names only through ``naming``.
@@ -23,7 +36,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import metadata
 from typing import Any
 
@@ -74,13 +87,34 @@ class Stamp:
     analysis_version: int
     sha256: tuple[tuple[str, str], ...]
     versions: tuple[tuple[str, str], ...]
-    n_rows: int
-    fingerprint: str
+    #: ``None`` when not yet read (the stamp of an attempt that failed before reading).
+    n_rows: int | None
+    fingerprint: str | None
+    #: :meth:`analysis.Dataset.value_hash`; ``None`` when the check did not read the values.
+    values: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {"analysis_version": self.analysis_version, "sha256": dict(self.sha256),
                 "versions": dict(self.versions), "n_rows": self.n_rows,
-                "fingerprint": self.fingerprint}
+                "fingerprint": self.fingerprint, "values": self.values}
+
+    def matches(self, other: Stamp | None) -> bool:
+        """Equal in every field both stamps know: how a failed attempt is matched to its inputs.
+
+        A field one of them did not read (``None``) is not compared, so a
+        failure before the event table was read matches every later check of
+        the same models and libraries, and the cheap check (no value hash)
+        matches an attempt that read the values.
+        """
+        if other is None:
+            return False
+        for mine, theirs in ((self.analysis_version, other.analysis_version),
+                             (self.sha256, other.sha256), (self.versions, other.versions),
+                             (self.n_rows, other.n_rows), (self.fingerprint, other.fingerprint),
+                             (self.values, other.values)):
+            if mine is not None and theirs is not None and mine != theirs:
+                return False
+        return True
 
 
 def stale_reasons(expected: Stamp, stored: Stamp | None) -> list[str]:
@@ -102,6 +136,9 @@ def stale_reasons(expected: Stamp, stored: Stamp | None) -> list[str]:
     if stored.n_rows != expected.n_rows or stored.fingerprint != expected.fingerprint:
         out.append(f"the event table changed ({stored.n_rows:,} events analysed against "
                    f"{expected.n_rows:,} now)")
+    elif expected.values is not None and stored.values != expected.values:
+        out.append("the event table's feature or label values changed (same events, other "
+                   "values)")
     return out
 
 
@@ -122,24 +159,47 @@ def event_fingerprint(con: duckdb.DuckDBPyConnection, name: str) -> tuple[int, s
     return int(ids.size), hashlib.sha256(ids.tobytes()).hexdigest()
 
 
-def expected_stamp(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
-                   pairing: Pairing) -> Stamp:
-    n, fingerprint = event_fingerprint(con, record.table_name)
+def model_stamp(pairing: Pairing) -> Stamp:
+    """The part of the stamp known without reading the experiment: version, models, libraries."""
     return Stamp(
         analysis_version=ANALYSIS_VERSION,
         sha256=tuple((task, pairing.models[task].sha256) for task in TASKS),
         versions=tuple(sorted(library_versions().items())),
-        n_rows=n, fingerprint=fingerprint,
+        n_rows=None, fingerprint=None,
     )
 
 
+def expected_stamp(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
+                   pairing: Pairing, values: bool = False) -> Stamp:
+    """The stamp an analysis of the experiment as it is now would carry.
+
+    ``values`` also reads the feature table and hashes it (a read of every
+    feature, as the analysis makes); without it the value hash is ``None`` and
+    is not compared.
+    """
+    n, fingerprint = event_fingerprint(con, record.table_name)
+    digest = None
+    if values:
+        digest = read_dataset(con, None, record, pairing).value_hash()
+    return replace(model_stamp(pairing), n_rows=n, fingerprint=fingerprint, values=digest)
+
+
 def read_runs(con: duckdb.DuckDBPyConnection, name: str) -> dict[str, dict[str, Any]] | None:
-    """The stored per-task rows, JSON columns parsed; ``None`` when there is no analysis."""
+    """The stored per-task rows, JSON columns parsed; ``None`` when there is no analysis.
+
+    A table this release cannot read - written by a release whose columns
+    differ - is no analysis either: the check re-runs it instead of failing.
+    """
     physical = naming.xgb_table("run", name)
-    if not table_exists(con, physical):
-        return None
     columns = [c for c, _ in XGB_COLUMNS["run"]]
-    rows = con.execute(f"SELECT {', '.join(columns)} FROM {quote(physical)}").fetchall()
+    try:
+        if not table_exists(con, physical):
+            return None
+        rows = con.execute(f"SELECT {', '.join(columns)} FROM {quote(physical)}").fetchall()
+    except duckdb.Error as exc:
+        log.warning("The stored model analysis of %r cannot be read (%s); it is treated as "
+                    "missing", name, exc)
+        return None
     out: dict[str, dict[str, Any]] = {}
     for row in rows:
         data = dict(zip(columns, row))
@@ -153,15 +213,20 @@ def read_runs(con: duckdb.DuckDBPyConnection, name: str) -> dict[str, dict[str, 
 
 
 def stored_stamp(runs: dict[str, dict[str, Any]] | None) -> Stamp | None:
+    """The stamp the stored rows carry; ``None`` when they are missing or malformed."""
     if not runs or any(task not in runs for task in TASKS):
         return None
     first = runs[TASKS[0]]
-    return Stamp(
-        analysis_version=int(first["analysis_version"]),
-        sha256=tuple((task, runs[task]["sha256"]) for task in TASKS),
-        versions=tuple(sorted((first["versions"] or {}).items())),
-        n_rows=int(first["n_rows"]), fingerprint=str(first["event_fingerprint"]),
-    )
+    try:
+        return Stamp(
+            analysis_version=int(first["analysis_version"]),
+            sha256=tuple((task, str(runs[task]["sha256"])) for task in TASKS),
+            versions=tuple(sorted((first["versions"] or {}).items())),
+            n_rows=int(first["n_rows"]), fingerprint=str(first["event_fingerprint"]),
+            values=(first.get("details") or {}).get("value_hash"),
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
 
 
 def _filled(values: Any) -> np.ndarray:
@@ -183,9 +248,13 @@ def archive_increasing(con: duckdb.DuckDBPyConnection, settings: Settings,
     return bool(ids.size < 2 or np.all(np.diff(ids) > 0))
 
 
-def read_dataset(con: duckdb.DuckDBPyConnection, settings: Settings, record: ExperimentRecord,
+def read_dataset(con: duckdb.DuckDBPyConnection, settings: Settings | None, record: ExperimentRecord,
                  pairing: Pairing) -> Dataset:
     """The event table in ``event_number`` order, as :mod:`analysis` reads it.
+
+    ``settings`` locates the archive whose event order is checked
+    (``archive_increasing``); ``None`` skips that read, for the stamp's value
+    hash, which needs the values only.
 
     Each model's features become a DataFrame named and ordered as the model's,
     so ``predict`` checks them against the booster. A feature the model calls
@@ -221,7 +290,7 @@ def read_dataset(con: duckdb.DuckDBPyConnection, settings: Settings, record: Exp
         e1_bin=_filled(raw["e1_bin"]),
         labels=labels,
         features=features,
-        archive_increasing=archive_increasing(con, settings, record),
+        archive_increasing=archive_increasing(con, settings, record) if settings is not None else None,
     )
 
 
@@ -256,7 +325,14 @@ def _run_rows(name: str, pairing: Pairing, result: AnalysisResult, stamp: Stamp,
             "surrogate": SURROGATE,
             "test_size": 0.2,
             "nulls": result.nulls,
+            "split": t.split,
+            "value_hash": stamp.values,
         }
+        if t.output_order:
+            details["output_order"] = t.output_order
+        circular = {str(node["node_id"]): node["circular"] for node in t.tree if node.get("circular")}
+        if circular:
+            details["surrogate_circular"] = circular
         if task == "momentum":
             b = result.binary
             details["binary"] = {
@@ -274,8 +350,8 @@ def _run_rows(name: str, pairing: Pairing, result: AnalysisResult, stamp: Stamp,
             "n_rows": result.n_rows, "n_train": t.n_train, "n_val": t.n_val,
             "event_fingerprint": stamp.fingerprint,
             "archive_increasing": increasing,
-            "split_ratio_42": t.split_ratios[42], "split_ratio_0": t.split_ratios[0],
-            "split_ratio_7": t.split_ratios[7], "split_reproduced": t.split_reproduced,
+            "split_ratio_42": t.split_ratios[42], "split_ratio_0": t.split_ratios.get(0),
+            "split_ratio_7": t.split_ratios.get(7), "split_reproduced": t.split_reproduced,
             "surrogate_r2": t.surrogate_r2, "surrogate_mae": t.surrogate_mae,
             "details": json.dumps(details, sort_keys=True),
             "timings": json.dumps(result.timings, sort_keys=True),

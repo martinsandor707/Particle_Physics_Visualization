@@ -17,7 +17,8 @@
   "frames",
   "frames_present",
   "interval",
-  "notes"
+  "notes",
+  "n_clipped"
  ],
  "properties": {
   "meta": {
@@ -57,7 +58,8 @@
      "folds",
      "fold_mean",
      "fold_sd",
-     "fold_t95"
+     "fold_t95",
+     "clipped"
     ],
     "properties": {
      "name": {
@@ -141,6 +143,9 @@
       },
       "minItems": 2,
       "maxItems": 2
+     },
+     "clipped": {
+      "type": "boolean"
      }
     }
    },
@@ -213,7 +218,9 @@
     "dof",
     "t",
     "method",
-    "clip"
+    "clip",
+    "test_train",
+    "variance_factor"
    ],
    "properties": {
     "label": {
@@ -229,9 +236,24 @@
      "type": "number"
     },
     "method": {
-     "type": "string"
+     "const": "corrected_resampled_t"
     },
     "clip": {
+     "type": "string"
+    },
+    "test_train": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "variance_factor": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "reference": {
      "type": "string"
     }
    }
@@ -241,6 +263,10 @@
    "additionalProperties": {
     "type": "string"
    }
+  },
+  "n_clipped": {
+   "type": "integer",
+   "minimum": 0
   }
  },
  "propertyNames": {
@@ -377,6 +403,12 @@
     "ratio_42",
     "ratio_others",
     "seeds_others",
+    "n_others",
+    "max_others",
+    "seed_of_max",
+    "median_others",
+    "margin",
+    "headroom",
     "rule",
     "warning"
    ],
@@ -398,16 +430,48 @@
        "null"
       ]
      },
-     "minItems": 2,
-     "maxItems": 2
+     "maxItems": 99,
+     "description": "validation / training MSE at each of seeds_others, in that order"
     },
     "seeds_others": {
      "type": "array",
      "items": {
       "type": "integer"
      },
-     "minItems": 2,
-     "maxItems": 2
+     "maxItems": 99,
+     "description": "random_state 0 to 99 without 42"
+    },
+    "n_others": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "max_others": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "seed_of_max": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "median_others": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "margin": {
+     "type": "number",
+     "minimum": 1
+    },
+    "headroom": {
+     "type": [
+      "number",
+      "null"
+     ]
     },
     "rule": {
      "type": "string"
@@ -418,7 +482,8 @@
       "null"
      ]
     }
-   }
+   },
+   "description": "Passes when ratio_42 > margin × max_others (calosrv/modelruns/analysis.py SPLIT_MARGIN)."
   },
   "run": {
    "type": "object",

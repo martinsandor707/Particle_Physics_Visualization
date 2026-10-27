@@ -15,7 +15,11 @@ when a model is replaced. Nothing here imports XGBoost.
 A file that cannot be read, or that is not what its name says (an angle model
 with one target, an objective the notebooks did not use, no feature names), is
 listed with the reason and left out; a folder that does not exist is reported
-as such. The scan never raises, so a bad file can never stop the server.
+as such. Only regular files are read - never a symbolic link, which could lead
+out of the folder or to a device - and never one over :data:`MAX_BYTES`, which
+is checked before reading. Each file is read once, and its sha256 and its
+header come from the same bytes. The scan never raises, so a bad file can
+never stop the server.
 
 Headers are cached by path, size and modification time: the Admin Settings
 panel's list rescans on every call, and re-hashing sixteen megabyte-sized
@@ -42,6 +46,10 @@ TARGETS: dict[str, int] = {"momentum": 1, "angle": 2}
 
 #: The objective every notebook model was trained with, and the refits use.
 OBJECTIVE = "reg:squarederror"
+
+#: The largest model file read (a shipped one is a few megabytes): a cap checked
+#: before reading, so a stray huge file cannot hold the boot scan.
+MAX_BYTES = 256 * 1024 * 1024
 
 SPECIES_DIR = re.compile(r"^xgboost_(?P<species>[a-z][a-z0-9]*)$")
 MODEL_FILE = re.compile(r"^standalone_(?P<task>[a-z]+)_s(?P<seed>\d+)_model\.json$")
@@ -116,41 +124,92 @@ _CACHE: dict[tuple[str, int, int], ModelFile | Rejected] = {}
 _CACHE_LOCK = threading.Lock()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _version(raw: Any) -> str:
     if isinstance(raw, list) and all(isinstance(v, int) for v in raw):
         return ".".join(str(v) for v in raw)
     return str(raw)
 
 
+def _mapping(parent: dict[str, Any], key: str) -> dict[str, Any]:
+    """``parent[key]``, which must be a JSON object; a ``KeyError`` naming the path otherwise."""
+    value = parent.get(key)
+    if not isinstance(value, dict):
+        raise KeyError(key)
+    return value
+
+
+def _read_bytes(path: Path) -> bytes:
+    """The file's bytes, once: a regular file under the size cap, else ``ValueError``.
+
+    ``path.is_file()`` follows a symlink, so a link is refused first: the
+    folder is mounted from the host, and a link out of it (to ``/dev/zero``,
+    say) would hang the boot scan or read a file nobody meant to publish.
+    """
+    if path.is_symlink():
+        raise ValueError("is a symbolic link; only regular files in the models folder are read.")
+    if not path.is_file():
+        raise ValueError("is not a regular file.")
+    size = path.stat().st_size
+    if size > MAX_BYTES:
+        raise ValueError(f"is {size:,} bytes, over the {MAX_BYTES:,}-byte cap for a model file.")
+    with path.open("rb") as handle:
+        data = handle.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise ValueError(f"grew past the {MAX_BYTES:,}-byte cap while it was read.")
+    return data
+
+
+def _parse(document: Any) -> tuple[list[Any], list[Any], int, str, int, str]:
+    """``(names, types, num_target, objective, num_trees, base_score)`` of a parsed model file."""
+    if not isinstance(document, dict):
+        raise KeyError("learner")
+    learner = _mapping(document, "learner")
+    names = learner.get("feature_names") or []
+    types = learner.get("feature_types") or []
+    if not isinstance(names, list) or not isinstance(types, list):
+        raise TypeError("feature_names and feature_types must be lists")
+    param = _mapping(learner, "learner_model_param")
+    num_target = int(param.get("num_target", "1"))
+    objective = str(_mapping(learner, "objective")["name"])
+    booster = _mapping(_mapping(learner, "gradient_booster"), "model")
+    trees = int(_mapping(booster, "gbtree_model_param")["num_trees"])
+    base_score = str(param.get("base_score", ""))
+    return names, types, num_target, objective, trees, base_score
+
+
 def read_header(path: Path, relative: str, species: str, task: str, seed: int) -> ModelFile | Rejected:
-    """Parse one model file's header; a :class:`Rejected` saying why it cannot be used."""
+    """Parse one model file's header; a :class:`Rejected` saying why it cannot be used.
+
+    The bytes are read once, and the sha256 and the parse are taken from the
+    same bytes, so a file replaced mid-read cannot pair one file's hash with
+    another's header. Any failure - an unreadable file, bad JSON, JSON nested
+    deeper than the parser allows, a header of the wrong shape - is a
+    rejection with its reason, never an exception: one bad file must not
+    stop the scan of the others.
+    """
     try:
-        size = path.stat().st_size
-        sha = _sha256(path)
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError) as exc:
+        data = _read_bytes(path)
+    except ValueError as exc:
+        return Rejected(relative, str(exc))
+    except OSError as exc:
         return Rejected(relative, f"could not be read: {exc}")
+    sha = hashlib.sha256(data).hexdigest()
+    try:
+        document = json.loads(data.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        return Rejected(relative, f"could not be read: {exc}")
+    except RecursionError:
+        return Rejected(relative, "is not valid JSON: nested too deeply to parse.")
     except ValueError as exc:
         return Rejected(relative, f"is not valid JSON: {exc}")
+    except Exception as exc:  # noqa: BLE001 - a malformed file is a rejection, never a crash
+        return Rejected(relative, f"is not valid JSON ({type(exc).__name__}: {exc}).")
     try:
-        learner = document["learner"]
-        names = learner.get("feature_names") or []
-        types = learner.get("feature_types") or []
-        param = learner["learner_model_param"]
-        num_target = int(param.get("num_target", "1"))
-        objective = str(learner["objective"]["name"])
-        trees = int(learner["gradient_booster"]["model"]["gbtree_model_param"]["num_trees"])
-        base_score = str(param.get("base_score", ""))
+        names, types, num_target, objective, trees, base_score = _parse(document)
     except (KeyError, TypeError, ValueError) as exc:
-        return Rejected(relative, f"is not an XGBoost gbtree model file (missing {exc}).")
+        return Rejected(relative, f"is not an XGBoost gbtree model file (missing or malformed {exc}).")
+    except Exception as exc:  # noqa: BLE001 - a malformed file is a rejection, never a crash
+        return Rejected(relative, f"is not an XGBoost gbtree model file ({type(exc).__name__}: {exc}).")
     if not names or not all(isinstance(n, str) for n in names):
         return Rejected(relative, "carries no feature names, so its columns cannot be matched "
                                   "to the event table.")
@@ -164,7 +223,7 @@ def read_header(path: Path, relative: str, species: str, task: str, seed: int) -
                                   f"{TARGETS[task]}.")
     return ModelFile(
         path=path, relative=relative, species=species, task=task, seed=seed, sha256=sha,
-        size=size, xgboost_version=_version(document.get("version")),
+        size=len(data), xgboost_version=_version(document.get("version")),
         feature_names=tuple(names), feature_types=tuple(str(t) for t in types),
         num_target=num_target, num_trees=trees, base_score=base_score, objective=objective,
     )
@@ -202,6 +261,10 @@ def scan(root: Path) -> Catalogue:
         catalogue.rejected.append(Rejected(".", f"the folder could not be read: {exc}"))
         return catalogue
     for directory in directories:
+        if directory.is_symlink():
+            catalogue.rejected.append(Rejected(
+                directory.name, "is a symbolic link; only directories in the models folder are read."))
+            continue
         species_match = SPECIES_DIR.match(directory.name)
         try:
             files = sorted(p for p in directory.iterdir() if p.suffix.lower() == ".json")

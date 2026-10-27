@@ -14,6 +14,7 @@ tagged-row count past the top bucket, and a count that is NULL.
 from __future__ import annotations
 
 import math
+import re
 
 import duckdb
 import pandas as pd
@@ -140,7 +141,7 @@ def test_a_selection_narrows_the_events_not_the_definition(single_client):
     contract_check.check(body, "primaries")
 
 
-def test_an_empty_selection_is_served_with_no_bars_and_no_interval(single_client):
+def test_an_empty_selection_is_served_with_no_points_and_no_interval(single_client):
     body = _get(single_client, e1_min=0.0, e1_max=0.5)
     contract_check.check(body, "primaries")
     assert body["overall"] == {"n_events": 0, "n_no_primary": 0, "fraction": None, "interval": None}
@@ -153,6 +154,9 @@ def test_the_notes_define_the_card_name_the_interval_and_the_reference(single_cl
     notes = " ".join(body["notes"])
     assert body["definition"] in body["notes"][0]
     assert "is_secondary = 0" in body["definition"]
+    # C11 draws points with Wilson whiskers (panels/rates.js), never bars.
+    assert "Each point is" in body["definition"]
+    assert not re.search(r"\bbars?\b", notes, re.IGNORECASE), notes
     assert "Wilson" in notes and "Wald" in notes
     assert "73.83%" in notes and "electron file" in notes and "not this selection" in notes
     assert "25–27%" in notes

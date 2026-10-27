@@ -561,6 +561,12 @@
     "ratio_42",
     "ratio_others",
     "seeds_others",
+    "n_others",
+    "max_others",
+    "seed_of_max",
+    "median_others",
+    "margin",
+    "headroom",
     "rule",
     "warning"
    ],
@@ -582,16 +588,48 @@
        "null"
       ]
      },
-     "minItems": 2,
-     "maxItems": 2
+     "maxItems": 99,
+     "description": "validation / training MSE at each of seeds_others, in that order"
     },
     "seeds_others": {
      "type": "array",
      "items": {
       "type": "integer"
      },
-     "minItems": 2,
-     "maxItems": 2
+     "maxItems": 99,
+     "description": "random_state 0 to 99 without 42"
+    },
+    "n_others": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "max_others": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "seed_of_max": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "median_others": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "margin": {
+     "type": "number",
+     "minimum": 1
+    },
+    "headroom": {
+     "type": [
+      "number",
+      "null"
+     ]
     },
     "rule": {
      "type": "string"
@@ -602,7 +640,8 @@
       "null"
      ]
     }
-   }
+   },
+   "description": "Passes when ratio_42 > margin × max_others (calosrv/modelruns/analysis.py SPLIT_MARGIN)."
   },
   "run": {
    "type": "object",
@@ -701,7 +740,8 @@
     "n",
     "dof",
     "t",
-    "clipped"
+    "clipped",
+    "variance_factor"
    ],
    "properties": {
     "mean": {
@@ -750,6 +790,12 @@
     },
     "clipped": {
      "type": "boolean"
+    },
+    "variance_factor": {
+     "type": [
+      "number",
+      "null"
+     ]
     }
    }
   },
@@ -760,7 +806,9 @@
     "level",
     "dof",
     "t",
-    "method"
+    "method",
+    "test_train",
+    "variance_factor"
    ],
    "properties": {
     "label": {
@@ -776,9 +824,25 @@
      "type": "number"
     },
     "method": {
+     "const": "corrected_resampled_t"
+    },
+    "test_train": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "variance_factor": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "reference": {
      "type": "string"
     }
-   }
+   },
+   "description": "Nadeau and Bengio's corrected resampled t: SE² = (1/k + n_test/n_train) s², t at k − 1 d.o.f."
   }
  }
 }

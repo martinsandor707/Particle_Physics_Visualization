@@ -527,305 +527,15 @@
    }
   },
   "residual": {
-   "type": "object",
-   "required": [
-    "quantity",
-    "unit",
-    "axis",
-    "series",
-    "excluded"
-   ],
-   "properties": {
-    "quantity": {
-     "type": "string"
+   "anyOf": [
+    {
+     "$ref": "#/$defs/residual_linear"
     },
-    "unit": {
-     "type": "string"
-    },
-    "axis": {
-     "type": "object",
-     "required": [
-      "lo",
-      "hi",
-      "interval",
-      "bins",
-      "clipping",
-      "provisional",
-      "basis",
-      "outside",
-      "curve_x",
-      "hist_centres"
-     ],
-     "properties": {
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "interval": {
-       "type": "number"
-      },
-      "bins": {
-       "type": "integer"
-      },
-      "clipping": {
-       "$ref": "#/$defs/clipping"
-      },
-      "provisional": {
-       "type": "boolean"
-      },
-      "basis": {
-       "type": "string"
-      },
-      "outside": {
-       "type": "object",
-       "additionalProperties": {
-        "type": "object",
-        "required": [
-         "n",
-         "below",
-         "above"
-        ],
-        "properties": {
-         "n": {
-          "type": "integer"
-         },
-         "below": {
-          "type": "integer"
-         },
-         "above": {
-          "type": "integer"
-         }
-        }
-       }
-      },
-      "curve_x": {
-       "type": "array",
-       "items": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      },
-      "hist_centres": {
-       "type": "array",
-       "items": {
-        "type": [
-         "number",
-         "null"
-        ]
-       }
-      }
-     }
-    },
-    "series": {
-     "type": "object",
-     "propertyNames": {
-      "enum": [
-       "a",
-       "b"
-      ]
-     },
-     "required": [
-      "a"
-     ],
-     "additionalProperties": {
-      "type": "object",
-      "required": [
-       "key",
-       "label",
-       "shower",
-       "kind",
-       "slice",
-       "fit",
-       "draw",
-       "drives_scale",
-       "estimator",
-       "histogram",
-       "curve",
-       "curve_peak",
-       "strip",
-       "markers",
-       "message",
-       "estimates"
-      ],
-      "properties": {
-       "draw": {
-        "enum": [
-         "histogram",
-         "curve+strip",
-         "strip"
-        ]
-       },
-       "drives_scale": {
-        "type": "boolean"
-       },
-       "fit": {
-        "type": "object"
-       },
-       "histogram": {
-        "type": [
-         "object",
-         "null"
-        ]
-       },
-       "strip": {
-        "type": "object",
-        "required": [
-         "values",
-         "n_shown",
-         "truncated"
-        ]
-       },
-       "markers": {
-        "type": [
-         "object",
-         "null"
-        ]
-       },
-       "estimates": {
-        "type": "object",
-        "required": [
-         "bias",
-         "sigma",
-         "rmse"
-        ],
-        "properties": {
-         "bias": {
-          "type": "object",
-          "required": [
-           "value",
-           "se",
-           "interval",
-           "n",
-           "note"
-          ],
-          "properties": {
-           "value": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "se": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "interval": {
-            "anyOf": [
-             {
-              "$ref": "#/$defs/interval"
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "n": {
-            "type": "integer"
-           },
-           "note": {
-            "type": "string"
-           }
-          }
-         },
-         "sigma": {
-          "type": "object",
-          "required": [
-           "value",
-           "se",
-           "interval",
-           "n",
-           "note"
-          ],
-          "properties": {
-           "value": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "se": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "interval": {
-            "anyOf": [
-             {
-              "$ref": "#/$defs/interval"
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "n": {
-            "type": "integer"
-           },
-           "note": {
-            "type": "string"
-           }
-          }
-         },
-         "rmse": {
-          "type": "object",
-          "required": [
-           "value",
-           "se",
-           "interval",
-           "n",
-           "note"
-          ],
-          "properties": {
-           "value": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "se": {
-            "type": [
-             "number",
-             "null"
-            ]
-           },
-           "interval": {
-            "anyOf": [
-             {
-              "$ref": "#/$defs/interval"
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "n": {
-            "type": "integer"
-           },
-           "note": {
-            "type": "string"
-           }
-          }
-         }
-        }
-       }
-      }
-     },
-     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
-    },
-    "excluded": {
-     "type": "object",
-     "required": [
-      "nonpositive_truth"
-     ]
+    {
+     "$ref": "#/$defs/residual_circular"
     }
-   }
+   ],
+   "description": "linear for energy and θ; circular for the XGBoost φ residual (statistics)."
   },
   "thresholds": {
    "type": "object",
@@ -1327,6 +1037,740 @@
       "ratio_others",
       "warning"
      ]
+    }
+   }
+  },
+  "circular_summary": {
+   "type": "object",
+   "required": [
+    "n",
+    "unit",
+    "mean_direction",
+    "mean_direction_se",
+    "mean_direction_interval",
+    "resultant",
+    "circular_sd",
+    "rayleigh_p",
+    "definition",
+    "note"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "unit": {
+     "const": "mrad"
+    },
+    "mean_direction": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "mean_direction_se": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "mean_direction_interval": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/interval"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "resultant": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "minimum": 0,
+     "maximum": 1
+    },
+    "circular_sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "rayleigh_p": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "definition": {
+     "type": "string"
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "core_fit": {
+   "type": "object",
+   "required": [
+    "mu",
+    "sigma",
+    "n",
+    "unit",
+    "label"
+   ],
+   "properties": {
+    "mu": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sigma": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "n": {
+     "type": "integer"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "residual_linear": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "unit",
+    "axis",
+    "series",
+    "excluded",
+    "statistics"
+   ],
+   "properties": {
+    "quantity": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "axis": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "interval",
+      "bins",
+      "clipping",
+      "provisional",
+      "basis",
+      "outside",
+      "curve_x",
+      "hist_centres"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "interval": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "clipping": {
+       "$ref": "#/$defs/clipping"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "basis": {
+       "type": "string"
+      },
+      "outside": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "object",
+        "required": [
+         "n",
+         "below",
+         "above"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "below": {
+          "type": "integer"
+         },
+         "above": {
+          "type": "integer"
+         }
+        }
+       }
+      },
+      "curve_x": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "hist_centres": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "series": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "required": [
+      "a"
+     ],
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "shower",
+       "kind",
+       "slice",
+       "fit",
+       "draw",
+       "drives_scale",
+       "estimator",
+       "histogram",
+       "curve",
+       "curve_peak",
+       "strip",
+       "markers",
+       "message",
+       "estimates"
+      ],
+      "properties": {
+       "draw": {
+        "enum": [
+         "histogram",
+         "curve+strip",
+         "strip"
+        ]
+       },
+       "drives_scale": {
+        "type": "boolean"
+       },
+       "fit": {
+        "type": "object"
+       },
+       "histogram": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "strip": {
+        "type": "object",
+        "required": [
+         "values",
+         "n_shown",
+         "truncated"
+        ]
+       },
+       "markers": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "estimates": {
+        "type": "object",
+        "required": [
+         "bias",
+         "sigma",
+         "rmse"
+        ],
+        "properties": {
+         "bias": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "sigma": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "rmse": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       },
+       "circular": {
+        "$ref": "#/$defs/circular_summary"
+       },
+       "core_fit": {
+        "anyOf": [
+         {
+          "$ref": "#/$defs/core_fit"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      }
+     },
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
+    },
+    "excluded": {
+     "type": "object",
+     "required": [
+      "nonpositive_truth"
+     ]
+    },
+    "statistics": {
+     "const": "linear"
+    }
+   }
+  },
+  "residual_circular": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "unit",
+    "axis",
+    "series",
+    "excluded",
+    "statistics"
+   ],
+   "properties": {
+    "quantity": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "axis": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "interval",
+      "bins",
+      "clipping",
+      "provisional",
+      "basis",
+      "outside",
+      "curve_x",
+      "hist_centres"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "interval": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "clipping": {
+       "$ref": "#/$defs/clipping"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "basis": {
+       "type": "string"
+      },
+      "outside": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "object",
+        "required": [
+         "n",
+         "below",
+         "above"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "below": {
+          "type": "integer"
+         },
+         "above": {
+          "type": "integer"
+         }
+        }
+       }
+      },
+      "curve_x": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "hist_centres": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "series": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "required": [
+      "a"
+     ],
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "shower",
+       "kind",
+       "slice",
+       "fit",
+       "draw",
+       "drives_scale",
+       "estimator",
+       "histogram",
+       "curve",
+       "curve_peak",
+       "strip",
+       "markers",
+       "message",
+       "estimates",
+       "circular",
+       "core_fit"
+      ],
+      "properties": {
+       "draw": {
+        "enum": [
+         "histogram",
+         "curve+strip",
+         "strip"
+        ]
+       },
+       "drives_scale": {
+        "type": "boolean"
+       },
+       "fit": {
+        "type": "object",
+        "required": [
+         "mu",
+         "sigma",
+         "sigma_population",
+         "sigma_robust",
+         "resolution",
+         "resolution_core",
+         "mu_error",
+         "sigma_error",
+         "resolution_error",
+         "mu_ci95",
+         "sigma_ci95",
+         "sigma_bias_factor",
+         "sigma_unbiased",
+         "non_gaussian"
+        ],
+        "properties": {
+         "mu": {
+          "type": "null"
+         },
+         "sigma": {
+          "type": "null"
+         },
+         "sigma_population": {
+          "type": "null"
+         },
+         "sigma_robust": {
+          "type": "null"
+         },
+         "resolution": {
+          "type": "null"
+         },
+         "resolution_core": {
+          "type": "null"
+         },
+         "mu_error": {
+          "type": "null"
+         },
+         "sigma_error": {
+          "type": "null"
+         },
+         "resolution_error": {
+          "type": "null"
+         },
+         "mu_ci95": {
+          "type": "null"
+         },
+         "sigma_ci95": {
+          "type": "null"
+         },
+         "sigma_bias_factor": {
+          "type": "null"
+         },
+         "sigma_unbiased": {
+          "type": "null"
+         },
+         "non_gaussian": {
+          "type": "null"
+         }
+        }
+       },
+       "histogram": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "strip": {
+        "type": "object",
+        "required": [
+         "values",
+         "n_shown",
+         "truncated"
+        ]
+       },
+       "markers": {
+        "type": "null"
+       },
+       "estimates": {
+        "type": "object",
+        "required": [
+         "bias",
+         "sigma",
+         "rmse"
+        ],
+        "properties": {
+         "bias": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": "null"
+           },
+           "se": {
+            "type": "null"
+           },
+           "interval": {
+            "type": "null"
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "sigma": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": "null"
+           },
+           "se": {
+            "type": "null"
+           },
+           "interval": {
+            "type": "null"
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       },
+       "circular": {
+        "$ref": "#/$defs/circular_summary"
+       },
+       "core_fit": {
+        "anyOf": [
+         {
+          "$ref": "#/$defs/core_fit"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "description": "The φ residual: no arithmetic mean marker, whisker, bias, σ/μ or moment σ; every one null."
+     },
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
+    },
+    "excluded": {
+     "type": "object",
+     "required": [
+      "nonpositive_truth"
+     ]
+    },
+    "statistics": {
+     "const": "circular"
     }
    }
   }

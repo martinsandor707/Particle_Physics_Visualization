@@ -14,11 +14,19 @@ Every step is the notebook's own call, with the notebook's arguments
    ``XGBRegressor(objective='reg:squarederror', random_state=42,
    n_estimators=100, learning_rate=0.1)`` on the other 80 % recreates the
    shipped electron momentum model exactly (max |Δpred| = 0).
-2. **The split check.** A model fitted on those rows predicts them better than
-   the rest, so validation / training MSE at random_state 42 exceeds the same
-   ratio at 0 and at 7 (measured 1.11-1.50 momentum, 3.3-33 angle, against
-   about 1). When it does not, the stored predictions are not a holdout the
-   model never saw, and the run is flagged "split not reproduced".
+2. **The split check** (:func:`split_ratios`, :func:`reproduced`). A model
+   fitted on those rows predicts them better than the rest, so validation /
+   training MSE at random_state 42 exceeds the same ratio at every other seed.
+   The per-row errors are computed once, from one prediction of every row, and
+   each seed's ratio is taken from them with ``train_test_split``'s index
+   arrays alone. The check passes only when the 42 ratio exceeds the largest
+   of 99 other seeds' (0-99 without 42) by the task's :data:`SPLIT_MARGIN`.
+   When it does not, the stored predictions are not a holdout the model never
+   saw, and the run is flagged "split not reproduced".
+   **The output order** (:func:`output_order`). The angle model's outputs are
+   stored as φ then θ, the notebook's label order; each output must predict
+   its own label better than the other one (φ's error wrapped to (−π, π]), or
+   the run fails rather than store and serve the two swapped.
 3. **Holdout predictions** of both shipped models on the validation rows: E2,
    prediction against truth, and E3's pools.
 4. **E1**, ``train_and_evaluate``: ``KFold(5, shuffle=True, random_state=42)``
@@ -35,7 +43,10 @@ Every step is the notebook's own call, with the notebook's arguments
    random_state=42)``, thresholded at 2 GeV, with the notebook's metrics.
 6. **E4**: ``DecisionTreeRegressor(max_depth=3, random_state=42)`` fitted
    in-sample to the shipped booster's predictions on all rows; its ``tree_``
-   arrays, each node's within-node variance per output, and its fidelity.
+   arrays, each node's within-node variance per output, and its fidelity. A
+   node's φ value is sklearn's linear mean, kept for notebook parity; beside
+   it, the circular mean and mean resultant length R̄ of the booster's φ
+   predictions on the rows reaching the node.
 7. **E5**: the shipped booster's normalised gain (``feature_importances_``) and
    its raw gain, weight and cover (``get_score``); each fold model's normalised
    gain.
@@ -46,6 +57,8 @@ measured not to change a single prediction against one thread.
 
 from __future__ import annotations
 
+import hashlib
+import math
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -59,12 +72,39 @@ from .pairing import TASK_LABELS
 
 #: Bumped whenever a change here would change a stored number; every stored
 #: analysis of an older version is stale and re-run.
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 
 #: ``train_test_split`` as the notebook calls it, and the seeds of the split check.
 TEST_SIZE = 0.2
 SPLIT_SEED = 42
-CHECK_SEEDS: tuple[int, ...] = (0, 7)
+CHECK_SEEDS: tuple[int, ...] = tuple(s for s in range(100) if s != SPLIT_SEED)
+
+#: How far the random_state 42 ratio must exceed the largest of the 99 others for the
+#: split to count as reproduced: ``ratio_42 > margin * max(others)``. Per task, because
+#: the angle task's per-row errors are dominated by a few rows whose unwrapped φ residual
+#: is near 2π, so its ratio varies far more from seed to seed than momentum's. Measured
+#: on the four s1 aggregates with the shipped s1 models (2026-10-27,
+#: ``data/dev/scratch_xgbfix/measure*.py``):
+#:
+#: ========  ==========  =========  ===========  =========  ==========  =========
+#: species   momentum    max of 99  ratio / max  angle      max of 99   ratio / max
+#: ========  ==========  =========  ===========  =========  ==========  =========
+#: electron  1.497       1.068      1.402        17.87      5.158       3.465
+#: muon      1.106       1.018      1.087        33.39      2.781       12.01
+#: pion      1.277       1.056      1.210        6.450      1.709       3.775
+#: proton    1.262       1.078      1.170        3.303      1.526       2.165
+#: ========  ==========  =========  ===========  =========  ==========  =========
+#:
+#: On row-permuted errors (the split not reproduced; 5,000 permutations per species and
+#: task, 20,000 per task) ratio_42 / max(others) exceeds 1.05 once for momentum (maximum
+#: 1.067) and 1.6 five times for angle (maximum 2.311): the check fails 99.995 % and
+#: 99.975 % of them, where the former rule (above seeds 0 and 7 only) passed about one
+#: in three (24 of 60 in the review, momentum). Every
+#: shipped model passes, the least by 1.087 / 1.05 (muon momentum) and 2.165 / 1.6
+#: (proton angle). Wrapping φ in the per-row errors was measured and separates worse
+#: (pion and proton angle 1.26 and 1.24 against a permuted maximum of 1.58), so the
+#: errors are the training loss's own, unwrapped.
+SPLIT_MARGIN: dict[str, float] = {"momentum": 1.05, "angle": 1.6}
 
 #: The notebook's regressor, for every refit.
 HYPERPARAMETERS: dict[str, Any] = {
@@ -132,6 +172,30 @@ class Dataset:
     def n(self) -> int:
         return int(self.event_number.size)
 
+    def value_hash(self) -> str:
+        """A sha256 of every array the analysis reads: the bins, the labels, each task's features.
+
+        Part of the stamp: a rebuild that re-derives the event table with other
+        values makes the stored analysis stale, while one that reproduces them
+        byte for byte leaves it current. Each array is hashed with its name,
+        dtype and shape, in a fixed order.
+        """
+        digest = hashlib.sha256()
+
+        def add(name: str, values: np.ndarray) -> None:
+            array = np.ascontiguousarray(values)
+            digest.update(f"{name}|{array.dtype.str}|{array.shape}|".encode())
+            digest.update(array.tobytes())
+
+        add("e1_bin", self.e1_bin)
+        for label in sorted(self.labels):
+            add(f"label:{label}", self.labels[label])
+        for task in sorted(self.features):
+            frame = self.features[task]
+            for column in frame.columns:
+                add(f"{task}:{column}", frame[column].to_numpy())
+        return digest.hexdigest()
+
     def null_counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
         for frame in self.features.values():
@@ -151,6 +215,8 @@ class TaskResult:
     n_val: int
     split_ratios: dict[int, float]
     split_reproduced: bool
+    #: :func:`split_summary`: every seed's ratio, their maximum, the margin.
+    split: dict[str, Any]
     #: Validation rows (positions in event order, ascending) and their predictions.
     val_rows: np.ndarray
     val_pred: np.ndarray
@@ -165,6 +231,8 @@ class TaskResult:
     surrogate_r2: float | None = None
     surrogate_mae: float | None = None
     surrogate_outputs: dict[str, dict[str, float]] = field(default_factory=dict)
+    #: :func:`output_order`: each output's error against each label (multi-output tasks).
+    output_order: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -227,7 +295,11 @@ def split_indices(n: int, random_state: int = SPLIT_SEED) -> tuple[np.ndarray, n
 
 
 def split_ratios(pred: np.ndarray, truth: np.ndarray) -> dict[int, float]:
-    """Validation / training MSE (mean over the outputs) at each split seed."""
+    """Validation / training MSE (mean over the outputs) at random_state 42 and every check seed.
+
+    The per-row squared errors are computed once, from the one prediction of
+    every row; each seed then costs only ``train_test_split``'s index arrays.
+    """
     n = truth.shape[0]
     squared = (pred.reshape(n, -1) - truth.reshape(n, -1)) ** 2
     per_row = squared.mean(axis=1)
@@ -238,10 +310,67 @@ def split_ratios(pred: np.ndarray, truth: np.ndarray) -> dict[int, float]:
     return out
 
 
-def reproduced(ratios: dict[int, float]) -> bool:
-    """The flag: the random_state 42 ratio exceeds both others."""
+def reproduced(ratios: dict[int, float], task: str) -> bool:
+    """The flag: the random_state 42 ratio exceeds every other seed's by the task's margin."""
+    others = [ratios[s] for s in CHECK_SEEDS if s in ratios]
     mine = ratios[SPLIT_SEED]
-    return all(mine > ratios[s] for s in CHECK_SEEDS)
+    return bool(others) and math.isfinite(mine) and mine > SPLIT_MARGIN[task] * max(others)
+
+
+def split_summary(ratios: dict[int, float], task: str) -> dict[str, Any]:
+    """What the run stores about its split check: every seed's ratio, the maximum, the margin."""
+    seeds = [s for s in CHECK_SEEDS if s in ratios]
+    others = [ratios[s] for s in seeds]
+    top = max(range(len(seeds)), key=lambda i: others[i]) if seeds else None
+    biggest = others[top] if top is not None else None
+    mine = ratios[SPLIT_SEED]
+    return {
+        "ratio_42": mine,
+        "seeds_others": seeds,
+        "ratio_others": others,
+        "max_others": biggest,
+        "seed_of_max": seeds[top] if top is not None else None,
+        "median_others": float(np.median(others)) if others else None,
+        "margin": SPLIT_MARGIN[task],
+        "headroom": (mine / biggest) if biggest else None,
+        "reproduced": reproduced(ratios, task),
+    }
+
+
+def output_order(task: str, pred: np.ndarray, truth: np.ndarray,
+                 labels: tuple[str, ...]) -> dict[str, dict[str, float]]:
+    """Each output's mean squared error against every label (φ's wrapped): ``{output: {label: mse}}``.
+
+    The diagonal must be the smallest entry of its row: an output predicting
+    another label better than its own means the model's outputs are not in the
+    order the analysis stores them.
+    """
+    n = truth.shape[0]
+    p2, t2 = pred.reshape(n, -1), truth.reshape(n, -1)
+    out: dict[str, dict[str, float]] = {}
+    for k, own in enumerate(labels):
+        row: dict[str, float] = {}
+        for j, label in enumerate(labels):
+            diff = p2[:, k] - t2[:, j]
+            if label == "incoming_phi":
+                diff = wrap(diff)
+            row[LABEL_KEY[label]] = float(np.mean(diff ** 2))
+        out[LABEL_KEY[own]] = row
+    return out
+
+
+def check_output_order(task: str, errors: dict[str, dict[str, float]]) -> None:
+    """Fail with a reason when an output predicts another label better than its own."""
+    swapped = [(out, other) for out, row in errors.items() for other, mse in row.items()
+               if other != out and not row[out] < mse]
+    if swapped:
+        detail = "; ".join(
+            f"output {out} has mean squared error {errors[out][out]:.4g} against {out} and "
+            f"{errors[out][other]:.4g} against {other}" for out, other in swapped)
+        order = ", ".join(errors)
+        raise ValueError(
+            f"the {task} model's outputs are not in the order [{order}]: {detail}. Its predictions "
+            "would be stored and served under the wrong labels, so nothing is stored.")
 
 
 def _truth(data: Dataset, labels: tuple[str, ...]) -> np.ndarray:
@@ -340,6 +469,8 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
     from sklearn.metrics import mean_absolute_error, r2_score
     from sklearn.tree import DecisionTreeRegressor
 
+    from ..stats.circular import circular_mean, mean_resultant_length, resultant_sums
+
     tree = DecisionTreeRegressor(**SURROGATE).fit(frame, proxy)
     fitted = tree.predict(frame)
     r2 = float(r2_score(proxy, fitted))
@@ -360,6 +491,12 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
         rows = path.indices[path.indptr[node]:path.indptr[node + 1]]
         variance = proxy2[rows].var(axis=0) if rows.size else np.full(len(labels), np.nan)
         leaf = left[node] < 0
+        circular: dict[str, dict[str, float | None]] = {}
+        for k, label in enumerate(labels):
+            if label == "incoming_phi":
+                c, s, m = resultant_sums(proxy2[rows, k])
+                circular[LABEL_KEY[label]] = {"mean": circular_mean(c, s) if m else None,
+                                              "resultant": mean_resultant_length(c, s, m)}
         nodes.append({
             "node_id": node, "depth": depth[node],
             "children_left": int(left[node]), "children_right": int(right[node]),
@@ -369,6 +506,7 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
             "impurity": float(t.impurity[node]),
             "values": {LABEL_KEY[label]: float(t.value[node, k, 0]) for k, label in enumerate(labels)},
             "variance": {LABEL_KEY[label]: float(variance[k]) for k, label in enumerate(labels)},
+            "circular": circular,
         })
     return nodes, r2, mae, outputs
 
@@ -464,13 +602,18 @@ def run(data: Dataset, models: dict[str, ModelFile], nthread: int,
             raise ValueError(f"{bad} {task} label value(s) are missing or not finite; the notebook's "
                              "metrics are undefined on them, and dropping rows would move its split.")
         pred = np.asarray(regressors[task].predict(frame), dtype=np.float64)
+        errors: dict[str, dict[str, float]] = {}
+        if len(labels) > 1:
+            errors = output_order(task, pred, truth, labels)
+            check_output_order(task, errors)
         predictions[task] = pred
         ratios = split_ratios(pred, truth)
         order = np.sort(val)
         tasks[task] = TaskResult(
             task=task, labels=labels, n_train=int(train.size), n_val=int(val.size),
-            split_ratios=ratios, split_reproduced=reproduced(ratios),
-            val_rows=order, val_pred=pred[order],
+            split_ratios=ratios, split_reproduced=reproduced(ratios, task),
+            split=split_summary(ratios, task), val_rows=order, val_pred=pred[order],
+            output_order=errors,
         )
     for task in TASKS:
         folds, importances = cross_validate(task, data, nthread, step)

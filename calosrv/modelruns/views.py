@@ -8,21 +8,29 @@ payload says so (``filtered: false`` and :data:`SELECTION_NOTE`).
 The marks follow CLAUDE.md section 2:
 
 * **E1.** Five fold values are five observations, drawn as dots; their mean
-  is the aggregate and carries the Student-t 95 % interval of the mean over
-  five folds (4 degrees of freedom, t = 2.776), never a naked point. The
-  sample SD is reported beside it as the spread of the folds, a different
-  quantity.
+  is the aggregate and carries a 95 % interval of the mean, never a naked
+  point. The folds are not independent - any two share three quarters of
+  their training rows - so the interval is Nadeau and Bengio's corrected
+  resampled t: SE² = (1/k + n_test/n_train) s², with t at k − 1 = 4 degrees
+  of freedom (:func:`mean_interval`). The plain sample SD across the folds is
+  reported beside it as their spread, a different quantity.
 * **E3.** The confusion matrix is counts. Every rate derived from it carries
   a Wilson score interval, which never leaves [0, 1] and does not collapse
-  at 0 or 1, and names it; balanced accuracy, a mean of two rates, has a
-  seeded percentile bootstrap over the 2,000 rows instead. The notebook's
-  weighted precision, recall and F1 are kept for parity, labelled as such.
+  at 0 or 1, and names it. Balanced accuracy, the mean of the two class
+  recalls with the class sizes fixed by the sample design, carries Newcombe's
+  MOVER interval built from the two recalls' Wilson limits
+  (:func:`balanced_interval`): a class classified perfectly keeps its own
+  uncertainty, which a bootstrap of the rows loses. The notebook's weighted
+  precision, recall and F1 are kept for parity, labelled as such.
 * **E4.** A description of a surrogate, not an estimate: each node's n, its
   value and its within-node SD of the booster's predictions (an uncapped
-  spread), and the fidelity of the whole tree.
+  spread), and the fidelity of the whole tree and of each output. A node's φ
+  value is sklearn's linear mean, kept for notebook parity; beside it the
+  circular mean and mean resultant length R̄ of the booster's φ predictions
+  on the node's rows, and φ is never coloured (no cyclic ramp is sanctioned).
 * **E5.** One shipped model's normalised gain is the bar; the five refitted
-  folds' values are dots beside it, and their mean's Student-t interval a
-  separate named envelope.
+  folds' values are dots beside it, and their mean's corrected resampled t
+  interval a separate named envelope.
 
 Numbers are rounded to six significant figures (``encode.numbers``) and every
 sentence goes through :func:`~calosrv.text.typographic`.
@@ -40,9 +48,11 @@ from ..db import ddl
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import sig, sig_list
 from ..stats import gaussian, metrics
+from ..errors import CapabilityError
 from ..text import typographic
 from . import store
-from .analysis import BINARY, CV_LABELS, HYPERPARAMETERS, KFOLD, LABEL_KEY, SURROGATE, TEST_SIZE
+from .analysis import (BINARY, CV_LABELS, HYPERPARAMETERS, KFOLD, LABEL_KEY, SPLIT_MARGIN,
+                       SURROGATE, TEST_SIZE)
 from .pairing import TASK_LABELS
 
 VIEWS: tuple[str, ...] = ("cv", "binary", "surrogate", "importance")
@@ -58,11 +68,13 @@ SERIES_LABEL = "XGBoost (20 % validation split)"
 LABEL_UNITS: dict[str, str] = {"momentum": "GeV", "phi": "rad", "theta": "rad"}
 MRAD_PER_RAD = 1000.0
 
-#: Bootstrap of the balanced accuracy.
-BOOTSTRAP_REPLICATES = 2000
-BOOTSTRAP_SEED = 42
+#: The interval of a mean over the folds, and its method's name in the payload.
+INTERVAL_LABEL = "95 % Nadeau–Bengio corrected resampled t interval of the mean (4 d.o.f.)"
+METHOD_CORRECTED_T = "corrected_resampled_t"
 
-INTERVAL_LABEL = "95 % Student-t interval of the mean over 5 folds (4 d.o.f.)"
+#: Balanced accuracy's interval.
+METHOD_MOVER = "mover"
+MOVER_LABEL = "95 % Newcombe MOVER interval from per-class Wilson limits"
 
 
 def _text(node: Any) -> Any:
@@ -78,26 +90,66 @@ def _text(node: Any) -> Any:
 # ------------------------------------------------------------- run block --
 
 
+def require_runs(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, task: str,
+                 field: str) -> dict[str, dict[str, Any]]:
+    """The stored analysis of ``record``, or a refusal (422) when it is missing or lacks ``task``.
+
+    The capability gate is open only while the analysis is done and current,
+    but the tables can still vanish under it (a delete, a failed write): every
+    route that reads them refuses the same way rather than failing.
+    """
+    runs = store.read_runs(con, record.table_name)
+    if runs is None or task not in runs:
+        reason = ("The stored XGBoost analysis is missing; Admin Settings › Model runs "
+                  "re-analyses it.")
+        raise CapabilityError(
+            f"xgboost is not available for experiment {record.table_name!r}: {reason}",
+            field=field, capability="xgboost", kind=record.kind, reason=reason,
+            table_name=record.table_name)
+    return runs
+
+
+def split_block(row: dict[str, Any], task: str) -> dict[str, Any]:
+    """The split check of one stored task: the 42 ratio, the 99 others, their maximum, the margin."""
+    stored = (row.get("details") or {}).get("split") or {}
+    ratio = row["split_ratio_42"]
+    seeds = [int(x) for x in stored.get("seeds_others") or []]
+    others = list(stored.get("ratio_others") or [])
+    biggest = stored.get("max_others")
+    margin = stored.get("margin", SPLIT_MARGIN[task])
+    reproduced = bool(row["split_reproduced"])
+    n = len(seeds)
+    return {
+        "reproduced": reproduced,
+        "ratio_42": sig(ratio),
+        "ratio_others": sig_list(others),
+        "seeds_others": seeds,
+        "n_others": n,
+        "max_others": sig(biggest),
+        "seed_of_max": stored.get("seed_of_max"),
+        "median_others": sig(stored.get("median_others")),
+        "margin": margin,
+        "headroom": sig(stored.get("headroom")),
+        "rule": (f"validation / training MSE of the shipped model at random_state 42 must exceed "
+                 f"{margin:g} times the largest of the same ratio at {n} other random_state values "
+                 f"(0 to 99 without 42): a model predicts the rows it was trained on better than "
+                 "the rest. The per-row errors come from one prediction of every row; each seed "
+                 "only re-indexes them."),
+        "warning": None if reproduced else (
+            f"Split not reproduced: validation / training MSE is {ratio:.3g} at random_state 42 "
+            f"against at most {biggest:.3g} at the {n} other seeds (random_state "
+            f"{stored.get('seed_of_max')}), short of the required {margin:g} times, so the stored "
+            "validation rows may include rows the model was trained on."
+            if biggest is not None else
+            "Split not reproduced: the stored analysis carries no seed comparison."),
+    }
+
+
 def run_block(runs: dict[str, dict[str, Any]], task: str) -> dict[str, Any]:
     """Which model, which split, which analysis: the block every XGBoost payload carries."""
     row = runs[task]
     labels = [LABEL_KEY[label] for label in row["labels"]]
-    ratio = row["split_ratio_42"]
-    others = [row["split_ratio_0"], row["split_ratio_7"]]
-    reproduced = bool(row["split_reproduced"])
-    split = {
-        "reproduced": reproduced,
-        "ratio_42": sig(ratio),
-        "ratio_others": sig_list(others),
-        "seeds_others": [0, 7],
-        "rule": ("validation / training MSE of the shipped model at random_state 42 must exceed "
-                 "the same ratio at random_state 0 and 7: a model predicts the rows it was "
-                 "trained on better than the rest"),
-        "warning": None if reproduced else (
-            f"Split not reproduced: validation / training MSE is {ratio:.3g} at random_state 42 "
-            f"against {others[0]:.3g} and {others[1]:.3g} at 0 and 7, so the stored validation "
-            "rows may include rows the model was trained on."),
-    }
+    split = split_block(row, task)
     versions = row.get("versions") or {}
     return _text({
         "species": row["species"],
@@ -126,19 +178,36 @@ def dataset_wide(spec_dict: dict[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------- summaries --
 
 
-def mean_interval(values: Sequence[float], bounds: tuple[float, float] | None = None) -> dict[str, Any]:
-    """Mean, SD (ddof 1), SE and the Student-t 95 % interval of the mean, clipped to ``bounds``."""
+def holdout_ratio(folds: Sequence[dict[str, Any]]) -> float:
+    """n_test / n_train of the cross-validation: the mean held-out rows over the mean fitted rows."""
+    n_val = [float(f["n_val"]) for f in folds]
+    n_train = [float(f["n_train"]) for f in folds]
+    return float(np.mean(n_val) / np.mean(n_train)) if folds and np.mean(n_train) > 0 else 0.0
+
+
+def mean_interval(values: Sequence[float], bounds: tuple[float, float] | None = None,
+                  test_train: float | None = None) -> dict[str, Any]:
+    """Mean, SD (ddof 1), SE and the 95 % interval of the mean, clipped to ``bounds``.
+
+    ``test_train`` (n_test / n_train) makes it Nadeau and Bengio's corrected
+    resampled t (2003): the k values come from refits whose training sets
+    overlap, so their variance understates the variance of their mean, and
+    SE² = (1/k + n_test/n_train) s² replaces s² / k, with t at k − 1 degrees
+    of freedom. Without it, the plain Student-t interval. ``sd`` is the plain
+    sample SD either way: the spread of the values, which the dots show.
+    """
     v = np.asarray([x for x in values if x is not None and math.isfinite(x)], dtype=np.float64)
     n = int(v.size)
+    factor = None if test_train is None else (1.0 / n if n else 0.0) + test_train
     if n == 0:
         return {"mean": None, "sd": None, "se": None, "t95": [None, None], "n": 0, "dof": None,
-                "t": None, "clipped": False}
+                "t": None, "clipped": False, "variance_factor": None}
     mean = float(v.mean())
     if n < 2:
         return {"mean": sig(mean), "sd": None, "se": None, "t95": [None, None], "n": n, "dof": 0,
-                "t": None, "clipped": False}
+                "t": None, "clipped": False, "variance_factor": None}
     sd = float(v.std(ddof=1))
-    se = sd / math.sqrt(n)
+    se = sd * math.sqrt(factor) if factor is not None else sd / math.sqrt(n)
     t = gaussian.t_quantile_975(n - 1)
     lo, hi = mean - t * se, mean + t * se
     clipped = False
@@ -147,7 +216,8 @@ def mean_interval(values: Sequence[float], bounds: tuple[float, float] | None = 
         clipped = (clo, chi) != (lo, hi)
         lo, hi = clo, chi
     return {"mean": sig(mean), "sd": sig(sd), "se": sig(se), "t95": [sig(lo), sig(hi)], "n": n,
-            "dof": n - 1, "t": round(t, 3), "clipped": clipped}
+            "dof": n - 1, "t": round(t, 3), "clipped": clipped,
+            "variance_factor": sig(factor if factor is not None else 1.0 / n)}
 
 
 # -------------------------------------------------------------------- E1 --
@@ -193,7 +263,8 @@ def cv_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                 "phi": {m: sig(_mrad(m, f["values"].get((m, "phi")))) for m in ("mae", "rmse")},
             }
         out_folds.append(entry)
-    summary = {m: mean_interval([f["values"].get((m, parity)) for f in ordered], _BOUNDS[m])
+    ratio = holdout_ratio(ordered)
+    summary = {m: mean_interval([f["values"].get((m, parity)) for f in ordered], _BOUNDS[m], ratio)
                for m in metric_ids}
     per_label = None
     if task == "angle":
@@ -201,13 +272,13 @@ def cv_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             "theta": {
                 "unit": "mrad", "metrics": _metric_list("mrad", ("mae", "rmse", "r2")),
                 "summary": {m: mean_interval([_mrad(m, f["values"].get((m, "theta"))) for f in ordered],
-                                             _BOUNDS[m]) for m in ("mae", "rmse", "r2")},
+                                             _BOUNDS[m], ratio) for m in ("mae", "rmse", "r2")},
                 "residual": "θ_pred − θ_true",
             },
             "phi": {
                 "unit": "mrad", "metrics": _metric_list("mrad", ("mae", "rmse")),
                 "summary": {m: mean_interval([_mrad(m, f["values"].get((m, "phi"))) for f in ordered],
-                                             _BOUNDS[m]) for m in ("mae", "rmse")},
+                                             _BOUNDS[m], ratio) for m in ("mae", "rmse")},
                 "residual": "φ_pred − φ_true wrapped to (−π, π]",
             },
         }
@@ -216,9 +287,13 @@ def cv_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                   "trees, learning rate 0.1, random_state 42) on four fifths of the rows of "
                   "KFold(5, shuffle=True, random_state=42) and scores the fifth. A fold value is "
                   "one observation and is drawn as a dot."),
-        "interval": ("The mean of the five folds carries the 95 % Student-t interval of the mean "
-                     "(4 d.o.f., t = 2.776): the uncertainty of the aggregate. The SD beside it "
-                     "is the spread of the folds, a different quantity, and is not a whisker."),
+        "interval": ("The mean of the five folds carries the 95 % Nadeau–Bengio corrected "
+                     "resampled t interval of the mean (4 d.o.f., t = 2.776): any two folds share "
+                     "three quarters of their training rows, so their values are not independent "
+                     "and s²/k would understate the variance of their mean; the correction uses "
+                     f"(1/k + n_test/n_train) s² = {1 / KFOLD['n_splits'] + ratio:.3g} s² instead "
+                     "of s²/5. It is the uncertainty of the aggregate. The SD beside it is the "
+                     "plain spread of the folds, a different quantity, and is not a whisker."),
         "refit": ("The refits are what the notebook computed: refitting on the reproduced 80 % "
                   "split recreates the shipped model exactly, and XGBoost's result does not "
                   "depend on the thread count."),
@@ -247,10 +322,19 @@ def cv_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         "folds": out_folds,
         "summary": summary,
         "per_label": per_label,
-        "interval": {"label": INTERVAL_LABEL, "level": 0.95, "dof": 4,
-                     "t": round(gaussian.t_quantile_975(4), 3), "method": metrics.METHOD_T},
+        "interval": _interval_block(ratio),
         "notes": notes,
     })
+
+
+def _interval_block(ratio: float) -> dict[str, Any]:
+    """The fold-mean interval's description: Nadeau-Bengio's corrected resampled t."""
+    k = KFOLD["n_splits"]
+    return {"label": INTERVAL_LABEL, "level": 0.95, "dof": k - 1,
+            "t": round(gaussian.t_quantile_975(k - 1), 3), "method": METHOD_CORRECTED_T,
+            "test_train": sig(ratio), "variance_factor": sig(1.0 / k + ratio),
+            "reference": ("Nadeau and Bengio (2003), Inference for the generalization error, "
+                          "Machine Learning 52, 239–281")}
 
 
 def _mrad(metric: str, value: float | None) -> float | None:
@@ -276,30 +360,30 @@ def _rate(identifier: str, label: str, k: int, n: int, definition: str) -> dict[
     }
 
 
-def balanced_bootstrap(tn: int, fp: int, fn: int, tp: int) -> dict[str, Any]:
-    """The 95 % percentile bootstrap of the balanced accuracy over the sample's rows.
+def balanced_interval(tn: int, fp: int, fn: int, tp: int) -> dict[str, Any]:
+    """Balanced accuracy and Newcombe's MOVER 95 % interval from the class recalls' Wilson limits.
 
-    A resample of the rows changes the balanced accuracy only through the four
-    confusion counts, which follow the multinomial over the cells; drawing
-    those counts directly is the same distribution as resampling the rows.
-    A replicate with an empty class has no balanced accuracy and is counted.
+    BA = (p1 + p0) / 2 with p1 = TP / (TP + FN) and p0 = TN / (TN + FP), the
+    class sizes fixed by the sample design (1,980 and 20). The method of
+    variance estimates recovery (Zou and Donner 2008; Newcombe 1998) combines
+    each recall's own Wilson limits (l, u):
+
+        L = BA − ½ √((p1 − l1)² + (p0 − l0)²)
+        U = BA + ½ √((u1 − p1)² + (u0 − p0)²)
+
+    clipped to [0, 1]. A class classified perfectly (p1 = 1) still contributes
+    its Wilson half-width 1 − l1, which a bootstrap of the rows or a Wald
+    interval loses: both collapse that class's uncertainty to zero.
     """
-    n = tn + fp + fn + tp
-    if n == 0:
-        return {"lo": None, "hi": None, "n_undefined": 0}
-    rng = np.random.default_rng(BOOTSTRAP_SEED)
-    counts = rng.multinomial(n, np.array([tn, fp, fn, tp], dtype=np.float64) / n,
-                             size=BOOTSTRAP_REPLICATES)
-    ctn, cfp, cfn, ctp = (counts[:, i].astype(np.float64) for i in range(4))
-    neg, pos = ctn + cfp, ctp + cfn
-    ok = (neg > 0) & (pos > 0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        values = 0.5 * (ctp / pos + ctn / neg)
-    values = values[ok]
-    if values.size == 0:
-        return {"lo": None, "hi": None, "n_undefined": int((~ok).sum())}
-    lo, hi = np.percentile(values, [2.5, 97.5])
-    return {"lo": float(lo), "hi": float(hi), "n_undefined": int((~ok).sum())}
+    n_1, n_0 = tp + fn, tn + fp
+    w1, w0 = metrics.wilson_interval(tp, n_1), metrics.wilson_interval(tn, n_0)
+    if w1 is None or w0 is None:
+        return {"value": None, "lo": None, "hi": None}
+    p1, p0 = tp / n_1, tn / n_0
+    value = 0.5 * (p1 + p0)
+    lo = value - 0.5 * math.hypot(p1 - w1.lo, p0 - w0.lo)
+    hi = value + 0.5 * math.hypot(w1.hi - p1, w0.hi - p0)
+    return {"value": value, "lo": max(0.0, lo), "hi": min(1.0, hi)}
 
 
 def binary_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
@@ -323,21 +407,15 @@ def binary_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         _rate("precision_1", "Precision, class 1", tp, tp + fp, "TP / (TP + FP)"),
         _rate("precision_0", "Precision, class 0", tn, tn + fn, "TN / (TN + FN)"),
     ]
-    boot = balanced_bootstrap(tn, fp, fn, tp)
-    balanced = None
-    if n_1 and n_0:
-        balanced = 0.5 * (tp / n_1 + tn / n_0)
+    balanced = balanced_interval(tn, fp, fn, tp)
     rates.append({
         "id": "balanced_accuracy", "label": "Balanced accuracy",
         "definition": "(recall class 1 + recall class 0) / 2", "k": None, "n": n,
-        "value": sig(balanced),
-        "interval": None if boot["lo"] is None else {
-            "lo": sig(boot["lo"]), "hi": sig(boot["hi"]), "level": 0.95,
-            "method": metrics.METHOD_BOOTSTRAP,
-            "label": (f"95 % percentile bootstrap over the {n:,} rows (B = "
-                      f"{BOOTSTRAP_REPLICATES:,}, seed {BOOTSTRAP_SEED})")},
-        "n_undefined_replicates": boot["n_undefined"],
-        "note": "" if balanced is not None else "Undefined: one class is absent from the sample.",
+        "value": sig(balanced["value"]),
+        "interval": None if balanced["lo"] is None else {
+            "lo": sig(balanced["lo"]), "hi": sig(balanced["hi"]), "level": 0.95,
+            "method": METHOD_MOVER, "label": MOVER_LABEL},
+        "note": "" if balanced["value"] is not None else "Undefined: one class is absent from the sample.",
     })
     minority = min(n_0, n_1)
     parity = details.get("metrics") or {}
@@ -394,10 +472,12 @@ def binary_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                 "Wilson interval is correspondingly wide."),
         },
         "notes": {
-            "intervals": ("Each rate carries a 95 % Wilson score interval of a proportion; the "
-                          "balanced accuracy, a mean of two rates, a seeded percentile bootstrap "
-                          "over the sample's rows, drawn as the multinomial of the four confusion "
-                          "counts - the same distribution as resampling the rows."),
+            "intervals": ("Each rate carries a 95 % Wilson score interval of a proportion. The "
+                          "balanced accuracy, the mean of the two class recalls with the class "
+                          "sizes fixed by the sample design, carries Newcombe's MOVER interval "
+                          "built from the two recalls' Wilson limits, so a class classified "
+                          "perfectly keeps the uncertainty of its few rows; a bootstrap of the "
+                          "rows would collapse it to zero."),
             "counts": "The confusion matrix is counts, which carry no interval.",
             "weighted": ("Support-weighted precision, recall and F1 are dominated by the majority "
                          "class at 99 : 1; they are the notebook's numbers, kept for parity, and "
@@ -414,6 +494,8 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
     """E4: the depth-3 surrogate tree, node by node, and its fidelity to the booster."""
     rows = store.read_tree(con, record.table_name, task)
     labels = [LABEL_KEY[label] for label in TASK_LABELS[task]]
+    row = runs[task]
+    stored_circular = (row.get("details") or {}).get("surrogate_circular") or {}
     nodes: dict[int, dict[str, Any]] = {}
     for node_id, depth, left, right, feature, threshold, n, impurity, label, value, variance in rows:
         node = nodes.setdefault(int(node_id), {
@@ -423,6 +505,8 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             # A variance: sklearn's running sums can leave −1e−16 on a pure node.
             "threshold": sig(threshold), "n": int(n), "impurity": sig(max(0.0, impurity)),
             "values": {}, "sd": {},
+            "circular": {k: {"mean": sig(v.get("mean")), "resultant": sig(v.get("resultant"))}
+                         for k, v in (stored_circular.get(str(int(node_id))) or {}).items()},
         })
         node["values"][label] = sig(value)
         node["sd"][label] = sig(math.sqrt(variance)) if variance is not None and variance >= 0 else None
@@ -430,11 +514,17 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
     for node in ordered:
         if node["leaf"]:
             node["left"] = node["right"] = None
-    row = runs[task]
     outputs = ((row.get("details") or {}).get("surrogate_outputs") or {})
     unit = LABEL_UNITS["momentum"] if task == "momentum" else "rad"
+    coloured = [label for label in labels if label not in CIRCULAR_LABELS]
     domain = {label: [sig(min(n["values"][label] for n in ordered)),
-                      sig(max(n["values"][label] for n in ordered))] for label in labels} if ordered else {}
+                      sig(max(n["values"][label] for n in ordered))] for label in coloured} if ordered else {}
+    label_info = [{"name": label, "coloured": label in coloured,
+                   "reason": (COLOUR_REASON_CIRCULAR if label in CIRCULAR_LABELS else
+                              "its node value, on the sequential ramp (Viridis by default)")}
+                  for label in labels]
+    fidelity_outputs = {k: {"r2": sig(v.get("r2")), "mae": sig(v.get("mae"))}
+                        for k, v in outputs.items()}
     return _text({
         "view": "surrogate",
         "task": task,
@@ -445,14 +535,16 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         "rule": "left: feature ≤ threshold; right: feature > threshold",
         "fidelity": {
             "r2": sig(row["surrogate_r2"]), "mae": sig(row["surrogate_mae"]), "unit": unit,
-            "outputs": {k: {"r2": sig(v.get("r2")), "mae": sig(v.get("mae"))}
-                        for k, v in outputs.items()},
+            "outputs": fidelity_outputs,
             "against": ("the shipped booster's own predictions on every row, in-sample, as the "
                         "notebook measures it"),
+            "statement": _fidelity_statement(row, fidelity_outputs, labels),
         },
         "tree": {**SURROGATE, "criterion": "squared_error", "n_rows": int(row["n_rows"]),
                  "target": "the shipped booster's predictions"},
         "color_domain": domain,
+        "color_by": {info["name"]: info["coloured"] for info in label_info},
+        "label_info": label_info,
         "notes": {
             "description": ("A description of the booster, not an estimate: each node shows its "
                             "number of rows, the mean of the booster's predictions over them and "
@@ -462,9 +554,38 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                          "own within-node SD."),
             "fidelity": ("Fidelity is R² and MAE of the tree against the booster, on the rows it "
                          "was fitted to; it says how much of the booster the three levels of "
-                         "rules describe."),
+                         "rules describe. Each output's own fidelity is stated: their average "
+                         "can hide an output the tree does not describe at all."),
+            **({"circular": CIRCULAR_NOTE} if any(label in CIRCULAR_LABELS for label in labels)
+               else {}),
         },
     })
+
+
+#: Outputs that are azimuths: never coloured on a sequential ramp, never averaged as a line.
+CIRCULAR_LABELS: frozenset[str] = frozenset({"phi"})
+
+COLOUR_REASON_CIRCULAR = (
+    "not coloured: φ is an azimuth, and a sequential ramp would put −2.7 and +2.7 rad, 0.8 rad "
+    "apart on the circle, at its two ends; CLAUDE.md sanctions no cyclic ramp")
+
+CIRCULAR_NOTE = (
+    "A node's φ value is sklearn's linear mean of the booster's φ predictions on its rows, kept "
+    "for notebook parity; it is not a direction. Beside it, circular.phi gives their circular "
+    "mean and mean resultant length R̄ in [0, 1]: a low R̄ means the predictions point every "
+    "way, the node has no direction, and neither the linear nor the circular mean describes it. "
+    "The ± SD of φ is the linear spread, likewise kept for parity.")
+
+
+def _fidelity_statement(row: dict[str, Any], outputs: dict[str, dict[str, Any]],
+                        labels: Sequence[str]) -> str:
+    """The fidelity in one sentence, per output whenever there is more than one."""
+    if len(labels) == 1 or not outputs:
+        return f"R² {row['surrogate_r2']:.3g} against the booster's predictions"
+    per = "; ".join(f"{label} R² {outputs[label]['r2']:.3g}" for label in labels
+                    if label in outputs and outputs[label].get("r2") is not None)
+    return (f"{per} (sklearn's average over the outputs {row['surrogate_r2']:.3g}, which no "
+            "single output has)")
 
 
 # -------------------------------------------------------------------- E5 --
@@ -482,17 +603,19 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         else:
             folds.setdefault(feature, {})[int(fold)] = norm
     order = sorted(shipped, key=lambda f: (-shipped[f][0], f))
+    ratio = holdout_ratio(_fold_sizes(con, record, task))
     features = []
     for rank, name in enumerate(order, start=1):
         norm, gain, weight, cover = shipped[name]
         values = [folds.get(name, {}).get(k) for k in range(KFOLD["n_splits"])]
-        summary = mean_interval([v for v in values if v is not None], (0.0, 1.0))
+        summary = mean_interval([v for v in values if v is not None], (0.0, 1.0), ratio)
         features.append({
             "name": name, "rank": rank, "frame": ddl.feature_frame(name),
             "shipped": sig(norm),
             "raw": {"gain": sig(gain), "weight": sig(weight), "cover": sig(cover)},
             "folds": sig_list(values),
             "fold_mean": summary["mean"], "fold_sd": summary["sd"], "fold_t95": summary["t95"],
+            "clipped": bool(summary["clipped"]),
         })
     frames = {f["frame"] for f in features}
     return _text({
@@ -513,15 +636,26 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             "local": "local (shower-fixed)", "none": "no frame (a count)",
         },
         "frames_present": sorted(frames),
-        "interval": {"label": INTERVAL_LABEL, "level": 0.95, "dof": 4,
-                     "t": round(gaussian.t_quantile_975(4), 3), "method": metrics.METHOD_T,
-                     "clip": "clipped to [0, 1], the range of a share"},
+        "interval": {**_interval_block(ratio),
+                     "clip": ("clipped to [0, 1], the range of a share; a feature's clipped says "
+                              "whether its interval was")},
+        "n_clipped": sum(1 for f in features if f["clipped"]),
         "notes": {
             "bar": ("The bar is one model, the shipped one; the dots are the five refitted folds "
-                    "and the envelope their mean's Student-t interval, so the bar is never read "
-                    "as the folds' mean."),
+                    "and the envelope their mean's corrected resampled t interval (the refits "
+                    "share three quarters of their rows), so the bar is never read as the "
+                    "folds' mean."),
             "gain": ("A gain importance says how much a feature's splits reduced the training "
                      "loss, not how much the prediction depends on it; correlated features share "
                      "or swap their gain between refits."),
         },
     })
+
+
+def _fold_sizes(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
+                task: str) -> list[dict[str, Any]]:
+    """Each fold's n_train and n_val, as E1 stored them (E5's interval needs the ratio)."""
+    seen: dict[int, dict[str, Any]] = {}
+    for fold, n_train, n_val, *_ in store.read_folds(con, record.table_name, task):
+        seen.setdefault(int(fold), {"n_train": n_train, "n_val": n_val})
+    return [seen[k] for k in sorted(seen)]

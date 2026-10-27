@@ -21,7 +21,9 @@ Around the plan:
   panel module not built yet, a response that lands after an experiment
   switch, the notes routed by builder name and the export targets;
 * ``page_common.js``: the page tabs' hrefs carry the hash at click time;
-* ``controls/admin.js``: the model-runs list read defensively.
+* ``controls/admin.js``: the model-runs list read defensively, and Rescan models:
+  a POST to the scan route, then the list read again with GET, which queues
+  nothing.
 
 Skipped when ``node`` is not on the PATH.
 """
@@ -889,3 +891,70 @@ def test_the_model_runs_list_is_read_defensively(tabs_results):
     assert tabs_results["flat"] == ["done in 42 s"]
     assert tabs_results["served"] == [[2, "analysing (3 of 7)"], [0, "failed: MemoryError"], [0, "done in 61 s"]]
     assert tabs_results["empty"] == []
+
+
+# ------------------------------------------------------- rescan models --
+
+_RESCAN_SCRIPT = _FAKE_DOM + r"""
+const [adminUrl] = JSON.parse(process.argv[1]);
+const calls = [];
+const run = (status) => ({ table_name: 'electron_s1_aggr', display_name: 'electron', paired: true,
+  species: 'electron', seed: 1, models: [], status, reason: null, error: null, step: 0, steps: 18 });
+let scanFails = false;
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(url);
+  calls.push(`${init.method ?? 'GET'} ${u.pathname}`);
+  if (u.pathname === '/api/admin/model-runs/scan') {
+    if (scanFails) return { ok: false, status: 500, statusText: 'Server Error', json: async () => ({ detail: 'scan broke' }) };
+    return { ok: true, status: 200, json: async () => ({ runs: [run('queued')] }) };
+  }
+  if (u.pathname === '/api/admin/model-runs') return { ok: true, status: 200, json: async () => ({ runs: [run('running')] }) };
+  return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({ detail: 'no route' }) };
+};
+const { AdminModal } = await import(adminUrl);
+const status = [];
+const fake = Object.create(AdminModal.prototype);
+Object.assign(fake, {
+  runs: { rows: [], available: null, timer: null, starting: new Set() },
+  shell: { isOpen: false },
+  setStatus: (text, isError = false) => status.push([text, isError]),
+});
+const modal = document.createElement('div');
+fake.buildModelRuns(modal);
+const out = {};
+const head = modal.children[0].children[0];
+out.buttons = head.children.filter((c) => c.tagName === 'BUTTON').map((b) => b.textContent);
+out.hasRescan = fake.runs.rescan?.textContent === 'Rescan models';
+fake.runs.rescan.click();
+for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 0));
+out.calls = [...calls];
+out.status = status.slice();
+out.rows = fake.runs.rows.map((r) => [r.table_name, r.status]);
+out.enabled = !fake.runs.rescan.disabled;
+calls.length = 0; status.length = 0; scanFails = true;
+await fake.rescanModels();
+out.failedCalls = [...calls];
+out.failedStatus = status.slice();
+out.failedEnabled = !fake.runs.rescan.disabled;
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def rescan_results() -> dict:
+    return _run(_RESCAN_SCRIPT, [(JS / "controls" / "admin.js").as_uri()])
+
+
+def test_rescan_models_posts_the_scan_then_reads_the_list(rescan_results):
+    r = rescan_results
+    assert r["hasRescan"] and r["buttons"] == ["Refresh", "Rescan models"]
+    # The scan queues; the list is then read from GET, the route that never queues.
+    assert r["calls"] == ["POST /api/admin/model-runs/scan", "GET /api/admin/model-runs"]
+    assert r["status"] == [["Models rescanned: 1 XGBoost analysis queued or running.", False]]
+    assert r["rows"] == [["electron_s1_aggr", "running"]] and r["enabled"]
+
+
+def test_a_failed_rescan_says_why_and_still_reads_the_list(rescan_results):
+    r = rescan_results
+    assert r["failedCalls"] == ["POST /api/admin/model-runs/scan", "GET /api/admin/model-runs"]
+    assert r["failedStatus"] == [["scan broke", True]] and r["failedEnabled"]

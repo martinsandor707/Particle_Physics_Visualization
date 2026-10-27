@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 
 from ..db import bootstrap as bootstrap_mod
 from ..db import registry
+from ..modelruns import jobs as modelruns_jobs
 from ..query import cache as cache_mod
 from ..models.common import json_safe
 from ..query import experiments
@@ -78,6 +79,8 @@ def delete_experiment(table_name: str, request: Request, settings: SettingsDep):
         record = registry.get_experiment(con, table_name)
         archive_removed = bootstrap_mod.drop_experiment(con, table_name, settings)
     cache_mod.invalidate_all(table_name)
+    # Its XGBoost analysis tables went with naming.all_tables; its in-memory state goes too.
+    modelruns_jobs.forget(table_name)
     return {
         "deleted": table_name,
         "existed": record is not None,
