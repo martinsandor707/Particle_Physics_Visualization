@@ -207,9 +207,16 @@ does) or from the shell.
 | `CONTAINER_MEMORY_LIMIT` | `20g` | Compose only: the container's `mem_limit` and `memswap_limit`, kept at least 3 GB above `DUCKDB_MEMORY_GB` (a test holds every profile to that). `laptop.env` sets `7g`. |
 | `PORT` | `8000` | HTTP listen port. |
 | `CALOSRV_DATA_DIR` | `/app/data` | Database, upload staging and DuckDB temp spill. |
-| `CALOSRV_SEED_CSV` | — | Override the baseline seed file. |
+| `CALOSRV_SEED_CSV` | — | Override the baseline seed file. The seed is Parquet now (`hits_all_models_dummy.parquet`), and the variable takes a CSV or a Parquet file, as every ingest does; the name is kept for existing deployments. Unset, the first of `/app/seed/hits_all_models_dummy.parquet`, `<data dir>/hits_all_models_dummy.parquet` and the repository root's copy that exists. |
+| `CALOSRV_DB_PATH` | `<data dir>/calorimeter.duckdb` | The DuckDB database file. |
+| `CALOSRV_HOST` | `0.0.0.0` | HTTP listen address. |
+| `CALOSRV_CORS_ORIGINS` | unset | Comma-separated origins allowed to call the API from another site. Unset, no cross-origin middleware is installed. |
+| `CALOSRV_DEBOUNCE_MS` | `150` | The debounce the server advertises to the frontend (`compute.debounce_ms` in `GET /api/experiments`). |
+| `CALOSRV_SERVER_URL` | `http://127.0.0.1:<PORT>` | Where `python -m calosrv.ingest` looks for a running server to delegate to. |
+| `CALOSRV_LOCAL_INGEST_DIR` | `/app/host` | The one root that server-side ingest (**Already on the server**, `POST /api/ingest-local`) may read. Empty, or a directory that does not exist, turns it off. |
+| `CALOSRV_MODEL_DIR` | `xgboost_models/` beside `calosrv`; `/app/host/xgboost_models` in the container | The folder scanned for shipped XGBoost models. Used by the Models page, which this README documents separately. |
 | `CALOSRV_CACHE_ENTRIES` | `128` | Native-resolution matrix bundles held in the LRU. |
-| `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local). |
+| `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local) and of the ensemble voxel-cloud LRU. |
 | `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/host/ingest`, the repository's `./ingest`, read-only. |
 | `CALOSRV_AUTO_INGEST_SETTLE_S` | `30` | A dropped file modified more recently is taken to be still copying; the scan runs again by itself one second after the window closes. |
 | `CALOSRV_CONFIG_PATH` | `<data dir>/config.json` | Where the [Admin Settings](#admin-settings-the-default-view) panel saves the default view. |
@@ -220,10 +227,12 @@ does) or from the shell.
 > **Give the container more memory than DuckDB's ceiling, and no more swap.**
 > `DUCKDB_MEMORY_GB` bounds DuckDB's buffer manager only — not the Python heap,
 > the NumPy result conversion, or the bundle caches. The caches are budgeted in
-> bytes (lab and canonical 256 MB each, translated and local 128 MB each,
-> `query/cache.py`), and `docker-compose.yml` sets `mem_limit` to
-> `CONTAINER_MEMORY_LIMIT` (20 GB) against the 16 GB ceiling. It sets
-> `memswap_limit` to the same value, so the container gets no swap on top: on a host whose swap is zram, that swap is
+> bytes (lab and canonical 256 MB each, translated, local and voxel 128 MB
+> each, the hit-level physics scans 64 MB, `query/cache.py`; the physics and
+> voxel caches add no variable of their own), and `docker-compose.yml` sets
+> `mem_limit` to `CONTAINER_MEMORY_LIMIT` (20 GB) against the 16 GB ceiling. It
+> sets `memswap_limit` to the same value, so the container gets no swap on top:
+> on a host whose swap is zram, that swap is
 > compressed RAM. Measured outside a memory cgroup, streaming the 24 GB CSV
 > through the page cache pushed 6.2 GB of *other* processes' pages into zram;
 > inside a 14 GB cgroup with no swap the same ingest peaked at 5.9 GB RSS with
@@ -246,22 +255,45 @@ Every session also sets `preserve_insertion_order = false` and
 
 ## Loading data
 
+Every dataset in the repository is a ZSTD-3 Parquet file. CSV is still accepted
+everywhere a file is: the format is read from the content, and the ingest
+archives either as Parquet. **Three input schemas** are recognised, one per
+kind of experiment: `hits_all_models` (two showers per event, 99 columns),
+`standalone_hits` v3 (one shower per event, one row per cell, 21 columns) and
+`standalone_events` v3 (the producer's event-level aggregate, 59 columns, no
+hits). [Expected schema](#expected-schema) lists them, and the
+[kind table](#what-each-kind-serves) says what each one can show.
+
 ### Large files already on the server (preferred)
 
 ```bash
 docker compose exec calorimeter-dashboard \
-    python -m calosrv.ingest --input /app/host/hits_all_models.csv --table all_models
+    python -m calosrv.ingest --input /app/host/ingest/hits_all_models.parquet --table all_models
 ```
 
-The repository is mounted read-only at `/app/host`, so a multi-gigabyte CSV is
+The repository is mounted read-only at `/app/host`, so a multi-gigabyte file is
 read in place and never traverses HTTP. Measured on the 24 GB / 24,161,893-row
-production file with `DUCKDB_MEMORY_GB=10` inside a 14 GB cgroup: **61 s**,
-peak RSS 5.9 GB (DuckDB's own buffers 2.8 GB, nothing spilled), producing a
-2.5 GB database beside a 2.7 GB Parquet archive. Stage times: archive 17 s,
-projection table 5 s, event table 17 s, preview sample 5 s, verification 16 s.
+production **CSV** with `DUCKDB_MEMORY_GB=10` inside a 14 GB cgroup, by the
+pipeline of that time: **61 s**, peak RSS 5.9 GB (DuckDB's own buffers 2.8 GB,
+nothing spilled), producing a 2.5 GB database beside a 2.7 GB Parquet archive.
+Stage times: archive 17 s, projection table 5 s, event table 17 s, preview
+sample 5 s, verification 16 s.
+
+Measured on the same data as the 2.87 GB **Parquet** file
+(`ingest/hits_all_models.parquet`), with the current pipeline, under the same
+`DUCKDB_MEMORY_GB=10` and 14 GB cgroup (10 threads; `data/dev/single/r3_production.log`,
+2026-10-25): **73.0 s**, peak RSS 6.3 GiB (6,451 MiB), nothing spilled,
+verification passed. The two are not like for like: this pipeline also builds
+the Group-1 event columns and the `layers_` and `profiles_` tables (see
+[Storage](#storage-duckdb-tables-and-the-parquet-archive)). Stage times: archive
+8.3 s, projection table 5.7 s, event table with Group-1 32.5 s, layers 0.6 s,
+profiles 17.7 s (1.74 × 10⁹ sub-deposits), preview sample 4.6 s, verification
+3.5 s. The single-shower electron hit file (3.33 GB CSV, 11,436,422 rows,
+100,000 events) measured **19.9 s** with a peak RSS of 4,374 MiB in the same
+setting, 8.2 s of it the profiles (`data/dev/single/r2_hits.log`).
 
 ```
---input / -i        path to the CSV or Parquet file
+--input / -i        path to the CSV or Parquet file (not with --rebuild)
 --table / -t        experiment name (lowercase letters, digits, underscores)
 --mode / -m         create_new (default) | append
 --force-reingest    with create_new, replace an existing experiment of this name
@@ -269,7 +301,10 @@ projection table 5 s, event table 17 s, preview sample 5 s, verification 16 s.
 --event-offset      shift incoming event numbers when appending
 --no-sample         skip the 10% preview-sample table
 --rebuild           rebuild the derived tables from the experiment's Parquet archive,
-                    without re-reading the source file
+                    without re-reading the source file (see Rebuilding derived tables)
+--compare-features HITS EVENTS
+                    check a single-shower hit experiment's features against an
+                    aggregated experiment's (see Comparing features with the aggregate)
 --direct            always open the database directly (see below)
 --server-url        base URL of a running server
 ```
@@ -302,13 +337,27 @@ the folder through the read-only repository mount
 modified or deleted, and the folder stays yours on the host.
 
 ```bash
-ln hits_all_models.csv ingest/production_hits_all_models.csv   # a hard link costs no disk
+ln ~/datasets/run_2026_10.parquet ingest/run_2026_10.parquet   # a hard link costs no disk (same filesystem only)
 ```
 
 - **The file name is the experiment name**: lower-cased, every other run of
   characters one underscore, `exp_` before a leading digit, at most 48
   characters. `Production-20k (v2).parquet` becomes `production_20k_v2`. A name
   the rules refuse (a reserved word, the `_s10` suffix) is reported, not bent.
+- **A long name is shortened, not cut.** A stem that makes a name over 48
+  characters keeps its first word and as many of its trailing words as fit,
+  then a six-hex-digit blake2b fingerprint of the whole name. Simulation files
+  differ at the end of long names (`…_s1_v3` against `…_aggr_s1_v3`), so a
+  plain cut would make them one experiment. Generated by
+  `calosrv.db.naming.derive_experiment_name`:
+  `electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.parquet`
+  becomes `electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8`, and
+  `electron_standalone_N100000_M0_20GeV_reg_balanced_s1_v3.parquet` becomes
+  `electron_m0_20gev_reg_balanced_s1_v3_25e581`. A name of 48 characters or
+  fewer is unchanged, and the result still has to pass the rules above.
+- **Any of the three schemas.** The schema is recognised from the file's
+  content; the experiment's kind follows from it. A file of none is reported
+  with the reason (see [Through the browser](#through-the-browser)).
 - **Idempotent.** A file is skipped when its experiment already exists in any
   form, whether a registry row in any status, a table or an archive. That is
   logged as `Table '<name>' already exists in database catalog. Skipping
@@ -371,13 +420,106 @@ file.
 
 `APPEND` adds rows, and is **rejected** if the incoming event numbers overlap
 those already stored; merging two files that each number events from zero would
-fuse distinct physics events. Enter an event offset to shift them clear.
+fuse distinct physics events. Enter an event offset to shift them clear. An
+append must also match the schema of the experiment's archive.
+
+**A file of no accepted schema is refused at once.** `POST /api/upload` and
+`POST /api/ingest-local` check the CSV header, or the Parquet footer and its
+typed columns, before a job is queued: a wrong-schema file is a synchronous
+**400**, not a failed experiment minutes later, and a staged upload is deleted.
+The problem body (`application/problem+json`) carries:
+
+- `detail`: one sentence naming the missing and the unexpected columns against
+  the schema the file most resembles, and the list of accepted inputs. "Most
+  resembles" is judged by the columns that only one schema has, because the
+  coordinates and `energy` say nothing about which was meant; a file that
+  resembles none is reported against `hits_all_models`, which keeps the
+  long-standing wording. A v37 file and a 29-column v2 aggregate get a sentence
+  of their own;
+- `expected`, the columns of that schema, and `found`, the file's own;
+- `schema` (`name`, `version`, `kind`) and `accepted`, every accepted schema
+  with its column count.
+
+`GET /api/upload-info` lists the schemas the same way in `schemas` (each with
+`name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns` and a
+`note`) beside `accepted`, the one-sentence list. Its `schema` key still
+describes `hits_all_models` alone, for clients that read only that.
+
+### Rebuilding derived tables
+
+An experiment's query tables are derived from its Parquet archive, and the
+registry's `derived_version` records which layout built them (see
+[Storage](#storage-duckdb-tables-and-the-parquet-archive)). An experiment built
+by an earlier release is served as before, with the cards that need the newer
+tables shut and the reason shown; a rebuild re-derives every table from the
+archive without reading the source file again:
+
+```bash
+docker compose exec calorimeter-dashboard \
+    python -m calosrv.ingest --rebuild --table <name>
+```
+
+The same thing is `POST /api/admin/experiments/{name}/rebuild` and the
+**Rebuild derived tables** button in the Derived tables section of
+[Admin Settings](#admin-settings-the-default-view), which lists each experiment's
+version and follows the job.
+
+- **The route** answers **202** with `{job, poll}` and runs on the ingest worker
+  an upload uses, so one job runs at a time. It is a **404** for an unknown
+  experiment, a **409** while a job for that name is queued or running, and a
+  **400** for an experiment with no archive to rebuild from.
+- **Atomic.** The rebuild runs in one transaction. Readers keep the old tables
+  and the old registry row for as long as it takes, so the experiment stays
+  served; it commits only if verification passes, and a rebuild that fails
+  verification or raises is rolled back to exactly what was there. Until then
+  the disk holds the old and the new derived tables side by side.
+- **The CLI** hands the rebuild to a running server through that route and
+  follows the job, as an ingest does, and opens the database itself otherwise
+  (`--direct` forces that). `--no-sample` skips the preview sample.
+- **Only the application's own demonstration experiment** (`experiment_baseline`)
+  rebuilds itself at start-up when an earlier release derived it. A user's
+  experiment never does: an operator rebuilds it. This matters for a deployment
+  whose production experiment predates the new tables (derived version 1): it
+  keeps serving, and the new cards stay shut until that rebuild is run.
+
+### Comparing features with the aggregate
+
+`python -m calosrv.ingest --compare-features HITS EVENTS` takes the names of a
+single-shower hit experiment and an aggregated one. It compares, event by event,
+the features the hit experiment rebuilds in SQL from its Group-1 sums with the
+producer's own values in the aggregate: the 17 `calc_all_features_v3` features in
+each of the three frames. The momentum, θ, φ, bin and hit count must be equal
+exactly and the deposit to 10⁻¹². It opens the database itself (direct mode, so
+with the server stopped) and needs no `--table`. Each feature's difference is
+relative to the larger of the two values and of the feature's median magnitude,
+so a centroid that is zero to rounding on both sides does not report an error
+of order one. The exit code is 0 when every feature agrees to 10⁻⁹. Measured on
+the electron files: 99,751 shared events, 249 in the hit file only (its
+single-hit events, which the aggregate omits) and none in the aggregate only,
+the worst feature at 5.2 × 10⁻¹⁴.
 
 ### Expected schema
 
-The `hits_all_models` schema: **99 columns**, in this exact order (`db/ddl.py`
-is the single source of truth, and the header is checked against it before a
-byte is parsed):
+Three schemas are accepted, one per kind of experiment (`db/ddl.py` holds their
+columns and `db/schemas.py` their detection; both are the single source of
+truth, and a header is checked against them before a byte is parsed):
+
+| Schema | Kind (`kind`) | Holds | Columns |
+|---|---|---|---|
+| `hits_all_models` v1 | `two_shower_hits` | two showers per event; one row per hit, with three coordinate frames and three networks' predictions and per-hit CAM maps | 99 |
+| `standalone_hits` v3 | `single_shower_hits` | one shower per event; one row per cell, with the cell's attributed particle | 21 |
+| `standalone_events` v3 | `single_shower_events` | one shower per event as the producer's precomputed event features; no hits | 59 |
+
+A **CSV** is recognised by its exact header, because the reader is positional:
+the same names in another order are refused with a sentence saying so rather
+than read into the wrong columns. A **Parquet** file is recognised by its set of
+column names, in any order; pandas index columns are ignored. A file that is
+neither is refused naming the schema it most resembles (see
+[Through the browser](#through-the-browser)).
+
+#### `hits_all_models` v1: two showers, 99 columns
+
+In this exact order:
 
 ```
 event_number, overlap, cellID,
@@ -423,10 +565,105 @@ tail; every coordinate, centroid and model column is REAL. Empty fields are read
 as NULL; rows with a missing coordinate or a non-positive energy are excluded
 from the projections and counted in the ingest report.
 
-**Parquet files** carry the same 99 names in any order. A Parquet column is read
-by name; only a CSV is positional. Each column is cast to its pinned type, so a
-Parquet-sourced archive part is interchangeable with a CSV-sourced one: the
-same types, readable together, appendable to each other.
+#### `standalone_hits` v3: one shower, one row per cell, 21 columns
+
+The producer's single-shower Geant4 hit file, in this exact order:
+
+```
+event_number, cellID,
+x, y, z, x_local, y_local, z_local, x_trans, y_trans, z_trans,
+energy, earliest_contribution_time,
+incoming_momentum, incoming_theta, incoming_phi, incoming_momentum_bin,
+particle_type, is_secondary, parent_type, daughter_type
+```
+
+The three coordinate systems are the same as the two-shower file's, per hit.
+Types, and why:
+
+- `x, y, z` and `earliest_contribution_time` are REAL. The producer writes
+  float32 positions widened to float64, which single precision holds exactly,
+  so the measured lattice is bit-identical to the production file's.
+- The `_trans` and `_local` coordinates, `energy` and the incident kinematics
+  are DOUBLE: they are genuine float64 values, checked against the producer's
+  aggregate at 10⁻⁹, and `incoming_momentum_bin` is checked against ⌊p⌋ on
+  integer boundaries that float32 rounding can cross.
+- `incoming_momentum_bin` and `is_secondary` are UTINYINT; a Parquet BOOLEAN is
+  accepted for `is_secondary`.
+- `particle_type`, `parent_type` and `daughter_type` are free text. The
+  vocabulary of `particle_type` is open (ions are written `PDG_100ZZZAAA0`),
+  `daughter_type` is a `;`-joined list, and an empty field, the absent parent
+  of a primary-tagged cell or an empty daughter list, is read as NULL.
+- Archive parts are written `ORDER BY event_number, cellID`, so the filters
+  prune row groups by zone map and the archive is deterministic.
+
+Measured on the electron file (seed s1, 5,000 events per 1 GeV bin over 0–20 GeV
+at `incoming_momentum_bin` 0–19; 11,436,422 rows, 100,000 events):
+
+- **Its lattice is production's**: 212 × 104 × 60, the first layer at
+  3662.4 mm, the cell footprint 48.27 × 48.60 mm.
+- **73.83% of events have no primary-tagged row** (`is_secondary = 0`), 64–80%
+  by momentum bin, so a missing primary is the usual case, not a data fault.
+- **95.1% of events hold at least one hit behind their shower's entry plane**
+  (`z_local < −10⁻⁶ mm`), carrying 3.98% of the energy.
+- **249 events have a single hit**, whose spatial SDs are undefined.
+
+Ingest verifies, among others, that `(event_number, cellID)` is unique, that
+`incoming_momentum_bin` is ⌊`incoming_momentum`⌋ on every row, that each event
+has one entry point P₀ and one set of incident kinematics, and that the local
+coordinates are R(θ, φ) applied to the translated ones.
+
+#### `standalone_events` v3: the event-level aggregate, 59 columns
+
+One row per event, in this exact order:
+
+```
+event_id, incoming_momentum, incoming_theta, incoming_phi, incoming_momentum_bin,
+num_hits, total_hit_energy,
+width, height, depth, depth_range, volume, centroid_x, centroid_y, centroid_z,
+  mean_r, std_r, max_r, weighted_r_mean, avg_theta, avg_phi, angular_spread
+                                       (these 15, then the same 15 with _trans, then with _local)
+numerical_density, energy_density      (then both again with _trans, then with _local)
+energy
+```
+
+That is `core.calc_all_features_v3` from the physics group's `core.py` (kept in
+`reference_ipynb_notebooks/`, which nothing imports), computed on raw z:
+7 base columns, 15 features in each of three frames, two densities in each, and
+a last column. `event_id` and `num_hits` are integers, the bin is UTINYINT and
+every feature is DOUBLE. What the data are, measured on the electron file and
+read from `core.py`:
+
+- **The last column, `energy`, is a label and not an energy**: 1{p ≥ 2 GeV}.
+  The archive keeps the file's name; the event table stores it as `energy_class`
+  (UTINYINT). On the electron file 89,956 events carry label 1 and 9,795 label 0.
+- **The aggregate is a censored sample.** It leaves out the 249 events with a
+  single hit, whose spatial SDs are undefined: 99,751 of the 100,000 events
+  remain, 4,807 to 5,000 per momentum bin (bin 0 loses 193), and the mean
+  sampling fraction of bin 0 is biased high by +2.7% because single-hit showers
+  deposit the least. It is never called balanced, and every panel on this kind
+  says so.
+- **Centroids are energy-weighted** (`core.py:491-497`); an unweighted `cx_mean`
+  would be wrong. `std_r` and `angular_spread` use ddof = 1,
+  `angular_spread = SD(θ) + SD(φ)`, and `num_hits` is the row count of the hit
+  file. `width`, `height`, `depth` and `depth_range` are floored at 10⁻⁶ by
+  `core.py`; ingest counts the values at the floor.
+- **φ is circular and the file's `avg_phi` is its arithmetic mean**, so it is
+  never read as a direction, and `angular_spread` carries the same flaw through
+  SD(φ).
+- **Ingest refuses duplicate `event_id`s** before any table is created (one
+  event counted twice in every statistic) and reads a non-finite value as NULL,
+  counted per column, never as zero.
+- **The 29-column v2 aggregate, with its `gnn_*` node features, is not
+  accepted**; the refusal says so.
+
+An experiment of this kind has no hits, no lattice and no frames; what it
+serves is in [What each kind serves](#what-each-kind-serves).
+
+#### Parquet files, and what every schema shares
+
+A Parquet column is read by name; only a CSV is positional. Each column is cast
+to its pinned type, so a Parquet-sourced archive part is interchangeable with a
+CSV-sourced one: the same types, readable together, appendable to each other.
 
 - **Refused before anything is dropped,** naming the column:
   - a column missing, or an extra one (a pandas index column is ignored);
@@ -439,14 +676,53 @@ same types, readable together, appendable to each other.
   - lab `x, y, z` are exact, because the file prints float32 values;
   - momenta move by at most 5.9 × 10⁻⁷ GeV;
   - local coordinates move by at most 1.2 × 10⁻⁴ mm.
-- **NaN.** In the twelve undefined-separation columns, NaN is read as NULL (as
-  an empty CSV field is) and counted. NaN anywhere else fails verification.
+- **NaN.** In `hits_all_models`' twelve undefined-separation columns, NaN is
+  read as NULL (as an empty CSV field is) and counted. In the aggregate a
+  non-finite feature is NULL, counted per column. NaN anywhere else fails
+  verification.
 - **Scope.** A single file only, with no globs or hive partitions. DuckDB reads
   it without pyarrow.
 
 The format is taken from the file's content, not its name. A Parquet file
 begins and ends with `PAR1`, which also tells a half-copied file (no footer yet)
 from a whole one, and a gzip or zip file is refused with a reason.
+
+#### The z convention
+
+Every file, the Parquet archive and every derived table keep the detector's
+**raw z**, for both hit schemas: the first layer at z = 3662.4 mm, 60 layers
+at 20.5 mm, on the one 212 × 104 × 60 lattice the two share. The producer's
+aggregate was computed on raw z. Measured, raw z reproduces all 17
+absolute-frame features to ≤ 10⁻¹¹ and `z − 3649` is off in every event, so the
+Group-1 columns use raw z and reproduce the aggregate to ≤ 10⁻⁹ relative (worst
+5.2 × 10⁻¹⁴ over 99,751 events).
+
+`core.SHIFT_Z = 3649` mm (`ddl.CORE_SHIFT_Z_MM`) is only a **display offset**,
+applied where a card quotes depth below the calorimeter front face and labelled
+`z − 3649 mm` there: the absolute-frame z row of the statistics card, and the
+Models page's `depth` feature. Volumes, densities and `centroid_z` stay raw,
+and the drawer says so. The per-shower frames' z = 0 is unchanged: each
+shower's first populated layer.
+
+### What each kind serves
+
+The kind decides the tables an experiment has and, through them, what the
+interface can show (`query/capabilities.py` is the one owner of every gate):
+
+| | `two_shower_hits` | `single_shower_hits` | `single_shower_events` |
+|---|---|---|---|
+| Input schema | `hits_all_models` v1, 99 columns | `standalone_hits` v3, 21 columns | `standalone_events` v3, 59 columns |
+| Tables | `proj_`, `proj_…_s10`, `event_` (derived v2: 99 columns + Group-1 for both showers = 239), `layers_`, `profiles_` | `proj_` (17 columns, species kept), `proj_…_s10`, `event_` (100 columns, Group-1 for one shower), `layers_`, `profiles_` | `event_` only (59 columns) |
+| Showers | A and B (`'A+B'` rows count with B) | one, shower A | one, shower A |
+| Filters | E₁, E₂, D | p (sent as `e1`) | p (sent as `e1`) |
+| Frames | Absolute, Separation-Aligned (Translated, Local), legacy per-shower translated | Absolute, Translated (per shower, API `trans`), Local; no D-frame (it needs two showers) | none |
+| Channels, networks | five channels, three networks | density only, no network | none |
+| Page 1 | the 2 × 2 and all nine physics cards | the 2 × 2, whose plot 4 is the response grid, and all nine cards | a notice in place of the 2 × 2, and the five cards that read the event table |
+
+A card the kind cannot serve is shut with the server's own sentence, never
+filled with a substitute. [Page 1 for each kind of
+experiment](#page-1-for-each-kind-of-experiment) says how the interface shows
+that, and `GET /api/experiments` publishes every gate ([API](#api)).
 
 ### Storage: DuckDB tables and the Parquet archive
 
@@ -461,13 +737,70 @@ tables from it:
   writer overshoots it by up to 2% (241 row groups of 11,448–102,040 rows on the
   production file, 2.7 GB). An append adds a part; `DELETE /api/experiments/{name}`
   removes the directory. Notebooks can read the archive while the server runs.
-- **The hot tables** live in `calorimeter.duckdb`: `proj_<name>` (one row per
-  hit, 40 columns — lab lattice ordinals, the translated and local coordinates,
-  energy, the 18 raw CAM columns, the segmentation fractions of the three
-  frames), its 10% sample `proj_<name>_s10`, and `event_<name>` (additive
-  per-event sufficient statistics for every network and frame). There is no
-  `hit_` table any more. 2.5 GB on the production file.
-- **Verification** compares the archive's rows with the CSV's, confirms that
+- **The hot tables** live in `calorimeter.duckdb`, per kind (the
+  [kind table](#what-each-kind-serves)). There is no `hit_` table any more. The
+  production database measured 2.5 GB before Group-1, `layers_` and `profiles_`
+  existed.
+  - `proj_<name>` is one row per hit. Two-shower: 40 columns — lab lattice
+    ordinals, the translated and local coordinates, energy, the 18 raw CAM
+    columns, the segmentation fractions of the three frames. Single-shower: 17
+    columns, the same names with the shower as shower A and the four species
+    columns kept. Its 10% sample is `proj_<name>_s10`.
+  - `event_<name>` holds per-event additive sufficient statistics: for every
+    network and frame on two-shower data, and on a single-shower hit experiment
+    the shower-A names, the species and consistency counts and the incident
+    kinematics. An aggregated experiment's is the file's 59 columns, with the
+    seven base columns renamed to the shared names (`event_number`, `e1`,
+    `theta_a`, `phi_a`, `e1_bin`, `n_hits`, `e_dep`) and `energy` stored as
+    `energy_class`.
+  - **Group-1 per-event columns** are appended to every hit kind's event table
+    (from derived version 2 on two-shower data): per shower, `n_hits`, `e_dep`,
+    `n_cells`, the hits and energy at negative depth, and Σ E·ρ and Σ E·ρ²;
+    per shower and frame (absolute, translated, local), the x, y, z extremes,
+    Σ E·x, Σ E·y, Σ E·z, Σ r, Σ r², its SD, the maximum r, Σ E·r, Σ θ, Σ θ² and
+    its SD, Σ φ and its SD, and Σ cos φ, Σ sin φ. That is 70 columns per shower,
+    named `{stem}_{shower}_{frame}` through `ddl.group1_column` and nowhere else.
+    From them SQL rebuilds every `calc_all_features_v3` feature (`db/group1.py`).
+    The SDs are stored `stddev_samp` values, because recovering them from Σr and
+    Σr² loses about 10⁻⁵ to cancellation where a shower is narrow and far from
+    the origin; ρ is the 2-D transverse radius √(u² + v²), never `core.py`'s 3-D
+    `r_local`; the linear φ sums exist only to reproduce its arithmetic
+    `avg_phi`.
+  - `layers_<name>` has one row per (event, shower, own-shower layer `kt`):
+    the deposit, the cell count and Σ E·u, Σ E·v, Σ E·ρ, Σ E·ρ² in the Local
+    frame. `kt` is `round(z_trans / layer pitch)`, so a shower's layers count
+    from its first.
+  - `profiles_<name>` has one row per (event, shower, axis, bin): each shower's
+    energy along its depth w (axis 0, bins of the 20.5 mm layer pitch anchored
+    at w = 0) and its transverse radius ρ (axis 1, 10 mm bins 0–49 and an
+    overflow bin, 50). It is the Local-frame footprint splat, k × k × k_z
+    sub-deposits with k = 6 and k_z = 2 (72 per hit) over the 48.27 × 48.6 mm
+    footprint and the layer pitch, rotated by R(θ, φ). Its `e_wneg` column is
+    the part from hits at `z_local < −10⁻⁶ mm`, so the notebook's convention
+    (drop those hits) is a subtraction rather than a second key. The comb is
+    measured at ingest on the pooled profiles, against a threshold of lag-1
+    < −0.10: none on the production file (+0.78 along w, +0.90 along ρ) or on the
+    electron file (+0.80, +0.67).
+- **The registry** (`experiment`) gained two columns, appended, so an older
+  database migrates by `ALTER TABLE` alone. `derived_version` is the layout
+  generation of the derived tables (a NULL reads as 1; the current ones are 2
+  for `two_shower_hits` and 1 for the others, `db/schemas.py`
+  `DERIVED_VERSION`). `capabilities` is JSON: what ingest measured that the API
+  advertises, namely the cell footprint, the profile splat and its comb, the
+  momentum-bin range and the rule it follows, the species facts and the
+  aggregate's label rule.
+- **A stale derived version stays READY.** A two-shower experiment ingested
+  before Group-1, `layers_` and `profiles_` existed has `derived_version` 1: it
+  is served exactly as before, and bootstrap logs that a rebuild would enable
+  the rest, with nothing heavy at boot. `capabilities.derived` in
+  `GET /api/experiments` reports `{version, current, status, notice}`; the
+  cards that need the newer tables (the two profile cards, the negative-depth
+  block and, for the hit kinds, the feature explorer) are shut with that notice
+  as their reason, and every other card works as before. A
+  [rebuild](#rebuilding-derived-tables) is atomic. A ready experiment that lacks
+  a table its kind needs is marked failed at start-up, naming the table.
+- **Verification** is per kind (`verify`, `verify_single`, `verify_events`). For
+  two-shower data it compares the archive's rows with the CSV's, confirms that
   P₀ is each shower's first-layer energy-weighted centroid (`p0_definition`),
   measures the two D-frame anchor definitions against each other
   (`anchor_residual`, a notice), and checks the
@@ -476,8 +809,14 @@ tables from it:
   (residual 0.00066 mm), `z_trans` on whole 20.5 mm layers, the `*_true` columns
   equal to the own shower's momentum and θ, the split cells, the 'A+B' rows at
   the origin.
+  A single-shower hit experiment is checked for the same frame contracts and
+  for its own: unique cells, the bin rule, the species domain, the Group-1
+  partition and the conservation of energy by the layers and profiles. An
+  aggregated one is checked for its own consistency (the densities are the hit
+  count and the deposit over the volume, the label follows 1{p ≥ 2 GeV}).
 - **`python -m calosrv.ingest --rebuild -t <name>`** rebuilds the derived tables
-  from the archive without re-reading the CSV.
+  from the archive without re-reading the source file
+  ([Rebuilding derived tables](#rebuilding-derived-tables)).
 
 ### Retired: the v37 schema
 
@@ -511,8 +850,9 @@ Choose them, or press **Use current view** to copy the sidebar, then press
 result. The panel also holds the **Upload dataset** form (see
 [Through the browser](#through-the-browser)) and shows the
 [drop folder](#drop-folder-automatic-ingest)'s last scan, with live job status
-and **Scan now**; its **Close** button closes the whole panel, and a running
-ingest survives that.
+and **Scan now**; its Derived tables section lists each experiment's
+derived-table version and runs a [rebuild](#rebuilding-derived-tables); its
+**Close** button closes the whole panel, and a running ingest survives that.
 
 Each setting resolves through four layers, highest first:
 
@@ -573,10 +913,23 @@ network.
 
 ## The interface
 
+**Two pages, one API and one view state.** *Physics* at `/` holds the 2 × 2
+diagnostic of the next sections with the [physics section](#the-physics-section)
+below it. *Models* at `/models` holds the network and feature analysis and the
+3-D views. The header's page tabs link between them, and each link carries the
+view: its `href` takes `location.hash` when it is clicked, because the interface
+writes the hash with `history.replaceState`, which fires no event. Both pages
+read the same `/api/experiments` catalogue and the same hash. Admin Settings
+live on the Physics page: the Models page's link to it goes to `/?admin=1`,
+which opens the panel there and then drops the query. Everything below on the
+Physics page applies to the three kinds of experiment alike, except where
+[Page 1 for each kind of experiment](#page-1-for-each-kind-of-experiment) says
+otherwise.
+
 **Header** — a sidebar toggle (one icon button, `#sidebar-toggle`, reporting
-`aria-expanded`), the experiment dropdown, a compute badge showing the active
-`DUCKDB_MEMORY_GB` and thread count, an exact/preview badge, and the
-**Admin Settings** button, whose panel also holds the upload form.
+`aria-expanded`), the page tabs, the experiment dropdown, a compute badge
+showing the active `DUCKDB_MEMORY_GB` and thread count, an exact/preview badge,
+and the **Admin Settings** button, whose panel also holds the upload form.
 
 **Sidebar** — filters for E₁ (`incoming_momentum_A`), E₂ (`incoming_momentum_B`)
 and D (`centroid_AB_distance`), combined with chained boolean AND and debounced
@@ -1591,6 +1944,171 @@ stated in the energy panel's Details drawer. A synthetic file with 1, 2, 7, 8, 1
 and 200 events per slice (`tests/synthetic_all_models.py`) checks every
 low-N rung against the budget.
 
+### The physics section
+
+Under the 2 × 2 sit nine cards, the reference notebooks' physics figures. Each
+has the anatomy of every other card on the page (Details first in the toolbar,
+the plot-only Export last, which the statistics table lacks), and each **loads
+when it scrolls into view**: one
+`IntersectionObserver` over the scrolling column (`rootMargin: '0px'`, so
+nothing is requested before the reader could see it, at the cost of an empty
+plot for the length of a cold query) asks for a card the first time it is
+visible, and again only when its request changes. A filter change therefore
+re-asks the visible cards and leaves the others to load when they scroll in
+(`js/lazy_cards.js`, `js/physics_section.js`). A request the server refuses with
+a 4xx, the 422 of a shut capability above all, counts as answered: the card
+shows the server's reason, since asking again would only repeat it. The section
+is hidden together with the 2 × 2 while the Event Inspector or the compare view
+replaces it.
+
+| Card id | Title | Request | What it draws |
+|---|---|---|---|
+| `profile-w`, `profile-r` | Longitudinal Profile along w; Radial Profile along ρ | `/api/profiles`, one request for both | each shower's fraction of its energy per cm, along depth w (bins of the 20.5 mm layer pitch) and along transverse radius ρ (10 mm bins): the per-shower mean, its SD band, its Student-t envelope and the pooled ratio of sums |
+| `response-b1` | Sampling Fraction — Per-Event Distribution | `/api/response`, one request for the three | the distribution of f = E_dep / p per event, with its mean, SD and the calibration's 1/c |
+| `response-b2` | Sampling Fraction vs. Incident Momentum | | the mean of f per 1 GeV momentum bin with its 95% interval and SD |
+| `response-res` | Relative Resolution σ/μ vs. Incident Momentum | | σ/μ per 1 GeV bin, of c · E_dep and of E_dep / p |
+| `response-b3` | Response vs. Incident Momentum p | `/api/energy-distribution?slice_by=momentum` | the reconstructed energy in momentum slices, one sub-plot and one energy axis per slice, with the energy panel's fits and low-N ladder |
+| `distribution` | Distributions by Momentum Bin | `/api/distributions` | one step outline per 1 GeV bin of u, v, w, hit energy, θ, φ or p |
+| `correlation` | Hit-level Pearson Correlation | `/api/correlations` | the lower triangle of the correlation matrix of seven variables, with intervals |
+| `statistics` | Selection Statistics — describe() | `/api/statistics` | a table, not a chart: pandas `describe()` of the hit coordinates and energy, and the negative-depth block |
+
+What the marks mean, per card:
+
+- **Profiles.** The primary line is the per-shower mean (every shower weighs the
+  same); the uncapped shaded band is the SD of the per-shower fractions
+  (ddof = 1), where individual showers lie; the thin capped envelope is the 95%
+  Student-t interval of the mean, cluster-robust with the event as the cluster
+  where two showers of an event are pooled; and a dashed line is the pooled
+  ratio of sums, the notebook's estimator, with its own capped interval. They
+  are four quantities and four marks, and each tooltip names its own. Depth is
+  along each shower's incident direction (`w`, the Local frame) or each
+  shower's own native layers (`native`, per-shower translated); the **Notebook
+  convention** toggle drops hits behind the entry plane (`w < −10⁻⁶ mm`) from
+  every bin *and* from each shower's normaliser, and is refused with native
+  layers because it is defined along w. The y axis is set from the two lines
+  alone and starts at zero; a band or interval that leaves it is clipped with a
+  caret and counted in the drawer.
+- **Response cards.** B1 draws the mean of the per-event fractions with its
+  Student-t interval and the calibration's `1/c = Σ E_dep / Σ p` with its own
+  interval, as two different quantities (see
+  [Energy calibration](#energy-calibration)). B2 draws, per 1 GeV bin, the mean
+  with its 95% Student-t whisker (at every N and in every bin, so a whisker never
+  changes meaning along the axis) and the SD as an uncapped box. The resolution
+  σ/μ takes the **χ² interval of σ divided by μ** as its whisker: it is never
+  negative and carries the skew of σ's sampling distribution, which dominates at
+  small N. μ's own uncertainty is neglected, which the payload says, and the
+  delta-method standard error travels beside it for the tooltip. It has two
+  series because the resolution of the calibrated energy in a 1 GeV bin includes
+  the momentum spread inside the bin (a uniform 0–1 GeV momentum alone gives
+  σ/μ = 0.58 in bin 0): E_dep / p divides it out.
+- **B3, the response grid.** It lives on the energy panel's route, so it has the
+  same machinery and the same payload guard. `p_slices=notebook` is the
+  CALIBRATION notebook's windows 1, 2, 5, 10, 15 and 19 GeV ± 0.5 GeV (set
+  `p_half_width`, up to 10 GeV); `p_slices=bins` is the producer's 1 GeV bins; a
+  comma list gives window centres. Each slice gets its own energy axis, because
+  a 1 GeV and a 19 GeV slice share no useful range, and the grid never shares
+  one x axis. Two showers per event are placed each by its own momentum, and
+  the `series` choice (`truth`, `model`, `all`) selects the deposit split by the
+  true segmentation fraction, the network's split, or both. The card grows to
+  hold every slice.
+- **Distributions.** u, v and w are the Local-frame hit coordinates as
+  footprint-splatted counts (each hit's footprint is split into k = 2
+  sub-deposits per axis and depth, gap-free, so a count can be a multiple of 1/8;
+  40 mm bins for u and v, the 20.5 mm layer pitch for w), with the comb measured
+  on the pooled raw profile and named; hit energy is on
+  log-spaced bins over the 1st–99th percentile; θ, φ and p are the showers'
+  incident kinematics, each shower once (`weighting=shower`) or weighted by its
+  hit count (`weighting=hit`, the notebook's hit sample computed exactly). φ is
+  drawn over its full period (−π, π], never cropped and never averaged: each
+  series' R̄ and Rayleigh p are in its tooltip. A series below 15 showers is
+  dashed. Counts outside the display range are counted per series, never
+  dropped.
+- **Correlations.** r is on PuOr, symmetric about zero and linear on [−1, +1]
+  (the folded variant on the dark card), with the value printed in each cell.
+  Hits of one shower are not independent pairs, so the interval is a Fisher-z
+  with an **event-grouped jackknife** (64 groups of `event_number` mod 64, or
+  one per event below 64), whose method, group count and effective N the tooltip
+  names beside the naive hit count. An azimuth has no linear correlation: its
+  cells are hatched, off the colour scale, and carry Mardia's circular–linear R
+  where the server quotes one.
+- **Statistics.** Count, mean, SD (ddof = 1), min, quartiles and max are
+  unweighted, one observation per hit, as pandas does; the energy-weighted mean
+  and quartiles sit under their own header. No standard error of a hit-level mean is
+  quoted, because the hits of a shower are correlated and a hit count would claim
+  a precision the events lack. The absolute frame adds the notebook's
+  `z − 3649 mm` row (see [The z convention](#the-z-convention)). The
+  **negative-depth block** (C9) is the share of energy, of hits and of events
+  (or showers) with a hit at `w < −10⁻⁶ mm`, by momentum split (p < 1, 1–10 and
+  > 10 GeV), each with the interval the server names: a cluster ratio interval
+  for the fractions, Wilson for the share of events. On the electron file 95.10%
+  of events hold such a hit, and they carry 3.98% of the energy. The Local
+  frame's `/api/projections` response carries the same block as
+  `frame.negative_w`, and the status bar's **w < 0** readout reads it.
+
+Every card keeps to CLAUDE.md §2: a display range follows the robust series
+(N ≥ 20) and starts at zero, a mark that leaves it is clipped with a caret and
+counted in the Details drawer, and a density that cannot be estimated leaves its
+axis unlabelled. Which mark each sample size supports is in
+[Low statistics](#low-statistics-in-plot-4).
+
+### Page 1 for each kind of experiment
+
+The Physics page is planned from the experiment's capability block
+(`js/capabilities.js`, `page1Plan`), never from a guess about its kind, and the
+block is the server's (`query/capabilities.py`):
+
+- **Two-shower hits**: everything described above, with an **A / B / Both**
+  toggle on the cards that have two showers to show.
+- **Single-shower hits** have one shower per event.
+  - *Filters.* The sidebar has one slider, **p — incident momentum [GeV]**, the
+    shower's own `incoming_momentum`, sent as `e1_min` and `e1_max`; E₂, D and
+    the undefined-D option are hidden and never sent, and the status bar has no
+    separation readouts. The Event Inspector's shower radio offers only the one
+    shower of the event.
+  - *Frames and channels.* Absolute, and under *Shower-Aligned* the per-shower
+    *Translated* (API `trans`, which here is a radio of its own) and *Local*. The
+    D-frame radio is disabled with the server's reason (it needs two showers).
+    The channel is density; there is no network, so the model selector has
+    nothing to drive.
+  - *Plot 4* is the **response grid** (B3) on the notebook's six windows, titled
+    "Response vs. Incident Momentum p", with the fitted μ and σ table below it.
+    Those six windows fit the 2 × 2 cell. The full-width
+    **Response vs. Incident Momentum p** card below opens on the producer's
+    1 GeV bins and grows to fit every slice, and a link under plot 4 leads to it.
+  - *The missing-predictions banner.* CLAUDE.md §3 asks for a prominent warning
+    when predictions are absent and ground-truth baselines are shown instead. A
+    kind with no networks gets one, leading with the server's reason: no model
+    predictions in this experiment, the panels show ground-truth baselines only
+    (deposited energy, incident momenta and their distributions), the attention
+    channels, model cards and network energy reconstruction are unavailable, and
+    no prediction is substituted. It stays until the experiment changes.
+- **Events only** (the aggregate) has no hits.
+  - *Notice.* The 2 × 2 is replaced by **No hits to project**, with the server's
+    reason and a sentence saying that the cards below are computed from the
+    per-event table.
+  - *Controls.* The spatial control groups are hidden rather than left
+    disabled: the reference-frame tier with its **Compare frames** checkbox and
+    the Event Inspector picker, the display resolution, the display channel and
+    the colour map. The notice says why.
+  - *Cards.* The four hit-level cards (both profiles, correlations, statistics)
+    are not built; B1, B2, the resolution, B3 and the distributions of θ, φ and
+    p are. Each carries the aggregate's censored-sample notice into its drawer
+    (see [Expected schema](#expected-schema)).
+- **A frame the new experiment lacks falls back to Absolute**, with a one-line
+  notice in the kind banner, when the experiment is switched to one of another
+  kind: the D-frame has no radio on a single shower, and a single shower's
+  *Translated* is the legacy per-shower frame on two. *Local* carries over both
+  ways. Opening a `#frame=trans` link or a saved default is not a switch, so
+  those still open the legacy frame; nor is a switch between experiments of one
+  kind, or to the events-only kind, whose frame tier is hidden.
+- **A stale experiment** (derived tables from an earlier release, see
+  [Storage](#storage-duckdb-tables-and-the-parquet-archive)) keeps working
+  where it always did. Each card that needs the newer tables is shut with the
+  server's reason on it and a **Rebuild derived tables…** button that opens
+  Admin Settings, whose Derived tables section lists every experiment's version
+  and runs the [rebuild](#rebuilding-derived-tables). The kind banner carries
+  the same notice. The cards come back when the rebuild commits.
+
 ### Low statistics in plot 4
 
 **Reported numbers and drawn marks are gated separately.** A table cell makes no
@@ -1655,6 +2173,26 @@ shaded μ ± σ band — drawn as position-and-width rather than as density curv
 because their stated 5% resolution is an order of magnitude narrower than the
 reconstructed distributions and a curve that narrow takes the y-axis with it.
 An **A / B / Both** toggle filters by shower without a round trip.
+
+**The physics cards use the same floors, and add these gates.** The
+reported number and the drawn mark are gated separately there too, and the
+density histogram and curve of B3 and of the distribution cards follow the table
+above. What the cards add:
+
+| Floor | What it gates |
+|---|---|
+| N = 1 | a single shower or event is drawn as itself, with no SD band and no envelope: the profile card says "single shower, not an ensemble" |
+| N ≥ 1 | a **Wilson** score interval of a proportion (the share of events with a hit at negative depth); events are the unit, and showers only where each event holds one |
+| N ≥ 2 | the **SD band**, an uncapped shaded range, ddof = 1, and the **Student-t envelope** of a mean, a capped whisker on N − 1 degrees of freedom (the event as the cluster where two showers share it); at N = 2 both are labelled "1 d.o.f." |
+| N < 20 | such a summary is labelled *weak* (`weak (N = n)`) and its display range *provisional* on the axis |
+| N ≥ 4 | a **Fisher-z** interval of a Pearson r (N events; r itself from N = 3, the event-grouped jackknife from 4 groups); Mardia's circular–linear R of a correlation with an azimuth from 8 distinct azimuths |
+| N ≥ 6 | the distribution-free **order-statistic interval** of a median; below 6 even [x₍₁₎, x₍ₙ₎] covers less than 95%, so none is quoted |
+| N ≥ 8 | a Gaussian **KDE** (Silverman bandwidth), the same floor as the parametric curve |
+| N ≥ 20 | the seeded **bootstrap** interval of a median (2,000 replicates), beside the order-statistic one as a cross-check |
+
+The SD band and the envelope answer different questions and differ by √N: the
+envelope is wider than the band for N ≤ 6, because t(0.975, N − 1)/√N exceeds 1
+up to that N, and narrower from 7. Each tooltip names which one it is.
 
 ### Spatial resolution: two modes
 
@@ -1796,6 +2334,37 @@ erase the containment scatter the resolution measurement exists to quantify.
 Pass `calibrated=false` to see the raw deposited sums, in which case the
 benchmark curves are hidden because they would not be comparable.
 
+**Two estimators of one number, kept apart.** The sampling fraction has two
+honest estimates, and B1 draws both, each with its own interval and named as what
+it is. The *mean of the per-event ratios*, f = E_dep / p averaged over events, is
+the notebook's estimator, with a Student-t interval. The *sum before dividing*,
+100 Σ E_dep / Σ p = 100 / c, is the fraction the calibration above implies, with
+the linearised cluster-ratio interval, events as the clusters. A ratio of sums
+weights an event by its momentum and a mean of ratios weights every event alike,
+and the fraction depends on the momentum, so the two differ: on the electron
+file 3.041% (mean of ratios) against 3.113% (sum before dividing). Neither is
+*the* sampling fraction. c is fitted once over the whole selection and never per
+momentum bin, which would force every bin onto its own truth and erase the
+response curve B2 and the resolution exist to show.
+
+**The calibration runs over the showers present.** A shower that deposited
+nothing has no response to calibrate: on the production file 57 of 20,325 events
+have no shower-A hit. Such a shower is left out of both sums, so
+c = Σ p / Σ E_dep is taken over the showers present, and it is one constant
+everywhere: the energy panel in separation mode and in momentum mode, and
+`/api/response`. The default two-shower view is unchanged, because it excludes
+the events with an undefined D. With **Include events with undefined D** the
+constant moves (by about 0.3% for shower A on production), and
+a notice names how many selected events have no hits for that shower and that it
+is left out of the calibration; its zero deposit is still counted in its slice.
+
+**The resolution σ/μ** is a ratio of two estimates. Its whisker on the resolution
+card is the χ² interval of σ divided by μ, [σ_lo/μ, σ_hi/μ]: it is never negative
+and carries σ's skewed sampling distribution, which dominates at small N. μ's own
+uncertainty is smaller by a factor of about σ/μ and is neglected, which the
+payload says; the delta-method standard error, which includes it, travels beside
+it for the tooltip.
+
 ### Exporting figures for publication
 
 Every panel header carries an **Export ▾** control offering lossless SVG or
@@ -1921,25 +2490,84 @@ first. The energy panel names a non-absolute segmentation frame. For example:
 
 All endpoints return pre-aggregated payloads; none returns a raw hit array.
 
+Every data route takes `table_name` and the kinematic selection
+(`e1_min`, `e1_max`, `e2_min`, `e2_max`, `d_min`, `d_max`,
+`include_undefined_d`), chained with AND. A single-shower experiment has one
+axis, `e1`, the shower's own momentum: a bound on `e2` or `d`, or
+`include_undefined_d`, is a 422 naming the field, never ignored. The data routes
+are gated by what the experiment can serve: a view its kind, its lattice or its
+derived tables cannot serve is refused with a **422**
+`/problems/unsupported-capability`, whose body carries `field`, `capability` (the
+gate, which is the card id), `kind`, `reason` (the sentence the interface shows
+on the card) and `table_name` (`tests/contracts/capability_problem.json`).
+Parameters and payload fields below are the ones the checked-in contracts in
+`tests/contracts/` pin.
+
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/experiments` | Registered tables, row/event counts, kinematic bounds, lattice, the frames/coordinate systems/models/channels each serves, schema, archive, compute allocation, and the cold-boot `defaults`. A failed experiment carries its `error`. |
+| `GET /`, `GET /models` | The two pages, Physics and Models. Both stamp their asset URLs and are served `no-cache` (see [Static assets and caching](#static-assets-and-caching)). |
+| `GET /api/experiments` | Registered tables, row/event counts, kinematic bounds, the frames/coordinate systems/models/channels each serves (always present, possibly empty), `schema`, archive, the `capabilities` block ([below](#the-capability-block)), compute allocation, and the cold-boot `defaults`. Each distinct detector lattice is sent once, in a top-level `lattices` map keyed by the id each experiment's `lattice.id` names; the catalogue measured 26,582 B on the three-experiment development database. A failed experiment carries its `error`. |
+| `DELETE /api/experiments/{table_name}` | Drop an experiment, its tables and its archive. |
 | `GET /api/admin/config` | The default view: every value with its source, the saved and environment layers, the options each experiment offers, the drop folder's last scan. |
 | `POST /api/admin/config` | Save any subset of the six defaults; `null` clears one. A 422 names the field for an unknown value, experiment or capability. |
 | `POST /api/admin/auto-ingest/scan` | Scan the drop folder now. A 409 when it is off. |
-| `POST /api/upload` | Streamed multipart ingest of a CSV or Parquet file. `force_reingest=true` replaces an existing experiment, which is a 409 without it. Returns a job id. |
-| `POST /api/ingest-local` | Ingest a CSV or Parquet file already under the mounted root, by path, with the same fields. |
+| `POST /api/upload` | Streamed multipart ingest of a CSV or Parquet file of any of the three schemas. `force_reingest=true` replaces an existing experiment, which is a 409 without it. A file of no accepted schema is a synchronous **400** carrying `expected` and `found` ([Through the browser](#through-the-browser)). Returns a job id. |
+| `POST /api/ingest-local` | Ingest a CSV or Parquet file already under the mounted root, by path, with the same fields and the same 400. |
 | `GET /api/local-files` | The CSV and Parquet files under that root. |
-| `GET /api/upload/{job_id}` | Ingest progress and result. |
-| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). Unknown values return 422 naming the field. |
+| `GET /api/upload/{job_id}`, `GET /api/upload` | Ingest progress and result of one job, and the recent jobs. |
+| `GET /api/upload-info` | Upload limits and the disk headroom per format, and the accepted schemas: `schemas` (each with `name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns`, `note`) and `accepted`, the one-sentence list. `schema` still describes `hits_all_models` alone. |
+| `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
+| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Unknown values return 422 naming the field. |
 | `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. |
 | `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. |
 | `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
-| `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks from the `coord_system`'s segmentation network (`meta.network`). |
+| `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
+| `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. A stale experiment is refused with the rebuild it needs. |
+| `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
+| `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
+| `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
+| `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
 | `GET /api/model-performance` | `cards[]` of the network `model` in `coord_system`, each with SE and a named 95% interval, and the per-slice breakdown. |
+| `GET /api/health`, `GET /api/health/db` | Liveness with the resolved memory and thread allocation; database readiness. |
 | `GET /api/health` | Liveness, with the resolved memory and thread allocation. |
 
+The routes of the Models page (`/api/model-performance?slice_by=momentum_bin`,
+`/api/prediction-density`, `/api/features`, `/api/primaries`, `/api/voxels`,
+`/api/event?format=voxels`, `/api/xgboost` and the model-run admin routes) are
+documented with that page.
+
 Interactive documentation at <http://localhost:8000/docs>.
+
+#### The capability block
+
+`GET /api/experiments` publishes, in `experiments[].capabilities`, everything the
+interface needs to decide what to show, built by `query/capabilities.py` and
+always present (`tests/contracts/experiments.json`):
+
+- `kind`, `kind_label`, `n_showers`, `showers`, `has_hits`, `has_lattice`,
+  `has_frame_bounds`;
+- `networks` (the models the experiment has, empty for the single-shower kinds),
+  `species` (whether the particle columns exist) and `filters` (`e1`, `e2`,
+  `d`);
+- `group1_frames`, the frames the Group-1 features exist in;
+- `pages`: `physics`, `spatial` and `models`, whether each page has a card to show;
+- `panels`: one boolean per gate, the card ids `xy`, `yz`, `xz`, `energy`,
+  `profile-w`, `profile-r`, `response-b1`, `response-b2`, `response-res`,
+  `response-b3`, `distribution`, `correlation` and `statistics`, plus the frame
+  gates (`frame-lab`, `frame-trans`, `frame-local`, `frame-canonical`) and the
+  views built on them (`window-axis`, `event-inspector`, `compare`,
+  `negative-depth`), and the Models page's;
+- `reasons`: for each shut gate, the sentence the card shows;
+- `derived`: `{version, current, status, notice}` of the derived tables;
+- `measured`: what ingest measured (cell footprint, profile splat and its comb,
+  the momentum-bin range and rule, the species facts, the label rule);
+- `model_runs`: the XGBoost models paired with an aggregate experiment, which
+  the Models page documents.
+
+The lists `frames`, `coord_systems`, `models` and `channels` beside it are always
+present too, possibly empty, so the browser's two-shower fallbacks never fire.
+A gate opens only in the change that lands its route, so the catalogue never
+advertises a view that would answer 404.
 
 Projection payloads ship as `log10 → uint8 → base64` rasters with the scale
 constants attached. The brightest 64 cells also carry their exact float64 value,
@@ -1982,6 +2610,17 @@ view matrix — 4 frames × 3 models × 5 channels × Native and Continuous R 50
 150, 300, 400, at three selection sizes, 900 responses — the largest served
 response is 99,863 B.
 
+**The physics routes** (Page 1's cards) were swept on the three real experiments
+(the electron hit file, the electron aggregate and the production file) in a
+14 GB cgroup, alone, at the backend commit `c4f7b20`: 1,855 requests, each at
+the full selection, one 1 GeV bin and selections of about 200, 20 and 5 events
+(`data/dev/single/r5_physics.json`). Every one answered 200 and none reached
+100,000 B; the largest, 95,925 B, is the two-shower response grid (B3) at the full
+selection. The slowest cold request was `/api/statistics` at 4.95 s on the
+production file, then the projections at 2.7 s and every other route under
+1.2 s. The hit-level scans share one cache with single flight and run one at a
+time. The experiment catalogue measured 26,582 B.
+
 This comes from a 150 ms debounce that fires on release rather than drag, an LRU
 of native-resolution matrix bundles, a 10% Bernoulli sample served during drags
 (marked `exact: false` in the payload and flagged in the header), and ingest in
@@ -1993,33 +2632,94 @@ file order so the D slider prunes row groups via zone maps.
 
 ```bash
 uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python \
-    "fastapi>=0.115,<1" "uvicorn[standard]>=0.32,<1" "duckdb>=1.1,<2" \
-    "numpy>=1.26,<3" "pandas>=2.0,<3" "python-multipart>=0.0.12" pytest
+uv pip install --python .venv/bin/python -e ".[dev]"
 
 CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 .venv/bin/python -m pytest
 ```
 
-The suite ingests the 1000-row `hits_all_models_dummy.parquet` (the image's seed;
-the tests of the CSV reader use a CSV copy of it that `tests/seed.py` writes under
-`data/dev/test-seed/` on first use). Tests that need
-real-data cases — split cells, `'A+B'` rows, an overlap-100 event, events
-without shower A, an all-zero Shap-CAM map — read `hits_all_models_fixture.csv`
-and skip without it; cut it, and a production subset, from an ingested archive
-with `tests/make_all_models_fixture.py fixture|subset` (it reads the event table
-and the Parquet archive, never the CSV). The JavaScript tests run the pure
-modules under Node. `tests/test_layout_assets.py` pins the markup and CSS of
-the page shell from the source alone: the on-card footnotes gone, the sidebar
+#### Test data
+
+- **The seed.** The suite ingests the 1000-row `hits_all_models_dummy.parquet`
+  at the repository root (the image's seed, kept in plain git so a fresh clone
+  builds and tests without Git LFS; its coordinate, momentum and network columns
+  are float32). `tests/seed.py` reads it back as text rows for the generators
+  that copy template rows verbatim, and writes the CSV copy the tests of the CSV
+  reader use under `data/dev/test-seed/` on first use.
+- **Synthetic files**, written into pytest's temporary directories from the
+  seed, so the tests that must always run need no real data.
+  `tests/synthetic_all_models.py` makes two-shower files with chosen event counts
+  per D slice, and `tests/synthetic_single_shower.py` single-shower hit files and
+  their 59-column aggregate: both give bins of 1, 2, 7, 8, 14, 15, 19, 20 and
+  200 events, one per rung of the low-N ladder. The aggregate is written by
+  `tests/core_port.py`, a verbatim port of `calc_all_features_v3`, because
+  `reference_ipynb_notebooks/core.py` imports TensorFlow and cannot be imported
+  by a test. Nothing in them is a measurement: they test shapes, gates and
+  parity, never physics.
+- **Real-data cuts** are git-ignored and small, and the tests that read them skip
+  without them. `tests/make_all_models_fixture.py fixture` cuts
+  `hits_all_models_fixture.csv` (split cells, `'A+B'` rows, an overlap-100
+  event, events without shower A, an all-zero Shap-CAM map; CSV on purpose, for
+  the CSV-against-Parquet comparison) from `ingest/hits_all_models.parquet`, and
+  `subset` a production subset for `CALOSRV_TEST_SUBSET_CSV`.
+  `tests/make_single_shower_fixture.py` cuts `electron_hits_fixture.parquet`,
+  `electron_events_fixture.parquet` and the two 20-row heads of the electron
+  files (`electron_standalone_…_s1_v3_head.parquet` and `…_aggr_s1_v3_head.parquet`,
+  which `tests/test_schemas.py` reads to pin the producer's column names) from
+  ingest's electron aggregate and the dev archive of the electron hits under
+  `data/dev/single/archive/` (the original hit file is gone). Run them alone, in
+  the capped scope below.
+- **Payload recordings**, `tests/fixtures/payloads/`: each route's real response
+  on a booted fixture, validated against its contract and compared on every run
+  (up to timing fields and the byte counts a guard quotes). They are the Node
+  tests' source of truth, so the frontend is tested against the backend's own
+  payloads. When a payload changes on purpose, regenerate them with
+  `CALOSRV_WRITE_PAYLOAD_FIXTURES=1 .venv/bin/python -m pytest -q tests/test_payload_fixtures.py`
+  and read the diff first.
+- **Contracts**, `tests/contracts/*.json`: one checked-in JSON schema per route,
+  the frozen shape of its response (`tests/contract_check.py` validates against
+  them with the subset of JSON Schema they use; the project has no `jsonschema`
+  dependency). The contract is the source of truth: where a design note and a
+  contract disagree, the contract wins.
+- **Goldens**, `tests/golden/`: the Absolute-frame and default-D payloads, pinned
+  byte for byte (below).
+
+#### Opt-in and write modes
+
+| Variable | Effect |
+|---|---|
+| `CALOSRV_BROWSER_TESTS=1` | runs the browser modules (`tests/test_browser_*.py`: admin, anchor, event, layout, physics, tooltip, upload, window axis) against a live server, in Playwright's Chromium. `test_browser_physics.py` drives the Physics page on a seeded single-shower server |
+| `CALOSRV_TEST_SUBSET_CSV=<path>` | runs `tests/test_canonical_subset.py` on a production subset |
+| `CALOSRV_XGB_REAL=1` | runs `tests/test_xgboost_real.py`, which reads the four 100,000-event aggregates in `ingest/` |
+| `CALOSRV_WRITE_PAYLOAD_FIXTURES=1` | rewrites `tests/fixtures/payloads/` instead of comparing |
+| `CALOSRV_WRITE_GOLDEN=1` | rewrites the energy panel's golden (`tests/test_energy_momentum_api.py::test_default_d_payload_is_byte_identical`) |
+
+The Node tests need `node` on the `PATH` and skip silently without it, so check
+`command -v node` first. The booted fixtures (`client`, `synthetic_client`,
+`single_client`) share one process-wide DuckDB, and each boot resets it: group a
+module's tests by fixture, and never interleave two.
+
+**Real-data runs are serial and capped.** A full-dataset job runs alone, never
+beside another, in a memory-capped scope with an explicit `DUCKDB_MEMORY_GB`, a
+data directory of its own and DuckDB's spill on disk (the storage guard refuses
+a RAM-backed temp directory; on the development machine `/tmp` is tmpfs):
+
+```bash
+systemd-run --user --scope -q -p MemoryMax=14G -p MemorySwapMax=0 \
+    env CALOSRV_DATA_DIR=$PWD/data/dev/single DUCKDB_MEMORY_GB=10 <command>
+```
+
+Never point one at `data/calorimeter.duckdb`. The drivers that measured this
+README's figures live in the git-ignored `data/dev/tools/`.
+
+The JavaScript tests run the pure modules under Node.
+`tests/test_layout_assets.py` pins the markup and CSS of the page shell from the
+source alone: the on-card footnotes gone, the sidebar
 toggle, the Details drawer, the two-tier frame control and the upload form
-inside Admin Settings. The browser tests are opt-in
-(`CALOSRV_BROWSER_TESTS=1`) and need Playwright's Chromium: the tooltip, admin
+inside Admin Settings. The browser tests include the tooltip, admin
 panel and upload checks, and `tests/test_browser_layout.py`, which drives the
 sidebar toggle, the Details drawer, the frame selector (a `#frame=trans` link
 included), the entry panel's D axis and a plot-only export download.
-Every full-dataset job should run alone, with an
-explicit `DUCKDB_MEMORY_GB`, inside a memory-capped scope (`systemd-run --user
---scope -p MemoryMax=14G -p MemorySwapMax=0`).
 
 `tests/test_canonical_subset.py` runs only when `CALOSRV_TEST_SUBSET_CSV` points
 at a 99-column subset of the production file (`tests/make_all_models_fixture.py
@@ -2049,7 +2749,25 @@ change.
 Asset URLs are stamped with a hash of the static tree (`/static/js/main.js?v=…`)
 and served `immutable`; the page itself is `no-cache`, and any unstamped asset —
 which includes the relative ES module imports inside `main.js` — revalidates
-against its ETag.
+against its ETag. Both pages, `/` (`index.html`) and `/models` (`models.html`),
+go through the one stamping helper.
+
+**Vendored third-party scripts.** Nothing is loaded from a CDN, so the interface
+works offline and air-gapped:
+
+| File | Version | Licence | sha256 | Loaded by |
+|---|---|---|---|---|
+| `static/js/vendor/echarts.min.js` | Apache ECharts 5.5.1 | Apache-2.0 (header of the file) | `e84270bd0cd5bdf60fefc26d00c2a391cb2e81f4d26a7a9ee16185a54773a3cf` | both pages |
+| `static/js/vendor/echarts-gl.min.js` | echarts-gl 2.0.9 | BSD-3-Clause (Baidu Inc., 2017), as read from `echarts-gl.LICENSE.txt` | `bfba1b87b8c3c06e5c7ed7741002586c747b00e4efdaa92077d15c2dc721bda0` | `models.html` only, after `echarts.min.js` |
+
+`echarts-gl` is the package's own `dist/echarts-gl.min.js`, byte-identical
+(640,694 bytes), its integrity checked against the registry's `dist.integrity`
+when it was vendored. `static/js/vendor/echarts-gl.LICENSE.txt` reproduces the
+package's `LICENSE` and the Apache-2.0 notice of the `tslib` code the bundle
+carries; the npm registry's metadata for the same version says MIT, and the
+`LICENSE` file shipped in the package, which is the one reproduced, says
+BSD-3-Clause. The bundle contains claygl and zrender. The Physics page does not
+load it, so that page's weight does not change.
 
 This is not housekeeping. The page and its scripts are separate downloads with
 independent cache lifetimes, so a browser can hold a **stale script against
@@ -2073,23 +2791,43 @@ self-explaining if it ever recurs.
 calosrv/
   config.py logging_setup.py errors.py app.py text.py fsutil.py
   admin/   schema store
-  db/      connection settings storage_guard ddl naming registry bootstrap archive catalog
-  ingest/  stream formats csv_spec parquet_spec source_check load pipeline lattice_fit
-           derive_proj derive_events verify frame_checks jobs autoingest cli
+  db/      connection settings storage_guard ddl naming schemas group1 registry bootstrap
+           archive catalog
+  ingest/  stream formats csv_spec parquet_spec source_check load local pipeline recipes
+           lattice_fit derive_proj derive_events derive_events_single derive_features
+           derive_layers derive_profiles verify verify_single verify_events frame_checks
+           feature_parity result jobs autoingest cli
   grid/    lattice splat resolution slab frame bounds kernel footprint
-  query/   filters planes projections panels centroids summary energy performance sampling cache
-           experiments stagger canonical shower_frames window reconstruct density ensemble
-           canonical_cache frame_sql event_inspector window_axis
+  query/   filters showers capabilities planes projections panels centroids summary energy
+           performance sampling cache experiments stagger canonical shower_frames window
+           reconstruct density ensemble canonical_cache warming frame_sql hit_sql physics_cache
+           event_inspector window_axis
+           profiles response shower_distributions hit_distributions correlations statistics
+           negative_depth
   stats/   gaussian histogram slices metrics clip shape
-  encode/  scale quantize matrix topk
-  api/     deps routes_* frame_canonical frame_shower
-  static/  index.html css/ js/
+           describe median kde momentum profile circular jackknife
+  encode/  scale quantize matrix topk numbers
+  api/     deps budget routes_* frame_canonical frame_shower
+  static/  index.html models.html css/ js/
              js/      main api state labels scale palette decode dom textfit format frame_views
                       axis_symbols panel_notes shell event_inspector
+                      capabilities lazy_cards physics_section page_common
              js/panels/   projection canonical_overlays marks tooltip energy metrics frame_grid
-             js/controls/ range_slider upload admin modal
+                          chart_panel profile response response_grid distribution correlation
+                          statistics
+             js/controls/ range_slider upload admin modal filter_block
              js/export/   tokens figure caption disclosure filename download menu
+             js/vendor/   echarts.min.js echarts-gl.min.js echarts-gl.LICENSE.txt
 ```
+
+The Models page (`/models`) has its own modules, which this README documents
+separately: `models_main`, `models_cards`, `models_notes`, `voxels`,
+`voxel_views`, `voxel_notes` and `event_cells` under `js/`, `perf_bins`, `hist2d`,
+`feature_table` and `rates` under `js/panels/`, `css/models.css`, and on the
+server `query/` `performance_bins`, `prediction_density`, `features`,
+`features_catalog`, `feature_{axes,corr,describe,hist}`, `primaries`, `voxels` and
+`voxel_event`, `encode/voxels`, `api/routes_{features,prediction,primaries,voxels,xgboost}`
+and `modelruns/`.
 
 The D-frame is its own column of that layout, one responsibility per
 file.
@@ -2126,6 +2864,24 @@ file.
 | `ingest/formats.py`, `ingest/parquet_spec.py` | the format read from the file's content, and every branch on it; the Parquet schema, type and range checks and the SELECT that reads it |
 | `ingest/autoingest.py` | the drop-folder scan: decides and queues, never forces |
 | `fsutil.py` | crash-safe file replacement (the saved defaults, the archive manifests) |
+| `db/schemas.py` | the three accepted schemas and their kinds (`InputSchema`, `KindTraits`), detection from a CSV header (exact) or a Parquet column set, the one-sentence refusal with its `expected` and `found`, `DERIVED_VERSION`, and the tables each kind must have |
+| `db/group1.py` | Group-1: the per-shower sums of the event table and the SQL that rebuilds every `calc_all_features_v3` feature from them |
+| `db/naming.py` | the only place a name becomes SQL, with the prefixes of `layers_` and `profiles_`, and `derive_experiment_name`, which shortens a long file name around a fingerprint |
+| `ingest/recipes.py` | the derive recipe of each kind: which tables, in which order, with which stage weights, checked how |
+| `ingest/derive_events_single.py`, `derive_features.py`, `derive_layers.py`, `derive_profiles.py` | a single-shower hit experiment's event table; an aggregate's event table (duplicate ids refused, non-finite values NULL); `layers_`; `profiles_` from the Local footprint splat |
+| `ingest/verify_single.py`, `verify_events.py`, `feature_parity.py` | the per-kind post-ingest assertions; the features rebuilt from hits against the producer's aggregate (`--compare-features`) |
+| `query/capabilities.py` | the one owner of every per-experiment gate and of the capability block; `require` refuses with the `CapabilityError` 422 |
+| `query/showers.py` | the per-shower column vocabulary of each kind, so one query reads one shower or two |
+| `query/hit_sql.py`, `query/physics_cache.py` | the SQL fragments the hit-level scans share; their cache, single flight and one-heavy-scan-at-a-time gate |
+| `query/profiles.py` | C7: the longitudinal and radial profiles |
+| `query/response.py` | B1, B2 and the resolution, from the event table of any kind |
+| `query/shower_distributions.py`, `query/hit_distributions.py` | C4: the showers' θ, φ and p, and the hits' u, v, w and energy |
+| `query/correlations.py` | C8: the correlation matrix from moment sums, with the event-grouped jackknife |
+| `query/statistics.py`, `query/negative_depth.py` | C1: exact `describe()` beside energy-weighted quantiles; C9: the negative-depth block, from the event table alone (it is also what the Local frame embeds) |
+| `stats/profile.py`, `jackknife.py`, `circular.py` | the SD band and cluster-robust t envelope of a profile; correlations from moment sums with the grouped jackknife and Mardia's R; wrap, resultant sums and circular SD |
+| `stats/describe.py`, `median.py`, `kde.py`, `momentum.py` | descriptive statistics (ddof 1 and 0) and weighted quantiles; the median with its seeded bootstrap and order-statistic interval; a binned Gaussian KDE with Silverman's bandwidth; the momentum windows, 1 GeV bins and the label |
+| `encode/numbers.py` | numbers as payloads ship them: six significant figures, plain Python types, non-finite as null |
+| `api/budget.py` | one measured whole-body size guard (`serve_measured`), used by the voxel routes; each Page 1 route measures its own response the same way |
 
 **Client:**
 
@@ -2147,6 +2903,13 @@ file.
 | `static/js/panels/tooltip.js` | the one tooltip option (mounted on the fixed `#tooltip-layer`) and `placeTooltip`: the bin readout at the pointer, every explanation off the hovered chart |
 | `static/js/panels/frame_grid.js` | the 3 × 3 grid of cards and projection panels the Event Inspector and the compare-frames view share; charts created on first show |
 | `static/js/event_inspector.js` | the Event Inspector's controller: the picker, the pinned event in the link, the nine cells' options and the export meta |
+| `static/js/capabilities.js` | the Physics page's plan from the capability block: which cards show and which are shut with the server's reason, the frames offered, the missing-predictions banner, the stale notice and the frame carried across a change of kind; pure, tested under Node against the recorded catalogue of all three kinds |
+| `static/js/lazy_cards.js` | when a card loads: visible, and its request key differs from the one it holds; pure |
+| `static/js/physics_section.js` | the nine physics cards: their anatomy and controls, the requests they share, and the shut state with its Rebuild offer |
+| `static/js/page_common.js` | what both pages share: the banner, error wording, the experiment picker, runtime relabelling, and the page tabs that carry the hash |
+| `static/js/controls/filter_block.js` | the sidebar's filter block adopted per kind: E₁, E₂ and D, or the single-shower p alone |
+| `static/js/panels/chart_panel.js` | the base of every 2-D physics panel and the helpers they share; each panel is a pure option builder plus a thin subclass |
+| `static/js/panels/profile.js`, `response.js`, `response_grid.js`, `distribution.js`, `correlation.js`, `statistics.js` | C7; B1, B2 and σ/μ; B3's small multiples; C4; C8 on PuOr; the C1 and C9 table |
 
 Three structural rules the layout exists to enforce:
 
