@@ -82,6 +82,20 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - Any mark placed on the density axis at a height that is **not** a density — an event strip, an error bar, a summary marker — lives in a tinted, captioned band with a rule along its top edge, and every tooltip in that band says its vertical position is a drawing offset. This is one axis with a reserved zone, not a second scale.
   - Below the core-refit floor, $\sigma$ must be quoted **with its own standard error and its asymmetric 95% interval**. At $N = 3$ the true $\sigma$ lies in $[0.52\hat\sigma,\ 6.29\hat\sigma]$, so a bare number with three decimals is the misleading presentation, not the honest one. Report the bias factor $c_4(N)$ too: $\text{ddof}=1$ makes the *variance* unbiased, not the standard deviation, which still runs 11.4% low at $N = 3$.
   - Above the histogram threshold, let the bin count follow the sample size (Rice rule, $\lceil 2N^{1/3} \rceil$, clamped to 8–120), driven by the **smallest slice whose histogram is drawn** so all slices can share one binning and still be comparable bin by bin.
+    - **Recorded exception: prediction residuals take the Freedman–Diaconis width.**
+      - **Where:** the Models page's residual cards (`calosrv/stats/histogram.py` `freedman_diaconis_bins`).
+      - **The rule:**
+        - the widest Freedman–Diaconis width among the drawn showers, within the same 8–120 clamp;
+        - Rice again when no shower has an interquartile range.
+      - **Why:** a residual's heavy tail stretches the 1st–99th display range. Rice's count then put the whole Gaussian core into one bin under a curve 3.5× taller. Measured on the XGBoost momentum residuals: 8 bins of 0.25, against σ_core = 0.033.
+      - **Disclosure:** the payload names the rule (`residual.axis.bin_rule`, `bin_width`), and the drawer states the exception.
+  - **A curve drawn over a histogram shares its normalisation.**
+    - **The rule:** the core Gaussian's area is the number of events it describes, divided by the count the histogram normalises by (`calosrv/query/energy.py` `build_series`).
+      - When the iterated ±2.5σ window cut events, that number is n_core / (2Φ(2.5k) − 1). The window sits at 2.5 *truncated* widths, while the curve is drawn with the de-biased σ, so the coverage is 0.98078, not 2Φ(2.5) − 1.
+      - Otherwise it is n / n_in_range.
+    - **Without a histogram**, the curve keeps unit area.
+    - **Why:** a unit-area curve over a histogram of every event overstated the core's density by 1.32× on the XGBoost momentum residuals, where 47 of 62 events are in the core.
+    - **Disclosure:** the curve's tooltip names its area, and the drawers say so.
   - Widths are the unbiased sample estimator, $\text{ddof} = 1$, in **both** architectures. The population form understates $\sigma$ by $\sqrt{1 - 1/N}$: 18% at $N = 3$, 6% at $N = 8$, below 0.3% above a few hundred events — so nothing at the scale the reference notebook worked at moves, and the small slices stop being quietly optimistic. `calosrv` additionally reports a $\text{ddof} = 0$ width so the notebook stays directly comparable, and a test asserts the two halves never quote different $\sigma$ for one sample.
 * **Never Average a Circular Quantity**:
   - Azimuth $\phi$ wraps, so its arithmetic mean is meaningless. Measured on the production file, the mean resultant length $\bar R$ of `incoming_phi_A` is 0.012 over the full dataset, 0.042 for a 122-event momentum window, and 0.178 even for 7 events: the direction is near-uniform at every selection size reachable through the filters.
@@ -100,6 +114,17 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - **STRICTLY FORBIDDEN**: Rainbow, Jet, or non-monotonic spectral colormaps.
   - **A signed quantity takes a diverging ramp, symmetric about zero.** Shap-CAM attributions are signed: 11–64% of hits are negative, per network and frame, on the production file. A sequential ramp or a [0, 1] bound would fold every negative attribution into "no attention", and a logarithm cannot take a sign. Raw Shap-CAM is therefore drawn linear on [−1, +1] and its energy-weighted sum on a signed logarithmic ramp ±(10⁻³ … 1) of the selection's peak |value|, on the ColorBrewer **PuOr** diverging palette (orange negative, purple positive) and never on a sequential one. Bins with |value| below 10⁻³ of the peak are transparent and counted, as the density floor is; nothing is clipped.
     - **On the dark screen PuOr is folded; print keeps the standard scheme.** Measured against the `#1c2128` card, standard PuOr's strongest colours vanish (`#2d004b` at 1.07:1, `#7f3b08` at 1.95:1 WCAG contrast) and its `#f7f7f7` centre makes a bright halo round every near-zero bin. On screen each arm therefore runs from the card outwards through PuOr's own colours, brightness rising with |value| and hue alone giving the sign; the first 3:1 colour of each arm (`#b35806` 3.3:1, `#8073ac` 3.8:1) sits at 10^−2.5 of the peak, where the taper above the transparent band reaches full opacity, so nothing a reader is asked to see is drawn below 3:1. The arms' other anchors are placed by CIE lightness, so equal |value| of either sign reads equally bright (mirrored codes agree to 15% in contrast on the signed log, 9% on the linear ramp). Raw Shap-CAM puts zero at border grey `#30363d`, so a populated zero stays distinct from an empty bin. Print keeps the standard 11-class scheme, whose light centre marks zero on white paper. Measure any new palette's anchors against the card before adopting it.
+  - **On screen, every sequential ramp starts at its first 3:1 colour.**
+    - **Why:** Viridis' own first colour is 1.06:1 on the `#1c2128` card. A populated bin, or a floating 3-D cube, at the bottom of the ramp would vanish while being drawn: up to 58% of an event's cubes did.
+    - **Where:** every on-screen sequential ramp, and its legend:
+      - both pages' spatial rasters and the Event Inspector;
+      - the Models page's paired projections and 3-D cubes.
+    - **How:** each is painted from its first colour at ≥ 3:1 (`static/js/scale.js` `legibleSpan`, built on `chart_panel.legibleRamp`).
+      - Viridis starts at t = 0.376.
+      - A tapered relative ramp reaches that colour at the taper's full-opacity point.
+      - Raw Shap-CAM cubes start each arm at 3:1.
+    - **Print and the exporter** keep the full ramp.
+    - **Disclosure:** the drawers say where the screen ramp starts.
   - **Every rendered negative number is set with the minus sign U+2212**, never the ASCII hyphen: axis ticks, colour-scale ends, tooltips, captions, footnotes, server notices and exported SVG text (`static/js/format.js`, `calosrv/text.py`). JSON numbers are untouched.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
@@ -123,6 +148,17 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - Default display ranges (axis limits, histogram ranges, colour-scale bounds) to the **1st–99th percentile** rather than min/max.
   - This is a decision about the *displayed range only*: nothing is removed from any aggregation, and fitted $\mu$ / $\sigma$ must state which subset they were computed on.
   - **Disclosure is mandatory.** Always report how many values fall outside the visible range, via a payload field and the panel's Details drawer (the former footnote). Silently discarding a tail violates the perceptual-integrity rules above; showing a readable range and naming what lies beyond it does not.
+  - **Event windows.**
+    - **Which panels:** one event's panels, meaning the Event Inspector, and the Models page's 3-D event with its three paired projections.
+    - **The window:**
+      - the energy-weighted 0.1st–99.9th percentile range of the event's cells;
+      - padded by one cell footprint (one layer pitch along depth);
+      - snapped outward to 20 mm;
+      - never below 150 mm.
+    - **Disclosure:** the cells outside are counted and named in the window rule.
+    - **The Event Inspector** shares one half-width across its nine panels, so they stay square and directly comparable.
+    - **The Models page** takes one half-width per axis (`/api/event?window=per_axis`, the default for the 3-D cubes). Otherwise a shower with a few far stray cells would be drawn in a box metres deeper than the detector.
+    - **Either way**, the axes stay 1:1, and 1:1:1 in 3-D.
   - **Recorded exception: D-frame panel windows.** The X′Y′ (drawn as D–Y′), Y′Z′ and X′Z′ crops of the Separation-Aligned (D-Frame), API `canonical` — the centre-of-separation frame — are **symmetric about the origin**, $x' \in [-\Delta_x, +\Delta_x]$ and $y' \in [-\Delta_y, +\Delta_y]$, not 1st–99th percentile windows. Each half-width is the larger excursion of the energy-weighted **0.1st–99.9th** percentile of that axis. It is never below 200 mm while the range is provisional ($N < 20$): the median single-shower $|y'|$ p98 of the entrance slab, one shower's own extent. Above that it is never below two cell footprints (100 mm), the physical resolution, because robust low-energy slices are narrower than one shower's p98: on production v37, $E_1, E_2 < 1$ GeV ($N = 468$) measures $y' \pm 80$ mm and $< 2$ GeV ($N = 691$) $\pm 160$ mm. It is snapped outward to whole 20 mm bins (`calosrv/query/window.py: symmetric_axis`).
     - **Why:** those panels do not draw below $10^{-3}\,\rho_\text{ref}$. On production v37 a 1–99 crop cut the shower halo where it was still **15–110× above that floor**, leaving 14–99% of the X′Y′ boundary bins above it, so the colour stopped at the window edge and looked like the edge of the shower. At 0.1–99.9, 2–11% of the boundary bins lie above the floor. Across seven production selections from $N = 3$ to the full 20 143 events, 0.12–0.33% of the X′Y′ energy falls outside the window.
     - **Why centred:** the origin is the midpoint of the two entry anchors, so a centred window keeps it in the middle of the panel.
@@ -211,6 +247,11 @@ When working with calorimeter simulation datasets in this repository:
   - Reconstruction model radio toggle: "Segmentation Model", "Energy Estimation Model", "Incident Angle Estimation Model" with dynamic contextual captions and metric summary cards. The selected model drives both the attention channels of the three spatial panels (its per-hit CAM columns in the selected frame; the D-frame uses the absolute-frame networks) and the metric cards; plot 4 stays the segmentation reconstruction of the selected frame's segmentation network.
   - The four on-card footnotes are replaced by a per-panel **Details** drawer (`<aside id="inspector">`, `js/shell.js`, text from `js/panel_notes.js`): the former footnote's home, opened from each card's Details button — the keyboard trigger, flagged with a warning dot when the panel carries a hazard — or its title row, in sections Selection / What is drawn / Disclosures / Marks and legend, plus Reading the density axis on the energy panel. The key counts stay on screen without opening it: the energy card's `#energy-sparse` notices (which also carry the energy-axis clipping note), the status-bar ρ_ref and **Clipped** readouts (`#stat-clipped`: clipped ramp cells in the Absolute frame, bins below the display floor in a co-registered frame), and the sidebar's info dots (the comb and frame notices).
   - Exported SVG/PNG figures are the plot canvas only, by directive: axes, raster, overlays and the colour-scale legend on `#FFFFFF` in `#111827` ink, with no caption band, no reserved bottom height, no `<g id="figure-disclosure">` and no μ/σ table rows. This overrides the earlier rule that the figure carries its own disclosures; the drawer's text is what goes into a manuscript caption.
+  - **Tooltips may leave their chart, but never cover the panel being read.**
+    - Every tooltip is mounted on `#tooltip-layer`, above every other element, and is never clipped.
+    - An explanation sits outside the hovered plot.
+    - A readout stays beside the pointer only where it covers at most 20% of the hovered plot there. Otherwise it leaves the plot, as an explanation does (`static/js/panels/tooltip.js`).
+    - The browser tests hold both pages to the 20% cap.
   - The dataset upload form lives inside the **Admin Settings** panel, between the default-view form and the Automatic ingest section; there is no header upload button. The panel's Close button closes it, a running ingest survives closing, and a Clear form button resets it.
 * **Models page (Page 2) requirements**:
   - **Cards.** It holds:
@@ -220,9 +261,28 @@ When working with calorimeter simulation datasets in this repository:
     - the primary-tag rate;
     - the two 3-D views of the recorded exception above;
     - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
+  - **E2's per-bin marks follow the low-N table.**
+    - One shower is drawn as a dot, never as an aggregate bar.
+    - A point without an interval is faded, and its tooltip names the floor of its own quantity.
+    - A momentum bin's RMSE carries a χ² interval below N = 20, under a stated normal-residual assumption, and a seeded percentile bootstrap from N = 20 (`calosrv/stats/rmse.py`).
+      - It is never √ of the t interval of the MSE, whose lower end collapses to 0 at small N.
+      - Page 1's metric cards keep that older estimator for now.
+  - **E3 states the class ratio it drew**, the realised ratio against the designed 99 : 1, and which rates depend on it.
+    - Accuracy and the precisions depend on it.
+    - The recalls and the balanced accuracy do not.
   - **E4 judges surrogate fidelity per output.**
-    - Each output's own R² and MAE are printed.
-    - The "low surrogate fidelity" warning is judged per output, below R² 0.5.
-    - The average is never judged and never printed alone. On electrons, φ is 0.978 and θ is 0.004, and the average of 0.49 would hide both.
-  - **E5 shows the top 15 features by gain.** The plot counts the rest, and the drawer lists every feature with its numbers. There is no "show all" toggle.
+    - Each output's own fidelity is printed.
+      - φ is judged on a circular R², 1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)), and on the wrapped MAE.
+      - φ's linear R² stays as notebook parity.
+    - The "low surrogate fidelity" warning is judged per output, below R² 0.5 (φ on the circular R²).
+    - The average is never judged and never printed alone. On electrons the linear R² of φ is 0.978 and of θ 0.004; their average, 0.49, would hide both.
+    - Within-node SDs use ddof = 1 and are flagged weak below 20 rows.
+    - The colour domain comes from nodes of 20 rows or more. A leaf beyond it is marked and counted.
+  - **E5 shows the top 15 features by the notebooks' `feature_importances_`** (average split gain, normalised), labelled as such.
+    - The plot counts the rest.
+    - The tooltip and the drawer give each feature's total-gain share and rank, and the drawer lists every feature.
+    - There is no "show all" toggle.
+  - **The feature explorer:**
+    - fades the correlation cells whose 95% interval contains 0;
+    - on an aggregate experiment, offers a frame choice (absolute, per-shower translated, local; never the D-frame) through the shared `frame` key.
   - **The training-split check.** An analysis whose training split is not reproduced is still shown, and its cards and its Admin row carry the hazard. Reproduced means the validation/training MSE at `random_state` 42 clears the largest of 99 other seeds by the stated margin.
