@@ -1,0 +1,622 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/admin/model-runs (and POST /api/admin/model-runs/{table_name}/analyse: $defs.analysed)",
+ "type": "object",
+ "required": [
+  "models",
+  "runs",
+  "worker",
+  "statuses"
+ ],
+ "properties": {
+  "models": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "$ref": "#/$defs/models"
+    }
+   ]
+  },
+  "runs": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/run_row"
+   }
+  },
+  "worker": {
+   "type": "object",
+   "required": [
+    "nthread",
+    "busy",
+    "steps"
+   ],
+   "properties": {
+    "nthread": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "busy": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "steps": {
+     "type": "integer"
+    }
+   }
+  },
+  "statuses": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "unpaired",
+     "not_ready",
+     "queued",
+     "running",
+     "done",
+     "failed",
+     "stale"
+    ]
+   }
+  }
+ },
+ "$defs": {
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "models": {
+   "type": "object",
+   "required": [
+    "dir",
+    "found",
+    "scanned_at",
+    "files",
+    "rejected"
+   ],
+   "properties": {
+    "dir": {
+     "type": "string"
+    },
+    "found": {
+     "type": "boolean"
+    },
+    "scanned_at": {
+     "type": "string"
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "path",
+       "species",
+       "task",
+       "seed",
+       "sha256",
+       "bytes",
+       "xgboost_version",
+       "num_target",
+       "num_trees",
+       "n_features",
+       "objective"
+      ],
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "species": {
+        "type": "string"
+       },
+       "task": {
+        "enum": [
+         "momentum",
+         "angle"
+        ]
+       },
+       "seed": {
+        "type": "integer"
+       },
+       "sha256": {
+        "type": "string"
+       },
+       "bytes": {
+        "type": "integer"
+       },
+       "xgboost_version": {
+        "type": "string"
+       },
+       "num_target": {
+        "type": "integer"
+       },
+       "num_trees": {
+        "type": "integer"
+       },
+       "n_features": {
+        "type": "integer"
+       },
+       "objective": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "rejected": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "path",
+       "reason"
+      ],
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "header": {
+   "type": "object",
+   "required": [
+    "path",
+    "species",
+    "task",
+    "seed",
+    "sha256",
+    "bytes",
+    "xgboost_version",
+    "num_target",
+    "num_trees",
+    "n_features",
+    "objective"
+   ],
+   "properties": {
+    "path": {
+     "type": "string"
+    },
+    "species": {
+     "type": "string"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "bytes": {
+     "type": "integer"
+    },
+    "xgboost_version": {
+     "type": "string"
+    },
+    "num_target": {
+     "type": "integer"
+    },
+    "num_trees": {
+     "type": "integer"
+    },
+    "n_features": {
+     "type": "integer"
+    },
+    "objective": {
+     "type": "string"
+    }
+   }
+  },
+  "run_row": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "display_name",
+    "paired",
+    "species",
+    "seed",
+    "source_file",
+    "models",
+    "reason",
+    "status",
+    "error",
+    "step",
+    "steps",
+    "step_label",
+    "progress",
+    "stale_reasons",
+    "runs",
+    "queued_at",
+    "started_at",
+    "finished_at",
+    "duration_s",
+    "timings"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "paired": {
+     "type": "boolean"
+    },
+    "species": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "seed": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "source_file": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "models": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "path",
+       "species",
+       "task",
+       "seed",
+       "sha256",
+       "bytes",
+       "xgboost_version",
+       "num_target",
+       "num_trees",
+       "n_features",
+       "objective"
+      ],
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "species": {
+        "type": "string"
+       },
+       "task": {
+        "enum": [
+         "momentum",
+         "angle"
+        ]
+       },
+       "seed": {
+        "type": "integer"
+       },
+       "sha256": {
+        "type": "string"
+       },
+       "bytes": {
+        "type": "integer"
+       },
+       "xgboost_version": {
+        "type": "string"
+       },
+       "num_target": {
+        "type": "integer"
+       },
+       "num_trees": {
+        "type": "integer"
+       },
+       "n_features": {
+        "type": "integer"
+       },
+       "objective": {
+        "type": "string"
+       }
+      }
+     },
+     "minItems": 0,
+     "maxItems": 2
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "status": {
+     "enum": [
+      "unpaired",
+      "not_ready",
+      "queued",
+      "running",
+      "done",
+      "failed",
+      "stale"
+     ]
+    },
+    "error": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "step": {
+     "type": "integer"
+    },
+    "steps": {
+     "type": "integer"
+    },
+    "step_label": {
+     "type": "string"
+    },
+    "progress": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "stale_reasons": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "runs": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "task",
+       "model_file",
+       "sha256",
+       "n_rows",
+       "n_train",
+       "n_holdout",
+       "split",
+       "analysis_version"
+      ],
+      "properties": {
+       "task": {
+        "enum": [
+         "momentum",
+         "angle"
+        ]
+       },
+       "model_file": {
+        "type": "string"
+       },
+       "sha256": {
+        "type": "string"
+       },
+       "n_rows": {
+        "type": "integer"
+       },
+       "n_train": {
+        "type": "integer"
+       },
+       "n_holdout": {
+        "type": "integer"
+       },
+       "split": {
+        "type": "object",
+        "required": [
+         "reproduced",
+         "ratio_42",
+         "ratio_others"
+        ],
+        "properties": {
+         "reproduced": {
+          "type": "boolean"
+         },
+         "ratio_42": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "ratio_others": {
+          "type": "array",
+          "items": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+         }
+        }
+       },
+       "analysis_version": {
+        "type": "integer"
+       },
+       "created_at": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "minItems": 0,
+     "maxItems": 2
+    },
+    "queued_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "started_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "finished_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "duration_s": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "timings": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "number"
+     }
+    }
+   }
+  },
+  "stored": {
+   "type": "object",
+   "required": [
+    "task",
+    "model_file",
+    "sha256",
+    "n_rows",
+    "n_train",
+    "n_holdout",
+    "split",
+    "analysis_version"
+   ],
+   "properties": {
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "n_rows": {
+     "type": "integer"
+    },
+    "n_train": {
+     "type": "integer"
+    },
+    "n_holdout": {
+     "type": "integer"
+    },
+    "split": {
+     "type": "object",
+     "required": [
+      "reproduced",
+      "ratio_42",
+      "ratio_others"
+     ],
+     "properties": {
+      "reproduced": {
+       "type": "boolean"
+      },
+      "ratio_42": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "ratio_others": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "minItems": 2,
+       "maxItems": 2
+      }
+     }
+    },
+    "analysis_version": {
+     "type": "integer"
+    },
+    "created_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "analysed": {
+   "type": "object",
+   "required": [
+    "run",
+    "poll"
+   ],
+   "properties": {
+    "run": {
+     "$ref": "#/$defs/run_row"
+    },
+    "poll": {
+     "const": "/api/admin/model-runs"
+    }
+   }
+  }
+ }
+}

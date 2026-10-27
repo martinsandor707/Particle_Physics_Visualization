@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 import contract_check
-from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE
+from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, XGB_SOURCE, xgb_table
 
 OUT = Path(__file__).resolve().parent / "fixtures" / "payloads"
 WRITE = os.environ.get("CALOSRV_WRITE_PAYLOAD_FIXTURES") == "1"
@@ -36,6 +36,8 @@ _BYTES = re.compile(r"\d[\d,]* bytes")
 HITS = {"table_name": SINGLE_HITS_TABLE}
 EVENTS = {"table_name": SINGLE_EVENTS_TABLE}
 BASE = {"table_name": BASELINE_TABLE}
+#: The aggregate ``xgb_client`` analyses with its in-test XGBoost models.
+XGB = {"table_name": xgb_table(XGB_SOURCE)}
 
 #: name -> (fixture, path, params, contract or None)
 PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
@@ -152,6 +154,37 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
     "projections_single_local": ("single_client", "/api/projections",
                                  {**HITS, "coord_system": "local"}, None),
     "projections_base_lab": ("single_client", "/api/projections", BASE, None),
+    # XGBoost (Page 2): the catalogue with model runs, the Admin Settings list, the four
+    # views (each task they apply to, requested as the shell does: no selection), and
+    # the XGBoost series of E2 and of the prediction density.
+    "experiments_xgb": ("xgb_client", "/api/experiments", {}, "experiments"),
+    "model_runs_admin": ("xgb_client", "/api/admin/model-runs", {}, "model_runs_admin"),
+    "xgb_cv_momentum": ("xgb_client", "/api/xgboost", {**XGB, "view": "cv", "task": "momentum"},
+                        "xgboost_cv"),
+    "xgb_cv_angle": ("xgb_client", "/api/xgboost", {**XGB, "view": "cv", "task": "angle"},
+                     "xgboost_cv"),
+    "xgb_binary": ("xgb_client", "/api/xgboost", {**XGB, "view": "binary"}, "xgboost_binary"),
+    "xgb_surrogate_momentum": ("xgb_client", "/api/xgboost",
+                               {**XGB, "view": "surrogate", "task": "momentum"}, "xgboost_surrogate"),
+    "xgb_surrogate_angle": ("xgb_client", "/api/xgboost",
+                            {**XGB, "view": "surrogate", "task": "angle"}, "xgboost_surrogate"),
+    "xgb_importance_momentum": ("xgb_client", "/api/xgboost",
+                                {**XGB, "view": "importance", "task": "momentum"},
+                                "xgboost_importance"),
+    "xgb_importance_angle": ("xgb_client", "/api/xgboost",
+                             {**XGB, "view": "importance", "task": "angle"}, "xgboost_importance"),
+    "perf_xgb_energy": ("xgb_client", "/api/model-performance",
+                        {**XGB, "slice_by": "momentum_bin", "model": "energy"},
+                        "performance_momentum"),
+    "perf_xgb_angle": ("xgb_client", "/api/model-performance",
+                       {**XGB, "slice_by": "momentum_bin", "model": "angle"},
+                       "performance_momentum"),
+    "pred_density_xgb_energy": ("xgb_client", "/api/prediction-density",
+                                {**XGB, "model": "energy"}, "prediction_density"),
+    "pred_density_xgb_theta": ("xgb_client", "/api/prediction-density",
+                               {**XGB, "model": "angle", "label": "theta"}, "prediction_density"),
+    "pred_density_xgb_phi": ("xgb_client", "/api/prediction-density",
+                             {**XGB, "model": "angle", "label": "phi"}, "prediction_density"),
 }
 
 
@@ -162,6 +195,23 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
 VOLATILE: dict[str, tuple[tuple[str, ...], ...]] = {
     "/api/voxels": (("frame", "comb"), ("frame", "comb_source")),
     "/api/features": (("meta", "budget", "bytes"),),
+    # The temporary models folder, when it was scanned, and the worker's thread
+    # count (half this machine's cores).
+    "/api/admin/model-runs": (("models", "dir"), ("models", "scanned_at"),
+                              ("worker", "nthread")),
+}
+
+#: Per route, keys dropped wherever they occur: the model-run worker's clock.
+VOLATILE_KEYS: dict[str, frozenset[str]] = {
+    "/api/admin/model-runs": frozenset({"queued_at", "started_at", "finished_at", "duration_s",
+                                        "timings"}),
+}
+
+#: Per recording, blocks that describe the serving process rather than the data:
+#: the catalogue's compute block counts this machine's cores and the cache warmers
+#: race the request.
+VOLATILE_BY_NAME: dict[str, tuple[tuple[str, ...], ...]] = {
+    "experiments_xgb": (("compute",),),
 }
 
 
@@ -187,15 +237,23 @@ def _rounded(value):
     return value
 
 
-def _comparable(path: str, body: dict) -> dict:
+def _dropped(value, keys: frozenset[str]):
+    if isinstance(value, dict):
+        return {k: _dropped(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_dropped(v, keys) for v in value]
+    return value
+
+
+def _comparable(path: str, body: dict, name: str = "") -> dict:
     body = json.loads(json.dumps(body))
-    for keys in VOLATILE.get(path, ()):
+    for keys in (*VOLATILE.get(path, ()), *VOLATILE_BY_NAME.get(name, ())):
         node = body
         for key in keys[:-1]:
             node = node.get(key) if isinstance(node, dict) else None
         if isinstance(node, dict):
             node.pop(keys[-1], None)
-    return _rounded(body)
+    return _rounded(_dropped(body, VOLATILE_KEYS.get(path, frozenset())))
 
 
 def _check(client, name: str) -> None:
@@ -208,12 +266,16 @@ def _check(client, name: str) -> None:
     stored = OUT / f"{name}.json"
     if WRITE:
         OUT.mkdir(parents=True, exist_ok=True)
-        stored.write_text(json.dumps(_masked(body), indent=1, ensure_ascii=False) + "\n",
+        kept = _masked(body)
+        if path == "/api/admin/model-runs" and isinstance(kept.get("models"), dict):
+            # This machine's temporary folder is not worth committing; it is not compared.
+            kept["models"]["dir"] = "<the test's temporary models folder>"
+        stored.write_text(json.dumps(kept, indent=1, ensure_ascii=False) + "\n",
                           encoding="utf-8")
         return
     assert stored.is_file(), f"{stored} missing: regenerate (see the module docstring)"
-    recorded = _comparable(path, json.loads(stored.read_text(encoding="utf-8")))
-    served = _comparable(path, _masked(body))
+    recorded = _comparable(path, json.loads(stored.read_text(encoding="utf-8")), name)
+    served = _comparable(path, _masked(body), name)
     assert recorded == served, (
         f"{name} changed at {_differences(recorded, served)[:5]}: regenerate the payload "
         "fixtures (see the module docstring)")
@@ -247,5 +309,13 @@ def test_synthetic_client_payloads_are_current_and_satisfy_their_contract(synthe
     _check(synthetic_client, name)
 
 
+@pytest.mark.parametrize("name", _named("xgb_client"))
+def test_xgb_client_payloads_are_current_and_satisfy_their_contract(xgb_client, name):
+    """The XGBoost views, on their own booted server: the models are trained in-test, and
+    the server waits for their analysis before it is handed to the test."""
+    _check(xgb_client, name)
+
+
 def test_every_payload_names_a_booted_client():
-    assert {entry[0] for entry in PAYLOADS.values()} == {"single_client", "synthetic_client"}
+    assert {entry[0] for entry in PAYLOADS.values()} == {"single_client", "synthetic_client",
+                                                          "xgb_client"}

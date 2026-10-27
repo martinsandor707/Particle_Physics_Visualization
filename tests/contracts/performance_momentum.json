@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "GET /api/model-performance?slice_by=momentum_bin (E2)",
+ "title": "GET /api/model-performance?slice_by=momentum_bin (E2): the networks' series on two-shower data, the XGBoost validation-split series (code xgb) on an aggregate experiment",
  "type": "object",
  "required": [
   "meta",
@@ -145,6 +145,9 @@
   },
   "by_momentum_bin": {
    "$ref": "#/$defs/by_momentum_bin"
+  },
+  "run": {
+   "$ref": "#/$defs/xgb_run"
   }
  },
  "$defs": {
@@ -317,6 +320,9 @@
     },
     "slice_by": {
      "const": "momentum_bin"
+    },
+    "source": {
+     "const": "xgb"
     }
    }
   },
@@ -416,277 +422,14 @@
     "series": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "key",
-       "network",
-       "coord_system",
-       "shower",
-       "n",
-       "n_missing",
-       "drives_scale",
-       "rmse",
-       "rmse_lo",
-       "rmse_hi",
-       "mae",
-       "mae_se",
-       "mae_lo",
-       "mae_hi",
-       "median_rel",
-       "median_rel_lo",
-       "median_rel_hi",
-       "median_rel_method",
-       "bias",
-       "bias_lo",
-       "bias_hi"
-      ],
-      "properties": {
-       "key": {
-        "type": "string"
+      "anyOf": [
+       {
+        "$ref": "#/$defs/network_series"
        },
-       "network": {
-        "type": "object",
-        "required": [
-         "model",
-         "frame"
-        ],
-        "properties": {
-         "model": {
-          "type": "string"
-         },
-         "frame": {
-          "type": "string"
-         }
-        }
-       },
-       "coord_system": {
-        "type": "string"
-       },
-       "shower": {
-        "enum": [
-         "a",
-         "b"
-        ]
-       },
-       "n": {
-        "type": "array",
-        "items": {
-         "type": "integer"
-        }
-       },
-       "n_missing": {
-        "type": "array",
-        "items": {
-         "type": "integer"
-        }
-       },
-       "drives_scale": {
-        "type": "array",
-        "items": {
-         "type": "boolean"
-        }
-       },
-       "rmse": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "rmse_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "rmse_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "mae": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "mae_se": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "mae_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "mae_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel_method": {
-        "type": "array",
-        "items": {
-         "type": [
-          "string",
-          "null"
-         ],
-         "enum": [
-          "bootstrap_percentile",
-          "order_statistic",
-          null
-         ]
-        }
-       },
-       "median_rel_order_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel_order_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_rel_order_coverage": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "bias": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "bias_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "bias_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_abs": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_abs_lo": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "median_abs_hi": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "theta_min": {
-        "type": "array",
-        "items": {
-         "type": [
-          "number",
-          "null"
-         ]
-        }
-       },
-       "n_small_theta": {
-        "type": "array",
-        "items": {
-         "type": "integer"
-        }
+       {
+        "$ref": "#/$defs/xgb_series"
        }
-      }
+      ]
      }
     },
     "y_max": {
@@ -854,6 +597,794 @@
       "nonpositive_true": {
        "type": "object"
       }
+     }
+    },
+    "source": {
+     "const": "xgb"
+    },
+    "series_label": {
+     "type": "string"
+    },
+    "split": {
+     "$ref": "#/$defs/xgb_split"
+    },
+    "quantity_groups": {
+     "type": "object",
+     "required": [
+      "theta",
+      "phi"
+     ],
+     "properties": {
+      "theta": {
+       "type": "array",
+       "items": {
+        "enum": [
+         "rmse",
+         "mae",
+         "median_rel",
+         "bias",
+         "median_abs"
+        ]
+       }
+      },
+      "phi": {
+       "type": "array",
+       "items": {
+        "enum": [
+         "phi_rmse",
+         "phi_mae",
+         "phi_median_abs"
+        ]
+       }
+      }
+     },
+     "additionalProperties": false
+    }
+   }
+  },
+  "xgb_run": {
+   "type": "object",
+   "required": [
+    "species",
+    "seed",
+    "task",
+    "labels",
+    "model_file",
+    "sha256",
+    "analysis_version",
+    "split"
+   ],
+   "properties": {
+    "species": {
+     "type": "string"
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "split": {
+     "type": "object",
+     "required": [
+      "reproduced",
+      "ratio_42",
+      "ratio_others",
+      "warning"
+     ]
+    }
+   }
+  },
+  "xgb_split": {
+   "type": "object",
+   "required": [
+    "n_selected",
+    "n_validation",
+    "n_training_excluded",
+    "fraction",
+    "rule",
+    "reproduced"
+   ],
+   "properties": {
+    "n_selected": {
+     "type": "integer"
+    },
+    "n_validation": {
+     "type": "integer"
+    },
+    "n_training_excluded": {
+     "type": "integer"
+    },
+    "fraction": {
+     "type": "number"
+    },
+    "rule": {
+     "type": "string"
+    },
+    "reproduced": {
+     "type": "boolean"
+    }
+   }
+  },
+  "network_series": {
+   "type": "object",
+   "required": [
+    "key",
+    "network",
+    "coord_system",
+    "shower",
+    "n",
+    "n_missing",
+    "drives_scale",
+    "rmse",
+    "rmse_lo",
+    "rmse_hi",
+    "mae",
+    "mae_se",
+    "mae_lo",
+    "mae_hi",
+    "median_rel",
+    "median_rel_lo",
+    "median_rel_hi",
+    "median_rel_method",
+    "bias",
+    "bias_lo",
+    "bias_hi"
+   ],
+   "properties": {
+    "key": {
+     "type": "string"
+    },
+    "network": {
+     "type": "object",
+     "required": [
+      "model",
+      "frame"
+     ],
+     "properties": {
+      "model": {
+       "type": "string"
+      },
+      "frame": {
+       "type": "string"
+      }
+     }
+    },
+    "coord_system": {
+     "type": "string"
+    },
+    "shower": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    },
+    "n": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "n_missing": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "drives_scale": {
+     "type": "array",
+     "items": {
+      "type": "boolean"
+     }
+    },
+    "rmse": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "rmse_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "rmse_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_se": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_method": {
+     "type": "array",
+     "items": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "bootstrap_percentile",
+       "order_statistic",
+       null
+      ]
+     }
+    },
+    "median_rel_order_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_order_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_order_coverage": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "theta_min": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "n_small_theta": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    }
+   },
+   "propertyNames": {
+    "not": {
+     "enum": [
+      "code",
+      "label",
+      "phi_rmse",
+      "phi_rmse_lo",
+      "phi_rmse_hi",
+      "phi_mae",
+      "phi_mae_se",
+      "phi_mae_lo",
+      "phi_mae_hi",
+      "phi_median_abs",
+      "phi_median_abs_lo",
+      "phi_median_abs_hi",
+      "phi_median_abs_method"
+     ]
+    }
+   }
+  },
+  "xgb_series": {
+   "type": "object",
+   "required": [
+    "code",
+    "label",
+    "key",
+    "network",
+    "coord_system",
+    "shower",
+    "n",
+    "n_missing",
+    "drives_scale",
+    "rmse",
+    "rmse_lo",
+    "rmse_hi",
+    "mae",
+    "mae_se",
+    "mae_lo",
+    "mae_hi",
+    "median_rel",
+    "median_rel_lo",
+    "median_rel_hi",
+    "median_rel_method",
+    "bias",
+    "bias_lo",
+    "bias_hi"
+   ],
+   "properties": {
+    "key": {
+     "type": "string"
+    },
+    "network": {
+     "type": "object",
+     "required": [
+      "model",
+      "frame"
+     ],
+     "properties": {
+      "model": {
+       "type": "string"
+      },
+      "frame": {
+       "type": "string"
+      }
+     }
+    },
+    "coord_system": {
+     "type": "string"
+    },
+    "shower": {
+     "const": "a"
+    },
+    "n": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "n_missing": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "drives_scale": {
+     "type": "array",
+     "items": {
+      "type": "boolean"
+     }
+    },
+    "rmse": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "rmse_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "rmse_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_se": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "mae_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_method": {
+     "type": "array",
+     "items": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "bootstrap_percentile",
+       "order_statistic",
+       null
+      ]
+     }
+    },
+    "median_rel_order_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_order_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_rel_order_coverage": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "bias_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "median_abs_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "theta_min": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "n_small_theta": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     }
+    },
+    "code": {
+     "const": "xgb"
+    },
+    "label": {
+     "type": "string"
+    },
+    "phi_rmse": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_rmse_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_rmse_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_mae": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_mae_se": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_mae_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_mae_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_median_abs": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_median_abs_lo": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_median_abs_hi": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "phi_median_abs_method": {
+     "type": "array",
+     "items": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "bootstrap_percentile",
+       "order_statistic",
+       null
+      ]
      }
     }
    }

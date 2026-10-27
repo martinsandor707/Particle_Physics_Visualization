@@ -3,7 +3,9 @@
 The panel reads the effective default view with ``GET /api/admin/config`` and
 saves changes with ``POST``; ``POST /api/admin/auto-ingest/scan`` is its Scan
 now, and ``POST /api/admin/experiments/{name}/rebuild`` its Rebuild derived
-tables. Scripts can use the same calls. No endpoint in this service is
+tables. ``GET /api/admin/model-runs`` lists the XGBoost model analysis of every
+aggregate experiment and ``POST /api/admin/model-runs/{name}/analyse`` is its
+Re-analyse. Scripts can use the same calls. No endpoint in this service is
 authenticated, and this one follows the same trust model as upload and delete:
 anyone who can reach the port can change what a new session opens on.
 """
@@ -19,8 +21,11 @@ from ..db import archive, naming, registry
 from ..errors import ConflictError, IngestError, UnknownTableError
 from ..ingest import autoingest
 from ..ingest import jobs as jobs_mod
+from ..modelruns import jobs as modelruns_jobs
+from ..modelruns import pairing as pairing_mod
 from ..models.common import json_safe
 from ..query import experiments
+from ..text import typographic
 from .deps import CursorDep, SettingsDep
 
 router = APIRouter()
@@ -108,3 +113,83 @@ def rebuild(table_name: str, request: Request, con: CursorDep, settings: Setting
         raise IngestError(f"Experiment {name!r} has no archive to rebuild from.", table_name=name)
     job = store.submit_rebuild(name, size_bytes=manifest.bytes)
     return {"job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}
+
+
+def _model_runs_view(found: modelruns_jobs.ModelRunStore, settings) -> dict[str, Any]:
+    catalogue = found.catalogue
+    return {
+        "models": catalogue.as_dict() if catalogue is not None else None,
+        "runs": [state.as_dict() for state in found.states()],
+        "worker": {"nthread": settings.model_threads, "busy": found.busy(),
+                   "steps": modelruns_jobs.N_STEPS},
+        "statuses": list(modelruns_jobs.STATUSES),
+    }
+
+
+@router.get("/api/admin/model-runs", summary="The XGBoost model analysis of every aggregate experiment")
+def get_model_runs(request: Request, settings: SettingsDep):
+    """Each aggregate experiment's pairing with the shipped models, and its analysis.
+
+    Rescans the models folder on every call (headers are cached by size and
+    modification time) and re-pairs every aggregate experiment, as a restart
+    would: an analysis made stale by a replaced model file or a library
+    upgrade is queued at once, and one that failed on unchanged inputs waits
+    for Re-analyse.
+    """
+    found = modelruns_jobs.get_model_runs(request.app.state.database)
+    found.refresh(queue=True)
+    return json_safe(_text_tree(_model_runs_view(found, settings)))
+
+
+@router.post(
+    "/api/admin/model-runs/{table_name}/analyse", status_code=202,
+    summary="Queue the XGBoost analysis of one experiment again",
+)
+def analyse(table_name: str, request: Request, con: CursorDep, settings: SettingsDep):
+    """Re-run the analysis even when the stored one is current (Re-analyse).
+
+    Refused when the experiment is not registered (404), when it does not pair
+    with models or is not ready (422, with the pairing's reason) and when an
+    analysis of it is already queued or running (409).
+    """
+    from ..errors import CapabilityError
+
+    name = naming.validate_experiment_name(table_name)
+    record = registry.get_experiment(con, name)
+    if record is None:
+        raise UnknownTableError(f"No experiment named {name!r} is registered.", table_name=name)
+    found = modelruns_jobs.get_model_runs(request.app.state.database)
+    if name in found.busy():
+        raise ConflictError(f"An XGBoost analysis of {name!r} is already queued or running.",
+                            table_name=name)
+    pairing = pairing_mod.pair(record, found.rescan())
+    reason = None
+    if not pairing.paired:
+        reason = f"No XGBoost models pair with this experiment: {pairing.reason}"
+    elif not record.is_ready:
+        reason = f"It is not ready (status: {record.status})."
+    if reason is None:
+        state = found.submit(record, force=True)
+        if state.status in (modelruns_jobs.STATUS_QUEUED, modelruns_jobs.STATUS_RUNNING):
+            return json_safe(_text_tree({"run": state.as_dict(), "poll": "/api/admin/model-runs"}))
+        reason = state.gate_reason() or "It cannot be analysed."
+    reason = typographic(reason)
+    raise CapabilityError(
+        f"xgboost cannot be analysed for experiment {name!r}: {reason}",
+        field="table_name", capability="xgboost", kind=record.kind, reason=reason,
+        table_name=name)
+
+
+#: Fields of the model-runs payload that are paths or file names, never typeset.
+_VERBATIM = frozenset({"dir", "path", "model_file", "source_file"})
+
+
+def _text_tree(node: Any) -> Any:
+    """Every sentence with U+2212 for a negative number; paths and file names untouched."""
+    if isinstance(node, str):
+        return typographic(node)
+    if isinstance(node, dict):
+        return {k: v if k in _VERBATIM else _text_tree(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_text_tree(v) for v in node]
+    return node

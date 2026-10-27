@@ -33,8 +33,27 @@ EVENT_PREFIX = "event_"
 LAYERS_PREFIX = "layers_"
 PROFILES_PREFIX = "profiles_"
 
+#: The XGBoost model analysis of an aggregate experiment (``calosrv/modelruns``):
+#: one row per task, the validation-split predictions, the cross-validation
+#: folds, the gain importances, the 2,000-row binary sample and the depth-3
+#: surrogate tree. Derived from the event table and the shipped models, so they
+#: are dropped with the experiment and rebuilt by its next analysis.
+XGB_RUN_PREFIX = "xgbrun_"
+XGB_PRED_PREFIX = "xgbpred_"
+XGB_FOLD_PREFIX = "xgbfold_"
+XGB_IMP_PREFIX = "xgbimp_"
+XGB_BIN_PREFIX = "xgbbin_"
+XGB_TREE_PREFIX = "xgbtree_"
+
+#: The model-analysis prefixes, keyed by the table's role.
+XGB_PREFIXES: dict[str, str] = {
+    "run": XGB_RUN_PREFIX, "pred": XGB_PRED_PREFIX, "fold": XGB_FOLD_PREFIX,
+    "imp": XGB_IMP_PREFIX, "bin": XGB_BIN_PREFIX, "tree": XGB_TREE_PREFIX,
+}
+
 #: Every prefix, longest first where one could begin another (none do today).
-_PREFIXES = (PROFILES_PREFIX, LAYERS_PREFIX, HIT_PREFIX, PROJ_PREFIX, EVENT_PREFIX)
+_PREFIXES = (PROFILES_PREFIX, LAYERS_PREFIX, HIT_PREFIX, PROJ_PREFIX, EVENT_PREFIX,
+             *XGB_PREFIXES.values())
 
 #: Suffix of the Bernoulli-sampled companion to a projection table, used to
 #: serve the drag-preview tier described in the performance plan.
@@ -167,6 +186,17 @@ def profiles_table(name: str) -> str:
     return f"{PROFILES_PREFIX}{validate_experiment_name(name)}"
 
 
+def xgb_table(role: str, name: str) -> str:
+    """Physical name of one model-analysis table of ``name``; ``role`` is a key of
+    :data:`XGB_PREFIXES` (``run``, ``pred``, ``fold``, ``imp``, ``bin``, ``tree``)."""
+    return f"{XGB_PREFIXES[role]}{validate_experiment_name(name)}"
+
+
+def xgb_tables(name: str) -> dict[str, str]:
+    """Every model-analysis table of ``name``, keyed by role."""
+    return {role: xgb_table(role, name) for role in XGB_PREFIXES}
+
+
 def all_tables(name: str) -> tuple[str, ...]:
     """Every physical table belonging to one experiment, for drop/cleanup."""
     return (
@@ -176,6 +206,7 @@ def all_tables(name: str) -> tuple[str, ...]:
         event_table(name),
         layers_table(name),
         profiles_table(name),
+        *xgb_tables(name).values(),
     )
 
 

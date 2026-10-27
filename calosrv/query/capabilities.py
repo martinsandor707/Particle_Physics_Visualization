@@ -14,6 +14,13 @@ derived tables are current - a two-shower experiment ingested before the
 Group-1 columns and the layer and profile tables existed is served as before,
 with the panels that need those tables off until it is rebuilt.
 
+A fourth decides the XGBoost views of an aggregate experiment: whether its
+source file pairs with shipped models, and whether their analysis is done and
+current (``calosrv/modelruns``). The gate ``xgboost`` opens the four XGBoost
+cards, and on the aggregate kind it also opens the performance and
+prediction-density cards, which draw the XGBoost validation-split series
+there. The worker's state is read from memory, so this stays free of SQL.
+
 A single-shower experiment reuses the two-shower query code with shower ``a``
 only. Each such reuse is enabled in :data:`SINGLE_SHOWER_READY` by the change
 that makes the query layer handle one shower, never before it.
@@ -48,7 +55,7 @@ PAGE2_CARDS: tuple[str, ...] = (
 )
 
 #: Gates that are not a card of their own: a voxel channel, a route serving an
-#: existing view, a frame, and the deferred XGBoost views.
+#: existing view, a frame, and the XGBoost views (one gate for the four cards).
 OTHER_GATES: tuple[str, ...] = (
     "vox-species", "vox-attention", "negative-depth",
     "window-axis", "event-inspector", "compare",
@@ -88,7 +95,13 @@ IMPLEMENTED: frozenset[str] = frozenset({
     "perf-bins", "pred-truth", "pred-residuals",
     "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
     "vox-event", "vox-species", "vox-ensemble", "vox-attention",
+    # The XGBoost model views (GET /api/xgboost), and the XGBoost series of E2.
+    "xgboost",
 })
+
+#: Page 2 cards that draw the networks on two-shower data and the XGBoost
+#: validation-split series on an aggregate experiment.
+XGB_SERIES_CARDS: tuple[str, ...] = ("perf-bins", "pred-truth", "pred-residuals")
 
 _NO_HITS = "This experiment holds event-level features only (the 59-column aggregate): it has no hits."
 _NO_NETWORKS = (
@@ -105,7 +118,18 @@ _NO_SPECIES = (
 )
 _NO_LATTICE = "No detector lattice was measured for this experiment."
 _NO_FRAME_BOUNDS = "The per-shower frame extents were not measured for this experiment."
-_XGBOOST = "No precomputed XGBoost model-run artefacts are loaded (see TODO.md)."
+_XGB_KIND = (
+    "The XGBoost models read the 52 event-level features of an aggregate experiment "
+    "(single_shower_events); this experiment is {label}."
+)
+_XGB_UNCHECKED = (
+    "The XGBoost analysis has not checked this experiment yet: it does when an ingest or a "
+    "rebuild finishes and at every start (Admin Settings › Model runs)."
+)
+_NO_NETWORKS_XGB = (
+    "This experiment carries no reconstruction-network outputs; its cards draw the XGBoost "
+    "series instead, which is not available: {reason}"
+)
 _NOT_YET_SINGLE = "Not yet available for single-shower experiments."
 _NOT_IMPLEMENTED = "Not served by this release yet."
 
@@ -132,6 +156,8 @@ class Capabilities:
     reasons: dict[str, str]
     derived: dict[str, Any]
     measured: dict[str, Any] = field(default_factory=dict)
+    #: The paired XGBoost models and their analysis, one entry per task (empty when unpaired).
+    model_runs: tuple[dict[str, Any], ...] = ()
 
     def can(self, gate: str) -> bool:
         return bool(self.gates.get(gate, False))
@@ -159,7 +185,7 @@ class Capabilities:
             "species": self.can("vox-species"),
             "filters": list(self.filters),
             "group1_frames": group1_frames,
-            "model_runs": [],
+            "model_runs": [dict(run) for run in self.model_runs],
             "pages": {
                 "physics": any(self.gates.get(c) for c in PAGE1_CARDS),
                 "spatial": any(self.gates.get(c) for c in ("xy", "yz", "xz")),
@@ -170,6 +196,24 @@ class Capabilities:
             "derived": dict(self.derived),
             "measured": {k: v for k, v in self.measured.items() if k not in ("lattice", "frame_bounds")},
         }
+
+
+def model_runs(record: ExperimentRecord) -> tuple[bool, str | None, list[dict[str, Any]]]:
+    """``(open, reason, model_runs)`` of the ``xgboost`` gate, from the worker's state in memory."""
+    if record.kind != ddl.KIND_SINGLE_EVENTS:
+        traits = record.traits
+        label = traits.label if traits is not None else "of an unknown schema"
+        return False, _XGB_KIND.format(label=label), []
+    from ..modelruns import jobs as modelruns_jobs
+    from ..modelruns import pairing as pairing_mod
+
+    state = modelruns_jobs.lookup(record)
+    if state is None:
+        source = pairing_mod.parse_source(record)
+        if source.reason is not None:
+            return False, f"No XGBoost models pair with this experiment: {source.reason}", []
+        return False, _XGB_UNCHECKED, []
+    return state.current, state.gate_reason(), state.model_runs()
 
 
 def of(record: ExperimentRecord) -> Capabilities:
@@ -253,9 +297,16 @@ def of(record: ExperimentRecord) -> Capabilities:
     for name in ("profile-w", "profile-r", "negative-depth"):
         hit_gate(name, current, _stale(record))
 
-    # Page 2.
-    for name in ("perf-bins", "pred-truth", "pred-residuals"):
-        gate(name, networks, _NO_NETWORKS)
+    # Page 2. On the aggregate kind the performance cards draw the XGBoost series.
+    xgb_open, xgb_reason, runs = model_runs(record)
+    for name in XGB_SERIES_CARDS:
+        if kind == ddl.KIND_SINGLE_EVENTS:
+            # Paired: the analysis's own sentence, as the xgboost gate says it.
+            # Unpaired: there is nothing to draw, which starts with the networks.
+            gate(name, xgb_open,
+                 xgb_reason if runs else _NO_NETWORKS_XGB.format(reason=xgb_reason))
+        else:
+            gate(name, networks, _NO_NETWORKS)
     for name in ("feat-table", "feat-corr", "feat-hist", "feat-hist2d"):
         if kind == ddl.KIND_SINGLE_EVENTS:
             gate(name, True)
@@ -270,7 +321,7 @@ def of(record: ExperimentRecord) -> Capabilities:
          _NO_SPECIES if not traits.has_species else _NOT_YET_SINGLE)
     gate("prim-rate", traits.has_species and single_ready("prim-rate"),
          _NO_SPECIES if not traits.has_species else _NOT_YET_SINGLE)
-    gate("xgboost", False, _XGBOOST)
+    gate("xgboost", xgb_open, xgb_reason)
     for name in ALL_GATES:
         if gates[name] and name not in IMPLEMENTED:
             gate(name, False, _NOT_IMPLEMENTED)
@@ -285,7 +336,7 @@ def of(record: ExperimentRecord) -> Capabilities:
     else:
         channels = ()
     return Capabilities(kind, traits, frames, coord_systems, models, channels,
-                        gates, reasons, derived, measured)
+                        gates, reasons, derived, measured, tuple(runs))
 
 
 def require(record: ExperimentRecord, *gates: str, field: str = "table_name") -> Capabilities:

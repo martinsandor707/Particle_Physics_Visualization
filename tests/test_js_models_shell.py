@@ -28,6 +28,9 @@ Skipped when ``node`` is not on the PATH.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from test_js_physics_shell import _FAKE_DOM, JS, NODE, _path, _run
 
@@ -97,6 +100,13 @@ XGB = ["xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance"]
 FEATURES = ["feat-table", "feat-corr", "feat-hist", "feat-hist2d"]
 
 
+def _reason(kind: str, gate: str) -> str:
+    """The recorded catalogue's reason for one gate of the experiment of one kind."""
+    payload = json.loads(Path(_path("experiments")).read_text(encoding="utf-8"))
+    (experiment,) = [e for e in payload["experiments"] if e["capabilities"]["kind"] == kind]
+    return experiment["capabilities"]["reasons"][gate]
+
+
 def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_results):
     plan = plan_results["plans"]["two_shower_hits"]
     assert plan["sections"] == {"perf": True, "xgb": False, "features": True, "primaries": True, "voxels": True}
@@ -110,7 +120,8 @@ def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_resul
     assert plan["banner"] is None and plan["networks"] is True
     assert plan["models"] == ["angle", "energy", "segmentation"]
     assert plan["xgbNotice"].startswith(plan_results["texts"]["xgb"])
-    assert "No precomputed XGBoost" in plan["xgbNotice"]
+    # The notice carries the server's own reason, whatever its wording.
+    assert _reason("two_shower_hits", "xgboost") in plan["xgbNotice"]
     assert plan["frames"]["offered"] == ["lab", "trans", "local", "canonical"]
     assert plan["frames"]["transPrimary"] is False and plan["frames"]["labels"] is None
     vox = plan["voxels"]

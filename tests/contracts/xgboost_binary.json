@@ -1,0 +1,734 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/xgboost?view=binary (E3, thresholding at 2 GeV, 99 : 1)",
+ "type": "object",
+ "required": [
+  "meta",
+  "run",
+  "filtered",
+  "selection_note",
+  "filter",
+  "view",
+  "task",
+  "threshold_gev",
+  "design",
+  "counts",
+  "confusion",
+  "rates",
+  "parity",
+  "minority",
+  "notes"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "run": {
+   "$ref": "#/$defs/run"
+  },
+  "filtered": {
+   "const": false
+  },
+  "selection_note": {
+   "type": "string"
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "view": {
+   "const": "binary"
+  },
+  "task": {
+   "const": "momentum"
+  },
+  "threshold_gev": {
+   "type": "number"
+  },
+  "design": {
+   "type": "object",
+   "required": [
+    "n_target",
+    "n_0_target",
+    "n_1_target",
+    "ratio",
+    "class_0_rule",
+    "class_1_rule",
+    "fallback",
+    "pool_0",
+    "pool_1",
+    "drawn_from",
+    "sampler",
+    "prediction"
+   ],
+   "properties": {
+    "n_target": {
+     "type": "integer"
+    },
+    "n_0_target": {
+     "type": "integer"
+    },
+    "n_1_target": {
+     "type": "integer"
+    },
+    "ratio": {
+     "type": "string"
+    },
+    "class_0_rule": {
+     "type": "string"
+    },
+    "class_1_rule": {
+     "type": "string"
+    },
+    "fallback": {
+     "type": "boolean"
+    },
+    "pool_0": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "pool_1": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "drawn_from": {
+     "type": "string"
+    },
+    "sampler": {
+     "type": "string"
+    },
+    "prediction": {
+     "type": "string"
+    }
+   }
+  },
+  "counts": {
+   "type": "object",
+   "required": [
+    "class_0",
+    "class_1",
+    "n"
+   ],
+   "properties": {
+    "class_0": {
+     "type": "integer"
+    },
+    "class_1": {
+     "type": "integer"
+    },
+    "n": {
+     "type": "integer"
+    }
+   }
+  },
+  "confusion": {
+   "type": "object",
+   "required": [
+    "tn",
+    "fp",
+    "fn",
+    "tp",
+    "matrix",
+    "layout"
+   ],
+   "properties": {
+    "tn": {
+     "type": "integer"
+    },
+    "fp": {
+     "type": "integer"
+    },
+    "fn": {
+     "type": "integer"
+    },
+    "tp": {
+     "type": "integer"
+    },
+    "matrix": {
+     "type": "array",
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "layout": {
+     "type": "string"
+    }
+   }
+  },
+  "rates": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "definition",
+     "k",
+     "n",
+     "value",
+     "interval",
+     "note"
+    ],
+    "properties": {
+     "id": {
+      "enum": [
+       "accuracy",
+       "recall_1",
+       "recall_0",
+       "precision_1",
+       "precision_0",
+       "balanced_accuracy"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "definition": {
+      "type": "string"
+     },
+     "k": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "n": {
+      "type": "integer"
+     },
+     "value": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "interval": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/interval"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "note": {
+      "type": "string"
+     },
+     "n_undefined_replicates": {
+      "type": "integer"
+     }
+    }
+   },
+   "minItems": 6,
+   "maxItems": 6
+  },
+  "parity": {
+   "type": "object",
+   "required": [
+    "label",
+    "accuracy",
+    "balanced_accuracy",
+    "precision_weighted",
+    "recall_weighted",
+    "f1_weighted",
+    "class_0_count",
+    "class_1_count"
+   ],
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "accuracy": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "balanced_accuracy": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "precision_weighted": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "recall_weighted": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "f1_weighted": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "class_0_count": {
+     "type": "integer"
+    },
+    "class_1_count": {
+     "type": "integer"
+    }
+   }
+  },
+  "minority": {
+   "type": "object",
+   "required": [
+    "n",
+    "class",
+    "note"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "class": {
+     "enum": [
+      0,
+      1
+     ]
+    },
+    "note": {
+     "type": "string"
+    }
+   }
+  },
+  "notes": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
+  }
+ },
+ "propertyNames": {
+  "not": {
+   "enum": [
+    "rows",
+    "predictions",
+    "hits"
+   ]
+  }
+ },
+ "$defs": {
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "interval": {
+   "type": "object",
+   "required": [
+    "lo",
+    "hi",
+    "level",
+    "method",
+    "label"
+   ],
+   "properties": {
+    "lo": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "hi": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "level": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    },
+    "label": {
+     "type": "string"
+    }
+   }
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "cached",
+    "warnings",
+    "view",
+    "task"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "type": "boolean"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "view": {
+     "const": "binary"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    }
+   }
+  },
+  "split": {
+   "type": "object",
+   "required": [
+    "reproduced",
+    "ratio_42",
+    "ratio_others",
+    "seeds_others",
+    "rule",
+    "warning"
+   ],
+   "properties": {
+    "reproduced": {
+     "type": "boolean"
+    },
+    "ratio_42": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ratio_others": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "seeds_others": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "rule": {
+     "type": "string"
+    },
+    "warning": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "run": {
+   "type": "object",
+   "required": [
+    "species",
+    "seed",
+    "task",
+    "labels",
+    "label_units",
+    "model_file",
+    "sha256",
+    "analysis_version",
+    "split",
+    "xgboost_version",
+    "n_rows",
+    "n_train",
+    "n_holdout",
+    "test_size"
+   ],
+   "properties": {
+    "species": {
+     "type": "string"
+    },
+    "seed": {
+     "type": "integer"
+    },
+    "task": {
+     "enum": [
+      "momentum",
+      "angle"
+     ]
+    },
+    "labels": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "momentum",
+       "phi",
+       "theta"
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 2
+    },
+    "label_units": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "model_file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "analysis_version": {
+     "type": "integer"
+    },
+    "split": {
+     "$ref": "#/$defs/split"
+    },
+    "xgboost_version": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "n_rows": {
+     "type": "integer"
+    },
+    "n_train": {
+     "type": "integer"
+    },
+    "n_holdout": {
+     "type": "integer"
+    },
+    "test_size": {
+     "type": "number"
+    },
+    "archive_increasing": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    }
+   }
+  },
+  "summary": {
+   "type": "object",
+   "required": [
+    "mean",
+    "sd",
+    "se",
+    "t95",
+    "n",
+    "dof",
+    "t",
+    "clipped"
+   ],
+   "properties": {
+    "mean": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "se": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "t95": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "n": {
+     "type": "integer"
+    },
+    "dof": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "t": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "clipped": {
+     "type": "boolean"
+    }
+   }
+  },
+  "t_interval": {
+   "type": "object",
+   "required": [
+    "label",
+    "level",
+    "dof",
+    "t",
+    "method"
+   ],
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "level": {
+     "type": "number"
+    },
+    "dof": {
+     "type": "integer"
+    },
+    "t": {
+     "type": "number"
+    },
+    "method": {
+     "type": "string"
+    }
+   }
+  },
+  "rate": {
+   "type": "object",
+   "required": [
+    "id",
+    "label",
+    "definition",
+    "k",
+    "n",
+    "value",
+    "interval",
+    "note"
+   ],
+   "properties": {
+    "id": {
+     "enum": [
+      "accuracy",
+      "recall_1",
+      "recall_0",
+      "precision_1",
+      "precision_0",
+      "balanced_accuracy"
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "definition": {
+     "type": "string"
+    },
+    "k": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "n": {
+     "type": "integer"
+    },
+    "value": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "interval": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/interval"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "note": {
+     "type": "string"
+    },
+    "n_undefined_replicates": {
+     "type": "integer"
+    }
+   }
+  }
+ }
+}

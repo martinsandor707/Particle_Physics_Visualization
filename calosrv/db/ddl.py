@@ -596,6 +596,50 @@ def _event_feature_columns() -> tuple[tuple[str, str], ...]:
 #: it is.
 EVENT_FEATURE_COLUMNS: tuple[tuple[str, str], ...] = _event_feature_columns()
 
+#: The aggregate file's (producer's) column for each event-table column it renames.
+#: Every other column keeps its file name. The shipped XGBoost models name their
+#: features and the notebooks name their labels in the producer's vocabulary, so a
+#: model is read against the event table through :func:`event_feature_column`.
+PRODUCER_RENAMED: dict[str, str] = {
+    "event_number": "event_id",
+    "e1": "incoming_momentum",
+    "theta_a": "incoming_theta",
+    "phi_a": "incoming_phi",
+    "e1_bin": "incoming_momentum_bin",
+    "n_hits": "num_hits",
+    "e_dep": "total_hit_energy",
+    "energy_class": "energy",
+}
+
+_FROM_PRODUCER: dict[str, str] = {v: k for k, v in PRODUCER_RENAMED.items()}
+_EVENT_FEATURE_NAMES: frozenset[str] = frozenset(name for name, _ in EVENT_FEATURE_COLUMNS)
+
+
+def event_feature_column(producer_name: str) -> str | None:
+    """The aggregate event-table column holding a producer column, or ``None``.
+
+    The allowlist a model file's feature names pass through before any of them
+    reaches SQL: a name the event table does not have returns ``None`` (and the
+    pairing is refused naming it), so a string read from a model file is never
+    interpolated. ``incoming_momentum`` -> ``e1``, ``num_hits`` -> ``n_hits``,
+    ``width_trans`` -> ``width_trans``.
+    """
+    column = _FROM_PRODUCER.get(producer_name, producer_name)
+    return column if column in _EVENT_FEATURE_NAMES else None
+
+
+def feature_frame(producer_name: str) -> str:
+    """The frame a v3 feature is computed in: ``absolute``, ``trans``, ``local`` or ``none``.
+
+    The suffix of :data:`FEATURE_SUFFIX` decides it; the hit count and the
+    deposit belong to no frame.
+    """
+    for code, word in (("trn", "trans"), ("loc", "local")):
+        if producer_name.endswith(FEATURE_SUFFIX[code]):
+            return word
+    base = set(CORE_FEATURES) | {"numerical_density", "energy_density"}
+    return "absolute" if producer_name in base else "none"
+
 
 def create_event_table(
     physical: str, columns: tuple[tuple[str, str], ...] = EVENT_COLUMNS
@@ -659,6 +703,122 @@ def create_layers_table(physical: str) -> str:
 def create_profiles_table(physical: str) -> str:
     body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in PROFILES_COLUMNS)
     return f"CREATE TABLE IF NOT EXISTS {quote(physical)} (\n    {body}\n);"
+
+
+# ---------------------------------------------------- model-analysis tables --
+#
+# The XGBoost analysis of an aggregate experiment (``calosrv/modelruns``), one
+# set per experiment (``naming.xgb_tables``). Written in one transaction by the
+# model-run worker and read by ``GET /api/xgboost`` and the XGBoost series of
+# the model-performance and prediction-density routes.
+
+#: One row per task: the pairing, the version stamp the staleness test compares,
+#: the split check, the surrogate's fidelity and the run's timings. The JSON
+#: columns carry the lists and the per-task blocks (E3's notebook metrics, the
+#: model header) whose shape is the payload's, not a relation's.
+XGB_RUN_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("task", "VARCHAR"),
+    ("species", "VARCHAR"),
+    ("seed", "INTEGER"),
+    ("model_file", "VARCHAR"),         # relative to the models folder
+    ("sha256", "VARCHAR"),
+    ("labels", "VARCHAR"),             # JSON: the notebook's label names, output order
+    ("label_columns", "VARCHAR"),      # JSON: their event-table columns
+    ("features", "VARCHAR"),           # JSON: the model's feature names, in order
+    ("versions", "VARCHAR"),           # JSON: library versions of the run
+    ("analysis_version", "INTEGER"),
+    ("n_rows", "BIGINT"),
+    ("n_train", "BIGINT"),
+    ("n_val", "BIGINT"),
+    ("event_fingerprint", "VARCHAR"),  # sha256 of event_number in order
+    ("archive_increasing", "BOOLEAN"), # event ids strictly increasing in file order (NULL: unread)
+    ("split_ratio_42", "DOUBLE"),      # validation / training MSE at random_state 42
+    ("split_ratio_0", "DOUBLE"),
+    ("split_ratio_7", "DOUBLE"),
+    ("split_reproduced", "BOOLEAN"),
+    ("surrogate_r2", "DOUBLE"),
+    ("surrogate_mae", "DOUBLE"),
+    ("details", "VARCHAR"),            # JSON: model header, per-output fidelity, E3 block, nulls
+    ("timings", "VARCHAR"),            # JSON: seconds per step
+    ("nthread", "INTEGER"),
+    ("created_at", "TIMESTAMP"),
+)
+
+#: The shipped model's predictions on the validation rows: one row per
+#: (event, output label). ``e1_bin`` is copied so the momentum-bin view needs no join
+#: for its axis; the selection joins the event table.
+XGB_PRED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("task", "VARCHAR"),
+    ("event_number", "INTEGER"),
+    ("e1_bin", "UTINYINT"),
+    ("label", "VARCHAR"),
+    ("y_true", "DOUBLE"),
+    ("y_pred", "DOUBLE"),
+)
+
+#: E1: one row per (task, fold, metric, label). ``label`` is ``momentum``, or for
+#: the angle task ``parity`` (the notebook's uniform average), ``theta`` or ``phi``.
+XGB_FOLD_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("task", "VARCHAR"),
+    ("fold", "INTEGER"),
+    ("n_train", "BIGINT"),
+    ("n_val", "BIGINT"),
+    ("metric", "VARCHAR"),
+    ("label", "VARCHAR"),
+    ("value", "DOUBLE"),
+)
+
+#: E5: gain importances of the shipped model (``fold`` NULL) and of each refitted fold.
+XGB_IMP_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("task", "VARCHAR"),
+    ("source", "VARCHAR"),             # 'shipped' | 'fold'
+    ("fold", "INTEGER"),
+    ("feature", "VARCHAR"),
+    ("gain_norm", "DOUBLE"),
+    ("raw_gain", "DOUBLE"),
+    ("raw_weight", "DOUBLE"),
+    ("raw_cover", "DOUBLE"),
+)
+
+#: E3: the notebook's 2,000-row sample of the validation split, in its shuffled order.
+XGB_BIN_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("ord", "INTEGER"),
+    ("event_number", "INTEGER"),
+    ("p", "DOUBLE"),                   # the true incident momentum (GeV)
+    ("y_true", "UTINYINT"),            # 1{p > 2 GeV}
+    ("y_pred_value", "DOUBLE"),        # the regressor's prediction (GeV)
+    ("y_pred", "UTINYINT"),            # 1{prediction > 2 GeV}
+)
+
+#: E4: sklearn's ``tree_`` arrays, one row per (node, output label). ``impurity`` is
+#: sklearn's (the mean over the outputs); ``variance`` the label's own within-node
+#: variance of the booster's predictions, so a multi-output node has one per label.
+XGB_TREE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("task", "VARCHAR"),
+    ("node_id", "INTEGER"),
+    ("depth", "INTEGER"),
+    ("children_left", "INTEGER"),
+    ("children_right", "INTEGER"),
+    ("feature", "VARCHAR"),            # NULL on a leaf
+    ("threshold", "DOUBLE"),           # NULL on a leaf
+    ("n_node_samples", "BIGINT"),
+    ("impurity", "DOUBLE"),
+    ("label", "VARCHAR"),
+    ("value", "DOUBLE"),
+    ("variance", "DOUBLE"),
+)
+
+#: The columns of each model-analysis table, keyed as ``naming.XGB_PREFIXES``.
+XGB_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "run": XGB_RUN_COLUMNS, "pred": XGB_PRED_COLUMNS, "fold": XGB_FOLD_COLUMNS,
+    "imp": XGB_IMP_COLUMNS, "bin": XGB_BIN_COLUMNS, "tree": XGB_TREE_COLUMNS,
+}
+
+
+def create_xgb_table(physical: str, role: str) -> str:
+    """DDL of one model-analysis table; ``role`` is a key of :data:`XGB_COLUMNS`."""
+    body = ",\n    ".join(f"{name} {sql_type}" for name, sql_type in XGB_COLUMNS[role])
+    return f"CREATE TABLE {quote(physical)} (\n    {body}\n);"
 
 
 # ------------------------------------------------------------- registry --

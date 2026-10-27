@@ -32,6 +32,12 @@ from the sample's σ band. Bias, σ and RMSE come with their own intervals from
 ``metrics.residual_summary``.
 
 The angle network predicts θ only, so there is no azimuth residual to wrap.
+
+**The XGBoost series of an aggregate experiment** (:func:`read_xgb`) is the
+shipped regressor on the notebook's 20 % validation split, restricted to the
+selection: one shower, the same payload. Its angle task predicts φ as well as
+θ, chosen with ``label``; φ's residual is wrapped to (−π, π] (an azimuth's
+error of 2π − ε is a small one) and its axes are stated not to wrap.
 """
 
 from __future__ import annotations
@@ -106,7 +112,16 @@ LABELS = {
         "truth": "True incident polar angle θ", "pred": "Predicted polar angle θ",
         "residual": "Polar-angle residual θ_pred − θ_true", "residual_unit": "mrad",
     },
+    "phi": {
+        "truth": "True incident azimuth φ", "pred": "Predicted azimuth φ",
+        "residual": "Azimuth residual φ_pred − φ_true, wrapped to (−π, π]",
+        "residual_unit": "mrad",
+    },
 }
+
+#: The XGBoost series' code, and the labels its angle task predicts.
+XGB_CODE = "xgb"
+XGB_LABELS: dict[str, tuple[str, ...]] = {"energy": ("momentum",), "angle": ("theta", "phi")}
 
 
 # ------------------------------------------------------------------ colour --
@@ -241,10 +256,23 @@ class Selection:
     pred: dict[str, np.ndarray]
     #: Per shower, the selected events dropped for a prediction or a truth that is not finite.
     n_missing: dict[str, dict[str, int]] = field(default_factory=dict)
+    #: The XGBoost series (``"xgb"``) of an aggregate experiment; ``None`` for the networks.
+    source: str | None = None
+    #: The XGBoost angle task's label, ``theta`` or ``phi``; ``None`` otherwise.
+    label: str | None = None
+    #: The XGBoost series' split disclosure and run block.
+    split: dict[str, Any] = field(default_factory=dict)
+    run: dict[str, Any] = field(default_factory=dict)
 
     @property
     def frame(self) -> str:
+        if self.source == XGB_CODE:
+            return XGB_CODE
         return ddl.NETWORK_FRAME[self.coord_system]
+
+    @property
+    def labels(self) -> dict[str, str]:
+        return LABELS["phi" if self.label == "phi" else self.model]
 
     @property
     def unit(self) -> str:
@@ -269,23 +297,12 @@ def dataset_range(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, mode
     rounded lower edge, which its tick labels state.
     """
     table = quote(naming.event_table(record.table_name))
-    scale = _scale(model)
     parts: list[str] = []
     for shower in showers:
         truth, _ = performance_bins.network_columns(model, "lab", shower)
         parts.append(f"min(CAST({truth} AS DOUBLE)), max(CAST({truth} AS DOUBLE))")
     row = con.execute(f"SELECT {', '.join(parts)} FROM {table}").fetchone()
-    found = [float(v) * scale for v in row if v is not None and math.isfinite(float(v))]
-    if not found:
-        return 0.0, 1.0
-    lo, hi = min(found), max(found)
-    if not hi > lo:
-        pad = max(abs(lo), 1.0) * 0.5
-        lo, hi = lo - pad, hi + pad
-    lo, hi, _ = clip_mod.nice_range(lo, hi, fine=True)
-    if model == "energy" and lo > 0:
-        lo = 0.0
-    return float(lo), float(hi)
+    return _axis_range([v for v in row if v is not None], _scale(model), model)
 
 
 def read(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
@@ -385,6 +402,11 @@ def residuals(sel: Selection) -> tuple[dict[str, np.ndarray], dict[str, int]]:
             positive = t > 0
             excluded[shower] = int(t.size - positive.sum())
             out[shower] = (p[positive] - t[positive]) / t[positive]
+        elif sel.label == "phi":
+            from ..stats.circular import wrap_angle
+
+            excluded[shower] = 0
+            out[shower] = wrap_angle((p - t) / MRAD_PER_RAD) * MRAD_PER_RAD
         else:
             excluded[shower] = 0
             out[shower] = p - t
@@ -394,7 +416,7 @@ def residuals(sel: Selection) -> tuple[dict[str, np.ndarray], dict[str, int]]:
 def residual_block(sel: Selection) -> dict[str, Any]:
     """Each shower's residual histogram, curve, strip and markers, with its estimates beside them."""
     values, excluded = residuals(sel)
-    labels = LABELS[sel.model]
+    labels = sel.labels
     drawn = [s for s in sel.showers if values[s].size >= MIN_DENSITY_SAMPLES]
     pooled = np.concatenate([values[s] for s in (drawn or sel.showers)] or [np.empty(0)])
     clipping = clip_mod.percentile_clip(pooled, low=clip_mod.DEFAULT_LOW_PERCENTILE,
@@ -451,7 +473,54 @@ def residual_block(sel: Selection) -> dict[str, Any]:
 # ------------------------------------------------------------------ report --
 
 
+def _xgb_notes(sel: Selection) -> dict[str, str]:
+    notes = {
+        "series": (
+            "The shipped XGBoost regressor of this experiment's species and seed on the "
+            "notebook's 20 % validation split (train_test_split(test_size=0.2, "
+            "random_state=42)), the rows it was not trained on; the selection applies to them, "
+            "and the training rows it selects are counted in split.n_training_excluded, not "
+            "drawn."),
+        "pairs": (
+            f"Each count is an event. Below N = {MIN_DENSITY_SAMPLES} pairs the individual "
+            "(truth, prediction) pairs are drawn instead of a density, because a cell of one or "
+            "two events would be set by the binning, not by the model."),
+        "axes": (
+            "Truth and prediction share one range taken from the whole event table, whatever "
+            "the selection, so the identity line is the diagonal and the picture does not move "
+            "when a filter changes. Events beyond it are counted in outside, never dropped "
+            "silently."),
+        "residual": (
+            "The residual is the quantity of the model-performance card. Its range is the "
+            "1st to 99th percentile of the residuals when at least 20 are drawn "
+            "(axis.clipping.applied); below that it is their full extent and axis.provisional "
+            "is set. The mean's whisker is its Student-t interval and the σ band is the spread "
+            "of the events: two marks, two quantities."),
+    }
+    if sel.model == "energy":
+        notes["calibration"] = (
+            "The regressor predicts the momentum scale directly; no sampling-fraction "
+            "calibration is applied.")
+        notes["relative"] = (
+            "A relative residual needs a positive truth; an event without one is left out and "
+            "counted in residual.excluded.")
+    elif sel.label == "phi":
+        notes["angle"] = (
+            "φ is an azimuth. The axes are the angle in mrad as stored and do not wrap: a "
+            "prediction near −π for a truth near +π is a small error drawn in a far corner. "
+            "The residual below is wrapped to (−π, π], so it measures that error as it is; "
+            "the regressor's raw output can leave (−π, π], and is counted in outside when it "
+            "leaves the axis.")
+    else:
+        notes["angle"] = (
+            "The angle regressor predicts φ and θ; this is θ (label=phi draws φ). Axes and "
+            "residuals are in mrad.")
+    return {k: typographic(v) for k, v in notes.items()}
+
+
 def _notes(sel: Selection) -> dict[str, str]:
+    if sel.source == XGB_CODE:
+        return _xgb_notes(sel)
     notes = {
         "pairs": (
             "Each count is a shower: shower A and shower B of an event are separate pairs and "
@@ -499,7 +568,9 @@ def notices(sel: Selection, payload: dict[str, Any]) -> list[str]:
                 f"{who} has N = {block['n']} (truth, prediction) pairs, below the "
                 f"{MIN_DENSITY_SAMPLES} a density needs: its individual pairs are drawn."))
         elif not block["n"] and sel.n_events:
-            out.append(f"{who} has no {sel.frame}-frame prediction in this selection.")
+            out.append(f"{who} has no XGBoost validation event in this selection." if
+                       sel.source == XGB_CODE else
+                       f"{who} has no {sel.frame}-frame prediction in this selection.")
         lost = block["n_missing"]
         if lost["total"]:
             out.append(typographic(
@@ -527,7 +598,7 @@ def notices(sel: Selection, payload: dict[str, Any]) -> list[str]:
 
 def assemble(sel: Selection, residual: dict[str, Any], bins: int) -> dict[str, Any]:
     """The payload for ``bins`` bins per axis (the residual block is built once, by the caller)."""
-    labels = LABELS[sel.model]
+    labels = sel.labels
     unit = sel.unit
     density = {s: density_block(sel.truth[s], sel.pred[s], sel.lo, sel.hi, bins,
                                 sel.n_missing.get(s))
@@ -542,8 +613,11 @@ def assemble(sel: Selection, residual: dict[str, Any], bins: int) -> dict[str, A
         return {"lo": sig(sel.lo), "hi": sig(sel.hi), "n": bins, "unit": unit,
                 "label": typographic(label), "zero_based": sel.lo == 0.0}
 
+    network: dict[str, Any] = {"model": sel.model, "frame": sel.frame}
+    if sel.source == XGB_CODE:
+        network.update(source=XGB_CODE, label=sel.label or XGB_LABELS[sel.model][0])
     payload = {
-        "network": {"model": sel.model, "frame": sel.frame},
+        "network": network,
         "n_events": sel.n_events,
         "axes": {"truth": axis(labels["truth"]), "pred": axis(labels["pred"])},
         "density": density,
@@ -553,6 +627,13 @@ def assemble(sel: Selection, residual: dict[str, Any], bins: int) -> dict[str, A
         "thresholds": {**ENERGY_THRESHOLDS, "density2d": MIN_DENSITY_SAMPLES},
         "notes": _notes(sel),
     }
+    if sel.source == XGB_CODE:
+        # n_events counts the validation pairs drawn; n_selected the selection's events,
+        # validation and training rows alike, which the status bar reads.
+        payload.update(source=XGB_CODE, labels=list(XGB_LABELS[sel.model]),
+                       n_selected=sel.split.get("n_selected"), split=sel.split, run=sel.run)
+        if sel.label == "phi":
+            payload["axes"]["truth"]["circular"] = payload["axes"]["pred"]["circular"] = True
     return typographic_tree(payload)
 
 
@@ -577,3 +658,60 @@ def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
     """Prediction against truth for one network over the selection."""
     sel = read(con, record, spec, model, coord_system)
     return assemble(sel, residual_block(sel), bins)
+
+
+# ------------------------------------------------- the XGBoost series --
+
+
+def read_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
+             model: str, label: str | None) -> Selection:
+    """The XGBoost validation pairs of the selection (one shower, ``a``), on dataset-wide axes."""
+    from ..modelruns import store as xgb_store
+    from ..modelruns import views as xgb_views
+    from ..modelruns.pairing import label_column
+
+    task = performance_bins.XGB_TASK[model]
+    chosen = label or XGB_LABELS[model][0]
+    runs = xgb_store.read_runs(con, record.table_name)
+    where = spec.where_sql("e")
+    rows = xgb_store.read_holdout(con, record, task, where, spec.params())
+    n_selected = xgb_store.count_selected(con, record, where, spec.params())
+    scale = _scale(model)
+    t, p = rows[f"true_{chosen}"], rows[f"pred_{chosen}"]
+    keep = np.isfinite(t) & np.isfinite(p)
+    producer = {"momentum": "incoming_momentum", "theta": "incoming_theta",
+                "phi": "incoming_phi"}[chosen]
+    column = label_column(producer)
+    found = con.execute(
+        f"SELECT min(CAST({column} AS DOUBLE)), max(CAST({column} AS DOUBLE)) "
+        f"FROM {quote(naming.event_table(record.table_name))}").fetchone()
+    lo, hi = _axis_range([v for v in found if v is not None], scale, model)
+    run = xgb_views.run_block(runs, task) if runs and task in runs else {}
+    n_val = int(t.size)
+    split = {
+        "n_selected": n_selected, "n_validation": n_val,
+        "n_training_excluded": n_selected - n_val, "fraction": xgb_views.TEST_SIZE,
+        "rule": "train_test_split(np.arange(n), test_size=0.2, random_state=42) over the event "
+                "table in event_number order (the producer file's order)",
+        "reproduced": bool(run.get("split", {}).get("reproduced", True)),
+    }
+    missing = {"a": {"total": int((~keep).sum()), "prediction": int((~np.isfinite(p)).sum()),
+                     "truth": int((~np.isfinite(t)).sum())}}
+    return Selection(model, "lab", lo, hi, n_val, {"a": t[keep] * scale}, {"a": p[keep] * scale},
+                     missing, source=XGB_CODE, label=chosen if model == "angle" else None,
+                     split=split, run=run)
+
+
+def _axis_range(found: Sequence[float], scale: float, model: str) -> tuple[float, float]:
+    """The shared axis from the truth's extremes: scaled, rounded outward, energy from zero."""
+    values = [float(v) * scale for v in found if math.isfinite(float(v))]
+    if not values:
+        return 0.0, 1.0
+    lo, hi = min(values), max(values)
+    if not hi > lo:
+        pad = max(abs(lo), 1.0) * 0.5
+        lo, hi = lo - pad, hi + pad
+    lo, hi, _ = clip_mod.nice_range(lo, hi, fine=True)
+    if model == "energy" and lo > 0:
+        lo = 0.0
+    return float(lo), float(hi)
