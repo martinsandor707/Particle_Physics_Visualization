@@ -641,7 +641,8 @@ def test_the_xgboost_cards_render_for_both_tasks_with_the_output_switch(models_l
         page.wait_for_timeout(300)
         phi = page.evaluate(_CHART_TEXTS, "plot-xgb-surrogate")
         assert any(t.startswith("φ is not coloured") or t.startswith("φ: not coloured") for t in phi), phi
-        assert any("φ R²" in t and "θ R²" in t for t in phi), "each output's own fidelity is printed"
+        # Each output's own fidelity: φ judged on the circle (decision D-5), θ on the linear R².
+        assert any("φ circular R²" in t and "θ R²" in t for t in phi), ("each output's own fidelity is printed", phi)
         assert len(_xgb_view(requests, "surrogate")) == asked, "the output switch is a repaint"
         assert _hash(page).get("xgb_label") == "phi"
 
@@ -683,7 +684,8 @@ def test_the_phi_residual_card_draws_no_mean_marker_whisker_or_sigma_band(models
         assert phi and not [s["name"] for s in phi if mean_marks.search(s["name"] or "")], phi
         axis = page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-pred-residuals'))"
                              ".getOption().xAxis[0].name")
-        assert "wrapped to (−π, π]" in axis, axis
+        # The axis is in mrad, so its period is written in mrad too (P-24: one unit per label).
+        assert "wrapped to (−3142, 3142]" in axis, axis
         title, headings, body = _drawer(page, "pred-residuals")
         assert "circular" in body.lower() and "R̄" in body
         # θ is linear: the same card draws its mean and the mean's interval (the control).
