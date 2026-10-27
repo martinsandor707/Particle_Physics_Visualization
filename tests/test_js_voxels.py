@@ -250,9 +250,34 @@ for (const name of ENSEMBLES) {
   Object.assign(scale.THEME, saved);
 }
 out.legibleRun = (await imp('panels/chart_panel.js')).legibleRamp('viridis');
-// The 3-D plot's height by its width, and the opening zoom it then gets (P-18).
+// The 3-D plot's height by its width: the cube's rule before a model, the box's after (P-18, fix round Z).
 out.glHeights = [300, 400, 506, 586, 640, 746, 900].map((w) => [w, v.glPlotHeight(w)]);
-out.glFits = [400, 506, 586, 746].map((w) => [w, v.glPlotHeight(w), v.orthographicFit(w, v.glPlotHeight(w), v.LEGEND_RIGHT)]);
+{
+  // grid3D boxes (boxWidth = depth, boxDepth = the frame's x, boxHeight = its y): a cube, the synthetic
+  // single-shower event 3 (4,040 x 1,480 x 300 mm: 7.4 deep, 100 across, 36.6 tall), a tall box.
+  const boxes = { cube: [100, 100, 100], flat: [7.43, 100, 36.63], tall: [20, 20, 100], long: [100, 15, 15] };
+  out.camera = { ...v.cameraAxes(), alpha: v.CAMERA.alpha, beta: v.CAMERA.beta, pad: v.FIT_PAD, base: v.BASE_ORTHO_SIZE,
+    range: v.ORTHO_SIZE_RANGE, legend: v.LEGEND_RIGHT };
+  out.openings = [];
+  for (const [name, [bw, bd, bh]] of Object.entries(boxes)) {
+    const frame = v.boxFrame(bw, bd, bh);
+    for (const right of [0, 60]) {
+      for (const [w, h] of [[506, 384], [586, 453], [746, 560], [400, 560]]) {
+        const view = v.openingView(w, h, right, frame);
+        out.openings.push({ name, right, w, h, view, size: v.orthographicFit(w, h, right, frame),
+          items: v.viewItems(frame, (w - right) / h) });
+      }
+    }
+    out.openings.push({ name, heights: [506, 586, 746].map((w) => [w, v.glPlotHeight(w, 60, frame)]) });
+  }
+  // With the axis text: the recorded two-shower event, as the section fits it.
+  const model = v.decodeEventVoxels(load('event_voxels_base_lab'));
+  const fit = v.voxelFit(model, 'viridis');
+  out.textFit = { frame: fit.frame, right: fit.right, heights: [506, 586, 746].map((w) => {
+    const h = v.glPlotHeight(w, fit.right, fit.frame);
+    return { w, h, view: v.openingView(w, h, fit.right, fit.frame), items: v.viewItems(fit.frame, (w - fit.right) / h) };
+  }) };
+}
 
 /* The code-to-colour tables the 2-D panels use, for comparison. */
 out.tables = {
@@ -475,9 +500,11 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
   // A narrower card refits the opening zoom, and nothing else; a blank card is never refitted.
   if (gl.chart) {
     const before = gl.chart.options.length;
+    const fitted = gl.fit;
     Object.defineProperty(gl.plot, 'clientWidth', { value: 588, configurable: true });
     Object.defineProperty(gl.plot, 'clientHeight', { value: 560, configurable: true });
     section.resizeChart(gl);
+    const styled = gl.plot.style.height;
     const calls = gl.chart.options.slice(before).map(([option, flags]) => [option, flags ?? null]);
     section.resizeChart(gl);
     const again = gl.chart.options.length - before - calls.length;
@@ -485,7 +512,9 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
     const blanked = gl.chart.options.length;
     Object.defineProperty(gl.plot, 'clientWidth', { value: 500, configurable: true });
     section.resizeChart(gl);
-    result.refit = { calls, again, afterBlank: gl.chart.options.length - blanked };
+    result.refit = { calls, again, afterBlank: gl.chart.options.length - blanked,
+      expected: v.openingView(588, 560, fitted.right, fitted.frame), plotHeight: styled, blankHeight: gl.plot.style.height,
+      height: v.glPlotHeight(588, fitted.right, fitted.frame), frameKeys: Object.keys(fitted.frame).sort() };
   }
   section.reset();
   result.afterReset = { cleared: charts.map((c) => (c.disposed ? null : c.cleared)), notes: section.notes('vox-event') };
@@ -496,12 +525,16 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
 /* The opening zoom against the card's width. */
 {
   const model = v.decodeEventVoxels(load('event_voxels_base_lab'));
-  const grid = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 } }).option.grid3D;
+  const built = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 } });
+  const grid = built.option.grid3D;
+  const blind = v.voxelOption(model, { palette: 'viridis' }).option.grid3D;
   out.fit = {
-    camera: v.CAMERA.orthographicSize, aspect: v.FIT_ASPECT, right: v.LEGEND_RIGHT,
-    wide: v.orthographicFit(1244, 561, 60), narrow: v.orthographicFit(588, 560, 60),
-    noLegend: v.orthographicFit(588, 560, 0), zero: v.orthographicFit(0, 560, 60), none: v.orthographicFit(undefined, undefined, 60),
-    option: { size: grid.viewControl.orthographicSize, right: grid.right },
+    camera: v.CAMERA.orthographicSize, right: v.LEGEND_RIGHT,
+    zero: v.orthographicFit(0, 560, 60), none: v.orthographicFit(undefined, undefined, 60),
+    expected: v.openingView(588, 560, built.fit.right, built.fit.frame), fitRight: built.fit.right,
+    option: { size: grid.viewControl.orthographicSize, right: grid.right, left: grid.left, top: grid.top,
+      width: grid.width, height: grid.height, min: grid.viewControl.minOrthographicSize, max: grid.viewControl.maxOrthographicSize },
+    blind: { size: blind.viewControl.orthographicSize, left: blind.left, top: blind.top, width: blind.width, height: blind.height },
   };
 }
 
@@ -1380,20 +1413,122 @@ def test_at_most_two_webgl_charts_and_a_lost_context_says_so(out):
     assert base["afterReset"]["notes"] is None
 
 
-def test_the_opening_zoom_keeps_the_axis_titles_inside_a_narrow_card(out):
+def _placed(view, items, w, right, h):
+    """Each item's px rectangle on the canvas under an opening view: (left, right, top, bottom), y down."""
+    s = view["height"] / (view["size"] + 1)  # echarts-gl: height = orthographicSize + baseOrthoSize
+    cx, cy = view["left"] + view["width"] / 2, view["top"] + view["height"] / 2
+    return [(cx + s * it["x"] + it["l"], cx + s * it["x"] + it["r"], cy - s * it["y"] - it["t"], cy - s * it["y"] - it["b"])
+            for it in items]
+
+
+def _spare(view, items, w, right, h):
+    rects = _placed(view, items, w, right, h)
+    return {"left": min(r[0] for r in rects), "right": (w - right) - max(r[1] for r in rects),
+            "top": min(r[2] for r in rects), "bottom": h - max(r[3] for r in rects)}
+
+
+def test_the_opening_camera_is_echarts_gl_orbit_camera(out):
+    """voxels.js cameraAxes: the columns of R_y(beta) R_x(-alpha), as OrbitControl._updateTransform sets them."""
+    cam = out["camera"]
+    a, b = math.radians(cam["alpha"]), math.radians(cam["beta"])
+    ry = [[math.cos(b), 0, math.sin(b)], [0, 1, 0], [-math.sin(b), 0, math.cos(b)]]
+    rx = [[1, 0, 0], [0, math.cos(-a), -math.sin(-a)], [0, math.sin(-a), math.cos(-a)]]
+    r = [[sum(ry[i][k] * rx[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    for col, key in enumerate("uvw"):
+        assert cam[key] == pytest.approx([r[i][col] for i in range(3)], abs=1e-12), key
+    # The camera sits along w: (sin(t + pi/2) cos(p + pi/2), -cos(t + pi/2), sin(t + pi/2) sin(p + pi/2)), t = a, p = -b.
+    t, ph = a + math.pi / 2, -b + math.pi / 2
+    assert cam["w"] == pytest.approx([math.sin(t) * math.cos(ph), -math.cos(t), math.sin(t) * math.sin(ph)], abs=1e-12)
+    assert cam["pad"] == 8 and cam["base"] == 1 and cam["legend"] == 60
+
+
+def test_the_opening_view_fits_the_box_it_draws(out):
+    """openingView: every corner keeps FIT_PAD px from the area left of the legend, one dimension is tight,
+    and the size follows the box's shape (fix round Z)."""
+    cam = out["camera"]
+    pad = cam["pad"]
+    sizes = {}
+    for case in (c for c in out["openings"] if "view" in c):
+        view, w, h, right = case["view"], case["w"], case["h"], case["right"]
+        spare = _spare(view, case["items"], w, right, h)
+        assert min(spare.values()) >= pad - 0.6, (case["name"], w, h, right, spare)
+        # The smallest size: the limiting dimension's marks reach the pad on at least one side.
+        assert min(spare.values()) <= pad + 0.6, (case["name"], w, h, right, spare)
+        # The marks are centred in the area: equal spare on both sides of each axis (box only: symmetric).
+        assert abs(spare["left"] - spare["right"]) < 1.2 and abs(spare["top"] - spare["bottom"]) < 1.2, spare
+        # The viewport keeps the area's aspect and covers it.
+        assert view["width"] / view["height"] == pytest.approx((w - right) / h, rel=1e-3)
+        assert view["left"] <= 0.05 and view["top"] <= 0.05
+        assert view["left"] + view["width"] >= w - right - 0.05 and view["top"] + view["height"] >= h - 0.05
+        assert case["size"] == view["size"]
+        sizes[(case["name"], right, w, h)] = view["size"]
+    # A cube's eight corners: half-extents 50 (cos b + sin b) across, 50 (sin a sin b + cos a + sin a cos b) up.
+    # The axes' ticks stand 3 units off three of its edges, so the fit is a little wider than the corners'.
+    a, b = math.radians(cam["alpha"]), math.radians(cam["beta"])
+    hx = 50 * (math.cos(b) + math.sin(b))
+    hy = 50 * (math.sin(a) * math.sin(b) + math.cos(a) + math.sin(a) * math.cos(b))
+    for (w, h) in ((506, 384), (586, 453), (746, 560), (400, 560)):
+        for right in (0, 60):
+            s = min((w - right - 2 * pad) / (2 * hx), (h - 2 * pad) / (2 * hy))
+            corners = h / s - 1
+            assert corners - 0.11 <= sizes[("cube", right, w, h)] <= 1.06 * corners, (w, h, right, corners)
+            # The legend's strip takes width from the view: never a closer zoom with it.
+            assert sizes[("cube", 60, w, h)] >= sizes[("cube", 0, w, h)]
+    # The flat event-3 box opens closer than the cube; a tall box is held by the height.
+    for (w, h) in ((506, 384), (586, 453), (746, 560)):
+        assert sizes[("flat", 60, w, h)] < 0.6 * sizes[("cube", 60, w, h)], (w, h)
+    # Pinned: at 586 x 453 every box but the long one is held by the height, so the legend's strip costs
+    # nothing; a narrow 400 x 560 plot is held by its width, and the strip zooms out.
+    pins = {("cube", 60, 586, 453): 157.4, ("flat", 60, 586, 453): 71.4, ("tall", 60, 586, 453): 107.8,
+            ("long", 60, 586, 453): 80.9, ("long", 0, 586, 453): 72.3,
+            ("cube", 0, 400, 560): 213.1, ("cube", 60, 400, 560): 252.8,
+            ("flat", 0, 400, 560): 109.0, ("flat", 60, 400, 560): 129.3}
+    for key, size in pins.items():
+        assert sizes[key] == pytest.approx(size, abs=0.11), (key, sizes[key], sizes)
+    tall = next(c for c in out["openings"] if c.get("name") == "tall" and c.get("w") == 586 and c.get("right") == 60)
+    spare = _spare(tall["view"], tall["items"], 586, 60, 453)
+    assert spare["top"] == pytest.approx(pad, abs=0.6) and spare["left"] > 3 * pad, spare
+    flat = next(c for c in out["openings"] if c.get("name") == "long" and c.get("w") == 586 and c.get("right") == 60)
+    spare = _spare(flat["view"], flat["items"], 586, 60, 453)
+    assert spare["left"] == pytest.approx(pad, abs=0.6) and spare["top"] > 3 * pad, spare
+    # Unknown or empty sizes: the camera's own.
     fit = out["fit"]
-    assert fit["camera"] == 160 and fit["right"] == 60
-    # Wide enough, or no size known: the camera's own size.
-    assert fit["wide"] == 160 and fit["zero"] == 160 and fit["none"] == 160
-    # Narrower than FIT_ASPECT: widened in proportion, the legend's strip excluded.
-    assert fit["narrow"] == pytest.approx(160 * fit["aspect"] * 560 / (588 - 60), abs=0.05)
-    assert fit["noLegend"] == pytest.approx(160 * fit["aspect"] * 560 / 588, abs=0.05)
-    assert fit["narrow"] > fit["noLegend"] > 160
-    assert fit["option"] == {"size": fit["narrow"], "right": 60}
-    # The section refits the zoom alone when the card's width changes, once, and never on a blank card.
+    assert fit["camera"] == 160 and fit["zero"] == 160 and fit["none"] == 160
+    assert fit["blind"] == {"size": 160, "left": 0, "top": 0, "width": None, "height": None}
+
+
+def test_the_opening_view_keeps_the_axis_text_inside_the_canvas(out):
+    """With tick labels and titles (the recorded two-shower event): every mark, text included, inside the area
+    left of the legend with FIT_PAD to spare, the marks centred; the option carries the view."""
+    pad = out["camera"]["pad"]
+    text = out["textFit"]
+    assert text["right"] >= 60
+    frame = text["frame"]
+    assert frame["cloud"] is not None and set(frame["cloud"]) == {"alpha", "beta", "left", "right", "bottom", "top"}
+    assert all(frame[d]["name"]["w"] > 0 and frame[d]["labels"] for d in "xyz"), frame
+    for row in text["heights"]:
+        w, h, view = row["w"], row["h"], row["view"]
+        assert 360 <= h <= 560
+        spare = _spare(view, row["items"], w, text["right"], h)
+        assert min(spare.values()) >= pad - 0.6, (w, h, spare)
+        assert abs(spare["left"] - spare["right"]) < 1.2 and abs(spare["top"] - spare["bottom"]) < 1.2, spare
+        # The height follows the box: no empty band above and below unless held at 360 or 560 px.
+        if 360 < h < 560:
+            assert spare["top"] <= pad + 1.2, (w, h, spare)
+    fit = out["fit"]
+    expected = fit["expected"]
+    assert fit["option"] == {"size": expected["size"], "right": fit["fitRight"], "left": expected["left"],
+                             "top": expected["top"], "width": expected["width"], "height": expected["height"],
+                             "min": 20, "max": 600}
+    # The section refits the zoom and the viewport when the card's width changes, once, and never on a
+    # blank card; the plot's height follows the box.
     refit = out["section"]["base"]["refit"]
-    assert refit["calls"] == [[{"grid3D": {"viewControl": {"orthographicSize": fit["narrow"]}}}, None]]
+    ex = refit["expected"]
+    assert refit["calls"] == [[{"grid3D": {"left": ex["left"], "top": ex["top"], "width": ex["width"], "height": ex["height"],
+                                           "viewControl": {"orthographicSize": ex["size"]}}}, None]]
     assert refit["again"] == 0 and refit["afterBlank"] == 0
+    assert refit["plotHeight"] == f"{refit['height']}px"
+    assert refit["frameKeys"] == ["box", "cloud", "x", "y", "z"]
 
 
 def test_without_webgl_the_3d_cards_say_so_and_the_projections_still_load(out):
@@ -1477,11 +1612,17 @@ def test_the_ensemble_ramp_top_reads_against_its_reference(out, name):
 
 
 def test_the_3d_plot_height_follows_its_width(out):
-    """P-18: h = clamp(round((w − LEGEND_RIGHT) / FIT_ASPECT), 360, 560), so the opening zoom never widens
-    above the floor."""
+    """Before a model, h = clamp(round((w - LEGEND_RIGHT) / FIT_ASPECT), 360, 560), the cube's; with a box, the
+    height its opening view needs at the width-limited zoom, within [360, 560] (fix round Z)."""
     heights = out["glHeights"]
     for w, h in heights:
         assert h == max(360, min(560, math.floor((w - 60) / 1.16 + 0.5))), (w, h)
     assert [h for w, h in heights if w in (506, 586, 746)] == [384, 453, 560]
-    for w, h, size in out["glFits"]:
-        assert size == pytest.approx(160, abs=0.2) if h > 360 else size >= 160, (w, h, size)
+    by = {c["name"]: dict(c["heights"]) for c in out["openings"] if "heights" in c}
+    for name, rows in by.items():
+        assert all(360 <= h <= 560 for h in rows.values()), (name, rows)
+        assert rows[506] <= rows[586] <= rows[746], (name, rows)
+    # The tall box takes the full height; the long one the least; the flat event-3 box less than the cube.
+    assert by["tall"] == {506: 560, 586: 560, 746: 560}
+    assert by["long"][746] < 400 and by["long"][746] < by["cube"][746]
+    assert by["flat"][586] <= by["cube"][586] and by["flat"][746] <= by["cube"][746]

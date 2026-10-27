@@ -32,8 +32,7 @@ Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 
 from __future__ import annotations
 
-import math
-
+import base64
 import os
 import re
 from urllib.parse import parse_qs, urlparse
@@ -75,27 +74,54 @@ SHUT = {BASELINE_TABLE: {"prim-rate"}}
 
 GL_UNAVAILABLE = "WebGL is not available in this browser"
 
-#: voxels.js: the opening orthographic size, and the narrowest viewport (width / height) that holds
-#: the opening view at it; a narrower card widens the size in proportion (`orthographicFit`).
-CAMERA_SIZE, FIT_ASPECT = 160, 1.16
+#: voxels.js: the 3-D plot's height bounds (`glPlotHeight`), the px every opening mark keeps from the
+#: canvas's edges (`FIT_PAD` is 8; 4 is asserted), and the least share of the limiting dimension it spans.
+GL_HEIGHTS, GL_SPARE, GL_FILL = (360, 560), 4, 0.80
 
-#: A 3-D card's plot size and camera, as echarts-gl holds it.
+#: A 3-D card's plot size and camera, as echarts-gl holds it: the opening view's size and viewport.
 _ZOOM = """(id) => {
   const el = document.getElementById(`plot-${id}`);
   const grid = echarts.getInstanceByDom(el).getOption().grid3D[0];
   return { w: el.clientWidth, h: el.clientHeight, size: grid.viewControl.orthographicSize, right: grid.right,
+           left: grid.left, top: grid.top, vw: grid.width, vh: grid.height,
            alpha: grid.viewControl.alpha, beta: grid.viewControl.beta };
 }"""
 
+#: The drawn pixels' extent on a PNG of a plot, against the card colour, left of column `limit`
+#: (the scan of data/dev/scratch_wavec/extent_scan.py).
+_EXTENT = """async ([url, limit]) => {
+  const img = new Image(); img.src = url; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  const card = [28, 33, 40];
+  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < Math.min(limit, c.width); x++) {
+    const k = 4 * (y * c.width + x);
+    if (Math.abs(d[k] - card[0]) + Math.abs(d[k + 1] - card[1]) + Math.abs(d[k + 2] - card[2]) > 24) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+  }
+  return { w: c.width, h: c.height, x0, x1, y0, y1 };
+}"""
 
-def _gl_height(width):
-    """voxels.js glPlotHeight: (width - LEGEND_RIGHT) / FIT_ASPECT, within [360, 560] px."""
-    return max(360, min(560, math.floor((width - 60) / FIT_ASPECT + 0.5)))  # JS Math.round
 
-
-def _fitted(zoom):
-    """The opening size voxels.js `orthographicFit` gives a plot of this size."""
-    return max(CAMERA_SIZE, CAMERA_SIZE * FIT_ASPECT * zoom["h"] / (zoom["w"] - zoom["right"]))
+def _gl_extent(page, card_id):
+    """A 3-D card's opening view, measured on its canvas pixels: the 3-D marks (left of the legend's strip)
+    and everything drawn (the legend included), with the px each keeps from the edges and the share of the
+    limiting dimension the 3-D marks span."""
+    zoom = page.evaluate(_ZOOM, card_id)
+    png = page.locator(f"#plot-{card_id}").screenshot()
+    url = "data:image/png;base64," + base64.b64encode(png).decode()
+    area = zoom["w"] - (zoom["right"] or 0)
+    marks = page.evaluate(_EXTENT, [url, area])
+    drawn = page.evaluate(_EXTENT, [url, 10 ** 6])
+    # A plot at a fractional page offset screenshots one px larger than its client size.
+    assert abs(marks["w"] - zoom["w"]) <= 1 and abs(marks["h"] - zoom["h"]) <= 1, (marks, zoom)
+    spare = {"left": marks["x0"], "right": area - 1 - marks["x1"], "top": marks["y0"], "bottom": marks["h"] - 1 - marks["y1"]}
+    whole = {"left": drawn["x0"], "right": drawn["w"] - 1 - drawn["x1"], "top": drawn["y0"], "bottom": drawn["h"] - 1 - drawn["y1"]}
+    fill = max((marks["x1"] - marks["x0"] + 1) / area, (marks["y1"] - marks["y0"] + 1) / marks["h"])
+    return {"zoom": zoom, "spare": spare, "whole": whole, "fill": round(fill, 3)}
 
 #: Every live WebGL context, by canvas, recorded before any script runs.
 _COUNT_GL = """(() => {
@@ -537,8 +563,8 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
             assert state["message"] is None, (card_id, state)
         for card_id in GL_CARDS:
             state = page.evaluate(_CARD, card_id)
-            # The plot's height follows its width (P-18, voxels.js glPlotHeight).
-            assert "bar3D" in state["seriesTypes"] and state["height"] == _gl_height(state["width"]), state
+            # The plot's height follows its width and its box (P-18, voxels.js glPlotHeight).
+            assert "bar3D" in state["seriesTypes"] and GL_HEIGHTS[0] <= state["height"] <= GL_HEIGHTS[1], state
             assert page.evaluate(f"() => echarts.getInstanceByDom(document.getElementById('plot-{card_id}'))"
                                  ".getOption().grid3D[0].viewControl.projection") == "orthographic"
         live = page.evaluate(_LIVE_GL)
@@ -551,23 +577,22 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
         # The ensemble box is the paired projections' window; its drawer gives the grid's extent.
         title, headings, body = _drawer(page, "vox-ensemble")
         assert "cropped to the paired projections' window" in body and "The accumulation grid spans" in body
-        # The opening zoom keeps the box and its axis titles inside the card. The plot's height follows
-        # its width, so at 1600 px the view fits at the camera's own size, with no widened zoom and no
-        # empty bands; a narrower window sets a lower height and refits the zoom alone, and the reader's
-        # rotation stays.
+        # The opening view is fitted to the box (test_the_3d_cards_open_fitted_to_their_box). A narrower
+        # window refits the zoom and the camera's viewport alone, and the reader's rotation stays.
         for card_id in GL_CARDS:
             zoom = page.evaluate(_ZOOM, card_id)
-            assert zoom["h"] == _gl_height(zoom["w"]), (card_id, zoom)
-            assert zoom["size"] == pytest.approx(_fitted(zoom), abs=0.06), (card_id, zoom)
-            assert zoom["size"] <= CAMERA_SIZE * 1.01, (card_id, zoom)
+            # The viewport keeps the area left of the legend's aspect and covers it.
+            assert zoom["vw"] / zoom["vh"] == pytest.approx((zoom["w"] - zoom["right"]) / zoom["h"], rel=2e-3), zoom
+            assert zoom["left"] <= 0.05 and zoom["left"] + zoom["vw"] >= zoom["w"] - zoom["right"] - 0.05, zoom
         page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-event'))"
                       ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
         wide = page.evaluate(_ZOOM, "vox-event")
         page.set_viewport_size({"width": 1440, "height": 900})
         page.wait_for_timeout(1500)
         zoom = page.evaluate(_ZOOM, "vox-event")
-        assert zoom["w"] < wide["w"] and zoom["h"] < wide["h"] and zoom["h"] == _gl_height(zoom["w"]), (wide, zoom)
-        assert zoom["size"] == pytest.approx(_fitted(zoom), abs=0.06), zoom
+        assert zoom["w"] < wide["w"] and GL_HEIGHTS[0] <= zoom["h"] <= wide["h"], (wide, zoom)
+        assert (zoom["size"], zoom["vw"], zoom["vh"]) != (wide["size"], wide["vw"], wide["vh"]), (wide, zoom)
+        assert zoom["vw"] / zoom["vh"] == pytest.approx((zoom["w"] - zoom["right"]) / zoom["h"], rel=2e-3), zoom
         assert (zoom["alpha"], zoom["beta"]) == (10, 70), zoom
         browser.close()
 
@@ -586,6 +611,36 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
         assert not [u for u in _urls(requests) if "format=voxels" in u]
         browser.close()
     assert problems == [] and problems2 == [], problems + problems2
+
+
+@pytest.mark.parametrize("width", [1440, 1600, 1920])
+def test_the_3d_cards_open_fitted_to_their_box(models_live_server, width):
+    """Fix round Z: the opening zoom fits the drawn box, whatever its shape. On the synthetic single-shower
+    event (a flat 7.4 x 100 x 36.6 box) and the two-shower event, at three window widths, every drawn pixel of
+    both 3-D cards stays inside the canvas with GL_SPARE px to spare (the 3-D marks inside the area left of the
+    legend's strip), and the marks span at least GL_FILL of the limiting dimension."""
+    base = models_live_server["base"]
+    seen = {}
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch(args=GL_ARGS)
+        problems = []
+        for table in (SINGLE_HITS_TABLE, BASELINE_TABLE):
+            _, page, found, _ = _open(p, base, table, viewport=(width, 900), browser=browser)
+            problems += found
+            for card_id in GL_CARDS:
+                state = _scroll_to(page, card_id)
+                assert state["message"] is None and "bar3D" in state["seriesTypes"], (table, card_id, state)
+                page.wait_for_timeout(600)
+                got = _gl_extent(page, card_id)
+                seen[(table, card_id)] = got
+                assert GL_HEIGHTS[0] <= got["zoom"]["h"] <= GL_HEIGHTS[1], (table, card_id, got)
+                assert min(got["spare"].values()) >= GL_SPARE, (table, card_id, got)
+                assert min(got["whole"].values()) >= GL_SPARE, (table, card_id, got)
+                assert got["fill"] >= GL_FILL, (table, card_id, got)
+            page.close()
+        browser.close()
+    print(f"3-D opening fill at {width} px: " + ", ".join(f"{t} {c} {g['fill']}" for (t, c), g in seen.items()))
+    assert problems == [], problems
 
 
 # ------------------------------------------------------------------ XGBoost --
