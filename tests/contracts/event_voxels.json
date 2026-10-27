@@ -62,15 +62,46 @@
   "window": {
    "type": "object",
    "required": [
+    "mode",
     "half_mm",
+    "half_mm_axes",
     "percentiles",
     "min_half_mm",
     "axes",
     "rule"
    ],
    "properties": {
+    "mode": {
+     "enum": [
+      "shared",
+      "per_axis"
+     ]
+    },
     "half_mm": {
      "type": "number"
+    },
+    "half_mm_axes": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "x": {
+       "type": "number",
+       "minimum": 0
+      },
+      "y": {
+       "type": "number",
+       "minimum": 0
+      },
+      "z": {
+       "type": "number",
+       "minimum": 0
+      }
+     }
     },
     "percentiles": {
      "type": "array",
@@ -375,6 +406,7 @@
     "channel",
     "model",
     "coordinates",
+    "window",
     "cam",
     "notices"
    ],
@@ -442,6 +474,12 @@
      "enum": [
       "file",
       "computed"
+     ]
+    },
+    "window": {
+     "enum": [
+      "shared",
+      "per_axis"
      ]
     },
     "cam": {

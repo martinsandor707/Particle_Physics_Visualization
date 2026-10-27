@@ -449,3 +449,112 @@ def test_no_event_sentence_signs_a_number_with_a_hyphen(client):
             if path.endswith(("data", ".table_name")):
                 continue
             assert not signed_hyphens(text), (path, signed_hyphens(text))
+
+
+# --------------------------------------------------------- per-axis window --
+
+
+@pytest.fixture(scope="module")
+def per_axis(ingested, inspected):
+    """The same events served with ``window=per_axis`` (the Models page's event pair)."""
+    from calosrv.db import registry
+
+    database = ingested["database"]
+    bodies = {}
+    with database.read_cursor() as con:
+        record = registry.require_ready(con, ingested["table"])
+        for event, shower in inspected["bodies"]:
+            bodies[event, shower] = event_inspector.inspect(
+                con, record, inspected["spec"], event, shower, frame_sql.SOURCE_FILE, inspected["footprint"],
+                window=event_inspector.WINDOW_PER_AXIS)
+    return bodies
+
+
+def test_the_per_axis_window_takes_each_axis_its_own_percentile_range(cursor, inspected, per_axis):
+    """Decision of 2026-10-27: one half-width per axis of each frame, its own 0.1-99.9% range plus a cell."""
+    record = inspected["record"]
+    lat = record.lattice
+    snap = event_inspector.WINDOW_SNAP_MM
+    for (event, shower), body in per_axis.items():
+        shared = inspected["bodies"][event, shower]
+        fp = body["footprint_mm"]
+        proj = quote(naming.proj_table(record.table_name))
+        origin = "org = 0" if shower == "a" else "org IN (1, 2)"
+        rows = cursor.execute(
+            f"SELECT ix, iy, iz, xt, yt, kt, xl, yl, zl, energy FROM {proj} WHERE event_number = ? AND {origin}",
+            [event]).fetchnumpy()
+        energy = np.asarray(rows["energy"], float)
+        coords = {
+            "lab": [lat.axis(a).coords[np.asarray(rows[i], int)] for a, i in (("x", "ix"), ("y", "iy"), ("z", "iz"))],
+            "trans": [np.asarray(rows["xt"], float), np.asarray(rows["yt"], float),
+                      np.asarray(rows["kt"], float) * fp[2]],
+            "local": [np.asarray(rows[c], float) for c in ("xl", "yl", "zl")],
+        }
+        assert body["window"]["mode"] == "per_axis" and "mode" not in shared["window"]
+        assert body["window"]["percentiles"] == [0.1, 99.9]
+        assert body["window"]["rule"].startswith("Per-axis half-widths")
+        for kind in event_inspector.FRAMES:
+            frame = body["frames"][kind]
+            pads = event_inspector.window_pads(kind, fp[:2], fp[2])
+            # One footprint across the beam, one layer pitch along depth; Local takes the larger on all three.
+            assert pads == ({a: max(fp) for a in "xyz"} if kind == "local"
+                            else {"x": max(fp[:2]), "y": max(fp[:2]), "z": fp[2]})
+            for i, axis in enumerate("xyz"):
+                lo, hi = _percentile_cells(coords[kind][i], energy)
+                if kind == "local" and axis in "xy":
+                    centre, half = 0.0, max(abs(lo), abs(hi))
+                else:
+                    centre = round(0.5 * (lo + hi) / snap) * snap
+                    half = max(hi - centre, centre - lo)
+                half = max(math.ceil((half + pads[axis]) / snap - 1e-9) * snap, event_inspector.WINDOW_MIN_HALF_MM)
+                assert frame["half_mm_axes"][axis] == pytest.approx(half), (event, shower, kind, axis)
+                assert frame["window"][axis] == pytest.approx([centre - half, centre + half])
+                # Never wider than the shared half-width, which is the widest over every coordinate.
+                assert half <= shared["window"]["half_mm"] + 1e-9
+            assert frame["half_mm"] == pytest.approx(max(frame["half_mm_axes"].values()))
+            assert body["window"]["half_mm_axes"][kind] == frame["half_mm_axes"]
+            # The cells outside each frame's window are counted, as under the shared rule.
+            out = frame["outside_window"]
+            assert 0.0 <= out["fraction"] <= 0.006 + 1e-12
+            # The rasters lie within the window and still conserve the shower's energy with what is outside.
+            # Native-layer and lattice axes snap outward to whole cells: a cell whose centre sits on the
+            # window edge is drawn whole, half a cell past it. The translated depth is the shower's own
+            # native layers, which the shared window's footprint pad always covered; the per-axis depth
+            # pad is one layer pitch, so its end layer can sit on the edge.
+            for axis in "xyz":
+                lo, hi = frame["window"][axis]
+                r_lo, r_hi = frame["raster"][axis]
+                tolerance = (0.5 * float(np.diff(lat.axis(axis).coords).max()) + 1e-6 if kind == "lab"
+                             else 0.5 * fp[2] + 1e-6 if (kind, axis) == ("trans", "z") else 1e-6)
+                assert r_lo >= lo - tolerance and r_hi <= hi + tolerance, (kind, axis)
+            for panel in frame["panels"].values():
+                assert panel["total"] + panel["energy_outside_window_gev"] == pytest.approx(float(energy.sum()),
+                                                                                          rel=1e-9)
+        assert body["window"]["half_mm"] == pytest.approx(
+            max(max(h.values()) for h in body["window"]["half_mm_axes"].values()))
+
+
+def test_the_shared_window_is_page_ones_and_unchanged(inspected):
+    """The default body carries no per-axis field: Page 1's nine panels keep one half-width."""
+    for body in inspected["bodies"].values():
+        assert set(body["window"]) == {"half_mm", "percentiles", "min_half_mm", "rule"}
+        assert body["window"]["rule"].startswith("One half-width for every panel of this event")
+        for frame in body["frames"].values():
+            assert "half_mm_axes" not in frame
+
+
+def test_the_route_reads_the_window_rule_and_refuses_another(client):
+    picked = client.get("/api/event/pick", params={"seed": 7}).json()
+    event = picked["event_number"]
+    default = client.get("/api/event", params={"event_number": event}).json()
+    shared = client.get("/api/event", params={"event_number": event, "window": "shared"}).json()
+    per_axis = client.get("/api/event", params={"event_number": event, "window": "per_axis"})
+    assert per_axis.status_code == 200 and len(per_axis.content) < density.RESPONSE_LIMIT
+    strip = lambda body: {k: v for k, v in body.items() if k != "meta"}  # noqa: E731
+    assert strip(default) == strip(shared)
+    assert per_axis.json()["window"]["mode"] == "per_axis"
+    texts = [n["text"] for n in per_axis.json()["meta"]["notices"]]
+    assert per_axis.json()["window"]["rule"] in texts
+    for fmt in ("raster", "voxels"):
+        bad = client.get("/api/event", params={"event_number": event, "format": fmt, "window": "widest"})
+        assert bad.status_code == 422 and bad.json()["field"] == "window", bad.text[:300]

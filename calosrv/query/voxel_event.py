@@ -73,13 +73,24 @@ error are linear on
 ascending energy (the notebook's draw order, bright cubes last), and the
 energy beyond the cap is counted beside the energy outside the window.
 
-**Window.** The Event Inspector's (``event_inspector._window``, Martin's
-decision D-3) on the drawn frame's own coordinates: one half-width, the
-widest energy-weighted 0.1st-99.9th percentile range of the cells plus one
-cell footprint, never below 150 mm, snapped outward to 20 mm; symmetric about the origin across the beam in the frames
-centred on one (Local, D-frame). The notebook's rule, 1.15 × half the
-cloud's largest extent, let one stray cell set the box. The cells beyond the
-window and their energy are counted in ``cap`` and the drawer.
+**Window.** The Event Inspector's per-axis window
+(``event_inspector.frame_window``, Martin's decisions D-3 and of
+2026-10-27) on the drawn frame's own coordinates, by default: one half-width
+per axis, that axis's energy-weighted 0.1st-99.9th percentile range of the
+cells plus one cell footprint across the beam and one layer pitch along depth
+(the larger on every Local axis), never below 150 mm, snapped outward to
+20 mm; symmetric about the origin across the beam in the frames centred on
+one (Local, D-frame). The box keeps one scale on all three axes, so it is as
+long on each as that axis's span. The paired projections ask the raster for
+the same rule (``window=per_axis``) and it reads the same coordinates (the
+file's own translated columns where the raster reads them), so the box and
+its three projections agree to the millimetre. ``window=shared`` serves
+Page 1's rule instead: one half-width, the widest of the three. A shared
+half-width let stray cells far across the beam stretch the depth axis (the
+synthetic single-shower event 3 drew a box 4 m deep in a 1.23 m detector),
+and the notebook's rule, 1.15 × half the cloud's largest extent, let one
+stray cell set the box. The cells beyond the window and their energy are
+counted in ``cap`` and the drawer; ``window.mode`` names the rule.
 """
 
 from __future__ import annotations
@@ -534,7 +545,7 @@ class Builder:
     cells: Cells
     centres: np.ndarray            # (n_rows, 3) cell centres in the drawn frame
     rotation: np.ndarray | None    # the frame's R (splat frames)
-    half: float
+    half: float                    # the largest of the per-axis half-widths (the one shared)
     windows: dict[str, tuple[float, float]]
     floor: float                   # GeV/mm^3: the cell frames' floor (splat frames take the voxels')
     residual: float | None
@@ -543,6 +554,9 @@ class Builder:
     first_pitch: float | None = None
     #: The cells whose centres lie outside the window (counted, not drawn): {n_cells, n_cells_total}.
     outside_cells: dict[str, int] = field(default_factory=dict)
+    #: The window rule (event_inspector.WINDOW_MODES) and each axis's half-width under it.
+    window_mode: str = event_inspector.WINDOW_PER_AXIS
+    halves: dict[str, float] = field(default_factory=dict)
     canonical: dict[str, Any] | None = None
     dictionaries: dict[str, list[str]] = field(default_factory=dict)
     build_notes: list[str] = field(default_factory=list)
@@ -1180,20 +1194,34 @@ class Builder:
 
     def _window_block(self) -> dict[str, Any]:
         centred = self.frame in (KIND_LOCAL, KIND_CANONICAL)
-        return {
-            "half_mm": self.half, "percentiles": list(event_inspector.WINDOW_PERCENTILES),
+        common = {
+            "mode": self.window_mode,
+            "half_mm": self.half,
+            "half_mm_axes": {axis: float(self.halves[axis]) for axis in "xyz"},
+            "percentiles": list(event_inspector.WINDOW_PERCENTILES),
             "min_half_mm": event_inspector.WINDOW_MIN_HALF_MM,
             "axes": {axis: [float(v) for v in self.windows[axis]] for axis in "xyz"},
-            "rule": typographic(
-                f"One half-width for the three axes: the widest energy-weighted "
-                f"{event_inspector.window_percentiles_text()} percentile range of the drawn showers' cells "
-                f"in this frame, plus one cell footprint so the cells at either end are drawn whole, never "
-                f"below {event_inspector.WINDOW_MIN_HALF_MM:.0f} mm and snapped outward to "
-                f"{event_inspector.WINDOW_SNAP_MM:.0f} mm ({self.half:.0f} mm here)"
-                + ("; symmetric about the origin across the beam" if centred else "")
-                + "; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted "
-                "with the cap, below."),
         }
+        percentiles = event_inspector.window_percentiles_text()
+        tail = (f", never below {event_inspector.WINDOW_MIN_HALF_MM:.0f} mm and snapped outward to "
+                f"{event_inspector.WINDOW_SNAP_MM:.0f} mm")
+        if self.window_mode == event_inspector.WINDOW_SHARED:
+            head = (f"One half-width for the three axes: the widest energy-weighted {percentiles} "
+                    "percentile range of the drawn showers' cells in this frame, plus one cell footprint so "
+                    f"the cells at either end are drawn whole{tail} ({self.half:.0f} mm here)")
+        else:
+            pads = ("one cell footprint on every axis, the larger of the footprint and the layer pitch, "
+                    "since the rotation tilts the cells into depth" if self.frame == KIND_LOCAL else
+                    "one cell footprint across the beam and one layer pitch along depth")
+            head = (f"Per-axis half-widths: each axis's own energy-weighted {percentiles} percentile range of "
+                    f"the drawn showers' cells in this frame, plus {pads}, so the cells at either end are "
+                    f"drawn whole{tail} ({event_inspector.halves_text(self.halves, _SYMBOLS[self.frame])} "
+                    "here). The box keeps one scale on all three axes (1:1:1), so each side is as long as "
+                    "its axis's span; the paired projections take the same rule")
+        return {**common, "rule": typographic(
+            head + ("; symmetric about the origin across the beam" if centred else "")
+            + "; cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted "
+            "with the cap, below.")}
 
 
 # ------------------------------------------------------------------ build --
@@ -1210,14 +1238,17 @@ def build(
     model: str = "segmentation",
     source: str = frame_sql.SOURCE_FILE,
     footprint: tuple[float, float] | None = None,
+    window: str = event_inspector.WINDOW_PER_AXIS,
 ) -> Builder:
     """Read the event once and prepare its frame; :meth:`Builder.assemble` renders it.
 
-    ``shower`` is the key :func:`resolve` returned. A missing event, an event
+    ``window`` is the window rule: ``per_axis`` (the default) or ``shared``
+    (``event_inspector.WINDOW_MODES``). ``shower`` is the key :func:`resolve` returned. A missing event, an event
     with no row of the shower asked for, and an event the frame cannot place
     (no direction or entry point; no D-frame columns) are 404s.
     """
     assert record.lattice is not None
+    event_inspector.check_window(window)
     started = time.perf_counter()
     lat = record.lattice
     pitch_z = (float(record.frame_bounds.layer_pitch_mm) if record.frame_bounds is not None
@@ -1254,6 +1285,7 @@ def build(
     residual: float | None = None
     rotation = None
     canonical_info = None
+    window_xyz = None  # the coordinates the window is taken on, where they are not the cubes' own
     if frame in (KIND_TRANS, KIND_LOCAL):
         info = infos[0]
         if not np.isfinite(info.p0).all() or info.theta is None or info.phi is None:
@@ -1266,6 +1298,10 @@ def build(
         if frame == KIND_TRANS:
             residual = float(np.abs(translated - file_trans).max())
             centres = translated
+            # The raster's translated panels read the file's columns: the window follows them,
+            # so the box and its projections agree to the millimetre.
+            if source == frame_sql.SOURCE_FILE:
+                window_xyz = file_trans
         else:
             residual = float(np.abs(local - rows.file_local).max())
             centres = rows.file_local if source == frame_sql.SOURCE_FILE else local
@@ -1300,11 +1336,18 @@ def build(
         centres = lab
 
     centred = frame in (KIND_LOCAL, KIND_CANONICAL)
-    # The event window (event_inspector._window, Martin's decision D-3): the energy-weighted
-    # 0.1st-99.9th percentile of the cells on each axis, one half-width, never below 150 mm.
-    half, centre = _window({axis: centres[:, i] for i, axis in enumerate("xyz")}, rows.energy,
-                           centred=("x", "y") if centred else (), pad=max(fp[0], fp[1], pitch_z))
-    windows = {axis: (centre[axis] - half, centre[axis] + half) for axis in "xyz"}
+    window_xyz = centres if window_xyz is None else window_xyz
+    if window == event_inspector.WINDOW_SHARED:
+        # Page 1's rule (event_inspector._window, Martin's decision D-3): the energy-weighted
+        # 0.1st-99.9th percentile of the cells on each axis, one half-width, never below 150 mm.
+        half, centre = _window({axis: window_xyz[:, i] for i, axis in enumerate("xyz")}, rows.energy,
+                               centred=("x", "y") if centred else (), pad=max(fp[0], fp[1], pitch_z))
+        windows = {axis: (centre[axis] - half, centre[axis] + half) for axis in "xyz"}
+        halves = {axis: half for axis in "xyz"}
+    else:
+        # One half-width per axis (event_inspector.frame_window, the raster's own per-axis rule).
+        halves, windows = event_inspector.frame_window(window_xyz, rows.energy, frame, fp, pitch_z)
+        half = max(halves.values())
     inside_rows = np.ones(rows.n, dtype=bool)
     for i, axis in enumerate("xyz"):
         inside_rows &= (centres[:, i] >= windows[axis][0]) & (centres[:, i] <= windows[axis][1])
@@ -1325,7 +1368,7 @@ def build(
         footprint=(float(fp[0]), float(fp[1])), pitch_z=pitch_z, event=event,
         in_selection=in_selection, prev_event=prev_event, next_event=next_event, infos=infos,
         rows=rows, cells=cells, centres=centres, rotation=rotation, half=half, windows=windows,
-        outside_cells=outside_cells,
+        outside_cells=outside_cells, window_mode=window, halves=halves,
         floor=floor, residual=residual, canonical=canonical_info, started=started,
     )
     if canonical_info is not None:

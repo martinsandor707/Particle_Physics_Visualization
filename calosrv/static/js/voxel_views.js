@@ -29,6 +29,15 @@
  * draws shower A and says so. With both drawn, the projections show shower A,
  * and say so.
  *
+ * Both event requests carry `window=per_axis` (Martin's decision of
+ * 2026-10-27): one half-width per axis, each the axis's energy-weighted
+ * 0.1st-99.9th percentile range plus a cell, so stray cells far across the
+ * beam no longer stretch the depth axis. The raster and the cubes take it on
+ * the same coordinates, so in one frame and shower the 3-D box and its three
+ * projections span the same millimetres; the projections stay isometric
+ * (sized from their spans, letterboxed) and the box 1:1:1. The cubes default
+ * to it; the raster's default stays Page 1's shared half-width.
+ *
  * The ensemble pair draws the selection's cloud (`/api/voxels`) in the Local
  * frame or the D-frame (an absolute or per-shower translated frame falls back
  * to Local, capabilities.js `viewFrame`), beside the Physics page's spatial
@@ -238,16 +247,20 @@ export function pickRequest(filters) {
   return { route: '/api/event/pick', abortKey: VOXEL_ABORT_KEYS.pick, params: { ...filters, rule: 'densest' } };
 }
 
+/** The event pair's window rule: one half-width per axis, for the raster and the cubes alike. */
+export const EVENT_WINDOW = 'per_axis';
+
 /**
  * The event pair's two requests: the raster (one shower; all three paired
- * frames come in one response) and the cubes (null without WebGL). The
- * network is named only where a CAM channel reads it. Pure.
+ * frames come in one response) and the cubes (null without WebGL), both on
+ * the per-axis window (`EVENT_WINDOW`). The network is named only where a
+ * CAM channel reads it. Pure.
  */
 export function eventRequests({ filters, eventNumber, view, model = 'segmentation', gl = true }) {
   const raster = {
     route: '/api/event',
     abortKey: VOXEL_ABORT_KEYS.event2d,
-    params: { ...filters, event_number: eventNumber, shower: view.rasterShower },
+    params: { ...filters, event_number: eventNumber, shower: view.rasterShower, window: EVENT_WINDOW },
   };
   const voxels = gl && view.frame && view.channel ? {
     route: '/api/event',
@@ -260,6 +273,7 @@ export function eventRequests({ filters, eventNumber, view, model = 'segmentatio
       channel: view.channel,
       shower: view.shower,
       model: EVENT_CAM.has(view.channel) ? model : undefined,
+      window: EVENT_WINDOW,
     },
   } : null;
   return { raster, voxels };

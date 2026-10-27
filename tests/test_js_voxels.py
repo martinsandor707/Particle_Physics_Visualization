@@ -306,6 +306,12 @@ out.notes.inspector = (await imp('panel_notes.js')).eventNotes({ payload: raster
   const body = golden['/api/event {"event_number": 0, "shower": "a"}'].body;
   out.notes.goldenEventProjection = Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xy', 'xz', 'yz'].map(
     (panelId) => [`${kind}:${panelId}`, vn.voxelProjectionNotes({ pair: 'event', payload: body, panelId, frameKind: kind })])));
+  // The same body as a per-axis window would carry it (`window=per_axis`): each frame names its
+  // three half-widths; Page 1's drawer on the shared body keeps its one-half-width sentence.
+  const perAxis = JSON.parse(JSON.stringify(body));
+  perAxis.frames.local.half_mm_axes = { x: 700, y: 660, z: 560 };
+  out.notes.perAxisProjection = vn.voxelProjectionNotes({ pair: 'event', payload: perAxis, panelId: 'xz', frameKind: 'local' });
+  out.notes.sharedInspector = (await imp('panel_notes.js')).eventNotes({ payload: body, kind: 'local', panelId: 'xz' });
 }
 // The 3-D event ramp's unit, written by scale.js like every 2-D ramp's.
 out.units = { volume: scale.unitSuffix('GeV/mm^3'), areal: scale.unitSuffix('GeV/mm^2'), lab: scale.unitSuffix('GeV') };
@@ -792,14 +798,23 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
         assert step == pytest.approx((1 if f < 1.5 else 2 if f < 2.5 else 3 if f < 4 else 5 if f < 7 else 10) * exp10)
         assert (a["min"], a["max"]) == pytest.approx((lo_[axis] - origin, hi_[axis] - origin))
         assert a["max"] - a["min"] == pytest.approx(span[axis])
-        on_tick = lambda v: abs(v / step - round(v / step)) < 1e-6  # noqa: E731
-        assert a["showMin"] == on_tick(a["min"]) and a["showMax"] == on_tick(a["max"])
+        # A side too short for a label on every tick labels every k-th (MIN_LABEL_UNITS): a per-axis
+        # event window can make one, as event 3's 300 mm depth in its 4,040 mm box.
+        label_step = t["labelStep"]
+        assert label_step / step == pytest.approx(round(label_step / step)) and label_step >= step
+        world = {"z": box["boxWidth"], "x": box["boxDepth"], "y": box["boxHeight"]}[axis]
+        units = step * world / span[axis]
+        assert (label_step == step) == (units >= 10), (axis, units, label_step)
+        assert label_step * world / span[axis] >= 10 - 1e-9 or label_step == step
+        on_tick = lambda v: abs(v / label_step - round(v / label_step)) < 1e-6  # noqa: E731
+        assert a["showMin"] == on_tick(lo_[axis]) and a["showMax"] == on_tick(hi_[axis])
         # The ends are blank unless on the grid (echarts-gl ignores showMin/MaxLabel) ...
         assert (a["labels"][0] != "") == a["showMin"] and (a["labels"][1] != "") == a["showMax"]
-        # ... and the ticks read as round millimetres.
-        for label in a["labels"][2:]:
+        # ... and the ticks read as round millimetres, labelled on the label step.
+        for label in filter(None, a["labels"][2:]):
             mm = int(label.replace("\u2212", "-"))
-            assert mm % step == 0 if step >= 1 else True, (axis, label, step)
+            assert mm % label_step == 0 if label_step >= 1 else True, (axis, label, label_step)
+        assert any(label != "" for label in a["labels"]), (axis, "every axis keeps a label")
     # Every title keeps clear of its tick labels (P-18): a gap past the labels' 8-unit margin.
     assert all(a["nameGap"] == 30 for a in option["axes"]), [a["nameGap"] for a in option["axes"]]
     # The physical box: the server's window or grid extent, widened only to hold whole cubes.
@@ -811,6 +826,19 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
     if name not in out["events"]:
         for a in "xyz":
             assert (lo[a], hi[a]) == pytest.approx(tuple(base[a])), "the grid extent holds every voxel"
+
+
+def test_event_3s_short_depth_labels_one_tick_in_three(out):
+    """The per-axis window gives event 3 a 300 mm depth in a 4,040 mm box: two ticks 200 mm apart
+    would overprint ("3600" over "3800"), so only multiples of 600 mm are labelled."""
+    option = out["events"]["event_voxels_single_species"]["option"]
+    z = option["ticks"]["z"]
+    assert option["bounds"]["span"]["z"] == pytest.approx(300)
+    assert (z["step"], z["labelStep"]) == (200, 600)
+    depth = option["axes"][0]
+    assert [label for label in depth["labels"][2:] if label] == ["3600"]
+    # The long sides keep a label on every tick.
+    assert all(option["ticks"][a]["labelStep"] == option["ticks"][a]["step"] for a in "xy")
 
 
 @pytest.mark.parametrize("name", EVENTS + ENSEMBLES)
@@ -1197,6 +1225,20 @@ def test_the_event_pair_states_its_window_for_three_projections_by_option(out):
     assert "windowScope: 'all three projections'" in source and ".replace('of all nine panels'" not in source
 
 
+def test_a_per_axis_event_window_names_each_half_width_and_page_one_keeps_its_sentence(out):
+    """The Models page's pair says "per-axis half-widths ..."; the shared body reads as Page 1 always has."""
+    def drawn(notes):
+        return " ".join(next(s for s in notes["sections"] if s["heading"] == "What is drawn")["lines"])
+
+    per_axis = drawn(out["notes"]["perAxisProjection"])
+    assert "per-axis half-widths u 700 mm, v 660 mm, w 560 mm on all three projections" in per_axis
+    assert "sized from its two millimetre spans and letterboxed" in per_axis
+    assert "half-width on every axis of" not in per_axis
+    shared = drawn(out["notes"]["sharedInspector"])
+    assert "700 mm half-width on every axis of all nine panels, so the tilt reads at its true angle" in shared
+    assert "per-axis" not in shared
+
+
 def test_the_volumetric_unit_is_written_by_scale_js(out):
     assert out["units"] == {"volume": "GeV/mm³", "areal": "GeV/mm²", "lab": "GeV"}
     source = (JS / "voxels.js").read_text(encoding="utf-8")
@@ -1255,6 +1297,9 @@ def test_the_event_view_pairs_with_a_raster_frame_and_one_raster_shower(out):
         assert voxels["params"]["frame"] == view["event"]["frame"]
         assert (voxels["params"].get("model") == "energy") == (voxels["params"]["channel"] in ("gradcam", "shapcam"))
         assert "coordinates" not in voxels["params"] and "cap" not in voxels["params"]
+        # Martin's decision of 2026-10-27: both halves of the pair ask for per-axis half-widths,
+        # so the 3-D box and its three projections span the same millimetres.
+        assert raster["params"]["window"] == voxels["params"]["window"] == "per_axis"
         assert (raster["abortKey"], voxels["abortKey"]) == ("vox-event-2d", "vox-event-3d")
         assert view["noGl"] is None
 
