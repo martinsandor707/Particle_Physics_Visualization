@@ -379,7 +379,9 @@ def test_canonical_frame_is_served_beside_the_lab_frame(client):
     assert "energy_lag1_core_row" in frame["comb"], "the comb is measured on energy too, not occupancy alone"
     assert body["meta"]["sample_percent"] == 100.0
     assert frame["rho"]["selection_k"] == frame["subsample_k"]
-    assert "canonical" in body["meta"]["stagger"]["note"].lower() or "comb" in body["meta"]["stagger"]["note"].lower()
+    assert "canonical" in frame["comb"]["note"].lower() or "comb" in frame["comb"]["note"].lower()
+    # Review R-4: meta.stagger was an exact copy of frame.comb in the co-registered frames.
+    assert "stagger" not in body["meta"]
 
     for panel in body["panels"].values():
         assert panel["encoding"] == "u8-b64"
@@ -503,7 +505,7 @@ def test_the_comb_verdict_does_not_depend_on_the_display(client):
         "/api/projections", params={"frame": "canonical", "display": "continuous", "resolution": 150}
     ).json()
     assert native["frame"]["comb"] == continuous["frame"]["comb"]
-    assert native["meta"]["stagger"] == continuous["meta"]["stagger"]
+    assert "stagger" not in native["meta"] and "stagger" not in continuous["meta"]
     assert "coarser" not in continuous["frame"]["comb"]["note"]
 
 
@@ -661,6 +663,7 @@ def test_persistent_notices_are_not_duplicated_into_the_banner(client):
     warnings = set(body["meta"]["warnings"])
     assert not (notices & warnings)
 
+    # The lab frame keeps meta.stagger; only the co-registered copies were dropped.
     stagger_note = body["meta"]["stagger"].get("note")
     if stagger_note:
         assert stagger_note not in warnings
@@ -986,7 +989,9 @@ def test_the_per_shower_frames_report_their_coordinate_source_and_residual(clien
     assert block["residual_max_mm"] is not None and block["within_tolerance"] is True
     assert block["ingest_residual_mm"] is not None
     assert block["note"].startswith("Coordinates: the file's own")
-    assert any(n["text"] == block["note"] for n in body["meta"]["notices"])
+    # Review R-4: stated once, in the frame block; the client puts it into the frame dot.
+    assert not any(n["text"] == block["note"] for n in body["meta"]["notices"])
+    assert "stagger" not in body["meta"] and body["frame"]["comb"]["measured_on"]
     assert body["meta"]["coordinates"] == "file"
 
     computed = client.get("/api/projections", params={"coord_system": coord_system,

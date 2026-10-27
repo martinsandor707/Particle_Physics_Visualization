@@ -1573,15 +1573,15 @@ def test_projection_notes_are_sectioned_in_a_fixed_order(ui_results):
         positions = [NOTE_ORDER.index(h) for h in notes["headings"]]
         assert positions == sorted(positions), key
         assert notes["headings"][:2] == ["Selection", "What is drawn"], key
-        # The lab entry panel's legend is inside its footnote; its depth panels
-        # carry one for the energy centres or the trajectories, and the windowed
-        # axis when it is drawn. A co-registered entry panel always has one. A
-        # depth panel's legend sentence can coincide with a disclosure line,
-        # and is then stated once, under Disclosures.
-        if kind == "lab":
-            assert ("Marks and legend" in notes["headings"]) == (not key.endswith("|xy")), key
-        elif key.endswith("|xy"):
-            assert "Marks and legend" in notes["headings"], key
+        # Every spatial panel has a legend: at least the ramp's legible start
+        # (fix round P1). The lab entry panel's other marks are inside its
+        # footnote; its depth panels carry the energy centres or the
+        # trajectories, and the windowed axis when it is drawn. A depth panel's
+        # legend sentence can coincide with a disclosure line, and is then
+        # stated once, under Disclosures.
+        assert "Marks and legend" in notes["headings"], key
+        assert any("3:1 contrast against the card" in line
+                   and "exported figure carries the full ramp" in line for line in notes["lines"]), key
         assert notes["title"] == ui_results["titles"][key], key
 
 
@@ -2133,6 +2133,7 @@ out.notes = {
   withoutLegend: notesLines(without, 'Marks and legend'),
   withoutDisclosures: notesLines(without, 'Disclosures'),
   entryHeadings: entry.sections.map((s) => s.heading),
+  entryLegend: notesLines(entry, 'Marks and legend'),
 };
 out.windowLegend = { full: fv.windowAxisLegend(windowAxis), none: fv.windowAxisLegend(null) };
 out.geometry = { full: fv.geometrySentence(pointing), none: fv.geometrySentence(null), noSd: fv.geometrySentence({ a: { n: 1 } }) };
@@ -2198,14 +2199,18 @@ def test_the_absolute_frame_names_its_energy_centres_and_where_the_directions_po
 def test_the_windowed_axis_joins_the_depth_panels_notes(window_results):
     notes = window_results["notes"]
     assert notes["headings"] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
-    assert notes["entryHeadings"] == ["Selection", "What is drawn", "Disclosures"], "the entry panel draws no axis"
+    assert notes["entryHeadings"] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
+    # The entry panel draws no axis: its one legend line is the ramp's legible start.
+    assert len(notes["entryLegend"]) == 1 and "3:1 contrast" in notes["entryLegend"][0]
     assert any(line.startswith("Shower A: N = 65 of 20,268 selected events enter the window") for line in notes["disclosures"])
     assert any(line.startswith("Shower B: no selected event enters the window") for line in notes["disclosures"])
     assert any(line.startswith("Windowed ensemble axis: the selected events") for line in notes["disclosures"])
     assert notes["legend"][0].startswith("Solid lines: the centre of deposited energy")
     assert notes["legend"][1].startswith("Windowed ensemble axis for x ∈ [1000, 1300] mm: dashed line = the mean incident trajectory")
     assert "two quantities, two marks" in notes["legend"][1] and "faded axis means the mean lean lies within the fan" in notes["legend"][1]
-    assert notes["withoutLegend"] == [notes["legend"][0]]
+    # Without the axis: the energy centres and the ramp's legible start (fix round P1).
+    assert notes["withoutLegend"] == [notes["legend"][0], notes["legend"][-1]]
+    assert "3:1 contrast" in notes["legend"][-1]
     assert not any("window" in line for line in notes["withoutDisclosures"])
     assert window_results["windowLegend"]["none"] == ""
 

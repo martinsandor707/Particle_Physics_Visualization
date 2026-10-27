@@ -82,6 +82,12 @@ DELIBERATE = (
     "them; a grid raster's window-bound end snaps inward; window.rule and scale.rule say 'every "
     "panel of this event' instead of 'all nine panels'. /api/projections, /api/window-axis and "
     "/api/event/pick are unchanged.",
+    "Fix round P1, decision on R6 (review R-4): /api/projections ships topk[].value at 7 "
+    "significant figures rounded toward zero (the float32 source's precision); the per-shower "
+    "frames drop meta.stagger (a copy of frame.comb) and the meta.notices copy of "
+    "frame.coordinates.note, which the client restores in the frame dot. The lab frame keeps "
+    "meta.stagger. /api/event keeps whole top-k values (its 3-D ramp quotes the brightest "
+    "cube's value as its top), so /api/event, /api/window-axis and /api/event/pick are unchanged.",
 )
 
 #: The demonstration file holds two events (E1 2.71 and 17.88 GeV).

@@ -516,6 +516,27 @@ export function anchorSentence(frame) {
   return text;
 }
 
+/**
+ * The sidebar's notices for a projections response, as a new array.
+ *
+ * The per-shower frames state their coordinate source once, in
+ * `frame.coordinates.note`; the server no longer repeats it in `meta.notices`
+ * (review R-4). It goes back where the server put it: in the frame scope,
+ * after the comb note and the floor notice that the server always sends
+ * after it, or last when the comb note is absent. A response that still
+ * carries the copy is returned unchanged.
+ */
+export function frameNotices(payload) {
+  const notices = [...(payload?.meta?.notices ?? [])];
+  const note = payload?.frame?.coordinates?.note;
+  if (typeof note !== 'string' || !note || notices.some((n) => n.text === note)) return notices;
+  const comb = payload.frame?.comb?.note;
+  const after = comb ? notices.findIndex((n) => n.scope === 'frame' && n.text === comb) : -1;
+  const at = after >= 0 ? Math.min(notices.length, after + 2) : notices.length;
+  notices.splice(at, 0, { scope: 'frame', text: note });
+  return notices;
+}
+
 /** The per-shower frames' coordinate source and residual, as the payload states them. */
 export function coordinatesSentence(frame) {
   const block = frame?.coordinates;
@@ -759,7 +780,7 @@ export function labFootnotes(payload, { nShowers = null } = {}) {
   const overlays = payload.overlays || {};
   const single = showersPerEvent(payload, nShowers) === 1;
   const resolution = payload.meta?.resolution || {};
-  const stagger = payload.meta?.stagger || {};
+  const stagger = payload.meta?.stagger ?? payload.frame?.comb ?? {};
   // The staggered-lattice comb is detector segmentation, not shower structure.
   // Saying so on the panel itself matters more than saying it in a banner,
   // because the panel is what gets screenshotted into a discussion.
