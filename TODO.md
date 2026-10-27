@@ -1,181 +1,46 @@
 # TODO — deferred views and the files that unlock them
 
-calosrv draws only what the ingested data supports and never trains or fits a model (CLAUDE.md §3, "Never fabricate unverified inference outputs"). Every entry below is deferred because a file does not exist in this repository. Each names the views it unlocks, the exact files and format, and what calosrv will check when they arrive.
+calosrv draws only what the ingested data supports and never fabricates an inference output (CLAUDE.md §3, "Never fabricate unverified inference outputs"). The XGBoost analyses run in the service from the shipped models, which reproduce their notebooks' training split (§1). Every remaining entry is deferred because a file does not exist in this repository, or is a deliberate engineering change waiting for its own review. Each names the views it unlocks, the exact files and format, and what calosrv will check when they arrive.
 
-The figures quoted were measured on the electron files on 2026-10-24 (data characterisation) and 2026-10-25 (the ingest runs of the three-schema release). Every ingest re-measures the ones that matter and writes them into the experiment's ingest report (`GET /api/experiments` → `ingest_report.verification`).
+The figures quoted were measured on the electron files on 2026-10-24 (data characterisation), on 2026-10-25 (the ingest runs of the three-schema release), and on 2026-10-27 (the drop-folder ingest of the current Parquet files and the XGBoost analyses, `data/dev/r8/`). Every ingest re-measures the ones that matter and writes them into the experiment's ingest report (`GET /api/experiments` → `ingest_report.verification`).
 
 ## Summary
 
-| Deferred view | Page | Blocked by | § |
+| Deferred view or change | Page | Blocked by | § |
 |---|---|---|---|
-| E1 XGBoost 5-fold cross-validation table | /models | model-run artefacts | 1 |
-| E2, the XGBoost series (the neural-network E2 is live) | /models | holdout predictions | 1 |
-| E3 asymmetric 99 : 1 binary evaluation at 2 GeV, Wilson intervals | /models | binary sample, holdout predictions | 1 |
-| E4 depth-3 surrogate tree with fidelity R² | /models | surrogate node table | 1 |
-| E5 gain feature importances | /models | importances | 1 |
-| B1–B3 and feature distributions by particle species | / and /models | proton, pion, muon v3 files | 2 |
-| Seed consistency, s1 against s2 | / and /models | s2 files | 3 |
+| B1–B3 and feature distributions by particle species, from hit-level data | / and /models | proton, pion, muon v3 hit files | 2 |
+| Seed consistency, s1 against s2 (the s2 models are shipped, unpaired) | / and /models | s2 files | 3 |
 | Fixed-energy class comparisons (1, 2, 5, 10, 20 GeV) | /models | ddsim proton files | 4 |
 | C6 species voxels and C11 on two-shower events | /models | hits_all_models schema v2 | 5 |
 | Engineering follow-ups (shared size guard, inspector splat k, D-frame cloud cap, φ-spread fixture) | — | nothing; review each | 8 |
+| Follow-ups from the Page 2 review (estimator and fading consistency on Page 1, contracts generator, re-measurements) | both | nothing; review each | 9 |
 
-Until a bundle is loaded, /models shows: "No model-run artefacts are loaded: the XGBoost views E1, E3, E4 and E5 are deferred (see TODO.md)." The catalogue's capability block carries `model_runs: []` and the `xgboost` gate shut, with that reason.
+The XGBoost views E1, E3, E4 and E5 and the XGBoost series of E2 and of the prediction density are live (§1). An aggregate experiment shows them once its species' s1 models are paired and analysed; until then the cards say why.
 
-## 1. XGBoost model-run artefacts (E1, E3, E4, E5; the XGBoost series of E2)
+## 1. XGBoost: done in the service (2026-10-27)
 
-### 1.1 What the notebooks keep today
-
-`reference_ipynb_notebooks/xgboost_model_visualization/XGBoost-Reg-{Electron,Muon,Pion,Proton}.ipynb` run identical code (line numbers cite XGBoost-Reg-Proton.ipynb).
-
-- Input `{species}_standalone_N100000_M0_20GeV_reg_balanced_aggr_s{1,2}_v2.csv` (29 columns, :95-96).
-- 19 features, in this order (:136-139): width, height, depth, depth_range, volume, num_hits, total_hit_energy, centroid_x, centroid_y, centroid_z, mean_r, std_r, max_r, weighted_r_mean, avg_theta, avg_phi, angular_spread, numerical_density, energy_density.
-- Model: `XGBRegressor(objective='reg:squarederror', random_state=42, n_estimators=100, learning_rate=0.1)`. The xgboost and scikit-learn versions are not recorded.
-- E1 (:186-227): `KFold(5, shuffle=True, random_state=42)`, one regressor refit per fold.
-  - Only the per-fold MAE, MSE, RMSE and R² are kept; fold indices, out-of-fold predictions, fold models and fold importances are discarded.
-  - Angle metrics are uniform averages over [incoming_theta, incoming_phi].
-- E2–E5 use `train_test_split(test_size=0.2, random_state=42)` (:652).
-  - Angle labels are ['incoming_phi', 'incoming_theta'] (:771), the reverse of E1.
-  - The E2 angle bars show φ only (:808).
-- E3 (:901-953) pools from the 20 % validation split.
-  - Class 0 is p < 2 GeV; class 1 is p > 10 GeV (p > 2 if fewer than 50 rows).
-  - 1,980 : 20 rows are drawn with `sample(random_state=42)` and shuffled.
-  - y_true = p > 2; y_pred = prediction > 2.
-  - Only the metric dictionary is kept; the 2,000 rows are discarded. The comment says 95/5, the code does 99/1.
-- E4 (:1144-1175): `DecisionTreeRegressor(max_depth=3, random_state=42)` fitted in-sample on all N rows to the split model's predictions.
-  - Fidelity R² and MAE are printed (MAE labelled "GeV" even for angle).
-  - The function returns None, so the tree is lost.
-- E5 (:1257-1258, :1356-1357): `feature_importances_` of the 80/20 model, i.e. normalised gain averaged over the two angle targets. No per-fold importances exist.
-
-### 1.2 Bundle format `calosrv-model-run`, version 1
-
-One directory per (species, seed, task) named `{species}_s{seed}_{task}`, task ∈ {momentum, angle}. Tables may be Parquet or CSV; JSON is UTF-8.
-
-- **`run.json`**: format "calosrv-model-run"; format_version 1; run_id; library "xgboost"; library_version; sklearn_version; python_version; species; seed; task; labels (ordered); label_units (GeV for incoming_momentum, rad for angles); features (the 19, ordered); hyperparameters (`model.get_params()`); input_file {name, bytes, sha256, n_rows}; event_key "event_id"; splits {cv: KFold 5, shuffle, random_state 42; holdout: train_test_split 0.2, random_state 42}; surrogate {kind, max_depth 3, random_state 42, fit_on "all rows", n_fit, outputs, fidelity_r2, mae_vs_booster}.
-- **`cv_folds.parquet`** (E1): fold INT8 (0–4), n_train INT32, n_val INT32, mae, mse, rmse, r2 DOUBLE. For the angle task also mae_theta, mae_phi, mse_theta, mse_phi, r2_theta, r2_phi, because the averaged values mix θ with φ.
-- **`holdout_predictions.parquet`** (XGBoost E2, E3, prediction density): event_id INT64, incoming_momentum_bin UTINYINT, and `y_true_<label>`, `y_pred_<label>` DOUBLE for each label. One row per validation event (electron: 19,979 per seed).
-- **`binary_eval.json`** (E3): {threshold_gev 2.0, class_0 "p < 2", class_1 "p > 10 (p > 2 if fewer than 50 rows)", n_requested [1980, 20], class_0_count, class_1_count, accuracy, balanced_accuracy, precision_weighted, recall_weighted, f1_weighted, zero_division 0, random_state 42}.
-- **`binary_sample.parquet`** (E3): order INT32, event_id INT64, y_true UTINYINT, y_pred_value DOUBLE, y_pred UTINYINT — the exact 2,000 rows. pandas RandomState sampling cannot be reproduced in DuckDB.
-- **`surrogate_tree.parquet`** (E4): node_id INT32; children_left and children_right INT32 (−1 at leaves); feature INT32 (index into run.json features, −2 at leaves); threshold DOUBLE (−2 at leaves); n_node_samples INT64; weighted_n_node_samples DOUBLE; impurity DOUBLE; `value_<label>` DOUBLE per output. These are sklearn's `tree_` arrays.
-- **`importances.parquet`** (E5): feature VARCHAR, importance_type 'gain', value DOUBLE (`feature_importances_`, sums to 1), fold INT8 (NULL for the 80/20 model). Optionally raw_gain, raw_weight, raw_cover from `get_booster().get_score()`.
-
-Optional, only if the training loop changes: `oof_predictions.parquet` (fold, event_id, y_true_*, y_pred_*) and per-fold importance rows (fold 0–4). Neither exists today: the CV loop would have to store each fold's `val_index`, predictions and `feature_importances_`.
-
-### 1.3 What calosrv will check on arrival
-
-- Format and version; the 19 features in order; labels and their order.
-- Units: GeV for momentum, rad for angles.
-- The notebooks' printed electron values must be reproduced from the tables (other species are in the notebook outputs):
-  - E1 IM s1: MAE 0.6794 ± 0.0026, MSE 1.1997 ± 0.0241, RMSE 1.0953 ± 0.0110, R² 0.9639 ± 0.0005.
-  - E1 IA s1: 0.0413 ± 0.0009, 0.0638 ± 0.0030, 0.2525 ± 0.0059, 0.9735 ± 0.0014.
-  - E3 S1: accuracy 0.908543, balanced 0.953807, weighted precision 0.990945, recall 0.908543, F1 0.943817, 1,970/20.
-  - E3 S2: 0.932500, 0.965909, 0.991290, 0.932500, 0.957345, 1,980/20.
-  - E4 IM fidelity R²/MAE: S1 0.9372/1.0111, S2 0.9372/1.0121. IA: S1 0.4440/0.2315, S2 0.4463/0.2308.
-- event_id ⊂ the aggregated experiment's event_id when the run was trained on an ingested file; otherwise the run is labelled external.
-
-### 1.4 Ingest path (engineering, deferred with the data)
-
-- Tables model_run, model_prediction, model_importance and model_surrogate_node.
-- `POST /api/model-runs` (Admin upload) and `GET /api/model-runs[/{id}]`; the capability block's `model_runs` lists what is loaded.
-- E3 rates with Wilson intervals and the confusion matrix, recomputed from binary_sample.
-
-### 1.5 Training-data caveat
-
-The notebooks trained on v2 aggregates. The Feature Explorer shows v3 features computed on raw z (verified: the v3 aggregate matches `calc_all_features_v3` on raw z to 5 × 10⁻¹⁴ over all 99,751 events). The v2 z convention is not recorded. For E4/E5 to explain the features calosrv shows, re-train on the v3 files or state the v2 convention.
-
-### 1.6 Exporter (add to the notebooks after training)
-
-```python
-import hashlib, json, platform
-from pathlib import Path
-import numpy as np
-import pandas as pd
-import sklearn
-import xgboost
-
-MARK = {"momentum": "IM", "angle": "IA"}
-
-def export_model_run(out_dir, *, species, seed, task, labels, features, input_path, cv_results,
-                     split_model, val_df, binary_metrics, binary_rows, surrogate, fidelity_r2,
-                     mae_diff, n_fit):
-    """Write one calosrv-model-run v1 bundle (TODO.md §1.2). Needs pyarrow; else write .csv."""
-    out = Path(out_dir) / f"{species}_s{seed}_{task}"
-    out.mkdir(parents=True, exist_ok=True)
-    source = Path(input_path)
-    digest = hashlib.sha256()
-    with source.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    run = {
-        "format": "calosrv-model-run", "format_version": 1,
-        "run_id": f"xgboost_{species}_s{seed}_{task}", "library": "xgboost",
-        "library_version": xgboost.__version__, "sklearn_version": sklearn.__version__,
-        "python_version": platform.python_version(), "species": species, "seed": int(seed),
-        "task": task, "labels": list(labels),
-        "label_units": {l: "GeV" if l == "incoming_momentum" else "rad" for l in labels},
-        "features": list(features), "hyperparameters": split_model.get_params(),
-        "input_file": {"name": source.name, "bytes": source.stat().st_size,
-                       "sha256": digest.hexdigest(), "n_rows": int(n_fit)},
-        "event_key": "event_id",
-        "splits": {"cv": {"kind": "KFold", "n_splits": 5, "shuffle": True, "random_state": 42},
-                   "holdout": {"kind": "train_test_split", "test_size": 0.2, "random_state": 42}},
-        "surrogate": {"kind": "DecisionTreeRegressor", "max_depth": 3, "random_state": 42,
-                      "fit_on": "all rows", "n_fit": int(n_fit), "outputs": list(labels),
-                      "fidelity_r2": float(fidelity_r2), "mae_vs_booster": float(mae_diff)},
-    }
-    (out / "run.json").write_text(json.dumps(run, indent=1, default=str), encoding="utf-8")
-
-    mark, n = MARK[task], int(n_fit)
-    folds = cv_results.rename(columns={f"MAE_{mark}": "mae", f"MSE_{mark}": "mse",
-                                       f"RMSE_{mark}": "rmse", f"R2_score_{mark}": "r2"})
-    n_val = [n // 5 + (1 if k < n % 5 else 0) for k in range(len(folds))]
-    folds.insert(0, "fold", np.arange(len(folds), dtype=np.int8))
-    folds.insert(1, "n_train", np.asarray([n - v for v in n_val], dtype=np.int32))
-    folds.insert(2, "n_val", np.asarray(n_val, dtype=np.int32))
-    folds.to_parquet(out / "cv_folds.parquet", index=False)
-
-    holdout = pd.DataFrame({"event_id": val_df["event_id"].astype("int64"),
-                            "incoming_momentum_bin": val_df["incoming_momentum_bin"].astype("uint8")})
-    for label in labels:
-        holdout[f"y_true_{label}"] = val_df[label].astype("float64")
-        holdout[f"y_pred_{label}"] = val_df[f"pred_{label}"].astype("float64")
-    holdout.to_parquet(out / "holdout_predictions.parquet", index=False)
-
-    if task == "momentum":
-        (out / "binary_eval.json").write_text(json.dumps(binary_metrics, indent=1, default=float),
-                                              encoding="utf-8")
-        binary_rows.to_parquet(out / "binary_sample.parquet", index=False)
-
-    tree = surrogate.tree_
-    nodes = pd.DataFrame({
-        "node_id": np.arange(tree.node_count, dtype=np.int32),
-        "children_left": tree.children_left.astype(np.int32),
-        "children_right": tree.children_right.astype(np.int32),
-        "feature": tree.feature.astype(np.int32), "threshold": tree.threshold,
-        "n_node_samples": tree.n_node_samples.astype(np.int64),
-        "weighted_n_node_samples": tree.weighted_n_node_samples, "impurity": tree.impurity})
-    for j, label in enumerate(labels):
-        nodes[f"value_{label}"] = tree.value[:, j, 0]
-    nodes.to_parquet(out / "surrogate_tree.parquet", index=False)
-
-    booster = split_model.get_booster()
-    raw = {kind: booster.get_score(importance_type=kind) for kind in ("gain", "weight", "cover")}
-    table = pd.DataFrame({"feature": list(features), "importance_type": "gain",
-                          "value": np.asarray(split_model.feature_importances_, dtype=np.float64),
-                          "fold": pd.array([pd.NA] * len(features), dtype="Int8")})
-    for kind, scores in raw.items():
-        table[f"raw_{kind}"] = [float(scores.get(f, 0.0)) for f in features]
-    table.to_parquet(out / "importances.parquet", index=False)
-    return out
-```
-
-Two notebook changes are needed:
-
-- `surrogate_tree_visualization` must return the fitted tree;
-- `evaluate_binary_performance` must return the shuffled 2,000-row sample, giving `binary_rows = DataFrame(order, event_id, y_true = (p > 2), y_pred_value = model.predict(X), y_pred = (pred > 2))`.
+- **What replaced the bundle.** The bundle format `calosrv-model-run` this section used to specify is no longer
+  needed. The notebooks' regressors ship in `xgboost_models/` (one per species, task and seed). A background job
+  per aggregate experiment reproduces every notebook view from them (`calosrv/modelruns/`):
+  - the 80/20 hold-out predictions;
+  - E1 by refitting the five folds;
+  - E3's 2,000-row sample;
+  - E4's depth-3 surrogate;
+  - E5 from the booster.
+  README "The XGBoost analysis" documents it.
+- **The training split.** Each shipped model is checked against its split: the validation/training MSE at
+  `random_state` 42 must clear the largest of 99 other seeds by a margin. Every s1 model passes on the current
+  files; the least headroom is the muon momentum model's, 1.087 against 1.05.
+- **The training data.** The old caveat that the notebooks trained on the v2 aggregates no longer applies. The
+  shipped models take the v3 aggregate's 52 features, and their training split reproduces on the v3 files.
+- **Still open from the old list:** the notebooks' xgboost and scikit-learn versions (§6.10). The service runs
+  xgboost-cpu 3.2.0, and a refit on the reproduced 80% recreates the shipped electron model exactly.
 
 ## 2. Single-shower files for proton, pion and muon
 
-- Hit-level (21-column v3) and aggregated (59-column v3):
+- **Arrived 2026-10-27:** the four s1 aggregates (electron, muon, pion, proton; 59-column v3, ZSTD Parquet in
+  `ingest/`). They drive the feature explorer and the XGBoost cards per species.
+- **Still missing:** the hit-level files (21-column v3) of proton, pion and muon. The original list of both kinds:
   - `proton_standalone_N100000_M0_20GeV_reg_balanced_s1_v3.csv` and `…_aggr_s1_v3.csv`;
   - the same two names for `pion_…` and `muon_…`.
 - The notebooks reference proton and pion hit files on the team's storage (`data/simulations/regression-{proton,pion}/`):
@@ -190,7 +55,8 @@ Two notebook changes are needed:
 
 ## 3. Second-seed (s2) files
 
-`electron_standalone_N100000_M0_20GeV_reg_balanced_s2_v3.csv` and `…_aggr_s2_v3.csv`, and the s2 files of §2. They unlock s1-vs-s2 overlays of B2, C4, C7 and D4, and the two-seed layout of E1–E5. The four electron files become four experiments under the long-name rule: a stem longer than 48 characters keeps its first word and as many trailing words as fit, then a six-character digest (`electron_m0_20gev_reg_balanced_s1_v3_25e581`, `electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8`, and their s2 twins).
+`electron_standalone_N100000_M0_20GeV_reg_balanced_s2_v3.csv` and `…_aggr_s2_v3.csv`, and the s2 files of §2. They unlock s1-vs-s2 overlays of B2, C4, C7 and D4, and the two-seed layout of E1–E5. The s2 XGBoost models
+already ship in `xgboost_models/`; the model scan lists them unpaired until an s2 aggregate is ingested. The four electron files become four experiments under the long-name rule: a stem longer than 48 characters keeps its first word and as many trailing words as fit, then a six-character digest (`electron_m0_20gev_reg_balanced_s1_v3_25e581`, `electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8`, and their s2 twins).
 
 ## 4. Fixed-energy ddsim proton files (8-column)
 
@@ -238,7 +104,6 @@ Two notebook changes are needed:
 
 ## 7. Engineering deferred with the data
 
-- The model-run import and the E1/E3/E4/E5 panels (§1.4).
 - Species and seed layouts (§2, §3), the fixed-energy schema (§4), schema v2 (§5).
 - Lab centroid stars, both kinds together (decided 2026-10-25 to keep them as they are for now). The
   energy-weighted centroid of the summed selection is a property of the drawn picture; the dataset-centroid star
@@ -267,3 +132,35 @@ Not blocked by data; each is a deliberate change with its own review.
 - **The C9 block's `hits` count.** `negative_w.splits[].hits` is an integer count, not a hit array, but it is the
   one `hits` key in a 3-D body and the no-hit-array walker exempts it by name; renaming it (e.g. `n_hits`) would
   change the frozen statistics contract and its frontend reader together.
+
+## 9. Follow-ups from the Page 2 review and fix round (2026-10-27)
+
+Not blocked by data; each is a deliberate change with its own review.
+
+- **One RMSE estimator on both pages.**
+  - E2's momentum bins give the RMSE a χ² interval below N = 20 and a seeded bootstrap from N = 20
+    (`stats/rmse.py`).
+  - Page 1's metric cards and the Models residual card keep √ of the t interval of the MSE
+    (`metrics.residual_summary`), whose lower end collapses to 0 at small N.
+  - Moving them changes Page 1's performance golden.
+- **Faded weak correlations on Page 1.** The Models page's feature correlations fade cells whose 95% interval
+  contains 0. Page 1's correlation card (C8) shares the panel but keeps every cell at full strength; the option is
+  one flag.
+- **Seven views still one resolution step below September.**
+  - On derived-v2 data: local/lab, about 200 events, energy-weighted Grad-CAM and Shap-CAM, R 300/400 (R6 v2).
+  - The extra bytes are the Local frame's negative-depth disclosure (`frame.negative_w`, about 2.5 KB). It must
+    stay; compacting its structure changes the statistics contract and its reader together.
+- **Re-measure the latency.** R6 v2's p95 of 144 ms on `data/dev/single` was measured while browser tests ran
+  beside it (69 ms on `data/dev/full`, and 66–78 ms before).
+- **The contracts generator.** `data/dev/design/two-page/build_contracts.py` (git-ignored) predates the fix round,
+  which edited `tests/contracts/*.json` directly. The checked-in contracts are authoritative: regenerate the
+  generator from them, or retire it.
+- **Flat 3-D boxes at a narrow card.** The 3-D plot's height has a 360 px floor, so a very flat box, such as the
+  synthetic single-shower event 3 at a 1440 px window, keeps empty bands above and below it.
+- **The per-shower translated depth raster** can extend half a layer past its window when its first layer's
+  centre sits on the window edge, as the lab lattice already does. The axes clip it.
+- **Deployment.** The production experiment stays on derived tables v1 until an operator rebuilds it
+  (`python -m calosrv.ingest --rebuild -t <name>`). Until then the cards that need the new tables stay shut and say
+  why.
+- **Datasets on Hugging Face.** The Parquet datasets are moving from Git LFS to a Hugging Face dataset. The
+  README's download steps and `.gitattributes` change with that move.
