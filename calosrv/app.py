@@ -48,6 +48,7 @@ from .api import (
     routes_projections,
     routes_upload,
     routes_voxels,
+    routes_xgboost,
 )
 
 log = logging.getLogger(__name__)
@@ -222,6 +223,11 @@ async def lifespan(app: FastAPI):
         empty = bootstrap_mod.is_empty(con) or reseed
 
     store = jobs_mod.get_job_store(database)
+    # The model-run worker exists before any ingest can finish, so an aggregate
+    # experiment that becomes ready is queued for its XGBoost analysis.
+    from .modelruns import jobs as modelruns_jobs
+
+    modelruns_jobs.get_model_runs(database)
     if empty:
         seed_baseline(database, settings)
 
@@ -240,6 +246,12 @@ async def lifespan(app: FastAPI):
     )
     app.state.settle_watch = watch
     watch.after(app.state.auto_ingest)
+
+    # The XGBoost model analysis: pair every aggregate experiment with the
+    # shipped models and queue the analyses that are missing or stale. Reads
+    # the registry and hashes the model files; the analyses themselves run on
+    # the model-run worker, so the server is serving at once.
+    modelruns_jobs.boot(database)
 
     if not empty:
         # Warm the co-registered frames' full-range bundles for every ready
@@ -267,6 +279,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         watch.stop()
+        modelruns_jobs.reset_model_runs()
         jobs_mod.reset_job_store()
         reset_database()
 
@@ -350,6 +363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_prediction,
         routes_features,
         routes_voxels,
+        routes_xgboost,
     ):
         app.include_router(module.router)
 

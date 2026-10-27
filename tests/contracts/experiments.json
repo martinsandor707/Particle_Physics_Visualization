@@ -272,8 +272,69 @@
     },
     "model_runs": {
      "type": "array",
+     "maxItems": 2,
      "items": {
-      "type": "object"
+      "type": "object",
+      "required": [
+       "task",
+       "species",
+       "seed",
+       "model_file",
+       "labels",
+       "n_holdout",
+       "split_reproduced",
+       "status"
+      ],
+      "properties": {
+       "task": {
+        "enum": [
+         "momentum",
+         "angle"
+        ]
+       },
+       "species": {
+        "type": "string"
+       },
+       "seed": {
+        "type": "integer"
+       },
+       "model_file": {
+        "type": "string"
+       },
+       "labels": {
+        "type": "array",
+        "items": {
+         "enum": [
+          "momentum",
+          "phi",
+          "theta"
+         ]
+        }
+       },
+       "n_holdout": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "split_reproduced": {
+        "type": [
+         "boolean",
+         "null"
+        ]
+       },
+       "status": {
+        "enum": [
+         "unpaired",
+         "not_ready",
+         "queued",
+         "running",
+         "done",
+         "failed",
+         "stale"
+        ]
+       }
+      }
      }
     },
     "pages": {

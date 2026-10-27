@@ -167,6 +167,15 @@ class Settings:
     #: budget of its own rather than competing with the lab bundles.
     canonical_cache_entries: int = 32
 
+    #: The folder of shipped XGBoost models, scanned for
+    #: ``xgboost_<species>/standalone_<task>_s<seed>_model.json``
+    #: (``calosrv/modelruns/discovery.py``). See :func:`resolve_model_dir`.
+    model_dir: Path = Path("/app/host/xgboost_models")
+
+    #: Threads the model analysis gives XGBoost: half the cores, so the server
+    #: keeps answering while a cross-validation refit runs.
+    model_threads: int = 1
+
     @property
     def memory_limit_sql(self) -> str:
         return f"{self.memory_gb}GB"
@@ -189,6 +198,35 @@ def _seed_candidates(data_dir: Path) -> list[Path]:
         data_dir / "hits_all_models_dummy.parquet",
         repo_root / "hits_all_models_dummy.parquet",
     ]
+
+
+#: The models folder inside the container: compose mounts the repository
+#: read-only at /app/host, and the image does not copy the models.
+CONTAINER_MODEL_DIR = Path("/app/host/xgboost_models")
+
+
+def resolve_model_dir(repo_root: Path | None = None) -> Path:
+    """The XGBoost models folder: ``CALOSRV_MODEL_DIR``, else the checkout's, else the mount's.
+
+    Outside Docker the server runs from a checkout, whose ``xgboost_models`` sits
+    beside ``calosrv``; inside the image ``calosrv`` lives at /app with no models
+    beside it, and the repository is mounted at /app/host. A folder that does
+    not exist is still returned, so the Admin Settings panel can say so.
+    """
+    override = os.getenv("CALOSRV_MODEL_DIR", "").strip()
+    if override:
+        return Path(override)
+    root = repo_root if repo_root is not None else Path(__file__).resolve().parent.parent
+    checkout = root / "xgboost_models"
+    if checkout.is_dir() or not CONTAINER_MODEL_DIR.is_dir():
+        return checkout
+    return CONTAINER_MODEL_DIR
+
+
+def model_threads(cpu_cores: int | None = None) -> int:
+    """XGBoost threads for the model analysis: ``max(1, cores // 2)``."""
+    cores = cpu_cores if cpu_cores is not None else (os.cpu_count() or 2)
+    return max(1, cores // 2)
 
 
 def load_settings() -> Settings:
@@ -251,4 +289,6 @@ def load_settings() -> Settings:
         env_defaults=env_defaults,
         auto_ingest_dir=Path(raw_auto) if raw_auto else None,
         auto_ingest_settle_s=max(0, _int_env("CALOSRV_AUTO_INGEST_SETTLE_S", 30)),
+        model_dir=resolve_model_dir(),
+        model_threads=model_threads(cpu_cores),
     )

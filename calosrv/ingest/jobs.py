@@ -238,6 +238,7 @@ class JobStore:
                 from ..query import warming
 
                 warming.warm(self._db, self._db.settings, [result.record])
+                self._queue_model_analysis(name)
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)
@@ -278,6 +279,7 @@ class JobStore:
                 from ..query import warming
 
                 warming.warm(self._db, self._db.settings, [result.record])
+                self._queue_model_analysis(name)
         except ApiError as exc:
             job.status, job.error, job.stage_label = JOB_FAILED, exc.detail, "Rebuild failed"
         except Exception as exc:  # noqa: BLE001 - the worker must never die silently
@@ -285,6 +287,14 @@ class JobStore:
             job.status, job.error, job.stage_label = JOB_FAILED, str(exc), "Rebuild failed"
         finally:
             job.finished_at = dt.datetime.now(dt.timezone.utc)
+
+    @staticmethod
+    def _queue_model_analysis(name: str) -> None:
+        """An aggregate experiment that pairs with shipped XGBoost models is analysed on the
+        model-run worker (``calosrv/modelruns``), never on this one: a no-op for any other."""
+        from ..modelruns import jobs as modelruns_jobs
+
+        modelruns_jobs.after_ready(name)
 
     @staticmethod
     def _invalidate(name: str) -> None:

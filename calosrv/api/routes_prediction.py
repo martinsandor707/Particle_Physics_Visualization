@@ -7,6 +7,14 @@ axes, the identity line, and the residual distribution beneath it
 networks is refused by its capability gates; the segmentation network is
 refused by name, because its per-hit fractions have no per-shower prediction
 to plot - its reconstruction is the energy panel.
+
+On an aggregate experiment whose XGBoost analysis is done, the same payload
+draws the shipped regressor on the notebook's 20 % validation split within the
+selection (``prediction_density.read_xgb``): one shower, ``network.frame`` and
+``source`` ``xgb``, and for the angle task ``label=theta`` (the default) or
+``label=phi``, whose residual is wrapped to (−π, π]. The networks predict θ
+only, so ``label=phi`` is refused on two-shower data and ``label=theta`` is
+what they always draw.
 """
 
 from __future__ import annotations
@@ -55,10 +63,22 @@ def get_prediction_density(
             "exceed the 100 KB contract; the axis range does not change."
         ),
     ),
+    label: str | None = Query(
+        None,
+        description=(
+            "theta | phi: the angle task's output. The networks predict θ only; the XGBoost "
+            "angle regressor of an aggregate experiment predicts both (θ by default)."
+        ),
+    ),
 ):
     timer = Timer()
-    # No networks: the same refusal as E2, naming the capability that is missing.
-    performance_bins.require_networks(record)
+    xgboost = record.kind == ddl.KIND_SINGLE_EVENTS
+    if xgboost:
+        # An aggregate experiment: the XGBoost series, refused while it is not analysed.
+        performance_bins.require_xgb(record)
+    else:
+        # No networks: the same refusal as E2, naming the capability that is missing.
+        performance_bins.require_networks(record)
     capabilities.require(record, "pred-truth", "pred-residuals", field="model")
     if model == "segmentation":
         raise ValidationError(SEGMENTATION_REFUSAL, field="model")
@@ -68,18 +88,38 @@ def get_prediction_density(
             raise ValidationError(
                 f"{name} must be one of {', '.join(allowed)}; got {value!r}.", field=name,
             )
+    if label is not None:
+        offered = prediction_density.XGB_LABELS[model] if xgboost else (
+            ("theta",) if model == "angle" else ())
+        if label not in offered:
+            what = (f"the {model} task predicts {', '.join(offered)}" if offered
+                    else f"model={model} has a single output")
+            if not xgboost and model == "angle":
+                what = "the angle networks predict the polar angle θ only (label=theta)"
+            raise ValidationError(f"label={label!r} is not available: {what}.", field="label")
 
-    selection = prediction_density.read(con, record, spec, model, coord_system)
+    if xgboost:
+        selection = prediction_density.read_xgb(con, record, spec, model, label)
+    else:
+        selection = prediction_density.read(con, record, spec, model, coord_system)
     residual = prediction_density.residual_block(selection)
+    notes = {"model": model, "coord_system": coord_system}
+    if xgboost:
+        notes.update(source=prediction_density.XGB_CODE, label=selection.label)
+    elif label is not None:
+        notes["label"] = label
 
     def respond(granted: int, disclosed: list[str]) -> dict:
         payload = prediction_density.assemble(selection, residual, granted)
+        warnings = [*prediction_density.notices(selection, payload), *disclosed]
+        if xgboost and not selection.split.get("reproduced", True):
+            warnings.append(selection.run["split"]["warning"])
         meta = ApiMeta(
             table_name=record.table_name,
             exact=True,
             total_ms=timer.elapsed_ms,
-            warnings=[*prediction_density.notices(selection, payload), *disclosed],
-            notes={"model": model, "coord_system": coord_system},
+            warnings=warnings,
+            notes=notes,
         )
         return envelope(meta, **payload, filter=spec.as_dict())
 

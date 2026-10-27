@@ -1,0 +1,372 @@
+{
+ "meta": {
+  "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+  "exact": true,
+  "warnings": [],
+  "view": "surrogate",
+  "task": "momentum"
+ },
+ "run": {
+  "species": "electron",
+  "seed": 1,
+  "task": "momentum",
+  "labels": [
+   "momentum"
+  ],
+  "label_units": {
+   "momentum": "GeV"
+  },
+  "model_file": "xgboost_electron/standalone_momentum_s1_model.json",
+  "sha256": "5216770e486c",
+  "analysis_version": 1,
+  "split": {
+   "reproduced": true,
+   "ratio_42": 6.73076,
+   "ratio_others": [
+    0.265619,
+    0.665909
+   ],
+   "seeds_others": [
+    0,
+    7
+   ],
+   "rule": "validation / training MSE of the shipped model at random_state 42 must exceed the same ratio at random_state 0 and 7: a model predicts the rows it was trained on better than the rest",
+   "warning": null
+  },
+  "xgboost_version": "3.2.0",
+  "n_rows": 307,
+  "n_train": 245,
+  "n_holdout": 62,
+  "test_size": 0.2,
+  "archive_increasing": true
+ },
+ "filtered": false,
+ "selection_note": "Computed once on the whole experiment, as the notebook does; the selection does not apply.",
+ "filter": {
+  "e1": [
+   0.012118219512702866,
+   19.70456381908061
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ },
+ "view": "surrogate",
+ "task": "momentum",
+ "labels": [
+  "momentum"
+ ],
+ "units": {
+  "momentum": "GeV"
+ },
+ "nodes": [
+  {
+   "id": 0,
+   "depth": 0,
+   "left": 1,
+   "right": 8,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 0.0105152,
+   "n": 307,
+   "impurity": 25.1119,
+   "values": {
+    "momentum": 6.54641
+   },
+   "sd": {
+    "momentum": 5.01118
+   }
+  },
+  {
+   "id": 1,
+   "depth": 1,
+   "left": 2,
+   "right": 5,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 2.08781e-05,
+   "n": 272,
+   "impurity": 24.5231,
+   "values": {
+    "momentum": 5.93834
+   },
+   "sd": {
+    "momentum": 4.95208
+   }
+  },
+  {
+   "id": 2,
+   "depth": 2,
+   "left": 3,
+   "right": 4,
+   "leaf": false,
+   "feature": "width_local",
+   "frame": "local",
+   "threshold": 651.921,
+   "n": 231,
+   "impurity": 25.2476,
+   "values": {
+    "momentum": 6.56862
+   },
+   "sd": {
+    "momentum": 5.0247
+   }
+  },
+  {
+   "id": 3,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 77,
+   "impurity": 25.9333,
+   "values": {
+    "momentum": 6.67654
+   },
+   "sd": {
+    "momentum": 5.09247
+   }
+  },
+  {
+   "id": 4,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 154,
+   "impurity": 24.8961,
+   "values": {
+    "momentum": 6.51466
+   },
+   "sd": {
+    "momentum": 4.98959
+   }
+  },
+  {
+   "id": 5,
+   "depth": 2,
+   "left": 6,
+   "right": 7,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 0.00519002,
+   "n": 41,
+   "impurity": 5.59276,
+   "values": {
+    "momentum": 2.38727
+   },
+   "sd": {
+    "momentum": 2.3649
+   }
+  },
+  {
+   "id": 6,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 32,
+   "impurity": 0.455656,
+   "values": {
+    "momentum": 1.20993
+   },
+   "sd": {
+    "momentum": 0.675023
+   }
+  },
+  {
+   "id": 7,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 9,
+   "impurity": 1.40635,
+   "values": {
+    "momentum": 6.57334
+   },
+   "sd": {
+    "momentum": 1.18589
+   }
+  },
+  {
+   "id": 8,
+   "depth": 1,
+   "left": 9,
+   "right": 12,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 0.0152964,
+   "n": 35,
+   "impurity": 4.48349,
+   "values": {
+    "momentum": 11.2719
+   },
+   "sd": {
+    "momentum": 2.11743
+   }
+  },
+  {
+   "id": 9,
+   "depth": 2,
+   "left": 10,
+   "right": 11,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 0.0123584,
+   "n": 30,
+   "impurity": 0.0870856,
+   "values": {
+    "momentum": 10.4474
+   },
+   "sd": {
+    "momentum": 0.295103
+   }
+  },
+  {
+   "id": 10,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 15,
+   "impurity": 0.0431723,
+   "values": {
+    "momentum": 10.2028
+   },
+   "sd": {
+    "momentum": 0.20778
+   }
+  },
+  {
+   "id": 11,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 15,
+   "impurity": 0.0113169,
+   "values": {
+    "momentum": 10.692
+   },
+   "sd": {
+    "momentum": 0.106381
+   }
+  },
+  {
+   "id": 12,
+   "depth": 2,
+   "left": 13,
+   "right": 14,
+   "leaf": false,
+   "feature": "energy_density",
+   "frame": "absolute",
+   "threshold": 0.0202678,
+   "n": 5,
+   "impurity": 2.30779,
+   "values": {
+    "momentum": 16.2192
+   },
+   "sd": {
+    "momentum": 1.51914
+   }
+  },
+  {
+   "id": 13,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 3,
+   "impurity": 0.050541,
+   "values": {
+    "momentum": 14.987
+   },
+   "sd": {
+    "momentum": 0.224813
+   }
+  },
+  {
+   "id": 14,
+   "depth": 3,
+   "left": null,
+   "right": null,
+   "leaf": true,
+   "feature": null,
+   "frame": null,
+   "threshold": null,
+   "n": 2,
+   "impurity": 0.0,
+   "values": {
+    "momentum": 18.0674
+   },
+   "sd": {
+    "momentum": 0.0
+   }
+  }
+ ],
+ "n_nodes": 15,
+ "rule": "left: feature ≤ threshold; right: feature > threshold",
+ "fidelity": {
+  "r2": 0.240006,
+  "mae": 3.56693,
+  "unit": "GeV",
+  "outputs": {
+   "momentum": {
+    "r2": 0.240006,
+    "mae": 3.56693
+   }
+  },
+  "against": "the shipped booster's own predictions on every row, in-sample, as the notebook measures it"
+ },
+ "tree": {
+  "max_depth": 3,
+  "random_state": 42,
+  "criterion": "squared_error",
+  "n_rows": 307,
+  "target": "the shipped booster's predictions"
+ },
+ "color_domain": {
+  "momentum": [
+   1.20993,
+   18.0674
+  ]
+ },
+ "notes": {
+  "description": "A description of the booster, not an estimate: each node shows its number of rows, the mean of the booster's predictions over them and their SD, the spread within the node (no whisker).",
+  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node, averaged over the outputs for the angle task; sd is each output's own within-node SD.",
+  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe."
+ }
+}
