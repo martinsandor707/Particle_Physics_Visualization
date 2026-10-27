@@ -8,8 +8,8 @@ guessed. An experiment pairs only when
 
 * it is the event-level aggregate kind (the models read its 52 v3 features;
   a hit-level or two-shower experiment has no such row per event),
-* it was built from one source file whose name parses (the notebook's split is
-  defined on that one file's rows, in its order),
+* it was built from one source file whose name parses, ending at its version
+  (the notebook's split is defined on that one file's rows, in its order),
 * both tasks' models exist for that species and seed, and
 * every feature of both models maps, through the ``ddl`` vocabulary, to a
   column of the event table.
@@ -30,8 +30,10 @@ from ..db.registry import ExperimentRecord
 from ..text import listed
 from .discovery import TASKS, Catalogue, ModelFile
 
-#: The producer's aggregate file names: species first, ``aggr``, the seed, a version.
-SOURCE_PATTERN = re.compile(r"^(?P<species>[a-z]+)_standalone_.*_aggr_s(?P<seed>\d+)_v\d+")
+#: The producer's aggregate file names: species first, ``aggr``, the seed, a version - and
+#: nothing after the version but an extension, so a cut such as ``..._aggr_s1_v3_head``
+#: (a different set of rows, on which the notebook's split means nothing) does not pair.
+SOURCE_PATTERN = re.compile(r"^(?P<species>[a-z]+)_standalone_.*_aggr_s(?P<seed>\d+)_v\d+(\.|$)")
 
 #: The notebooks' labels per task, in each model's output order, as the producer names them.
 TASK_LABELS: dict[str, tuple[str, ...]] = {

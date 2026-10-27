@@ -11,20 +11,34 @@ that stores the result (``store.write``).
 **When it runs.** After an aggregate experiment becomes ready (an ingest or a
 rebuild: :func:`after_ready`, called by ``ingest/jobs.py``), at boot for every
 ready experiment whose stored analysis is missing or stale (:func:`boot`,
-called by the application's lifespan, never at import), whenever the Admin
-Settings list rescans and finds one stale, and on its Re-analyse button. A run
-first compares the stamp (``store.stale_reasons``): a current analysis is not
-recomputed unless Re-analyse forces it, so a rebuild that changes nothing
-costs one read.
+called by the application's lifespan, never at import), on the Admin Settings
+panel's Rescan models (``POST /api/admin/model-runs/scan``,
+:meth:`ModelRunStore.scan`) and on its Re-analyse button. The list itself
+(``GET /api/admin/model-runs``, :meth:`ModelRunStore.report`) is read-only: it
+re-pairs and compares the cheap part of the stamp, may report an analysis
+stale, and never queues one. A run first reads the event table and compares
+the whole stamp, value hash included (``store.stale_reasons``): a current
+analysis is not recomputed unless Re-analyse forces it, so a rebuild that
+changes nothing costs one read.
+
+**Queueing** is a test-and-set under one lock (:meth:`ModelRunStore._submit`):
+an analysis already queued or running is never queued twice nor reset to
+"queued", whichever of the boot check, a scan, the ingest hook and Re-analyse
+gets there first.
 
 **Status** lives in memory, per experiment, for the capability block and the
 Admin Settings list: ``unpaired`` (with the pairing's reason), ``not_ready``,
 ``queued``, ``running`` (with its step), ``done``, ``failed`` (with the error;
 not retried by a rescan while its inputs are unchanged, only by Re-analyse,
 a restart or a changed input) and ``stale`` (a stored analysis found out of
-date and not queued, as when a run was discarded because the experiment
-changed under it). A state is tied to the registry row's ``created_at``: an
-experiment replaced by a new ingest is a new experiment.
+date and not queued: by the list's read-only check, or when a run was
+discarded because the experiment changed under it). A state is tied to the
+registry row's ``created_at``: an experiment replaced by a new ingest is a new
+experiment, and a deleted one is forgotten (:func:`forget`).
+
+**Shutdown** waits for the worker (:meth:`ModelRunStore.shutdown`): the run in
+progress stops at its next step boundary, so it never queries a database the
+application is closing.
 """
 
 from __future__ import annotations
@@ -35,8 +49,9 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
+
 
 from ..db import ddl, registry
 from ..db.connection import Database
@@ -121,7 +136,7 @@ class RunState:
         if self.status == STATUS_FAILED:
             return f"The XGBoost analysis failed: {self.error}"
         return (f"The stored XGBoost analysis is stale ({'; '.join(self.stale_reasons)}); "
-                "re-analyse it in Admin Settings › Model runs.")
+                "Rescan models or Re-analyse in Admin Settings › Model runs queues it.")
 
     def model_runs(self) -> list[dict[str, Any]]:
         """The capability block's ``model_runs``: one entry per paired task, empty when unpaired."""
@@ -156,9 +171,7 @@ class RunState:
                 "task": task, "model_file": stored["model_file"], "sha256": stored["sha256"][:12],
                 "n_rows": int(stored["n_rows"]), "n_train": int(stored["n_train"]),
                 "n_holdout": int(stored["n_val"]),
-                "split": {"reproduced": bool(stored["split_reproduced"]),
-                          "ratio_42": stored["split_ratio_42"],
-                          "ratio_others": [stored["split_ratio_0"], stored["split_ratio_7"]]},
+                "split": _split_brief(stored),
                 "analysis_version": int(stored["analysis_version"]),
                 "created_at": stored["created_at"].isoformat() if stored.get("created_at") else None,
             })
@@ -181,6 +194,17 @@ class RunState:
             "duration_s": None if self.duration_s is None else round(self.duration_s, 2),
             "timings": dict(self.timings),
         }
+
+
+def _split_brief(stored: dict[str, Any]) -> dict[str, Any]:
+    """The Admin Settings list's split check: the 42 ratio against the others' maximum."""
+    split = (stored.get("details") or {}).get("split") or {}
+    return {"reproduced": bool(stored["split_reproduced"]),
+            "ratio_42": stored["split_ratio_42"],
+            "max_others": split.get("max_others"),
+            "seed_of_max": split.get("seed_of_max"),
+            "n_others": len(split.get("seeds_others") or []),
+            "margin": split.get("margin")}
 
 
 class ModelRunStore:
@@ -231,6 +255,10 @@ class ModelRunStore:
         inputs: a current analysis is ``done``, a missing or stale one is
         queued (``queue``) - unless the last attempt failed on exactly these
         inputs, which waits for Re-analyse rather than failing in a loop.
+        With ``queue`` the whole stamp is compared, the feature and label
+        values included (the boot check, Rescan models); without it, the
+        cheap part only, and a missing or stale analysis is reported
+        ``stale``, never queued (the Admin Settings list).
         """
         catalogue = self.rescan()
         with self._db.read_cursor() as con:
@@ -244,6 +272,27 @@ class ModelRunStore:
                 if self._states[name].status not in (STATUS_QUEUED, STATUS_RUNNING):
                     del self._states[name]
         return self.states()
+
+    def report(self) -> list[RunState]:
+        """The Admin Settings list: re-pair and compare, read-only - nothing is queued."""
+        return self.refresh(queue=False)
+
+    def scan(self) -> list[RunState]:
+        """Rescan models: re-pair, compare the whole stamp, queue every missing or stale analysis."""
+        return self.refresh(queue=True)
+
+    def forget(self, name: str) -> None:
+        """Drop the state of a deleted experiment; a run on the worker discards itself."""
+        with self._lock:
+            state = self._states.get(name)
+            if state is None:
+                return
+            if state.status in (STATUS_QUEUED, STATUS_RUNNING):
+                # The worker re-reads the registry before reading or writing and finds it
+                # gone; it must not queue the deleted experiment again.
+                state.rerun = False
+                return
+            del self._states[name]
 
     def _state_for(self, record: ExperimentRecord, pairing: Pairing) -> RunState:
         with self._lock:
@@ -276,9 +325,25 @@ class ModelRunStore:
                 state.status, state.reason, state.runs = STATUS_UNPAIRED, pairing.reason, {}
                 return state
         runs = store.read_runs(con, record.table_name)
-        expected = store.expected_stamp(con, record, pairing)
+        try:
+            expected = store.expected_stamp(con, record, pairing, values=queue)
+        except Exception as exc:  # noqa: BLE001 - the check must never fail the list or the boot
+            # The event table itself cannot be read (duckdb.Error, or values the analysis
+            # cannot take): a failure on these models, shown and not retried until something
+            # changes (Re-analyse, a rebuild, a restart).
+            log.warning("Model-analysis check of %r could not read the event table: %s",
+                        record.table_name, exc)
+            with self._lock:
+                if state.status not in (STATUS_QUEUED, STATUS_RUNNING):
+                    state.status, state.runs = STATUS_FAILED, {}
+                    state.error = f"the event table could not be read: {exc}"
+                    state.failed_stamp = store.model_stamp(pairing)
+            return state
         reasons = store.stale_reasons(expected, store.stored_stamp(runs))
         with self._lock:
+            if state.status in (STATUS_QUEUED, STATUS_RUNNING):
+                # Queued by another caller while the stamp was read: leave it to the worker.
+                return state
             state.reason = None
             if not reasons:
                 state.status, state.runs, state.stale_reasons = STATUS_DONE, runs or {}, []
@@ -287,10 +352,10 @@ class ModelRunStore:
                     first = runs[discovery.TASKS[0]]
                     state.timings = dict(first.get("timings") or {})
                 return state
-            state.runs, state.stale_reasons = {}, [] if runs is None else reasons
-            if state.status == STATUS_FAILED and state.failed_stamp == expected:
+            if state.status == STATUS_FAILED and expected.matches(state.failed_stamp):
                 # The last attempt failed on exactly these inputs: shown, not retried.
                 return state
+            state.runs, state.stale_reasons = {}, [] if runs is None else reasons
             if not queue:
                 state.status = STATUS_STALE
                 state.stale_reasons = reasons
@@ -306,33 +371,45 @@ class ModelRunStore:
         pairing = pairing_mod.pair(record, catalogue)
         state = self._state_for(record, pairing)
         with self._lock:
-            if state.status == STATUS_RUNNING:
-                state.rerun = True
-                state.force = state.force or force
-                return state
-            if state.status == STATUS_QUEUED:
-                state.force = state.force or force
-                return state
-            if not record.is_ready:
-                state.status, state.reason = STATUS_NOT_READY, f"its status is {record.status}."
-                return state
-            if not pairing.paired:
-                state.status, state.reason, state.runs = STATUS_UNPAIRED, pairing.reason, {}
-                return state
+            if state.status not in (STATUS_QUEUED, STATUS_RUNNING):
+                if not record.is_ready:
+                    state.status, state.reason = STATUS_NOT_READY, f"its status is {record.status}."
+                    return state
+                if not pairing.paired:
+                    state.status, state.reason, state.runs = STATUS_UNPAIRED, pairing.reason, {}
+                    return state
         self._submit(state, force)
         return state
 
-    def _submit(self, state: RunState, force: bool) -> None:
+    def _submit(self, state: RunState, force: bool) -> bool:
+        """Queue ``state``'s analysis: a test-and-set under one lock. Whether it was queued.
+
+        An analysis already queued takes ``force`` and stays queued once; one
+        running is asked to run again after it (``rerun``), never reset to
+        "queued" under the worker.
+        """
         with self._lock:
             if self._closing.is_set():
-                return
+                return False
+            if state.status == STATUS_RUNNING:
+                state.rerun = True
+                state.force = state.force or force
+                return False
+            if state.status == STATUS_QUEUED:
+                state.force = state.force or force
+                return False
             state.status, state.error, state.force = STATUS_QUEUED, None, force
             state.step, state.step_label = 0, ""
             state.queued_at, state.started_at, state.finished_at = _now(), None, None
             state.duration_s = None
+            try:
+                self._executor.submit(self._run, state.table_name)
+            except RuntimeError:
+                # The executor shut down between the check above and here.
+                return False
         log.info("Model analysis of %r queued%s", state.table_name,
                  f" ({'; '.join(state.stale_reasons)})" if state.stale_reasons else "")
-        self._executor.submit(self._run, state.table_name)
+        return True
 
     # ----------------------------------------------------------------- run --
 
@@ -389,6 +466,10 @@ class ModelRunStore:
 
         name = state.table_name
         self._progress(state, 1, STEPS[0])
+        with self._lock:
+            # Nothing is known of this attempt's inputs yet: a failure before the first
+            # read records no stamp, rather than the previous attempt's.
+            state.attempt_stamp = None
         with self._db.read_cursor() as con:
             record = registry.get_experiment(con, name)
             if record is None or not record.is_ready:
@@ -401,16 +482,23 @@ class ModelRunStore:
                 with self._lock:
                     state.status, state.reason, state.pairing = STATUS_UNPAIRED, pairing.reason, pairing
                 return None
+            with self._lock:
+                # Set before any step that can fail, so a failure is matched to its inputs.
+                state.attempt_stamp = store.model_stamp(pairing)
             runs = store.read_runs(con, name)
             expected = store.expected_stamp(con, record, pairing)
+            with self._lock:
+                state.attempt_stamp = expected
+            data = store.read_dataset(con, self._settings, record, pairing)
+            expected = replace(expected, values=data.value_hash())
             reasons = store.stale_reasons(expected, store.stored_stamp(runs))
+            with self._lock:
+                state.attempt_stamp = expected
             if not reasons and not force:
                 log.info("Model analysis of %r is current; nothing recomputed", name)
                 return runs
             with self._lock:
-                state.attempt_stamp = expected
                 state.stale_reasons = [] if runs is None else reasons
-            data = store.read_dataset(con, self._settings, record, pairing)
         result = analysis.run(
             data, pairing.models, self._settings.model_threads,
             progress=lambda step, label: self._progress(state, step, label),
@@ -436,8 +524,15 @@ class ModelRunStore:
         return runs
 
     def shutdown(self) -> None:
+        """Stop: cancel what is queued and wait for the run in progress to stop.
+
+        The run stops at its next step boundary (``should_stop``), so the
+        wait is at most one step - a fold refit, seconds on 100,000 events -
+        and the caller can close the database after it with no query in
+        flight.
+        """
         self._closing.set()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
 
 # ------------------------------------------------------------ singleton --
@@ -484,6 +579,13 @@ def boot(database: Database) -> list[RunState]:
     except Exception:  # noqa: BLE001 - a broken models folder must never stop the boot
         log.exception("The model-analysis boot check failed; the XGBoost cards stay shut")
         return []
+
+
+def forget(name: str) -> None:
+    """Experiment ``name`` was deleted: drop its state. No IO."""
+    found = _store
+    if found is not None:
+        found.forget(name)
 
 
 def after_ready(name: str) -> RunState | None:

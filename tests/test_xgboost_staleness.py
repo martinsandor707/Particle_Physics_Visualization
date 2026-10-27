@@ -1,13 +1,17 @@
 """A stored XGBoost analysis is re-run when what it was computed from changes, and only then.
 
 The stamp (``modelruns/store.py``) is the analysis version, each model file's
-sha256, the library versions and the event table's ``event_number``
-fingerprint. These tests change a model file's bytes - the same model written
-with different whitespace, so the numbers must come back identical - and check
-that the analysis is queued again: by the Admin Settings list's rescan while
-the server runs, and by the boot check after a restart. A restart with nothing
-changed recomputes nothing, and neither does a rebuild of the experiment's
-derived tables, whose queue hook finds the stored analysis current.
+sha256, the library versions, the event table's ``event_number`` fingerprint
+and a hash of the feature and label values the analysis read. These tests
+change a model file's bytes - the same model written with different
+whitespace, so the numbers must come back identical - and check that the
+Admin Settings list (``GET``, read-only) reports the analysis stale without
+queueing it, that Rescan models (``POST .../scan``) queues it while the server
+runs, and that the boot check queues it after a restart. A restart with
+nothing changed recomputes nothing, and neither does a rebuild of the
+experiment's derived tables, whose queue hook reads the values and finds them
+unchanged; a feature value changed in the event table re-runs the analysis
+from the scan, which reads the values, and not from the list, which does not.
 
 The test boots its servers itself (``xgb_boot``), one after another on one
 data directory, so it owns its fixture rather than sharing ``xgb_client``.
@@ -72,10 +76,16 @@ def test_a_changed_model_file_requeues_the_analysis(xgb_boot, xgb_sources, tmp_p
         assert first["status"] == "done", first
         reference = _importance(client)
 
-        # 2. A model file's bytes change while the server runs: the list's rescan finds the
-        #    stored analysis stale, shuts the gate and queues it at once.
+        # 2. A model file's bytes change while the server runs: the list reports the stored
+        #    analysis stale and shuts the gate, but queues nothing; Rescan models queues it.
         _rewrite(momentum)
-        rescanned = _row(client)
+        listed = _row(client)
+        assert listed["status"] == "stale" and listed["queued_at"] == first["queued_at"], listed
+        assert any("momentum model file changed" in r for r in listed["stale_reasons"])
+        assert _row(client)["status"] == "stale", "a second read still queues nothing"
+        reply = client.post("/api/admin/model-runs/scan")
+        assert reply.status_code == 200, reply.text
+        rescanned = {r["table_name"]: r for r in reply.json()["runs"]}[ELECTRON]
         assert rescanned["status"] in ("queued", "running"), rescanned
         assert any("momentum model file changed" in r for r in rescanned["stale_reasons"])
         settled = wait_for_model_runs(client, [ELECTRON])
@@ -117,12 +127,28 @@ def test_a_changed_model_file_requeues_the_analysis(xgb_boot, xgb_sources, tmp_p
                 break
             time.sleep(0.1)
         assert row["status"] == "done" and row["queued_at"] is not None, row
-        assert _stored_created_at(client) == stored, "a current analysis is not recomputed"
+        assert _stored_created_at(client) == stored, "a rebuild with unchanged values recomputes nothing"
+
+        # 5. A feature value changes under the same events: the list cannot see it (it does
+        #    not read the values) and stays done; the scan reads them and re-runs the analysis.
+        with client.app.state.database.write_lock() as con:
+            con.execute(f"UPDATE {quote(naming.event_table(ELECTRON))} SET width_trans = width_trans + 1.0 "
+                        "WHERE event_number = (SELECT min(event_number) FROM "
+                        f"{quote(naming.event_table(ELECTRON))})")
+        assert _row(client)["status"] == "done"
+        reply = client.post("/api/admin/model-runs/scan")
+        rescanned = {r["table_name"]: r for r in reply.json()["runs"]}[ELECTRON]
+        assert rescanned["status"] in ("queued", "running"), rescanned
+        assert any("values changed" in r for r in rescanned["stale_reasons"]), rescanned
+        settled = wait_for_model_runs(client, [ELECTRON])
+        assert {r["table_name"]: r for r in settled["runs"]}[ELECTRON]["status"] == "done"
+        assert _stored_created_at(client) != stored, "changed values are analysed again"
 
 
 def _stamp(**changes) -> store.Stamp:
     base = dict(analysis_version=ANALYSIS_VERSION, sha256=(("momentum", "a" * 64), ("angle", "b" * 64)),
-                versions=(("numpy", "2.4.6"), ("xgboost", "3.2.0")), n_rows=300, fingerprint="f" * 64)
+                versions=(("numpy", "2.4.6"), ("xgboost", "3.2.0")), n_rows=300, fingerprint="f" * 64,
+                values="v" * 64)
     base.update(changes)
     return store.Stamp(**base)
 
@@ -136,10 +162,23 @@ def test_every_input_of_the_stamp_makes_it_stale():
         "angle model file changed": _stamp(sha256=(("momentum", "a" * 64), ("angle", "c" * 64))),
         "xgboost 3.1.0 against 3.2.0": _stamp(versions=(("numpy", "2.4.6"), ("xgboost", "3.1.0"))),
         "event table changed": _stamp(fingerprint="0" * 64),
+        "values changed": _stamp(values="w" * 64),
     }
     for expected, stored in cases.items():
         reasons = store.stale_reasons(current, stored)
         assert len(reasons) == 1 and expected in reasons[0], (expected, reasons)
+    # The list's cheap check reads no values, so it never calls them changed.
+    assert store.stale_reasons(_stamp(values=None), _stamp(values="w" * 64)) == []
+
+
+def test_a_failed_attempt_matches_the_inputs_it_knew():
+    """A failure before the event table was read matches every check of the same models."""
+    models_only = _stamp(n_rows=None, fingerprint=None, values=None)
+    assert models_only.matches(_stamp()) and _stamp().matches(models_only)
+    assert _stamp(values=None).matches(_stamp())          # the list's check, no values
+    assert not _stamp().matches(_stamp(values="w" * 64))
+    assert not models_only.matches(_stamp(sha256=(("momentum", "c" * 64), ("angle", "b" * 64))))
+    assert not _stamp().matches(None)
 
 
 def test_library_versions_are_read_without_importing():

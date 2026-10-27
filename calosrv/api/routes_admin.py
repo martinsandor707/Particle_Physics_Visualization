@@ -4,7 +4,9 @@ The panel reads the effective default view with ``GET /api/admin/config`` and
 saves changes with ``POST``; ``POST /api/admin/auto-ingest/scan`` is its Scan
 now, and ``POST /api/admin/experiments/{name}/rebuild`` its Rebuild derived
 tables. ``GET /api/admin/model-runs`` lists the XGBoost model analysis of every
-aggregate experiment and ``POST /api/admin/model-runs/{name}/analyse`` is its
+aggregate experiment - read-only: it reports, and queues nothing -
+``POST /api/admin/model-runs/scan`` is its Rescan models, which queues every
+missing or stale analysis, and ``POST /api/admin/model-runs/{name}/analyse`` its
 Re-analyse. Scripts can use the same calls. No endpoint in this service is
 authenticated, and this one follows the same trust model as upload and delete:
 anyone who can reach the port can change what a new session opens on.
@@ -128,16 +130,34 @@ def _model_runs_view(found: modelruns_jobs.ModelRunStore, settings) -> dict[str,
 
 @router.get("/api/admin/model-runs", summary="The XGBoost model analysis of every aggregate experiment")
 def get_model_runs(request: Request, settings: SettingsDep):
-    """Each aggregate experiment's pairing with the shipped models, and its analysis.
+    """Each aggregate experiment's pairing with the shipped models, and its analysis. Read-only.
 
-    Rescans the models folder on every call (headers are cached by size and
-    modification time) and re-pairs every aggregate experiment, as a restart
-    would: an analysis made stale by a replaced model file or a library
-    upgrade is queued at once, and one that failed on unchanged inputs waits
-    for Re-analyse.
+    Rescans the models folder (headers are cached by size and modification
+    time), re-pairs every aggregate experiment and compares each stored
+    analysis with the models, the libraries and the event table's events: one
+    that no longer matches is reported ``stale`` with its reasons. Nothing is
+    queued - ``POST /api/admin/model-runs/scan`` does that - and the feature
+    values are not re-read (the scan, the ingest hook and the worker compare
+    them).
     """
     found = modelruns_jobs.get_model_runs(request.app.state.database)
-    found.refresh(queue=True)
+    found.report()
+    return json_safe(_text_tree(_model_runs_view(found, settings)))
+
+
+@router.post("/api/admin/model-runs/scan", summary="Rescan the models and queue stale analyses")
+def scan_model_runs(request: Request, settings: SettingsDep):
+    """Rescan models: what a restart's boot check does, without the restart.
+
+    Re-pairs every aggregate experiment and compares each stored analysis
+    with everything it was computed from, the feature and label values
+    included; a missing or stale one is queued, unless its last attempt
+    failed on exactly these inputs (Re-analyse retries that). Idempotent: an
+    analysis already queued or running is never queued twice. Answers with
+    the list ``GET`` reads.
+    """
+    found = modelruns_jobs.get_model_runs(request.app.state.database)
+    found.scan()
     return json_safe(_text_tree(_model_runs_view(found, settings)))
 
 

@@ -74,25 +74,137 @@ def test_holdout_predictions_are_the_notebooks_val_df_predictions(notebook):
         assert t.n_val == len(val_df) and t.n_train == len(df) - len(val_df)
 
 
-def test_the_split_check_is_the_probe_s(notebook):
+def _per_row_errors(notebook, task: str) -> np.ndarray:
+    df = notebook["df"]
+    pred = notebook["shipped"][task].predict(df[notebook["features"]])
+    y = df[list(TASK_LABELS[task])].to_numpy()
+    return ((pred.reshape(len(df), -1) - y) ** 2).mean(axis=1)
+
+
+def test_the_split_check_compares_seed_42_with_99_others(notebook):
     df, result = notebook["df"], notebook["result"]
-    for task, labels in TASK_LABELS.items():
-        pred = notebook["shipped"][task].predict(df[notebook["features"]])
-        y = df[list(labels)].to_numpy()
-        e2 = ((pred.reshape(len(df), -1) - y) ** 2).mean(axis=1)
+    assert analysis.CHECK_SEEDS == tuple(s for s in range(100) if s != 42)
+    for task in TASK_LABELS:
+        e2 = _per_row_errors(notebook, task)
         ratios = {}
-        for seed in (42, 0, 7):
+        for seed in (42, *range(100)):
             tr, va = train_test_split(np.arange(len(df)), test_size=0.2, random_state=seed)
             ratios[seed] = e2[va].mean() / e2[tr].mean()
-        assert result.tasks[task].split_ratios == pytest.approx(ratios, rel=1e-12)
-        assert result.tasks[task].split_reproduced == (ratios[42] > max(ratios[0], ratios[7]))
-    # The fixture's models were trained on the reproduced 80 %, so the check passes.
+        t = result.tasks[task]
+        assert t.split_ratios == pytest.approx(ratios, rel=1e-12)
+        others = [ratios[s] for s in range(100) if s != 42]
+        assert t.split_reproduced == (ratios[42] > analysis.SPLIT_MARGIN[task] * max(others))
+        assert t.split["max_others"] == pytest.approx(max(others), rel=1e-12)
+        assert t.split["seed_of_max"] == analysis.CHECK_SEEDS[int(np.argmax(others))]
+        assert t.split["margin"] == analysis.SPLIT_MARGIN[task] and len(t.split["ratio_others"]) == 99
+    # The fixture's models were trained on the reproduced 80 %. The momentum model fits its
+    # training rows far better (ratio 6.7), so the check passes. The angle model predicts the
+    # synthetic angles almost exactly on every row (ratio 1.03): nothing tells its training
+    # rows apart, the check cannot confirm the split and says so - where the former rule
+    # (above seeds 0 and 7 only, 0.80 and 0.91) passed it by chance.
     assert result.tasks["momentum"].split_reproduced
+    assert not result.tasks["angle"].split_reproduced
+    assert result.tasks["angle"].split["ratio_42"] < 1.1
 
 
-def test_the_flag_needs_the_42_ratio_above_both_others():
-    assert analysis.reproduced({42: 1.3, 0: 1.0, 7: 1.1})
-    assert not analysis.reproduced({42: 1.05, 0: 1.0, 7: 1.1})
+def test_the_flag_needs_the_42_ratio_above_every_other_by_the_margin():
+    others = {s: 1.0 for s in analysis.CHECK_SEEDS}
+    for task, margin in analysis.SPLIT_MARGIN.items():
+        assert analysis.reproduced({**others, 42: 1.01 * margin}, task)
+        assert not analysis.reproduced({**others, 42: 0.99 * margin}, task)
+        # One seed of the 99 as high as 42: not reproduced, whatever the other 98 say.
+        assert not analysis.reproduced({**others, 13: 1.5 * margin, 42: 1.01 * margin}, task)
+    assert not analysis.reproduced({42: float("nan"), **others}, "momentum")
+
+
+#: Row permutations of the per-row errors on which the check must fail, and the most of them
+#: it may pass (measured on the fixture: see test_row_permuted_errors_fail_the_split_check).
+PERMUTATIONS = 200
+
+
+@pytest.mark.parametrize("task", discovery.TASKS)
+def test_row_permuted_errors_fail_the_split_check(notebook, task):
+    """The errors in a shuffled order are a split the model was not trained on: the check fails.
+
+    The fixture's 300 rows and its 20-tree models reproduce the real data's result (row-
+    permuted, 5,000 permutations per species and task on the four s1 aggregates: 1 pass in
+    20,000 for momentum, 5 in 20,000 for angle): every one of 200 permutations fails here.
+    """
+    e2 = _per_row_errors(notebook, task)
+    n = e2.size
+    rng = np.random.default_rng(2026)
+    splits = [analysis.split_indices(n, seed) for seed in (42, *analysis.CHECK_SEEDS)]
+    passed = 0
+    for _ in range(PERMUTATIONS):
+        e = e2[rng.permutation(n)]
+        ratios = {seed: e[va].mean() / e[tr].mean()
+                  for seed, (tr, va) in zip((42, *analysis.CHECK_SEEDS), splits)}
+        passed += analysis.reproduced(ratios, task)
+    assert passed == 0, f"{passed} of {PERMUTATIONS} permutations passed"
+    if task == "momentum":
+        # The true order passes, by more than the margin (the fixture's angle model does not
+        # tell its training rows apart; test_the_split_check_compares_seed_42_with_99_others).
+        true = {seed: e2[va].mean() / e2[tr].mean()
+                for seed, (tr, va) in zip((42, *analysis.CHECK_SEEDS), splits)}
+        assert analysis.reproduced(true, task)
+
+
+def test_the_angle_outputs_are_checked_against_their_own_labels(notebook):
+    df = notebook["df"]
+    labels = TASK_LABELS["angle"]
+    pred = np.asarray(notebook["shipped"]["angle"].predict(df[notebook["features"]]), dtype=np.float64)
+    truth = df[list(labels)].to_numpy()
+    errors = analysis.output_order("angle", pred, truth, labels)
+    assert set(errors) == {"phi", "theta"} and errors["phi"]["phi"] < errors["phi"]["theta"]
+    assert errors["theta"]["theta"] < errors["theta"]["phi"]
+    analysis.check_output_order("angle", errors)
+    stored = notebook["result"].tasks["angle"].output_order
+    for output, row in errors.items():
+        assert stored[output] == pytest.approx(row, rel=1e-12)
+    # φ's error is wrapped: a prediction 2π away from its truth is no error at all.
+    shifted = pred.copy()
+    shifted[:, 0] += 2 * np.pi
+    assert analysis.output_order("angle", shifted, truth, labels)["phi"]["phi"] == pytest.approx(
+        errors["phi"]["phi"], rel=1e-9)
+    # The outputs swapped: the run would store φ as θ; it fails, naming both errors.
+    with pytest.raises(ValueError, match=r"not in the order \[phi, theta\]"):
+        analysis.check_output_order("angle", analysis.output_order("angle", pred[:, ::-1], truth, labels))
+
+
+def test_a_model_with_swapped_outputs_fails_the_run(notebook, monkeypatch):
+    """End to end: the analysis refuses before it stores anything under the wrong labels."""
+    real = analysis.load_model
+
+    class Swapped:
+        def __init__(self, regressor):
+            self.regressor = regressor
+
+        def predict(self, x):
+            return np.asarray(self.regressor.predict(x))[:, ::-1]
+
+    def load(model, nthread):
+        regressor = real(model, nthread)
+        return Swapped(regressor) if model.task == "angle" else regressor
+
+    monkeypatch.setattr(analysis, "load_model", load)
+    with pytest.raises(ValueError, match="outputs are not in the order"):
+        analysis.run(notebook["data"], notebook["models"], nthread=1)
+
+
+def test_the_value_hash_follows_the_values(notebook):
+    data = notebook["data"]
+    first = data.value_hash()
+    assert first == data.value_hash() and len(first) == 64
+    features = {task: frame.copy() for task, frame in data.features.items()}
+    features["momentum"].iloc[3, 5] += 1e-9
+    changed = analysis.Dataset(event_number=data.event_number, e1_bin=data.e1_bin,
+                               labels=data.labels, features=features)
+    assert changed.value_hash() != first
+    labels = dict(data.labels)
+    labels["incoming_phi"], labels["incoming_theta"] = labels["incoming_theta"], labels["incoming_phi"]
+    swapped = analysis.Dataset(event_number=data.event_number, e1_bin=data.e1_bin, labels=labels,
+                               features=data.features)
+    assert swapped.value_hash() != first
 
 
 # --------------------------------------------------------------------- E1 --
@@ -207,12 +319,46 @@ def test_the_binary_sample_is_the_notebooks_row_for_row(notebook):
     assert b.metrics == pytest.approx(metrics, rel=1e-12)
 
 
-def test_the_balanced_accuracy_bootstrap_is_seeded_and_brackets_the_value():
-    first = views.balanced_bootstrap(tn=900, fp=80, fn=6, tp=14)
-    assert first == views.balanced_bootstrap(tn=900, fp=80, fn=6, tp=14)
-    value = 0.5 * (14 / 20 + 900 / 980)
-    assert first["lo"] < value < first["hi"] and first["n_undefined"] == 0
-    assert views.balanced_bootstrap(0, 0, 0, 20)["lo"] is None
+def _wilson(k: int, n: int, z: float = 1.959963984540054) -> tuple[float, float]:
+    """The Wilson score interval, written out here rather than taken from metrics."""
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z / (1 + z * z / n) * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _mover(tn: int, fp: int, fn: int, tp: int) -> tuple[float, float, float]:
+    p1, p0 = tp / (tp + fn), tn / (tn + fp)
+    (l1, u1), (l0, u0) = _wilson(tp, tp + fn), _wilson(tn, tn + fp)
+    ba = (p1 + p0) / 2
+    return (ba, max(0.0, ba - 0.5 * np.hypot(p1 - l1, p0 - l0)),
+            min(1.0, ba + 0.5 * np.hypot(u1 - p1, u0 - p0)))
+
+
+def test_the_balanced_accuracy_interval_keeps_a_perfect_class_uncertain():
+    """fn = 0: the real electron sample's shape (tp 20, fn 0, tn 1743, fp 237).
+
+    The class-1 recall is 20 / 20 with the Wilson interval [0.839, 1]; a bootstrap of the
+    rows drew that class perfect every time and left only class 0's ±0.007. MOVER keeps it.
+    """
+    got = views.balanced_interval(tn=1743, fp=237, fn=0, tp=20)
+    value, lo, hi = _mover(1743, 237, 0, 20)
+    assert got["value"] == pytest.approx(0.5 * (1.0 + 1743 / 1980), rel=1e-12)
+    assert (got["value"], got["lo"], got["hi"]) == pytest.approx((value, lo, hi), rel=1e-9)
+    assert got["lo"] == pytest.approx(0.8592, abs=1e-4) and got["hi"] == pytest.approx(0.9469, abs=1e-4)
+    assert got["value"] - got["lo"] > 0.07   # the minority class's own uncertainty
+
+
+def test_the_balanced_accuracy_interval_in_the_interior():
+    got = views.balanced_interval(tn=900, fp=80, fn=6, tp=14)
+    value, lo, hi = _mover(900, 80, 6, 14)
+    assert (got["value"], got["lo"], got["hi"]) == pytest.approx((value, lo, hi), rel=1e-9)
+    assert 0.0 < got["lo"] < got["value"] < got["hi"] < 1.0
+    # Asymmetric, as the Wilson limits it is built from.
+    assert got["hi"] - got["value"] != pytest.approx(got["value"] - got["lo"], rel=1e-3)
+    assert views.balanced_interval(0, 0, 0, 20) == {"value": None, "lo": None, "hi": None}
+    perfect = views.balanced_interval(tn=1980, fp=0, fn=0, tp=20)
+    assert perfect["value"] == 1.0 and perfect["hi"] == 1.0 and perfect["lo"] < 0.92
 
 
 # --------------------------------------------------------------------- E4 --
@@ -245,6 +391,19 @@ def test_the_surrogate_tree_is_sklearns(notebook, task):
         # One output: the per-label variance is sklearn's impurity itself.
         assert [n["variance"]["momentum"] for n in nodes] == pytest.approx(
             np.maximum(t.impurity, 0).tolist(), rel=1e-9, abs=1e-12)
+        assert all(n["circular"] == {} for n in nodes)
+    else:
+        # φ: beside sklearn's linear mean, the circular mean and R̄ of the rows reaching the node.
+        k = labels.index("phi")
+        path = tree.decision_path(X).tocsc()
+        for node in nodes:
+            rows = path.indices[path.indptr[node["node_id"]]:path.indptr[node["node_id"] + 1]]
+            phi = np.asarray(y_proxy, dtype=np.float64)[rows, k]
+            c, s_ = np.cos(phi).sum(), np.sin(phi).sum()
+            circ = node["circular"]["phi"]
+            assert circ["resultant"] == pytest.approx(np.hypot(c, s_) / rows.size, rel=1e-9)
+            assert circ["mean"] == pytest.approx(np.arctan2(s_, c), rel=1e-9, abs=1e-12)
+            assert 0.0 <= circ["resultant"] <= 1.0
     fitted = tree.predict(X)
     assert result.tasks[task].surrogate_r2 == pytest.approx(r2_score(y_proxy, fitted), rel=1e-12)
     assert result.tasks[task].surrogate_mae == pytest.approx(mean_absolute_error(y_proxy, fitted),

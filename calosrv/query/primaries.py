@@ -48,7 +48,7 @@ WEAK_N = 20
 
 DEFINITION = (
     "An event has no primary when none of its hit rows has is_secondary = 0, the producer's "
-    "primary-particle tag. Each bar is the fraction of the selected events that have none, an "
+    "primary-particle tag. Each point is the fraction of the selected events that have none, an "
     "event being the unit."
 )
 
@@ -114,7 +114,7 @@ class PrimaryRates:
     def _notes(self) -> list[str]:
         weak = sum(1 for b in self.bins if b.n < WEAK_N)
         notes = [
-            DEFINITION + " Bars start at zero.",
+            DEFINITION + " The rate axis starts at zero.",
             "Whiskers are 95% Wilson score intervals of the fraction, events being the "
             "independent units. The Wald interval is not used: it collapses at zero events and "
             f"leaves [0, 1] at small N. {weak} bin{'s' if weak != 1 else ''} with N < {WEAK_N} "
@@ -128,7 +128,7 @@ class PrimaryRates:
         if self.n_unknown:
             notes.append(
                 f"{self.n_unknown:,} selected event{'s' if self.n_unknown != 1 else ''} have no "
-                "recorded count of primary-tagged rows and are in no bar.")
+                "recorded count of primary-tagged rows and enter no point's rate.")
         return notes + self.notices
 
 

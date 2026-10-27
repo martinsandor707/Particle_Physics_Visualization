@@ -231,13 +231,17 @@ export function residualNotes({ payload, state = null, experiment = null, title 
   }
   const model = residualModel(payload, { shower });
   const unit = r.unit && r.unit !== 'fraction' ? ` ${r.unit}` : '';
+  // The XGBoost azimuth residual: wrapped, summarised on the circle, no line statistics drawn.
+  const circular = r.statistics === 'circular';
   notes.section(SECTION.selection, [
     selectionLine(state, experiment),
     `${r.quantity}${r.unit ? ` [${r.unit}]` : ''}; ${model.entries.map((e) => `${e.label} N = ${formatInt(e.n)}`).join(', ') || 'no shower'}.`,
   ]);
   const drawn = [payload.notes?.residual ?? ''];
   for (const e of model.entries) {
-    const what = e.hist ? 'a density histogram from zero with its fitted Gaussian' : (e.curve ? 'its fitted Gaussian, thin and faint, with its events in the reserved band' : 'its events and summary marks in the reserved band');
+    const what = circular
+      ? (e.hist ? `a density histogram from zero${e.curve ? ' with the Gaussian fit of its core' : ''}` : 'its residuals as ticks in the reserved band, with no summary marks')
+      : (e.hist ? 'a density histogram from zero with its fitted Gaussian' : (e.curve ? 'its fitted Gaussian, thin and faint, with its events in the reserved band' : 'its events and summary marks in the reserved band'));
     drawn.push(`${e.label}: ${what}.${e.message ? ` ${e.message}` : ''}`);
   }
   drawn.push('The dotted vertical is zero residual: prediction equals truth.');
@@ -261,13 +265,29 @@ export function residualNotes({ payload, state = null, experiment = null, title 
   }
   if (payload.meta?.exact === false) disclosures.push('Sampled preview: the exact numbers follow.');
   notes.section(SECTION.disclosures, disclosures);
-  notes.section(SECTION.legend, [
-    'Shower colour (A pink, B blue and dashed; one shower the accent). A histogram series\' mean is a long-dashed vertical with its 95% Student-t interval as two thin hairlines; its spread is the histogram itself.',
-    `Below N = ${HISTOGRAM_FLOOR} a series sits in the tinted, captioned band at the foot: its events as ticks, its mean with the capped Student-t interval and its uncapped ± 1 SD bar - two quantities, two marks; heights there are drawing offsets.`,
+  notes.section(SECTION.legend, circular ? [
+    'Shower colour (one shower the accent). φ is an azimuth: no mean rule, whisker or ± 1 SD bar is drawn, because an arithmetic mean and σ of a wrapped residual are not its centre and spread. Its circular mean direction, R̄ and circular SD are listed below and in the tooltip.',
+    `From N = ${HISTOGRAM_FLOOR} the histogram is the spread; its curve, where drawn, is the Gaussian fit of the core only. Below N = ${HISTOGRAM_FLOOR} the residuals sit as ticks in the tinted, captioned band at the foot; heights there are drawing offsets.`,
+    'A caret marks a curve or residuals beyond the axis.',
+  ] : [
+    'Shower colour (A pink, B blue and dashed; one shower the accent). From N = 15 a series\' mean is a long-dashed vertical with its 95% Student-t interval of the mean as two thin hairlines; its spread is the histogram itself.',
+    `Below N = ${HISTOGRAM_FLOOR} a series sits in the tinted, captioned band at the foot: its events as ticks, its mean with the capped Student-t whisker and an uncapped ± 1 SD bar, the spread of the events - two marks, two quantities; heights there are drawing offsets.`,
     'A caret marks a curve, a mark or showers beyond the axis.',
   ]);
   notes.section(MODELS_HEADINGS.estimators, model.entries.map((e) => {
     const s = r.series?.[e.key] ?? {};
+    if (circular) {
+      const c = s.circular ?? {};
+      const iv = c.mean_direction_interval;
+      const rmse = s.estimates?.rmse ?? {};
+      const core = s.core_fit;
+      return `${e.label}: circular mean direction ${num(c.mean_direction)}${unit}${iv ? ` [${num(iv.lo)}, ${num(iv.hi)}] (${iv.label})` : ''}; `
+        + `mean resultant length R̄ = ${num(c.resultant, 4)}; circular SD ${num(c.circular_sd)}${unit}; `
+        + `RMSE ${num(rmse.value)}${unit}${rmse.interval ? ` [${num(rmse.interval.lo)}, ${num(rmse.interval.hi)}]` : ''}`
+        + `${core ? `; Gaussian fit of the core: width ${num(core.sigma)}${unit} over ${formatInt(core.n)} residuals` : ''}`
+        + '; no bias, σ or σ/μ: an azimuth.'
+        + `${c.note ? ` ${c.note}` : ''}`;
+    }
     const b = s.estimates?.bias ?? {};
     const sig = sigmaText(e.fit, { unit });
     return `${e.label}: bias ${num(b.value)}${unit}${b.interval ? ` [${num(b.interval.lo)}, ${num(b.interval.hi)}] (${b.interval.label})` : ''}`
