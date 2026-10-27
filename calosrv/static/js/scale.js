@@ -5,8 +5,11 @@
  * number off the legend and quote it.
  */
 
-import { colorStops } from './palette.js';
+import { contrast, lookupTable } from './palette.js';
 import { fitsWidth, measureText } from './textfit.js';
+// A cycle (chart_panel.js imports this module), safe because neither module
+// calls the other while it is being evaluated: both use these at call time.
+import { isPrintTheme, legibleRamp } from './panels/chart_panel.js';
 import { MINUS, formatSigned, typographic } from './format.js';
 
 export { MINUS, formatSigned, typographic };
@@ -200,7 +203,12 @@ export function formatBytes(bytes) {
  * floor is not drawn. With the print value 0 the stops stay opaque, matching
  * the hard contour the figure caption names.
  */
-export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } = {}) {
+export function visualMap(scale, palette, {
+  bottomInset = 0, seriesIndex = 0, legible = true, signed = false,
+} = {}) {
+  // The table the colours are drawn from: the legible run on screen (above),
+  // the same remapping `decode.codeTable` paints through.
+  const table = rampTable(scale, palette, { legible, signed });
   const horizontal = THEME.rampOrient === 'horizontal';
   const place = horizontal
     /* Below the x-axis title, where a figure has height to spare, rather than
@@ -240,7 +248,7 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
       precision: 2,
       text: [`${title}+10⁰ a.u.`, `${MINUS}10⁰ a.u.`],
       textGap: 6, textStyle,
-      inRange: { color: colorStops(palette, 49, alphaAt) },
+      inRange: { color: tableStops(table, 49, alphaAt) },
       outOfRange: { color: ['rgba(0,0,0,0)'] },
       formatter: (u) => {
         const value = Number(u);
@@ -258,7 +266,10 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
       ...place, precision: 2,
       text: [formatSigned(scale.vmax, 2, { plus: true }), formatSigned(scale.vmin, 2, { plus: true })],
       textGap: 6, textStyle,
-      inRange: { color: colorStops(palette, 13) },
+      // A legible linear ramp (the 3-D cubes) samples its folded arms apart, so
+      // the two 3:1 starts meet at the zero mark instead of blending over it.
+      inRange: { color: signed && legible && !isPrintTheme()
+        ? tableStops(table, 24, null, { arms: true }) : tableStops(table, 13) },
       formatter: (value) => formatSigned(Number(value), 2, { plus: true }),
     };
   }
@@ -280,10 +291,10 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
   const tapered = fadesAtFloor(scale) && Number.isFinite(fade) && fade > 0
     && Number.isFinite(floorExp) && Number.isFinite(scale.vmin) && Number.isFinite(scale.vmax);
   const stops = tapered
-    ? colorStops(palette, 48, (t) => clip01(
+    ? tableStops(table, 48, (t) => clip01(
       (scale.vmin + t * (scale.vmax - scale.vmin) - floorExp) / fade,
     ))
-    : colorStops(palette);
+    : tableStops(table);
   // Two lines, not one: a one-line "10⁻³ a.u. — fades to not drawn" would
   // widen the vertical ramp group past the 13.5-label-height right inset.
   const bottom = tapered
@@ -350,6 +361,153 @@ export function rampPalette(scale, chosen) {
 export function fadesAtFloor(scale) {
   return (scale?.scale === 'log10' || scale?.scale === 'signed_log10')
     && (scale.floor === 'transparent' || scale.unit === 'a.u.');
+}
+
+/* ------------------------------------------------------ legible ramps --
+ *
+ * Every on-screen sequential colour starts at the ramp's first colour with at
+ * least 3:1 contrast against the card #1c2128 (Martin's decision D-2, CLAUDE.md
+ * section 2: "nothing a reader is asked to see is drawn below 3:1"). Viridis'
+ * own first colour #440154 is 1.06:1 there: a 3-D cube coded near the bottom
+ * vanished while being drawn, and a raster's faint halo was painted in colours
+ * the card swallows. The run is chart_panel.js `legibleRamp`'s measured one:
+ * t = 0.376 to 1 on Viridis, and the longest 3:1 run on the other palettes.
+ *
+ * - A ramp without a floor taper (the Absolute GeV ramp, the event's areal and
+ *   volumetric densities, Grad-CAM's [0, 1]) is drawn on that run alone: its
+ *   lowest code, a "below the ramp floor" cell included, is 3:1.
+ * - A relative ramp that fades to transparent above its floor places its
+ *   first 3:1 colour at the taper's full-opacity point (10^−2.5 of the
+ *   reference on the three-decade ramp), as the folded PuOr does: the bottom
+ *   half decade climbs from the palette's first colour to that point while its
+ *   alpha rises from 0, so every opaque bin is 3:1 and the fade still
+ *   dissolves into the card.
+ * - The signed log (folded PuOr) is legible by construction and unchanged.
+ *   The raw Shap-CAM linear ramp keeps its border-grey zero on the 2-D
+ *   rasters, where the number is in the readout; the 3-D cubes, which print no
+ *   number, ask for `signed: true`, which starts each arm at its own first 3:1
+ *   colour (#b35806-ish orange, #8073ac-ish purple), so a cube near zero is
+ *   drawn in its sign's hue rather than not at all.
+ * - Print keeps the full ramp: white paper shows Viridis' dark end best, and
+ *   the export swaps the card for white (`isPrintTheme`).
+ */
+
+/** The contrast every opaque on-screen ramp colour clears against the card. */
+export const RAMP_CONTRAST = 3;
+
+/** Where in a floor taper the first 3:1 colour is placed: its full-opacity point, less one code step. */
+export const TAPER_LEGIBLE = 0.97;
+
+/** First index of a folded table's arm, scanning out from the centre, that clears `floor` on the card. */
+function armStart(table, card, negative, floor = RAMP_CONTRAST) {
+  for (let k = 0; k < 128; k += 1) {
+    const i = negative ? 127 - k : 128 + k;
+    if (contrast([table[i * 3], table[i * 3 + 1], table[i * 3 + 2]], card) >= floor) return k / 127;
+  }
+  return 1;
+}
+
+/**
+ * The ramp position `[from, to]` (0..1) the on-screen colours run over, and
+ * where the taper ends: `{from, to, taperEnd}`, or null when the ramp is
+ * drawn in full (print, a diverging ramp, the `legible: false` opt-out).
+ * `taperEnd` is the position (0..1 of the ramp's value range) where the floor
+ * taper reaches full opacity, 0 on an untapered ramp.
+ */
+export function legibleSpan(scale, palette, { legible = true, fadeDecades = THEME.floorFadeDecades } = {}) {
+  if (!legible || isDiverging(scale) || isPrintTheme()) return null;
+  const { from, to } = legibleRamp(palette);
+  if (!(from > 0 || to < 1)) return null;
+  let taperEnd = 0;
+  const floorExp = floorExponent(scale);
+  if (Number.isFinite(fadeDecades) && fadeDecades > 0 && fadesAtFloor(scale)
+      && Number.isFinite(floorExp) && Number.isFinite(scale?.vmin) && Number.isFinite(scale?.vmax)
+      && scale.vmax > scale.vmin) {
+    // At TAPER_LEGIBLE of the fade rather than its very end: an 8-bit code's colour index rounds by
+    // up to half a table step (1.2% of a half-decade fade on the three-decade ramp), so every bin
+    // drawn at 99% opacity or more - an opaque cube - is past the first 3:1 colour after quantisation.
+    taperEnd = Math.min(1, Math.max(0,
+      (floorExp + TAPER_LEGIBLE * fadeDecades - scale.vmin) / (scale.vmax - scale.vmin)));
+  }
+  return { from, to, taperEnd };
+}
+
+/**
+ * The 256-entry RGB table a scale's colours are drawn from on screen: the
+ * palette's own `lookupTable`, re-indexed onto its legible run (see above).
+ * `signed: true` folds the raw Shap-CAM linear ramp's arms onto theirs.
+ * Pure, and the one owner of the remapping: `decode.codeTable` paints codes
+ * through it and `visualMap` samples its legend stops from it, so a bin, a
+ * cube and the colour bar agree.
+ */
+export function rampTable(scale, palette, { legible = true, signed = false, fadeDecades = THEME.floorFadeDecades } = {}) {
+  const base = lookupTable(palette);
+  if (!legible || isPrintTheme()) return base;
+  const out = new Uint8ClampedArray(256 * 3);
+  const copy = (i, j) => out.set(base.subarray(j * 3, j * 3 + 3), i * 3);
+  if (isDiverging(scale)) {
+    // Only the linear ramp on request; the signed log's folded arms already start at 3:1.
+    if (!signed || scale?.scale === 'signed_log10') return base;
+    const card = rgbTriple(THEME.card);
+    const starts = [armStart(base, card, true), armStart(base, card, false)];
+    for (let i = 0; i < 256; i += 1) {
+      const negative = i < 128;
+      const p = negative ? (127 - i) / 127 : (i - 128) / 127;
+      const s = starts[negative ? 0 : 1];
+      const q = Math.round((s + p * (1 - s)) * 127);
+      copy(i, negative ? 127 - q : 128 + q);
+    }
+    return out;
+  }
+  const span = legibleSpan(scale, palette, { legible, fadeDecades });
+  if (!span) return base;
+  const { from, to, taperEnd } = span;
+  for (let i = 0; i < 256; i += 1) {
+    const f = i / 255;
+    let t;
+    if (taperEnd > 0 && f < taperEnd) t = (f / taperEnd) * from;
+    else if (taperEnd > 0) t = from + ((f - taperEnd) / Math.max(1e-9, 1 - taperEnd)) * (to - from);
+    else t = from + f * (to - from);
+    copy(i, Math.max(0, Math.min(255, Math.round(t * 255))));
+  }
+  return out;
+}
+
+/** [r, g, b] of '#rrggbb', the card's dark grey when unparseable. */
+function rgbTriple(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
+  if (!m) return [28, 33, 40];
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+/**
+ * `count` CSS colour stops of a `rampTable`, at uniform positions; `alphaAt(t)`
+ * as palette.js `colorStops`. `arms: true` samples a folded table arm by arm,
+ * so a legible linear Shap-CAM legend meets its two 3:1 starts at the centre
+ * instead of blending them across a stop.
+ */
+export function tableStops(table, count = 12, alphaAt = null, { arms = false } = {}) {
+  const rgb = (index) => `${table[index * 3]},${table[index * 3 + 1]},${table[index * 3 + 2]}`;
+  const stop = (index, t) => {
+    const alpha = alphaAt ? alphaAt(t) : 1;
+    return Number.isFinite(alpha) && alpha < 1
+      ? `rgba(${rgb(index)},${Math.max(0, alpha).toFixed(3)})`
+      : `rgb(${rgb(index)})`;
+  };
+  if (arms) {
+    const half = Math.max(2, Math.ceil(count / 2));
+    const out = [];
+    for (let k = 0; k < half; k += 1) out.push(stop(Math.round((k / (half - 1)) * 127), k / (2 * half - 1)));
+    for (let k = 0; k < half; k += 1) out.push(stop(128 + Math.round((k / (half - 1)) * 127), (half + k) / (2 * half - 1)));
+    return out;
+  }
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const t = count > 1 ? i / (count - 1) : 0;
+    out.push(stop(Math.round(t * 255), t));
+  }
+  return out;
 }
 
 /** Colour-bar titles of the relative (a.u.) ramps, by quantity. */

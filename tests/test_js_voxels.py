@@ -159,7 +159,19 @@ function summarise(model, built) {
       data: s.data.map((d) => (Array.isArray(d) ? d : { value: d.value, color: d.itemStyle?.color, opacity: d.itemStyle?.opacity })),
     })),
     grid3D: { ...option.grid3D, viewControl: option.grid3D.viewControl },
-    axes: ['xAxis3D', 'yAxis3D', 'zAxis3D'].map((k) => ({ name: option[k].name, min: option[k].min, max: option[k].max })),
+    axes: ['xAxis3D', 'yAxis3D', 'zAxis3D'].map((k, j) => {
+      // The ticks ECharts draws: multiples of its interval (ticks.step) within [min, max].
+      const step = built.ticks[['z', 'x', 'y'][j]].step;
+      const multiples = [];
+      for (let t = Math.ceil(option[k].min / step - 1e-9) * step; t <= option[k].max + 1e-9; t += step) multiples.push(t);
+      return {
+        name: option[k].name, min: option[k].min, max: option[k].max, interval: option[k].interval ?? null,
+        splitNumber: option[k].splitNumber, nameGap: option[k].nameGap ?? null,
+        showMin: option[k].axisLabel.showMinLabel, showMax: option[k].axisLabel.showMaxLabel,
+        labels: [option[k].min, option[k].max, ...multiples].map((t) => option[k].axisLabel.formatter(t)),
+      };
+    }),
+    ticks: built.ticks,
     visualMap: option.visualMap ? { seriesIndex: option.visualMap.seriesIndex, text: option.visualMap.text, min: option.visualMap.min, max: option.visualMap.max } : null,
     strings: optionStrings(option),
     tooltipConfine: option.tooltip.confine, tooltipAppendTo: option.tooltip.appendTo,
@@ -177,6 +189,7 @@ for (const name of EVENTS) {
     n: model.n, x: arr(model.x), y: arr(model.y), z: arr(model.z), code: arr(model.code),
     shower: arr(model.shower), primary: arr(model.primary), below: arr(model.below),
     box: model.box, rgba: arr(rgba),
+    legible: arr(scale.rampTable(model.scale, scale.rampPalette(model.scale, 'viridis'), { signed: true })),
     values: [0, 1, 128, 255].map((c) => v.codeValue(model, c)),
     tips: picks.map((i) => [i, v.voxelTooltip(model, i)]),
     option: summarise(model, built),
@@ -217,12 +230,29 @@ for (const name of ENSEMBLES) {
     n: model.n, x: arr(model.x), y: arr(model.y), z: arr(model.z), layer: arr(model.layer), code: arr(model.code),
     counts: arr(model.counts), recount: v.layerCounts(model), box: model.box, rgba: arr(v.cubeColours(model, 'viridis')),
     table: arr(v.voxelCodeTable(model, 'viridis')),
+    legible: arr(scale.rampTable(model.scale, scale.rampPalette(model.scale, 'viridis'), { signed: true })),
+    legendStops: v.voxelLegend(model, 'viridis')?.inRange?.color ?? null,
     values: [2, 128, 129, 255].map((c) => v.codeValue(model, c)),
     tips: [0, model.n - 1, payload.topk[0].i].map((i) => [i, v.voxelTooltip(model, i)]),
     option: summarise(model, built),
     notes: vn.voxelEnsembleNotes({ payload, drawn: built }),
   };
 }
+
+/* Print keeps the full ramp: the cubes and tables under the print tokens. */
+{
+  const saved = { ...scale.THEME };
+  Object.assign(scale.THEME, PRINT_TOKENS);
+  const model = v.decodeEventVoxels(load('event_voxels_base_lab'));
+  out.printCubes = { rgba: arr(v.cubeColours(model, 'viridis')), code: arr(model.code),
+    legend: v.voxelLegend(model, 'viridis').inRange.color };
+  scale.restoreScreenTheme();
+  Object.assign(scale.THEME, saved);
+}
+out.legibleRun = (await imp('panels/chart_panel.js')).legibleRamp('viridis');
+// The 3-D plot's height by its width, and the opening zoom it then gets (P-18).
+out.glHeights = [300, 400, 506, 586, 640, 746, 900].map((w) => [w, v.glPlotHeight(w)]);
+out.glFits = [400, 506, 586, 746].map((w) => [w, v.glPlotHeight(w), v.orthographicFit(w, v.glPlotHeight(w), v.LEGEND_RIGHT)]);
 
 /* The code-to-colour tables the 2-D panels use, for comparison. */
 out.tables = {
@@ -270,6 +300,13 @@ out.notes.projection = vn.voxelProjectionNotes({
 // The event pair's projections: the inspector's notes, with its window shared by three panels, not nine.
 out.notes.eventProjection = vn.voxelProjectionNotes({ pair: 'event', payload: raster(4), panelId: 'xz', frameKind: 'local' });
 out.notes.inspector = (await imp('panel_notes.js')).eventNotes({ payload: raster(4), kind: 'local', panelId: 'xz' });
+// The same drawer on a real /api/event body (the two-shower golden), whose server rules it quotes (R-2).
+{
+  const golden = JSON.parse(fs.readFileSync(`${fixtureDir}/../../golden/two_shower_api.json`, 'utf8'));
+  const body = golden['/api/event {"event_number": 0, "shower": "a"}'].body;
+  out.notes.goldenEventProjection = Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xy', 'xz', 'yz'].map(
+    (panelId) => [`${kind}:${panelId}`, vn.voxelProjectionNotes({ pair: 'event', payload: body, panelId, frameKind: kind })])));
+}
 // The 3-D event ramp's unit, written by scale.js like every 2-D ramp's.
 out.units = { volume: scale.unitSuffix('GeV/mm^3'), areal: scale.unitSuffix('GeV/mm^2'), lab: scale.unitSuffix('GeV') };
 // One owner of the cells' options: what the Physics page imports is event_cells.js's.
@@ -597,10 +634,11 @@ def _rgb_at(table: list[int], index: int) -> list[int]:
 
 @pytest.mark.parametrize("name", [n for n in EVENTS if n != "event_voxels_single_species"])
 def test_event_codes_take_the_2d_panels_colour_at_the_same_index(out, name):
+    """A cube takes the colour the 2-D panels' table gives its code: on screen the legible run (D-2)."""
     payload = _load(name)
     scale = payload["voxels"]["scale"]
     got = out["events"][name]
-    table = out["tables"]["puor_screen_linear" if scale.get("diverging") else "viridis"]
+    table = got["legible"]
     for i, code in enumerate(got["code"]):
         rgba = got["rgba"][i * 4:i * 4 + 4]
         if code == 0:
@@ -608,9 +646,14 @@ def test_event_codes_take_the_2d_panels_colour_at_the_same_index(out, name):
             continue
         assert rgba[:3] == _rgb_at(table, code) and rgba[3] == 255
     if scale.get("diverging"):
-        # Zero sits at border grey, so a populated zero stays distinct from an empty voxel.
+        # The 2-D raster keeps its zero at border grey (the readout prints the number) ...
         assert scale["zero_code"] == 128
-        assert tuple(_rgb_at(table, 128)) == BORDER
+        assert tuple(_rgb_at(out["tables"]["puor_screen_linear"], 128)) == BORDER
+        # ... while a cube, which prints none, starts each arm at its first 3:1 colour.
+        for index in (127, 128):
+            assert _contrast(tuple(_rgb_at(table, index)), CARD) >= 3.0
+        neg, pos = _rgb_at(table, 127), _rgb_at(table, 128)
+        assert neg[0] > neg[2] and pos[2] > pos[1], "orange negative, purple positive"
     values = got["values"]
     assert values[0] is None
     if scale["scale"] == "log10":
@@ -620,13 +663,50 @@ def test_event_codes_take_the_2d_panels_colour_at_the_same_index(out, name):
         assert values[1] == pytest.approx(scale["vmin"]) and values[3] == pytest.approx(scale["vmax"])
 
 
+@pytest.mark.parametrize("name", EVENTS + ENSEMBLES)
+def test_no_opaque_cube_is_drawn_under_three_to_one_on_the_card(out, name):
+    """Decision D-2 (P-2): the smallest opaque cube colour clears 3:1 against #1c2128.
+
+    Before it, 23-58% of an event's cubes and every cube flagged below the
+    ramp floor were drawn at down to 1.06:1 (Viridis' own #440154).
+    """
+    got = (out["events"] if name in out["events"] else out["ensembles"])[name]
+    # Opaque as the option builder counts it (OPAQUE_ALPHA 0.99: drawn with depth writes).
+    opaque = [tuple(got["rgba"][i * 4:i * 4 + 3]) for i in range(got["n"]) if got["rgba"][i * 4 + 3] >= 0.99 * 255]
+    assert opaque, name
+    worst = min(_contrast(rgb, CARD) for rgb in opaque)
+    assert worst >= 3.0, (name, worst)
+    if name in out["events"]:
+        # The cubes flagged below the ramp floor are drawn at its lowest colour, now a visible one.
+        below = [tuple(got["rgba"][i * 4:i * 4 + 3]) for i, b in enumerate(got["below"]) if b]
+        assert all(_contrast(rgb, CARD) >= 3.0 for rgb in below)
+
+
+def test_the_legible_run_starts_at_viridis_0376_and_print_keeps_the_full_ramp(out):
+    run = out["legibleRun"]
+    assert run["from"] == pytest.approx(96 / 255) and run["to"] == pytest.approx(1.0)
+    viridis = out["tables"]["viridis"]
+    lab = out["events"]["event_voxels_base_lab"]
+    # The event ramp has no taper: code 1 (its floor, the flagged cubes' colour) is Viridis at 0.376.
+    assert _rgb_at(lab["legible"], 1) == _rgb_at(viridis, 96 + round(1 / 255 * (255 - 96)))
+    assert _rgb_at(lab["legible"], 255) == _rgb_at(viridis, 255)
+    # The legend's bottom stop is the same colour, so the bar and the cubes agree.
+    stops = out["ensembles"]["voxels_base_local"]["legendStops"]
+    assert stops is not None
+    # Print: the full ramp, from #440154.
+    printed = out["printCubes"]
+    for i, code in enumerate(printed["code"]):
+        assert printed["rgba"][i * 4:i * 4 + 3] == _rgb_at(viridis, code)
+    assert printed["legend"][0] == "rgb(68,1,84)"
+
+
 @pytest.mark.parametrize("name", ENSEMBLES)
 def test_ensemble_codes_span_three_decades_and_fade_at_the_floor(out, name):
     payload = _load(name)
     scale = payload["scale"]
     got = out["ensembles"][name]
     signed = scale["scale"] == "signed_log10"
-    table = out["tables"]["puor_screen" if signed else "viridis"]
+    table = got["legible"]
     assert min(got["code"]) >= 2, "no undrawn code is shipped"
     for i, code in enumerate(got["code"]):
         rgba = got["rgba"][i * 4:i * 4 + 4]
@@ -636,6 +716,8 @@ def test_ensemble_codes_span_three_decades_and_fade_at_the_floor(out, name):
     alpha = [got["table"][c * 4 + 3] for c in range(256)]
     assert alpha[0] == alpha[1] == 0 and alpha[255] == 255
     if signed:
+        # The folded PuOr is legible by construction: its table is the 2-D panels' own.
+        assert table == out["tables"]["puor_screen"]
         assert scale["split_code"] == 129
         assert alpha[128] == alpha[129] == 0 and alpha[2] == 255
         assert got["values"][0] == pytest.approx(-1.0) and got["values"][3] == pytest.approx(1.0)
@@ -645,6 +727,17 @@ def test_ensemble_codes_span_three_decades_and_fade_at_the_floor(out, name):
         assert neg[0] > neg[2] and pos[2] > pos[1]
     else:
         assert got["values"][0] == pytest.approx(1e-3) and got["values"][3] == pytest.approx(1.0)
+        # The first 3:1 colour (Viridis at 0.376) sits at the taper's full-opacity point, 10^-2.5
+        # (less one code step), and the faded half decade below climbs to it from Viridis' first colour.
+        viridis = out["tables"]["viridis"]
+        end = next(i for i in range(256) if i / 255 >= 0.97 * 0.5 / 3)
+        assert _rgb_at(table, end) in (_rgb_at(viridis, 96), _rgb_at(viridis, 97))
+        assert _contrast(tuple(_rgb_at(table, end)), CARD) >= 3.0 > _contrast(tuple(_rgb_at(table, end - 1)), CARD)
+        assert _rgb_at(table, 0) == _rgb_at(viridis, 0) and _rgb_at(table, 255) == _rgb_at(viridis, 255)
+        # Every code drawn at 99% opacity or more is 3:1 or better.
+        for c in range(2, 256):
+            if alpha[c] >= 0.99 * 255:
+                assert _contrast(tuple(_rgb_at(table, round((c - 2) / 253 * 255))), CARD) >= 3.0, c
 
 
 def test_species_take_the_qualitative_palette_with_grey_for_other(out):
@@ -681,8 +774,34 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
     assert box["boxDepth"] == pytest.approx(s * span["x"])
     assert box["boxHeight"] == pytest.approx(s * span["y"])
     assert max(box["boxWidth"], box["boxDepth"], box["boxHeight"]) == pytest.approx(100)
-    # The axes run over the shifted spans, labelled back in the frame's own millimetres.
-    assert [(a["min"], a["max"]) for a in option["axes"]] == [(0, span["z"]), (0, span["x"]), (0, span["y"])]
+    # The axes run over the spans shifted by a round origin (P-17), labelled back in the frame's own
+    # millimetres: every tick a multiple of a 1-2-5 step, an end labelled only where it is a tick.
+    lo_, hi_ = option["bounds"]["lo"], option["bounds"]["hi"]
+    for axis, a in zip("zxy", option["axes"]):
+        t = option["ticks"][axis]
+        step, origin = t["step"], t["origin"]
+        mantissa = step / 10 ** math.floor(math.log10(step))
+        assert any(mantissa == pytest.approx(k) for k in (1, 2, 3, 5)), (axis, step)
+        assert origin / step == pytest.approx(round(origin / step)) and origin <= lo_[axis] + 1e-9
+        # No explicit interval: echarts-gl would start it at `min`. ECharts' own nice step from
+        # splitNumber is `step`, and its ticks sit on the step's multiples.
+        assert a["interval"] is None and a["splitNumber"] == t["splitNumber"] and a["min"] >= 0
+        raw = (hi_[axis] - lo_[axis]) / t["splitNumber"]
+        exp10 = 10 ** math.floor(math.log10(raw))
+        f = raw / exp10
+        assert step == pytest.approx((1 if f < 1.5 else 2 if f < 2.5 else 3 if f < 4 else 5 if f < 7 else 10) * exp10)
+        assert (a["min"], a["max"]) == pytest.approx((lo_[axis] - origin, hi_[axis] - origin))
+        assert a["max"] - a["min"] == pytest.approx(span[axis])
+        on_tick = lambda v: abs(v / step - round(v / step)) < 1e-6  # noqa: E731
+        assert a["showMin"] == on_tick(a["min"]) and a["showMax"] == on_tick(a["max"])
+        # The ends are blank unless on the grid (echarts-gl ignores showMin/MaxLabel) ...
+        assert (a["labels"][0] != "") == a["showMin"] and (a["labels"][1] != "") == a["showMax"]
+        # ... and the ticks read as round millimetres.
+        for label in a["labels"][2:]:
+            mm = int(label.replace("\u2212", "-"))
+            assert mm % step == 0 if step >= 1 else True, (axis, label, step)
+    # Every title keeps clear of its tick labels (P-18): a gap past the labels' 8-unit margin.
+    assert all(a["nameGap"] == 30 for a in option["axes"]), [a["nameGap"] for a in option["axes"]]
     # The physical box: the server's window or grid extent, widened only to hold whole cubes.
     payload = _load(name)
     base = payload["window"]["axes"] if name in out["events"] else payload["grid"]["extent_mm"]
@@ -702,7 +821,8 @@ def test_orthographic_unlit_cubes_float_on_invisible_silent_spacers(out, name):
     assert grid["viewControl"]["projection"] == "orthographic"
     assert grid["light"]["main"]["intensity"] == 0 and grid["postEffect"]["enable"] is False
     assert grid["environment"] == "none"
-    lo = option["bounds"]["lo"]
+    # Cubes are placed at millimetres minus each axis' round tick origin (axisTicks).
+    origin = {a: option["ticks"][a]["origin"] for a in "xyz"}
     series = option["series"]
     roles = option["roles"]
     model_box = got["box"]
@@ -722,8 +842,9 @@ def test_orthographic_unlit_cubes_float_on_invisible_silent_spacers(out, name):
                 spacer = s["data"][j]
                 cube = cubes["data"][j]["value"]
                 assert spacer[2] >= 0, "a spacer is never negative"
-                assert spacer[2] + model_box["y"] / 2 + lo["y"] == pytest.approx(got["y"][i])
-                assert cube[0] == pytest.approx(got["z"][i] - lo["z"]) and cube[1] == pytest.approx(got["x"][i] - lo["x"])
+                assert spacer[2] + model_box["y"] / 2 + origin["y"] == pytest.approx(got["y"][i])
+                assert cube[0] == pytest.approx(got["z"][i] - origin["z"])
+                assert cube[1] == pytest.approx(got["x"][i] - origin["x"])
                 assert cube[2] == pytest.approx(model_box["y"]) and cube[3] == i
                 assert spacer[:2] == cube[:2]
             assert s["barSize"] == pytest.approx([option["box"]["S"] * model_box["z"], option["box"]["S"] * model_box["x"]])
@@ -1066,6 +1187,12 @@ def test_the_event_pair_states_its_window_for_three_projections_by_option(out):
 
     assert "on every axis of all three projections" in drawn(out["notes"]["eventProjection"])
     assert "on every axis of all nine panels" in drawn(out["notes"]["inspector"])
+    # R-2: the server's window and ramp rules are scope-neutral, so the three-panel drawer never
+    # counts nine panels anywhere.
+    for key, notes in out["notes"]["goldenEventProjection"].items():
+        every = " ".join(line for s in notes["sections"] for line in s["lines"])
+        assert "nine" not in every, key
+        assert "every panel of this event" in every, key
     source = (JS / "voxel_notes.js").read_text(encoding="utf-8")
     assert "windowScope: 'all three projections'" in source and ".replace('of all nine panels'" not in source
 
@@ -1087,10 +1214,18 @@ def test_the_cells_options_have_one_owner(out):
     inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
     assert "from './event_cells.js'" in inspector and "function cellOptions" not in inspector
     assert "function cellTitle" not in inspector
-    main = (JS / "main.js").read_text(encoding="utf-8")
-    assert "import { depthIsometric, ensembleCellOptions } from './event_cells.js';" in main
-    assert "function depthIsometric" not in main
-    assert "return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'));" in main
+    # main.js cannot run under Node (it boots the page), so its use of the owner is read from its
+    # module structure rather than pinned as a source line (R-8): it imports both helpers from
+    # event_cells.js however the import is laid out, defines neither itself, and calls them.
+    main = re.sub(r"/\*.*?\*/", "", (JS / "main.js").read_text(encoding="utf-8"), flags=re.S)
+    main = "\n".join(line.split("//")[0] for line in main.splitlines())
+    imported = set()
+    for clause in re.findall(r"import\s*\{([^}]*)\}\s*from\s*'\./event_cells\.js'", main):
+        imported |= {name.strip().split(" as ")[0] for name in clause.split(",") if name.strip()}
+    for helper in ("depthIsometric", "ensembleCellOptions"):
+        assert helper in imported, helper
+        assert not re.search(rf"(function\s+{helper}\b|(const|let|var)\s+{helper}\s*=)", main), helper
+        assert re.search(rf"\b{helper}\s*\(", main), helper
 
 
 def test_a_projection_drawer_keeps_the_panels_notes_and_adds_the_pairing(out):
@@ -1274,3 +1409,34 @@ def test_an_events_only_experiment_shows_no_3d_views_and_asks_for_nothing(out):
     assert events["requests"] == []
     assert all(card["pairHidden"] for card in events["cards"].values())
     assert events["charts"] == 0
+
+
+# ------------------------------------------------------ fix round C (P-25, P-18) --
+
+
+@pytest.mark.parametrize("name", ENSEMBLES)
+def test_the_ensemble_ramp_top_reads_against_its_reference(out, name):
+    """P-25: the relative ramp's top is "1 = ρ_ref" (or cam_ref), never "10⁰·⁰ a.u."."""
+    got = out["ensembles"][name]
+    payload = _load(name)
+    scale = payload["scale"]
+    top = got["option"]["visualMap"]["text"][0]
+    if scale["scale"] == "log10" and abs(scale["vmax"]) < 0.05:
+        ref = "cam_ref" if scale.get("ref_name") == "cam_ref" else "ρ_ref"
+        assert top.split("\n")[-1] == f"1 = {ref}", top
+        assert "10⁰" not in top
+        legend = next(s for s in got["notes"]["sections"] if s["heading"] == "Marks and legend")
+        assert f'"1 = {ref}"' in " ".join(legend["lines"])
+    else:
+        assert "= ρ_ref" not in top and "= cam_ref" not in top
+
+
+def test_the_3d_plot_height_follows_its_width(out):
+    """P-18: h = clamp(round((w − LEGEND_RIGHT) / FIT_ASPECT), 360, 560), so the opening zoom never widens
+    above the floor."""
+    heights = out["glHeights"]
+    for w, h in heights:
+        assert h == max(360, min(560, math.floor((w - 60) / 1.16 + 0.5))), (w, h)
+    assert [h for w, h in heights if w in (506, 586, 746)] == [384, 453, 560]
+    for w, h, size in out["glFits"]:
+        assert size == pytest.approx(160, abs=0.2) if h > 360 else size >= 160, (w, h, size)

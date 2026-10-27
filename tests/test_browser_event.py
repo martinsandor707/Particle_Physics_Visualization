@@ -203,7 +203,8 @@ def test_the_event_drawer_states_the_frame_and_the_export_is_plot_only(live_serv
         assert title.startswith("Local") and title.endswith("u–w")
         body = page.evaluate(_TEXT, "inspector-body")
         for text in ("Selection", f"Event {n:,}, shower A", "What is drawn", "Local: every cell moved by −P₀",
-                     "One half-width for all nine panels", "Disclosures", "One logarithmic ramp for all nine panels",
+                     "One half-width for every panel of this event", "Disclosures",
+                     "One logarithmic ramp for every panel of this event", "0.1st–99.9th percentile",
                      "Coordinates:", "Marks and legend", "Dashed line = the incident direction", "Principal axis"):
             assert text in body, text
         assert page.evaluate("() => document.querySelector('.card[data-panel=\"event-local-xz\"]').classList.contains('is-inspected')")

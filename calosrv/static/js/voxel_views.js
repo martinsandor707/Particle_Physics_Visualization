@@ -22,8 +22,12 @@
  * per-shower translated and Local frames; the cubes are therefore asked for
  * in the same frame and shower, so the pair shows one picture twice. The
  * D-frame has no per-event raster, so the event pair draws Absolute there and
- * says so under its titles. Both showers at once are drawn in 3-D in the
- * Absolute frame only; the projections then show shower A, and say so.
+ * says so under its titles. The server draws both showers of an event at
+ * once in the two frames that hold both, Absolute and the D-frame
+ * (`query/voxel_event.py` `BOTH_FRAMES`); of the frames this pair draws, that
+ * leaves the Absolute one, so "Both" is drawn there and a per-shower frame
+ * draws shower A and says so. With both drawn, the projections show shower A,
+ * and say so.
  *
  * The ensemble pair draws the selection's cloud (`/api/voxels`) in the Local
  * frame or the D-frame (an absolute or per-shower translated frame falls back
@@ -67,7 +71,8 @@ import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
 import { formatInt, formatPercent, formatSci } from './scale.js';
 import {
-  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, orthographicFit, speciesLegend, pairedWindow, cropToWindow,
+  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, orthographicFit, glPlotHeight, speciesLegend, pairedWindow,
+  cropToWindow,
 } from './voxels.js';
 import {
   ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle,
@@ -297,6 +302,22 @@ export function ensembleRequests({ filters, view, model = 'segmentation', anchor
 }
 
 /* ---------------------------------------------------------------- DOM -- */
+
+/**
+ * Size a 3-D plot's height from its width (voxels.js `glPlotHeight`): an
+ * inline height that overrides the stylesheet's 560 px, set synchronously so
+ * the chart's ResizeObserver measures the final geometry. Returns the height
+ * set, or null when the plot has no width yet (hidden), which keeps the
+ * stylesheet's.
+ */
+export function fitPlotHeight(plot) {
+  const width = plot?.clientWidth;
+  if (!(width > 0)) return null;
+  const height = glPlotHeight(width);
+  const text = `${height}px`;
+  if (plot.style.height !== text) plot.style.height = text;
+  return height;
+}
 
 function make(tag, className = '', text = null) {
   const node = document.createElement(tag);
@@ -909,6 +930,8 @@ export class VoxelSection {
   ensureChart(record) {
     if (record.chart) return record.chart;
     const lib = this.lib ?? globalThis.echarts;
+    // The height follows the width before the chart first measures its container.
+    fitPlotHeight(record.plot);
     const chart = lib.init(record.plot, null, { renderer: 'canvas' });
     record.chart = chart;
     // Kept across a rebuild: a canvas is listened to once, whichever chart drew on it.
@@ -935,6 +958,8 @@ export class VoxelSection {
   resizeChart(record) {
     const chart = record.chart;
     if (!chart) return;
+    // A new width sets a new height (voxels.js glPlotHeight), at once: no transition.
+    fitPlotHeight(record.plot);
     const width = record.plot.clientWidth;
     const height = record.plot.clientHeight;
     if (!(width > 0 && height > 0)) return;

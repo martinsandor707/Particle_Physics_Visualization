@@ -82,7 +82,7 @@
       "pitch_mm": 20.5,
       "policy": "native_layers"
      },
-     "half_mm": 728.615966796875,
+     "half_mm": 700.0,
      "kind": "lab",
      "marks": [
       {
@@ -144,6 +144,12 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 170
+     },
      "panels": {
       "xy": {
        "axes": {
@@ -420,16 +426,16 @@
      "title": "Original — detector coordinates (x, y, z)",
      "window": {
       "x": [
-       538.8359985351562,
-       1996.0679321289062
+       580.0,
+       1980.0
       ],
       "y": [
-       509.5840148925781,
-       1966.8159484863281
+       540.0,
+       1940.0
       ],
       "z": [
-       3302.783935546875,
-       4760.015869140625
+       3340.0,
+       4740.0
       ]
      }
     },
@@ -439,7 +445,7 @@
       "pitch_mm": 20.5,
       "policy": "uniform_bins"
      },
-     "half_mm": 728.615966796875,
+     "half_mm": 700.0,
      "kind": "local",
      "marks": [
       {
@@ -508,6 +514,12 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 170
+     },
      "panels": {
       "xy": {
        "axes": {
@@ -730,16 +742,16 @@
      "title": "Local — translated and rotated by R(θ, φ) (u, v, w)",
      "window": {
       "x": [
-       -728.615966796875,
-       728.615966796875
+       -700.0,
+       700.0
       ],
       "y": [
-       -728.615966796875,
-       728.615966796875
+       -700.0,
+       700.0
       ],
       "z": [
-       -224.75924682617188,
-       1232.4726867675781
+       -200.0,
+       1200.0
       ]
      }
     },
@@ -749,7 +761,7 @@
       "pitch_mm": 20.5,
       "policy": "native_layers"
      },
-     "half_mm": 728.615966796875,
+     "half_mm": 700.0,
      "kind": "trans",
      "marks": [
       {
@@ -811,6 +823,12 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 170
+     },
      "panels": {
       "xy": {
        "axes": {
@@ -1033,16 +1051,16 @@
      "title": "Translated only — origin shifted to P₀, not rotated (Δx, Δy, Δz)",
      "window": {
       "x": [
-       -550.8619995117188,
-       906.3699340820312
+       -500.0,
+       900.0
       ],
       "y": [
-       -526.6159362792969,
-       930.6159973144531
+       -500.0,
+       900.0
       ],
       "z": [
-       -359.615966796875,
-       1097.615966796875
+       -340.0,
+       1060.0
       ]
      }
     }
@@ -1063,11 +1081,11 @@
      },
      {
       "scope": "event",
-      "text": "One half-width for all nine panels: 1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never below 150 mm (729 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do."
+      "text": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (700 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 170 cells lie inside it in every frame."
      },
      {
       "scope": "event",
-      "text": "One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour."
+      "text": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour."
      }
     ],
     "query_ms": "<masked>",
@@ -1080,17 +1098,20 @@
     "floor": 6.045536608523721e-13,
     "floor_percentile": 1.0,
     "n_below": 66,
-    "rule": "One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour.",
+    "rule": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour.",
     "top": 1.3610914138007614e-05,
     "unit": "GeV/mm^2",
     "vmax": -4.866112705673943,
     "vmin": -12.218565144633189
    },
    "window": {
-    "half_mm": 728.615966796875,
+    "half_mm": 700.0,
     "min_half_mm": 150.0,
-    "pad": 1.15,
-    "rule": "One half-width for all nine panels: 1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never below 150 mm (729 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do."
+    "percentiles": [
+     0.1,
+     99.9
+    ],
+    "rule": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (700 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 170 cells lie inside it in every frame."
    }
   },
   "status": 200
@@ -1178,7 +1199,7 @@
       "pitch_mm": 20.5,
       "policy": "native_layers"
      },
-     "half_mm": 1523.3902038574217,
+     "half_mm": 1380.0,
      "kind": "lab",
      "marks": [
       {
@@ -1240,6 +1261,12 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 751
+     },
      "panels": {
       "xy": {
        "axes": {
@@ -1540,16 +1567,16 @@
      "title": "Original — detector coordinates (x, y, z)",
      "window": {
       "x": [
-       -3288.362249755859,
-       -241.58184204101576
+       -3040.0,
+       -280.0
       ],
       "y": [
-       -588.1902297973631,
-       2458.59017791748
+       -480.0,
+       2280.0
       ],
       "z": [
-       2723.2596984863285,
-       5770.0401062011715
+       2880.0,
+       5640.0
       ]
      }
     },
@@ -1559,7 +1586,7 @@
       "pitch_mm": 20.5,
       "policy": "uniform_bins"
      },
-     "half_mm": 1523.3902038574217,
+     "half_mm": 1380.0,
      "kind": "local",
      "marks": [
       {
@@ -1628,13 +1655,19 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 751
+     },
      "panels": {
       "xy": {
        "axes": {
         "col": {
          "hi": 200.0,
-         "lo": -1400.0,
-         "n": 40,
+         "lo": -1360.0,
+         "n": 39,
          "name": "x",
          "symbol": "u",
          "uniform": true,
@@ -1655,8 +1688,8 @@
         1600.0
        ],
        "data": {
-        "n": 1976,
-        "sha256": "f7f669d53fa4f2ee8e5c7a1945de17495b7a17970f51b69e5044118b6ef67785"
+        "n": 1924,
+        "sha256": "ba5bb1365a5b9b083b40bb8d7c8dffa2e1cb7a7a87fafd87eeb2ce1e3d1dfd45"
        },
        "empty_code": 0,
        "encoding": "u8-b64",
@@ -1666,14 +1699,14 @@
        "max_code": 255,
        "min_code": 1,
        "n_events": 1,
-       "occupancy": 0.254054,
+       "occupancy": 0.260568,
        "panel": "xy",
        "rho_peak": 4.569952339502879e-05,
        "rho_unit": "GeV/mm^2",
        "scale": {
         "clipped_high": 0,
         "clipped_low": 7,
-        "empty_cells": 1104,
+        "empty_cells": 1067,
         "global_vmax": 6.741944605446219e-05,
         "locked": true,
         "mode": "percentile",
@@ -1684,13 +1717,13 @@
        },
        "shape": [
         37,
-        40
+        39
        ],
        "topk": {
         "n": 64,
-        "sha256": "8441fcf8f9811e2ce002843aabb3b0f19f95be7405590089ed0b8c5220390be2"
+        "sha256": "2930fbf2f00c5e4a86b0bfa66b460a78c7eb23d3e93b5c0410384769b041921c"
        },
-       "total": 0.36869303906423995,
+       "total": 0.36869303906424,
        "total_energy_all_gev": 0.3686930390642399
       },
       "xz": {
@@ -1706,8 +1739,8 @@
         },
         "row": {
          "hi": 200.0,
-         "lo": -1400.0,
-         "n": 40,
+         "lo": -1360.0,
+         "n": 39,
          "name": "x",
          "symbol": "u",
          "uniform": true,
@@ -1719,8 +1752,8 @@
         820.0
        ],
        "data": {
-        "n": 3308,
-        "sha256": "600a223590143dd6f7f84fee20652eadbf5d11f8c7e505527fe3a78ede1d209a"
+        "n": 3224,
+        "sha256": "7f844db37a30801e42657876cd79921aadf89bafbbddc78498b9f872de338187"
        },
        "empty_code": 0,
        "encoding": "u8-b64",
@@ -1730,14 +1763,14 @@
        "max_code": 255,
        "min_code": 1,
        "n_events": 1,
-       "occupancy": 0.312097,
+       "occupancy": 0.320099,
        "panel": "xz",
        "rho_peak": 2.205602987552187e-05,
        "rho_unit": "GeV/mm^2",
        "scale": {
         "clipped_high": 0,
         "clipped_low": 27,
-        "empty_cells": 1706,
+        "empty_cells": 1644,
         "global_vmax": 6.741944605446219e-05,
         "locked": true,
         "mode": "percentile",
@@ -1747,14 +1780,14 @@
         "vmin": -11.917985581156817
        },
        "shape": [
-        40,
+        39,
         62
        ],
        "topk": {
         "n": 64,
-        "sha256": "3e461adc1bbea3a8d3040339f761c580812aa1fb02b7be3aec6250b87f108f0f"
+        "sha256": "49707d30aa8763073b7f04dde33ae95f6724c2567607f947239c333c27d579b3"
        },
-       "total": 0.36869303906423995,
+       "total": 0.36869303906424,
        "total_energy_all_gev": 0.3686930390642399
       },
       "yz": {
@@ -1824,7 +1857,7 @@
      },
      "raster": {
       "x": [
-       -1400.0,
+       -1360.0,
        200.0
       ],
       "y": [
@@ -1850,16 +1883,16 @@
      "title": "Local — translated and rotated by R(θ, φ) (u, v, w)",
      "window": {
       "x": [
-       -1523.3902038574217,
-       1523.3902038574217
+       -1380.0,
+       1380.0
       ],
       "y": [
-       -1523.3902038574217,
-       1523.3902038574217
+       -1380.0,
+       1380.0
       ],
       "z": [
-       -1100.051039123535,
-       1946.7293685913085
+       -980.0,
+       1780.0
       ]
      }
     },
@@ -1869,7 +1902,7 @@
       "pitch_mm": 20.5,
       "policy": "native_layers"
      },
-     "half_mm": 1523.3902038574217,
+     "half_mm": 1380.0,
      "kind": "trans",
      "marks": [
       {
@@ -1931,6 +1964,12 @@
        "type": "point"
       }
      ],
+     "outside_window": {
+      "energy_gev": 0.0,
+      "fraction": 0.0,
+      "n_cells": 0,
+      "n_cells_total": 751
+     },
      "panels": {
       "xy": {
        "axes": {
@@ -2153,23 +2192,23 @@
      "title": "Translated only — origin shifted to P₀, not rotated (Δx, Δy, Δz)",
      "window": {
       "x": [
-       -1242.4892028808592,
-       1804.2912048339842
+       -1000.0,
+       1760.0
       ],
       "y": [
-       -1268.9902099609374,
-       1777.790197753906
+       -1160.0,
+       1600.0
       ],
       "z": [
-       -939.1402038574217,
-       2107.6402038574215
+       -780.0,
+       1980.0
       ]
      }
     }
    },
    "grid": {
     "notes": [
-     "The 20 mm accumulation grids were coarsened to 40 mm because the window (1523 mm half-width) would hold more than 96 bins per axis."
+     "The 20 mm accumulation grids were coarsened to 40 mm because the window (1380 mm half-width) would hold more than 96 bins per axis."
     ],
     "pitch_mm": 40.0
    },
@@ -2185,15 +2224,15 @@
      },
      {
       "scope": "event",
-      "text": "One half-width for all nine panels: 1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never below 150 mm (1523 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do."
+      "text": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (1380 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 751 cells lie inside it in every frame."
      },
      {
       "scope": "event",
-      "text": "One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (1.21e−12) to its brightest bin (6.74e−05); 120 bins below the floor are drawn at the lowest colour."
+      "text": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (1.21e−12) to its brightest bin (6.74e−05); 120 bins below the floor are drawn at the lowest colour."
      },
      {
       "scope": "event",
-      "text": "The 20 mm accumulation grids were coarsened to 40 mm because the window (1523 mm half-width) would hold more than 96 bins per axis."
+      "text": "The 20 mm accumulation grids were coarsened to 40 mm because the window (1380 mm half-width) would hold more than 96 bins per axis."
      }
     ],
     "query_ms": "<masked>",
@@ -2206,17 +2245,20 @@
     "floor": 1.2078539359326264e-12,
     "floor_percentile": 1.0,
     "n_below": 120,
-    "rule": "One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (1.21e−12) to its brightest bin (6.74e−05); 120 bins below the floor are drawn at the lowest colour.",
+    "rule": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (1.21e−12) to its brightest bin (6.74e−05); 120 bins below the floor are drawn at the lowest colour.",
     "top": 6.741944605446219e-05,
     "unit": "GeV/mm^2",
     "vmax": -4.171214820140153,
     "vmin": -11.917985581156817
    },
    "window": {
-    "half_mm": 1523.3902038574217,
+    "half_mm": 1380.0,
     "min_half_mm": 150.0,
-    "pad": 1.15,
-    "rule": "One half-width for all nine panels: 1.15 × half the largest extent of the cloud over x, y, z, u, v and w, never below 150 mm (1523 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do."
+    "percentiles": [
+     0.1,
+     99.9
+    ],
+    "rule": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (1380 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 751 cells lie inside it in every frame."
    }
   },
   "status": 200

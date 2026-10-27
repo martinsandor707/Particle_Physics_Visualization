@@ -18,7 +18,7 @@
    },
    {
     "scope": "event",
-    "text": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2383 mm here); cells snap it to whole cells, voxels to whole bins."
+    "text": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (1980 mm here); cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
    },
    {
     "scope": "event",
@@ -30,7 +30,7 @@
    },
    {
     "scope": "event",
-    "text": "All 921 cells are drawn."
+    "text": "All 912 cells inside the window are drawn. 9 of the event's 921 cells lie outside the window and are counted, not drawn. 0.0002889 GeV (0.069%) falls outside the window and is counted, not drawn."
    }
   ]
  },
@@ -101,24 +101,27 @@
   "note": "Cube positions are the laboratory lattice coordinates measured at ingest; the per-shower coordinate columns are not read in this frame."
  },
  "window": {
-  "half_mm": 2383.3836334228513,
-  "pad": 1.15,
+  "half_mm": 1980.0,
+  "percentiles": [
+   0.1,
+   99.9
+  ],
   "min_half_mm": 150.0,
   "axes": {
    "x": [
-    -2707.8522003173825,
-    2058.91506652832
+    -2260.0,
+    1700.0
    ],
    "y": [
-    -1397.6836593627927,
-    3369.08360748291
+    -980.0,
+    2980.0
    ],
    "z": [
-    1863.2662689208987,
-    6630.033535766601
+    2240.0,
+    6200.0
    ]
   },
-  "rule": "One half-width for the three axes: 1.15 × half the largest extent of the drawn cells in this frame, never below 150 mm (2383 mm here); cells snap it to whole cells, voxels to whole bins."
+  "rule": "One half-width for the three axes: the widest energy-weighted 0.1st–99.9th percentile range of the drawn showers' cells in this frame, plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (1980 mm here); cells snap it to whole cells, voxels to whole bins. The cells beyond it are counted with the cap, below."
  },
  "footprint_mm": [
   48.27001953125,
@@ -143,13 +146,8 @@
    ],
    "axes": {
     "x": {
-     "i0": 0,
+     "i0": 5,
      "coords": [
-      -2396.976,
-      -2392.572,
-      -2344.302,
-      -2296.032,
-      -2291.627,
       -2247.762,
       -2243.357,
       -2195.087,
@@ -260,9 +258,7 @@
       1642.691,
       1647.095,
       1690.961,
-      1695.365,
-      1743.635,
-      1748.039
+      1695.365
      ]
     },
     "y": {
@@ -378,7 +374,7 @@
    "note": "One cube per detector cell, centred on its measured lattice coordinates, sized by the measured cell footprint (48.27 × 48.60 mm, the pitch between populated neighbours in one row or column) and the 20.5 mm layer pitch. Centre = axes.<a>.coords[index] − origin_mm; the lattice's x cells are irregular, so no index is ever turned into a position by a pitch."
   },
   "cubes": {
-   "n": 921,
+   "n": 912,
    "order": "ascending energy",
    "dtype": {
     "ix": "u8",
@@ -387,11 +383,11 @@
     "code": "u8",
     "flags": "u8"
    },
-   "ix": "EhQOHRZsHidmEmkQHBwJHw8DGBsTYBljERgbERMaFB5mEgwXGAwRGBgSGxoSFw4PBxwVCxIXLRwPFh8XAhcgGhAYFxgXXl4NFxcMYB0REwowGRcSFQ8VCRgTGWgaVA8YGlAhZ1INExVdG2JgYRAeZw4bERURZhReGBoZGhgbGRwfHw5RFx1jEx0eZQgcDXJWGW9kChVsXApnGBERDxQSGBcScnEPGw4UFxMdExhZGg9uHREBEhRmUR8SFA0TFhwXAxEdZxIZF3UJHRMYCS5tGBEuUBESEhMXERgKElMgGgkSYy0WBhceCQ8dFw9pGxQWXxoYWxEdHhQSUxYcFBERFVwUCxATFRkMDxNhFhkdFBIeDx9gGhFtEhhaFC1lbgkgGwsZFA8QJxMTDWFyIRNjIAAaZ2sRE1oOGlkJaQ4dYR4VDRJkGQkfD1EWFmQUCQskEmMMCBAMERoMbxgNERUJFFYXEBEWHxEPGFZtEw4uDwcRFgwFFmwWDhoTDx8XEBIKFxoMEhUXFVoSFxtvEhUVD2wUDw0WDhEXIBIOUW0NExxuVRwcF3EaEg8HaSwUJwloDQsUGGcGFmIfFiASERpraxgbDmsXGhsfChwNCxYSHRUYEi4WGGYaGRhnXlRfG2AXDhUPDGkYU2oVZBggGV4SBhcMEhsUbBAaGBYPFhoSFxAWaxYQMRgTaF8MB1EZFVoYbA4bERUSDxYNFxUZLxFmDhUfEhcYag9bGSAbDBsQEhcPGm0VIA1pFRERGhl0FQsHHhILHhUuEBYNGhMSLxVZChIXEBQXGhkNbRUYES0RFx8TDxwTFRUQEhQVDhIHDycbawoPCA0SFV1yEBgLERgNEhIYbBIUFA4SGRQQEA8SFhYfD3JkBhsdcx0XERQSFhEZExcNCBUZDBIUExoTCiwTEAsPWBlsaRYEE3NpWWYaF1tuYxAXDhATEQsvb1kVDmgYEBcWFGIIFh0CaxoYEhkVExUVFWESGxgXHhpwWQsQExAXEBhoDxIcFxkOaxAZEy9mGnAOZhkTFGgTGxMZFRkSFxgYGhoXGhgKMBIaGBgbEhATExwQGA8XGhhaF20ZXA4SXBZaXFpaWmwWGBMQDxRcEloPGg8XWhtaE1oZHRdaFAoVGBIRExUcDgxaXBUWGBYUEBoUEBsOE1pcExMaGRccFRUYFRFcYhQWVxoTGRoWExUTDxUZE1VUFQcXFBgRcBUYFRUYDhUTERgY",
-   "iy": "DQYKCAsQCgkRCREMDgMTCwcUDQEJEgYRCggECwkJCgcQBQoKBQ8bDQEICQgIBgcLCgMNCQkLCgoGCgYDFAcMCQkMCwwKFhYFAwYKEgkLDQkLDwoJBQoIEwwNCg8EEAYJCRcHExUIDAEVAREPEgkGEg8JCwgGEQoSDAQDDAkACg4LBwoWBwgRCQgLEhQOCQ4PAgoRCQUVFRQPCQoGBwcICAcJDxQHCQYKCwkJCQgXAQoVBAYRGQoQFwcMCgQJCgMKFAsIEhwKAg8KCAgECwoKCAsKFwcJCQkHCgkJAQ8JCAoMEQsLEwIDCgYICgsQCQoKEQEJFgMJCgoJDwILCwoKBREGFBkFCQILCwgSBgcMBgADBwoSCQoWCQkRCgsSFQoJCQgGBhsZCQgICBMOBwgRCBIJEhECCREPCBITEAsJDwcNCQEQBwsLCxYGChELCgwICRELFAkTCwkLCwgICw0PChILCQYCCgoKCBIWCAoKDwoLBgsVBxQDCwgICwsLCQkUCgQKDA0DBBQJCw0KCQwJDg0HDwwPCwcKCQwPFw4ZCQ4NEAcKBg0MDAYKEAkKCRMSEAwHBQ8TChEHBwgNBwwNFAwFDhADBQgHFAYJEAsICAgJDQoGDBEJAwgPDxQRCA4KCwkPChEJFg8JEAkFBw8JEwcOCQQHDQkMEQoPAwkJChwKDQcJCAkJDxAKCxYLDREJEQoJCwkBCgcIAwgDCQIQDwkHDQcJDgsSBwkNDwQJAAcKCRYJCAURDQMKCQcNCA0KBwgJBggKCQcZBAkIBAQWDQ0HCAYDDQYNDg0IBwoHCwcJBw4JDAgRCQcICg0LCggJFQwLDBQACREPCQgIBwEJAQgIEQwHDgsIBgoZCAoIBwoKCg8QEgUJEQgCCgcJBw4HCAYICQ0CCwkLCA0IEQwICRQKDwsUEQYTCBwREhAFAxYNEA0KCxkNBwkICxIJAxIFCAcKCxEUCgkUFQgJCQYJCAgNCQ8NBQkGBwgeEgwICAgHCQgOCgkHCgYKDAgHCAQRCAoKEAcIBxIICAEKCAcICgkJCAkKCQkMCwkICQgICQkJBQYJCQoKCAgQCg4HEAoJEAcQEBAQEBUHBQ0JBg4QCRAKBAoHEQkRCREKAQcRCgkJCQkOCAkKCgoREQgHCQoKCQgGDQgKCRARCQkICgoGCQgICQoREQcHEQgJBwgKCQgJCggKCBERCAoHCggHHggICAgIGggJCggI",
-   "iz": "JAYVHAINCiMGIBggCwcdAhshHgwHGRATJxUIAywHLRoOJxUkESAuFAUFCw0GEBoRBgkbBCMONQoOAR0MIyMBDAIcIRQgEA8fDREWEBwQDwMtCwIBCicSHh4cEA0hDQ0MAyAGCCIZJgkODhUVECAdCiAIBBcODAwZFiAIFAoPBwQDBhQiAhENKR0CCxoDEw8NCA4OMSUWDxsXAiAnEQURIgwCDxEMCg4NEwQSBRcRDiYRCQUhIA4HIQUlFB8jCAgjIg8QCC4OCA8GHhQMIDAOAiAvHwsGECQOBgswGgwLECEgDDQiHAcJIA8SAQ4HDAYSDgkiEB0KDBkrCwgFCw0VJhgEIyAmIw4XAiUOEBEGKBoIDgQOCCsWDR0WCzIMEggIDg8RJy4iJAsjDg4OGyQPGyAhDQ0cKBkhARIiDSYHFRsgABsVECEEIB8EERAPBwsnBBcOHQQdCiQMDxguCx0hBB0cFwoEByoKDxsYDAMtHgkZAxQbDBEKCQ8IJxMiEQciJRAfIRwJDAwPGAYPCAcDEhQlHQkPDCAaCggiHhEsCQYGCxsRDQMiIhEgCywBJR8OHAoJCxYaCgsbAg4lIxsUEhUdDA0EDhAYHRQCIRkHDyMFIy4mIwoOBw4HEx0NAxQUAw0hIwsDGQsKDCAeGhQFGQgmJAkPFQEaGiQfAxsRHDAYFQcJMQkCChYhJBohHxIcCwQHAhMdEAYsCBsQMxsIHw4dJgcGEigTBRAUIiAVHg0jCxkIHA8KJBsFBgwEBwkMDAMiHgQzGA4lCwgMNgsSGh8JFwUGGg8OEh4ZDTEDFxwQEggDGwUeHxAaBR4hISkGEyQDIiMcBhIMIRAsBAwFHAgfDB0HDw4JDhUlBCINGyERFgsOGQUdHQwODgYJBREHByUhJCENFg4KGhsJIS4ZBiQECiAXDAEfICQJExYSAw4SCyENEyMeDi8xEBUFHw0NFBAFEBclGQ8hFAoICw0kEAYiCxgJBwcPHAsYDRoIDxMECAUUJRQIDBINFSMOCjceBRAgEAoSDhoXDBwaCQIgFRAPBAoZCQ4YMRoDEwsGFx4SCBEcEgsWAg0EGBMLACEWAgoHAwkGCBUPEyEbJSEBGAUDEyALCwkNDQ4cDwYPCh0MERkODgkeIyQMEAgNDQwFHQcmCgciBgoRFRMGHRcJEAoMBwsSEhQLCwwRDQgfFBEPDAsbEQwNDyoFEAgMGxAGDQwKKg4ODAkH",
-   "code": "AQEBAQEBAQEBAQIEBggLDQ0ODxAQEBAQEhISEhMUFBQVFhcXFxkaGhscHBwdHSAgICMjJCQkJSUmJicoKSotLS0tLS0uLy8vLzAxMTExMTIyMzMzMzMzMzQ0NDU2Nzc3Nzc4OTk5OTo6Ojs7PDw9PT4+Pz8/P0BAQEFBQUFCQkJDQ0NDRUVGRkZGRkdHR0dISEhJSUpKSkpLS0tMTExMTU1NTU1OTlBQUlJSUlNTU1RUVFRVVVVWVlZWV1dXWFhYWFhZWVpaWltbW1tbXFxcXFxcXF1eX19fYGFhYWFhYWJiYmNjY2NjZGRkZWZmZmZmZ2dnZ2doaWpqampqampra2tsbGxsbm5ub29vb3BwcHBwcHFyc3R0dHV1dXV1dXV2dnZ2d3d4eHh4eHl5eXp6enp7e3t8fH19fn+AgICAgIGBgoKCg4OEhISEhIWGh4eHh4iIiIiJiYmJiYqKioqKioqKiouMjIyMjIyMjIyMjY2NjY2Ojo6Ojo6Ojo+Pj4+Pj4+QkJCQkJCQkJGRkZGRkZGSkpKSkpKSkpKTk5OTk5OTk5OUlJSUlJSUlJSVlZWVlZWVlZWWlpaWlpaWlpaWl5eXl5iYmJiZmZmZmZmZmZqampqampqampqam5ubm5ubnJycnJycnJycnJ2dnZ2dnZ2dnZ2dnp6enp6enp6fn5+fn5+fn5+fn6CgoKCgoKCgoKCgoKGhoaGhoaGhoaGhoaKioqKioqKioqKjo6Ojo6OjpKSkpKSkpaWlpaWlpaWlpaWmpqampqampqampqampqampqenp6enp6enp6eoqKioqKioqKioqKioqKioqampqampqampqaqqqqqqqqqqqqurq6urq6usrKysrKysrKysrK2tra2tra2tra2tra6urq6urq6urq6ur6+vr6+vr7CwsLCwsLCwsbGysrKysrKzs7Ozs7OztLS0tLS1tbW1tba2tre3t7e4uLm5urq7u7u7u7y8vLy8vL2+v7/AwMHBwsLCwsLCw8TExMTExMXFxsbHyMjJycnJycrKy8vMzMzMzMzMzM3Nzc3Nzc3Nzc7Ozs7Ozs7Ozs7Ozs7Ozs/Pz8/Pz8/Pz8/Q0NDQ0NDR0tLS0tLT09PT09PT1NTU1NTU1dXV1dXW1tbW1tbW19fX19fX2NjY2NjY2Nna2trb29zc3Nzd3t7e3t7f39/g4OHi4+Tm5+fn6Onp6uzu7vDz8/T3+Pr6/P3/",
-   "flags": "CQkJCQkICQkICQABAQEBAQEBAQEBAAEAAQEBAQEBAQEAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAABAQEBAAEBAQEBAQEBAQEBAQEBAQABAAEBAQABAAABAQEAAQAAAAEBAAEBAQEBAAEAAQEBAQEBAQEBAQEAAQEAAQEBAAEBAQAAAQAAAQEAAAEAAQEBAQEBAQEBAAABAQEBAQEBAQEAAQEAAQEBAQEAAAEBAQEBAQEBAQEBAAEBAQABAQEBAQEAAQEBAAEBAQEBAQEBAQABAQEBAAEBAQEBAQEBAQEAAQEBAAEBAAEBAQEBAAEBAQEBAQABAQEBAQEBAQEAAQEBAQEBAQEAAQEAAQEAAQEAAAEBAQEBAQEBAQEBAQAAAQEAAQEBAAABAQABAQABAAEBAAEBAQEAAQEBAQABAQABAQEBAQABAQEBAQEBAAEBAQEBAQABAQEBAQEBAQAAAQEBAQEBAQEBAQABAQEBAQEBAQEBAQEBAQEBAQABAQEAAQEBAQABAQEBAQEBAQEBAAABAQEAAAEBAQABAQEBAAEBAQEAAQEBAQABAQABAQEBAQEAAAEBAQABAQEBAQEBAQEBAQEBAQEBAQABAQEAAAAAAQABAQEBAQABAAABAAEBAQABAQEBAQEBAAEBAQEBAQEBAQEBAAEBAQEBAAABAQABAQABAAEBAQEBAQEBAQEBAQEAAQEBAQEBAAEAAQEBAQEBAQEBAQABAQEAAQEBAQEAAQEBAQEBAQEBAQEBAQEBAQEAAQEBAQEBAQEBAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAEBAQEBAQAAAQEBAQEBAQEBAAEBAQEBAQEBAQEBAQEBAQAAAQEBAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAEAAAEBAQAAAAABAQAAAAEBAQEBAQEBAAABAQABAQEBAQABAQEBAAEBAQEBAQEBAQABAQEBAQEAAAEBAQEBAQEAAQEBAQEBAAEBAQEAAQABAAEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAQABAAEBAAEAAAAAAAABAQEBAQEAAQABAQEBAAEAAQABAQEAAQEBAQEBAQEBAQEAAAEBAQEBAQEBAQEBAQAAAQEBAQEBAQEBAQEAAAEBAAEBAQEBAQEBAQEBAQAAAQEBAQEBAAEBAQEBAQEBAQEB",
+   "ix": "DQ8JGBFnGSJhDWQLFxcEGgoTFg5bFF4MExYMDhUPGWENBxITBwwTEw0WFQ0SCQoCFxAGDRIoFwoRGhISGxULExITEllZCBISB1sYDA4FKxQSDRAKEAQTDhRjFU8KExVLHGJNCA4QWBZdW1wLGWIJFgwQDGEPWRMVFBUTFhQXGhoJTBIYXg4YGWADFwhtURRqXwUQZ1cFYhMMDAoPDRMSDW1sChYJDxIOGA4TVBUKaRgMDQ9hTBoNDwgOERcSDBhiDRQSBBgOEwQpaBMMKUsMDQ0OEgwTBQ1OGxUEDV4oEQESGQQKGBIKZBYPEVoVE1YMGBkPDU4RFw8MDBBXDwYLDhAUBwoOXBEUGA8NGQoaWxUMaA0TVQ8oYGkEGxYGFA8KCyIODghcbRwOXhsVYmYMDlUJFVQEZAkYXBkQCA1fFAQaCkwREV8PBAYfDV4HAwsHDBUHahMIDBAED1ESCwwRGgwKE1FoDgkpCgIMEQcAEWcRCRUOChoSCw0FEhUHDRASEFUNEhZqDRAQCmcPCggRCQwSGw0JTGgIDhdpUBcXEmwVDQoCZCcPIgRjCAYPE2IBEV0aERsNDBVmZhMWCWYSFRYaBRcIBhENGBATDSkRE2EVFBNiWU9aFlsSCRAKB2QTTmUQXxMbFFkNARIHDRYPZwsVExEKERUNEgsRZhELLBMOY1oHAkwUEFUTZwkWDBANChEIEhAUKgxhCRAaDRITZQpWFBsWBxYLDRIKFWgQGwhkEAwMFRQQBgIZDQYZECkLEQgVDg0qEFQFDRILDxIVFAhoEBMMKAwSGg4KFw4QEAsNDxAJDQIKIhZmBQoDCA0QWG0LEwYMEwgNDRNnDQ8PCQ0UDwsLCg0RERoKbV8BFhhuGBIMDw0RDBQOEggDEBQHDQ8OFQ4FJw4LBgpTFGdkEQ5uZFRhFRJWaV4LEgkLDgwGKmpUEAljEwsSEQ9dAxEYZhUTDRQQDhAQEFwNFhMSGRVrVAYLDgsSCxNjCg0XEhQJZgsUDiphFWsJYRQOD2MOFg4UEBQNEhMTFRUSFRMFKw0VExMWDQsODhcLEwoSFRNVEmgUVwkNVxFVV1VVVWcREw4LCg9XDVUKFQoSVRZVDlUUGBJVDwUQEw0MDhAXCQdVVxARExEPCxUPCxYJDlVXDg4VFBIXEBATEAxXXQ8RUhUOFBURDhAOChAUDlBPEAISDxMMaxATEBATCRAODBMT",
+   "iy": "DQYKCAsQCgkRCREMDgMTCwcNAQkSBhEKCAQLCQkKBxAFCgoFDxsNAQgJCAgGBwsKAw0JCQsKCgYKBgMHDAkJDAsMChYWBQMGChIJCw0JCw8KCQUKCBMMDQoPBBAGCQkXBxMVCAwBFQERDxIJBhIPCQsIBhEKEgwEAwwJAAoOCwcKFgcIEQkICxIUDgkODwIKEQkFFRUUDwkKBgcHCAgHCQ8UBwkGCgsJCQkIFwEKFQQGGQoQFwcMCgQJCgMKCwgSHAoCCggIBAsKCggLChcHCQkJBwoJCQEPCQgKDBELCxMCAwoGCAoLEAkKChEBCRYDCQoKCQ8CCwsKCgURBhQZBQkCCwsIEgYHDAYAAwcKEgkKFgkJEQoLEhUKCQkIBgYbGQkICAgTDgcIEQgJEhECCREPCBITEAsJDwcNCQEQBwsLCxYGChELCgwICRELFAkTCwkLCwgICw0PChILCQYCCgoKCBIWCAoKDwoLBgsVBxQDCwgICwsLCQkUCgQKDA0DBBQJCw0KCQwJDg0HDwwPCwcKCQwPFw4ZCQ4NEAcKBg0MDAYKEAkKCRMSEAwHBQ8TChEHBwgNBwwNFAwFDhADBQgHFAYJEAsICAgJDQoGDBEJAwgPDxQRCA4KCwkPChEJFg8JEAkFBw8JEwcOCQQHDQkMEQoPAwkJChwKDQcJCAkJDxAKCxYLDREJEQoJCwkBCgcIAwgDCQIQDwkHDQcJDgsSBwkNDwQJAAcKCRYJCAURDQMKCQcIDQoHCAkGCAoJBxkECQgEBBYNDQcIBgMNBg0ODQgHCgcLBwkHDgkMCBEJBwgKDQsKCAkVDAsMFAAJEQ8JCAgHAQkBCAgRDAcOCwgGChkICggHCgoKDxASBQkRCAIKBwkHDgcIBggJDQILCQsIDQgRDAgJFAoPCxQRBggcERIQBQMWDRANCgsZDQcJCAsSCQMSBQgHCgsRFAoJFQgJCQYJCAgNCQ8NBQkGBwgeEgwICAgHCQgOCgkHCgYKDAgHCAQRCAoKEAcIBxIICAEKCAcICgkJCAkKCQkMCwkICQgICQkJBQYJCQoKCAgQCg4HEAoJEAcQEBAQEBUHBQ0JBg4QCRAKBAoHEQkRCREKAQcRCgkJCQkOCAkKCgoREQgHCQoKCQgGDQgKCRARCQkICgoGCQgICQoREQcHEQgJBwgKCQgJCggKCBERCAoHCggHHggICAgIGggJCggI",
+   "iz": "JAYVHAINCiMGIBggCwcdAhseDAcZEBMnFQgDLActGg4nFSQRIC4UBQULDQYQGhEGCRsEIw41Cg4BHQwjAQwCHCEUIBAPHw0RFhAcEA8DLQsCAQonEh4eHBANIQ0NDAMgBggiGSYJDg4VFRAgHQogCAQXDgwMGRYgCBQKDwcEAwYUIgIRDSkdAgsaAxMPDQgODjElFg8bFwIgJxEFESIMAg8RDAoODRMEEgUXEQ4mEQkFIA4HIQUlFB8jCAgjDxAILg4IBh4UDCAwDgIgLx8LBhAkDgYLMBoMCxAhIAw0IhwHCSAPEgEOBwwGEg4JIhAdCgwZKwsIBQsNFSYYBCMgJiMOFwIlDhARBigaCA4EDggrFg0dFgsyDBIICA4PEScuIiQLIw4ODhskDxshDQ0cKBkhARIiDSYHFRsgABsVECEEIB8EERAPBwsnBBcOHQQdCiQMDxguCx0hBB0cFwoEByoKDxsYDAMtHgkZAxQbDBEKCQ8IJxMiEQciJRAfIRwJDAwPGAYPCAcDEhQlHQkPDCAaCggiHhEsCQYGCxsRDQMiIhEgCywBJR8OHAoJCxYaCgsbAg4lIxsUEhUdDA0EDhAYHRQCIRkHDyMFIy4mIwoOBw4HEx0NAxQUAw0hIwsDGQsKDCAeGhQFGQgmJAkPFQEaGiQfAxsRHDAYFQcJMQkCChYhJBohHxIcCwQHAhMdEAYsCBsQMxsIHw4dJgcGEigTBRAUIiAVHg0jCxkIHA8KJBsFBgwHCQwMAyIeBDMYDiULCAw2CxIaHwkXBQYaDw4SHhkNMQMXHBASCAMbBR4fEBoFHiEhKQYTJAMiIxwGEgwhECwEDAUcCB8MHQcPDgkOFSUEIg0bIREWCw4ZBR0dDA4OBgkFEQcHJSEkIQ0WDgoaGwkhLhkGJAQKIBcMASAkCRMWEgMOEgshDRMjHg4vMRAVBR8NDRQQBRAXJRkPFAoICw0kEAYiCxgJBwcPHAsYDRoIDxMECAUUJRQIDBINFSMOCjceBRAgEAoSDhoXDBwaCQIgFRAPBAoZCQ4YMRoDEwsGFx4SCBEcEgsWAg0EGBMLACEWAgoHAwkGCBUPEyEbJSEBGAUDEyALCwkNDQ4cDwYPCh0MERkODgkeIyQMEAgNDQwFHQcmCgciBgoRFRMGHRcJEAoMBwsSEhQLCwwRDQgfFBEPDAsbEQwNDyoFEAgMGxAGDQwKKg4ODAkH",
+   "code": "AQEBAQEBAQEBAQIEBggLDQ0PEBAQEBASEhISExQUFBUWFxcXGRoaGxwcHB0dICAgIyMkJCQlJSYmJygqLS0tLS0tLi8vLy8wMTExMTEyMjMzMzMzMzM0NDQ1Njc3Nzc3ODk5OTk6Ojo7Ozw8PT0+Pj8/Pz9AQEBBQUFBQkJCQ0NDQ0VFRkZGRkZHR0dHSEhISUlKSkpKS0tLTExMTE1NTU1NTk5QUFJSUlJTU1NUVFRUVVVWVlZWV1dXWFhYWFlZWlpaW1tbW1xcXFxcXFxdXl9fX2BhYWFhYWFiYmJjY2NjY2RkZGVmZmZmZmdnZ2dnaGlqampqampqa2trbGxsbG5ubm9vb29wcHBwcHBxcnN0dHR1dXV1dXV1dnZ2dnd3eHh4eHh5eXl6enp7e3t8fH19fn+AgICAgIGBgoKCg4OEhISEhIWGh4eHh4iIiIiJiYmJiYqKioqKioqKiouMjIyMjIyMjIyMjY2NjY2Ojo6Ojo6Ojo+Pj4+Pj4+QkJCQkJCQkJGRkZGRkZGSkpKSkpKSkpKTk5OTk5OTk5OUlJSUlJSUlJSVlZWVlZWVlZWWlpaWlpaWlpaWl5eXl5iYmJiZmZmZmZmZmZqampqampqampqam5ubm5ubnJycnJycnJycnJ2dnZ2dnZ2dnZ2dnp6enp6enp6fn5+fn5+fn5+fn6CgoKCgoKCgoKCgoKGhoaGhoaGhoaGhoaKioqKioqKioqKjo6Ojo6OjpKSkpKSkpaWlpaWlpaWlpaampqampqampqampqampqamp6enp6enp6enp6ioqKioqKioqKioqKioqKipqampqampqampqqqqqqqqqqqqq6urq6urq6ysrKysrKysrKysra2tra2tra2tra2trq6urq6urq6urq6vr6+vr6+vsLCwsLCwsLGxsrKysrKys7Ozs7Ozs7S0tLS0tbW1tbW2tra3t7e3uLm5urq7u7u7u7y8vLy8vL2+v7/AwMHBwsLCwsLCw8TExMTExMXFxsbHyMjJycnJycrKy8vMzMzMzMzMzM3Nzc3Nzc3Nzc7Ozs7Ozs7Ozs7Ozs7Ozs/Pz8/Pz8/Pz8/Q0NDQ0NDR0tLS0tLT09PT09PT1NTU1NTU1dXV1dXW1tbW1tbW19fX19fX2NjY2NjY2Nna2trb29zc3Nzd3t7e3t7f39/g4OHi4+Tm5+fn6Onp6uzu7vDz8/T3+Pr6/P3/",
+   "flags": "CQkJCQkICQkICQABAQEBAQEBAQEAAQABAQEBAQEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAQEBAQABAQEBAQEBAQEBAQEBAQEAAQABAQEAAQAAAQEBAAEAAAABAQABAQEBAQABAAEBAQEBAQEBAQEBAAEBAAEBAQABAQEAAAEAAAEBAAABAAEBAQEBAQEBAQAAAQEBAQEBAQEBAAEBAAEBAQEAAAEBAQEBAQEBAQEAAQEBAQEBAQEBAAEBAQABAQEBAQEBAQEAAQEBAQABAQEBAQEBAQEBAAEBAQABAQABAQEBAQABAQEBAQEAAQEBAQEBAQEBAAEBAQEBAQEBAAEBAAEBAAEBAAABAQEBAQEBAQEBAQEAAAEBAAEBAAABAQABAQABAAEBAAEBAQEAAQEBAQABAQABAQEBAQABAQEBAQEBAAEBAQEBAQABAQEBAQEBAQAAAQEBAQEBAQEBAQABAQEBAQEBAQEBAQEBAQEBAQABAQEAAQEBAQABAQEBAQEBAQEBAAABAQEAAAEBAQABAQEBAAEBAQEAAQEBAQABAQABAQEBAQEAAAEBAQABAQEBAQEBAQEBAQEBAQEBAQABAQEAAAAAAQABAQEBAQABAAABAAEBAQABAQEBAQEBAAEBAQEBAQEBAQEBAAEBAQEBAAABAQABAQABAAEBAQEBAQEBAQEBAQEAAQEBAQEBAAEAAQEBAQEBAQEBAQABAQEAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQABAQEBAQEBAQEAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAQEBAQEBAAABAQEBAQEBAQEAAQEBAQEBAQEBAQEBAQEBAAABAQEAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAQAAAQEAAAAAAQEAAAABAQEBAQEBAQAAAQEAAQEBAQEAAQEBAAEBAQEBAQEBAQABAQEBAQEAAAEBAQEBAQEAAQEBAQEBAAEBAQEAAQABAAEBAQABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAQABAAEBAAEAAAAAAAABAQEBAQEAAQABAQEBAAEAAQABAQEAAQEBAQEBAQEBAQEAAAEBAQEBAQEBAQEBAQAAAQEBAQEBAQEBAQEAAAEBAAEBAQEBAQEBAQEBAQAAAQEBAQEBAAEBAQEBAQEBAQEB",
    "flag_bits": {
     "shower": [
      0,
@@ -429,322 +425,322 @@
   },
   "topk": [
    {
-    "i": 920,
+    "i": 911,
     "value": 5.277895994150248e-07,
     "energy_gev": 0.0253821387887001
    },
    {
-    "i": 919,
+    "i": 910,
     "value": 4.5039353748931327e-07,
     "energy_gev": 0.02166005410254
    },
    {
-    "i": 918,
+    "i": 909,
     "value": 4.242958828183254e-07,
     "energy_gev": 0.0204049814492464
    },
    {
-    "i": 917,
+    "i": 908,
     "value": 3.721290410254316e-07,
     "energy_gev": 0.0178962051868438
    },
    {
-    "i": 916,
+    "i": 907,
     "value": 3.618194116135378e-07,
     "energy_gev": 0.0174004007130861
    },
    {
-    "i": 915,
+    "i": 906,
     "value": 3.114861317354694e-07,
     "energy_gev": 0.0149798030033707
    },
    {
-    "i": 914,
+    "i": 905,
     "value": 2.9088201687316606e-07,
     "energy_gev": 0.0139889223501086
    },
    {
-    "i": 913,
+    "i": 904,
     "value": 2.4511911485492595e-07,
     "energy_gev": 0.0117881204932928
    },
    {
-    "i": 912,
+    "i": 903,
     "value": 2.2737316128630172e-07,
     "energy_gev": 0.0109346928074955
    },
    {
-    "i": 911,
+    "i": 902,
     "value": 2.1856572764476218e-07,
     "energy_gev": 0.0105111310258507
    },
    {
-    "i": 910,
+    "i": 901,
     "value": 1.8075522578020978e-07,
     "energy_gev": 0.0086927711963653
    },
    {
-    "i": 909,
+    "i": 900,
     "value": 1.5280573767564893e-07,
     "energy_gev": 0.0073486412875354
    },
    {
-    "i": 908,
+    "i": 899,
     "value": 1.507898769354507e-07,
     "energy_gev": 0.0072516957297921
    },
    {
-    "i": 907,
+    "i": 898,
     "value": 1.3677042237028106e-07,
     "energy_gev": 0.006577480584383
    },
    {
-    "i": 906,
+    "i": 897,
     "value": 1.178285896691473e-07,
     "energy_gev": 0.0056665414012968
    },
    {
-    "i": 905,
+    "i": 896,
     "value": 1.1120699902092324e-07,
     "energy_gev": 0.005348099861294
    },
    {
-    "i": 904,
+    "i": 895,
     "value": 1.0662977539333968e-07,
     "energy_gev": 0.0051279747858643
    },
    {
-    "i": 903,
+    "i": 894,
     "value": 1.036550617566929e-07,
     "energy_gev": 0.0049849166534841
    },
    {
-    "i": 902,
+    "i": 893,
     "value": 9.461752510956632e-08,
     "energy_gev": 0.0045502888970077
    },
    {
-    "i": 901,
+    "i": 892,
     "value": 9.368681054564498e-08,
     "energy_gev": 0.0045055295340716
    },
    {
-    "i": 900,
+    "i": 891,
     "value": 9.133002669807046e-08,
     "energy_gev": 0.0043921885080635
    },
    {
-    "i": 899,
+    "i": 890,
     "value": 8.638092392419251e-08,
     "energy_gev": 0.0041541792452335
    },
    {
-    "i": 898,
+    "i": 889,
     "value": 7.895045304413847e-08,
     "energy_gev": 0.0037968375254422
    },
    {
-    "i": 897,
+    "i": 888,
     "value": 6.93877917862364e-08,
     "energy_gev": 0.0033369557932019
    },
    {
-    "i": 896,
+    "i": 887,
     "value": 6.832490161729429e-08,
     "energy_gev": 0.0032858399208635
    },
    {
-    "i": 895,
+    "i": 886,
     "value": 6.028102283436445e-08,
     "energy_gev": 0.0028989985585212
    },
    {
-    "i": 894,
+    "i": 885,
     "value": 5.932451318515279e-08,
     "energy_gev": 0.0028529986739158
    },
    {
-    "i": 893,
+    "i": 884,
     "value": 5.7414384214417825e-08,
     "energy_gev": 0.0027611379045993
    },
    {
-    "i": 892,
+    "i": 883,
     "value": 5.269195187940813e-08,
     "energy_gev": 0.0025340295396745
    },
    {
-    "i": 891,
+    "i": 882,
     "value": 5.24644148263738e-08,
     "energy_gev": 0.002523086965084
    },
    {
-    "i": 890,
+    "i": 881,
     "value": 5.213780779767816e-08,
     "energy_gev": 0.0025073799770325
    },
    {
-    "i": 889,
+    "i": 880,
     "value": 4.9236858034813306e-08,
     "energy_gev": 0.002367869252339
    },
    {
-    "i": 888,
+    "i": 879,
     "value": 4.910020411637126e-08,
     "energy_gev": 0.0023612973745912
    },
    {
-    "i": 887,
+    "i": 878,
     "value": 4.8707298683397984e-08,
     "energy_gev": 0.0023424020037055
    },
    {
-    "i": 886,
+    "i": 877,
     "value": 4.8589681228049686e-08,
     "energy_gev": 0.0023367456160485
    },
    {
-    "i": 885,
+    "i": 876,
     "value": 4.80267983833802e-08,
     "energy_gev": 0.0023096757940948
    },
    {
-    "i": 884,
+    "i": 875,
     "value": 4.666069976817642e-08,
     "energy_gev": 0.0022439782042056
    },
    {
-    "i": 883,
+    "i": 874,
     "value": 4.335848828156874e-08,
     "energy_gev": 0.0020851702429354
    },
    {
-    "i": 882,
+    "i": 873,
     "value": 4.3315031696435606e-08,
     "energy_gev": 0.0020830803550779
    },
    {
-    "i": 881,
+    "i": 872,
     "value": 4.276885175046305e-08,
     "energy_gev": 0.0020568137988448
    },
    {
-    "i": 880,
+    "i": 871,
     "value": 4.2214092808403076e-08,
     "energy_gev": 0.002030134666711
    },
    {
-    "i": 879,
+    "i": 870,
     "value": 4.0167915096715984e-08,
     "energy_gev": 0.0019317311234772
    },
    {
-    "i": 878,
+    "i": 869,
     "value": 3.94030627375677e-08,
     "energy_gev": 0.0018949483055621
    },
    {
-    "i": 877,
+    "i": 868,
     "value": 3.7914902243537776e-08,
     "energy_gev": 0.0018233805894851
    },
    {
-    "i": 876,
+    "i": 867,
     "value": 3.780448882101972e-08,
     "energy_gev": 0.0018180706538259
    },
    {
-    "i": 875,
+    "i": 866,
     "value": 3.700645336979543e-08,
     "energy_gev": 0.0017796920146793
    },
    {
-    "i": 874,
+    "i": 865,
     "value": 3.486791831115058e-08,
     "energy_gev": 0.0016768468776717
    },
    {
-    "i": 873,
+    "i": 864,
     "value": 3.328056438525185e-08,
     "energy_gev": 0.0016005088109523
    },
    {
-    "i": 872,
+    "i": 863,
     "value": 3.309462239139411e-08,
     "energy_gev": 0.0015915666008368
    },
    {
-    "i": 871,
+    "i": 862,
     "value": 3.232445657389241e-08,
     "energy_gev": 0.0015545282512903
    },
    {
-    "i": 870,
+    "i": 861,
     "value": 3.1975930016543135e-08,
     "energy_gev": 0.0015377671224996
    },
    {
-    "i": 869,
+    "i": 860,
     "value": 3.159038354183527e-08,
     "energy_gev": 0.0015192256541922
    },
    {
-    "i": 868,
+    "i": 859,
     "value": 3.121474987439801e-08,
     "energy_gev": 0.0015011609066277
    },
    {
-    "i": 867,
+    "i": 858,
     "value": 3.120689951201007e-08,
     "energy_gev": 0.001500783371739
    },
    {
-    "i": 866,
+    "i": 857,
     "value": 3.0975595834285365e-08,
     "energy_gev": 0.0014896596549078
    },
    {
-    "i": 865,
+    "i": 856,
     "value": 3.0470323465859764e-08,
     "energy_gev": 0.0014653604011982
    },
    {
-    "i": 864,
+    "i": 855,
     "value": 2.988517008959227e-08,
     "energy_gev": 0.0014372195582836
    },
    {
-    "i": 863,
+    "i": 854,
     "value": 2.9727276861997717e-08,
     "energy_gev": 0.0014296262525022
    },
    {
-    "i": 862,
+    "i": 853,
     "value": 2.946743543459889e-08,
     "energy_gev": 0.0014171301154419
    },
    {
-    "i": 861,
+    "i": 852,
     "value": 2.919167541853156e-08,
     "energy_gev": 0.0014038684312254
    },
    {
-    "i": 860,
+    "i": 851,
     "value": 2.8575970261907723e-08,
     "energy_gev": 0.001374258310534
    },
    {
-    "i": 859,
+    "i": 850,
     "value": 2.854163249118082e-08,
     "energy_gev": 0.0013726069591939
    },
    {
-    "i": 858,
+    "i": 849,
     "value": 2.8201527583770132e-08,
     "energy_gev": 0.0013562508393079
    },
    {
-    "i": 857,
+    "i": 848,
     "value": 2.7949347703382716e-08,
     "energy_gev": 0.0013441231567412
    }
@@ -754,16 +750,17 @@
   "cap": {
    "limit": 6000,
    "requested": 6000,
-   "n_total": 921,
-   "n_drawn": 921,
+   "n_total": 912,
+   "n_drawn": 912,
    "n_beyond": 0,
    "rank": "energy",
    "energy_total_gev": 0.41850810303163677,
-   "energy_drawn_gev": 0.4185081030316367,
+   "energy_drawn_gev": 0.41821923731193067,
    "energy_beyond_gev": 0.0,
    "fraction_beyond": 0.0,
-   "energy_outside_window_gev": 0.0,
-   "fraction_outside_window": 0.0
+   "energy_outside_window_gev": 0.00028886571970609433,
+   "fraction_outside_window": 0.0006902273041156811,
+   "cells_outside_window": 9
   },
   "below_floor": {
    "n": 10,
@@ -772,7 +769,7 @@
   "species": null,
   "notes": [
    "The notebook's C5 display colours each hit's raw energy on a linear ramp with no floor; this view colours volumetric density on a logarithmic ramp with the 1st-percentile floor of its A1/C2 figure, because cell energies span many decades.",
-   "All 921 cells are drawn."
+   "All 912 cells inside the window are drawn. 9 of the event's 921 cells lie outside the window and are counted, not drawn. 0.0002889 GeV (0.069%) falls outside the window and is counted, not drawn."
   ]
  },
  "filter": {

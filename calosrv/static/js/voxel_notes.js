@@ -20,7 +20,7 @@
 import { Notes, SECTION, eventNotes, projectionNotes } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
-import { HALO_LIMIT, speciesLabel } from './voxels.js';
+import { HALO_LIMIT, referenceTopLabel, speciesLabel } from './voxels.js';
 
 /** The card titles of the section, by card id. */
 export const VOXEL_TITLES = Object.freeze({
@@ -98,6 +98,11 @@ function listText(items) {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
+/** What every on-screen sequential ramp of the 3-D cards does (decision D-2, scale.js `rampTable`). */
+export const LEGIBLE_RAMP_NOTE = 'On screen the ramp starts at its first colour with at least 3:1 contrast '
+  + 'against the card (Viridis from 0.376 of its range; the measured 3:1 run of the other palettes), so no '
+  + 'opaque cube - a cube below the ramp floor included - is drawn darker than the card can show.';
+
 /* -------------------------------------------------------------- event -- */
 
 /**
@@ -174,6 +179,10 @@ export function voxelEventNotes({
   } else {
     legend.push('The colour bar at the right is the ramp the cubes are painted with, labelled in the channel\'s '
       + 'own units; it is the 2-D panels\' code-to-colour table, so a cube and the bin beside it agree.');
+    legend.push(LEGIBLE_RAMP_NOTE + (scale.diverging
+      ? ' A raw Shap-CAM cube near zero takes its sign\'s first 3:1 colour (orange or purple) where the 2-D '
+        + 'panels draw zero in border grey: a cube prints no number, so none may vanish.'
+      : ''));
   }
   legend.push('A halo - a light outer and a dark inner outline - marks a primary-tagged cube (is_secondary = 0).');
   if ((vox.cubes?.shower_codes ?? []).filter((c) => c && c !== '—').length > 1) {
@@ -328,9 +337,13 @@ export function voxelEnsembleNotes({
   notes.section(SECTION.disclosures, disclosures);
 
   const provisional = Boolean(frame.provisional || rho.provisional);
+  const topLabel = referenceTopLabel({ kind: 'ensemble', scale, refName: scale.ref_name ?? 'rho_ref' });
   notes.section(SECTION.legend, [
     'The colour bar at the right is the 2-D panels\' relative ramp (three decades below the reference, '
-      + 'fading to transparent at the floor)'
+      + 'fading to transparent at the floor, and reaching its first 3:1 colour where the fade turns opaque, '
+      + '10⁻²·⁵ of the reference'
+      + (topLabel ? `; its top is labelled "${topLabel}"` : '')
+      + ')'
       + (scale.scale === 'signed_log10' ? ', diverging on PuOr: orange negative, purple positive' : '')
       + (provisional ? '; it is labelled provisional because the selection is too small to fix its reference.' : '.'),
     `The ${formatInt((payload.topk ?? []).length)} brightest voxels carry exact values in their tooltips; every `

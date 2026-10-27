@@ -53,8 +53,9 @@
  * with translucent cubes), not two per row as the spike's first sketch had:
  * measured in Chromium on the recorded payloads, every cube's base equals its
  * spacer's top exactly and its height the cube's. Every coordinate is shifted
- * to the box minimum, so spacer heights are never negative and the default
- * `samesign` stacking holds; the axis labels add the offset back.
+ * by a round origin at or below the box minimum (`axisTicks`), so spacer
+ * heights are never negative and the default `samesign` stacking holds, and
+ * the ticks fall on round millimetres once the labels add the origin back.
  *
  * The display axes follow the notebook: x3D is the frame's depth, y3D its x,
  * z3D (vertical) its y.
@@ -124,6 +125,26 @@ export function orthographicFit(width, height, right = 0) {
   if (!(w > 0 && height > 0)) return CAMERA.orthographicSize;
   const need = (FIT_ASPECT * height) / w;
   return need > 1 ? Math.round(CAMERA.orthographicSize * need * 10) / 10 : CAMERA.orthographicSize;
+}
+
+/** The 3-D plot's height bounds, px: a stacked or wide card is 560 px tall, a narrow one no less than 360. */
+export const GL_HEIGHT_MIN = 360;
+export const GL_HEIGHT_MAX = 560;
+
+/**
+ * The 3-D plot's height for a plot `width` px wide: the height at which the
+ * opening view exactly fills the viewport left of the legend,
+ * `(width − LEGEND_RIGHT) / FIT_ASPECT`, within [360, 560] px. A narrow card
+ * then needs no widened zoom (`orthographicFit` stays at the camera's own
+ * size) and leaves no empty band above and below the box; only below
+ * 360 px of height does the zoom widen again. Set by voxel_views.js on the
+ * plot element before the chart is created and on every resize, never
+ * through CSS, so the layout snaps with no transition.
+ */
+export function glPlotHeight(width) {
+  if (!(width > 0)) return GL_HEIGHT_MAX;
+  const fit = Math.round((width - LEGEND_RIGHT) / FIT_ASPECT);
+  return Math.max(GL_HEIGHT_MIN, Math.min(GL_HEIGHT_MAX, fit));
 }
 
 /** echarts-gl draws a series without depth writes once an item's alpha is below this. */
@@ -402,7 +423,7 @@ export function voxelCodeTable(model, palette = 'viridis', { fadeDecades = THEME
     max_code: c.max,
     ...(Number.isInteger(c.below) ? { below_code: c.below } : {}),
     ...(Number.isInteger(c.split) ? { split_code: c.split } : {}),
-  }, palette, fadeDecades);
+  }, palette, fadeDecades, { legible: true, signed: true });
 }
 
 /** Each cube's RGBA, from the model's code table. */
@@ -483,11 +504,34 @@ export function voxelLegend(model, palette = 'viridis') {
   const scale = model.scale;
   if (!scale || scale.scale === 'categorical' || scale.degenerate) return null;
   // The ramp's unit is written by scale.js `unitSuffix` (GeV/mm^3 as GeV/mm³), as on every 2-D ramp.
-  const legend = visualMap(scale, rampPalette(scale, palette), { seriesIndex: [] });
+  const legend = visualMap(scale, rampPalette(scale, palette), { seriesIndex: [], signed: true });
+  const top = referenceTopLabel(model);
+  if (top && Array.isArray(legend.text)) {
+    // The relative ramp's top is the reference itself: "1 = ρ_ref", not "10⁰·⁰ a.u." (P-25).
+    const lines = String(legend.text[0]).split('\n');
+    lines[lines.length - 1] = top;
+    legend.text = [lines.join('\n'), ...legend.text.slice(1)];
+  }
   if (model.provisional && Array.isArray(legend.text)) {
     legend.text = [`${PROVISIONAL_TAG}\n${legend.text[0]}`, ...legend.text.slice(1)];
   }
   return legend;
+}
+
+/**
+ * The top label of an ensemble's relative ramp, written against its
+ * reference: "1 = ρ_ref" (or cam_ref) where the ramp tops out at the
+ * reference, "3.2 × ρ_ref" where the selection is brighter. Null for every
+ * other ramp (an event's physical units, a signed log, a linear ramp).
+ */
+export function referenceTopLabel(model) {
+  const scale = model?.scale;
+  if (model?.kind !== 'ensemble' || scale?.unit !== 'a.u.' || scale.scale !== 'log10') return null;
+  if (!Number.isFinite(scale.vmax)) return null;
+  const ref = model.refName === 'cam_ref' ? 'cam_ref' : 'ρ_ref';
+  if (Math.abs(scale.vmax) < 0.05) return `1 = ${ref}`;
+  const factor = 10 ** scale.vmax;
+  return `${typographic(factor >= 10 ? factor.toFixed(0) : factor.toPrecision(2))} × ${ref}`;
 }
 
 /* ------------------------------------------------------------ geometry -- */
@@ -619,7 +663,8 @@ export function boxSizes(span) {
 
 /**
  * One cube's 12 edges as the 16-point polyline `WIREFRAME_PATH`, in shifted
- * display coordinates [depth, x, y], padded outward by `pad`.
+ * display coordinates [depth, x, y] (millimetres minus `lo`, the axes' round
+ * origins), padded outward by `pad`.
  */
 export function cubeWireframe(model, i, lo, pad = HALO_PAD) {
   const h = { x: (model.box.x * pad) / 2, y: (model.box.y * pad) / 2, z: (model.box.z * pad) / 2 };
@@ -738,18 +783,71 @@ export function voxelTooltip(model, i) {
 /* -------------------------------------------------------------- option -- */
 
 /**
- * A grid3D value axis over [0, span] whose labels read the frame's own
- * millimetres. `world` is the axis' length in box units: a short axis (the
- * depth of a co-registered cloud) gets fewer ticks, so its labels do not
- * pile up at the corner.
+ * An axis title's offset from its axis, in grid3D world units (echarts-gl places
+ * an axis name `nameGap` units out from the axis, perpendicular to it, and its
+ * tick labels `axisLabel.margin`, 8 units, out). At the default 20 the long
+ * "z — depth [mm]" title crossed the middle depth tick label at 1440 px
+ * (P-18), and "y [mm]" touched its middle tick at 1440 and 1600 px. At 30,
+ * checked in Chromium at 1440, 1600 and 1920 px, every title clears its
+ * labels and stays inside the canvas.
  */
-function axis3D(name, span, offset, world = BOX_UNITS) {
+export const AXIS_NAME_GAP = 30;
+
+/**
+ * ECharts' own tick step for a value axis of `span` split `splitNumber` ways:
+ * its `nice(span / splitNumber, true)`, a 1, 2, 3 or 5 times a power of ten.
+ * echarts-gl's axes take it from `splitNumber` and place their ticks on its
+ * multiples in data coordinates; an explicit `interval` would instead start
+ * them at the axis minimum, off the round grid (measured in Chromium).
+ */
+export function niceStep(span, splitNumber = 5) {
+  const raw = span / Math.max(1, splitNumber);
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+  const exp10 = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / exp10;
+  const nf = f < 1.5 ? 1 : f < 2.5 ? 2 : f < 4 ? 3 : f < 7 ? 5 : 10;
+  return nf * exp10;
+}
+
+/** Whether `v` is a multiple of `step` (to a millionth of a step). */
+function onStep(v, step) {
+  return Number.isFinite(v) && step > 0 && Math.abs(v / step - Math.round(v / step)) < 1e-6;
+}
+
+/**
+ * The tick plan of one display axis over `[lo, hi]` mm whose box side is
+ * `world` units long (P-17): `splitNumber` about five ticks on the longest
+ * side and fewer on a short one, so a co-registered cloud's depth does not
+ * pile its labels up at the corner; `step`, the interval ECharts will choose
+ * for it (`niceStep`); and the round `origin` the axis is shifted by,
+ * `floor(lo / step) · step`. Cubes are placed at `mm − origin` (never
+ * negative, so the spacer stacking holds), the axis spans `[lo − origin,
+ * hi − origin]`, and ECharts' ticks fall on multiples of `step` there: round
+ * millimetres once the labels add the origin back. An axis end is labelled
+ * only where it is itself a tick (`showMin`, `showMax`, and the formatter
+ * blanks any off-grid value), so no end overprints its neighbouring round tick.
+ */
+export function axisTicks(lo, hi, world = BOX_UNITS) {
+  const splitNumber = Math.max(2, Math.round((5 * world) / BOX_UNITS));
+  const step = niceStep(hi - lo, splitNumber);
+  const origin = Math.floor(lo / step + 1e-9) * step;
+  return {
+    step, origin, splitNumber, min: lo - origin, max: hi - origin,
+    showMin: onStep(lo - origin, step), showMax: onStep(hi - origin, step),
+  };
+}
+
+/** A grid3D value axis on a tick plan (`axisTicks`), labelled in the frame's own millimetres. */
+function axis3D(name, ticks, { nameGap = null } = {}) {
   return {
     type: 'value',
     name,
-    min: 0,
-    max: span,
-    splitNumber: Math.max(2, Math.round((5 * world) / BOX_UNITS)),
+    min: ticks.min,
+    max: ticks.max,
+    // Not `interval`: echarts-gl would start an explicit interval at `min`. From splitNumber it
+    // picks `ticks.step` itself and puts the ticks on its multiples, which the origin makes round.
+    splitNumber: ticks.splitNumber,
+    ...(Number.isFinite(nameGap) ? { nameGap } : {}),
     nameTextStyle: { color: THEME.muted, fontSize: THEME.fontName, fontFamily: THEME.fontFamily },
     axisLine: { lineStyle: { color: THEME.border, width: THEME.lineAxis } },
     axisTick: { show: true, lineStyle: { color: THEME.border } },
@@ -757,7 +855,12 @@ function axis3D(name, span, offset, world = BOX_UNITS) {
       color: THEME.muted,
       fontSize: THEME.fontLabel,
       fontFamily: THEME.fontFamily,
-      formatter: (v) => typographic(String(Math.round(Number(v) + offset))),
+      showMinLabel: ticks.showMin,
+      showMaxLabel: ticks.showMax,
+      // echarts-gl ignores showMin/MaxLabel and labels the axis ends it adds, so an end
+      // off the step grid is blanked here: only the round ticks are labelled.
+      formatter: (v) => (onStep(Number(v), ticks.step)
+        ? typographic(String(Math.round(Number(v) + ticks.origin))) : ''),
     },
     splitLine: { show: false },
     splitArea: { show: false },
@@ -820,8 +923,15 @@ export function voxelOption(model, {
 } = {}) {
   const rgba = cubeColours(model, palette, { qualitative });
   const bounds = voxelBounds(model);
-  const { lo, span } = bounds;
+  const { lo, hi, span } = bounds;
   const box = boxSizes(span);
+  // Round ticks: each axis is shifted by its tick plan's round origin, not by the box minimum.
+  const ticks = {
+    z: axisTicks(lo.z, hi.z, box.boxWidth),
+    x: axisTicks(lo.x, hi.x, box.boxDepth),
+    y: axisTicks(lo.y, hi.y, box.boxHeight),
+  };
+  const origin = { x: ticks.x.origin, y: ticks.y.origin, z: ticks.z.origin };
   const barSize = [box.S * model.box.z, box.S * model.box.x];
   const parts = partitionCubes(model, rgba, hidden);
 
@@ -843,7 +953,7 @@ export function voxelOption(model, {
       stack,
       silent: true,
       itemStyle: { opacity: 0 },
-      data: members.map((i) => [model.z[i] - lo.z, model.x[i] - lo.x, model.y[i] - model.box.y / 2 - lo.y]),
+      data: members.map((i) => [model.z[i] - origin.z, model.x[i] - origin.x, model.y[i] - model.box.y / 2 - origin.y]),
     });
     roles.push({ role: 'spacer', members });
     series.push({
@@ -851,7 +961,7 @@ export function voxelOption(model, {
       name: `cubes (${name})`,
       stack,
       data: members.map((i) => ({
-        value: [model.z[i] - lo.z, model.x[i] - lo.x, model.box.y, i],
+        value: [model.z[i] - origin.z, model.x[i] - origin.x, model.box.y, i],
         itemStyle: { color: colourOf(i), opacity: rgba[i * 4 + 3] / 255 },
       })),
     });
@@ -867,7 +977,7 @@ export function voxelOption(model, {
   }
   const halos = drawnPrimaries.slice(0, HALO_LIMIT);
   for (const i of halos) {
-    const path = cubeWireframe(model, i, lo);
+    const path = cubeWireframe(model, i, origin);
     // Outer light line, inner dark line: the directive's black edge is about
     // 1.2:1 on the #1c2128 card, so the halo pairs the text colour (14.4:1)
     // with the canvas colour, legible on any cube colour beneath it.
@@ -912,9 +1022,9 @@ export function voxelOption(model, {
       splitArea: { show: false },
       right,
     },
-    xAxis3D: axis3D(names.depth, span.z, lo.z, box.boxWidth),
-    yAxis3D: axis3D(names.x, span.x, lo.x, box.boxDepth),
-    zAxis3D: axis3D(names.y, span.y, lo.y, box.boxHeight),
+    xAxis3D: axis3D(names.depth, ticks.z, { nameGap: AXIS_NAME_GAP }),
+    yAxis3D: axis3D(names.x, ticks.x, { nameGap: AXIS_NAME_GAP }),
+    zAxis3D: axis3D(names.y, ticks.y, { nameGap: AXIS_NAME_GAP }),
     series,
   };
   if (legend) {
@@ -928,6 +1038,7 @@ export function voxelOption(model, {
     roles,
     bounds,
     box,
+    ticks,
     drawn: parts.opaque.length + parts.translucent.length,
     skipped: parts.skipped,
     noValue: parts.noValue,

@@ -373,7 +373,15 @@ def test_lab_cubes_are_the_events_cells_once_each(single_client):
             axes = vox["geometry"]["axes"]
             drawn = {(int(x) + axes["x"]["i0"], int(y) + axes["y"]["i0"], int(z) + axes["z"]["i0"])
                      for x, y, z in zip(cubes["ix"], cubes["iy"], cubes["iz"])}
-            assert drawn == cells and len(drawn) == vox["cubes"]["n"] == body["event"]["n_cells"]
+            # The window (decision D-3: energy-weighted 0.1-99.9%) holds the cells whose centres lie in it;
+            # the rest are counted, not drawn.
+            lat = record.lattice
+            win = body["window"]["axes"]
+            inside = {c for c in cells if all(
+                win[a][0] <= lat.axis(a).coords[c[k]] <= win[a][1] for k, a in enumerate("xyz"))}
+            assert drawn == inside and len(drawn) == vox["cubes"]["n"]
+            assert len(cells) == body["event"]["n_cells"]
+            assert vox["cap"]["cells_outside_window"] == len(cells) - len(inside)
             # The shower code is the ingest's census: split cells are the event's n_split_cells.
             (n_split, e_dep) = con.execute(
                 f"SELECT n_split_cells, e_dep FROM {quote(naming.event_table(BASELINE_TABLE))} "
@@ -512,6 +520,25 @@ def test_translated_cubes_sit_at_the_lattice_minus_p0(single_client):
 # -------------------------------------------------------------- placement --
 
 
+def _cut_shift(con, table: str, event: int, body: dict) -> float:
+    """How far the window can move an energy-weighted centroid, in mm.
+
+    The event window (decision D-3, energy-weighted 0.1-99.9%) leaves a
+    fraction f of the drawn energy out. Dropping mass f from a distribution
+    moves its mean by at most f / (1 - f) times the largest distance from the
+    mean, which the event's full lattice extent bounds. Zero when nothing was
+    left out.
+    """
+    cap = body["voxels"]["cap"]
+    f = cap["energy_outside_window_gev"] / cap["energy_total_gev"] if cap["energy_total_gev"] else 0.0
+    if f <= 0:
+        return 0.0
+    lat = _record(con, table).lattice
+    rows = _rows(con, table, event)
+    lab = np.column_stack([lat.x.coords[rows["ix"]], lat.y.coords[rows["iy"]], lat.z.coords[rows["iz"]]])
+    return f / (1.0 - f) * float(np.linalg.norm(np.ptp(lab, axis=0)))
+
+
 def test_lab_cube_centres_are_their_cells_lattice_coordinates(single_client):
     """Each decoded cube centre is the measured lattice position of exactly one of the event's cells."""
     with _con(single_client) as con:
@@ -534,7 +561,8 @@ def test_lab_cube_centres_are_their_cells_lattice_coordinates(single_client):
             match = distance.argmin(axis=1)
             # Within the 0.001 mm the coordinates are rounded to, and one cube per cell.
             assert distance[np.arange(match.size), match].max() <= 5e-4 + 1e-9, (table, event)
-            assert len(set(match.tolist())) == match.size == len(cells), (table, event)
+            outside = body["voxels"]["cap"]["cells_outside_window"]
+            assert len(set(match.tolist())) == match.size == len(cells) - outside, (table, event)
             np.testing.assert_allclose(shipped, energy[match], rtol=1e-12)
             # Payload order is ascending energy of the cell each cube is drawn on.
             assert (np.diff(energy[match]) >= 0).all(), (table, event)
@@ -555,7 +583,8 @@ def test_translated_cube_centroid_is_the_event_tables(single_client):
             centre, energy, _ = _placed(builder, body)
             got = np.average(centre, axis=0, weights=energy)
             expected = _table_centroid(con, table, event, shower, "trn")
-            half = 0.5 * np.asarray(body["voxels"]["geometry"]["cube_mm"])
+            # Half a cube, plus what the window's 0.2% cut can move the centroid by.
+            half = 0.5 * np.asarray(body["voxels"]["geometry"]["cube_mm"]) + _cut_shift(con, table, event, body)
             assert (np.abs(got - expected) <= half).all(), (table, event, shower, got - expected)
             checked += 1
     assert checked >= 10
@@ -575,7 +604,8 @@ def test_local_voxel_centroid_is_the_event_tables(single_client):
             got = np.average(centre, axis=0, weights=energy)
             expected = _table_centroid(con, table, event, shower, "loc")
             grid = body["voxels"]["geometry"]["grid"]
-            half = 0.5 * np.array([grid["pitch_mm"], grid["pitch_mm"], grid["pitch_z_mm"]])
+            half = 0.5 * np.array([grid["pitch_mm"], grid["pitch_mm"], grid["pitch_z_mm"]]) \
+                + _cut_shift(con, table, event, body)
             assert (np.abs(got - expected) <= half).all(), (table, event, shower, got - expected)
             checked += 1
     assert checked >= 10
@@ -596,12 +626,15 @@ def test_the_d_frame_puts_shower_a_at_negative_x_and_b_at_positive(single_client
             assert mean_x["a"] < 0.0 < mean_x["b"], (event, mean_x)
             if not _complete(con, BASELINE_TABLE, event, ("a", "b")):
                 continue
+            # What the window's 0.2% cut can move a centroid by, and so its back-projection.
+            cut = _cut_shift(con, BASELINE_TABLE, event, body)
             # A complete event: every voxel on its own side, and each shower's centroid,
             # back-projected along its own direction to the face z′ = 0, on its anchor.
             assert (centre[sides["a"], 0] < 0.0).all() and (centre[sides["b"], 0] > 0.0).all(), event
             pitch = body["voxels"]["geometry"]["grid"]["pitch_mm"]
             psi = d_frame["psi"]
             back = {}
+            slack = {}
             for shower in body["event"]["showers"]:
                 sel = sides[shower["key"]]
                 c = np.average(centre[sel], axis=0, weights=energy[sel])
@@ -609,12 +642,15 @@ def test_the_d_frame_puts_shower_a_at_negative_x_and_b_at_positive(single_client
                 along = np.cos(psi) * u[0] + np.sin(psi) * u[1]
                 across = -np.sin(psi) * u[0] + np.cos(psi) * u[1]
                 back[shower["key"]] = (c[0] - c[2] * along / u[2], c[1] - c[2] * across / u[2])
-            assert back["b"][0] - back["a"][0] == pytest.approx(d_frame["d_entry_mm"], abs=pitch), (event, back)
-            # Each on its own anchor (x′ = ∓D_entry/2, y′ = 0) within half a voxel: 0.07-0.19 mm measured.
+                slack[shower["key"]] = cut * (1.0 + max(abs(along), abs(across)) / abs(u[2]))
+            assert back["b"][0] - back["a"][0] == pytest.approx(
+                d_frame["d_entry_mm"], abs=pitch + slack["a"] + slack["b"]), (event, back)
+            # Each on its own anchor (x′ = ∓D_entry/2, y′ = 0) within half a voxel: 0.07-0.19 mm measured
+            # on the whole event, plus what the window's cut can move it.
             for key, sign in (("a", -1.0), ("b", 1.0)):
-                assert back[key][0] == pytest.approx(sign * 0.5 * d_frame["d_entry_mm"], abs=0.5 * pitch), \
-                    (event, back)
-                assert abs(back[key][1]) <= 0.5 * pitch, (event, back)
+                assert back[key][0] == pytest.approx(sign * 0.5 * d_frame["d_entry_mm"],
+                                                     abs=0.5 * pitch + slack[key]), (event, back)
+                assert abs(back[key][1]) <= 0.5 * pitch + slack[key], (event, back)
             anchored += 1
     assert anchored >= 1
 
