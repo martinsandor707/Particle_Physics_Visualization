@@ -75,30 +75,30 @@
     "z"
    ],
    "lag1": {
-    "x": 0.47595122454683575,
-    "y": 0.5394595113115918,
-    "z": -0.17027454647512355
+    "x": 0.4759512244795516,
+    "y": 0.5394595113115915,
+    "z": -0.1702745464612169
    },
    "axes": {
     "x": {
      "occupancy": 0.48847755805396287,
-     "energy_columns": 0.47595122454683575,
-     "energy_core_row": 0.6333728572594769
+     "energy_columns": 0.4759512244795516,
+     "energy_core_row": 0.6333728572594775
     },
     "y": {
      "occupancy": 0.6533338542613518,
-     "energy_columns": 0.5939662774540747,
-     "energy_core_row": 0.5394595113115918
+     "energy_columns": 0.5939662774141616,
+     "energy_core_row": 0.5394595113115915
     },
     "z_yz": {
      "occupancy": null,
-     "energy_columns": 0.3567138204677865,
-     "energy_core_row": 0.34190373519151285
+     "energy_columns": 0.3567138199468947,
+     "energy_core_row": 0.34190373520301637
     },
     "z_xz": {
      "occupancy": null,
-     "energy_columns": 0.3567138204677882,
-     "energy_core_row": -0.17027454647512355
+     "energy_columns": 0.3567138199468938,
+     "energy_core_row": -0.1702745464612169
     }
    },
    "threshold": -0.1,
@@ -339,7 +339,7 @@
    "x": false,
    "y": true,
    "n_voxels": 3,
-   "energy_gev": 0.6100669991551599,
+   "energy_gev": 0.6100670164532032,
    "energy_fraction": 0.014977819,
    "note": "Along v the accumulation grid holds an even number of 20 mm bins on each side of the origin, so the outermost voxel on each side is half a voxel wide. It lies at the far edge of the grid and is not drawn: 3 populated half-width voxel(s), 1.498% of the energy, counted."
   }
@@ -366,10 +366,10 @@
   "unit": "a.u.",
   "mode": "relative",
   "locked": false,
-  "global_vmax": 2.6953640664726515e-07,
+  "global_vmax": 2.695364176127271e-07,
   "clipped_low": 167,
   "empty_cells": 0,
-  "rho_ref": 2.6953640664726515e-07,
+  "rho_ref": 2.695364176127271e-07,
   "rho_unit": "GeV/mm^3/event",
   "decades": 3.0,
   "norm": "selection",
@@ -378,19 +378,19 @@
   "floor_rule": "drawn iff ρ_v ≥ 10⁻³ ρ_ref"
  },
  "rho": {
-  "rho_ref": 2.6953640664726515e-07,
+  "rho_ref": 2.695364176127271e-07,
   "unit": "GeV/mm^3/event",
   "basis": "raw 20 × 20 × 20.5 mm 3-D accumulation peak",
   "floor_ratio": 0.001,
   "norm": "selection",
-  "floor": 2.6953640664726515e-10,
+  "floor": 2.6953641761272714e-10,
   "floor_basis": "rho_ref",
   "fine_voxel_mm": [
    20.0,
    20.0,
    20.5
   ],
-  "peak_drawn": 1.5717788618877976e-07,
+  "peak_drawn": 1.5717789064545383e-07,
   "provisional": false,
   "bound": "Each voxel is the mean of its four raw bins, empty ones counting zero, so no voxel exceeds ρ_ref.",
   "norm_note": "ρ_ref is this selection's own raw 3-D peak; a dataset-wide reference is not offered for the 3-D view in this version."
@@ -404,13 +404,13 @@
   "n_drawn": 277,
   "n_beyond_cap": 0,
   "n_partial_edge": 3,
-  "energy_total_gev": 40.73136443426931,
+  "energy_total_gev": 40.731365806397925,
   "energy_gev": {
-   "drawn": 39.99800831945848,
-   "below_floor": 0.059231608688087106,
+   "drawn": 39.99800967027016,
+   "below_floor": 0.059231610604311966,
    "beyond_cap": 0.0,
-   "outside_grid": 0.06405750696758164,
-   "partial_edge": 0.6100669991551599
+   "outside_grid": 0.06405750907024466,
+   "partial_edge": 0.6100670164532032
   },
   "energy_fraction": {
    "drawn": 0.981995297,
@@ -516,7 +516,7 @@
    "x": -200.0,
    "y": 160.0,
    "z": 215.25,
-   "value": 6.95405e-08,
+   "value": 6.95406e-08,
    "energy_gev": 0.652346
   },
   {
@@ -564,7 +564,7 @@
    "x": -280.0,
    "y": -40.0,
    "z": -10.25,
-   "value": 5.61639e-08,
+   "value": 5.6164e-08,
    "energy_gev": 0.526863
   },
   {
@@ -629,7 +629,7 @@
    "y": -40.0,
    "z": 174.25,
    "value": 4.35822e-08,
-   "energy_gev": 0.408835
+   "energy_gev": 0.408836
   },
   {
    "i": 114,
@@ -652,7 +652,7 @@
    "x": -280.0,
    "y": -40.0,
    "z": 194.75,
-   "value": 3.88474e-08,
+   "value": 3.88475e-08,
    "energy_gev": 0.36442
   },
   {
@@ -908,22 +908,22 @@
    "x": -120.0,
    "y": 80.0,
    "z": 256.25,
-   "value": 2.21516e-08,
+   "value": 2.21517e-08,
    "energy_gev": 0.2078
-  },
-  {
-   "i": 67,
-   "x": 0.0,
-   "y": 0.0,
-   "z": 10.25,
-   "value": 2.17494e-08,
-   "energy_gev": 0.204027
   },
   {
    "i": 55,
    "x": 0.0,
    "y": 0.0,
    "z": -10.25,
+   "value": 2.17494e-08,
+   "energy_gev": 0.204027
+  },
+  {
+   "i": 67,
+   "x": 0.0,
+   "y": 0.0,
+   "z": 10.25,
    "value": 2.17494e-08,
    "energy_gev": 0.204027
   },

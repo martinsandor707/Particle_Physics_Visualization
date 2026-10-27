@@ -1,4 +1,4 @@
-"""Shared fixtures: an ingested database built from the demonstration CSV."""
+"""Shared fixtures: an ingested database built from the demonstration file."""
 
 from __future__ import annotations
 
@@ -11,12 +11,19 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-SEED_CSV = REPO_ROOT / "hits_all_models_dummy.csv"
+import seed  # noqa: E402  (tests/ is on sys.path: pytest's rootdir insertion)
+
+#: The two-event demonstration file every booted server seeds from, as the image does.
+SEED_FILE = seed.SEED_FILE
+#: The same 1,000 rows as CSV, written from SEED_FILE on first use, for the tests of
+#: the CSV reader (header checks, compressed CSV, CSV against Parquet).
+SEED_CSV = seed.csv_copy()
 
 #: A small cut of the production file with split cells, 'A+B' hits, an
 #: overlap-100 event and an event without shower A - the cases the 2-event
 #: demonstration file cannot exercise. Built by tests/make_all_models_fixture.py
-#: and, like every CSV, not committed; the tests that need it skip without it.
+#: from ingest/hits_all_models.parquet and not committed; the tests that need it
+#: skip without it.
 FIXTURE_CSV = REPO_ROOT / "hits_all_models_fixture.csv"
 
 # The demonstration and fixture databases are a few megabytes, so the default
@@ -66,13 +73,13 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="session")
 def ingested(tmp_path_factory):
     """Ingest the demonstration CSV once into a throwaway database."""
-    if not SEED_CSV.is_file():
-        pytest.skip(f"Demonstration CSV not present at {SEED_CSV}")
+    if not SEED_FILE.is_file():
+        pytest.skip(f"Demonstration file not present at {SEED_FILE}")
 
     data_dir = tmp_path_factory.mktemp("calosrv-data")
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     from calosrv.config import load_settings
     from calosrv.db.connection import get_database, reset_database
@@ -84,7 +91,7 @@ def ingested(tmp_path_factory):
 
     with database.write_lock() as con:
         bootstrap(con, settings)
-        outcome = pipeline.run_ingest(con, settings, TABLE, SEED_CSV)
+        outcome = pipeline.run_ingest(con, settings, TABLE, SEED_FILE)
     result = outcome.verification
     n_hits, n_events = outcome.n_hits, outcome.n_events
 
@@ -120,8 +127,8 @@ def client(tmp_path_factory):
     from calosrv.ingest.jobs import reset_job_store
     from calosrv.query.cache import reset_cache
 
-    if not SEED_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
+    if not SEED_FILE.is_file():
+        pytest.skip("Demonstration file not present")
 
     reset_database()
     reset_job_store()
@@ -131,7 +138,7 @@ def client(tmp_path_factory):
     data_dir = tmp_path_factory.mktemp("api-data")
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     with TestClient(create_app(load_settings())) as test_client:
         # Seeding runs on a background worker; wait for it to report ready.
@@ -163,8 +170,8 @@ def synthetic_client(tmp_path_factory):
 
     import synthetic_all_models
 
-    if not synthetic_all_models.TEMPLATE_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
+    if not synthetic_all_models.TEMPLATE_FILE.is_file():
+        pytest.skip("Demonstration file not present")
 
     reset_database()
     reset_job_store()
@@ -219,8 +226,8 @@ def single_client(tmp_path_factory):
 
     import synthetic_single_shower
 
-    if not SEED_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
+    if not SEED_FILE.is_file():
+        pytest.skip("Demonstration file not present")
 
     reset_database()
     reset_job_store()
@@ -233,7 +240,7 @@ def single_client(tmp_path_factory):
     synthetic_single_shower.write_aggregated(hits_csv, events_csv)
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     app = create_app(load_settings())
     with TestClient(app) as test_client:
@@ -297,8 +304,8 @@ def live_server(tmp_path_factory):
     from calosrv.ingest.jobs import reset_job_store
     from calosrv.query.cache import reset_cache
 
-    if not SEED_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
+    if not SEED_FILE.is_file():
+        pytest.skip("Demonstration file not present")
 
     reset_database()
     reset_job_store()
@@ -310,7 +317,7 @@ def live_server(tmp_path_factory):
     os.environ["CALOSRV_AUTO_INGEST_DIR"] = str(drop)
     os.environ["CALOSRV_AUTO_INGEST_SETTLE_S"] = "0"
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(
@@ -378,8 +385,8 @@ def physics_live_server(tmp_path_factory):
 
     import synthetic_single_shower
 
-    if not SEED_CSV.is_file():
-        pytest.skip("Demonstration CSV not present")
+    if not SEED_FILE.is_file():
+        pytest.skip("Demonstration file not present")
 
     reset_database()
     reset_job_store()
@@ -391,7 +398,7 @@ def physics_live_server(tmp_path_factory):
     synthetic_single_shower.write_aggregated(hits_csv, events_csv)
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_CSV"] = str(SEED_FILE)
 
     app = create_app(load_settings())
     port = _free_port()
@@ -415,7 +422,7 @@ def physics_live_server(tmp_path_factory):
     database = app.state.database
     with database.write_lock() as con:
         for name, source in ((SINGLE_HITS_TABLE, hits_csv), (SINGLE_EVENTS_TABLE, events_csv),
-                             (STALE_TWO_TABLE, SEED_CSV)):
+                             (STALE_TWO_TABLE, SEED_FILE)):
             result = pipeline.run_ingest(con, database.settings, name, source)
             assert result.ok, result.warnings
         # Built by "an earlier release": the gates read the registry's version.

@@ -1,8 +1,8 @@
 # Keep the build context small. Without this, the 24 GB production CSV is
 # uploaded to the Docker daemon on every build.
 *.csv
-!hits_all_models_dummy.csv
 *.parquet
+!hits_all_models_dummy.parquet
 
 data/
 # The drop folder reaches the container through the read-only mount, not the image.

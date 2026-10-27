@@ -23,7 +23,7 @@ from calosrv.db import naming
 from calosrv.errors import ValidationError
 from calosrv.ingest import autoingest
 
-from conftest import SEED_CSV, TABLE, clean_boot_env
+from conftest import SEED_CSV, SEED_FILE, TABLE, clean_boot_env
 
 OLD = time.time() - 3600  # long settled
 
@@ -165,9 +165,9 @@ def test_a_name_with_a_job_under_way_is_not_queued_twice(ingested, drop):
 
 def test_a_file_already_archived_under_another_name_is_not_ingested_again(ingested, drop):
     """The demonstration file is the ingested experiment's source: same name, same bytes."""
-    _put(drop, SEED_CSV.name)
+    _put(drop, SEED_FILE.name, source=SEED_FILE)
     _, store, entries = _scan(ingested, drop)
-    entry = entries[SEED_CSV.name]
+    entry = entries[SEED_FILE.name]
     assert entry.action == "same_source"
     assert f"'{TABLE}'" in entry.detail
     assert store.submitted == []

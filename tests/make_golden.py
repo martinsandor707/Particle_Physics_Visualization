@@ -9,11 +9,14 @@ when the lab output is *meant* to change::
 
     .venv/bin/python tests/make_golden.py
 
-The current snapshot was produced in commit 84f65e6 ("Re-baseline the lab
+The snapshot was first produced in commit 84f65e6 ("Re-baseline the lab
 golden on the all-models dummy") by the pre-multi-model code, reading a
 29-column file derived verbatim from ``hits_all_models_dummy.csv``; the
-multi-model code reproduces it byte for byte from the 99-column file. Ingest
-goes through the same ``pipeline.run_ingest`` as the ``ingested`` fixture.
+multi-model code reproduced it byte for byte from the 99-column file. On
+2026-10-27 the CSV was replaced by ``hits_all_models_dummy.parquet``, the same
+1,000 rows with float32 coordinate, momentum and network columns, and the
+snapshot was re-baselined from it by the code of that day. Ingest goes through
+the same ``pipeline.run_ingest`` as the ``ingested`` fixture.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "lab_demo.json"
-SEED_CSV = REPO_ROOT / "hits_all_models_dummy.csv"
+SEED_FILE = REPO_ROOT / "hits_all_models_dummy.parquet"
 TABLE = "golden_experiment"
 
 
@@ -55,13 +58,13 @@ def lab_snapshot(con, record) -> dict:
 
 
 def main() -> int:
-    if not SEED_CSV.is_file():
-        print(f"missing {SEED_CSV}", file=sys.stderr)
+    if not SEED_FILE.is_file():
+        print(f"missing {SEED_FILE}", file=sys.stderr)
         return 1
     data_dir = Path(tempfile.mkdtemp(prefix="calosrv-golden-"))
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_FILE"] = str(SEED_FILE)
 
     os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
 
@@ -75,7 +78,7 @@ def main() -> int:
     database = get_database(settings)
     with database.write_lock() as con:
         bootstrap(con, settings)
-        pipeline.run_ingest(con, settings, TABLE, SEED_CSV, build_sample=False)
+        pipeline.run_ingest(con, settings, TABLE, SEED_FILE, build_sample=False)
 
     with database.read_cursor() as con:
         record = registry.require_ready(con, TABLE)

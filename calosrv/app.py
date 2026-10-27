@@ -166,7 +166,7 @@ BASELINE_TABLE = "experiment_baseline"
 def seed_baseline(database, settings: Settings) -> None:
     """Populate the demonstration experiment on a first boot.
 
-    Seeded from the full 1000 rows of ``hits_all_models_dummy.csv`` through
+    Seeded from the full 1000 rows of ``hits_all_models_dummy.parquet`` through
     exactly the same pipeline as a real upload - no synthetic records are
     generated. That file holds two events, both well separated, so the spatial
     panels render correctly while the reconstructed-energy panel reports its
