@@ -76,6 +76,9 @@ export const FEATURE_KEYS = Object.freeze([
 /* The feature explorer's momentum classes: the features notebook's windows,
  * or the aggregate's stored label (p < 2 against p ≥ 2 GeV). */
 export const FEATURE_CLASSES = Object.freeze(['windows', 'label']);
+/* Whose features the explorer draws on two-shower data (a new key: `shower`
+ * is the Physics page's Event Inspector's). One-shower data has only A. */
+export const FEATURE_SHOWERS = Object.freeze(['a', 'b']);
 /* The 3-D event view: one shower of the event, or both (two-shower data). */
 export const VOXEL_SHOWERS = Object.freeze(['a', 'b', 'both']);
 /* The 3-D views' channels (GET /api/event?format=voxels, GET /api/voxels). */
@@ -101,6 +104,7 @@ const ENUMS = {
   shower: SHOWERS,
   feature: FEATURE_KEYS,
   fclass: FEATURE_CLASSES,
+  fshower: FEATURE_SHOWERS,
   voxel_shower: VOXEL_SHOWERS,
   voxel_channel: VOXEL_CHANNELS,
   ens_channel: ENSEMBLE_CHANNELS,
@@ -191,12 +195,14 @@ export const DEFAULTS = Object.freeze({
   shower: 'a',
   compare: false,
   // The Models page (see "The Models page's keys" above). The feature the
-  // explorer's histograms draw and the classes it splits the selection into;
-  // the 3-D event view's event (null = none chosen yet: the view offers the
-  // densest), shower and channel; the ensemble cloud's channel; the XGBoost
-  // task and, for the angle model, which output a per-label view draws.
+  // explorer's histograms draw, the classes it splits the selection into and,
+  // on two-shower data, whose features (shower A or B); the 3-D event view's
+  // event (null = none chosen yet: the view offers the densest), shower and
+  // channel; the ensemble cloud's channel; the XGBoost task and, for the angle
+  // model, which output a per-label view draws.
   feature: 'num_hits',
   fclass: 'windows',
+  fshower: 'a',
   voxel_event: null,
   voxel_shower: 'a',
   voxel_channel: 'energy',

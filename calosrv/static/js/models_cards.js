@@ -28,7 +28,8 @@
  *
  * Some state is the page's, not the card's: the network task (`model`, or
  * `xgb_task` where an XGBoost regressor stands in for the networks), the
- * feature and its classes, the XGBoost task and output. Those controls write
+ * feature, its classes and, on two-shower data, its shower (`fshower`: A or
+ * B, sent on every feature request), the XGBoost task and output. Those controls write
  * the shared State, so a link restores them and the sidebar and every card
  * that reads one agree; the rest (`DEFAULT_CONTROLS`) are ephemeral, like the
  * Physics page's card controls.
@@ -174,7 +175,7 @@ export const DEFAULT_CONTROLS = Object.freeze({
 
 /** The page's share of the State a card reads (`viewOf`), with its built-in values. */
 const VIEW_DEFAULTS = Object.freeze({
-  frame: 'lab', model: 'segmentation', feature: 'num_hits', fclass: 'windows',
+  frame: 'lab', model: 'segmentation', feature: 'num_hits', fclass: 'windows', fshower: 'a',
   xgb_task: 'momentum', xgb_label: 'theta',
 });
 
@@ -208,6 +209,17 @@ export function predLabelApplies(plan, view) {
 export function featureOf(plan, view) {
   const offered = featureChoices(plan?.hasHits ?? true).map((f) => f.key);
   return offered.includes(view.feature) ? view.feature : (offered.includes('num_hits') ? 'num_hits' : offered[0]);
+}
+
+/**
+ * Whose features the explorer's cards draw: the selected shower (`fshower`)
+ * on two-shower data, where each shower's features are its own and never
+ * pooled; null on one-shower data, which has only shower A (the server's
+ * default) and refuses B. Never written back.
+ */
+export function featureShower(plan, view) {
+  if ((plan?.nShowers ?? 2) !== 2) return null;
+  return view.fshower === 'b' ? 'b' : 'a';
 }
 
 /** The frame the feature cards are served in for the selected frame (capabilities.js `viewFrame`). */
@@ -294,6 +306,15 @@ const CLASS_CONTROL = {
   choices: () => MODELS_LABELS.fclass,
 };
 
+/* Whose features, on two-shower data: the shared `fshower` key, so every
+ * feature card and a link agree. */
+const FEATURE_SHOWER_CONTROL = {
+  name: 'fshower', kind: 'seg', attr: 'featureShower', label: 'Shower', stateKey: 'fshower', request: true,
+  choices: () => MODELS_LABELS.fshower,
+  get: ({ plan, view }) => featureShower(plan, view) ?? 'a',
+  visible: ({ plan }) => (plan?.nShowers ?? 2) === 2,
+};
+
 const FEATURE_CONTROL = {
   name: 'feature', kind: 'select', attr: 'featureId', label: 'Feature', stateKey: 'feature', request: true,
   choices: ({ plan }) => featureChoices(plan?.hasHits ?? true).map((f) => ({ value: f.key, label: f.label })),
@@ -343,10 +364,10 @@ const CARD_CONTROLS = {
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
-  'feat-table': [CLASS_CONTROL, TABLE_STAT_CONTROL],
-  'feat-corr': [CLASS_CONTROL, CORR_CLASS_CONTROL],
-  'feat-hist': [FEATURE_CONTROL, CLASS_CONTROL, SCALE_CONTROL],
-  'feat-hist2d': [FEATURE_CONTROL, CLASS_CONTROL],
+  'feat-table': [FEATURE_SHOWER_CONTROL, CLASS_CONTROL, TABLE_STAT_CONTROL],
+  'feat-corr': [FEATURE_SHOWER_CONTROL, CLASS_CONTROL, CORR_CLASS_CONTROL],
+  'feat-hist': [FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL, SCALE_CONTROL],
+  'feat-hist2d': [FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL],
 };
 
 /** The control specs of one card. */
@@ -395,6 +416,9 @@ export function cardRequest(id, { filters, view = VIEW_DEFAULTS, controls = DEFA
       const params = { ...filters, view: FEATURE_VIEWS[id], classes: v.fclass };
       const frame = featureFrame(plan, v).frame;
       if (frame) params.coord_system = frame;
+      // Every feature card asks for the same shower; one-shower data sends none (its only shower).
+      const shower = featureShower(plan, v);
+      if (shower) params.shower = shower;
       if (id === 'feat-corr') params.class_index = c.corrClass;
       if (id === 'feat-hist' || id === 'feat-hist2d') params.feature = featureOf(plan, v);
       if (id === 'feat-hist' && c.histScale !== 'auto') params.scale = c.histScale;

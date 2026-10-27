@@ -67,7 +67,7 @@ import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
 import { formatInt, formatPercent, formatSci } from './scale.js';
 import {
-  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, speciesLegend,
+  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, orthographicFit, speciesLegend, pairedWindow, cropToWindow,
 } from './voxels.js';
 import {
   ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle,
@@ -447,7 +447,6 @@ export class VoxelSection {
       number.min = '0';
       number.step = '1';
       number.placeholder = 'densest';
-      number.style.width = '7em';
       number.dataset.voxelEvent = '';
       number.setAttribute('aria-label', 'Event number (empty: the densest event of the selection)');
       number.title = 'Event number; empty draws the densest event of the selection';
@@ -768,7 +767,11 @@ export class VoxelSection {
       }
       pair.view = view;
       this.drawEnsembleCells(pair, results[0]);
-      this.drawGl(pair, results[1], gl, decodeEnsembleVoxels);
+      // The cloud's box is the paired projections' window (CLAUDE.md's recorded windows of the
+      // co-registered frames), so the 3-D view and its 2-D projections show one region; the
+      // accumulation grid's full extent and what the crop leaves out are in the drawer.
+      const window = results[0].status === 'fulfilled' ? pairedWindow(results[0].value) : null;
+      this.drawGl(pair, results[1], gl, (payload) => cropToWindow(decodeEnsembleVoxels(payload), window));
       this.syncControls();
       VoxelSection.settle(results);
     } finally {
@@ -936,6 +939,13 @@ export class VoxelSection {
     const height = record.plot.clientHeight;
     if (!(width > 0 && height > 0)) return;
     if (chart.getWidth() !== width || chart.getHeight() !== height) chart.resize();
+    // A new width moves the opening view's fit (voxels.js orthographicFit). The
+    // camera keeps the reader's rotation and pan; only its zoom is refitted.
+    if (!record.fit || record.lost) return;
+    const size = orthographicFit(width, height, record.fit.right);
+    if (Math.abs(size - record.fit.size) < 0.5) return;
+    record.fit.size = size;
+    chart.setOption({ grid3D: { viewControl: { orthographicSize: size } } });
   }
 
   /**
@@ -950,6 +960,7 @@ export class VoxelSection {
     const chart = this.ensureChart(record);
     const built = voxelOption(pair.model, {
       palette: this.value('palette'), hidden: pair.hidden, position: record.tooltipPosition,
+      viewport: { width: chart.getWidth(), height: chart.getHeight() },
     });
     pair.built = built;
     if (pair.name === 'event') {
@@ -969,6 +980,8 @@ export class VoxelSection {
       }, { replaceMerge: ['series', 'visualMap'] });
     } else {
       chart.setOption(built.option, { notMerge: true });
+      const grid = built.option.grid3D;
+      record.fit = { right: grid.right, size: grid.viewControl.orthographicSize };
     }
     this.watchContext(pair);
   }
@@ -990,6 +1003,7 @@ export class VoxelSection {
         // The old chart's GPU resources died with the context: rebuild it.
         record.chart?.dispose?.();
         record.chart = null;
+        record.fit = null;
         this.paintGl(pair);
         this.onRendered(record.spec.id, pair.payloads.voxels ?? null);
       });
@@ -1010,23 +1024,20 @@ export class VoxelSection {
     if (!box) return;
     if (model?.scale?.scale === 'categorical') {
       const rows = speciesLegend(model, pair.hidden);
+      // Laid out by models.css (.voxel-species); only the swatch's colour is the row's own.
       const list = make('ul', 'voxel-species');
-      list.style.cssText = 'list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;';
       for (const row of rows) {
         const item = make('li');
-        item.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
         const label = make('label');
-        label.style.cssText = 'display:inline-flex;align-items:center;gap:5px;cursor:pointer;';
         const box2 = make('input');
         box2.type = 'checkbox';
         box2.checked = !row.hidden;
         box2.dataset.voxelSpecies = String(row.code);
         box2.setAttribute('aria-label', `Show ${row.label}`);
         box2.addEventListener('change', () => this.toggleSpecies(row.code, !box2.checked));
-        const swatch = make('span');
-        swatch.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:2px;background:${row.colour};`;
-        const name = make('span', '', row.label);
-        name.style.color = 'var(--text)';
+        const swatch = make('span', 'voxel-swatch');
+        swatch.style.setProperty('--swatch', row.colour);
+        const name = make('span', 'voxel-species-name', row.label);
         label.append(box2, swatch, name);
         const counts = make('span', '', `${formatInt(row.cells)} cells (${formatInt(row.drawn)} drawn) · `
           + `${formatPercent(row.energyFraction, 1)} of the energy · ${formatInt(row.primaryCells)} primary-tagged`);
@@ -1100,9 +1111,16 @@ export class VoxelSection {
       const frame = payload.frame ?? {};
       const budget = payload.budget ?? {};
       if (frame.provisional || payload.rho?.provisional) lines.push(frame.n_label ?? 'Provisional range: weak evidence.');
-      lines.push(`${formatInt(budget.n_drawn)} of ${formatInt(budget.n_populated)} populated voxels drawn; `
+      // The server's count of the voxels shipped, less those outside the paired projections' window.
+      const cropped = pair.model?.crop?.nOutside ?? 0;
+      const drawn = Number.isFinite(budget.n_drawn) ? budget.n_drawn - cropped : budget.n_drawn;
+      lines.push(`${formatInt(drawn)} of ${formatInt(budget.n_populated)} populated voxels drawn; `
         + `${formatInt(budget.n_below_floor)} below the 10⁻³ floor hold ${formatPercent(budget.energy_fraction?.below_floor, 2)} `
         + 'of the energy, counted.');
+      if (cropped > 0) {
+        lines.push(`${formatInt(cropped)} outside the projections' window hold ${formatPercent(pair.model.crop.shareOutside, 2)} `
+          + 'of the cloud shipped, counted and not drawn (Details).');
+      }
       if ((budget.n_beyond_cap ?? 0) > 0) {
         lines.push(`Cap ${formatInt(budget.cap)}: ${formatInt(budget.n_beyond_cap)} voxels beyond it hold `
           + `${formatPercent(budget.energy_fraction?.beyond_cap, 2)} of the energy, counted and not drawn.`);
@@ -1163,6 +1181,8 @@ export class VoxelSection {
   blank(record) {
     record.panel?.clear?.();
     record.chart?.clear?.();
+    // A blank chart has no camera to refit: a resize must not draw an empty box.
+    record.fit = null;
     if (record.legend) {
       record.legend.replaceChildren();
       record.legend.hidden = true;
@@ -1336,7 +1356,9 @@ export class VoxelSection {
           fallbacks: pair.view?.notes ?? [],
         });
       }
-      return voxelEnsembleNotes({ payload, drawn, gl, state, experiment, title, fallbacks: pair.view?.notes ?? [] });
+      return voxelEnsembleNotes({
+        payload, drawn, gl, state, experiment, title, fallbacks: pair.view?.notes ?? [], crop: pair.model?.crop ?? null,
+      });
     }
     const payload = pair.name === 'event' ? pair.payloads.raster : pair.payloads.projections;
     if (!payload) return record.error ? shut(record.error) : null;

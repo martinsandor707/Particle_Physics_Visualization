@@ -41,19 +41,22 @@
  * ## Colour is the network, fill is the shower
  *
  * The input frames are nominal categories, so they take ColorBrewer's
- * qualitative hues (Set2 on the dark screen, 6.2-7.6:1 on #1c2128; its Dark2
- * partner in print, 3.4-4.4:1 on white), in a fixed order so a frame keeps its
- * colour across selections. Shower A is a solid bar, shower B a light wash
- * with a solid outline, so the two read apart in greyscale too.
+ * qualitative hues from palette.js (`qualitativeStops`: Set2 on the dark
+ * screen, its Dark2 partner on white paper, the four colours measured there
+ * for contrast and colour-vision deficiency), in the fixed order absolute,
+ * per-shower translated, Local, XGBoost - the order the importance card gives
+ * absolute, translated, local and no frame - so a frame keeps its colour across
+ * selections and cards. Shower A is a solid bar, shower B a light wash with a
+ * solid outline, so the two read apart in greyscale too.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt } from '../scale.js';
-import { contrast } from '../palette.js';
+import { contrast, qualitativeStops } from '../palette.js';
 import { customWhiskers, customLine, binHoverSeries } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, chartLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST,
+  withColour, chartLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST, isPrintTheme,
 } from './chart_panel.js';
 
 /**
@@ -78,11 +81,6 @@ export function dividingInterval(lo, hi, maxTicks = 8) {
 
 /** The order the networks' hues are given in, so a frame keeps its colour whatever else is drawn. */
 export const SOURCE_ORDER = Object.freeze(['absolute', 'trans', 'local', 'xgb']);
-
-/** ColorBrewer Set2 1-4 on the dark card (6.2-7.6:1 against #1c2128). */
-const SCREEN_HUES = Object.freeze(['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3']);
-/** ColorBrewer Dark2 1-4, Set2's darker partners, for white paper (3.4-4.4:1). */
-const PRINT_HUES = Object.freeze(['#1b9e77', '#d95f02', '#7570b3', '#e7298a']);
 
 /** How each source is named when the series carries no label of its own. */
 export const SOURCE_LABELS = Object.freeze({
@@ -127,7 +125,7 @@ export function sourceOf(s) {
 /** The qualitative hue of each source, on the card in force (screen or print). */
 export function sourceColours(sources) {
   const card = rgbOf(THEME.card) ?? [28, 33, 40];
-  const hues = contrast(card, [255, 255, 255]) < 2 ? PRINT_HUES : SCREEN_HUES;
+  const hues = qualitativeStops(isPrintTheme() ? 'dark2' : 'set2', SOURCE_ORDER.length);
   const out = {};
   // A known source keeps its place in SOURCE_ORDER; another takes the next free hue.
   const rest = sources.filter((k) => !SOURCE_ORDER.includes(k));

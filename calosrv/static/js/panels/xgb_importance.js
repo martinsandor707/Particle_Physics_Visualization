@@ -170,7 +170,7 @@ export function importanceLayout(model, width, height = null) {
 /* --------------------------------------------------------------- option -- */
 
 /**
- * The E5 option. Pure: `opts` = {tooltipPosition?, readoutPosition?};
+ * The E5 option. Pure: `opts` = {tooltipPosition?};
  * `metrics` = {width, height}. y is the feature (inverse category), x the
  * share of the total gain in percent, from zero.
  */
@@ -208,7 +208,10 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
         style: { fill: 'rgba(0,0,0,0)', stroke: 'none' },
       };
     },
-    tooltip: { formatter: (p) => featureTip(rows[p.dataIndex], model), ...(opts.readoutPosition ? { position: opts.readoutPosition } : {}) },
+    // A feature's summary - the bar, the dots, the bracket and the raw scores, six lines - is an
+    // explanation, not a short bin readout: it leaves the chart (the chart-level placement), never
+    // beside the pointer over the rows it explains (measured at 29% of the plot there).
+    tooltip: { formatter: (p) => featureTip(rows[p.dataIndex], model) },
   });
 
   for (const frame of model.frames) {

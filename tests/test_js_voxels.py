@@ -17,6 +17,7 @@ tests here hold the result to the contracts and to CLAUDE.md section 2:
   decode to shower, primary and below-floor bits, layer runs sum to n;
 * the box is 1:1:1 in millimetres from the physical spans, the camera
   orthographic, every cube flat-shaded, every spacer invisible and silent;
+  the opening zoom widens on a narrow card so no axis title leaves the canvas;
 * the species palette clears 3:1 against the card (screen) and white (print)
   and keeps every pair apart under simulated deuteranopia and protanopia;
 * the drawers quote the recorded exception, the disclosures and the five energy
@@ -83,7 +84,8 @@ class ClassList {
 class El {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
-    this.children = []; this.dataset = {}; this.attributes = {}; this.style = {}; this.hidden = false;
+    this.children = []; this.dataset = {}; this.attributes = {}; this.hidden = false;
+    this.style = { setProperty(name, value) { this[name] = String(value); } };
     this.ownText = ''; this.listeners = {}; this.classList = new ClassList(); this.options = [];
     this.value = ''; this.disabled = false; this.canvases = []; this.id = '';
   }
@@ -244,6 +246,43 @@ out.notes.projection = vn.voxelProjectionNotes({
   title: 'v–w Projection',
 });
 
+// The ensemble box, cropped to the paired projections' window (item 9 of the integration brief).
+{
+  const projections = load('projections_single_local');
+  const window = v.pairedWindow(projections);
+  const base = v.decodeEnsembleVoxels(load('voxels_single_local'));
+  const narrow = { ...window, y: [-200, 200] };
+  const crops = { paired: v.cropToWindow(base, window), narrow: v.cropToWindow(base, narrow), none: v.cropToWindow(base, null) };
+  out.crop = { window, extent: base.extent, n: base.n,
+    axes: Object.fromEntries(['xy', 'yz', 'xz'].map((id) => [id, projections.panels[id].axes])) };
+  for (const [name, model] of Object.entries(crops)) {
+    const built = v.voxelOption(model, { palette: 'viridis' });
+    const drawnIdx = built.roles.filter((r) => r.role === 'cube').flatMap((r) => r.members);
+    out.crop[name] = {
+      nOutside: model.crop.nOutside, share: model.crop.shareOutside, cropped: built.cropped, drawn: built.drawn,
+      skipped: built.skipped, bounds: built.bounds, box: model.box,
+      drawnY: drawnIdx.map((i) => model.y[i]),
+      lines: vn.cropLines(model.crop, { x: 'u', y: 'v', z: 'w' }, 'density'),
+    };
+  }
+}
+
+// The event pair's projections: the inspector's notes, with its window shared by three panels, not nine.
+out.notes.eventProjection = vn.voxelProjectionNotes({ pair: 'event', payload: raster(4), panelId: 'xz', frameKind: 'local' });
+out.notes.inspector = (await imp('panel_notes.js')).eventNotes({ payload: raster(4), kind: 'local', panelId: 'xz' });
+// The 3-D event ramp's unit, written by scale.js like every 2-D ramp's.
+out.units = { volume: scale.unitSuffix('GeV/mm^3'), areal: scale.unitSuffix('GeV/mm^2'), lab: scale.unitSuffix('GeV') };
+// One owner of the cells' options: what the Physics page imports is event_cells.js's.
+{
+  const cells = await imp('event_cells.js');
+  const inspector = await imp('event_inspector.js');
+  out.cellsOwner = {
+    options: inspector.cellOptions === cells.eventCellOptions,
+    title: inspector.cellTitle === cells.eventCellTitle,
+    axes: inspector.PANEL_AXES === cells.EVENT_PANEL_AXES,
+  };
+}
+
 /* ---- the section's pure helpers ------------------------------------------ */
 const experiments = load('experiments').experiments;
 for (const exp of experiments) {
@@ -364,9 +403,18 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
       sparse: rec.sparse ? (rec.sparse.hidden ? null : rec.sparse.textContent) : undefined,
       options: rec.controls.channel ? rec.controls.channel.options.map((o) => [o.value, o.disabled, o.title]) : null,
       showersHidden: rec.controls.showers ? rec.controls.showers.hidden : null,
+      // The species legend: laid out by models.css, each swatch carrying only its colour.
+      legend: rec.legend && !rec.legend.hidden ? rec.legend.all().filter((n) => n.tagName === 'LI').map((li) => {
+        const swatch = li.all().find((n) => n.classList.contains('voxel-swatch'));
+        const styled = li.all().filter((n) => Object.keys(n.style).some((k) => k !== 'setProperty' && k !== '--swatch'));
+        return { swatch: swatch ? swatch.style['--swatch'] : null, inlineStyled: styled.length };
+      }) : null,
     };
   }
-  const result = { requests, cards, rendered, errors, refreshError, renders, charts: charts.length,
+  const ensembleNotes = section.notes('vox-ensemble');
+  const cropDisclosed = (ensembleNotes?.sections ?? []).find((x) => x.heading === 'Disclosures')?.lines
+    .filter((l) => /paired projections|accumulation grid spans/.test(l)) ?? [];
+  const result = { requests, cards, rendered, errors, refreshError, renders, charts: charts.length, cropDisclosed,
     glOptions: charts.map((c) => c.options.length), foreign: section.exportTarget('xy'), has: section.has('vox-event') };
   // A lost WebGL context says so; a restored one rebuilds the chart from the payload in hand.
   const gl = section.cards.get('vox-event');
@@ -381,10 +429,37 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
     result.restored = { message: gl.message.hidden ? null : gl.message.textContent, charts: charts.length,
       disposed: charts.filter((c) => c.disposed).length };
   }
+  // A narrower card refits the opening zoom, and nothing else; a blank card is never refitted.
+  if (gl.chart) {
+    const before = gl.chart.options.length;
+    Object.defineProperty(gl.plot, 'clientWidth', { value: 588, configurable: true });
+    Object.defineProperty(gl.plot, 'clientHeight', { value: 560, configurable: true });
+    section.resizeChart(gl);
+    const calls = gl.chart.options.slice(before).map(([option, flags]) => [option, flags ?? null]);
+    section.resizeChart(gl);
+    const again = gl.chart.options.length - before - calls.length;
+    section.blank(gl);
+    const blanked = gl.chart.options.length;
+    Object.defineProperty(gl.plot, 'clientWidth', { value: 500, configurable: true });
+    section.resizeChart(gl);
+    result.refit = { calls, again, afterBlank: gl.chart.options.length - blanked };
+  }
   section.reset();
   result.afterReset = { cleared: charts.map((c) => (c.disposed ? null : c.cleared)), notes: section.notes('vox-event') };
   result.warnings = section.warnings();
   return result;
+}
+
+/* The opening zoom against the card's width. */
+{
+  const model = v.decodeEventVoxels(load('event_voxels_base_lab'));
+  const grid = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 } }).option.grid3D;
+  out.fit = {
+    camera: v.CAMERA.orthographicSize, aspect: v.FIT_ASPECT, right: v.LEGEND_RIGHT,
+    wide: v.orthographicFit(1244, 561, 60), narrow: v.orthographicFit(588, 560, 60),
+    noLegend: v.orthographicFit(588, 560, 0), zero: v.orthographicFit(0, 560, 60), none: v.orthographicFit(undefined, undefined, 60),
+    option: { size: grid.viewControl.orthographicSize, right: grid.right },
+  };
 }
 
 out.section.base = await runSection({ table: 'experiment_baseline' });
@@ -929,6 +1004,95 @@ def test_the_ensemble_drawer_states_the_five_energy_fractions_and_no_axis(out, n
     _no_hyphen_numbers(_note_lines(notes))
 
 
+def test_the_ensemble_box_is_the_paired_projections_window(out):
+    """The box takes, per axis, the widest of the 2-D panels that window it; the grid extent goes to the drawer."""
+    c = out["crop"]
+    axes = c["axes"]
+    for name, side in (("x", "col"), ("y", "row")):
+        assert axes["xy"][side]["lo"] == -axes["xy"][side]["hi"], "a co-registered window is symmetric"
+    widest = lambda name: [min(a[s]["lo"] for a in axes.values() for s in ("col", "row") if a[s]["name"] == name),
+                           max(a[s]["hi"] for a in axes.values() for s in ("col", "row") if a[s]["name"] == name)]
+    assert c["window"] == {"x": widest("x"), "y": widest("y"), "z": widest("z")}
+    assert c["window"]["y"] != c["extent"]["y"], "the recorded grid is wider than the window on v"
+    paired = c["paired"]
+    for axis in ("x", "y", "z"):
+        half = paired["box"][axis] / 2
+        assert paired["bounds"]["lo"][axis] >= c["window"][axis][0] - half - 1e-9
+        assert paired["bounds"]["hi"][axis] <= c["window"][axis][1] + half + 1e-9
+    assert any("cropped to the paired projections' window: u −940 to 940 mm, v −840 to 840 mm" in line
+               for line in paired["lines"])
+    assert any(line.startswith("The accumulation grid spans u −940 to 940 mm, v −1300 to 1300 mm") for line in paired["lines"])
+
+
+def test_cubes_outside_the_window_are_counted_with_their_share_never_dropped_silently(out):
+    narrow = out["crop"]["narrow"]
+    assert narrow["nOutside"] > 0 and narrow["cropped"] == narrow["nOutside"]
+    assert 0 < narrow["share"] < 1
+    assert all(-200 <= y <= 200 for y in narrow["drawnY"]), "a cube belongs where its centre is"
+    assert narrow["skipped"] <= out["crop"]["paired"]["skipped"], "a cropped cube is never counted as a taper skip"
+    line = next(l for l in narrow["lines"] if "outside that window" in l)
+    assert line.startswith(f"{narrow['nOutside']} voxels above the floor lie outside that window")
+    assert "of the shipped cloud's summed density" in line and "%" in line
+    none = out["crop"]["none"]
+    assert none["nOutside"] == 0 and none["cropped"] == 0
+    assert none["lines"][0].startswith("The paired projections did not load, so the box is the whole accumulation grid")
+    single = out["section"]["single"]["cropDisclosed"]
+    assert any("cropped to the paired projections' window" in l for l in single), single
+    assert any(l.startswith("The accumulation grid spans") for l in single)
+
+
+def test_the_cards_own_count_leaves_out_the_cropped_voxels(out):
+    """The note under the 3-D cloud counts what it draws: the shipped voxels less those outside the window."""
+    single = out["section"]["single"]["cards"]["vox-ensemble"]["sparse"]
+    budget = _load("voxels_single_local")["budget"]
+    numbers = [int(re.sub(r"\D", "", n)) for n in re.findall(r"([\d,\u2009\u202f]+) of ([\d,\u2009\u202f]+) populated", single)[0]]
+    assert numbers == [budget["n_drawn"], budget["n_populated"]], single
+    assert "outside the projections' window" not in single
+    # The fake server pairs the baseline's Local cloud with its absolute-frame projections, so the
+    # window (lab depth, from the front face) leaves cubes out: the count drops and says why.
+    base = out["section"]["base"]["cards"]["vox-ensemble"]["sparse"]
+    shipped = _load("voxels_base_local")["budget"]
+    match = re.search(r"([\d,\u2009\u202f]+) of ([\d,\u2009\u202f]+) populated voxels drawn", base)
+    count = lambda text: int(re.sub(r"\D", "", text))
+    assert match and count(match.group(2)) == shipped["n_populated"], base
+    assert count(match.group(1)) < shipped["n_drawn"], base
+    assert "outside the projections' window hold" in base and "counted and not drawn" in base
+
+
+def test_the_event_pair_states_its_window_for_three_projections_by_option(out):
+    """panel_notes.eventNotes takes the panels that share the window; no text is rewritten afterwards."""
+    def drawn(notes):
+        return " ".join(next(s for s in notes["sections"] if s["heading"] == "What is drawn")["lines"])
+
+    assert "on every axis of all three projections" in drawn(out["notes"]["eventProjection"])
+    assert "on every axis of all nine panels" in drawn(out["notes"]["inspector"])
+    source = (JS / "voxel_notes.js").read_text(encoding="utf-8")
+    assert "windowScope: 'all three projections'" in source and ".replace('of all nine panels'" not in source
+
+
+def test_the_volumetric_unit_is_written_by_scale_js(out):
+    assert out["units"] == {"volume": "GeV/mm³", "areal": "GeV/mm²", "lab": "GeV"}
+    source = (JS / "voxels.js").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    code = "\n".join(line.split("//")[0] for line in code.splitlines())
+    assert "'GeV/mm³'" not in code, "no hand-written unit string in the voxel cards"
+    assert "unitSuffix(" in code
+
+
+def test_the_cells_options_have_one_owner(out):
+    """event_inspector.js and main.js import the shared helpers from event_cells.js (one owner)."""
+    assert out["cellsOwner"] == {"options": True, "title": True, "axes": True}
+    cells = (JS / "event_cells.js").read_text(encoding="utf-8")
+    assert re.findall(r"^import .* from '([^']+)';", cells, flags=re.M) == ["./scale.js"]
+    inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
+    assert "from './event_cells.js'" in inspector and "function cellOptions" not in inspector
+    assert "function cellTitle" not in inspector
+    main = (JS / "main.js").read_text(encoding="utf-8")
+    assert "import { depthIsometric, ensembleCellOptions } from './event_cells.js';" in main
+    assert "function depthIsometric" not in main
+    assert "return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'));" in main
+
+
 def test_a_projection_drawer_keeps_the_panels_notes_and_adds_the_pairing(out):
     notes = out["notes"]["projection"]
     assert notes["title"] == "v–w Projection"
@@ -1036,6 +1200,22 @@ def test_at_most_two_webgl_charts_and_a_lost_context_says_so(out):
     assert base["afterReset"]["notes"] is None
 
 
+def test_the_opening_zoom_keeps_the_axis_titles_inside_a_narrow_card(out):
+    fit = out["fit"]
+    assert fit["camera"] == 160 and fit["right"] == 60
+    # Wide enough, or no size known: the camera's own size.
+    assert fit["wide"] == 160 and fit["zero"] == 160 and fit["none"] == 160
+    # Narrower than FIT_ASPECT: widened in proportion, the legend's strip excluded.
+    assert fit["narrow"] == pytest.approx(160 * fit["aspect"] * 560 / (588 - 60), abs=0.05)
+    assert fit["noLegend"] == pytest.approx(160 * fit["aspect"] * 560 / 588, abs=0.05)
+    assert fit["narrow"] > fit["noLegend"] > 160
+    assert fit["option"] == {"size": fit["narrow"], "right": 60}
+    # The section refits the zoom alone when the card's width changes, once, and never on a blank card.
+    refit = out["section"]["base"]["refit"]
+    assert refit["calls"] == [[{"grid3D": {"viewControl": {"orthographicSize": fit["narrow"]}}}, None]]
+    assert refit["again"] == 0 and refit["afterBlank"] == 0
+
+
 def test_without_webgl_the_3d_cards_say_so_and_the_projections_still_load(out):
     no_gl = out["section"]["noGl"]
     assert no_gl["charts"] == 0
@@ -1072,6 +1252,21 @@ def test_a_single_shower_offers_its_own_channels_and_no_shower_toggle(out):
     assert channels == {"density"}
     species = next(q for path, q in single["requests"] if path == "/api/event" and q.get("format") == "voxels")
     assert species["channel"] == "species" and species["event_number"] == "3"
+
+
+def test_the_species_legend_carries_only_its_colours_inline(out):
+    """The legend's layout is models.css's (.voxel-species); a row sets only its swatch's --swatch."""
+    legend = out["section"]["single"]["cards"]["vox-event"]["legend"]
+    payload = _load("event_voxels_single_species")
+    assert legend and len(legend) == len(payload["voxels"]["species"]["legend"])
+    for row in legend:
+        assert row["swatch"] and row["swatch"].startswith("rgb(") and row["inlineStyled"] == 0, row
+    css = (JS.parent / "css" / "models.css").read_text(encoding="utf-8")
+    for selector in (".voxel-species {", ".voxel-species li", ".voxel-species label", ".voxel-swatch {",
+                     "var(--swatch", ".mini-select[data-voxel-event]", ".voxel-3d { grid-row: span 3; align-self: start; }"):
+        assert selector in css, selector
+    views = (JS / "voxel_views.js").read_text(encoding="utf-8")
+    assert "cssText" not in views and "style.width" not in views
 
 
 def test_an_events_only_experiment_shows_no_3d_views_and_asks_for_nothing(out):

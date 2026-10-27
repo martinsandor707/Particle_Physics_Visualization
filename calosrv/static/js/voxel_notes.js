@@ -215,13 +215,52 @@ function camBudgetSentence(cam) {
     + `${formatSci(cam.beyond_cap, 4)} beyond the cap, ${formatSci(cam.outside_grid, 4)} outside the grid.`;
 }
 
+/** An axis range in mm, "−940 to 940 mm", with the frame's symbol. */
+function rangeText(symbol, range) {
+  if (!Array.isArray(range) || !range.every(Number.isFinite)) return `${symbol} —`;
+  const fmt = (v) => typographic(Number.isInteger(v) ? String(v) : Number(v).toFixed(2).replace(/\.?0+$/, ''));
+  return `${symbol} ${fmt(range[0])} to ${fmt(range[1])} mm`;
+}
+
+/**
+ * The crop of the ensemble box (voxels.js `cropToWindow`), as disclosures:
+ * the window it took from the paired projections, the full accumulation-grid
+ * extent, and the cubes it leaves out with their share. Empty without a crop
+ * record (a bare test of the notes).
+ */
+export function cropLines(crop, symbols = {}, channel = 'density') {
+  if (!crop) return [];
+  const axes = ['x', 'y', 'z'];
+  const sym = (a) => symbols[a] ?? a;
+  const extent = crop.extent
+    ? `The accumulation grid spans ${axes.map((a) => rangeText(sym(a), crop.extent[a])).join(', ')}.` : '';
+  if (!crop.window) {
+    return ['The paired projections did not load, so the box is the whole accumulation grid, not their window.', extent];
+  }
+  const quantity = { density: 'summed density ρ (its energy, the voxels being of one volume)',
+    gradcam_energy: 'summed Σ E·Grad-CAM', shapcam_energy: 'summed |Σ E·Shap-CAM|' }[channel] ?? 'summed value';
+  return [
+    `The box is cropped to the paired projections' window: ${axes.map((a) => rangeText(sym(a), crop.window[a])).join(', ')} - `
+      + 'on each axis the widest of the 2-D panels that show it, each symmetric about the origin on the transverse axes at '
+      + 'the energy-weighted 0.1st-99.9th percentile (the recorded window of the co-registered frames), so the cloud and '
+      + 'its projections show one region.',
+    extent,
+    crop.nOutside > 0
+      ? `${plural(crop.nOutside, 'voxel')} above the floor ${crop.nOutside === 1 ? 'lies' : 'lie'} outside that window and `
+        + `${crop.nOutside === 1 ? 'is' : 'are'} not drawn: ${formatPercent(crop.shareOutside, 2)} of the shipped cloud's ${quantity}, `
+        + 'read back from the colour codes; counted, never dropped silently.'
+      : 'Every voxel above the floor lies inside that window.',
+  ];
+}
+
 /**
  * The notes of the 3-D ensemble card: the `/api/voxels` response, the option
- * builder's summary `drawn`, the frame and channel fallbacks, and `gl` as for
- * the event card.
+ * builder's summary `drawn`, the frame and channel fallbacks, `gl` as for the
+ * event card, and `crop` the box's crop to the paired projections' window
+ * (voxels.js `cropToWindow`).
  */
 export function voxelEnsembleNotes({
-  payload, drawn = null, fallbacks = [], gl = null, state = null, experiment = null, title = null,
+  payload, drawn = null, fallbacks = [], gl = null, state = null, experiment = null, title = null, crop = null,
 }) {
   if (!payload?.voxels || !payload.grid) return null;
   const notes = new Notes(title ?? VOXEL_TITLES['vox-ensemble']);
@@ -269,6 +308,7 @@ export function voxelEnsembleNotes({
       + `${formatInt(payload.budget.cap)}, ranked by energy, and are counted, not drawn.`);
   }
   disclosures.push(grid.partial_edge?.note ?? '');
+  disclosures.push(...cropLines(crop, frame.symbols ?? {}, meta.channel));
   disclosures.push(frame.comb_source ?? '');
   if (frame.comb?.note) disclosures.push(frame.comb.note);
   if (frame.coordinate_check?.note) disclosures.push(frame.coordinate_check.note);
@@ -336,16 +376,10 @@ export function voxelProjectionNotes({
   if (!payload) return null;
   let notes = null;
   if (pair === 'event') {
-    notes = eventNotes({ payload, kind: frameKind, panelId, view, state, experiment });
-    if (notes) {
-      // The inspector states its window for its nine panels; this pair has three.
-      notes = {
-        ...notes,
-        sections: notes.sections.map((s) => ({
-          ...s, lines: s.lines.map((line) => line.replace('of all nine panels', 'of all three projections')),
-        })),
-      };
-    }
+    // The inspector's window is shared by its nine panels; this pair has three.
+    notes = eventNotes({
+      payload, kind: frameKind, panelId, view, state, experiment, windowScope: 'all three projections',
+    });
   } else {
     notes = projectionNotes({ payload, panelId, isometric, view, state, experiment });
   }

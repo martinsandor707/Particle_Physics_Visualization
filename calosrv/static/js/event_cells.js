@@ -1,23 +1,20 @@
-/* The 2-D cells beside the 3-D views: what each paired ProjectionPanel
- * renders with, so the 3-D cards' recorded exception holds - every 3-D view
- * stands beside three 2-D projections that carry its cells quantitatively.
+/* The options of the 2-D spatial cells, on both pages: what each
+ * ProjectionPanel of an event raster or of a projections response renders
+ * with. This module is their one owner.
  *
  * The event cells draw the Event Inspector's rasters: one shower of one event
  * in one frame, the frame's equal half-width window for the panel's two axes,
- * the frame's marks in the shower's colour, framed and isometric. The
- * Physics page's Event Inspector builds the same options (event_inspector.js
- * `cellOptions`, `cellTitle`), but that module drives the Physics page's own
- * picker and may not be loaded here; the pure options are restated from the
- * payload's fields instead, and the inspector may import them from here.
+ * the frame's marks in the shower's colour, framed and isometric. The Physics
+ * page's Event Inspector (event_inspector.js, as `cellOptions` and
+ * `cellTitle`) and the Models page's 3-D event view draw them alike.
  *
- * The ensemble cells are the Physics page's spatial panels: one
- * `/api/projections` response in the cloud's frame. Their options are
- * `main.js`'s `panelOptions`, and the depth panels' aspect its
- * `depthIsometric`; both are private to the Physics page's entry module,
- * which cannot be imported (it builds the page at load), so they are
- * restated here, line for line, for the two co-registered frames the cloud
- * is drawn in. The entry module may import them from here instead, and then
- * this file is their one owner.
+ * The ensemble cells are the spatial panels of one `/api/projections`
+ * response: the Physics page's 2 x 2 diagnostic and compare-frames grid
+ * (main.js `panelOptions`), and the Models page's projections beside the 3-D
+ * cloud. `depthIsometric` decides the depth panels' aspect for both.
+ *
+ * Both pages import it, so it imports nothing either page owns: the Models
+ * page's module graph may hold no Physics page module (tests/test_api.py).
  */
 
 import { THEME } from './scale.js';
@@ -92,9 +89,9 @@ export function depthIsometric(panel, panelPayload) {
  * ensemble axes and depth bounds, the sanctioned exception of CLAUDE.md
  * section 2; the Local frame draws no direction, since every incident
  * direction is +w by construction. `weighting` is the one the response was
- * served with.
+ * served with, else `weighting` (the page's own choice).
  */
-export function ensembleCellOptions(payload, id, palette) {
+export function ensembleCellOptions(payload, id, palette, weighting = 'energy') {
   const overlays = payload?.overlays || {};
   const kind = kindOf(payload);
   const canonical = kind === 'canonical';
@@ -105,7 +102,7 @@ export function ensembleCellOptions(payload, id, palette) {
     frame,
     tableName: payload?.meta?.table_name,
     resolution: payload?.meta?.resolution ?? null,
-    weighting: payload?.meta?.weighting ?? 'energy',
+    weighting: payload?.meta?.weighting ?? weighting,
   };
   const anchors = canonical ? (overlays.anchors || null) : null;
   if (id === 'xy') {

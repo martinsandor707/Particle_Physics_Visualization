@@ -26,7 +26,10 @@ import { formatInt, formatPercent } from './scale.js';
 import { sigFigs } from './panels/chart_panel.js';
 import { cvModel, cvAxis, metricText, FOLD_NAME, MEAN_NAME } from './panels/xgb_cv.js';
 import { binaryModel, classKey, otherIntervalName } from './panels/xgb_binary.js';
-import { treeModel, ruleText, FRAME_WORDS, fidelityText, treePalette } from './panels/xgb_tree.js';
+import {
+  treeModel, ruleText, FRAME_WORDS, treePalette, circularOf, outputFidelityText, fidelityR2Text,
+  LOW_FIDELITY_R2,
+} from './panels/xgb_tree.js';
 import { importanceModel, FRAME_LABELS, TOP_N, FOLD_NAME as IMP_FOLD_NAME } from './panels/xgb_importance.js';
 
 /** The drawer titles by card id; the shell's card title wins when it passes one. */
@@ -47,8 +50,8 @@ export const XGB_HEADINGS = Object.freeze({
   circular: 'Circular quantities',
 });
 
-/** Below this fidelity R² the surrogate is flagged as a sketch of the booster. */
-export const LOW_FIDELITY_R2 = 0.5;
+/** Below this fidelity R² an output of the surrogate is flagged (xgb_tree.js, judged per output). */
+export { LOW_FIDELITY_R2 };
 
 const pc = (v, d = 1) => formatPercent(v, d);
 
@@ -135,9 +138,15 @@ export function xgbHazards(payload, card, opts = {}) {
     if (payload.design?.fallback) out.push('fallback class rule');
     if ((payload.rates ?? []).some((r) => !Number.isFinite(r.value))) out.push('undefined rate');
   } else if (card === 'xgb-surrogate') {
+    // Judged per output, never on sklearn's average over the outputs (Martin, 2026-10-27).
     const model = treeModel(payload, opts);
-    if (model && Number.isFinite(model.fidelity.r2) && model.fidelity.r2 < LOW_FIDELITY_R2) out.push('low surrogate fidelity');
-    if (model?.label === 'phi') out.push('linear mean of an azimuth');
+    const low = model?.fidelity.outputs.filter((o) => o.low) ?? [];
+    if (low.length) {
+      out.push(model.fidelity.outputs.length > 1
+        ? `low surrogate fidelity (${low.map((o) => o.symbol).join(', ')})` : 'low surrogate fidelity');
+    }
+    // A φ box prints its circular mean; an older payload without one prints the linear mean.
+    if (model?.label === 'phi' && !model.nodes.some((n) => circularOf(n, 'phi'))) out.push('linear mean of an azimuth');
   } else if (card === 'xgb-importance') {
     if ((payload.features ?? []).some((f) => f.clipped)) out.push('interval clipped');
   }
@@ -224,7 +233,8 @@ export function xgbCvNotes({ payload, experiment = null, title = null } = {}) {
         const s = slot.summary ?? {};
         const u = (v) => metricText(v, panel.metric, panel.unit);
         const spread = (v) => `${sigFigs(v, 3)}${panel.unit ? ` ${panel.unit}` : ''}`;
-        summaries.push(`${panel.title}, ${slot.long}: mean ${u(s.mean)}, interval [${u(s.t95?.[0])}, ${u(s.t95?.[1])}], SD ${spread(s.sd)}, SE ${spread(s.se)}.`);
+        const se = payload.interval?.method === 'corrected_resampled_t' ? 'corrected SE' : 'SE';
+        summaries.push(`${panel.title}, ${slot.long}: mean ${u(s.mean)}, interval [${u(s.t95?.[0])}, ${u(s.t95?.[1])}], SD ${spread(s.sd)}, ${se} ${spread(s.se)}.`);
       }
     }
   }
@@ -267,7 +277,6 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
   if (Number.isFinite(d.n_0_target) && counts.class_0 < d.n_0_target) disclosures.push(`Class 0 holds ${formatInt(counts.class_0)} rows, short of the ${formatInt(d.n_0_target)} asked for: its pool had no more.`);
   if (Number.isFinite(d.n_1_target) && counts.class_1 < d.n_1_target) disclosures.push(`Class 1 holds ${formatInt(counts.class_1)} rows, short of the ${formatInt(d.n_1_target)} asked for: its pool had no more.`);
   for (const r of model.rates.filter((x) => x.undefined)) disclosures.push(`${r.label} is undefined: its denominator is empty; no point is drawn.`);
-  for (const r of model.rates.filter((x) => x.nUndefinedReplicates)) disclosures.push(`${r.label}: ${formatInt(r.nUndefinedReplicates)} bootstrap replicates were undefined and dropped.`);
   for (const r of model.rates.filter((x) => x.note)) disclosures.push(`${r.label}: ${r.note}`);
   disclosures.push(payload.notes?.weighted ?? 'The notebook\'s support-weighted metrics are dominated by the majority class; they are kept for parity only.');
   disclosures.push(...splitLines(payload));
@@ -300,9 +309,13 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
 function nodeLine(model, node) {
   const outputs = model.labels.map((l) => {
     const unit = model.units?.[l] ? ` ${model.units[l]}` : '';
-    const circ = node.circular?.[l];
-    const r = Number.isFinite(circ?.resultant) ? `, R̄ ${sigFigs(circ.resultant, 3)}` : '';
-    return `${l} ${sigFigs(node.values?.[l], 4)} ± ${sigFigs(node.sds?.[l], 4)}${unit}${r}`;
+    const linear = `${sigFigs(node.values?.[l], 4)} ± ${sigFigs(node.sds?.[l], 4)}${unit}`;
+    const c = l === 'phi' ? circularOf(node, l) : null;
+    if (!c) return `${l} ${linear}`;
+    const stat = `R̄ ${sigFigs(c.resultant, 3)}, Rayleigh p ${sigFigs(c.p, 2)}`;
+    return c.directed
+      ? `${l} circular mean ${sigFigs(c.mean, 4)} ± ${sigFigs(c.sd, 3)}${unit} (circular SD), ${stat}; linear mean (parity) ${linear}`
+      : `${l} no common direction (${stat}); linear mean (parity) ${linear}`;
   }).join('; ');
   const head = node.leaf ? `Leaf ${node.id}` : `Node ${node.id}: ${ruleText(node)} (${FRAME_WORDS[node.frame] ?? 'no frame'})`;
   const via = node.path.length ? ` [${node.path.map((p) => `${p.text} ${p.branch}`).join(' → ')}]` : '';
@@ -328,24 +341,36 @@ export function xgbTreeNotes({ payload, experiment = null, title = null, label =
   notes.section(SECTION.drawn, [
     `${formatInt(model.nodes.length)} nodes, ${payload.rule ?? 'left: feature ≤ threshold; right: feature > threshold'}. `
       + 'Top-down when every box fits the card, else an indented outline in depth-first order.',
-    'Each split names its feature, the feature\'s frame, its threshold and the rows that reach it; every node prints the mean of the booster\'s predictions over its rows ± their within-node SD.',
+    'Each split names its feature, the feature\'s frame, its threshold and the rows that reach it; every node prints the mean of the booster\'s predictions over its rows ± their within-node SD'
+      + (model.label === 'phi' ? ' (for φ, the circular statistics below).' : '.'),
     model.labels.length > 1 ? `The boxes print the ${model.label === 'phi' ? 'azimuth φ' : 'polar angle θ'}; the other output is in each tooltip and in the node list below.` : '',
     model.coloured
       ? `Colour: the node mean on ${treePalette(palette)}, positions ${sigFigs(ramp.from, 2)} to ${sigFigs(ramp.to, 2)} of the ramp (the run that clears 3:1 against the card), `
         + `over ${sigFigs(model.domain[0], 3)} to ${sigFigs(model.domain[1], 3)}${model.unit ? ` ${model.unit}` : ''}; leaves filled, splits outlined.`
-      : 'Not coloured: this output\'s node values are linear means of an azimuth, which a sequential ramp would order as if they did not wrap.',
+      : `Not coloured: ${model.info?.[model.label]?.reason?.replace(/^not coloured:\s*/i, '')
+        ?? 'an azimuth wraps, and a sequential ramp would order its values as if it did not'}.`.replace(/\.\.$/, '.'),
+    model.label === 'phi' && model.nodes.some((n) => circularOf(n, 'phi'))
+      ? 'Each φ box prints the circular mean of the booster\'s predicted azimuths over its rows ± the circular SD √(−2 ln R̄), '
+        + 'with the mean resultant length R̄; where the Rayleigh test p = exp(−n R̄²) exceeds 0.05 the rows share no direction '
+        + 'and the box says so instead of printing a mean.' : '',
     payload.notes?.description ?? '',
   ]);
-  const disclosures = [`${fidelityText(model)}. ${payload.notes?.fidelity ?? ''}`];
   const fid = model.fidelity;
-  if (Number.isFinite(fid.r2) && fid.r2 < LOW_FIDELITY_R2) {
-    disclosures.push(`The fidelity R² is below ${LOW_FIDELITY_R2}: these three levels of rules describe less than half of the booster's variance; read them as a sketch, not as the model.`);
+  const many = fid.outputs.length > 1;
+  const disclosures = [
+    `Fidelity to the booster${many ? ', per output' : ''}: ${fid.outputs.map((o) => outputFidelityText(o, { symbol: many })).join('; ')}; `
+      + `in-sample on ${formatInt(model.nRows)} rows${fid.against ? ` (${fid.against})` : ''}.`,
+    payload.notes?.fidelity ?? '',
+    `The "low surrogate fidelity" warning is raised for each output whose own R² is below ${LOW_FIDELITY_R2}`
+      + (many ? `; sklearn's average over the outputs (R² ${fidelityR2Text(fid.average)}) is never judged, since it can hide an output the tree does not describe.` : '.'),
+  ];
+  for (const o of fid.outputs.filter((x) => x.low)) {
+    disclosures.push(`${many ? `${o.symbol}: ` : ''}R² ${fidelityR2Text(o.r2, o.mae)} is below ${LOW_FIDELITY_R2}: these three levels of rules describe `
+      + `less than half of the booster's variance${many ? ` of ${o.symbol}` : ''}; read them as a sketch, not as the model.`);
   }
-  const outputs = Object.entries(fid.overall?.outputs ?? {});
-  if (outputs.length > 1) disclosures.push(`Per output: ${outputs.map(([l, o]) => `${l} R² ${sigFigs(o.r2, 3)}, MAE ${sigFigs(o.mae, 3)}`).join('; ')}.`);
   disclosures.push(payload.notes?.impurity ?? '');
   disclosures.push(...splitLines(payload));
-  disclosures.push(...noteLines(payload.notes, ['description', 'fidelity', 'impurity']));
+  disclosures.push(...noteLines(payload.notes, ['description', 'fidelity', 'impurity', 'circular']));
   disclosures.push(...metaDisclosures(payload));
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
@@ -355,11 +380,17 @@ export function xgbTreeNotes({ payload, experiment = null, title = null, label =
     'Branches: ≤ to the left (the rule holds), > to the right. Each tooltip gives the node\'s path from the root and every output.',
   ]);
   if (model.labels.includes('phi')) {
+    const circular = model.nodes.some((n) => circularOf(n, 'phi'));
     notes.section(XGB_HEADINGS.circular, [
-      'φ node values are sklearn\'s linear means of the booster\'s predicted azimuths, kept for notebook parity: a linear mean of an azimuth is not a mean direction (CLAUDE.md: never average a circular quantity).',
-      model.nodes.some((n) => Number.isFinite(n.circular?.phi?.resultant))
-        ? 'Each node\'s mean resultant length R̄ of the predicted φ is printed beside it: near 1 the predictions point one way, near 0 they share no direction.'
-        : 'This response carries no circular statistic per node.',
+      payload.notes?.circular ?? '',
+      circular
+        ? 'On the card a φ box prints the circular mean ± circular SD and R̄ (near 1 the predictions point one way, near 0 they '
+          + 'share no direction), or "no common direction" where the Rayleigh p exceeds 0.05. sklearn\'s linear mean, which the '
+          + 'notebook printed, is in each tooltip and in the node list below, named as parity: a linear mean of an azimuth is not '
+          + 'a direction (CLAUDE.md: never average a circular quantity).'
+        : 'φ node values are sklearn\'s linear means of the booster\'s predicted azimuths, kept for notebook parity: a linear '
+          + 'mean of an azimuth is not a mean direction (CLAUDE.md: never average a circular quantity). This response carries '
+          + 'no circular statistic per node.',
     ]);
   }
   notes.section(XGB_HEADINGS.nodes, model.nodes.map((n) => nodeLine(model, n)));
@@ -383,7 +414,8 @@ export function xgbImportanceNotes({ payload, experiment = null, title = null } 
   }
   const m = payload.measure ?? {};
   notes.section(SECTION.drawn, [
-    `One row per feature that carries any gain, in the shipped model or in a refit, sorted by the shipped model, at most ${TOP_N}: ${formatInt(model.shown.length)} drawn.`,
+    `One row per feature that carries any gain, in the shipped model or in a refit, sorted by the shipped model, at most ${TOP_N}: `
+      + `${formatInt(model.shown.length)} drawn of ${formatInt(model.n)}; the rest are counted at the foot of the plot.`,
     `Bar, from zero: ${m.shipped ?? 'the shipped booster\'s normalised gain'}, in percent.`,
     `Dots: ${m.folds ?? 'the five refits\' normalised gain'}; bracket: their mean with its ${payload.interval?.label ?? '95% interval'}.`,
     `Colour is the feature's frame (ColorBrewer qualitative hues, each ≥ 3:1 against the card): ${model.frames.map((k) => FRAME_LABELS[k]).join(', ')}.`,
@@ -397,7 +429,11 @@ export function xgbImportanceNotes({ payload, experiment = null, title = null } 
     disclosures.push(`Never split on (0 in the shipped model and every refit), not drawn: ${model.unused.map((f) => f.name).join(', ')}.`);
   }
   const clipped = (payload.features ?? []).filter((f) => f.clipped);
-  if (clipped.length) disclosures.push(`Interval clipped ${payload.interval?.clip ?? 'to [0, 1]'}: ${clipped.map((f) => f.name).join(', ')}.`);
+  if (clipped.length) {
+    const clip = String(payload.interval?.clip ?? 'clipped to [0, 1], the range of a share').split(';')[0].replace(/^clipped\s*/, '');
+    disclosures.push(`${formatInt(payload.n_clipped ?? clipped.length)} fold-mean interval${clipped.length === 1 ? '' : 's'} `
+      + `clipped ${clip}: ${clipped.map((f) => f.name).join(', ')}.`);
+  }
   disclosures.push(payload.notes?.gain ?? '');
   disclosures.push(`Raw scores: ${m.raw ?? 'get_score gain, weight and cover'}; in each tooltip and below.`);
   disclosures.push(...splitLines(payload));
@@ -408,11 +444,18 @@ export function xgbImportanceNotes({ payload, experiment = null, title = null } 
     'Bar: the shipped booster, one model - never the folds\' mean.',
     `${IMP_FOLD_NAME}: open rings under the bar, one per refit.`,
     `${model.envelope}: a short tick at the folds' mean inside a thin capped bracket, the uncertainty of that mean. The SD of the folds is in the tooltip; it has no mark.`,
-    'The rest of the features are counted at the foot of the plot and listed under Disclosures.',
+    `The features the plot leaves out are counted at its foot; every one of the ${formatInt(model.n)} model features is listed with its numbers under Features.`,
   ]);
-  notes.section(XGB_HEADINGS.features, model.shown.map((f) => `${f.rank}. ${f.name} (${FRAME_LABELS[f.frame] ?? f.frame}): shipped ${pc(f.shipped, 2)}; `
-    + `folds ${(f.folds ?? []).map((v) => pc(v, 2)).join(', ')}; mean ${pc(f.fold_mean, 2)} [${pc(f.fold_t95?.[0], 2)}, ${pc(f.fold_t95?.[1], 2)}]; `
-    + `gain ${sigFigs(f.raw?.gain, 4)}, weight ${sigFigs(f.raw?.weight, 4)}, cover ${sigFigs(f.raw?.cover, 4)}.`));
+  // Every model feature with its numbers, drawn or not (Martin, 2026-10-27: top 15 on the plot, all in the drawer).
+  const line = (f, where) => `${f.rank}. ${f.name} [${FRAME_LABELS[f.frame] ?? f.frame}${where}]: shipped ${pc(f.shipped, 2)}; `
+    + `folds ${(f.folds ?? []).map((v) => pc(v, 2)).join(', ')}; mean ${pc(f.fold_mean, 2)}, SD ${pc(f.fold_sd, 2)}, `
+    + `interval [${pc(f.fold_t95?.[0], 2)}, ${pc(f.fold_t95?.[1], 2)}]${f.clipped ? ' (clipped)' : ''}; `
+    + `gain ${sigFigs(f.raw?.gain, 4)}, weight ${sigFigs(f.raw?.weight, 4)}, cover ${sigFigs(f.raw?.cover, 4)}.`;
+  notes.section(XGB_HEADINGS.features, [
+    ...model.shown.map((f) => line(f, '')),
+    ...model.hiddenUsed.map((f) => line(f, '; not drawn, beyond the first 15 with gain')),
+    ...model.unused.map((f) => line(f, '; never split on, not drawn')),
+  ]);
   return notes.done(xgbHazards(payload, 'xgb-importance'));
 }
 

@@ -227,6 +227,12 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'windows', label: 'Momentum windows', title: 'The features notebook’s windows: (1, 2, 5, 10, 19.5) ± 0.5 GeV' },
     { value: 'label', label: 'p < 2 | p ≥ 2 GeV', title: 'The binary label: incident momentum below 2 GeV against 2 GeV and above' },
   ],
+  // Whose features the explorer draws on two-shower data: one shower at a
+  // time, never the two pooled (GET /api/features `shower`).
+  fshower: [
+    { value: 'a', label: 'A', title: 'Shower A’s features (incoming_momentum_A, …)' },
+    { value: 'b', label: 'B', title: 'Shower B’s features, classed by its own incident momentum' },
+  ],
   // The network task of the performance cards, by the API's `model` value.
   task: [
     { value: 'energy', label: 'Energy', title: 'The energy (momentum) regression: predicted against true incident momentum' },

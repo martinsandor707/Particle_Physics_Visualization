@@ -121,6 +121,11 @@ export function modelRunRows(payload) {
       .filter(Boolean);
     const seconds = [analysis.duration_s, analysis.seconds, analysis.elapsed_s, analysis.timings?.total, run.seconds]
       .find((value) => Number.isFinite(value)) ?? null;
+    // Each task's split check: {reproduced, ratio_42, max_others, seed_of_max, n_others, margin}.
+    const tasks = analysis.runs ?? run.runs;
+    const splits = (Array.isArray(tasks) ? tasks : [])
+      .filter((t) => t?.split && typeof t.split === 'object')
+      .map((t) => ({ task: t.task ?? null, ...t.split }));
     return {
       table_name: tableName,
       name: run.display_name ?? tableName ?? '—',
@@ -135,8 +140,27 @@ export function modelRunRows(payload) {
       progress: analysis.step_label ?? (Number.isFinite(analysis.step) && Number.isFinite(analysis.steps) && analysis.step
         ? `${analysis.step} of ${analysis.steps}` : null) ?? analysis.progress ?? run.progress ?? null,
       seconds,
+      splits,
     };
   });
+}
+
+/** Three significant figures of a positive ratio, as the Models page's drawers print it. */
+const ratioText = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(3))) : '—');
+
+/**
+ * The tasks whose training split the analysis could not reproduce, as one
+ * clause: seed 42's validation / training MSE against the largest of the other
+ * seeds and the margin it had to clear (xgb_notes.js `splitLines` gives the
+ * full sentence on every card). Empty when every split was reproduced.
+ */
+export function splitWarning(row) {
+  const failed = (row?.splits ?? []).filter((s) => s.reproduced === false);
+  if (!failed.length) return '';
+  return `split not reproduced (${failed.map((s) => `${s.task ?? 'model'}: validation / training MSE `
+    + `${ratioText(s.ratio_42)} at random_state 42 against at most ${ratioText(s.max_others)}`
+    + `${Number.isFinite(s.seed_of_max) ? ` at random_state ${s.seed_of_max}` : ''}${Number.isFinite(s.margin) ? `, ${ratioText(s.margin)}× required` : ''}`)
+    .join('; ')})`;
 }
 
 /** One row's status, as the table says it. */
@@ -146,6 +170,8 @@ export function runStatusText(row) {
     text += typeof row.progress === 'number' ? ` (${Math.round(row.progress * 100)}%)` : ` (${row.progress})`;
   }
   if (row.status === 'done' && Number.isFinite(row.seconds)) text += ` in ${Math.round(row.seconds)} s`;
+  // A finished analysis whose split check failed is still shown, and its cards carry the hazard.
+  if (row.status === 'done' && splitWarning(row)) text += `; ${splitWarning(row)}`;
   if (['failed', 'unpaired', 'stale', 'not_ready'].includes(row.status) && row.reason) text += `: ${row.reason}`;
   return text;
 }
@@ -681,11 +707,8 @@ export class AdminModal {
     if (!modal) return;
     const section = document.createElement('section');
     section.className = 'admin-modelruns';
+    // Spaced and ruled like the panel's other lower sections (controls.css).
     section.setAttribute('aria-label', 'XGBoost model runs');
-    // The spacing of the panel's other lower sections.
-    section.style.marginTop = '18px';
-    section.style.paddingTop = '14px';
-    section.style.borderTop = '1px solid var(--border)';
     const head = document.createElement('div');
     head.className = 'admin-head';
     const title = document.createElement('h3');
@@ -804,6 +827,7 @@ export class AdminModal {
     const status = document.createElement('td');
     status.textContent = runStatusText(row);
     if (row.status === 'failed') status.classList.add('admin-error');
+    if (splitWarning(row)) status.classList.add('admin-warning');
     const action = document.createElement('td');
     if (row.paired && row.table_name) {
       const button = document.createElement('button');

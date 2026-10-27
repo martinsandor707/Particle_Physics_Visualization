@@ -321,11 +321,13 @@ export function visualMap(scale, palette, { bottomInset = 0, seriesIndex = 0 } =
 
 /**
  * How a physical unit is written beside a ramp label: the lab's summed energy
- * in GeV, the Event Inspector's areal density in GeV per mm².
+ * in GeV, the Event Inspector's areal density in GeV per mm², the 3-D event
+ * view's volumetric density in GeV per mm³.
  */
 export function unitSuffix(unit) {
   if (unit === 'GeV/mm^2') return 'GeV/mm²';
   if (unit === 'GeV/mm^2/event') return 'GeV/mm²/event';
+  if (unit === 'GeV/mm^3') return 'GeV/mm³';
   return unit === 'GeV' || !unit ? 'GeV' : String(unit);
 }
 
