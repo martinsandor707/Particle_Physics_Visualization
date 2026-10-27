@@ -665,7 +665,7 @@ def classify(bundle: VoxelBundle, channel: str) -> Classified:
     above = populated & (magnitude >= FLOOR_RATIO)
     below = populated & ~above
     candidates = np.flatnonzero(above)
-    order = candidates[np.lexsort((candidates, -e[candidates]))]
+    order = candidates[np.lexsort((candidates, -_rank_key(e[candidates])))]
 
     total = bundle.total_energy
     partial = ~full
@@ -735,6 +735,23 @@ def _codes(classified: Classified, scale: scale_mod.ColorScale, idx: np.ndarray)
     return np.maximum(codes, MIN_DRAWN_CODE).astype(np.uint8)
 
 
+def _rank_key(values: np.ndarray) -> np.ndarray:
+    """Values rounded to 12 significant figures, for ranking only.
+
+    DuckDB's parallel float sums differ in the last bit from run to run, so two
+    voxels of equal true energy (mirror images about an axis) would otherwise
+    swap places, and with them the cap's boundary and the topk order. Rounded,
+    they tie exactly and the position breaks the tie the same way every time.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    out = np.zeros_like(v)
+    nonzero = np.isfinite(v) & (v != 0)
+    exponent = np.floor(np.log10(np.abs(v[nonzero])))
+    scale = 10.0 ** (11 - exponent)
+    out[nonzero] = np.round(v[nonzero] * scale) / scale
+    return out
+
+
 def render(bundle: VoxelBundle, channel: str, cap: int,
            classified: Classified | None = None) -> dict[str, Any]:
     """The grid, voxels, scale, rho, budget and topk blocks for ``cap`` voxels."""
@@ -772,7 +789,7 @@ def render(bundle: VoxelBundle, channel: str, cap: int,
     # Exact values for the brightest shipped voxels by the channel's magnitude.
     signed = channel == planes_mod.CHANNEL_SHAPCAM_ENERGY
     rank = np.abs(c.value[shipped]) if signed else c.value[shipped]
-    top = np.lexsort((np.arange(shipped.size), -rank))[:TOPK]
+    top = np.lexsort((np.arange(shipped.size), -_rank_key(rank)))[:TOPK]
     z_centres = bundle.z_centres
     topk = [{
         "i": int(i),

@@ -1,0 +1,547 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "view": "catalog",
+  "coord_system": "lab",
+  "shower": "a",
+  "classes": "windows",
+  "min_hits": 2,
+  "budget": {
+   "bytes": 10435,
+   "limit": 100000,
+   "level": 0
+  }
+ },
+ "view": "catalog",
+ "kind": "single_shower_hits",
+ "coord_system": "lab",
+ "shower": "a",
+ "classes": [
+  {
+   "index": 0,
+   "label": "1 ± 0.5 GeV",
+   "lo": 0.5,
+   "hi": 1.5,
+   "n": 4,
+   "kind": "window",
+   "centre": 1.0
+  },
+  {
+   "index": 1,
+   "label": "2 ± 0.5 GeV",
+   "lo": 1.5,
+   "hi": 2.5,
+   "n": 13,
+   "kind": "window",
+   "centre": 2.0
+  },
+  {
+   "index": 2,
+   "label": "5 ± 0.5 GeV",
+   "lo": 4.5,
+   "hi": 5.5,
+   "n": 6,
+   "kind": "window",
+   "centre": 5.0
+  },
+  {
+   "index": 3,
+   "label": "10 ± 0.5 GeV",
+   "lo": 9.5,
+   "hi": 10.5,
+   "n": 103,
+   "kind": "window",
+   "centre": 10.0
+  },
+  {
+   "index": 4,
+   "label": "19.5 ± 0.5 GeV",
+   "lo": 19.0,
+   "hi": 20.0,
+   "n": 19,
+   "kind": "window",
+   "centre": 19.5
+  }
+ ],
+ "class_mode": "windows",
+ "class_basis": "incident momentum p",
+ "n_events": 286,
+ "n_selected": 287,
+ "n_outside_classes": 141,
+ "n_excluded_single_hit": 1,
+ "features": [
+  {
+   "id": "width",
+   "label": "width: x extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "irregular_lattice"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "x_max − x_min of the shower's hits, floored at 10⁻⁶ mm (core.py:470).",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "height",
+   "label": "height: y extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "irregular_lattice"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "y_max − y_min of the shower's hits, floored at 10⁻⁶ mm.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "depth",
+   "label": "depth: deepest z − 3649 mm (below the front face)",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "lattice_quantised",
+    "raw_z",
+    "display_offset"
+   ],
+   "circular": false,
+   "display_offset": -3649.0,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "max(z_max, 10⁻⁶) (core.py:473): the deepest hit's coordinate, not an extent. In the absolute frame it is raw z, quoted below the front face (z − 3649 mm).",
+   "frame_dependent": true,
+   "quantum": "layer"
+  },
+  {
+   "id": "depth_range",
+   "label": "depth range: z extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "lattice_quantised"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "z_max − z_min of the shower's hits, floored at 10⁻⁶ mm.",
+   "frame_dependent": true,
+   "quantum": "layer"
+  },
+  {
+   "id": "volume",
+   "label": "volume: width × height × depth",
+   "unit": "mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "width × height × depth (core.py:475), with depth the deepest coordinate - raw z in the absolute frame - so it is not a geometric volume there.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "num_hits",
+   "label": "number of hits",
+   "unit": "hits",
+   "flags": [
+    "integer"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Rows of the shower: one per cell and event.",
+   "frame_dependent": false,
+   "quantum": "count"
+  },
+  {
+   "id": "total_hit_energy",
+   "label": "total deposited energy",
+   "unit": "GeV",
+   "flags": [],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Σ E of the shower's hits: the deposited energy, not the incident momentum.",
+   "frame_dependent": false,
+   "quantum": null
+  },
+  {
+   "id": "centroid_x",
+   "label": "energy-weighted centroid x",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Σ E·x / Σ E (core.py:491-497).",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "centroid_y",
+   "label": "energy-weighted centroid y",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Σ E·y / Σ E.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "centroid_z",
+   "label": "energy-weighted centroid z",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Σ E·z / Σ E; raw z in the absolute frame.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "mean_r",
+   "label": "mean hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Mean of r = √(x² + y² + z²) over the hits, in this frame's coordinates.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "std_r",
+   "label": "SD of hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Sample SD (ddof = 1) of r over the hits.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "max_r",
+   "label": "maximum hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Largest r over the hits.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "weighted_r_mean",
+   "label": "energy-weighted mean radius r",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Σ E·r / Σ E.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "avg_theta",
+   "label": "mean polar angle θ of the hits",
+   "unit": "rad",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "Mean of θ = arccos(z / r) over the hits.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "avg_phi",
+   "label": "arithmetic mean of the hits' azimuth φ",
+   "unit": "rad",
+   "flags": [
+    "circular"
+   ],
+   "circular": true,
+   "display_offset": null,
+   "scales": [
+    "circular"
+   ],
+   "hatched": "An azimuth has no linear correlation: the cells carry Mardia's circular–linear R, or the circular–circular r_c with the other azimuth. The notebook's linear r, which jumps where a shower straddles the ±π cut, is kept beside them for parity only.",
+   "notebook": true,
+   "description": "core.py's arithmetic mean of φ = atan2(y, x). An azimuth wraps, so this is not a direction: kept for parity with the producer's file and the XGBoost inputs only.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "avg_phi_circ",
+   "label": "mean direction of the hits' azimuth φ",
+   "unit": "rad",
+   "flags": [
+    "circular",
+    "hit_kinds_only",
+    "not_a_notebook_feature"
+   ],
+   "circular": true,
+   "display_offset": null,
+   "scales": [
+    "circular"
+   ],
+   "hatched": "An azimuth has no linear correlation: the cells carry Mardia's circular–linear R, or the circular–circular r_c with the other azimuth.",
+   "notebook": false,
+   "description": "atan2(Σ sin φ, Σ cos φ): the circular mean of the hits' azimuths.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "angular_spread",
+   "label": "angular spread SD(θ) + SD(φ)",
+   "unit": "rad",
+   "flags": [
+    "partly_circular",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": "Contains a linear SD of φ, inflated by the ±π cut, so part of its variance is the cut's position rather than the shower.",
+   "notebook": true,
+   "description": "core.py:499: sample SD of θ plus the linear sample SD of φ, which the ±π cut inflates for showers near the cut.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "angular_spread_circ",
+   "label": "angular spread SD(θ) + circular SD(φ)",
+   "unit": "rad",
+   "flags": [
+    "raw_z",
+    "hit_kinds_only",
+    "not_a_notebook_feature"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": false,
+   "description": "Sample SD of θ plus the circular SD √(−2 ln R̄) of φ: angular_spread without the branch-cut inflation.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "numerical_density",
+   "label": "hit density: hits / volume",
+   "unit": "hits/mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "num_hits / volume; enormous wherever a factor of the volume is floored.",
+   "frame_dependent": true,
+   "quantum": null
+  },
+  {
+   "id": "energy_density",
+   "label": "energy density: energy / volume",
+   "unit": "GeV/mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true,
+   "description": "total_hit_energy / volume; enormous wherever a factor of the volume is floored.",
+   "frame_dependent": true,
+   "quantum": null
+  }
+ ],
+ "frames": [
+  "lab",
+  "trans",
+  "local"
+ ],
+ "showers": [
+  "a"
+ ],
+ "class_sets": {
+  "windows": "The features notebook's momentum windows (1, 2, 5, 10, 19.5) ± 0.5 GeV.",
+  "bins": "The producer's 1 GeV momentum bins (its integer bin column).",
+  "label": "The binary label p < 2 GeV against p ≥ 2 GeV."
+ },
+ "views": {
+  "catalog": true,
+  "describe": true,
+  "corr": true,
+  "hist": true,
+  "hist2d": true
+ },
+ "defaults": {
+  "classes": "windows",
+  "scale": "auto",
+  "exclude_eps": {
+   "catalog": false,
+   "describe": false,
+   "corr": true,
+   "hist": false,
+   "hist2d": false
+  }
+ },
+ "thresholds": {
+  "moment": 2,
+  "curve": 8,
+  "histogram": 15,
+  "robust": 20,
+  "fisher": 4
+ },
+ "notes": [
+  "Features are rebuilt from the per-shower sums of the event table with core.py's formulas (calc_all_features_v3, raw z), which reproduce the producer's aggregate to 10⁻⁹.",
+  "Showers with fewer than 2 hits are left out, as the producer's aggregate leaves them out: 1 in this selection.",
+  "avg_phi is core.py's arithmetic mean of the hits' azimuths, kept for parity with the producer's file; an azimuth wraps, so it is not a direction. avg_phi_circ is the mean direction atan2(Σ sin φ, Σ cos φ).",
+  "Centroids are energy-weighted (core.py:491-497); std_r and the SDs inside angular_spread are sample SDs (ddof = 1); num_hits counts rows. angular_spread adds a linear SD of φ, which the ±π cut inflates; angular_spread_circ uses the circular SD √(−2 ln R̄) instead.",
+  "Depth in the absolute frame is quoted below the front face, z − 3649 mm. The volume, both densities, centroid_z and the radii use raw z, as the producer computed them, so the volume there is not a geometric volume.",
+  "core.py floors width, height, depth and depth range at 10⁻⁶ mm; a floored factor makes the volume tiny and both densities enormous.",
+  "Momentum classes are the features notebook's windows (1, 2, 5, 10, 19.5) ± 0.5 GeV, half-open; its 20 GeV class is [19, 20) here because every momentum in these files is below 20 GeV. Showers in no window are counted, never drawn.",
+  "141 showers lie in no window."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

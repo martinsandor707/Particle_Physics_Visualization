@@ -91,6 +91,36 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
                              "statistics"),
     # C11.
     "primaries_single": ("single_client", "/api/primaries", HITS, "primaries"),
+    # Page 2, 2-D: network E2 and prediction density (two-shower), the feature explorer.
+    "perf_two_energy": ("synthetic_client", "/api/model-performance",
+                        {"slice_by": "momentum_bin", "model": "energy"}, "performance_momentum"),
+    "perf_two_angle": ("synthetic_client", "/api/model-performance",
+                       {"slice_by": "momentum_bin", "model": "angle"}, "performance_momentum"),
+    "pred_density_two_energy": ("synthetic_client", "/api/prediction-density",
+                                {"model": "energy", "coord_system": "lab"}, "prediction_density"),
+    "pred_density_two_angle": ("synthetic_client", "/api/prediction-density",
+                               {"model": "angle", "coord_system": "lab"}, "prediction_density"),
+    "features_single_catalog": ("single_client", "/api/features", {**HITS, "view": "catalog"},
+                                "features"),
+    "features_single_describe": ("single_client", "/api/features",
+                                 {**HITS, "view": "describe", "classes": "windows"}, "features"),
+    "features_single_corr": ("single_client", "/api/features",
+                             {**HITS, "view": "corr", "classes": "label", "class_index": "pooled"},
+                             "features"),
+    "features_single_hist": ("single_client", "/api/features",
+                             {**HITS, "view": "hist", "classes": "windows", "feature": "depth"},
+                             "features"),
+    "features_single_hist_phi": ("single_client", "/api/features",
+                                 {**HITS, "view": "hist", "classes": "label",
+                                  "feature": "avg_phi_circ"}, "features"),
+    "features_single_hist2d": ("single_client", "/api/features",
+                               {**HITS, "view": "hist2d", "classes": "label", "feature": "depth"},
+                               "features"),
+    "features_events_describe": ("single_client", "/api/features",
+                                 {**EVENTS, "view": "describe", "classes": "bins"}, "features"),
+    "features_two_corr": ("synthetic_client", "/api/features",
+                          {"view": "corr", "classes": "windows", "class_index": "pooled",
+                           "shower": "a"}, "features"),
     # 3-D views (Page 2): the densest event's cubes and the ensemble cloud.
     "pick_single_densest": ("single_client", "/api/event/pick", {**HITS, "rule": "densest"},
                             None),
@@ -125,11 +155,13 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
 }
 
 
-#: Per route, payload fields that depend on what the process has cached: the
-#: ensemble cloud quotes the 2-D panels' comb only when their bundle is cached,
-#: and the boot-time warmers race the request. Stored as served, not compared.
+#: Per route, payload fields that depend on the moment of serving: the ensemble
+#: cloud quotes the 2-D panels' comb only when their bundle is cached (the
+#: boot-time warmers race the request), and the feature explorer states its own
+#: served size, which counts the timing digits. Stored as served, not compared.
 VOLATILE: dict[str, tuple[tuple[str, ...], ...]] = {
     "/api/voxels": (("frame", "comb"), ("frame", "comb_source")),
+    "/api/features": (("meta", "budget", "bytes"),),
 }
 
 
@@ -181,8 +213,19 @@ def _check(client, name: str) -> None:
         return
     assert stored.is_file(), f"{stored} missing: regenerate (see the module docstring)"
     recorded = _comparable(path, json.loads(stored.read_text(encoding="utf-8")))
-    assert recorded == _comparable(path, _masked(body)), (
-        f"{name} changed: regenerate the payload fixtures (see the module docstring)")
+    served = _comparable(path, _masked(body))
+    assert recorded == served, (
+        f"{name} changed at {_differences(recorded, served)[:5]}: regenerate the payload "
+        "fixtures (see the module docstring)")
+
+
+def _differences(a, b, path: str = "") -> list[str]:
+    """The paths at which two payloads differ, for a readable failure."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return [d for k in sorted(set(a) | set(b)) for d in _differences(a.get(k), b.get(k), f"{path}/{k}")]
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        return [d for i, (x, y) in enumerate(zip(a, b)) for d in _differences(x, y, f"{path}[{i}]")]
+    return [] if a == b else [f"{path}: {str(a)[:80]} != {str(b)[:80]}"]
 
 
 def _named(fixture: str) -> list[str]:
