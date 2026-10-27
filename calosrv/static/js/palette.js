@@ -218,3 +218,69 @@ export const PALETTES = SEQUENTIAL_PALETTES;
 export const DIVERGING_PALETTES = Object.keys(DIVERGING);
 export const PUOR_ANCHORS = PUOR;
 export const SCREEN_CARD = CARD;
+
+/* ## Nominal categories: qualitative palettes
+ *
+ * A nominal category - a particle species, a network - takes a qualitative
+ * palette, never a sequential ramp, whose lightness order would claim an order
+ * the categories do not have. These are kept apart from `ANCHORS` and
+ * `DIVERGING`: they are not colormaps, never interpolated, and never a value
+ * of the colour-map control.
+ *
+ * Every colour is a ColorBrewer qualitative colour (CLAUDE.md section 2), and
+ * every one was measured before adoption, as tests/test_js_voxels.py measures
+ * it again: WCAG contrast against the surface it is drawn on (the #1c2128
+ * card on screen, white paper in print), and the CIEDE2000 distance between
+ * every pair under normal vision and under simulated deuteranopia and
+ * protanopia (Machado, Oliveira & Fernandes 2009, severity 1, in linear RGB).
+ *
+ * - `set2` / `dark2` are ColorBrewer's own colours, for a few series (the
+ *   networks and the XGBoost regressor of the performance card). ColorBrewer
+ *   rates them colourblind-safe at three classes; the schemes' own fourth
+ *   colours fail here - Set2's #e78ac3 sits ΔE00 1.6 from #8da0cb under
+ *   protanopia, Dark2's #e7298a 4.9 from #d95f02 under deuteranopia - so the
+ *   fourth slot takes the scheme's best later colour instead: Set2's yellow
+ *   #ffd92f (worst pair of the four ΔE00 14.0, deuteranopia; 11.7:1 on the
+ *   card) and Dark2's grey #666666 (14.6; 5.7:1 on white). The remaining
+ *   colours follow in the schemes' order, unchecked: past four, Dark2's green
+ *   and yellow fall below 3:1 on white (2.98 and 2.06), so `qualitativeStops`
+ *   refuses more than `QUALITATIVE_CHECKED` colours of a palette.
+ * - `species` / `species_print` colour the eight stable species codes of the
+ *   3-D displays (e⁻, e⁺, γ, n, p, π⁺, π⁻, other; query/voxel_event.py), the
+ *   last slot the neutral grey of "other". No single ColorBrewer scheme keeps
+ *   eight colours apart for a colour-vision-deficient reader, so these are
+ *   chosen from the union of the qualitative schemes by the largest worst-pair
+ *   distance over the three visions. Screen (every colour at least 3.5:1 on
+ *   the card): worst pair e⁺ #ff7f00 against p #bf5b17, ΔE00 15.6 under
+ *   deuteranopia; the design's Set2-without-yellow measured 1.6. Print (3:1
+ *   on white leaves 19 ColorBrewer colours): worst pair e⁺ #d95f02 against
+ *   π⁺ #33a02c, ΔE00 6.0 under deuteranopia - weak, and stated so; the 3-D
+ *   cards that draw species are never exported, so no figure carries it.
+ */
+export const QUALITATIVE = Object.freeze({
+  set2: Object.freeze(['#66c2a5', '#fc8d62', '#8da0cb', '#ffd92f', '#e78ac3', '#a6d854', '#e5c494', '#b3b3b3']),
+  dark2: Object.freeze(['#1b9e77', '#d95f02', '#7570b3', '#666666', '#e7298a', '#66a61e', '#e6ab02', '#a6761d']),
+  // e⁻ Set3, e⁺ Set1, γ Set1, n Dark2, p Accent, π⁺ Dark2, π⁻ Pastel1, other Pastel2.
+  species: Object.freeze(['#80b1d3', '#ff7f00', '#ffff33', '#7570b3', '#bf5b17', '#1b9e77', '#ffffcc', '#cccccc']),
+  // e⁻ Paired, e⁺ Dark2, γ Paired, n Set1, p Dark2, π⁺ Paired, π⁻ Set3, other Dark2.
+  species_print: Object.freeze(['#1f78b4', '#d95f02', '#6a3d9a', '#a65628', '#1b9e77', '#33a02c', '#bc80bd', '#666666']),
+});
+
+/** How many leading colours of each qualitative palette pass the contrast and CVD checks. */
+export const QUALITATIVE_CHECKED = Object.freeze({ set2: 4, dark2: 4, species: 8, species_print: 8 });
+
+/**
+ * The first `count` colours of a qualitative palette, as CSS hex strings.
+ *
+ * Throws for an unknown palette or for more colours than were checked
+ * (`QUALITATIVE_CHECKED`): a colour nobody measured must not reach a chart.
+ */
+export function qualitativeStops(name, count) {
+  const colours = QUALITATIVE[name];
+  if (!colours) throw new Error(`Unknown qualitative palette ${name}.`);
+  const n = Math.max(0, Math.floor(count));
+  if (n > QUALITATIVE_CHECKED[name]) {
+    throw new Error(`Only the first ${QUALITATIVE_CHECKED[name]} colours of ${name} are checked for contrast and colour-vision deficiency; ${n} were asked for.`);
+  }
+  return colours.slice(0, n);
+}
