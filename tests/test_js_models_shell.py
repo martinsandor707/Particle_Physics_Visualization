@@ -18,7 +18,7 @@ Around the plan:
   abort keys), the segmentation network's notice, the frame fallbacks; on a
   fake document the cards' anatomy, one request shared by the cards that read
   it, a refusal that stays refused, a transient failure that is retried, a
-  panel module not built yet, a response that lands after an experiment
+  panel module that fails to load, a response that lands after an experiment
   switch, the notes routed by builder name and the export targets;
 * ``page_common.js``: the page tabs' hrefs carry the hash at click time;
 * ``controls/admin.js``: the model-runs list read defensively, and Rescan models:
@@ -75,6 +75,10 @@ running.capabilities.panels.xgboost = false;
 running.capabilities.reasons.xgboost = 'Analysing: 3 of 7 steps.';
 running.capabilities.model_runs[0].status = 'running';
 out.running = caps.page2Plan(running);
+// R-3: the recorded analysis, ready, with every run's split reproduced (a derived clone).
+const reproduced = openGate();
+for (const run of reproduced.capabilities.model_runs) run.split_reproduced = true;
+out.reproduced = caps.page2Plan(reproduced);
 out.legacy = caps.page2Plan({ table_name: 'old', status: 'ready' });
 out.none = caps.page2Plan(null);
 out.texts = { missing: caps.MODELS_MISSING_PREDICTIONS, instead: caps.MODELS_XGB_INSTEAD, xgb: caps.XGB_NOTICE,
@@ -188,6 +192,16 @@ def test_a_paired_aggregate_opens_the_xgboost_section_and_hides_its_notice(plan_
     runs = {r["task"]: r for r in experiment["capabilities"]["model_runs"]}
     assert runs["momentum"]["split_reproduced"] is True and runs["angle"]["split_reproduced"] is False
     assert plan["xgb"]["splitReproduced"] is False
+    # The aggregate has no sidebar frame: its feature cards offer the frames its columns hold.
+    assert plan["featureFrames"] == ["lab", "trans", "local"] and plan["frames"]["offered"] == []
+
+
+def test_a_ready_analysis_with_every_split_reproduced_says_so(plan_results):
+    """R-3: the positive branch, on a derived clone of the recording with every split reproduced."""
+    plan = plan_results["reproduced"]
+    assert plan["xgb"]["status"] == "ready" and plan["xgb"]["runs"]
+    assert all(r["split_reproduced"] is True for r in plan["xgb"]["runs"])
+    assert plan["xgb"]["splitReproduced"] is True
 
 
 def test_a_running_analysis_shows_the_xgboost_cards_shut_with_the_servers_sentence(plan_results):
@@ -366,7 +380,24 @@ out.featureFrames = {
     view: view({ frame: 'trans', fclass: 'label' }), controls: { corrClass: '1' } }),
   circOnAggregate: cards.cardRequest('feat-hist2d', { filters: filters.events, plan: plans.single_shower_events,
     view: view({ feature: 'avg_phi_circ' }) }),
+  // An aggregate's features in each frame its columns hold, through the shared `frame` key.
+  aggregate: Object.fromEntries(['lab', 'trans', 'local', 'canonical'].map((frame) => [frame,
+    cards.cardRequest('feat-table', { filters: filters.events, plan: plans.single_shower_events, view: view({ frame }) }).params.coord_system])),
+  aggregateCaption: cards.cardCaption('feat-table', { plan: plans.single_shower_events, view: view({ frame: 'canonical' }) }),
 };
+const frameControl = (plan) => cards.cardControls('feat-corr').find((c) => c.name === 'featureFrame');
+const fc = frameControl();
+out.frameControl = {
+  stateKey: fc.stateKey, choices: fc.choices({}).map((c) => c.value),
+  visible: Object.fromEntries(Object.entries(plans).map(([k, plan]) => [k, fc.visible({ plan })])),
+  value: fc.get({ plan: plans.single_shower_events, view: view({ frame: 'local' }) }),
+  valueCanonical: fc.get({ plan: plans.single_shower_events, view: view({ frame: 'canonical' }) }),
+  disabled: ['lab', 'trans', 'local'].map((v) => fc.choiceDisabled({ plan: plans.single_shower_events }, v)),
+};
+// P-5: the task reads Momentum where the aggregate's XGBoost regressor stands in.
+const task = cards.cardControls('perf-bins').find((c) => c.name === 'perfTask');
+out.taskLabels = { open: task.choices({ plan: plans.open }).map((c) => [c.value, c.label]),
+  two: task.choices({ plan: plans.two_shower_hits }).map((c) => [c.value, c.label]) };
 out.notices = {
   segmentation: cards.cardNotice('perf-bins', { plan: plans.two_shower_hits, view: view() }),
   energy: cards.cardNotice('perf-bins', { plan: plans.two_shower_hits, view: view({ model: 'energy' }) }),
@@ -385,6 +416,7 @@ out.options = {
   hist: cards.cardOptions('feat-hist', { plan: plans.two_shower_hits, view: view({ feature: 'width', fclass: 'label' }) }),
   tree: cards.cardOptions('xgb-surrogate', { plan: plans.open, view: view({ xgb_task: 'angle', xgb_label: 'phi' }) }),
   binary: cards.cardOptions('xgb-binary', { plan: plans.open, view: view({ xgb_task: 'angle' }) }),
+  corr: cards.cardOptions('feat-corr', { plan: plans.single_shower_events, view: view({ frame: 'trans' }) }),
 };
 // The feature explorer's shower: on every feature card of two-shower data, never on one shower.
 out.featureShower = {
@@ -464,9 +496,27 @@ def test_the_feature_cards_ask_in_their_frame_with_their_classes(request_results
     assert f["canonical"]["params"]["feature"] == "depth"
     assert f["trans"]["params"]["coord_system"] == "trans" and f["trans"]["params"]["class_index"] == "1"
     assert f["trans"]["params"]["classes"] == "label"
-    # The aggregate has no hits: no frame, and only its own nineteen features.
-    assert "coord_system" not in f["circOnAggregate"]["params"]
+    # The aggregate has no hits: only its own nineteen features, in the frame its columns hold.
+    assert f["circOnAggregate"]["params"]["coord_system"] == "lab"
     assert f["circOnAggregate"]["params"]["feature"] == "num_hits"
+
+
+def test_an_aggregates_feature_cards_choose_their_frame_through_the_shared_key(request_results):
+    """The events-only kind has no sidebar frame: abs, trn and loc on the cards, never the D-frame."""
+    f = request_results["featureFrames"]
+    assert f["aggregate"] == {"lab": "lab", "trans": "trans", "local": "local", "canonical": "lab"}
+    assert f["aggregateCaption"] and f["aggregateCaption"].startswith("Drawn in Absolute")
+    c = request_results["frameControl"]
+    assert c["stateKey"] == "frame" and c["choices"] == ["lab", "trans", "local"]
+    assert c["visible"] == {"two_shower_hits": False, "single_shower_hits": False,
+                            "single_shower_events": True, "open": True}
+    assert c["value"] == "local" and c["valueCanonical"] == "lab"
+    assert c["disabled"] == [None, None, None]
+
+
+def test_the_task_reads_momentum_where_the_xgboost_regressor_stands_in(request_results):
+    assert request_results["taskLabels"]["open"] == [["energy", "Momentum"], ["angle", "Angle"]]
+    assert request_results["taskLabels"]["two"] == [["energy", "Energy"], ["angle", "Angle"]]
 
 
 def test_every_feature_card_asks_for_the_selected_shower_on_two_shower_data(request_results):
@@ -476,7 +526,7 @@ def test_every_feature_card_asks_for_the_selected_shower_on_two_shower_data(requ
     for card in FEATURES:
         assert request_results["requests"]["two"][card]["params"]["shower"] == "a", card
     assert "shower" not in f["singleLinkB"], "B does not exist on one shower: the server would refuse it"
-    assert f["control"][0] == "fshower"
+    assert f["control"][:2] == ["featureFrame", "fshower"]
 
 
 def test_a_single_shower_request_carries_no_second_shower_axis(request_results):
@@ -500,8 +550,13 @@ def test_the_render_options_are_the_interfaces(request_results):
     assert o["perf"] == {"palette": "cividis", "card": "perf-bins", "task": "angle", "quantity": "mae",
                          "shower": "b"}
     assert o["pred"] == {"palette": "viridis", "card": "pred-truth", "task": "angle", "label": "phi", "shower": "both"}
-    assert o["hist"] == {"palette": "viridis", "card": "feat-hist", "classes": "label", "feature": "width"}
-    assert o["table"] == {"palette": "viridis", "card": "feat-table", "classes": "windows", "stat": "mean"}
+    assert o["hist"] == {"palette": "viridis", "card": "feat-hist", "classes": "label", "frame": "lab",
+                         "feature": "width"}
+    assert o["table"] == {"palette": "viridis", "card": "feat-table", "classes": "windows", "frame": "lab",
+                          "stat": "mean"}
+    # D-10 is the feature card's own: the Physics page's C8 never sets it.
+    assert o["corr"] == {"palette": "viridis", "card": "feat-corr", "classes": "windows", "frame": "trans",
+                         "fadeNull": True}
     assert o["tree"] == {"palette": "viridis", "card": "xgb-surrogate", "task": "angle", "label": "phi"}
     assert o["binary"] == {"palette": "viridis", "card": "xgb-binary"}
 
@@ -565,7 +620,7 @@ const notesModules = {
   },
   xgb: {},
 };
-// The RatesPanel module is "not built yet": its loader rejects, as a 404 import does.
+// The RatesPanel module fails to load: its loader rejects, as a failed dynamic import does.
 const panelModules = { RatesPanel: () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')) };
 
 window.location.hash = '';
@@ -720,7 +775,7 @@ out.late = { rendered: rendered.length - rendersBefore, payload: section.payload
 out.singleHidden = Object.fromEntries(all.map((c) => [c.dataset.panel, c.hidden]));
 out.singleShowerShown = FEATURES_IDS.map((id) => !cardOf(id).find((el) => el.getAttribute?.('aria-label') === 'Shower').hidden);
 
-// A panel module not built yet: the card says so, without a Retry, and is not asked again.
+// A panel module that fails to load: an ordinary failure, said on the card with a Retry.
 state.set({ table_name: 'single_hits' }, { silent: true });
 section.applyPlan(single);
 FakeObserver.last.show(all.filter((c) => !c.hidden));
@@ -859,13 +914,17 @@ def test_a_response_landing_after_an_experiment_switch_draws_nothing(section_res
     assert section_results["late"] == {"rendered": 0, "payload": None, "cache": 0, "busy": False}
 
 
-def test_a_panel_not_built_yet_says_so_and_is_not_asked_again(section_results):
+def test_a_panel_module_that_fails_to_load_is_a_retryable_failure(section_results):
+    """Every panel module exists now: a failed import is a load failure like any other, never "not built"."""
     r = section_results
-    assert r["notBuilt"]["hidden"] is False and r["notBuilt"]["kind"] == "pending"
-    assert r["notBuilt"]["text"] == "This panel is not built yet in this release." and r["notBuilt"]["retry"] is False
+    assert r["notBuilt"]["hidden"] is False and r["notBuilt"]["kind"] == "error"
+    assert "dynamically imported module" in r["notBuilt"]["text"] and r["notBuilt"]["retry"] is True
+    assert "not built" not in r["notBuilt"]["text"]
+    # The response itself was cached: a retry asks for the module again, not the data.
     assert r["notBuiltAgain"] == 0
-    assert r["notBuiltLoad"] == ["NotBuiltError", "This panel is not built yet in this release.", 404]
-    assert r["errors"] == [] and r["opened"] == 0
+    assert r["notBuiltLoad"][0] == "Error" and "does not export XgbCvPanel" in r["notBuiltLoad"][1]
+    assert [m for _, m in r["errors"]] and all("dynamically imported module" in m for _, m in r["errors"])
+    assert r["opened"] == 0
 
 
 # ----------------------------------------------------- tabs and admin --

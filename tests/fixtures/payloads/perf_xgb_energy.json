@@ -290,7 +290,7 @@
     "unit": "GeV",
     "signed": false,
     "definition": "√mean (pred − true)²",
-    "interval": "square root of the 95% Student-t interval of the mean squared residual, from N ≥ 2"
+    "interval": "95% χ² interval of the RMSE on n degrees of freedom from N ≥ 2, which assumes normally distributed residuals centred on zero; approximate otherwise, and with a bias; 95% percentile bootstrap of the RMSE (B = 2,000, seeded per series, bin and quantity) from N ≥ 20"
    },
    "mae": {
     "label": "MAE",
@@ -504,48 +504,70 @@
      2.34312
     ],
     "rmse_lo": [
-     0.0623151,
-     0.0397826,
+     0.13164,
+     0.0582499,
      null,
-     0.0,
-     null,
-     null,
-     null,
-     0.0,
-     null,
-     null,
-     0.135411,
+     0.4244,
      null,
      null,
      null,
-     null,
-     0.0,
-     null,
+     0.329171,
      null,
      null,
-     0.0
+     0.131203,
+     null,
+     null,
+     null,
+     null,
+     0.801187,
+     null,
+     null,
+     null,
+     1.32738
     ],
     "rmse_hi": [
-     0.252029,
-     0.104178,
+     0.303031,
+     0.122042,
      null,
-     2.9394,
-     null,
-     null,
-     null,
-     0.797506,
-     null,
-     null,
-     0.20296,
+     5.12471,
      null,
      null,
      null,
-     null,
-     3.18487,
-     null,
+     0.933569,
      null,
      null,
-     4.6434
+     0.251976,
+     null,
+     null,
+     null,
+     null,
+     5.27068,
+     null,
+     null,
+     null,
+     8.73231
+    ],
+    "rmse_method": [
+     "chi2_rmse",
+     "chi2_rmse",
+     null,
+     "chi2_rmse",
+     null,
+     null,
+     null,
+     "chi2_rmse",
+     null,
+     null,
+     "chi2_rmse",
+     null,
+     null,
+     null,
+     null,
+     "chi2_rmse",
+     null,
+     null,
+     null,
+     "chi2_rmse"
     ],
     "mae": [
      0.140477,
@@ -859,7 +881,7 @@
   ],
   "y_max": {
    "rmse": {
-    "value": 0.22,
+    "value": 0.3,
     "min": 0.0,
     "provisional": false,
     "overflow": [
@@ -868,40 +890,40 @@
       "bin": 19,
       "n": 3,
       "value": 2.34312,
-      "lo": 0.0,
-      "hi": 4.6434
+      "lo": 1.32738,
+      "hi": 8.73231
      },
      {
       "series": "xgb:a",
       "bin": 15,
       "n": 3,
       "value": 1.41427,
-      "lo": 0.0,
-      "hi": 3.18487
+      "lo": 0.801187,
+      "hi": 5.27068
      },
      {
       "series": "xgb:a",
       "bin": 3,
       "n": 2,
       "value": 0.815135,
-      "lo": 0.0,
-      "hi": 2.9394
+      "lo": 0.4244,
+      "hi": 5.12471
      },
      {
       "series": "xgb:a",
       "bin": 7,
       "n": 8,
       "value": 0.487337,
-      "lo": 0.0,
-      "hi": 0.797506
+      "lo": 0.329171,
+      "hi": 0.933569
      },
      {
       "series": "xgb:a",
       "bin": 0,
       "n": 12,
       "value": 0.183578,
-      "lo": 0.0623151,
-      "hi": 0.252029
+      "lo": 0.13164,
+      "hi": 0.303031
      }
     ],
     "n_overflow": 5,
@@ -1001,8 +1023,8 @@
     "note": "4 under-powered points (N < 15) exceed the range: clipped, with the true values listed."
    },
    "bias": {
-    "value": 0.18,
-    "min": -0.18,
+    "value": 0.2,
+    "min": -0.2,
     "provisional": false,
     "overflow": [
      {

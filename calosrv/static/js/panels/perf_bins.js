@@ -22,13 +22,19 @@
  * ## The whisker is the interval of the bar's own statistic
  *
  * A capped whisker on a bar is the 95% interval of the plotted aggregate, as
- * the server names it per quantity: the square root of the Student-t interval
- * of the mean squared residual for the RMSE, Student-t for the MAE and the
- * bias, the exact order-statistic or the seeded percentile-bootstrap interval
- * for the median (`<q>_method` per point). Where the server has none (a bin of
- * one shower; a median below N = 6) there is no whisker at all, and a bar of
- * fewer than `thresholds.interval` showers is faded: a value with nothing to
- * say how precise it is. The spread of the showers is never drawn here.
+ * the server names it per quantity: for the RMSE a χ² interval under normal
+ * residuals to N = 19 and the seeded percentile bootstrap from N = 20
+ * (decision D-4), Student-t for the MAE and the bias, the exact
+ * order-statistic or the seeded percentile-bootstrap interval for the median
+ * (`<q>_method` per point). Where the server has none (a median below N = 6)
+ * there is no whisker and the bar is faded: a point is weak exactly when it
+ * has no interval, whatever its N, so no aggregate is ever a naked solid bar.
+ * The whisker is light ink on a dark casing (`customWhiskers` `casing`), so it
+ * clears 3:1 over any bar fill and over the card. The spread of the showers is
+ * never drawn here.
+ *
+ * A bin of one shower is not an aggregate but an observation (decision D-9):
+ * it is drawn as a dot at its value, labelled one shower, never as a bar.
  *
  * ## The y range follows robust evidence
  *
@@ -47,7 +53,8 @@
  * per-shower translated, Local, XGBoost - the order the importance card gives
  * absolute, translated, local and no frame - so a frame keeps its colour across
  * selections and cards. Shower A is a solid bar, shower B a light wash with a
- * solid outline, so the two read apart in greyscale too.
+ * solid outline, so the two read apart in greyscale too; the legend's swatches
+ * are drawn the same way, and the legend wraps into rows rather than paging.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt } from '../scale.js';
@@ -56,13 +63,21 @@ import { customWhiskers, customLine, binHoverSeries } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, chartLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST, isPrintTheme,
+  withColour, wrappedLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST, isPrintTheme,
 } from './chart_panel.js';
+
+/** Tick-step mantissas: a step is one of these times a power of ten. */
+const STEP_MANTISSAS = [1, 2, 2.5, 4, 5];
+/** The round steps a top off the step grid falls back to (never 4: 0.04 reads as arbitrary). */
+const ROUND_MANTISSAS = [1, 2, 2.5, 5];
 
 /**
  * A round tick interval that lands on both ends of [lo, hi] (the server's
- * 1-2-5 rounded top, and minus it for a signed statistic), with at most
- * `maxTicks` steps: 16 → 2, 140 → 20, 0.35 → 0.05, ±16 → 4.
+ * rounded top, `performance_bins.TOP_MANTISSAS`, and minus it for a signed
+ * statistic), with at most `maxTicks` steps: 16 → 2, 140 → 20, 0.35 → 0.05,
+ * ±16 → 4, 0.12 → 0.02, 0.25 → 0.05. A top no round step lands on (a payload
+ * from before that rounding) takes the finest 1-2-2.5-5 step that fits, its
+ * top tick off the grid, never a quarter of the span (0.055 for 0.22).
  */
 export function dividingInterval(lo, hi, maxTicks = 8) {
   const span = hi - lo;
@@ -71,12 +86,34 @@ export function dividingInterval(lo, hi, maxTicks = 8) {
   const fits = (step) => ends.every((v) => Math.abs(v / step - Math.round(v / step)) < 1e-6);
   const decade = 10 ** Math.floor(Math.log10(span / maxTicks));
   for (const scale of [1, 10, 100]) {
-    for (const m of [1, 2, 2.5, 4, 5]) {
+    for (const m of STEP_MANTISSAS) {
       const step = m * decade * scale;
       if (span / step <= maxTicks + 1e-9 && fits(step)) return step;
     }
   }
+  for (const scale of [1, 10, 100]) {
+    for (const m of ROUND_MANTISSAS) {
+      const step = Number((m * decade * scale).toPrecision(12));
+      if (span / step <= maxTicks + 1e-9) return step;
+    }
+  }
   return span / 4;
+}
+
+/** The statistics whose interval is the median's (order statistics from N = 6). */
+const MEDIAN_QUANTITIES = new Set(['median_rel', 'median_abs', 'phi_median_abs']);
+
+/** The sample size from which the plotted statistic has an interval at all. */
+export function intervalFloorOf(quantity, thresholds = {}) {
+  return MEDIAN_QUANTITIES.has(quantity) ? (thresholds.order_statistic ?? 6) : (thresholds.interval ?? 2);
+}
+
+/** Whether an aggregate experiment's XGBoost momentum regressor is what the card draws. */
+export function isMomentumRegressor(payload) {
+  const block = payload?.by_momentum_bin ?? {};
+  const xgb = block.source === 'xgb' || payload?.network?.frame === 'xgb'
+    || (block.series ?? []).some((s) => sourceOf(s) === 'xgb');
+  return xgb && (block.model ?? payload?.network?.model) === 'energy';
 }
 
 /** The order the networks' hues are given in, so a frame keeps its colour whatever else is drawn. */
@@ -96,6 +133,15 @@ const FILL_B = 0.22;
 /** Share of a momentum bin the group of bars takes. */
 const GROUP_FILL = 0.84;
 const CAP_PX = 3;
+/** The casing under a whisker, and the radius of a one-shower dot (px). */
+const CASING_PX = 3;
+const DOT_PX = 3.5;
+
+/** A series colour as the light wash of shower B's bars. */
+function washOf(colour) {
+  const rgb = rgbOf(colour);
+  return rgb ? `rgba(${rgb.join(',')},${FILL_B})` : colour;
+}
 
 const num = (v, d = 3) => formatNumber(v, d);
 
@@ -211,7 +257,7 @@ export function perfModel(payload, opts = {}) {
     signed: Boolean(yRaw.signed ?? q.signed),
   };
   const thresholds = block.thresholds ?? {};
-  const intervalFloor = thresholds.interval ?? 2;
+  const intervalFloor = intervalFloorOf(quantity, thresholds);
   const all = block.series ?? [];
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
   const shown = shownSeries(all, opts.shower);
@@ -241,7 +287,10 @@ export function perfModel(payload, opts = {}) {
         n: s.n?.[i] ?? null, n_missing: s.n_missing?.[i] ?? 0, drives: Boolean(s.drives_scale?.[i]),
         theta_min: s.theta_min?.[i] ?? null, n_small_theta: s.n_small_theta?.[i] ?? 0,
       };
-      point.weak = !(point.n >= intervalFloor);
+      // Weak exactly when there is no interval to say how precise the value is (P-4).
+      point.weak = !(Number.isFinite(point.lo) && Number.isFinite(point.hi));
+      // One shower is an observation, not an aggregate: a dot, never a bar (D-9).
+      point.single = point.n === 1;
       if (Number.isFinite(y.max)) {
         point.barCut = value > y.max || value < y.min;
         const c = clampInterval(point.lo, point.hi, y.min, y.max);
@@ -257,8 +306,11 @@ export function perfModel(payload, opts = {}) {
     };
   });
   return {
-    quantity, q, unit, factor, y, series, omitted, clipped, thresholds, bins, nShowers,
+    quantity, q, unit, factor, y, series, omitted, clipped, thresholds, bins, nShowers, intervalFloor,
     model: block.model ?? payload?.network?.model ?? null, notes: block.notes ?? {},
+    momentum: isMomentumRegressor(payload),
+    // The XGBoost series has one shower per event, and counts events.
+    noun: block.source === 'xgb' || (reporting.length > 0 && reporting.every((s) => sourceOf(s) === 'xgb')) ? 'event' : 'shower',
   };
 }
 
@@ -268,16 +320,29 @@ function withUnit(v, unit, digits = 3) {
   return `${num(v, digits)}${unit === '%' ? '%' : (unit ? ` ${unit}` : '')}`;
 }
 
+/** The method of one point's interval, as the server names it per quantity and point (`<q>_method`). */
+function methodText(model, p) {
+  const median = MEDIAN_QUANTITIES.has(model.quantity);
+  if (p.method === 'order_statistic') return 'exact order-statistic interval of the median';
+  if (p.method === 'bootstrap_percentile') {
+    return median ? 'seeded percentile bootstrap of the median' : `seeded percentile bootstrap of the ${model.q.label ?? model.quantity}`;
+  }
+  if (p.method === 'chi2_rmse') {
+    return `χ² interval of the RMSE on ${formatInt(p.n)} degrees of freedom, which assumes normally distributed residuals `
+      + 'centred on zero (approximate otherwise, and with a bias)';
+  }
+  return model.q.interval ?? '';
+}
+
 /** The interval sentence of one point: the server's method for the bar's own statistic. */
 function intervalText(model, p) {
+  const noun = model.noun;
   if (!Number.isFinite(p.lo) || !Number.isFinite(p.hi)) {
-    return mutedLine(p.n === 1
-      ? 'no interval: a single shower has a value and nothing to say how precise it is'
-      : 'no interval at this sample size (see the drawer for each statistic\'s floor)');
+    return mutedLine(p.single
+      ? `no interval: one ${noun} is an observation, not an aggregate, and has nothing to say how precise it is`
+      : `no interval: the ${model.q.label ?? model.quantity} has one from N = ${formatInt(model.intervalFloor)}`);
   }
-  const method = p.method === 'order_statistic' ? 'exact order-statistic interval of the median'
-    : p.method === 'bootstrap_percentile' ? 'seeded percentile bootstrap of the median' : (model.q.interval ?? '');
-  return `95% interval [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}] ${mutedLine(`(${method}: the precision of the ${model.q.label ?? model.quantity}, not the spread of the showers)`)}`;
+  return `95% interval [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}] ${mutedLine(`(${methodText(model, p)}: the precision of the ${model.q.label ?? model.quantity}, not the spread of the ${noun}s)`)}`;
 }
 
 /** The tooltip of one bar. */
@@ -286,9 +351,13 @@ export function perfTip(model, s, p) {
   const binLabel = bins.label?.[p.i] ?? `${num(bins.p_lo?.[p.i])}–${num(bins.p_hi?.[p.i])} GeV`;
   const lines = [`<b>${escapeHtml(model.q.label ?? model.quantity)} of ${escapeHtml(s.label)}, ${escapeHtml(binLabel)}: ${withUnit(p.value, model.unit)}</b>`];
   lines.push(intervalText(model, p));
-  lines.push(`N = ${formatInt(p.n)} shower${p.n === 1 ? '' : 's'}${p.weak ? ' — below the interval floor: the bar is faded' : ''}`);
+  const noun = model.noun;
+  let mark = '';
+  if (p.single) mark = ` — one ${noun}: drawn as a dot, an observation, not as a bar`;
+  else if (p.weak) mark = ` — below the ${model.q.label ?? model.quantity}'s interval floor, N = ${formatInt(model.intervalFloor)}: the bar is faded`;
+  lines.push(`N = ${formatInt(p.n)} ${noun}${p.n === 1 ? '' : 's'}${mark}`);
   if (model.q.definition) lines.push(mutedLine(model.q.definition));
-  if (p.n_missing) lines.push(mutedLine(`${formatInt(p.n_missing)} shower${p.n_missing === 1 ? '' : 's'} without a prediction in this bin: dropped, never zero-filled`));
+  if (p.n_missing) lines.push(mutedLine(`${formatInt(p.n_missing)} ${noun}${p.n_missing === 1 ? '' : 's'} without a prediction in this bin: dropped, never zero-filled`));
   if (Number.isFinite(p.theta_min)) {
     lines.push(mutedLine(`smallest true θ in the bin ${num(p.theta_min, 4)} rad; ${formatInt(p.n_small_theta)} shower${p.n_small_theta === 1 ? '' : 's'} with θ < 0.1 rad`
       + `${p.n_small_theta && model.quantity === 'median_rel' ? ': |Δθ| / θ grows like 1 / θ there, so read the median absolute error beside it' : ''}`));
@@ -308,9 +377,10 @@ function perfReadout(model, owner, i) {
   const lines = [`<b>${escapeHtml(bins.label?.[k] ?? '')}</b> · ${escapeHtml(model.q.label ?? model.quantity)}`];
   for (const s of model.series) {
     const p = s.points.find((pt) => pt.i === k);
-    if (!p) { lines.push(mutedLine(`${s.label}: no shower`)); continue; }
-    const ci = Number.isFinite(p.lo) && Number.isFinite(p.hi) ? ` [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}]` : ' (no interval)';
-    lines.push(`<span style="color:${s.colour}">■</span> ${escapeHtml(s.label)}: ${withUnit(p.value, model.unit)}${ci} · N = ${formatInt(p.n)}`);
+    if (!p) { lines.push(mutedLine(`${s.label}: no ${model.noun}`)); continue; }
+    const ci = Number.isFinite(p.lo) && Number.isFinite(p.hi) ? ` [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}]`
+      : (p.single ? ` (one ${model.noun}, a dot)` : ' (no interval)');
+    lines.push(`<span style="color:${s.colour}">${p.single ? '●' : '■'}</span> ${escapeHtml(s.label)}: ${withUnit(p.value, model.unit)}${ci} · N = ${formatInt(p.n)}`);
   }
   lines.push(mutedLine('brackets: the 95% interval of the statistic (the capped whisker)'));
   return lines.join('<br/>');
@@ -347,6 +417,18 @@ export function perfBinsOption(payload, opts = {}, metrics = {}) {
       renderItem: (params, api) => {
         const p = s.points[params.dataIndex];
         const top = Math.min(Math.max(p.value, y.min), y.max);
+        if (p.single) {
+          // An observation: a dot at its value, in the series' own fill, outlined.
+          const c = api.coord([p.x, top]);
+          return {
+            type: 'circle',
+            shape: { cx: c[0], cy: c[1], r: DOT_PX },
+            style: {
+              fill: isB ? washOf(colour) : colour, stroke: isB ? colour : THEME.canvas,
+              lineWidth: THEME.lineAxis,
+            },
+          };
+        }
         const a = api.coord([p.x0, base]);
         const b = api.coord([p.x1, top]);
         const fill = (isB ? FILL_B : FILL_A) * (p.weak ? 0.45 : 1);
@@ -362,10 +444,12 @@ export function perfBinsOption(payload, opts = {}, metrics = {}) {
       },
       tooltip: { formatter: (prm) => perfTip(model, s, s.points[prm.dataIndex]) },
     }, colour));
-    legend.push(s.label);
+    // B's swatch is its bars' wash with their outline, so the legend matches the marks (P-15).
+    if (isB) series[series.length - 1].itemStyle = { color: washOf(colour), borderColor: colour, borderWidth: 1 };
+    legend.push({ name: s.label, icon: 'rect' });
 
     const whiskers = s.points
-      .filter((p) => p.whisker && p.whisker.lo !== null && p.whisker.hi !== null && Number.isFinite(p.lo) && Number.isFinite(p.hi))
+      .filter((p) => !p.single && p.whisker && p.whisker.lo !== null && p.whisker.hi !== null && Number.isFinite(p.lo) && Number.isFinite(p.hi))
       .map((p) => [p.x, p.whisker.lo, p.whisker.hi, { caps: p.whisker.caps, point: p, opacity: p.weak ? legibleOpacity(THEME.text, 0.6) : 1 }]);
     if (whiskers.length) {
       series.push(customWhiskers({
@@ -374,6 +458,8 @@ export function perfBinsOption(payload, opts = {}, metrics = {}) {
         capPx: CAP_PX,
         color: THEME.text,
         width: THEME.lineAxis,
+        // A dark casing under the ink: 3:1 against any bar fill and the card (P-3).
+        casing: { color: THEME.canvas, width: CASING_PX },
         z: 6,
         tooltip: (d) => perfTip(model, s, d.point),
       }));
@@ -401,18 +487,21 @@ export function perfBinsOption(payload, opts = {}, metrics = {}) {
     }));
   }
 
-  const top = legendTop(legend, plotWidthPx);
+  const top = legendTop(legend, plotWidthPx, { wrap: true });
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
   const unitText = unit ? ` [${unit}]` : '';
   const prov = y.provisional ? ' — provisional' : '';
-  const yName = fitName([`${model.q.label ?? model.quantity}${unitText}${prov}`, `${model.quantity}${unitText}${prov}`], plotHeightPx);
+  // The XGBoost regressor of an aggregate predicts momentum, and its axis says so (P-5).
+  const of = model.momentum && !model.quantity.startsWith('phi') ? ' of the momentum' : '';
+  const yName = fitName([`${model.q.label ?? model.quantity}${of}${unitText}${prov}`, `${model.q.label ?? model.quantity}${unitText}${prov}`,
+    `${model.quantity}${unitText}${prov}`], plotHeightPx);
   const xName = fitName(['Incident momentum p [GeV]', 'p [GeV]'], plotWidthPx);
   const span = edges[edges.length - 1] - edges[0];
   return {
     ...baseOption(),
     tooltip: wrapTooltip(tooltipOption(opts.tooltipPosition ?? null)),
     grid: { left: pad.left, right: pad.right, top, bottom: pad.bottom },
-    legend: chartLegend(legend),
+    legend: wrappedLegend(legend, { left: pad.left, right: pad.right }),
     xAxis: valueAxis({ name: xName, min: edges[0], max: edges[edges.length - 1], interval: span > 12 ? 2 : 1 }),
     yAxis: valueAxis({
       name: yName, min: y.min, max: y.max, interval: dividingInterval(y.min, y.max), split: true, nameGap: 3.6 * THEME.fontLabel,

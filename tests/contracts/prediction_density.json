@@ -1,613 +1,15 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "GET /api/prediction-density; on an aggregate experiment, the XGBoost validation-split series",
- "type": "object",
- "required": [
-  "meta",
-  "network",
-  "n_events",
-  "axes",
-  "density",
-  "identity",
-  "color",
-  "residual",
-  "thresholds",
-  "notes",
-  "filter"
- ],
- "properties": {
-  "network": {
-   "type": "object",
-   "required": [
-    "model",
-    "frame"
-   ],
-   "properties": {
-    "model": {
-     "enum": [
-      "energy",
-      "angle"
-     ]
-    },
-    "frame": {
-     "type": "string"
-    },
-    "source": {
-     "const": "xgb"
-    },
-    "label": {
-     "enum": [
-      "momentum",
-      "theta",
-      "phi"
-     ]
-    }
-   }
+ "description": "Two branches (review R-1): a network response requires showers a and b in density and in the residual series; only the XGBoost series (network.frame = xgb) has shower a alone.",
+ "anyOf": [
+  {
+   "$ref": "#/$defs/response_network"
   },
-  "axes": {
-   "type": "object",
-   "required": [
-    "truth",
-    "pred"
-   ],
-   "properties": {
-    "truth": {
-     "type": "object",
-     "required": [
-      "lo",
-      "hi",
-      "n",
-      "unit",
-      "label",
-      "zero_based"
-     ],
-     "properties": {
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "n": {
-       "type": "integer"
-      },
-      "unit": {
-       "type": "string"
-      },
-      "label": {
-       "type": "string"
-      },
-      "zero_based": {
-       "type": "boolean"
-      },
-      "circular": {
-       "const": true
-      }
-     }
-    },
-    "pred": {
-     "type": "object",
-     "required": [
-      "lo",
-      "hi",
-      "n",
-      "unit",
-      "label",
-      "zero_based"
-     ],
-     "properties": {
-      "lo": {
-       "type": "number"
-      },
-      "hi": {
-       "type": "number"
-      },
-      "n": {
-       "type": "integer"
-      },
-      "unit": {
-       "type": "string"
-      },
-      "label": {
-       "type": "string"
-      },
-      "zero_based": {
-       "type": "boolean"
-      },
-      "circular": {
-       "const": true
-      }
-     }
-    }
-   }
-  },
-  "density": {
-   "type": "object",
-   "propertyNames": {
-    "enum": [
-     "a",
-     "b"
-    ]
-   },
-   "additionalProperties": {
-    "anyOf": [
-     {
-      "$ref": "#/$defs/counts_block"
-     },
-     {
-      "$ref": "#/$defs/pairs_block"
-     }
-    ]
-   },
-   "required": [
-    "a"
-   ],
-   "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
-  },
-  "identity": {
-   "type": "object",
-   "required": [
-    "from",
-    "to"
-   ],
-   "properties": {
-    "from": {
-     "type": "number"
-    },
-    "to": {
-     "type": "number"
-    }
-   }
-  },
-  "color": {
-   "type": "object",
-   "required": [
-    "scale",
-    "vmin",
-    "vmax",
-    "unit",
-    "empty",
-    "palette",
-    "ramp",
-    "note"
-   ],
-   "properties": {
-    "scale": {
-     "const": "log10"
-    },
-    "vmin": {
-     "type": "number"
-    },
-    "vmax": {
-     "type": "number",
-     "description": "log10 of the largest count, at least log10 2 whenever a counts encoding is present, so the scale never collapses to vmin = vmax."
-    },
-    "unit": {
-     "type": "string"
-    },
-    "empty": {
-     "const": "transparent"
-    },
-    "palette": {
-     "enum": [
-      "viridis",
-      "cividis",
-      "plasma",
-      "turbo"
-     ],
-     "description": "The default palette that `ramp` describes; ramp.by_palette measures every offered sequential palette."
-    },
-    "note": {
-     "type": "string"
-    },
-    "ramp": {
-     "type": "object",
-     "required": [
-      "from",
-      "to",
-      "stops",
-      "first_level",
-      "min_stop_contrast",
-      "clears_everywhere",
-      "by_palette"
-     ],
-     "properties": {
-      "from": {
-       "type": "number",
-       "minimum": 0,
-       "maximum": 1
-      },
-      "to": {
-       "type": "number",
-       "minimum": 0,
-       "maximum": 1
-      },
-      "stops": {
-       "type": "array",
-       "items": {
-        "type": "string"
-       },
-       "minItems": 2
-      },
-      "first_level": {
-       "type": "object",
-       "required": [
-        "count",
-        "color",
-        "contrast",
-        "against"
-       ],
-       "properties": {
-        "count": {
-         "const": 1
-        },
-        "color": {
-         "type": "string"
-        },
-        "contrast": {
-         "type": "number",
-         "minimum": 3
-        },
-        "against": {
-         "const": "#1c2128"
-        }
-       }
-      },
-      "min_stop_contrast": {
-       "type": "number",
-       "description": "Lowest contrast of any stop against the card."
-      },
-      "clears_everywhere": {
-       "type": "boolean",
-       "description": "Every stop is at least 3:1 against the card."
-      },
-      "by_palette": {
-       "type": "object",
-       "required": [
-        "viridis",
-        "cividis",
-        "plasma",
-        "turbo"
-       ],
-       "description": "Measured start, stops and first-level colour of each sequential palette the interface offers.",
-       "additionalProperties": false,
-       "properties": {
-        "viridis": {
-         "type": "object",
-         "required": [
-          "from",
-          "to",
-          "stops",
-          "first_level",
-          "min_stop_contrast",
-          "clears_everywhere"
-         ],
-         "properties": {
-          "from": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "to": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "stops": {
-           "type": "array",
-           "items": {
-            "type": "string"
-           },
-           "minItems": 2
-          },
-          "first_level": {
-           "type": "object",
-           "required": [
-            "count",
-            "color",
-            "contrast",
-            "against"
-           ],
-           "properties": {
-            "count": {
-             "const": 1
-            },
-            "color": {
-             "type": "string"
-            },
-            "contrast": {
-             "type": "number",
-             "minimum": 3
-            },
-            "against": {
-             "const": "#1c2128"
-            }
-           }
-          },
-          "min_stop_contrast": {
-           "type": "number",
-           "description": "Lowest contrast of any stop against the card."
-          },
-          "clears_everywhere": {
-           "type": "boolean",
-           "description": "Every stop is at least 3:1 against the card."
-          }
-         }
-        },
-        "cividis": {
-         "type": "object",
-         "required": [
-          "from",
-          "to",
-          "stops",
-          "first_level",
-          "min_stop_contrast",
-          "clears_everywhere"
-         ],
-         "properties": {
-          "from": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "to": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "stops": {
-           "type": "array",
-           "items": {
-            "type": "string"
-           },
-           "minItems": 2
-          },
-          "first_level": {
-           "type": "object",
-           "required": [
-            "count",
-            "color",
-            "contrast",
-            "against"
-           ],
-           "properties": {
-            "count": {
-             "const": 1
-            },
-            "color": {
-             "type": "string"
-            },
-            "contrast": {
-             "type": "number",
-             "minimum": 3
-            },
-            "against": {
-             "const": "#1c2128"
-            }
-           }
-          },
-          "min_stop_contrast": {
-           "type": "number",
-           "description": "Lowest contrast of any stop against the card."
-          },
-          "clears_everywhere": {
-           "type": "boolean",
-           "description": "Every stop is at least 3:1 against the card."
-          }
-         }
-        },
-        "plasma": {
-         "type": "object",
-         "required": [
-          "from",
-          "to",
-          "stops",
-          "first_level",
-          "min_stop_contrast",
-          "clears_everywhere"
-         ],
-         "properties": {
-          "from": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "to": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "stops": {
-           "type": "array",
-           "items": {
-            "type": "string"
-           },
-           "minItems": 2
-          },
-          "first_level": {
-           "type": "object",
-           "required": [
-            "count",
-            "color",
-            "contrast",
-            "against"
-           ],
-           "properties": {
-            "count": {
-             "const": 1
-            },
-            "color": {
-             "type": "string"
-            },
-            "contrast": {
-             "type": "number",
-             "minimum": 3
-            },
-            "against": {
-             "const": "#1c2128"
-            }
-           }
-          },
-          "min_stop_contrast": {
-           "type": "number",
-           "description": "Lowest contrast of any stop against the card."
-          },
-          "clears_everywhere": {
-           "type": "boolean",
-           "description": "Every stop is at least 3:1 against the card."
-          }
-         }
-        },
-        "turbo": {
-         "type": "object",
-         "required": [
-          "from",
-          "to",
-          "stops",
-          "first_level",
-          "min_stop_contrast",
-          "clears_everywhere"
-         ],
-         "properties": {
-          "from": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "to": {
-           "type": "number",
-           "minimum": 0,
-           "maximum": 1
-          },
-          "stops": {
-           "type": "array",
-           "items": {
-            "type": "string"
-           },
-           "minItems": 2
-          },
-          "first_level": {
-           "type": "object",
-           "required": [
-            "count",
-            "color",
-            "contrast",
-            "against"
-           ],
-           "properties": {
-            "count": {
-             "const": 1
-            },
-            "color": {
-             "type": "string"
-            },
-            "contrast": {
-             "type": "number",
-             "minimum": 3
-            },
-            "against": {
-             "const": "#1c2128"
-            }
-           }
-          },
-          "min_stop_contrast": {
-           "type": "number",
-           "description": "Lowest contrast of any stop against the card."
-          },
-          "clears_everywhere": {
-           "type": "boolean",
-           "description": "Every stop is at least 3:1 against the card."
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "residual": {
-   "anyOf": [
-    {
-     "$ref": "#/$defs/residual_linear"
-    },
-    {
-     "$ref": "#/$defs/residual_circular"
-    }
-   ],
-   "description": "linear for energy and θ; circular for the XGBoost φ residual (statistics)."
-  },
-  "thresholds": {
-   "type": "object",
-   "required": [
-    "moment",
-    "curve",
-    "histogram",
-    "core",
-    "robust",
-    "density2d"
-   ],
-   "properties": {
-    "moment": {
-     "type": "integer"
-    },
-    "curve": {
-     "type": "integer"
-    },
-    "histogram": {
-     "type": "integer"
-    },
-    "core": {
-     "type": "integer"
-    },
-    "robust": {
-     "type": "integer"
-    },
-    "density2d": {
-     "type": "integer"
-    }
-   }
-  },
-  "filter": {
-   "$ref": "#/$defs/filter"
-  },
-  "meta": {
-   "$ref": "#/$defs/meta"
-  },
-  "n_events": {
-   "type": "integer"
-  },
-  "notes": {
-   "type": "object",
-   "additionalProperties": {
-    "type": "string"
-   }
-  },
-  "source": {
-   "const": "xgb"
-  },
-  "labels": {
-   "type": "array",
-   "items": {
-    "enum": [
-     "momentum",
-     "theta",
-     "phi"
-    ]
-   },
-   "minItems": 1,
-   "maxItems": 2
-  },
-  "n_selected": {
-   "type": "integer"
-  },
-  "split": {
-   "$ref": "#/$defs/xgb_split"
-  },
-  "run": {
-   "$ref": "#/$defs/xgb_run"
+  {
+   "$ref": "#/$defs/response_xgb"
   }
- },
+ ],
  "$defs": {
   "interval": {
    "type": "object",
@@ -1168,6 +570,8 @@
       "hi",
       "interval",
       "bins",
+      "bin_rule",
+      "bin_width",
       "clipping",
       "provisional",
       "basis",
@@ -1187,6 +591,15 @@
       },
       "bins": {
        "type": "integer"
+      },
+      "bin_rule": {
+       "type": "string"
+      },
+      "bin_width": {
+       "type": [
+        "number",
+        "null"
+       ]
       },
       "clipping": {
        "$ref": "#/$defs/clipping"
@@ -1486,6 +899,8 @@
       "hi",
       "interval",
       "bins",
+      "bin_rule",
+      "bin_width",
       "clipping",
       "provisional",
       "basis",
@@ -1505,6 +920,15 @@
       },
       "bins": {
        "type": "integer"
+      },
+      "bin_rule": {
+       "type": "string"
+      },
+      "bin_width": {
+       "type": [
+        "number",
+        "null"
+       ]
       },
       "clipping": {
        "$ref": "#/$defs/clipping"
@@ -1771,6 +1195,1105 @@
     },
     "statistics": {
      "const": "circular"
+    }
+   }
+  },
+  "top_axes": {
+   "type": "object",
+   "required": [
+    "truth",
+    "pred"
+   ],
+   "properties": {
+    "truth": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "n",
+      "unit",
+      "label",
+      "zero_based"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "n": {
+       "type": "integer"
+      },
+      "unit": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      },
+      "zero_based": {
+       "type": "boolean"
+      },
+      "circular": {
+       "const": true
+      }
+     }
+    },
+    "pred": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "n",
+      "unit",
+      "label",
+      "zero_based"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "n": {
+       "type": "integer"
+      },
+      "unit": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      },
+      "zero_based": {
+       "type": "boolean"
+      },
+      "circular": {
+       "const": true
+      }
+     }
+    }
+   }
+  },
+  "top_identity": {
+   "type": "object",
+   "required": [
+    "from",
+    "to"
+   ],
+   "properties": {
+    "from": {
+     "type": "number"
+    },
+    "to": {
+     "type": "number"
+    }
+   }
+  },
+  "top_color": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "unit",
+    "empty",
+    "palette",
+    "ramp",
+    "note"
+   ],
+   "properties": {
+    "scale": {
+     "const": "log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number",
+     "description": "log10 of the largest count, at least log10 2 whenever a counts encoding is present, so the scale never collapses to vmin = vmax."
+    },
+    "unit": {
+     "type": "string"
+    },
+    "empty": {
+     "const": "transparent"
+    },
+    "palette": {
+     "enum": [
+      "viridis",
+      "cividis",
+      "plasma",
+      "turbo"
+     ],
+     "description": "The default palette that `ramp` describes; ramp.by_palette measures every offered sequential palette."
+    },
+    "note": {
+     "type": "string"
+    },
+    "ramp": {
+     "type": "object",
+     "required": [
+      "from",
+      "to",
+      "stops",
+      "first_level",
+      "min_stop_contrast",
+      "clears_everywhere",
+      "by_palette"
+     ],
+     "properties": {
+      "from": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "to": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "stops": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 2
+      },
+      "first_level": {
+       "type": "object",
+       "required": [
+        "count",
+        "color",
+        "contrast",
+        "against"
+       ],
+       "properties": {
+        "count": {
+         "const": 1
+        },
+        "color": {
+         "type": "string"
+        },
+        "contrast": {
+         "type": "number",
+         "minimum": 3
+        },
+        "against": {
+         "const": "#1c2128"
+        }
+       }
+      },
+      "min_stop_contrast": {
+       "type": "number",
+       "description": "Lowest contrast of any stop against the card."
+      },
+      "clears_everywhere": {
+       "type": "boolean",
+       "description": "Every stop is at least 3:1 against the card."
+      },
+      "by_palette": {
+       "type": "object",
+       "required": [
+        "viridis",
+        "cividis",
+        "plasma",
+        "turbo"
+       ],
+       "description": "Measured start, stops and first-level colour of each sequential palette the interface offers.",
+       "additionalProperties": false,
+       "properties": {
+        "viridis": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "cividis": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "plasma": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        },
+        "turbo": {
+         "type": "object",
+         "required": [
+          "from",
+          "to",
+          "stops",
+          "first_level",
+          "min_stop_contrast",
+          "clears_everywhere"
+         ],
+         "properties": {
+          "from": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "to": {
+           "type": "number",
+           "minimum": 0,
+           "maximum": 1
+          },
+          "stops": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           },
+           "minItems": 2
+          },
+          "first_level": {
+           "type": "object",
+           "required": [
+            "count",
+            "color",
+            "contrast",
+            "against"
+           ],
+           "properties": {
+            "count": {
+             "const": 1
+            },
+            "color": {
+             "type": "string"
+            },
+            "contrast": {
+             "type": "number",
+             "minimum": 3
+            },
+            "against": {
+             "const": "#1c2128"
+            }
+           }
+          },
+          "min_stop_contrast": {
+           "type": "number",
+           "description": "Lowest contrast of any stop against the card."
+          },
+          "clears_everywhere": {
+           "type": "boolean",
+           "description": "Every stop is at least 3:1 against the card."
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "top_thresholds": {
+   "type": "object",
+   "required": [
+    "moment",
+    "curve",
+    "histogram",
+    "core",
+    "robust",
+    "density2d"
+   ],
+   "properties": {
+    "moment": {
+     "type": "integer"
+    },
+    "curve": {
+     "type": "integer"
+    },
+    "histogram": {
+     "type": "integer"
+    },
+    "core": {
+     "type": "integer"
+    },
+    "robust": {
+     "type": "integer"
+    },
+    "density2d": {
+     "type": "integer"
+    }
+   }
+  },
+  "top_filter": {
+   "$ref": "#/$defs/filter"
+  },
+  "top_meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "top_n_events": {
+   "type": "integer"
+  },
+  "top_notes": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "string"
+   }
+  },
+  "top_source": {
+   "const": "xgb"
+  },
+  "top_labels": {
+   "type": "array",
+   "items": {
+    "enum": [
+     "momentum",
+     "theta",
+     "phi"
+    ]
+   },
+   "minItems": 1,
+   "maxItems": 2
+  },
+  "top_n_selected": {
+   "type": "integer"
+  },
+  "top_split": {
+   "$ref": "#/$defs/xgb_split"
+  },
+  "top_run": {
+   "$ref": "#/$defs/xgb_run"
+  },
+  "residual_linear_two": {
+   "type": "object",
+   "required": [
+    "quantity",
+    "unit",
+    "axis",
+    "series",
+    "excluded",
+    "statistics"
+   ],
+   "properties": {
+    "quantity": {
+     "type": "string"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "axis": {
+     "type": "object",
+     "required": [
+      "lo",
+      "hi",
+      "interval",
+      "bins",
+      "bin_rule",
+      "bin_width",
+      "clipping",
+      "provisional",
+      "basis",
+      "outside",
+      "curve_x",
+      "hist_centres"
+     ],
+     "properties": {
+      "lo": {
+       "type": "number"
+      },
+      "hi": {
+       "type": "number"
+      },
+      "interval": {
+       "type": "number"
+      },
+      "bins": {
+       "type": "integer"
+      },
+      "bin_rule": {
+       "type": "string"
+      },
+      "bin_width": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "clipping": {
+       "$ref": "#/$defs/clipping"
+      },
+      "provisional": {
+       "type": "boolean"
+      },
+      "basis": {
+       "type": "string"
+      },
+      "outside": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "object",
+        "required": [
+         "n",
+         "below",
+         "above"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         },
+         "below": {
+          "type": "integer"
+         },
+         "above": {
+          "type": "integer"
+         }
+        }
+       }
+      },
+      "curve_x": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "hist_centres": {
+       "type": "array",
+       "items": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      }
+     }
+    },
+    "series": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "required": [
+      "a",
+      "b"
+     ],
+     "additionalProperties": {
+      "type": "object",
+      "required": [
+       "key",
+       "label",
+       "shower",
+       "kind",
+       "slice",
+       "fit",
+       "draw",
+       "drives_scale",
+       "estimator",
+       "histogram",
+       "curve",
+       "curve_peak",
+       "strip",
+       "markers",
+       "message",
+       "estimates"
+      ],
+      "properties": {
+       "draw": {
+        "enum": [
+         "histogram",
+         "curve+strip",
+         "strip"
+        ]
+       },
+       "drives_scale": {
+        "type": "boolean"
+       },
+       "fit": {
+        "type": "object"
+       },
+       "histogram": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "strip": {
+        "type": "object",
+        "required": [
+         "values",
+         "n_shown",
+         "truncated"
+        ]
+       },
+       "markers": {
+        "type": [
+         "object",
+         "null"
+        ]
+       },
+       "estimates": {
+        "type": "object",
+        "required": [
+         "bias",
+         "sigma",
+         "rmse"
+        ],
+        "properties": {
+         "bias": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "sigma": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         },
+         "rmse": {
+          "type": "object",
+          "required": [
+           "value",
+           "se",
+           "interval",
+           "n",
+           "note"
+          ],
+          "properties": {
+           "value": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "se": {
+            "type": [
+             "number",
+             "null"
+            ]
+           },
+           "interval": {
+            "anyOf": [
+             {
+              "$ref": "#/$defs/interval"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "n": {
+            "type": "integer"
+           },
+           "note": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       },
+       "circular": {
+        "$ref": "#/$defs/circular_summary"
+       },
+       "core_fit": {
+        "anyOf": [
+         {
+          "$ref": "#/$defs/core_fit"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      }
+     },
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
+    },
+    "excluded": {
+     "type": "object",
+     "required": [
+      "nonpositive_truth"
+     ]
+    },
+    "statistics": {
+     "const": "linear"
+    }
+   },
+   "description": "The linear residual of a network: showers a and b, both required."
+  },
+  "response_network": {
+   "description": "A network of a two-shower experiment: showers a and b, kept apart and both required.",
+   "type": "object",
+   "required": [
+    "meta",
+    "network",
+    "n_events",
+    "axes",
+    "density",
+    "identity",
+    "color",
+    "residual",
+    "thresholds",
+    "notes",
+    "filter"
+   ],
+   "properties": {
+    "network": {
+     "type": "object",
+     "required": [
+      "model",
+      "frame"
+     ],
+     "properties": {
+      "model": {
+       "enum": [
+        "energy",
+        "angle"
+       ]
+      },
+      "frame": {
+       "type": "string",
+       "not": {
+        "const": "xgb"
+       }
+      },
+      "source": {
+       "const": "xgb"
+      },
+      "label": {
+       "enum": [
+        "momentum",
+        "theta",
+        "phi"
+       ]
+      }
+     }
+    },
+    "axes": {
+     "$ref": "#/$defs/top_axes"
+    },
+    "density": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "additionalProperties": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/counts_block"
+       },
+       {
+        "$ref": "#/$defs/pairs_block"
+       }
+      ]
+     },
+     "required": [
+      "a",
+      "b"
+     ],
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
+    },
+    "identity": {
+     "$ref": "#/$defs/top_identity"
+    },
+    "color": {
+     "$ref": "#/$defs/top_color"
+    },
+    "residual": {
+     "$ref": "#/$defs/residual_linear_two"
+    },
+    "thresholds": {
+     "$ref": "#/$defs/top_thresholds"
+    },
+    "filter": {
+     "$ref": "#/$defs/top_filter"
+    },
+    "meta": {
+     "$ref": "#/$defs/top_meta"
+    },
+    "n_events": {
+     "$ref": "#/$defs/top_n_events"
+    },
+    "notes": {
+     "$ref": "#/$defs/top_notes"
+    },
+    "source": {
+     "$ref": "#/$defs/top_source"
+    },
+    "labels": {
+     "$ref": "#/$defs/top_labels"
+    },
+    "n_selected": {
+     "$ref": "#/$defs/top_n_selected"
+    },
+    "split": {
+     "$ref": "#/$defs/top_split"
+    },
+    "run": {
+     "$ref": "#/$defs/top_run"
+    }
+   }
+  },
+  "response_xgb": {
+   "description": "The XGBoost validation-split series of an aggregate experiment: one shower, a.",
+   "type": "object",
+   "required": [
+    "meta",
+    "network",
+    "n_events",
+    "axes",
+    "density",
+    "identity",
+    "color",
+    "residual",
+    "thresholds",
+    "notes",
+    "filter",
+    "source"
+   ],
+   "properties": {
+    "network": {
+     "type": "object",
+     "required": [
+      "model",
+      "frame",
+      "source",
+      "label"
+     ],
+     "properties": {
+      "model": {
+       "enum": [
+        "energy",
+        "angle"
+       ]
+      },
+      "frame": {
+       "const": "xgb"
+      },
+      "source": {
+       "const": "xgb"
+      },
+      "label": {
+       "enum": [
+        "momentum",
+        "theta",
+        "phi"
+       ]
+      }
+     }
+    },
+    "axes": {
+     "$ref": "#/$defs/top_axes"
+    },
+    "density": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "a",
+       "b"
+      ]
+     },
+     "additionalProperties": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/counts_block"
+       },
+       {
+        "$ref": "#/$defs/pairs_block"
+       }
+      ]
+     },
+     "required": [
+      "a"
+     ],
+     "description": "Shower B is present on two-shower data; the XGBoost series has one shower."
+    },
+    "identity": {
+     "$ref": "#/$defs/top_identity"
+    },
+    "color": {
+     "$ref": "#/$defs/top_color"
+    },
+    "residual": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/residual_linear"
+      },
+      {
+       "$ref": "#/$defs/residual_circular"
+      }
+     ],
+     "description": "linear for energy and θ; circular for the XGBoost φ residual (statistics)."
+    },
+    "thresholds": {
+     "$ref": "#/$defs/top_thresholds"
+    },
+    "filter": {
+     "$ref": "#/$defs/top_filter"
+    },
+    "meta": {
+     "$ref": "#/$defs/top_meta"
+    },
+    "n_events": {
+     "$ref": "#/$defs/top_n_events"
+    },
+    "notes": {
+     "$ref": "#/$defs/top_notes"
+    },
+    "source": {
+     "$ref": "#/$defs/top_source"
+    },
+    "labels": {
+     "$ref": "#/$defs/top_labels"
+    },
+    "n_selected": {
+     "$ref": "#/$defs/top_n_selected"
+    },
+    "split": {
+     "$ref": "#/$defs/top_split"
+    },
+    "run": {
+     "$ref": "#/$defs/top_run"
     }
    }
   }

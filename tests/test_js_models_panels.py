@@ -186,6 +186,31 @@ for (const name of %(perf)s) {
     notes: mn.perfBinsNotes({ payload: xgb, quantity: 'median_rel' }) };
   out.perf.geometry = perf.groupedBarGeometry(16, 6, 1);
   out.perf.intervals = [[0, 16], [0, 140], [0, 0.35], [-16, 16], [0, 7]].map(([a, b]) => perf.dividingInterval(a, b));
+  // P-22: the server's rounded tops land on a round step; an older top off the grid still gets one.
+  out.perf.ticks = [[0, 0.12], [0, 1.5], [-1.2, 1.2], [0, 6], [0, 0.3], [0, 8], [0, 0.22], [0, 0.11]]
+    .map(([a, b]) => perf.dividingInterval(a, b));
+}
+{
+  // P-14, P-15: the legend wraps into rows over the plot, and shower B's swatch is its wash and outline.
+  const two = load('perf_two_energy');
+  const opt = perf.perfBinsOption(two, { quantity: 'rmse' }, W);
+  const narrow = perf.perfBinsOption(two, { quantity: 'rmse' }, { width: 360, height: 340 });
+  out.perf.legendOption = { type: opt.legend.type, left: opt.legend.left, right: opt.legend.right,
+    wideTop: opt.grid.top, narrowTop: narrow.grid.top, gridLeft: opt.grid.left, gridRight: opt.grid.right,
+    icons: opt.legend.data.map((d) => d.icon ?? null) };
+  out.perf.swatches = opt.series.filter((x) => x.type === 'custom' && / · shower [AB]$/.test(x.name ?? ''))
+    .map((x) => ({ name: x.name, itemStyle: x.itemStyle }));
+  // P-4 and D-9 on the XGBoost recording: medians of 2-5 events have no interval and are weak.
+  const xgbE = load('perf_xgb_energy');
+  const m = perf.perfModel(xgbE, { quantity: 'median_rel' });
+  out.perf.medianPoints = m.series.flatMap((x) => x.points.map((pt) => ({ n: pt.n, weak: pt.weak, single: pt.single,
+    lo: pt.lo, hi: pt.hi, tip: perf.perfTip(m, x, pt) })));
+  out.perf.medianChart = walk(perf.perfBinsOption(xgbE, { quantity: 'median_rel' }, W));
+  out.perf.xgbEnergy = walk(perf.perfBinsOption(xgbE, { quantity: 'rmse' }, W));
+  out.perf.xgbEnergyModel = (({ momentum, noun, intervalFloor }) => ({ momentum, noun, intervalFloor }))(perf.perfModel(xgbE, { quantity: 'rmse' }));
+  out.notes.xgbEnergy = mn.perfBinsNotes({ payload: xgbE, quantity: 'rmse' });
+  out.perf.casing = scale.THEME.canvas;
+  out.perf.ink = scale.THEME.text;
 }
 
 /* ---- pred-truth ---------------------------------------------------------- */
@@ -206,6 +231,13 @@ for (const name of %(pred)s) {
     outside: { truth_below: 0, truth_above: 0, pred_below: 0, pred_above: 1, total: 1 }, n_missing: { total: 0, prediction: 0, truth: 0 } };
   out.pred.pairs = walk(h2.hist2dOption(few, { palette: 'viridis' }, { width: 760, height: null }));
   out.notes.predPairs = mn.predTruthNotes({ payload: few });
+  // P-19: the XGBoost azimuth spans its period in mrad, ticked at multiples of π/2 written in π.
+  const phi = load('pred_density_xgb_phi');
+  const opt = h2.hist2dOption(phi, { palette: 'viridis' }, { width: 760, height: null });
+  out.pred.phiAxes = [opt.xAxis[0], opt.yAxis[0]].map((a) => ({ min: a.min, max: a.max, interval: a.interval,
+    labels: [-3141.59, -1570.795, 0, 1570.795, 3141.59].map((v) => a.axisLabel.formatter(v)) }));
+  out.pred.phiChart = walk(opt);
+  out.pred.momentum = walk(h2.hist2dOption(load('pred_density_xgb_energy'), { palette: 'viridis' }, { width: 760, height: null }));
 }
 
 /* ---- residual histogram ---------------------------------------------------- */
@@ -286,11 +318,26 @@ for (const name of %(hists)s) {
     series: payload.series.map((s) => ({ draw: s.draw, n: s.n, pairs: s.pairs ?? null, nonzero: (s.counts ?? []).filter((c) => c > 0).length })),
     x: { lo: payload.x.lo, hi: payload.x.hi }, y: { lo: payload.y.lo, hi: payload.y.hi }, color: payload.color } };
   out.hist2d.many = h2.hist2dLayout(19, 1100, { square: false });
+  // P-23: a log10 axis prints its end labels only at decades; P-21: the energy axis falls back to E.
+  const opt = h2.hist2dOption(payload, { palette: 'viridis' }, { width: 760, height: null });
+  out.hist2d.ends = { y: { min: opt.yAxis[0].min, max: opt.yAxis[0].max, showMin: opt.yAxis[0].axisLabel.showMinLabel,
+    showMax: opt.yAxis[0].axisLabel.showMaxLabel }, xHasEnds: 'showMinLabel' in opt.xAxis[0].axisLabel };
+  const tiny = h2.hist2dOption(payload, { palette: 'viridis' }, { width: 230, height: null });
+  out.hist2d.tinyNames = tiny.yAxis.map((a) => a.name).filter(Boolean);
+  out.hist2d.chartTiny = walk(tiny);
 }
 
 /* ---- D3 ------------------------------------------------------------------ */
 for (const name of %(corrs)s) {
   const payload = load(name);
+  // D-10: the feature card fades a cell whose interval contains 0; without the option (C8) nothing is faded.
+  const faded = corr.correlationOption(payload, { palette: 'viridis', fadeNull: true }, { width: 620, height: 560 });
+  const plain = corr.correlationOption(payload, { palette: 'viridis' }, { width: 620, height: 560 });
+  const lin = (o) => o.series[0].data.map((d) => ({ opacity: d.itemStyle?.opacity ?? null, value: d.value }));
+  out.corr[`${name}:fade`] = { faded: lin(faded), plain: lin(plain),
+    tips: faded.series[0].data.map((_, i) => faded.series[0].tooltip.formatter({ dataIndex: i })),
+    matrix: corr.featureCorrMatrix(payload).matrix.map((row) => row.map((c) => (c ? { ci95: c.ci95 ?? null, hatched: Boolean(c.hatched), r: c.r } : null))),
+    notes: mn.featureCorrNotes({ payload }) };
   const k = payload.order.length;
   out.corr[name] = { chart: walk(corr.correlationOption(payload, { palette: 'viridis' }, { width: 620, height: 560 })),
     order: payload.order, circular: payload.circular_cells, hatched: Object.keys(payload.hatched),
@@ -454,6 +501,11 @@ def _all_charts(out: dict):
         yield from out["pred"][name]["charts"].values()
         yield out["residual"][name]["chart"]
     yield out["pred"]["pairs"]
+    yield out["pred"]["phiChart"]
+    yield out["pred"]["momentum"]
+    yield out["perf"]["medianChart"]
+    yield out["perf"]["xgbEnergy"]
+    yield out["hist2d"]["chartTiny"]
     for key in ("strip", "thin", "over", "none", "phi", "phiStrip", "phiStray"):
         yield out["residual"][key]
     for name in HISTS:
@@ -503,18 +555,71 @@ def test_whiskers_are_the_interval_of_the_plotted_statistic_and_only_where_one_e
         assert sum(len(w["items"]) for w in whiskers) == expected, key
         for w in whiskers:
             for item in w["items"]:
-                assert item["el"]["points"] in (2, 4, 6)
+                # P-3: a dark casing under the light ink, so the whisker reads over any bar fill.
+                el = item["el"]
+                assert el["type"] == "group" and len(el["children"]) == 2
+                casing, ink = el["children"]
+                assert casing["points"] == ink["points"] and ink["points"] in (2, 4, 6)
+                assert casing["stroke"] == out["perf"]["casing"] and ink["stroke"] == out["perf"]["ink"]
                 assert "95% interval" in item["tip"] and "not the spread of the showers" in item["tip"]
 
 
-def test_a_bar_of_one_shower_is_faded_and_has_no_whisker(out):
+def test_a_bin_of_one_shower_is_a_dot_with_no_whisker(out):
+    """D-9: one shower is an observation, not an aggregate: a dot labelled so, never a bar."""
     chart = out["perf"]["weak"]
     (bar,) = [s for s in chart["series"] if s["name"] == "Absolute-frame network · shower A"]
     first = bar["items"][0]
-    assert first["el"]["dash"] and first["el"]["fillOpacity"] < 0.5
-    assert "single shower" in first["tip"] and "faded" in first["tip"]
+    assert first["el"]["type"] == "circle" and first["el"]["rect"] is None
+    assert "one shower" in first["tip"] and "dot" in first["tip"] and "not an aggregate" in first["tip"]
+    assert all(i["el"]["type"] == "rect" for i in bar["items"][1:])
     (whisker,) = _named(chart, r"^Absolute-frame network · shower A · 95% interval$")
     assert len(whisker["items"]) == len(bar["items"]) - 1
+
+
+def test_a_point_without_an_interval_is_weak_whatever_its_n(out):
+    """P-4: medians of 2-5 events have no interval, so they are faded, and say which floor they miss."""
+    points = out["perf"]["medianPoints"]
+    for p in points:
+        assert p["weak"] is (p["lo"] is None or p["hi"] is None), p
+        assert p["single"] is (p["n"] == 1)
+    small = [p for p in points if 2 <= p["n"] < 6]
+    assert small, "the recording has medians of 2-5 events"
+    for p in small:
+        assert p["weak"] and "interval floor, N = 6" in p["tip"] and "faded" in p["tip"]
+    bars = [s for s in out["perf"]["medianChart"]["series"] if s["name"].startswith("XGBoost") and "·" not in s["name"]]
+    drawn = [i for s in bars for i in s["items"] if i["el"]["type"] == "rect"]
+    assert drawn and all(i["el"]["dash"] for i in drawn if "faded" in i["tip"])
+
+
+def test_the_xgboost_momentum_regressor_is_labelled_momentum(out):
+    """P-5: the aggregate's regressor predicts momentum, which is not an energy for μ, π and p."""
+    model = out["perf"]["xgbEnergyModel"]
+    assert model["momentum"] is True and model["noun"] == "event"
+    y = out["perf"]["xgbEnergy"]["yAxis"][0]["name"]
+    assert "momentum" in y and "energy" not in y.lower()
+    notes = out["notes"]["xgbEnergy"]
+    selection = " ".join(line for sec in notes["sections"] if sec["heading"] == "Selection"
+                         for line in sec["lines"] if line)
+    assert "XGBoost momentum regressor" in selection and "energy network" not in selection
+    tips = [i["tip"] for s in out["perf"]["xgbEnergy"]["series"] for i in s["items"] if i["tip"]]
+    assert any("χ² interval of the RMSE" in t and "normally distributed residuals" in t for t in tips)
+    pred = out["pred"]["momentum"]
+    assert any("Predicted momentum" in a["name"] for a in pred["yAxis"])
+
+
+def test_the_legend_wraps_and_shower_bs_swatch_is_its_wash(out):
+    """P-14, P-15: the legend wraps into rows over the plot width; B's swatch matches its bars."""
+    lo = out["perf"]["legendOption"]
+    assert lo["type"] == "plain" and lo["left"] == lo["gridLeft"] and lo["right"] == lo["gridRight"]
+    assert lo["narrowTop"] > lo["wideTop"], "a narrow card takes more legend rows, not a pager"
+    assert set(lo["icons"]) == {"rect"}
+    for s in out["perf"]["swatches"]:
+        style = s["itemStyle"]
+        if s["name"].endswith("shower B"):
+            assert style["color"].startswith("rgba(") and style["color"].endswith(",0.22)")
+            assert style["borderColor"] and style["borderWidth"] == 1
+        else:
+            assert style["color"].startswith("#") and "borderColor" not in style
 
 
 def test_bars_and_whiskers_beyond_the_range_are_clipped_with_carets_and_counted(out):
@@ -547,6 +652,8 @@ def test_the_bar_geometry_and_the_tick_intervals(out):
     assert g["offsets"][0] == pytest.approx(-g["offsets"][-1])
     assert 6 * g["width"] < 1
     assert out["perf"]["intervals"] == [2, 20, 0.05, 4, 1]
+    # P-22: round steps only; 0.22 and 0.11 (older tops off the grid) never get a quarter of the span.
+    assert out["perf"]["ticks"] == pytest.approx([0.02, 0.25, 0.4, 1, 0.05, 1, 0.05, 0.02])
 
 
 # ------------------------------------------------------------ pred-truth --
@@ -973,3 +1080,58 @@ def test_the_notes_module_reads_no_page():
     source = _strip_comments((JS / "models_notes.js").read_text(encoding="utf-8"))
     for forbidden in ("document.", "window.", "innerHTML"):
         assert forbidden not in source
+
+
+# ------------------------------------------------- fix round B additions --
+
+
+def test_the_azimuth_prediction_axes_span_its_period_in_mrad_with_pi_ticks(out):
+    """P-19: φ's axes are [−π, π] in mrad whatever the data, ticked at π/2 and written in π."""
+    for axis in out["pred"]["phiAxes"]:
+        assert axis["min"] == pytest.approx(-3141.59) and axis["max"] == pytest.approx(3141.59)
+        assert axis["interval"] == pytest.approx(1000 * 3.141592653589793 / 2)
+        assert axis["labels"] == ["−π", "−π/2", "0", "π/2", "π"]
+
+
+def test_log_axis_end_labels_only_at_decades_and_the_energy_axis_is_never_y(out):
+    """P-23: no 0.316228 end label; P-21: the deposited-energy axis falls back to E, not y."""
+    ends = out["hist2d"]["ends"]
+    y = ends["y"]
+    assert y["min"] == -3.5 and y["max"] == 0.0
+    assert y["showMin"] is False and y["showMax"] is True
+    assert ends["xHasEnds"] is False, "a linear axis keeps ECharts' default end labels"
+    names = out["hist2d"]["tinyNames"]
+    assert names and all(not re.match(r"y\b", n) for n in names), names
+    assert any(n.startswith("E [GeV]") or "energy" in n for n in names), names
+
+
+@pytest.mark.parametrize("name", CORRS)
+def test_the_feature_card_fades_correlations_indistinguishable_from_none(out, name):
+    """D-10: a cell whose 95% interval contains 0 (or has none) is faded; C8's default is untouched."""
+    fade = out["corr"][f"{name}:fade"]
+    linear = {}
+    for i, row in enumerate(fade["matrix"]):
+        for j, cell in enumerate(row):
+            if cell and not cell["hatched"] and cell["r"] is not None:
+                linear[(j, i - 1)] = cell
+    assert len(fade["faded"]) == len(linear)
+    n_faded = 0
+    for item, tip in zip(fade["faded"], fade["tips"]):
+        cell = linear[tuple(item["value"][:2])]
+        ci = cell["ci95"]
+        expected = ci is None or (ci[0] <= 0 <= ci[1])
+        assert (item["opacity"] is not None) is expected, (item, ci)
+        assert ("faded:" in tip) is expected
+        n_faded += expected
+    assert all(item["opacity"] is None for item in fade["plain"]), "C8 (no option) is never faded"
+    disclosures = next(s["lines"] for s in fade["notes"]["sections"] if s["heading"] == "Disclosures")
+    if n_faded:
+        assert any(f"{n_faded} cell" in line and "faded" in line for line in disclosures), disclosures
+
+
+def test_the_residual_drawer_states_the_freedman_diaconis_exception(out):
+    """D-8: residual bins follow the IQR of the drawn showers, an exception to Rice stated in the drawer."""
+    for name in PRED:
+        drawn = out["notes"]["residual"][name]["sections"]["What is drawn"]
+        line = next(line for line in drawn if line.startswith("Bins:"))
+        assert "Freedman" in line and "Rice" in line and "prediction residuals only" in line

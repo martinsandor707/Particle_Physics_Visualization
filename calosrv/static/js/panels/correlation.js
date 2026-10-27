@@ -44,13 +44,23 @@
  * twenty-one variables the cells are small, so the printed r is dropped when
  * it would not fit its cell and the tooltip carries it; the axis labels are
  * the feature ids, the x labels turned upright.
+ *
+ * ## Weak correlations are faded (opt-in, decision D-10)
+ *
+ * With `opts.fadeNull` (the feature card sets it; the Physics page's C8 does
+ * not, so its picture is unchanged) a linear cell whose 95% interval contains
+ * zero, or that has no interval, is drawn at `NULL_OPACITY` over the card: at
+ * N = 4 the Fisher interval spans nearly [−1, 1], and a full-strength colour
+ * would claim an association the sample cannot tell from none. Its r is still
+ * printed, in the ink that contrasts with the faded colour, and its tooltip
+ * says why it is faded.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatSigned, rampPalette, rampMidLabel, visualMap } from '../scale.js';
 import { contrast, lookupTable } from '../palette.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
-import { ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, rgbOf } from './chart_panel.js';
+import { ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, rgbOf, blendOver } from './chart_panel.js';
 
 /** How each variable is written on the matrix axes. */
 const SYMBOLS = {
@@ -68,6 +78,16 @@ export function hatchDecal() {
     rotation: Math.PI / 4,
     color: THEME.hatch,
   };
+}
+
+/** The opacity of a faded cell (`opts.fadeNull`): its 95% interval contains zero, or it has none. */
+export const NULL_OPACITY = 0.35;
+
+/** Whether a linear cell's correlation is indistinguishable from none: its interval contains 0, or is absent. */
+export function containsZero(cell) {
+  const ci = cell?.ci95;
+  if (!Array.isArray(ci) || !Number.isFinite(ci[0]) || !Number.isFinite(ci[1])) return true;
+  return ci[0] <= 0 && ci[1] >= 0;
 }
 
 /** The linear diverging scale of r. */
@@ -110,8 +130,8 @@ function sampleText(payload, cell) {
   return `N = ${formatInt(payload.n_hits)} hits in ${formatInt(payload.n_events)} events`;
 }
 
-/** The tooltip of one linear cell. */
-export function cellTip(payload, vi, vj, cell) {
+/** The tooltip of one linear cell; `faded` adds why it is drawn faint (D-10). */
+export function cellTip(payload, vi, vj, cell, faded = false) {
   const a = variableSymbol(vj);
   const b = variableSymbol(vi);
   const lines = [`<b>r(${escapeHtml(a)}, ${escapeHtml(b)}) = ${formatSigned(cell.r, 3)}</b>`];
@@ -130,6 +150,11 @@ export function cellTip(payload, vi, vj, cell) {
   if (weighting) lines.push(mutedLine(weighting));
   if (payload.method) lines.push(mutedLine(payload.method));
   if (cell.caution) lines.push(mutedLine(`hatched: ${cell.caution}`));
+  if (faded) {
+    lines.push(mutedLine(cell.ci95
+      ? 'faded: the 95% interval contains 0, so this sample cannot tell the correlation from none'
+      : 'faded: no 95% interval at this sample size, so nothing says the correlation differs from none'));
+  }
   return lines.join('<br/>');
 }
 
@@ -254,7 +279,7 @@ export function featureCircularTip(payload, vi, vj, cell) {
 
 /**
  * The C8 option (and D3's, through `featureCorrMatrix`). Pure: `opts` =
- * {palette, tooltipPosition?}; `metrics` = {width, height}.
+ * {palette, tooltipPosition?, fadeNull?}; `metrics` = {width, height}.
  */
 export function correlationOption(payload, opts = {}, metrics = {}) {
   if (isFeatureCorr(payload)) payload = featureCorrMatrix(payload);
@@ -291,12 +316,19 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
       const hatched = Boolean(cell.hatched) || isCircular(vars[i]) || isCircular(vars[j]);
       // Row i is drawn at y = i − 1: the first variable has no cell below the diagonal.
       if (!hatched && Number.isFinite(cell.r)) {
+        const faded = Boolean(opts.fadeNull) && containsZero(cell);
         const rgb = cellColour(cell.r, palette);
+        // A faded cell's label is set against the colour as drawn, over the card.
+        const shown = faded ? blendOver(`rgb(${rgb.join(',')})`, NULL_OPACITY) : rgb;
+        const style = {
+          ...(cell.caution ? { decal: hatchDecal() } : {}),
+          ...(faded ? { opacity: NULL_OPACITY } : {}),
+        };
         linear.push({
           value: [j, i - 1, cell.r],
-          label: { color: labelColour(rgb) },
-          ...(cell.caution ? { itemStyle: { decal: hatchDecal() } } : {}),
-          cell, i, j,
+          label: { color: labelColour(shown) },
+          ...(Object.keys(style).length ? { itemStyle: style } : {}),
+          cell, i, j, faded,
         });
       } else {
         const R = cell.mardia?.R;
@@ -373,7 +405,12 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
         },
         itemStyle: { borderColor: THEME.card, borderWidth: 1 },
         emphasis: { disabled: true },
-        tooltip: { formatter: (p) => cellTip(payload, vars[linear[p.dataIndex].i], vars[linear[p.dataIndex].j], linear[p.dataIndex].cell) },
+        tooltip: {
+          formatter: (p) => {
+            const it = linear[p.dataIndex];
+            return cellTip(payload, vars[it.i], vars[it.j], it.cell, it.faded);
+          },
+        },
       },
       {
         type: 'heatmap',

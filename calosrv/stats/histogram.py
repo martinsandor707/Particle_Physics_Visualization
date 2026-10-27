@@ -157,3 +157,41 @@ def count_histogram(values: np.ndarray, edges: np.ndarray) -> CountHistogram:
     counts, _ = np.histogram(inside, bins=edges)
     return CountHistogram([int(c) for c in counts], int(finite.size), int(inside.size),
                           below, above)
+
+
+#: How the prediction residual histograms are binned (decision D-8), for their drawers.
+FREEDMAN_DIACONIS_RULE = (
+    "Freedman–Diaconis: bin width 2 · IQR · N^(−1/3), the widest among the drawn series so "
+    f"they share one binning, clamped to {MIN_BINS}–{DEFAULT_BINS} bins over the axis. An "
+    "exception to the Rice rule, for prediction residuals only: their tails are heavy, and "
+    "a bin count set by the sample size alone spreads the core over a single bin of a range "
+    "the tail sets, while the interquartile range follows the core")
+
+
+def freedman_diaconis_bins(samples: list[np.ndarray], lo: float, hi: float,
+                           cap: int = DEFAULT_BINS) -> tuple[int, float | None]:
+    """``(bins, width)``: the Freedman–Diaconis count over [lo, hi], clamped to 8–``cap``.
+
+    Each sample's width is ``2 · IQR · n^(−1/3)``; the widest is used so every
+    series shares one binning and the smallest one, whose width is the
+    largest, is not split finer than its own rule allows. ``width`` is
+    ``None`` when no sample has a positive IQR (fewer than two distinct
+    values in the middle half); the count then falls back to the Rice rule of
+    the smallest sample, :func:`adaptive_bins`.
+    """
+    widths = []
+    sizes = []
+    for values in samples:
+        x = np.asarray(values, dtype=np.float64)
+        x = x[np.isfinite(x)]
+        if x.size < 2:
+            continue
+        sizes.append(int(x.size))
+        q1, q3 = np.percentile(x, [25.0, 75.0])
+        if q3 > q1:
+            widths.append(2.0 * float(q3 - q1) * x.size ** (-1.0 / 3.0))
+    span = hi - lo
+    if not widths or not span > 0:
+        return adaptive_bins(min(sizes) if sizes else 0, cap), None
+    width = max(widths)
+    return int(max(MIN_BINS, min(cap, math.ceil(span / width - 1e-9)))), width

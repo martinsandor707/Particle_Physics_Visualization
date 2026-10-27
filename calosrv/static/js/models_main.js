@@ -22,9 +22,9 @@
  * new one's name.
  *
  * The 3-D views (js/voxel_views.js `VoxelSection`) and the 2-D panel modules
- * are being built beside this module: each is imported by a guarded dynamic
- * import, and a part not built yet says so on its card instead of taking the
- * page down.
+ * are imported on first use by dynamic import. A module that fails to load
+ * (the network, a stale cache) says so where it would have drawn instead of
+ * taking the page down.
  */
 
 import { getJson, debounce, DEBOUNCE_MS, isAbort } from './api.js';
@@ -89,13 +89,13 @@ const models = new ModelsSection({
 /* The 3-D views, mounted by `mountVoxels` once their module has loaded. */
 let voxels = null;
 
-/** What the 3-D views' host says while their module is not built yet. */
-const VOXELS_PENDING = 'The 3-D views are not built yet in this release.';
+/** What the 3-D views' host says when their module failed to load. */
+const VOXELS_FAILED = 'The 3-D views could not be loaded; reload the page (Ctrl+Shift+R) to try again.';
 
 /**
  * Mount the 3-D views into `#voxels-grid`: a guarded dynamic import, so a
- * module still being built (or failing to load) leaves a sentence in the host
- * and the rest of the page working.
+ * module that fails to load leaves a sentence in the host and the rest of the
+ * page working.
  */
 async function mountVoxels() {
   const host = document.getElementById('voxels-grid');
@@ -104,12 +104,12 @@ async function mountVoxels() {
   try {
     module = await import('./voxel_views.js');
   } catch (error) {
-    console.warn('[calosrv] 3-D views unavailable', error);
+    reportError(error, '3-D views');
   }
   if (typeof module?.VoxelSection !== 'function') {
     const note = document.createElement('p');
     note.className = 'voxels-pending';
-    note.textContent = VOXELS_PENDING;
+    note.textContent = VOXELS_FAILED;
     host.replaceChildren(note);
     return null;
   }

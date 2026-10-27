@@ -29,17 +29,20 @@
  * Some state is the page's, not the card's: the network task (`model`, or
  * `xgb_task` where an XGBoost regressor stands in for the networks), the
  * feature, its classes and, on two-shower data, its shower (`fshower`: A or
- * B, sent on every feature request), the XGBoost task and output. Those controls write
+ * B, sent on every feature request), on an event-level aggregate the frame
+ * of its features (the shared `frame` key: absolute, per-shower translated or
+ * Local, the sidebar having no frame control there), the XGBoost task and
+ * output. Those controls write
  * the shared State, so a link restores them and the sidebar and every card
  * that reads one agree; the rest (`DEFAULT_CONTROLS`) are ephemeral, like the
  * Physics page's card controls.
  *
  * The panel classes and the notes builders are fetched on first use
- * (`import()`, stamped like every static import). They are being built beside
- * this module: a module that is missing, or that does not export the class or
- * builder by name (checked with `typeof`), leaves its card saying it is not
- * built yet, never an exception, and the drawer falls back to the payload's
- * own notes. Tests inject classes of their own (`panelClasses`).
+ * (`import()`, stamped like every static import). A panel module that fails
+ * to load (the network, a stale cache) is a load failure like any other: its
+ * card says so with a Retry. A notes module that fails to load leaves the
+ * drawer with the payload's own notes. Tests inject classes of their own
+ * (`panelClasses`) or a module's loader (`panelModules`).
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
@@ -73,9 +76,6 @@ const EXPORT_TITLE = 'Export this panel\'s plot as a publication figure (white b
   + 'plot area only — see Details for its disclosures)';
 const DETAILS_TITLE = 'Methodology and disclosures for this panel';
 
-/** What a card says while its panel module is still being built. */
-export const NOT_BUILT = 'This panel is not built yet in this release.';
-
 /** What the performance cards say while the segmentation network is selected. */
 export const SEGMENTATION_NOTICE = 'The segmentation network has no per-shower prediction to set against a '
   + 'truth: its quality belongs to the whole event (the Physics page’s model cards). Choose the Energy or '
@@ -104,7 +104,7 @@ export const MODELS_CARDS = Object.freeze([
     group: 'xgb-cv', notes: ['xgb', 'xgbCvNotes'], exportable: true,
   },
   {
-    id: 'xgb-binary', section: 'xgb', title: 'Binary Thresholding at 2 GeV (99 : 1)', panel: 'XgbBinaryPanel',
+    id: 'xgb-binary', section: 'xgb', title: 'Binary Thresholding at 2 GeV', panel: 'XgbBinaryPanel',
     group: 'xgb-binary', notes: ['xgb', 'xgbBinaryNotes'], exportable: true,
   },
   {
@@ -222,14 +222,34 @@ export function featureShower(plan, view) {
   return view.fshower === 'b' ? 'b' : 'a';
 }
 
-/** The frame the feature cards are served in for the selected frame (capabilities.js `viewFrame`). */
+/**
+ * The frame the feature cards are served in for the selected frame
+ * (capabilities.js `viewFrame`). A hit experiment offers the frames of its
+ * sidebar; an event-level aggregate, which has none, the frames its feature
+ * columns were computed in (`plan.featureFrames`: abs, trn, loc), chosen on
+ * the feature cards. Pure.
+ */
 export function featureFrame(plan, view) {
-  if (!plan?.hasHits) return { frame: null, fallback: false, note: null };
+  if (!plan?.hasHits) {
+    const frames = plan?.featureFrames ?? [];
+    if (!frames.length) return { frame: null, fallback: false, note: null };
+    return viewFrame('features', view.frame, frames, plan?.nShowers ?? 1);
+  }
   return viewFrame('features', view.frame, plan?.frames?.offered ?? [], plan?.nShowers ?? 2);
 }
 
+/** Whether the feature cards carry their own frame control: an aggregate's, with no sidebar frame. */
+export function featureFrameApplies(plan) {
+  return Boolean(plan) && !plan.hasHits && (plan.featureFrames?.length ?? 0) > 0;
+}
+
+/** Whether the performance cards draw an aggregate's XGBoost regressors rather than networks. */
+function xgbStandsIn(plan) {
+  return Boolean(plan) && !plan.networks && Boolean(plan.xgb?.tasks?.length);
+}
+
 const STAT_CHOICES = [
-  { value: 'rmse', label: 'RMSE', title: 'Root-mean-square error, with the t interval of the mean squared residual, square-rooted' },
+  { value: 'rmse', label: 'RMSE', title: 'Root-mean-square error, with its χ² interval under normal residuals below N = 20 and its seeded bootstrap interval from N = 20' },
   { value: 'mae', label: 'MAE', title: 'Mean absolute error, with its Student-t interval' },
   { value: 'median_rel', label: 'Median rel.', title: 'Median relative error, with its order-statistic or bootstrap interval' },
   { value: 'bias', label: 'Bias', title: 'Mean signed residual, with its Student-t interval' },
@@ -261,7 +281,8 @@ const SCALE_CHOICES = [
  * choice is off. Each function takes `{plan, view, controls, payload}`. */
 const TASK_CONTROL = {
   name: 'perfTask', kind: 'seg', attr: 'modelsTask', label: 'Task', request: true,
-  choices: () => MODELS_LABELS.task,
+  // An aggregate's XGBoost regressor predicts momentum, and its button says so.
+  choices: ({ plan }) => (xgbStandsIn(plan) ? MODELS_LABELS.xgb_perf_task : MODELS_LABELS.task),
   get: ({ plan, view }) => perfTask(plan, view),
   write: ({ plan }, value) => (plan?.networks ? { model: value } : { xgb_task: value === 'angle' ? 'angle' : 'momentum' }),
   visible: ({ plan }) => Boolean(plan?.networks || plan?.xgb?.tasks?.length),
@@ -315,6 +336,17 @@ const FEATURE_SHOWER_CONTROL = {
   visible: ({ plan }) => (plan?.nShowers ?? 2) === 2,
 };
 
+/* The frame of an aggregate's features: the shared `frame` key, written only
+ * with the three frames its columns hold, so the D-frame is never offered. */
+const FEATURE_FRAME_CONTROL = {
+  name: 'featureFrame', kind: 'seg', attr: 'featureFrame', label: 'Frame', stateKey: 'frame', request: true,
+  choices: () => MODELS_LABELS.feature_frame,
+  get: ({ plan, view }) => featureFrame(plan, view).frame ?? 'lab',
+  visible: ({ plan }) => featureFrameApplies(plan),
+  choiceDisabled: ({ plan }, value) => ((plan?.featureFrames ?? []).includes(value)
+    ? null : 'The features are not served in this frame for this experiment.'),
+};
+
 const FEATURE_CONTROL = {
   name: 'feature', kind: 'select', attr: 'featureId', label: 'Feature', stateKey: 'feature', request: true,
   choices: ({ plan }) => featureChoices(plan?.hasHits ?? true).map((f) => ({ value: f.key, label: f.label })),
@@ -364,10 +396,10 @@ const CARD_CONTROLS = {
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
-  'feat-table': [FEATURE_SHOWER_CONTROL, CLASS_CONTROL, TABLE_STAT_CONTROL],
-  'feat-corr': [FEATURE_SHOWER_CONTROL, CLASS_CONTROL, CORR_CLASS_CONTROL],
-  'feat-hist': [FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL, SCALE_CONTROL],
-  'feat-hist2d': [FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL],
+  'feat-table': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, CLASS_CONTROL, TABLE_STAT_CONTROL],
+  'feat-corr': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, CLASS_CONTROL, CORR_CLASS_CONTROL],
+  'feat-hist': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL, SCALE_CONTROL],
+  'feat-hist2d': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL],
 };
 
 /** The control specs of one card. */
@@ -461,8 +493,9 @@ export function cardCaption(id, { view = VIEW_DEFAULTS, plan = null } = {}) {
 /**
  * What a card's panel is rendered with (the fixed interface): `palette`,
  * `card`, and per card `task`, `label`, `quantity` (the E2 statistic),
- * `classes` and `feature`; and the options the panels read beside them:
- * `shower` (A, B or both, on two-shower data) and the feature table's `stat`.
+ * `classes`, `frame` (the feature cards' served frame) and `feature`; and the
+ * options the panels read beside them: `shower` (A, B or both, on two-shower
+ * data), the feature table's `stat` and the correlation card's `fadeNull`.
  * Pure.
  */
 export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTROLS, plan = null, palette = 'viridis' } = {}) {
@@ -482,7 +515,10 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
   } else if (spec.section === 'features') {
     opts.classes = v.fclass;
+    opts.frame = featureFrame(plan, v).frame;
     if (id === 'feat-table') opts.stat = c.tableStat;
+    // D-10: a correlation whose 95% interval contains zero is faded (the Physics page's C8 is not).
+    if (id === 'feat-corr') opts.fadeNull = true;
     if (id === 'feat-hist' || id === 'feat-hist2d') opts.feature = featureOf(plan, v);
   } else if (spec.section === 'xgb') {
     if (id !== 'xgb-binary') opts.task = v.xgb_task;
@@ -499,7 +535,7 @@ export function exportMeta(payload) {
   return meta;
 }
 
-/** Plain notes from the payload's own lines, when no builder exists for a card yet. */
+/** Plain notes from the payload's own lines, when the card's notes module failed to load. */
 function fallbackNotes(title, payload) {
   const raw = payload?.notes;
   const notes = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw) : []);
@@ -516,35 +552,18 @@ function shutNotes(title, reason) {
   return { title, hazards: [], sections: [{ heading: SECTION.disclosures, lines: [reason] }] };
 }
 
-/** A panel module that is missing, or does not export its class: the card says so and is not asked again. */
-class NotBuiltError extends Error {
-  constructor(name, cause = null) {
-    super(NOT_BUILT);
-    this.name = 'NotBuiltError';
-    this.panel = name;
-    this.cause = cause;
-    // A 4xx-like answer: asking again in this page load would only repeat it.
-    this.status = 404;
-  }
-}
-
 /**
- * A panel class by name: an injected one, else its module's export, checked
- * with `typeof` - a module another engineer is still building may be absent
- * or may not export it yet.
+ * A panel class by name: an injected one, else its module's export. A module
+ * that fails to load rejects as the import did (a transient failure, retried);
+ * a module without the class is a release fault, said in plain words.
  */
 export async function loadPanelClass(name, injected = null, modules = PANEL_MODULES) {
   if (injected && typeof injected[name] === 'function') return injected[name];
   const load = modules?.[name] ?? PANEL_MODULES[name];
-  if (typeof load !== 'function') throw new NotBuiltError(name);
-  let module;
-  try {
-    module = await load();
-  } catch (error) {
-    throw new NotBuiltError(name, error);
-  }
+  if (typeof load !== 'function') throw new Error(`No panel module is registered for ${name}.`);
+  const module = await load();
   const Class = module?.[name];
-  if (typeof Class !== 'function') throw new NotBuiltError(name);
+  if (typeof Class !== 'function') throw new Error(`The panel module does not export ${name}; reload the page.`);
   return Class;
 }
 
@@ -591,10 +610,7 @@ export class ModelsSection {
       root,
       // In view means in view: the plan's decision D3 (Martin).
       rootMargin: '0px',
-      // A panel not built yet says so on its card; it is not the page's error.
-      onError: (error, element) => {
-        if (error?.name !== 'NotBuiltError') this.onError(error, this.titleOf(element));
-      },
+      onError: (error, element) => this.onError(error, this.titleOf(element)),
     });
     for (const spec of MODELS_CARDS) {
       const host = this.hosts[spec.section];
@@ -744,7 +760,14 @@ export class ModelsSection {
           built.select.value = String(value);
           built.select.disabled = choices.length < 2;
         } else {
-          for (const [choice, { button, title }] of built.buttons) {
+          const labelled = new Map(control.choices(ctx).map((c) => [c.value, c]));
+          for (const [choice, entry] of built.buttons) {
+            const named = labelled.get(choice);
+            if (named) {
+              if (entry.button.textContent !== named.label) entry.button.textContent = named.label;
+              entry.title = named.title ?? '';
+            }
+            const { button, title } = entry;
             const reason = control.choiceDisabled ? control.choiceDisabled(ctx, choice) : null;
             button.classList.toggle('is-active', choice === value);
             button.setAttribute('aria-pressed', String(choice === value));
@@ -872,7 +895,7 @@ export class ModelsSection {
   refreshVisible() {
     this.lazy.refresh().then((results) => {
       for (const result of results) {
-        if (result.status === 'rejected' && !isAbort(result.reason) && result.reason?.name !== 'NotBuiltError') {
+        if (result.status === 'rejected' && !isAbort(result.reason)) {
           this.onError(result.reason, this.titleOf(result.element));
         }
       }
@@ -891,15 +914,14 @@ export class ModelsSection {
   /**
    * Load every visible card whose request changed. Rejects with one error
    * naming each card that failed (each also says so on itself); a superseded
-   * request and a panel not built yet are not failures of the page.
+   * request is not a failure of the page.
    */
   async refresh() {
     if (!this.plan) return [];
     this.syncControls();
     const results = await this.lazy.refresh();
     const failures = results
-      .filter((result) => result.status === 'rejected' && !isAbort(result.reason)
-        && result.reason?.name !== 'NotBuiltError')
+      .filter((result) => result.status === 'rejected' && !isAbort(result.reason))
       .map((result) => `${this.titleOf(result.element)}: ${describeError(result.reason)}`);
     if (failures.length) throw new Error(failures.join('; '));
     return results;
@@ -965,14 +987,10 @@ export class ModelsSection {
         record.payload = null;
         record.error = describeError(error);
         this.blank(record);
-        // A refusal is the server's answer to this request, and a panel not
-        // built yet will not be built in this page load; anything else may
-        // pass, and the card is asked again on its next visibility, the next
-        // refresh, or now.
-        this.showMessage(record, record.error, {
-          offerRetry: !isRefusal(error),
-          kind: error?.name === 'NotBuiltError' ? 'pending' : 'error',
-        });
+        // A refusal is the server's answer to this request; anything else
+        // (a failed panel import included) may pass, and the card is asked
+        // again on its next visibility, the next refresh, or now.
+        this.showMessage(record, record.error, { offerRetry: !isRefusal(error), kind: 'error' });
         this.onRendered(record.spec.id, null);
       }
       throw error;
@@ -1052,7 +1070,7 @@ export class ModelsSection {
 
   /**
    * Say on the card why it shows nothing: a load that failed, a gate the
-   * server shut, a view the card does not apply in, or a panel not built yet.
+   * server shut, or a view the card does not apply in.
    * A card shut for want of a derived-table rebuild offers Admin Settings.
    */
   showMessage(record, text, { offerRebuild = false, offerRetry = false, kind = 'error' } = {}) {

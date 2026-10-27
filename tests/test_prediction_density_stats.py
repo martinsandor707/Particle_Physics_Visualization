@@ -437,3 +437,70 @@ def test_a_scale_where_every_cell_holds_one_shower_still_spans_a_range():
     assert all(d["max_count"] == 1 for d in payload["density"].values())
     assert payload["color"]["vmax"] > payload["color"]["vmin"]
     assert payload["color"]["vmax"] == sig(math.log10(2))
+
+
+# ------------------------------------------------ fix round B: D-8, P-5, P-19, R-1 --
+
+_PAYLOADS = __import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "payloads"
+
+
+def _recorded(name: str) -> dict:
+    return json.loads((_PAYLOADS / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def test_freedman_diaconis_takes_the_widest_drawn_width_and_clamps():
+    rng = np.random.default_rng(7)
+    narrow, wide = rng.normal(0, 0.03, 400), rng.normal(0, 0.3, 40)
+    bins, width = histogram.freedman_diaconis_bins([narrow, wide], -2.0, 2.0)
+    expected = max(2 * np.subtract(*np.percentile(x, [75, 25])) * x.size ** (-1 / 3) for x in (narrow, wide))
+    assert width == pytest.approx(expected)
+    assert bins == max(8, min(120, math.ceil(4.0 / expected - 1e-9)))
+    # A very narrow core over a wide axis is clamped at 120, a wide one at 8.
+    assert histogram.freedman_diaconis_bins([rng.normal(0, 1e-4, 500)], -1, 1)[0] == 120
+    assert histogram.freedman_diaconis_bins([rng.normal(0, 10, 30)], -1, 1)[0] == 8
+    # No interquartile range: the Rice count of the smallest sample, and no width.
+    assert histogram.freedman_diaconis_bins([np.ones(50)], -1, 1) == (histogram.adaptive_bins(50), None)
+
+
+def test_the_xgboost_regressor_is_labelled_momentum_and_phi_spans_its_period():
+    energy = _recorded("pred_density_xgb_energy")
+    assert energy["axes"]["pred"]["label"] == "Predicted momentum"
+    assert energy["residual"]["quantity"].startswith("Relative momentum residual")
+    phi = _recorded("pred_density_xgb_phi")
+    for axis in phi["axes"].values():
+        assert axis["circular"] is True and axis["unit"] == "mrad"
+        assert (axis["lo"], axis["hi"]) == (sig(-math.pi * 1000), sig(math.pi * 1000))
+    assert "π" not in phi["residual"]["quantity"] and "3142" in phi["residual"]["quantity"]
+    # The networks keep their energy wording: the energy network predicts an energy.
+    assert _recorded("pred_density_two_energy")["axes"]["pred"]["label"] == "Predicted energy"
+
+
+def test_the_contract_requires_shower_b_unless_the_series_is_xgboost():
+    """R-1: a two-shower response that loses shower B no longer satisfies its contract."""
+    # The recordings store meta without its timing keys: checked here without meta.
+    root = json.loads(json.dumps(contract_check.load("prediction_density")))
+    for branch in ("response_network", "response_xgb"):
+        root["$defs"][branch]["required"].remove("meta")
+        del root["$defs"][branch]["properties"]["meta"]
+
+    def check(value, name):
+        found = contract_check.errors(value, root)
+        if found:
+            raise contract_check.ContractError("; ".join(found))
+
+    two = _recorded("pred_density_two_energy")
+    check(two, "prediction_density")
+    for path in (("density",), ("residual", "series")):
+        broken = json.loads(json.dumps(two))
+        node = broken
+        for key in path:
+            node = node[key]
+        del node["b"]
+        with pytest.raises(contract_check.ContractError):
+            check(broken, "prediction_density")
+    xgb = _recorded("pred_density_xgb_energy")
+    check(xgb, "prediction_density")
+    disguised = json.loads(json.dumps(xgb))
+    disguised["network"]["frame"] = "absolute"
+    with pytest.raises(contract_check.ContractError):
+        check(disguised, "prediction_density")

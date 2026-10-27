@@ -21,12 +21,15 @@ the axis (and each bin's label) does not move with the selection.
 the aggregate it is - a capped whisker is never the dispersion of the sample
 (CLAUDE.md section 2) - and each gated on its own terms:
 
-* RMSE, whose interval is the square root of the Student-t interval of the mean
-  squared residual (N ≥ 2); MAE with the Student-t interval of the mean
-  absolute residual, clipped at zero (N ≥ 2); bias with the Student-t interval
-  of the mean residual (N ≥ 2). All three are reported as numbers from N = 1,
-  without an interval, because a value is a claim about a sample and an
-  interval is a claim about its population.
+* RMSE (decision D-4, ``stats/rmse.py``): from N = 2 to 19 the χ² interval
+  [RMSE·√(n/χ²₀.₉₇₅,ₙ), RMSE·√(n/χ²₀.₀₂₅,ₙ)] under normal residuals centred on
+  zero, an assumption the interval states; from N = 20 the seeded percentile
+  bootstrap of the RMSE, seeded as the median's. MAE with the Student-t
+  interval of the mean absolute residual, clipped at zero (N ≥ 2); bias with
+  the Student-t interval of the mean residual (N ≥ 2). All three are reported
+  as numbers from N = 1, without an interval, because a value is a claim about
+  a sample and an interval is a claim about its population; the card draws a
+  bin of one shower as a dot, an observation, never as a bar.
 * The median relative error, ``|pred − true| / true``: from N = 6 the
   distribution-free order-statistic interval, from N = 20 the seeded
   percentile bootstrap (``stats/median.py``), the order-statistic interval
@@ -40,8 +43,9 @@ the aggregate it is - a capped whisker is never the dispersion of the sample
   θ of its showers and how many lie below 0.1 rad.
 
 **The y range follows robust evidence.** A point drives the scale only from
-N = 15 (the core-refit floor); ``y_max`` is the outward 1-2-5 rounding of the
-largest interval end among the driving points. An under-powered point above it
+N = 15 (the core-refit floor); ``y_max`` is the outward rounding of the
+largest interval end among the driving points to a mantissa of
+:data:`TOP_MANTISSAS`, each a whole number of round ticks. An under-powered point above it
 is clipped by the chart, so it is listed in ``overflow`` with its true value.
 When no point drives the scale the range is taken from the weak points'
 values alone, never their whiskers, and marked provisional; a whisker beyond it
@@ -49,12 +53,21 @@ is clipped and listed in ``overflow`` too.
 
 A shower without a prediction (an event with none of that shower's hits) is
 counted per bin in ``n_missing`` and dropped - never zero-filled.
+
+**Groups in parallel.** The RMSE bootstrap costs O(B · n) per group (about
+20 ms for 2,000 showers), so the groups of one request are computed on a
+thread pool bounded by the service's thread count (``Settings.threads``, the
+figure ``/api/health`` reports), built per request and never per group. Every
+group draws from its own ``SeedSequence``, so the result is identical to the
+serial path whatever the pool size or scheduling; ``workers=1`` is that path.
 """
 
 from __future__ import annotations
 
+import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import duckdb
 import numpy as np
@@ -64,8 +77,8 @@ from ..db.naming import quote
 from ..db.registry import ExperimentRecord
 from ..encode.numbers import SIGNIFICANT, sig, sig_list
 from ..errors import CapabilityError, ValidationError
-from ..stats import clip as clip_mod
 from ..stats import gaussian, median, metrics, momentum
+from ..stats import rmse as rmse_mod
 from ..text import typographic
 from . import capabilities
 from . import showers as showers_mod
@@ -283,7 +296,8 @@ def point(model: str, pred: np.ndarray, true: np.ndarray, n_missing: int,
         relative = np.abs(delta[positive]) / true[positive]
     out = Point(
         n=n, n_missing=int(n_missing),
-        rmse=summary.rmse, mae=metrics.mae_estimate(residual), bias=summary.bias,
+        rmse=rmse_mod.rmse_estimate(residual, seed=[*seed, QUANTITY_INDEX["rmse"]]),
+        mae=metrics.mae_estimate(residual), bias=summary.bias,
         median_rel=median.median_estimate(relative, seed=[*seed, QUANTITY_INDEX["median_rel"]]),
         n_nonpositive_true=int(n - positive.sum()),
     )
@@ -339,6 +353,7 @@ class Series:
             "n_missing": [p.n_missing for p in pts],
             "drives_scale": [p.drives_scale for p in pts],
             **column("rmse"),
+            "rmse_method": [_interval_method(p.rmse) for p in pts],
         }
         mae = column("mae")
         out.update({"mae": mae["mae"], "mae_se": nums([p.mae.se for p in pts]),
@@ -366,6 +381,11 @@ def _method(est: median.MedianEstimate | None) -> str | None:
     return metrics.METHOD_ORDER if est.order is not None else None
 
 
+def _interval_method(est: metrics.Estimate | None) -> str | None:
+    """The method of an estimate's interval (``chi2_rmse`` or ``bootstrap_percentile``), else None."""
+    return est.interval.method if est is not None and est.interval is not None else None
+
+
 def _order(est: median.MedianEstimate, end: int) -> float | None:
     if est.order is None:
         return None
@@ -381,6 +401,24 @@ def _top(value: float, lo: float | None, hi: float | None, signed: bool) -> floa
         reach = [abs(v) for v in (lo, hi) if v is not None]
         return max(reach) if reach else abs(value)
     return hi if hi is not None else value
+
+
+#: The mantissas an axis top is rounded up to. Each is a whole number of ticks of a round
+#: step - 1.2 of 0.2, 1.5 of 0.25 or 0.5, 3 of 0.5, 6 and 8 of 1 or 2 - so the chart's
+#: tick step (``perf_bins.js`` ``dividingInterval``) always lands on the top.
+TOP_MANTISSAS: tuple[float, ...] = (1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0)
+
+
+def nice_top(peak: float) -> float:
+    """The smallest ``m × 10^k``, ``m`` in :data:`TOP_MANTISSAS`, at or above ``peak`` (> 0)."""
+    exponent = math.floor(math.log10(peak))
+    for k in (exponent, exponent + 1):
+        for m in TOP_MANTISSAS:
+            # Rounded to the mantissa's decimals: 1.2 × 10⁻¹ is 0.12, not 0.12000000000000001.
+            top = round(m * 10.0 ** k, max(0, 1 - k))
+            if top >= peak * (1 - 1e-12):
+                return top
+    return peak
 
 
 def y_axis(series: Sequence[Series], axis: BinAxis, quantity: str,
@@ -413,7 +451,7 @@ def y_axis(series: Sequence[Series], axis: BinAxis, quantity: str,
     peak = max(basis, default=None)
     top_value = None
     if peak is not None and peak > 0:
-        top_value = clip_mod.nice_range(0.0, peak, fine=True)[1]
+        top_value = nice_top(peak)
     overflow = []
     n_over = 0
     if top_value is not None:
@@ -470,8 +508,11 @@ def quantity_table(model: str) -> dict[str, dict[str, Any]]:
     table: dict[str, dict[str, Any]] = {
         "rmse": {"label": "RMSE", "unit": unit, "signed": False,
                  "definition": f"√mean ({error})²",
-                 "interval": "square root of the 95% Student-t interval of the mean squared "
-                             f"residual, from N ≥ {gaussian.MIN_MOMENT_SAMPLES}"},
+                 "interval": (f"95% χ² interval of the RMSE on n degrees of freedom from "
+                              f"N ≥ {rmse_mod.MIN_CHI2_N}, which {rmse_mod.NORMALITY}; 95% "
+                              f"percentile bootstrap of the RMSE (B = "
+                              f"{median.BOOTSTRAP_REPLICATES:,}, seeded per series, bin and "
+                              f"quantity) from N ≥ {median.MIN_BOOTSTRAP_N}")},
         "mae": {"label": "MAE", "unit": unit, "signed": False,
                 "definition": f"mean {absolute}",
                 "interval": "95% Student-t interval of the mean absolute residual, clipped at 0, "
@@ -594,16 +635,34 @@ def _notes(model: str, axis: BinAxis) -> dict[str, str]:
     return {k: typographic(v) for k, v in notes.items()}
 
 
+def map_groups(fn: Callable[..., Point], tasks: Sequence[tuple], workers: int = 1) -> list[Point]:
+    """``[fn(*task) for task in tasks]``, on at most ``workers`` threads, in task order.
+
+    One pool per call (per request), never per group, and none at all for one
+    worker or one task. Each task carries its own seed, so no random state is
+    shared between threads and the result equals the serial path's exactly.
+    """
+    tasks = list(tasks)
+    workers = max(1, min(int(workers), len(tasks)))
+    if workers == 1:
+        return [fn(*task) for task in tasks]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="calosrv-e2") as pool:
+        return list(pool.map(lambda task: fn(*task), tasks))
+
+
 def build(columns: dict[str, np.ndarray], axis: BinAxis, model: str,
-          frames: Sequence[str], showers: Sequence[str] = ("a", "b")) -> MomentumBinReport:
+          frames: Sequence[str], showers: Sequence[str] = ("a", "b"),
+          workers: int = 1) -> MomentumBinReport:
     """Every (frame, shower, bin) group of the selected events.
 
     ``columns`` is :func:`read_selection`'s dict (or the same arrays built
-    by hand), ``frames`` the coordinate systems to compute.
+    by hand), ``frames`` the coordinate systems to compute, ``workers`` the
+    threads the groups are computed on (the service passes ``Settings.threads``).
     """
-    series: list[Series] = []
     unbinned = {shower: int((~np.isfinite(columns[f"bin_{shower}"])).sum()) for shower in showers}
     n_events = int(next(iter(columns.values())).size) if columns else 0
+    keys: list[tuple[str, str]] = []
+    tasks: list[tuple] = []
     for coord in frames:
         frame_index = ddl.COORD_SYSTEMS.index(coord)
         for si, shower in enumerate(showers):
@@ -611,21 +670,25 @@ def build(columns: dict[str, np.ndarray], axis: BinAxis, model: str,
             true = columns[f"true_{shower}"]
             pred = columns[f"pred_{shower}_{coord}"]
             both = np.isfinite(pred) & np.isfinite(true)
-            points = []
+            keys.append((coord, shower))
             for k in axis.numbers:
                 in_bin = bins == k
                 chosen = in_bin & both
-                points.append(point(
-                    model, pred[chosen], true[chosen], int((in_bin & ~both).sum()),
-                    seed=(median.BOOTSTRAP_SEED, frame_index, si, k),
-                ))
-            series.append(Series(model, coord, shower, points))
+                tasks.append((model, pred[chosen], true[chosen], int((in_bin & ~both).sum()),
+                              (median.BOOTSTRAP_SEED, frame_index, si, k)))
+    points = map_groups(point, tasks, workers)
+    per = len(axis.numbers)
+    series = [Series(model, coord, shower, points[i * per:(i + 1) * per])
+              for i, (coord, shower) in enumerate(keys)]
     return MomentumBinReport(model, axis, series, n_events, unbinned, _notes(model, axis))
 
 
 def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
-            model: str) -> MomentumBinReport:
-    """The momentum-bin report of one network over the selection, every frame it offers."""
+            model: str, workers: int = 1) -> MomentumBinReport:
+    """The momentum-bin report of one network over the selection, every frame it offers.
+
+    ``workers`` bounds the threads the groups are computed on (:func:`map_groups`).
+    """
     if model not in MODELS:
         raise ValidationError(
             f"slice_by=momentum_bin applies to {' and '.join(MODELS)}; got model {model!r}.",
@@ -635,7 +698,7 @@ def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
     axis = dataset_axis(con, record)
     columns = read_selection(con, record, spec, model, frames)
     shower_keys = tuple(sh.key for sh in showers_mod.of(record, "both"))
-    return build(columns, axis, model, frames, shower_keys)
+    return build(columns, axis, model, frames, shower_keys, workers=workers)
 
 
 # ------------------------------------------------- the XGBoost series (E2) --
@@ -686,12 +749,12 @@ def phi_point(pred: np.ndarray, true: np.ndarray, n_missing: int, seed: Sequence
     pred = np.asarray(pred, dtype=np.float64)
     true = np.asarray(true, dtype=np.float64)
     residual = wrap_angle(pred - true) * MRAD_PER_RAD
-    summary = metrics.residual_summary(residual)
     absent = metrics.Estimate(None, n=int(residual.size),
                               note="Not defined for an azimuth (its residual is circular).")
     return Point(
         n=int(residual.size), n_missing=int(n_missing),
-        rmse=summary.rmse, mae=metrics.mae_estimate(residual), bias=absent,
+        rmse=rmse_mod.rmse_estimate(residual, seed=[*seed, PHI_QUANTITY_INDEX["phi_rmse"]]),
+        mae=metrics.mae_estimate(residual), bias=absent,
         median_rel=median.MedianEstimate(None, int(residual.size), None, None, None,
                                          "Not defined for an azimuth."),
         median_abs=median.median_estimate(np.abs(residual),
@@ -729,6 +792,7 @@ class XgbSeries(Series):
                 out[f"{name}_lo"] = sig_list([t[1] for t in triples], digits)
                 out[f"{name}_hi"] = sig_list([t[2] for t in triples], digits)
             out["phi_mae_se"] = sig_list([p.mae.se for p in pts], digits)
+            out["phi_rmse_method"] = [_interval_method(p.rmse) for p in pts]
             out["phi_median_abs_method"] = [_method(p.median_abs) for p in pts]
         return out
 
@@ -768,7 +832,7 @@ class XgbReport(MomentumBinReport):
         for s in self.series:
             if s.points and not any(p.n for p in s.points) and any(p.n_missing for p in s.points):
                 out.append(typographic(
-                    f"The XGBoost {self.model} prediction is missing for every validation event "
+                    f"The XGBoost {XGB_TASK[self.model]} prediction is missing for every validation event "
                     "of this selection: each is counted in n_missing and none is drawn."))
         if not self.split.get("reproduced", True):
             out.append(self.run["split"]["warning"])
@@ -847,8 +911,11 @@ def _xgb_notes(model: str, axis: BinAxis) -> dict[str, str]:
 
 
 def compute_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
-                model: str) -> XgbReport:
-    """The XGBoost series of an aggregate experiment over the selection's validation rows."""
+                model: str, workers: int = 1) -> XgbReport:
+    """The XGBoost series of an aggregate experiment over the selection's validation rows.
+
+    ``workers`` bounds the threads the groups are computed on (:func:`map_groups`).
+    """
     from ..modelruns import store as xgb_store
     from ..modelruns import views as xgb_views
 
@@ -877,16 +944,20 @@ def compute_xgb(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: 
     if task == "angle":
         phi_true, phi_pred = rows["true_phi"], rows["pred_phi"]
         phi_ok = np.isfinite(phi_true) & np.isfinite(phi_pred)
-    points, phi_points = [], ([] if task == "angle" else None)
+    tasks, phi_tasks = [], []
     for k in axis.numbers:
         in_bin = bins == k
         chosen = in_bin & both
         seed = (median.BOOTSTRAP_SEED, XGB_FRAME_INDEX, 0, k)
-        points.append(point(model, pred[chosen], true[chosen], int((in_bin & ~both).sum()), seed))
-        if phi_points is not None:
+        tasks.append((model, pred[chosen], true[chosen], int((in_bin & ~both).sum()), seed))
+        if task == "angle":
             pick = in_bin & phi_ok
-            phi_points.append(phi_point(phi_pred[pick], phi_true[pick],
-                                        int((in_bin & ~phi_ok).sum()), seed))
+            phi_tasks.append((phi_pred[pick], phi_true[pick], int((in_bin & ~phi_ok).sum()), seed))
+    # θ (or momentum) and φ groups on one pool; φ's follow θ's in the result.
+    computed = map_groups(lambda kind, *args: (point if kind == "x" else phi_point)(*args),
+                          [("x", *t) for t in tasks] + [("phi", *t) for t in phi_tasks], workers)
+    points = computed[:len(tasks)]
+    phi_points = computed[len(tasks):] if task == "angle" else None
     series = XgbSeries(model, "lab", "a", points, phi_points=phi_points)
     n_val = int(bins.size)
     run = xgb_views.run_block(runs, task)

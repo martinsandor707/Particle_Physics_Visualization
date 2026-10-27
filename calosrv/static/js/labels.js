@@ -216,6 +216,13 @@ export const FEATURES = Object.freeze([
   { key: 'energy_density', label: 'Energy density — energy / volume', unit: 'GeV/mm³', log: true },
 ]);
 
+/** The feature frames by API key, as the feature cards' drawers name them. */
+export const FEATURE_FRAME_NAMES = Object.freeze({
+  lab: 'Absolute (detector coordinates)',
+  trans: 'Per-shower translated',
+  local: 'Local (shower-fixed)',
+});
+
 /** The features an experiment's explorer offers: the aggregate has no hits to add the circular companions from. */
 export function featureChoices(hasHits = true) {
   return FEATURES.filter((feature) => hasHits || !feature.hitsOnly);
@@ -237,6 +244,19 @@ export const MODELS_LABELS = Object.freeze({
   task: [
     { value: 'energy', label: 'Energy', title: 'The energy (momentum) regression: predicted against true incident momentum' },
     { value: 'angle', label: 'Angle', title: 'The incident-angle regression: predicted against true polar angle θ' },
+  ],
+  // The same control on an aggregate, where the paired XGBoost regressors stand in: the
+  // first predicts the incident momentum, which is not an energy for μ, π or p.
+  xgb_perf_task: [
+    { value: 'energy', label: 'Momentum', title: 'The XGBoost momentum regressor: predicted against true incident momentum' },
+    { value: 'angle', label: 'Angle', title: 'The XGBoost angle regressor (two outputs: φ and θ)' },
+  ],
+  // The frame of the feature cards on an event-level aggregate, which has no sidebar frame
+  // control: its abs, trn and loc feature columns. The shared `frame` key, so a link restores it.
+  feature_frame: [
+    { value: 'lab', label: 'Absolute', title: 'The features in the absolute (detector) frame: the aggregate’s abs columns' },
+    { value: 'trans', label: 'Per-shower translated', title: 'The features with the shower moved to its own entry point P₀, no rotation: the trn columns' },
+    { value: 'local', label: 'Local', title: 'The features in the shower-fixed Local frame, rotated by the shower’s own R(θ, φ): the loc columns' },
   ],
   xgb_task: [
     { value: 'momentum', label: 'Momentum', title: 'The XGBoost momentum regressor' },
