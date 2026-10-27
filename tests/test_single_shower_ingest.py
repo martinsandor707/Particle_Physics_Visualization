@@ -24,8 +24,8 @@ from calosrv.ingest import feature_parity, pipeline, verify as verify_mod, verif
 from calosrv.stats import profile as profile_stats
 
 REPO = Path(__file__).resolve().parent.parent
-REAL_HITS = REPO / "electron_hits_fixture.csv"
-REAL_EVENTS = REPO / "electron_events_fixture.csv"
+REAL_HITS = REPO / "electron_hits_fixture.parquet"
+REAL_EVENTS = REPO / "electron_events_fixture.parquet"
 
 HITS, EVENTS = "single_hits_test", "single_events_test"
 
