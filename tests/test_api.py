@@ -869,14 +869,19 @@ def test_every_module_is_reached_from_an_entry_point():
 
 
 def test_each_entry_point_keeps_the_other_pages_modules_out():
-    """The Models page never loads the Physics page's DOM-bound modules, nor the reverse."""
+    """The Models page never loads the Physics page's DOM-bound modules, nor the reverse.
+
+    The panel classes are shared: ProjectionPanel takes its host element from
+    its caller and draws the 3-D views' paired projections on Page 2. What stays
+    on Page 1 is what builds or drives Page 1's own markup.
+    """
     from pathlib import Path
 
     js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
     physics = {p.relative_to(js).as_posix() for p in _module_graph(js / "main.js")}
     models = {p.relative_to(js).as_posix() for p in _module_graph(js / "models_main.js")}
     for module in ("main.js", "event_inspector.js", "controls/admin.js", "controls/upload.js",
-                   "physics_section.js", "panels/projection.js"):
+                   "physics_section.js", "panels/frame_grid.js"):
         assert module not in models, module
     for module in ("models_main.js", "models_cards.js"):
         assert module not in physics, module
