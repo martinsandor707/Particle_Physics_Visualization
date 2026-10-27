@@ -1823,6 +1823,13 @@ const out = {
   energyDensity: energy.sections.find((s) => s.heading === 'Reading the density axis')?.lines ?? [],
   explainer: pn.DENSITY_EXPLAINER, curveNote: pn.CURVE_AREA_NOTE,
 };
+// The B3 grid's curve tooltip and the Models residual drawer name the area too.
+const grid = await imp('panels/response_grid.js');
+const mn = await imp('models_notes.js');
+const b3 = load('b3_single_bins');
+const b3Curve = b3.series.find((s) => s.curve?.y?.length);
+out.gridTip = grid.fitText(b3, b3Curve, 'a slice');
+out.residualLegend = mn.residualNotes({ payload: pred }).sections.find((s) => s.heading === 'Marks and legend')?.lines ?? [];
 process.stdout.write(JSON.stringify(out));
 """
 
@@ -1872,3 +1879,6 @@ def test_the_core_curve_names_its_area(p1):
     assert "integrates to 1.0" in p1["explainer"] and "The curve integrates" not in p1["explainer"]
     assert p1["curveNote"] in p1["energyDensity"]
     assert not HYPHEN_NUMBER.search(a)
+    # Every curve tooltip names its area (CLAUDE.md), and the Models residual drawer says so.
+    assert "curve area 1: a density of the" in p1["gridTip"], p1["gridTip"]
+    assert p1["curveNote"] in p1["residualLegend"]
