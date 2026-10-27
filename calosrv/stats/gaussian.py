@@ -32,6 +32,12 @@ the non-Gaussian tail, which the shipped histogram still shows. It needs a
 populated tail to cut, so it is gated at :data:`MIN_CORE_SAMPLES` and its
 de-biasing correction is applied only when it actually truncated something.
 
+*The drawn core curve shares the histogram's normalisation.* Its area is
+the number of events the core Gaussian describes divided by the number the
+``density=True`` histogram beside it normalises by (:func:`curve_area`), so a
+core fitted after a non-Gaussian tail was cut claims only the core's share of
+the density rather than all of it.
+
 *A robustness flag.* The interquartile width divided by 1.349 estimates sigma for
 a true Gaussian. When it disagrees with the moment sigma by more than
 :data:`NON_GAUSSIAN_TOLERANCE`, the distribution is not Gaussian and the panel
@@ -308,8 +314,13 @@ def gaussian_curve(
 ) -> np.ndarray:
     """The notebook's Gaussian, evaluated on ``x``.
 
-    ``amplitude`` defaults to the unit-area normalisation, so the curve is a
-    probability density directly comparable with a ``density=True`` histogram.
+    ``amplitude`` defaults to the unit-area normalisation: a probability
+    density of the events the Gaussian describes. That is comparable with a
+    ``density=True`` histogram only when the Gaussian describes every event the
+    histogram normalises by. When the core refit excluded events, or events lie
+    outside the histogram's range, pass ``unit_area_amplitude(sigma) *
+    curve_area(fit, n)`` instead, so the curve and the bars share one
+    normalisation (:func:`curve_area`).
     """
     if sigma is None or not sigma > 0:
         return np.zeros_like(x)
@@ -320,6 +331,52 @@ def gaussian_curve(
 def unit_area_amplitude(sigma: float) -> float:
     """Amplitude normalising the Gaussian to unit area."""
     return 1.0 / (sigma * math.sqrt(2.0 * math.pi)) if sigma > 0 else 0.0
+
+
+#: Half-width of the core window in units of the width the curve is drawn with.
+#:
+#: The window that selects the core sits at ``CORE_SIGMA`` times the *measured*
+#: (truncated) width, and the drawn ``sigma_core`` is that width divided by
+#: :data:`CORE_TRUNCATION_FACTOR`. In units of the drawn sigma the window is
+#: therefore ``2.5 * 0.9366 = 2.341``, not 2.5. Measured on 10^6 Gaussian
+#: events with a 5% uniform tail: ``n_core / (2 Phi(2.341) - 1)`` recovers the
+#: Gaussian count to 6e-5, while ``2 Phi(2.5) - 1`` leaves it 0.7% short.
+CORE_WINDOW_DRAWN = CORE_SIGMA * CORE_TRUNCATION_FACTOR
+
+#: ``2 Phi(CORE_WINDOW_DRAWN) - 1``: the share of the drawn core Gaussian that
+#: lies inside the window that selected its events (0.9808).
+CORE_WINDOW_COVERAGE = math.erf(CORE_WINDOW_DRAWN / math.sqrt(2.0))
+
+
+def described_events(fit: GaussianFit) -> float:
+    """How many events the drawn Gaussian ``N(mu_core, sigma_core)`` describes.
+
+    When the core window excluded events, the curve is fitted to the ``n_core``
+    events inside it, and a Gaussian with ``n_core`` events inside a
+    ``+/-CORE_WINDOW_DRAWN`` window describes ``n_core / CORE_WINDOW_COVERAGE``
+    events in all. Otherwise it describes every event its moments were taken
+    on, ``n``. This is the same condition that gates the truncation de-biasing:
+    nothing is corrected for a cut that never happened.
+    """
+    if fit.core_applied and fit.n_core < fit.n:
+        return fit.n_core / CORE_WINDOW_COVERAGE
+    return float(fit.n)
+
+
+def curve_area(fit: GaussianFit, n_normaliser: int | None) -> float:
+    """The drawn curve's area over the whole line, on a histogram's normalisation.
+
+    A ``density=True`` histogram normalises by the ``n_normaliser`` events it
+    holds, so each event carries area ``1 / n_normaliser``. A curve on the same
+    normalisation has area ``described_events(fit) / n_normaliser``: below one
+    when the core window cut a non-Gaussian tail (the curve then claims only the
+    core's share of the density), above one when events the Gaussian describes
+    lie outside the histogram's range. With no histogram to share a
+    normalisation with, or an empty one, the curve keeps unit area.
+    """
+    if not n_normaliser or n_normaliser <= 0:
+        return 1.0
+    return described_events(fit) / float(n_normaliser)
 
 
 def fit_gaussian(values: np.ndarray, label: str = "") -> GaussianFit:

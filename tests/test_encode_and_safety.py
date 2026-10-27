@@ -212,6 +212,30 @@ def test_topk_ignores_empty_cells():
     assert topk.top_cells(np.zeros((5, 5)), k=4) == []
 
 
+def test_topk_values_travel_at_float32_precision_rounded_toward_zero():
+    """Seven significant figures, never above the cell's own magnitude (review R-4)."""
+    rng = np.random.default_rng(3)
+    values = np.concatenate([10 ** rng.uniform(-12, 9, 5000), -(10 ** rng.uniform(-12, 9, 5000)),
+                             rng.uniform(0, 1, 5000).astype(np.float32).astype(float)])
+    for v in values:
+        r = topk.toward_zero(v)
+        assert abs(r) <= abs(v)
+        assert abs(v - r) <= 1e-6 * abs(v)
+        digits = repr(abs(r)).split("e")[0].replace(".", "").strip("0")
+        assert len(digits) <= topk.SIGNIFICANT
+    assert topk.toward_zero(-2.71828182845) == -2.718281
+    assert topk.toward_zero(0.0) == 0.0
+    # The brightest shipped value never exceeds the panel's peak.
+    matrix = rng.uniform(0, 1, (40, 40)) * 1.2345678901
+    cells = topk.top_cells(matrix, significant=topk.SIGNIFICANT)
+    assert cells[0]["value"] <= matrix.max()
+    assert cells[0]["value"] == topk.toward_zero(matrix.max())
+    signed = topk.top_cells(matrix - 0.6, signed=True, significant=topk.SIGNIFICANT)
+    assert all(abs(c["value"]) <= abs((matrix - 0.6)[c["i"], c["j"]]) for c in signed)
+    # Opt-in: /api/event's 3-D ramp quotes its brightest cube whole, so the default stays whole.
+    assert topk.top_cells(matrix)[0]["value"] == matrix.max()
+
+
 # ---------------------------------------------------------------- encoding --
 
 
@@ -462,6 +486,88 @@ def test_unit_area_gaussian_integrates_to_one():
     x = np.linspace(-40, 40, 20001)
     y = gaussian.gaussian_curve(x, 0.0, 3.0)
     assert np.trapezoid(y, x) == pytest.approx(1.0, rel=1e-6)
+
+
+def _curve_integral(series, curve_x):
+    return float(np.trapezoid(np.asarray(series.curve_y), curve_x))
+
+
+def test_a_core_that_cut_a_tail_draws_only_its_share_of_the_histogram():
+    """Decision D-7: the core curve's area is the core's share on the bars' normalisation.
+
+    400 Gaussian events plus a 50-event tail far outside the ±2.5σ core window
+    but inside the histogram's range. The bars integrate to one over the n_in_range
+    events; the curve must integrate to n_core / (2Φ(2.5·k) − 1) / n_in_range.
+    """
+    from calosrv.query import energy
+
+    rng = np.random.default_rng(7)
+    sample = np.concatenate([rng.normal(0.0, 1.0, 400), rng.uniform(25.0, 30.0, 50)])
+    edges = histogram.axis_edges(-40.0, 40.0, 40)
+    curve_x = np.linspace(-40.0, 40.0, 80001)
+    series = energy._build_series("r", "r", "a", "residual", 0, "all", sample, edges, curve_x)
+    fit, hist = series.fit, series.hist
+    assert series.draw == "histogram" and fit.core_applied and fit.n_core < fit.n
+    assert hist.n_in_range == 450
+    # The window cut the whole tail (and a few Gaussian events in its own wings).
+    assert fit.n_core <= 400
+
+    # The bars: unit area over the events they hold.
+    width = edges[1] - edges[0]
+    assert sum(hist.counts) * width == pytest.approx(1.0, rel=1e-12)
+    # The curve: the core's share of those same events, to 1e-6.
+    share = fit.n_core / gaussian.CORE_WINDOW_COVERAGE / hist.n_in_range
+    assert _curve_integral(series, curve_x) == pytest.approx(share, rel=1e-6)
+    assert gaussian.curve_area(fit, hist.n_in_range) == pytest.approx(share, rel=1e-12)
+    assert series.curve_peak == pytest.approx(
+        share / (fit.sigma_core * math.sqrt(2.0 * math.pi)), rel=1e-5)
+    # About 400 of 450: the share a reader is told, not the unit area of before.
+    assert 0.86 < share < 0.91
+
+
+def test_the_core_window_coverage_recovers_the_gaussian_count():
+    """The window in units of the drawn σ is 2.5·k, and 2Φ(2.5·k) − 1 restores the count.
+
+    2Φ(2.5) − 1 would leave the area 0.7% short: the window is placed on the
+    truncated width, the curve is drawn with the de-biased one.
+    """
+    rng = np.random.default_rng(11)
+    n_gauss = 1_000_000
+    sample = np.concatenate([rng.normal(0.0, 1.0, n_gauss), rng.uniform(-30.0, -5.0, 50_000)])
+    fit = gaussian.fit_gaussian(sample)
+    assert fit.core_applied and fit.n_core < fit.n
+    assert gaussian.described_events(fit) / n_gauss == pytest.approx(1.0, abs=1e-3)
+    naive = fit.n_core / math.erf(gaussian.CORE_SIGMA / math.sqrt(2.0))
+    assert naive / n_gauss < 0.995
+    assert gaussian.CORE_WINDOW_COVERAGE == pytest.approx(0.98078, abs=1e-5)
+
+
+def test_an_untruncated_curve_keeps_unit_area_unless_the_bars_hold_fewer_events():
+    """No core cut: the curve describes all n events; its area is n / n_in_range."""
+    from calosrv.query import energy
+
+    # A uniform sample has no wing beyond ±2.5σ (its half-width is 1.73σ): the window cuts nothing.
+    rng = np.random.default_rng(5)
+    sample = rng.uniform(-1.0, 1.0, 200)
+    curve_x = np.linspace(-20.0, 20.0, 40001)
+    wide = energy._build_series("r", "r", "a", "residual", 0, "all", sample,
+                                histogram.axis_edges(-20.0, 20.0, 40), curve_x)
+    assert not (wide.fit.core_applied and wide.fit.n_core < wide.fit.n)
+    assert _curve_integral(wide, curve_x) == pytest.approx(1.0, rel=1e-6)
+
+    # The histogram's range drops the events above 0.5: the bars hold fewer events
+    # than the Gaussian describes, and the curve rises to match the bars.
+    edges = histogram.axis_edges(-20.0, 0.5, 40)
+    cut = energy._build_series("r", "r", "a", "residual", 0, "all", sample, edges, curve_x)
+    assert cut.hist.n_in_range < cut.fit.n
+    assert _curve_integral(cut, curve_x) == pytest.approx(
+        gaussian.described_events(cut.fit) / cut.hist.n_in_range, rel=1e-6)
+
+    # Below the histogram floor there are no bars to share: unit area.
+    thin = energy._build_series("r", "r", "a", "residual", 0, "all", sample[:10],
+                                histogram.axis_edges(-20.0, 20.0, 40), curve_x)
+    assert thin.draw == "curve+strip"
+    assert _curve_integral(thin, curve_x) == pytest.approx(1.0, rel=1e-6)
 
 
 def test_percentile_clip_reports_what_it_hides():

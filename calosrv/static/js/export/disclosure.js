@@ -141,7 +141,7 @@ export function figureDisclosure(payload, panelId, state, extra = {}) {
   } else if (panelId === 'xy') {
     // The comb is a product of the two transverse axes, so it is only visible
     // on the XY panel - which is also the only panel `main.js` warns on.
-    const stagger = payload.meta?.stagger;
+    const stagger = payload.meta?.stagger ?? payload.frame?.comb;
     if (stagger?.staggered && payload.meta?.resolution?.mode === 'native'
         && typeof stagger.note === 'string' && stagger.note) {
       out.push(stagger.note);

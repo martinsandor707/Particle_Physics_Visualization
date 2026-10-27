@@ -2550,7 +2550,7 @@
      ],
      "topk": {
       "n": 49,
-      "sha256": "cc943e83f24accf40c454d820b2c1536c96f5b79fc7ef46d305f9d1061c1eec4"
+      "sha256": "6e3c7888edf07bf03c92ebac7b5bbfec6cebaf357b61c8e4cd1375c8089d2fb4"
      },
      "total": 0.01838833886825297
     },
@@ -2610,7 +2610,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "9fc672080f29b1ac16793aec6ba8770ab30a4fbafb0a357c6f335c25c61f0412"
+      "sha256": "55465a7e49df4cae73b7963a6a7c64312cdcb57f51c0d48485c386d8f0797e9f"
      },
      "total": 0.4185081030316367
     },
@@ -2670,7 +2670,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "9da9fabc278cffebe299a5b875b105e0f5b5929558840b731a2efe1de3b86c9a"
+      "sha256": "5964d716247ca98c86e44fd19484650140f6c02ae5f6b88d7fb5aace8928ced8"
      },
      "total": 0.4185081030316367
     }
@@ -2943,7 +2943,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "0bb98f80f313ed3455d1e643793215b7ad602e52670f7f4b587c88baa89b031a"
+      "sha256": "3d36fd8ccc213f464cca32a47d073a1776bd04bd92af27f803b81d9096dbbb9f"
      },
      "total": 0.06589295277689156
     },
@@ -3003,7 +3003,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "2b50c6227464b2517e3d112624fe0cde7a073f1e075a80cd0b85e6277ce68bbd"
+      "sha256": "aa243304fd99e17ea8a7beb06b9b3071b5bb7990a2b6ababadf64db81d937f62"
      },
      "total": 0.46601271694027535
     },
@@ -3063,7 +3063,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "19b5f448c1614ba62922ea2cfd85472fbb53dad19278d8b3c757fc78828e84ae"
+      "sha256": "1fd6f96254ab97d27527a613432ed1ba2c91f23afdd68250e0baaf372a2d7446"
      },
      "total": 0.46601271694027535
     }
@@ -3662,10 +3662,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000102 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      },
      {
@@ -3712,40 +3708,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5239405296424867,
-       "energy_core_row": 0.5275106917144383,
-       "occupancy": 0.529578694608164
-      },
-      "y": {
-       "energy_columns": 0.4970351472044316,
-       "energy_core_row": 0.48440067950523025,
-       "occupancy": 0.6081028437865212
-      },
-      "z_xz": {
-       "energy_columns": 0.460791414618239,
-       "energy_core_row": 0.06006212574308512,
-       "occupancy": null
-      },
-      "z_yz": {
-       "energy_columns": 0.4607914146182389,
-       "energy_core_row": 0.4481487983905679,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.5239405296424867,
-      "y": 0.48440067950523025,
-      "z": 0.06006212574308512
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw local accumulation grid, before any display smoothing (worst lag-1 per axis: u +0.52, v +0.48, w +0.06); each cell was split into 6 × 6 × 2 rotated sub-deposits.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -3821,7 +3783,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "27dd07bf93c8bb825b84ad3e39a421ae2ab8c27fba3d0c6c211726f17df180fb"
+      "sha256": "52e54c39f7c0a3a7236a47702323f10e3b384b19fc48656ad363b62448fa4c61"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.01836158837336275,
@@ -3896,7 +3858,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "faeb4356391563ccc67154ddf9f52b59b2ef52cccab46e0b42d29a9487c4526d"
+      "sha256": "185c18c6cfe55369e854249f29de360eb3769fa275db3aea3aa928e0711eec0d"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4180974742915318,
@@ -3971,7 +3933,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "90c7302b92c0400b257402d4d6da266de5266230e8f78983d93c93048f285127"
+      "sha256": "c2b39af581dd73a0ffd9c963515fc5e8ac8225928f36dba1547d958676a5aa21"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.41848087322321803,
@@ -4590,10 +4552,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000234 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      },
      {
@@ -4640,40 +4598,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.6213907756351664,
-       "energy_core_row": 0.37226236371130067,
-       "occupancy": 0.5836364747959528
-      },
-      "y": {
-       "energy_columns": 0.6358089420038007,
-       "energy_core_row": 0.5064767725330734,
-       "occupancy": 0.6143098557547226
-      },
-      "z_xz": {
-       "energy_columns": 0.4657109076004561,
-       "energy_core_row": 0.06850679845269364,
-       "occupancy": null
-      },
-      "z_yz": {
-       "energy_columns": 0.4657109076004557,
-       "energy_core_row": 0.45460378926419087,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.37226236371130067,
-      "y": 0.5064767725330734,
-      "z": 0.06850679845269364
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw local accumulation grid, before any display smoothing (worst lag-1 per axis: u +0.37, v +0.51, w +0.07); each cell was split into 6 × 6 × 2 rotated sub-deposits.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -4749,7 +4673,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "812638244f2282558e383d9cbb0af662a3229e9a692d4ef6b90563c1999c7118"
+      "sha256": "25b4b349de8405b0b9ec8d6b2b6b45964fc53f6c296f6a76e05b24572e33c5c9"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.06582960026452124,
@@ -4824,7 +4748,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "d7f4a2399905325a61c2f4082c9f28cabcbdd0372e5273306d53db552c8c9e52"
+      "sha256": "54501c248609e53728400e6c37eff16be1d0e5fab42ab5752beb54e3c2516fba"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.46555145120953434,
@@ -4899,7 +4823,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "44c8e73a01c58948a455e33255652ec94cd75a983c3a065a778a744941699ba6"
+      "sha256": "5128448e557158d6cfd1e9e9c0bbd43f1d9d2cbd8a7482a3ad459d24f3d4ce18"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4658885312272864,
@@ -5383,10 +5307,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 1.52e−05 mm (ingest-wide 6.1e−05 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      },
      {
@@ -5429,29 +5349,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5580625274167428,
-       "energy_core_row": 0.5168911722728944,
-       "occupancy": 0.21917840486173243
-      },
-      "y": {
-       "energy_columns": 0.408804936577981,
-       "energy_core_row": 0.5008272231852932,
-       "occupancy": 0.14826698432216406
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.21917840486173243,
-      "y": 0.14826698432216406
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.22, Δy +0.15); each cell's footprint is integrated exactly by area-weighted box overlap.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -5557,7 +5454,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "76a962ff2dcda93842db51977e484ab85cdfe445c1c65834c54a9f1c46a43482"
+      "sha256": "36969a866163617c5872a984f977cd90f15605bc54156c2b5412e864bf3121a2"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.018368516880471256,
@@ -5632,7 +5529,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "5b64bd31bcd438e1258fa8b2864de124ca141d85d6b33546410e53398f79cda9"
+      "sha256": "b34ee9530f19c0d79be3869e51af4b9fa0bf9583975ea0ebb81069e8f97ed524"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4183157820849598,
@@ -5707,7 +5604,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "c60b8dd54bdf1d9a3217062a2b987b064ad1ef1e623b596fd36bb5d0f15eaee3"
+      "sha256": "e96d42f8eac7b8e7a55107156a6c43da82349ad7efc45fd09b9d4baedeb42033"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4184813556042906,
@@ -6191,10 +6088,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 3.44e−05 mm (ingest-wide 6.1e−05 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      },
      {
@@ -6237,29 +6130,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5444390845958157,
-       "energy_core_row": 0.5005521854056341,
-       "occupancy": 0.0587128801032901
-      },
-      "y": {
-       "energy_columns": 0.4886843186746576,
-       "energy_core_row": 0.48978913841474353,
-       "occupancy": -0.0960269886754901
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.0587128801032901,
-      "y": -0.0960269886754901
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.06, Δy −0.10); each cell's footprint is integrated exactly by area-weighted box overlap.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -6382,7 +6252,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "22d276338f16b5989f56008174c23103f9047f65c1e3a884a92e32ff0bdf083d"
+      "sha256": "d2325cb42bf67cfc02519eb0ddde5b87a3da8f39ded79bf81c3255e9a0508ee7"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.06579011932372583,
@@ -6457,7 +6327,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "e9a92993d5c4fe0d525b8770a424a587bf8fd0d53675fd305681267c2a32c961"
+      "sha256": "9b3cdf6dd012bbeb023299b0108e0bd96a95bb1a06fbe2611a3d1f8cfb494b5e"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4657234400890282,
@@ -6532,7 +6402,7 @@
      ],
      "topk": {
       "n": 64,
-      "sha256": "4c53af63848a962d6ddd5ae2df3724e1ff4b77d0679691264985e47c77866173"
+      "sha256": "27b513f7af5af83bcbbf02c177a2a3e6177246ba491fa092fff52b6789ef805c"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.46593965059899517,
@@ -6818,7 +6688,7 @@
      "split_code": 129,
      "topk": {
       "n": 47,
-      "sha256": "d7aea7611b0d97fb6e1467305d48df313f2cccc153fa803a59f0c82eb7ee749a"
+      "sha256": "cea65ef882394129710b0bdd8448dfe0efe419d5b9493cfbddadee7f10815e22"
      },
      "topk_unit": "GeV",
      "total": 0.0025974285267955245
@@ -6894,7 +6764,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "271a66cbcb0796f464356df131ddccb2d51349c6a7405f612ade8aa47c2b6992"
+      "sha256": "5256e80df9a6318e36db79576d384bb1ad08768a6be3c94eeef1ab05f1e11100"
      },
      "topk_unit": "GeV",
      "total": 0.18030855073643456
@@ -6970,7 +6840,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "7db875f10b62d7f621f917707188a11827cb4ab5b947d8ac6bc14f95a2abf4dd"
+      "sha256": "c1c8c1eebf4db631e5b99726febe2a9f47cdb51db3c0d2004e6db7218740a3da"
      },
      "topk_unit": "GeV",
      "total": 0.1803085507364346
@@ -7272,7 +7142,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "ee6745061df1fc70d9e8f3ff4187443be29139497ad7fde7ca08be496279a5b5"
+      "sha256": "5556c49d01aca87bc538fbbadce0952517ba1f6fa94d7bacd17e56f1cc21fe15"
      },
      "topk_unit": "GeV",
      "total": 0.0132856989246349
@@ -7348,7 +7218,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "85210fe37be0f40810dd13228a1d859a1b770edacb88066a62e7b901a514cdd5"
+      "sha256": "f1b35d22e18f0fd1a05bfcd3b9cda6b52b7fb0ba13f1fb960f98a837d7891454"
      },
      "topk_unit": "GeV",
      "total": 0.19099682113427394
@@ -7424,7 +7294,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "131e09eb088c634d6c575c199afe8996cdc3a7e000f132e56cbb985e1600fe8d"
+      "sha256": "7bc9b3710b3e7e942cbcc37f5efffb88ac927b6aebb3dea34c98c3a2ae736df3"
      },
      "topk_unit": "GeV",
      "total": 0.1909968211342739
@@ -8032,10 +7902,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000102 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "The segmentation network's Shap-CAM maps are normalised per event, so an ensemble sum over many events mixes independently normalised maps: it shows where the network attends, not how strongly one event's attention compares with another's."
      },
      {
@@ -8086,40 +7952,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5239405296424867,
-       "energy_core_row": 0.5275106917144383,
-       "occupancy": 0.529578694608164
-      },
-      "y": {
-       "energy_columns": 0.4970351472044316,
-       "energy_core_row": 0.48440067950523025,
-       "occupancy": 0.6081028437865212
-      },
-      "z_xz": {
-       "energy_columns": 0.460791414618239,
-       "energy_core_row": 0.06006212574308512,
-       "occupancy": null
-      },
-      "z_yz": {
-       "energy_columns": 0.4607914146182389,
-       "energy_core_row": 0.4481487983905679,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.5239405296424867,
-      "y": 0.48440067950523025,
-      "z": 0.06006212574308512
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw local accumulation grid, before any display smoothing (worst lag-1 per axis: u +0.52, v +0.48, w +0.06); each cell was split into 6 × 6 × 2 rotated sub-deposits.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -8206,7 +8038,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "64921123f933c138da2375a700c6561c8ae3a6996edb6c5d8b64854267822ed3"
+      "sha256": "ef399c31cd0937f27ba6e6d91b15a0f6a71c7360e2572afeb11a6fc3e462c36d"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.01836158837336275,
@@ -8292,7 +8124,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "f6e5155ed3a887660ff2c294d0db784583644629d70896ff0a894bcc041b9bd2"
+      "sha256": "9ecdcf8dec86247636cbecb555de55a330062f59555bc47a27b0b3bd86d22bc4"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4180974742915318,
@@ -8378,7 +8210,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "c558c3cafe341a6593a4a0354e0bb982c01772967bdff746892723aa2fff16eb"
+      "sha256": "f2e979a7dbb4818b1dec8e419c7db91a8538a8cf47a39728192414395c999eb4"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.41848087322321803,
@@ -9005,10 +8837,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 0.000234 mm (ingest-wide 0.000273 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "The segmentation network's Shap-CAM maps are normalised per event, so an ensemble sum over many events mixes independently normalised maps: it shows where the network attends, not how strongly one event's attention compares with another's."
      },
      {
@@ -9059,40 +8887,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.6213907756351664,
-       "energy_core_row": 0.37226236371130067,
-       "occupancy": 0.5836364747959528
-      },
-      "y": {
-       "energy_columns": 0.6358089420038007,
-       "energy_core_row": 0.5064767725330734,
-       "occupancy": 0.6143098557547226
-      },
-      "z_xz": {
-       "energy_columns": 0.4657109076004561,
-       "energy_core_row": 0.06850679845269364,
-       "occupancy": null
-      },
-      "z_yz": {
-       "energy_columns": 0.4657109076004557,
-       "energy_core_row": 0.45460378926419087,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.37226236371130067,
-      "y": 0.5064767725330734,
-      "z": 0.06850679845269364
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw local accumulation grid, before any display smoothing (worst lag-1 per axis: u +0.37, v +0.51, w +0.07); each cell was split into 6 × 6 × 2 rotated sub-deposits.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -9179,7 +8973,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "23e4aba8ab1c48fe5680ac5be90801615cf131cdb94aeb33cc203c01ece66a33"
+      "sha256": "decb1f1cf6c3149dad638f58aad1a8867950b7a79c2d59240943b4d1a46f7327"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.06582960026452124,
@@ -9265,7 +9059,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "9e7957646ba83368dbdbd33ce4eb7d852cee14c08e5006efca9d727377e354bc"
+      "sha256": "8170a3e2d26f462ad2a7049bb1a1a64a1fd61bf564a2871ba173f87827f5d97a"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.46555145120953434,
@@ -9351,7 +9145,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "146991aa378a9618cce35fb7595d12544bde0fb28f0f41cbd6f389c38bf18f93"
+      "sha256": "9374c106d9c74ba75a3e4c3920cba51ad635d18fbd6e33bf397e9b2a3ac08574"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4658885312272864,
@@ -9843,10 +9637,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 1.52e−05 mm (ingest-wide 6.1e−05 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "The segmentation network's Shap-CAM maps are normalised per event, so an ensemble sum over many events mixes independently normalised maps: it shows where the network attends, not how strongly one event's attention compares with another's."
      },
      {
@@ -9893,29 +9683,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5580625274167428,
-       "energy_core_row": 0.5168911722728944,
-       "occupancy": 0.21917840486173243
-      },
-      "y": {
-       "energy_columns": 0.408804936577981,
-       "energy_core_row": 0.5008272231852932,
-       "occupancy": 0.14826698432216406
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.21917840486173243,
-      "y": 0.14826698432216406
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.22, Δy +0.15); each cell's footprint is integrated exactly by area-weighted box overlap.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -10032,7 +9799,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "329468d7f6cac81a25aa1304ebd44a5ba1ca344f022ae3429270fb9cff1d1b3d"
+      "sha256": "e95e1d7a2ff5a5197a3de30d9d8f42eb59258115c5bb7369d181fe53b7d72dd7"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.018368516880471256,
@@ -10118,7 +9885,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "c8385cf8cf8260943e44840684db3669e117629b003a78b1394db0293269e732"
+      "sha256": "18a6f19aa6724c2838deff199eeef4dcb3b66d269745014251bfb2f8d85e6225"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4183157820849598,
@@ -10204,7 +9971,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "3ecec017b8919958a1a19ee3d83753de214d96ced609b597e6733acbf725fffe"
+      "sha256": "859df8aae41c0b32705f21c2cf08bef33f41daa99a88e094aaa44863f66d11a4"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4184813556042906,
@@ -10696,10 +10463,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 3.44e−05 mm (ingest-wide 6.1e−05 mm), within the 0.01 mm tolerance."
-     },
-     {
-      "scope": "frame",
       "text": "The segmentation network's Shap-CAM maps are normalised per event, so an ensemble sum over many events mixes independently normalised maps: it shows where the network attends, not how strongly one event's attention compares with another's."
      },
      {
@@ -10746,29 +10509,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": 0.5444390845958157,
-       "energy_core_row": 0.5005521854056341,
-       "occupancy": 0.0587128801032901
-      },
-      "y": {
-       "energy_columns": 0.4886843186746576,
-       "energy_core_row": 0.48978913841474353,
-       "occupancy": -0.0960269886754901
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": 0.0587128801032901,
-      "y": -0.0960269886754901
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.06, Δy −0.10); each cell's footprint is integrated exactly by area-weighted box overlap.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -10902,7 +10642,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "f07cc8bfd0cccbb94e422713909f0b8808f18aee173c18d59e3637cb3bbdf402"
+      "sha256": "d00c8c57b1f8c1923beb3f62dd553553ea85a22b4654c793c28147576b43b2bb"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.06579011932372583,
@@ -10988,7 +10728,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "aba0a9dd0d22dc88634f7359f5d4ed51980a83fa576187c9ac7dd7e5b8733125"
+      "sha256": "eec11fab5f5b7a98b41e39d9c159c8d0ee8379fe13461e6f4802713b762d2d8d"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.4657234400890282,
@@ -11074,7 +10814,7 @@
      "split_code": 129,
      "topk": {
       "n": 64,
-      "sha256": "c51be2d741c5361e53f223aafb4877b5e8bc1e2f2c7dff464aa94c834cc4a524"
+      "sha256": "c9ba5e4c1ed134429fd70411535ebd710eaa3f1561e0c8634909d44f292e30a2"
      },
      "topk_unit": "GeV/mm^2/event",
      "total": 0.46593965059899517,
@@ -12336,10 +12076,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y/z_local, as every response of this frame binned them; the same motion (R(θ, φ) of the shower applied to the laboratory position about its entry point P0) was applied to every hit inside the scan as a cross-check, and no hit was scanned, so no residual was measured."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      },
      {
@@ -12384,40 +12120,6 @@
      ]
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      },
-      "y": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      },
-      "z_xz": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      },
-      "z_yz": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": null,
-      "y": null,
-      "z": null
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "Cell-footprint comb not measurable on this local window: too few bins for the lag-1 statistics.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
@@ -13080,10 +12782,6 @@
      },
      {
       "scope": "frame",
-      "text": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and no hit was scanned, so no residual was measured."
-     },
-     {
-      "scope": "frame",
       "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
      }
     ],
@@ -13122,29 +12820,6 @@
      "warnings": []
     },
     "sample_percent": 100.0,
-    "stagger": {
-     "axes": {
-      "x": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      },
-      "y": {
-       "energy_columns": null,
-       "energy_core_row": null,
-       "occupancy": null
-      }
-     },
-     "combed_axes": [],
-     "lag1": {
-      "x": null,
-      "y": null
-     },
-     "measured_on": "raw accumulation grid, before display smoothing",
-     "note": "Cell-footprint comb not measurable on this per-shower translated window: too few bins for the lag-1 statistics.",
-     "staggered": false,
-     "threshold": -0.1
-    },
     "table_name": "experiment_baseline",
     "total_ms": "<masked>",
     "warnings": [],
