@@ -20,7 +20,9 @@
   "color_domain",
   "notes",
   "label_info",
-  "color_by"
+  "color_by",
+  "color_domain_basis",
+  "weak_below_n"
  ],
  "properties": {
   "meta": {
@@ -174,7 +176,8 @@
         "number",
         "null"
        ]
-      }
+      },
+      "description": "Each output's within-node SD of the booster's predictions, ddof = 1 (analysis version 3); null for a node of one row. impurity stays sklearn's ddof = 0 variance."
      },
      "circular": {
       "type": "object",
@@ -229,7 +232,8 @@
     "unit",
     "outputs",
     "against",
-    "statement"
+    "statement",
+    "threshold"
    ],
    "properties": {
     "r2": {
@@ -253,7 +257,9 @@
       "type": "object",
       "required": [
        "r2",
-       "mae"
+       "mae",
+       "judged_on",
+       "low"
       ],
       "properties": {
        "r2": {
@@ -267,6 +273,33 @@
          "number",
          "null"
         ]
+       },
+       "r2_circular": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "φ only: 1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)), Δ the tree's φ minus the booster's wrapped to (−π, π], φ̄ the booster's circular mean."
+       },
+       "mae_wrapped": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "φ only: mean |Δ| in rad."
+       },
+       "judged_on": {
+        "enum": [
+         "r2",
+         "r2_circular"
+        ],
+        "description": "The R² the low-fidelity flag is judged on: r2_circular for φ (D-5), r2 otherwise."
+       },
+       "low": {
+        "type": [
+         "boolean",
+         "null"
+        ]
        }
       }
      }
@@ -276,6 +309,10 @@
     },
     "statement": {
      "type": "string"
+    },
+    "threshold": {
+     "const": 0.5,
+     "description": "An output whose judged R² is below this is flagged low fidelity."
     }
    }
   },
@@ -324,7 +361,8 @@
      "momentum",
      "theta"
     ]
-   }
+   },
+   "description": "Per coloured output, [lo, hi] over the nodes of at least weak_below_n rows (D-6); every node's range only when provisional."
   },
   "notes": {
    "type": "object",
@@ -374,6 +412,50 @@
     "type": "boolean"
    },
    "description": "Whether nodes may be coloured by each output's value (label_info gives the reason)."
+  },
+  "color_domain_basis": {
+   "type": "object",
+   "propertyNames": {
+    "enum": [
+     "momentum",
+     "theta"
+    ]
+   },
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "min_n",
+     "n_nodes",
+     "provisional",
+     "n_above",
+     "n_below"
+    ],
+    "properties": {
+     "min_n": {
+      "type": "integer"
+     },
+     "n_nodes": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "provisional": {
+      "type": "boolean"
+     },
+     "n_above": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "n_below": {
+      "type": "integer",
+      "minimum": 0
+     }
+    }
+   },
+   "description": "How each colour domain was taken, and how many nodes lie beyond it (drawn in the end colour and marked ▲ / ▼)."
+  },
+  "weak_below_n": {
+   "const": 20,
+   "description": "A node of fewer rows is weak and sets no colour domain."
   }
  },
  "propertyNames": {

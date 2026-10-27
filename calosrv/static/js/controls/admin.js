@@ -27,7 +27,7 @@
  * and a Re-analyse action per row (POST
  * /api/admin/model-runs/{table_name}/analyse) that queues one again.
  * The section is built here rather than in the markup, so the page needs no
- * ids for it; a server without the routes (404) is said to have none.
+ * ids for it.
  * The Models page has no Admin Settings of its own: its header link opens
  * this panel on the Physics page (`/?admin=1`, main.js).
  */
@@ -89,7 +89,6 @@ const RUN_STATUS = {
   done: 'done',
   failed: 'failed',
   stale: 'stale: the models or the data changed since the analysis',
-  missing: 'not analysed yet',
   unpaired: 'not paired',
   not_ready: 'waiting for the experiment to be ready',
 };
@@ -100,46 +99,40 @@ function runPending(row) {
 }
 
 /**
- * The model-runs list as rows, from GET /api/admin/model-runs.
- *
- * Read defensively (the route is xgboost.md section 2.4's): the pairings may
- * come as `runs`, `pairings` or `experiments`, each with its pairing either
- * flat or under `pairing` and its analysis either flat or under `analysis`.
+ * The model-runs list as rows, from GET /api/admin/model-runs (and the POST
+ * scan, which returns the same body): `payload.runs`, one entry per
+ * experiment with its pairing and its analysis flat on it -
+ * `{table_name, display_name, paired, species, seed, models: [{path, …}],
+ * reason, status, error, step, steps, step_label, progress, duration_s,
+ * runs: [{task, split, …}]}` (tests/contracts/model_runs_admin.json).
  * Each row: `{table_name, name, species, seed, models, paired, status,
- * reason, progress, seconds}`. Pure.
+ * reason, progress, seconds, splits}`. Pure.
  */
 export function modelRunRows(payload) {
-  const list = Array.isArray(payload) ? payload
-    : (payload?.runs ?? payload?.pairings ?? payload?.experiments ?? []);
-  return (Array.isArray(list) ? list : []).map((run) => {
-    const pairing = run.pairing ?? run;
-    const analysis = run.analysis ?? run;
-    const paired = pairing.paired ?? (run.status !== 'unpaired');
-    const status = paired ? (analysis.status ?? run.status ?? 'missing') : 'unpaired';
-    const tableName = run.table_name ?? run.experiment ?? null;
-    const models = (pairing.models ?? run.model_files ?? []).map((m) => (typeof m === 'string' ? m : (m?.path ?? m?.model_file ?? '')))
-      .filter(Boolean);
-    const seconds = [analysis.duration_s, analysis.seconds, analysis.elapsed_s, analysis.timings?.total, run.seconds]
-      .find((value) => Number.isFinite(value)) ?? null;
+  const list = Array.isArray(payload?.runs) ? payload.runs : [];
+  return list.map((run) => {
+    const paired = Boolean(run.paired);
+    // The contract's statuses (`payload.statuses`); an unpaired experiment is unpaired whatever else it says.
+    const status = paired ? run.status : 'unpaired';
+    const models = (Array.isArray(run.models) ? run.models : []).map((m) => m?.path ?? '').filter(Boolean);
     // Each task's split check: {reproduced, ratio_42, max_others, seed_of_max, n_others, margin}.
-    const tasks = analysis.runs ?? run.runs;
-    const splits = (Array.isArray(tasks) ? tasks : [])
+    const splits = (Array.isArray(run.runs) ? run.runs : [])
       .filter((t) => t?.split && typeof t.split === 'object')
       .map((t) => ({ task: t.task ?? null, ...t.split }));
+    // The step the worker is on ('3 of 18: cross-validation fold 1 of 5 (momentum)'), else the fraction done.
+    const steps = Number.isFinite(run.step) && Number.isFinite(run.steps) && run.step > 0 ? `${run.step} of ${run.steps}` : null;
+    const label = run.step_label || null;
     return {
-      table_name: tableName,
-      name: run.display_name ?? tableName ?? '—',
-      species: pairing.species ?? run.species ?? null,
-      seed: pairing.seed ?? run.seed ?? null,
+      table_name: run.table_name ?? null,
+      name: run.display_name ?? run.table_name ?? '—',
+      species: run.species ?? null,
+      seed: run.seed ?? null,
       models,
-      paired: Boolean(paired),
+      paired,
       status,
-      reason: (status === 'failed' ? (analysis.error ?? run.error) : null)
-        ?? pairing.reason ?? analysis.reason ?? run.reason ?? analysis.error ?? run.error ?? null,
-      // The step the worker is on ('3 of 7: refitting the folds'), else the fraction done.
-      progress: analysis.step_label ?? (Number.isFinite(analysis.step) && Number.isFinite(analysis.steps) && analysis.step
-        ? `${analysis.step} of ${analysis.steps}` : null) ?? analysis.progress ?? run.progress ?? null,
-      seconds,
+      reason: (status === 'failed' ? run.error : null) ?? run.reason ?? run.error ?? null,
+      progress: (steps && label ? `${steps}: ${label}` : steps ?? label) ?? (Number.isFinite(run.progress) ? run.progress : null),
+      seconds: Number.isFinite(run.duration_s) ? run.duration_s : null,
       splits,
     };
   });
@@ -244,7 +237,7 @@ export class AdminModal {
     this.scanButton.addEventListener('click', () => this.scan());
 
     // The XGBoost model runs, after the derived tables.
-    this.runs = { rows: [], available: null, timer: null, starting: new Set() };
+    this.runs = { rows: [], error: null, timer: null, starting: new Set() };
     this.buildModelRuns(this.backdrop.querySelector('.modal'));
   }
 
@@ -752,21 +745,19 @@ export class AdminModal {
     Object.assign(this.runs, { section, where, table, body, refresh, rescan });
   }
 
-  /** Read the model-runs list; a server without the route has none to show. */
+  /** Read the model-runs list. */
   async loadModelRuns() {
     if (!this.runs?.section) return;
     this.stopRunPolling();
     try {
       const payload = await getJson('/api/admin/model-runs', {}, 'admin-model-runs');
-      this.runs.available = true;
+      this.runs.error = null;
       this.runs.payload = payload;
       this.runs.rows = modelRunRows(payload);
     } catch (error) {
       if (error?.name === 'AbortError') return;
       this.runs.rows = [];
-      this.runs.available = error instanceof ApiError && error.status === 404 ? false : null;
-      this.runs.error = this.runs.available === false ? null
-        : (error instanceof ApiError ? error.message : String(error?.message ?? error));
+      this.runs.error = error instanceof ApiError ? error.message : String(error?.message ?? error);
     }
     this.renderModelRuns();
     if (this.runs.rows.some(runPending) && this.shell.isOpen) {
@@ -791,19 +782,13 @@ export class AdminModal {
 
   renderModelRuns() {
     const { where, table, body } = this.runs;
-    if (this.runs.available === false) {
-      where.textContent = 'Not available in this build: the server has no XGBoost model-run routes.';
-      table.hidden = true;
-      body.replaceChildren();
-      return;
-    }
     if (this.runs.error) {
       where.textContent = `The model runs could not be read: ${this.runs.error}`;
       table.hidden = true;
       return;
     }
     const rows = this.runs.rows;
-    const folder = this.runs.payload?.models?.dir ?? this.runs.payload?.dir ?? this.runs.payload?.catalogue?.dir ?? null;
+    const folder = this.runs.payload?.models?.dir ?? null;
     const paired = rows.filter((row) => row.paired).length;
     where.textContent = (folder ? `Models folder ${folder} · ` : '')
       + (rows.length
@@ -861,10 +846,7 @@ export class AdminModal {
         ? `Models rescanned: ${formatInt(queued)} XGBoost analys${queued === 1 ? 'is' : 'es'} queued or running.`
         : 'Models rescanned: every paired analysis is current, failed on unchanged inputs or unpaired.');
     } catch (error) {
-      const message = error instanceof ApiError && error.status === 404
-        ? 'Rescanning the models is not available in this build.'
-        : (error instanceof ApiError ? error.message : String(error?.message ?? error));
-      this.setStatus(message, true);
+      this.setStatus(error instanceof ApiError ? error.message : String(error?.message ?? error), true);
     } finally {
       if (button) button.disabled = false;
     }
@@ -879,10 +861,7 @@ export class AdminModal {
       await sendJson('POST', `/api/admin/model-runs/${encodeURIComponent(name)}/analyse`);
       this.setStatus(`The XGBoost analysis of ${name} is queued.`);
     } catch (error) {
-      const message = error instanceof ApiError && error.status === 404
-        ? 'Re-analysing is not available in this build.'
-        : (error instanceof ApiError ? error.message : String(error));
-      this.setStatus(message, true);
+      this.setStatus(error instanceof ApiError ? error.message : String(error?.message ?? error), true);
     } finally {
       this.runs.starting.delete(name);
     }

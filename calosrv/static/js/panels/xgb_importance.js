@@ -4,14 +4,20 @@
  * `/api/xgboost?view=importance&task=momentum|angle` ships every model
  * feature (52), sorted by the shipped booster's normalised gain
  * (`feature_importances_`, summing to 1), each with its frame, the raw
- * `get_score` gain, weight and cover, the five fold refits' normalised gain,
- * their mean, SD and the interval of the mean the server names
- * (`interval.label`, clipped to [0, 1], the range of a share).
+ * `get_score` gain, weight and cover, its share of the total gain
+ * (`total_gain_share`: average gain × number of splits, normalised), the five
+ * fold refits' normalised gain, their mean, SD and the interval of the mean
+ * the server names (`interval.label`, clipped to [0, 1], the range of a share).
  *
  * ## The bar is one model; the folds are the evidence about it
  *
  * Each feature is a row. The bar, from zero (CLAUDE.md section 2), is the
- * shipped model's share of the total gain: one booster, not an average. Under
+ * shipped model's share of the summed average split gain - XGBoost's
+ * `feature_importances_`, the notebooks' measure (Martin, 2026-10-27, D-1) -
+ * one booster, not an average. It is not the share of the total gain: a
+ * feature split on once with a large gain can outrank one used in 84 splits,
+ * so each feature's total-gain share and its rank by it are in the tooltip
+ * and the drawer, named as such. Under
  * it, on a line of their own, the five refits' shares are open dots - five
  * observations - and their mean is a short tick inside a thin capped bracket,
  * the 95 % interval of that mean: the uncertainty of an aggregate, named in
@@ -106,6 +112,7 @@ export function importanceModel(payload, { topN = TOP_N } = {}) {
     colours,
     interval: payload.interval ?? null,
     envelope: envelopeName(payload),
+    features,
   };
 }
 
@@ -115,7 +122,23 @@ export function restText(model) {
   if (model.hiddenUsed.length) parts.push(`${formatInt(model.hiddenUsed.length)} more with gain`);
   if (model.unused.length) parts.push(`${formatInt(model.unused.length)} never split on (0 in every model)`);
   if (!parts.length) return null;
-  return `Not drawn: ${parts.join('; ')} - listed in Details`;
+  return `Not drawn: ${parts.join('; ')}; listed in Details`;
+}
+
+/** What the bar is, in the words the axis, the tooltip and the drawer use. */
+export const BAR_MEASURE = 'share of the summed average split gain';
+
+/**
+ * A feature's share of the total gain (average gain × number of splits,
+ * normalised over the features): the payload's `total_gain_share`, or
+ * computed from `raw` gain × weight over `features` when an older payload
+ * lacks it. Null when nothing has gain.
+ */
+export function totalGainShare(f, features = []) {
+  if (Number.isFinite(f?.total_gain_share)) return f.total_gain_share;
+  const total = (x) => (x?.raw?.gain ?? 0) * (x?.raw?.weight ?? 0);
+  const sum = features.reduce((a, x) => a + total(x), 0);
+  return sum > 0 ? total(f) / sum : null;
 }
 
 /* ------------------------------------------------------------- tooltips -- */
@@ -126,11 +149,14 @@ export function featureTip(f, model) {
   const [lo, hi] = f.fold_t95 ?? [null, null];
   const lines = [
     `<b>${escapeHtml(f.name)}</b> ${mutedLine(`(${FRAME_LABELS[f.frame] ?? f.frame ?? 'no frame'})`)}`,
-    `Shipped model: ${pc(f.shipped, 2)} of the total gain (rank ${formatInt(f.rank)} of ${formatInt(model.n)}) ${mutedLine('- the bar, one booster')}`,
+    `Shipped model: ${pc(f.shipped, 2)} of the summed average split gain (feature_importances_; rank ${formatInt(f.rank)} of ${formatInt(model.n)}) `
+      + `${mutedLine('— the bar, one booster')}`,
+    `share of the total gain (average gain × splits): ${pc(totalGainShare(f, model.features), 2)}`
+      + `${Number.isFinite(f.total_gain_rank) ? ` (rank ${formatInt(f.total_gain_rank)} by total gain)` : ''} ${mutedLine('— not drawn')}`,
     `raw get_score: gain ${sigFigs(f.raw?.gain, 4)} (mean per split) · weight ${sigFigs(f.raw?.weight, 4)} (splits) · cover ${sigFigs(f.raw?.cover, 4)} (mean rows per split)`,
-    `fold refits: ${folds} ${mutedLine('- the dots')}`,
+    `fold refits: ${folds} ${mutedLine('— the dots')}`,
     `fold mean ${pc(f.fold_mean, 2)}; ${escapeHtml(model.interval?.label ?? '95% interval of the mean')} [${pc(lo, 2)}, ${pc(hi, 2)}]`
-      + ` ${mutedLine('- the bracket, the uncertainty of the mean')}`,
+      + ` ${mutedLine('— the bracket, the uncertainty of the mean')}`,
     `SD of the folds ${pc(f.fold_sd, 2)} ${mutedLine('(their spread: the dots, not a whisker)')}`,
   ];
   if (f.clipped) lines.push(mutedLine(`the interval was clipped ${model.interval?.clip ?? 'to [0, 1], the range of a share'}`));
@@ -146,7 +172,8 @@ export function importanceLegendNames(model, width = Infinity) {
 
 /** The envelope's legend name at `width`: the full label where it fits a legend row, else the generic one. */
 export function envelopeLegend(model, width = Infinity) {
-  return fitName([model.envelope, 'Fold mean · 95% interval of the mean'], width - 2 * axisPadding().right - 26);
+  const short = model.interval?.method === 'corrected_resampled_t' ? ['Fold mean · 95% NB-corrected t CI'] : [];
+  return fitName([model.envelope, ...short, 'Fold mean · 95% interval of the mean'], width - 2 * axisPadding().right - 26);
 }
 
 /** The grid at `width` × `height`; `height` null sizes the rows for print. */
@@ -172,7 +199,7 @@ export function importanceLayout(model, width, height = null) {
 /**
  * The E5 option. Pure: `opts` = {tooltipPosition?};
  * `metrics` = {width, height}. y is the feature (inverse category), x the
- * share of the total gain in percent, from zero.
+ * share of the summed average split gain in percent, from zero.
  */
 export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
   const model = importanceModel(payload);
@@ -309,7 +336,11 @@ export function xgbImportanceOption(payload, opts = {}, metrics = {}) {
     legend: chartLegend(importanceLegendNames(model, width), { left: axisPadding().right }),
     grid: layout.grid,
     xAxis: valueAxis({
-      name: fitName(['Share of the total gain [%] (normalised gain)', 'Share of gain [%]'], layout.grid.width),
+      name: fitName([
+        'Share of the summed average split gain [%] (XGBoost feature_importances_)',
+        'Share of the summed average split gain [%]',
+        'Average split gain share [%]',
+      ], layout.grid.width),
       min: 0, max: xMax, interval: niceInterval(xMax), split: true,
     }),
     yAxis: {

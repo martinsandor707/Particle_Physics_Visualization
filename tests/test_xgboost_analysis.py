@@ -387,15 +387,28 @@ def test_the_surrogate_tree_is_sklearns(notebook, task):
     labels = [analysis.LABEL_KEY[label] for label in TASK_LABELS[task]]
     for k, label in enumerate(labels):
         assert [n["values"][label] for n in nodes] == pytest.approx(t.value[:, k, 0].tolist(), rel=1e-12)
+    # Each output's within-node variance is the unbiased sample form, ddof = 1 (CLAUDE.md
+    # section 2); impurity above stays sklearn's own ddof = 0 variance.
+    path = tree.decision_path(X).tocsc()
+    proxy2 = np.asarray(y_proxy, dtype=np.float64).reshape(len(X), -1)
+    for node in nodes:
+        rows = path.indices[path.indptr[node["node_id"]]:path.indptr[node["node_id"] + 1]]
+        for k, label in enumerate(labels):
+            if rows.size >= 2:
+                assert node["variance"][label] == pytest.approx(
+                    np.var(proxy2[rows, k], ddof=1), rel=1e-9, abs=1e-12)
+            else:
+                assert np.isnan(node["variance"][label])
     if task == "momentum":
-        # One output: the per-label variance is sklearn's impurity itself.
-        assert [n["variance"]["momentum"] for n in nodes] == pytest.approx(
-            np.maximum(t.impurity, 0).tolist(), rel=1e-9, abs=1e-12)
+        # One output: the variance is sklearn's impurity scaled by n / (n − 1).
+        for node, impurity, n in zip(nodes, t.impurity, t.n_node_samples):
+            if n >= 2:
+                assert node["variance"]["momentum"] == pytest.approx(
+                    max(impurity, 0.0) * n / (n - 1), rel=1e-9, abs=1e-12)
         assert all(n["circular"] == {} for n in nodes)
     else:
         # φ: beside sklearn's linear mean, the circular mean and R̄ of the rows reaching the node.
         k = labels.index("phi")
-        path = tree.decision_path(X).tocsc()
         for node in nodes:
             rows = path.indices[path.indptr[node["node_id"]]:path.indptr[node["node_id"] + 1]]
             phi = np.asarray(y_proxy, dtype=np.float64)[rows, k]
@@ -405,6 +418,18 @@ def test_the_surrogate_tree_is_sklearns(notebook, task):
             assert circ["mean"] == pytest.approx(np.arctan2(s_, c), rel=1e-9, abs=1e-12)
             assert 0.0 <= circ["resultant"] <= 1.0
     fitted = tree.predict(X)
+    if task == "angle":
+        # φ's fidelity on the circle (D-5): 1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)) and mean |Δ|.
+        k = labels.index("phi")
+        target, mine = np.asarray(y_proxy)[:, k], np.asarray(fitted)[:, k]
+        delta = np.angle(np.exp(1j * (mine - target)))
+        mean = np.arctan2(np.sin(target).sum(), np.cos(target).sum())
+        expected = 1 - np.sum(1 - np.cos(delta)) / np.sum(1 - np.cos(target - mean))
+        phi = result.tasks[task].surrogate_outputs["phi"]
+        assert phi["r2_circular"] == pytest.approx(expected, rel=1e-9, abs=1e-12)
+        assert phi["mae_wrapped"] == pytest.approx(np.mean(np.abs(delta)), rel=1e-9, abs=1e-12)
+        assert phi["r2"] == pytest.approx(r2_score(target, mine), rel=1e-12)
+        assert "r2_circular" not in result.tasks[task].surrogate_outputs["theta"]
     assert result.tasks[task].surrogate_r2 == pytest.approx(r2_score(y_proxy, fitted), rel=1e-12)
     assert result.tasks[task].surrogate_mae == pytest.approx(mean_absolute_error(y_proxy, fitted),
                                                              rel=1e-12)
@@ -425,6 +450,10 @@ def test_shipped_importance_equals_feature_importances(notebook, task):
     assert [gain.get(f, 0.0) / total for f in notebook["features"]] == pytest.approx(norm, rel=1e-6)
     weight = regressor.get_booster().get_score(importance_type="weight")
     assert {f: v[2] for f, v in importance.items() if v[2]} == weight
+    # D-1: total gain is the average gain times the number of splits, as E5's tooltip quotes it.
+    total_gain = regressor.get_booster().get_score(importance_type="total_gain")
+    for f, v in importance.items():
+        assert v[1] * v[2] == pytest.approx(total_gain.get(f, 0.0), rel=1e-5, abs=1e-9)
 
 
 def test_fold_importances_are_the_refits(notebook):
@@ -457,3 +486,39 @@ def test_too_few_events_and_missing_labels_fail_with_a_reason(notebook):
 def test_a_stop_request_cancels_between_steps(notebook):
     with pytest.raises(analysis.Cancelled):
         analysis.run(notebook["data"], notebook["models"], nthread=1, should_stop=lambda: True)
+
+
+# ------------------------------------------------------ circular fidelity --
+
+
+def test_circular_fidelity_takes_the_short_way_round_the_seam():
+    """A surrogate disagreeing across ±π by a few mrad is nearly perfect on the circle."""
+    rng = np.random.default_rng(3)
+    # Azimuths around the seam: about half the surrogate's values land on the other side of ±π.
+    target = analysis.wrap(np.pi + rng.normal(0.0, 0.3, 500))
+    fitted = analysis.wrap(target + rng.normal(0.0, 0.01, 500))
+    fid = analysis.circular_fidelity(target, fitted)
+    assert fid["r2_circular"] > 0.99 and fid["mae_wrapped"] < 0.02
+    # A linear MAE counts the seam crossings as about 2π.
+    assert np.mean(np.abs(fitted - target)) > 5 * fid["mae_wrapped"]
+    # The one mean direction for every row scores 0; a single direction is undefined.
+    from calosrv.stats.circular import circular_mean, resultant_sums
+
+    uniform = rng.uniform(-np.pi, np.pi, 500)
+    c, s, _ = resultant_sums(uniform)
+    assert analysis.circular_fidelity(uniform, np.full(500, circular_mean(c, s)))["r2_circular"] == \
+        pytest.approx(0.0, abs=1e-12)
+    assert analysis.circular_fidelity(np.full(4, 1.0), np.full(4, 1.0))["r2_circular"] is None
+    assert analysis.circular_fidelity(np.array([]), np.array([])) == {"r2_circular": None,
+                                                                       "mae_wrapped": None}
+
+
+def test_the_colour_domain_comes_from_nodes_of_twenty_rows():
+    """D-6: a small leaf beyond the robust nodes' range is counted, not allowed to set it."""
+    nodes = [{"n": n, "values": {"momentum": v}} for n, v in
+             ((300, 6.5), (150, 2.0), (150, 11.0), (5, 18.0), (2, 0.5), (40, 9.0))]
+    basis = views.colour_domain(nodes, "momentum")
+    assert basis["domain"] == [2.0, 11.0] and basis["n_nodes"] == 4 and not basis["provisional"]
+    assert (basis["n_above"], basis["n_below"]) == (1, 1)
+    tiny = views.colour_domain([{"n": 12, "values": {"momentum": v}} for v in (1.0, 3.0)], "momentum")
+    assert tiny["domain"] == [1.0, 3.0] and tiny["provisional"]
