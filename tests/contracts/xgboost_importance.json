@@ -59,7 +59,9 @@
      "fold_mean",
      "fold_sd",
      "fold_t95",
-     "clipped"
+     "clipped",
+     "total_gain_share",
+     "total_gain_rank"
     ],
     "properties": {
      "name": {
@@ -80,7 +82,8 @@
       "type": [
        "number",
        "null"
-      ]
+      ],
+      "description": "feature_importances_: the average split gain over the sum across the features (the bar)."
      },
      "raw": {
       "type": "object",
@@ -146,6 +149,19 @@
      },
      "clipped": {
       "type": "boolean"
+     },
+     "total_gain_share": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "raw.gain × raw.weight over the sum across the features (D-1); not drawn."
+     },
+     "total_gain_rank": {
+      "type": "integer",
+      "minimum": 1
      }
     }
    },
@@ -162,7 +178,8 @@
    "required": [
     "shipped",
     "raw",
-    "folds"
+    "folds",
+    "total_gain"
    ],
    "properties": {
     "shipped": {
@@ -172,6 +189,9 @@
      "type": "string"
     },
     "folds": {
+     "type": "string"
+    },
+    "total_gain": {
      "type": "string"
     }
    }

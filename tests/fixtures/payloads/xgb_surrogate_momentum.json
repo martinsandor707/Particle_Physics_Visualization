@@ -18,7 +18,7 @@
   },
   "model_file": "xgboost_electron/standalone_momentum_s1_model.json",
   "sha256": "5216770e486c",
-  "analysis_version": 2,
+  "analysis_version": 3,
   "split": {
    "reproduced": true,
    "ratio_42": 6.73076,
@@ -281,7 +281,7 @@
     "momentum": 6.54641
    },
    "sd": {
-    "momentum": 5.01118
+    "momentum": 5.01936
    },
    "circular": {}
   },
@@ -300,7 +300,7 @@
     "momentum": 5.93834
    },
    "sd": {
-    "momentum": 4.95208
+    "momentum": 4.96121
    },
    "circular": {}
   },
@@ -319,7 +319,7 @@
     "momentum": 6.56862
    },
    "sd": {
-    "momentum": 5.0247
+    "momentum": 5.03561
    },
    "circular": {}
   },
@@ -338,7 +338,7 @@
     "momentum": 6.67654
    },
    "sd": {
-    "momentum": 5.09247
+    "momentum": 5.12587
    },
    "circular": {}
   },
@@ -357,7 +357,7 @@
     "momentum": 6.51466
    },
    "sd": {
-    "momentum": 4.98959
+    "momentum": 5.00587
    },
    "circular": {}
   },
@@ -376,7 +376,7 @@
     "momentum": 2.38727
    },
    "sd": {
-    "momentum": 2.3649
+    "momentum": 2.39428
    },
    "circular": {}
   },
@@ -395,7 +395,7 @@
     "momentum": 1.20993
    },
    "sd": {
-    "momentum": 0.675023
+    "momentum": 0.685824
    },
    "circular": {}
   },
@@ -414,7 +414,7 @@
     "momentum": 6.57334
    },
    "sd": {
-    "momentum": 1.18589
+    "momentum": 1.25783
    },
    "circular": {}
   },
@@ -433,7 +433,7 @@
     "momentum": 11.2719
    },
    "sd": {
-    "momentum": 2.11743
+    "momentum": 2.14834
    },
    "circular": {}
   },
@@ -452,7 +452,7 @@
     "momentum": 10.4474
    },
    "sd": {
-    "momentum": 0.295103
+    "momentum": 0.300148
    },
    "circular": {}
   },
@@ -471,7 +471,7 @@
     "momentum": 10.2028
    },
    "sd": {
-    "momentum": 0.20778
+    "momentum": 0.215072
    },
    "circular": {}
   },
@@ -490,7 +490,7 @@
     "momentum": 10.692
    },
    "sd": {
-    "momentum": 0.106381
+    "momentum": 0.110115
    },
    "circular": {}
   },
@@ -509,7 +509,7 @@
     "momentum": 16.2192
    },
    "sd": {
-    "momentum": 1.51914
+    "momentum": 1.69845
    },
    "circular": {}
   },
@@ -528,7 +528,7 @@
     "momentum": 14.987
    },
    "sd": {
-    "momentum": 0.224813
+    "momentum": 0.275339
    },
    "circular": {}
   },
@@ -561,9 +561,12 @@
   "outputs": {
    "momentum": {
     "r2": 0.240006,
-    "mae": 3.56693
+    "mae": 3.56693,
+    "judged_on": "r2",
+    "low": true
    }
   },
+  "threshold": 0.5,
   "against": "the shipped booster's own predictions on every row, in-sample, as the notebook measures it",
   "statement": "R² 0.24 against the booster's predictions"
  },
@@ -577,9 +580,19 @@
  "color_domain": {
   "momentum": [
    1.20993,
-   18.0674
+   11.2719
   ]
  },
+ "color_domain_basis": {
+  "momentum": {
+   "min_n": 20,
+   "n_nodes": 9,
+   "provisional": false,
+   "n_above": 3,
+   "n_below": 0
+  }
+ },
+ "weak_below_n": 20,
  "color_by": {
   "momentum": true
  },
@@ -592,7 +605,9 @@
  ],
  "notes": {
   "description": "A description of the booster, not an estimate: each node shows its number of rows, the mean of the booster's predictions over them and their SD, the spread within the node (no whisker).",
-  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node, averaged over the outputs for the angle task; sd is each output's own within-node SD.",
-  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe. Each output's own fidelity is stated: their average can hide an output the tree does not describe at all."
+  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node (ddof = 0), averaged over the outputs for the angle task; sd is each output's own within-node SD, the unbiased sample form (ddof = 1), undefined for a node of one row.",
+  "weak": "A node of fewer than 20 rows is weak: its mean and SD rest on that few predictions.",
+  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe. Each output's own fidelity is stated: their average can hide an output the tree does not describe at all.",
+  "colour_domain": "The colour domain of a coloured output spans the nodes of at least 20 rows; a smaller node beyond it takes the end colour and is marked ▲ (above) or ▼ (below)."
  }
 }

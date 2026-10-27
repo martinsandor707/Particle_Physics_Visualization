@@ -147,6 +147,9 @@ def test_the_whole_analysis_runs_on_the_electron_file():
     angle = result.tasks["angle"]
     assert all(0.0 <= n["circular"]["phi"]["resultant"] <= 1.0 for n in angle.tree)
     print("E4 fidelity per output:", angle.surrogate_outputs)
+    # D-5: φ is judged on the circle; its linear R² stays beside it for parity.
+    phi = angle.surrogate_outputs["phi"]
+    assert phi["r2_circular"] is not None and phi["mae_wrapped"] <= phi["mae"] + 1e-12
     importance = result.tasks["momentum"].importance
     top = max(importance, key=lambda f: importance[f][0])
     assert top == "num_hits"

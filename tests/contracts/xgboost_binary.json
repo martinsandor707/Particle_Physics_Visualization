@@ -177,7 +177,8 @@
      "n",
      "value",
      "interval",
-     "note"
+     "note",
+     "prevalence_dependent"
     ],
     "properties": {
      "id": {
@@ -223,6 +224,10 @@
      },
      "note": {
       "type": "string"
+     },
+     "prevalence_dependent": {
+      "type": "boolean",
+      "description": "Whether the rate depends on the sample's designed class ratio: accuracy and the precisions do, the recalls and the balanced accuracy do not."
      }
     }
    },

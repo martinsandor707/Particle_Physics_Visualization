@@ -1,4 +1,4 @@
-/* E3: the momentum regressor thresholded at 2 GeV, on a 99 : 1 sample.
+/* E3: the momentum regressor thresholded at 2 GeV, on a sample designed 99 : 1.
  *
  * `/api/xgboost?view=binary` reproduces the notebook's experiment: from the
  * 20 % validation split, class 0 (p < 2 GeV) and class 1 (p > 10 GeV, or
@@ -6,7 +6,10 @@
  * pandas' seeded sampler, and the shipped regressor's momentum is thresholded
  * at 2 GeV. The response carries the confusion counts, six rates with their
  * intervals, the notebook's support-weighted metrics for parity and the
- * minority class's size.
+ * minority class's size. A pool can hold fewer rows than the design asks
+ * for, so the card states the realised ratio under the matrix ("class 0 :
+ * class 1 = 1,932 : 20 (designed 99 : 1)"), from `counts`, never the
+ * designed one alone.
  *
  * ## Counts are not estimates
  *
@@ -29,7 +32,12 @@
  * two class recalls' Wilson limits (`method` 'mover'), which keeps the
  * uncertainty of a class classified perfectly where a bootstrap of the rows
  * would collapse it - in a second legend entry carrying the payload's label,
- * so the methods never mix. The rates run
+ * so the methods never mix. The legend names each interval briefly ("95%
+ * MOVER CI (from Wilson limits)") and wraps into rows rather than paging;
+ * every tooltip and the drawer carry the full label. Accuracy and the two
+ * precisions depend on the designed class ratio, the recalls and the
+ * balanced accuracy do not (`prevalence_dependent`): each tooltip says which,
+ * and the drawer says why. The rates run
  * as rows against the full 0-100 % scale a proportion can take, so the
  * labels read horizontally and nothing is clipped. A rate whose denominator
  * is empty (precision with no row predicted in the class) is undefined: no
@@ -46,9 +54,10 @@ import { THEME, axisPadding, formatInt, formatPercent } from '../scale.js';
 import { measureText, wrapText } from '../textfit.js';
 import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
+import { wrappedLegend } from './xgb_cv.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, isPrintTheme,
+  isPrintTheme,
 } from './chart_panel.js';
 
 /** Below this width the matrix stands above the rates. */
@@ -118,6 +127,8 @@ export function binaryModel(payload) {
       method: iv?.method ?? null,
       intervalLabel: iv?.label ?? null,
       note: r.note ?? '',
+      // Accuracy and the precisions depend on the designed class ratio; null when the payload does not say.
+      prevalence: typeof r.prevalence_dependent === 'boolean' ? r.prevalence_dependent : null,
       // A rate whose denominator is the minority class rests on its rows.
       minority: id === `recall_${minorityClass}`,
       undefined: !Number.isFinite(r.value),
@@ -134,6 +145,27 @@ export function binaryModel(payload) {
   };
 }
 
+/** The ratio the design asked for, "99 : 1" unless the payload names another. */
+export function designedRatio(model) {
+  return model.design?.ratio ?? '99 : 1';
+}
+
+/**
+ * The realised class ratio, longest first for `fitName`: "class 0 : class 1 =
+ * 1,932 : 20 (designed 99 : 1)", from the payload's counts.
+ */
+export function ratioTexts(model) {
+  const n0 = formatInt(model.counts?.class_0);
+  const n1 = formatInt(model.counts?.class_1);
+  const designed = designedRatio(model);
+  return [
+    `class 0 : class 1 = ${n0} : ${n1} (designed ${designed})`,
+    `class 0 : 1 = ${n0} : ${n1} (designed ${designed})`,
+    `${n0} : ${n1} (designed ${designed})`,
+    `${n0} : ${n1}`,
+  ];
+}
+
 /** The rule and size of class `k`, as the matrix key prints it. */
 export function classKey(model, k) {
   const n = model.counts?.[`class_${k}`];
@@ -148,7 +180,7 @@ export function classKey(model, k) {
 export function cellTip(model, cell) {
   const share = cell.share === null ? '—' : pc(cell.share);
   return [
-    `<b>${cell.role}: true class ${cell.trueClass}, predicted class ${cell.predClass} - ${formatInt(cell.count)} row${cell.count === 1 ? '' : 's'}</b>`,
+    `<b>${cell.role}: true class ${cell.trueClass}, predicted class ${cell.predClass}; ${formatInt(cell.count)} row${cell.count === 1 ? '' : 's'}</b>`,
     `${share} of the ${formatInt(cell.rowTotal)} rows of true class ${cell.trueClass}`,
     escapeHtml(classKey(model, cell.trueClass)),
     mutedLine('a count, not an estimate: it carries no interval'),
@@ -169,7 +201,12 @@ export function rateTip(rate, model) {
   ];
   if (Number.isFinite(rate.lo) && Number.isFinite(rate.hi)) {
     lines.push(`${escapeHtml(rate.intervalLabel ?? '95% interval')} [${pc(rate.lo)}, ${pc(rate.hi)}] `
-      + `${mutedLine('- the capped whisker, the uncertainty of the rate')}`);
+      + `${mutedLine('— the capped whisker, the uncertainty of the rate')}`);
+  }
+  if (rate.prevalence === true) {
+    lines.push(mutedLine(`depends on the sample's designed ${escapeHtml(designedRatio(model))} class ratio: it does not transfer to another mix of classes`));
+  } else if (rate.prevalence === false) {
+    lines.push(mutedLine('does not depend on the class ratio'));
   }
   if (rate.minority && model.minority) lines.push(mutedLine(`rests on the ${formatInt(model.minority.n)} rows of the minority class: the interval is correspondingly wide`));
   else if (Number.isFinite(rate.n) && rate.n < WIDE_BELOW_N) lines.push(mutedLine(`rests on ${formatInt(rate.n)} rows: the interval is correspondingly wide`));
@@ -188,16 +225,22 @@ export function binaryLegendNames(model, width = Infinity) {
 
 const METHOD_WORDS = Object.freeze({ bootstrap_percentile: 'percentile bootstrap', newcombe: 'Newcombe', mover: 'MOVER' });
 
+/** The short legend names of the balanced accuracy's interval, by method. */
+const SHORT_NAMES = Object.freeze({
+  mover: '95% MOVER CI (from Wilson limits)',
+  newcombe: '95% Newcombe CI (from Wilson limits)',
+});
+
 /**
- * The other interval's legend name at `width`: the payload's full label where
- * it fits one legend row, else its method in a word; the tooltip and the
- * drawer keep the full label.
+ * The other interval's legend name at `width`: a short name for its method
+ * ("95% MOVER CI (from Wilson limits)"), or the method in a word where even
+ * that does not fit; the tooltip and the drawer keep the full label.
  */
 export function otherIntervalLegend(model, width = Infinity) {
   const r = model.rates.find((x) => x.method && x.method !== 'wilson');
   if (!r) return OTHER_INTERVAL_NAME;
   const word = METHOD_WORDS[r.method] ?? String(r.method).replace(/_/g, ' ');
-  return fitName([otherIntervalName(model), `95% ${word} interval (${r.short.toLowerCase()})`, `95% ${word} interval`],
+  return fitName([SHORT_NAMES[r.method] ?? `95% ${word} CI`, `95% ${word} CI`],
     width - 2 * axisPadding().right - 26);
 }
 
@@ -221,11 +264,12 @@ export function binaryLayout(model, width, height = null) {
   const pad = axisPadding();
   const f = THEME.fontLabel;
   const side = pad.right;
-  const top = legendTop(binaryLegendNames(model, width), width - 2 * side);
+  const { top } = wrappedLegend(binaryLegendNames(model, width), width);
   const stacked = width < STACK_BELOW_PX;
   const headW = measureText('true 0', THEME.fontLabel, THEME.fontFamily) + 0.8 * f;
   const headH = 3.0 * f;
-  const keyH = 2 * 1.5 * f + 0.6 * f;
+  // Three key lines: each class's rule and size, then the realised ratio against the design.
+  const keyH = 3 * 1.5 * f + 0.6 * f;
   const noteW = stacked ? width - 2 * side : Math.max(120, 0.42 * width - side);
   const noteLines = isPrintTheme() || !model.minority ? []
     : wrapText(model.minority.note ?? '', noteW, THEME.fontSmall, THEME.fontFamily);
@@ -238,7 +282,7 @@ export function binaryLayout(model, width, height = null) {
     const regionW = 0.42 * width - side;
     const avail = (height ?? 340) - top - headH - keyH - noteH - 0.4 * f;
     const cell = Math.max(28, Math.min((regionW - headW) / 2, avail / 2));
-    const matrix = { x: side + headW, y: top + headH, cell, headW, headH, noteLines };
+    const matrix = { x: side + headW, y: top + headH, cell, headW, headH, noteLines, keyW: regionW };
     matrix.keyY = matrix.y + 2 * cell + 0.6 * f;
     matrix.noteY = matrix.keyY + keyH;
     const gridLeft = side + regionW + 1.6 * f + labelW;
@@ -248,7 +292,7 @@ export function binaryLayout(model, width, height = null) {
     return { stacked, top, matrix, grid, height: Math.ceil(h) };
   }
   const cell = Math.max(28, Math.min((width - 2 * side - headW) / 2, 64));
-  const matrix = { x: side + headW, y: top + headH, cell, headW, headH, noteLines };
+  const matrix = { x: side + headW, y: top + headH, cell, headW, headH, noteLines, keyW: width - 2 * side };
   matrix.keyY = matrix.y + 2 * cell + 0.6 * f;
   matrix.noteY = matrix.keyY + keyH;
   const gridTop = matrix.noteY + noteH + 1.4 * f;
@@ -325,6 +369,8 @@ function matrixGraphics(model, m) {
     text(m.x - 0.5 * f, m.y + 1.5 * m.cell, 'true 1', { textAlign: 'right', textVerticalAlign: 'middle' }),
     text(m.x - m.headW, m.keyY, classKey(model, 0)),
     text(m.x - m.headW, m.keyY + 1.5 * f, classKey(model, 1)),
+    // The realised ratio, never the designed one alone: a pool may hold fewer rows than asked for.
+    text(m.x - m.headW, m.keyY + 3.0 * f, fitName(ratioTexts(model), m.keyW ?? Infinity)),
   ];
   m.noteLines.forEach((line, i) => {
     out.push(text(m.x - m.headW, m.noteY + i * 1.35 * THEME.fontSmall, line, { fontSize: THEME.fontSmall }));
@@ -412,7 +458,7 @@ export function xgbBinaryOption(payload, opts = {}, metrics = {}) {
   return {
     ...baseOption(),
     tooltip: wrapTooltip(tooltipOption(opts.tooltipPosition ?? null)),
-    legend: chartLegend(binaryLegendNames(model, width), { left: axisPadding().right }),
+    legend: wrappedLegend(binaryLegendNames(model, width), width).legend,
     grid: { left: g.left, top: g.top, width: g.width, height: g.height },
     xAxis: valueAxis({
       name: fitName(['Rate [%] (full 0–100% scale)', 'Rate [%]'], g.width), min: 0, max: 100, interval: 20, split: true,

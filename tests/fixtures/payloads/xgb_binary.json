@@ -18,7 +18,7 @@
   },
   "model_file": "xgboost_electron/standalone_momentum_s1_model.json",
   "sha256": "5216770e486c",
-  "analysis_version": 2,
+  "analysis_version": 3,
   "split": {
    "reproduced": true,
    "ratio_42": 6.73076,
@@ -309,9 +309,10 @@
     "hi": 0.996234,
     "level": 0.95,
     "method": "wilson",
-    "label": "95% Wilson score interval"
+    "label": "95% Wilson score interval (binomial; conservative under the fixed class sizes)"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": true
   },
   {
    "id": "recall_1",
@@ -327,7 +328,8 @@
     "method": "wilson",
     "label": "95% Wilson score interval"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": false
   },
   {
    "id": "recall_0",
@@ -343,7 +345,8 @@
     "method": "wilson",
     "label": "95% Wilson score interval"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": false
   },
   {
    "id": "precision_1",
@@ -359,7 +362,8 @@
     "method": "wilson",
     "label": "95% Wilson score interval"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": true
   },
   {
    "id": "precision_0",
@@ -375,7 +379,8 @@
     "method": "wilson",
     "label": "95% Wilson score interval"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": true
   },
   {
    "id": "balanced_accuracy",
@@ -391,7 +396,8 @@
     "method": "mover",
     "label": "95 % Newcombe MOVER interval from per-class Wilson limits"
    },
-   "note": ""
+   "note": "",
+   "prevalence_dependent": false
   }
  ],
  "parity": {
@@ -412,6 +418,7 @@
  "notes": {
   "intervals": "Each rate carries a 95 % Wilson score interval of a proportion. The balanced accuracy, the mean of the two class recalls with the class sizes fixed by the sample design, carries Newcombe's MOVER interval built from the two recalls' Wilson limits, so a class classified perfectly keeps the uncertainty of its few rows; a bootstrap of the rows would collapse it to zero.",
   "counts": "The confusion matrix is counts, which carry no interval.",
-  "weighted": "Support-weighted precision, recall and F1 are dominated by the majority class at 99 : 1; they are the notebook's numbers, kept for parity, and the per-class rates are what the card draws."
+  "weighted": "Support-weighted precision, recall and F1 are dominated by the majority class at the designed 99 : 1; they are the notebook's numbers, kept for parity, and the per-class rates are what the card draws.",
+  "prevalence": "Accuracy and the two precisions depend on the sample's designed 99 : 1 class ratio and do not transfer to another mix of classes; the two recalls and the balanced accuracy do not depend on it. Accuracy's Wilson interval treats the rows as one binomial sample, although the class sizes are fixed by the design; the stratified variance is never larger, so the interval is conservative."
  }
 }
