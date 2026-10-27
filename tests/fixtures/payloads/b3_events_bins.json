@@ -2038,9 +2038,9 @@
   }
  ],
  "calibration": {
-  "c_a": 105.83935177999268,
+  "c_a": 105.83934819748973,
   "c_b": null,
-  "sampling_fraction_a": 0.0094482816002,
+  "sampling_fraction_a": 0.00944828192001014,
   "sampling_fraction_b": null,
   "applied": true,
   "method": "c = sum(incoming_momentum) / sum(deposited energy), fitted per shower over the whole active selection, every shower that deposited energy included whether or not its momentum falls in a slice"

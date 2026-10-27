@@ -31,8 +31,10 @@ from typing import Sequence
 
 import numpy as np
 
+import seed
+
 REPO = Path(__file__).resolve().parent.parent
-TEMPLATE_CSV = REPO / "hits_all_models_dummy.csv"
+TEMPLATE_FILE = seed.SEED_FILE
 
 #: Events per slice, one population per low-N rung of the energy panel
 #: (moments, curve, histogram, core refit, robust width) and a large one.
@@ -45,10 +47,7 @@ _FRAMES = ("absolute", "trans", "local")
 
 
 def _templates(path: Path, hits_per_shower: int):
-    with path.open(newline="") as handle:
-        reader = csv.reader(handle)
-        header = next(reader)
-        rows = list(reader)
+    header, rows = seed.rows(path)
     col = {name: i for i, name in enumerate(header)}
     by_event: dict[str, list[list[str]]] = defaultdict(list)
     for row in rows:
@@ -86,7 +85,7 @@ def write(
     seed: int = 20260926,
 ) -> dict:
     """Write the file; return ``{"n_events", "n_rows", "counts", "separations"}``."""
-    header, col, templates = _templates(TEMPLATE_CSV, hits_per_shower)
+    header, col, templates = _templates(TEMPLATE_FILE, hits_per_shower)
     rng = np.random.default_rng(seed)
     event_number = 1
     n_rows = 0

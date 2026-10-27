@@ -63,7 +63,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "two_shower_api.json"
-SEED_CSV = REPO_ROOT / "hits_all_models_dummy.csv"
+SEED_FILE = REPO_ROOT / "hits_all_models_dummy.parquet"
 
 #: The two-shower output this snapshot deliberately departs from 747baba in,
 #: each with the commit or review finding that asked for it.
@@ -199,7 +199,7 @@ def boot_and_snapshot(data_dir: Path) -> dict[str, Any]:
     os.environ.setdefault("CALOSRV_ALLOW_RAM_STORAGE", "1")
     os.environ["CALOSRV_DATA_DIR"] = str(data_dir)
     os.environ["DUCKDB_MEMORY_GB"] = "2"
-    os.environ["CALOSRV_SEED_CSV"] = str(SEED_CSV)
+    os.environ["CALOSRV_SEED_FILE"] = str(SEED_FILE)
     for name in ("CALOSRV_AUTO_INGEST_DIR", "CALOSRV_AUTO_INGEST_SETTLE_S", "CALOSRV_CONFIG_PATH",
                  "CALOSRV_DEFAULT_DATASET", "CALOSRV_DEFAULT_COORD_SYSTEM", "CALOSRV_DEFAULT_MODEL",
                  "CALOSRV_DEFAULT_CHANNEL", "CALOSRV_DEFAULT_DISPLAY_MODE", "CALOSRV_DEFAULT_RHO_NORM"):
@@ -227,8 +227,8 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path, default=None,
                         help="scratch directory for the throwaway database (default: a new temp dir)")
     args = parser.parse_args()
-    if not SEED_CSV.is_file():
-        print(f"missing {SEED_CSV}", file=sys.stderr)
+    if not SEED_FILE.is_file():
+        print(f"missing {SEED_FILE}", file=sys.stderr)
         return 1
     root = args.package_root.resolve()
     sys.path.insert(0, str(root))

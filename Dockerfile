@@ -24,9 +24,9 @@ RUN pip install --upgrade pip \
 
 COPY calosrv /app/calosrv
 
-# Seed CSV for the baseline experiment. Copied into the image (1 MB) so a
+# Seed file for the baseline experiment. Copied into the image (142 KB) so a
 # first boot with an empty ./data volume still produces a populated dashboard.
-COPY hits_all_models_dummy.csv /app/seed/hits_all_models_dummy.csv
+COPY hits_all_models_dummy.parquet /app/seed/hits_all_models_dummy.parquet
 
 # /app/data is the docker-compose volume mount point: DuckDB file, CSV staging
 # area, DuckDB's temp spill directory and the Parquet archive all live here.

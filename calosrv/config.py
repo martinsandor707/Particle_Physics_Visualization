@@ -173,19 +173,21 @@ class Settings:
 
 
 def _seed_candidates(data_dir: Path) -> list[Path]:
-    """Where to look for the baseline seed CSV, in priority order.
+    """Where to look for the baseline seed file, in priority order.
 
     ``/app/seed`` is baked into the image by the Dockerfile. The repository-root
     path lets the server run outside a container straight from a checkout.
+    ``CALOSRV_SEED_CSV`` keeps its name for existing deployments; it accepts a
+    CSV or a Parquet file, as every ingest does.
     """
     override = os.getenv("CALOSRV_SEED_CSV", "").strip()
     if override:
         return [Path(override)]
     repo_root = Path(__file__).resolve().parent.parent
     return [
-        Path("/app/seed/hits_all_models_dummy.csv"),
-        data_dir / "hits_all_models_dummy.csv",
-        repo_root / "hits_all_models_dummy.csv",
+        Path("/app/seed/hits_all_models_dummy.parquet"),
+        data_dir / "hits_all_models_dummy.parquet",
+        repo_root / "hits_all_models_dummy.parquet",
     ]
 
 
