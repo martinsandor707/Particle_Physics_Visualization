@@ -58,7 +58,10 @@
  * residual modes of distribution) reuse this base unchanged. Their shared
  * helpers are appended below the carets: the reserved band and its lifted
  * rows (the same mark response.js draws for B1), and the notice of a plot
- * with nothing estimable on it.
+ * with nothing estimable on it. The XGBoost cards add significant-figure
+ * numbers, the ink on a coloured fill and the legible part of a ramp; a
+ * builder that draws outside a cartesian grid returns its plot area as
+ * `plotGrid` beside the option, for the tooltip placement.
  */
 
 import { THEME, axisPadding, typographic, formatNumber } from '../scale.js';
@@ -686,6 +689,72 @@ function tooltipOptionOf(opts) {
   return tooltipOption(opts?.tooltipPosition ?? null);
 }
 
+/* ------------------------------------------------ XGBoost panels (Page 2) -- */
+
+const SUPERSCRIPT = {
+  0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻', '+': '',
+};
+
+/**
+ * `value` to `digits` significant figures, trailing zeros dropped: plain
+ * between 10⁻³ and 10⁵, else "6.04×10⁻⁵" (the exponent's sign is the
+ * superscript minus, never a hyphen). The XGBoost metrics span that range in
+ * one card - a parity MSE of 5.8×10⁻⁹ rad² beside an R² of 0.99 - which a
+ * fixed number of decimals cannot show.
+ */
+export function sigFigs(value, digits = 3) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (value === 0) return '0';
+  const a = Math.abs(value);
+  if (a >= 1e-3 && a < 1e5) return typographic(String(Number(value.toPrecision(digits))));
+  const [mantissa, exponent] = value.toExponential(digits - 1).split('e');
+  const sup = [...String(Number(exponent))].map((c) => SUPERSCRIPT[c] ?? c).join('');
+  return typographic(`${Number(mantissa)}×10${sup}`);
+}
+
+/** Whether the print theme is in force (the card is white paper). */
+export function isPrintTheme() {
+  const card = rgbOf(THEME.card) ?? [28, 33, 40];
+  return contrast(card, [255, 255, 255]) < 2;
+}
+
+/**
+ * The ink a label printed on `fill` takes: the theme's text colour, white or
+ * black, whichever contrasts most. Mid-ramp fills need the extremes: Viridis
+ * at 0.5 (#218e8c) is 4.49:1 against the print text #111827 and 5.2:1
+ * against black.
+ */
+export function inkOn(fill) {
+  const rgb = rgbOf(fill) ?? [128, 128, 128];
+  const candidates = [THEME.text, '#ffffff', '#000000'];
+  let best = candidates[0];
+  let bestRatio = -1;
+  for (const c of candidates) {
+    const ratio = contrast(rgb, rgbOf(c) ?? [0, 0, 0]);
+    if (ratio > bestRatio) { best = c; bestRatio = ratio; }
+  }
+  return best;
+}
+
+/**
+ * A sequential ramp narrowed to the run that clears 3:1 against the card in
+ * force (`legibleRange`): `{palette, from, to}`. A fill a reader must see -
+ * a surrogate leaf - is then never darker than the card can show.
+ */
+export function legibleRamp(palette) {
+  const range = legibleRange(palette, THEME.card) ?? [0, 1];
+  return { palette, from: range[0], to: range[1] };
+}
+
+/** The colour at fraction `f` (0..1) of a `legibleRamp`, as '#rrggbb'. */
+export function rampColour(ramp, f) {
+  const table = lookupTable(ramp.palette);
+  const clamped = Math.max(0, Math.min(1, Number.isFinite(f) ? f : 0));
+  const t = ramp.from + clamped * (ramp.to - ramp.from);
+  const i = Math.max(0, Math.min(255, Math.round(t * 255)));
+  return `#${[table[i * 3], table[i * 3 + 1], table[i * 3 + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
 /* -------------------------------------------------------------- class -- */
 
 export class ChartPanel {
@@ -759,9 +828,12 @@ export class ChartPanel {
       tooltipPosition: this.tooltipPosition,
       readoutPosition: this.readoutPosition,
     };
-    const { option } = this.buildOption({ payload: this.lastPayload, opts, metrics: { width, height } });
+    const { option, plotGrid = null } = this.buildOption({ payload: this.lastPayload, opts, metrics: { width, height } });
     this.laidOut = { width, height };
     this.liveGrid = option.grid ?? null;
+    // A builder that draws outside any cartesian grid (a tree, a matrix)
+    // names the plot area its tips must stay off as `plotGrid`.
+    if (plotGrid) this.liveGrid = plotGrid;
     this.chart.setOption(option, { notMerge: true });
     return option;
   }
