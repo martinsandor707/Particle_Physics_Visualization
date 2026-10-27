@@ -211,6 +211,7 @@ VOLATILE_KEYS: dict[str, frozenset[str]] = {
 #: the catalogue's compute block counts this machine's cores and the cache warmers
 #: race the request.
 VOLATILE_BY_NAME: dict[str, tuple[tuple[str, ...], ...]] = {
+    "experiments": (("compute",),),
     "experiments_xgb": (("compute",),),
 }
 
