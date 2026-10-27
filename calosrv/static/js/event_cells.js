@@ -3,8 +3,10 @@
  * with. This module is their one owner.
  *
  * The event cells draw the Event Inspector's rasters: one shower of one event
- * in one frame, the frame's equal half-width window for the panel's two axes,
- * the frame's marks in the shower's colour, framed and isometric. The Physics
+ * in one frame, the frame's window for the panel's two axes - one half-width
+ * for every axis on the Physics page, one per axis on the Models page
+ * (`window=per_axis`), the panel isometric either way, letterboxed from its
+ * millimetre spans - the frame's marks in the shower's colour, framed. The Physics
  * page's Event Inspector (event_inspector.js, as `cellOptions` and
  * `cellTitle`) and the Models page's 3-D event view draw them alike.
  *

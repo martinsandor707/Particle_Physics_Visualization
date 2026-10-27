@@ -23,6 +23,13 @@ raster request is never refused over any of them, and the cubes refuse a cap
 outside 100..15000 naming ``cap``. A D-frame event whose entry anchors sit
 closer than 80 mm carries the D-frame's own sentence that its orientation is
 effectively random.
+
+``window`` names the window rule, read by both formats: ``shared``, one
+half-width for every axis of the event, is the raster's default (Page 1's
+Event Inspector, pinned by the two-shower golden snapshot); ``per_axis``, one
+half-width per axis, is the cubes' default, and the Models page asks the
+raster for it too, so the 3-D box and its three projections agree. Any other
+value is refused naming ``window``.
 """
 
 from __future__ import annotations
@@ -126,11 +133,22 @@ def get_event(
             "counted. Ignored by the raster."
         ),
     ),
+    window: str | None = Query(
+        None,
+        description=(
+            "shared | per_axis: the window rule. shared is one half-width for every axis of the "
+            "event (the raster's default, the Event Inspector's); per_axis is one half-width per "
+            "axis of each frame (the cubes' default, and the Models page's raster), each the axis's "
+            "energy-weighted 0.1st–99.9th percentile range plus a cell, never below 150 mm."
+        ),
+    ),
 ):
     timer = Timer()
+    if window is not None:
+        event_inspector.check_window(window)
     if format == voxel_event.FORMAT_VOXELS:
         return _voxels(con, record, spec, timer, event_number, shower, coordinates, frame, channel,
-                       model, cap)
+                       model, cap, event_inspector.WINDOW_PER_AXIS if window is None else window)
 
     shower = "a" if shower is None else shower
     if shower not in event_inspector.SHOWERS:
@@ -139,7 +157,8 @@ def get_event(
     showers_mod.of(record, shower)
     _check_coordinates(coordinates)
     footprint = canonical.cell_footprint(con, record)
-    body = event_inspector.inspect(con, record, spec, event_number, shower, coordinates, footprint)
+    body = event_inspector.inspect(con, record, spec, event_number, shower, coordinates, footprint,
+                                   window=event_inspector.WINDOW_SHARED if window is None else window)
     notices = [{"scope": "event", "text": body["coordinates"]["note"]},
                {"scope": "event", "text": body["window"]["rule"]},
                {"scope": "event", "text": body["scale"]["rule"]}]
@@ -183,7 +202,8 @@ def _outside(body: dict[str, Any], event_number: int) -> list[str]:
 
 
 def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int, shower: str | None,
-            coordinates: str, frame: str, channel: str, model: str, cap: int | None) -> dict[str, Any]:
+            coordinates: str, frame: str, channel: str, model: str, cap: int | None,
+            window: str = event_inspector.WINDOW_PER_AXIS) -> dict[str, Any]:
     """The cubes, built once and rendered until the whole enveloped body fits the contract.
 
     The guard's first lever on a splat frame is the voxel pitch (20 to 40 mm:
@@ -196,7 +216,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
     cap = _cap(cap)
     footprint = canonical.cell_footprint(con, record)
     builder = voxel_event.build(con, record, spec, event_number, frame, shower, channel, model,
-                                coordinates, footprint)
+                                coordinates, footprint, window=window)
     if builder.canonical is not None:
         # The D-frame's own sentence for an event whose entry anchors fix no rotation.
         notice = frame_canonical.ill_conditioned_event_notice(builder.canonical["d_entry_mm"])
@@ -217,7 +237,7 @@ def _voxels(con, record: ExperimentRecord, spec, timer: Timer, event_number: int
             notes={"event": int(event_number), "format": voxel_event.FORMAT_VOXELS,
                    "shower": shower, "frame": frame, "channel": channel,
                    "model": builder.network,
-                   "coordinates": coordinates, "cam": cam, "notices": notices},
+                   "coordinates": coordinates, "window": window, "cam": cam, "notices": notices},
         )
         return envelope(meta, **body, filter=spec.as_dict())
 
