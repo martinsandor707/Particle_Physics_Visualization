@@ -1,12 +1,11 @@
 """The accepted input schemas: detection, refusal sentences and per-kind facts.
 
-Pure checks - no database. The real electron head files are read when present
+Pure checks - no database. The real electron head Parquet files are read when present
 (they are gitignored), so the exact producer headers are pinned too.
 """
 
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 import pytest
@@ -15,8 +14,8 @@ from calosrv.db import ddl, naming, schemas
 from calosrv.errors import IngestError
 
 REPO = Path(__file__).resolve().parent.parent
-HIT_HEAD = REPO / "electron_standalone_N100000_M0_20GeV_reg_balanced_s1_v3_head.csv"
-AGGR_HEAD = REPO / "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3_head.csv"
+HIT_HEAD = REPO / "electron_standalone_N100000_M0_20GeV_reg_balanced_s1_v3_head.parquet"
+AGGR_HEAD = REPO / "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3_head.parquet"
 
 
 @pytest.mark.parametrize("schema", schemas.SCHEMAS, ids=lambda s: s.name)
@@ -39,9 +38,12 @@ def test_the_three_schemas_have_the_documented_widths_and_kinds():
 def test_the_producer_headers_are_the_pinned_schemas(path, schema):
     if not path.is_file():
         pytest.skip(f"{path.name} is not present")
-    with path.open(newline="", encoding="utf-8") as handle:
-        header = next(csv.reader(handle))
-    assert schemas.detect_header(path.name, header) is schema
+    import duckdb
+
+    escaped = str(path).replace("'", "''")
+    names = [row[0] for row in duckdb.connect().execute(
+        f"DESCRIBE SELECT * FROM read_parquet('{escaped}')").fetchall()]
+    assert schemas.detect_names(path.name, names) is schema
 
 
 @pytest.mark.parametrize("schema", schemas.SCHEMAS, ids=lambda s: s.name)
