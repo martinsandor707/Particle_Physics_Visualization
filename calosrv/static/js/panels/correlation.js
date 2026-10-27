@@ -26,10 +26,29 @@
  * (hits of one shower are not independent pairs), its method, group count and
  * n_eff in the tooltip beside the naive hit count. r is absent below N = 3
  * and the interval below N = 4: the cell then reads "—".
+ *
+ * ## D3: the shower-feature matrix (`/api/features?view=corr`)
+ *
+ * The features payload ships the upper triangle with its diagonal as flat
+ * arrays (`r`, `lo`, `hi`, `n_pairs`, row-major over `order`); the panel
+ * reads it through `featureCorrMatrix`, into the same lower-triangle picture.
+ * Its azimuth cells (`circular_cells`) are never on the colour scale: they are
+ * hatched and carry Mardia's circular–linear R with its jackknife SE and
+ * null_R2 (from eight distinct azimuths), or the circular–circular r_c of the
+ * two azimuths with its jackknife interval on Fisher z, or the server's reason
+ * when neither can be quoted. The notebook's linear r of avg_phi travels as
+ * `parity_r`, in the tooltip only and without an interval: a number to compare
+ * with the notebook, never a correlation. angular_spread is a linear quantity
+ * whose r is coloured, but its cells are hatched too and carry the server's
+ * caution (`hatched`): part of its variance is where the ±π cut falls. With
+ * twenty-one variables the cells are small, so the printed r is dropped when
+ * it would not fit its cell and the tooltip carries it; the axis labels are
+ * the feature ids, the x labels turned upright.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatSigned, rampPalette, rampMidLabel, visualMap } from '../scale.js';
 import { contrast, lookupTable } from '../palette.js';
+import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import { ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, rgbOf } from './chart_panel.js';
 
@@ -80,6 +99,11 @@ export function labelColour(rgb) {
 
 /** The sample size a cell's r was computed from, as the tooltip names it. */
 function sampleText(payload, cell) {
+  if (Number.isFinite(cell.n_pairs)) {
+    const left = Number.isFinite(payload.n_events) && cell.n_pairs < payload.n_events
+      ? `; ${formatInt(payload.n_events - cell.n_pairs)} with a floored factor left out of this pair` : '';
+    return `N = ${formatInt(cell.n_pairs)} showers${left}`;
+  }
   if (cell.weighting === 'shower_by_hits') {
     return `N = ${formatInt(payload.n_showers)} showers, each weighted by its hits`;
   }
@@ -105,6 +129,7 @@ export function cellTip(payload, vi, vj, cell) {
   const weighting = payload.weightings?.[cell.weighting];
   if (weighting) lines.push(mutedLine(weighting));
   if (payload.method) lines.push(mutedLine(payload.method));
+  if (cell.caution) lines.push(mutedLine(`hatched: ${cell.caution}`));
   return lines.join('<br/>');
 }
 
@@ -129,11 +154,111 @@ export function circularTip(payload, vi, vj, cell) {
   return lines.join('<br/>');
 }
 
+/* ------------------------------------------------------------------- D3 -- */
+
+/** Whether a payload is D3's feature matrix rather than C8's. */
+export function isFeatureCorr(payload) {
+  return payload?.view === 'corr' && Array.isArray(payload?.order) && Array.isArray(payload?.r);
+}
+
+/** Index of (i, j), i ≤ j, in an upper triangle with its diagonal stored row-major over k variables. */
+export function upperIndex(i, j, k) {
+  const [a, b] = i <= j ? [i, j] : [j, i];
+  return a * k - (a * (a - 1)) / 2 + (b - a);
+}
+
 /**
- * The C8 option. Pure: `opts` = {palette, tooltipPosition?};
- * `metrics` = {width, height}.
+ * D3's payload as C8's shape: {variables, matrix[i][j] (j < i), ...}. A cell
+ * is {r, ci95, n_pairs} for a linear pair, with `caution` where the server
+ * hatches a linear feature, or {hatched: true, circular} for a pair with an
+ * azimuth, `circular` being the server's circular cell. Pure.
+ */
+export function featureCorrMatrix(payload) {
+  const order = payload.order ?? [];
+  const k = order.length;
+  const features = new Map((payload.features ?? []).map((f) => [f.id, f]));
+  const circularCells = new Map((payload.circular_cells ?? []).map((c) => [c.position, c]));
+  const cautions = payload.hatched ?? {};
+  const variables = order.map((id) => {
+    const f = features.get(id) ?? {};
+    return { key: id, symbol: id, label: f.label ?? id, unit: f.unit ?? '', circular: f.circular === true };
+  });
+  const matrix = order.map((_, i) => order.map((__, j) => {
+    if (j >= i) return null;
+    const pos = upperIndex(i, j, k);
+    const circular = circularCells.get(pos) ?? null;
+    if (circular || variables[i].circular || variables[j].circular) {
+      return { hatched: true, circular, r: null, n_pairs: payload.n_pairs?.[pos] ?? null };
+    }
+    const lo = payload.lo?.[pos];
+    const hi = payload.hi?.[pos];
+    const caution = [order[i], order[j]].map((id) => cautions[id]).find(Boolean) ?? null;
+    return {
+      r: payload.r?.[pos] ?? null,
+      ci95: Number.isFinite(lo) && Number.isFinite(hi) ? [lo, hi] : null,
+      n_pairs: payload.n_pairs?.[pos] ?? null,
+      caution,
+    };
+  }));
+  return {
+    ...payload,
+    variables,
+    matrix,
+    n_events: payload.n ?? payload.n_events,
+    // The interval sentence names the method; the bare 'fisher_z' key is not prose.
+    method: null,
+    d3: true,
+  };
+}
+
+/** The text a hatched D3 cell prints: its circular measure where one is quoted. */
+export function featureCircularLabel(cell) {
+  const c = cell?.circular;
+  if (!c || !Number.isFinite(c.value)) return '';
+  return c.measure === 'mardia' ? `R ${formatNumber(c.value, 2)}` : `r_c ${formatSigned(c.value, 2)}`;
+}
+
+/** The tooltip of a hatched D3 cell: the circular measure, or why none is quoted, and parity r. */
+export function featureCircularTip(payload, vi, vj, cell) {
+  const a = variableSymbol(vj);
+  const b = variableSymbol(vi);
+  const c = cell.circular ?? {};
+  const lines = [`<b>${escapeHtml(a)} × ${escapeHtml(b)}: no linear correlation</b>`,
+    mutedLine('an azimuth wraps: a Pearson r with it changes with where the ±π cut falls, so the cell is hatched and off the colour scale')];
+  if (c.measure === 'mardia') {
+    if (Number.isFinite(c.value)) {
+      lines.push(`Mardia circular–linear R = ${formatNumber(c.value, 3)}${Number.isFinite(c.se) ? ` (jackknife SE ${formatNumber(c.se, 3)})` : ''} `
+        + mutedLine('from 0, no association, to 1; unsigned'));
+    } else if (c.reason) {
+      lines.push(mutedLine(c.reason));
+    }
+    if (Number.isFinite(c.null_R2)) lines.push(mutedLine(`with no association R² still averages ${formatNumber(c.null_R2, 4)} (null_R2 = 2/(N − 1))`));
+  } else if (c.measure === 'circular_circular') {
+    if (Number.isFinite(c.value)) {
+      lines.push(`circular–circular r_c = ${formatSigned(c.value, 3)}`
+        + (Array.isArray(c.ci95) ? `, 95% interval [${formatSigned(c.ci95[0], 3)}, ${formatSigned(c.ci95[1], 3)}] ${mutedLine('(event-grouped jackknife on Fisher z)')}` : ` ${mutedLine('(no interval at this sample size)')}`));
+    } else if (c.reason) {
+      lines.push(mutedLine(c.reason));
+    }
+  } else if (c.reason) {
+    lines.push(mutedLine(c.reason));
+  }
+  if (Number.isFinite(c.n)) lines.push(`N = ${formatInt(c.n)} showers${Number.isFinite(c.n_azimuths) ? `, ${formatInt(c.n_azimuths)} distinct azimuths` : ''}`);
+  if (Number.isFinite(c.parity_r)) {
+    lines.push(mutedLine(`the notebook's linear r = ${formatSigned(c.parity_r, 3)}, kept for parity only: no interval, not a correlation of a direction`));
+  }
+  const measures = payload.circular_measures?.[c.measure];
+  if (measures) lines.push(mutedLine(measures));
+  return lines.join('<br/>');
+}
+
+/**
+ * The C8 option (and D3's, through `featureCorrMatrix`). Pure: `opts` =
+ * {palette, tooltipPosition?}; `metrics` = {width, height}.
  */
 export function correlationOption(payload, opts = {}, metrics = {}) {
+  if (isFeatureCorr(payload)) payload = featureCorrMatrix(payload);
+  const d3 = Boolean(payload?.d3);
   const vars = payload?.variables ?? [];
   const k = vars.length;
   const matrix = payload?.matrix ?? [];
@@ -144,12 +269,17 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
   const height = metrics.height || 420;
   const symbols = vars.map(variableSymbol);
 
+  // D3's axis labels are feature ids: the insets grow to hold the longest, x upright.
+  const labelPx = d3 ? Math.max(0, ...symbols.map((t) => measureText(t, THEME.fontSmall, THEME.fontFamily) || 0.6 * THEME.fontSmall * t.length)) : 0;
+  const insetL = d3 ? labelPx + 10 : pad.left;
+  const insetB = d3 ? labelPx + 10 : pad.bottom;
+
   // Square cells: the plot is the largest square the insets leave, centred.
-  const availW = Math.max(80, width - pad.left - pad.right);
-  const availH = Math.max(80, height - pad.top - pad.bottom);
+  const availW = Math.max(80, width - insetL - pad.right);
+  const availH = Math.max(80, height - pad.top - insetB);
   const side = Math.min(availW, availH);
   // The axes hold k − 1 categories each.
-  const left = pad.left + (availW - side) / 2;
+  const left = insetL + (availW - side) / 2;
   const top = pad.top + (availH - side) / 2;
 
   const linear = [];
@@ -165,6 +295,7 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
         linear.push({
           value: [j, i - 1, cell.r],
           label: { color: labelColour(rgb) },
+          ...(cell.caution ? { itemStyle: { decal: hatchDecal() } } : {}),
           cell, i, j,
         });
       } else {
@@ -179,7 +310,9 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
           },
           label: {
             color: THEME.muted,
-            formatter: hatched ? (Number.isFinite(R) ? `R ${formatNumber(R, 2)}` : '') : '—',
+            formatter: hatched
+              ? (cell.circular !== undefined ? featureCircularLabel(cell) : (Number.isFinite(R) ? `R ${formatNumber(R, 2)}` : ''))
+              : '—',
           },
           cell, i, j, hatched,
         });
@@ -188,6 +321,9 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
   }
 
   const fontSize = Math.max(THEME.fontSmall, Math.min(THEME.fontTip, (side / Math.max(1, k)) * 0.22));
+  // D3's cells can be too small for a printed r: then the tooltip carries it.
+  const cellPx = side / Math.max(1, k - 1);
+  const showLabels = !d3 || cellPx >= (measureText('−0.00', fontSize, THEME.fontFamily) || 3 * fontSize) + 4;
   const mid = rampMidLabel(scale, metrics);
   // In the empty upper triangle, right-aligned at the grid's top-right corner:
   // inside row 0 it sat under the first cell, which hid "weak:".
@@ -202,13 +338,16 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
 
   // Columns are the first k − 1 variables, rows the last k − 1: the lower
   // triangle without its empty first row and last column.
-  const categoryAxis = (inverse, data) => ({
+  const categoryAxis = (inverse, data, rotate = 0) => ({
     type: 'category',
     data,
     inverse,
     axisLine: { lineStyle: { color: THEME.border, width: THEME.lineAxis } },
     axisTick: { show: false },
-    axisLabel: { color: THEME.muted, fontSize: THEME.fontLabel, fontFamily: THEME.fontFamily },
+    axisLabel: {
+      color: THEME.muted, fontSize: d3 ? THEME.fontSmall : THEME.fontLabel, fontFamily: THEME.fontFamily,
+      ...(d3 ? { interval: 0, rotate } : {}),
+    },
     splitLine: { show: false },
     splitArea: { show: false },
   });
@@ -217,7 +356,7 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
     ...baseOption(),
     tooltip: wrapTooltip(tooltipOption(opts.tooltipPosition ?? null)),
     grid: { left, top, width: side, height: side },
-    xAxis: categoryAxis(false, symbols.slice(0, Math.max(0, k - 1))),
+    xAxis: categoryAxis(false, symbols.slice(0, Math.max(0, k - 1)), 90),
     yAxis: categoryAxis(true, symbols.slice(1)),
     visualMap: visualMap(scale, palette, { seriesIndex: 0, bottomInset: metrics.reservedBottom || 0 }),
     graphic: [...(mid ? [mid] : []), ...weak],
@@ -225,9 +364,9 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
       {
         type: 'heatmap',
         name: 'Pearson r',
-        data: linear.map(({ value, label }) => ({ value, label })),
+        data: linear.map(({ value, label, itemStyle }) => ({ value, label, ...(itemStyle ? { itemStyle } : {}) })),
         label: {
-          show: true,
+          show: showLabels,
           fontSize,
           fontFamily: THEME.fontFamily,
           formatter: (p) => formatSigned(p.value[2], 2),
@@ -240,11 +379,12 @@ export function correlationOption(payload, opts = {}, metrics = {}) {
         type: 'heatmap',
         name: 'circular or not estimable',
         data: other.map(({ value, itemStyle, label }) => ({ value, itemStyle, label })),
-        label: { show: true, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily },
+        label: { show: showLabels, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily },
         emphasis: { disabled: true },
         tooltip: {
           formatter: (p) => {
             const it = other[p.dataIndex];
+            if (it.hatched && it.cell.circular !== undefined) return featureCircularTip(payload, vars[it.i], vars[it.j], it.cell);
             if (it.hatched) return circularTip(payload, vars[it.i], vars[it.j], it.cell);
             return `<b>r(${escapeHtml(symbols[it.j])}, ${escapeHtml(symbols[it.i])})</b> — ${mutedLine('not estimable below N = 3')}`;
           },

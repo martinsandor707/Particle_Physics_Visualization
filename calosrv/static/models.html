@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calorimeter Shower Reconstruction — Models and 3-D Views</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+<link rel="stylesheet" href="/static/css/controls.css">
+<link rel="stylesheet" href="/static/css/models.css">
+</head>
+<body>
+
+<!-- The Models page: network and XGBoost performance, the event-feature
+     explorer, the primaries and the 3-D views. The shell - header, sidebar,
+     Details drawer, tooltip layer - is the Physics page's, with the same ids,
+     so js/shell.js and js/controls/filter_block.js serve both pages. The cards
+     are built by js/models_cards.js and the 3-D views by js/voxel_views.js;
+     every section is shown or hidden per experiment from its capability block
+     (js/capabilities.js page2Plan). Admin Settings live on the Physics page:
+     the header link opens them there (/?admin=1) with this view. -->
+<div class="app">
+
+  <!-- ============================================================= header -->
+  <header class="header">
+    <button class="icon-button" id="sidebar-toggle" type="button"
+            aria-controls="sidebar" aria-expanded="true"
+            aria-label="Collapse the configuration sidebar" title="Collapse the sidebar">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+    </button>
+    <div>
+      <h1>Calorimeter Shower Reconstruction</h1>
+      <div class="subtitle">Model analysis &amp; 3-D views</div>
+    </div>
+
+    <nav class="page-tabs" id="page-tabs" aria-label="Dashboard pages">
+      <a class="page-tab" data-page="physics" data-page-tab href="/" title="The 2 × 2 spatial diagnostic and the physics cards">Physics</a>
+      <a class="page-tab is-current" data-page="models" data-page-tab href="/models" aria-current="page" title="Model performance, the feature explorer and the 3-D views">Models</a>
+    </nav>
+
+    <div class="badge" style="gap:8px">
+      <span>Experiment</span>
+      <select class="picker" id="experiment-select" style="width:auto;min-width:200px"></select>
+    </div>
+
+    <span class="spacer"></span>
+
+    <div class="badge" id="compute-badge" title="DuckDB memory ceiling and worker threads allocated at boot">
+      <span class="dot"></span>
+      <span>DuckDB <b id="badge-memory">—</b> · <b id="badge-threads">—</b> threads</span>
+    </div>
+
+    <a class="action" href="/?admin=1" data-page-tab
+       title="Open Admin Settings on the Physics page, with this view: the default view, dataset upload, ingest, derived tables and the XGBoost model runs">Admin Settings &#8599;</a>
+  </header>
+
+  <!-- ============================================================ sidebar -->
+  <aside class="sidebar" id="sidebar">
+
+    <h2>Filtering Parameters</h2>
+
+    <div class="control" id="ctl-e1">
+      <div class="control-head">
+        <label for="e1-num-lo" id="e1-label">E<sub>1</sub> &mdash; Shower A momentum [GeV]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="e1-num-lo" step="0.05" aria-label="E1 minimum [GeV]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="e1-num-hi" step="0.05" aria-label="E1 maximum [GeV]">
+        <span class="numeric-unit">GeV</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e1-fill"></div>
+        <input type="range" id="e1-lo" aria-label="E1 minimum slider"><input type="range" id="e1-hi" aria-label="E1 maximum slider">
+      </div>
+      <div class="hint" id="e1-hint">True incident momentum of shower A (<span class="mono">incoming_momentum_A</span>).</div>
+    </div>
+
+    <div class="control" id="ctl-e2">
+      <div class="control-head">
+        <label for="e2-num-lo">E<sub>2</sub> &mdash; Shower B momentum [GeV]</label>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="e2-num-lo" step="0.05" aria-label="E2 minimum [GeV]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="e2-num-hi" step="0.05" aria-label="E2 maximum [GeV]">
+        <span class="numeric-unit">GeV</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="e2-fill"></div>
+        <input type="range" id="e2-lo" aria-label="E2 minimum slider"><input type="range" id="e2-hi" aria-label="E2 maximum slider">
+      </div>
+      <div class="hint">True incident momentum of shower B (<span class="mono">incoming_momentum_B</span>).</div>
+    </div>
+
+    <div class="control" id="ctl-d">
+      <div class="control-head">
+        <label for="d-num-lo">D &mdash; A/B separation [mm]</label>
+        <button class="info-dot" id="info-separation" type="button" hidden
+                aria-label="Separation notices">i</button>
+      </div>
+      <div class="numeric-pair">
+        <input class="numeric" type="number" id="d-num-lo" step="1" aria-label="D minimum [mm]">
+        <span class="numeric-sep">&ndash;</span>
+        <input class="numeric" type="number" id="d-num-hi" step="1" aria-label="D maximum [mm]">
+        <span class="numeric-unit">mm</span>
+      </div>
+      <div class="dual">
+        <div class="track"></div><div class="fill" id="d-fill"></div>
+        <input type="range" id="d-lo" aria-label="D minimum slider"><input type="range" id="d-hi" aria-label="D maximum slider">
+      </div>
+      <div class="hint" id="d-hint">3-D distance between the two shower centroids in the absolute (detector) frame (<span class="mono">centroid_AB_distance</span>), used as D in every reference frame. The Separation-Aligned › Translated view also reports the transverse entry separation D<sub>entry</sub> and writes its entry-panel axis as D; Local superimposes each shower at its own entry point and has no separation axis.</div>
+    </div>
+
+    <div class="logic-note" id="filter-logic">Filters combine with logical <b>AND</b> (&amp;)</div>
+
+    <label class="choice" id="ctl-undefined-d" title="Events where shower A deposited no energy have no defined separation. They are excluded by default and always counted.">
+      <input type="checkbox" id="opt-undefined-d"> Include events with undefined D
+    </label>
+
+    <!-- The network and the frame are the Physics page's keys (model, frame):
+         both pages read and write the same view. The radios are built from
+         js/labels.js by js/models_main.js. -->
+    <div class="sidebar-group" id="group-m-model">
+    <h2 id="m-model-heading">Reconstruction Model</h2>
+    <fieldset class="choice-group" id="m-model" aria-labelledby="m-model-heading"></fieldset>
+    <div class="caption" id="m-model-caption">&mdash;</div>
+    </div>
+
+    <div class="sidebar-group" id="group-m-frame">
+    <h2 id="m-frame-heading">Reference Frame</h2>
+    <fieldset class="choice-group" id="m-frame" aria-labelledby="m-frame-heading"></fieldset>
+    <div class="caption" id="m-frame-caption">&mdash;</div>
+    </div>
+
+    <div class="sidebar-group" id="group-m-colormap">
+    <h2>Colour Map</h2>
+    <select class="picker" id="m-colormap" aria-label="Colour map of the density panels">
+      <option value="viridis" selected>Viridis &mdash; perceptually uniform</option>
+      <option value="cividis">Cividis &mdash; CVD-optimised</option>
+      <option value="plasma">Plasma &mdash; high contrast</option>
+      <option value="turbo">Turbo &mdash; maximum detail</option>
+    </select>
+    </div>
+
+  </aside>
+
+  <!-- =============================================================== main -->
+  <main class="main">
+
+    <div class="banner" id="banner" hidden>
+      <span class="banner-text" id="banner-text"></span>
+      <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <!-- Why the XGBoost views are absent: no model run pairs with this
+         experiment. Static (not dismissible); hidden once one pairs. -->
+    <div class="banner is-info" id="xgb-notice" role="status" hidden>
+      <span class="banner-text" id="xgb-notice-text"></span>
+    </div>
+
+    <!-- CLAUDE.md section 3 (Missing Column Handling): an experiment without
+         network predictions shows ground truth, and says so prominently. -->
+    <div class="banner" id="networks-notice" role="status" hidden>
+      <span class="banner-text" id="networks-notice-text"></span>
+    </div>
+
+    <!-- What the active experiment's kind cannot show, and why. -->
+    <div class="banner is-info" id="kind-banner" role="status" hidden>
+      <span class="banner-text" id="kind-banner-text"></span>
+      <button class="banner-close" id="kind-banner-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <div class="statusbar">
+      <span title="Events in the selection, as the last card drawn counts them">Events <b id="stat-events">—</b></span>
+      <span title="The experiment's kind: two-shower hits, single-shower hits or single-shower event features">Kind <b id="stat-kind">—</b></span>
+      <span class="spacer"></span>
+      <span>Query <b id="stat-latency">—</b></span>
+    </div>
+
+    <section class="grid models-grid" id="perf-grid" hidden aria-labelledby="perf-grid-title">
+      <div class="section-head">
+        <h2 id="perf-grid-title">Model performance</h2>
+        <span class="section-note">Error by incident-momentum bin, prediction against truth and the residuals. Each card loads when it scrolls into view and follows the selection.</span>
+      </div>
+    </section>
+
+    <section class="grid models-grid" id="xgb-grid" hidden aria-labelledby="xgb-grid-title">
+      <div class="section-head">
+        <h2 id="xgb-grid-title">XGBoost model</h2>
+        <span class="section-note">Computed once on the whole experiment, as the reference notebooks do; the selection does not apply.</span>
+      </div>
+    </section>
+
+    <section class="grid models-grid" id="features-grid" hidden aria-labelledby="features-grid-title">
+      <div class="section-head">
+        <h2 id="features-grid-title">Event features</h2>
+        <span class="section-note">The per-event features by momentum class: summary table, correlations and distributions.</span>
+      </div>
+    </section>
+
+    <section class="grid models-grid" id="primaries-grid" hidden aria-labelledby="primaries-grid-title">
+      <div class="section-head">
+        <h2 id="primaries-grid-title">Primaries</h2>
+        <span class="section-note">How often an event carries no primary-particle hit, by incident momentum.</span>
+      </div>
+    </section>
+
+    <!-- The 3-D views: an empty host that js/voxel_views.js VoxelSection
+         fills with its cards (the 3-D event and ensemble views and their
+         paired 2-D projections). -->
+    <section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>
+  </main>
+
+  <!-- ============================================================ drawer -->
+  <!-- The Details drawer, as on the Physics page: one card's methodology and
+       disclosures, written by js/shell.js with text nodes only. -->
+  <aside class="inspector" id="inspector" aria-labelledby="inspector-title" hidden>
+    <div class="inspector-head">
+      <h2 id="inspector-title" tabindex="-1">Panel details</h2>
+      <button class="inspector-close" id="inspector-close" type="button"
+              aria-label="Close the details drawer" title="Close (Esc)">&times;</button>
+    </div>
+    <div class="inspector-body" id="inspector-body"></div>
+  </aside>
+</div>
+
+<!-- The tooltip layer: fixed to the viewport, outside .main's overflow box, so
+     a tooltip may leave the card it explains without being clipped. -->
+<div id="tooltip-layer" class="tooltip-layer" aria-hidden="true"></div>
+
+<script src="/static/js/vendor/echarts.min.js"></script>
+<script src="/static/js/vendor/echarts-gl.min.js"></script>
+<script type="module" src="/static/js/models_main.js"></script>
+</body>
+</html>

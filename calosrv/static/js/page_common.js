@@ -14,6 +14,13 @@
  * pin. The original nodes are cloned once, on first relabel, and restored
  * exactly, so switching back to a two-shower experiment shows the markup as
  * shipped.
+ *
+ * The two pages (Physics at /, Models at /models) share one view through the
+ * URL hash, so the header's page tabs carry the hash across (`wirePageTabs`):
+ * state.js writes the hash with `history.replaceState`, which fires no event,
+ * so each tab's href is computed when it is about to be followed - pressed,
+ * focused, clicked, middle-clicked or opened from the context menu - never
+ * stored once at boot.
  */
 
 import { ApiError } from './api.js';
@@ -241,4 +248,119 @@ export function choiceTitle(input, title) {
   remember(label);
   if (!baseTitles.has(label)) baseTitles.set(label, originals.get(label).title);
   setTitle(label, title ?? baseTitles.get(label));
+}
+
+/**
+ * A radio group built from labels.js choices (the Admin Settings pattern):
+ * one `<label class="choice">` per choice, the text in a span of its own so a
+ * wrapped line hangs under the text, the muted detail after it. `disabled`
+ * maps a value to the reason it is not offered, shown as the label's title.
+ * Returns `{set(value), setDisabled(map), inputs}`; `onChange(value)` hears a
+ * choice the reader made, never one `set` made.
+ */
+export function choiceGroup(host, { name, choices, value = null, disabled = {}, onChange = () => {} }) {
+  const inputs = new Map();
+  const labels = new Map();
+  if (!host) return { set() {}, setDisabled() {}, setChoices() {}, inputs };
+  const build = (list) => {
+    inputs.clear();
+    labels.clear();
+    host.replaceChildren(...list.map((choice) => {
+      const label = document.createElement('label');
+      label.className = 'choice';
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = name;
+      input.value = choice.value;
+      input.addEventListener('change', () => { if (input.checked) onChange(choice.value); });
+      const text = document.createElement('span');
+      text.append(choice.label);
+      if (choice.detail) {
+        const muted = document.createElement('span');
+        muted.className = 'muted';
+        muted.textContent = ` ${choice.detail}`;
+        text.append(muted);
+      }
+      label.append(input, text);
+      if (choice.title) label.title = choice.title;
+      if (choice.hidden) label.hidden = true;
+      inputs.set(choice.value, input);
+      labels.set(choice.value, { label, title: choice.title ?? '' });
+      return label;
+    }));
+  };
+  const group = {
+    inputs,
+    set(next) {
+      for (const [v, input] of inputs) input.checked = v === next;
+    },
+    setDisabled(map = {}) {
+      for (const [v, input] of inputs) {
+        const reason = map[v] ?? null;
+        input.disabled = Boolean(reason);
+        const { label, title } = labels.get(v);
+        label.classList.toggle('is-disabled', Boolean(reason));
+        if (reason) label.title = reason;
+        else if (title) label.title = title;
+        else label.removeAttribute('title');
+      }
+    },
+    /** Rebuild with another list of choices (a relabelled tier), keeping `value` checked. */
+    setChoices(list, next = null) {
+      build(list);
+      group.set(next);
+    },
+  };
+  build(choices);
+  group.set(value);
+  group.setDisabled(disabled);
+  return group;
+}
+
+/**
+ * A page tab's href for the view in hand: its base path and query, then the
+ * current hash (a link carries the whole view in its hash). A base that
+ * carries a hash of its own has it replaced. Pure.
+ */
+export function tabHref(base, hash = '') {
+  const path = String(base ?? '/').split('#')[0] || '/';
+  const tail = String(hash ?? '').replace(/^#/, '');
+  return tail ? `${path}#${tail}` : path;
+}
+
+/* The moments a link may be followed or copied: pointer, keyboard focus,
+ * click, middle click and the context menu (copy link address). */
+const TAB_EVENTS = ['pointerdown', 'focus', 'click', 'auxclick', 'contextmenu'];
+
+/**
+ * Keep every `a[data-page-tab]` link carrying the current view: the page
+ * tabs and the Models page's Admin Settings link. Each link's base href is
+ * kept in `dataset.base` and the hash is appended when it is about to be
+ * followed, in the capture phase, so the browser reads the fresh href.
+ */
+export function wirePageTabs(root = document) {
+  const links = [...(root?.querySelectorAll?.('a[data-page-tab]') ?? [])];
+  for (const link of links) {
+    if (!link.dataset.base) link.dataset.base = link.getAttribute('href') || '/';
+    const update = () => { link.href = tabHref(link.dataset.base, window.location.hash); };
+    for (const type of TAB_EVENTS) link.addEventListener(type, update, { capture: true });
+  }
+  return links;
+}
+
+/**
+ * Whether this browser can create a WebGL context, released at once: the 3-D
+ * views are offered only where they can draw, and the page keeps no context
+ * of its own (the views hold at most two).
+ */
+export function webglAvailable() {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!gl) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
 }

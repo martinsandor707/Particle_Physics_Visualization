@@ -487,3 +487,146 @@ def test_single_shower_plot_4_is_the_notebook_windows_with_a_link_to_the_1_gev_b
     kind = _function_body(main, "applyKindPlan")
     assert "setHidden('fit-table', !plan.plot4);" in kind
 
+
+
+# ------------------------------------------------------- the Models page --
+
+
+def _models_html() -> str:
+    return (STATIC / "models.html").read_text(encoding="utf-8")
+
+
+def _sidebar_filters(html: str) -> str:
+    start = html.index("<h2>Filtering Parameters</h2>")
+    end = html.index("Include events with undefined D", start)
+    return html[start:html.index("</label>", end)]
+
+
+def test_the_models_page_has_the_physics_pages_shell():
+    html = _models_html()
+    for element_id in ("sidebar", "sidebar-toggle", "inspector", "inspector-title", "inspector-body",
+                       "inspector-close", "banner", "banner-text", "banner-close", "tooltip-layer",
+                       "experiment-select", "badge-memory", "badge-threads", "page-tabs"):
+        assert html.count(f'id="{element_id}"') == 1, element_id
+    assert '<aside class="sidebar" id="sidebar">' in html and html.count('<main class="main">') == 1
+    # The drawer is the Physics page's, outside main; the tooltip layer is outside
+    # .main's overflow box and exists before any chart is created.
+    assert re.search(r'<aside class="inspector" id="inspector" aria-labelledby="inspector-title" hidden>', html)
+    assert html.index("</main>") < html.index('id="inspector"') < html.index('id="tooltip-layer"')
+    assert html.index('id="tooltip-layer"') < html.index("<script")
+    # Admin Settings live on the Physics page: a link, no modal and no upload form.
+    assert 'id="admin-modal"' not in html and 'id="upload-' not in html and "modal-backdrop" not in html
+    assert re.search(r'<a class="action" href="/\?admin=1" data-page-tab', html)
+    # The same toggle as the Physics page's.
+    header = html[html.index("<header"):html.index("</header>")]
+    toggle = re.search(r'<button class="icon-button" id="sidebar-toggle"(.*?)</button>', header, re.DOTALL)
+    assert toggle and 'aria-controls="sidebar"' in toggle.group(1) and "<svg" in toggle.group(1)
+
+
+def test_the_filter_block_is_the_physics_pages_byte_for_byte():
+    assert _sidebar_filters(_models_html()) == _sidebar_filters(_html())
+
+
+def test_the_models_page_loads_echarts_gl_and_its_own_entry_in_order():
+    html = _models_html()
+    scripts = re.findall(r'<script([^>]*)src="([^"]+)"', html)
+    assert [src for _, src in scripts] == ["/static/js/vendor/echarts.min.js", "/static/js/vendor/echarts-gl.min.js",
+                                           "/static/js/models_main.js"]
+    assert 'type="module"' not in scripts[1][0], "echarts-gl is a classic script"
+    assert 'type="module"' in scripts[2][0]
+    assert "echarts-gl" not in _html()
+    assert html.index("css/controls.css") < html.index("css/models.css")
+
+
+def test_the_models_page_banners_status_and_sections_are_in_order():
+    html = _models_html()
+    main = html[html.index('<main class="main">'):html.index("</main>")]
+    order = ['id="banner"', 'id="xgb-notice"', 'id="networks-notice"', 'class="statusbar"', 'id="perf-grid"',
+             'id="xgb-grid"', 'id="features-grid"', 'id="primaries-grid"', 'id="voxels-grid"']
+    positions = [main.index(token) for token in order]
+    assert positions == sorted(positions)
+    assert '<div class="banner is-info" id="xgb-notice"' in main
+    assert '<div class="banner" id="networks-notice" role="status" hidden>' in main
+    assert 'id="networks-notice-text"' in main and 'id="xgb-notice-text"' in main
+    status = main[main.index('class="statusbar"'):main.index("</div>", main.index('class="statusbar"'))]
+    for token in ('id="stat-events"', 'id="stat-kind"', 'class="spacer"', 'id="stat-latency"'):
+        assert token in status, token
+    for section in ("perf-grid", "xgb-grid", "features-grid", "primaries-grid"):
+        assert f'<section class="grid models-grid" id="{section}" hidden' in main, section
+    # The 3-D host is empty: VoxelSection builds its own cards.
+    assert re.search(r'<section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>', main)
+
+
+def test_both_pages_carry_the_page_tabs_with_the_current_one_marked():
+    for html, current in ((_html(), "physics"), (_models_html(), "models")):
+        header = html[html.index("<header"):html.index("</header>")]
+        nav = re.search(r'<nav class="page-tabs" id="page-tabs" aria-label="Dashboard pages">(.*?)</nav>',
+                        header, re.DOTALL)
+        assert nav, current
+        tabs = re.findall(r"<a ([^>]*)>([^<]+)</a>", nav.group(1))
+        assert [label for _, label in tabs] == ["Physics", "Models"]
+        for attrs, _ in tabs:
+            page = re.search(r'data-page="(\w+)"', attrs).group(1)
+            assert "data-page-tab" in attrs
+            assert ('href="/"' if page == "physics" else 'href="/models"') in attrs
+            assert ("is-current" in attrs) == (page == current), (current, page)
+            assert ('aria-current="page"' in attrs) == (page == current), (current, page)
+
+
+def test_the_tabs_are_wired_and_the_admin_link_opens_admin_settings():
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    assert "wirePageTabs();" in main
+    boot = re.search(r"async function boot\(\) \{(.*?)\n\}", main, re.DOTALL).group(1)
+    # Read before the first hash write (which drops the query), acted on once the experiments are in.
+    assert "const openAdmin = new URLSearchParams(location.search).has('admin');" in boot
+    assert boot.index("openAdmin = ") < boot.index("loadExperiments(") < boot.index("adminModal?.open()")
+    assert "history.replaceState(null, '', location.pathname + location.hash);" in boot
+    models = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+    assert "wirePageTabs();" in models
+    common = _strip_comments((JS / "page_common.js").read_text(encoding="utf-8"))
+    assert "a[data-page-tab]" in common and "capture: true" in common
+    for event in ("'pointerdown'", "'focus'", "'click'", "'auxclick'", "'contextmenu'"):
+        assert event in common, event
+
+
+def test_the_models_page_snaps_like_every_other_track():
+    css = (STATIC / "css" / "models.css").read_text(encoding="utf-8")
+    assert "transition" not in _strip_comments(css) and "animation" not in _strip_comments(css)
+    layout = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    tabs = layout[layout.index("page tabs"):]
+    assert "transition" not in _strip_comments(tabs)
+    assert "prefers-reduced-motion" not in css + layout
+    assert ".voxels-grid[hidden] { display: none; }" in css and ".card-caption[hidden] { display: none; }" in css
+    assert re.search(r"@container main \(max-width: \d+px\) \{\s*\.voxel-pair \{ grid-template-columns: "
+                     r"minmax\(0, 1fr\); \}", css)
+
+
+def test_the_models_cards_have_the_page_card_anatomy():
+    source = (JS / "models_cards.js").read_text(encoding="utf-8")
+    code = _strip_comments(source)
+    for token in ("card.dataset.panel = id", "details.dataset.inspect = id", "exporter.dataset.export = id",
+                  "details.setAttribute('aria-controls', 'inspector')", "plot.id = `plot-${id}`"):
+        assert token in code, token
+    assert "plot area only" in source
+    for forbidden in ("innerHTML", "insertAdjacentHTML", "dataset.shower", "dataset.roi", "dataset.reset",
+                      "getElementById"):
+        assert forbidden not in code, forbidden
+    # Every panel and notes module is a guarded dynamic import with a literal specifier.
+    for module in ("perf_bins", "hist2d", "distribution", "feature_table", "correlation", "rates", "xgb_cv",
+                   "xgb_binary", "xgb_tree", "xgb_importance"):
+        assert f"import('./panels/{module}.js')" in code, module
+    for module in ("models_notes", "xgb_notes"):
+        assert f"import('./{module}.js')" in code, module
+    assert "typeof Class !== 'function'" in code
+    assert "rootMargin: '0px'" in code
+    main = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+    assert "import('./voxel_views.js')" in main and "typeof module?.VoxelSection !== 'function'" in main
+    # The cards exist before the export menus are wired, and the 3-D section too.
+    assert main.index("new ModelsSection(") < main.index("attachExportMenus({")
+    assert main.index("voxels = await mountVoxels();") < main.index("attachExportMenus({")
+    body = re.search(r"function relayoutAll\(\) \{(.*?)\n\}", main, re.DOTALL).group(1)
+    assert "models.relayout()" in body and "voxels?.relayout?.()" in body
+    # The XGBoost notice is hidden only while a model run pairs with the experiment.
+    caps = _strip_comments((JS / "capabilities.js").read_text(encoding="utf-8"))
+    assert "xgbNotice: runs.length ? null :" in caps
+    assert "setHidden('xgb-notice', !plan.xgbNotice);" in main

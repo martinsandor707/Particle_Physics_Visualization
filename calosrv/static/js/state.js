@@ -53,6 +53,39 @@ export const ANCHORS = ['backprojected', 'p0'];
 /* The Event Inspector draws one of an event's two showers at a time. */
 export const SHOWERS = ['a', 'b'];
 
+/* ## The Models page's keys
+ *
+ * The Models page (/models) shares `table_name`, the filters, `frame` and
+ * `model` with the Physics page, so a tab switch carries the view across, and
+ * adds keys of its own. Neither page strips the other's keys: each writes
+ * every value that differs from the built-in one, so a link opened on either
+ * page keeps both pages' state. `event` and `shower` pin the Physics page's
+ * Event Inspector and are never reused here: the 3-D event view has its own
+ * `voxel_event` and `voxel_shower`, so opening the Models page never pins an
+ * event on the Physics page, nor the reverse. */
+
+/* The per-event features the explorer offers (GET /api/features?view=catalog):
+ * the 19 features of the aggregate, plus the two circular companions a hit
+ * experiment adds. labels.js names them; a test keeps the two lists equal. */
+export const FEATURE_KEYS = Object.freeze([
+  'width', 'height', 'depth', 'depth_range', 'volume', 'num_hits', 'total_hit_energy',
+  'centroid_x', 'centroid_y', 'centroid_z', 'mean_r', 'std_r', 'max_r', 'weighted_r_mean',
+  'avg_theta', 'avg_phi', 'avg_phi_circ', 'angular_spread', 'angular_spread_circ',
+  'numerical_density', 'energy_density',
+]);
+/* The feature explorer's momentum classes: the features notebook's windows,
+ * or the aggregate's stored label (p < 2 against p ≥ 2 GeV). */
+export const FEATURE_CLASSES = Object.freeze(['windows', 'label']);
+/* The 3-D event view: one shower of the event, or both (two-shower data). */
+export const VOXEL_SHOWERS = Object.freeze(['a', 'b', 'both']);
+/* The 3-D views' channels (GET /api/event?format=voxels, GET /api/voxels). */
+export const VOXEL_CHANNELS = Object.freeze(['energy', 'gradcam', 'shapcam', 'segerr', 'species']);
+export const ENSEMBLE_CHANNELS = Object.freeze(['density', 'gradcam_energy', 'shapcam_energy']);
+/* The XGBoost views: the regressor's task, and which of the angle model's two
+ * outputs a per-label view draws. */
+export const XGB_TASKS = Object.freeze(['momentum', 'angle']);
+export const XGB_LABELS = Object.freeze(['phi', 'theta']);
+
 /** The two display modes the API accepts. */
 const DISPLAYS = new Set(['native', 'continuous']);
 
@@ -66,6 +99,13 @@ const ENUMS = {
   palette: SEQUENTIAL_PALETTES,
   anchor: ANCHORS,
   shower: SHOWERS,
+  feature: FEATURE_KEYS,
+  fclass: FEATURE_CLASSES,
+  voxel_shower: VOXEL_SHOWERS,
+  voxel_channel: VOXEL_CHANNELS,
+  ens_channel: ENSEMBLE_CHANNELS,
+  xgb_task: XGB_TASKS,
+  xgb_label: XGB_LABELS,
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
@@ -150,14 +190,27 @@ export const DEFAULTS = Object.freeze({
   event: null,
   shower: 'a',
   compare: false,
+  // The Models page (see "The Models page's keys" above). The feature the
+  // explorer's histograms draw and the classes it splits the selection into;
+  // the 3-D event view's event (null = none chosen yet: the view offers the
+  // densest), shower and channel; the ensemble cloud's channel; the XGBoost
+  // task and, for the angle model, which output a per-label view draws.
+  feature: 'num_hits',
+  fclass: 'windows',
+  voxel_event: null,
+  voxel_shower: 'a',
+  voxel_channel: 'energy',
+  ens_channel: 'density',
+  xgb_task: 'momentum',
+  xgb_label: 'theta',
 });
 
 const NUMERIC = new Set([
-  'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution', 'event',
+  'e1_min', 'e1_max', 'e2_min', 'e2_max', 'd_min', 'd_max', 'resolution', 'event', 'voxel_event',
 ]);
 /* Whole, non-negative numbers: an event number is an identifier, so a
  * fraction or a negative in a link names nothing and keeps the default. */
-const INTEGER = new Set(['event']);
+const INTEGER = new Set(['event', 'voxel_event']);
 const BOOLEAN = new Set(['include_undefined_d', 'lock_scale', 'compare']);
 
 /* The keys the Admin Settings panel's defaults may set on a cold boot. */
@@ -568,6 +621,7 @@ const PRECISION = {
   d_min: 0, d_max: 0,
   resolution: 0,
   event: 0,
+  voxel_event: 0,
 };
 
 function round(key, value) {
