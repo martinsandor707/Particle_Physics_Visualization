@@ -1,0 +1,719 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "view": "hist",
+  "coord_system": "lab",
+  "shower": "a",
+  "classes": "label",
+  "min_hits": 2,
+  "budget": {
+   "bytes": 10492,
+   "limit": 100000,
+   "level": 0
+  }
+ },
+ "view": "hist",
+ "kind": "single_shower_hits",
+ "coord_system": "lab",
+ "shower": "a",
+ "classes": [
+  {
+   "index": 0,
+   "label": "p < 2 GeV",
+   "lo": 0.0,
+   "hi": 2.0,
+   "n": 8,
+   "kind": "label",
+   "centre": null
+  },
+  {
+   "index": 1,
+   "label": "p ≥ 2 GeV",
+   "lo": 2.0,
+   "hi": null,
+   "n": 278,
+   "kind": "label",
+   "centre": null
+  }
+ ],
+ "class_mode": "label",
+ "class_basis": "incident momentum p, split at 2 GeV",
+ "n_events": 286,
+ "n_selected": 287,
+ "n_outside_classes": 0,
+ "n_excluded_single_hit": 1,
+ "features": [
+  {
+   "id": "width",
+   "label": "width: x extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "irregular_lattice"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "height",
+   "label": "height: y extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "irregular_lattice"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "depth",
+   "label": "depth: deepest z − 3649 mm (below the front face)",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "lattice_quantised",
+    "raw_z",
+    "display_offset"
+   ],
+   "circular": false,
+   "display_offset": -3649.0,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "depth_range",
+   "label": "depth range: z extent",
+   "unit": "mm",
+   "flags": [
+    "floored_at_eps",
+    "lattice_quantised"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "volume",
+   "label": "volume: width × height × depth",
+   "unit": "mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "num_hits",
+   "label": "number of hits",
+   "unit": "hits",
+   "flags": [
+    "integer"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "total_hit_energy",
+   "label": "total deposited energy",
+   "unit": "GeV",
+   "flags": [],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "centroid_x",
+   "label": "energy-weighted centroid x",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "centroid_y",
+   "label": "energy-weighted centroid y",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "centroid_z",
+   "label": "energy-weighted centroid z",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "mean_r",
+   "label": "mean hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "std_r",
+   "label": "SD of hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "max_r",
+   "label": "maximum hit radius r",
+   "unit": "mm",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "weighted_r_mean",
+   "label": "energy-weighted mean radius r",
+   "unit": "mm",
+   "flags": [
+    "energy_weighted",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "avg_theta",
+   "label": "mean polar angle θ of the hits",
+   "unit": "rad",
+   "flags": [
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "avg_phi",
+   "label": "arithmetic mean of the hits' azimuth φ",
+   "unit": "rad",
+   "flags": [
+    "circular"
+   ],
+   "circular": true,
+   "display_offset": null,
+   "scales": [
+    "circular"
+   ],
+   "hatched": "An azimuth has no linear correlation: the cells carry Mardia's circular–linear R, or the circular–circular r_c with the other azimuth. The notebook's linear r, which jumps where a shower straddles the ±π cut, is kept beside them for parity only.",
+   "notebook": true
+  },
+  {
+   "id": "avg_phi_circ",
+   "label": "mean direction of the hits' azimuth φ",
+   "unit": "rad",
+   "flags": [
+    "circular",
+    "hit_kinds_only",
+    "not_a_notebook_feature"
+   ],
+   "circular": true,
+   "display_offset": null,
+   "scales": [
+    "circular"
+   ],
+   "hatched": "An azimuth has no linear correlation: the cells carry Mardia's circular–linear R, or the circular–circular r_c with the other azimuth.",
+   "notebook": false
+  },
+  {
+   "id": "angular_spread",
+   "label": "angular spread SD(θ) + SD(φ)",
+   "unit": "rad",
+   "flags": [
+    "partly_circular",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": "Contains a linear SD of φ, inflated by the ±π cut, so part of its variance is the cut's position rather than the shower.",
+   "notebook": true
+  },
+  {
+   "id": "angular_spread_circ",
+   "label": "angular spread SD(θ) + circular SD(φ)",
+   "unit": "rad",
+   "flags": [
+    "raw_z",
+    "hit_kinds_only",
+    "not_a_notebook_feature"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": false
+  },
+  {
+   "id": "numerical_density",
+   "label": "hit density: hits / volume",
+   "unit": "hits/mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  },
+  {
+   "id": "energy_density",
+   "label": "energy density: energy / volume",
+   "unit": "GeV/mm³",
+   "flags": [
+    "floored_factor",
+    "raw_z"
+   ],
+   "circular": false,
+   "display_offset": null,
+   "scales": [
+    "linear",
+    "log"
+   ],
+   "hatched": null,
+   "notebook": true
+  }
+ ],
+ "feature": "avg_phi_circ",
+ "scale": "circular",
+ "requested_scale": "auto",
+ "axis": {
+  "feature": "avg_phi_circ",
+  "label": "mean direction of the hits' azimuth φ",
+  "unit": "rad",
+  "scale": "circular",
+  "lo": -3.14159,
+  "hi": 3.14159,
+  "bins": 14,
+  "edges": [
+   -3.14159,
+   -2.69279,
+   -2.24399,
+   -1.7952,
+   -1.3464,
+   -0.897598,
+   -0.448799,
+   0.0,
+   0.448799,
+   0.897598,
+   1.3464,
+   1.7952,
+   2.24399,
+   2.69279,
+   3.14159
+  ],
+  "edges_rule": "the full period (−π, π], equal-width bins",
+  "clipping": {
+   "lo": -3.14159,
+   "hi": 3.14159,
+   "low_percentile": 0.0,
+   "high_percentile": 100.0,
+   "n_total": 278,
+   "n_below": 0,
+   "n_above": 0,
+   "data_min": null,
+   "data_max": null,
+   "applied": false,
+   "n_outside": 0,
+   "fraction_outside": 0.0,
+   "note": "Full data range shown."
+  },
+  "provisional": false,
+  "log10": false,
+  "quantum_mm": null,
+  "quantum": null,
+  "offset": null,
+  "decades": null,
+  "interval": null,
+  "notes": [
+   "An azimuth is drawn on its full period (−π, π], cut at ±π, with no percentile clip: a crop would invent an end where the values wrap."
+  ]
+ },
+ "series": [
+  {
+   "index": 0,
+   "label": "p < 2 GeV",
+   "n": 8,
+   "n_in_range": 8,
+   "n_below": 0,
+   "n_above": 0,
+   "n_nonpositive": 0,
+   "n_excluded_eps": 0,
+   "n_floored": 0,
+   "draw": "strip",
+   "counts": [],
+   "density_scale": 0.278521,
+   "kde": null,
+   "strip": [
+    -0.143775,
+    -0.143775,
+    0.778891,
+    0.778891,
+    2.20061,
+    2.20061,
+    2.79081,
+    2.79081
+   ],
+   "drives_scale": false,
+   "message": "N = 8: the histogram is withheld below N = 15 - it would be a comb whose heights the bin width sets - so the events are drawn with the density curve. No density curve for an azimuth: a linear kernel would smooth across the ±π cut."
+  },
+  {
+   "index": 1,
+   "label": "p ≥ 2 GeV",
+   "n": 278,
+   "n_in_range": 278,
+   "n_below": 0,
+   "n_above": 0,
+   "n_nonpositive": 0,
+   "n_excluded_eps": 0,
+   "n_floored": 0,
+   "draw": "histogram",
+   "counts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    69,
+    0,
+    70,
+    0,
+    0,
+    69,
+    0,
+    70
+   ],
+   "density_scale": 0.008015,
+   "kde": null,
+   "strip": null,
+   "drives_scale": true,
+   "message": "No density curve for an azimuth: a linear kernel would smooth across the ±π cut."
+  }
+ ],
+ "curve_x": [
+  -3.14159,
+  -3.10208,
+  -3.06256,
+  -3.02304,
+  -2.98353,
+  -2.94401,
+  -2.90449,
+  -2.86497,
+  -2.82546,
+  -2.78594,
+  -2.74642,
+  -2.70691,
+  -2.66739,
+  -2.62787,
+  -2.58836,
+  -2.54884,
+  -2.50932,
+  -2.46981,
+  -2.43029,
+  -2.39077,
+  -2.35125,
+  -2.31174,
+  -2.27222,
+  -2.2327,
+  -2.19319,
+  -2.15367,
+  -2.11415,
+  -2.07464,
+  -2.03512,
+  -1.9956,
+  -1.95609,
+  -1.91657,
+  -1.87705,
+  -1.83754,
+  -1.79802,
+  -1.7585,
+  -1.71898,
+  -1.67947,
+  -1.63995,
+  -1.60043,
+  -1.56092,
+  -1.5214,
+  -1.48188,
+  -1.44237,
+  -1.40285,
+  -1.36333,
+  -1.32382,
+  -1.2843,
+  -1.24478,
+  -1.20527,
+  -1.16575,
+  -1.12623,
+  -1.08671,
+  -1.0472,
+  -1.00768,
+  -0.968164,
+  -0.928647,
+  -0.88913,
+  -0.849613,
+  -0.810096,
+  -0.770579,
+  -0.731062,
+  -0.691546,
+  -0.652029,
+  -0.612512,
+  -0.572995,
+  -0.533478,
+  -0.493961,
+  -0.454444,
+  -0.414927,
+  -0.37541,
+  -0.335894,
+  -0.296377,
+  -0.25686,
+  -0.217343,
+  -0.177826,
+  -0.138309,
+  -0.0987922,
+  -0.0592753,
+  -0.0197584,
+  0.0197584,
+  0.0592753,
+  0.0987922,
+  0.138309,
+  0.177826,
+  0.217343,
+  0.25686,
+  0.296377,
+  0.335894,
+  0.37541,
+  0.414927,
+  0.454444,
+  0.493961,
+  0.533478,
+  0.572995,
+  0.612512,
+  0.652029,
+  0.691546,
+  0.731062,
+  0.770579,
+  0.810096,
+  0.849613,
+  0.88913,
+  0.928647,
+  0.968164,
+  1.00768,
+  1.0472,
+  1.08671,
+  1.12623,
+  1.16575,
+  1.20527,
+  1.24478,
+  1.2843,
+  1.32382,
+  1.36333,
+  1.40285,
+  1.44237,
+  1.48188,
+  1.5214,
+  1.56092,
+  1.60043,
+  1.63995,
+  1.67947,
+  1.71898,
+  1.7585,
+  1.79802,
+  1.83754,
+  1.87705,
+  1.91657,
+  1.95609,
+  1.9956,
+  2.03512,
+  2.07464,
+  2.11415,
+  2.15367,
+  2.19319,
+  2.2327,
+  2.27222,
+  2.31174,
+  2.35125,
+  2.39077,
+  2.43029,
+  2.46981,
+  2.50932,
+  2.54884,
+  2.58836,
+  2.62787,
+  2.66739,
+  2.70691,
+  2.74642,
+  2.78594,
+  2.82546,
+  2.86497,
+  2.90449,
+  2.94401,
+  2.98353,
+  3.02304,
+  3.06256,
+  3.10208,
+  3.14159
+ ],
+ "y_max": {
+  "count": 70.0,
+  "density": 0.56105,
+  "provisional": false,
+  "overflow": [],
+  "basis": "classes with N ≥ 15: their bars and curves"
+ },
+ "comb": null,
+ "exclude_eps": false,
+ "y_axis": {
+  "default": "density",
+  "density": "count × density_scale = count / (N · bin width)",
+  "count": "events per bin (the notebook's stat=count)"
+ },
+ "thresholds": {
+  "moment": 2,
+  "curve": 8,
+  "histogram": 15,
+  "robust": 20,
+  "fisher": 4
+ },
+ "notes": [
+  "Features are rebuilt from the per-shower sums of the event table with core.py's formulas (calc_all_features_v3, raw z), which reproduce the producer's aggregate to 10⁻⁹.",
+  "Showers with fewer than 2 hits are left out, as the producer's aggregate leaves them out: 1 in this selection.",
+  "avg_phi is core.py's arithmetic mean of the hits' azimuths, kept for parity with the producer's file; an azimuth wraps, so it is not a direction. avg_phi_circ is the mean direction atan2(Σ sin φ, Σ cos φ).",
+  "Centroids are energy-weighted (core.py:491-497); std_r and the SDs inside angular_spread are sample SDs (ddof = 1); num_hits counts rows. angular_spread adds a linear SD of φ, which the ±π cut inflates; angular_spread_circ uses the circular SD √(−2 ln R̄) instead.",
+  "Depth in the absolute frame is quoted below the front face, z − 3649 mm. The volume, both densities, centroid_z and the radii use raw z, as the producer computed them, so the volume there is not a geometric volume.",
+  "core.py floors width, height, depth and depth range at 10⁻⁶ mm; a floored factor makes the volume tiny and both densities enormous.",
+  "Momentum classes are p < 2 GeV against p ≥ 2 GeV, the aggregate's binary label.",
+  "An azimuth is drawn on its full period (−π, π], cut at ±π, with no percentile clip: a crop would invent an end where the values wrap."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}
