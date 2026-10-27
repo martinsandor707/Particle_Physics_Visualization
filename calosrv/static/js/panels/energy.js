@@ -57,6 +57,7 @@ import {
 import { categoricalStops } from '../palette.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
+import { curveAreaLine } from './distribution.js';
 
 /** Headroom above the tallest robust mark. */
 const Y_HEADROOM = 1.15;
@@ -845,6 +846,10 @@ export class EnergyPanel {
         + `${formatNumber(fit.sigma_ci95[0], 3)} … ${formatNumber(fit.sigma_ci95[1], 3)}`
         + ' (asymmetric)</span>');
     }
+    // The curve's area against the histogram it overlays (CLAUDE.md: a curve drawn
+    // over a histogram shares its normalisation).
+    const area = curveAreaLine(entry, 'events');
+    if (area) lines.push(area);
     lines.push(`<span style="color:${THEME.muted}">N = ${formatInt(fit.n)}, `
       + `${estimatorLabel(fit)}</span>`);
     if (!entry.drives_scale) {
