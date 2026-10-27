@@ -29,15 +29,24 @@ cell densities (the notebook's ``vmin``), the top its brightest bin, both
 stated. Unlike the ensemble panels, every panel projects the *whole* depth,
 as the notebook's do; no entrance slab is cut.
 
-**The window** is the notebook's: one half-width for all nine panels, ``1.15
-x`` half the largest extent of the cloud over the six coordinates, never
-below 150 mm, so the tilt reads at its true angle; depth is cropped the same
-way, which the ensemble frames never do and the inspector says it does. The
-window is what the axes span. The raster under it covers only the populated
-part - the cells inside the window, the grid bins the splat can reach, the
-layers the detector has - so a stray cell three metres away costs the window
-but not the payload: everything between the raster and the window edge is
-empty by construction and is drawn as the card.
+**The window** is one half-width for every panel of the event, so the tilt
+reads at its true angle: the widest energy-weighted 0.1st-99.9th percentile
+range of the cells over the six coordinates (u and v measured from the
+shower's own axis, so the local window stays centred on it), plus one cell
+footprint so the cells at either end are drawn whole, never below 150 mm,
+snapped outward to whole 20 mm bins. It is the co-registered frames' recorded window (CLAUDE.md section 2,
+``query/window.py``) applied to one event, and Martin's decision D-3 for both
+pages: the notebook's rule, 1.15 x half the cloud's largest extent, let one
+stray cell set the window (a single-shower event spanned 3.7 times the
+detector's depth with its cubes in a few percent of the box). The cells
+beyond the window are counted per frame (``frames.<f>.outside_window``) and
+named in ``window.rule``; each panel states the energy it leaves out. Depth
+is cropped the same way, which the ensemble frames never do and the
+inspector says it does. The window is what the axes span. The raster under
+it covers only the populated part - the cells inside the window, the grid
+bins the splat can reach, the layers the detector has - so everything
+between the raster and the window edge is empty by construction and is
+drawn as the card.
 
 **Marks** travel as three-dimensional lines and points in each frame's own
 coordinates, and the client projects them onto each panel: the incident
@@ -88,9 +97,12 @@ from . import capabilities, density, frame_sql, shower_frames
 from . import showers as showers_mod
 from .filters import FilterSpec
 
-#: The notebook's window rule: margin multiplier and smallest half-width.
-WINDOW_PAD = 1.15
+#: The event window: the energy-weighted percentiles of the cells it spans (the
+#: co-registered frames' recorded window, CLAUDE.md section 2) and its smallest half-width.
+WINDOW_PERCENTILES = (frame_mod.WINDOW_LOW_PERCENTILE, frame_mod.WINDOW_HIGH_PERCENTILE)
 WINDOW_MIN_HALF_MM = 150.0
+#: The window's half-width and centres snap to whole bins of the grids' starting pitch.
+WINDOW_SNAP_MM = 20.0
 
 #: The notebook's colour floor: this percentile of the event's positive cell densities.
 FLOOR_PERCENTILE = 1.0
@@ -327,16 +339,77 @@ def _pick_densest(con, table: str, where: str, params: dict, gate: str, two: boo
 # ---------------------------------------------------------------- windows --
 
 
-def _window_half(coords: list[np.ndarray], local_xy: np.ndarray) -> float:
-    """The notebook's one half-width for all nine panels."""
-    half = 0.5 * max(float(np.ptp(c)) if c.size else 0.0 for c in coords)
-    if local_xy.size:
-        half = max(half, float(np.abs(local_xy).max()))
-    return max(half * WINDOW_PAD, WINDOW_MIN_HALF_MM)
+def _weighted_range(values: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
+    """The cell positions holding the energy-weighted 0.1st and 99.9th percentiles.
+
+    Cells are taken in order of position; the low end is the first cell at
+    which the cumulative energy passes 0.1% of the total, the high end the
+    first at which it reaches 99.9%, so both cells lie inside the range (as
+    ``window.fit_axis`` keeps the bins holding its percentile points). Every
+    cell counts when no energy is positive.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    if v.size == 0:
+        return 0.0, 0.0
+    w = np.clip(np.asarray(weights, dtype=np.float64), 0.0, None)
+    total = float(w.sum())
+    if not total > 0:
+        return float(v.min()), float(v.max())
+    order = np.argsort(v, kind="stable")
+    v, cumulative = v[order], np.cumsum(w[order])
+    low, high = WINDOW_PERCENTILES
+    i0 = int(np.searchsorted(cumulative, total * low / 100.0, side="right"))
+    i1 = int(np.searchsorted(cumulative, total * high / 100.0, side="left"))
+    i0 = min(max(i0, 0), v.size - 1)
+    i1 = min(max(i1, i0), v.size - 1)
+    return float(v[i0]), float(v[i1])
 
 
-def _mid(values: np.ndarray) -> float:
-    return 0.5 * (float(values.max()) + float(values.min())) if values.size else 0.0
+def _window(coords: dict[str, np.ndarray], energy: np.ndarray, centred: tuple[str, ...] = (),
+            pad: float = 0.0) -> tuple[float, dict[str, float]]:
+    """One half-width for a set of coordinates, and each coordinate's window centre.
+
+    Each coordinate's energy-weighted 0.1st-99.9th percentile range of cell
+    centres sets a half-width - half the range, or the larger excursion from
+    the origin for a coordinate in ``centred`` (centre 0) - and the window
+    takes the largest, so every axis keeps one scale. ``pad`` (one cell
+    footprint, the margin the grids keep round the data) is added so the cells
+    at either end are drawn whole, not cut through their centres. The result
+    is snapped outward to whole ``WINDOW_SNAP_MM`` bins, its centres to the
+    same bins, so on the 20 mm grid panels the window edges are bin edges, and
+    is never below ``WINDOW_MIN_HALF_MM``. The cells beyond it are counted, not
+    drawn.
+    """
+    half = 0.0
+    centres: dict[str, float] = {}
+    snap = WINDOW_SNAP_MM
+    for name, values in coords.items():
+        lo, hi = _weighted_range(values, energy)
+        if name in centred:
+            centres[name] = 0.0
+            half = max(half, abs(lo), abs(hi))
+        else:
+            centres[name] = round(0.5 * (lo + hi) / snap) * snap
+            # The excursion from the snapped centre, so the snap never moves an end inside.
+            half = max(half, hi - centres[name], centres[name] - lo)
+    return max(math.ceil((half + pad) / snap - 1e-9) * snap, WINDOW_MIN_HALF_MM), centres
+
+
+def _distinct(keys: np.ndarray) -> int:
+    return int(np.unique(keys, axis=0).shape[0]) if keys.shape[0] else 0
+
+
+def _outside(xyz: np.ndarray, energy: np.ndarray, keys: np.ndarray,
+             window: dict[str, tuple[float, float]]) -> dict[str, Any]:
+    """The cells (distinct lattice ``keys``) whose centres lie outside a window, and their energy."""
+    inside = np.ones(xyz.shape[0], dtype=bool)
+    for i, axis in enumerate("xyz"):
+        lo, hi = window[axis]
+        inside &= (xyz[:, i] >= lo) & (xyz[:, i] <= hi)
+    total = float(energy.sum())
+    out = float(energy[~inside].sum())
+    return {"n_cells": _distinct(keys[~inside]), "n_cells_total": _distinct(keys),
+            "energy_gev": out, "fraction": out / total if total > 0 else 0.0}
 
 
 def _lattice_crop(coords: np.ndarray, index: np.ndarray, lo: float, hi: float) -> tuple[int, int]:
@@ -358,16 +431,54 @@ def _grid_edges(lo: float, hi: float, pitch: float, data_lo: float, data_hi: flo
 
     The window ``[lo, hi]`` bounds the raster; within it the raster covers the
     data's own extent plus ``margin`` (a footprint, so every box or rotated
-    sub-deposit of a cell inside the extent lands on the raster).
+    sub-deposit of a cell inside the extent lands on the raster). Each end
+    snaps outward to a whole bin unless that would pass the window, where it
+    snaps inward, so the raster never runs past the axes it is drawn on (a bin
+    the window edge cuts is outside, and its energy is counted as outside).
+    The window is snapped to the 20 mm starting pitch (``_window``), so at
+    that pitch its edges are bin edges and nothing is cut.
     """
     a = max(lo, data_lo - margin)
     b = min(hi, data_hi + margin)
     if not b > a:
         a, b = lo, hi
-    a = math.floor(a / pitch - 1e-9) * pitch
-    b = math.ceil(b / pitch + 1e-9) * pitch
+    a = math.floor(a / pitch + 1e-9) * pitch
+    b = math.ceil(b / pitch - 1e-9) * pitch
+    if a < lo - 1e-9:
+        a += pitch
+    if b > hi + 1e-9:
+        b -= pitch
+    if not b > a:
+        # A window narrower than one bin: the one bin about its centre.
+        a = math.floor(0.5 * (lo + hi) / pitch) * pitch
+        b = a + pitch
     n = max(1, int(round((b - a) / pitch)))
     return a + pitch * np.arange(n + 1, dtype=np.float64)
+
+
+def _ordinal(value: float) -> str:
+    """0.1 -> '0.1st', 99.9 -> '99.9th'."""
+    text = f"{value:g}"
+    last = text[-1]
+    teen = len(text) > 1 and text[-2] == "1" and "." not in text[-2:]
+    suffix = "th" if teen else {"1": "st", "2": "nd", "3": "rd"}.get(last, "th")
+    return text + suffix
+
+
+def window_percentiles_text() -> str:
+    """The event window's percentiles as a reader writes them: '0.1st–99.9th'."""
+    return f"{_ordinal(WINDOW_PERCENTILES[0])}–{_ordinal(WINDOW_PERCENTILES[1])}"
+
+
+def _outside_sentence(outside: dict[str, dict[str, Any]]) -> str:
+    """What each frame's window leaves out, in cells and energy, as one sentence."""
+    names = {"lab": "detector", KIND_TRANS: "translated", KIND_LOCAL: "local"}
+    if all(o["n_cells"] == 0 for o in outside.values()):
+        n = next(iter(outside.values()))["n_cells_total"]
+        return f"All {n:,} cells lie inside it in every frame."
+    parts = [f"{o['n_cells']:,} of {o['n_cells_total']:,} cells ({o['energy_gev']:.3g} GeV, "
+             f"{100.0 * o['fraction']:.2g}%) in the {names[k]} frame" for k, o in outside.items()]
+    return "Outside it, counted and not drawn: " + "; ".join(parts) + "."
 
 
 # ---------------------------------------------------------- accumulation --
@@ -576,15 +687,21 @@ def inspect(
     else:
         trans_xyz, local_xyz = translated, local
 
-    # The notebook's window, from every coordinate of the cloud.
-    half = _window_half([rows.lab[:, 0], rows.lab[:, 1], rows.lab[:, 2],
-                         local_xyz[:, 0], local_xyz[:, 1], local_xyz[:, 2]], local_xyz[:, :2])
+    # One window for every panel of the event: the energy-weighted 0.1st-99.9th percentile of
+    # the cells over all six coordinates, local u and v centred on the origin.
+    half, centre = _window(
+        {"x": rows.lab[:, 0], "y": rows.lab[:, 1], "z": rows.lab[:, 2],
+         "tx": trans_xyz[:, 0], "ty": trans_xyz[:, 1], "tz": trans_xyz[:, 2],
+         "u": local_xyz[:, 0], "v": local_xyz[:, 1], "w": local_xyz[:, 2]},
+        rows.energy, centred=("u", "v"), pad=max(fp[0], fp[1], pitch_z))
     windows = {
-        "lab": {a: (_mid(rows.lab[:, i]) - half, _mid(rows.lab[:, i]) + half) for i, a in enumerate("xyz")},
-        KIND_TRANS: {a: (_mid(trans_xyz[:, i]) - half, _mid(trans_xyz[:, i]) + half) for i, a in enumerate("xyz")},
-        KIND_LOCAL: {"x": (-half, half), "y": (-half, half),
-                     "z": (_mid(local_xyz[:, 2]) - half, _mid(local_xyz[:, 2]) + half)},
+        "lab": {a: (centre[a] - half, centre[a] + half) for a in "xyz"},
+        KIND_TRANS: {a: (centre[f"t{a}"] - half, centre[f"t{a}"] + half) for a in "xyz"},
+        KIND_LOCAL: {a: (centre[k] - half, centre[k] + half) for a, k in zip("xyz", "uvw")},
     }
+    keys = np.column_stack([rows.ix, rows.iy, rows.iz])
+    window_outside = {kind: _outside(xyz, rows.energy, keys, windows[kind])
+               for kind, xyz in (("lab", rows.lab), (KIND_TRANS, trans_xyz), (KIND_LOCAL, local_xyz))}
     k = frame_mod.minimum_gapless_subsample(max(fp), START_PITCH_MM)
     k = max(frame_mod.MIN_SUBSAMPLE, min(frame_mod.MAX_SUBSAMPLE, k))
     k_z = frame_mod.LOCAL_K_Z
@@ -635,6 +752,8 @@ def inspect(
                 "window": {axis: [float(v) for v in windows[kind][axis]] for axis in "xyz"},
                 "raster": extents[kind],
                 "half_mm": half,
+                # The cells whose centres lie outside this frame's window, counted, not drawn.
+                "outside_window": window_outside[kind],
                 "panels": panels,
                 # The first layer is z = z0 in the laboratory and delta z = 0 once P0 is subtracted.
                 "marks": _marks(kind, origin, frame_direction, theta, 0.0 if kind == KIND_TRANS else float(p0[2])),
@@ -661,7 +780,7 @@ def inspect(
                 "floor_percentile": FLOOR_PERCENTILE, "n_below": n_below,
                 # Exponents in the floor and the top take the typographic minus.
                 "rule": typographic(
-                    f"One logarithmic ramp for all nine panels: projected energy surface density in GeV per mm², "
+                    f"One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², "
                     f"from the {FLOOR_PERCENTILE:g}st percentile of this shower's positive lattice-cell densities "
                     f"({floor:.3g}) to its brightest bin ({top:.3g}); {n_below} bins below the floor are drawn at "
                     "the lowest colour."
@@ -734,12 +853,16 @@ def inspect(
             ),
         },
         "window": {
-            "half_mm": half, "pad": WINDOW_PAD, "min_half_mm": WINDOW_MIN_HALF_MM,
-            "rule": (
-                f"One half-width for all nine panels: {WINDOW_PAD:g} × half the largest extent of the cloud "
-                f"over x, y, z, u, v and w, never below {WINDOW_MIN_HALF_MM:.0f} mm ({half:.0f} mm here); "
-                "lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped "
-                "to the event, which the ensemble frames never do."
+            "half_mm": half, "percentiles": list(WINDOW_PERCENTILES), "min_half_mm": WINDOW_MIN_HALF_MM,
+            "rule": typographic(
+                f"One half-width for every panel of this event: the widest energy-weighted "
+                f"{window_percentiles_text()} percentile range of its cells over "
+                f"x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the "
+                f"cells at either end are drawn whole, never below {WINDOW_MIN_HALF_MM:.0f} mm and snapped "
+                f"outward to {WINDOW_SNAP_MM:.0f} mm ({half:.0f} mm here); lattice panels snap it outward to "
+                "whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble "
+                "frames never do. "
+                + _outside_sentence(window_outside)
             ),
         },
         "footprint_mm": [float(fp[0]), float(fp[1]), pitch_z],

@@ -148,7 +148,10 @@ export class ProjectionPanel {
     // tooltip keeps the plot area it is placed around current.
     this.liveGrid = null;
     // Two placements over one plot box: an explanation (a mark's, an
-    // overlay's) leaves the chart, the plain bin readout stays at the pointer.
+    // overlay's) leaves the chart; the plain bin readout stays at the pointer
+    // where it covers at most 20% of the plot, and leaves it like an
+    // explanation otherwise (tooltip.js placeTooltip), so it never hides
+    // the panel being hovered.
     const plotBox = () => plotBoxFromGrid(this.liveGrid, this.chart.getWidth(), this.chart.getHeight());
     this.tooltipPosition = tooltipPosition(this.chart, plotBox);
     this.readoutPosition = tooltipPosition(this.chart, plotBox, { prefer: PREFER_POINTER });

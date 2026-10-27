@@ -57,11 +57,13 @@
 
    The two columns are equal. At 3 : 2 the projections' column left the
    Local entry panel (a 2 : 1 isometric window beside its ramp) a 277 x 141 px
-   plot at 1600 px, and its five-line bin readout, which stays beside the
-   pointer, covered up to 64% of it; at 1 : 1 the plots are 399 px wide and
-   the readout covers at most 33% (tests/test_browser_models.py prints the
-   shares). The 3-D card keeps 606 x 560 px, and its opening zoom widens to
-   that width (voxels.js orthographicFit), so no axis title leaves the canvas. */
+   plot at 1600 px; at 1 : 1 the plots are 399 px wide. A bin readout that
+   would cover more than 20% of its plot leaves the plot as an explanation does
+   (panels/tooltip.js READOUT_SHARE), so the five-line readout of these
+   narrow plots never covers the bin it reads. The 3-D plot's height follows
+   its width (voxels.js glPlotHeight, set by voxel_views.js), so its opening
+   zoom fills the card without empty bands; 560 px below is the height before
+   the chart first measures its width. */
 .voxels-grid { margin-top: var(--gap); display: grid; gap: var(--gap); min-width: 0; }
 .voxels-grid[hidden] { display: none; }
 .voxels-pending { margin: 0; font-size: 12px; color: var(--muted); }

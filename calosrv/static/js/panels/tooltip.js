@@ -27,14 +27,21 @@
  *
  * ## Placed so the hovered panel stays visible
  *
- * Which rule applies depends on the kind of tip, not its size. Size varies from
- * bin to bin, so a size rule made the readout jump between the pointer and the
- * next panel as the pointer moved.
+ * Which rule applies depends first on the kind of tip. A readout's size varies
+ * a little from bin to bin, so a size rule over every tip made it jump between
+ * the pointer and the next panel as the pointer moved.
  *
  * - The plain bin readout (coordinates and the bin's value, no overlay above
  *   it) stays beside the pointer, as it always did: right of it, or left when
- *   the right side has no room (`prefer: 'pointer'`). It is small, and it is
- *   read against the bin under the pointer.
+ *   the right side has no room. It is small, and it is read against the bin
+ *   under the pointer (`prefer: 'pointer'`). Small is a rule, not a hope: a
+ *   readout that would cover more than `READOUT_SHARE` (20%) of its plot
+ *   area there would hide the panel being hovered, so it leaves the plot as an
+ *   explanation does (Martin's tooltip rule; Page 1's browser tests hold the
+ *   same 20% of overlap). Every readout that met the cap keeps its place, so
+ *   Page 1's panels are unchanged wherever they already did; the Models
+ *   page's narrow paired projections, where the five-line readout covers a
+ *   third of the plot mid-panel, send it outside.
  * - Every explanatory tip leaves the hovered chart (`prefer: 'outside'`). That
  *   covers a mark's or an overlay's explanation (the text led by an overlay
  *   above the readout), and every tip on plot 4. It sits just outside the
@@ -90,6 +97,9 @@ export const EDGE_MARGIN_PX = 4;
 /** The two placement preferences. */
 export const PREFER_POINTER = 'pointer';
 export const PREFER_OUTSIDE = 'outside';
+
+/** The largest share of its plot area a readout may cover beside the pointer. */
+export const READOUT_SHARE = 0.2;
 
 /**
  * The chart-level tooltip option. Read at build time, like every THEME value,
@@ -223,22 +233,29 @@ function outside(around, [px, py], w, h, within) {
  *   viewport when omitted.
  * - `viewport`: the window's client area.
  * - `prefer`: `'pointer'` for the plain bin readout, `'outside'` (the
- *   default) for every explanatory tip.
+ *   default) for every explanatory tip. A readout that would cover more than
+ *   `readoutShare` of the plot's area beside the pointer is placed as an
+ *   explanation.
  *
  * Returns {x, y, mode}, where `mode` names the rule that placed the tip:
  * 'pointer', 'outside-chart', 'outside-plot' or 'least-overlap'.
  */
-export function placeTooltip({ pointer, size, chart, plot, usable = null, viewport, prefer = PREFER_OUTSIDE }) {
+export function placeTooltip({
+  pointer, size, chart, plot, usable = null, viewport, prefer = PREFER_OUTSIDE, readoutShare = READOUT_SHARE,
+}) {
   const [w, h] = size;
   const view = inset(viewport, EDGE_MARGIN_PX);
   const content = usable ? intersect(inset(usable, EDGE_MARGIN_PX), view) : view;
   const result = (rect, mode) => ({ x: rect.left, y: rect.top, mode });
   const clean = (rect, within) => fits(rect, within) && !covers(rect, pointer);
 
+  // Beside the pointer only where it covers at most `readoutShare` of the plot there; a readout
+  // that would hide more of the panel being hovered is placed as an explanation.
   if (prefer === PREFER_POINTER) {
+    const cap = readoutShare * area(plot);
     for (const within of [content, view]) {
       const near = besidePointer(pointer, w, h, within);
-      if (clean(near, within)) return result(near, 'pointer');
+      if (clean(near, within) && area(intersect(near, plot)) <= cap + 0.5) return result(near, 'pointer');
     }
   }
 
