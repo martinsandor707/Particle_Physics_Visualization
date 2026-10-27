@@ -80,7 +80,7 @@ import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
 import { formatInt, formatPercent, formatSci } from './scale.js';
 import {
-  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, orthographicFit, glPlotHeight, speciesLegend, pairedWindow,
+  decodeEventVoxels, decodeEnsembleVoxels, voxelOption, openingView, glPlotHeight, voxelFit, speciesLegend, pairedWindow,
   cropToWindow,
 } from './voxels.js';
 import {
@@ -318,19 +318,26 @@ export function ensembleRequests({ filters, view, model = 'segmentation', anchor
 /* ---------------------------------------------------------------- DOM -- */
 
 /**
- * Size a 3-D plot's height from its width (voxels.js `glPlotHeight`): an
- * inline height that overrides the stylesheet's 560 px, set synchronously so
- * the chart's ResizeObserver measures the final geometry. Returns the height
- * set, or null when the plot has no width yet (hidden), which keeps the
- * stylesheet's.
+ * Size a 3-D plot's height from its width and the drawn box (voxels.js
+ * `glPlotHeight`, with `fit` = `voxelFit`'s `{frame, right}`, or the cube's
+ * rule before the first model): an inline height that overrides the
+ * stylesheet's 560 px, set synchronously so the chart's ResizeObserver
+ * measures the final geometry. Returns the height set, or null when the plot
+ * has no width yet (hidden), which keeps the stylesheet's.
  */
-export function fitPlotHeight(plot) {
+export function fitPlotHeight(plot, fit = null) {
   const width = plot?.clientWidth;
   if (!(width > 0)) return null;
-  const height = glPlotHeight(width);
+  const height = fit ? glPlotHeight(width, fit.right, fit.frame) : glPlotHeight(width);
   const text = `${height}px`;
   if (plot.style.height !== text) plot.style.height = text;
   return height;
+}
+
+/** Whether two opening viewports (voxels.js `openingView`) agree to half a pixel. */
+function sameViewport(a, b) {
+  return ['left', 'top', 'width', 'height'].every((k) => (a?.[k] == null && b?.[k] == null)
+    || Math.abs((a?.[k] ?? NaN) - (b?.[k] ?? NaN)) < 0.5);
 }
 
 function make(tag, className = '', text = null) {
@@ -973,18 +980,24 @@ export class VoxelSection {
     const chart = record.chart;
     if (!chart) return;
     // A new width sets a new height (voxels.js glPlotHeight), at once: no transition.
-    fitPlotHeight(record.plot);
+    fitPlotHeight(record.plot, record.fit);
     const width = record.plot.clientWidth;
     const height = record.plot.clientHeight;
     if (!(width > 0 && height > 0)) return;
     if (chart.getWidth() !== width || chart.getHeight() !== height) chart.resize();
-    // A new width moves the opening view's fit (voxels.js orthographicFit). The
+    // A new width moves the opening view's fit (voxels.js openingView). The
     // camera keeps the reader's rotation and pan; only its zoom is refitted.
     if (!record.fit || record.lost) return;
-    const size = orthographicFit(width, height, record.fit.right);
-    if (Math.abs(size - record.fit.size) < 0.5) return;
-    record.fit.size = size;
-    chart.setOption({ grid3D: { viewControl: { orthographicSize: size } } });
+    const view = openingView(width, height, record.fit.right, record.fit.frame);
+    if (Math.abs(view.size - record.fit.size) < 0.5 && sameViewport(view, record.fit.view)) return;
+    record.fit.size = view.size;
+    record.fit.view = view;
+    chart.setOption({
+      grid3D: {
+        left: view.left, top: view.top, width: view.width, height: view.height,
+        viewControl: { orthographicSize: view.size },
+      },
+    });
   }
 
   /**
@@ -997,6 +1010,13 @@ export class VoxelSection {
     const record = pair.gl;
     if (!pair.model || !this.glAvailable()) return;
     const chart = this.ensureChart(record);
+    if (!keepCamera && !record.lost) {
+      // The box sets the plot's height (voxels.js glPlotHeight) before the option is fitted to it.
+      fitPlotHeight(record.plot, voxelFit(pair.model, this.value('palette')));
+      const width = record.plot.clientWidth;
+      const height = record.plot.clientHeight;
+      if (width > 0 && height > 0 && (chart.getWidth() !== width || chart.getHeight() !== height)) chart.resize();
+    }
     const built = voxelOption(pair.model, {
       palette: this.value('palette'), hidden: pair.hidden, position: record.tooltipPosition,
       viewport: { width: chart.getWidth(), height: chart.getHeight() },
@@ -1020,7 +1040,10 @@ export class VoxelSection {
     } else {
       chart.setOption(built.option, { notMerge: true });
       const grid = built.option.grid3D;
-      record.fit = { right: grid.right, size: grid.viewControl.orthographicSize };
+      record.fit = {
+        right: grid.right, frame: built.fit.frame, size: grid.viewControl.orthographicSize,
+        view: { left: grid.left, top: grid.top, width: grid.width, height: grid.height },
+      };
     }
     this.watchContext(pair);
   }
