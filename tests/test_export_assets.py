@@ -267,6 +267,8 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/lazy_cards.js",
         "/static/js/physics_section.js",
         "/static/js/controls/filter_block.js",
+        "/static/js/models_main.js",
+        "/static/js/models_cards.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -293,6 +295,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/page_common.js",
         "/static/js/physics_section.js",
         "/static/js/controls/filter_block.js",
+        "/static/js/models_main.js",
+        "/static/js/models_cards.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -462,6 +466,30 @@ def test_the_export_resolver_hands_over_no_page_text():
     for token in ("getElementById", "textContent", "figureDisclosure(", "exportLegend(",
                   "footnote", "disclosure"):
         assert token not in body, f"the export resolver still touches {token}"
+
+
+def test_the_models_export_resolver_hands_over_no_page_text():
+    """models_main.js resolves a card's panel and its response meta, as main.js does."""
+    source = _strip_comments((STATIC / "js" / "models_main.js").read_text(encoding="utf-8"))
+    block = re.search(r"attachExportMenus\(\{.*?\n  \}\);", source, re.DOTALL)
+    assert block, "attachExportMenus block not found"
+    body = block.group(0)
+    assert "exportTarget(panelId)" in body
+    for token in ("getElementById", "textContent", "figureDisclosure(", "exportLegend(",
+                  "footnote", "disclosure"):
+        assert token not in body, f"the export resolver still touches {token}"
+    cards = _strip_comments((STATIC / "js" / "models_cards.js").read_text(encoding="utf-8"))
+    assert "return { panel: record.panel, meta: exportMeta(record.payload) };" in cards
+
+
+def test_the_export_menu_is_reached_from_the_models_entry_point(client):
+    """One stamp governs the Models page's path into export/ too."""
+    served = client.get("/static/js/models_main.js").text
+    assert "./export/menu.js?v=" in served
+    assert "./models_cards.js?v=" in served and "./voxel_views.js?v=" in served
+    cards = client.get("/static/js/models_cards.js").text
+    for spec in re.findall(r"import\('(\.\.?/[^']+)'\)", cards):
+        assert "?v=" in spec, f"unstamped dynamic import: {spec}"
 
 
 def test_export_controls_say_the_figure_is_plot_only():
@@ -736,7 +764,7 @@ def test_the_reference_frame_control_opens_in_the_absolute_frame():
 def test_no_retired_schema_wording_ships():
     retired = ("29-column", "no predicted angle", "No predicted-angle", "A+B = 8.6",
                "particle_origin = 'A+B'", "Shared voxels", "shared_voxel_fraction")
-    sources = [STATIC / "index.html"] + [
+    sources = [STATIC / "index.html", STATIC / "models.html"] + [
         path for path in (STATIC / "js").rglob("*.js") if "vendor" not in path.parts
     ]
     for path in sources:
@@ -773,7 +801,8 @@ def test_no_retired_frame_vocabulary_ships():
     retired = ("Laboratory", "laboratory frame", "laboratory 3-D", "laboratory (absolute)",
                "Canonical centre-of-separation", "centre-of-separation frame")
     js = STATIC / "js"
-    sources = [STATIC / "index.html", js / "labels.js", js / "frame_views.js", js / "main.js",
+    sources = [STATIC / "index.html", STATIC / "models.html", js / "labels.js", js / "frame_views.js", js / "main.js",
+               js / "models_main.js", js / "models_cards.js", js / "capabilities.js",
                PANELS_JS / "projection.js", PANELS_JS / "canonical_overlays.js",
                EXPORT_JS / "disclosure.js", EXPORT_JS / "caption.js", js / "controls" / "admin.js"]
     for path in sources:

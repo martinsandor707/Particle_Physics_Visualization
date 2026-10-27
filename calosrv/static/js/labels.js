@@ -171,3 +171,85 @@ export const DISPLAY_CHOICES = Object.freeze([
   { value: 'native', label: 'Native', detail: '(detector lattice, or the raw 20 mm grid)' },
   { value: 'continuous', label: 'Continuous Field' },
 ]);
+
+/* ------------------------------------------------------- the Models page */
+
+/* The two pages, as the header's tabs name them (page_common.js
+ * `wirePageTabs`). The path is the page's route; each tab carries the view
+ * across in the link's hash at click time. */
+export const PAGE_TABS = Object.freeze([
+  { page: 'physics', label: 'Physics', href: '/', title: 'The 2 × 2 spatial diagnostic and the physics cards' },
+  { page: 'models', label: 'Models', href: '/models', title: 'Model performance, the feature explorer and the 3-D views' },
+]);
+
+/* The per-event features of the explorer, by the id the server's catalog uses
+ * (state.js FEATURE_KEYS, in the same order; a test keeps them equal). The
+ * catalog (GET /api/features?view=catalog) is the authority on what an
+ * experiment offers; these are its names in the sidebar's select. `hitsOnly`
+ * marks the two circular companions a hit experiment adds to the aggregate's
+ * nineteen; `log` whether a logarithmic axis is offered (an azimuth is drawn
+ * on (−π, π], a lattice-quantised feature only on a linear axis). */
+export const FEATURES = Object.freeze([
+  { key: 'width', label: 'Width — x extent', unit: 'mm', log: true },
+  { key: 'height', label: 'Height — y extent', unit: 'mm', log: true },
+  { key: 'depth', label: 'Depth — deepest z below the front face', unit: 'mm', log: false },
+  { key: 'depth_range', label: 'Depth range — z extent', unit: 'mm', log: false },
+  { key: 'volume', label: 'Volume — width × height × depth', unit: 'mm³', log: true },
+  { key: 'num_hits', label: 'Number of hits', unit: 'hits', log: false },
+  { key: 'total_hit_energy', label: 'Total deposited energy', unit: 'GeV', log: true },
+  { key: 'centroid_x', label: 'Energy-weighted centroid x', unit: 'mm', log: true },
+  { key: 'centroid_y', label: 'Energy-weighted centroid y', unit: 'mm', log: true },
+  { key: 'centroid_z', label: 'Energy-weighted centroid z', unit: 'mm', log: true },
+  { key: 'mean_r', label: 'Mean hit radius r', unit: 'mm', log: true },
+  { key: 'std_r', label: 'SD of hit radius r', unit: 'mm', log: true },
+  { key: 'max_r', label: 'Maximum hit radius r', unit: 'mm', log: true },
+  { key: 'weighted_r_mean', label: 'Energy-weighted mean radius r', unit: 'mm', log: true },
+  { key: 'avg_theta', label: 'Mean polar angle θ of the hits', unit: 'rad', log: true },
+  { key: 'avg_phi', label: 'Arithmetic mean of the hits’ azimuth φ', unit: 'rad', log: false, circular: true },
+  {
+    key: 'avg_phi_circ', label: 'Mean direction of the hits’ azimuth φ', unit: 'rad', log: false,
+    circular: true, hitsOnly: true,
+  },
+  { key: 'angular_spread', label: 'Angular spread SD(θ) + SD(φ)', unit: 'rad', log: true },
+  { key: 'angular_spread_circ', label: 'Angular spread SD(θ) + circular SD(φ)', unit: 'rad', log: true, hitsOnly: true },
+  { key: 'numerical_density', label: 'Hit density — hits / volume', unit: 'hits/mm³', log: true },
+  { key: 'energy_density', label: 'Energy density — energy / volume', unit: 'GeV/mm³', log: true },
+]);
+
+/** The features an experiment's explorer offers: the aggregate has no hits to add the circular companions from. */
+export function featureChoices(hasHits = true) {
+  return FEATURES.filter((feature) => hasHits || !feature.hitsOnly);
+}
+
+/** The Models page's choices, by state key; the cards' toolbars are built from these. */
+export const MODELS_LABELS = Object.freeze({
+  fclass: [
+    { value: 'windows', label: 'Momentum windows', title: 'The features notebook’s windows: (1, 2, 5, 10, 19.5) ± 0.5 GeV' },
+    { value: 'label', label: 'p < 2 | p ≥ 2 GeV', title: 'The binary label: incident momentum below 2 GeV against 2 GeV and above' },
+  ],
+  // The network task of the performance cards, by the API's `model` value.
+  task: [
+    { value: 'energy', label: 'Energy', title: 'The energy (momentum) regression: predicted against true incident momentum' },
+    { value: 'angle', label: 'Angle', title: 'The incident-angle regression: predicted against true polar angle θ' },
+  ],
+  xgb_task: [
+    { value: 'momentum', label: 'Momentum', title: 'The XGBoost momentum regressor' },
+    { value: 'angle', label: 'Angle', title: 'The XGBoost angle regressor (two outputs: φ and θ)' },
+  ],
+  xgb_label: [
+    { value: 'theta', label: 'θ', title: 'The polar angle θ output of the angle regressor' },
+    { value: 'phi', label: 'φ', title: 'The azimuth φ output of the angle regressor; its residual is wrapped to (−π, π]' },
+  ],
+  voxel_channel: [
+    { value: 'energy', label: 'Deposited energy' },
+    { value: 'gradcam', label: 'Grad-CAM Model Attention' },
+    { value: 'shapcam', label: 'Shap-CAM Attribution', detail: '(signed)' },
+    { value: 'segerr', label: 'Segmentation error', detail: '(|f_A,pred − f_A,true|)' },
+    { value: 'species', label: 'Particle species' },
+  ],
+  ens_channel: [
+    { value: 'density', label: 'Average Hit Density (Summed Energy)' },
+    { value: 'gradcam_energy', label: 'Energy-weighted Grad-CAM', detail: '(Σ E·CAM)' },
+    { value: 'shapcam_energy', label: 'Energy-weighted Shap-CAM', detail: '(Σ E·CAM, signed)' },
+  ],
+});
