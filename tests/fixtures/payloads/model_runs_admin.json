@@ -2,7 +2,7 @@
  "models": {
   "dir": "<the test's temporary models folder>",
   "found": true,
-  "scanned_at": "2026-10-27T14:33:51+00:00",
+  "scanned_at": "2026-10-27T19:29:43+00:00",
   "files": [
    {
     "path": "xgboost_electron/standalone_angle_s1_model.json",
@@ -173,7 +173,7 @@
       "n_others": 99,
       "margin": 1.05
      },
-     "analysis_version": 2
+     "analysis_version": 3
     },
     {
      "task": "angle",
@@ -190,30 +190,30 @@
       "n_others": 99,
       "margin": 1.6
      },
-     "analysis_version": 2
+     "analysis_version": 3
     }
    ],
-   "queued_at": "2026-10-27T14:33:50+00:00",
-   "started_at": "2026-10-27T14:33:50+00:00",
-   "finished_at": "2026-10-27T14:33:51+00:00",
-   "duration_s": 0.59,
+   "queued_at": "2026-10-27T19:29:43+00:00",
+   "started_at": "2026-10-27T19:29:43+00:00",
+   "finished_at": "2026-10-27T19:29:43+00:00",
+   "duration_s": 0.68,
    "timings": {
-    "binary thresholding sample": 0.01,
-    "cross-validation fold 1 of 5 (angle)": 0.027,
+    "binary thresholding sample": 0.009,
+    "cross-validation fold 1 of 5 (angle)": 0.025,
     "cross-validation fold 1 of 5 (momentum)": 0.034,
-    "cross-validation fold 2 of 5 (angle)": 0.021,
+    "cross-validation fold 2 of 5 (angle)": 0.027,
     "cross-validation fold 2 of 5 (momentum)": 0.031,
-    "cross-validation fold 3 of 5 (angle)": 0.027,
+    "cross-validation fold 3 of 5 (angle)": 0.03,
     "cross-validation fold 3 of 5 (momentum)": 0.029,
-    "cross-validation fold 4 of 5 (angle)": 0.021,
-    "cross-validation fold 4 of 5 (momentum)": 0.024,
-    "cross-validation fold 5 of 5 (angle)": 0.026,
+    "cross-validation fold 4 of 5 (angle)": 0.03,
+    "cross-validation fold 4 of 5 (momentum)": 0.022,
+    "cross-validation fold 5 of 5 (angle)": 0.037,
     "cross-validation fold 5 of 5 (momentum)": 0.032,
     "gain importances": 0.001,
-    "split check and holdout predictions (angle)": 0.032,
-    "split check and holdout predictions (momentum)": 0.082,
-    "surrogate tree (angle)": 0.003,
-    "surrogate tree (momentum)": 0.08
+    "split check and holdout predictions (angle)": 0.073,
+    "split check and holdout predictions (momentum)": 0.114,
+    "surrogate tree (angle)": 0.004,
+    "surrogate tree (momentum)": 0.069
    }
   },
   {
@@ -310,9 +310,9 @@
    "progress": 0.0,
    "stale_reasons": [],
    "runs": [],
-   "queued_at": "2026-10-27T14:33:51+00:00",
-   "started_at": "2026-10-27T14:33:51+00:00",
-   "finished_at": "2026-10-27T14:33:51+00:00",
+   "queued_at": "2026-10-27T19:29:43+00:00",
+   "started_at": "2026-10-27T19:29:43+00:00",
+   "finished_at": "2026-10-27T19:29:43+00:00",
    "duration_s": 0.01,
    "timings": {}
   },

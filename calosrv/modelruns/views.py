@@ -23,14 +23,20 @@ The marks follow CLAUDE.md section 2:
   uncertainty, which a bootstrap of the rows loses. The notebook's weighted
   precision, recall and F1 are kept for parity, labelled as such.
 * **E4.** A description of a surrogate, not an estimate: each node's n, its
-  value and its within-node SD of the booster's predictions (an uncapped
-  spread), and the fidelity of the whole tree and of each output. A node's φ
-  value is sklearn's linear mean, kept for notebook parity; beside it the
-  circular mean and mean resultant length R̄ of the booster's φ predictions
-  on the node's rows, and φ is never coloured (no cyclic ramp is sanctioned).
-* **E5.** One shipped model's normalised gain is the bar; the five refitted
-  folds' values are dots beside it, and their mean's corrected resampled t
-  interval a separate named envelope.
+  value and its within-node SD of the booster's predictions (ddof = 1, an
+  uncapped spread; a node under :data:`WEAK_NODE_N` rows is weak), and the
+  fidelity of the whole tree and of each output, φ's judged on the circle
+  (:func:`~calosrv.modelruns.analysis.circular_fidelity`). A node's φ value
+  is sklearn's linear mean, kept for notebook parity; beside it the circular
+  mean and mean resultant length R̄ of the booster's φ predictions on the
+  node's rows, and φ is never coloured (no cyclic ramp is sanctioned). The
+  colour domain of a coloured output comes from the nodes of at least
+  :data:`WEAK_NODE_N` rows (:func:`colour_domain`); a node beyond it is counted.
+* **E5.** One shipped model's normalised average split gain
+  (``feature_importances_``) is the bar; the five refitted folds' values are
+  dots beside it, and their mean's corrected resampled t interval a separate
+  named envelope. Each feature's share of the total gain (average gain times
+  the number of splits) travels beside it, since the two rankings can differ.
 
 Numbers are rounded to six significant figures (``encode.numbers``) and every
 sentence goes through :func:`~calosrv.text.typographic`.
@@ -347,16 +353,36 @@ def _mrad(metric: str, value: float | None) -> float | None:
 # -------------------------------------------------------------------- E3 --
 
 
+#: The rates whose value depends on the sample's class ratio (prevalence), which
+#: the 99 : 1 design fixes; the recalls and the balanced accuracy do not.
+PREVALENCE_DEPENDENT: frozenset[str] = frozenset({"accuracy", "precision_1", "precision_0"})
+
+#: Accuracy's interval: Wilson treats the N rows as one binomial sample, but the
+#: class sizes are fixed by the design, whose stratified variance
+#: Σ (n_c/N)² r_c (1 − r_c) / n_c is never larger, so the interval is conservative.
+ACCURACY_INTERVAL_LABEL = "95% Wilson score interval (binomial; conservative under the fixed class sizes)"
+
+PREVALENCE_NOTE = (
+    "Accuracy and the two precisions depend on the sample's designed 99 : 1 class ratio and do not "
+    "transfer to another mix of classes; the two recalls and the balanced accuracy do not depend on "
+    "it. Accuracy's Wilson interval treats the rows as one binomial sample, although the class "
+    "sizes are fixed by the design; the stratified variance is never larger, so the interval is "
+    "conservative.")
+
+
 def _rate(identifier: str, label: str, k: int, n: int, definition: str) -> dict[str, Any]:
     estimate = metrics.proportion_estimate(k, n)
     interval = estimate.interval
+    name = None if interval is None else (
+        ACCURACY_INTERVAL_LABEL if identifier == "accuracy" else interval.label)
     return {
         "id": identifier, "label": label, "definition": definition, "k": int(k), "n": int(n),
         "value": sig(estimate.value),
         "interval": None if interval is None else {
             "lo": sig(interval.lo), "hi": sig(interval.hi), "level": interval.level,
-            "method": interval.method, "label": interval.label},
+            "method": interval.method, "label": name},
         "note": "" if n else "Undefined: no rows in its denominator.",
+        "prevalence_dependent": identifier in PREVALENCE_DEPENDENT,
     }
 
 
@@ -416,6 +442,7 @@ def binary_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             "lo": sig(balanced["lo"]), "hi": sig(balanced["hi"]), "level": 0.95,
             "method": METHOD_MOVER, "label": MOVER_LABEL},
         "note": "" if balanced["value"] is not None else "Undefined: one class is absent from the sample.",
+        "prevalence_dependent": False,
     })
     minority = min(n_0, n_1)
     parity = details.get("metrics") or {}
@@ -480,8 +507,9 @@ def binary_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                           "rows would collapse it to zero."),
             "counts": "The confusion matrix is counts, which carry no interval.",
             "weighted": ("Support-weighted precision, recall and F1 are dominated by the majority "
-                         "class at 99 : 1; they are the notebook's numbers, kept for parity, and "
-                         "the per-class rates are what the card draws."),
+                         "class at the designed 99 : 1; they are the notebook's numbers, kept for "
+                         "parity, and the per-class rates are what the card draws."),
+            "prevalence": PREVALENCE_NOTE,
         },
     })
 
@@ -517,14 +545,13 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
     outputs = ((row.get("details") or {}).get("surrogate_outputs") or {})
     unit = LABEL_UNITS["momentum"] if task == "momentum" else "rad"
     coloured = [label for label in labels if label not in CIRCULAR_LABELS]
-    domain = {label: [sig(min(n["values"][label] for n in ordered)),
-                      sig(max(n["values"][label] for n in ordered))] for label in coloured} if ordered else {}
+    basis = {label: colour_domain(ordered, label) for label in coloured} if ordered else {}
+    domain = {label: b.pop("domain") for label, b in basis.items()}
     label_info = [{"name": label, "coloured": label in coloured,
                    "reason": (COLOUR_REASON_CIRCULAR if label in CIRCULAR_LABELS else
                               "its node value, on the sequential ramp (Viridis by default)")}
                   for label in labels]
-    fidelity_outputs = {k: {"r2": sig(v.get("r2")), "mae": sig(v.get("mae"))}
-                        for k, v in outputs.items()}
+    fidelity_outputs = {k: _output_fidelity(k, v) for k, v in outputs.items()}
     return _text({
         "view": "surrogate",
         "task": task,
@@ -536,6 +563,7 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         "fidelity": {
             "r2": sig(row["surrogate_r2"]), "mae": sig(row["surrogate_mae"]), "unit": unit,
             "outputs": fidelity_outputs,
+            "threshold": LOW_FIDELITY_R2,
             "against": ("the shipped booster's own predictions on every row, in-sample, as the "
                         "notebook measures it"),
             "statement": _fidelity_statement(row, fidelity_outputs, labels),
@@ -543,6 +571,8 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         "tree": {**SURROGATE, "criterion": "squared_error", "n_rows": int(row["n_rows"]),
                  "target": "the shipped booster's predictions"},
         "color_domain": domain,
+        "color_domain_basis": basis,
+        "weak_below_n": WEAK_NODE_N,
         "color_by": {info["name"]: info["coloured"] for info in label_info},
         "label_info": label_info,
         "notes": {
@@ -550,12 +580,25 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                             "number of rows, the mean of the booster's predictions over them and "
                             "their SD, the spread within the node (no whisker)."),
             "impurity": ("impurity is sklearn's: the variance of the booster's predictions in the "
-                         "node, averaged over the outputs for the angle task; sd is each output's "
-                         "own within-node SD."),
+                         "node (ddof = 0), averaged over the outputs for the angle task; sd is each "
+                         "output's own within-node SD, the unbiased sample form (ddof = 1), "
+                         "undefined for a node of one row."),
+            "weak": (f"A node of fewer than {WEAK_NODE_N} rows is weak: its mean and SD rest on "
+                     "that few predictions."),
             "fidelity": ("Fidelity is R² and MAE of the tree against the booster, on the rows it "
                          "was fitted to; it says how much of the booster the three levels of "
                          "rules describe. Each output's own fidelity is stated: their average "
-                         "can hide an output the tree does not describe at all."),
+                         "can hide an output the tree does not describe at all."
+                         + (" φ's is judged on the circle: the circular R² analogue "
+                            "1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)), Δ the tree's φ minus the "
+                            "booster's wrapped to (−π, π] and φ̄ the circular mean of the "
+                            "booster's φ, and the wrapped MAE, the mean |Δ|; its linear R² and "
+                            "MAE, which count a disagreement across the ±π seam as about 2π, are "
+                            "kept for notebook parity." if "phi" in labels else "")),
+            "colour_domain": (f"The colour domain of a coloured output spans the nodes of at least "
+                              f"{WEAK_NODE_N} rows; a smaller node beyond it takes the end colour "
+                              "and is marked ▲ (above) or ▼ (below)."),
+            **({"criterion": CRITERION_NOTE} if len(labels) > 1 else {}),
             **({"circular": CIRCULAR_NOTE} if any(label in CIRCULAR_LABELS for label in labels)
                else {}),
         },
@@ -564,6 +607,62 @@ def surrogate_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
 
 #: Outputs that are azimuths: never coloured on a sequential ramp, never averaged as a line.
 CIRCULAR_LABELS: frozenset[str] = frozenset({"phi"})
+
+#: Below this many rows a node is weak (CLAUDE.md's low-N table: the robust floor), and
+#: it does not set the colour domain (Martin, 2026-10-27, D-6).
+WEAK_NODE_N = 20
+
+#: An output whose own fidelity is below this is flagged (Martin, 2026-10-27): per output,
+#: on the circular R² for φ (D-5).
+LOW_FIDELITY_R2 = 0.5
+
+CRITERION_NOTE = (
+    "The tree's splits minimise the summed squared error of its outputs, φ (unwrapped, in rad) "
+    "and θ together; φ spans about 2π rad and θ a few tenths of a radian, so φ's variance "
+    "dominates every split, and θ is barely described.")
+
+
+def colour_domain(nodes: Sequence[dict[str, Any]], label: str) -> dict[str, Any]:
+    """The colour domain of ``label`` from the nodes of at least :data:`WEAK_NODE_N` rows.
+
+    A tree's extremes are its leaves, and often its smallest ones, so a domain
+    over every node is set by the least-supported values (CLAUDE.md section 2,
+    display ranges follow robust evidence). When fewer than two distinct values
+    come from such nodes (a tiny experiment), every node sets it and the domain
+    is provisional. Returns ``{domain, min_n, n_nodes, provisional, n_above,
+    n_below}``: the nodes beyond the domain take its end colour and are counted.
+    """
+    values = [(n["n"], n["values"].get(label)) for n in nodes]
+    values = [(k, v) for k, v in values if v is not None and math.isfinite(v)]
+    robust = [v for k, v in values if k >= WEAK_NODE_N]
+    provisional = len(set(robust)) < 2
+    basis = [v for _, v in values] if provisional else robust
+    if not basis:
+        return {"domain": [None, None], "min_n": WEAK_NODE_N, "n_nodes": 0, "provisional": True,
+                "n_above": 0, "n_below": 0}
+    lo, hi = sig(min(basis)), sig(max(basis))
+    return {
+        "domain": [lo, hi],
+        "min_n": WEAK_NODE_N,
+        "n_nodes": len(basis),
+        "provisional": provisional,
+        "n_above": sum(1 for _, v in values if sig(v) > hi),
+        "n_below": sum(1 for _, v in values if sig(v) < lo),
+    }
+
+
+def _output_fidelity(label: str, stored: dict[str, Any]) -> dict[str, Any]:
+    """One output's fidelity: R² and MAE, and for φ the circular R² and wrapped MAE it is judged on."""
+    out = {"r2": sig(stored.get("r2")), "mae": sig(stored.get("mae"))}
+    if label in CIRCULAR_LABELS:
+        out["r2_circular"] = sig(stored.get("r2_circular"))
+        out["mae_wrapped"] = sig(stored.get("mae_wrapped"))
+        out["judged_on"] = "r2_circular"
+    else:
+        out["judged_on"] = "r2"
+    judged = out.get(out["judged_on"])
+    out["low"] = None if judged is None else bool(judged < LOW_FIDELITY_R2)
+    return out
 
 COLOUR_REASON_CIRCULAR = (
     "not coloured: φ is an azimuth, and a sequential ramp would put −2.7 and +2.7 rad, 0.8 rad "
@@ -582,10 +681,16 @@ def _fidelity_statement(row: dict[str, Any], outputs: dict[str, dict[str, Any]],
     """The fidelity in one sentence, per output whenever there is more than one."""
     if len(labels) == 1 or not outputs:
         return f"R² {row['surrogate_r2']:.3g} against the booster's predictions"
-    per = "; ".join(f"{label} R² {outputs[label]['r2']:.3g}" for label in labels
-                    if label in outputs and outputs[label].get("r2") is not None)
-    return (f"{per} (sklearn's average over the outputs {row['surrogate_r2']:.3g}, which no "
-            "single output has)")
+    parts = []
+    for label in labels:
+        o = outputs.get(label) or {}
+        if label in CIRCULAR_LABELS and o.get("r2_circular") is not None:
+            linear = f", linear R² {o['r2']:.3g} for parity" if o.get("r2") is not None else ""
+            parts.append(f"{label} circular R² {o['r2_circular']:.3g}{linear}")
+        elif o.get("r2") is not None:
+            parts.append(f"{label} R² {o['r2']:.3g}")
+    return (f"{'; '.join(parts)} (sklearn's average over the outputs {row['surrogate_r2']:.3g}, "
+            "which no single output has)")
 
 
 # -------------------------------------------------------------------- E5 --
@@ -604,6 +709,10 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             folds.setdefault(feature, {})[int(fold)] = norm
     order = sorted(shipped, key=lambda f: (-shipped[f][0], f))
     ratio = holdout_ratio(_fold_sizes(con, record, task))
+    # Total gain = average gain × number of splits (get_score's gain × weight).
+    totals = {name: (shipped[name][1] or 0.0) * (shipped[name][2] or 0.0) for name in shipped}
+    total_sum = sum(totals.values())
+    total_rank = {name: k for k, name in enumerate(sorted(totals, key=lambda f: (-totals[f], f)), start=1)}
     features = []
     for rank, name in enumerate(order, start=1):
         norm, gain, weight, cover = shipped[name]
@@ -612,6 +721,8 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         features.append({
             "name": name, "rank": rank, "frame": ddl.feature_frame(name),
             "shipped": sig(norm),
+            "total_gain_share": sig(totals[name] / total_sum) if total_sum > 0 else None,
+            "total_gain_rank": total_rank[name],
             "raw": {"gain": sig(gain), "weight": sig(weight), "cover": sig(cover)},
             "folds": sig_list(values),
             "fold_mean": summary["mean"], "fold_sd": summary["sd"], "fold_t95": summary["t95"],
@@ -627,6 +738,9 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
         "measure": {
             "shipped": ("the shipped booster's feature_importances_: each feature's average "
                         "split gain, divided by the sum over the features"),
+            "total_gain": ("each feature's total gain, its average split gain times its number of "
+                           "splits (get_score gain × weight), divided by the sum over the features; "
+                           "in the tooltip and the drawer, not drawn"),
             "raw": ("get_score: gain the average gain of the feature's splits, weight the number "
                     "of splits, cover the average number of rows they cover"),
             "folds": "the same normalised gain of each of the five cross-validation refits",
@@ -648,6 +762,10 @@ def importance_view(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
             "gain": ("A gain importance says how much a feature's splits reduced the training "
                      "loss, not how much the prediction depends on it; correlated features share "
                      "or swap their gain between refits."),
+            "average": ("The bar is the notebook's measure, the average gain per split: a feature "
+                        "split on once with a large gain can outrank one used in many splits. "
+                        "Its share of the total gain, which weighs every split, can rank the "
+                        "features differently."),
         },
     })
 

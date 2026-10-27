@@ -29,6 +29,7 @@ changing only the fields the server would change. Skipped without `node`.
 
 from __future__ import annotations
 
+import html
 import json
 import math
 import re
@@ -143,6 +144,8 @@ function walk(option) {
     xAxis: axis(option.xAxis), yAxis: axis(option.yAxis),
     grid: [].concat(option.grid ?? []),
     legend: [].concat(option.legend ?? []).flatMap((l) => (l.data ?? []).map((d) => d?.name ?? d)),
+    legendType: [].concat(option.legend ?? []).map((l) => l.type),
+    gridTop: [].concat(option.grid ?? []).map((g) => g.top),
     tooltip: { confine: option.tooltip?.confine ?? null, appendTo: option.tooltip?.appendTo ?? null },
   };
 }
@@ -265,6 +268,11 @@ scale.restoreScreenTheme();
   prec.value = null; prec.k = 0; prec.n = 0; prec.interval = null;
   v.binaryUndefined = walk(bin.xgbBinaryOption(undef, {}, { width: 560, height: 330 }));
   v.binaryUndefinedNotes = pack(xn.xgbBinaryNotes({ payload: undef }));
+  // A pool shorter than the design asks for: the realised ratio is printed, never 99 : 1 alone.
+  const short = clone(load('xgb_binary'));
+  short.counts = { class_0: 1932, class_1: 20, n: 1952 };
+  v.binaryRatio = { texts: bin.ratioTexts(bin.binaryModel(short)),
+    graphics: walk(bin.xgbBinaryOption(short, {}, { width: 560, height: 330 })).graphics.map((g) => g.text).filter(Boolean) };
   const circ = clone(load('xgb_surrogate_angle'));
   for (const n of circ.nodes) n.circular = { phi: { mean: n.values.phi, resultant: 0.9 } };
   v.treeCircular = walk(tree.xgbTreeOption(circ, { label: 'phi' }, { width: 1100, height: 330 }));
@@ -291,6 +299,34 @@ scale.restoreScreenTheme();
       notes: pack(xn.xgbTreeNotes({ payload: real, label })) };
   }
   v.r2Texts = [tree.fidelityR2Text(1, 0), tree.fidelityR2Text(1, 0.2), tree.fidelityR2Text(0.999999, 0.1), tree.fidelityR2Text(0.24, 3)];
+  // D-5: φ judged on its circular R² (here low) although its linear R² is high; θ on its linear R².
+  const circFid = clone(load('xgb_surrogate_angle'));
+  circFid.fidelity.outputs = {
+    phi: { r2: 0.978, mae: 0.31, r2_circular: 0.41, mae_wrapped: 0.0503, judged_on: 'r2_circular', low: true },
+    theta: { r2: 0.62, mae: 0.0118, judged_on: 'r2', low: false },
+  };
+  circFid.fidelity.r2 = 0.8;
+  {
+    const m = tree.treeModel(circFid, { label: 'phi' });
+    v.treeCircularFidelity = { texts: tree.fidelityTexts(m), fidelity: m.fidelity,
+      hazards: xn.xgbHazards(circFid, 'xgb-surrogate', { label: 'phi' }),
+      notes: pack(xn.xgbTreeNotes({ payload: circFid, label: 'phi' })) };
+  }
+  // D-6 and P-10: the recorded momentum tree, its out-of-range and weak nodes.
+  {
+    const p = load('xgb_surrogate_momentum');
+    const m = tree.treeModel(p, { label: 'momentum' });
+    v.treeDomain = {
+      domain: m.domain,
+      nodes: m.nodes.map((n) => ({ id: n.id, n: n.n, value: n.value, colour: n.colour, out: n.outOfRange, weak: n.weak,
+        line: tree.nodeLines(n).at(-1), tip: tree.nodeTip(m, n) })),
+      ends: [cp.rampColour(m.ramp, 0), cp.rampColour(m.ramp, 1)],
+      title: tree.rampTitle(m),
+    };
+    const a = load('xgb_surrogate_angle');
+    const ma = tree.treeModel(a, { label: 'phi' });
+    v.treePhiBoxes = ma.nodes.map((n) => tree.nodeLines(n).at(-1));
+  }
   // The Rayleigh gate: a node whose predicted azimuths share no direction prints no mean.
   const spread = clone(load('xgb_surrogate_angle'));
   spread.nodes[0].circular.phi = { mean: 2.5, resultant: 0.05 };
@@ -481,12 +517,17 @@ def test_cv_folds_are_dots_and_the_mean_carries_the_payloads_capped_interval(out
     payload = _load(name)
     chart = out["screen"]["cv"][name]["card"]
     label = payload["interval"]["label"]
+    # P-14: the legend names the interval briefly; the tooltips and the drawer carry the full label.
+    short = "95% NB-corrected t CI of the mean"
     dots = _named(chart, r"^Fold value \(one observation each\)$")
-    whiskers = [s for s in chart["series"] if s["name"] == label]
+    whiskers = [s for s in chart["series"] if s["name"] == short]
     means = _named(chart, r"^Mean of the folds$")
     assert dots and whiskers and means
     assert len(dots) == len(whiskers) == len(means)
-    assert set(chart["legend"]) == {"Fold value (one observation each)", "Mean of the folds", label}
+    assert set(chart["legend"]) == {"Fold value (one observation each)", "Mean of the folds", short}
+    assert chart["legendType"] == ["plain"], "the legend wraps into rows, never pages"
+    legend = " ".join(out["notes"]["cv"][name]["sections"]["Marks and legend"])
+    assert label in legend and f"legend: {short}" in legend
     slots = sum(len(w["items"]) for w in whiskers)
     assert sum(len(d["items"]) for d in dots) == 5 * slots
     assert all(i["el"]["type"] == "circle" for d in dots for i in d["items"])
@@ -553,11 +594,24 @@ def test_cv_flows_into_lines_in_a_single_column_export(out):
     assert out["exportMetrics"]["XgbCvPanel"]["height"] > 250
 
 
-def test_a_corrected_interval_is_drawn_under_the_payloads_own_name(out):
+def test_a_corrected_interval_is_named_short_in_the_legend_and_in_full_in_its_tooltips(out):
     chart = out["variants"]["cvCorrected"]
     name = "95% Nadeau–Bengio corrected Student-t interval of the mean (4 d.o.f.)"
-    assert name in chart["legend"]
-    assert all(name in i["tip"] for s in chart["series"] if s["name"] == name for i in s["items"])
+    short = "95% NB-corrected t CI of the mean"
+    assert short in chart["legend"] and name not in chart["legend"]
+    whiskers = [s for s in chart["series"] if s["name"] == short]
+    assert whiskers and all(name in i["tip"] for s in whiskers for i in s["items"])
+
+
+@pytest.mark.parametrize("theme", ["screen", "print"])
+def test_the_xgb_legends_wrap_into_rows_and_are_never_truncated(out, theme):
+    """P-14: a plain legend wrapping between the side insets, its names short enough to read whole."""
+    for key, chart in (("cv", out[theme]["cv"]["xgb_cv_momentum"]["card"]),
+                       ("binary", out[theme]["binary"]["card"]),
+                       ("binary-export", out[theme]["binary"]["export"])):
+        assert chart["legendType"] == ["plain"], key
+        assert not any(n.endswith("…") for n in chart["legend"]), key
+    assert "95% MOVER CI (from Wilson limits)" in out[theme]["binary"]["card"]["legend"]
 
 
 # -------------------------------------------------------------------- E3 --
@@ -568,11 +622,13 @@ def test_the_balanced_accuracy_carries_the_recorded_mover_interval(out):
     ba = next(r for r in payload["rates"] if r["id"] == "balanced_accuracy")
     assert ba["interval"]["method"] == "mover" and "MOVER" in ba["interval"]["label"]
     chart = out["screen"]["binary"]["card"]
-    assert any(name.startswith(ba["interval"]["label"]) for name in chart["legend"])
+    assert "95% MOVER CI (from Wilson limits)" in chart["legend"]
     narrow = out["print"]["binary"]["export"]["legend"]
     assert any("MOVER" in name for name in narrow), "the narrow legend keeps the method's name"
     rates = " ".join(out["notes"]["binary"]["sections"]["Rates"])
     assert ba["interval"]["label"] in rates and "bootstrap" not in rates
+    legend = " ".join(out["notes"]["binary"]["sections"]["Marks and legend"])
+    assert ba["interval"]["label"] in legend and "legend: 95% MOVER CI (from Wilson limits)" in legend
 
 
 def test_rates_carry_wilson_whiskers_on_the_full_percent_scale(out):
@@ -588,7 +644,7 @@ def test_rates_carry_wilson_whiskers_on_the_full_percent_scale(out):
                    for i in wilson[0]["items"])
     assert spans == sorted((round(100 * r["interval"]["lo"], 6), round(100 * r["interval"]["hi"], 6)) for r in expected)
     ba = rates["balanced_accuracy"]
-    other = [s for s in chart["series"] if s["name"].startswith(ba["interval"]["label"])]
+    other = [s for s in chart["series"] if s["name"] == "95% MOVER CI (from Wilson limits)"]
     assert len(other) == 1 and len(other[0]["items"]) == 1
     assert ba["interval"]["label"] in other[0]["items"][0]["tip"]
     for s in wilson + other:
@@ -624,7 +680,9 @@ def test_binary_stacks_in_a_single_column_export(out):
 
 def test_a_newcombe_interval_and_an_undefined_rate_are_drawn_as_the_payload_says(out):
     chart = out["variants"]["binaryNewcombe"]
-    assert any(n.startswith("95% Newcombe (MOVER) interval") for n in chart["legend"])
+    assert "95% Newcombe CI (from Wilson limits)" in chart["legend"]
+    newcombe = [s for s in chart["series"] if s["name"] == "95% Newcombe CI (from Wilson limits)"]
+    assert all("95% Newcombe (MOVER) interval" in i["tip"] for s in newcombe for i in s["items"])
     undefined = out["variants"]["binaryUndefined"]
     (row,) = _named(undefined, r"^Undefined rate$")
     assert "undefined" in row["items"][0]["tip"]
@@ -745,7 +803,8 @@ def test_surrogate_fidelity_is_printed_and_judged_per_output(out):
     assert out["variants"]["r2Texts"] == ["1", "> 0.999999", "0.9999990", "0.240"]
     recorded = out["notes"]["tree"]["xgb_surrogate_angle:theta"]
     assert not any(h.startswith("low surrogate fidelity") for h in recorded["hazards"])
-    assert "φ R² 1, MAE 0 rad; θ R² 1, MAE 0 rad" in recorded["sections"]["Disclosures"][0]
+    assert ("φ circular R² 1, wrapped MAE 0 rad (linear R² 1, MAE 0 rad, notebook parity); θ R² 1, MAE 0 rad"
+            in recorded["sections"]["Disclosures"][0])
     momentum = out["notes"]["tree"]["xgb_surrogate_momentum:momentum"]
     assert "low surrogate fidelity" in momentum["hazards"]
     assert momentum["sections"]["Disclosures"][0].startswith("Fidelity to the booster: R² 0.240, MAE 3.57 GeV")
@@ -759,7 +818,8 @@ def test_the_cv_mean_names_the_corrected_se(out):
     folds = out["notes"]["cv"]["xgb_cv_momentum"]["sections"]["Fold values"]
     assert any("corrected SE" in line for line in folds)
     legend = out["screen"]["cv"]["xgb_cv_momentum"]["card"]["legend"]
-    assert payload["interval"]["label"] in legend, "the payload's Nadeau–Bengio label names the whisker"
+    assert "95% NB-corrected t CI of the mean" in legend, "the legend names the Nadeau–Bengio interval briefly"
+    assert all(payload["interval"]["label"] in t for t in tips), "the tooltip names it in full"
 
 
 # -------------------------------------------------------------------- E5 --
@@ -944,3 +1004,134 @@ def test_panel_classes_delegate_and_record_the_plot_area(out):
     assert "label" in panels["XgbTreePanel"]["lastOpts"]
     for name, metrics in out["exportMetrics"].items():
         assert metrics["width"] == 321 and metrics["height"] > 150, name
+
+
+# --------------------------------------------- the fix round (review-page2) --
+
+
+@pytest.mark.parametrize("theme", ["screen", "print"])
+def test_no_ascii_dash_stands_for_a_dash_in_rendered_prose(out, theme):
+    """P-27: a " - " between words reads as a minus beside numbers; prose uses an em dash or a semicolon."""
+    strings = [t for _, chart in _charts(out[theme]) for t in chart["strings"]]
+    for group in ("cv", "tree", "importance"):
+        for notes in out["notes"][group].values():
+            strings.extend(_note_lines(notes))
+    strings.extend(_note_lines(out["notes"]["binary"]))
+    v = out["variants"]
+    strings.extend([v["treeRayleigh"]["tip"], *v["cvMeanTip"], *v["treeCircularFidelity"]["texts"]])
+    strings.extend(n["tip"] for n in v["treeDomain"]["nodes"])
+    offenders = [t for t in strings if " - " in re.sub(r"<[^>]+>", "", t)]
+    assert not offenders, offenders[:3]
+
+
+def test_e3_states_the_realised_ratio_and_never_claims_99_to_1(out):
+    """P-8: the title drops "(99 : 1)"; the matrix caption and the drawer give the realised counts."""
+    from_counts = out["variants"]["binaryRatio"]
+    assert from_counts["texts"][0] == "class 0 : class 1 = 1,932 : 20 (designed 99 : 1)"
+    assert any("1,932 : 20 (designed 99 : 1)" in t for t in from_counts["graphics"])
+    recorded = [g["text"] for g in out["screen"]["binary"]["card"]["graphics"]]
+    assert any("27 : 20 (designed 99 : 1)" in (t or "") for t in recorded)
+    notes = out["notes"]["binary"]
+    assert notes["title"] == "Binary Thresholding at 2 GeV"
+    assert "Realised: class 0 : class 1 = 27 : 20 (designed 99 : 1)." in notes["sections"]["Selection"]
+    source = (JS / "xgb_notes.js").read_text(encoding="utf-8")
+    assert "(99 : 1)'" not in source
+
+
+def test_e3_discloses_which_rates_depend_on_the_designed_class_ratio(out):
+    """P-9: accuracy and the precisions depend on the 99 : 1 design; the recalls and BA do not."""
+    payload = _load("xgb_binary")
+    disclosures = " ".join(out["notes"]["binary"]["sections"]["Disclosures"])
+    assert payload["notes"]["prevalence"] in disclosures
+    assert "do not depend on it" in disclosures and "conservative" in disclosures
+    chart = out["screen"]["binary"]["card"]
+    (points,) = _named(chart, r"^Rate \(point estimate\)$")
+    tips = {html.unescape(i["tip"].split(":")[0].replace("<b>", "")): i["tip"] for i in points["items"]}
+    for rate in payload["rates"]:
+        tip = next(t for k, t in tips.items() if k == rate["label"])
+        if rate["prevalence_dependent"]:
+            assert "designed 99 : 1 class ratio: it does not transfer" in tip, rate["id"]
+        else:
+            assert "does not depend on the class ratio" in tip, rate["id"]
+    accuracy = next(r for r in payload["rates"] if r["id"] == "accuracy")
+    assert "binomial; conservative under the fixed class sizes" in accuracy["interval"]["label"]
+    assert accuracy["interval"]["label"] in tips["Accuracy"]
+
+
+def test_e4_colour_domain_comes_from_nodes_of_twenty_rows_and_marks_the_rest(out):
+    """D-6: the domain spans the n ≥ 20 nodes; a node beyond it takes the end colour and carries ▲ / ▼."""
+    payload = _load("xgb_surrogate_momentum")
+    d = out["variants"]["treeDomain"]
+    lo, hi = payload["color_domain"]["momentum"]
+    robust = [n["values"]["momentum"] for n in payload["nodes"] if n["n"] >= 20]
+    assert d["domain"] == [min(robust), max(robust)] == [lo, hi]
+    above = [n for n in d["nodes"] if n["value"] > hi]
+    assert above and all(n["out"] == "above" and n["colour"] == d["ends"][1] for n in above)
+    assert all(n["line"].endswith("▲") for n in above)
+    assert all(n["out"] is None and "▲" not in n["line"] and "▼" not in n["line"] for n in d["nodes"] if lo <= n["value"] <= hi)
+    assert all("above the colour domain" in n["tip"] for n in above)
+    disclosures = " ".join(out["notes"]["tree"]["xgb_surrogate_momentum:momentum"]["sections"]["Disclosures"])
+    assert f"{len(above)} above, marked ▲" in disclosures
+    assert payload["color_domain_basis"]["momentum"]["n_above"] == len(above)
+
+
+def test_e4_sd_is_ddof_one_and_small_nodes_are_weak(out):
+    """P-10: the within-node SD is ddof = 1; a node under 20 rows says "weak" in its tooltip."""
+    d = out["variants"]["treeDomain"]
+    for n in d["nodes"]:
+        assert "within-node SD, ddof = 1" in n["tip"]
+        assert ("n < 20: weak" in n["tip"]) == (n["n"] < 20) == n["weak"]
+    disclosures = " ".join(out["notes"]["tree"]["xgb_surrogate_momentum:momentum"]["sections"]["Disclosures"])
+    assert "fewer than 20 rows, weak" in disclosures and "ddof = 1" in disclosures
+
+
+def test_e4_phi_boxes_print_their_unit(out):
+    """P-13: φ has no ramp title, so its boxes name rad."""
+    boxes = out["variants"]["treePhiBoxes"]
+    assert boxes and all(" rad" in b for b in boxes if b.startswith("circ."))
+    momentum = [n["line"] for n in out["variants"]["treeDomain"]["nodes"]]
+    assert not any("GeV" in b for b in momentum), "a coloured output's unit is on its ramp"
+
+
+def test_e4_phi_fidelity_is_judged_on_the_circular_r2(out):
+    """D-5: φ judged on its circular R² (and wrapped MAE); the linear numbers stay as parity."""
+    c = out["variants"]["treeCircularFidelity"]
+    outputs = {o["label"]: o for o in c["fidelity"]["outputs"]}
+    assert outputs["phi"]["circular"] and outputs["phi"]["r2"] == 0.41 and outputs["phi"]["low"] is True
+    assert outputs["phi"]["r2Linear"] == 0.978 and outputs["phi"]["mae"] == 0.0503
+    assert not outputs["theta"]["circular"] and outputs["theta"]["low"] is False
+    assert "φ circular R² 0.410, wrapped MAE 0.0503 rad" in c["texts"][0]
+    assert "low fidelity: φ below R² 0.5" in c["texts"][0] and "0.978" not in c["texts"][0]
+    assert "low surrogate fidelity (φ)" in c["hazards"]
+    disclosures = " ".join(c["notes"]["sections"]["Disclosures"])
+    assert "linear R² 0.978, MAE 0.31 rad, notebook parity" in disclosures
+    assert "φ: circular R² 0.410 is below 0.5" in disclosures
+
+
+def test_e4_drawer_says_why_theta_is_barely_described(out):
+    """P-11: the split criterion sums the outputs' squared errors, and φ's range dominates it."""
+    payload = _load("xgb_surrogate_angle")
+    for label in ("phi", "theta"):
+        disclosures = out["notes"]["tree"][f"xgb_surrogate_angle:{label}"]["sections"]["Disclosures"]
+        assert payload["notes"]["criterion"] in disclosures
+        assert sum("θ is barely described" in line for line in disclosures) == 1
+    momentum = " ".join(out["notes"]["tree"]["xgb_surrogate_momentum:momentum"]["sections"]["Disclosures"])
+    assert "barely described" not in momentum
+
+
+@pytest.mark.parametrize("name", IMPORTANCE)
+def test_e5_names_the_average_split_gain_and_quotes_the_total_gain(out, name):
+    """D-1: the bar is feature_importances_ (average split gain), named so; total gain in tooltip and drawer."""
+    payload = _load(name)
+    chart = out["screen"]["importance"][name]["card"]
+    assert chart["xAxis"][0]["name"].startswith("Share of the summed average split gain [%]")
+    assert not any("of the total gain [%]" in t for t in chart["strings"])
+    (readout,) = _named(chart, r"^Feature readout$")
+    for item, f in zip(readout["items"], [f for f in payload["features"] if f["shipped"] or any(f["folds"])]):
+        assert "of the summed average split gain (feature_importances_" in item["tip"]
+        assert f"share of the total gain (average gain × splits): {100 * f['total_gain_share']:.2f}%" in item["tip"]
+    features = out["notes"]["importance"][name]["sections"]["Features"]
+    assert all("of the total gain" in line for line in features)
+    if name == "xgb_importance_momentum":
+        disclosures = " ".join(out["notes"]["importance"][name]["sections"]["Disclosures"])
+        assert "the ranking differs: energy_density_trans 40.2%, num_hits 33.3%" in disclosures

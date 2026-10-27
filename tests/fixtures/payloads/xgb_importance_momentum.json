@@ -18,7 +18,7 @@
   },
   "model_file": "xgboost_electron/standalone_momentum_s1_model.json",
   "sha256": "5216770e486c",
-  "analysis_version": 2,
+  "analysis_version": 3,
   "split": {
    "reproduced": true,
    "ratio_42": 6.73076,
@@ -265,6 +265,8 @@
    "rank": 1,
    "frame": "none",
    "shipped": 0.443972,
+   "total_gain_share": 0.33288,
+   "total_gain_rank": 2,
    "raw": {
     "gain": 113.414,
     "weight": 36.0,
@@ -290,6 +292,8 @@
    "rank": 2,
    "frame": "trans",
    "shipped": 0.378359,
+   "total_gain_share": 0.401887,
+   "total_gain_rank": 1,
    "raw": {
     "gain": 96.6531,
     "weight": 51.0,
@@ -315,6 +319,8 @@
    "rank": 3,
    "frame": "absolute",
    "shipped": 0.151257,
+   "total_gain_share": 0.26462,
+   "total_gain_rank": 3,
    "raw": {
     "gain": 38.6391,
     "weight": 84.0,
@@ -340,6 +346,8 @@
    "rank": 4,
    "frame": "local",
    "shipped": 0.0233943,
+   "total_gain_share": 0.000487235,
+   "total_gain_rank": 4,
    "raw": {
     "gain": 5.97615,
     "weight": 1.0,
@@ -365,6 +373,8 @@
    "rank": 5,
    "frame": "absolute",
    "shipped": 0.00301785,
+   "total_gain_share": 0.000125706,
+   "total_gain_rank": 5,
    "raw": {
     "gain": 0.770919,
     "weight": 2.0,
@@ -390,6 +400,8 @@
    "rank": 6,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 6,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -415,6 +427,8 @@
    "rank": 7,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 7,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -440,6 +454,8 @@
    "rank": 8,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 8,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -465,6 +481,8 @@
    "rank": 9,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 9,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -490,6 +508,8 @@
    "rank": 10,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 10,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -515,6 +535,8 @@
    "rank": 11,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 11,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -540,6 +562,8 @@
    "rank": 12,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 12,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -565,6 +589,8 @@
    "rank": 13,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 13,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -590,6 +616,8 @@
    "rank": 14,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 14,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -615,6 +643,8 @@
    "rank": 15,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 15,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -640,6 +670,8 @@
    "rank": 16,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 16,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -665,6 +697,8 @@
    "rank": 17,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 17,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -690,6 +724,8 @@
    "rank": 18,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 18,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -715,6 +751,8 @@
    "rank": 19,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 19,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -740,6 +778,8 @@
    "rank": 20,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 20,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -765,6 +805,8 @@
    "rank": 21,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 21,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -790,6 +832,8 @@
    "rank": 22,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 22,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -815,6 +859,8 @@
    "rank": 23,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 23,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -840,6 +886,8 @@
    "rank": 24,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 24,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -865,6 +913,8 @@
    "rank": 25,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 25,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -890,6 +940,8 @@
    "rank": 26,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 26,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -915,6 +967,8 @@
    "rank": 27,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 27,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -940,6 +994,8 @@
    "rank": 28,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 28,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -965,6 +1021,8 @@
    "rank": 29,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 29,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -990,6 +1048,8 @@
    "rank": 30,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 30,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1015,6 +1075,8 @@
    "rank": 31,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 31,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1040,6 +1102,8 @@
    "rank": 32,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 32,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1065,6 +1129,8 @@
    "rank": 33,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 33,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1090,6 +1156,8 @@
    "rank": 34,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 34,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1115,6 +1183,8 @@
    "rank": 35,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 35,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1140,6 +1210,8 @@
    "rank": 36,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 36,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1165,6 +1237,8 @@
    "rank": 37,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 37,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1190,6 +1264,8 @@
    "rank": 38,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 38,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1215,6 +1291,8 @@
    "rank": 39,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 39,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1240,6 +1318,8 @@
    "rank": 40,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 40,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1265,6 +1345,8 @@
    "rank": 41,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 41,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1290,6 +1372,8 @@
    "rank": 42,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 42,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1315,6 +1399,8 @@
    "rank": 43,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 43,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1340,6 +1426,8 @@
    "rank": 44,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 44,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1365,6 +1453,8 @@
    "rank": 45,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 45,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1390,6 +1480,8 @@
    "rank": 46,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 46,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1415,6 +1507,8 @@
    "rank": 47,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 47,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1440,6 +1534,8 @@
    "rank": 48,
    "frame": "absolute",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 48,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1465,6 +1561,8 @@
    "rank": 49,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 49,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1490,6 +1588,8 @@
    "rank": 50,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 50,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1515,6 +1615,8 @@
    "rank": 51,
    "frame": "local",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 51,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1540,6 +1642,8 @@
    "rank": 52,
    "frame": "trans",
    "shipped": 0.0,
+   "total_gain_share": 0.0,
+   "total_gain_rank": 52,
    "raw": {
     "gain": 0.0,
     "weight": 0.0,
@@ -1565,6 +1669,7 @@
  "n_used": 5,
  "measure": {
   "shipped": "the shipped booster's feature_importances_: each feature's average split gain, divided by the sum over the features",
+  "total_gain": "each feature's total gain, its average split gain times its number of splits (get_score gain × weight), divided by the sum over the features; in the tooltip and the drawer, not drawn",
   "raw": "get_score: gain the average gain of the feature's splits, weight the number of splits, cover the average number of rows they cover",
   "folds": "the same normalised gain of each of the five cross-validation refits"
  },
@@ -1594,6 +1699,7 @@
  "n_clipped": 3,
  "notes": {
   "bar": "The bar is one model, the shipped one; the dots are the five refitted folds and the envelope their mean's corrected resampled t interval (the refits share three quarters of their rows), so the bar is never read as the folds' mean.",
-  "gain": "A gain importance says how much a feature's splits reduced the training loss, not how much the prediction depends on it; correlated features share or swap their gain between refits."
+  "gain": "A gain importance says how much a feature's splits reduced the training loss, not how much the prediction depends on it; correlated features share or swap their gain between refits.",
+  "average": "The bar is the notebook's measure, the average gain per split: a feature split on once with a large gain can outrank one used in many splits. Its share of the total gain, which weighs every split, can rank the features differently."
  }
 }

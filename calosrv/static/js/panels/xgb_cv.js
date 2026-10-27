@@ -20,8 +20,9 @@
  * A fold value is one observation, so each is a dot (an open ring, muted
  * ink). The aggregate is the mean of the five, a filled diamond with a capped
  * whisker that is its 95 % Student-t interval - the uncertainty of the mean
- * (CLAUDE.md section 2), named by the payload's label in its tooltip and in
- * the legend. The SD of
+ * (CLAUDE.md section 2), named by the payload's full label in its tooltip and
+ * the drawer, and by a short name in the legend ("95% NB-corrected t CI of the
+ * mean"), which wraps into rows rather than paging (`wrappedLegend`). The SD of
  * the folds is their spread, a different quantity: with the five folds drawn
  * it gets no mark at all, and is quoted in the mean's tooltip beside the SE.
  * The dots sit left of the slot's centre, the mean right of it, so the two
@@ -47,12 +48,12 @@
  */
 
 import { THEME, axisPadding, formatInt, typographic } from '../scale.js';
-import { measureText } from '../textfit.js';
+import { legendRows, measureText } from '../textfit.js';
 import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs,
+  chartLegend, niceCeil, niceInterval, FINE_STEPS, sigFigs,
 } from './chart_panel.js';
 
 /** Narrowest slot (px) a fold column and its mean are drawn in before a line breaks. */
@@ -79,6 +80,33 @@ export function intervalName(payloadOrDof = 4) {
   return `95% Student-t interval of the mean (${payloadOrDof} d.o.f.)`;
 }
 export const BREAK_NAME = 'Axis break: R² axis does not start at 0';
+
+/**
+ * The interval's short legend name: the method in a few words, so the legend
+ * entry never truncates (the tooltips and the drawer carry the full label).
+ */
+export function intervalShortName(payload) {
+  if (payload?.interval?.method === 'corrected_resampled_t') return '95% NB-corrected t CI of the mean';
+  return '95% t CI of the mean';
+}
+
+/**
+ * A legend of `names` that wraps into rows at `width` instead of paging, on
+ * screen as in print: `{legend, top}`, `top` the grid inset under its rows
+ * (textfit `legendRows`, the count ECharts' plain legend wraps to between the
+ * same left and right insets).
+ */
+export function wrappedLegend(names, width) {
+  const pad = axisPadding();
+  const side = pad.right;
+  const rows = !names.length ? 1
+    : Math.max(1, legendRows(names, width - 2 * side, THEME.fontLabel, { fontFamily: THEME.fontFamily }));
+  return {
+    legend: chartLegend(names, { type: 'plain', left: side, right: side }),
+    top: pad.top + rows * 1.6 * THEME.fontLabel,
+    rows,
+  };
+}
 
 /**
  * How the SE of a fold mean is named: the server's `se` is the Nadeau–Bengio
@@ -217,6 +245,7 @@ export function cvModel(payload) {
     dof,
     t: payload.interval?.t ?? null,
     intervalLabel: intervalName(payload),
+    intervalShort: intervalShortName(payload),
     seName: (summary) => seName(payload, summary),
     folds: folds.map((f) => ({ fold: f.fold, n_train: f.n_train, n_val: f.n_val })),
     rows,
@@ -291,14 +320,14 @@ export function cvLegendNames(model, width = Infinity) {
 }
 
 /**
- * The interval's name in the legend and on its series at `width`: the
- * payload's full label where it fits one legend row, else the generic name
- * (the tooltips and the drawer keep the full label). A printed legend entry
- * wider than the figure would be cut at its edge.
+ * The interval's name in the legend and on its series at `width`: the short
+ * name (the tooltips and the drawer keep the payload's full label), or the
+ * generic one in a figure too narrow for it, whose entry would be cut at its
+ * edge.
  */
 export function intervalLegend(model, width = Infinity) {
   const px = width - 2 * axisPadding().right - 26;
-  return fitName([model.intervalLabel, '95% interval of the mean'], px);
+  return fitName([model.intervalShort ?? model.intervalLabel, '95% interval of the mean'], px);
 }
 
 /**
@@ -314,7 +343,7 @@ export function cvLayout(model, width, height = null) {
   const gap = 1.8 * f;
   const titleH = 1.9 * f;
   const headingH = 1.9 * f;
-  const top = legendTop(cvLegendNames(model, width), width - 2 * side);
+  const { top } = wrappedLegend(cvLegendNames(model, width), width);
   const usable = Math.max(80, width - 2 * side);
 
   const prepared = model.rows.map((row) => ({
@@ -411,7 +440,7 @@ export function meanTip(model, panel, slot) {
   const lines = [
     `<b>${escapeHtml(panel.title)} · ${escapeHtml(slot.long)}: mean of ${formatInt(s.n ?? slot.values.length)} folds = ${u(s.mean)}</b>`,
     `${escapeHtml(model.intervalLabel)}: [${u(lo)}, ${u(hi)}]${Number.isFinite(s.t) ? ` (t = ${sigFigs(s.t, 4)})` : ''}`
-      + ` ${mutedLine('- the capped whisker, the uncertainty of the mean')}`,
+      + ` ${mutedLine('— the capped whisker, the uncertainty of the mean')}`,
     `SD of the folds ${spread(s.sd)} (ddof 1): their spread, a different quantity, not drawn; `
       + `${escapeHtml(model.seName ? model.seName(s) : 'SE of the mean')} ${spread(s.se)}`,
     `folds: ${slot.values.map((v) => escapeHtml(metricText(v, panel.metric, ''))).join(', ')}`,
@@ -599,7 +628,7 @@ export function xgbCvOption(payload, opts = {}, metrics = {}) {
   return {
     ...baseOption(),
     tooltip: wrapTooltip(tooltipOption(opts.tooltipPosition ?? null)),
-    legend: chartLegend(cvLegendNames(model, width), { left: axisPadding().right }),
+    legend: wrappedLegend(cvLegendNames(model, width), width).legend,
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,

@@ -280,6 +280,12 @@ def test_binary_counts_and_rates_agree(xgb_client):
     rates = {r["id"]: r for r in body["rates"]}
     assert rates["accuracy"]["value"] == pytest.approx((c["tn"] + c["tp"]) / n, rel=1e-5)
     assert rates["accuracy"]["interval"]["method"] == "wilson"
+    # P-9: accuracy's interval is named binomial and conservative under the fixed class sizes,
+    # and the rates that depend on the designed class ratio say so.
+    assert "binomial; conservative under the fixed class sizes" in rates["accuracy"]["interval"]["label"]
+    assert {r["id"] for r in body["rates"] if r["prevalence_dependent"]} == {
+        "accuracy", "precision_1", "precision_0"}
+    assert "do not depend on it" in body["notes"]["prevalence"]
     balanced = rates["balanced_accuracy"]
     assert balanced["interval"]["method"] == "mover"
     assert "Newcombe MOVER" in balanced["interval"]["label"] and "Wilson" in balanced["interval"]["label"]
@@ -312,9 +318,23 @@ def test_surrogate_nodes_form_a_depth_three_tree(xgb_client):
                 assert node["frame"] in ("absolute", "trans", "local", "none")
         if task == "momentum":
             for node in nodes.values():
-                assert node["sd"]["momentum"] == pytest.approx(np.sqrt(node["impurity"]), rel=1e-4,
-                                                               abs=1e-9)
+                # sd is ddof = 1 (CLAUDE.md section 2); impurity stays sklearn's ddof = 0 variance.
+                n = node["n"]
+                if n >= 2:
+                    assert node["sd"]["momentum"] == pytest.approx(
+                        np.sqrt(node["impurity"] * n / (n - 1)), rel=1e-4, abs=1e-9)
+                else:
+                    assert node["sd"]["momentum"] is None
                 assert node["circular"] == {}
+            # D-6: the colour domain spans the nodes of at least 20 rows; the others are counted.
+            basis = body["color_domain_basis"]["momentum"]
+            robust = [n["values"]["momentum"] for n in nodes.values() if n["n"] >= body["weak_below_n"]]
+            assert body["weak_below_n"] == 20 and basis["min_n"] == 20 and not basis["provisional"]
+            assert body["color_domain"]["momentum"] == [min(robust), max(robust)]
+            lo, hi = body["color_domain"]["momentum"]
+            assert basis["n_above"] == sum(n["values"]["momentum"] > hi for n in nodes.values())
+            assert basis["n_below"] == sum(n["values"]["momentum"] < lo for n in nodes.values())
+            assert body["fidelity"]["outputs"]["momentum"]["judged_on"] == "r2"
             assert body["label_info"] == [{"name": "momentum", "coloured": True,
                                            "reason": body["label_info"][0]["reason"]}]
         else:
@@ -330,7 +350,13 @@ def test_surrogate_nodes_form_a_depth_three_tree(xgb_client):
                 assert 0.0 <= circ["resultant"] <= 1.0 and -np.pi <= circ["mean"] <= np.pi
             outputs = body["fidelity"]["outputs"]
             assert set(outputs) == {"phi", "theta"}
-            assert "phi R²" in body["fidelity"]["statement"] and "theta R²" in body["fidelity"]["statement"]
+            # D-5: φ is judged on the circular R² and the wrapped MAE; θ on the linear R².
+            assert outputs["phi"]["judged_on"] == "r2_circular" and outputs["theta"]["judged_on"] == "r2"
+            assert outputs["phi"]["r2_circular"] <= 1.0 and outputs["phi"]["mae_wrapped"] >= 0.0
+            assert outputs["phi"]["mae_wrapped"] <= outputs["phi"]["mae"] + 1e-9
+            statement = body["fidelity"]["statement"]
+            assert "phi circular R²" in statement and "theta R²" in statement
+            assert "summed" in body["notes"]["criterion"] and "θ is barely described" in body["notes"]["criterion"]
 
 
 def test_importance_is_sorted_and_names_each_frame(xgb_client):
@@ -338,6 +364,13 @@ def test_importance_is_sorted_and_names_each_frame(xgb_client):
                                                   "task": "momentum"}).json()
     shipped = [f["shipped"] for f in body["features"]]
     assert shipped == sorted(shipped, reverse=True) and sum(shipped) == pytest.approx(1.0, rel=1e-4)
+    # D-1: the bar is the average split gain; the total-gain share (gain × weight) travels beside it.
+    totals = [f["raw"]["gain"] * f["raw"]["weight"] for f in body["features"]]
+    for f, total in zip(body["features"], totals):
+        assert f["total_gain_share"] == pytest.approx(total / sum(totals), rel=1e-4, abs=1e-9)
+    assert sum(f["total_gain_share"] for f in body["features"]) == pytest.approx(1.0, rel=1e-4)
+    assert sorted(f["total_gain_rank"] for f in body["features"]) == list(range(1, 53))
+    assert "average split gain" in body["measure"]["shipped"] and "gain × weight" in body["measure"]["total_gain"]
     assert body["n_features"] == 52 and [f["rank"] for f in body["features"]] == list(range(1, 53))
     frames = {f["name"]: f["frame"] for f in body["features"]}
     assert frames["num_hits"] == "none" and frames["width_trans"] == "trans"

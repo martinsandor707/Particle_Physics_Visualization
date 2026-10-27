@@ -22,7 +22,7 @@
   },
   "model_file": "xgboost_electron/standalone_angle_s1_model.json",
   "sha256": "4678827eb3f3",
-  "analysis_version": 2,
+  "analysis_version": 3,
   "split": {
    "reproduced": false,
    "ratio_42": 1.03163,
@@ -288,8 +288,8 @@
     "theta": 0.362904
    },
    "sd": {
-    "phi": 1.15561,
-    "theta": 0.0682061
+    "phi": 1.1575,
+    "theta": 0.0683175
    },
    "circular": {
     "phi": {
@@ -314,8 +314,8 @@
     "theta": 0.353309
    },
    "sd": {
-    "phi": 0.447542,
-    "theta": 0.036119
+    "phi": 0.449012,
+    "theta": 0.0362376
    },
    "circular": {
     "phi": {
@@ -392,8 +392,8 @@
     "theta": 0.372438
    },
    "sd": {
-    "phi": 0.31968,
-    "theta": 0.088292
+    "phi": 0.320723,
+    "theta": 0.08858
    },
    "circular": {
     "phi": {
@@ -464,15 +464,22 @@
   "outputs": {
    "phi": {
     "r2": 1.0,
-    "mae": 0.0
+    "mae": 0.0,
+    "r2_circular": 1.0,
+    "mae_wrapped": 0.0,
+    "judged_on": "r2_circular",
+    "low": false
    },
    "theta": {
     "r2": 1.0,
-    "mae": 0.0
+    "mae": 0.0,
+    "judged_on": "r2",
+    "low": false
    }
   },
+  "threshold": 0.5,
   "against": "the shipped booster's own predictions on every row, in-sample, as the notebook measures it",
-  "statement": "phi R² 1; theta R² 1 (sklearn's average over the outputs 1, which no single output has)"
+  "statement": "phi circular R² 1, linear R² 1 for parity; theta R² 1 (sklearn's average over the outputs 1, which no single output has)"
  },
  "tree": {
   "max_depth": 3,
@@ -487,6 +494,16 @@
    0.46073
   ]
  },
+ "color_domain_basis": {
+  "theta": {
+   "min_n": 20,
+   "n_nodes": 7,
+   "provisional": false,
+   "n_above": 0,
+   "n_below": 0
+  }
+ },
+ "weak_below_n": 20,
  "color_by": {
   "phi": false,
   "theta": true
@@ -505,8 +522,11 @@
  ],
  "notes": {
   "description": "A description of the booster, not an estimate: each node shows its number of rows, the mean of the booster's predictions over them and their SD, the spread within the node (no whisker).",
-  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node, averaged over the outputs for the angle task; sd is each output's own within-node SD.",
-  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe. Each output's own fidelity is stated: their average can hide an output the tree does not describe at all.",
+  "impurity": "impurity is sklearn's: the variance of the booster's predictions in the node (ddof = 0), averaged over the outputs for the angle task; sd is each output's own within-node SD, the unbiased sample form (ddof = 1), undefined for a node of one row.",
+  "weak": "A node of fewer than 20 rows is weak: its mean and SD rest on that few predictions.",
+  "fidelity": "Fidelity is R² and MAE of the tree against the booster, on the rows it was fitted to; it says how much of the booster the three levels of rules describe. Each output's own fidelity is stated: their average can hide an output the tree does not describe at all. φ's is judged on the circle: the circular R² analogue 1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)), Δ the tree's φ minus the booster's wrapped to (−π, π] and φ̄ the circular mean of the booster's φ, and the wrapped MAE, the mean |Δ|; its linear R² and MAE, which count a disagreement across the ±π seam as about 2π, are kept for notebook parity.",
+  "colour_domain": "The colour domain of a coloured output spans the nodes of at least 20 rows; a smaller node beyond it takes the end colour and is marked ▲ (above) or ▼ (below).",
+  "criterion": "The tree's splits minimise the summed squared error of its outputs, φ (unwrapped, in rad) and θ together; φ spans about 2π rad and θ a few tenths of a radian, so φ's variance dominates every split, and θ is barely described.",
   "circular": "A node's φ value is sklearn's linear mean of the booster's φ predictions on its rows, kept for notebook parity; it is not a direction. Beside it, circular.phi gives their circular mean and mean resultant length R̄ in [0, 1]: a low R̄ means the predictions point every way, the node has no direction, and neither the linear nor the circular mean describes it. The ± SD of φ is the linear spread, likewise kept for parity."
  }
 }

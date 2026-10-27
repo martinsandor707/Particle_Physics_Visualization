@@ -24,18 +24,20 @@
 import { Notes, SECTION } from './panel_notes.js';
 import { formatInt, formatPercent } from './scale.js';
 import { sigFigs } from './panels/chart_panel.js';
-import { cvModel, cvAxis, metricText, FOLD_NAME, MEAN_NAME } from './panels/xgb_cv.js';
-import { binaryModel, classKey, otherIntervalName } from './panels/xgb_binary.js';
+import { cvModel, cvAxis, metricText, intervalLegend, FOLD_NAME, MEAN_NAME } from './panels/xgb_cv.js';
+import { binaryModel, classKey, otherIntervalLegend, ratioTexts, designedRatio, WILSON_NAME } from './panels/xgb_binary.js';
 import {
   treeModel, ruleText, FRAME_WORDS, treePalette, circularOf, outputFidelityText, fidelityR2Text,
-  LOW_FIDELITY_R2,
+  LOW_FIDELITY_R2, OUT_OF_RANGE,
 } from './panels/xgb_tree.js';
-import { importanceModel, FRAME_LABELS, TOP_N, FOLD_NAME as IMP_FOLD_NAME } from './panels/xgb_importance.js';
+import {
+  importanceModel, totalGainShare, BAR_MEASURE, FRAME_LABELS, TOP_N, FOLD_NAME as IMP_FOLD_NAME,
+} from './panels/xgb_importance.js';
 
 /** The drawer titles by card id; the shell's card title wins when it passes one. */
 export const XGB_TITLES = Object.freeze({
   'xgb-cv': 'Cross-validation (5 Folds)',
-  'xgb-binary': 'Binary Thresholding at 2 GeV (99 : 1)',
+  'xgb-binary': 'Binary Thresholding at 2 GeV',
   'xgb-surrogate': 'Depth-3 Surrogate Tree',
   'xgb-importance': 'Gain Feature Importance',
 });
@@ -219,8 +221,9 @@ export function xgbCvNotes({ payload, experiment = null, title = null } = {}) {
   notes.section(SECTION.disclosures, disclosures);
 
   notes.section(SECTION.legend, [
-    `${FOLD_NAME}: an open ring, one per fold, left of the slot's centre - five observations, so their spread is shown by the dots themselves.`,
-    `${MEAN_NAME}: the filled diamond. Its capped whisker is the ${model.intervalLabel}: the uncertainty of the mean, never the spread of the folds.`,
+    `${FOLD_NAME}: an open ring, one per fold, left of the slot's centre; five observations, so their spread is shown by the dots themselves.`,
+    `${MEAN_NAME}: the filled diamond. Its capped whisker is the ${model.intervalLabel} (legend: ${intervalLegend(model)}): `
+      + 'the uncertainty of the mean, never the spread of the folds.',
     'The SD of the folds is in the mean\'s tooltip, beside the SE; it has no mark, the folds being drawn.',
     'A double stroke across an R² axis marks a truncated scale. Every tooltip gives the fold\'s or the mean\'s full numbers.',
   ]);
@@ -254,6 +257,7 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
     ...runLines(payload, experiment),
     `Drawn from ${d.drawn_from ?? 'the validation split'}: ${formatInt(d.n_0_target)} rows of class 0 (${d.class_0_rule ?? 'p < 2 GeV'}) and `
       + `${formatInt(d.n_1_target)} of class 1 (${d.class_1_rule ?? 'p > 10 GeV'}), ${d.ratio ?? '99 : 1'}; pools of ${formatInt(d.pool_0)} and ${formatInt(d.pool_1)} rows.`,
+    model ? `Realised: ${ratioTexts(model)[0]}.` : '',
     d.sampler ? `Sampler: ${d.sampler}.` : '',
     d.prediction ? `Prediction: ${d.prediction}.` : '',
   ]);
@@ -264,8 +268,9 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
   const c = model.confusion;
   const other = model.rates.find((r) => r.method && r.method !== 'wilson');
   notes.section(SECTION.drawn, [
-    `Left: the confusion matrix as counts - TN ${formatInt(c.tn)}, FP ${formatInt(c.fp)}, FN ${formatInt(c.fn)}, TP ${formatInt(c.tp)} (${c.layout ?? 'rows true class, columns predicted class'}); `
-      + 'each cell prints its count and its share of the true class, with no colour ramp (at 99 : 1 a ramp over counts says only that class 0 is large).',
+    `Left: the confusion matrix as counts — TN ${formatInt(c.tn)}, FP ${formatInt(c.fp)}, FN ${formatInt(c.fn)}, TP ${formatInt(c.tp)} (${c.layout ?? 'rows true class, columns predicted class'}); `
+      + `each cell prints its count and its share of the true class, with no colour ramp (at the designed ${designedRatio(model)} a ramp over counts says only that class 0 is large). `
+      + `Under it each class's rule and size, and the realised ratio, ${ratioTexts(model)[0]}.`,
     'Right: accuracy, balanced accuracy and the per-class recall and precision as points on the full 0–100% scale, each with its 95% interval as a capped whisker.',
     payload.notes?.intervals ?? '',
     payload.notes?.counts ?? '',
@@ -278,22 +283,28 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
   if (Number.isFinite(d.n_1_target) && counts.class_1 < d.n_1_target) disclosures.push(`Class 1 holds ${formatInt(counts.class_1)} rows, short of the ${formatInt(d.n_1_target)} asked for: its pool had no more.`);
   for (const r of model.rates.filter((x) => x.undefined)) disclosures.push(`${r.label} is undefined: its denominator is empty; no point is drawn.`);
   for (const r of model.rates.filter((x) => x.note)) disclosures.push(`${r.label}: ${r.note}`);
+  // Prevalence: the designed class ratio sets accuracy and the precisions, not the recalls (P-9).
+  disclosures.push(payload.notes?.prevalence
+    ?? `Accuracy and the two precisions depend on the sample's designed ${designedRatio(model)} class ratio and do not transfer to another `
+      + 'mix of classes; the two recalls and the balanced accuracy do not depend on it. Accuracy\'s Wilson interval treats the rows as one '
+      + 'binomial sample, although the class sizes are fixed by the design; the stratified variance is never larger, so the interval is conservative.');
   disclosures.push(payload.notes?.weighted ?? 'The notebook\'s support-weighted metrics are dominated by the majority class; they are kept for parity only.');
   disclosures.push(...splitLines(payload));
-  disclosures.push(...noteLines(payload.notes, ['intervals', 'counts', 'weighted']));
+  disclosures.push(...noteLines(payload.notes, ['intervals', 'counts', 'weighted', 'prevalence']));
   disclosures.push(...metaDisclosures(payload));
   notes.section(SECTION.disclosures, disclosures);
 
   notes.section(SECTION.legend, [
     'A solid outline marks a correct cell (TN, TP), a dashed one a wrong cell (FP, FN). The counts carry no interval.',
-    'Point and capped whisker in the accent colour: a proportion k / n with its 95% Wilson score interval, the uncertainty of the rate.',
-    other ? `Point and capped whisker in text ink: the ${other.short.toLowerCase()} with its ${other.intervalLabel ?? other.method} (legend: ${otherIntervalName(model)}).` : '',
-    `Under the matrix: ${classKey(model, 0)}; ${classKey(model, 1)}.`,
+    `Point and capped whisker in the accent colour: a proportion k / n with its 95% Wilson score interval, the uncertainty of the rate (legend: ${WILSON_NAME}).`,
+    other ? `Point and capped whisker in text ink: the ${other.short.toLowerCase()} with its ${other.intervalLabel ?? other.method} (legend: ${otherIntervalLegend(model)}).` : '',
+    `Under the matrix: ${classKey(model, 0)}; ${classKey(model, 1)}; ${ratioTexts(model)[0]}.`,
   ]);
   notes.section(XGB_HEADINGS.rates, model.rates.map((r) => (r.undefined
     ? `${r.label}: undefined (n = ${formatInt(r.n)}).`
     : `${r.label}: ${pc(r.value)}${Number.isFinite(r.k) ? ` = ${formatInt(r.k)} / ${formatInt(r.n)}` : ` over ${formatInt(r.n)} rows`}; `
-      + `${r.intervalLabel ?? '95% interval'} [${pc(r.lo)}, ${pc(r.hi)}]; ${r.definition}.`)));
+      + `${r.intervalLabel ?? '95% interval'} [${pc(r.lo)}, ${pc(r.hi)}]; ${r.definition}`
+      + `${r.prevalence === true ? '; depends on the class ratio' : (r.prevalence === false ? '; does not depend on the class ratio' : '')}.`)));
   const p = payload.parity ?? {};
   notes.section(XGB_HEADINGS.parity, [
     p.label ?? '',
@@ -309,7 +320,8 @@ export function xgbBinaryNotes({ payload, experiment = null, title = null } = {}
 function nodeLine(model, node) {
   const outputs = model.labels.map((l) => {
     const unit = model.units?.[l] ? ` ${model.units[l]}` : '';
-    const linear = `${sigFigs(node.values?.[l], 4)} ± ${sigFigs(node.sds?.[l], 4)}${unit}`;
+    const mark = l === model.label && node.outOfRange ? ` ${OUT_OF_RANGE[node.outOfRange]} (${node.outOfRange} the colour domain)` : '';
+    const linear = `${sigFigs(node.values?.[l], 4)} ± ${sigFigs(node.sds?.[l], 4)}${unit}${mark}`;
     const c = l === 'phi' ? circularOf(node, l) : null;
     if (!c) return `${l} ${linear}`;
     const stat = `R̄ ${sigFigs(c.resultant, 3)}, Rayleigh p ${sigFigs(c.p, 2)}`;
@@ -319,7 +331,8 @@ function nodeLine(model, node) {
   }).join('; ');
   const head = node.leaf ? `Leaf ${node.id}` : `Node ${node.id}: ${ruleText(node)} (${FRAME_WORDS[node.frame] ?? 'no frame'})`;
   const via = node.path.length ? ` [${node.path.map((p) => `${p.text} ${p.branch}`).join(' → ')}]` : '';
-  return `${head}, depth ${node.depth}, n = ${formatInt(node.n)}: ${outputs}${via}.`;
+  const weak = node.weak ? ` (weak: under ${formatInt(model.weakN)} rows)` : '';
+  return `${head}, depth ${node.depth}, n = ${formatInt(node.n)}${weak}: ${outputs}${via}.`;
 }
 
 /** The E4 drawer. `label` (φ or θ) and `palette` are the card's render options. */
@@ -341,12 +354,16 @@ export function xgbTreeNotes({ payload, experiment = null, title = null, label =
   notes.section(SECTION.drawn, [
     `${formatInt(model.nodes.length)} nodes, ${payload.rule ?? 'left: feature ≤ threshold; right: feature > threshold'}. `
       + 'Top-down when every box fits the card, else an indented outline in depth-first order.',
-    'Each split names its feature, the feature\'s frame, its threshold and the rows that reach it; every node prints the mean of the booster\'s predictions over its rows ± their within-node SD'
-      + (model.label === 'phi' ? ' (for φ, the circular statistics below).' : '.'),
+    'Each split names its feature, the feature\'s frame, its threshold and the rows that reach it; every node prints the mean of the booster\'s predictions over its rows ± their within-node SD (ddof = 1)'
+      + (model.label === 'phi' ? ' (for φ, the circular statistics below, in rad).' : '.'),
     model.labels.length > 1 ? `The boxes print the ${model.label === 'phi' ? 'azimuth φ' : 'polar angle θ'}; the other output is in each tooltip and in the node list below.` : '',
     model.coloured
       ? `Colour: the node mean on ${treePalette(palette)}, positions ${sigFigs(ramp.from, 2)} to ${sigFigs(ramp.to, 2)} of the ramp (the run that clears 3:1 against the card), `
-        + `over ${sigFigs(model.domain[0], 3)} to ${sigFigs(model.domain[1], 3)}${model.unit ? ` ${model.unit}` : ''}; leaves filled, splits outlined.`
+        + `over ${sigFigs(model.domain[0], 3)} to ${sigFigs(model.domain[1], 3)}${model.unit ? ` ${model.unit}` : ''}`
+        + (model.basis?.provisional
+          ? `, every node's range: fewer than two distinct values come from nodes of at least ${formatInt(model.weakN)} rows, so the domain is provisional`
+          : `, the range of the ${Number.isFinite(model.basis?.n_nodes) ? `${formatInt(model.basis.n_nodes)} ` : ''}nodes of at least ${formatInt(model.weakN)} rows`)
+        + '; leaves filled, splits outlined.'
       : `Not coloured: ${model.info?.[model.label]?.reason?.replace(/^not coloured:\s*/i, '')
         ?? 'an azimuth wraps, and a sequential ramp would order its values as if it did not'}.`.replace(/\.\.$/, '.'),
     model.label === 'phi' && model.nodes.some((n) => circularOf(n, 'phi'))
@@ -357,26 +374,49 @@ export function xgbTreeNotes({ payload, experiment = null, title = null, label =
   ]);
   const fid = model.fidelity;
   const many = fid.outputs.length > 1;
+  const circularFid = fid.outputs.some((o) => o.circular);
   const disclosures = [
-    `Fidelity to the booster${many ? ', per output' : ''}: ${fid.outputs.map((o) => outputFidelityText(o, { symbol: many })).join('; ')}; `
+    `Fidelity to the booster${many ? ', per output' : ''}: ${fid.outputs.map((o) => outputFidelityText(o, { symbol: many, parity: true })).join('; ')}; `
       + `in-sample on ${formatInt(model.nRows)} rows${fid.against ? ` (${fid.against})` : ''}.`,
     payload.notes?.fidelity ?? '',
     `The "low surrogate fidelity" warning is raised for each output whose own R² is below ${LOW_FIDELITY_R2}`
+      + (circularFid ? ', φ\'s judged on its circular R²' : '')
       + (many ? `; sklearn's average over the outputs (R² ${fidelityR2Text(fid.average)}) is never judged, since it can hide an output the tree does not describe.` : '.'),
   ];
   for (const o of fid.outputs.filter((x) => x.low)) {
-    disclosures.push(`${many ? `${o.symbol}: ` : ''}R² ${fidelityR2Text(o.r2, o.mae)} is below ${LOW_FIDELITY_R2}: these three levels of rules describe `
+    disclosures.push(`${many ? `${o.symbol}: ` : ''}${o.circular ? 'circular R²' : 'R²'} ${fidelityR2Text(o.r2, o.mae)} is below ${LOW_FIDELITY_R2}: these three levels of rules describe `
       + `less than half of the booster's variance${many ? ` of ${o.symbol}` : ''}; read them as a sketch, not as the model.`);
+  }
+  // Why θ is barely described (P-11): the split criterion sums the outputs' squared errors.
+  if (many) {
+    disclosures.push(payload.notes?.criterion
+      ?? 'The tree\'s splits minimise the summed squared error of its outputs, φ (unwrapped, in rad) and θ together; φ spans about 2π rad and '
+        + 'θ a few tenths of a radian, so φ\'s variance dominates every split, and θ is barely described.');
+  }
+  if (model.coloured) {
+    const { above, below } = model.outOfRange;
+    const ids = (list) => list.map((n) => `${n.leaf ? 'leaf' : 'node'} ${n.id} (n = ${formatInt(n.n)})`).join(', ');
+    disclosures.push((above.length || below.length)
+      ? `Beyond the colour domain, drawn in its end colour: ${above.length ? `${formatInt(above.length)} above, marked ${OUT_OF_RANGE.above} (${ids(above)})` : ''}`
+        + `${above.length && below.length ? '; ' : ''}${below.length ? `${formatInt(below.length)} below, marked ${OUT_OF_RANGE.below} (${ids(below)})` : ''}.`
+      : 'Every node lies within the colour domain.');
+  }
+  const weak = model.nodes.filter((n) => n.weak);
+  if (weak.length) {
+    disclosures.push(`${formatInt(weak.length)} node${weak.length === 1 ? '' : 's'} of fewer than ${formatInt(model.weakN)} rows, weak: `
+      + `${weak.map((n) => `${n.leaf ? 'leaf' : 'node'} ${n.id} (n = ${formatInt(n.n)})`).join(', ')}; their means and SDs rest on that few predictions`
+      + `${model.coloured ? ', and they do not set the colour domain' : ''}.`);
   }
   disclosures.push(payload.notes?.impurity ?? '');
   disclosures.push(...splitLines(payload));
-  disclosures.push(...noteLines(payload.notes, ['description', 'fidelity', 'impurity', 'circular']));
+  disclosures.push(...noteLines(payload.notes, ['description', 'fidelity', 'impurity', 'circular', 'criterion', 'weak', 'colour_domain']));
   disclosures.push(...metaDisclosures(payload));
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
     'A box is a node: bold first line the rule, then the frame and n, then mean ± within-node SD (a description of the booster: no whisker, no interval).',
-    model.coloured ? 'A filled box is a leaf, coloured by its value; an outlined box is a split, outlined in its value\'s colour. The ramp in the header names the scale.'
-      : 'A box outlined in text ink is a leaf; a muted outline a split.',
+    model.coloured ? 'A filled box is a leaf, coloured by its value; an outlined box is a split, outlined in its value\'s colour. The ramp in the header names the scale; '
+      + `${OUT_OF_RANGE.above} or ${OUT_OF_RANGE.below} after a value marks a node above or below it, drawn in the end colour.`
+      : `A box outlined in text ink is a leaf; a muted outline a split.${model.unit ? ` Values are in ${model.unit}.` : ''}`,
     'Branches: ≤ to the left (the rule holds), > to the right. Each tooltip gives the node\'s path from the root and every output.',
   ]);
   if (model.labels.includes('phi')) {
@@ -416,8 +456,9 @@ export function xgbImportanceNotes({ payload, experiment = null, title = null } 
   notes.section(SECTION.drawn, [
     `One row per feature that carries any gain, in the shipped model or in a refit, sorted by the shipped model, at most ${TOP_N}: `
       + `${formatInt(model.shown.length)} drawn of ${formatInt(model.n)}; the rest are counted at the foot of the plot.`,
-    `Bar, from zero: ${m.shipped ?? 'the shipped booster\'s normalised gain'}, in percent.`,
+    `Bar, from zero: the ${BAR_MEASURE} in percent, ${m.shipped ?? 'the shipped booster\'s feature_importances_'}.`,
     `Dots: ${m.folds ?? 'the five refits\' normalised gain'}; bracket: their mean with its ${payload.interval?.label ?? '95% interval'}.`,
+    `Not drawn: ${m.total_gain ?? 'each feature\'s share of the total gain, its average split gain times its number of splits, normalised'}.`,
     `Colour is the feature's frame (ColorBrewer qualitative hues, each ≥ 3:1 against the card): ${model.frames.map((k) => FRAME_LABELS[k]).join(', ')}.`,
     payload.notes?.bar ?? '',
   ]);
@@ -435,19 +476,35 @@ export function xgbImportanceNotes({ payload, experiment = null, title = null } 
       + `clipped ${clip}: ${clipped.map((f) => f.name).join(', ')}.`);
   }
   disclosures.push(payload.notes?.gain ?? '');
+  // D-1: the bar is the average split gain; the total gain weighs every split and can rank otherwise.
+  disclosures.push(payload.notes?.average
+    ?? 'The bar is the notebook\'s measure, the average gain per split: a feature split on once with a large gain can outrank one used in many splits.');
+  const byTotal = [...(payload.features ?? [])].filter((f) => Number.isFinite(totalGainShare(f, payload.features)))
+    .sort((a, b) => totalGainShare(b, payload.features) - totalGainShare(a, payload.features));
+  const top = (payload.features ?? [])[0];
+  if (byTotal.length && top && byTotal[0].name !== top.name) {
+    disclosures.push('By the share of the total gain (average gain × number of splits, normalised) the ranking differs: '
+      + `${byTotal.slice(0, 3).map((f) => `${f.name} ${pc(totalGainShare(f, payload.features), 1)}`).join(', ')}, against the bar's `
+      + `${(payload.features ?? []).slice(0, 3).map((f) => `${f.name} ${pc(f.shipped, 1)}`).join(', ')}.`);
+  } else {
+    disclosures.push('Each feature\'s share of the total gain (average gain × number of splits, normalised) is in its tooltip and below; '
+      + 'it ranks the features as the bar does at the top.');
+  }
   disclosures.push(`Raw scores: ${m.raw ?? 'get_score gain, weight and cover'}; in each tooltip and below.`);
   disclosures.push(...splitLines(payload));
-  disclosures.push(...noteLines(payload.notes, ['bar', 'gain']));
+  disclosures.push(...noteLines(payload.notes, ['bar', 'gain', 'average']));
   disclosures.push(...metaDisclosures(payload));
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
-    'Bar: the shipped booster, one model - never the folds\' mean.',
+    `Bar: the shipped booster's ${BAR_MEASURE}, one model; never the folds' mean, and not the share of the total gain.`,
     `${IMP_FOLD_NAME}: open rings under the bar, one per refit.`,
     `${model.envelope}: a short tick at the folds' mean inside a thin capped bracket, the uncertainty of that mean. The SD of the folds is in the tooltip; it has no mark.`,
     `The features the plot leaves out are counted at its foot; every one of the ${formatInt(model.n)} model features is listed with its numbers under Features.`,
   ]);
   // Every model feature with its numbers, drawn or not (Martin, 2026-10-27: top 15 on the plot, all in the drawer).
-  const line = (f, where) => `${f.rank}. ${f.name} [${FRAME_LABELS[f.frame] ?? f.frame}${where}]: shipped ${pc(f.shipped, 2)}; `
+  const line = (f, where) => `${f.rank}. ${f.name} [${FRAME_LABELS[f.frame] ?? f.frame}${where}]: shipped ${pc(f.shipped, 2)} `
+    + `of the summed average split gain, ${pc(totalGainShare(f, payload.features), 2)} of the total gain`
+    + `${Number.isFinite(f.total_gain_rank) ? ` (rank ${f.total_gain_rank} by total gain)` : ''}; `
     + `folds ${(f.folds ?? []).map((v) => pc(v, 2)).join(', ')}; mean ${pc(f.fold_mean, 2)}, SD ${pc(f.fold_sd, 2)}, `
     + `interval [${pc(f.fold_t95?.[0], 2)}, ${pc(f.fold_t95?.[1], 2)}]${f.clipped ? ' (clipped)' : ''}; `
     + `gain ${sigFigs(f.raw?.gain, 4)}, weight ${sigFigs(f.raw?.weight, 4)}, cover ${sigFigs(f.raw?.cover, 4)}.`;

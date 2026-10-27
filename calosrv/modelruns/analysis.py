@@ -43,10 +43,13 @@ Every step is the notebook's own call, with the notebook's arguments
    random_state=42)``, thresholded at 2 GeV, with the notebook's metrics.
 6. **E4**: ``DecisionTreeRegressor(max_depth=3, random_state=42)`` fitted
    in-sample to the shipped booster's predictions on all rows; its ``tree_``
-   arrays, each node's within-node variance per output, and its fidelity. A
-   node's φ value is sklearn's linear mean, kept for notebook parity; beside
+   arrays, each node's within-node variance per output (ddof = 1; sklearn's
+   ``impurity`` stays its own ddof = 0 variance), and its fidelity per output.
+   A node's φ value is sklearn's linear mean, kept for notebook parity; beside
    it, the circular mean and mean resultant length R̄ of the booster's φ
-   predictions on the rows reaching the node.
+   predictions on the rows reaching the node. φ's fidelity is judged on a
+   circular R² analogue and the wrapped MAE (:func:`circular_fidelity`); its
+   linear R² and MAE are kept for parity.
 7. **E5**: the shipped booster's normalised gain (``feature_importances_``) and
    its raw gain, weight and cover (``get_score``); each fold model's normalised
    gain.
@@ -71,8 +74,9 @@ from .discovery import TASKS, ModelFile
 from .pairing import TASK_LABELS
 
 #: Bumped whenever a change here would change a stored number; every stored
-#: analysis of an older version is stale and re-run.
-ANALYSIS_VERSION = 2
+#: analysis of an older version is stale and re-run. 3: E4's within-node SD is
+#: ddof = 1, and φ's surrogate fidelity adds the circular R² and wrapped MAE.
+ANALYSIS_VERSION = 3
 
 #: ``train_test_split`` as the notebook calls it, and the seeds of the split check.
 TEST_SIZE = 0.2
@@ -456,6 +460,31 @@ def _depths(left: np.ndarray, right: np.ndarray) -> list[int]:
     return depth
 
 
+def circular_fidelity(target: np.ndarray, fitted: np.ndarray) -> dict[str, float | None]:
+    """φ's fidelity of a surrogate to the booster, on the circle.
+
+    Δ is the surrogate's φ minus the booster's, wrapped to (−π, π], and φ̄ the
+    circular mean of the booster's φ. The circular R² analogue is
+    1 − Σ(1 − cos Δ) / Σ(1 − cos(φ − φ̄)): 1 when the surrogate reproduces every
+    direction, 0 when it does no better than the one mean direction (Martin,
+    2026-10-27, D-5). The wrapped MAE is the mean |Δ|, in rad. A disagreement
+    across the ±π seam counts as the short way round, never as about 2π.
+    None where undefined: no rows, or the booster's φ all one direction.
+    """
+    from ..stats.circular import circular_mean, resultant_sums
+
+    t = np.asarray(target, dtype=np.float64)
+    f = np.asarray(fitted, dtype=np.float64)
+    if t.size == 0:
+        return {"r2_circular": None, "mae_wrapped": None}
+    delta = wrap(f - t)
+    c, s, m = resultant_sums(t)
+    mean = circular_mean(c, s) if m else None
+    denominator = float(np.sum(1.0 - np.cos(t - mean))) if mean is not None else 0.0
+    r2 = (1.0 - float(np.sum(1.0 - np.cos(delta))) / denominator) if denominator > 0 else None
+    return {"r2_circular": r2, "mae_wrapped": float(np.mean(np.abs(delta)))}
+
+
 def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
               labels: tuple[str, ...]) -> tuple[list[dict[str, Any]], float, float,
                                                 dict[str, dict[str, float]]]:
@@ -464,7 +493,10 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
     Each node keeps sklearn's value per output and impurity (for two outputs the
     mean of their variances, as sklearn computes it) and, from the rows the
     decision path sends through it, each output's own within-node variance of
-    the booster's predictions - the spread the card draws as ± SD.
+    the booster's predictions, ddof = 1 (CLAUDE.md section 2: widths are the
+    unbiased sample estimator; NaN for a node of one row) - the spread the card
+    prints as ± SD. Each output's fidelity is sklearn's R² and MAE; φ adds
+    :func:`circular_fidelity`, on which it is judged.
     """
     from sklearn.metrics import mean_absolute_error, r2_score
     from sklearn.tree import DecisionTreeRegressor
@@ -481,6 +513,8 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
     for k, label in enumerate(labels):
         outputs[LABEL_KEY[label]] = {"r2": float(r2_score(proxy2[:, k], fitted2[:, k])),
                                      "mae": float(mean_absolute_error(proxy2[:, k], fitted2[:, k]))}
+        if label == "incoming_phi":
+            outputs[LABEL_KEY[label]].update(circular_fidelity(proxy2[:, k], fitted2[:, k]))
     t = tree.tree_
     left, right = np.asarray(t.children_left), np.asarray(t.children_right)
     depth = _depths(left, right)
@@ -489,7 +523,9 @@ def surrogate(task: str, frame: pd.DataFrame, proxy: np.ndarray,
     nodes: list[dict[str, Any]] = []
     for node in range(t.node_count):
         rows = path.indices[path.indptr[node]:path.indptr[node + 1]]
-        variance = proxy2[rows].var(axis=0) if rows.size else np.full(len(labels), np.nan)
+        # ddof = 1, as every width on the page; one row has no spread to estimate.
+        variance = (proxy2[rows].var(axis=0, ddof=1) if rows.size >= 2
+                    else np.full(len(labels), np.nan))
         leaf = left[node] < 0
         circular: dict[str, dict[str, float | None]] = {}
         for k, label in enumerate(labels):
