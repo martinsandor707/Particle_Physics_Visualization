@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import pytest
@@ -304,6 +305,19 @@ def test_index_page_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "Calorimeter Shower Reconstruction" in response.text
+
+
+def test_models_page_is_served(client):
+    """The Models page shares the shell and loads echarts-gl; the Physics page never does."""
+    response = client.get("/models")
+    assert response.status_code == 200
+    assert "Calorimeter Shower Reconstruction" in response.text
+    html = response.text
+    scripts = re.findall(r'<script[^>]*src="([^"?]+)', html)
+    assert scripts == ["/static/js/vendor/echarts.min.js", "/static/js/vendor/echarts-gl.min.js",
+                       "/static/js/models_main.js"]
+    assert '<script type="module" src="/static/js/models_main.js' in html
+    assert "echarts-gl" not in client.get("/").text
 
 
 def test_depth_overlays_are_complementary(client):
@@ -715,7 +729,8 @@ def test_energy_payload_stays_within_the_budget(client):
 # --------------------------------------------------------- asset integrity --
 
 
-def test_asset_urls_are_version_stamped(client):
+@pytest.mark.parametrize("page", ["/", "/models"])
+def test_asset_urls_are_version_stamped(client, page):
     """Markup must reference the exact assets it was built against.
 
     The page and its scripts are separate downloads with independent cache
@@ -727,9 +742,12 @@ def test_asset_urls_are_version_stamped(client):
     """
     import re
 
-    html = client.get("/").text
+    html = client.get(page).text
     refs = re.findall(r'(?:src|href)="(/static/[^"]+)"', html)
     assert refs, "no static assets referenced"
+    # The page links are routes, not assets: never stamped.
+    for route in ('href="/"', 'href="/models"'):
+        assert route in html, route
 
     stamps = set()
     for ref in refs:
@@ -752,9 +770,10 @@ def test_asset_stamp_changes_when_a_file_changes(tmp_path):
     assert asset_fingerprint(tmp_path) not in (first,)
 
 
-def test_index_is_never_cached(client):
+@pytest.mark.parametrize("page", ["/", "/models"])
+def test_index_is_never_cached(client, page):
     """A stale page would reference a stale stamp and defeat the mechanism."""
-    response = client.get("/")
+    response = client.get(page)
     assert "no-cache" in response.headers.get("cache-control", "")
 
 
@@ -771,36 +790,100 @@ def test_versioned_assets_are_immutable_and_bare_ones_revalidate(client):
     assert bare.headers["cache-control"] == "no-cache"
 
 
-def test_every_id_the_scripts_write_to_exists_in_the_markup(client):
+#: Static and dynamic import specifiers of a module (relative, `.js`).
+_STATIC_IMPORT = re.compile(r"""\bfrom\s*(['"])(\.{1,2}/[^'"?]+?\.js)\1""")
+_DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\(\s*(['"])(\.{1,2}/[^'"?]+?\.js)\1""")
+
+#: The id-writing calls the audit reads (dom.js helpers and getElementById).
+_ID_CALLS = (r"getElementById\('([^']+)'\)", r"setText\('([^']+)'", r"setHtml\('([^']+)'",
+             r"setVal\('([^']+)'", r"setChecked\('([^']+)'", r"setHidden\('([^']+)'")
+
+
+def _module_graph(entry):
+    """Every module an entry point reaches, through static and dynamic imports.
+
+    A static import must resolve. A dynamic import is guarded at run time - a
+    panel module another engineer is still building leaves its card saying
+    so - so one that does not exist yet is skipped rather than failed.
+    """
+    seen = set()
+
+    def walk(path):
+        if path in seen:
+            return
+        seen.add(path)
+        source = path.read_text(encoding="utf-8")
+        for _, spec in _STATIC_IMPORT.findall(source):
+            target = (path.parent / spec).resolve()
+            assert target.is_file(), f"{path.name} imports missing {spec}"
+            walk(target)
+        for _, spec in _DYNAMIC_IMPORT.findall(source):
+            target = (path.parent / spec).resolve()
+            if target.is_file():
+                walk(target)
+
+    walk(entry.resolve())
+    return seen
+
+
+def _referenced_ids(modules):
+    referenced = {}
+    for path in modules:
+        source = path.read_text(encoding="utf-8")
+        for pattern in _ID_CALLS:
+            for element_id in re.findall(pattern, source):
+                referenced.setdefault(element_id, path.name)
+    return referenced
+
+
+@pytest.mark.parametrize(("entry", "page"), [("main.js", "index.html"), ("models_main.js", "models.html")])
+def test_every_id_the_scripts_write_to_exists_in_the_markup(entry, page):
     """Guards against the markup and scripts drifting apart in the repository.
 
     The runtime helpers make a missing element survivable; this makes it a test
-    failure instead, so the mismatch never ships.
+    failure instead, so the mismatch never ships. One audit per entry point:
+    the modules main.js reaches write to index.html, those models_main.js
+    reaches to models.html, so a Physics-page id in a module the Models page
+    imports is caught.
     """
-    import re
     from pathlib import Path
 
     static = Path(__file__).resolve().parent.parent / "calosrv" / "static"
-    html = (static / "index.html").read_text(encoding="utf-8")
+    html = (static / page).read_text(encoding="utf-8")
     present = set(re.findall(r'id="([^"]+)"', html))
-
-    referenced = set()
-    for path in (static / "js").rglob("*.js"):
-        if "vendor" in path.parts:
-            continue
-        source = path.read_text(encoding="utf-8")
-        referenced |= set(re.findall(r"getElementById\('([^']+)'\)", source))
-        referenced |= set(re.findall(r"setText\('([^']+)'", source))
-        referenced |= set(re.findall(r"setHtml\('([^']+)'", source))
-        referenced |= set(re.findall(r"setVal\('([^']+)'", source))
-        referenced |= set(re.findall(r"setChecked\('([^']+)'", source))
-        referenced |= set(re.findall(r"setHidden\('([^']+)'", source))
-
-    missing = sorted(referenced - present)
-    assert not missing, f"scripts reference ids absent from index.html: {missing}"
+    referenced = _referenced_ids(_module_graph(static / "js" / entry))
+    missing = sorted(f"{element_id} ({module})" for element_id, module in referenced.items()
+                     if element_id not in present)
+    assert not missing, f"scripts reached from {entry} reference ids absent from {page}: {missing}"
 
 
-def test_module_imports_are_stamped_too(client):
+def test_every_module_is_reached_from_an_entry_point():
+    """An orphaned module is dead code that still ships, outside both id audits."""
+    from pathlib import Path
+
+    js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
+    reached = _module_graph(js / "main.js") | _module_graph(js / "models_main.js")
+    orphans = sorted(str(path.relative_to(js)) for path in js.rglob("*.js")
+                     if "vendor" not in path.parts and path.resolve() not in reached)
+    assert not orphans, f"modules no entry point reaches: {orphans}"
+
+
+def test_each_entry_point_keeps_the_other_pages_modules_out():
+    """The Models page never loads the Physics page's DOM-bound modules, nor the reverse."""
+    from pathlib import Path
+
+    js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
+    physics = {p.relative_to(js).as_posix() for p in _module_graph(js / "main.js")}
+    models = {p.relative_to(js).as_posix() for p in _module_graph(js / "models_main.js")}
+    for module in ("main.js", "event_inspector.js", "controls/admin.js", "controls/upload.js",
+                   "physics_section.js", "panels/projection.js"):
+        assert module not in models, module
+    for module in ("models_main.js", "models_cards.js"):
+        assert module not in physics, module
+
+
+@pytest.mark.parametrize("entry", ["main.js", "models_main.js"])
+def test_module_imports_are_stamped_too(client, entry):
     """The entry point alone is not enough to version a module graph.
 
     A module reached through `import './state.js'` is requested by the browser
@@ -815,9 +898,12 @@ def test_module_imports_are_stamped_too(client):
     """
     import re
 
-    served = client.get("/static/js/main.js").text
+    served = client.get(f"/static/js/{entry}").text
     specifiers = re.findall(r"from\s+'(\.\.?/[^']+)'", served)
-    assert specifiers, "main.js should import sibling modules"
+    assert specifiers, f"{entry} should import sibling modules"
+    # The guarded dynamic imports (panels, notes, the 3-D views) are requested
+    # at bare URLs of their own too.
+    specifiers += re.findall(r"import\('(\.\.?/[^']+)'\)", served)
     for spec in specifiers:
         assert "?v=" in spec, f"unstamped module specifier: {spec}"
 
@@ -830,13 +916,14 @@ def test_nested_module_imports_are_stamped(client):
         assert "?v=" in spec, f"unstamped module specifier: {spec}"
 
 
-def test_vendored_bundle_is_served_untouched(client):
+@pytest.mark.parametrize("bundle", ["echarts.min.js", "echarts-gl.min.js"])
+def test_vendored_bundle_is_served_untouched(client, bundle):
     """Rewriting a minified third-party bundle risks more than it gains."""
     from pathlib import Path
 
     static = Path(__file__).resolve().parent.parent / "calosrv" / "static"
-    on_disk = (static / "js" / "vendor" / "echarts.min.js").read_bytes()
-    assert client.get("/static/js/vendor/echarts.min.js").content == on_disk
+    on_disk = (static / "js" / "vendor" / bundle).read_bytes()
+    assert client.get(f"/static/js/vendor/{bundle}").content == on_disk
 
 
 def test_rewriting_leaves_non_import_strings_alone(tmp_path):

@@ -51,13 +51,21 @@
  * (`legibleOpacity`). A dispersion fill is a wash (bandAlpha, 1.4:1) that
  * only tints; the extent a reader must read is carried by a dashed edge at
  * ≥ 3:1 along the mark's long sides, dashed so it never reads as a cap.
+ *
+ * ## Page 2
+ *
+ * The models page's panels (perf_bins, hist2d, rates, and the feature and
+ * residual modes of distribution) reuse this base unchanged. Their shared
+ * helpers are appended below the carets: the reserved band and its lifted
+ * rows (the same mark response.js draws for B1), and the notice of a plot
+ * with nothing estimable on it.
  */
 
 import { THEME, axisPadding, typographic, formatNumber } from '../scale.js';
 import { categoricalStops, contrast, lookupTable } from '../palette.js';
-import { fitsWidth, legendRows } from '../textfit.js';
+import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import {
-  PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipPosition,
+  PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipPosition, tooltipOption,
 } from './tooltip.js';
 
 /** Plot-area height as a fraction of its width, for a publication figure. */
@@ -549,6 +557,133 @@ export function clampInterval(lo, hi, min, max) {
   const drawLo = Number.isFinite(lo) ? Math.min(Math.max(lo, min), max) : null;
   const drawHi = Number.isFinite(hi) ? Math.max(Math.min(hi, max), min) : null;
   return { lo: drawLo, hi: drawHi, cutLo, cutHi, caps: [!cutLo, !cutHi] };
+}
+
+/* ------------------------------------------------- reserved band (Page 2) -- */
+
+/**
+ * What every tooltip in a reserved band says (CLAUDE.md section 2: a mark on
+ * the density axis at a height that is not a density lives in a tinted,
+ * captioned band, and says so).
+ */
+export const OFFSET_NOTE = 'vertical position is a drawing offset, not a density';
+
+/** The band captions, longest first; the first that fits the plot is drawn. */
+export const BAND_CAPTIONS = Object.freeze([
+  'events and summary marks — vertical positions are drawing offsets, not densities',
+  'events and summary marks — offsets, not densities',
+  'offsets, not densities',
+]);
+
+/**
+ * A custom series of marks lifted in pixels above the y = 0 baseline: the
+ * rows of a reserved band. `data` items carry their data x as `x`; `render(d,
+ * api)` returns the zrender element. One hover target per item.
+ */
+export function liftedSeries({ name, data, render, tooltip = null, z = 8 }) {
+  return {
+    type: 'custom',
+    name,
+    clip: true,
+    z,
+    silent: !tooltip,
+    data: data.map((d, index) => [d.x, 0, index]),
+    renderItem: (params, api) => render(data[params.dataIndex], api, params),
+    ...(tooltip ? { tooltip: { formatter: (p) => tooltip(data[p.dataIndex], p.dataIndex) } } : {}),
+  };
+}
+
+/**
+ * The tinted, captioned reserved band at the foot of a density plot, `bandTop`
+ * pixels tall, with a rule along its top edge: one axis with a reserved zone,
+ * not a second scale. The Page 2 twin of response.js's private band, so the
+ * feature and residual histograms draw the same mark B1 does.
+ */
+export function reservedBand({ lo, hi, bandTop, caption, name = 'reserved summary band' }) {
+  return {
+    type: 'custom',
+    name,
+    silent: true,
+    clip: true,
+    z: 1,
+    data: [[lo, 0]],
+    renderItem: (params, api) => {
+      const left = api.coord([lo, 0]);
+      const right = api.coord([hi, 0]);
+      const top = left[1] - bandTop;
+      return {
+        type: 'group',
+        children: [
+          {
+            type: 'rect',
+            shape: { x: left[0], y: top, width: right[0] - left[0], height: bandTop },
+            style: { fill: THEME.muted, opacity: THEME.stripAlpha },
+          },
+          {
+            // The band's edge is read, so it is muted ink (5.3:1), not the 1.3:1 border.
+            type: 'line',
+            shape: { x1: left[0], y1: top, x2: right[0], y2: top },
+            style: { stroke: THEME.muted, lineWidth: THEME.lineGrid, lineDash: [3, 3] },
+          },
+          {
+            type: 'text',
+            style: {
+              x: left[0] + 6, y: top + 3, text: caption, fill: THEME.muted,
+              fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, opacity: 0.85,
+            },
+          },
+        ],
+      };
+    },
+  };
+}
+
+/** The first band caption that fits `plotWidthPx`. */
+export function bandCaption(plotWidthPx) {
+  return BAND_CAPTIONS.find((c) => fitsWidth(c, plotWidthPx - 12, THEME.fontSmall, THEME.fontFamily))
+    ?? BAND_CAPTIONS[BAND_CAPTIONS.length - 1];
+}
+
+/** A centred, wrapped notice on an empty or unlabelled plot (a graphic element). */
+export function noticeGraphic(text, x, y, widthPx) {
+  return {
+    type: 'text',
+    silent: true,
+    style: {
+      x,
+      y,
+      text: wrapText(text, Math.max(80, widthPx - 8), THEME.fontTip, THEME.fontFamily).join('\n'),
+      textAlign: 'center',
+      textVerticalAlign: 'middle',
+      fill: THEME.muted,
+      fontSize: THEME.fontTip,
+      fontFamily: THEME.fontFamily,
+      lineHeight: 1.45 * THEME.fontTip,
+    },
+  };
+}
+
+/** The option of a plot with nothing to draw: unlabelled axes and one notice, never an empty scale. */
+export function emptyChartOption(opts, metrics, text) {
+  const pad = axisPadding();
+  const width = metrics?.width || 600;
+  const height = metrics?.height || 340;
+  const plotW = Math.max(80, width - pad.left - pad.right);
+  const plotH = Math.max(40, height - pad.top - pad.bottom);
+  return {
+    ...baseOption(),
+    tooltip: wrapTooltip(tooltipOptionOf(opts)),
+    grid: { left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom },
+    xAxis: valueAxis({ labels: false }),
+    yAxis: valueAxis({ labels: false }),
+    graphic: [noticeGraphic(text, pad.left + plotW / 2, pad.top + plotH / 2, plotW - 8)],
+    series: [],
+  };
+}
+
+/** The shared tooltip with the panel's explanation placement, when one is injected. */
+function tooltipOptionOf(opts) {
+  return tooltipOption(opts?.tooltipPosition ?? null);
 }
 
 /* -------------------------------------------------------------- class -- */

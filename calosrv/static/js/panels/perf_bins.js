@@ -1,0 +1,434 @@
+/* E2: each network's error per 1 GeV momentum bin, as grouped bars.
+ *
+ * `/api/model-performance?slice_by=momentum_bin` ships, under
+ * `by_momentum_bin`, one series per (input frame, shower) - and on an
+ * aggregate experiment one more, the XGBoost hold-out (code `xgb`) - with one
+ * point per producer momentum bin for every statistic named in `quantities`
+ * (RMSE, MAE, the median relative error, the bias; the angle task adds the
+ * median absolute error). The panel draws one statistic at a time
+ * (`opts.quantity`, a key of `quantities`): nothing is hard-wired to a
+ * network, a frame or a statistic, so a series or a quantity the server adds
+ * (XGBoost's azimuth group, with its wrapped residual and no relative error)
+ * draws without a special case. A series that does not report a statistic is
+ * left out of that statistic and named in the drawer.
+ *
+ * ## Bars from zero at explicit offsets
+ *
+ * Every bar starts at zero (CLAUDE.md section 2; a signed bias runs down from
+ * zero) and sits inside its momentum bin at an offset `groupedBarGeometry`
+ * computes, so the x axis stays the physical momentum in GeV and a missing bin
+ * is a visible gap, never a squeezed category.
+ *
+ * ## The whisker is the interval of the bar's own statistic
+ *
+ * A capped whisker on a bar is the 95% interval of the plotted aggregate, as
+ * the server names it per quantity: the square root of the Student-t interval
+ * of the mean squared residual for the RMSE, Student-t for the MAE and the
+ * bias, the exact order-statistic or the seeded percentile-bootstrap interval
+ * for the median (`<q>_method` per point). Where the server has none (a bin of
+ * one shower; a median below N = 6) there is no whisker at all, and a bar of
+ * fewer than `thresholds.interval` showers is faded: a value with nothing to
+ * say how precise it is. The spread of the showers is never drawn here.
+ *
+ * ## The y range follows robust evidence
+ *
+ * The range is the server's (`y_max[quantity]`): set by the points with N ≥ 15
+ * (`drives_scale`), or, with none, by the weak points' values alone and
+ * labelled provisional on the axis. A bar or whisker beyond it is clipped at
+ * the axis with a caret whose tooltip gives the true values, and the server's
+ * `overflow` list is the drawer's count.
+ *
+ * ## Colour is the network, fill is the shower
+ *
+ * The input frames are nominal categories, so they take ColorBrewer's
+ * qualitative hues (Set2 on the dark screen, 6.2-7.6:1 on #1c2128; its Dark2
+ * partner in print, 3.4-4.4:1 on white), in a fixed order so a frame keeps its
+ * colour across selections. Shower A is a solid bar, shower B a light wash
+ * with a solid outline, so the two read apart in greyscale too.
+ */
+
+import { THEME, axisPadding, formatNumber, formatInt } from '../scale.js';
+import { contrast } from '../palette.js';
+import { customWhiskers, customLine, binHoverSeries } from './marks.js';
+import { tooltipOption } from './tooltip.js';
+import {
+  ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
+  withColour, chartLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST,
+} from './chart_panel.js';
+
+/**
+ * A round tick interval that lands on both ends of [lo, hi] (the server's
+ * 1-2-5 rounded top, and minus it for a signed statistic), with at most
+ * `maxTicks` steps: 16 → 2, 140 → 20, 0.35 → 0.05, ±16 → 4.
+ */
+export function dividingInterval(lo, hi, maxTicks = 8) {
+  const span = hi - lo;
+  if (!(span > 0)) return 1;
+  const ends = [lo, hi].filter((v) => v !== 0).map(Math.abs);
+  const fits = (step) => ends.every((v) => Math.abs(v / step - Math.round(v / step)) < 1e-6);
+  const decade = 10 ** Math.floor(Math.log10(span / maxTicks));
+  for (const scale of [1, 10, 100]) {
+    for (const m of [1, 2, 2.5, 4, 5]) {
+      const step = m * decade * scale;
+      if (span / step <= maxTicks + 1e-9 && fits(step)) return step;
+    }
+  }
+  return span / 4;
+}
+
+/** The order the networks' hues are given in, so a frame keeps its colour whatever else is drawn. */
+export const SOURCE_ORDER = Object.freeze(['absolute', 'trans', 'local', 'xgb']);
+
+/** ColorBrewer Set2 1-4 on the dark card (6.2-7.6:1 against #1c2128). */
+const SCREEN_HUES = Object.freeze(['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3']);
+/** ColorBrewer Dark2 1-4, Set2's darker partners, for white paper (3.4-4.4:1). */
+const PRINT_HUES = Object.freeze(['#1b9e77', '#d95f02', '#7570b3', '#e7298a']);
+
+/** How each source is named when the series carries no label of its own. */
+export const SOURCE_LABELS = Object.freeze({
+  absolute: 'Absolute-frame network',
+  trans: 'Per-shower translated network (legacy)',
+  local: 'Local-frame network',
+  xgb: 'XGBoost',
+});
+
+/** Fill opacity of shower A's bar and shower B's wash. */
+const FILL_A = 0.78;
+const FILL_B = 0.22;
+/** Share of a momentum bin the group of bars takes. */
+const GROUP_FILL = 0.84;
+const CAP_PX = 3;
+
+const num = (v, d = 3) => formatNumber(v, d);
+
+/**
+ * Where `nSeries` bars sit inside a band of width `band` (data units): each
+ * bar's width and its centre's offset from the band's centre. The group takes
+ * `fill` of the band, so neighbouring bins stay apart. `nGroups` is the number
+ * of bands, carried so a caller can size the chart from one call.
+ */
+export function groupedBarGeometry(nGroups, nSeries, band = 1, { fill = GROUP_FILL } = {}) {
+  const n = Math.max(1, nSeries);
+  const total = fill * band;
+  const width = total / n;
+  return {
+    groups: Math.max(0, nGroups),
+    width,
+    offsets: Array.from({ length: n }, (_, k) => -total / 2 + (k + 0.5) * width),
+  };
+}
+
+/** The source a series belongs to: an input frame, or 'xgb'. */
+export function sourceOf(s) {
+  if (s?.code === 'xgb' || s?.source === 'xgb' || /^xgb\b/.test(String(s?.key ?? ''))) return 'xgb';
+  return s?.network?.frame ?? String(s?.key ?? '').split(':')[0];
+}
+
+/** The qualitative hue of each source, on the card in force (screen or print). */
+export function sourceColours(sources) {
+  const card = rgbOf(THEME.card) ?? [28, 33, 40];
+  const hues = contrast(card, [255, 255, 255]) < 2 ? PRINT_HUES : SCREEN_HUES;
+  const out = {};
+  // A known source keeps its place in SOURCE_ORDER; another takes the next free hue.
+  const rest = sources.filter((k) => !SOURCE_ORDER.includes(k));
+  for (const k of sources) {
+    const i = SOURCE_ORDER.includes(k) ? SOURCE_ORDER.indexOf(k) : SOURCE_ORDER.length + rest.indexOf(k);
+    const hue = hues[i % hues.length];
+    // Every hue is measured against the card; a hue that ever fell short takes the text ink.
+    out[k] = contrast(rgbOf(hue), card) >= INK_CONTRAST ? hue : THEME.text;
+  }
+  return out;
+}
+
+/**
+ * The statistics the response offers, in its order: the shell's segmented
+ * control. `group` is the label a statistic belongs to where the server groups
+ * them (`quantity_groups`: the XGBoost angle task's θ and φ), else null.
+ */
+export function perfQuantities(payload) {
+  const block = payload?.by_momentum_bin ?? {};
+  const groups = Object.entries(block.quantity_groups ?? {});
+  const groupOf = (key) => groups.find(([, keys]) => Array.isArray(keys) && keys.includes(key))?.[0] ?? null;
+  return Object.entries(block.quantities ?? {}).map(([key, v]) => ({
+    key, label: v.label, unit: v.unit, signed: Boolean(v.signed), group: groupOf(key),
+  }));
+}
+
+/** The statistic drawn: `wanted` when the response has it, else its first. */
+export function perfQuantity(payload, wanted) {
+  const keys = perfQuantities(payload).map((q) => q.key);
+  return keys.includes(wanted) ? wanted : (keys[0] ?? null);
+}
+
+/** A unit as drawn: a fraction is read in percent. */
+export function displayUnit(unit) {
+  return unit === 'fraction' ? { unit: '%', factor: 100 } : { unit: unit ?? '', factor: 1 };
+}
+
+/** The series a card draws: one shower, or both. */
+function shownSeries(series, shower) {
+  return (series ?? []).filter((s) => !shower || shower === 'both' || !s.shower || s.shower === shower);
+}
+
+/** The name of a series in the legend and every tooltip. */
+export function seriesLabel(s, nShowers) {
+  const source = sourceOf(s);
+  const base = s.label ?? SOURCE_LABELS[source] ?? source;
+  return nShowers > 1 && s.shower ? `${base} · shower ${String(s.shower).toUpperCase()}` : base;
+}
+
+/** The bins' edges as a contiguous list, and the payload bin each edge interval holds (−1 for a gap). */
+function binEdges(bins) {
+  const lo = bins.p_lo ?? [];
+  const hi = bins.p_hi ?? [];
+  const edges = [...new Set([...lo, ...hi].filter(Number.isFinite))].sort((a, b) => a - b);
+  const owner = [];
+  for (let i = 0; i + 1 < edges.length; i += 1) owner.push(lo.findIndex((v, k) => v === edges[i] && hi[k] === edges[i + 1]));
+  return { edges, owner };
+}
+
+/**
+ * Everything the chart and the drawer need, decided once. Pure:
+ * {quantity, q, unit, factor, y: {min, max, provisional, note, overflow,
+ * n_overflow}, series: [{key, label, source, shower, colour, points}],
+ * omitted: [labels], clipped: {bars, whiskers}, thresholds, bins, nShowers}.
+ * A point is {i, x, x0, x1, value, lo, hi, n, n_missing, method, weak, drives,
+ * theta_min, n_small_theta, ...draw} with values already in display units.
+ */
+export function perfModel(payload, opts = {}) {
+  const block = payload?.by_momentum_bin;
+  if (!block) return null;
+  const quantity = perfQuantity(payload, opts.quantity);
+  const q = block.quantities?.[quantity] ?? {};
+  const { unit, factor } = displayUnit(q.unit);
+  const yRaw = block.y_max?.[quantity] ?? {};
+  const scaled = (v) => (Number.isFinite(v) ? v * factor : null);
+  const y = {
+    min: Number.isFinite(yRaw.min) ? yRaw.min * factor : 0,
+    max: scaled(yRaw.value),
+    provisional: Boolean(yRaw.provisional),
+    note: yRaw.note ?? '',
+    overflow: yRaw.overflow ?? [],
+    n_overflow: yRaw.n_overflow ?? 0,
+    signed: Boolean(yRaw.signed ?? q.signed),
+  };
+  const thresholds = block.thresholds ?? {};
+  const intervalFloor = thresholds.interval ?? 2;
+  const all = block.series ?? [];
+  const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
+  const shown = shownSeries(all, opts.shower);
+  const reporting = shown.filter((s) => Array.isArray(s[quantity]));
+  const omitted = shown.filter((s) => !Array.isArray(s[quantity])).map((s) => seriesLabel(s, nShowers));
+  const colours = sourceColours([...new Set(reporting.map(sourceOf))]);
+  const bins = block.bins ?? {};
+  const nBins = (bins.p_lo ?? []).length;
+  const geometry = groupedBarGeometry(nBins, reporting.length, 1);
+  const clipped = { bars: 0, whiskers: 0 };
+
+  const series = reporting.map((s, k) => {
+    const points = [];
+    const values = s[quantity];
+    const los = s[`${quantity}_lo`] ?? [];
+    const his = s[`${quantity}_hi`] ?? [];
+    const methods = s[`${quantity}_method`] ?? [];
+    for (let i = 0; i < nBins; i += 1) {
+      const value = scaled(values[i]);
+      if (value === null) continue;
+      const band = (bins.p_hi[i] - bins.p_lo[i]) || 1;
+      const centre = 0.5 * (bins.p_lo[i] + bins.p_hi[i]) + geometry.offsets[k] * band;
+      const half = 0.5 * geometry.width * band;
+      const point = {
+        i, x: centre, x0: centre - half, x1: centre + half, value,
+        lo: scaled(los[i]), hi: scaled(his[i]), method: methods[i] ?? null,
+        n: s.n?.[i] ?? null, n_missing: s.n_missing?.[i] ?? 0, drives: Boolean(s.drives_scale?.[i]),
+        theta_min: s.theta_min?.[i] ?? null, n_small_theta: s.n_small_theta?.[i] ?? 0,
+      };
+      point.weak = !(point.n >= intervalFloor);
+      if (Number.isFinite(y.max)) {
+        point.barCut = value > y.max || value < y.min;
+        const c = clampInterval(point.lo, point.hi, y.min, y.max);
+        point.whisker = c;
+        if (point.barCut) clipped.bars += 1;
+        if (c.cutLo || c.cutHi) clipped.whiskers += 1;
+      }
+      points.push(point);
+    }
+    return {
+      key: s.key, label: seriesLabel(s, nShowers), source: sourceOf(s), shower: s.shower ?? null,
+      colour: colours[sourceOf(s)], points, raw: s,
+    };
+  });
+  return {
+    quantity, q, unit, factor, y, series, omitted, clipped, thresholds, bins, nShowers,
+    model: block.model ?? payload?.network?.model ?? null, notes: block.notes ?? {},
+  };
+}
+
+/** A value with its display unit. */
+function withUnit(v, unit, digits = 3) {
+  if (!Number.isFinite(v)) return '—';
+  return `${num(v, digits)}${unit === '%' ? '%' : (unit ? ` ${unit}` : '')}`;
+}
+
+/** The interval sentence of one point: the server's method for the bar's own statistic. */
+function intervalText(model, p) {
+  if (!Number.isFinite(p.lo) || !Number.isFinite(p.hi)) {
+    return mutedLine(p.n === 1
+      ? 'no interval: a single shower has a value and nothing to say how precise it is'
+      : 'no interval at this sample size (see the drawer for each statistic\'s floor)');
+  }
+  const method = p.method === 'order_statistic' ? 'exact order-statistic interval of the median'
+    : p.method === 'bootstrap_percentile' ? 'seeded percentile bootstrap of the median' : (model.q.interval ?? '');
+  return `95% interval [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}] ${mutedLine(`(${method}: the precision of the ${model.q.label ?? model.quantity}, not the spread of the showers)`)}`;
+}
+
+/** The tooltip of one bar. */
+export function perfTip(model, s, p) {
+  const bins = model.bins;
+  const binLabel = bins.label?.[p.i] ?? `${num(bins.p_lo?.[p.i])}–${num(bins.p_hi?.[p.i])} GeV`;
+  const lines = [`<b>${escapeHtml(model.q.label ?? model.quantity)} of ${escapeHtml(s.label)}, ${escapeHtml(binLabel)}: ${withUnit(p.value, model.unit)}</b>`];
+  lines.push(intervalText(model, p));
+  lines.push(`N = ${formatInt(p.n)} shower${p.n === 1 ? '' : 's'}${p.weak ? ' — below the interval floor: the bar is faded' : ''}`);
+  if (model.q.definition) lines.push(mutedLine(model.q.definition));
+  if (p.n_missing) lines.push(mutedLine(`${formatInt(p.n_missing)} shower${p.n_missing === 1 ? '' : 's'} without a prediction in this bin: dropped, never zero-filled`));
+  if (Number.isFinite(p.theta_min)) {
+    lines.push(mutedLine(`smallest true θ in the bin ${num(p.theta_min, 4)} rad; ${formatInt(p.n_small_theta)} shower${p.n_small_theta === 1 ? '' : 's'} with θ < 0.1 rad`
+      + `${p.n_small_theta && model.quantity === 'median_rel' ? ': |Δθ| / θ grows like 1 / θ there, so read the median absolute error beside it' : ''}`));
+  }
+  if (p.barCut || p.whisker?.cutLo || p.whisker?.cutHi) {
+    lines.push(mutedLine(`clipped at the ${model.y.provisional ? 'provisional ' : ''}axis (${withUnit(model.y.min, model.unit)} to ${withUnit(model.y.max, model.unit)}); the values above are the true ones`));
+  }
+  if (!p.drives) lines.push(mutedLine('below N = 15: does not set the y range'));
+  return lines.join('<br/>');
+}
+
+/** The readout of one momentum bin: every series' value there. */
+function perfReadout(model, owner, i) {
+  const k = owner[i];
+  if (k < 0) return mutedLine('no momentum bin here');
+  const bins = model.bins;
+  const lines = [`<b>${escapeHtml(bins.label?.[k] ?? '')}</b> · ${escapeHtml(model.q.label ?? model.quantity)}`];
+  for (const s of model.series) {
+    const p = s.points.find((pt) => pt.i === k);
+    if (!p) { lines.push(mutedLine(`${s.label}: no shower`)); continue; }
+    const ci = Number.isFinite(p.lo) && Number.isFinite(p.hi) ? ` [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}]` : ' (no interval)';
+    lines.push(`<span style="color:${s.colour}">■</span> ${escapeHtml(s.label)}: ${withUnit(p.value, model.unit)}${ci} · N = ${formatInt(p.n)}`);
+  }
+  lines.push(mutedLine('brackets: the 95% interval of the statistic (the capped whisker)'));
+  return lines.join('<br/>');
+}
+
+/**
+ * The E2 option. Pure: `opts` = {quantity?, shower?: 'a' | 'b' | 'both',
+ * tooltipPosition?}; `metrics` = {width, height}.
+ */
+export function perfBinsOption(payload, opts = {}, metrics = {}) {
+  const model = perfModel(payload, opts);
+  if (!model) return emptyChartOption(opts, metrics, 'No per-bin performance in this response.');
+  if (!model.series.length || !Number.isFinite(model.y.max) || !(model.y.max > model.y.min)) {
+    return emptyChartOption(opts, metrics, `No ${model.q.label ?? 'statistic'} can be estimated in this selection.`);
+  }
+  const pad = axisPadding();
+  const width = metrics.width || 760;
+  const height = metrics.height || 340;
+  const plotWidthPx = Math.max(80, width - pad.left - pad.right);
+  const { y, unit } = model;
+  const series = [];
+  const legend = [];
+
+  for (const s of model.series) {
+    const colour = s.colour;
+    const isB = s.shower === 'b' && model.nShowers > 1;
+    const base = Math.min(Math.max(0, y.min), y.max);
+    series.push(withColour({
+      type: 'custom',
+      name: s.label,
+      clip: true,
+      z: 4,
+      data: s.points.map((p, index) => [p.x, p.value, index]),
+      renderItem: (params, api) => {
+        const p = s.points[params.dataIndex];
+        const top = Math.min(Math.max(p.value, y.min), y.max);
+        const a = api.coord([p.x0, base]);
+        const b = api.coord([p.x1, top]);
+        const fill = (isB ? FILL_B : FILL_A) * (p.weak ? 0.45 : 1);
+        return {
+          type: 'rect',
+          shape: { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(b[0] - a[0]), height: Math.abs(b[1] - a[1]) },
+          style: {
+            fill: colour, opacity: 1, fillOpacity: fill,
+            stroke: colour, strokeOpacity: legibleOpacity(colour, p.weak ? 0.5 : 1),
+            lineWidth: THEME.lineAxis, lineDash: p.weak ? [2, 2] : null,
+          },
+        };
+      },
+      tooltip: { formatter: (prm) => perfTip(model, s, s.points[prm.dataIndex]) },
+    }, colour));
+    legend.push(s.label);
+
+    const whiskers = s.points
+      .filter((p) => p.whisker && p.whisker.lo !== null && p.whisker.hi !== null && Number.isFinite(p.lo) && Number.isFinite(p.hi))
+      .map((p) => [p.x, p.whisker.lo, p.whisker.hi, { caps: p.whisker.caps, point: p, opacity: p.weak ? legibleOpacity(THEME.text, 0.6) : 1 }]);
+    if (whiskers.length) {
+      series.push(customWhiskers({
+        name: `${s.label} · 95% interval`,
+        points: whiskers,
+        capPx: CAP_PX,
+        color: THEME.text,
+        width: THEME.lineAxis,
+        z: 6,
+        tooltip: (d) => perfTip(model, s, d.point),
+      }));
+    }
+    const carets = [];
+    for (const p of s.points) {
+      const tip = perfTip(model, s, p);
+      if (p.value > y.max || p.whisker?.cutHi) carets.push({ at: [p.x, y.max], dir: 'up', tooltip: tip });
+      if (p.value < y.min || p.whisker?.cutLo) carets.push({ at: [p.x, y.min], dir: 'down', tooltip: tip });
+    }
+    if (carets.length) series.push(caretSeries({ name: `${s.label} (clipped)`, carets, color: colour }));
+  }
+
+  const { edges, owner } = binEdges(model.bins);
+  if (y.signed && y.min < 0) {
+    series.push(customLine({
+      name: 'zero', from: [edges[0], 0], to: [edges[edges.length - 1], 0], color: THEME.muted, width: THEME.lineAxis,
+      z: 3, tooltip: `zero ${escapeHtml(model.q.label ?? '')}: prediction and truth agree on average`,
+    }));
+  }
+  if (edges.length > 1) {
+    // One line per series: a list, so it leaves the chart like every explanation.
+    series.push(binHoverSeries({
+      name: 'bin readout', edges, y: Math.max(y.min, 0), tooltip: (i) => perfReadout(model, owner, i),
+    }));
+  }
+
+  const top = legendTop(legend, plotWidthPx);
+  const plotHeightPx = Math.max(60, height - top - pad.bottom);
+  const unitText = unit ? ` [${unit}]` : '';
+  const prov = y.provisional ? ' — provisional' : '';
+  const yName = fitName([`${model.q.label ?? model.quantity}${unitText}${prov}`, `${model.quantity}${unitText}${prov}`], plotHeightPx);
+  const xName = fitName(['Incident momentum p [GeV]', 'p [GeV]'], plotWidthPx);
+  const span = edges[edges.length - 1] - edges[0];
+  return {
+    ...baseOption(),
+    tooltip: wrapTooltip(tooltipOption(opts.tooltipPosition ?? null)),
+    grid: { left: pad.left, right: pad.right, top, bottom: pad.bottom },
+    legend: chartLegend(legend),
+    xAxis: valueAxis({ name: xName, min: edges[0], max: edges[edges.length - 1], interval: span > 12 ? 2 : 1 }),
+    yAxis: valueAxis({
+      name: yName, min: y.min, max: y.max, interval: dividingInterval(y.min, y.max), split: true, nameGap: 3.6 * THEME.fontLabel,
+    }),
+    series,
+  };
+}
+
+export class PerfBinsPanel extends ChartPanel {
+  constructor(elementOrId, { aspect } = {}) {
+    super(elementOrId, { kind: 'perf-bins', aspect });
+  }
+
+  buildOption({ payload, opts = {}, metrics }) {
+    return { option: perfBinsOption(payload, opts, metrics) };
+  }
+}

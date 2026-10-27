@@ -39,7 +39,7 @@ import { Shell } from './shell.js';
 import { page1Plan, carriedFrame } from './capabilities.js';
 import {
   Banner, describeError, escapeHtml, fillComputeBadges, fillExperimentSelect, chooseExperiment,
-  relabel, restoreLabel, relabelChoice, choiceTitle, writeSparseNote,
+  relabel, restoreLabel, relabelChoice, choiceTitle, writeSparseNote, wirePageTabs,
 } from './page_common.js';
 import {
   PhysicsSection, cardRequest, cardOptions, physicsNotes, exportMeta as physicsExportMeta,
@@ -1721,6 +1721,9 @@ const REQUIRED_IDS = [
 ];
 
 async function boot() {
+  // Read before anything writes the hash: State.writeHash replaces the URL
+  // with path and hash alone, so the query is gone once an experiment loads.
+  const openAdmin = new URLSearchParams(location.search).has('admin');
   const missing = missingIds(REQUIRED_IDS);
   if (missing.length) {
     // Almost always a cached script against fresh markup. Say so, because the
@@ -1745,7 +1748,18 @@ async function boot() {
   } catch (error) {
     reportError(error, 'loading experiments');
   }
+
+  // The Models page's Admin Settings link (/?admin=1) opens the panel here,
+  // with the view its hash carries; the query is dropped so a reload or a
+  // bookmark of this page does not open it again.
+  if (openAdmin) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    adminModal?.open();
+  }
 }
+
+// The header's page tabs carry the view (the hash) to the Models page and back.
+wirePageTabs();
 
 // A failure anywhere above must not leave a blank page with a silent console.
 window.addEventListener('error', (event) => {

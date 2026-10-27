@@ -1,0 +1,60 @@
+/* The Models page (/models): its sections, the cards' frame captions and the
+   3-D views' layout. Everything else - the shell, the cards, the toolbars -
+   is the Physics page's (layout.css, controls.css), so the two pages read as
+   one interface.
+
+   Like every track on either page, nothing here is animated: a chart's
+   ResizeObserver must measure the final geometry, never a width in flight. */
+
+/* --------------------------------------------------------- sections */
+
+/* Each section is the Physics section's two-column grid of cards with its
+   own heading; a wide card spans both columns and every plot keeps a fixed
+   height, so a card loading late never moves the cards above it. */
+.models-grid { margin-top: var(--gap); }
+
+/* The frame a card draws in when it is not the selected one: one muted line
+   under the title, never over the plot. */
+.card-caption {
+  margin: -2px 0 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.card-caption[hidden] { display: none; }
+
+/* The sidebar's radio groups are built from labels.js (page_common.js
+   choiceGroup) with the text in a span of its own, as Admin Settings builds
+   them: a wrapped line hangs under the text, not under the radio. */
+#m-model .choice, #m-frame .choice { display: flex; align-items: flex-start; gap: 8px; }
+#m-model .choice[hidden], #m-frame .choice[hidden] { display: none; }
+#m-model .choice input, #m-frame .choice input { flex: none; margin: 1px 0 0; }
+
+/* A card waiting for its panel module, or saying why it draws nothing in this
+   view: the muted sentence, not the error colour. */
+.card-error[data-kind="pending"],
+.card-error[data-kind="notice"] { color: var(--muted); }
+
+/* ---------------------------------------------------------- 3-D views */
+
+/* The host js/voxel_views.js fills. Each 3-D card sits beside its three
+   paired 2-D projections: the 3-D card spans their three rows. */
+.voxels-grid { margin-top: var(--gap); display: grid; gap: var(--gap); min-width: 0; }
+.voxels-grid[hidden] { display: none; }
+.voxels-pending { margin: 0; font-size: 12px; color: var(--muted); }
+.voxel-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--gap);
+  min-width: 0;
+}
+.voxel-3d { grid-row: span 3; }
+.plot.gl { height: 560px; }
+.voxel-legend { font-size: 11px; color: var(--muted); }
+.gl-notice { font-size: 12px; color: var(--muted); }
+
+/* Side by side needs room for both toolbars; below that the pair stacks. */
+@container main (max-width: 980px) {
+  .voxel-pair { grid-template-columns: minmax(0, 1fr); }
+  .voxel-3d { grid-row: auto; }
+}

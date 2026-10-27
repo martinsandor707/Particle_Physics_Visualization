@@ -460,3 +460,29 @@
    (616 px against a 426 px cell at 1280 px): it scrolls inside its card
    rather than spilling over the neighbouring panel. */
 .card-fit-table, #fit-table { overflow-x: auto; }
+
+/* ---------------------------------------------------------- page tabs */
+
+/* The header's two page tabs (Physics at /, Models at /models). Plain links:
+   page_common.js wirePageTabs gives each the current view's hash when it is
+   about to be followed. The current page's tab is filled; the other reads as
+   a link. Nothing here is animated. */
+.page-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+.page-tab {
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.page-tab:hover { color: var(--accent); }
+.page-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.page-tab.is-current { background: var(--border); color: var(--text); }

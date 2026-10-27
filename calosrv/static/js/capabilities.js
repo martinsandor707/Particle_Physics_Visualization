@@ -20,10 +20,14 @@
  * existed (frames ['lab', 'canonical'], channels ['density', 'gradcam'],
  * models ['segmentation']), and gets no physics cards.
  *
+ * The Models page reads the same block (`page2Plan`): which of its sections
+ * and cards the experiment can serve, the frames each of them draws in, the
+ * XGBoost model runs paired with it, and what its 3-D views offer.
+ *
  * Every text here is English and writes a negative number with U+2212.
  */
 
-import { FRAMES } from './state.js';
+import { FRAMES, apiFrame } from './state.js';
 import { offeredFrames, SINGLE_SHOWER_FRAME_LABELS, frameLabel } from './labels.js';
 
 /** The three input kinds the server ingests. */
@@ -296,5 +300,272 @@ export function carriedFrame(previousPlan, plan, frame) {
     frame: fallback,
     notice: `${frameLabel(frame, previousPlan.nShowers ?? 2)} is not offered for this experiment `
       + `(${plan.kindLabel}); showing ${frameLabel(fallback, plan.nShowers ?? 2)} instead.`,
+  };
+}
+
+/* ------------------------------------------------------- the Models page */
+
+/** The Models page's sections, in page order, and the cards each holds (card id = the server's gate). */
+export const PAGE2_SECTIONS = Object.freeze({
+  perf: Object.freeze(['perf-bins', 'pred-truth', 'pred-residuals']),
+  xgb: Object.freeze(['xgb-cv', 'xgb-binary', 'xgb-surrogate', 'xgb-importance']),
+  features: Object.freeze(['feat-table', 'feat-corr', 'feat-hist', 'feat-hist2d']),
+  primaries: Object.freeze(['prim-rate']),
+  voxels: Object.freeze(['vox-event', 'vox-ensemble']),
+});
+
+/* The XGBoost cards share one gate: the experiment's analysis is done and
+ * current (calosrv/modelruns, xgboost.md section 2.4). */
+const XGB_CARDS = new Set(PAGE2_SECTIONS.xgb);
+
+/* CLAUDE.md section 3 on the Models page: an experiment without network
+ * predictions shows ground truth and says so prominently. Where an XGBoost
+ * regressor pairs with the experiment, its holdout predictions are real model
+ * outputs and the performance cards draw them; nothing is substituted for
+ * the networks either way. */
+export const MODELS_MISSING_PREDICTIONS =
+  'No reconstruction-network predictions in this experiment: the network performance cards and the '
+  + 'attention channels of the 3-D views are unavailable, and no prediction is substituted for them. '
+  + 'The feature explorer, the primaries and the 3-D energy views show ground truth only.';
+export const MODELS_XGB_INSTEAD =
+  'No reconstruction-network predictions in this experiment. The performance cards draw the XGBoost '
+  + 'regressor paired with it, on its 20 % validation split; no network prediction is substituted.';
+
+/* The XGBoost notice of an experiment no model run pairs with; the server's
+ * own sentence follows it. */
+export const XGB_NOTICE =
+  'XGBoost views (E1 cross-validation, E3 99 : 1 binary thresholding, E4 depth-3 surrogate tree, '
+  + 'E5 gain importance) are shown for an event-level aggregate paired with the XGBoost models of '
+  + 'its species and seed; none pairs with this experiment.';
+
+/* Why the hit sections are absent for the event-level kind. */
+export const MODELS_EVENTS_ONLY =
+  'This experiment holds event-level features only: the primaries and the 3-D views need hits, so '
+  + 'they are not shown.';
+
+/* The frames each of the Models page's views draws in. The shared `frame`
+ * key may name a frame a view has no data for; the view then draws in its
+ * fallback and says so on its card, and the fallback is never written back to
+ * the link (frontend.md section 4.2). */
+const VIEW_FRAMES = Object.freeze({
+  // Per-event features are summed in the absolute, per-shower translated and
+  // Local frames; the D-frame has none (calosrv features `group1_frames`).
+  features: Object.freeze({ frames: ['lab', 'trans', 'local'], fallback: 'lab' }),
+  // The 3-D event cubes: exact cells in lab and trans, splatted in local and
+  // the D-frame.
+  event: Object.freeze({ frames: ['lab', 'trans', 'local', 'canonical'], fallback: 'lab' }),
+  // The ensemble cloud is co-registered only: trans has no 3-D accumulation.
+  ensemble: Object.freeze({ frames: ['local', 'canonical'], fallback: 'local' }),
+});
+
+/** Why a view draws in another frame than the one selected, by view. */
+const FALLBACK_WHY = {
+  features: 'per-event features are summed in the Absolute, Per-shower translated and Local frames only',
+  event: 'the 3-D event view is not offered in that frame for this experiment',
+  ensemble: 'the ensemble cloud is accumulated in the co-registered frames only (Local and the D-frame)',
+};
+
+/**
+ * The frame one Models-page view draws in for the selected `frame`.
+ *
+ * `use` is 'features', 'event', 'ensemble' or 'network'. A network reads the
+ * input frame it was trained on: the D-frame uses the absolute-frame
+ * networks (as on the Physics page), which is the definition of that frame's
+ * networks rather than a fallback. Returns `{frame, fallback, note}`, `note`
+ * the one sentence a card states when the view draws elsewhere. Pure.
+ */
+export function viewFrame(use, frame, offered = FRAMES, nShowers = 2) {
+  if (use === 'network') {
+    return { frame: apiFrame(frame).coord_system, fallback: false, note: null };
+  }
+  const spec = VIEW_FRAMES[use];
+  if (!spec) return { frame, fallback: false, note: null };
+  const allowed = spec.frames.filter((f) => offered.includes(f));
+  if (allowed.includes(frame)) return { frame, fallback: false, note: null };
+  const to = allowed.includes(spec.fallback) ? spec.fallback : (allowed[0] ?? null);
+  if (!to) return { frame: null, fallback: true, note: null };
+  return {
+    frame: to,
+    fallback: true,
+    note: `Drawn in ${frameLabel(to, nShowers)}: ${FALLBACK_WHY[use]}, so ${frameLabel(frame, nShowers)} `
+      + 'does not apply here. The selected frame is kept for the other views.',
+  };
+}
+
+/** The XGBoost output label a model run names ('incoming_phi' -> 'phi'). */
+function shortLabel(label) {
+  const text = String(label ?? '');
+  if (/phi/.test(text)) return 'phi';
+  if (/theta/.test(text)) return 'theta';
+  if (/momentum/.test(text)) return 'momentum';
+  return text;
+}
+
+/**
+ * The XGBoost block of a plan: the tasks the paired runs cover, each task's
+ * output labels, and where the analysis stands - 'ready' (the gate is open),
+ * 'pending' (queued or running), 'failed', 'stale', or 'none' (nothing pairs).
+ */
+function xgbBlock(caps, runs, open) {
+  const tasks = [...new Set(runs.map((run) => run.task).filter(Boolean))];
+  const labels = {};
+  for (const run of runs) {
+    if (!run.task) continue;
+    labels[run.task] = Array.isArray(run.labels) ? run.labels.map(shortLabel) : [];
+  }
+  const statuses = runs.map((run) => run.status);
+  let status = 'none';
+  if (runs.length) {
+    if (open) status = 'ready';
+    else if (statuses.includes('failed')) status = 'failed';
+    else if (statuses.some((s) => s === 'queued' || s === 'running')) status = 'pending';
+    else if (statuses.includes('stale')) status = 'stale';
+    else status = 'pending';
+  }
+  return {
+    tasks, labels, status, runs,
+    reason: open ? null : reasonOf(caps, 'xgboost'),
+    splitReproduced: runs.every((run) => run.split_reproduced !== false),
+  };
+}
+
+/**
+ * The Models page's plan for one experiment.
+ *
+ * - `sections`: which of the page's sections are on show. The performance
+ *   section shows when a network (or a paired XGBoost regressor, through the
+ *   same gates) can serve one of its cards; the XGBoost section when a model
+ *   run pairs with the experiment; the features section when its cards can
+ *   be served or a rebuild would open them; the primaries and the 3-D views
+ *   wherever there are hits (a shut card says why).
+ * - `cards`: `{shown, enabled, reason}` for every card, the server's sentence
+ *   on a shut one.
+ * - `models` / `networks`: the reconstruction networks; `frames`: the frames
+ *   the sidebar offers and the server's reason for each one it does not.
+ * - `xgb`: the paired model runs (`model_runs`), their tasks and labels, and
+ *   where the analysis stands.
+ * - `voxels`: what the 3-D views offer (VoxelSection.applyPlan reads it).
+ * - `banner`: the missing-predictions banner; `xgbNotice`: the XGBoost notice
+ *   (null when a run pairs); `notices`: the kind's own lines; `stale`: the
+ *   derived-table notice.
+ */
+export function page2Plan(experiment) {
+  const caps = capabilitiesOf(experiment);
+  const gate = (id) => (caps.panels ? Boolean(caps.panels[id]) : false);
+  const single = caps.nShowers === 1;
+  const runs = Array.isArray(experiment?.capabilities?.model_runs) ? experiment.capabilities.model_runs : [];
+  const xgbOpen = gate('xgboost') && runs.length > 0;
+  const staleNotice = caps.derived?.status === 'stale' ? (caps.derived.notice ?? null) : null;
+  const reasonFor = (id) => (XGB_CARDS.has(id) ? reasonOf(caps, 'xgboost') : reasonOf(caps, id));
+  const enabledOf = (id) => (XGB_CARDS.has(id) ? xgbOpen : gate(id));
+  const anyOpen = (ids) => ids.some(enabledOf);
+  const rebuildable = (ids) => Boolean(staleNotice) && ids.some((id) => caps.reasons[id] === staleNotice);
+
+  const sections = {
+    perf: Boolean(caps.panels) && anyOpen(PAGE2_SECTIONS.perf),
+    xgb: Boolean(caps.panels) && runs.length > 0,
+    features: Boolean(caps.panels) && (anyOpen(PAGE2_SECTIONS.features) || rebuildable(PAGE2_SECTIONS.features)),
+    primaries: Boolean(caps.panels) && caps.hasHits,
+    voxels: Boolean(caps.panels) && caps.hasHits,
+  };
+  const cards = {};
+  for (const [section, ids] of Object.entries(PAGE2_SECTIONS)) {
+    for (const id of ids) {
+      const enabled = sections[section] && enabledOf(id);
+      cards[id] = { shown: sections[section], enabled, reason: enabled ? null : reasonFor(id) };
+    }
+  }
+
+  const offered = offeredFrames(experiment);
+  const frameReasons = {};
+  for (const frame of FRAMES) {
+    if (!offered.includes(frame)) frameReasons[frame] = caps.reasons[`frame-${frame}`] ?? NO_REASON;
+  }
+
+  // The 3-D views: their frames and channels, each with the server's reason
+  // when it is shut. VoxelSection reads this block (`applyPlan(plan.voxels)`).
+  const eventFrames = VIEW_FRAMES.event.frames.filter((f) => offered.includes(f));
+  const ensembleFrames = VIEW_FRAMES.ensemble.frames.filter((f) => offered.includes(f));
+  const channelSet = (channels) => {
+    const open = [];
+    const shut = {};
+    for (const [channel, id] of channels) {
+      if (gate(id)) open.push(channel);
+      else shut[channel] = reasonOf(caps, id);
+    }
+    return { open, shut };
+  };
+  const eventChannels = channelSet([['energy', 'vox-event'], ['gradcam', 'vox-attention'],
+    ['shapcam', 'vox-attention'], ['segerr', 'vox-attention'], ['species', 'vox-species']]);
+  const ensembleChannels = channelSet([['density', 'vox-ensemble'], ['gradcam_energy', 'vox-attention'],
+    ['shapcam_energy', 'vox-attention']]);
+  const voxelReasons = {};
+  for (const id of ['vox-event', 'vox-ensemble', 'vox-attention', 'vox-species']) {
+    if (!gate(id)) voxelReasons[id] = reasonOf(caps, id);
+  }
+  const voxels = {
+    shown: sections.voxels,
+    kind: caps.kind,
+    nShowers: caps.nShowers,
+    showers: caps.showers,
+    species: gate('vox-species'),
+    networks: [...caps.networks],
+    event: {
+      enabled: sections.voxels && gate('vox-event'),
+      reason: gate('vox-event') ? null : reasonOf(caps, 'vox-event'),
+      frames: eventFrames,
+      channels: eventChannels.open,
+      disabledChannels: eventChannels.shut,
+    },
+    ensemble: {
+      enabled: sections.voxels && gate('vox-ensemble'),
+      reason: gate('vox-ensemble') ? null : reasonOf(caps, 'vox-ensemble'),
+      frames: ensembleFrames,
+      channels: ensembleChannels.open,
+      disabledChannels: ensembleChannels.shut,
+    },
+    reasons: voxelReasons,
+  };
+
+  const networks = caps.networks.length > 0;
+  const xgb = xgbBlock(caps, runs, xgbOpen);
+  let banner = null;
+  if (!networks) banner = runs.length && sections.perf ? MODELS_XGB_INSTEAD : MODELS_MISSING_PREDICTIONS;
+  const notices = [];
+  if (!caps.hasHits && caps.panels) notices.push(MODELS_EVENTS_ONLY);
+  if (staleNotice) notices.push(staleNotice);
+
+  return {
+    kind: caps.kind,
+    kindLabel: caps.kindLabel,
+    legacy: caps.legacy,
+    nShowers: caps.nShowers,
+    showers: caps.showers,
+    hasHits: caps.hasHits,
+    // Read by `carriedFrame` and the shared frame logic: the page draws in a
+    // frame wherever the experiment offers one.
+    spatial: offered.length > 0,
+    axes: filterAxes(experiment),
+    sections,
+    cards,
+    networks,
+    models: [...caps.networks],
+    frames: {
+      offered,
+      disabled: frameReasons,
+      transPrimary: single && offered.includes('trans'),
+      labels: single ? SINGLE_SHOWER_FRAME_LABELS : null,
+    },
+    xgb,
+    voxels,
+    banner,
+    xgbNotice: runs.length ? null : `${XGB_NOTICE} ${reasonOf(caps, 'xgboost')}`,
+    notices,
+    stale: staleNotice ? {
+      notice: staleNotice,
+      version: caps.derived.version ?? null,
+      current: caps.derived.current ?? null,
+    } : null,
+    reasons: { ...caps.reasons },
   };
 }
