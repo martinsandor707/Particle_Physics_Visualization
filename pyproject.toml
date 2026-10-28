@@ -45,3 +45,8 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "error::DeprecationWarning:calosrv",
 ]
+
+[dependency-groups]
+dev = [
+    "huggingface-hub>=2.3.0",
+]

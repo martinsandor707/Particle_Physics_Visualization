@@ -162,5 +162,3 @@ Not blocked by data; each is a deliberate change with its own review.
 - **Deployment.** The production experiment stays on derived tables v1 until an operator rebuilds it
   (`python -m calosrv.ingest --rebuild -t <name>`). Until then the cards that need the new tables stay shut and say
   why.
-- **Datasets on Hugging Face.** The Parquet datasets are moving from Git LFS to a Hugging Face dataset. The
-  README's download steps and `.gitattributes` change with that move.

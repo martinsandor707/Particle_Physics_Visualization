@@ -2,8 +2,8 @@
 
 ``hits_all_models_dummy.parquet`` at the repository root is the image's seed
 (Dockerfile) and the suite's: the same 1,000 rows as ``ingest/``'s copy, kept in
-plain git so a fresh clone builds and tests without Git LFS. It replaced the
-CSV of the same name; its coordinate, momentum and network columns are float32.
+git so a fresh clone builds and tests before the data are downloaded. It replaced
+the CSV of the same name; its coordinate, momentum and network columns are float32.
 
 :func:`rows` reads it as the CSV module once read the CSV - a header and lists
 of strings - for the fixture generators that copy template rows verbatim. A

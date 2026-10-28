@@ -33,11 +33,11 @@ read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
 - **Parquet.** Every dataset in the repository is ZSTD-3 Parquet. CSV is still
   accepted, and its columns must then come in the schema's exact order; a Parquet
   file may carry them in any order.
-- **Not in Git LFS.** The aggregates, and any file you add, are not stored in Git
-  LFS or in git at all: the datasets are moving to a Hugging Face dataset, and
-  until then you copy them in. The two `hits_all_models` files that the
-  README's Quick start downloads are the exception today, tracked with Git LFS
-  until that move.
+- **Downloaded, not in git.** The six Parquet files are kept in the public
+  Hugging Face dataset
+  <https://huggingface.co/datasets/martinsandor707/particles_combined_all_models>,
+  and step 2 of the README's Quick start downloads them into this folder. Any
+  file you add stays on your computer: git ignores it, and nothing uploads it.
 - **Nothing is replaced.** A file whose experiment already exists, in any state,
   is skipped, and so is a file already ingested under another name (same file
   name and size). To replace an experiment, use the Upload dataset section of Admin
@@ -51,5 +51,4 @@ read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
   and anything that is not `.csv` or `.parquet`. A file that fails the schema
   check is listed in the panel with the reason, and left alone.
 
-The files themselves are ignored by git, apart from the two LFS-tracked ones
-above; only this note is otherwise tracked.
+The files themselves are ignored by git; only this note is tracked.

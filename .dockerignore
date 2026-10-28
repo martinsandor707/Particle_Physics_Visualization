@@ -7,6 +7,8 @@
 data/
 # The drop folder reaches the container through the read-only mount, not the image.
 ingest/
+# The data download's bookkeeping, and the partial file of an interrupted download.
+.cache/
 .venv/
 .git/
 __pycache__/

@@ -43,25 +43,17 @@ def format_of_name(name: str) -> str | None:
     return SUFFIXES.get(Path(name).suffix.lower())
 
 
-#: How a file tracked with Git LFS begins before ``git lfs pull`` has replaced
-#: it with its content: a short text pointer, which a clone without the
-#: download leaves in place of each dataset.
-_LFS_POINTER = b"version https://git-lfs.github.com/spec/v1"
-
-
 def detect_format(path: Path) -> str:
     """``csv`` or ``parquet``, from the file's first and last bytes.
 
-    Raises ``IngestError`` for a Git LFS pointer left by a clone without the
-    download, a compressed file, a truncated Parquet file (the footer is written
-    last, so a file still being copied has none) and a file named ``.parquet``
-    that is not one.
+    Raises ``IngestError`` for a compressed file, a truncated Parquet file (the
+    footer is written last, so a file still being copied has none) and a file
+    named ``.parquet`` that is not one.
     """
     try:
         size = path.stat().st_size
         with path.open("rb") as handle:
-            start = handle.read(len(_LFS_POINTER))
-            head = start[:4]
+            head = handle.read(4)
             tail = b""
             if size >= 8:
                 handle.seek(-4, os.SEEK_END)
@@ -69,12 +61,6 @@ def detect_format(path: Path) -> str:
     except OSError as exc:
         raise IngestError(f"Could not read {path.name}: {exc}") from exc
 
-    if start == _LFS_POINTER:
-        raise IngestError(
-            f"{path.name} is a Git LFS pointer, not the dataset: the file itself was never "
-            "downloaded. Run `git lfs pull` in the repository (README, Quick start), then "
-            "restart the server or press Scan now."
-        )
     if head == PARQUET_MAGIC:
         if tail != PARQUET_MAGIC:
             raise IngestError(
