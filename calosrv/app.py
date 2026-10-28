@@ -237,8 +237,8 @@ async def lifespan(app: FastAPI):
     from .ingest import autoingest
 
     app.state.auto_ingest = autoingest.scan(database, settings, store)
-    # A file that arrived moments before this boot - a dataset `git lfs pull`
-    # had just written - waits out the settle window. Scan again for it then,
+    # A file that arrived moments before this boot - a dataset whose download
+    # had just finished - waits out the settle window. Scan again for it then,
     # rather than leaving it for the next start.
     watch = autoingest.SettleWatch(
         database, settings, store,

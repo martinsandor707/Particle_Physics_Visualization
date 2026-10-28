@@ -18,26 +18,11 @@ Both honour the same scientific-integrity rules — see [CLAUDE.md](CLAUDE.md).
 ## Quick start
 
 This section is for physicists who want to run the dashboard on their own
-computer and have not used Git or Docker before. You need one account, three
-programs and six commands. After that the dashboard runs in your web browser.
+computer and have not used Git or Docker before. You need three programs and
+six commands, and no account anywhere. After that the dashboard runs in your web
+browser.
 
 ### What you need
-
-**A GitLab account with access to the data.** The code is public on GitHub, but
-its two data files are stored on the University of Debrecen GitLab server,
-<https://gitlab.inf.unideb.hu>, in the project `lr/epic`. Downloading them
-needs an account there with access to that project. Ask the project
-maintainers for access if you do not have it.
-
-When Git downloads the data it asks for a password, and that password must be
-a GitLab access token, not your usual password. To create one:
-
-1. Sign in at <https://gitlab.inf.unideb.hu>.
-2. Select your avatar, then **Edit profile** (on older GitLab versions,
-   **Preferences**), then **Access tokens**.
-3. Add a new token: give it any name, tick the **read_repository** scope and
-   create it.
-4. Copy the token straight away. GitLab shows it only once.
 
 **Three programs.** Install them, then open a new terminal window so that it
 finds them.
@@ -45,12 +30,19 @@ finds them.
 | Program | Used for | Download |
 |---|---|---|
 | Git | downloading the code | <https://git-scm.com/downloads> |
-| Git LFS | downloading the two large data files | <https://git-lfs.com>, already included in Git for Windows |
+| Python 3.10 or newer | downloading the data | <https://www.python.org/downloads/> |
 | Docker Desktop on Windows and macOS, or Docker Engine with the Compose plugin on Linux | running the dashboard | <https://docs.docker.com/get-started/get-docker/> |
 
-**Room on your computer.** About 12 GB of free disk space: the download takes
-5.5 GB, because Git keeps a second copy of each data file, and the loaded
-database another 5.2 GB. Docker must also be allowed at least 8 GB of memory:
+To see which Python you have, run `python3 --version` (`py --version` on
+Windows). Many Linux systems already have a new enough one; the one macOS
+provides is too old, so install Python from python.org there. If you use
+[uv](https://docs.astral.sh/uv/), it can take Python's place: see the end of
+step 2.
+
+**Room on your computer.** About 11 GB of free disk space: the code takes
+0.6 GB, the data download 3.1 GB, the dashboard's Docker image 0.6 GB, and the
+loaded database another 6.0 GB. Docker must also be allowed at least 8 GB of
+memory:
 
 - **Windows:** Docker Desktop may use half of the computer's memory by default,
   so a computer with 16 GB is enough.
@@ -58,52 +50,76 @@ database another 5.2 GB. Docker must also be allowed at least 8 GB of memory:
   memory limit to at least 8 GB.
 - **Linux:** Docker may use all of the computer's memory.
 
-### Step 1: download the code and the data
+### Step 1: download the code
 
 Open a terminal: **PowerShell** on Windows, **Terminal** on macOS and Linux.
-Every command below is typed the same way on all three systems. A new terminal
-starts in your home folder, which is a good place for the project. Run the
-commands one at a time and press Enter after each:
+A new terminal starts in your home folder, which is a good place for the
+project. Run the commands one at a time and press Enter after each:
 
 ```
-git lfs install
-git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false clone https://github.com/martinsandor707/Particle_Physics_Visualization.git
+git clone https://github.com/martinsandor707/Particle_Physics_Visualization.git
 cd Particle_Physics_Visualization
-git lfs pull
 ```
 
-1. `git lfs install` switches Git LFS on for your user account. It is needed
-   once per computer.
-2. The `clone` command downloads the code into a new folder named
-   `Particle_Physics_Visualization`. Its three `-c` settings tell Git to leave
-   the two large data files for the next step, so that a mistyped password
-   cannot leave a broken copy behind.
-3. `cd Particle_Physics_Visualization` moves into that folder. Run every later
+1. `git clone` downloads the code into a new folder named
+   `Particle_Physics_Visualization`.
+2. `cd Particle_Physics_Visualization` moves into that folder. Run every later
    command from inside it.
-4. `git lfs pull` downloads the two data files, 2.9 GB in all, into the folder
-   `ingest`. Git asks for a username and a password for `gitlab.inf.unideb.hu`.
-   Enter your GitLab username, then paste the access token as the password.
-   Nothing appears on screen while you paste a password, so just press Enter
-   afterwards. On Windows a sign-in window may open instead, asking for the
-   same two things.
 
-Then check that both files arrived:
+### Step 2: download the data
 
-```
-git lfs ls-files
-```
+The data are kept in a public Hugging Face dataset,
+<https://huggingface.co/datasets/martinsandor707/particles_combined_all_models>,
+which anyone may download without an account. Hugging Face's download program,
+`hf`, puts each file into the folder the dashboard reads it from. The commands
+below install `hf` into a separate Python environment inside the project
+folder, so it changes nothing else on your computer, and then run it.
 
-Each line must show an asterisk `*` between the code and the file name:
+On **macOS and Linux**:
 
 ```
-8712280518 * ingest/hits_all_models.parquet
-d88d42cc5b * ingest/hits_all_models_dummy.parquet
+python3 -m venv .venv
+.venv/bin/python -m pip install huggingface_hub==2.3.0
+.venv/bin/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
 ```
 
-A dash `-` in place of the asterisk means that file was not downloaded. Run
-`git lfs pull` again; it is safe to repeat as often as needed.
+On **Windows**:
 
-### Step 2: start the dashboard
+```
+py -m venv .venv
+.venv\Scripts\python -m pip install huggingface_hub==2.3.0
+.venv\Scripts\hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
+```
+
+1. The first command creates the separate Python environment, a folder named
+   `.venv`.
+2. The second installs `hf` into it, in the version these instructions were
+   tested with.
+3. The third downloads the data, 3.1 GB in all: the six data files into the
+   folder `ingest`, and the sixteen XGBoost models into `xgboost_models`. It
+   warns that you are sending unauthenticated requests, which is expected
+   because no account is needed, and the first time it may suggest an `hf-cli`
+   skill for AI agents, which you can ignore. When it has finished, it prints
+   `Downloaded` and the path of the project folder.
+
+If the download stops with an error, run the third command again. It keeps what
+it already has and fetches the rest, so it is safe to repeat as often as needed.
+
+**With uv instead of Python and pip.** If you already use
+[uv](https://docs.astral.sh/uv/), one command replaces all three, and it is the
+same on every system. It installs only `hf` into `.venv`, in the version the
+project's `uv.lock` names, and fetches a Python if it needs one:
+
+```
+uv run --only-group dev hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
+```
+
+Keep `--only-group dev`: without it, uv first installs the whole dashboard,
+whose XGBoost package has no ready-made build for macOS. Keep both `--include`
+patterns too: without them, the download also writes the dataset's own
+`.gitattributes` and `ingest/README.md` over the project's.
+
+### Step 3: start the dashboard
 
 On Windows and macOS, start Docker Desktop first and wait until it says that it
 is running. Then, in the same terminal:
@@ -129,7 +145,7 @@ If Docker may use 24 GB or more, you can leave out `--env-file laptop.env`. The
 dashboard then gives its database 16 GB and loads the data faster. Whichever you
 choose, use the same command every time you start it.
 
-### Step 3: wait for the first data load
+### Step 4: wait for the first data load
 
 The first start takes a few minutes, and the page opens before it has finished.
 
@@ -138,8 +154,11 @@ The first start takes a few minutes, and the page opens before it has finished.
 2. The dashboard loads a built-in demonstration dataset of two events within
    seconds, and the page opens on it.
 3. It then loads the files in the `ingest` folder, one after the other:
-   `hits_all_models.parquet`, the full dataset of 20,325 events, and
-   `hits_all_models_dummy.parquet`, the same two demonstration events.
+   `hits_all_models.parquet`, the full dataset of 20,325 events, and the four
+   aggregates `electron_…`, `muon_…`, `pion_…` and `proton_…`, about 100,000
+   single-particle events each, which the **Models** page analyses with the
+   XGBoost models. It recognises `hits_all_models_dummy.parquet` as the
+   demonstration dataset it already has, and skips it.
 
 Until the full dataset is ready, a banner at the top of the page says that the
 default experiment `'hits_all_models'` is queued or ingesting, and the
@@ -151,9 +170,11 @@ Verification for 'hits_all_models': PASSED
 
 reload the page and choose `hits_all_models — 20,325 events` in the
 **Experiment** menu. From then on, opening <http://localhost:8000> starts on it.
-On a desktop computer with `laptop.env`, the full dataset was ready 94 s after
-the start, and the dashboard used at most 4.6 GB of memory while loading it.
-Allow a few minutes on a laptop.
+On a desktop computer with `laptop.env`, the full dataset on its own was ready
+94 s after the start, and the dashboard used at most 4.6 GB of memory while
+loading it. The four aggregates take seconds each, and on a desktop computer the
+**Models** page's analyses of them were done within a minute after that. Allow a
+few minutes on a laptop.
 
 The loaded data is kept in the project's `data` folder, so later starts take a
 few seconds and load nothing again. The files in `ingest` are never changed.
@@ -167,24 +188,33 @@ Run these in the project folder.
 - **Start the dashboard:** `docker compose --env-file laptop.env up`
 - **Stop it:** press Ctrl+C in its terminal, or run `docker compose down` in
   another terminal.
-- **Update to the newest version**, with the same three settings as the clone
-  so that a failed data download cannot leave a half-updated copy:
+- **Update to the newest version:**
 
   ```
-  git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false pull
-  git lfs pull
+  git pull
+  .venv/bin/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
   docker compose --env-file laptop.env up --build
   ```
+
+  On Windows the middle line starts with `.venv\Scripts\hf` instead, and with
+  uv it is the `uv run` command of step 2. The download fetches only files that
+  changed. A copy made before the data moved to Hugging Face has no `.venv`
+  folder yet, and its `git pull` removes the two `hits_all_models` files from
+  `ingest`: run all of step 2 once in place of the middle line. Data the
+  dashboard has already loaded stays in its `data` folder.
 
 ### If something goes wrong
 
 | What you see | What to do |
 |---|---|
-| `git: 'lfs' is not a git command` | Git LFS is not installed. Install it, open a new terminal, and start again from `git lfs install`. |
-| `git lfs pull` reports `Authentication required`, `Access denied` or `credentials … not found` | The username or the token is wrong, the token lacks the **read_repository** scope, or your account has no access to `lr/epic`. Fix that, then run `git lfs pull` again. |
+| `python3: command not found`, `'py' is not recognized`, or `Python was not found` | Python is not installed, or the terminal was opened before it was. Install it, open a new terminal, run `cd Particle_Physics_Visualization`, and start step 2 again. With Anaconda on Windows, type `python` where step 2 says `py`. |
+| `ensurepip is not available` | On Debian and Ubuntu, Python's environments come in a separate package. Install it with `sudo apt install python3-venv`, then start step 2 again. |
+| `Could not find a version that satisfies the requirement huggingface_hub==2.3.0` | This Python is older than 3.10; on macOS it is probably the one Apple provides. Install a newer one from python.org, open a new terminal, and start step 2 again with `python3 -m venv --clear .venv` (`py -m venv --clear .venv` on Windows) as its first command. |
+| The download stops with an error such as `ConnectError`, `ReadTimeout` or `Connection reset` | The connection was interrupted. Run the `hf download` command again: it keeps what it already has and fetches the rest. |
+| `git pull` stops with `Your local changes to the following files would be overwritten by merge`, naming the two `hits_all_models` files | Your copy holds data files that Git still counts as its own, for example ones copied in by hand. Move those two files out of `ingest`, run `git pull`, then move them back. The download of step 2 checks them and does not fetch them again. |
 | `Cannot connect to the Docker daemon`, `error during connect`, or `docker` is not found | Docker is not running or not installed. Start Docker Desktop and wait until it is running. On Linux, if you see `permission denied`, put `sudo` in front of the `docker` command. |
 | `port is already allocated` | Another program already uses port 8000, possibly an earlier copy of the dashboard. Run `docker compose down`, or close the other program, then start again. |
-| Several minutes after the start, the **Experiment** menu still has no `hits_all_models`, even after a reload | The full dataset was not loaded. Open **Admin Settings** at the top right and look under **Automatic ingest**: the line for `hits_all_models.parquet` gives the reason. *Is a Git LFS pointer* means the file was never downloaded: stop the dashboard, run `git lfs pull`, and start it again. |
+| Several minutes after the start, the **Experiment** menu still has no `hits_all_models`, even after a reload | The full dataset was not loaded. Open **Admin Settings** at the top right and look under **Automatic ingest**: the line for `hits_all_models.parquet` gives the reason. If no line names it, the file is not in the `ingest` folder: stop the dashboard, run the download of step 2 again, and start it again. |
 | The **Experiment** menu shows `hits_all_models — failed`, and a banner gives the reason; the terminal may also have shown `exited with code 137` | Loading usually fails because it ran out of memory. Give Docker more memory, or start with `--env-file laptop.env`, then load the dataset again: in **Admin Settings → Upload dataset**, choose **Already on the server**, pick `ingest/hits_all_models.parquet`, enter `hits_all_models` as the experiment name, tick **Replace the existing experiment**, and select **Upload & Ingest**. |
 
 The rest of this README is for developers and operators: configuration, data
@@ -372,10 +402,8 @@ ln ~/datasets/run_2026_10.parquet ingest/run_2026_10.parquet   # a hard link cos
   panel with the reason and left alone, instead of adding a failed experiment
   at every boot. A file modified within the settle window is taken to be still
   copying, and the scan runs again by itself one second after the window
-  closes (`autoingest.SettleWatch`), so a dataset that `git lfs pull` wrote
-  moments before the start is still loaded at that start. A Git LFS pointer, a
-  tracked dataset that was never downloaded, is named as such, with the
-  command that downloads it.
+  closes (`autoingest.SettleWatch`), so a dataset whose download finished
+  moments before the start is still loaded at that start.
 - **Never in the way.** The scan only decides and queues. The ingests run one
   at a time on the worker an upload uses, so the server answers at once. An
   ingest that crashes leaves a failed registry row, which the next boot treats
@@ -3945,9 +3973,9 @@ CALOSRV_DATA_DIR=./data DUCKDB_MEMORY_GB=4 .venv/bin/python -m calosrv
 #### Test data
 
 - **The seed.** The suite ingests the 1000-row `hits_all_models_dummy.parquet`
-  at the repository root (the image's seed, kept in plain git so a fresh clone
-  builds and tests without Git LFS; its coordinate, momentum and network columns
-  are float32). `tests/seed.py` reads it back as text rows for the generators
+  at the repository root (the image's seed, kept in git so a fresh clone builds
+  and tests before the data are downloaded; its coordinate, momentum and network
+  columns are float32). `tests/seed.py` reads it back as text rows for the generators
   that copy template rows verbatim, and writes the CSV copy the tests of the CSV
   reader use under `data/dev/test-seed/` on first use.
 - **Synthetic files**, written into pytest's temporary directories from the

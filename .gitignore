@@ -228,3 +228,5 @@ data/
 # The automatic-ingest drop folder: datasets are never committed, the note is.
 ingest/*
 !ingest/README.md
+
+hf_update/**

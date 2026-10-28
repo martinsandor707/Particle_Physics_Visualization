@@ -162,8 +162,8 @@ class SettleWatch:
 
     A file modified within the settle window is taken to be still copying and
     waits. At boot that window also catches a file that has only just arrived -
-    a dataset ``git lfs pull`` finished writing moments before ``docker compose
-    up`` - which would otherwise wait for the next start or for Scan now, so the
+    a dataset whose download finished moments before ``docker compose up`` -
+    which would otherwise wait for the next start or for Scan now, so the
     README's first start could quietly leave it out. Whenever a scan leaves
     files waiting, one more scan therefore runs once they would be settled, and
     again after that while any still are; each publishes its report where the

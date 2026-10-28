@@ -1,19 +1,22 @@
 """The files a fresh clone runs on: the README's Quick start, pinned at the source.
 
-A physicist following the Quick start clones the repository, downloads the two
-datasets with Git LFS and starts ``docker compose``. Every property that path
-depends on is checked here without Docker: that the image builds from tracked
-files only, that the memory settings the README names exist with the values
-it quotes, that the default experiment is the one the drop folder creates
-from the tracked dataset, and that the line endings Windows would otherwise
-convert are pinned.
+A physicist following the Quick start clones the repository, downloads the data
+from the project's Hugging Face dataset and starts ``docker compose``. Every
+property that path depends on is checked here without Docker or a network: that
+the image builds from tracked files only, that the memory settings the README
+names exist with the values it quotes, that the default experiment is the one
+the drop folder creates from the downloaded dataset, that the download fetches
+the data and the models into the folders they are read from, and that the line
+endings Windows would otherwise convert are pinned.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -21,6 +24,13 @@ import pytest
 from calosrv.db import naming
 
 ROOT = Path(__file__).resolve().parent.parent
+
+#: The Quick start's data download, as `hf download` reads it: the dataset and
+#: one glob per --include, each matched against the dataset's paths.
+DATASET = "martinsandor707/particles_combined_all_models"
+INCLUDE = ("ingest/*.parquet", "xgboost_models/*.json")
+DOWNLOAD = (f"hf download {DATASET} --repo-type dataset "
+            + " ".join(f'--include "{pattern}"' for pattern in INCLUDE) + " --local-dir .")
 
 
 def _read(name: str) -> str:
@@ -110,16 +120,28 @@ def test_the_laptop_profile_is_what_the_readme_quotes():
 # ------------------------------------------------- the data and the view --
 
 
-def test_the_default_experiment_is_the_one_the_tracked_dataset_becomes():
+def _downloaded(path: str) -> bool:
+    """Whether the download fetches ``path``: `hf` matches case-sensitively, `*` crossing `/`."""
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in INCLUDE)
+
+
+def test_the_default_experiment_is_the_one_the_downloaded_dataset_becomes():
+    """The datasets arrive by the download, not the clone, into the folder the drop folder reads."""
     tracked = _tracked()
-    assert {"ingest/hits_all_models.parquet", "ingest/hits_all_models_dummy.parquet"} <= tracked
-    attributes = _read(".gitattributes")
-    for path in ("ingest/hits_all_models.parquet", "ingest/hits_all_models_dummy.parquet"):
-        assert f"{path} filter=lfs diff=lfs merge=lfs -text" in attributes
+    assert "ingest/README.md" in tracked
+    assert not [path for path in tracked if path.startswith("ingest/") and path != "ingest/README.md"]
+    assert _downloaded("ingest/hits_all_models.parquet")
     compose = _read("docker-compose.yml")
     default = re.search(r"- CALOSRV_DEFAULT_DATASET=(\S+)", compose).group(1)
     assert default == naming.derive_experiment_name("hits_all_models")
     assert "- CALOSRV_AUTO_INGEST_DIR=/app/host/ingest" in compose and "- .:/app/host:ro" in compose
+
+
+def test_the_download_covers_the_models_and_leaves_the_tracked_note_alone():
+    """The dataset mirrors both folders; its copy of the drop folder's note may lag the clone's."""
+    models = sorted(path for path in _tracked() if path.startswith("xgboost_models/"))
+    assert models and all(_downloaded(path) for path in models), "every model the service reads"
+    assert not _downloaded("ingest/README.md")
 
 
 def test_files_docker_reads_keep_their_line_endings_on_windows():
@@ -135,22 +157,39 @@ def test_files_docker_reads_keep_their_line_endings_on_windows():
 def test_the_quick_start_gives_the_commands_in_order():
     readme = _read("README.md")
     quick = readme[readme.index("## Quick start"):readme.index("## Configuration")]
+    # Python and pip on macOS and Linux, then on Windows, then uv on any system:
+    # the same download each time, with the version of `hf` it was tested with.
     commands = [
-        "git lfs install",
-        "git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false clone "
-        "https://github.com/martinsandor707/Particle_Physics_Visualization.git",
+        "git clone https://github.com/martinsandor707/Particle_Physics_Visualization.git",
         "cd Particle_Physics_Visualization",
-        "git lfs pull",
-        "git lfs ls-files",
+        "python3 -m venv .venv",
+        ".venv/bin/python -m pip install huggingface_hub==2.3.0",
+        ".venv/bin/" + DOWNLOAD,
+        "py -m venv .venv",
+        ".venv\\Scripts\\python -m pip install huggingface_hub==2.3.0",
+        ".venv\\Scripts\\" + DOWNLOAD,
+        "uv run --only-group dev " + DOWNLOAD,
         "docker compose --env-file laptop.env up --build",
     ]
     positions = [quick.index(command) for command in commands]
     assert positions == sorted(positions), "the commands appear in the order they are run"
-    # An update pulls with the same three settings: a plain `git pull` that brings
-    # in a dataset fails half-way without credentials, as a plain clone does.
     update = quick[quick.index("### Every day"):quick.index("### If something goes wrong")]
-    assert "git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false pull" in update
-    assert update.index("required=false pull") < update.index("git lfs pull") < update.index("up --build")
-    assert "gitlab.inf.unideb.hu" in quick and "read_repository" in quick
+    assert update.index("git pull") < update.index(DOWNLOAD) < update.index("up --build")
+    assert "hf auth" not in quick, "the dataset is public: the download needs no sign-in"
     assert "http://localhost:8000" in quick
     assert "−" not in "".join(commands), "commands keep ASCII hyphens"
+
+
+def test_pip_and_uv_install_the_same_hf():
+    """pip takes the version from the README, uv from the lock: the two must agree.
+
+    uv installs the `dev` group alone, never the project, whose xgboost-cpu has no macOS wheel.
+    """
+    group = tomllib.loads(_read("pyproject.toml"))["dependency-groups"]["dev"]
+    assert any(re.match(r"huggingface-hub\b", requirement) for requirement in group)
+    lock = tomllib.loads(_read("uv.lock"))
+    locked = next(package["version"] for package in lock["package"]
+                  if package["name"] == "huggingface-hub")
+    readme = _read("README.md")
+    quick = readme[readme.index("## Quick start"):readme.index("## Configuration")]
+    assert set(re.findall(r"huggingface_hub==([\w.]+)", quick)) == {locked}
