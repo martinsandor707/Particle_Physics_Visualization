@@ -14,7 +14,6 @@ The figures quoted were measured on the electron files on 2026-10-24 (data chara
 | C6 species voxels and C11 on two-shower events | /models | hits_all_models schema v2 | 5 |
 | Engineering follow-ups (shared size guard, inspector splat k, D-frame cloud cap, φ-spread fixture) | — | nothing; review each | 8 |
 | Follow-ups from the Page 2 review (estimator and fading consistency on Page 1, contracts generator, re-measurements) | both | nothing; review each | 9 |
-| Follow-ups from the Methodology page (drawer-to-article links, the lattice docstrings, MathML beyond Chromium) | all three | nothing; review each | 10 |
 
 The XGBoost views E1, E3, E4 and E5 and the XGBoost series of E2 and of the prediction density are live (§1). An aggregate experiment shows them once its species' s1 models are paired and analysed; until then the cards say why.
 
@@ -164,18 +163,13 @@ Not blocked by data; each is a deliberate change with its own review.
   (`python -m calosrv.ingest --rebuild -t <name>`). Until then the cards that need the new tables stay shut and say
   why.
 
-## 10. Follow-ups from the Methodology page (2026-10-29)
+## 10. Follow-ups from the Methodology page: done (2026-10-29)
 
-Not blocked by data; each is a deliberate change with its own review.
-
-- **A permanent way from a panel to its section.** A Details drawer links back to the article only when its panel
-  was opened from a Methodology badge (`Shell.setReturnLink`). Every drawer could carry a link to the section that
-  explains its panel; that needs a panel → section map kept in step with the article by a test.
-- **The anchor explainer's formulas through `math.js`.** The D-frame's entry-anchor popup (`frame_views.js`
-  `anchorExplainer`) still sets its two formulas as plain text.
-- **The lattice docstrings.** `grid/lattice.py` and `grid/resolution.py` say 211 x cells. The production file has
-  212 x, 104 y and 60 z positions (`ingest/hits_all_models.parquet`, measured 2026-10-29). Re-measure the x gap
-  histogram the lattice docstring quotes, then correct both.
-- **MathML beyond Chromium.** The equations were checked in Chromium 156 with DejaVu Math TeX Gyre and Noto Sans
-  Math. Firefox, Safari and other math fonts are unchecked. `\widehat` and `\widetilde` do not stretch in Chromium,
-  so the article avoids them over long groups.
+- **A permanent way from a panel to its section.** Every Details drawer on the Physics and Models pages opens with
+  a link to the article section that explains its panel (`static/js/article_sections.js`, held to the article by
+  `tests/test_article_sections.py`; `1d33374`, `8356776`).
+- **The anchor explainer's formulas through `math.js`.** The D-frame's entry-anchor popup sets its three formulas
+  as MathML in the article's notation, with the plain text as the fallback (`1d33374`).
+- **The lattice docstrings.** Re-measured on `ingest/hits_all_models.parquet`: 212 x, 104 y and 60 z positions; two
+  sparse x positions sit 0.91 mm and 0.15 mm from a neighbour, which is the 212th (`dd47792`).
+- **MathML beyond Chromium.** Martin checked the equations in Firefox (2026-10-29); no other browser is targeted.

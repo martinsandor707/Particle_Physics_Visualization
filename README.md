@@ -1387,8 +1387,9 @@ direction; the reference notebook's origin is the shower's first-layer entry
 point P₀ (the energy-weighted centroid of its first populated layer, at that
 layer's z). Both are in the event table, so `anchor=backprojected|p0` on
 `frame=canonical` (the sidebar's *Entry anchor* radio under Translated, whose
-ⓘ button opens a popup with both definitions, their formulas, the distance
-measured between them on the current selection and what switching changes;
+ⓘ button opens a popup with both definitions, their formulas (MathML through
+`math.js`, in the Methodology's notation), the distance measured between them
+on the current selection and what switching changes;
 `frame_views.js: anchorExplainer`) picks either: with `p0` the origin is the midpoint of the two P₀, each back-projected
 the short distance (z₀ − z_f) tan θ to the front face, and ψ the azimuth
 between them; `z′ = z − z_f` is untouched. The two definitions are measured
@@ -3819,6 +3820,36 @@ the other pages; on a phone-width screen it starts folded and opens above the
 article. The page prints as an article: white paper, dark ink, no chrome, every
 table and equation inside the A4 text block.
 
+**Every drawer links to the article.** On the Physics and Models pages,
+every Details drawer opens with one line, *How it is drawn: Methodology §n …*,
+linking to the section that explains its panel: the Results subsection that
+audits it, at its badge row. The link carries the reader's view, as a badge
+does. A panel opened from a badge also shows the return link; when both lead
+to the same place, only the return link is shown. The dashboard pages do not
+load the article, so the map is data (`static/js/article_sections.js`), and
+`tests/test_article_sections.py` derives it from the article and fails when
+the two drift, printing the entries to paste.
+
+**Export.** The header's *Export* button downloads
+`calosrv-methodology-<date>.zip`, built in the browser from the same content
+modules; nothing goes to the service:
+
+| File | What it is |
+|---|---|
+| `methodology.tex` | the article as one pdfLaTeX document: the page's sections, numbering, equations (the same TeX), tables, figures, cross-references and citations; ASCII only, every character the content uses mapped to LaTeX |
+| `references.bib` | the cited references, in order of first citation, written from the structured `bib` fields of `content/references.js` (held to the printed text by `tests/test_methodology_references.py`) |
+| `figures/<id>.svg`, `figures/<id>.png` | every figure drawn for paper (`exhibits.js` medium `'paper'`), as SVG and as a 300 dpi PNG with its density recorded |
+
+Build it with `latexmk -pdf methodology` (or pdflatex, bibtex, pdflatex
+twice); it needs only standard TeX Live packages. The paper figures are not
+the page's: they are drawn for the 160 mm LaTeX text width and included there
+at 100%, so no type is below 9 pt, in the print ink of `export/tokens.js`, and
+nothing has a dark ground. Figures 1 and 2 show contrast against the screen
+card `#1c2128`, so on paper the card is a white framed panel and the labels
+say the numbers are measured against it, with a key swatch of its colour.
+`tests/test_js_latex.py` compiles the article with pdflatex and bibtex, and
+the browser test compiles the zip the button downloads.
+
 **Editing the article.** The content is plain data in
 `static/js/methodology/content/`, one module per part; the content model and the
 rules (ids, the TeX subset, notation, vocabulary) are documented in the modules
@@ -4309,8 +4340,8 @@ calosrv/
                       capabilities lazy_cards physics_section page_common
                       models_main models_cards models_notes xgb_notes
                       voxels voxel_views voxel_notes event_cells
-                      methodology_main math
-             js/methodology/  render links exhibits constants content/
+                      methodology_main math zip article_sections
+             js/methodology/  render links exhibits constants latex export content/
              js/panels/   projection canonical_overlays marks tooltip energy metrics frame_grid
                           chart_panel profile response response_grid distribution correlation
                           statistics perf_bins hist2d feature_table rates
@@ -4359,12 +4390,15 @@ modules, listed here ahead of the D-frame's:
 | File | Responsibility |
 |---|---|
 | `static/methodology.html`, `static/css/methodology.css` | the page — the shared shell with the outline in the sidebar track — and its article typography, screen and print |
-| `static/js/methodology_main.js` | the bootstrap: the article, the outline and its scroll-spy, the `at` position, the view chip, the compute badge and provenance |
+| `static/js/methodology_main.js` | the bootstrap: the article, the outline and its scroll-spy, the `at` position, the view chip, the compute badge and provenance, and the Export button |
 | `static/js/math.js` | a closed LaTeX subset compiled to a MathML Core node tree, mounted with `createElementNS`; an unknown command throws |
 | `static/js/methodology/render.js` | the article as a node tree: numbering, cross-references, citations, inline syntax, equations, tables, figures, badges; then the DOM, text nodes only |
 | `static/js/methodology/links.js` | the badges' and anchors' hrefs, and the one hash write the page makes (`at`) |
-| `static/js/methodology/exhibits.js` | the three computed figures: the sequential ramps, standard and folded PuOr, the D-frame schematic |
+| `static/js/methodology/exhibits.js` | the three computed figures: the sequential ramps, standard and folded PuOr, the D-frame schematic; each on screen, and for paper (white, 160 mm, no type below 9 pt) for the Export |
 | `static/js/methodology/constants.js` | every number the article quotes, with its source; `tests/test_methodology_constants.py` checks each against the code |
+| `static/js/methodology/latex.js` | the article as pdfLaTeX and its cited references as BibTeX, pure: the page's structure and numbering, every character mapped; `tests/test_js_latex.py` compiles it |
+| `static/js/methodology/export.js` | the Export button's work: the figures drawn for paper as SVG and 300 dpi PNG, the zip, the download; loaded on the first press |
+| `static/js/zip.js` | a zip archive of stored files and its CRC-32, pure |
 | `static/js/methodology/content/` | the article itself, one module of plain data per part (`index.js` composes them) |
 
 The D-frame is its own column of that layout, one responsibility per
@@ -4430,10 +4464,11 @@ file. The two tables below are Page 1's.
 | `static/js/export/disclosure.js` | the structured disclosures of the Details drawer, per frame kind and quantity, read from the payload's fields rather than from the prose |
 | `static/js/export/caption.js` | the provenance sentences (`describeSelection`, `describeView`) and the display descriptor (`displayOf`, `kernelPhrase`), read from the payload; nothing in it is drawn into a figure |
 | `static/js/export/figure.js` | the off-screen print render and its serialisation: the plot canvas only, under the swapped theme, in one synchronous block |
-| `static/js/frame_views.js` | every frame's titles, captions, display captions and the per-panel prose the drawer shows (`footnotes()`, `exportLegend()`), as pure strings |
+| `static/js/frame_views.js` | every frame's titles, captions, display captions and the per-panel prose the drawer shows (`footnotes()`, `exportLegend()`), as pure strings; the entry-anchor explainer, whose formulas carry their TeX for `math.js` |
+| `static/js/article_sections.js` | where the Methodology explains each card of both pages, as data: the drawer's link to the article; `tests/test_article_sections.py` derives it from the article |
 | `static/js/axis_symbols.js` | the symbol each spatial axis is written with, and the one client-side rule that writes the D-frame entry panel's horizontal axis as D; a leaf module every consumer that names an axis reads |
 | `static/js/panel_notes.js` | the Details drawer's text: one panel's methodology and disclosures as sections (*Selection*, *What is drawn*, *Disclosures*, *Marks and legend*, *Reading the density axis*), built from the functions above; `hazards()` flags the trigger |
-| `static/js/shell.js` | the collapsible sidebar (`localStorage`, never the hash; one key per page's sidebar) and the Details drawer: grid tracks snap, every chart re-lays itself out synchronously, text nodes only; a panel opened from a Methodology badge links back to the article from its drawer |
+| `static/js/shell.js` | the collapsible sidebar (`localStorage`, never the hash; one key per page's sidebar) and the Details drawer: grid tracks snap, every chart re-lays itself out synchronously, text nodes only; every drawer opens with a link to the article section that explains its panel, and one opened from a Methodology badge also links back to the badge's place |
 | `static/js/format.js` | the typographic minus |
 | `static/js/controls/admin.js`, `static/js/controls/modal.js` | the Admin Settings panel — the default view, the upload form (`controls/upload.js`) and the automatic-ingest report; the dialog shell (focus, Escape, ARIA) |
 | `static/js/controls/upload.js` | the upload form inside Admin Settings: naming checks before a byte is sent, the streaming upload or server-side ingest, and the job poll, which carries on after the panel is closed |
