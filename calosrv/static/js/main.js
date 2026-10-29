@@ -1673,15 +1673,23 @@ const REQUIRED_IDS = [
 
 /**
  * Land a Methodology badge's link: the card scrolled into view, its Details
- * drawer open with the way back to the article, or - when this experiment does
- * not show the card - the reason on the kind banner, which outlives the refresh
- * that follows (the transient banner would be rewritten by it).
+ * drawer open with the way back to the article, or - when this experiment, or
+ * the view on screen, does not show the card - the reason on the kind banner,
+ * which outlives the refresh that follows (the transient banner would be
+ * rewritten by it). Without an open experiment there is nothing to land on,
+ * and the banner already says why.
  */
 function landDeepLink(link) {
+  if (!activeExperiment) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
-  const result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
+  let result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
   if (result.ok) return;
+  // A pinned event or the compare view replaces the ensemble panels (applyViewMode): that is the view's doing.
+  const viewHides = (state.get('event') !== null && pagePlan.eventInspector) || (state.get('compare') && pagePlan.compare);
+  if (result.reason === 'hidden' && viewHides && result.card?.closest?.('#ensemble-grid, #physics-grid')) {
+    result = { ...result, reason: 'view' };
+  }
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
   const notice = revealNotice(result, { requested: link.requested, title, kind: pagePlan.kindLabel });
   kindBanner.show([...kindBanner.shown, notice]);

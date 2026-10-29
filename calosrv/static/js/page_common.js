@@ -467,13 +467,18 @@ export function revealPanel(panelId, { root = document, shell = null, reveal = n
 
 /**
  * The banner sentence for a deep link that could not land: `result` is
- * `revealPanel`'s, `title` the card's title, `kind` the experiment's kind
- * label. Empty for a link that landed.
+ * `revealPanel`'s - its reason 'hidden' turned to 'view' by a page whose own
+ * view mode hides the card - `title` the card's title, `kind` the
+ * experiment's kind label. Empty for a link that landed.
  */
 export function revealNotice(result, { requested = '', title = '', kind = '' } = {}) {
   if (!result || result.ok) return '';
+  const name = title ? `the ${title} panel` : 'that panel';
+  if (result.reason === 'view') {
+    return `The Methodology linked to ${name}, which the view on screen hides (an event is pinned, or the frames `
+      + 'are compared); go back to the ensemble to see it.';
+  }
   if (result.reason === 'hidden') {
-    const name = title ? `the ${title} panel` : 'that panel';
     return `The Methodology linked to ${name}, which this experiment${kind ? ` (${kind})` : ''} does not show.`;
   }
   // The query is the link's, not this page's: a malformed name is not repeated.

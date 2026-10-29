@@ -483,8 +483,11 @@ const MODELS_REQUIRED_IDS = [
  * Land a Methodology badge's link: the card scrolled into view (which starts
  * its lazy load), its Details drawer open with the way back to the article, or
  * the reason on the kind banner when this experiment does not show the card.
+ * Without an open experiment there is nothing to land on, and the banner
+ * already says why.
  */
 function landDeepLink(link) {
+  if (!activeExperiment) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
   const result = revealPanel(link.panel ?? '', { shell });

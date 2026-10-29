@@ -84,6 +84,7 @@ _JS_URLS = {
     "physics": (JS / "physics_section.js").as_uri(),
     "models": (JS / "models_cards.js").as_uri(),
     "voxels": (JS / "voxel_views.js").as_uri(),
+    "frameGrid": (JS / "panels" / "frame_grid.js").as_uri(),
     "catalogue": _path("experiments"),
 }
 
@@ -271,6 +272,18 @@ def test_the_inline_syntax(synthetic):
     assert "a dollar $5" in r["literal"] and "A lone * star, 3 * 4." in r["literal"]
 
 
+_ESCAPES_SCRIPT = _PRELUDE + r"""
+out.tokens = render.tokenize(String.raw`\*not em\* and 2\*3\*4, a \`tick\`, \[[sec-x]] and \$5`);
+console.log(JSON.stringify(out));
+"""
+
+
+def test_escapes_write_their_character():
+    """\\$ \\* \\` \\[ write the character itself, outside its markup role."""
+    tokens = _run(_ESCAPES_SCRIPT, _JS_URLS)["tokens"]
+    assert tokens == [{"type": "text", "value": "*not em* and 2*3*4, a `tick`, [[sec-x]] and $5"}]
+
+
 def test_every_block_kind_is_drawn(synthetic):
     r = synthetic
     assert r["lists"] == ["ol", "ul"]
@@ -321,6 +334,7 @@ const { ARTICLE } = await import(urls.article);
 const { PHYSICS_CARDS } = await import(urls.physics);
 const { MODELS_CARDS } = await import(urls.models);
 const { VOXEL_CARDS } = await import(urls.voxels);
+const { GRID_ROWS, GRID_COLS } = await import(urls.frameGrid);
 const { tree, outline, errors } = render.layout(ARTICLE);
 out.errors = errors;
 const ids = all(tree, (n) => n.attrs?.id).map((n) => n.attrs.id);
@@ -354,7 +368,9 @@ out.texFailures = [];
 for (const source of tex) { try { math.texToTree(source); } catch (e) { out.texFailures.push(`${source}: ${e.message}`); } }
 // Badges: a card of their page, and a patch that survives a State read from it.
 const cards = {
-  physics: new Set([...PHYSICS_CARDS.map((c) => c.id), 'xy', 'yz', 'xz', 'energy']),
+  // The compare-frames view's cells are cards too (FrameGrid ids compare-<row>-<col>).
+  physics: new Set([...PHYSICS_CARDS.map((c) => c.id), 'xy', 'yz', 'xz', 'energy',
+    ...GRID_ROWS.flatMap((row) => GRID_COLS.map((col) => `compare-${row}-${col}`))]),
   models: new Set([...MODELS_CARDS.map((c) => c.id), ...VOXEL_CARDS.map((c) => c.id)]),
 };
 const items = [];
@@ -460,6 +476,15 @@ out.coldHashAfter = window.location.hash;
 // The section a badge row sits in: a number, or nothing for an appendix.
 out.appendix = links.badgeQuery({ panel: 'xy', from: 'lnk-b', section: 'A' });
 out.text = links.badgeText({ page: 'physics', label: 'D–Y′ entry panel' });
+// A Physics badge leaves a pinned event and the compare view, which hide the ensemble panels, unless it sets them.
+const physicsHref = (set = {}) => links.badgeHref({ page: 'physics', panel: 'xy', set }, { from: 'lnk-a', section: '2.1' });
+window.location.hash = '#table_name=t&event=7&compare=true&frame=local';
+out.physicsLeaves = physicsHref();
+out.physicsCompare = links.badgeHref({ page: 'physics', panel: 'compare-lab-xy', set: { compare: true } }, { from: 'lnk-a', section: '3.1' });
+out.modelsKeeps = href();
+// A catalogue with nothing ready names no experiment.
+window.location.hash = '#frame=local';
+out.noneReadyChip = links.viewChipText({ catalogue: { ...catalogue, experiments: catalogue.experiments.map((e) => ({ ...e, status: 'ingesting' })) } });
 // `at`: the page's only hash write.
 window.location.hash = '#table_name=t&at=old';
 replaced = [];
@@ -500,6 +525,19 @@ def test_a_cold_badge_carries_the_view_a_cold_boot_would_open(link_results):
     assert "Energy Estimation Model" in r["coldDefaultsChip"]
     # The effective view is never written to the address bar.
     assert r["coldHashAfter"] == "#at=sec-frames"
+
+
+def test_a_physics_badge_leaves_a_pinned_event_and_the_compare_view(link_results):
+    r = link_results
+    assert r["physicsLeaves"] == "/?panel=xy&from=lnk-a&from_sec=2.1#table_name=t&frame=local"
+    # A badge about the compare view sets it, on a compare cell.
+    assert r["physicsCompare"] == "/?panel=compare-lab-xy&from=lnk-a&from_sec=3.1#table_name=t&compare=true&frame=local"
+    # The Models page has no view mode that hides its cards: its badges carry the hash as it is.
+    assert r["modelsKeeps"] == "/models?panel=feat-corr&from=lnk-a&from_sec=2.1#table_name=t&event=7&compare=true&frame=local"
+
+
+def test_the_chip_names_no_experiment_when_none_is_ready(link_results):
+    assert link_results["noneReadyChip"].startswith("no experiment ready · ")
 
 
 def test_badge_query_and_text(link_results):

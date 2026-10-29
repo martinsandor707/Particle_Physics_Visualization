@@ -1091,8 +1091,13 @@ def test_every_rendered_negative_uses_the_unicode_minus(physics_live_server, tab
 # ------------------------------------------- landing a Methodology badge link --
 
 
-def _land(p, base, query, table, fragment=""):
-    """The Physics page opened on a Methodology badge's link (query and hash), once it has settled."""
+def _land(p, base, query, table, fragment="", outcome="drawer"):
+    """The Physics page opened on a Methodology badge's link (query and hash), once the link has landed.
+
+    The query is gone after the first hash write, which comes before the landing, so the wait is on the
+    landing's own outcome: the Details drawer open (`outcome="drawer"`) or the kind banner's sentence
+    (`outcome="banner"`).
+    """
     browser = p.chromium.launch()
     page = browser.new_page(viewport={"width": 1600, "height": 900})
     problems = []
@@ -1102,7 +1107,12 @@ def _land(p, base, query, table, fragment=""):
     page.wait_for_function(
         "(table) => document.getElementById('experiment-select')?.value === table && !location.search", arg=table,
         timeout=30_000)
-    page.wait_for_timeout(800)
+    if outcome == "drawer":
+        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=30_000)
+    else:
+        page.wait_for_function(
+            "() => (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked')",
+            timeout=30_000)
     return browser, page, problems
 
 
@@ -1128,7 +1138,7 @@ def test_a_badge_link_lands_on_its_card_with_the_way_back(physics_live_server):
         link = page.locator("#inspector-body .inspector-return a")
         assert link.inner_text() == "↩ Continue reading §2.4 in the Methodology"
         page.check('input[name="model"][value="energy"]')
-        page.wait_for_timeout(300)
+        page.wait_for_function("() => location.hash.includes('model=energy')", timeout=15_000)
         link.click()
         page.wait_for_url(re.compile(r"/methodology"), timeout=15_000)
         view = {k: v[0] for k, v in parse_qs(urlparse(page.url).fragment).items()}
@@ -1156,10 +1166,36 @@ def test_a_badge_link_that_cannot_land_says_why(physics_live_server, query, sent
     base = physics_live_server["base"]
     table = SINGLE_EVENTS_TABLE if query == "panel=xy" else BASELINE_TABLE
     with physics_live_server["playwright"].sync_playwright() as p:
-        browser, page, problems = _land(p, base, query, table)
+        browser, page, problems = _land(p, base, query, table, outcome="banner")
         text = page.inner_text("#kind-banner-text")
         assert "The Methodology linked to" in text and sentence in text, text
         assert page.evaluate("() => document.getElementById('kind-banner').hidden") is False
+        assert not _drawer_open(page)
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_compare_badge_lands_on_a_compare_cell(physics_live_server):
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=compare-lab-xy&from=lnk-results-spatial&from_sec=3.1",
+                                        BASELINE_TABLE, fragment="&compare=true")
+        assert page.evaluate("() => !document.getElementById('compare-grid').hidden")
+        assert page.get_attribute('button[data-inspect="compare-lab-xy"]', "aria-expanded") == "true"
+        assert "inspector-return" in page.evaluate(
+            "() => document.querySelector('#inspector-body').firstElementChild.className")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_card_the_view_hides_is_the_views_doing(physics_live_server):
+    """A hand-made link into the ensemble with compare on: the banner names the view, not the experiment."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=xy", BASELINE_TABLE, fragment="&compare=true",
+                                        outcome="banner")
+        text = page.inner_text("#kind-banner-text")
+        assert "which the view on screen hides" in text and "does not show" not in text, text
         assert not _drawer_open(page)
         browser.close()
     assert problems == [], problems

@@ -20,6 +20,11 @@
  * The effective view is computed and never written to the address bar: a
  * cold hash stays cold, so the saved defaults keep governing this page's tabs.
  *
+ * A Physics badge leaves the Event Inspector and the compare-frames view
+ * (`event`, `compare`) unless it sets them itself: either replaces the
+ * ensemble panels a badge opens, so a reader who pinned an event before
+ * reading would otherwise land on a panel the view hides.
+ *
  * ## `at`
  *
  * The page keeps the reader's place in `at=<id>`, which no State reads. It is
@@ -102,7 +107,16 @@ export function viewHash(set = {}, { catalogue = null } = {}) {
  * `section` its section number.
  */
 export function badgeHref(item, { from = null, section = null, catalogue = null } = {}) {
-  return tabHref(badgeBase(item, { from, section }), viewHash(item?.set ?? {}, { catalogue }));
+  return tabHref(badgeBase(item, { from, section }), viewHash(badgeSet(item), { catalogue }));
+}
+
+/* The Physics view modes that replace the ensemble panels (main.js applyViewMode). */
+const PHYSICS_VIEW_MODES = Object.freeze({ event: null, compare: null });
+
+/** The patch a badge applies: its own `set`, on a Physics badge over leaving the view modes. Pure. */
+export function badgeSet(item) {
+  const set = item?.set ?? {};
+  return item?.page === 'physics' ? { ...PHYSICS_VIEW_MODES, ...set } : set;
 }
 
 /** A badge's route and query, without the view: what the markup ships before the view is known. Pure. */
@@ -122,7 +136,10 @@ export function viewChipText({ catalogue = null } = {}) {
     state.applyDefaults(catalogue.defaults ?? null);
   }
   const chosen = chooseExperiment(catalogue?.experiments ?? [], state.get('table_name'));
-  const name = chosen ? (chosen.display_name || chosen.table_name) : (state.get('table_name') ?? 'the first ready experiment');
+  // Without a catalogue the link's own experiment is named; with one, only an experiment that is ready.
+  let name = state.get('table_name') ?? 'the first ready experiment';
+  if (chosen) name = chosen.display_name || chosen.table_name;
+  else if (catalogue) name = 'no experiment ready';
   const showers = chosen?.capabilities?.n_showers === 1 ? 1 : 2;
   const model = CHOICE_LABELS.model.find((choice) => choice.value === state.get('model'))?.label ?? state.get('model');
   return `${name} · ${frameLabel(state.get('frame'), showers)} · ${model}`;

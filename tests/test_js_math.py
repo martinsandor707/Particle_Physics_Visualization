@@ -96,6 +96,8 @@ ERRORS = [
     (r"a \\ b", '"\\\\" outside an environment'),
     (r"{a & b}", '"&" outside an environment'),
     (r"50% of", 'Unescaped "%"'),
+    (r"\text{a & b}", 'Unescaped "&" inside "\\text"'),
+    (r"\text{a # b}", 'Unescaped "#" inside "\\text"'),
     (r"\left( x", '"\\left" without a matching "\\right"'),
     (r"x \right)", '"\\right" without a matching "\\left"'),
     (r"\begin{matrix} a", '"\\begin{matrix}" is never closed'),
@@ -170,6 +172,7 @@ PROBES = [
     r"\begin{cases} a, & x < 0 \\ b, & x \ge 0 \\ \end{cases}", r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
     r"5\%", r"a\!b", r"a\,b\:c\;d\quad e\qquad f\ g", r"x < -1", r"(-\pi, \pi]", r"a \bmod b", r"x^{\top}",
     r"\{x \mid x > 0\}", r"a * b", "θ × φ ≤ 1 − x",
+    r"|x| - 1", r"\lVert a\rVert + b", r"\lvert -x \rvert", r"\log|x|", r"\log\lvert x\rvert", r"a\,\log b",
 ]
 
 
@@ -290,6 +293,30 @@ def test_unary_signs_take_prefix_form(out):
     assert paren[1]["attrs"] == {"form": "prefix"}
     # A binary minus keeps the dictionary's spacing.
     assert "attrs" not in out["probes"]["a-b"]["display"]["children"][1]
+
+
+def test_plain_bars_are_ordinary_symbols(out):
+    """TeX's classes: a plain | or \\| is ordinary, \\lvert opens, \\rvert closes."""
+    def signs(src):
+        return [n.get("attrs", {}).get("form") for n in _walk(out["probes"][src]["display"])
+                if n.get("tag") == "mo" and n.get("text") in (MINUS, "+")]
+    # The sign after a closing bar is binary, so it keeps the dictionary's spacing.
+    assert signs(r"|x| - 1") == [None]
+    assert signs(r"\lVert a\rVert + b") == [None]
+    # The sign after an opening bar is unary.
+    assert signs(r"\lvert -x \rvert") == ["prefix"]
+
+    def apply_space(src):
+        return [n.get("attrs", {}).get("rspace") for n in _walk(out["probes"][src]["display"])
+                if n.get("tag") == "mo" and n.get("text") == "\u2061"]
+    # \log|x| keeps TeX's thin space (an operator before an ordinary symbol); \log\lvert x\rvert does not.
+    assert apply_space(r"\log|x|") == ["0.1667em"]
+    assert apply_space(r"\log\lvert x\rvert") == [None]
+
+
+def test_an_explicit_space_before_a_function_is_not_doubled(out):
+    spaces = [n for n in _walk(out["probes"][r"a\,\log b"]["display"]) if n.get("tag") == "mspace"]
+    assert len(spaces) == 1
 
 
 def test_primes_follow_their_base(out):

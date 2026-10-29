@@ -1188,6 +1188,7 @@ out.notices = [
   common.revealNotice({ ok: false, reason: 'unknown' }, { requested: 'zz' }),
   common.revealNotice({ ok: false, reason: 'unknown' }, { requested: '<b>x</b>' }),
   common.revealNotice({ ok: true }),
+  common.revealNotice({ ok: false, reason: 'view' }, { title: 'XY Projection — Shower Entry' }),
 ];
 console.log(JSON.stringify(out));
 """
@@ -1234,7 +1235,10 @@ def test_reveal_panel_lands_on_a_shown_card_and_says_why_not_otherwise(deep_resu
     assert deep_results["opened"] == [["xy", "xy"], ["xy", "xy"]]
     # A malformed id never reaches the selector.
     assert not any("href" in selector for selector in deep_results["asked"])
-    hidden, unknown, hostile, landed = deep_results["notices"]
+    hidden, unknown, hostile, landed, view = deep_results["notices"]
+    # A card the view on screen hides is the view's doing, never blamed on the experiment.
+    assert view == ("The Methodology linked to the XY Projection — Shower Entry panel, which the view on screen hides "
+                    "(an event is pinned, or the frames are compared); go back to the ensemble to see it.")
     assert hidden == ("The Methodology linked to the Sampling Fraction — Per-Event Distribution panel, "
                       "which this experiment (single-shower events) does not show.")
     assert unknown == "The Methodology linked to a panel this page does not have (zz)."
