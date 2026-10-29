@@ -52,7 +52,7 @@ const TAXONOMY = {
     [k('xgb-binary'), 'E3', 'Models', 'Confusion counts; rate points on 0–100%', 'Wilson; Newcombe’s MOVER for balanced accuracy', 'Undefined rates not drawn', 'No ramp on counts; accent'],
     [k('xgb-surrogate'), 'E4', 'Models', `Depth-${C.SURROGATE_MAX_DEPTH} tree of node boxes`, 'Within-node SD, no whisker; per-output fidelity', `Weak below ${C.WEAK_NODE_N} rows; Rayleigh gate for φ`, 'Sequential node mean on its legible run; φ uncoloured'],
     [k('xgb-importance'), 'E5', 'Models', `Top ${C.TOP_N_FEATURES} bars from zero; fold dots; bracket`, 'Corrected resampled t interval of the fold mean', `Top ${C.TOP_N_FEATURES}, the rest counted`, 'ColorBrewer qualitative, by frame'],
-    [k('feat-table'), 'D2', 'Models', 'Table per feature and momentum class', 'Mean’s t interval; σ’s SE, χ² interval and $c_4$ (tooltip)', `⚑ below ${C.MIN_ROBUST_SAMPLES}; 1 d.o.f. at ${C.MIN_MOMENT_SAMPLES}`, 'None'],
+    [k('feat-table'), 'D2', 'Models', 'Table per feature and momentum class', 'Mean’s t interval; σ’s SE, χ² interval and $c_4$ (tooltip)', `Cell flagged below ${C.MIN_ROBUST_SAMPLES} showers; 1 d.o.f. at ${C.MIN_MOMENT_SAMPLES}`, 'None'],
     [k('feat-corr'), 'D3', 'Models', 'Lower-triangle feature matrix', 'Fisher-z interval; faded where it contains 0', 'As C8', 'PuOr; hatch for azimuths'],
     [k('feat-hist'), 'D4', 'Models', 'Histograms and Gaussian KDEs per class', 'Event strip below the floor', `KDE from ${C.MIN_KDE_SAMPLES}, histogram from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Ordered sequential stops'],
     [k('feat-hist2d'), 'D5', 'Models', '2-D count raster per class against deposited energy', 'None (counts); events drawn below the floor', `Raster from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Sequential log count, shared scale'],
