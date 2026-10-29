@@ -15,7 +15,9 @@
  * that section's title as plain text. The rules that choose `at`:
  *
  * - a card a badge names in §3 (Results) lands on the first §3 badge row
- *   naming it, since Results is where each encoding is audited;
+ *   naming it, since Results is where each encoding is audited - or, where an
+ *   earlier §3 row only borrows it as an example, on the row that audits it
+ *   (the Pearson matrix illustrates PuOr in §3.2 and is audited in §3.5);
  * - a badged card absent from §3 lands on its first badge row anywhere;
  * - a card no badge names takes its family's place: the compare-frames cells
  *   the row of `compare-lab-xy`, the 3-D event's projections (`vproj-*`) that
@@ -27,7 +29,7 @@ const ENTRIES = {
   physics: {
     xy: { at: 'lnk-results-spatial', section: '3.1', title: 'Spatial projections' },
     yz: { at: 'lnk-results-spatial', section: '3.1', title: 'Spatial projections' },
-    xz: { at: 'lnk-frames-local', section: '2.1.5', title: 'Per-shower frames: Local and the legacy translated frame' },
+    xz: { at: 'lnk-results-spatial', section: '3.1', title: 'Spatial projections' },
     energy: { at: 'lnk-results-response', section: '3.4', title: 'Response, sampling fraction and resolution (plot 4, B1–B3)' },
     'profile-w': { at: 'lnk-results-profiles', section: '3.3', title: 'Longitudinal and radial profiles (C7)' },
     'profile-r': { at: 'lnk-results-profiles', section: '3.3', title: 'Longitudinal and radial profiles (C7)' },
@@ -36,7 +38,7 @@ const ENTRIES = {
     'response-res': { at: 'lnk-results-response', section: '3.4', title: 'Response, sampling fraction and resolution (plot 4, B1–B3)' },
     'response-b3': { at: 'lnk-results-response', section: '3.4', title: 'Response, sampling fraction and resolution (plot 4, B1–B3)' },
     distribution: { at: 'lnk-results-distributions', section: '3.5', title: 'Distributions, features and correlations (C1, C4, C8, C9, D1–D5)' },
-    correlation: { at: 'lnk-results-colour', section: '3.2', title: 'Perceptual colorimetry, screen against print' },
+    correlation: { at: 'lnk-results-distributions', section: '3.5', title: 'Distributions, features and correlations (C1, C4, C8, C9, D1–D5)' },
     statistics: { at: 'lnk-results-distributions', section: '3.5', title: 'Distributions, features and correlations (C1, C4, C8, C9, D1–D5)' },
     'compare-lab-xy': { at: 'lnk-results-spatial', section: '3.1', title: 'Spatial projections' },
     'compare-lab-xz': { at: 'lnk-results-spatial', section: '3.1', title: 'Spatial projections' },

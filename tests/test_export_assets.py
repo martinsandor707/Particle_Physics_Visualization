@@ -279,6 +279,7 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/methodology/latex.js",
         "/static/js/methodology/export.js",
         "/static/js/zip.js",
+        "/static/js/article_sections.js",
     ],
 )
 def test_new_modules_are_served(client, path):
