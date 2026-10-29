@@ -12,18 +12,6 @@
 
 import { C } from '../constants.js';
 
-/* Code constants the article quotes that constants.js does not carry yet. */
-const LOCAL = {
-  DEPTH_ISO_RATIO_MIN: 0.45, // TODO(constants): js:event_cells.js:depthIsometric (ratio < 0.45)
-  DEPTH_ISO_RATIO_MAX: 1.3, // TODO(constants): js:event_cells.js:depthIsometric (ratio > 1.3)
-  DEPTH_ISO_MIN_FILL: 0.45, // TODO(constants): js:event_cells.js:depthIsometric (colSpan * scale >= 0.45 * width)
-  TURBO_LEGIBLE_FROM: 0.102, // TODO(constants): js:panels/chart_panel.js:legibleRamp("turbo").from (0.10196…)
-  TURBO_LEGIBLE_TO: 0.859, // TODO(constants): js:panels/chart_panel.js:legibleRamp("turbo").to (0.85882…)
-  CIVIDIS_LEGIBLE_FROM: 0.482, // TODO(constants): js:panels/chart_panel.js:legibleRamp("cividis").from (0.48235…)
-  PLASMA_LEGIBLE_FROM: 0.431, // TODO(constants): js:panels/chart_panel.js:legibleRamp("plasma").from (0.43137…)
-  R_BIN_MM: 10, // TODO(constants): py:calosrv.query.profiles:R_BIN_MM
-};
-
 /** A code span for the inline syntax, usable inside String.raw templates. */
 const k = (name) => '\u0060' + name + '\u0060';
 /** An integer with thousands separators, as the prose writes it. */
@@ -49,7 +37,7 @@ const TAXONOMY = {
     ['Event Inspector', 'A1 / C2', 'Physics', '3 × 3 rasters: one shower of one event in three frames', 'None: one shower, every mark its own', `Shared window ≥ ${C.EVENT_WINDOW_MIN_HALF_MM} mm half-width`, 'Sequential, one ramp for nine panels'],
     ['Compare frames', 'A2 / C3', 'Physics', '3 × 3 rasters: three frames’ ensemble responses side by side', 'As the 2 × 2', 'As the 2 × 2', 'As the 2 × 2'],
     [k('profile-w'), 'C7', 'Physics', 'Per-shower mean step line; pooled ratio of sums dashed', 'Uncapped SD band; capped Student-t envelope, cluster-robust', `Band and envelope from ${C.MIN_MOMENT_SAMPLES}; provisional below ${C.PROFILE_PROVISIONAL_N}`, 'Accent'],
-    [k('profile-r'), 'C7', 'Physics', `As \`profile-w\`, in ${LOCAL.R_BIN_MM} mm bins of ρ`, 'As `profile-w`', 'As `profile-w`', 'Accent'],
+    [k('profile-r'), 'C7', 'Physics', `As \`profile-w\`, in ${C.PROFILE_R_BIN_MM} mm bins of ρ`, 'As `profile-w`', 'As `profile-w`', 'Accent'],
     [k('response-b1'), 'B1', 'Physics', 'Density histogram of the per-event sampling fraction; mean and 1/c verticals', 'Student-t (mean), cluster ratio interval (1/c); SD bar in the strip', `Histogram from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Shower colours'],
     [k('response-b2'), 'B2', 'Physics', 'Mean per momentum bin; SD box; 1/c rule', 'Capped t whisker; uncapped SD box', `Weak and faded below ${C.MIN_ROBUST_SAMPLES}; one event an open circle`, 'Shower colours'],
     [k('response-res'), 'B3, σ/μ', 'Physics', 'σ/μ per momentum bin, two quantities', 'χ² whisker of σ over $\\hat\\mu$', `1 d.o.f. at ${C.MIN_MOMENT_SAMPLES}; weak below ${C.MIN_ROBUST_SAMPLES}`, 'Shower colours'],
@@ -115,7 +103,7 @@ const SPATIAL = {
     },
     {
       kind: 'p',
-      text: String.raw`The spans are physical extents from the stored cell coordinates, never a matrix shape, since the ${C.X_CELLS} × ${C.Y_CELLS} transverse lattice is irregular ([[sec-discretisation]]). The entry panel is always 1:1, so $D$ can be measured off it. A depth panel is 1:1 when its span ratio lies in [${LOCAL.DEPTH_ISO_RATIO_MIN}, ${LOCAL.DEPTH_ISO_RATIO_MAX}] and the letterboxed plot fills at least ${pc(LOCAL.DEPTH_ISO_MIN_FILL)} of the card (${k('event_cells.js')} ${k('depthIsometric')}), a test the compact co-registered windows usually pass. The Absolute frame's depth panels never take it: they span about 5,200 mm against 1,210 mm of depth (${k('panels/projection.js')}), where 1:1 would leave a sliver, so they fill the card with true extents on the axes and the drawer states the aspect in force. One zoom scales both axes by one ratio, so isometry survives zooming, and the letterbox is recomputed on every container resize.`,
+      text: String.raw`The spans are physical extents from the stored cell coordinates, never a matrix shape, since the ${C.X_CELLS} × ${C.Y_CELLS} transverse lattice is irregular ([[sec-discretisation]]). The entry panel is always 1:1, so $D$ can be measured off it. A depth panel is 1:1 when its span ratio lies in [${C.DEPTH_ISO_RATIO_MIN}, ${C.DEPTH_ISO_RATIO_MAX}] and the letterboxed plot fills at least ${pc(C.DEPTH_ISO_MIN_FILL)} of the card (${k('event_cells.js')} ${k('depthIsometric')}), a test the compact co-registered windows usually pass. The Absolute frame's depth panels never take it: they span about 5,200 mm against 1,210 mm of depth (${k('panels/projection.js')}), where 1:1 would leave a sliver, so they fill the card with true extents on the axes and the drawer states the aspect in force. One zoom scales both axes by one ratio, so isometry survives zooming, and the letterbox is recomputed on every container resize.`,
     },
     {
       kind: 'p',
@@ -187,7 +175,7 @@ const COLOUR = {
     },
     {
       kind: 'p',
-      text: String.raw`**Sequential ramps.** Viridis is the default because its lightness is monotone: on a multi-decade log ramp the eye orders decades by brightness before hue, which keeps a faint halo legible beside a bright core [[cite:crameri2020]]. Cividis serves colour-vision deficiency [[cite:nunez2018]]; Plasma is a third monotone ramp. Turbo [[cite:mikhailov2019]] is offered but never the default: its lightness is not monotone, so its hue transitions draw bright bands that read as structure [[cite:borland2007]]. On screen every ramp starts at its first colour with $C \ge ${C.RAMP_CONTRAST}$, because Viridis' first colour is 1.06:1 on the card and up to 58% of an event's cubes vanished before the rule (CLAUDE.md). The run is found by scanning the palette's 256-entry table for the longest contiguous stretch that clears the floor (${k('panels/chart_panel.js')} ${k('legibleRamp')}, used by ${k('scale.js')} ${k('legibleSpan')}): Viridis from ${C.VIRIDIS_LEGIBLE_FROM}, Cividis from ${LOCAL.CIVIDIS_LEGIBLE_FROM}, Plasma from ${LOCAL.PLASMA_LEGIBLE_FROM}, and Turbo only between ${LOCAL.TURBO_LEGIBLE_FROM} and ${LOCAL.TURBO_LEGIBLE_TO}, its dark red top failing as well as its dark blue bottom. On a tapered ramp that colour sits where the taper turns opaque. Legend, raster and cubes share one remapped table, each drawer says where the ramp starts, and print keeps the full ramp.`,
+      text: String.raw`**Sequential ramps.** Viridis is the default because its lightness is monotone: on a multi-decade log ramp the eye orders decades by brightness before hue, which keeps a faint halo legible beside a bright core [[cite:crameri2020]]. Cividis serves colour-vision deficiency [[cite:nunez2018]]; Plasma is a third monotone ramp. Turbo [[cite:mikhailov2019]] is offered but never the default: its lightness is not monotone, so its hue transitions draw bright bands that read as structure [[cite:borland2007]]. On screen every ramp starts at its first colour with $C \ge ${C.RAMP_CONTRAST}$, because Viridis' first colour is 1.06:1 on the card and up to 58% of an event's cubes vanished before the rule (CLAUDE.md). The run is found by scanning the palette's 256-entry table for the longest contiguous stretch that clears the floor (${k('panels/chart_panel.js')} ${k('legibleRamp')}, used by ${k('scale.js')} ${k('legibleSpan')}): Viridis from ${C.VIRIDIS_LEGIBLE_FROM}, Cividis from ${C.CIVIDIS_LEGIBLE_FROM}, Plasma from ${C.PLASMA_LEGIBLE_FROM}, and Turbo only between ${C.TURBO_LEGIBLE_FROM} and ${C.TURBO_LEGIBLE_TO}, its dark red top failing as well as its dark blue bottom. On a tapered ramp that colour sits where the taper turns opaque. Legend, raster and cubes share one remapped table, each drawer says where the ramp starts, and print keeps the full ramp.`,
     },
     {
       kind: 'figure',
@@ -229,7 +217,7 @@ const PROFILES = {
   blocks: [
     {
       kind: 'p',
-      text: String.raw`The profile cards draw the share of a shower's energy per centimetre: along the Local depth $w$ at the native ${C.Z_PITCH_MM} mm pitch, never smoothed, since nothing is measured between layers, and along $\rho = \sqrt{u^2 + v^2}$ in ${LOCAL.R_BIN_MM} mm bins of footprint-splatted sub-deposits. The $y$ axis is zero-based and set by the two lines; $w = 0$, the entry point, is a dashed rule. Four marks carry four quantities (${k('panels/profile.js')}): the per-shower mean, a solid step line; the uncapped SD band, where individual showers lie; the thin capped Student-t envelope of the mean, cluster-robust by event ([[eq-profile-se]]); and the notebook's pooled ratio of sums, dashed, energy-weighted and so a different number. A band that narrowed as $1/\sqrt{N}$ would claim that showers grow alike as more are selected; that is why the two are distinct marks.`,
+      text: String.raw`The profile cards draw the share of a shower's energy per centimetre: along the Local depth $w$ at the native ${C.Z_PITCH_MM} mm pitch, never smoothed, since nothing is measured between layers, and along $\rho = \sqrt{u^2 + v^2}$ in ${C.PROFILE_R_BIN_MM} mm bins of footprint-splatted sub-deposits. The $y$ axis is zero-based and set by the two lines; $w = 0$, the entry point, is a dashed rule. Four marks carry four quantities (${k('panels/profile.js')}): the per-shower mean, a solid step line; the uncapped SD band, where individual showers lie; the thin capped Student-t envelope of the mean, cluster-robust by event ([[eq-profile-se]]); and the notebook's pooled ratio of sums, dashed, energy-weighted and so a different number. A band that narrowed as $1/\sqrt{N}$ would claim that showers grow alike as more are selected; that is why the two are distinct marks.`,
     },
     {
       kind: 'p',
@@ -328,7 +316,7 @@ const MODELS = {
     },
     {
       kind: 'p',
-      text: String.raw`**The XGBoost cards** read analyses computed once on the whole experiment, so the selection does not apply, as each says. **E1** draws the ${C.KFOLD_SPLITS} folds as open rings and their mean as a diamond whose capped whisker is Nadeau and Bengio's corrected resampled t interval at ${C.KFOLD_SPLITS - 1} d.o.f., since any two folds share three-quarters of their training rows; error metrics start at zero and an $R^2$ axis near 1 carries a break. **E3** thresholds at ${C.BINARY_THRESHOLD_GEV} GeV a designed sample of ${n(C.BINARY_TOTAL)} validation rows, ${RATIO} between $p < ${C.BINARY_THRESHOLD_GEV}$ GeV and $p > ${C.BINARY_CLASS_1_ABOVE_GEV}$ GeV. Its confusion matrix is counts without a ramp, which would only say class 0 is large; its rates are points on 0–100% with Wilson intervals, balanced accuracy with Newcombe's MOVER interval; and it states the realised ratio and that accuracy and the precisions depend on it while the recalls and balanced accuracy do not.`,
+      text: String.raw`**The XGBoost cards** read analyses computed once on the whole experiment, so the selection does not apply, as each says. **E1** draws the ${C.KFOLD_SPLITS} folds as open rings and their mean as a diamond whose capped whisker is Nadeau and Bengio's corrected resampled t interval [[cite:nadeau2003]] at ${C.KFOLD_SPLITS - 1} d.o.f., since any two folds share three-quarters of their training rows; error metrics start at zero and an $R^2$ axis near 1 carries a break. **E3** thresholds at ${C.BINARY_THRESHOLD_GEV} GeV a designed sample of ${n(C.BINARY_TOTAL)} validation rows, ${RATIO} between $p < ${C.BINARY_THRESHOLD_GEV}$ GeV and $p > ${C.BINARY_CLASS_1_ABOVE_GEV}$ GeV. Its confusion matrix is counts without a ramp, which would only say class 0 is large; its rates are points on 0–100% with Wilson intervals, balanced accuracy with Newcombe's MOVER interval [[cite:newcombe1998]]; and it states the realised ratio and that accuracy and the precisions depend on it while the recalls and balanced accuracy do not.`,
     },
     {
       kind: 'p',
