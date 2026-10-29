@@ -1672,6 +1672,26 @@ const REQUIRED_IDS = [
 ];
 
 /**
+ * Resolve once a frame-grid cell's row is drawn (its `hidden` cleared by
+ * FrameGrid.render), or after `timeoutMs` - a row whose response never
+ * arrives leaves the card hidden, and the landing says so.
+ */
+function rowDrawn(cell, timeoutMs = 20_000) {
+  const row = cell.closest('.frame-grid-row');
+  if (!row || !row.hidden) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve();
+    };
+    const observer = new MutationObserver(() => { if (!row.hidden) done(); });
+    const timer = setTimeout(done, timeoutMs);
+    observer.observe(row, { attributes: true, attributeFilter: ['hidden'] });
+  });
+}
+
+/**
  * Land a Methodology badge's link: the card scrolled into view, its Details
  * drawer open with the way back to the article, or - when this experiment, or
  * the view on screen, does not show the card - the reason on the kind banner,
@@ -1679,10 +1699,14 @@ const REQUIRED_IDS = [
  * rewritten by it). Without an open experiment there is nothing to land on,
  * and the banner already says why.
  */
-function landDeepLink(link) {
+async function landDeepLink(link) {
   if (!activeExperiment) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
+  // A cell of the compare or Event Inspector grid is drawn with its row, when the row's response
+  // arrives, after this landing: wait for the row before looking for the card.
+  const cell = link.panel ? document.querySelector(`.frame-grid-row .card[data-panel="${link.panel}"]`) : null;
+  if (cell) await rowDrawn(cell);
   let result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
   if (result.ok) return;
   // A pinned event or the compare view replaces the ensemble panels (applyViewMode): that is the view's doing.
@@ -1732,7 +1756,7 @@ async function boot() {
   if (openAdmin || deepLink) {
     history.replaceState(null, '', location.pathname + location.hash);
   }
-  if (deepLink) landDeepLink(deepLink);
+  if (deepLink) landDeepLink(deepLink).catch((error) => reportError(error, 'opening the linked panel'));
   if (openAdmin) {
     adminModal?.open();
   }

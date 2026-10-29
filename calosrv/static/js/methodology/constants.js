@@ -95,6 +95,8 @@ export const CONSTANTS = Object.freeze({
     'Rayleigh p above which directions are consistent with a uniform circle.'),
 
   /* ------------------------------------------------ momentum classes -- */
+  ISOLATED_RESOLUTION: entry(0.05, 'py:calosrv.query.energy:ISOLATED_RESOLUTION',
+    'Stated relative width of the isolated single-shower reference drawn on plot 4.'),
   CALIBRATION_CENTRES_GEV: entry([1.0, 2.0, 5.0, 10.0, 15.0, 19.0], 'py:calosrv.stats.momentum:CALIBRATION_CENTRES_GEV',
     'Centres of the calibration notebook’s momentum windows.'),
   HALF_WIDTH_GEV: entry(0.5, 'py:calosrv.stats.momentum:HALF_WIDTH_GEV', 'Half-width of each momentum window.'),

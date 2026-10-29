@@ -19,9 +19,6 @@ const n = (value) => Number(value).toLocaleString('en-US');
 /** A share as a whole percentage. */
 const pc = (share) => `${Math.round(share * 100)}%`;
 
-// The isolated references' stated relative width, not yet in constants.js.
-const LOCAL = { ISOLATED_RESOLUTION: 0.05 }; // TODO(constants): py:calosrv.query.energy:ISOLATED_RESOLUTION
-
 const LADDER = `${C.MIN_MOMENT_SAMPLES} / ${C.MIN_CURVE_SAMPLES} / ${C.MIN_HISTOGRAM_SAMPLES} / ${C.MIN_ROBUST_SAMPLES}`;
 const RATIO = `${Math.round(C.BINARY_FRACTION_0 * 100)} : ${Math.round(C.BINARY_FRACTION_1 * 100)}`;
 
@@ -245,7 +242,7 @@ const RESPONSE = {
   blocks: [
     {
       kind: 'p',
-      text: String.raw`**Plot 4** draws the reconstructed energy in slices of $D$: slice by colour (ordered stops visible as one-pixel lines), shower by line style (A solid, B dashed), so the broadening with $D$ reads as a progression. From ${C.MIN_HISTOGRAM_SAMPLES} events a slice is a density histogram from zero, binned by the Rice rule of the smallest drawn slice ([[eq-histogram]]), with its core Gaussian on the histogram's normalisation ([[eq-curve-area]]): where the ±${C.CORE_SIGMA}σ refit cut a tail, the curve's area is the core's share over the window's coverage ${C.CORE_WINDOW_COVERAGE.toFixed(4)}, so it stands below the bars by the tail it does not describe. From ${C.MIN_CURVE_SAMPLES} events the curve is thinner and fainter over the events; below, only events and summary marks. Every mark that is not a density sits in a tinted, captioned band at the foot: event ticks, the mean with its capped t whisker ([[eq-t-interval]]), the SD as an uncapped bar, and below the core floor σ with its SE, χ² interval and $c_4(N)$ ([[eq-se-sigma]], [[eq-chi2-sigma]], [[eq-c4]]). The isolated references are a dotted rule at μ over a shaded μ ± σ band, A in the text colour and B muted, in their own legend: a stated ${pc(LOCAL.ISOLATED_RESOLUTION)} width at the selection's mean true momentum, not a fit and never a density.`,
+      text: String.raw`**Plot 4** draws the reconstructed energy in slices of $D$: slice by colour (ordered stops visible as one-pixel lines), shower by line style (A solid, B dashed), so the broadening with $D$ reads as a progression. From ${C.MIN_HISTOGRAM_SAMPLES} events a slice is a density histogram from zero, binned by the Rice rule of the smallest drawn slice ([[eq-histogram]]), with its core Gaussian on the histogram's normalisation ([[eq-curve-area]]): where the ±${C.CORE_SIGMA}σ refit cut a tail, the curve's area is the core's share over the window's coverage ${C.CORE_WINDOW_COVERAGE.toFixed(4)}, so it stands below the bars by the tail it does not describe. From ${C.MIN_CURVE_SAMPLES} events the curve is thinner and fainter over the events; below, only events and summary marks. Every mark that is not a density sits in a tinted, captioned band at the foot: event ticks, the mean with its capped t whisker ([[eq-t-interval]]), the SD as an uncapped bar, and below the core floor σ with its SE, χ² interval and $c_4(N)$ ([[eq-se-sigma]], [[eq-chi2-sigma]], [[eq-c4]]). The isolated references are a dotted rule at μ over a shaded μ ± σ band, A in the text colour and B muted, in their own legend: a stated ${pc(C.ISOLATED_RESOLUTION)} width at the selection's mean true momentum, not a fit and never a density.`,
     },
     {
       kind: 'p',
