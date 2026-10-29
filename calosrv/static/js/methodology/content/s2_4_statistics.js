@@ -4,7 +4,7 @@
  * circular, jackknife, profile, describe, clip), query/response.py and
  * query/energy.py (calibration, the series ladder, curve area),
  * modelruns/analysis.py (circular_fidelity) and static/js/panel_notes.js.
- * Content model and rules: data/dev/design/methodology/brief.md. */
+ * Content model and rules: index.js. */
 
 import { C } from '../constants.js';
 

@@ -1,6 +1,6 @@
 /* §4 Discussion: the engineering and epistemic trade-offs behind the service.
  *
- * Content model and rules: data/dev/design/methodology/brief.md. Every number
+ * Content model and rules: index.js. Every number
  * the code defines comes from `C`; the measured figures are quoted with their
  * dataset and source (README "Performance", the design evaluations of October
  * 2026, the ingest checks' docstrings), never as findings of this article. */

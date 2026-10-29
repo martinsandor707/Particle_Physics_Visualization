@@ -1,6 +1,5 @@
 /* §1 Introduction: the physical problem, the data, why naive pictures fail at
- * this scale, and the article's map. Content model and rules:
- * data/dev/design/methodology/brief.md.
+ * this scale, and the article's map. Content model and rules: index.js.
  *
  * Sources: calosrv/grid/lattice.py and db/ddl.py (the lattice), README
  * "Expected schema" and "Step 3" (the files), CLAUDE.md §1.1 (architecture B),

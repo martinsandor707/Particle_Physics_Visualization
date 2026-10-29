@@ -1,5 +1,5 @@
 /* §2.1 Coordinate reference frames and SE(3) co-registration.
- * Content model and rules: data/dev/design/methodology/brief.md.
+ * Content model and rules: index.js.
  *
  * Sources: calosrv/grid/frame.py (all of it), grid/lattice.py, grid/slab.py,
  * query/canonical.py, query/shower_frames.py, query/frame_sql.py,
