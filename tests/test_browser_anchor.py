@@ -1,5 +1,8 @@
 """The Entry anchor's i button in Chromium: the popup states both definitions.
 
+Its three formulas are set as MathML through math.js; each must have a real
+box inside its block, and the page must log no error.
+
 Opt-in (``CALOSRV_BROWSER_TESTS=1``), like the other browser checks. The
 distances the popup quotes are read back from the D-frame response the page
 itself asked for, so the test holds whatever the demonstration events are.
@@ -26,6 +29,13 @@ _BOX = """() => {
 }"""
 _IN_USE = """() => [...document.querySelectorAll('.popover.is-explainer h4')]
   .filter((h) => h.querySelector('.in-use')).map((h) => h.firstChild.textContent.trim())"""
+_FORMULAS = """() => [...document.querySelectorAll('.popover.is-explainer .formula')].map((f) => {
+  const math = f.querySelector('math');
+  if (!math) return { missing: f.textContent };
+  const r = math.getBoundingClientRect();
+  return { display: math.getAttribute('display'), width: r.width, height: r.height,
+           box: f.clientWidth, annotation: math.querySelector('annotation')?.textContent ?? '' };
+})"""
 _LAST_PROJECTIONS_URL = """() => performance.getEntriesByType('resource')
   .map((e) => e.name).filter((n) => n.includes('/api/projections')).pop()"""
 
@@ -40,6 +50,7 @@ def _open(p, base, viewport):
     page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type in ("error", "warning") else None)
     page.goto(f"{base}/#frame=canonical")
     page.wait_for_function("() => document.getElementById('title-xy').textContent.startsWith('D–Y′')",
                            timeout=30_000)
@@ -61,13 +72,20 @@ def test_the_entry_anchor_i_button_explains_both_definitions(live_server, viewpo
         page.wait_for_selector(".popover.is-explainer")
         text = page.evaluate(_TEXT)
         for phrase in ("Entry anchor of the D-frame", "Back-projected 3-D centroid (default)",
-                       "First-layer entry point P₀", "entry = (c_x, c_y) − (c_z − z_f) · tan θ · (cos φ, sin φ)",
-                       "entry = P₀ − (z₀ − z_f) · tan θ · (cos φ, sin φ)", "What switching changes",
+                       "First-layer entry point P₀", "What switching changes",
                        "The file records no true entry point"):
             assert phrase in text, phrase
         assert (f"a median {_js_round(residual['a']['median'])} mm apart for shower A and "
                 f"{_js_round(residual['b']['median'])} mm for shower B") in text
         assert page.evaluate(_IN_USE) == ["Back-projected 3-D centroid (default)"]
+
+        # The three formulas are MathML set by math.js, each with a real box, the TeX kept as its annotation.
+        formulas = page.evaluate(_FORMULAS)
+        assert len(formulas) == 3, formulas
+        for formula in formulas:
+            assert formula["display"] == "block" and formula["width"] > 40 and formula["height"] > 10, formula
+            assert formula["width"] <= formula["box"] + 1, formula
+            assert formula["annotation"].startswith(("\\begin{aligned}", "\\text{entry}")), formula
 
         # Inside the window however short it is, beside the sidebar so neither the
         # button nor the radios it explains are covered, with the focus in it.

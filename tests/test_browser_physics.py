@@ -953,7 +953,9 @@ def test_single_shower_frames_are_worded_for_one_shower(physics_live_server):
                 assert page.evaluate("() => document.getElementById('ctl-frame').dataset.frame") == "trans"
             for panel_id in ("xy", "yz", "xz"):
                 page.click(f'button[data-inspect="{panel_id}"]')
-                body = page.evaluate("() => document.getElementById('inspector-body').textContent")
+                # The notes only: the link to the article names its section, whose title is the article's.
+                body = page.evaluate("() => [...document.querySelectorAll('#inspector-body .inspector-section')]"
+                                     ".map((s) => s.textContent).join(' ')")
                 assert "D-Frame" not in body and "legacy" not in body, (frame, panel_id, body[:400])
                 page.keyboard.press("Escape")
         browser.close()
@@ -1137,6 +1139,11 @@ def test_a_badge_link_lands_on_its_card_with_the_way_back(physics_live_server):
         assert "inspector-return" in first
         link = page.locator("#inspector-body .inspector-return a")
         assert link.inner_text() == "↩ Continue reading §2.4 in the Methodology"
+        # The badge's place is not the section explaining the card, so that link follows the way back.
+        assert page.evaluate("() => [...document.querySelector('#inspector-body').children].slice(0, 2)"
+                             ".map((c) => c.className)") == ["inspector-return", "inspector-method"]
+        assert page.inner_text("#inspector-body .inspector-method a").startswith(
+            "How it is drawn: Methodology §3.4 ")
         page.check('input[name="model"][value="energy"]')
         page.wait_for_function("() => location.hash.includes('model=energy')", timeout=15_000)
         link.click()
@@ -1184,6 +1191,49 @@ def test_the_compare_badge_lands_on_a_compare_cell(physics_live_server):
         assert page.get_attribute('button[data-inspect="compare-lab-xy"]', "aria-expanded") == "true"
         assert "inspector-return" in page.evaluate(
             "() => document.querySelector('#inspector-body').firstElementChild.className")
+        # The badge stood where the section link would land: the way back is the one link.
+        assert page.locator("#inspector-body .inspector-method").count() == 0
+        browser.close()
+    assert problems == [], problems
+
+
+def test_every_drawer_links_to_the_section_explaining_its_panel(physics_live_server):
+    """A drawer opened by hand links to the article's section on its panel, with the view on screen."""
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        problems = []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.goto(f"{base}/#table_name={BASELINE_TABLE}")
+        page.wait_for_function("() => document.getElementById('stat-events').textContent !== '—'", timeout=30_000)
+        page.click('button[data-inspect="yz"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
+        assert page.locator("#inspector-body .inspector-return").count() == 0
+        first = page.evaluate("() => document.querySelector('#inspector-body').firstElementChild.className")
+        assert first == "inspector-method"
+        link = page.locator("#inspector-body .inspector-method a")
+        assert link.inner_text() == "How it is drawn: Methodology §3.1 Spatial projections"
+        # One line.
+        assert page.evaluate("""() => { const a = document.querySelector('#inspector-body .inspector-method a');
+          return a.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(a).fontSize); }""")
+        # The href follows the view changed after the drawer opened.
+        page.check('input[name="model"][value="energy"]')
+        page.wait_for_function("() => location.hash.includes('model=energy')", timeout=15_000)
+        link.focus()
+        href = link.get_attribute("href")
+        assert href.startswith("/methodology#") and "model=energy" in href and href.endswith("at=lnk-results-spatial")
+        link.click()
+        page.wait_for_url(re.compile(r"/methodology"), timeout=15_000)
+        view = {k: v[0] for k, v in parse_qs(urlparse(page.url).fragment).items()}
+        assert view.get("table_name") == BASELINE_TABLE and view.get("model") == "energy", view
+        assert view.get("at") == "lnk-results-spatial", view
+        # The article lands on that place.
+        page.wait_for_function("() => document.activeElement?.id === 'lnk-results-spatial'", timeout=30_000)
+        top = page.evaluate("() => document.getElementById('lnk-results-spatial').getBoundingClientRect().top "
+                            "- document.getElementById('main').getBoundingClientRect().top")
+        assert -2 <= top <= 40, top
         browser.close()
     assert problems == [], problems
 

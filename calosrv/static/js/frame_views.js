@@ -1025,7 +1025,10 @@ const ANCHOR_NAMES = Object.freeze({
 });
 
 const para = (text) => ({ kind: 'p', text });
-const formula = (text) => ({ kind: 'formula', text });
+/* A formula carries its plain text and its TeX: main.js sets the TeX as
+ * MathML through math.js, in the article's notation, and falls back to the
+ * text where the compiler refuses it. */
+const formula = (text, tex) => ({ kind: 'formula', text, tex });
 
 /**
  * The methodology popup of the sidebar's Entry anchor control.
@@ -1033,7 +1036,7 @@ const formula = (text) => ({ kind: 'formula', text });
  * How the Translated D-frame is built from two entry points, how each
  * definition finds them, how far apart the two land on the current
  * selection, and what switching changes. Returns `{title, current,
- * sections: [{heading, current, blocks: [{kind: 'p' | 'formula', text}]}]}`;
+ * sections: [{heading, current, blocks: [{kind: 'p' | 'formula', text, tex?}]}]}`;
  * pure, so every sentence can be checked under Node, and main.js renders it
  * with text nodes.
  *
@@ -1090,7 +1093,9 @@ export function anchorExplainer(frame = null, choice = null) {
           + 'midpoint m becomes the origin, the direction from A’s entry point to B’s becomes +x′ '
           + '(written D on the entry panel), and z′ = z − z_f. With ψ the azimuth of that A→B line, '
           + 'every hit moves as'),
-        formula('x′ = cos ψ · (x − m_x) + sin ψ · (y − m_y)\ny′ = −sin ψ · (x − m_x) + cos ψ · (y − m_y)'),
+        formula('x′ = cos ψ · (x − m_x) + sin ψ · (y − m_y)\ny′ = −sin ψ · (x − m_x) + cos ψ · (y − m_y)',
+          String.raw`\begin{aligned} x' &= \cos\psi\,(x - m_x) + \sin\psi\,(y - m_y) \\ `
+          + String.raw`y' &= -\sin\psi\,(x - m_x) + \cos\psi\,(y - m_y) \end{aligned}`),
         para('Shower A then sits at D = −D_entry/2 and B at D = +D_entry/2, where D_entry is the distance '
           + 'between the two entry points. The two choices differ only in which point of each shower is '
           + 'taken as its entry point; the frame is built from it the same way.'),
@@ -1104,7 +1109,8 @@ export function anchorExplainer(frame = null, choice = null) {
           + 'centroid_A/B_x, _y, _z columns, where cells labelled A+B count with shower B. It lies inside '
           + 'the shower, well behind the front face, and is slid back to the front face along the '
           + 'shower’s own incident direction (θ, φ):'),
-        formula('entry = (c_x, c_y) − (c_z − z_f) · tan θ · (cos φ, sin φ)'),
+        formula('entry = (c_x, c_y) − (c_z − z_f) · tan θ · (cos φ, sin φ)',
+          String.raw`\text{entry} = (c_x,\ c_y) - (c_z - z_{\mathrm f})\tan\theta\,(\cos\varphi,\ \sin\varphi)`),
         para('It uses every cell of the shower. Its weakness is the long extrapolation: wherever the '
           + 'shower’s energy sits off its incident line, that sideways offset is carried unchanged to '
           + 'the front face.'),
@@ -1119,7 +1125,8 @@ export function anchorExplainer(frame = null, choice = null) {
           + 'the origin of the per-shower frames and of the reference notebook, and ingest verifies '
           + 'this definition to 0.01 mm. It is slid back the short distance from z₀ to the front face '
           + 'along the same direction:'),
-        formula('entry = P₀ − (z₀ − z_f) · tan θ · (cos φ, sin φ)'),
+        formula('entry = P₀ − (z₀ − z_f) · tan θ · (cos φ, sin φ)',
+          String.raw`\text{entry} = P_0 - (z_0 - z_{\mathrm f})\tan\theta\,(\cos\varphi,\ \sin\varphi)`),
         para('It is the measured point nearest to where the particle entered and needs almost no '
           + 'extrapolation. Its weakness is that it rests on the cells of a single layer, which can be '
           + 'few.'),

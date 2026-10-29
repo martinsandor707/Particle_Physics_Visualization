@@ -419,16 +419,22 @@ input[type="file"]::file-selector-button:hover {
   color: var(--muted);
 }
 .popover.is-explainer p { margin: 0 0 6px; }
+/* A formula holds display MathML (math.js), set in the math font stack of the
+   Methodology page so the two read alike; its plain-text fallback wraps.
+   A formula wider than the popup scrolls inside its box rather than clipping. */
 .popover.is-explainer .formula {
+  margin: 0 0 6px;
   padding: 5px 7px;
   background: var(--canvas);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-family: math, "STIX Two Math", "Latin Modern Math", "DejaVu Math TeX Gyre", "Noto Sans Math", "Cambria Math", serif;
+  font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-x: auto;
 }
+.popover.is-explainer .formula math { font-family: inherit; margin: 0; }
 .popover.is-explainer .in-use {
   padding: 0 5px;
   border: 1px solid var(--accent);
