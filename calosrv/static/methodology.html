@@ -11,13 +11,26 @@
 </head>
 <body>
 
-<!-- The Methodology page: one article on how every panel of the other two
-     pages is computed and drawn. The shell is theirs - header, page tabs, a
-     collapsible sidebar (here the article's outline) - so js/shell.js serves
-     it; there is no Details drawer and no chart. The article is built by
-     js/methodology_main.js from js/methodology/content/. The page never writes
-     a view key into the hash: it carries the reader's view to the badges and
-     tabs, and keeps its own place in one key of its own, at=. -->
+<!-- The Methodology page: one journal-style article on how every panel of
+     the other two pages is computed and drawn - the frames, the
+     discretisation, the attribution channels, the statistics and the
+     perceptual rules - with numbered equations in native MathML, tables, three
+     figures computed from the dashboard's own palettes, and badges that open
+     the live panel the prose describes.
+
+     The shell is the other pages': header, page tabs, a collapsible sidebar
+     (here the article's outline), so js/shell.js serves it; there is no
+     Details drawer and no chart. js/methodology_main.js builds the article
+     from js/methodology/content/ through js/methodology/render.js, as DOM
+     nodes, never as markup parsed from a string; it needs no network, so the
+     article reads the same when the service does not answer.
+
+     The page never writes a view key into the hash. It carries the reader's
+     view to the badges and the tabs (the chip in the header says which view),
+     and keeps its own place in one key of its own, at=, written only when the
+     reader clicks a TOC entry, a heading's anchor or an equation's number.
+     Print (@media print in css/methodology.css) drops the shell and sets the
+     article in black ink on white. -->
 <div class="app methodology-app">
 
   <!-- ============================================================= header -->
@@ -44,7 +57,7 @@
     <span class="spacer"></span>
 
     <div class="badge" id="view-chip" title="The view the article's links open on the other pages">
-      <span>Links open</span> <b id="view-chip-text">&mdash;</b>
+      <span>Links open:</span> <b id="view-chip-text">&mdash;</b>
     </div>
 
     <div class="badge" id="compute-badge" title="DuckDB memory ceiling and worker threads allocated at boot">

@@ -269,6 +269,13 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/controls/filter_block.js",
         "/static/js/models_main.js",
         "/static/js/models_cards.js",
+        "/static/js/methodology_main.js",
+        "/static/js/math.js",
+        "/static/js/methodology/render.js",
+        "/static/js/methodology/links.js",
+        "/static/js/methodology/exhibits.js",
+        "/static/js/methodology/constants.js",
+        "/static/js/methodology/content/index.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -299,6 +306,10 @@ def test_new_modules_are_served(client, path):
         "/static/js/models_cards.js",
         "/static/js/shell.js",
         "/static/js/methodology_main.js",
+        "/static/js/methodology/render.js",
+        "/static/js/methodology/links.js",
+        "/static/js/methodology/exhibits.js",
+        "/static/js/methodology/content/index.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -767,7 +778,8 @@ def test_the_reference_frame_control_opens_in_the_absolute_frame():
 def test_no_retired_schema_wording_ships():
     retired = ("29-column", "no predicted angle", "No predicted-angle", "A+B = 8.6",
                "particle_origin = 'A+B'", "Shared voxels", "shared_voxel_fraction")
-    sources = [STATIC / "index.html", STATIC / "models.html"] + [
+    # Every shipped module, the article's content among them, and the three pages.
+    sources = [STATIC / "index.html", STATIC / "models.html", STATIC / "methodology.html"] + [
         path for path in (STATIC / "js").rglob("*.js") if "vendor" not in path.parts
     ]
     for path in sources:
@@ -807,7 +819,9 @@ def test_no_retired_frame_vocabulary_ships():
     sources = [STATIC / "index.html", STATIC / "models.html", js / "labels.js", js / "frame_views.js", js / "main.js",
                js / "models_main.js", js / "models_cards.js", js / "capabilities.js",
                PANELS_JS / "projection.js", PANELS_JS / "canonical_overlays.js",
-               EXPORT_JS / "disclosure.js", EXPORT_JS / "caption.js", js / "controls" / "admin.js"]
+               EXPORT_JS / "disclosure.js", EXPORT_JS / "caption.js", js / "controls" / "admin.js",
+               # The Methodology page: its markup, its entry point, the renderer and the article itself.
+               STATIC / "methodology.html", js / "methodology_main.js", *sorted((js / "methodology").rglob("*.js"))]
     for path in sources:
         text = path.read_text(encoding="utf-8")
         text = (re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL) if path.suffix == ".html"
