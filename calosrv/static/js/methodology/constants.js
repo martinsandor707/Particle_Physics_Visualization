@@ -158,6 +158,18 @@ export const CONSTANTS = Object.freeze({
     'Significant figures of an exact value: the float32 source’s precision.'),
   LAB_DECADES: entry(6.0, 'py:calosrv.encode.scale:DEFAULT_DECADES',
     'Decades of the Absolute-frame log ramp below the brightest cell.'),
+  CAM_ENERGY_DECADES: entry(3.0, 'py:calosrv.query.panels:CAM_ENERGY_DECADES',
+    'Decades of the energy-weighted Grad-CAM and Shap-CAM ramps below their stated peak.'),
+
+  /* ------------------------------------------- serving and interaction -- */
+  DEBOUNCE_MS: entry(150, 'js:api.js:DEBOUNCE_MS', 'Slider input is debounced for this many milliseconds.'),
+  SAMPLE_PERCENT: entry(10, 'text:calosrv/config.py:sample_percent=10.0',
+    'Bernoulli sample of the projection table drawn while a slider is dragged, in per cent.'),
+  SAMPLE_THRESHOLD_ROWS: entry(2000000, 'py:calosrv.query.sampling:SAMPLE_THRESHOLD_ROWS',
+    'Tables of at least this many rows draw the sampled preview while dragging.'),
+  ARCHIVE_ROW_GROUP: entry(100000, 'py:calosrv.db.archive:ROW_GROUP_SIZE', 'Rows per row group of the Parquet archive.'),
+  ARCHIVE_ZSTD_LEVEL: entry(3, 'py:calosrv.db.archive:COMPRESSION_LEVEL', 'ZSTD level of the Parquet archive.'),
+  EXPORT_DPI: entry(300, 'text:calosrv/static/js/export/menu.js:PNG 300 DPI', 'Resolution of an exported PNG figure.'),
 
   /* --------------------------------------------------- the detector -- */
   CORE_SHIFT_Z_MM: entry(3649.0, 'py:calosrv.db.ddl:CORE_SHIFT_Z_MM',
