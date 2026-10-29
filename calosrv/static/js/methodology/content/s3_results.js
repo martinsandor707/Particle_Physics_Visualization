@@ -7,7 +7,7 @@
  * Measured figures appear only as the rationale of a design rule, with their
  * source. The mathematics lives in §2; this section cites its equations.
  *
- * Content model and rules: data/dev/design/methodology/brief.md.
+ * Content model and rules: index.js.
  */
 
 import { C } from '../constants.js';

@@ -1,5 +1,5 @@
 /* §2 Methodology: the lead paragraph only; content/index.js attaches §2.1-2.4.
- * Content model and rules: data/dev/design/methodology/brief.md. */
+ * Content model and rules: index.js. */
 
 export default {
   id: 'sec-methods',

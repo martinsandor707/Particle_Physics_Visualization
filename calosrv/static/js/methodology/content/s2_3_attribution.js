@@ -4,7 +4,7 @@
  * them), query/density.py and query/panels.py (the co-registered and Absolute
  * renderers), db/ddl.py (RAW_CAMS), encode/quantize.py, encode/scale.py,
  * encode/topk.py and static/js/frame_views.js (CAM_NORMALISATION).
- * Content model and rules: data/dev/design/methodology/brief.md. */
+ * Content model and rules: index.js. */
 
 import { C } from '../constants.js';
 

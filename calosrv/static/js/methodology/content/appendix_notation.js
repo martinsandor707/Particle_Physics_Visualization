@@ -1,6 +1,6 @@
 /* Appendix A: the notation, one symbol with one meaning across the article.
- * Content model and rules: data/dev/design/methodology/brief.md (§7 is the
- * source of this table; the last rows are the symbols §4 introduces). */
+ * Content model and rules: index.js. The last rows are the symbols §4
+ * introduces. */
 
 import { C } from '../constants.js';
 

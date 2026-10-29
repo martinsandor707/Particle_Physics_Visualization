@@ -1,5 +1,5 @@
 /* §2.2 Spatial discretisation, splatting and field reconstruction.
- * Content model and rules: data/dev/design/methodology/brief.md.
+ * Content model and rules: index.js.
  *
  * Sources: calosrv/grid/splat.py, grid/kernel.py, grid/footprint.py,
  * grid/resolution.py, grid/lattice.py, grid/frame.py, query/reconstruct.py,

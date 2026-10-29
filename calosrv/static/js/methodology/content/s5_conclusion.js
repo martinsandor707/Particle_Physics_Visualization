@@ -1,5 +1,5 @@
 /* §5 Conclusion: the framework as a reproducible blueprint.
- * Content model and rules: data/dev/design/methodology/brief.md. */
+ * Content model and rules: index.js. */
 
 import { C } from '../constants.js';
 
