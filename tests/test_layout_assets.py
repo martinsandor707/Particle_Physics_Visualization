@@ -594,7 +594,9 @@ def test_the_methodology_page_has_the_shell_and_its_own_key():
     main = _strip_comments((JS / "methodology_main.js").read_text(encoding="utf-8"))
     # Its tabs drop the page's own key, and its outline is not the configuration sidebar.
     assert "wirePageTabs(document, { drop: ['at'] })" in main
-    assert "storageKey: 'calosrv.methodology.outline'" in main
+    assert "OUTLINE_KEY = 'calosrv.methodology.outline'" in main and "storageKey: OUTLINE_KEY" in main
+    # A narrow screen starts with the outline folded, unless the reader chose otherwise before.
+    assert "readSidebarPreference(OUTLINE_KEY) === null" in main and "(max-width: 760px)" in main
     # It never writes a view key: none of State's writers (the browser test checks the behaviour).
     for forbidden in ("writeHash(", "state.set(", "adoptBounds(", "adoptSnappedBounds(", "restrictAxes(",
                       "pushState("):

@@ -215,8 +215,9 @@ export function tokenize(text) {
   let i = 0;
   while (i < source.length) {
     const c = source[i];
-    if (c === '\\' && source[i + 1] === '$') {
-      buffer += '$';
+    // \$ \* \` \[ write the character itself, outside its markup role.
+    if (c === '\\' && i + 1 < source.length && '$*`['.includes(source[i + 1])) {
+      buffer += source[i + 1];
       i += 2;
       continue;
     }
@@ -361,9 +362,11 @@ function inlineMath(tex, ctx, where) {
 }
 
 /** An in-article link: live href, scrolls in place (wireArticle). */
-function gotoLink(id, label, { cls = 'xref', mark = false } = {}) {
+function gotoLink(id, label, { cls = 'xref', mark = false, name = null } = {}) {
   const attrs = { class: cls, href: methodologyHref(id, ''), 'data-goto': id };
   if (mark) attrs['data-mark'] = '';
+  // A pilcrow says nothing to a screen reader: the anchor names its section.
+  if (name) attrs['aria-label'] = name;
   return h('a', attrs, label);
 }
 
@@ -424,13 +427,16 @@ function heading(entry, ctx) {
   entry.titleNodes = inline(part.title ?? '', ctx, `${where} title`);
   if (!part.title) ctx.error(`${where}: a section without a title`);
   const tag = `h${Math.min(level + 1, 6)}`;
-  const shown = appendix && level === 1 ? `Appendix ${number}` : number;
+  const lettered = appendix && level === 1;
+  const shown = lettered ? `Appendix ${number}` : number;
+  let anchorName = 'Link to this section';
+  if (shown) anchorName = lettered ? `Link to ${shown}` : `Link to §${shown}`;
   return h(tag, { id: part.id, tabindex: '-1', class: 'section-heading' },
     shown ? h('span', { class: 'sec-number' }, shown) : null,
     shown ? ' ' : null,
     h('span', { class: 'sec-title' }, entry.titleNodes),
     ' ',
-    gotoLink(part.id, '¶', { cls: 'heading-anchor', mark: true }));
+    gotoLink(part.id, '¶', { cls: 'heading-anchor', mark: true, name: anchorName }));
 }
 
 function renderSection(entry, ctx, constants) {
@@ -580,7 +586,7 @@ function renderReferences(entry, ctx) {
   return h('section', { class: 'article-section level-1 references', 'data-section': REFERENCES_ID, 'aria-labelledby': REFERENCES_ID },
     h('h2', { id: REFERENCES_ID, tabindex: '-1', class: 'section-heading' },
       h('span', { class: 'sec-title' }, 'References'), ' ',
-      gotoLink(REFERENCES_ID, '¶', { cls: 'heading-anchor', mark: true })),
+      gotoLink(REFERENCES_ID, '¶', { cls: 'heading-anchor', mark: true, name: 'Link to the references' })),
     list.length ? h('ol', { class: 'reference-list' }, list) : h('p', { class: 'muted' }, 'No work is cited yet.'));
 }
 
@@ -694,6 +700,11 @@ function setPanel(button, open, doc) {
   if (!panel) return;
   const show = open === null ? panel.hidden : open;
   panel.hidden = !show;
+  // A panel opens without the last copy's status.
+  if (show) {
+    const status = panel.querySelector('.tex-status');
+    if (status) status.textContent = '';
+  }
   button.setAttribute('aria-expanded', String(show));
   const title = show ? 'Hide the LaTeX source' : 'Show the LaTeX source';
   button.title = title;

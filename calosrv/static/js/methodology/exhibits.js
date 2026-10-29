@@ -327,7 +327,9 @@ export function se3Exhibit(id = 'fig-se3') {
     const r = 22;
     const end = [mx + r * Math.cos(psi), my - r * Math.sin(psi)];
     nodes.push(s('path', {
-      d: `M${round(mx + r)} ${round(my)} A${r} ${r} 0 ${psi > Math.PI ? 1 : 0} 0 ${round(end[0])} ${round(end[1])}`,
+      // Screen y points down: a positive ψ turns anticlockwise on screen (sweep 0), a negative one
+      // clockwise (sweep 1); atan2 never exceeds π, so the arc is never the large one.
+      d: `M${round(mx + r)} ${round(my)} A${r} ${r} 0 0 ${psi < 0 ? 1 : 0} ${round(end[0])} ${round(end[1])}`,
       class: `se3-arc ${cls}`,
     }));
     const mid = psi / 2;

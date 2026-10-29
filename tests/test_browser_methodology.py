@@ -122,9 +122,8 @@ def test_the_narrow_window_and_the_default_view(live_server, tmp_path):
 def test_the_tex_panel_opens_closes_and_copies(live_server):
     with live_server["playwright"].sync_playwright() as p:
         browser, page, problems = _open(p, live_server["base"], clipboard=True)
-        if not page.locator("#paper .math-display").count():
-            browser.close()
-            pytest.skip("the article has no display equation yet")
+        # The article has its equations: none would be a regression, not a reason to skip.
+        assert page.locator("#paper .math-display").count() > 0
         figure = page.locator("#paper .math-display").first
         toggle = figure.locator(".tex-toggle")
         panel_id = toggle.get_attribute("aria-controls")
@@ -193,9 +192,7 @@ def test_a_badge_opens_its_panel_with_the_view(live_server):
     with live_server["playwright"].sync_playwright() as p:
         browser, page, problems = _open(p, live_server["base"])
         badges = page.locator("#paper a[data-badge]")
-        if not badges.count():
-            browser.close()
-            pytest.skip("the article has no badge yet")
+        assert badges.count() > 0
         badge = badges.first
         badge.scroll_into_view_if_needed()
         expected = {"panel": badge.get_attribute("data-panel"), "from": badge.get_attribute("data-from"),
@@ -241,3 +238,103 @@ def test_print_hides_the_shell_and_paints_white(live_server, tmp_path):
     assert set(state["badges"]) <= {"none"} and set(state["toggles"]) <= {"none"}
     assert state["body"] == "rgb(255, 255, 255)" and state["ink"] == "rgb(17, 24, 39)"
     assert state["app"] == "block" and state["overflow"] == "visible"
+
+
+#: Each distinct badge target, read off the page once its links are live.
+_BADGE_TARGETS = """() => {
+  const seen = new Map();
+  for (const a of document.querySelectorAll('#paper a[data-badge]')) {
+    const key = `${a.dataset.page}|${a.dataset.panel}|${a.dataset.set || ''}`;
+    if (!seen.has(key)) seen.set(key, { key, href: a.href, page: a.dataset.page, panel: a.dataset.panel });
+  }
+  return [...seen.values()];
+}"""
+
+#: The landing's outcome: the drawer open, or the kind banner's sentence.
+_LANDED = """() => !location.search && (!document.getElementById('inspector').hidden
+  || (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked'))"""
+
+
+def test_every_badge_lands_on_its_card_or_says_why(live_server):
+    """Each distinct badge target opens its card with the drawer and the way back, or the banner says the
+    experiment does not show that card. None names a card its page lacks, and none is hidden by a view mode
+    the reader brought: the page arrives with an event pinned, which every Physics badge leaves."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _open(p, live_server["base"], fragment=f"{VIEW}&event=0")
+        targets = page.evaluate(_BADGE_TARGETS)
+        assert targets
+        outcomes = []
+        for target in targets:
+            page.goto(target["href"])
+            page.wait_for_function(_LANDED, timeout=30_000)
+            outcomes.append((target, page.evaluate("""() => ({
+              drawer: !document.getElementById('inspector').hidden,
+              inspected: document.querySelector('.card.is-inspected')?.dataset.panel ?? null,
+              back: Boolean(document.querySelector('#inspector-body .inspector-return a')),
+              banner: document.getElementById('kind-banner-text')?.textContent ?? '' })""")))
+        browser.close()
+    assert problems == [], problems
+    landed = [t["key"] for t, o in outcomes if o["drawer"]]
+    for target, outcome in outcomes:
+        if outcome["drawer"]:
+            assert outcome["inspected"] == target["panel"] and outcome["back"], (target["key"], outcome)
+        else:
+            assert "does not show" in outcome["banner"], (target["key"], outcome["banner"])
+    # The demonstration experiment serves every spatial panel, and the compare view.
+    for target, _ in outcomes:
+        if target["page"] == "physics" and (target["panel"] in ("xy", "yz", "xz", "energy")
+                                            or target["panel"].startswith("compare-")):
+            assert target["key"] in landed, target["key"]
+
+
+def test_a_phone_width_reads_without_sideways_scroll(live_server):
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _open(p, live_server["base"], viewport=(390, 844))
+        folded = page.evaluate("""() => ({
+          scroll: document.documentElement.scrollWidth, width: innerWidth,
+          paper: document.getElementById('paper').getBoundingClientRect().width,
+          collapsed: document.querySelector('.app').classList.contains('is-sidebar-collapsed'),
+          header: document.querySelector('.header').scrollWidth <= document.querySelector('.header').clientWidth + 1 })""")
+        page.click("#sidebar-toggle")
+        unfolded = page.evaluate("""() => {
+          const outline = document.getElementById('sidebar').getBoundingClientRect();
+          const main = document.getElementById('main').getBoundingClientRect();
+          return { above: outline.bottom <= main.top + 1, width: outline.width,
+                   scroll: document.documentElement.scrollWidth, viewport: innerWidth }; }""")
+        browser.close()
+    assert problems == [], problems
+    # The outline starts folded, the page never scrolls sideways, and the article has a reading width.
+    assert folded["collapsed"] and folded["header"], folded
+    assert folded["scroll"] <= folded["width"] and folded["paper"] >= 300, folded
+    # Unfolded, the outline sits above the article, across the screen.
+    assert unfolded["above"] and unfolded["width"] >= 300 and unfolded["scroll"] <= unfolded["viewport"], unfolded
+
+
+def test_print_keeps_every_table_and_equation_on_the_page(live_server):
+    """On paper nothing scrolls: no table or equation may be wider than the A4 text block."""
+    with live_server["playwright"].sync_playwright() as p:
+        # A4 less the print sheet's 16 mm margins: 178 mm, about 673 CSS px.
+        browser, page, problems = _open(p, live_server["base"], viewport=(673, 900))
+        page.emulate_media(media="print")
+        over = page.evaluate("""() => [...document.querySelectorAll('#paper .table-scroll, #paper .eq-math')]
+          .filter((el) => el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `${el.closest('[id]')?.id ?? el.className}: ${el.scrollWidth} > ${el.clientWidth}`)""")
+        browser.close()
+    assert problems == [], problems
+    assert over == [], over
+
+
+def test_a_folded_outline_comes_back_unshifted(live_server):
+    """The scroll-spy never scrolls the outline sideways, folded or not."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _open(p, live_server["base"])
+        page.click("#sidebar-toggle")
+        page.evaluate("() => document.getElementById('sec-frames').scrollIntoView({ block: 'start' })")
+        page.wait_for_function(
+            "() => document.querySelector('#toc a[aria-current=\"location\"]')?.dataset.goto?.startsWith('sec-frames')",
+            timeout=10_000)
+        page.click("#sidebar-toggle")
+        left = page.evaluate("() => document.getElementById('sidebar').scrollLeft")
+        browser.close()
+    assert problems == [], problems
+    assert left == 0

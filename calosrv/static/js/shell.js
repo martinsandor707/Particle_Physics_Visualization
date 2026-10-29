@@ -80,8 +80,9 @@ export class Shell {
     this.closeButton = document.getElementById('inspector-close');
     this.inspected = null;
     this.returnTo = null;
-    // The way back to the Methodology: {panelId, anchor, label, title} or null.
+    // The way back to the Methodology: {panelId, anchor, label, title} or null, and its link on show.
     this.returnLink = null;
+    this.returnAnchor = null;
 
     // Applied before the charts are created (main.js constructs the shell
     // first), so the first layout already has the right width.
@@ -222,6 +223,7 @@ export class Shell {
     anchor.textContent = link.label;
     wireLiveLinks([anchor], href);
     paragraph.append(anchor);
+    this.returnAnchor = anchor;
     return paragraph;
   }
 
@@ -229,6 +231,9 @@ export class Shell {
   renderNotes(notes) {
     if (this.title) this.title.textContent = notes?.title ?? 'Panel details';
     if (!this.body) return;
+    // A keyboard reader on the return link keeps their place when the notes refresh under it.
+    const hadFocus = Boolean(this.returnAnchor) && document.activeElement === this.returnAnchor;
+    this.returnAnchor = null;
     const nodes = [];
     const back = this.returnNode();
     if (back) nodes.push(back);
@@ -252,5 +257,6 @@ export class Shell {
       nodes.push(block);
     }
     this.body.replaceChildren(...nodes);
+    if (hadFocus) this.returnAnchor?.focus({ preventScroll: true });
   }
 }

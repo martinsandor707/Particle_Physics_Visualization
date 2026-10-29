@@ -19,12 +19,13 @@ import { layout, mount, tocTree, wireArticle, wireGoto } from './methodology/ren
 import { badgeHref, readAt, viewChipText, writeAt } from './methodology/links.js';
 import { getJson } from './api.js';
 import { Banner, describeError, fillComputeBadges, methodologyHref, wireLiveLinks, wirePageTabs } from './page_common.js';
-import { Shell } from './shell.js';
+import { Shell, readSidebarPreference } from './shell.js';
 
 /* The outline sits in the configuration sidebar's track, under its own key;
  * the shell wires the header's toggle to it. */
-new Shell({
-  storageKey: 'calosrv.methodology.outline',
+const OUTLINE_KEY = 'calosrv.methodology.outline';
+const shell = new Shell({
+  storageKey: OUTLINE_KEY,
   labels: {
     collapse: 'Collapse the article outline',
     expand: 'Expand the article outline',
@@ -33,10 +34,17 @@ new Shell({
   },
 });
 
+/* On a narrow screen the outline would leave the article a sliver: it starts
+ * folded away, unless the reader has chosen otherwise before. */
+if (readSidebarPreference(OUTLINE_KEY) === null && window.matchMedia?.('(max-width: 760px)').matches) {
+  shell.applySidebar(true);
+}
+
 const banner = new Banner();
 const paper = document.getElementById('paper');
 const toc = document.getElementById('toc');
 const main = document.getElementById('main');
+const outline = document.getElementById('sidebar');
 const chip = document.getElementById('view-chip-text');
 
 /** The catalogue, once loaded: the badges then write out the view a cold boot would open. */
@@ -48,13 +56,28 @@ function showProblems() {
   banner.show([...problems.article, ...problems.service], true);
 }
 
+/** The place the address bar names: kept so that a hand-edited hash can move the reader. */
+let currentAt = readAt();
+
 /** Move the reader to `id`: instantly, inside the article column, focus on the target. */
 function goTo(id, { mark = false } = {}) {
   const target = document.getElementById(id);
   if (!target) return;
   target.scrollIntoView({ block: 'start', behavior: 'instant' });
   target.focus({ preventScroll: true });
-  if (mark) writeAt(id);
+  if (mark) {
+    writeAt(id);
+    currentAt = id;
+  }
+}
+
+/* Keep an outline entry in sight, vertically only: scrollIntoView would also
+ * scroll the outline sideways, and a folded outline (no width) not at all. */
+function keepInSight(link) {
+  if (!outline || shell.sidebarCollapsed) return;
+  const box = outline.getBoundingClientRect();
+  const row = link.getBoundingClientRect();
+  if (row.top < box.top || row.bottom > box.bottom) outline.scrollTop += row.top - box.top - box.height / 2;
 }
 
 /** Every badge's href, for the view in hand. */
@@ -98,7 +121,7 @@ function spy() {
     current?.removeAttribute('aria-current');
     link?.setAttribute('aria-current', 'location');
     // Keep the marked entry in sight in a long outline; the sidebar scrolls, the article does not.
-    link?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    if (link) keepInSight(link);
     current = link;
   };
   if (typeof IntersectionObserver !== 'function') return;
@@ -125,7 +148,8 @@ function render() {
   // The provenance line: the date now, the build from this module's own stamp, the version from the service.
   const stamp = new URL(import.meta.url).searchParams.get('v');
   fillProvenance('stamp', stamp || 'unstamped');
-  fillProvenance('date', new Date().toISOString().slice(0, 10));
+  // The reader's own date, as YYYY-MM-DD (the UTC date is yesterday's after midnight in Debrecen).
+  fillProvenance('date', new Date().toLocaleDateString('en-CA'));
 
   wireArticle(paper, { goTo });
   wireGoto(toc, goTo);
@@ -162,6 +186,11 @@ showProblems();
 window.addEventListener('hashchange', () => {
   refreshChip();
   refreshLinks();
+  // A hand-edited hash naming another place moves the reader there; the page's own
+  // writes (replaceState) fire no event.
+  const at = readAt();
+  if (at && at !== currentAt) goTo(at);
+  currentAt = at;
 });
 
 const [experiments, health] = await Promise.allSettled([

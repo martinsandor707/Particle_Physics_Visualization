@@ -30,7 +30,9 @@
  * ## Inline syntax (text, list items, table cells, captions, callouts)
  *
  * - `$…$` inline TeX, from the subset `math.js` accepts (an unknown command
- *   throws); `\$` is a literal dollar sign. Display TeX has no `$`.
+ *   throws). Display TeX has no `$`. A prime comes before a subscript:
+ *   `x'_i`, not `x_i'`, which throws as a double superscript would.
+ * - `\$`, `\*`, `` \` `` and `\[` write the character itself.
  * - `[[<id>]]` a cross-reference, written by kind: (3), Table 2, Figure 1,
  *   §2.1, Appendix A. `[[cite:<key>]]` a citation of `references.js`,
  *   numbered by first citation.

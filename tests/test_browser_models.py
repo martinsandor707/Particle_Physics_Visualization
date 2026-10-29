@@ -856,12 +856,12 @@ def test_a_badge_link_lands_on_its_models_card_with_the_way_back(models_live_ser
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
         page.goto(f"{base}/models?panel=feat-corr&from=lnk-results-features&from_sec=3.5#table_name={BASELINE_TABLE}")
         page.wait_for_function("() => !location.search && !document.getElementById('inspector').hidden", timeout=30_000)
-        page.wait_for_timeout(500)
         assert urlparse(page.url).query == ""
-        assert page.evaluate("""() => {
+        # The cards above load as they come into view; wait for the layout to put this one in view.
+        page.wait_for_function("""() => {
           const card = document.querySelector('.main .card[data-panel="feat-corr"]').getBoundingClientRect();
           const main = document.querySelector('.main').getBoundingClientRect();
-          return card.top >= main.top - 2 && card.top < main.bottom; }""")
+          return card.top >= main.top - 2 && card.top < main.bottom; }""", timeout=15_000)
         assert page.locator("#inspector-body .inspector-return a").inner_text() \
             == "↩ Continue reading §3.5 in the Methodology"
         browser.close()

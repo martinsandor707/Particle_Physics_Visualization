@@ -226,6 +226,11 @@ const styleText = (text, font) => Array.from(text, (ch) => styleChar(ch, font)).
  * JSON or the DOM: what a base does with its scripts, and a function head. */
 const LIMITS = Symbol('limits');
 const FUNCTION = Symbol('function');
+/* A bar written \lvert or \lVert opens a group, as TeX's Open class does; a
+ * plain |, \vert or \| is an ordinary symbol and \rvert a closing one. */
+const OPENER = Symbol('opener');
+const BARS = new Set(['|', '‖']);
+const OPENING_BARS = new Set(['lvert', 'lVert']);
 
 const node = (tag, attrs, children) => (attrs && Object.keys(attrs).length
   ? { tag, attrs, children } : { tag, children });
@@ -263,6 +268,18 @@ function leadingOperator(n) {
   if (!n) return null;
   if (n.tag === 'mrow' || n.tag === 'mstyle') return leadingOperator(n.children[0]);
   return coreOperator(n);
+}
+
+/** A plain bar: an operator to MathML, an ordinary symbol to TeX's spacing. */
+function ordinaryBar(op) {
+  return Boolean(op) && BARS.has(op.text) && !op[OPENER] && op.attrs?.fence !== 'true';
+}
+
+/** A plain delimiter by command, an opening bar marked as such. */
+function delimiterCommand(name) {
+  const out = delimiter(DELIMITER_COMMANDS[name]);
+  if (OPENING_BARS.has(name)) out[OPENER] = true;
+  return out;
 }
 
 // ----------------------------------------------------------- the parser --
@@ -540,7 +557,7 @@ class Parser {
       const text = OPERATORS[name];
       return name === 'prime' ? mo(text, { lspace: '0', rspace: '0' }) : mo(text);
     }
-    if (name in DELIMITER_COMMANDS) return delimiter(DELIMITER_COMMANDS[name]);
+    if (name in DELIMITER_COMMANDS) return delimiterCommand(name);
     if (name in LARGE) return this.large(LARGE[name], name === 'int' ? 'never' : 'display');
     if (FUNCTIONS.has(name)) return this.functionHead(name, LIMIT_FUNCTIONS.has(name));
     if (name in SPACES) return space(SPACES[name]);
@@ -666,7 +683,7 @@ class Parser {
       return { tag: 'mspace', attrs: { width: '0em', style: 'margin-inline-start: -0.1667em' } };
     }
     if (name in SPACES) return space(SPACES[name]);
-    if (name in DELIMITER_COMMANDS) return delimiter(DELIMITER_COMMANDS[name]);
+    if (name in DELIMITER_COMMANDS) return delimiterCommand(name);
     if (name === '\\') this.fail('"\\\\" outside an environment', at);
     return token('mi', name); // \% \# \& \_
   }
@@ -744,6 +761,7 @@ class Parser {
       }
       if (ch === '$') this.fail(`"$" inside "\\${name}"`, this.i - 1);
       if (ch === '%') this.fail('Unescaped "%" (write "\\%")', this.i - 1);
+      if (ch === '&' || ch === '#') this.fail(`Unescaped "${ch}" inside "\\${name}" (write "\\${ch}")`, this.i - 1);
       out += ch;
     }
     const style = TEXT_STYLES[name];
@@ -856,15 +874,26 @@ function spaceFunctions(list) {
      * space it as a binary operator once it is not first in its row. */
     if (n.tag === 'mo' && SIGNS.has(n.text) && out.length) {
       const prev = coreOperator(out[out.length - 1]);
-      if (prev && !CLOSING.has(prev.text) && prev.text !== '′' && prev.text !== '″') n.attrs = { ...n.attrs, form: 'prefix' };
+      // A plain bar is an ordinary symbol, so the sign after |x| is binary.
+      if (prev && !CLOSING.has(prev.text) && !ordinaryBar(prev) && prev.text !== '′' && prev.text !== '″') {
+        n.attrs = { ...n.attrs, form: 'prefix' };
+      }
     }
     if (n[FUNCTION] && out.length) {
-      const prev = coreOperator(out[out.length - 1]);
-      if (!prev || CLOSING.has(prev.text) || prev.text === '|' || prev.text === '‖') out.push(space(3 / 18));
+      const last = out[out.length - 1];
+      const prev = coreOperator(last);
+      // An explicit space before the function already separates it.
+      if (last.tag !== 'mspace' && (!prev || CLOSING.has(prev.text) || ordinaryBar(prev))) {
+        out.push(space(3 / 18));
+      }
     }
     if (n.tag === 'mo' && n.text === APPLY) {
       const following = list[i + 1];
-      if (following && following.tag !== 'mspace' && !leadingOperator(following)) n.attrs = { rspace: `${(3 / 18).toFixed(4)}em` };
+      const lead = leadingOperator(following);
+      // \log|x| keeps TeX's thin space (Op then Ord); \log\lvert x\rvert and \log(x) do not.
+      if (following && following.tag !== 'mspace' && (!lead || ordinaryBar(lead))) {
+        n.attrs = { rspace: `${(3 / 18).toFixed(4)}em` };
+      }
     }
     out.push(n);
   }
