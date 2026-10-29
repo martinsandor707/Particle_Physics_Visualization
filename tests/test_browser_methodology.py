@@ -13,11 +13,16 @@ so what is checked here is what only a browser can tell:
 * the Physics and Models tabs carry the hash without ``at``;
 * a badge opens ``/?panel=…&from=…&from_sec=…`` (or ``/models?…``) with the
   view keys (where it lands is the landing pages' own test);
-* print emulation hides the header and the outline and paints black on white.
+* print emulation hides the header and the outline and paints black on white;
+* the Export button downloads one zip (busy while it works): the TeX, the
+  BibTeX and each figure as a well-formed SVG and a 1890 px PNG with a 300 dpi
+  ``pHYs``; every text of each paper figure, laid out by Chromium, stays on its
+  canvas and clear of every other; with ``pdflatex`` and ``bibtex`` on the PATH
+  the archive compiles as it is.
 
-Screenshots (1600 × 900, 1100 × 800, print) are written to
-``CALOSRV_METHODOLOGY_SCREENS`` when it names a folder, else to the test's
-temporary folder. ``CALOSRV_METHODOLOGY_PAGE`` names another page path to
+Screenshots (1600 × 900, 1100 × 800, print) and the exported figures (SVG and
+PNG) are written to ``CALOSRV_METHODOLOGY_SCREENS`` when it names a folder,
+else to the test's temporary folder. ``CALOSRV_METHODOLOGY_PAGE`` names another page path to
 check instead of ``/methodology`` - a preview of content not yet merged.
 
 Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
@@ -25,8 +30,15 @@ Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import shutil
+import struct
+import subprocess
+import xml.etree.ElementTree as ET
+import zipfile
+import zlib
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -338,3 +350,129 @@ def test_a_folded_outline_comes_back_unshifted(live_server):
         browser.close()
     assert problems == [], problems
     assert left == 0
+
+
+#: Every text of an SVG laid out by the browser: those leaving the viewBox, and pairs that overlap.
+_TEXT_BOXES = """(svg) => {
+  const vb = svg.viewBox.baseVal;
+  const boxes = [...svg.querySelectorAll('text')].map((t) => { const b = t.getBBox();
+    return { t: t.textContent, x: b.x, y: b.y, w: b.width, h: b.height }; });
+  const out = boxes.filter((b) => b.x < 0 || b.y < 0 || b.x + b.w > vb.width || b.y + b.h > vb.height).map((b) => b.t);
+  const overlaps = [];
+  for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+    const a = boxes[i]; const b = boxes[j];
+    const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+    const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+    if (ox > 0.5 && oy > 0.5) overlaps.push([a.t, b.t]);
+  }
+  return { n: boxes.length, out, overlaps };
+}"""
+
+
+def _png_chunks(png: bytes) -> dict:
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    chunks, at = [], 8
+    while at < len(png):
+        (length,) = struct.unpack(">I", png[at:at + 4])
+        kind, data = png[at + 4:at + 8], png[at + 8:at + 8 + length]
+        (crc,) = struct.unpack(">I", png[at + 8 + length:at + 12 + length])
+        assert crc == zlib.crc32(kind + data), kind
+        chunks.append((kind.decode(), data))
+        at += 12 + length
+    return chunks
+
+
+def test_export_downloads_the_article_as_one_zip(live_server, tmp_path):
+    folder = _screens(tmp_path)
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _open(p, live_server["base"])
+        # The article's own figures, as the screen draws them, beside the exported ones.
+        for figure in page.locator("#paper figure.article-figure").all():
+            figure.screenshot(path=str(folder / f"screen-{figure.get_attribute('id')}.png"))
+        button = page.locator("#export-article")
+        assert button.text_content() == "Export"
+        assert "LaTeX" in button.get_attribute("title") and "zip" in button.get_attribute("title")
+        with page.expect_download(timeout=60_000) as caught:
+            busy = page.evaluate("""() => { const b = document.getElementById('export-article'); b.click();
+              return [b.disabled, b.getAttribute('aria-busy'), b.textContent]; }""")
+        download = caught.value
+        page.wait_for_function("() => !document.getElementById('export-article').disabled", timeout=30_000)
+        after = page.evaluate("""() => { const b = document.getElementById('export-article');
+          return [b.disabled, b.getAttribute('aria-busy'), b.textContent, document.getElementById('banner').hidden,
+                  location.hash]; }""")
+        name = download.suggested_filename
+        data = Path(download.path()).read_bytes()
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        figures = {n: archive.read(n) for n in archive.namelist() if n.startswith("calosrv-methodology/figures/")}
+        layout = {}
+        for path, svg in figures.items():
+            if path.endswith(".svg"):
+                page.set_content(f"<body style='margin:0'>{svg.decode('utf-8').split('?>', 1)[1]}</body>")
+                layout[path] = page.eval_on_selector("svg", _TEXT_BOXES)
+        browser.close()
+    assert problems == [], problems
+    assert busy == [True, "true", "Exporting…"]
+    assert after[:4] == [False, None, "Export", True], after
+    assert "at=" not in after[4] and "table_name=experiment_baseline" in after[4]
+    assert re.fullmatch(r"calosrv-methodology-\d{4}-\d{2}-\d{2}\.zip", name), name
+
+    assert archive.testzip() is None
+    names = archive.namelist()
+    assert names[:2] == ["calosrv-methodology/methodology.tex", "calosrv-methodology/references.bib"]
+    ids = [n.removeprefix("calosrv-methodology/figures/").removesuffix(".svg") for n in names[2::2]]
+    assert sorted(ids) == ["fig-puor", "fig-ramps", "fig-se3"]
+    assert names[2:] == [f"calosrv-methodology/figures/{i}.{ext}" for i in ids for ext in ("svg", "png")]
+    assert all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist())
+    tex = archive.read(names[0]).decode("utf-8")
+    for fid in ids:
+        assert f"figures/{fid}.png" in tex
+
+    for fid in ids:
+        svg = figures[f"calosrv-methodology/figures/{fid}.svg"]
+        root = ET.fromstring(svg)
+        assert root.get("width") == "160mm"
+        png = figures[f"calosrv-methodology/figures/{fid}.png"]
+        chunks = _png_chunks(png)
+        assert [k for k, _ in chunks[:2]] == ["IHDR", "pHYs"]
+        width, height = struct.unpack(">II", chunks[0][1][:8])
+        assert width == 1890
+        assert height == round(float(root.get("height").removesuffix("mm")) / 25.4 * 300)
+        assert struct.unpack(">IIB", chunks[1][1]) == (11811, 11811, 1)
+        (folder / f"{fid}.svg").write_bytes(svg)
+        (folder / f"{fid}.png").write_bytes(png)
+        boxes = layout[f"calosrv-methodology/figures/{fid}.svg"]
+        assert boxes["n"] > 0 and boxes["out"] == [] and boxes["overlaps"] == [], (fid, boxes)
+
+    if not (shutil.which("pdflatex") and shutil.which("bibtex")):
+        return
+    build = tmp_path / "latex"
+    archive.extractall(build)
+    root = build / "calosrv-methodology"
+    steps = [["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "methodology"], ["bibtex", "methodology"],
+             ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "methodology"],
+             ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "methodology"]]
+    for step in steps:
+        done = subprocess.run(step, cwd=root, capture_output=True, text=True, timeout=180, check=False)
+        assert done.returncode == 0, f"{step[0]} failed:\n{done.stdout[-3000:]}"
+    assert (root / "methodology.pdf").stat().st_size > 0
+
+
+def test_the_export_button_stays_in_the_header_at_every_width(live_server, tmp_path):
+    """The header does not wrap above the phone layout: the button must fit beside the chip and the badge."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        seen = {}
+        for width in (1600, 1280, 1100, 900, 780, 600):
+            _, page, problems = _open(p, live_server["base"], viewport=(width, 800), browser=browser)
+            seen[width] = page.evaluate("""() => { const b = document.getElementById('export-article').getBoundingClientRect();
+              const h = document.querySelector('.header');
+              return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: innerWidth,
+                       header: h.getBoundingClientRect().bottom, over: h.scrollWidth - h.clientWidth }; }""")
+            assert problems == [], (width, problems)
+            if width in (1100, 900):
+                page.screenshot(path=str(_screens(tmp_path) / f"methodology-header-{width}.png"), clip={"x": 0, "y": 0, "width": width, "height": 160})
+            page.context.close()
+        browser.close()
+    for width, box in seen.items():
+        assert box["left"] >= 0 and box["right"] <= box["width"], (width, box)
+        assert box["bottom"] <= box["header"] and box["over"] <= 0, (width, box)
