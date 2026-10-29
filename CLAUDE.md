@@ -23,13 +23,14 @@ This repository contains two complementary halves. **Choose by dataset size**; d
   - A FastAPI + DuckDB service performs every spatial transformation, dynamic binning and statistical reduction **server-side**, returning only pre-aggregated visual payloads (< 100 KB) to an Apache ECharts frontend.
   - **Use when** the dataset cannot be shipped to a browser at all. The production file `hits_all_models.csv` is 24 GB / 24,161,893 hit rows across 20,325 events, with 99 columns: three coordinate frames and three networks' predictions and per-hit Grad-CAM / Shap-CAM maps; no client-side architecture can open it, which is why this half exists. It replaces `hits_with_gradcam_v37.csv` (7.4 GB, 29 columns), whose schema is retired; figures below credited to production v37 were measured on that file, whose lattice and incident kinematics the new one shares.
   - **The data arrive as Parquet.** Every CSV left the repository on 2026-10-27. The production data are now ZSTD-compressed Parquet: `ingest/hits_all_models.parquet` (2.9 GB, level 3), converted from the CSV above. The suite and the image seed from `hits_all_models_dummy.parquet`.
-  - **Three input schemas, two pages.**
+  - **Three input schemas, three pages.**
     - The service ingests three schemas, as CSV or Parquet, from the drop folder or the Admin upload:
       - `hits_all_models` v1: two showers, 99 columns;
       - `standalone_hits` v3: one shower, one row per cell, 21 columns;
       - `standalone_events` v3: the 59-column event-level aggregate of `core.calc_all_features_v3`.
     - What each kind serves is decided in one place, `calosrv/query/capabilities.py`. Every card a kind cannot serve says why.
-    - Page 1 (`/`, Physics) holds the 4-grid diagnostic of §5 and the physics section below it. Page 2 (`/models`, Models) holds the network and XGBoost analysis, the feature explorer and the 3-D views. Both pages read one API and one URL hash.
+    - Page 1 (`/`, Physics) holds the 4-grid diagnostic of §5 and the physics section below it. Page 2 (`/models`, Models) holds the network and XGBoost analysis, the feature explorer and the 3-D views. Both read one API and one URL hash.
+    - Page 3 (`/methodology`, Methodology) is one journal-style article on how every panel of the other two is computed and drawn. It carries the same hash and writes no view key of its own; see §5.
   - **XGBoost runs in the service, never in the browser.**
     - The notebooks' regressors live in `xgboost_models/`, one per species, task and seed; the s1 models are used. A folder scan (`CALOSRV_MODEL_DIR`) finds them and pairs each with the aggregate experiment of the same species and seed.
     - A background job reproduces the notebooks' analyses and stores the results in DuckDB: the hold-out predictions, the 5-fold refit, the thresholded classification, the depth-3 surrogate tree and the gain importance.
@@ -286,3 +287,14 @@ When working with calorimeter simulation datasets in this repository:
     - fades the correlation cells whose 95% interval contains 0;
     - on an aggregate experiment, offers a frame choice (absolute, per-shower translated, local; never the D-frame) through the shared `frame` key.
   - **The training-split check.** An analysis whose training split is not reproduced is still shown, and its cards and its Admin row carry the hazard. Reproduced means the validation/training MSE at `random_state` 42 clears the largest of 99 other seeds by the stated margin.
+* **Methodology page (Page 3) requirements**:
+  - **The article follows the code.** Where the two disagree, the code is right and the article is corrected. The content lives in `static/js/methodology/content/`, as plain data in one module per part.
+  - **Every number it quotes comes from `static/js/methodology/constants.js`.** Each entry names its source, and `tests/test_methodology_constants.py` resolves it against the live code. A measured figure is cited with its dataset and source, never quoted as a constant.
+  - **Results audits encodings.** It explains every visualisation of Pages 1 and 2 — what it encodes, why that mark and scale, which distortion it prevents. It reports no dataset's findings.
+  - **Equations are native MathML** from `static/js/math.js`: a closed LaTeX subset, with no vendored library, font or CDN.
+    - A command outside its whitelist throws, and a test compiles every equation.
+    - Display equations are numbered, and each carries its LaTeX source to copy.
+  - **The hash.** The page writes no view key. Its own place is the key `at`, which no State reads and every link to Pages 1 and 2 drops.
+  - **Badges.** An "Open in Physics/Models →" badge opens `?panel=<card>&from=<anchor>&from_sec=<section>` with the reader's view. A hash without view state takes the view a cold boot would open. A Physics badge drops `event` and `compare`, which hide the ensemble panels, unless it sets them itself.
+    - The landing page scrolls to the card and opens its Details drawer, which links back to the badge's place in the article.
+    - A card the experiment does not serve says so on the banner, and so does one the view on screen hides, naming the view rather than the experiment.
