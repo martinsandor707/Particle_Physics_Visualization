@@ -841,3 +841,28 @@ def test_admin_lists_the_model_runs_and_rescans_them(models_live_server):
         assert status.startswith("Models rescanned: every paired analysis is current"), status
         browser.close()
     assert problems == [], problems
+
+
+# ------------------------------------------- landing a Methodology badge link --
+
+
+def test_a_badge_link_lands_on_its_models_card_with_the_way_back(models_live_server):
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch(args=GL_ARGS)
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        problems = []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.goto(f"{base}/models?panel=feat-corr&from=lnk-results-features&from_sec=3.5#table_name={BASELINE_TABLE}")
+        page.wait_for_function("() => !location.search && !document.getElementById('inspector').hidden", timeout=30_000)
+        page.wait_for_timeout(500)
+        assert urlparse(page.url).query == ""
+        assert page.evaluate("""() => {
+          const card = document.querySelector('.main .card[data-panel="feat-corr"]').getBoundingClientRect();
+          const main = document.querySelector('.main').getBoundingClientRect();
+          return card.top >= main.top - 2 && card.top < main.bottom; }""")
+        assert page.locator("#inspector-body .inspector-return a").inner_text() \
+            == "↩ Continue reading §3.5 in the Methodology"
+        browser.close()
+    assert problems == [], problems

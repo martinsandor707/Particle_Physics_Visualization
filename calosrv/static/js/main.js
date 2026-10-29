@@ -41,6 +41,7 @@ import { page1Plan, carriedFrame } from './capabilities.js';
 import {
   Banner, describeError, escapeHtml, fillComputeBadges, fillExperimentSelect, chooseExperiment,
   relabel, restoreLabel, relabelChoice, choiceTitle, writeSparseNote, wirePageTabs,
+  readDeepLink, returnLink, revealPanel, revealNotice,
 } from './page_common.js';
 import {
   PhysicsSection, cardRequest, cardOptions, physicsNotes, exportMeta as physicsExportMeta,
@@ -1670,10 +1671,27 @@ const REQUIRED_IDS = [
   'group-frame', 'group-resolution', 'group-channel', 'group-colormap',
 ];
 
+/**
+ * Land a Methodology badge's link: the card scrolled into view, its Details
+ * drawer open with the way back to the article, or - when this experiment does
+ * not show the card - the reason on the kind banner, which outlives the refresh
+ * that follows (the transient banner would be rewritten by it).
+ */
+function landDeepLink(link) {
+  const back = returnLink(link);
+  if (link.panel && back) shell.setReturnLink(link.panel, back);
+  const result = revealPanel(link.panel ?? '', { shell, reveal: (id) => physics.reveal(id) });
+  if (result.ok) return;
+  const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
+  const notice = revealNotice(result, { requested: link.requested, title, kind: pagePlan.kindLabel });
+  kindBanner.show([...kindBanner.shown, notice]);
+}
+
 async function boot() {
   // Read before anything writes the hash: State.writeHash replaces the URL
   // with path and hash alone, so the query is gone once an experiment loads.
   const openAdmin = new URLSearchParams(location.search).has('admin');
+  const deepLink = readDeepLink(location.search);
   const missing = missingIds(REQUIRED_IDS);
   if (missing.length) {
     // Almost always a cached script against fresh markup. Say so, because the
@@ -1701,9 +1719,13 @@ async function boot() {
 
   // The Models page's Admin Settings link (/?admin=1) opens the panel here,
   // with the view its hash carries; the query is dropped so a reload or a
-  // bookmark of this page does not open it again.
-  if (openAdmin) {
+  // bookmark of this page does not open it again. A Methodology badge's link
+  // (?panel=...) is landed the same way.
+  if (openAdmin || deepLink) {
     history.replaceState(null, '', location.pathname + location.hash);
+  }
+  if (deepLink) landDeepLink(deepLink);
+  if (openAdmin) {
     adminModal?.open();
   }
 }

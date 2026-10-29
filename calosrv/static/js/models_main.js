@@ -37,7 +37,7 @@ import { page2Plan, viewFrame } from './capabilities.js';
 import { CHOICE_LABELS, isLegacyFrame } from './labels.js';
 import {
   Banner, describeError, fillComputeBadges, fillExperimentSelect, chooseExperiment, choiceGroup,
-  wirePageTabs, tabHref,
+  wirePageTabs, tabHref, readDeepLink, returnLink, revealPanel, revealNotice,
 } from './page_common.js';
 import { ModelsSection } from './models_cards.js';
 import { formatInt, formatNumber } from './scale.js';
@@ -479,7 +479,24 @@ const MODELS_REQUIRED_IDS = [
   'opt-undefined-d', 'ctl-e1', 'ctl-e2', 'ctl-d', 'page-tabs',
 ];
 
+/**
+ * Land a Methodology badge's link: the card scrolled into view (which starts
+ * its lazy load), its Details drawer open with the way back to the article, or
+ * the reason on the kind banner when this experiment does not show the card.
+ */
+function landDeepLink(link) {
+  const back = returnLink(link);
+  if (link.panel && back) shell.setReturnLink(link.panel, back);
+  const result = revealPanel(link.panel ?? '', { shell });
+  if (result.ok) return;
+  const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
+  const notice = revealNotice(result, { requested: link.requested, title, kind: plan.kindLabel });
+  kindBanner.show([...kindBanner.shown, notice]);
+}
+
 async function boot() {
+  // Read before anything writes the hash, which drops the query.
+  const deepLink = readDeepLink(location.search);
   const missing = missingIds(MODELS_REQUIRED_IDS);
   if (missing.length) {
     console.error('[calosrv] missing element ids:', missing);
@@ -512,6 +529,10 @@ async function boot() {
     await loadCatalogue();
   } catch (error) {
     reportError(error, 'loading experiments');
+  }
+  if (deepLink) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    landDeepLink(deepLink);
   }
 }
 
