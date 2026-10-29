@@ -1,7 +1,7 @@
 """Resolution planning for the two display modes.
 
 **Mode A - Native Detector Lattice (hardware truth).** One bin per real
-calorimeter cell: 211 x 104 for XY, 104 x 60 for YZ, 211 x 60 for XZ on the
+calorimeter cell: 212 x 104 for XY, 104 x 60 for YZ, 212 x 60 for XZ on the
 shipped dataset. Because a bin index is an ordinal over the coordinates that
 actually occur in the data, every bin corresponds to a cell that exists, and the
 empty-bin comb is impossible by construction rather than merely unlikely.

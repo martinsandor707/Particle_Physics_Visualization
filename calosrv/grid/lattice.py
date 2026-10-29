@@ -1,21 +1,26 @@
 """The detector lattice, and the only sanctioned index-to-millimetre mapping.
 
 Measured geometry of the shipped dataset, which is what this module is built
-around:
+around (production ``hits_all_models.parquet``, 24,161,893 hits, re-measured
+2026-10-29):
 
 ``z``  60 sampling layers, gaps *exactly* 20.5 mm, spanning 3662.4 to 4871.9 mm.
        Perfectly uniform.
 
 ``y``  104 cells. Gaps strictly alternate 48.60 / 52.40 mm, an exact 101.0 mm
-       period holding two cells. Mean pitch 50.485 mm. The deviation from
+       period holding two cells. Mean pitch 50.482 mm. The deviation from
        uniform is at most 1.9 mm against a 50 mm pitch, so a uniform
        approximation still round-trips every cell to its own index.
 
-``x``  211 cells, and **not uniform**. Cells sit in tight pairs 4.4 mm apart,
+``x``  212 cells, and **not uniform**. Cells sit in tight pairs 4.4 mm apart,
        with the pitch between pair groups alternating 43.87 / 48.27 mm, plus a
        handful of irregular module-boundary gaps. Consecutive-gap histogram over
-       the measured values: 4.40 mm (65x), 48.27 mm (50x), 43.87 mm (32x),
-       4.41 mm (28x), 43.86 mm (16x), and a scattering of one-offs.
+       the measured values: 4.40 mm (64x), 48.27 mm (50x), 43.87 mm (32x),
+       4.41 mm (28x), 43.86 mm (16x), 1.57 mm (4x), and a scattering of
+       one-offs from 0.15 to 55.82 mm. The two closest are sparse positions:
+       x = -475.535 mm sits 0.91 mm and x = 277.885 mm 0.15 mm from a
+       neighbour, with about 10,000 hits each against a median of 118,163 per
+       position.
 
 The consequence drives the whole design of this module. ``ix * pitch_x`` is not
 a position on this detector - it can be wrong by a factor of ten within a single
@@ -34,8 +39,8 @@ from typing import Any
 import numpy as np
 
 #: A lattice is treated as uniform when every consecutive gap is within this
-#: fraction of the mean gap. y (3.8% deviation) passes; x (an 10x spread)
-#: does not.
+#: fraction of the mean gap. y (3.8% deviation) passes; x (gaps from 0.15 to
+#: 55.82 mm) does not.
 UNIFORM_TOLERANCE = 0.15
 
 
