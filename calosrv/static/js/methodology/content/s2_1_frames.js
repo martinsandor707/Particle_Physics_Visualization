@@ -1,0 +1,10 @@
+/* Coordinate reference frames and SE(3) co-registration — placeholder until its author (content-frames) writes it.
+ * Content model and rules: data/dev/design/methodology/brief.md. */
+
+export default {
+  id: 'sec-frames',
+  title: 'Coordinate reference frames and SE(3) co-registration',
+  blocks: [
+    { kind: 'p', text: 'This section is being written.' },
+  ],
+};

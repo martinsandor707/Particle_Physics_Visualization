@@ -599,7 +599,12 @@ export class State {
     if (legacyDisplay && !params.has(active)) this.values[active] = legacyDisplay;
   }
 
-  writeHash() {
+  /**
+   * The view as a link's hash, without the '#': every value that differs from
+   * the built-in view. Pure - `writeHash` puts it in the address bar, and the
+   * Methodology page builds its deep links from it without writing anything.
+   */
+  hashString() {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(this.values)) {
       if (value === null || value === undefined) continue;
@@ -609,7 +614,11 @@ export class State {
       if (this.isFullRangeBound(key, value)) continue;
       params.set(key, NUMERIC.has(key) ? String(round(key, value)) : String(value));
     }
-    const hash = params.toString();
+    return params.toString();
+  }
+
+  writeHash() {
+    const hash = this.hashString();
     const url = `${window.location.pathname}${hash ? `#${hash}` : ''}`;
     window.history.replaceState(null, '', url);
   }

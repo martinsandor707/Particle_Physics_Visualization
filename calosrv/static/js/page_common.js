@@ -15,12 +15,19 @@
  * exactly, so switching back to a two-shower experiment shows the markup as
  * shipped.
  *
- * The two pages (Physics at /, Models at /models) share one view through the
- * URL hash, so the header's page tabs carry the hash across (`wirePageTabs`):
- * state.js writes the hash with `history.replaceState`, which fires no event,
- * so each tab's href is computed when it is about to be followed - pressed,
- * focused, clicked, middle-clicked or opened from the context menu - never
- * stored once at boot.
+ * The three pages (Physics at /, Models at /models, Methodology at
+ * /methodology) share one view through the URL hash, so the header's page tabs
+ * carry the hash across (`wirePageTabs`): state.js writes the hash with
+ * `history.replaceState`, which fires no event, so each tab's href is computed
+ * when it is about to be followed - pressed, focused, clicked, middle-clicked
+ * or opened from the context menu - never stored once at boot. The same
+ * mechanism (`wireLiveLinks`) keeps the Methodology page's own links current.
+ *
+ * The Methodology page keeps the reader's place in one key of its own, `at`,
+ * which no State reads or writes. Its badges open a panel on the other pages
+ * with `?panel=<card>&from=<anchor>&from_sec=<section>`; `revealPanel` brings
+ * the card into view and opens its Details drawer, and `returnLink` builds the
+ * drawer's way back to the place in the article the reader left.
  */
 
 import { ApiError } from './api.js';
@@ -328,24 +335,150 @@ export function tabHref(base, hash = '') {
   return tail ? `${path}#${tail}` : path;
 }
 
+/**
+ * A hash with some keys set and some dropped, every other key kept as it
+ * stands and in its place. `patch` maps a key to its new value; null or
+ * undefined removes it. `drop` lists keys removed outright. Returns the hash
+ * without its '#'. Pure.
+ */
+export function hashWith(hash = '', patch = {}, { drop = [] } = {}) {
+  const params = new URLSearchParams(String(hash ?? '').replace(/^#/, ''));
+  for (const key of drop) params.delete(key);
+  for (const [key, value] of Object.entries(patch ?? {})) {
+    if (value === null || value === undefined) params.delete(key);
+    else params.set(key, String(value));
+  }
+  return params.toString();
+}
+
 /* The moments a link may be followed or copied: pointer, keyboard focus,
  * click, middle click and the context menu (copy link address). */
 const TAB_EVENTS = ['pointerdown', 'focus', 'click', 'auxclick', 'contextmenu'];
 
 /**
+ * Keep links current: each link's href is recomputed by `hrefOf(link)` when it
+ * is about to be followed or copied, in the capture phase, so the browser
+ * reads the fresh href. Returns the links.
+ */
+export function wireLiveLinks(links, hrefOf) {
+  const list = [...(links ?? [])];
+  for (const link of list) {
+    const update = () => { link.href = hrefOf(link); };
+    for (const type of TAB_EVENTS) link.addEventListener(type, update, { capture: true });
+  }
+  return list;
+}
+
+/**
  * Keep every `a[data-page-tab]` link carrying the current view: the page
  * tabs and the Models page's Admin Settings link. Each link's base href is
  * kept in `dataset.base` and the hash is appended when it is about to be
- * followed, in the capture phase, so the browser reads the fresh href.
+ * followed. `drop` names keys of this page's own that the other pages have no
+ * use for (the Methodology page's `at`); with none, the hash travels verbatim.
  */
-export function wirePageTabs(root = document) {
+export function wirePageTabs(root = document, { drop = [] } = {}) {
   const links = [...(root?.querySelectorAll?.('a[data-page-tab]') ?? [])];
   for (const link of links) {
     if (!link.dataset.base) link.dataset.base = link.getAttribute('href') || '/';
-    const update = () => { link.href = tabHref(link.dataset.base, window.location.hash); };
-    for (const type of TAB_EVENTS) link.addEventListener(type, update, { capture: true });
   }
-  return links;
+  return wireLiveLinks(links, (link) => tabHref(link.dataset.base, drop.length
+    ? hashWith(window.location.hash, {}, { drop })
+    : window.location.hash));
+}
+
+/* ------------------------------------------- the Methodology's deep links */
+
+/** A card id, an article anchor: lower-case words joined by hyphens. */
+export const LINK_ID = /^[a-z][a-z0-9-]{0,63}$/;
+
+/** A section number of the article: 2, 2.1 or 2.1.3. */
+export const SECTION_NUMBER = /^\d{1,2}(\.\d{1,2}){0,2}$/;
+
+/**
+ * The deep link a Methodology badge carried, read from a page's query:
+ * `{panel, from, section}` with each part validated (`LINK_ID`,
+ * `SECTION_NUMBER`) and null where absent or malformed; null when the query
+ * names no panel. Read before the first hash write, which drops the query.
+ */
+export function readDeepLink(search = '') {
+  const params = new URLSearchParams(String(search ?? ''));
+  const panel = params.get('panel');
+  if (!panel) return null;
+  const from = params.get('from');
+  const section = params.get('from_sec');
+  return {
+    panel: LINK_ID.test(panel) ? panel : null,
+    requested: panel,
+    from: from && LINK_ID.test(from) ? from : null,
+    section: section && SECTION_NUMBER.test(section) ? section : null,
+  };
+}
+
+/**
+ * The Methodology at one anchor, with the view in `hash`: the page's route,
+ * the hash with `at` set to the anchor. Pure.
+ */
+export function methodologyHref(anchor, hash = '') {
+  return tabHref('/methodology', hashWith(hash, { at: anchor }));
+}
+
+/**
+ * The Details drawer's way back to the article: `{anchor, label, title}`, or
+ * null when the deep link named no valid anchor. The label names the section
+ * when its number came through, and says only "the Methodology" otherwise.
+ */
+export function returnLink(deepLink) {
+  const anchor = deepLink?.from;
+  if (!anchor || !LINK_ID.test(anchor)) return null;
+  const section = deepLink.section && SECTION_NUMBER.test(deepLink.section) ? deepLink.section : null;
+  return {
+    anchor,
+    label: section ? `↩ Continue reading §${section} in the Methodology` : '↩ Continue reading the Methodology',
+    title: 'Back to the place in the Methodology this panel was opened from, with the view on screen now',
+  };
+}
+
+/** Whether an element and every ancestor are shown (no `hidden` on the way up). */
+function shownInPage(element) {
+  for (let el = element; el; el = el.parentElement ?? el.parent ?? null) {
+    if (el.hidden) return false;
+  }
+  return true;
+}
+
+/**
+ * Bring one card into view and open its Details drawer: the landing of a
+ * Methodology badge. `root` is searched for `.card[data-panel=<id>]`;
+ * `reveal(id)`, when given, scrolls a card that loads lazily through its own
+ * section (physics_section.js) and returns whether it did; otherwise the card
+ * is scrolled into view here. Returns `{ok: true, card}`, or `{ok: false,
+ * reason}` with reason 'unknown' (no such card on this page) or 'hidden' (the
+ * experiment does not show it), for the caller's banner (`revealNotice`).
+ */
+export function revealPanel(panelId, { root = document, shell = null, reveal = null } = {}) {
+  const id = String(panelId ?? '');
+  const card = LINK_ID.test(id) ? root?.querySelector?.(`.card[data-panel="${id}"]`) ?? null : null;
+  if (!card) return { ok: false, reason: 'unknown' };
+  if (!shownInPage(card)) return { ok: false, reason: 'hidden', card };
+  if (!reveal?.(id)) card.scrollIntoView?.({ block: 'start' });
+  shell?.openInspector?.(id, { trigger: card.querySelector?.('[data-inspect]') ?? null });
+  return { ok: true, card };
+}
+
+/**
+ * The banner sentence for a deep link that could not land: `result` is
+ * `revealPanel`'s, `title` the card's title, `kind` the experiment's kind
+ * label. Empty for a link that landed.
+ */
+export function revealNotice(result, { requested = '', title = '', kind = '' } = {}) {
+  if (!result || result.ok) return '';
+  if (result.reason === 'hidden') {
+    const name = title ? `the ${title} panel` : 'that panel';
+    return `The Methodology linked to ${name}, which this experiment${kind ? ` (${kind})` : ''} does not show.`;
+  }
+  // The query is the link's, not this page's: a malformed name is not repeated.
+  const named = LINK_ID.test(String(requested ?? '')) ? ` (${requested})` : '';
+  return `The Methodology linked to a panel this page does not have${named}.`;
 }
 
 /**

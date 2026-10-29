@@ -17,41 +17,60 @@
  *
  * The collapsed state is a per-browser convenience, kept in localStorage and
  * never in the URL hash: a bookmark must not carry layout, and the built-in
- * view in state.js is frozen for that reason.
+ * view in state.js is frozen for that reason. The Methodology page's outline
+ * sits in the same track under a key of its own (`storageKey`), so folding
+ * it away does not fold the configuration sidebar of the other two pages.
+ *
+ * A panel opened from a Methodology badge carries a way back: its drawer
+ * starts with a link to the place in the article the reader left
+ * (`setReturnLink`), whose href is computed when it is followed, so a view
+ * changed on this page travels back with the reader.
  */
+
+import { methodologyHref, wireLiveLinks } from './page_common.js';
 
 export const SIDEBAR_STORAGE_KEY = 'calosrv.sidebar';
 
 /** The stored sidebar preference, 'collapsed' | 'open' | null. */
-export function readSidebarPreference() {
+export function readSidebarPreference(key = SIDEBAR_STORAGE_KEY) {
   try {
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return window.localStorage.getItem(key);
   } catch {
     // A private window or blocked storage: the toggle still works for this page.
     return null;
   }
 }
 
-export function writeSidebarPreference(value) {
+export function writeSidebarPreference(value, key = SIDEBAR_STORAGE_KEY) {
   try {
-    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, value);
+    window.localStorage.setItem(key, value);
   } catch {
     // Nothing to do: the preference is a convenience, not state.
   }
 }
 
-const COLLAPSE_LABEL = 'Collapse the configuration sidebar';
-const EXPAND_LABEL = 'Expand the configuration sidebar';
+/** The toggle's names for the configuration sidebar; a page with another sidebar passes its own. */
+const SIDEBAR_LABELS = Object.freeze({
+  collapse: 'Collapse the configuration sidebar',
+  expand: 'Expand the configuration sidebar',
+  collapseTitle: 'Collapse the sidebar',
+  expandTitle: 'Expand the sidebar',
+});
 
 export class Shell {
   /**
-   * @param {{getNotes: (panelId: string) => object|null, onLayoutChange: () => void}} options
+   * @param {{getNotes: (panelId: string) => object|null, onLayoutChange: () => void,
+   *   storageKey?: string, labels?: object}} options
    *   `getNotes` returns the panel's notes (panel_notes.js) or null when the
-   *   panel has no data yet; `onLayoutChange` re-lays every chart out.
+   *   panel has no data yet; `onLayoutChange` re-lays every chart out;
+   *   `storageKey` is where the sidebar's collapsed state is kept and `labels`
+   *   names its toggle (both default to the configuration sidebar's).
    */
-  constructor({ getNotes, onLayoutChange } = {}) {
+  constructor({ getNotes, onLayoutChange, storageKey = SIDEBAR_STORAGE_KEY, labels = null } = {}) {
     this.getNotes = getNotes || (() => null);
     this.onLayoutChange = onLayoutChange || (() => {});
+    this.storageKey = storageKey;
+    this.labels = { ...SIDEBAR_LABELS, ...(labels ?? {}) };
     this.app = document.querySelector('.app');
     this.sidebar = document.getElementById('sidebar');
     this.toggle = document.getElementById('sidebar-toggle');
@@ -61,10 +80,12 @@ export class Shell {
     this.closeButton = document.getElementById('inspector-close');
     this.inspected = null;
     this.returnTo = null;
+    // The way back to the Methodology: {panelId, anchor, label, title} or null.
+    this.returnLink = null;
 
     // Applied before the charts are created (main.js constructs the shell
     // first), so the first layout already has the right width.
-    if (readSidebarPreference() === 'collapsed') this.applySidebar(true);
+    if (readSidebarPreference(this.storageKey) === 'collapsed') this.applySidebar(true);
 
     this.toggle?.addEventListener('click', () => this.toggleSidebar());
     this.closeButton?.addEventListener('click', () => this.closeInspector());
@@ -108,8 +129,8 @@ export class Shell {
     this.app?.classList.toggle('is-sidebar-collapsed', collapsed);
     if (this.toggle) {
       this.toggle.setAttribute('aria-expanded', String(!collapsed));
-      this.toggle.setAttribute('aria-label', collapsed ? EXPAND_LABEL : COLLAPSE_LABEL);
-      this.toggle.title = collapsed ? 'Expand the sidebar' : 'Collapse the sidebar';
+      this.toggle.setAttribute('aria-label', collapsed ? this.labels.expand : this.labels.collapse);
+      this.toggle.title = collapsed ? this.labels.expandTitle : this.labels.collapseTitle;
     }
     if (this.sidebar) {
       // Out of the tab order and the accessibility tree while it has no width.
@@ -121,7 +142,7 @@ export class Shell {
   /** Collapse or expand the configuration sidebar; the same button does both. */
   toggleSidebar(collapsed = !this.sidebarCollapsed) {
     this.applySidebar(collapsed);
-    writeSidebarPreference(collapsed ? 'collapsed' : 'open');
+    writeSidebarPreference(collapsed ? 'collapsed' : 'open', this.storageKey);
     this.onLayoutChange();
   }
 
@@ -178,11 +199,39 @@ export class Shell {
     }
   }
 
+  /**
+   * Give `panelId`'s drawer a way back to the Methodology, for the rest of
+   * this page's life: `link` is page_common.js `returnLink(...)`, or null to
+   * remove it. Shown at once when that drawer is the one open.
+   */
+  setReturnLink(panelId, link) {
+    this.returnLink = link && panelId ? { ...link, panelId } : null;
+    if (panelId && this.inspected === panelId) this.renderNotes(this.getNotes(panelId));
+  }
+
+  /** The return link's paragraph for the drawer on show, or null. */
+  returnNode() {
+    const link = this.returnLink;
+    if (!link || link.panelId !== this.inspected) return null;
+    const paragraph = document.createElement('p');
+    paragraph.className = 'inspector-return';
+    const anchor = document.createElement('a');
+    const href = () => methodologyHref(link.anchor, window.location.hash);
+    anchor.href = href();
+    anchor.title = link.title;
+    anchor.textContent = link.label;
+    wireLiveLinks([anchor], href);
+    paragraph.append(anchor);
+    return paragraph;
+  }
+
   /** Text nodes only: the sentences come from payloads. */
   renderNotes(notes) {
     if (this.title) this.title.textContent = notes?.title ?? 'Panel details';
     if (!this.body) return;
     const nodes = [];
+    const back = this.returnNode();
+    if (back) nodes.push(back);
     if (!notes || !notes.sections?.length) {
       const empty = document.createElement('p');
       empty.className = 'inspector-empty';

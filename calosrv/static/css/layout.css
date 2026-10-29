@@ -264,6 +264,11 @@
 }
 .inspector p { margin: 0 0 6px; }
 .inspector-empty { font-style: italic; }
+/* The way back to the Methodology, on a panel opened from one of its badges. */
+.inspector-return { margin: 10px 0 2px; font-size: 12px; }
+.inspector-return a { color: var(--accent); text-decoration: none; }
+.inspector-return a:hover { text-decoration: underline; }
+.inspector-return a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* --------------------------------------------------------------- banners */
 

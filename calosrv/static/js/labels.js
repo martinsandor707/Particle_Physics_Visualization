@@ -174,12 +174,13 @@ export const DISPLAY_CHOICES = Object.freeze([
 
 /* ------------------------------------------------------- the Models page */
 
-/* The two pages, as the header's tabs name them (page_common.js
+/* The three pages, as the header's tabs name them (page_common.js
  * `wirePageTabs`). The path is the page's route; each tab carries the view
  * across in the link's hash at click time. */
 export const PAGE_TABS = Object.freeze([
   { page: 'physics', label: 'Physics', href: '/', title: 'The 2 × 2 spatial diagnostic and the physics cards' },
   { page: 'models', label: 'Models', href: '/models', title: 'Model performance, the feature explorer and the 3-D views' },
+  { page: 'methodology', label: 'Methodology', href: '/methodology', title: 'How every panel is computed and drawn, as one article' },
 ]);
 
 /* The per-event features of the explorer, by the id the server's catalog uses

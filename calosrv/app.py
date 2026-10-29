@@ -398,4 +398,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Page 2: network and XGBoost analysis, the feature explorer, the 3-D views.
             return _page("models.html")
 
+        @app.get("/methodology", include_in_schema=False)
+        async def methodology() -> HTMLResponse:
+            # Page 3: the methodology of every panel, as one article.
+            return _page("methodology.html")
+
     return app
