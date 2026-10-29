@@ -619,6 +619,22 @@ def test_the_tabs_are_wired_and_the_admin_link_opens_admin_settings():
         assert event in common, event
 
 
+def test_both_pages_land_a_methodology_badge_link_after_the_experiments_load():
+    for name, loader in (("main.js", "loadExperiments("), ("models_main.js", "loadCatalogue(")):
+        source = _strip_comments((JS / name).read_text(encoding="utf-8"))
+        assert re.search(r"import \{[^}]*\breadDeepLink\b[^}]*\brevealPanel\b[^}]*\} from './page_common.js'", source), name
+        for helper in ("returnLink", "revealNotice"):
+            assert helper in source.split("from './page_common.js'")[0], (name, helper)
+        boot = re.search(r"async function boot\(\) \{(.*?)\n\}", source, re.DOTALL).group(1)
+        strip = "history.replaceState(null, '', location.pathname + location.hash);"
+        assert boot.index("readDeepLink(location.search)") < boot.index(loader) < boot.index(strip), name
+        assert boot.index(strip) < boot.index("landDeepLink(deepLink)"), name
+        land = re.search(r"function landDeepLink\(link\) \{(.*?)\n\}", source, re.DOTALL).group(1)
+        assert land.index("setReturnLink(") < land.index("revealPanel("), name
+    main = _strip_comments((JS / "main.js").read_text(encoding="utf-8"))
+    assert "reveal: (id) => physics.reveal(id)" in main
+
+
 def test_the_models_page_snaps_like_every_other_track():
     css = (STATIC / "css" / "models.css").read_text(encoding="utf-8")
     assert "transition" not in _strip_comments(css) and "animation" not in _strip_comments(css)

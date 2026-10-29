@@ -1086,3 +1086,80 @@ def test_every_rendered_negative_uses_the_unicode_minus(physics_live_server, tab
     assert _hyphen_negatives(tips) == [], "tooltip text with an ASCII hyphen-minus"
     assert _hyphen_negatives(drawers) == [], "drawer text with an ASCII hyphen-minus"
     assert problems == [], problems
+
+
+# ------------------------------------------- landing a Methodology badge link --
+
+
+def _land(p, base, query, table, fragment=""):
+    """The Physics page opened on a Methodology badge's link (query and hash), once it has settled."""
+    browser = p.chromium.launch()
+    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    problems = []
+    page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+    page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+    page.goto(f"{base}/?{query}#table_name={table}{fragment}")
+    page.wait_for_function(
+        "(table) => document.getElementById('experiment-select')?.value === table && !location.search", arg=table,
+        timeout=30_000)
+    page.wait_for_timeout(800)
+    return browser, page, problems
+
+
+def _drawer_open(page):
+    return page.evaluate("() => !document.getElementById('inspector').hidden")
+
+
+def test_a_badge_link_lands_on_its_card_with_the_way_back(physics_live_server):
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(
+            p, base, "panel=response-b1&from=lnk-statistics-b1&from_sec=2.4", BASELINE_TABLE)
+        assert urlparse(page.url).query == ""
+        inside = page.evaluate("""() => {
+          const card = document.querySelector('#physics-grid .card[data-panel="response-b1"]').getBoundingClientRect();
+          const main = document.querySelector('.main').getBoundingClientRect();
+          return card.top >= main.top - 2 && card.top < main.bottom; }""")
+        assert inside
+        assert _drawer_open(page)
+        assert page.inner_text("#inspector-title") == "Sampling Fraction — Per-Event Distribution"
+        first = page.evaluate("() => document.querySelector('#inspector-body').firstElementChild.className")
+        assert "inspector-return" in first
+        link = page.locator("#inspector-body .inspector-return a")
+        assert link.inner_text() == "↩ Continue reading §2.4 in the Methodology"
+        page.check('input[name="model"][value="energy"]')
+        page.wait_for_timeout(300)
+        link.click()
+        page.wait_for_url(re.compile(r"/methodology"), timeout=15_000)
+        view = {k: v[0] for k, v in parse_qs(urlparse(page.url).fragment).items()}
+        assert view.get("table_name") == BASELINE_TABLE and view.get("model") == "energy", view
+        assert view.get("at") == "lnk-statistics-b1", view
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_badge_link_lands_on_a_spatial_card(physics_live_server):
+    base = physics_live_server["base"]
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, "panel=xy", BASELINE_TABLE)
+        assert _drawer_open(page)
+        assert page.get_attribute('button[data-inspect="xy"]', "aria-expanded") == "true"
+        browser.close()
+    assert problems == [], problems
+
+
+@pytest.mark.parametrize("query, sentence", [
+    ("panel=xy", "does not show."),
+    ("panel=nope", "does not have (nope)."),
+])
+def test_a_badge_link_that_cannot_land_says_why(physics_live_server, query, sentence):
+    base = physics_live_server["base"]
+    table = SINGLE_EVENTS_TABLE if query == "panel=xy" else BASELINE_TABLE
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems = _land(p, base, query, table)
+        text = page.inner_text("#kind-banner-text")
+        assert "The Methodology linked to" in text and sentence in text, text
+        assert page.evaluate("() => document.getElementById('kind-banner').hidden") is False
+        assert not _drawer_open(page)
+        browser.close()
+    assert problems == [], problems
