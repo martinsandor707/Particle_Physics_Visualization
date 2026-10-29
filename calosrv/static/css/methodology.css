@@ -1,13 +1,468 @@
-/* The Methodology page: the article column and its outline.
-   SKELETON - the full screen and print styles come with the renderer.
-   Nothing here is animated: the shell's tracks snap. */
+/* The Methodology page: one article in a journal column, its outline in the
+   sidebar's track, and a print sheet.
 
-.paper {
-  max-width: 46rem;
-  margin: 0 auto;
-  padding: 8px 4px 64px;
-  font-size: 15px;
-  line-height: 1.6;
+   The article is set like a methods paper - a serif body in a column of about
+   seventy characters, sans headings, numbered equations with their numbers
+   at the right margin - in the dark theme's tokens (tokens.css), so it sits
+   beside the other two pages without a seam. Every text colour clears 4.5:1
+   against the ground it is set on: --text and --muted on --canvas,
+   --canvas-alt and --card, --accent on all three, --warn on --canvas-alt.
+
+   The fonts are local only (no web font is fetched, so the page works
+   offline): the first serif and math font the system has.
+
+   Nothing here is animated or smoothly scrolled: the shell's tracks snap, a
+   reader's jump is instant, and the browser tests read positions the moment
+   they act. */
+
+.methodology-app .main {
+  padding: 0 24px 0;
 }
 
-.toc { font-size: 12px; }
+.paper {
+  --serif: "Source Serif 4", "Charter", "Bitstream Charter", "Georgia", "Cambria", "Times New Roman", serif;
+  max-width: 70ch;
+  margin: 0 auto;
+  padding: 28px 0 96px;
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  font-variant-numeric: lining-nums proportional-nums;
+}
+
+.paper math {
+  font-family: math, "STIX Two Math", "Latin Modern Math", "DejaVu Math TeX Gyre", "Noto Sans Math", "Cambria Math", serif;
+  font-size: 1.05em;
+}
+
+.paper p { margin: 0 0 0.85em; }
+
+.paper a { color: var(--accent); text-decoration: none; }
+.paper a:hover { text-decoration: underline; }
+.paper a:focus-visible,
+.paper button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.paper code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--canvas-alt);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.25em;
+  overflow-wrap: anywhere;
+}
+
+/* A place the reader is moved to: clear of the column's top edge, and marked
+   only when the keyboard put the focus there. */
+.paper [tabindex="-1"] { scroll-margin-top: 16px; }
+.paper [tabindex="-1"]:focus { outline: none; }
+.paper [tabindex="-1"]:focus-visible { outline: 1px dashed var(--accent); outline-offset: 4px; }
+
+/* ------------------------------------------------------------ headings -- */
+
+.paper h1,
+.paper h2,
+.paper h3,
+.paper h4,
+.paper h5 {
+  font-family: var(--sans);
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.paper h2 { font-size: 20px; font-weight: 600; margin: 2.2em 0 0.7em; }
+.paper h3 { font-size: 16.5px; font-weight: 600; margin: 1.8em 0 0.6em; }
+.paper h4,
+.paper h5 { font-size: 15px; font-weight: 600; margin: 1.5em 0 0.5em; }
+
+.sec-number { color: var(--muted); margin-right: 0.3em; }
+
+.heading-anchor {
+  font-weight: 400;
+  color: var(--muted);
+  opacity: 0;
+  padding: 0 0.2em;
+}
+.section-heading:hover .heading-anchor,
+.heading-anchor:focus-visible { opacity: 1; }
+.paper .heading-anchor:hover { text-decoration: none; color: var(--accent); }
+
+/* ------------------------------------------------------- front matter -- */
+
+.front { margin-bottom: 2em; }
+
+.paper .article-title {
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.25;
+  margin: 0 0 0.6em;
+}
+
+.authors { font-size: 16px; margin-bottom: 0.4em; }
+.authors sup,
+.affiliations sup { font-size: 0.7em; color: var(--muted); margin-left: 0.1em; }
+
+.affiliations {
+  list-style: none;
+  margin: 0 0 1em;
+  padding: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.affiliations sup { margin: 0 0.3em 0 0; }
+
+.provenance {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
+}
+
+.abstract { margin: 1.4em 0 0.8em; padding-left: 14px; border-left: 2px solid var(--border); }
+.paper .abstract-heading {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.4em;
+}
+
+.keywords { font-size: 14px; }
+.keywords-label {
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.4em;
+}
+
+/* ----------------------------------------------------------- equations -- */
+
+.math-display { margin: 1.1em 0; }
+
+.eq-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A long equation scrolls inside its own row, never the page. */
+.eq-math {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+  cursor: pointer;
+}
+/* The math box takes its content's width, so a long equation overflows the
+   row (which scrolls) rather than the math box (which would clip). */
+.eq-math math[display="block"] { margin: 0; width: max-content; min-width: 100%; }
+
+.paper .eq-number {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.paper .eq-number:hover { color: var(--accent); text-decoration: none; }
+
+.tex-toggle,
+.tex-copy {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.tex-toggle:hover,
+.tex-copy:hover { color: var(--text); border-color: var(--muted); }
+.tex-toggle[aria-expanded="true"] { color: var(--text); border-color: var(--accent); }
+
+.tex-panel {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--canvas-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tex-panel[hidden] { display: none; }
+.tex-panel pre { margin: 0 0 6px; overflow-x: auto; }
+.paper .tex-panel code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+.tex-actions { display: flex; align-items: center; gap: 10px; }
+.tex-status { font-family: var(--sans); font-size: 12px; color: var(--muted); }
+
+.paper .tex-error,
+.block-error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+pre.block-error,
+pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
+
+.ref-missing {
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+/* --------------------------------------------- tables, figures, notes -- */
+
+.article-table,
+.article-figure { margin: 1.6em 0; }
+
+.article-table figcaption,
+.article-figure figcaption {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.article-table figcaption { margin-bottom: 8px; }
+.article-figure figcaption { margin-top: 8px; }
+.caption-label { font-weight: 600; }
+
+/* A wide table or a figure may leave the text column, centred on it, up to
+   the width of the article pane; past that a table scrolls inside itself and
+   a figure scales down. */
+.article-table,
+.article-figure {
+  position: relative;
+  left: 50%;
+  width: max(100%, min(100ch, 100cqw - 48px));
+  transform: translateX(-50%);
+}
+
+.table-scroll { overflow-x: auto; }
+.paper .article-table code { white-space: nowrap; overflow-wrap: normal; }
+/* Appendix B's sources are long expressions: they wrap, the names do not. */
+.paper .constants-table td:last-child code { white-space: normal; overflow-wrap: anywhere; }
+.constants-table td:nth-child(3) { min-width: 18em; }
+
+/* Booktabs: a heavy rule above and below, a light one under the head, no
+   vertical rules and no zebra. */
+.article-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.45;
+  border-top: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+}
+.article-table th {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  padding: 5px 10px 4px;
+  border-bottom: 1px solid var(--muted);
+}
+.article-table td { padding: 4px 10px; vertical-align: top; }
+.article-table tbody tr:first-child td { padding-top: 6px; }
+.article-table tbody tr:last-child td { padding-bottom: 6px; }
+.article-table th:first-child,
+.article-table td:first-child { padding-left: 2px; }
+
+.table-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+.exhibit { overflow-x: auto; }
+.exhibit-svg { display: block; width: 100%; height: auto; color: var(--text); }
+.exhibit-svg text { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.exhibit-svg .exhibit-muted { fill: var(--muted); }
+
+/* The SE(3) schematic has no ground of its own: its ink follows the page. */
+.se3-frame { fill: none; stroke: var(--border); }
+.se3-axis { stroke: var(--border); stroke-width: 1; }
+.exhibit-svg .se3-title { fill: var(--text); font-weight: 600; }
+.exhibit-svg .se3-label { fill: var(--text); }
+.exhibit-svg .se3-muted { fill: var(--muted); }
+.se3-a { fill: var(--shower-a); }
+.se3-b { fill: var(--shower-b); }
+.se3-line { stroke: var(--text); stroke-width: 1.5; }
+.se3-line.is-second,
+.se3-ref.is-second,
+.se3-arc.is-second { stroke-dasharray: 5 4; }
+.se3-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.se3-arc { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.se3-m { fill: var(--canvas); stroke: var(--text); stroke-width: 1.2; }
+.se3-motion { stroke: var(--muted); stroke-width: 1.5; }
+.se3-motion-head { fill: var(--muted); }
+
+.callout {
+  margin: 1.3em 0;
+  padding: 10px 14px 4px;
+  background: var(--canvas-alt);
+  border-left: 3px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 14.5px;
+}
+.callout-rule { border-left-color: var(--accent); }
+.callout-caution { border-left-color: var(--warn); }
+.callout-title { font-family: var(--sans); font-size: 13px; font-weight: 600; margin-bottom: 0.4em; }
+.callout-tone {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.callout-rule .callout-tone { color: var(--accent); }
+.callout-caution .callout-tone { color: var(--warn); }
+
+.article-list { margin: 0 0 0.9em; padding-left: 1.5em; }
+.article-list li { margin: 0.25em 0; }
+
+/* ------------------------------------------------------------- badges -- */
+
+.links-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0.6em 0 1.4em;
+}
+.paper .link-badge {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 11px;
+}
+.paper .link-badge:hover { border-color: var(--accent); text-decoration: none; }
+
+/* --------------------------------------------------------- references -- */
+
+.reference-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.reference-list li {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr);
+  margin: 0 0 0.45em;
+  overflow-wrap: anywhere;
+}
+.ref-number { color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
+
+/* -------------------------------------------------------- the outline -- */
+
+.toc {
+  position: sticky;
+  top: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.toc-list { list-style: none; margin: 0; padding: 0; }
+.toc-list .toc-list { padding-left: 1.2em; }
+.toc-link {
+  display: flex;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  color: var(--muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
+}
+.toc-link:hover { color: var(--text); }
+.toc-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.toc-link[aria-current="location"] {
+  color: var(--text);
+  background: var(--card);
+  border-left-color: var(--accent);
+}
+.toc-number { flex: none; min-width: 2em; font-variant-numeric: tabular-nums; }
+.toc-title { min-width: 0; }
+
+/* The view chip: a long experiment name is cut, its title says all. */
+#view-chip-text {
+  display: inline-block;
+  max-width: clamp(8em, 100vw - 900px, 34em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* -------------------------------------------------------------- print -- */
+
+@media print {
+  @page { margin: 18mm 16mm; }
+
+  :root {
+    color-scheme: light;
+    --canvas: #FFFFFF;
+    --canvas-alt: #FFFFFF;
+    --card: #FFFFFF;
+    --text: #111827;
+    --muted: #4b5563;
+    --border: #9ca3af;
+    --accent: #111827;
+    --warn: #111827;
+    --shower-a: #a3175f;
+    --shower-b: #1d4ed8;
+  }
+
+  html,
+  body {
+    background: #FFFFFF;
+    color: #111827;
+  }
+
+  .header,
+  .sidebar,
+  .banner,
+  .links-row,
+  .tex-toggle,
+  .tex-panel,
+  .heading-anchor { display: none !important; }
+
+  .app { display: block; height: auto; }
+  .main,
+  .methodology-app .main { overflow: visible; padding: 0; }
+
+  .paper {
+    max-width: none;
+    padding: 0;
+    font-size: 10.5pt;
+    color: #111827;
+  }
+
+  .article-table,
+  .article-figure { left: 0; width: 100%; transform: none; }
+  .math-display,
+  .article-table,
+  .article-figure,
+  .callout { break-inside: avoid; }
+  .paper h2,
+  .paper h3,
+  .paper h4,
+  .paper h5 { break-after: avoid; }
+
+  .paper a,
+  .paper .eq-number,
+  .paper .link-badge { color: inherit; text-decoration: none; }
+
+  .paper code { background: none; border-color: #d1d5db; }
+  .callout { background: none; border-left-color: #4b5563; }
+  .eq-math { overflow: visible; cursor: auto; }
+}
