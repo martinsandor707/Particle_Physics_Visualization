@@ -181,7 +181,7 @@ const COLOUR = {
       kind: 'figure',
       id: 'fig-ramps',
       exhibit: 'ramps',
-      caption: String.raw`The four sequential palettes. Upper strip of each: the screen ramp on the card ${k('#1c2128')}, the first colour of at least ${C.RAMP_CONTRAST}:1 marked, nothing darker drawn. Lower strip: the full print ramp on white. Viridis, Cividis and Plasma lose only their dark end on the card; Turbo loses both ends, and its brightness rises and falls along the ramp. Drawn from ${k('palette.js')}.`,
+      caption: String.raw`The four sequential palettes. Upper block: each ramp with the span the screen paints bracketed, from its first to its last colour at ${C.RAMP_CONTRAST}:1 or more against the card ${k('#1c2128')}; the screen draws nothing outside it. Lower block: the full print ramp on white. Viridis, Cividis and Plasma lose only their dark end on the card; Turbo loses both ends, and its brightness rises and falls along the ramp. Drawn from ${k('palette.js')}.`,
     },
     {
       kind: 'p',
