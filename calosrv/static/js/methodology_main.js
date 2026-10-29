@@ -12,6 +12,12 @@
  * own, `at`, written only when the reader clicks a TOC entry, a heading's
  * anchor or an equation's number (methodology/links.js `writeAt`). The tabs
  * drop `at`, which the other pages have no use for.
+ *
+ * The header's Export button downloads the article as one zip
+ * (methodology/export.js): LaTeX, BibTeX and the figures drawn for paper. Its
+ * module is loaded when the button is first pressed, so a reader who never
+ * exports never fetches the LaTeX writer, and a fault in it can never stop
+ * the article being drawn.
  */
 
 import { ARTICLE } from './methodology/content/index.js';
@@ -49,11 +55,11 @@ const chip = document.getElementById('view-chip-text');
 
 /** The catalogue, once loaded: the badges then write out the view a cold boot would open. */
 let catalogue = null;
-/** Problems for the banner: the article's own, then the service's. */
-const problems = { article: [], service: [] };
+/** Problems for the banner: the article's own, the last export's, then the service's. */
+const problems = { article: [], export: [], service: [] };
 
 function showProblems() {
-  banner.show([...problems.article, ...problems.service], true);
+  banner.show([...problems.article, ...problems.export, ...problems.service], true);
 }
 
 /** The place the address bar names: kept so that a hand-edited hash can move the reader. */
@@ -171,6 +177,48 @@ function fillProvenance(part, text) {
   const element = paper.querySelector(`[data-provenance="${part}"]`);
   if (element) element.textContent = text;
 }
+
+/** The provenance line as the page shows it: version, static build and date. */
+function provenance() {
+  const read = (part) => paper.querySelector(`[data-provenance="${part}"]`)?.textContent.trim() ?? '';
+  return { version: read('version'), stamp: read('stamp'), date: read('date') };
+}
+
+/* The Export button: busy while the zip is built, then itself again. A
+ * failure, or a problem the LaTeX writer met on the way, goes on the banner;
+ * the latter does not stop the download. */
+const exportButton = document.getElementById('export-article');
+exportButton?.addEventListener('click', async () => {
+  if (exportButton.disabled) return;
+  const label = exportButton.textContent;
+  exportButton.disabled = true;
+  exportButton.setAttribute('aria-busy', 'true');
+  exportButton.textContent = 'Exporting…';
+  problems.export = [];
+  showProblems();
+  try {
+    const { downloadArticle } = await import('./methodology/export.js');
+    await downloadArticle({
+      article: ARTICLE,
+      provenance: provenance(),
+      onErrors: (errors) => {
+        for (const message of errors) console.warn('[calosrv] methodology export:', message);
+        if (errors.length) {
+          problems.export = [`The exported LaTeX has ${errors.length} problem${errors.length === 1 ? '' : 's'}; `
+            + `the first: ${errors[0]}. The zip was downloaded all the same.`];
+        }
+      },
+    });
+  } catch (error) {
+    console.error('[calosrv] methodology export', error);
+    problems.export = [`The article could not be exported: ${describeError(error)}`];
+  } finally {
+    exportButton.disabled = false;
+    exportButton.removeAttribute('aria-busy');
+    exportButton.textContent = label;
+    showProblems();
+  }
+});
 
 // The tabs carry the view across, without this page's own key.
 wirePageTabs(document, { drop: ['at'] });
