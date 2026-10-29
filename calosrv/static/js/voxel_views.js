@@ -27,7 +27,10 @@
  * (`query/voxel_event.py` `BOTH_FRAMES`); of the frames this pair draws, that
  * leaves the Absolute one, so "Both" is drawn there and a per-shower frame
  * draws shower A and says so. With both drawn, the projections show shower A,
- * and say so.
+ * and say so. Outside the Absolute frame the "Both" button is shut, with that
+ * reason as its title, as an unavailable channel is in its menu: a button
+ * that is offered and then drawn as A reads as a fault. A link that still
+ * carries `voxel_shower=both` there draws A and says why on the card.
  *
  * Both event requests carry `window=per_axis` (Martin's decision of
  * 2026-10-27): one half-width per axis, each the axis's energy-weighted
@@ -151,6 +154,11 @@ export const EVENT_CANONICAL_NOTE = 'Drawn in the Absolute frame: the 3-D event 
 export const BOTH_SHOWERS_NOTE = 'Both showers are drawn together in the Absolute frame only: each per-shower '
   + 'frame holds one shower at its own entry point, so shower A is drawn.';
 
+/** The "Both" button's title where it draws, and where the frame cannot. */
+export const BOTH_SHOWERS_TITLE = 'Both showers (Absolute frame only)';
+export const BOTH_SHOWERS_SHUT = 'Both showers are drawn together in the Absolute frame only: each per-shower '
+  + 'frame holds one shower at its own entry point. Choose the Absolute frame to draw both.';
+
 /** What the projections say when the 3-D view draws both showers. */
 export const PROJECTIONS_ONE_SHOWER = 'These projections show shower A: the Event Inspector\'s rasters hold '
   + 'one shower each, while the 3-D view beside them draws both.';
@@ -191,8 +199,10 @@ function channelNote(asked, drawn, labels, reason) {
 
 /**
  * What the event pair draws for the view state `{frame, channel, shower}`:
- * `{frame, channel, shower, rasterShower, notes, projectionNote}`. `frame`
- * is null when the experiment offers the view in no frame. Pure.
+ * `{frame, channel, shower, rasterShower, notes, projectionNote,
+ * bothDrawable}`. `frame` is null when the experiment offers the view in no
+ * frame; `bothDrawable` says whether "Both" can be drawn: two showers, in the
+ * Absolute frame. Pure.
  */
 export function resolveEventView({ frame, channel, shower } = {}, offer) {
   const notes = [];
@@ -212,8 +222,9 @@ export function resolveEventView({ frame, channel, shower } = {}, offer) {
   if (ch && channel && ch !== channel) {
     notes.push(channelNote(channel, ch, EVENT_CHANNEL_LABELS, offer.event.disabledChannels[channel]));
   }
+  const bothDrawable = n === 2 && drawn === 'lab';
   let three = n === 2 && ['a', 'b', 'both'].includes(shower) ? shower : 'a';
-  if (three === 'both' && drawn !== 'lab') {
+  if (three === 'both' && !bothDrawable) {
     three = 'a';
     notes.push(BOTH_SHOWERS_NOTE);
   }
@@ -224,6 +235,7 @@ export function resolveEventView({ frame, channel, shower } = {}, offer) {
     rasterShower: three === 'both' ? 'a' : three,
     notes,
     projectionNote: three === 'both' ? PROJECTIONS_ONE_SHOWER : null,
+    bothDrawable,
   };
 }
 
@@ -514,7 +526,7 @@ export class VoxelSection {
       showers.setAttribute('aria-label', 'Showers');
       const showerButtons = new Map();
       for (const [value, label, title] of [['a', 'A', 'Shower A'], ['b', 'B', 'Shower B'],
-        ['both', 'Both', 'Both showers (Absolute frame only)']]) {
+        ['both', 'Both', BOTH_SHOWERS_TITLE]]) {
         const button = miniButton(label, title, { voxelShower: value });
         button.addEventListener('click', () => this.setValue({ voxel_shower: value }));
         showerButtons.set(value, button);
@@ -1298,6 +1310,16 @@ export class VoxelSection {
       if (c.showers) {
         c.showers.hidden = (this.offer.nShowers ?? 2) !== 2;
         for (const [value, button] of c.showerButtons) button.classList.toggle('is-active', value === view.shower);
+        const both = c.showerButtons.get('both');
+        both.disabled = !view.bothDrawable;
+        both.title = view.bothDrawable ? BOTH_SHOWERS_TITLE : BOTH_SHOWERS_SHUT;
+      }
+      // A choice that resolves to the picture in hand (both showers in a per-shower frame, a channel the
+      // experiment lacks) changes no request, so nothing reloads: its note goes on the card here.
+      if (event.model && event.view && event.view.frame === view.frame && event.view.channel === view.channel
+        && event.view.shower === view.shower) {
+        event.view = view;
+        this.setCaption(event.gl, view.notes);
       }
       this.syncChannel(c.channel, this.offer.event, view.channel);
       c.reset.disabled = !event.model;

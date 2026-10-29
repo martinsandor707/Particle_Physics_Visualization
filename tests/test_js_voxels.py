@@ -390,7 +390,7 @@ function raster(eventNumber) {
   };
 }
 
-async function runSection({ table, values = {}, webgl = true, refuse3d = false }) {
+async function runSection({ table, values = {}, webgl = true, refuse3d = false, act = null }) {
   const exp = experiments.find((e) => e.table_name === table);
   const requests = [];
   globalThis.fetch = async (url) => {
@@ -453,6 +453,13 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
   section.applyPlan(plan.voxels);
   let refreshError = null;
   try { await section.refresh(); } catch (e) { refreshError = e.message; }
+  // A reader's choice after the first load, and the requests it costs.
+  let acted = null;
+  if (act) {
+    const before = requests.length;
+    await act(section);
+    acted = { requests: requests.slice(before).map(([path, q]) => [path, q.format ?? null, q.shower ?? null]) };
+  }
   const cards = {};
   for (const id of section.ids()) {
     const rec = section.cards.get(id);
@@ -471,6 +478,8 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
       sparse: rec.sparse ? (rec.sparse.hidden ? null : rec.sparse.textContent) : undefined,
       options: rec.controls.channel ? rec.controls.channel.options.map((o) => [o.value, o.disabled, o.title]) : null,
       showersHidden: rec.controls.showers ? rec.controls.showers.hidden : null,
+      showerButtons: rec.controls.showerButtons ? [...rec.controls.showerButtons].map(([value, b]) => ({
+        value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active') })) : null,
       // The species legend: laid out by models.css, each swatch carrying only its colour.
       legend: rec.legend && !rec.legend.hidden ? rec.legend.all().filter((n) => n.tagName === 'LI').map((li) => {
         const swatch = li.all().find((n) => n.classList.contains('voxel-swatch'));
@@ -482,7 +491,7 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false }
   const ensembleNotes = section.notes('vox-ensemble');
   const cropDisclosed = (ensembleNotes?.sections ?? []).find((x) => x.heading === 'Disclosures')?.lines
     .filter((l) => /paired projections|accumulation grid spans/.test(l)) ?? [];
-  const result = { requests, cards, rendered, errors, refreshError, renders, charts: charts.length, cropDisclosed,
+  const result = { requests, acted, cards, rendered, errors, refreshError, renders, charts: charts.length, cropDisclosed,
     glOptions: charts.map((c) => c.options.length), foreign: section.exportTarget('xy'), has: section.has('vox-event') };
   // A lost WebGL context says so; a restored one rebuilds the chart from the payload in hand.
   const gl = section.cards.get('vox-event');
@@ -544,6 +553,9 @@ out.section.noGl = await runSection({ table: 'experiment_baseline', webgl: false
 out.section.refused = await runSection({ table: 'experiment_baseline', refuse3d: true });
 out.section.events = await runSection({ table: 'single_events' });
 out.section.pinned = await runSection({ table: 'experiment_baseline', values: { voxel_event: 7, frame: 'local', voxel_channel: 'shapcam', model: 'angle' } });
+// "Both" asked for in the Local frame, as a link or a hash edit can: nothing reloads, and the card says why it draws A.
+out.section.localBoth = await runSection({ table: 'experiment_baseline', values: { frame: 'local' },
+  act: async (section) => { section.setValue({ voxel_shower: 'both' }); await section.refresh(); } });
 
 console.log(JSON.stringify(out));
 """
@@ -1335,6 +1347,48 @@ def test_the_event_view_pairs_with_a_raster_frame_and_one_raster_shower(out):
         assert raster["params"]["window"] == voxels["params"]["window"] == "per_axis"
         assert (raster["abortKey"], voxels["abortKey"]) == ("vox-event-2d", "vox-event-3d")
         assert view["noGl"] is None
+
+
+def test_both_showers_are_offered_only_where_the_event_is_drawn_in_the_absolute_frame(out):
+    """"Both" draws in one coordinate system: the Absolute frame, which the D-frame also draws here."""
+    for table, views in ((t, out["views"][t]["views"]) for t in out["views"]):
+        for key, view in views.items():
+            event = view["event"]
+            if event["frame"] is None:
+                continue
+            two = out["views"][table]["offer"]["nShowers"] == 2
+            assert event["bothDrawable"] == (two and event["frame"] == "lab"), (table, key, event)
+            # The fallback and the button follow the one flag.
+            if key.endswith("|both"):
+                assert (event["shower"] == "both") == event["bothDrawable"], (table, key, event)
+    base = out["views"]["experiment_baseline"]["views"]
+    assert base["lab|energy|both"]["event"]["bothDrawable"] is True
+    assert base["canonical|energy|both"]["event"]["bothDrawable"] is True
+    assert base["local|energy|both"]["event"]["bothDrawable"] is False
+    assert base["trans|energy|both"]["event"]["bothDrawable"] is False
+
+
+def test_the_both_button_is_shut_with_its_reason_outside_the_absolute_frame(out):
+    lab = {b["value"]: b for b in out["section"]["base"]["cards"]["vox-event"]["showerButtons"]}
+    assert lab["both"] == {"value": "both", "disabled": False, "title": "Both showers (Absolute frame only)",
+                           "active": False}
+    assert lab["a"]["active"] and not lab["a"]["disabled"] and not lab["b"]["disabled"]
+    local = out["section"]["localBoth"]
+    buttons = {b["value"]: b for b in local["cards"]["vox-event"]["showerButtons"]}
+    assert buttons["both"]["disabled"] and "Absolute frame only" in buttons["both"]["title"]
+    assert "Choose the Absolute frame" in buttons["both"]["title"]
+    # What is drawn is lit: shower A, which is what the card says it draws.
+    assert buttons["a"]["active"] and not buttons["both"]["active"]
+    assert not buttons["a"]["disabled"] and not buttons["b"]["disabled"]
+
+
+def test_a_choice_that_resolves_to_the_picture_in_hand_says_so_on_it(out):
+    local = out["section"]["localBoth"]
+    # Local cannot hold both showers, so the cubes asked for are shower A's, already in hand: no request.
+    assert local["acted"] == {"requests": []}, local["acted"]
+    caption = local["cards"]["vox-event"]["caption"]
+    assert caption and "Both showers are drawn together in the Absolute frame only" in caption, caption
+    assert local["errors"] == [] and local["refreshError"] is None
 
 
 def test_the_ensemble_view_is_co_registered_and_gates_its_parameters(out):
