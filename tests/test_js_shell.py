@@ -225,7 +225,7 @@ def test_a_panel_without_a_section_has_no_link(method_results):
     assert r["bare"] == ["inspector-section"]
     # A drawer still waiting for its data already says where the panel is explained.
     assert r["emptyNotes"] == ["inspector-method", "inspector-empty"]
-    assert r["xz"].startswith("How it is drawn: Methodology §2.1.5 ")
+    assert r["xz"] == "How it is drawn: Methodology §3.1 Spatial projections"
 
 
 def test_the_return_link_replaces_a_section_link_to_the_same_place(method_results):

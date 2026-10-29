@@ -11,7 +11,10 @@ give, and compares.
 The rules (export-brief.md section 7):
 
 * a card a badge names in section 3 (Results) lands on the first section-3
-  badge row naming it;
+  badge row naming it, unless ``AUDITED_IN`` names the row that audits it,
+  where an earlier row only borrows it as an example (the Pearson matrix
+  illustrates PuOr in the colour section; its encoding is audited with the
+  distributions); a preferred row must name the card, or the card is unplaced;
 * a badged card absent from section 3 lands on its first badge row anywhere;
 * a card no badge names takes its family's place: the compare-frames cells
   the row of ``compare-lab-xy``, the 3-D event's projections (``vproj-*``)
@@ -86,9 +89,12 @@ const inResults = (row) => {
   return number === results || number.startsWith(`${results}.`);
 };
 const place = (at, sectionId) => ({ at, section: sections.get(sectionId).number, title: sections.get(sectionId).title });
+// A card two section-3 rows name lands on the one that audits it, where the first only borrows it.
+const AUDITED_IN = { 'physics/correlation': 'lnk-results-distributions' };
 const rowOf = (page, panel) => {
   const naming = rows.filter((row) => row.items.some((i) => i.page === page && i.panel === panel));
-  const row = naming.find(inResults) ?? naming[0];
+  const preferred = AUDITED_IN[`${page}/${panel}`];
+  const row = preferred ? naming.find((r) => r.id === preferred) : (naming.find(inResults) ?? naming[0]);
   return row ? place(row.id, row.section) : null;
 };
 

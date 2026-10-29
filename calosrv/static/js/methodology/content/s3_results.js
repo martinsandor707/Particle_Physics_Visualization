@@ -145,6 +145,7 @@ const SPATIAL = {
       items: [
         { page: 'physics', panel: 'xy', label: 'Entry slab' },
         { page: 'physics', panel: 'yz', label: 'YZ depth panel' },
+        { page: 'physics', panel: 'xz', label: 'XZ depth panel' },
         { page: 'physics', panel: 'xy', set: { frame: 'canonical' }, label: 'D–Y′ entry panel' },
         { page: 'physics', panel: 'yz', set: { frame: 'canonical' }, label: 'D-frame ensemble axes' },
         { page: 'physics', panel: 'compare-lab-xy', set: { compare: true }, label: 'Compare frames' },
