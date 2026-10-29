@@ -12,7 +12,7 @@ export default [
   { key: 'fisher1921', text: 'R. A. Fisher, On the “probable error” of a coefficient of correlation deduced from a small sample, Metron 1 (1921) 3–32.' },
   { key: 'wilson1927', text: 'E. B. Wilson, Probable inference, the law of succession, and statistical inference, Journal of the American Statistical Association 22 (1927) 209–212.' },
   { key: 'wilsonhilferty1931', text: 'E. B. Wilson, M. M. Hilferty, The distribution of chi-square, Proceedings of the National Academy of Sciences of the USA 17 (1931) 684–688.' },
-  { key: 'fisher1926', text: 'R. A. Fisher, Expansion of “Student’s” integral in powers of n⁻¹, Metron 5 (1926) 109–112.' },
+  { key: 'fisher1926', text: 'R. A. Fisher, Expansion of “Student’s” integral in powers of n⁻¹, Metron 5 (1925) 109–120.' },
   { key: 'cornishfisher1938', text: 'E. A. Cornish, R. A. Fisher, Moments and cumulants in the specification of distributions, Revue de l’Institut International de Statistique 5 (1938) 307–320.' },
   { key: 'gurland1971', text: 'J. Gurland, R. C. Tripathi, A simple approximation for unbiased estimation of the standard deviation, The American Statistician 25 (4) (1971) 30–32.' },
   { key: 'cochran1977', text: 'W. G. Cochran, Sampling Techniques, 3rd ed., Wiley, New York, 1977.' },
@@ -35,7 +35,7 @@ export default [
 
   // Explainability and models.
   { key: 'selvaraju2017', text: 'R. R. Selvaraju, M. Cogswell, A. Das, R. Vedantam, D. Parikh, D. Batra, Grad-CAM: visual explanations from deep networks via gradient-based localization, Proceedings of the IEEE International Conference on Computer Vision (2017) 618–626.' },
-  { key: 'zheng2022', text: 'Q. Zheng, Z. Wang, J. Zhou, J. Lu, Shap-CAM: visual explanations for convolutional neural networks based on Shapley value, Computer Vision – ECCV 2022, Lecture Notes in Computer Science 13672, Springer, Cham, 2022, pp. 459–474.' },
+  { key: 'zheng2022', text: 'Q. Zheng, Z. Wang, J. Zhou, J. Lu, Shap-CAM: visual explanations for convolutional neural networks based on Shapley value, Computer Vision – ECCV 2022, Lecture Notes in Computer Science, Springer, Cham, 2022, doi:10.1007/978-3-031-19775-8_27.' },
   { key: 'chen2016', text: 'T. Chen, C. Guestrin, XGBoost: a scalable tree boosting system, Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (2016) 785–794.' },
   { key: 'breiman1984', text: 'L. Breiman, J. H. Friedman, R. A. Olshen, C. J. Stone, Classification and Regression Trees, Wadsworth, Belmont, CA, 1984.' },
   { key: 'craven1996', text: 'M. W. Craven, J. W. Shavlik, Extracting tree-structured representations of trained networks, Advances in Neural Information Processing Systems 8 (1996) 24–30.' },
