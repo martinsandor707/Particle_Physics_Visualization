@@ -27,7 +27,7 @@ const RATIO = `${Math.round(C.BINARY_FRACTION_0 * 100)} : ${Math.round(C.BINARY_
 const TAXONOMY = {
   kind: 'table',
   id: 'tab-taxonomy',
-  caption: String.raw`Every card of the two pages: what it draws, how it encodes uncertainty, which sample-size gates govern its marks, and its colour. Gates are numbers of events, showers or rows as each card counts them; "ladder" is the low-$N$ ladder ${LADDER} of [[tab-low-n]]. Labels follow the two-page directive; the spatial cards and plot 4 keep the names of the 2 × 2 diagnostic.`,
+  caption: String.raw`Every card of the Physics and Models pages: what it draws, how it encodes uncertainty, which sample-size gates govern its marks, and its colour. Gates are numbers of events, showers or rows as each card counts them; "ladder" is the low-$N$ ladder ${LADDER} of [[tab-low-n]]. Labels are the cards' identifiers in the dashboard's design; the spatial cards and plot 4 keep the names of the 2 × 2 diagnostic.`,
   head: ['Card', 'Label', 'Page', 'Mark', 'Uncertainty', 'Gate', 'Colour'],
   rows: [
     [k('xy'), '2 × 2, top-left', 'Physics', 'Entry-slab raster; centroid markers; separation vector $D$ (Absolute) or entry anchors (D-frame)', 'None on a raster; counts beyond the floor and outside the window disclosed; anchor SD bar (D-frame)', `Window provisional below ${C.PROVISIONAL_N}; kernel switch at ${C.GAUSSIAN_KERNEL_BELOW_N}`, 'Sequential log (Viridis default); folded PuOr for Shap-CAM'],
