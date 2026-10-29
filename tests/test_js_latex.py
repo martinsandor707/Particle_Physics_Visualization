@@ -582,11 +582,17 @@ def test_the_real_article_is_counted_as_the_page_counts_it(real):
     assert "Open in" not in tex and "lnk-" not in tex
 
 
-def test_the_real_article_names_both_authors_and_their_affiliations(real):
+def test_the_real_article_names_every_author_and_their_affiliations(real):
     tex = real["doc"]["tex"]
-    assert "\\author{Martin Tibor S\\'{a}ndor\\textsuperscript{1} \\and R\\'{o}bert Lakatos\\textsuperscript{2}}" in tex
+    assert ("\\author{Martin Tibor S\\'{a}ndor\\textsuperscript{1} \\and R\\'{o}bert Lakatos\\textsuperscript{2} "
+            "\\and G\\'{a}bor D\\'{a}vid\\textsuperscript{3,4} \\and Norbert Novitzky\\textsuperscript{5} "
+            "\\and Sofiya Kolesnyk\\textsuperscript{6} \\and Tam\\'{a}s Majoros\\textsuperscript{6} "
+            "\\and Tam\\'{a}s Menyh\\'{a}rt\\textsuperscript{1}}") in tex
     assert "\\textsuperscript{1}Doctoral School of Informatics" in tex
     assert "\\textsuperscript{2}Department of Data Science and Visualization" in tex
+    for n, text in ((3, "Stony Brook University"), (4, "Brookhaven National Laboratory"),
+                    (5, "Relativistic Nuclear Physics Group"), (6, "University of Debrecen, Debrecen, Hungary")):
+        assert f"\\textsuperscript{{{n}}}{text}" in tex, n
     assert "calosrv 9.9.9 \\textperiodcentered{} static build test \\textperiodcentered{} exported 2026-10-29}" in tex
 
 
