@@ -17,6 +17,8 @@ export default [
   { key: 'cochran1977', text: 'W. G. Cochran, Sampling Techniques, 3rd ed., Wiley, New York, 1977.' },
   { key: 'quenouille1956', text: 'M. H. Quenouille, Notes on bias in estimation, Biometrika 43 (1956) 353–360.' },
   { key: 'tukey1958', text: 'J. W. Tukey, Bias and confidence in not-quite large samples (abstract), Annals of Mathematical Statistics 29 (1958) 614.' },
+  { key: 'nadeau2003', text: 'C. Nadeau, Y. Bengio, Inference for the generalization error, Machine Learning 52 (2003) 239–281.' },
+  { key: 'newcombe1998', text: 'R. G. Newcombe, Interval estimation for the difference between independent proportions: comparison of eleven methods, Statistics in Medicine 17 (1998) 873–890.' },
   { key: 'efron1979', text: 'B. Efron, Bootstrap methods: another look at the jackknife, Annals of Statistics 7 (1979) 1–26.' },
   { key: 'davison1997', text: 'A. C. Davison, D. V. Hinkley, Bootstrap Methods and their Application, Cambridge University Press, Cambridge, 1997.' },
   { key: 'freedman1981', text: 'D. Freedman, P. Diaconis, On the histogram as a density estimator: L2 theory, Zeitschrift für Wahrscheinlichkeitstheorie und verwandte Gebiete 57 (1981) 453–476.' },
