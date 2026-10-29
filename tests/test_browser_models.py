@@ -866,3 +866,42 @@ def test_a_badge_link_lands_on_its_models_card_with_the_way_back(models_live_ser
             == "↩ Continue reading §3.5 in the Methodology"
         browser.close()
     assert problems == [], problems
+
+
+def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_live_server):
+    """A drawer opened by hand links to the article's section on its card, with the view on screen."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch(args=GL_ARGS)
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        problems = []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.goto(f"{base}/models#table_name={BASELINE_TABLE}")
+        page.wait_for_function("(t) => document.getElementById('experiment-select')?.value === t",
+                               arg=BASELINE_TABLE, timeout=30_000)
+        page.click('button[data-inspect="perf-bins"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
+        assert page.locator("#inspector-body .inspector-return").count() == 0
+        link = page.locator("#inspector-body .inspector-method a")
+        assert link.inner_text() == ("How it is drawn: Methodology §3.6 Model evaluation, the surrogate "
+                                     "tree and the 3-D views (E1–E5, C5, C6, C11)")
+        # A long title keeps to one line, cut with an ellipsis; the tooltip carries it whole.
+        line = page.evaluate("""() => { const a = document.querySelector('#inspector-body .inspector-method a');
+          const size = parseFloat(getComputedStyle(a).fontSize);
+          return { height: a.getBoundingClientRect().height, size, cut: a.scrollWidth > a.clientWidth }; }""")
+        assert line["height"] < 2 * line["size"] and line["cut"], line
+        assert link.get_attribute("title").endswith("(E1–E5, C5, C6, C11), in the Methodology, with the view on screen now")
+        link.focus()
+        href = link.get_attribute("href")
+        assert href == f"/methodology#{urlparse(page.url).fragment}&at=lnk-results-models", href
+        link.click()
+        page.wait_for_url(re.compile(r"/methodology"), timeout=15_000)
+        view = {k: v[0] for k, v in parse_qs(urlparse(page.url).fragment).items()}
+        assert view.get("table_name") == BASELINE_TABLE and view.get("at") == "lnk-results-models", view
+        page.wait_for_function("() => document.activeElement?.id === 'lnk-results-models'", timeout=30_000)
+        top = page.evaluate("() => document.getElementById('lnk-results-models').getBoundingClientRect().top "
+                            "- document.getElementById('main').getBoundingClientRect().top")
+        assert -2 <= top <= 40, top
+        browser.close()
+    assert problems == [], problems

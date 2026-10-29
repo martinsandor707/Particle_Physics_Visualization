@@ -30,6 +30,7 @@
 import { getJson, debounce, DEBOUNCE_MS, isAbort } from './api.js';
 import { State } from './state.js';
 import { Shell } from './shell.js';
+import { articleSection } from './article_sections.js';
 import { FilterBlock } from './controls/filter_block.js';
 import { attachExportMenus } from './export/menu.js';
 import { LazyCards } from './lazy_cards.js';
@@ -51,6 +52,8 @@ const state = new State();
 const shell = new Shell({
   getNotes: (panelId) => buildNotes(panelId),
   onLayoutChange: () => relayoutAll(),
+  // Each drawer links to the article section explaining its panel.
+  sectionOf: (panelId) => articleSection('models', panelId),
 });
 
 /* Transient messages (dismissal keyed by content); what the experiment

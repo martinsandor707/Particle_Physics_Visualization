@@ -37,6 +37,8 @@ import {
   projectionNotes, energyNotes, eventNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
 } from './panel_notes.js';
 import { Shell } from './shell.js';
+import { articleSection } from './article_sections.js';
+import { texToTree, mountMath } from './math.js';
 import { page1Plan, carriedFrame } from './capabilities.js';
 import {
   Banner, describeError, escapeHtml, fillComputeBadges, fillExperimentSelect, chooseExperiment,
@@ -56,6 +58,8 @@ const shell = new Shell({
   // The store first; a panel inspected before its first payload builds then.
   getNotes: (panelId) => panelNotes[panelId] ?? buildNotes(panelId),
   onLayoutChange: () => relayoutAll(),
+  // Each drawer links to the article section explaining its panel.
+  sectionOf: (panelId) => articleSection('physics', panelId),
 });
 
 const panels = {
@@ -382,9 +386,10 @@ function hidePopover() {
  * A popover holding a methodology explainer (`frame_views.js`): a title,
  * then sections of paragraphs and formulas, the one in use tagged.
  *
- * Text nodes only. Unlike a notice popover it is long, so it scrolls when
- * taller than the window, a click inside it (on its scrollbar, or to select a
- * formula) does not close it, and it takes the focus so a keyboard or
+ * Text nodes only, and MathML elements for the formulas (`formulaNode`).
+ * Unlike a notice popover it is long, so it scrolls when taller than the
+ * window, a click inside it (on its scrollbar, or to select a formula) does
+ * not close it, and it takes the focus so a keyboard or
  * screen-reader user lands in it; Escape or a click elsewhere closes it and
  * returns the focus to its button.
  */
@@ -409,9 +414,13 @@ function showExplainer(trigger, explainer) {
     }
     node.append(heading);
     for (const block of section.blocks) {
-      const element = document.createElement('p');
-      if (block.kind === 'formula') element.className = 'formula';
-      element.textContent = block.text;
+      const element = document.createElement(block.kind === 'formula' ? 'div' : 'p');
+      if (block.kind === 'formula') {
+        element.className = 'formula';
+        element.append(formulaNode(block));
+      } else {
+        element.textContent = block.text;
+      }
       node.append(element);
     }
   }
@@ -429,6 +438,22 @@ function showExplainer(trigger, explainer) {
   popoverTrigger = trigger;
   trigger.setAttribute('aria-expanded', 'true');
   node.focus({ preventScroll: true });
+}
+
+/**
+ * One explainer formula: its TeX set as display MathML through math.js, in
+ * the article's notation, or its plain text where it has no TeX or the
+ * compiler refuses it, so a formula is never lost to a typo.
+ */
+function formulaNode(block) {
+  if (block.tex) {
+    try {
+      return mountMath(texToTree(block.tex, { display: true }));
+    } catch (error) {
+      console.warn('explainer formula left as text:', error?.message ?? error);
+    }
+  }
+  return document.createTextNode(block.text);
 }
 
 let activePopover = null;

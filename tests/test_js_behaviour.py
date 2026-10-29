@@ -2322,6 +2322,72 @@ def test_no_explainer_sentence_carries_a_hyphen_minus(explainer_results):
                 assert " - " not in block["text"], block["text"]
 
 
+# The popup sets each formula as MathML through math.js (main.js `showExplainer`),
+# in the article's notation, and keeps the plain text as the fallback.
+_EXPLAINER_TEX_SCRIPT = """
+const [framesUrl, mathUrl] = JSON.parse(process.argv[1]);
+globalThis.window = { location: { hash: '', pathname: '/' }, history: { replaceState() {} } };
+const { anchorExplainer } = await import(framesUrl);
+const { texToTree } = await import(mathUrl);
+const texts = (node, found = []) => {
+  if (typeof node.text === 'string' && node.tag !== 'annotation') found.push([node.tag, node.text]);
+  for (const child of node.children ?? []) texts(child, found);
+  return found;
+};
+const out = [];
+for (const section of anchorExplainer(null, null).sections) {
+  for (const block of section.blocks) {
+    if (block.kind !== 'formula') continue;
+    const entry = { text: block.text, tex: block.tex ?? null };
+    try {
+      const tree = texToTree(block.tex, { display: true });
+      entry.display = tree.attrs.display;
+      entry.annotation = tree.children[0].children.at(-1).text;
+      entry.tokens = texts(tree.children[0].children[0]);
+    } catch (error) {
+      entry.error = String(error?.message ?? error);
+    }
+    out.push(entry);
+  }
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def explainer_tex() -> list:
+    args = json.dumps([(JS / "frame_views.js").as_uri(), (JS / "math.js").as_uri()])
+    done = subprocess.run([NODE, "--input-type=module", "-e", _EXPLAINER_TEX_SCRIPT, args],
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_every_explainer_formula_compiles_under_math_js(explainer_tex):
+    assert len(explainer_tex) == 3
+    for entry in explainer_tex:
+        assert entry["tex"] and "error" not in entry, entry
+        assert entry["tex"].isascii(), entry["tex"]
+        assert entry["display"] == "block" and entry["annotation"] == entry["tex"]
+        # Every rendered minus is U+2212; the source keeps its hyphen.
+        assert all(text != "-" and not text.startswith("-") for _, text in entry["tokens"]), entry["tokens"]
+        assert ["mo", "−"] in entry["tokens"]
+
+
+def test_the_explainer_formulas_use_the_articles_notation(explainer_tex):
+    rotation, back, p0 = (entry["tex"] for entry in explainer_tex)
+    # The rotation pair as one aligned block, in psi (eq-dframe-rotation).
+    assert rotation.startswith(r"\begin{aligned}") and rotation.endswith(r"\end{aligned}")
+    assert rotation.count(r"\psi") == 4 and r"\\" in rotation
+    # The two entry points: the front face z_f and the azimuth varphi (eq-backproject, eq-p0-anchor),
+    # each written for one shower, as the popup's prose is.
+    for tex in (back, p0):
+        assert tex.startswith(r"\text{entry} = ") and r"z_{\mathrm f}" in tex
+        assert r"\varphi" in tex and r"\tan\theta" in tex
+    assert "(c_x,\\ c_y)" in back and "c_z" in back
+    assert "P_0" in p0 and "z_0" in p0
+
+
 # ------------------------------------------------- single-shower centroids --
 #
 # A single-shower experiment's lab payload carries one shower per centroid set

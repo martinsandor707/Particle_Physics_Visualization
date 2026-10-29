@@ -25,6 +25,11 @@
  * starts with a link to the place in the article the reader left
  * (`setReturnLink`), whose href is computed when it is followed, so a view
  * changed on this page travels back with the reader.
+ *
+ * Every drawer of a panel the article explains carries a second, permanent
+ * link: to the section that says how that panel is computed and drawn
+ * (`sectionOf`, article_sections.js), live in the same way. Where the return
+ * link already lands on that very place, it is the only one shown.
  */
 
 import { methodologyHref, wireLiveLinks } from './page_common.js';
@@ -60,14 +65,20 @@ const SIDEBAR_LABELS = Object.freeze({
 export class Shell {
   /**
    * @param {{getNotes: (panelId: string) => object|null, onLayoutChange: () => void,
+   *   sectionOf?: (panelId: string) => {at: string, section: string, title: string}|null,
    *   storageKey?: string, labels?: object}} options
    *   `getNotes` returns the panel's notes (panel_notes.js) or null when the
    *   panel has no data yet; `onLayoutChange` re-lays every chart out;
+   *   `sectionOf` names the article section explaining a panel
+   *   (article_sections.js `articleSection`), or null for none;
    *   `storageKey` is where the sidebar's collapsed state is kept and `labels`
    *   names its toggle (both default to the configuration sidebar's).
    */
-  constructor({ getNotes, onLayoutChange, storageKey = SIDEBAR_STORAGE_KEY, labels = null } = {}) {
+  constructor({
+    getNotes, onLayoutChange, sectionOf = null, storageKey = SIDEBAR_STORAGE_KEY, labels = null,
+  } = {}) {
     this.getNotes = getNotes || (() => null);
+    this.sectionOf = sectionOf || (() => null);
     this.onLayoutChange = onLayoutChange || (() => {});
     this.storageKey = storageKey;
     this.labels = { ...SIDEBAR_LABELS, ...(labels ?? {}) };
@@ -83,6 +94,8 @@ export class Shell {
     // The way back to the Methodology: {panelId, anchor, label, title} or null, and its link on show.
     this.returnLink = null;
     this.returnAnchor = null;
+    // The drawer's link to the section explaining its panel, while one is shown.
+    this.methodAnchor = null;
 
     // Applied before the charts are created (main.js constructs the shell
     // first), so the first layout already has the right width.
@@ -227,16 +240,47 @@ export class Shell {
     return paragraph;
   }
 
+  /**
+   * The paragraph linking the drawer on show to the article section that
+   * explains its panel, or null: for a panel the map does not name, or when
+   * the return link already lands on the same place.
+   */
+  methodNode() {
+    const place = this.inspected ? this.sectionOf(this.inspected) : null;
+    if (!place?.at) return null;
+    const back = this.returnLink;
+    if (back && back.panelId === this.inspected && back.anchor === place.at) return null;
+    const paragraph = document.createElement('p');
+    paragraph.className = 'inspector-method';
+    const anchor = document.createElement('a');
+    const href = () => methodologyHref(place.at, window.location.hash);
+    anchor.href = href();
+    // One line (layout.css ends a long title with an ellipsis); the tooltip carries it whole.
+    const where = `${sectionLabel(place.section)} ${place.title}`;
+    anchor.textContent = `How it is drawn: Methodology ${where}`;
+    anchor.title = `How this panel is computed and drawn: ${where}, in the Methodology, `
+      + 'with the view on screen now';
+    wireLiveLinks([anchor], href);
+    paragraph.append(anchor);
+    this.methodAnchor = anchor;
+    return paragraph;
+  }
+
   /** Text nodes only: the sentences come from payloads. */
   renderNotes(notes) {
     if (this.title) this.title.textContent = notes?.title ?? 'Panel details';
     if (!this.body) return;
-    // A keyboard reader on the return link keeps their place when the notes refresh under it.
-    const hadFocus = Boolean(this.returnAnchor) && document.activeElement === this.returnAnchor;
+    // A keyboard reader on either article link keeps their place when the notes refresh under it.
+    const active = document.activeElement;
+    const hadFocus = Boolean(this.returnAnchor) && active === this.returnAnchor;
+    const hadMethodFocus = Boolean(this.methodAnchor) && active === this.methodAnchor;
     this.returnAnchor = null;
+    this.methodAnchor = null;
     const nodes = [];
     const back = this.returnNode();
     if (back) nodes.push(back);
+    const method = this.methodNode();
+    if (method) nodes.push(method);
     if (!notes || !notes.sections?.length) {
       const empty = document.createElement('p');
       empty.className = 'inspector-empty';
@@ -258,5 +302,12 @@ export class Shell {
     }
     this.body.replaceChildren(...nodes);
     if (hadFocus) this.returnAnchor?.focus({ preventScroll: true });
+    if (hadMethodFocus) this.methodAnchor?.focus({ preventScroll: true });
   }
+}
+
+/** A section number as the article prints it: §3.1, or Appendix A. */
+function sectionLabel(number) {
+  const text = String(number ?? '');
+  return /^[A-Z]/.test(text) ? `Appendix ${text}` : `§${text}`;
 }
