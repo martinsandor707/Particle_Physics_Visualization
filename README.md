@@ -3769,6 +3769,61 @@ for the pion (70.2%) and proton (65.9%).
 
 ---
 
+## The Methodology page
+
+*Methodology* at `/methodology` is the third page: one journal-style article on
+how every panel of the other two is computed and drawn. It covers the reference
+frames and their SE(3) motions, the splats and display kernels, the attribution
+channels and why they are conserved, the estimators and their low-N gates, and
+an audit of every visual encoding on both pages. It closes with the engineering
+trade-offs. It is written by Martin Tibor Sándor and Róbert Lakatos (University
+of Debrecen). Its provenance line names the running service's version and static
+build.
+
+**The article follows the code.** Its numbers are never typed: each comes from
+`static/js/methodology/constants.js`, whose every entry names its source in the
+code, and `tests/test_methodology_constants.py` fails when an article number and
+the code disagree. Appendix B lists them all, with their sources. A measured
+figure — an R̄ on the production file, a comb lag-1 on a slice — is cited with
+its dataset, never presented as a constant. The Results section audits
+encodings; it reports no dataset's findings.
+
+**Equations** are native MathML, compiled in the browser by `static/js/math.js`
+from a closed LaTeX subset: no vendored library, font or CDN. Each display
+equation is numbered. Its number is a link to it, and clicking the equation (or
+its TeX button) shows its LaTeX source with a Copy button. The figures of the
+colour section are computed from `palette.js` and `scale.js`, the same code that
+paints the panels.
+
+**The view travels with the reader.** The page reads the hash and never writes a
+view key. Its own place in the article is one key, `at`
+(`#table_name=…&frame=canonical&at=eq-dframe-rotation`), which the tabs and
+every link to the other pages drop.
+
+**Badges link back to the dashboard.** An *Open in Physics →* or *Open in
+Models →* badge opens the panel that demonstrates a section, with the reader's
+experiment and filters, and with the frame or channel the section is about when
+it names one. On arrival (`?panel=<card>&from=<anchor>&from_sec=<section>`, read
+once and removed from the address bar) the page scrolls to the card and opens
+its Details drawer. The drawer then starts with *↩ Continue reading §n in the
+Methodology*, which returns to the badge's place in the article with whatever
+view is on screen by then. A card the experiment does not serve says so on the
+banner instead, and so does one the view on screen hides. When a link carries
+no view state, the badges open the view a cold boot of the target page would,
+saved defaults included. A Physics badge clears a pinned event and the compare
+view, which hide the panels it opens, unless the section is about them.
+
+The outline sits in the sidebar's track and collapses with the header's toggle,
+under a key of its own, so folding it does not fold the configuration sidebar of
+the other pages; on a phone-width screen it starts folded and opens above the
+article. The page prints as an article: white paper, dark ink, no chrome, every
+table and equation inside the A4 text block.
+
+**Editing the article.** The content is plain data in
+`static/js/methodology/content/`, one module per part; the content model and the
+rules (ids, the TeX subset, notation, vocabulary) are documented in the modules
+and checked by `tests/test_js_methodology.py`.
+
 ## API
 
 All endpoints return pre-aggregated payloads; none returns a raw hit array.
@@ -4186,8 +4241,8 @@ change.
 Asset URLs are stamped with a hash of the static tree (`/static/js/main.js?v=…`)
 and served `immutable`; the page itself is `no-cache`, and any unstamped asset —
 which includes the relative ES module imports inside `main.js` — revalidates
-against its ETag. Both pages, `/` (`index.html`) and `/models` (`models.html`),
-go through the one stamping helper.
+against its ETag. All three pages, `/` (`index.html`), `/models` (`models.html`)
+and `/methodology` (`methodology.html`), go through the one stamping helper.
 
 **Vendored third-party scripts.** Nothing is loaded from a CDN, so the interface
 works offline and air-gapped:
@@ -4248,12 +4303,14 @@ calosrv/
            describe median kde momentum profile circular jackknife rmse
   encode/  scale quantize matrix topk numbers voxels
   api/     deps budget routes_* frame_canonical frame_shower
-  static/  index.html models.html css/ js/
+  static/  index.html models.html methodology.html css/ js/
              js/      main api state labels scale palette decode dom textfit format frame_views
                       axis_symbols panel_notes shell event_inspector
                       capabilities lazy_cards physics_section page_common
                       models_main models_cards models_notes xgb_notes
                       voxels voxel_views voxel_notes event_cells
+                      methodology_main math
+             js/methodology/  render links exhibits constants content/
              js/panels/   projection canonical_overlays marks tooltip energy metrics frame_grid
                           chart_panel profile response response_grid distribution correlation
                           statistics perf_bins hist2d feature_table rates
@@ -4296,6 +4353,19 @@ modules, listed here ahead of the D-frame's:
 | `static/js/panels/xgb_cv.js`, `xgb_binary.js`, `xgb_tree.js`, `xgb_importance.js` | E1, E3, E4, E5 |
 | `static/js/voxels.js` | the 3-D payload decoders and the echarts-gl option, pure: placement through the payload's coordinates, floating cubes by stacking, the opening zoom, the crop to the projections' window |
 | `static/js/voxel_views.js`, `voxel_notes.js`, `event_cells.js` | the two 3-D pairs and their controls and WebGL handling; their drawers; the 2-D cells' helpers shared with the Event Inspector |
+
+**Client (Page 3):**
+
+| File | Responsibility |
+|---|---|
+| `static/methodology.html`, `static/css/methodology.css` | the page — the shared shell with the outline in the sidebar track — and its article typography, screen and print |
+| `static/js/methodology_main.js` | the bootstrap: the article, the outline and its scroll-spy, the `at` position, the view chip, the compute badge and provenance |
+| `static/js/math.js` | a closed LaTeX subset compiled to a MathML Core node tree, mounted with `createElementNS`; an unknown command throws |
+| `static/js/methodology/render.js` | the article as a node tree: numbering, cross-references, citations, inline syntax, equations, tables, figures, badges; then the DOM, text nodes only |
+| `static/js/methodology/links.js` | the badges' and anchors' hrefs, and the one hash write the page makes (`at`) |
+| `static/js/methodology/exhibits.js` | the three computed figures: the sequential ramps, standard and folded PuOr, the D-frame schematic |
+| `static/js/methodology/constants.js` | every number the article quotes, with its source; `tests/test_methodology_constants.py` checks each against the code |
+| `static/js/methodology/content/` | the article itself, one module of plain data per part (`index.js` composes them) |
 
 The D-frame is its own column of that layout, one responsibility per
 file. The two tables below are Page 1's.
@@ -4363,7 +4433,7 @@ file. The two tables below are Page 1's.
 | `static/js/frame_views.js` | every frame's titles, captions, display captions and the per-panel prose the drawer shows (`footnotes()`, `exportLegend()`), as pure strings |
 | `static/js/axis_symbols.js` | the symbol each spatial axis is written with, and the one client-side rule that writes the D-frame entry panel's horizontal axis as D; a leaf module every consumer that names an axis reads |
 | `static/js/panel_notes.js` | the Details drawer's text: one panel's methodology and disclosures as sections (*Selection*, *What is drawn*, *Disclosures*, *Marks and legend*, *Reading the density axis*), built from the functions above; `hazards()` flags the trigger |
-| `static/js/shell.js` | the collapsible sidebar (`localStorage`, never the hash) and the Details drawer: grid tracks snap, every chart re-lays itself out synchronously, text nodes only |
+| `static/js/shell.js` | the collapsible sidebar (`localStorage`, never the hash; one key per page's sidebar) and the Details drawer: grid tracks snap, every chart re-lays itself out synchronously, text nodes only; a panel opened from a Methodology badge links back to the article from its drawer |
 | `static/js/format.js` | the typographic minus |
 | `static/js/controls/admin.js`, `static/js/controls/modal.js` | the Admin Settings panel — the default view, the upload form (`controls/upload.js`) and the automatic-ingest report; the dialog shell (focus, Escape, ARIA) |
 | `static/js/controls/upload.js` | the upload form inside Admin Settings: naming checks before a byte is sent, the streaming upload or server-side ingest, and the job poll, which carries on after the panel is closed |
@@ -4375,7 +4445,7 @@ file. The two tables below are Page 1's.
 | `static/js/capabilities.js` | the Physics page's plan from the capability block: which cards show and which are shut with the server's reason, the frames offered, the missing-predictions banner, the stale notice and the frame carried across a change of kind; pure, tested under Node against the recorded catalogue of all three kinds |
 | `static/js/lazy_cards.js` | when a card loads: visible, and its request key differs from the one it holds; pure |
 | `static/js/physics_section.js` | the nine physics cards: their anatomy and controls, the requests they share, and the shut state with its Rebuild offer |
-| `static/js/page_common.js` | what both pages share: the banner, error wording, the experiment picker, runtime relabelling, and the page tabs that carry the hash |
+| `static/js/page_common.js` | what the pages share: the banner, error wording, the experiment picker, runtime relabelling, the page tabs that carry the hash (`wirePageTabs`, `wireLiveLinks`, `hashWith`), and the landing of a Methodology badge (`readDeepLink`, `revealPanel`, `returnLink`) |
 | `static/js/controls/filter_block.js` | the sidebar's filter block adopted per kind: E₁, E₂ and D, or the single-shower p alone |
 | `static/js/panels/chart_panel.js` | the base of every 2-D physics panel and the helpers they share; each panel is a pure option builder plus a thin subclass |
 | `static/js/panels/profile.js`, `response.js`, `response_grid.js`, `distribution.js`, `correlation.js`, `statistics.js` | C7; B1, B2 and σ/μ; B3's small multiples; C4; C8 on PuOr; the C1 and C9 table |
