@@ -55,6 +55,8 @@ export default [
   { key: 'postgresql', text: 'The PostgreSQL Global Development Group, PostgreSQL Documentation: Parallel Plans; Resource Consumption, https://www.postgresql.org/docs/current/.' },
   { key: 'parquet', text: 'The Apache Software Foundation, Apache Parquet file format, https://parquet.apache.org/docs/file-format/.' },
   { key: 'rfc8878', text: 'Y. Collet, M. Kucherawy, Zstandard compression and the ‘application/zstd’ media type, RFC 8878, IETF, 2021.' },
+  { key: 'duckdbdocs', text: 'DuckDB, Documentation: Pragmas; Memory management; How to tune workloads, https://duckdb.org/docs/current/.' },
+  { key: 'rfc1952', text: 'P. Deutsch, GZIP file format specification version 4.3, RFC 1952, IETF, 1996.' },
   { key: 'li2018', text: 'D. Li, H. Mei, Y. Shen, S. Su, W. Zhang, J. Wang, M. Zu, W. Chen, ECharts: a declarative framework for rapid construction of web-based visualization, Visual Informatics 2 (2) (2018) 136–146.' },
   { key: 'fastapi', text: 'S. Ramírez, FastAPI, https://fastapi.tiangolo.com/.' },
 ];
