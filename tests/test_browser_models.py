@@ -613,6 +613,38 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
     assert problems == [] and problems2 == [], problems + problems2
 
 
+def test_both_showers_draw_in_the_absolute_frame_and_are_shut_with_a_reason_elsewhere(models_live_server):
+    """"Both" draws the event's two showers where one coordinate system holds them, and only there.
+
+    In a per-shower frame each shower sits at its own entry point, so the
+    button is shut with that reason as its title, rather than offered and then
+    drawn as shower A.
+    """
+    base = models_live_server["base"]
+    both = '.card[data-panel="vox-event"] [data-voxel-shower="both"]'
+    lit = ("() => [...document.querySelectorAll('.card[data-panel=\"vox-event\"] [data-voxel-shower].is-active')]"
+           ".map((b) => b.dataset.voxelShower)")
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE, fragment="&model=energy&frame=local")
+        _scroll_to(page, "vox-event")
+        shut = page.evaluate(f"() => {{ const b = document.querySelector('{both}'); return [b.disabled, b.title]; }}")
+        assert shut[0] is True and "Absolute frame only" in shut[1], shut
+        assert page.evaluate(lit) == ["a"]
+        browser.close()
+
+        browser, page, problems2, requests = _open(p, base, BASELINE_TABLE, fragment="&model=energy&frame=lab")
+        _scroll_to(page, "vox-event")
+        assert page.evaluate(f"() => document.querySelector('{both}').disabled") is False
+        page.click(both)
+        page.wait_for_function(
+            "() => /showers A and B/.test(document.querySelector('.card[data-panel=\"vox-event\"]').textContent)",
+            timeout=30_000)
+        assert [u for u in _urls(requests) if "format=voxels" in u and "shower=both" in u]
+        assert page.evaluate(lit) == ["both"]
+        browser.close()
+    assert problems == [] and problems2 == [], problems + problems2
+
+
 @pytest.mark.parametrize("width", [1440, 1600, 1920])
 def test_the_3d_cards_open_fitted_to_their_box(models_live_server, width):
     """Fix round Z: the opening zoom fits the drawn box, whatever its shape. On the synthetic single-shower

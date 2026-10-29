@@ -3266,7 +3266,11 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   because the raster is energy density in every channel. The D-frame has no
   per-event raster, so the pair draws Absolute there and says so under its
   titles. When the cubes show both showers, the projections show shower A and
-  say so.
+  say so. *Both* is drawn in the Absolute frame only, the one frame of this pair
+  that holds both showers in one coordinate system: in a per-shower frame each
+  shower sits at its own entry point, so the button is shut there with that
+  reason as its title, and a link that still carries `voxel_shower=both` draws
+  shower A and says why on the card.
 - *Budget.* The whole body is measured as served against 100 KB
   (`api/budget.serve_measured`): while it is over, the splat pitch is lowered and
   then the cube cap, with a stated sentence. The cubes are integers and a
