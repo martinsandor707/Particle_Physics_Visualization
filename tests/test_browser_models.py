@@ -349,7 +349,7 @@ def test_the_page_tabs_carry_the_view_across_both_pages(models_live_server):
         browser, page, problems, _ = _open(p, base, BASELINE_TABLE, fragment=view)
         tabs = page.evaluate("() => [...document.querySelectorAll('#page-tabs a.page-tab')].map((a) => "
                              "[a.dataset.page, a.classList.contains('is-current'), a.getAttribute('aria-current')])")
-        assert tabs == [["physics", False, None], ["models", True, "page"]], tabs
+        assert tabs == [["physics", False, None], ["models", True, "page"], ["methodology", False, None]], tabs
         # The feature cards read the link's shower: B is pressed.
         _scroll_to(page, "feat-corr")
         pressed = page.get_attribute('.card[data-panel="feat-corr"] button[data-feature-shower="b"]', "aria-pressed")

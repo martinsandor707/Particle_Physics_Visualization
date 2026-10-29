@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calorimeter Shower Reconstruction — Methodology</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+<link rel="stylesheet" href="/static/css/controls.css">
+<link rel="stylesheet" href="/static/css/methodology.css">
+</head>
+<body>
+
+<!-- The Methodology page: one article on how every panel of the other two
+     pages is computed and drawn. The shell is theirs - header, page tabs, a
+     collapsible sidebar (here the article's outline) - so js/shell.js serves
+     it; there is no Details drawer and no chart. The article is built by
+     js/methodology_main.js from js/methodology/content/. The page never writes
+     a view key into the hash: it carries the reader's view to the badges and
+     tabs, and keeps its own place in one key of its own, at=. -->
+<div class="app methodology-app">
+
+  <!-- ============================================================= header -->
+  <header class="header">
+    <button class="icon-button" id="sidebar-toggle" type="button"
+            aria-controls="sidebar" aria-expanded="true"
+            aria-label="Collapse the article outline" title="Collapse the outline">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+    </button>
+    <div>
+      <h1>Calorimeter Shower Reconstruction</h1>
+      <div class="subtitle">Methodology &mdash; how every panel is computed and drawn</div>
+    </div>
+
+    <nav class="page-tabs" id="page-tabs" aria-label="Dashboard pages">
+      <a class="page-tab" data-page="physics" data-page-tab href="/" title="The 2 × 2 spatial diagnostic and the physics cards">Physics</a>
+      <a class="page-tab" data-page="models" data-page-tab href="/models" title="Model performance, the feature explorer and the 3-D views">Models</a>
+      <a class="page-tab is-current" data-page="methodology" data-page-tab href="/methodology" aria-current="page" title="How every panel is computed and drawn, as one article">Methodology</a>
+    </nav>
+
+    <span class="spacer"></span>
+
+    <div class="badge" id="view-chip" title="The view the article's links open on the other pages">
+      <span>Links open</span> <b id="view-chip-text">&mdash;</b>
+    </div>
+
+    <div class="badge" id="compute-badge" title="DuckDB memory ceiling and worker threads allocated at boot">
+      <span class="dot"></span>
+      <span>DuckDB <b id="badge-memory">—</b> · <b id="badge-threads">—</b> threads</span>
+    </div>
+  </header>
+
+  <!-- ============================================================ sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <h2 id="toc-heading">Contents</h2>
+    <nav class="toc" id="toc" aria-labelledby="toc-heading"></nav>
+  </aside>
+
+  <!-- =============================================================== main -->
+  <main class="main" id="main">
+    <div class="banner" id="banner" hidden>
+      <span class="banner-text" id="banner-text"></span>
+      <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+    <article class="paper" id="paper"></article>
+  </main>
+</div>
+
+<script type="module" src="/static/js/methodology_main.js"></script>
+</body>
+</html>

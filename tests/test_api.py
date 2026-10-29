@@ -320,6 +320,17 @@ def test_models_page_is_served(client):
     assert "echarts-gl" not in client.get("/").text
 
 
+def test_methodology_page_is_served(client):
+    """The Methodology page shares the shell, loads its own entry point and no chart library."""
+    response = client.get("/methodology")
+    assert response.status_code == 200
+    html = response.text
+    assert "Calorimeter Shower Reconstruction" in html
+    scripts = re.findall(r'<script[^>]*src="([^"?]+)', html)
+    assert scripts == ["/static/js/methodology_main.js"]
+    assert '<script type="module" src="/static/js/methodology_main.js' in html
+
+
 def test_depth_overlays_are_complementary(client):
     """Exactly one direction overlay is honest at a time.
 
@@ -732,7 +743,7 @@ def test_energy_payload_stays_within_the_budget(client):
 # --------------------------------------------------------- asset integrity --
 
 
-@pytest.mark.parametrize("page", ["/", "/models"])
+@pytest.mark.parametrize("page", ["/", "/models", "/methodology"])
 def test_asset_urls_are_version_stamped(client, page):
     """Markup must reference the exact assets it was built against.
 
@@ -749,7 +760,7 @@ def test_asset_urls_are_version_stamped(client, page):
     refs = re.findall(r'(?:src|href)="(/static/[^"]+)"', html)
     assert refs, "no static assets referenced"
     # The page links are routes, not assets: never stamped.
-    for route in ('href="/"', 'href="/models"'):
+    for route in ('href="/"', 'href="/models"', 'href="/methodology"'):
         assert route in html, route
 
     stamps = set()
@@ -773,7 +784,7 @@ def test_asset_stamp_changes_when_a_file_changes(tmp_path):
     assert asset_fingerprint(tmp_path) not in (first,)
 
 
-@pytest.mark.parametrize("page", ["/", "/models"])
+@pytest.mark.parametrize("page", ["/", "/models", "/methodology"])
 def test_index_is_never_cached(client, page):
     """A stale page would reference a stale stamp and defeat the mechanism."""
     response = client.get(page)
@@ -800,6 +811,13 @@ _DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\(\s*(['"])(\.{1,2}/[^'"?]+?\.js)\1"
 #: The id-writing calls the audit reads (dom.js helpers and getElementById).
 _ID_CALLS = (r"getElementById\('([^']+)'\)", r"setText\('([^']+)'", r"setHtml\('([^']+)'",
              r"setVal\('([^']+)'", r"setChecked\('([^']+)'", r"setHidden\('([^']+)'")
+
+#: Ids a page leaves out on purpose. The Methodology page has no Details
+#: drawer: shell.js looks the drawer up and treats it as optional (every use
+#: is guarded), so the page uses the shell for its outline alone.
+_OPTIONAL_IDS = {
+    "methodology.html": {"inspector", "inspector-title", "inspector-body", "inspector-close"},
+}
 
 
 def _module_graph(entry):
@@ -839,7 +857,8 @@ def _referenced_ids(modules):
     return referenced
 
 
-@pytest.mark.parametrize(("entry", "page"), [("main.js", "index.html"), ("models_main.js", "models.html")])
+@pytest.mark.parametrize(("entry", "page"), [("main.js", "index.html"), ("models_main.js", "models.html"),
+                                             ("methodology_main.js", "methodology.html")])
 def test_every_id_the_scripts_write_to_exists_in_the_markup(entry, page):
     """Guards against the markup and scripts drifting apart in the repository.
 
@@ -853,7 +872,7 @@ def test_every_id_the_scripts_write_to_exists_in_the_markup(entry, page):
 
     static = Path(__file__).resolve().parent.parent / "calosrv" / "static"
     html = (static / page).read_text(encoding="utf-8")
-    present = set(re.findall(r'id="([^"]+)"', html))
+    present = set(re.findall(r'id="([^"]+)"', html)) | _OPTIONAL_IDS.get(page, set())
     referenced = _referenced_ids(_module_graph(static / "js" / entry))
     missing = sorted(f"{element_id} ({module})" for element_id, module in referenced.items()
                      if element_id not in present)
@@ -865,7 +884,8 @@ def test_every_module_is_reached_from_an_entry_point():
     from pathlib import Path
 
     js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
-    reached = _module_graph(js / "main.js") | _module_graph(js / "models_main.js")
+    reached = (_module_graph(js / "main.js") | _module_graph(js / "models_main.js")
+               | _module_graph(js / "methodology_main.js"))
     orphans = sorted(str(path.relative_to(js)) for path in js.rglob("*.js")
                      if "vendor" not in path.parts and path.resolve() not in reached)
     assert not orphans, f"modules no entry point reaches: {orphans}"
@@ -883,14 +903,25 @@ def test_each_entry_point_keeps_the_other_pages_modules_out():
     js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
     physics = {p.relative_to(js).as_posix() for p in _module_graph(js / "main.js")}
     models = {p.relative_to(js).as_posix() for p in _module_graph(js / "models_main.js")}
+    methodology = {p.relative_to(js).as_posix() for p in _module_graph(js / "methodology_main.js")}
     for module in ("main.js", "event_inspector.js", "controls/admin.js", "controls/upload.js",
                    "physics_section.js", "panels/frame_grid.js"):
         assert module not in models, module
     for module in ("models_main.js", "models_cards.js"):
         assert module not in physics, module
+    # The article draws no panel and holds no experiment: it may share the
+    # leaves (the palettes, the scale, the page helpers), never a page's own.
+    for module in ("main.js", "models_main.js", "physics_section.js", "models_cards.js", "voxel_views.js",
+                   "event_inspector.js", "lazy_cards.js", "panels/frame_grid.js", "panels/projection.js",
+                   "controls/admin.js", "controls/upload.js", "controls/filter_block.js", "export/menu.js"):
+        assert module not in methodology, module
+    # Nor does either page carry the article.
+    for module in sorted(methodology):
+        if module == "methodology_main.js" or module.startswith("methodology/"):
+            assert module not in physics and module not in models, module
 
 
-@pytest.mark.parametrize("entry", ["main.js", "models_main.js"])
+@pytest.mark.parametrize("entry", ["main.js", "models_main.js", "methodology_main.js"])
 def test_module_imports_are_stamped_too(client, entry):
     """The entry point alone is not enough to version a module graph.
 

@@ -297,6 +297,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/controls/filter_block.js",
         "/static/js/models_main.js",
         "/static/js/models_cards.js",
+        "/static/js/shell.js",
+        "/static/js/methodology_main.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
@@ -306,10 +308,11 @@ def test_new_module_imports_are_stamped(client, path):
     the exact failure mode commit a0e00c3 exists to prevent: a fresh entry point
     importing a module the browser has been holding since before the feature.
 
-    `textfit.js`, `panels/marks.js`, `axis_symbols.js` and `shell.js` are
-    deliberately absent from this list - they are leaves with no imports of
-    their own, so there is nothing in them to stamp. They are reached, and
-    therefore versioned, through their importers.
+    `textfit.js`, `panels/marks.js` and `axis_symbols.js` are deliberately
+    absent from this list - they are leaves with no imports of their own, so
+    there is nothing in them to stamp. They are reached, and therefore
+    versioned, through their importers. (`shell.js` was one until it began
+    importing the return link's helpers from `page_common.js`.)
     """
     response = client.get(path)
     specifiers = re.findall(r"from\s+'(\.\.?/[^']+)'", response.text)

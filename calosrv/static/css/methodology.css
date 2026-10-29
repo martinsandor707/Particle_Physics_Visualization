@@ -1,0 +1,13 @@
+/* The Methodology page: the article column and its outline.
+   SKELETON - the full screen and print styles come with the renderer.
+   Nothing here is animated: the shell's tracks snap. */
+
+.paper {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 8px 4px 64px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.toc { font-size: 12px; }

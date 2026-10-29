@@ -557,20 +557,50 @@ def test_the_models_page_banners_status_and_sections_are_in_order():
     assert re.search(r'<section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>', main)
 
 
-def test_both_pages_carry_the_page_tabs_with_the_current_one_marked():
-    for html, current in ((_html(), "physics"), (_models_html(), "models")):
+def _methodology_html() -> str:
+    return (STATIC / "methodology.html").read_text(encoding="utf-8")
+
+
+def test_every_page_carries_the_page_tabs_with_the_current_one_marked():
+    routes = {"physics": "/", "models": "/models", "methodology": "/methodology"}
+    labels = (JS / "labels.js").read_text(encoding="utf-8")
+    for html, current in ((_html(), "physics"), (_models_html(), "models"), (_methodology_html(), "methodology")):
         header = html[html.index("<header"):html.index("</header>")]
         nav = re.search(r'<nav class="page-tabs" id="page-tabs" aria-label="Dashboard pages">(.*?)</nav>',
                         header, re.DOTALL)
         assert nav, current
         tabs = re.findall(r"<a ([^>]*)>([^<]+)</a>", nav.group(1))
-        assert [label for _, label in tabs] == ["Physics", "Models"]
-        for attrs, _ in tabs:
+        assert [label for _, label in tabs] == ["Physics", "Models", "Methodology"]
+        for attrs, label in tabs:
             page = re.search(r'data-page="(\w+)"', attrs).group(1)
             assert "data-page-tab" in attrs
-            assert ('href="/"' if page == "physics" else 'href="/models"') in attrs
+            assert f'href="{routes[page]}"' in attrs
             assert ("is-current" in attrs) == (page == current), (current, page)
             assert ('aria-current="page"' in attrs) == (page == current), (current, page)
+            # labels.js PAGE_TABS names the same pages, routes and titles.
+            title = re.search(r'title="([^"]+)"', attrs).group(1)
+            assert f"{{ page: '{page}', label: '{label}', href: '{routes[page]}', title: '{title}' }}" in labels, page
+
+
+def test_the_methodology_page_has_the_shell_and_its_own_key():
+    html = _methodology_html()
+    for element_id in ("sidebar", "sidebar-toggle", "toc", "paper", "banner", "banner-text", "banner-close",
+                       "page-tabs", "view-chip", "badge-memory", "badge-threads"):
+        assert html.count(f'id="{element_id}"') == 1, element_id
+    # No Details drawer and no chart: no tooltip layer, no modal.
+    assert 'id="inspector"' not in html and 'id="tooltip-layer"' not in html and "modal-backdrop" not in html
+    assert '<aside class="sidebar" id="sidebar">' in html and html.count('<main class="main"') == 1
+    assert html.index("css/controls.css") < html.index("css/methodology.css")
+    main = _strip_comments((JS / "methodology_main.js").read_text(encoding="utf-8"))
+    # Its tabs drop the page's own key, and its outline is not the configuration sidebar.
+    assert "wirePageTabs(document, { drop: ['at'] })" in main
+    assert "storageKey: 'calosrv.methodology.outline'" in main
+    # It never writes a view key: none of State's writers (the browser test checks the behaviour).
+    for forbidden in ("writeHash(", "state.set(", "adoptBounds(", "adoptSnappedBounds(", "restrictAxes(",
+                      "pushState("):
+        assert forbidden not in main, forbidden
+    css = _strip_comments((STATIC / "css" / "methodology.css").read_text(encoding="utf-8"))
+    assert "transition" not in css and "animation" not in css and "scroll-behavior: smooth" not in css
 
 
 def test_the_tabs_are_wired_and_the_admin_link_opens_admin_settings():

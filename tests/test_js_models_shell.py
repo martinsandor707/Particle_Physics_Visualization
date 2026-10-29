@@ -277,6 +277,19 @@ out.featureKeys = [...FEATURE_KEYS];
 out.labelKeys = labels.FEATURES.map((f) => f.key);
 out.aggregate = labels.featureChoices(false).map((f) => f.key);
 out.tabs = labels.PAGE_TABS.map((t) => [t.page, t.href]);
+// hashString is writeHash's serialisation, without the write.
+s = fresh(link);
+out.hashString = s.hashString();
+s.writeHash();
+out.hashWritten = window.location.hash;
+// The Methodology page's own key is no State key: read past, never written.
+s = fresh('#at=eq-se3&frame=local');
+out.atCold = s.coldBoot;
+out.atFrame = s.get('frame');
+out.atString = s.hashString();
+s = fresh('#at=eq-se3');
+out.atOnlyCold = s.coldBoot;
+out.atKey = 'at' in DEFAULTS;
 console.log(JSON.stringify(out));
 """
 
@@ -325,7 +338,21 @@ def test_the_feature_names_follow_the_states_feature_keys(state_results):
     r = state_results
     assert r["labelKeys"] == r["featureKeys"] and len(r["featureKeys"]) == 21
     assert len(r["aggregate"]) == 19 and "avg_phi_circ" not in r["aggregate"]
-    assert r["tabs"] == [["physics", "/"], ["models", "/models"]]
+    assert r["tabs"] == [["physics", "/"], ["models", "/models"], ["methodology", "/methodology"]]
+
+
+def test_hash_string_is_what_write_hash_writes(state_results):
+    r = state_results
+    assert r["hashString"] and f"#{r['hashString']}" == r["hashWritten"]
+
+
+def test_the_methodology_key_is_no_state_key(state_results):
+    r = state_results
+    assert r["atKey"] is False
+    # A link with a view key and `at` is a view link; `at` is read past and never written back.
+    assert r["atCold"] is False and r["atFrame"] == "local" and r["atString"] == "frame=local"
+    # `at` alone carries no view: the saved defaults still apply.
+    assert r["atOnlyCold"] is True
 
 
 # ------------------------------------------------------- the requests --
@@ -1091,3 +1118,125 @@ def test_a_failed_rescan_says_why_and_still_reads_the_list(rescan_results):
     r = rescan_results
     assert r["failedCalls"] == ["POST /api/admin/model-runs/scan", "GET /api/admin/model-runs"]
     assert r["failedStatus"] == [["scan broke", True]] and r["failedEnabled"]
+
+
+# ------------------------------------------------- the Methodology's deep links --
+
+_DEEP_SCRIPT = _FAKE_DOM + r"""
+const [commonUrl] = JSON.parse(process.argv[1]);
+const common = await import(commonUrl);
+const out = {};
+out.hashWith = [
+  common.hashWith('#a=1&at=x&b=2', { b: 3, c: 'y' }, { drop: ['at'] }),
+  common.hashWith('', { frame: 'local' }),
+  common.hashWith('#a=1', { a: null }),
+  common.hashWith('#table_name=t&at=eq-old', { at: 'lnk-a' }),
+];
+out.methodology = [common.methodologyHref('lnk-a', '#table_name=t&at=eq-old'), common.methodologyHref('lnk-a', '')];
+out.deep = [
+  common.readDeepLink('?panel=xy&from=lnk-frames-axes&from_sec=2.1'),
+  common.readDeepLink('?panel=XY&from=bad id&from_sec=2.1.3.4'),
+  common.readDeepLink('?admin=1'),
+];
+out.returns = [
+  common.returnLink({ from: 'lnk-frames-axes', section: '2.1' }),
+  common.returnLink({ from: 'lnk-frames-axes', section: null }),
+  common.returnLink({ from: null, section: '2.1' }),
+];
+// The tabs drop the page's own key when asked, and carry the hash verbatim otherwise.
+const link = (href) => { const a = document.createElement('a'); a.setAttribute('href', href); a.dataset.pageTab = '';
+  a.href = href; return a; };
+const tabs = [link('/models')];
+common.wirePageTabs({ querySelectorAll: () => tabs }, { drop: ['at'] });
+window.location.hash = '#x=1&at=eq-a';
+tabs[0].dispatch('pointerdown');
+out.dropped = tabs[0].href;
+const live = link('/methodology');
+common.wireLiveLinks([live], () => `/methodology#${window.location.hash.slice(1)}`);
+window.location.hash = '#frame=local';
+live.dispatch('focus');
+out.live = live.href;
+// revealPanel: a shown card, a hidden one, an unknown and a malformed id.
+const card = (id, hidden = false) => {
+  const section = document.createElement('section'); section.hidden = hidden;
+  const el = document.createElement('div'); el.className = 'card'; el.dataset.panel = id;
+  const inspect = document.createElement('button'); inspect.dataset.inspect = id; el.append(inspect);
+  el.querySelector = (sel) => (sel === '[data-inspect]' ? inspect : null);
+  el.scrolled = 0; el.scrollIntoView = () => { el.scrolled += 1; };
+  section.append(el);
+  return el;
+};
+const shown = card('xy');
+const hidden = card('response-b1', true);
+const asked = [];
+const root = { querySelector: (sel) => { asked.push(sel); return { '.card[data-panel="xy"]': shown, '.card[data-panel="response-b1"]': hidden }[sel] ?? null; } };
+const opened = [];
+const shell = { openInspector: (id, { trigger }) => opened.push([id, trigger?.dataset.inspect ?? null]) };
+const brief = (r) => ({ ok: r.ok, reason: r.reason ?? null });
+out.reveal = {
+  shown: brief(common.revealPanel('xy', { root, shell })),
+  hidden: brief(common.revealPanel('response-b1', { root, shell })),
+  unknown: brief(common.revealPanel('zz', { root, shell })),
+  malformed: brief(common.revealPanel('xy"],a[href', { root, shell })),
+  revealed: brief(common.revealPanel('xy', { root, shell, reveal: (id) => id === 'xy' })),
+};
+out.scrolled = shown.scrolled;
+out.opened = opened;
+out.asked = asked;
+out.notices = [
+  common.revealNotice({ ok: false, reason: 'hidden' }, { title: 'Sampling Fraction — Per-Event Distribution', kind: 'single-shower events' }),
+  common.revealNotice({ ok: false, reason: 'unknown' }, { requested: 'zz' }),
+  common.revealNotice({ ok: false, reason: 'unknown' }, { requested: '<b>x</b>' }),
+  common.revealNotice({ ok: true }),
+];
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def deep_results() -> dict:
+    return _run(_DEEP_SCRIPT, [(JS / "page_common.js").as_uri()])
+
+
+def test_hash_with_patches_and_drops_keys_in_place(deep_results):
+    assert deep_results["hashWith"] == ["a=1&b=3&c=y", "frame=local", "", "table_name=t&at=lnk-a"]
+    assert deep_results["methodology"] == ["/methodology#table_name=t&at=lnk-a", "/methodology#at=lnk-a"]
+
+
+def test_a_deep_link_is_read_and_validated_from_the_query(deep_results):
+    good, bad, none = deep_results["deep"]
+    assert good == {"panel": "xy", "requested": "xy", "from": "lnk-frames-axes", "section": "2.1"}
+    assert bad == {"panel": None, "requested": "XY", "from": None, "section": None}
+    assert none is None
+
+
+def test_the_return_link_names_its_section_when_it_can(deep_results):
+    named, plain, none = deep_results["returns"]
+    assert named["anchor"] == "lnk-frames-axes" and named["label"] == "↩ Continue reading §2.1 in the Methodology"
+    assert plain["label"] == "↩ Continue reading the Methodology"
+    assert none is None
+
+
+def test_tabs_drop_the_methodology_key_and_live_links_follow_the_hash(deep_results):
+    assert deep_results["dropped"] == "/models#x=1"
+    assert deep_results["live"] == "/methodology#frame=local"
+
+
+def test_reveal_panel_lands_on_a_shown_card_and_says_why_not_otherwise(deep_results):
+    r = deep_results["reveal"]
+    assert r["shown"] == {"ok": True, "reason": None}
+    assert r["hidden"] == {"ok": False, "reason": "hidden"}
+    assert r["unknown"] == {"ok": False, "reason": "unknown"}
+    assert r["malformed"] == {"ok": False, "reason": "unknown"}
+    assert r["revealed"] == {"ok": True, "reason": None}
+    # Scrolled once by revealPanel, not again when the section's own reveal did it.
+    assert deep_results["scrolled"] == 1
+    assert deep_results["opened"] == [["xy", "xy"], ["xy", "xy"]]
+    # A malformed id never reaches the selector.
+    assert not any("href" in selector for selector in deep_results["asked"])
+    hidden, unknown, hostile, landed = deep_results["notices"]
+    assert hidden == ("The Methodology linked to the Sampling Fraction — Per-Event Distribution panel, "
+                      "which this experiment (single-shower events) does not show.")
+    assert unknown == "The Methodology linked to a panel this page does not have (zz)."
+    assert hostile == "The Methodology linked to a panel this page does not have."
+    assert landed == ""
