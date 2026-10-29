@@ -276,6 +276,9 @@ def test_export_is_wired_by_attribute_not_by_id():
         "/static/js/methodology/exhibits.js",
         "/static/js/methodology/constants.js",
         "/static/js/methodology/content/index.js",
+        "/static/js/methodology/latex.js",
+        "/static/js/methodology/export.js",
+        "/static/js/zip.js",
     ],
 )
 def test_new_modules_are_served(client, path):
@@ -310,6 +313,8 @@ def test_new_modules_are_served(client, path):
         "/static/js/methodology/links.js",
         "/static/js/methodology/exhibits.js",
         "/static/js/methodology/content/index.js",
+        "/static/js/methodology/latex.js",
+        "/static/js/methodology/export.js",
     ],
 )
 def test_new_module_imports_are_stamped(client, path):
