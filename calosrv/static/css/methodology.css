@@ -239,9 +239,11 @@ pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
 .article-figure figcaption { margin-top: 8px; }
 .caption-label { font-weight: 600; }
 
-/* A wide table or a figure may leave the text column, centred on it, up to
-   the width of the article pane; past that a table scrolls inside itself and
-   a figure scales down. */
+/* A wide table, figure or display equation may leave the text column, centred
+   on it, up to the width of the article pane; past that a table or an equation
+   scrolls inside itself and a figure scales down. An equation that fits the
+   column stays centred on it. */
+.math-display,
 .article-table,
 .article-figure {
   position: relative;
@@ -447,6 +449,7 @@ pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
     color: #111827;
   }
 
+  .math-display,
   .article-table,
   .article-figure { left: 0; width: 100%; transform: none; }
   .math-display,
