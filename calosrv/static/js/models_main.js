@@ -41,9 +41,15 @@ import {
   wirePageTabs, tabHref, readDeepLink, returnLink, revealPanel, revealNotice,
 } from './page_common.js';
 import { ModelsSection } from './models_cards.js';
-import { formatInt, formatNumber } from './scale.js';
+import { formatInt, formatNumber, setScreenTheme } from './scale.js';
+import { initTheme } from './theme.js';
 import { setText, setHidden, setVal, missingIds } from './dom.js';
 import { notesText, warningsNotShown } from './panel_notes.js';
+
+/* The light or dark theme, first: the chart tokens must be the page's before
+ * any card builds an option. A later switch redraws the cards and the 3-D
+ * views from what is in hand, with no request (theme.js). */
+initTheme({ applyTokens: setScreenTheme, onChange: () => repaint() });
 
 const state = new State();
 

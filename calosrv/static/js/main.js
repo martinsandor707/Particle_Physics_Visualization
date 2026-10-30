@@ -25,7 +25,8 @@ import { EventInspector } from './event_inspector.js';
 import { depthIsometric, ensembleCellOptions } from './event_cells.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
-import { formatInt, formatNumber, formatSci, isDiverging } from './scale.js';
+import { formatInt, formatNumber, formatSci, isDiverging, setScreenTheme } from './scale.js';
+import { initTheme } from './theme.js';
 import { setText, setHtml, setHidden, setVal, setChecked, missingIds } from './dom.js';
 import { attachExportMenus } from './export/menu.js';
 import {
@@ -48,6 +49,17 @@ import {
 import {
   PhysicsSection, cardRequest, cardOptions, physicsNotes, exportMeta as physicsExportMeta,
 } from './physics_section.js';
+
+/* The light or dark theme, first: the chart tokens must be the page's before
+ * any panel builds an option. A later switch redraws what is in hand, as a
+ * colour-map change does, with no request (theme.js). */
+initTheme({
+  applyTokens: setScreenTheme,
+  onChange: () => {
+    repaint();
+    renderEnergy();
+  },
+});
 
 const state = new State();
 

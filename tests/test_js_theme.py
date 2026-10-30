@@ -255,13 +255,15 @@ def test_init_adopts_the_boot_theme_and_never_calls_on_change(out):
     assert out["initNoBoot"] == {"theme": "dark", "order": [["tokens", "dark", "dark"]]}
 
 
-def test_titles_say_system_or_choice_and_how_to_follow_again(out):
-    following = out["initDark"]["title"]
-    chosen = out["initStored"]["title"]
-    assert following.startswith("Switch to the light theme. ") and "system setting" in following
-    assert chosen.startswith("Switch to the dark theme. ") and "chose" in chosen
-    for title in (following, chosen):
-        assert "choosing the system's theme follows" in title
+def test_titles_say_what_the_page_follows_and_what_a_click_does(out):
+    # Following a dark OS: a click to light is a choice, and it is kept.
+    assert out["initDark"]["title"] == (
+        "Switch to the light theme. The page follows your system's dark setting. "
+        "The choice is kept in this browser.")
+    # Light chosen over a dark OS: a click to dark lands on the OS's theme.
+    assert out["initStored"]["title"] == (
+        "Switch to the dark theme. The light theme was chosen here. "
+        "That is your system's setting, so the page will follow the system again.")
     assert out["initDark"]["aria"] == "Switch to the light theme" and "." not in out["initDark"]["aria"]
 
 
@@ -300,7 +302,8 @@ def test_click_applies_in_order_once_and_relabels(out):
         assert click["before"]["aria"] == f"Switch to the {nxt} theme"
         assert click["first"]["aria"] == f"Switch to the {system} theme"
         assert click["second"]["aria"] == f"Switch to the {nxt} theme"
-        assert "chose" in click["first"]["title"] and "system setting" in click["second"]["title"]
+        assert "was chosen here. That is your system's setting" in click["first"]["title"]
+        assert f"follows your system's {system} setting. The choice is kept" in click["second"]["title"]
     assert out["handleToggle"] == {"theme": "light", "now": "light"}
 
 

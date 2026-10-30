@@ -79,13 +79,21 @@ export function currentTheme() {
   }
 }
 
-function labels(theme, stored) {
+/**
+ * The button's names: the action alone for `aria-label`, and for `title` the
+ * action, what the page follows now, and what the click will do. A click that
+ * lands on the system's theme follows the system again; any other is kept.
+ */
+function labels(theme, stored, system) {
   const next = theme === 'light' ? 'dark' : 'light';
   const action = `Switch to the ${next} theme`;
   const state = stored
-    ? `You chose this theme here; choosing the system's theme follows the system again.`
-    : `Following the system setting; choosing the system's theme follows it again.`;
-  return { action, title: `${action}. ${state}` };
+    ? `The ${theme} theme was chosen here.`
+    : `The page follows your system's ${theme} setting.`;
+  const effect = next === system
+    ? `That is your system's setting, so the page will follow the system again.`
+    : 'The choice is kept in this browser.';
+  return { action, title: `${action}. ${state} ${effect}` };
 }
 
 /**
@@ -102,7 +110,7 @@ export function initTheme({ applyTokens = () => {}, onChange = () => {}, toggle 
 
   const relabel = () => {
     if (!button) return;
-    const { action, title } = labels(currentTheme(), readThemePreference() !== null);
+    const { action, title } = labels(currentTheme(), readThemePreference() !== null, systemTheme());
     button.setAttribute('aria-label', action);
     button.setAttribute('title', title);
   };
