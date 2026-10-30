@@ -14,7 +14,7 @@ The figures quoted were measured on the electron files on 2026-10-24 (data chara
 | C6 species voxels and C11 on two-shower events | /models | hits_all_models schema v2 | 5 |
 | Engineering follow-ups (shared size guard, inspector splat k, D-frame cloud cap, φ-spread fixture) | — | nothing; review each | 8 |
 | Follow-ups from the Page 2 review (estimator and fading consistency on Page 1, contracts generator, re-measurements) | both | nothing; review each | 9 |
-| Follow-ups from the light theme (dark contrast shortfalls that only a dark change can fix, the 3-D zoom on a palette change, the 1024 px header, printing) | all | Martin's decision on moving dark | 11 |
+| Follow-ups from the light theme (dark contrast shortfalls that only a dark change can fix, the 3-D zoom on a palette change, printing) | all | Martin's decision on moving dark | 11 |
 
 The XGBoost views E1, E3, E4 and E5 and the XGBoost series of E2 and of the prediction density are live (§1). An aggregate experiment shows them once its species' s1 models are paired and analysed; until then the cards say why.
 
@@ -204,11 +204,6 @@ the defects it found that dark mode shares, and that only a change to dark could
     zoom. So the palette and isolate paths reset it: 137 → 153, measured.
   - **The fix.** A theme switch keeps it through `voxel_views.js` `holdZoom`. Passing that on every `keepCamera`
     paint would fix the others.
-- **The header at 1024 px.**
-  - **The defect.** The Physics and Models headers run 460 and 394 px past a 1024 px window, before the theme
-    toggle; it adds 44 px. The header is `nowrap`, and the experiment picker is 480 px wide with the
-    demonstration's name.
-  - **The fix.** A wrapping header or a narrower picker is a CSS change of its own.
 - **Printing the Physics and Models pages.**
   - **The defect.** Only the Methodology page has a print stylesheet. The light tokens apply on screen only, so the
     Methodology print block still wins. A light-mode reader who prints a dashboard page therefore gets the dark
