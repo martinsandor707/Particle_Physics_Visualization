@@ -36,10 +36,19 @@
  * Open markers are `symbol: 'circle' | 'diamond'` with a transparent fill, not
  * ECharts' `emptyCircle` / `emptyDiamond`: those are filled white and forced to
  * a 2 px stroke whatever the item style says.
+ *
+ * ## Strips
+ *
+ * At 1:1 the entrance panel of a widely separated pair is a strip: where D
+ * spans some six times the y′ window, the plot is a few dozen pixels tall and
+ * the two anchors can sit within 40 px of each other. On the light screen its
+ * marks are drawn small there (`stripMarks`), so the rings, centroids and bars
+ * of the two showers never meet across that gap and the cores stay in view.
  */
 
 import { THEME } from '../scale.js';
 import { customCaret, customLine, customWhisker, symbolOf } from './marks.js';
+import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
 
 /** Marker size of an anchor, before `THEME.markerScale`. */
@@ -48,6 +57,24 @@ const ANCHOR_SIZE = 13;
 const CENTROID_SIZE = 7;
 /** Opacity of the uncapped spread bar. */
 const SPREAD_OPACITY = 0.3;
+
+/** Plot height (px) below which a light-screen panel is a strip and draws `STRIP_MARKS`. */
+export const STRIP_HEIGHT_PX = 70;
+
+/**
+ * The marks of a strip: an 8 px anchor ring, 6 px centroids, lines no wider
+ * than 1.2 px and no outline wider than 1 px (Martin's directive of 2026-10-30).
+ */
+export const STRIP_MARKS = Object.freeze({ anchor: 8, centroid: 6, line: 1.2, border: 1 });
+
+/**
+ * `STRIP_MARKS` for a plot `plotHeight` px tall on the light screen, else
+ * null: the dark card and print draw their marks at the sizes they always had.
+ */
+export function stripMarks(plotHeight) {
+  if (!(plotHeight < STRIP_HEIGHT_PX) || isPrintTheme() || !onLightCard()) return null;
+  return STRIP_MARKS;
+}
 
 /** A filled plus, scaled by the symbol size. */
 const PLUS = 'path://M2,0H4V2H6V4H4V6H2V4H0V2H2Z';
@@ -67,55 +94,6 @@ const SHOWERS = [['a', 'A'], ['b', 'B']];
 
 function showerColour(shower) {
   return shower === 'a' ? THEME.showerA : THEME.showerB;
-}
-
-/** Pixels of halo either side of an overlay mark on the light screen. */
-const CASING_PX = 1.5;
-
-/**
- * The halo laid under an overlay mark drawn on a raster, `{color, width}` for a
- * line or cross `width` wide, or null.
- *
- * On the light screen the shower core takes its ramp's deepest tone, where a
- * dark mark - an anchor ring, an ensemble axis, a centroid - would vanish. A
- * white casing parts the mark from the core and disappears into the white card
- * (THEME.markCasing). It is null on the dark card and in print, which draw
- * exactly as before.
- */
-export function overlayCasing(width) {
-  return THEME.markCasing ? { color: THEME.markCasing, width: width + 2 * CASING_PX } : null;
-}
-
-/**
- * Push a scatter mark (an open ring, a centroid) and, on the light screen,
- * first a silent copy of its outline in the casing colour, `CASING_PX` wider
- * each side, so the ring sits on a white halo.
- */
-export function pushCased(series, mark) {
-  const casing = overlayCasing(mark.itemStyle?.borderWidth ?? 0);
-  if (casing) {
-    series.push({
-      type: 'scatter', silent: true, symbol: mark.symbol, symbolSize: mark.symbolSize, data: mark.data,
-      z: mark.z, tooltip: { show: false },
-      itemStyle: { color: 'transparent', borderColor: casing.color, borderWidth: casing.width,
-        opacity: mark.itemStyle?.opacity ?? 1 },
-    });
-  }
-  series.push(mark);
-}
-
-/** Push a `line` series and, on the light screen, first a solid casing of it. */
-export function pushCasedLine(series, mark) {
-  const style = mark.lineStyle ?? {};
-  const casing = overlayCasing(style.width ?? 1);
-  if (casing) {
-    series.push({
-      type: 'line', silent: true, data: mark.data, symbol: 'none', z: mark.z, clip: mark.clip,
-      lineStyle: { color: casing.color, width: casing.width, type: 'solid', opacity: style.opacity ?? 1 },
-      tooltip: { show: false },
-    });
-  }
-  series.push(mark);
 }
 
 /** An open outline in the given colour, at the anchor opacity. */
@@ -159,22 +137,25 @@ export function entrySeparationText(frame) {
  * and the dashed rule between them. X′Z′: both at z′ = 0 on the x′ axis, with
  * the bars vertical along x′. Y′Z′: both project onto the origin, so one merged
  * open circle stands for the two instead of a circle hiding a diamond.
+ * `strip` (`stripMarks`) draws the rings and bars small on a strip.
  */
-export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = null) {
+export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = null, strip = null) {
   if (!anchors) return;
   const depthPanel = col.name === 'z';
+  const ringSize = strip ? strip.anchor : ANCHOR_SIZE * THEME.markerScale;
+  const ringWidth = strip ? strip.border : 1.5 * THEME.lineAxis;
   // The axis the anchors sit on, as the panel writes it: D on the entry
   // panel, x′ on the X′Z′ panel (axis_symbols.js).
   const axisName = symbols?.[depthPanel ? 'row' : 'col'] ?? 'x′';
 
   if (depthPanel && row.name !== 'x' && anchors.a && anchors.b) {
-    pushCased(series, {
+    series.push({
       type: 'scatter',
       name: 'Anchors A and B',
       symbol: 'circle',
-      symbolSize: ANCHOR_SIZE * THEME.markerScale,
+      symbolSize: ringSize,
       data: [[0.0, 0.0]],
-      itemStyle: openStyle(THEME.text, 1.5 * THEME.lineAxis),
+      itemStyle: openStyle(THEME.text, ringWidth),
       z: 11,
       tooltip: {
         formatter: () =>
@@ -208,23 +189,22 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
         from: ends[0],
         to: ends[1],
         color: colour,
-        width: 2.5 * THEME.lineAxis,
+        width: strip ? strip.line : 2.5 * THEME.lineAxis,
         opacity: SPREAD_OPACITY,
         z: 9,
-        casing: overlayCasing(2.5 * THEME.lineAxis),
         tooltip: `Anchor ${label} — ± ${sd.toFixed(1)} mm<br/>`
           + '± sample SD of D_entry/2 across events (dispersion, not the uncertainty of the mean)'
           + (anchor.dof_note ? `<br/><i>${anchor.dof_note}</i>` : ''),
       }));
     }
 
-    pushCased(series, {
+    series.push({
       type: 'scatter',
       name: `Anchor ${label}`,
       symbol: shower === 'a' ? 'diamond' : 'circle',
-      symbolSize: ANCHOR_SIZE * THEME.markerScale,
+      symbolSize: ringSize,
       data: [place(anchor)],
-      itemStyle: openStyle(colour, 1.5 * THEME.lineAxis),
+      itemStyle: openStyle(colour, ringWidth),
       z: 11,
       // The spread is restated here: at a small ⟨D_entry⟩ spread the bar is
       // shorter than this outline's hover band (6.5 px radius plus the 2.5 px
@@ -256,7 +236,6 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
     width: THEME.lineAxis,
     dash: 'dashed',
     z: 10,
-    casing: overlayCasing(THEME.lineAxis),
     tooltip: ['Mean entry separation', entry, dataset].filter(Boolean).join('<br/>'),
   }));
 }
@@ -266,8 +245,9 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
  *
  * No separation vector: the anchors and their rule already state the
  * separation, and a second dashed line would sit on top of the first.
+ * `strip` (`stripMarks`) draws them small on a strip.
  */
-export function addCanonicalCentroids(series, centroids, col, row, symbols = null) {
+export function addCanonicalCentroids(series, centroids, col, row, symbols = null, strip = null) {
   if (!centroids) return;
   const colName = symbols?.col ?? symbolOf(col);
   const rowName = symbols?.row ?? symbolOf(row);
@@ -281,14 +261,14 @@ export function addCanonicalCentroids(series, centroids, col, row, symbols = nul
       const cy = point[row.name];
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
       const colour = showerColour(shower);
-      pushCased(series, {
+      series.push({
         type: 'scatter',
         name: `${pair.label} — ${label}`,
         symbol: style.symbol,
-        symbolSize: CENTROID_SIZE * THEME.markerScale,
+        symbolSize: strip ? strip.centroid : CENTROID_SIZE * THEME.markerScale,
         data: [[cx, cy]],
         itemStyle: style.open
-          ? openStyle(colour, 1.2 * THEME.lineAxis)
+          ? openStyle(colour, strip ? strip.border : 1.2 * THEME.lineAxis)
           : {
             color: colour,
             borderColor: THEME.canvas,
@@ -378,9 +358,10 @@ export function frameMeanOverflowText(payload) {
  * per-event centroid offsets as a faint uncapped cross - where the events
  * scatter - and the Student-t 95% interval of the mean as capped whiskers -
  * how well the mean is known. Nothing is drawn at N = 1, where neither exists.
- * An end clipped to the window loses its cap and gets a caret.
+ * An end clipped to the window loses its cap and gets a caret. `strip`
+ * (`stripMarks`) draws the spread bar thin on a strip.
  */
-export function addFrameMeanSpread(series, pair, col, row) {
+export function addFrameMeanSpread(series, pair, col, row, strip = null) {
   for (const mark of frameMeanMarks(pair, col, row)) {
     const { shower, label, quantity, horizontal, value, half, cx, cy, sym } = mark;
     const colour = showerColour(shower);
@@ -399,11 +380,10 @@ export function addFrameMeanSpread(series, pair, col, row) {
         from: at(mark.lo),
         to: at(mark.hi),
         color: colour,
-        width: 2.5 * THEME.lineAxis,
+        width: strip ? strip.line : 2.5 * THEME.lineAxis,
         opacity: SPREAD_OPACITY,
         z: 8,
         tooltip: text,
-        casing: overlayCasing(2.5 * THEME.lineAxis),
       }));
     } else {
       text = `Mean centroid ${label} — ${formatSigned(value, 1)} ± ${half.toFixed(1)} mm in ${sym}<br/>`
@@ -418,7 +398,6 @@ export function addFrameMeanSpread(series, pair, col, row) {
         width: THEME.lineAxis,
         z: 9,
         tooltip: text,
-        casing: overlayCasing(THEME.lineAxis),
       }));
     }
     for (const [end, other, isClipped] of [[mark.lo, mark.hi, mark.clipLo], [mark.hi, mark.lo, mark.clipHi]]) {

@@ -71,12 +71,16 @@
  *   hue, so its order survives every colour-vision deficiency (L* 95.5 to 7.6).
  * - `plasma_light`: apricot, coral-red, plum from ColorBrewer OrRd/RdPu, a warm
  *   thermal ramp with no lemon-yellow end (L* 95.4 to 12.7).
- * - `turbo_light`: pale sky, cerulean, emerald, amber, vermilion, crimson,
+ * - `turbo_light`: ice, pale sky, cerulean, emerald, amber, vermilion, crimson,
  *   garnet, ColorBrewer colours, keeping Turbo's whole cool-to-hot detail.
  *   Like Turbo its lightness is not monotone (it rises at the amber, L* 77)
  *   and its green and its orange-reds sit near one lightness, so it is offered
  *   for detail, never as the default and never as colour-vision-safe. Its peak,
- *   #67001f, is 13.2:1 on white.
+ *   #67001f, is 13.2:1 on white. The ice #ebf3fb (L* 95.5, the Cividis slot's
+ *   floor) leads it in: from pale sky it reached cerulean (L* 58) within a
+ *   sixth of the ramp, so under the light transfer (`scale.js`
+ *   LIGHT_FIELD_GAMMA) its bottom decade fell to L* 65 where the other slots'
+ *   stay above 88; with it, Turbo's stays above 90 too.
  *
  * The anchors are spaced evenly and interpolated in CIELAB, so the steps
  * between table entries are close to even in perceived colour (at most
@@ -89,8 +93,9 @@
  * entry and keeps its emerald-teal through #66c2a4.
  *
  * Where these ramps meet the 3:1 rule: a continuous raster spans each in
- * full, its bottom half decade fading into the card, because a raster bin
- * sits among its neighbours and the faint halo is meant to be faint. A mark
+ * full, through the light transfer on a log scale (t^1.85, its bottom 0.8
+ * decade fading into the card; `scale.js` LIGHT_FIELD_GAMMA), because a raster
+ * bin sits among its neighbours and the faint halo is meant to be faint. A mark
  * that stands alone on the card - a series line, a 3-D cube, a 2-D histogram
  * cell, a surrogate-tree leaf - keeps the ramp's run at 3:1 or more, as on the
  * dark card (`chart_panel.legibleRamp`).
@@ -210,8 +215,8 @@ const LIGHT_ANCHORS = {
     [4, 22, 51]],
   plasma_light: [[255, 240, 217], [253, 212, 158], [252, 141, 89], [227, 74, 51], [179, 0, 0], [122, 1, 119],
     [63, 0, 71]],
-  turbo_light: [[209, 229, 240], [67, 147, 195], [44, 162, 95], [253, 174, 97], [244, 109, 67], [215, 48, 39],
-    [103, 0, 31]],
+  turbo_light: [[235, 243, 251], [209, 229, 240], [67, 147, 195], [44, 162, 95], [253, 174, 97], [244, 109, 67],
+    [215, 48, 39], [103, 0, 31]],
 };
 
 /* CIELAB (D65) of an sRGB triple, and back, clamped to the sRGB gamut. */

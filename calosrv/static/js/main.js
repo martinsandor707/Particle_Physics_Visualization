@@ -665,6 +665,7 @@ function buildNotes(panelId) {
       windowAxis: panelId === 'xy' ? null : (panels[panelId].lastOpts?.windowAxis ?? null),
       state,
       experiment: activeExperiment,
+      marksShown: panels[panelId].marksShown,
     });
   }
   panelNotes[panelId] = notes;
@@ -1550,6 +1551,31 @@ for (const button of document.querySelectorAll('[data-roi]')) {
 
 for (const button of document.querySelectorAll('[data-reset]')) {
   button.addEventListener('click', () => panels[button.dataset.reset]?.resetView());
+}
+
+/* The Marks toggle of each spatial card: hide or show the marks drawn over
+ * the map and redraw from the payload in hand, with no request, so the
+ * shower core can be read unobstructed (Martin's directive of 2026-10-30).
+ * The choice stays with the card across selections, frames and themes; the
+ * export follows it, and the drawer says when the marks are hidden. */
+const MARKS_TITLE = {
+  true: 'Hide the marks drawn over the map (anchors, centroids, axes and their wedges, trajectories, the D vector) '
+    + 'to read the shower core unobstructed. Redrawn from the data in hand, with no request; the export follows.',
+  false: 'Show the marks drawn over the map again: anchors, centroids, axes and their wedges, trajectories, '
+    + 'the D vector. The export follows.',
+};
+for (const button of document.querySelectorAll('[data-toggle-marks]')) {
+  button.addEventListener('click', () => {
+    const id = button.dataset.toggleMarks;
+    const panel = panels[id];
+    if (!panel) return;
+    const shown = !panel.marksShown;
+    panel.setMarksShown(shown);
+    button.classList.toggle('is-active', shown);
+    button.setAttribute('aria-pressed', String(shown));
+    button.title = MARKS_TITLE[shown];
+    buildNotes(id);
+  });
 }
 
 for (const button of document.querySelectorAll('[data-shower]')) {
