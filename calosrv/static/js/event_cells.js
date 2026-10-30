@@ -19,8 +19,6 @@
  * page's module graph may hold no Physics page module (tests/test_api.py).
  */
 
-import { THEME } from './scale.js';
-
 /** Each event panel's two axes as semantic names: column (horizontal), row (vertical). */
 export const EVENT_PANEL_AXES = Object.freeze({ xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] });
 
@@ -49,7 +47,10 @@ export function eventCellOptions(payload, kind, col, palette) {
     viewKey: `${payload.event.event_number}|${shower.key}|${kind}`,
     window: { col: frame.window[c], row: frame.window[r] },
     marks: frame.marks,
-    markColour: shower.key === 'b' ? THEME.showerB : THEME.showerA,
+    // The shower, not its colour: the panel resolves the ink when it builds an
+    // option, so an export (built under the print tokens) prints the print ink
+    // and is the same figure from either screen theme.
+    markShower: shower.key === 'b' ? 'b' : 'a',
     resolution: { mode: 'native' },
   };
 }
