@@ -1018,10 +1018,20 @@ Physics page applies to the three kinds of experiment alike, except where
 [Page 1 for each kind of experiment](#page-1-for-each-kind-of-experiment) says
 otherwise.
 
-**Header** — a sidebar toggle (one icon button, `#sidebar-toggle`, reporting
-`aria-expanded`), the page tabs, the experiment dropdown, a compute badge
-showing the active `DUCKDB_MEMORY_GB` and thread count, an exact/preview badge,
-and the **Admin Settings** button, whose panel also holds the upload form.
+**Header** — two rows on every page. The bar holds a sidebar toggle (one icon
+button, `#sidebar-toggle`, reporting `aria-expanded`) beside the page's name,
+the page tabs at its centre, and at its end a compute badge showing the active
+`DUCKDB_MEMORY_GB` and thread count, the theme toggle and the **Admin
+Settings** button, whose panel also holds the upload form. Under the tabs, the
+context row holds the experiment dropdown in one centred pill, with the
+exact/preview badge beside it; on the Methodology page the pill names the view
+the article's links open. The dropdown has a row of its own because a native
+`<select>` is as wide as its longest option, and an auto-ingested experiment
+is named after its file stem: on a one-line header it pushed every control
+after it past the window. The bar is one line from 951 px up; from 761 to
+950 px the tabs take a centred line of their own under its two groups, so they
+keep the pill's centre line, and narrower still the bar wraps rather than
+overflow.
 
 **Sidebar** — filters for E₁ (`incoming_momentum_A`), E₂ (`incoming_momentum_B`)
 and D (`centroid_AB_distance`), combined with chained boolean AND and debounced
