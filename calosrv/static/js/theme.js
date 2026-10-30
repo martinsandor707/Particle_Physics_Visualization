@@ -43,14 +43,28 @@ export function readThemePreference(key = THEME_STORAGE_KEY) {
   }
 }
 
-/** Stores 'light' or 'dark'; null removes the choice so the page follows the system. */
+/**
+ * Stores 'light' or 'dark'; null removes the choice so the page follows the
+ * system. Returns whether the browser took it: false when storage is blocked.
+ */
 export function writeThemePreference(value, key = THEME_STORAGE_KEY) {
   try {
     const storage = window.localStorage;
     if (isTheme(value)) storage.setItem(key, value);
     else if (value === null) storage.removeItem(key);
+    return true;
   } catch {
-    // Nothing to do: the preference is a convenience, not state.
+    // A private window or blocked storage: the page keeps the choice itself.
+    return false;
+  }
+}
+
+/** Whether this browser offers storage at all (reading it throws where it is blocked). */
+function storageAvailable() {
+  try {
+    return Boolean(window.localStorage);
+  } catch {
+    return false;
   }
 }
 
@@ -84,15 +98,15 @@ export function currentTheme() {
  * action, what the page follows now, and what the click will do. A click that
  * lands on the system's theme follows the system again; any other is kept.
  */
-function labels(theme, stored, system) {
+function labels(theme, stored, system, stores = true) {
   const next = theme === 'light' ? 'dark' : 'light';
   const action = `Switch to the ${next} theme`;
   const state = stored
     ? `The ${theme} theme was chosen here.`
     : `The page follows your system's ${theme} setting.`;
-  const effect = next === system
-    ? `That is your system's setting, so the page will follow the system again.`
-    : 'The choice is kept in this browser.';
+  let effect = 'The choice is kept in this browser.';
+  if (next === system) effect = `That is your system's setting, so the page will follow the system again.`;
+  else if (!stores) effect = 'This browser keeps no choice, so it lasts while this page is open.';
   return { action, title: `${action}. ${state} ${effect}` };
 }
 
@@ -108,9 +122,16 @@ export function initTheme({ applyTokens = () => {}, onChange = () => {}, toggle 
   document.documentElement.dataset.theme = initial;
   applyTokens(initial);
 
+  // Where the browser will not store a choice, the page keeps the reader's own
+  // for as long as it is open: a later OS change must not undo a click, and
+  // the title must not promise a choice the browser will forget.
+  let stores = storageAvailable();
+  let pageChoice = null;
+  const chosen = () => (stores ? readThemePreference() : pageChoice);
+
   const relabel = () => {
     if (!button) return;
-    const { action, title } = labels(currentTheme(), readThemePreference() !== null, systemTheme());
+    const { action, title } = labels(currentTheme(), chosen() !== null, systemTheme(), stores);
     button.setAttribute('aria-label', action);
     button.setAttribute('title', title);
   };
@@ -129,7 +150,8 @@ export function initTheme({ applyTokens = () => {}, onChange = () => {}, toggle 
 
   const flip = () => {
     const next = currentTheme() === 'light' ? 'dark' : 'light';
-    writeThemePreference(next === systemTheme() ? null : next);
+    pageChoice = next === systemTheme() ? null : next;
+    stores = writeThemePreference(pageChoice);
     apply(next);
   };
 
@@ -140,7 +162,7 @@ export function initTheme({ applyTokens = () => {}, onChange = () => {}, toggle 
     query = null;
   }
   const onSystem = () => {
-    if (readThemePreference() === null) apply(systemTheme());
+    if (chosen() === null) apply(systemTheme());
     else relabel();
   };
   const onStorage = (event) => {

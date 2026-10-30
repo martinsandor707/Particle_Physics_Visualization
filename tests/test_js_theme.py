@@ -178,6 +178,20 @@ for (const system of ['dark', 'light']) {
   out.osIgnored = { theme: s.dataset.theme, order: s.order.slice(1) };
 }
 
+// Blocked storage: the page keeps the reader's click while it is open.
+{
+  const e = session({ system: 'light', storage: false });
+  const before = label(e).title;
+  e.btn.click();                                   // to dark, which this browser cannot store
+  const chose = { theme: e.dataset.theme, title: label(e).title };
+  const flip = (light) => { e.mql.matches = light; e.mqlListeners.forEach((l) => l[1]({})); };
+  flip(false); flip(true);                         // the OS goes dark, then light again
+  const afterFlips = e.dataset.theme;
+  e.btn.click();                                   // back onto the OS's light: follow it again
+  flip(false);
+  out.blocked = { before, chose, afterFlips, followsAgain: e.dataset.theme, writes: e.log.length };
+}
+
 // Storage events.
 {
   const e = session({ system: 'dark' });
@@ -312,6 +326,19 @@ def test_an_os_change_is_followed_only_while_nothing_is_stored(out):
     assert out["osFollow"]["order"] == [["tokens", "light", "light"], ["change", "light", "light"]]
     assert out["osFollow"]["stored"] == 0
     assert out["osIgnored"] == {"theme": "dark", "order": []}
+
+
+def test_a_blocked_storage_keeps_the_click_while_the_page_is_open(out):
+    """Where the browser stores nothing, the title must not promise a kept
+    choice, and an OS change must not undo the reader's click."""
+    blocked = out["blocked"]
+    assert blocked["before"].endswith("This browser keeps no choice, so it lasts while this page is open.")
+    assert blocked["chose"]["theme"] == "dark"
+    assert "The dark theme was chosen here." in blocked["chose"]["title"]
+    assert blocked["afterFlips"] == "dark"
+    # A click back onto the OS's own theme follows the system again.
+    assert blocked["followsAgain"] == "dark"
+    assert blocked["writes"] == 0
 
 
 def test_a_storage_event_for_the_key_is_applied_and_others_are_ignored(out):
