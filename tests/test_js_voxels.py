@@ -1297,7 +1297,9 @@ def test_the_cells_options_have_one_owner(out):
     """event_inspector.js and main.js import the shared helpers from event_cells.js (one owner)."""
     assert out["cellsOwner"] == {"options": True, "title": True, "axes": True}
     cells = (JS / "event_cells.js").read_text(encoding="utf-8")
-    assert re.findall(r"^import .* from '([^']+)';", cells, flags=re.M) == ["./scale.js"]
+    # It imports nothing: the options name a shower, and the panel resolves its
+    # ink when it builds, so no screen theme is baked into what an export rebuilds.
+    assert re.findall(r"^import .* from '([^']+)';", cells, flags=re.M) == []
     inspector = (JS / "event_inspector.js").read_text(encoding="utf-8")
     assert "from './event_cells.js'" in inspector and "function cellOptions" not in inspector
     assert "function cellTitle" not in inspector
