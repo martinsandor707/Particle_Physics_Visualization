@@ -31,6 +31,22 @@
   --shower-b: #58a6ff;
 
   --disabled: #484f58;
+
+  /* Colours the controls, washes and shadows used to carry as literals, named
+     so the light theme can restate them. Each value is exactly the literal it
+     replaced, so the dark rendering is unchanged. */
+  --control-bg: #21262d;
+  --control-text: #c9d1d9;
+  --control-hover: #2d333b;
+  --on-accent: #04101f;
+  --accent-ring: rgba(88, 166, 255, 0.18);
+  --accent-wash: rgba(88, 166, 255, 0.15);
+  --accent-wash-soft: rgba(88, 166, 255, 0.12);
+  --muted-wash: rgba(139, 148, 158, 0.14);
+  --muted-wash-soft: rgba(139, 148, 158, 0.08);
+  --shadow: rgba(1, 4, 9, 0.6);
+  --backdrop: rgba(1, 4, 9, 0.78);
+
   --radius: 6px;
   --gap: 14px;
   --sidebar-width: 330px;
@@ -38,6 +54,47 @@
 
   --mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", monospace;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* The optional light theme, chosen per browser (theme_boot.js / theme.js set
+   data-theme on <html>; it is never part of the view state). It restates only
+   the colour tokens, so every rule drawn through var() follows by itself.
+   Inside @media screen on purpose: methodology.css's @media print block sets
+   the same tokens for paper and must keep winning when a light-theme reader
+   prints, which a bare :root[data-theme="light"] (higher specificity than the
+   print block's :root) would prevent. Measured against the white card: text
+   17.74:1, muted 6.11, accent 6.19, warn 5.93, danger 5.24, ok 5.08; the
+   border is a quiet 1.45:1 line, as the dark one is 1.33:1. */
+@media screen {
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --canvas: #f6f8fa;
+    --canvas-alt: #ffffff;
+    --card: #ffffff;
+    --border: #d0d7de;
+    --text: #111827;
+    --muted: #59636e;
+    --accent: #0b5fbe;
+    --warn: #8a5a00;
+    --warn-bg: rgba(138, 90, 0, 0.10);
+    --danger: #d1242f;
+    --danger-bg: rgba(209, 36, 47, 0.08);
+    --ok: #1a7f37;
+    --shower-a: #a3186b;
+    --shower-b: #0b5fbe;
+    --disabled: #afb8c1;
+    --control-bg: #f6f8fa;
+    --control-text: #24292f;
+    --control-hover: #eaeef2;
+    --on-accent: #ffffff;
+    --accent-ring: rgba(11, 95, 190, 0.25);
+    --accent-wash: rgba(11, 95, 190, 0.12);
+    --accent-wash-soft: rgba(11, 95, 190, 0.08);
+    --muted-wash: rgba(89, 99, 110, 0.12);
+    --muted-wash-soft: rgba(89, 99, 110, 0.06);
+    --shadow: rgba(31, 35, 40, 0.18);
+    --backdrop: rgba(31, 35, 40, 0.45);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -65,3 +122,9 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .num { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
+
+/* The theme toggle shows the icon of the theme a click switches to: a sun in
+   dark, a moon in light. The button itself is an ordinary .icon-button. */
+.theme-toggle .theme-icon-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-sun { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-moon { display: inline; }
