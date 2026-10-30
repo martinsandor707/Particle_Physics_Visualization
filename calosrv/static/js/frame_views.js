@@ -26,6 +26,7 @@ import { FRAME_SYMBOLS, SEPARATION_AXIS } from './axis_symbols.js';
 import { beyondGridSentence, ordinal, showersPerEvent } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
 import { centroidLegend, frameMeanOverflowText } from './panels/canonical_overlays.js';
+import { isPrintTheme, onLightCard } from './panels/chart_panel.js';
 
 export const COREGISTERED = ['canonical', 'trans', 'local'];
 
@@ -336,8 +337,10 @@ export function channelCaption({ channel, model = 'segmentation', frame = 'lab',
   if (channel === 'gradcam') {
     body = `${lead} ${mean} Grad-CAM attention of the hits in each bin, fixed 0–1 linear scale.`;
   } else if (channel === 'shapcam') {
+    // The light screen's PuOr arms darken outwards; the dark screen's folded ones brighten.
+    const outwards = onLightCard() && !isPrintTheme() ? 'darker' : 'brighter';
     body = `${lead} ${mean} Shap-CAM attribution, symmetric ${typographic('-1')}…+1 linear scale on `
-      + 'ColorBrewer PuOr (orange negative, purple positive, brighter with |value|); nothing is clipped.';
+      + `ColorBrewer PuOr (orange negative, purple positive, ${outwards} with |value|); nothing is clipped.`;
   } else if (channel === 'gradcam_energy') {
     body = `${lead} Σ E·Grad-CAM per bin (extensive, conserved across R and display modes), relative to `
       + `this selection's peak on a three-decade log ramp; bins below ${floor} of the peak are not drawn.`;
