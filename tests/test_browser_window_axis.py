@@ -33,7 +33,7 @@ def test_a_zoomed_depth_panel_draws_the_windowed_axis_and_reset_drops_it(live_se
     base = live_server["base"]
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
         errors: list[str] = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(f"{base}/")

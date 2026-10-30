@@ -45,7 +45,7 @@ _HASH = "() => window.location.hash"
 
 def _open(p, base, fragment="", viewport=(1600, 900)):
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+    page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(f"{base}/{fragment}")
