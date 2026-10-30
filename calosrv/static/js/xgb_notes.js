@@ -21,7 +21,7 @@
  * conditions a reader must not miss, from structure only.
  */
 
-import { Notes, SECTION } from './panel_notes.js';
+import { Notes, SECTION, rampName } from './panel_notes.js';
 import { formatInt, formatPercent } from './scale.js';
 import { sigFigs } from './panels/chart_panel.js';
 import { cvModel, cvAxis, metricText, intervalLegend, FOLD_NAME, MEAN_NAME } from './panels/xgb_cv.js';
@@ -358,7 +358,7 @@ export function xgbTreeNotes({ payload, experiment = null, title = null, label =
       + (model.label === 'phi' ? ' (for φ, the circular statistics below, in rad).' : '.'),
     model.labels.length > 1 ? `The boxes print the ${model.label === 'phi' ? 'azimuth φ' : 'polar angle θ'}; the other output is in each tooltip and in the node list below.` : '',
     model.coloured
-      ? `Colour: the node mean on ${treePalette(palette)}, positions ${sigFigs(ramp.from, 2)} to ${sigFigs(ramp.to, 2)} of the ramp (the run that clears 3:1 against the card), `
+      ? `Colour: the node mean on ${rampName(treePalette(palette))}, positions ${sigFigs(ramp.from, 2)} to ${sigFigs(ramp.to, 2)} of the ramp (the run that clears 3:1 against the card), `
         + `over ${sigFigs(model.domain[0], 3)} to ${sigFigs(model.domain[1], 3)}${model.unit ? ` ${model.unit}` : ''}`
         + (model.basis?.provisional
           ? `, every node's range: fewer than two distinct values come from nodes of at least ${formatInt(model.weakN)} rows, so the domain is provisional`

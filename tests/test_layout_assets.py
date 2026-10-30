@@ -724,12 +724,16 @@ def test_every_header_has_one_theme_toggle_before_the_admin_or_export_control():
             "", "<buttonclass=\"action\"", "<aclass=\"action\""), name
 
 
-def test_both_turbo_options_name_the_light_themes_3_to_1_run():
+def test_every_colour_map_option_names_what_it_draws_on_the_light_theme():
+    """On the light theme a slot draws a ramp made for white (palette.js); its option says which."""
     for html in (_html(), _models_html()):
-        option = re.search(r'<option value="turbo"([^>]*)>', html)
-        assert option, "Turbo option"
-        title = re.search(r'title="([^"]+)"', option.group(1))
-        assert title and "3:1" in title.group(1) and "0.749" in title.group(1) and "light" in title.group(1)
+        for value in ("viridis", "cividis", "plasma", "turbo"):
+            option = re.search(rf'<option value="{value}"([^>]*)>', html)
+            assert option, value
+            title = re.search(r'title="([^"]+)"', option.group(1))
+            assert title and "On the light theme this slot draws a ramp made for white" in title.group(1), value
+        turbo = re.search(r'<option value="turbo"[^>]*title="([^"]+)"', html).group(1)
+        assert "3:1" in turbo and "not monotone" in turbo
 
 
 def _browser_page_calls():

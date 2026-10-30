@@ -32,7 +32,7 @@ import {
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols } from './axis_symbols.js';
-import { formatSci, formatInt, legibleSpan, rampPalette, THEME } from './scale.js';
+import { formatSci, formatInt, isDiverging, legibleSpan, rampPalette, THEME } from './scale.js';
 import { profileAxisKey, ensembleLabel } from './panels/profile.js';
 import { gridSlices, subplotScale, seriesMessage, estimatorNote } from './panels/response_grid.js';
 import { sigmaText, clampInterval, onLightCard, isPrintTheme } from './panels/chart_panel.js';
@@ -99,6 +99,17 @@ export function onLightScreen() {
 }
 
 /**
+ * How a drawer names the ramp a colour-map slot draws: the slot's own name on
+ * the dark card, as it always read, and on the light screen the slot's
+ * white-grounded ramp (palette.js), which is what is drawn there.
+ */
+export function rampName(palette) {
+  if (!onLightScreen()) return palette;
+  const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
+  return `the ${name} slot's white-grounded ramp`;
+}
+
+/**
  * The PuOr sentence of a signed ramp's drawer, appended to "linear on
  * [−1, +1]". The dark screen folds each arm from the card outwards;
  * the light screen runs each arm from the card's own white (the linear ramp
@@ -118,27 +129,30 @@ export function puorScreenNote() {
  * screen (fix round C, decision D-2), and that the exported figure keeps the
  * full ramp. '' for a signed ramp, whose PuOr arms are described elsewhere
  * (`puorScreenNote`), and for a ramp drawn in full. `palette` is the chosen
- * sequential palette's key. On the light card the 3:1 run is oriented so that
- * contrast rises with value (`legibleRamp`): the lowest value takes the run's
- * light end, the taper climbs from the palette's light end, and nothing is
- * drawn lighter than the first 3:1 colour; the dark card's sentences are
- * unchanged.
+ * sequential palette's key. On the light screen the slot draws its
+ * white-grounded ramp (palette.js), which a raster spans in full: the floor
+ * takes the palest tint and fades into the card, the peak the deepest tone.
+ * The dark card's sentences are unchanged.
  */
 export function rampStartNote(scale, palette = 'viridis') {
   if (!scale) return '';
+  const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
+  if (onLightScreen() && !isDiverging(scale)) {
+    const ramp = LIGHT_RAMP_WORDS[palette] ?? LIGHT_RAMP_WORDS.viridis;
+    const tapered = (legibleSpan(scale, rampPalette(scale, palette ?? 'viridis'))?.taperEnd ?? 0) > 0;
+    const bottom = tapered
+      ? `the display floor takes its palest tint and fades into the card across the ${num(THEME.floorFadeDecades, 1)} `
+        + 'decade above it'
+      : 'the bottom of the colour scale, a bin below the ramp floor included, takes its palest tint';
+    return `On the light screen the ${name} slot draws a ramp made for a white card (${ramp}), and a raster spans it `
+      + `in full: ${bottom}, and the peak takes its deepest tone, so contrast with the card rises with the value. `
+      + `The exported figure carries ${name} itself, in full, on white.`;
+  }
   const span = legibleSpan(scale, rampPalette(scale, palette ?? 'viridis'));
   if (!span) return '';
-  const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
   const start = `${name} from ${num(span.from, 3)} of its range`;
   const exported = 'The exported figure carries the full ramp, from the palette\'s first colour, on white.';
-  const light = onLightScreen();
   if (span.taperEnd > 0) {
-    if (light) {
-      return `On screen the ramp fades in across the ${num(THEME.floorFadeDecades, 1)} decade above the display floor `
-        + `and reaches its first colour with at least 3:1 contrast against the card (${start}) where the fade turns `
-        + 'opaque; its lightness only falls from the card outwards, and every opaque bin is drawn at that colour or '
-        + `darker, so the lightest opaque colour marks the top of the fade, not the floor. ${exported}`;
-    }
     return `On screen the ramp fades in across the ${num(THEME.floorFadeDecades, 1)} decade above the display floor `
       + `and reaches its first colour with at least 3:1 contrast against the card (${start}) where the fade turns `
       + 'opaque; every opaque bin is drawn at that colour or brighter, so the darkest opaque colour marks the top '
@@ -146,8 +160,17 @@ export function rampStartNote(scale, palette = 'viridis') {
   }
   return 'On screen the ramp starts at its first colour with at least 3:1 contrast against the card '
     + `(${start}), so the lowest drawn colour is the bottom of the colour scale, a bin below the ramp floor `
-    + `included, and not the palette's ${light ? 'lightest' : 'darkest'} colour. ${exported}`;
+    + `included, and not the palette's darkest colour. ${exported}`;
 }
+
+/** What each colour-map slot draws on the light screen (palette.js), as a drawer names it. */
+export const LIGHT_RAMP_WORDS = Object.freeze({
+  viridis: 'aqua through emerald-teal and azure to indigo, from ColorBrewer GnBu and YlGnBu',
+  cividis: 'ice-azure to deep navy, one hue, from ColorBrewer Blues and PuBu',
+  plasma: 'apricot through coral-red to plum, from ColorBrewer OrRd and RdPu',
+  turbo: 'pale sky through cerulean, emerald, amber and vermilion to garnet, whose lightness, like Turbo\'s, is not '
+    + 'monotone',
+});
 
 /** The semantic axes of each Event Inspector panel: column, row. */
 const EVENT_PANEL_AXES = { xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] };

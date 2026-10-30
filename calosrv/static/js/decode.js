@@ -114,9 +114,9 @@ function axisLookup(axis, cells) {
  * write NaN into ImageData (which the canvas silently reads as 0).
  */
 export function codeTable(payload, paletteName, fadeDecades = THEME.floorFadeDecades,
-  { legible = true, signed = false } = {}) {
+  { legible = true, signed = false, field = false } = {}) {
   const scale = payload.scale || {};
-  const rgb = rampTable(scale, rampPalette(scale, paletteName), { legible, signed, fadeDecades });
+  const rgb = rampTable(scale, rampPalette(scale, paletteName), { legible, signed, fadeDecades, field });
   const table = new Uint8ClampedArray(256 * 4);
   const emptyCode = payload.empty_code ?? 0;
   const belowCode = Number.isInteger(payload.below_code) ? payload.below_code : null;
@@ -206,7 +206,8 @@ export function renderRaster(payload, paletteName, { screen = true } = {}) {
   const [rows, cols] = payload.shape;
   const codes = decodeBase64(payload.data);
   // The exporter's raster (`screen: false`) keeps the full ramp, as print does.
-  const table = codeTable(payload, paletteName, THEME.floorFadeDecades, { legible: screen });
+  // A continuous field: on the light screen it spans its ramp in full (scale.js `legibleSpan`).
+  const table = codeTable(payload, paletteName, THEME.floorFadeDecades, { legible: screen, field: true });
 
   const colLookup = axisLookup(payload.axes.col, cols);
   const rowLookup = axisLookup(payload.axes.row, rows);

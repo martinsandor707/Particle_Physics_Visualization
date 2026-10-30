@@ -152,6 +152,12 @@ export const PRINT_TOKENS = {
   qualitativePalette: 'dark2',
   speciesPalette: 'species_print',
   tooltipBackground: 'rgba(255,255,255,0.97)',
+  // Paper keeps the standard ramps, no halos and the wedges print drew before,
+  // whichever screen theme was in force.
+  sequentialPalettes: null,
+  markCasing: null,
+  wedgeAlpha: 0.22,
+  wedgeEdge: false,
 };
 
 /** Logical pixels for a figure of the given printed width. */

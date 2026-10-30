@@ -51,7 +51,9 @@ import {
 import {
   customLine, customPolyline, customMarker, customBand, insideWedge, symbolOf, onInk, projectMarks,
 } from './marks.js';
-import { addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread } from './canonical_overlays.js';
+import {
+  addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread, overlayCasing, pushCased, pushCasedLine,
+} from './canonical_overlays.js';
 import { formatSigned } from '../format.js';
 import { axisSymbol, panelOf } from '../axis_symbols.js';
 import {
@@ -129,6 +131,42 @@ function displaySymbols(payload, opts) {
  * from uniform (Rayleigh p above the server's fade threshold, carried as
  * `faded` on the axis block). */
 const FADE_OPACITY = 0.4;
+
+/**
+ * The outline of a spread wedge on the light screen (THEME.wedgeEdge), or null.
+ * Its wash is light there, so its extent is carried by its two long sides,
+ * dashed so they never read as caps, at 0.7 opacity, where both shower inks
+ * stay above 3:1 on white (3.9:1 and 3.5:1). A faded axis keeps a faint
+ * outline. Null on the dark card and in print, whose wedges are as before.
+ */
+function wedgeEdge(colour, faded) {
+  if (!THEME.wedgeEdge) return null;
+  return { color: colour, width: THEME.lineAxis, dash: [4, 3], opacity: faded ? 0.25 : 0.7 };
+}
+
+/**
+ * The outline of a 95% envelope on the light screen: thin solid sides, so it
+ * reads as the thin envelope of the mean beside the spread's dashed outline,
+ * two marks for two quantities. Null on the dark card and in print.
+ */
+function envelopeEdge(colour, faded) {
+  if (!THEME.wedgeEdge) return null;
+  return { color: colour, width: 0.75 * THEME.lineAxis, dash: null, opacity: faded ? 0.2 : 0.55 };
+}
+
+/**
+ * The wash of an ensemble axis's spread wedge (`part` 'spread') or 95% envelope
+ * ('envelope'). On the dark card and in print, as always: THEME.wedgeAlpha
+ * scaled by 0.6 and 1.4, and 0.05 and 0.12 for a faded axis. On the light
+ * screen (THEME.wedgeEdge) both are light washes their outlines carry - at N = 2
+ * the envelope spans the panel, and any heavier wash lay over the raster as
+ * smoke - and a faded axis takes half of each.
+ */
+function wedgeOpacity(part, faded) {
+  const factor = part === 'spread' ? 0.6 : 1.4;
+  if (!THEME.wedgeEdge) return faded ? (part === 'spread' ? 0.05 : 0.12) : THEME.wedgeAlpha * factor;
+  return THEME.wedgeAlpha * factor * (faded ? 0.5 : 1);
+}
 
 /** Fraction of the fitted region added as breathing room on each side. */
 const ROI_PADDING = 0.06;
@@ -458,6 +496,8 @@ export class ProjectionPanel {
       visualMap: visualMap(payload.scale, rampPalette(payload.scale, palette), {
         bottomInset: metrics.reservedBottom || 0,
         seriesIndex: 0,
+        // The raster's own table: a continuous field (decode.js `renderRaster`).
+        field: true,
       }),
       tooltip: tooltipOption(this.tooltipPosition),
       graphic: graphics,
@@ -514,7 +554,7 @@ export class ProjectionPanel {
       if (mark.type === 'point') {
         series.push(customMarker({
           name: mark.name, at: mark.at, color: colour ?? THEME.text, sizePx: 6,
-          width: 1.6 * THEME.lineAxis, z: 12, tooltip: mark.tooltip,
+          width: 1.6 * THEME.lineAxis, z: 12, tooltip: mark.tooltip, casing: overlayCasing(1.6 * THEME.lineAxis),
         }));
         continue;
       }
@@ -525,6 +565,7 @@ export class ProjectionPanel {
       }[mark.style] ?? { color: THEME.muted, width: THEME.lineAxis, dash: null, opacity: 0.8 };
       series.push(customLine({
         name: mark.name, from: mark.from, to: mark.to, ...style, z: 7, tooltip: mark.tooltip,
+        casing: overlayCasing(style.width),
       }));
     }
   }
@@ -583,6 +624,7 @@ export class ProjectionPanel {
         opacity: 0.95,
         smooth: 0.2,
         z: 8,
+        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: `Centre of deposited energy — ${shower.toUpperCase()}<br/>`
           + 'energy-weighted centre of the selection’s summed deposit, per depth layer<br/>'
           + 'a property of the summed picture, not a direction',
@@ -659,16 +701,19 @@ export class ProjectionPanel {
         ? `R̄′ = ${info.resultant_transverse.toFixed(3)}, Rayleigh p = ${Number(info.rayleigh_p).toPrecision(2)}`
         : (info.label || 'single event');
 
-      const wedge = (points, name, alpha) => {
+      const wedge = (points, name, alpha, edge = null) => {
         if (!points) return;
-        series.push(customBand({ name, points, color: colour, opacity: alpha }));
+        series.push(customBand({ name, points, color: colour, opacity: alpha, edge }));
       };
 
       // The two showers' wedges overlap on the YZ panel (both axes start at
-      // the origin), so each is drawn at a fraction of the band alpha the
-      // energy panel uses for a single band.
-      wedge(lines.band, `Ensemble axis ${label} — spread`, faded ? 0.05 : THEME.bandAlpha * 0.6);
-      wedge(lines.envelope, `Ensemble axis ${label} — 95% interval`, faded ? 0.12 : THEME.bandAlpha * 1.4);
+      // the origin), so each is drawn at a fraction of the wedge alpha
+      // (`wedgeOpacity`: the energy panel's band alpha on the dark card and in
+      // print; on the light screen faint washes whose outlines carry them, the
+      // spread's dashed and the envelope's thin and solid).
+      wedge(lines.band, `Ensemble axis ${label} — spread`, wedgeOpacity('spread', faded), wedgeEdge(colour, faded));
+      wedge(lines.envelope, `Ensemble axis ${label} — 95% interval`, wedgeOpacity('envelope', faded),
+        envelopeEdge(colour, faded));
 
       series.push(customPolyline({
         name: `Ensemble axis — ${label}`,
@@ -678,6 +723,7 @@ export class ProjectionPanel {
         dash: 'dashed',
         opacity: faded ? FADE_OPACITY : 0.95,
         z: 9,
+        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: () =>
           `Ensemble shower axis — ${label}<br/>` +
           `mean incident direction in the Separation-Aligned (D-Frame) (slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
@@ -709,13 +755,13 @@ export class ProjectionPanel {
       if (lines.band) {
         series.push(customBand({
           name: `Windowed axis ${label} — spread`, points: lines.band, color: colour,
-          opacity: faded ? 0.05 : THEME.bandAlpha * 0.6,
+          opacity: wedgeOpacity('spread', faded), edge: wedgeEdge(colour, faded),
         }));
       }
       if (lines.envelope) {
         series.push(customBand({
           name: `Windowed axis ${label} — 95% interval`, points: lines.envelope, color: colour,
-          opacity: faded ? 0.12 : THEME.bandAlpha * 1.4, z: 6,
+          opacity: wedgeOpacity('envelope', faded), z: 6, edge: envelopeEdge(colour, faded),
         }));
       }
       let coherence;
@@ -731,6 +777,7 @@ export class ProjectionPanel {
         dash: 'dashed',
         opacity: faded ? FADE_OPACITY : 0.95,
         z: 9,
+        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: () =>
           `Windowed ensemble axis — ${label}<br/>` +
           `mean incident trajectory of the ${n} events entering this window${of} ` +
@@ -775,7 +822,7 @@ export class ProjectionPanel {
         const cx = point[col.name];
         const cy = point[row.name];
         if (cx === null || cy === null || cx === undefined || cy === undefined) continue;
-        series.push({
+        pushCased(series, {
           type: 'scatter',
           name: lone ? pair.label : `${pair.label} — ${shower}`,
           symbol: shower === 'A' ? 'diamond' : 'circle',
@@ -807,7 +854,7 @@ export class ProjectionPanel {
       const by = pair.b[row.name];
       if (![ax, ay, bx, by].every((v) => v !== null && v !== undefined)) continue;
 
-      series.push({
+      pushCasedLine(series, {
         type: 'line',
         name: 'Separation D',
         data: [[ax, ay], [bx, by]],

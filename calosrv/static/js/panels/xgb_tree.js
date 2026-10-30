@@ -48,7 +48,8 @@
  *
  * The node value is coloured on the user's sequential ramp (Viridis by
  * default), narrowed to the run that clears 3:1 against the card in force
- * (`legibleRamp`: Viridis from 0.376 on #1c2128, up to 0.600 on white), over
+ * (`legibleRamp`: Viridis from 0.376 on #1c2128; on the light screen the slot's
+ * white-grounded ramp, the Viridis slot from 0.537 on white), over
  * the server's colour domain for the output, which spans the nodes of at
  * least 20 rows (Martin, 2026-10-27, D-6: a tree's extremes are its smallest
  * leaves). A node beyond it takes the end colour and its value line carries
@@ -67,7 +68,7 @@
  * `exportMetrics` sizes to its rows, so the tree stays legible at 9 pt.
  */
 
-import { THEME, axisPadding, formatInt, formatPercent } from '../scale.js';
+import { THEME, axisPadding, formatInt, formatPercent, screenPalette } from '../scale.js';
 import { SEQUENTIAL_PALETTES } from '../palette.js';
 import { measureText, wrapText } from '../textfit.js';
 import { r2Text } from './xgb_cv.js';
@@ -190,7 +191,7 @@ export function treeModel(payload, opts = {}) {
   const domain = Array.isArray(payload.color_domain?.[label]) && payload.color_domain[label].every(Number.isFinite)
     ? payload.color_domain[label]
     : [Math.min(...values), Math.max(...values)];
-  const ramp = legibleRamp(treePalette(opts.palette));
+  const ramp = legibleRamp(screenPalette(treePalette(opts.palette)));
   const span = domain[1] - domain[0];
   const fraction = (v) => (span > 0 ? Math.min(1, Math.max(0, (v - domain[0]) / span)) : 0.5);
   const weakN = Number.isFinite(payload.weak_below_n) ? payload.weak_below_n : WEAK_NODE_N;

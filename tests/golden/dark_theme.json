@@ -1052,7 +1052,7 @@
   "text/window_axis/_panel_xz_t_max_400_0_t_min_400_0_": "c9c8d01e93d3158ae019b617bc17d7af93b954e14f74ce783dcc42a2cafe1e5c",
   "text/window_axis/_panel_yz_t_max_100000_0_t_min_100000_0_": "9067e1e8fd63fe04b5d7c5864bc1d1aa83a66bd28684a302e61f2741407fed29",
   "text/window_axis/_panel_yz_t_max_400_0_t_min_400_0_": "0eba521342b31d179252207e99e847668b476d03a9e18cb89b017a429c6173a3",
-  "theme/active_equals_screen": "a183c5330325fcb6246eb281c6f35eae3cb505e2d424d82ce228c4953c57eb4d",
+  "theme/active_equals_screen": "0fcef2018ab9b1dde3d245fde545681cbfa0aaeac9c4a209d798540b7913db15",
   "theme/axis_padding": "099d3d4ec3ff72a08ae5a71e0b3589e32ad102ca2c85f04198eb1fa002c412e7",
   "tooltip/option": "d9e811bae4bd265ccf4628ce06f6b793903cc816133e94fb74029256736db331",
   "tooltip/option_print": "fae13fe7c399d40497f1ce04889cc4aff8fcce29f7618bd95f26883df4dfb406",
@@ -1233,18 +1233,22 @@
   "legendWrap": false,
   "lineAxis": 1,
   "lineGrid": 1,
+  "markCasing": null,
   "markerScale": 1,
   "medium": "screen",
   "muted": "#8b949e",
   "qualitativePalette": "set2",
   "rampOrient": "vertical",
   "separationRule": "rgba(255,255,255,0.4)",
+  "sequentialPalettes": null,
   "showerA": "#f778ba",
   "showerB": "#58a6ff",
   "speciesPalette": "species",
   "stripAlpha": 0.045,
   "text": "#e6edf3",
   "tooltipBackground": "rgba(22,27,34,0.95)",
-  "warn": "#d29922"
+  "warn": "#d29922",
+  "wedgeAlpha": 0.18,
+  "wedgeEdge": false
  }
 }

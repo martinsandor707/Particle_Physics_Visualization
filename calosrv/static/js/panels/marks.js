@@ -117,9 +117,14 @@ export function symbolOf(axis) {
  * `dash` takes zrender's names ('dashed', 'dotted') or an array; the dash
  * pattern scales with the width, as the `line` series' did. `tooltip` is the
  * HTML string or a function returning it; without one the series is silent.
+ *
+ * `casing` ({color, width}, opt-in; absent by default, so every existing
+ * chart draws exactly as before) lays a wider, solid stroke under the line: on
+ * the light screen a white halo, so an overlay drawn across the deep shower
+ * core stays visible there and on the white card alike (`overlayCasing`).
  */
 export function customPolyline({
-  name, points, color, width, opacity = 1, dash = null, smooth = 0, z = 5, tooltip = null,
+  name, points, color, width, opacity = 1, dash = null, smooth = 0, z = 5, tooltip = null, casing = null,
 }) {
   const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
   return {
@@ -131,17 +136,29 @@ export function customPolyline({
     // One datum, so the series has exactly one element to render and hover;
     // the geometry itself comes from the closure, not from the data.
     data: [points[0]],
-    renderItem: (params, api) => ({
-      type: 'polyline',
-      shape: { points: points.map((p) => api.coord(p)), smooth },
-      style: {
-        fill: 'none',
-        stroke: color,
-        lineWidth: width,
-        opacity,
-        lineDash: dash,
-      },
-    }),
+    renderItem: (params, api) => {
+      const shape = { points: points.map((p) => api.coord(p)), smooth };
+      const line = {
+        type: 'polyline',
+        shape,
+        style: {
+          fill: 'none',
+          stroke: color,
+          lineWidth: width,
+          opacity,
+          lineDash: dash,
+        },
+      };
+      if (!casing) return line;
+      return {
+        type: 'group',
+        children: [
+          { type: 'polyline', shape, silent: true,
+            style: { fill: 'none', stroke: casing.color, lineWidth: casing.width, opacity } },
+          line,
+        ],
+      };
+    },
     ...(tooltip ? { tooltip: { formatter } } : {}),
   };
 }
@@ -276,7 +293,7 @@ export function customLine({ from, to, ...options }) {
  */
 export function customWhisker({
   name, from, to, capPx = 4, color, width, opacity = 1, z = 9, tooltip = null,
-  caps = [true, true],
+  caps = [true, true], casing = null,
 }) {
   const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
   return {
@@ -295,15 +312,22 @@ export function customWhisker({
       // The cap runs perpendicular to the shaft.
       const nx = (-dy / length) * capPx;
       const ny = (dx / length) * capPx;
+      const shape = {
+        points: [
+          ...(caps[0] ? [[a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny]] : []), a,
+          b, ...(caps[1] ? [[b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny]] : []),
+        ],
+      };
+      const whisker = { type: 'polyline', shape, style: { fill: 'none', stroke: color, lineWidth: width, opacity } };
+      // `casing` as `customPolyline`'s: a wider stroke under the whole whisker.
+      if (!casing) return whisker;
       return {
-        type: 'polyline',
-        shape: {
-          points: [
-            ...(caps[0] ? [[a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny]] : []), a,
-            b, ...(caps[1] ? [[b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny]] : []),
-          ],
-        },
-        style: { fill: 'none', stroke: color, lineWidth: width, opacity },
+        type: 'group',
+        children: [
+          { type: 'polyline', shape, silent: true,
+            style: { fill: 'none', stroke: casing.color, lineWidth: casing.width, opacity } },
+          whisker,
+        ],
       };
     },
     ...(tooltip ? { tooltip: { formatter } } : {}),
@@ -351,10 +375,11 @@ export function customCaret({
 /**
  * A small cross at `at` (data coordinates), `sizePx` from centre to tip: the
  * reference notebook's ✕ at the shower origin. Drawn in pixel space so it
- * keeps its size at every zoom, as the caps of a whisker do.
+ * keeps its size at every zoom, as the caps of a whisker do. `casing` as
+ * `customPolyline`'s: a wider stroke under both arms.
  */
 export function customMarker({
-  name, at, color, sizePx = 6, width = 1.5, opacity = 1, z = 12, tooltip = null,
+  name, at, color, sizePx = 6, width = 1.5, opacity = 1, z = 12, tooltip = null, casing = null,
 }) {
   const formatter = typeof tooltip === 'function' ? tooltip : () => tooltip;
   return {
@@ -367,13 +392,17 @@ export function customMarker({
     renderItem: (params, api) => {
       const [cx, cy] = api.coord(at);
       const s = sizePx;
+      const arms = [{ x1: cx - s, y1: cy - s, x2: cx + s, y2: cy + s }, { x1: cx - s, y1: cy + s, x2: cx + s, y2: cy - s }];
+      const under = casing
+        ? arms.map((shape) => ({ type: 'line', shape, silent: true,
+          style: { stroke: casing.color, lineWidth: casing.width, opacity } }))
+        : [];
       return {
         type: 'group',
         children: [
-          { type: 'line', shape: { x1: cx - s, y1: cy - s, x2: cx + s, y2: cy + s },
-            style: { stroke: color, lineWidth: width, opacity } },
-          { type: 'line', shape: { x1: cx - s, y1: cy + s, x2: cx + s, y2: cy - s },
-            style: { stroke: color, lineWidth: width, opacity } },
+          ...under,
+          { type: 'line', shape: arms[0], style: { stroke: color, lineWidth: width, opacity } },
+          { type: 'line', shape: arms[1], style: { stroke: color, lineWidth: width, opacity } },
         ],
       };
     },
@@ -460,7 +489,7 @@ export function insideWedge(points, z, t) {
  * two-station wedges and the windowed axis's nine-station band are both
  * drawn with it, so one polygon rule serves every dispersion mark.
  */
-export function customBand({ name, points, color, opacity, z = 5 }) {
+export function customBand({ name, points, color, opacity, z = 5, edge = null }) {
   return {
     type: 'custom',
     name,
@@ -471,11 +500,18 @@ export function customBand({ name, points, color, opacity, z = 5 }) {
     renderItem: (params, api) => {
       const lower = points.map(([depth, lo]) => api.coord([depth, lo]));
       const upper = points.slice().reverse().map(([depth, , hi]) => api.coord([depth, hi]));
-      return {
+      const fill = {
         type: 'polygon',
         shape: { points: [...lower, ...upper] },
         style: { fill: color, opacity, stroke: 'none' },
       };
+      if (!edge) return fill;
+      // `edge` ({color, width, dash, opacity}, opt-in): the band's extent drawn
+      // along its two long sides, never across its ends, so a light wash keeps
+      // a readable outline and still reads as an uncapped spread.
+      const side = (pts) => ({ type: 'polyline', shape: { points: pts },
+        style: { fill: 'none', stroke: edge.color, lineWidth: edge.width, lineDash: edge.dash, opacity: edge.opacity } });
+      return { type: 'group', children: [fill, side(lower), side(upper)] };
     },
   };
 }

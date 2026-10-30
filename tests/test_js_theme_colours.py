@@ -37,6 +37,7 @@ on the PATH.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 
 import pytest
@@ -237,27 +238,90 @@ function codes(payload, palette) {
   return order.map((c) => [t[c * 4], t[c * 4 + 1], t[c * 4 + 2], t[c * 4 + 3]]);
 }
 scale.setScreenTheme('light');
-out.lightRamps = {};
+out.lightSlots = {};
 for (const p of pal.SEQUENTIAL_PALETTES) {
-  out.lightRamps[p] = { ramp: cp.legibleRamp(p), table: Array.from(pal.lookupTable(p)), cases: {} };
-  for (const [sk, sc] of Object.entries(SCALES)) {
-    for (const [lk, layout] of Object.entries(LAYOUTS)) {
-      out.lightRamps[p].cases[`${sk}:${lk}`] = codes({ scale: sc, ...layout }, p);
-    }
-  }
+  const drawn = scale.screenPalette(p);
+  const lut = Array.from(pal.lookupTable(drawn));
+  const rel = { scale: SCALES.relative, ...LAYOUTS.below };
+  const ct = decode.codeTable(rel, p, THEME.floorFadeDecades, { field: true });
+  out.lightSlots[p] = {
+    drawn,
+    lut,
+    // A raster (field: true) spans the slot's ramp in full on every kind of scale.
+    fieldIsLut: Object.fromEntries(Object.entries(SCALES).map(([sk, sc]) => [sk,
+      Array.from(scale.rampTable(sc, scale.rampPalette(sc, p), { field: true })).every((v, i) => v === lut[i])])),
+    fieldCodes: Array.from({ length: 256 }, (_, c) => [ct[c * 4], ct[c * 4 + 1], ct[c * 4 + 2], ct[c * 4 + 3],
+      decode.codeExponent(c, rel.scale, rel)]),
+    legend: (() => {
+      const vm = scale.visualMap(SCALES.relative, scale.rampPalette(SCALES.relative, p), { field: true });
+      return { stops: vm.inRange.color, text: vm.text };
+    })(),
+    // A mark standing alone on the card keeps the ramp's 3:1 run (cubes, series, cells, leaves).
+    marks: cp.legibleRamp(drawn),
+    cubes: Object.fromEntries(Object.entries(SCALES).flatMap(([sk, sc]) => Object.entries(LAYOUTS)
+      .map(([lk, layout]) => [`${sk}:${lk}`, codes({ scale: sc, ...layout }, p)]))),
+  };
 }
-out.lightLegend = {
-  relative: (() => { const vm = scale.visualMap(SCALES.relative, 'viridis'); return { stops: vm.inRange.color, text: vm.text }; })(),
-  gev: (() => { const vm = scale.visualMap(SCALES.gev, 'viridis'); return { stops: vm.inRange.color, text: vm.text }; })(),
-  span: scale.legibleSpan(SCALES.relative, 'viridis'),
-};
 out.lightSeries = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p,
   Array.from({ length: 19 }, (_, k) => cp.seriesStops(p, k + 1))]));
 out.lightCount = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p, [
   h2.countRamp(p), h2.countRamp(p, load('pred_density_two_energy').color.ramp.by_palette[p])]]));
+out.lightTree = cp.legibleRamp(scale.screenPalette(xtree.treePalette('viridis')));
+out.lightAnchors = pal.LIGHT_RAMP_ANCHORS;
 scale.setScreenTheme('dark');
+out.darkSlots = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p, scale.screenPalette(p)]));
 out.darkCount = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p,
   h2.countRamp(p, load('pred_density_two_energy').color.ramp.by_palette[p])]));
+Object.assign(THEME, PRINT_TOKENS);
+out.printSlots = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p, scale.screenPalette(p)]));
+scale.restoreScreenTheme();
+
+/* ---- overlays on the spatial panels ---------------------------------------- */
+{
+  const proj = await imp('panels/projection.js');
+  const ov = await imp('panels/canonical_overlays.js');
+  const panel = Object.create(proj.ProjectionPanel.prototype);
+  const api = { coord: (p) => p };
+  const drawn = (series) => series.map((s) => (s.type === 'custom'
+    ? { type: 'custom', name: s.name, el: s.renderItem({ dataIndex: 0 }, api) }
+    : { type: s.type, name: s.name ?? null, silent: Boolean(s.silent), itemStyle: s.itemStyle ?? null,
+      lineStyle: s.lineStyle ?? null }));
+  const entry = { name: 'x', lo: -800, hi: 800 };
+  const across = { name: 'y', lo: -400, hi: 400 };
+  const depth = { name: 'z', lo: 0, hi: 1200 };
+  const anchors = {
+    a: { x: -500, y: 0, spread: [-560, -440], se95: 10, n: 20 },
+    b: { x: 500, y: 0, spread: [440, 560], se95: 10, n: 20 },
+  };
+  const frame = { d_entry: { mean: 1000, ci95_half: 20, n: 20 } };
+  const axis = (sign) => ({
+    axis: [[0, 0], [1200, sign * 120]], band: [[0, 0, 0], [1200, sign * 120 - 80, sign * 120 + 80]],
+    envelope: [[0, 0, 0], [1200, sign * 120 - 20, sign * 120 + 20]], slope: sign * 0.1,
+  });
+  const meta = { a: { n: 30, faded: false, resultant_transverse: 0.8, rayleigh_p: 1e-6 },
+    b: { n: 30, faded: false, resultant_transverse: 0.8, rayleigh_p: 1e-6 } };
+  const centroids = { truth_voxel: { label: 'Truth', a: { x: -100, y: 50, z: 300 }, b: { x: 300, y: -20, z: 300 },
+    separation_mm: 410 } };
+  const marks = [{ type: 'point', style: 'origin', at: [0, 0, 0], panels: null, name: 'P0' },
+    { type: 'line', style: 'forward', origin: [0, 0, 0], direction: [0, 0.1, 1], name: 'Incident axis' }];
+  const build = () => {
+    const s = {};
+    s.entry = []; ov.addCanonicalAnchors(s.entry, anchors, frame, entry, across);
+    s.origin = []; ov.addCanonicalAnchors(s.origin, anchors, frame, depth, across);
+    s.ensemble = []; panel.addEnsembleAxes(s.ensemble, { a: axis(1), b: axis(-1) }, meta, depth, across);
+    s.window = []; panel.addWindowAxis(s.window, { a: { ...axis(1), n: 30, lean_ratio: 2 } }, depth, across);
+    s.centroids = []; panel.addCentroids(s.centroids, centroids, entry, across, true);
+    s.axes = []; panel.addShowerAxes(s.axes, { a: [[0, 0], [600, 20], [1200, 40]] }, depth, across);
+    s.marks = []; panel.addMarks(s.marks, marks, depth, across, { col: [0, 1200], row: [-400, 400] }, THEME.showerA, 'yz');
+    return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, drawn(v)]));
+  };
+  out.overlays = {};
+  for (const theme of ['dark', 'light']) {
+    scale.setScreenTheme(theme);
+    out.overlays[theme] = build();
+  }
+  scale.setScreenTheme('dark');
+}
 
 /* ---- dark spot checks ----------------------------------------------------- */
 {
@@ -471,13 +535,21 @@ def test_the_light_tokens_are_the_brief_values(theme_results):
         "labelBg": "rgba(255,255,255,0.92)", "hatch": "#6b7280", "separationRule": "rgba(17,24,39,0.55)",
     }
     assert (light["envelopeAlpha"], light["bandAlpha"], light["stripAlpha"]) == (0.18, 0.22, 0.07)
-    assert light["categorical"] == {"min": 0.75, "max": 0.0}
+    # Each light slot runs pale to deep, so the series sub-range is the dark card's.
+    assert light["categorical"] == {"min": 0.25, "max": 1.0}
+    assert light["sequentialPalettes"] == {
+        "viridis": "viridis_light", "cividis": "cividis_light", "plasma": "plasma_light", "turbo": "turbo_light"}
+    assert (light["markCasing"], light["wedgeAlpha"], light["wedgeEdge"]) == ("#ffffff", 0.05, True)
     assert (light["divergingPalette"], light["divergingLinearPalette"]) == ("puor_light", "puor_light_linear")
     assert (light["qualitativePalette"], light["speciesPalette"]) == ("dark2", "species_print")
     assert light["tooltipBackground"] == "rgba(255,255,255,0.97)"
     dark = theme_results["themes"]["dark"]
     assert (dark["qualitativePalette"], dark["speciesPalette"], dark["tooltipBackground"]) == (
         "set2", "species", "rgba(22,27,34,0.95)")
+    # Dark draws as it always did: no slot mapping, no casing, the energy panel's band alpha for wedges.
+    assert (dark["sequentialPalettes"], dark["markCasing"], dark["wedgeAlpha"], dark["wedgeEdge"]) == (
+        None, None, 0.18, False)
+    assert dark["wedgeAlpha"] == dark["bandAlpha"]
 
 
 def test_the_dark_literal_stays_frozen_and_named(theme_results):
@@ -537,60 +609,118 @@ def test_the_print_option_does_not_depend_on_the_screen_theme(theme_results, nam
 # ------------------------------------------------------- light sequential ramps --
 
 
-@pytest.mark.parametrize("palette", SEQUENTIAL)
-def test_every_opaque_light_code_clears_three_to_one_on_white(theme_results, palette):
-    for case, codes in theme_results["lightRamps"][palette]["cases"].items():
-        opaque = [c for c in codes if c[3] == 255]
-        assert opaque, case
-        worst = min(contrast(c, WHITE) for c in opaque)
-        assert worst >= 3.0, (palette, case, worst)
+#: The ramp each colour-map slot draws on the light screen (palette.js, scale.js `screenPalette`).
+LIGHT_DRAWN = {"viridis": "viridis_light", "cividis": "cividis_light", "plasma": "plasma_light",
+               "turbo": "turbo_light"}
+
+
+def lab(rgb) -> tuple[float, float, float]:
+    """CIELAB (D65) of an sRGB triple, as palette.js `toLab` computes it."""
+    r, g, b = (_lin(c) for c in rgb[:3])
+    xyz = (0.4124 * r + 0.3576 * g + 0.1805 * b, 0.2126 * r + 0.7152 * g + 0.0722 * b,
+           0.0193 * r + 0.1192 * g + 0.9505 * b)
+    white = (0.95047, 1.0, 1.08883)
+
+    def f(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    fx, fy, fz = (f(v / w) for v, w in zip(xyz, white))
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def test_each_slot_draws_its_white_grounded_ramp_on_the_light_screen_only(theme_results):
+    assert {p: e["drawn"] for p, e in theme_results["lightSlots"].items()} == LIGHT_DRAWN
+    assert theme_results["darkSlots"] == {p: p for p in SEQUENTIAL}
+    assert theme_results["printSlots"] == {p: p for p in SEQUENTIAL}, "print keeps the standard ramps"
 
 
 @pytest.mark.parametrize("palette", MONOTONE)
-def test_light_codes_darken_on_white_along_the_ramp(theme_results, palette):
+def test_the_light_ramps_fall_from_a_pale_tint_to_a_deep_tone(theme_results, palette):
+    """Lightness falls at every table entry, from a tint near white (L* >= 90) to a deep core (L* <= 22)."""
+    lut = theme_results["lightSlots"][palette]["lut"]
+    lights = [lstar(table_rgb(lut, i)) for i in range(256)]
+    rises = [i for i, (a, b) in enumerate(zip(lights, lights[1:])) if b > a + 0.05]
+    assert not rises, (palette, rises[:5])
+    assert lights[0] >= 90 and lights[-1] <= 22, (palette, lights[0], lights[-1])
+    assert contrast(table_rgb(lut, 0), WHITE) < 1.2 and contrast(table_rgb(lut, 255), WHITE) >= 10
+
+
+def test_no_lemon_yellow_on_the_light_screen(theme_results):
+    """The fringe the reversed ramps drew: no entry of a monotone light ramp is a saturated yellow."""
+    for palette in MONOTONE:
+        lut = theme_results["lightSlots"][palette]["lut"]
+        for i in range(256):
+            _, a, b = lab(table_rgb(lut, i))
+            hue = math.degrees(math.atan2(b, a)) % 360
+            assert not (85 <= hue <= 115 and math.hypot(a, b) > 40), (palette, i, round(hue))
+
+
+def test_the_light_turbo_keeps_its_spectrum_and_a_deep_peak(theme_results):
+    """Blue, green and orange-red each present (chroma > 30), and a peak of 10:1 or more on white."""
+    lut = theme_results["lightSlots"]["turbo"]["lut"]
+    sectors = {"blue": (220, 300), "green": (120, 180), "orange-red": (10, 60)}
+    seen = set()
+    for i in range(256):
+        _, a, b = lab(table_rgb(lut, i))
+        hue = math.degrees(math.atan2(b, a)) % 360
+        if math.hypot(a, b) > 30:
+            seen |= {name for name, (lo, hi) in sectors.items() if lo <= hue <= hi}
+    assert seen == set(sectors), seen
+    assert contrast(table_rgb(lut, 255), WHITE) >= 10
+
+
+def test_a_light_raster_spans_its_ramp_in_full(theme_results):
+    for palette, entry in theme_results["lightSlots"].items():
+        assert all(entry["fieldIsLut"].values()), (palette, entry["fieldIsLut"])
+
+
+@pytest.mark.parametrize("palette", SEQUENTIAL)
+def test_the_light_raster_fades_into_the_card_from_its_palest_tint(theme_results, palette):
+    """Below 10^-3 nothing; over the next half decade the ramp's palest tint fades in; opaque above 10^-2.5."""
+    entry = theme_results["lightSlots"][palette]
+    ramp = [c for c in entry["fieldCodes"][2:]]
+    assert all(c[3] == 255 for c in ramp if c[4] >= -2.5 + 1e-6), palette
+    fading = [c for c in ramp if c[4] < -2.5 - 1e-6]
+    assert fading and fading[0][3] < 40, palette
+    assert lstar(fading[0][:3]) > 85, "the floor takes a pale tint, never a dark colour fading in"
+    if palette in MONOTONE:
+        lights = [lstar(over_white(c)) for c in ramp]
+        rises = [i for i, (a, b) in enumerate(zip(lights, lights[1:])) if b > a + 1e-6]
+        assert not rises, (palette, rises[:5])
+
+
+def test_the_light_raster_legend_is_its_ramp_with_the_fade(theme_results):
+    for palette, entry in theme_results["lightSlots"].items():
+        stops, lut = entry["legend"]["stops"], entry["lut"]
+        assert stops[0].startswith("rgba(") and stops[0].endswith(",0.000)"), palette
+        assert rgb_of(stops[0]) == table_rgb(lut, 0) and rgb_of(stops[-1]) == table_rgb(lut, 255), palette
+        assert entry["legend"]["text"][1].endswith("fades to not drawn")
+
+
+@pytest.mark.parametrize("palette", SEQUENTIAL)
+def test_a_cube_on_the_light_screen_clears_three_to_one(theme_results, palette):
+    """A mark standing alone on the card keeps the 3:1 run of its slot's light ramp."""
+    for case, codes in theme_results["lightSlots"][palette]["cubes"].items():
+        opaque = [c for c in codes if c[3] == 255]
+        assert opaque, case
+        assert min(contrast(c, WHITE) for c in opaque) >= 3.0, (palette, case)
+
+
+@pytest.mark.parametrize("palette", MONOTONE)
+def test_light_cubes_darken_on_white_along_the_ramp(theme_results, palette):
     """Contrast rises with value: lightness composited on white never rises, the taper included."""
-    for case, codes in theme_results["lightRamps"][palette]["cases"].items():
+    for case, codes in theme_results["lightSlots"][palette]["cubes"].items():
         lights = [lstar(over_white(c)) for c in codes]
         rises = [(i, b - a) for i, (a, b) in enumerate(zip(lights, lights[1:])) if b > a + 1e-9]
         assert not rises, (palette, case, rises[:5])
         assert lights[0] - lights[-1] > 30, (palette, case)
 
 
-def test_light_runs_are_the_measured_dark_ends_oriented_from_the_card(theme_results):
-    ramps = {p: theme_results["lightRamps"][p]["ramp"] for p in SEQUENTIAL}
-    assert {p: (round(r["from"], 3), round(r["to"], 3)) for p, r in ramps.items()} == {
-        "viridis": (0.6, 0.0), "cividis": (0.698, 0.0), "plasma": (0.639, 0.0), "turbo": (0.749, 1.0)}
-    for p, r in ramps.items():
-        table = theme_results["lightRamps"][p]["table"]
-        lo = table_rgb(table, round(r["from"] * 255))
-        hi = table_rgb(table, round(r["to"] * 255))
-        assert contrast(hi, WHITE) > contrast(lo, WHITE) >= 3.0, p
-
-
-def test_turbo_is_drawn_on_its_light_run_alone(theme_results):
-    """Turbo's 0.749-1 run, contrast rising along it; its taper fades its first colour, no rainbow sweep."""
-    entry = theme_results["lightRamps"]["turbo"]
-    table = entry["table"]
-    run = {table_rgb(table, i) for i in range(round(0.749 * 255), 256)}
-    for case, codes in entry["cases"].items():
-        coloured = [tuple(c[:3]) for c in codes if c[3] > 0]
-        assert set(coloured) <= run, case
-        opaque = [contrast(c, WHITE) for c in codes if c[3] == 255]
-        assert all(b >= a - 1e-9 for a, b in zip(opaque, opaque[1:])), case
-        lights = [lstar(over_white(c)) for c in codes]
-        assert all(b <= a + 1e-9 for a, b in zip(lights, lights[1:])), case
-
-
-def test_the_light_legend_runs_from_the_faded_light_end_to_the_dark_end(theme_results):
-    legend = theme_results["lightLegend"]
-    stops = legend["relative"]["stops"]
-    assert stops[0].startswith("rgba(") and stops[0].endswith(",0.000)")
-    assert rgb_of(stops[0]) == (253, 231, 37), "the taper climbs from Viridis' light end"
-    assert rgb_of(stops[-1]) == (68, 1, 84), "the top of the light legend is Viridis' darkest colour"
-    assert legend["relative"]["text"][1].endswith("fades to not drawn")
-    assert rgb_of(legend["gev"]["stops"][0]) == (34, 167, 132) and rgb_of(legend["gev"]["stops"][-1]) == (68, 1, 84)
-    span = legend["span"]
-    assert span["from"] == pytest.approx(0.6) and span["to"] == 0 and span["taperEnd"] > 0
+def test_the_light_mark_runs_are_the_deep_ends_of_the_light_ramps(theme_results):
+    runs = {p: (round(e["marks"]["from"], 3), round(e["marks"]["to"], 3)) for p, e in theme_results["lightSlots"].items()}
+    assert runs == {"viridis": (0.537, 1.0), "cividis": (0.384, 1.0), "plasma": (0.42, 1.0), "turbo": (0.675, 1.0)}
+    tree = theme_results["lightTree"]
+    assert tree["palette"] == "viridis_light" and round(tree["from"], 3) == 0.537
 
 
 def test_light_series_colours_clear_three_to_one(theme_results):
@@ -605,10 +735,73 @@ def test_light_series_colours_clear_three_to_one(theme_results):
 def test_count_ramps_use_the_server_block_only_on_its_own_card(theme_results):
     for palette, (plain, served) in theme_results["lightCount"].items():
         assert not plain["measured"] and not served["measured"], palette
-        assert served["from"] == plain["from"] and served["to"] == plain["to"]
-    assert theme_results["lightCount"]["viridis"][0]["from"] == pytest.approx(0.6)
-    assert theme_results["lightCount"]["viridis"][0]["to"] == 0
+        assert plain["palette"] == served["palette"] == LIGHT_DRAWN[palette]
+        assert served["from"] == plain["from"] and served["to"] == plain["to"] == 1
     assert all(r["measured"] for r in theme_results["darkCount"].values())
+
+
+# ------------------------------------------------------------ overlays --
+
+
+def _stroked_white(el) -> bool:
+    return (el.get("style") or {}).get("stroke") == "#ffffff"
+
+
+def _cased(entry) -> bool:
+    """A custom overlay element drawn on a white casing: a group whose first child is the white stroke."""
+    el = entry.get("el") or {}
+    return el.get("type") == "group" and _stroked_white(el["children"][0])
+
+
+def _casing_series(entries) -> list:
+    return [e for e in entries if e["type"] in ("scatter", "line") and e["silent"]
+            and ((e.get("itemStyle") or {}).get("borderColor") == "#ffffff"
+                 or (e.get("lineStyle") or {}).get("color") == "#ffffff")]
+
+
+def test_overlay_marks_sit_on_a_white_casing_on_the_light_screen(theme_results):
+    """The marks on the deep shower core: rings, anchors, axes, centroids, the D vector, P0 and its line."""
+    light = theme_results["overlays"]["light"]
+    by_name = {key: {e["name"]: e for e in entries if e["name"]} for key, entries in light.items()}
+    assert len(_casing_series(light["origin"])) == 1, "the merged anchor ring at the origin"
+    assert len(_casing_series(light["entry"])) == 2, "the two anchors"
+    for name in ("Anchor A — spread", "Anchor B — spread", "Mean entry separation"):
+        assert _cased(by_name["entry"][name]), name
+    for name in ("Ensemble axis — A", "Ensemble axis — B"):
+        assert _cased(by_name["ensemble"][name]), name
+    assert _cased(by_name["window"]["Windowed axis — A"])
+    assert _cased(by_name["axes"]["Centre of deposited energy — A"])
+    assert len(_casing_series(light["centroids"])) == 3, "two centroids and the D vector"
+    assert all(_cased(e) for e in light["marks"]), "P0 and the incident axis"
+
+
+def test_dark_overlays_draw_as_before(theme_results):
+    dark = theme_results["overlays"]["dark"]
+    assert "#ffffff" not in json.dumps(dark), "no casing on the dark card"
+    assert not any(_casing_series(entries) for entries in dark.values())
+
+
+def test_the_light_wedges_are_faint_washes_carried_by_their_outlines(theme_results):
+    """On the light screen the spread is a 0.03 wash with dashed long sides, the 95% envelope a 0.07 wash with thin
+    solid ones: two marks for two quantities, and no smoke over the raster. Dark keeps 0.108 / 0.252 and no outline."""
+    for key in ("ensemble", "window"):
+        light = theme_results["overlays"]["light"][key]
+        for entry in light:
+            if entry["name"].endswith("— spread"):
+                fill, *edges = entry["el"]["children"]
+                assert fill["style"]["opacity"] == pytest.approx(0.03)
+                assert len(edges) == 2 and all(e["style"]["lineDash"] == [4, 3] for e in edges)
+                assert all(e["style"]["opacity"] == 0.7 for e in edges)
+            elif entry["name"].endswith("95% interval"):
+                fill, *edges = entry["el"]["children"]
+                assert fill["style"]["opacity"] == pytest.approx(0.07)
+                assert len(edges) == 2 and all(e["style"]["lineDash"] is None for e in edges)
+        dark = theme_results["overlays"]["dark"][key]
+        for entry in dark:
+            if entry["name"].endswith("— spread"):
+                assert entry["el"]["type"] == "polygon" and entry["el"]["style"]["opacity"] == pytest.approx(0.108)
+            elif entry["name"].endswith("95% interval"):
+                assert entry["el"]["style"]["opacity"] == pytest.approx(0.252)
 
 
 # ------------------------------------------------------------ dark spot checks --

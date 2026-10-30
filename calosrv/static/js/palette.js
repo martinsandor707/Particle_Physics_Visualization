@@ -50,6 +50,50 @@
  * (raw Shap-CAM and the correlation matrices) are measured against white in
  * WCAG contrast and placed by CIE L*, as the dark arms are; the numbers are
  * in the comment above their anchors. The standard table `puor` stays print's.
+ *
+ * ## The light screen's sequential ramps: white-grounded, not inverted
+ *
+ * Viridis, Cividis, Plasma and Turbo were made for a dark ground or for paper,
+ * and none can be turned or cut into a good ramp on the light card. Viridis
+ * and Plasma end in a yellow the white card swallows (1.26:1 and 1.15:1), so a
+ * Viridis reversed onto white faded in through yellow and chartreuse and
+ * ringed every shower with them. Reversed Cividis ran from khaki through a
+ * muddy grey. Turbo's only long stretch at 3:1 on white is its orange-to-red
+ * end, a quarter of the ramp. So on the light screen each colour-map slot
+ * draws a ramp made for white (`scale.js` THEME.sequentialPalettes; Martin's
+ * directive of 2026-10-31). Each runs from a pale tint at the display floor to
+ * a deep tone at the peak, so contrast with the card rises with the value and a
+ * continuous raster spans the whole ramp, fading into the card:
+ *
+ * - `viridis_light`: aqua, emerald-teal, azure, indigo, from ColorBrewer
+ *   GnBu/YlGnBu, without yellow (L* 95.8 to 13.4).
+ * - `cividis_light`: ice-azure to deep navy from ColorBrewer Blues/PuBu, one
+ *   hue, so its order survives every colour-vision deficiency (L* 95.5 to 7.6).
+ * - `plasma_light`: apricot, coral-red, plum from ColorBrewer OrRd/RdPu, a warm
+ *   thermal ramp with no lemon-yellow end (L* 95.4 to 12.7).
+ * - `turbo_light`: pale sky, cerulean, emerald, amber, vermilion, crimson,
+ *   garnet, ColorBrewer colours, keeping Turbo's whole cool-to-hot detail.
+ *   Like Turbo its lightness is not monotone (it rises at the amber, L* 77)
+ *   and its green and its orange-reds sit near one lightness, so it is offered
+ *   for detail, never as the default and never as colour-vision-safe. Its peak,
+ *   #67001f, is 13.2:1 on white.
+ *
+ * The anchors are spaced evenly and interpolated in CIELAB, so the steps
+ * between table entries are close to even in perceived colour (at most
+ * ΔE 1.3-2.5 per entry); the three monotone ramps lose lightness at every
+ * entry. One anchor of the directive was left out after measuring it: an
+ * emerald #2ca25f (L* 59.2) between #66c2a4 and #1d91c0 (L* 56.4) sat at
+ * nearly one lightness with its neighbour, so `viridis_light` either rose in
+ * lightness there or, spaced by lightness, swung from green to blue within
+ * nine entries, which reads as a contour. Without it the ramp falls at every
+ * entry and keeps its emerald-teal through #66c2a4.
+ *
+ * Where these ramps meet the 3:1 rule: a continuous raster spans each in
+ * full, its bottom half decade fading into the card, because a raster bin
+ * sits among its neighbours and the faint halo is meant to be faint. A mark
+ * that stands alone on the card - a series line, a 3-D cube, a 2-D histogram
+ * cell, a surrogate-tree leaf - keeps the ramp's run at 3:1 or more, as on the
+ * dark card (`chart_panel.legibleRamp`).
  */
 
 const ANCHORS = {
@@ -157,6 +201,59 @@ const ARM_NEG_LIGHT_LINEAR = [[0, LIGHT_BORDER], [0.114, [253, 184, 99]], [0.428
 const ARM_POS_LIGHT_LINEAR = [[0, LIGHT_BORDER], [0.266, [178, 171, 210]], [0.649, [128, 115, 172]],
   [1, [96, 59, 145]]];
 
+/* The light screen's sequential ramps, from the display floor (a pale tint) to
+ * the peak (a deep tone): ColorBrewer colours, spaced evenly and interpolated
+ * in CIELAB (`buildLabTable`). See the header for why and what was measured. */
+const LIGHT_ANCHORS = {
+  viridis_light: [[232, 246, 243], [178, 226, 226], [102, 194, 164], [29, 145, 192], [34, 94, 168], [8, 29, 88]],
+  cividis_light: [[235, 243, 251], [198, 219, 239], [107, 174, 214], [33, 113, 181], [8, 81, 156], [8, 48, 107],
+    [4, 22, 51]],
+  plasma_light: [[255, 240, 217], [253, 212, 158], [252, 141, 89], [227, 74, 51], [179, 0, 0], [122, 1, 119],
+    [63, 0, 71]],
+  turbo_light: [[209, 229, 240], [67, 147, 195], [44, 162, 95], [253, 174, 97], [244, 109, 67], [215, 48, 39],
+    [103, 0, 31]],
+};
+
+/* CIELAB (D65) of an sRGB triple, and back, clamped to the sRGB gamut. */
+const D65 = [0.95047, 1, 1.08883];
+const toLinear = (c) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+const toGamma = (c) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+
+/** CIELAB [L*, a*, b*] of an sRGB triple (0-255), D65. */
+export function toLab([R, G, B]) {
+  const [r, g, b] = [R, G, B].map(toLinear);
+  const xyz = [0.4124 * r + 0.3576 * g + 0.1805 * b, 0.2126 * r + 0.7152 * g + 0.0722 * b,
+    0.0193 * r + 0.1192 * g + 0.9505 * b];
+  const [fx, fy, fz] = xyz.map((v, i) => {
+    const t = v / D65[i];
+    return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  });
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function fromLab([L, a, b]) {
+  const fy = (L + 16) / 116;
+  const [X, Y, Z] = [fy + a / 500, fy, fy - b / 200].map((f, i) => (f ** 3 > 0.008856 ? f ** 3 : (f - 16 / 116) / 7.787) * D65[i]);
+  return [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z,
+    0.0557 * X - 0.204 * Y + 1.057 * Z].map((c) => toGamma(Math.max(0, Math.min(1, c))));
+}
+
+/** A 256-entry table through evenly spaced anchors, interpolated in CIELAB. */
+function buildLabTable(anchors) {
+  const labs = anchors.map(toLab);
+  const table = new Uint8ClampedArray(256 * 3);
+  const segments = anchors.length - 1;
+  for (let i = 0; i < 256; i += 1) {
+    const t = (i / 255) * segments;
+    const index = Math.min(segments - 1, Math.floor(t));
+    const frac = t - index;
+    const a = labs[index];
+    const b = labs[index + 1];
+    table.set(fromLab([0, 1, 2].map((k) => a[k] + (b[k] - a[k]) * frac)), i * 3);
+  }
+  return table;
+}
+
 /** The colour at arm position p of positioned anchors [[p, rgb], ...]. */
 function armColour(arm, p) {
   let i = 0;
@@ -206,9 +303,13 @@ const DIVERGING = {
 const CACHE = new Map();
 
 export function lookupTable(name) {
-  const key = ANCHORS[name] || DIVERGING[name] ? name : 'viridis';
+  const key = ANCHORS[name] || DIVERGING[name] || LIGHT_ANCHORS[name] ? name : 'viridis';
   if (!CACHE.has(key)) {
-    CACHE.set(key, DIVERGING[key] ? DIVERGING[key]() : buildTable(ANCHORS[key]));
+    let table;
+    if (DIVERGING[key]) table = DIVERGING[key]();
+    else if (LIGHT_ANCHORS[key]) table = buildLabTable(LIGHT_ANCHORS[key]);
+    else table = buildTable(ANCHORS[key]);
+    CACHE.set(key, table);
   }
   return CACHE.get(key);
 }
@@ -281,6 +382,16 @@ export function categoricalStops(name, count, { min = 0.25, max = 1.0 } = {}) {
 /** The sequential ramps the colour-map control offers. */
 export const SEQUENTIAL_PALETTES = Object.keys(ANCHORS);
 export const PALETTES = SEQUENTIAL_PALETTES;
+
+/** The light screen's ramps, by the slot they draw for (THEME.sequentialPalettes in scale.js). */
+export const LIGHT_SEQUENTIAL = Object.freeze({
+  viridis: 'viridis_light', cividis: 'cividis_light', plasma: 'plasma_light', turbo: 'turbo_light',
+});
+
+/** Their anchors, floor first, as '#rrggbb', for the tests and the article to measure. */
+export const LIGHT_RAMP_ANCHORS = Object.freeze(Object.fromEntries(Object.entries(LIGHT_ANCHORS).map(
+  ([name, anchors]) => [name, Object.freeze(anchors.map((c) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`))],
+)));
 
 /** The diverging ramps: print, and the folded screen arms (signed log / linear) of the dark and light cards. */
 export const DIVERGING_PALETTES = Object.keys(DIVERGING);
