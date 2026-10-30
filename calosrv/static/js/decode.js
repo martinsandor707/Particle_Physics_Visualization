@@ -26,7 +26,8 @@
  *
  * On a relative (a.u.) log ramp the bottom `THEME.floorFadeDecades` above the
  * floor also fade in alpha, linearly in log density, so the field dissolves
- * into the card instead of ending in a rim (see the token's note in scale.js).
+ * into the card instead of ending in a rim (see the token's note in scale.js);
+ * on the light screen a raster fades over 0.8 decade (`fieldFadeDecades`).
  * Print sets the token to 0, which makes the alpha a pure step: a hard contour
  * that the caption names as the display floor.
  *
@@ -42,7 +43,7 @@
  * taper fades both arms symmetrically by |v|.
  */
 
-import { THEME, fadesAtFloor, floorExponent, rampPalette, rampTable } from './scale.js';
+import { THEME, fadesAtFloor, fieldFadeDecades, floorExponent, rampPalette, rampTable } from './scale.js';
 
 /** base64 -> Uint8Array, without a data: URL round trip. */
 export function decodeBase64(text) {
@@ -206,8 +207,10 @@ export function renderRaster(payload, paletteName, { screen = true } = {}) {
   const [rows, cols] = payload.shape;
   const codes = decodeBase64(payload.data);
   // The exporter's raster (`screen: false`) keeps the full ramp, as print does.
-  // A continuous field: on the light screen it spans its ramp in full (scale.js `legibleSpan`).
-  const table = codeTable(payload, paletteName, THEME.floorFadeDecades, { legible: screen, field: true });
+  // A continuous field: on the light screen it spans its ramp in full, through
+  // the light transfer on a log scale (scale.js `lightField`).
+  const table = codeTable(payload, paletteName, fieldFadeDecades(payload.scale || {}),
+    { legible: screen, field: true });
 
   const colLookup = axisLookup(payload.axes.col, cols);
   const rowLookup = axisLookup(payload.axes.row, rows);

@@ -21,7 +21,9 @@
  * from the payload's `frame` block and worded here per kind.
  */
 
-import { formatInt, formatSci, floorLabel, formatSigned, typographic } from './scale.js';
+import {
+  formatInt, formatSci, floorLabel, formatSigned, typographic, LIGHT_FIELD_FADE_DECADES,
+} from './scale.js';
 import { FRAME_SYMBOLS, SEPARATION_AXIS } from './axis_symbols.js';
 import { beyondGridSentence, ordinal, showersPerEvent } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
@@ -332,7 +334,7 @@ export function channelCaption({ channel, model = 'segmentation', frame = 'lab',
       ? ' Both showers of every event are superimposed, so ⟨ρ⟩ sums the two.' : '';
     return `Average hit density ⟨ρ⟩ = ΣE / (N·ΔA) in ${unit}, drawn as a.u. relative to the stated `
       + `reference peak on a three-decade logarithmic ramp. Bins below ${floor} of ρ_ref are not drawn and the `
-      + `bottom half decade fades out; ρ_ref is the ${basis}.${both}`;
+      + `${fadeSpan()} fades out; ρ_ref is the ${basis}.${both}`;
   }
 
   let body;
@@ -456,8 +458,18 @@ export function floorSentence(panel, continuous, floor) {
         ? `, ${pct(panel.below_floor_energy_fraction)} of this panel's ${energy}` : '')
       + ')'
     : '';
-  return ` Bins below ${floor} of ρ_ref are not drawn${counts}; the bottom half decade fades to `
+  return ` Bins below ${floor} of ρ_ref are not drawn${counts}; the ${fadeSpan()} fades to `
     + 'transparent, so the edge of the colour is the display floor, not the edge of the shower.';
+}
+
+/**
+ * The stretch above a relative ramp's display floor that fades in, as the
+ * captions word it: the bottom half decade, and on the light screen the 0.8
+ * decade its rasters fade over (scale.js `LIGHT_FIELD_FADE_DECADES`).
+ */
+function fadeSpan() {
+  return onLightCard() && !isPrintTheme()
+    ? `${LIGHT_FIELD_FADE_DECADES} decade above that floor` : 'bottom half decade';
 }
 
 /** The colour sentence of a co-registered panel, by the quantity it shows. */

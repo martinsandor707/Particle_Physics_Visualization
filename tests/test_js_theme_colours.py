@@ -16,10 +16,16 @@ it does, measured on the code's own tables:
 * exports never depend on the screen theme: the print option of a sample of
   builders on recorded payloads, built inside the exporter's swap, is the
   same canonical JSON from either screen theme;
-* light sequential ramps ("contrast rises with value"): every opaque code of
-  every scale kind clears 3:1 on white, lightness composited on white never
-  rises along the codes, the floor taper included, and Turbo is drawn on its
-  0.749-1 run alone;
+* light sequential ramps: each colour-map slot draws its white-grounded ramp
+  (``palette.js`` ``*_light``), monotone in L* on the three monotone slots;
+  a raster spans it in full, through the light transfer on a log scale
+  (``scale.js`` ``LIGHT_FIELD_GAMMA`` 1.85, its floor fading over 0.8 decade),
+  so the bottom decade stays a pale tint on every slot; a mark standing alone
+  (a cube, a series, a cell, a leaf) keeps the ramp's 3:1 run;
+* the overlays on the spatial panels: no casing on either card, the light
+  axes one 1.25 px dashed line, small marks on a light strip under 70 px
+  (``canonical_overlays.stripMarks``), and the Marks toggle leaving the raster
+  alone;
 * PuOr's light arms (``puor_light``, ``puor_light_linear``): 3:1 from p = 1/6,
   L* falling outward, mirrored codes matched in contrast, the linear zero at
   the light border ``#d0d7de``, and the 3-D cubes' arms starting at 3:1;
@@ -243,13 +249,15 @@ for (const p of pal.SEQUENTIAL_PALETTES) {
   const drawn = scale.screenPalette(p);
   const lut = Array.from(pal.lookupTable(drawn));
   const rel = { scale: SCALES.relative, ...LAYOUTS.below };
-  const ct = decode.codeTable(rel, p, THEME.floorFadeDecades, { field: true });
+  // As decode.js `renderRaster` paints a raster: the field's own fade.
+  const ct = decode.codeTable(rel, p, scale.fieldFadeDecades(rel.scale), { field: true });
   out.lightSlots[p] = {
     drawn,
     lut,
-    // A raster (field: true) spans the slot's ramp in full on every kind of scale.
-    fieldIsLut: Object.fromEntries(Object.entries(SCALES).map(([sk, sc]) => [sk,
-      Array.from(scale.rampTable(sc, scale.rampPalette(sc, p), { field: true })).every((v, i) => v === lut[i])])),
+    // A raster (field: true) spans the slot's ramp in full on every kind of scale,
+    // through the light transfer on a log scale.
+    fieldTables: Object.fromEntries(Object.entries(SCALES).map(([sk, sc]) => [sk,
+      Array.from(scale.rampTable(sc, scale.rampPalette(sc, p), { field: true }))])),
     fieldCodes: Array.from({ length: 256 }, (_, c) => [ct[c * 4], ct[c * 4 + 1], ct[c * 4 + 2], ct[c * 4 + 3],
       decode.codeExponent(c, rel.scale, rel)]),
     legend: (() => {
@@ -268,7 +276,17 @@ out.lightCount = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p, [
   h2.countRamp(p), h2.countRamp(p, load('pred_density_two_energy').color.ramp.by_palette[p])]]));
 out.lightTree = cp.legibleRamp(scale.screenPalette(xtree.treePalette('viridis')));
 out.lightAnchors = pal.LIGHT_RAMP_ANCHORS;
+const SIGNED = { scale: 'signed_log10', unit: 'a.u.', vmin: -3, vmax: 0, floor: 'transparent', floor_ratio: 1e-3 };
+const transfer = () => ({
+  lightField: Object.fromEntries(Object.entries({ ...SCALES, signed: SIGNED }).map(([k, sc]) => [k, scale.lightField(sc)])),
+  fade: Object.fromEntries(Object.entries({ ...SCALES, signed: SIGNED }).map(([k, sc]) => [k, scale.fieldFadeDecades(sc)])),
+});
+out.lightTransfer = { gamma: scale.LIGHT_FIELD_GAMMA, fadeDecades: scale.LIGHT_FIELD_FADE_DECADES, light: transfer() };
 scale.setScreenTheme('dark');
+out.lightTransfer.dark = transfer();
+Object.assign(THEME, PRINT_TOKENS);
+out.lightTransfer.print = transfer();
+scale.restoreScreenTheme();
 out.darkSlots = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p, scale.screenPalette(p)]));
 out.darkCount = Object.fromEntries(pal.SEQUENTIAL_PALETTES.map((p) => [p,
   h2.countRamp(p, load('pred_density_two_energy').color.ramp.by_palette[p])]));
@@ -285,7 +303,7 @@ scale.restoreScreenTheme();
   const drawn = (series) => series.map((s) => (s.type === 'custom'
     ? { type: 'custom', name: s.name, el: s.renderItem({ dataIndex: 0 }, api) }
     : { type: s.type, name: s.name ?? null, silent: Boolean(s.silent), itemStyle: s.itemStyle ?? null,
-      lineStyle: s.lineStyle ?? null }));
+      lineStyle: s.lineStyle ?? null, symbolSize: s.symbolSize ?? null }));
   const entry = { name: 'x', lo: -800, hi: 800 };
   const across = { name: 'y', lo: -400, hi: 400 };
   const depth = { name: 'z', lo: 0, hi: 1200 };
@@ -304,8 +322,16 @@ scale.restoreScreenTheme();
     separation_mm: 410 } };
   const marks = [{ type: 'point', style: 'origin', at: [0, 0, 0], panels: null, name: 'P0' },
     { type: 'line', style: 'forward', origin: [0, 0, 0], direction: [0, 0.1, 1], name: 'Incident axis' }];
+  const canonicalSets = {
+    truth_voxel: { label: 'Truth', a: { x: -480, y: 6 }, b: { x: 515, y: -4 } },
+    pred_voxel: { label: 'Predicted', a: { x: -470, y: 3 }, b: { x: 505, y: -2 } },
+  };
   const build = () => {
     const s = {};
+    const strip = ov.stripMarks(38);
+    s.stripEntry = []; ov.addCanonicalAnchors(s.stripEntry, anchors, frame, entry, across, null, strip);
+    ov.addCanonicalCentroids(s.stripEntry, canonicalSets, entry, across, null, strip);
+    s.canonicalCentroids = []; ov.addCanonicalCentroids(s.canonicalCentroids, canonicalSets, entry, across);
     s.entry = []; ov.addCanonicalAnchors(s.entry, anchors, frame, entry, across);
     s.origin = []; ov.addCanonicalAnchors(s.origin, anchors, frame, depth, across);
     s.ensemble = []; panel.addEnsembleAxes(s.ensemble, { a: axis(1), b: axis(-1) }, meta, depth, across);
@@ -316,9 +342,36 @@ scale.restoreScreenTheme();
     return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, drawn(v)]));
   };
   out.overlays = {};
+  out.strip = {};
   for (const theme of ['dark', 'light']) {
     scale.setScreenTheme(theme);
     out.overlays[theme] = build();
+    out.strip[theme] = Object.fromEntries([20, 38, 69.9, 70, 220].map((h) => [h, ov.stripMarks(h)]));
+  }
+  Object.assign(THEME, PRINT_TOKENS);
+  out.strip.print = Object.fromEntries([20, 38, 69.9, 70, 220].map((h) => [h, ov.stripMarks(h)]));
+  scale.setScreenTheme('dark');
+  out.stripMarks = { height: ov.STRIP_HEIGHT_PX, marks: ov.STRIP_MARKS };
+
+  /* The Marks toggle: one panel's option with and without its marks. */
+  const cells = await imp('event_cells.js');
+  const lab = load('projections_base_lab');
+  const option = (panelId, shown, extra = {}) => {
+    const p = Object.create(proj.ProjectionPanel.prototype);
+    Object.assign(p, { isometric: panelId === 'xy', view: null, marksShown: shown, tooltipPosition: null });
+    const opts = { ...cells.ensembleCellOptions(lab, panelId, 'viridis'), ...extra };
+    const built = p.buildOption({ payload: lab.panels[panelId], opts, raster: { canvas: null }, metrics: { width: 600, height: 400 } });
+    return built.series.map((s) => ({ id: s.id ?? null, type: s.type, name: s.name ?? null }));
+  };
+  out.marksToggle = {};
+  for (const theme of ['dark', 'light']) {
+    scale.setScreenTheme(theme);
+    out.marksToggle[theme] = {
+      xyShown: option('xy', true), xyHidden: option('xy', false),
+      yzShown: option('yz', true, { depthBounds: { front: 0, back: 1200 } }),
+      yzHidden: option('yz', false, { depthBounds: { front: 0, back: 1200 } }),
+      unset: option('xy', undefined),
+    };
   }
   scale.setScreenTheme('dark');
 }
@@ -539,7 +592,8 @@ def test_the_light_tokens_are_the_brief_values(theme_results):
     assert light["categorical"] == {"min": 0.25, "max": 1.0}
     assert light["sequentialPalettes"] == {
         "viridis": "viridis_light", "cividis": "cividis_light", "plasma": "plasma_light", "turbo": "turbo_light"}
-    assert (light["markCasing"], light["wedgeAlpha"], light["wedgeEdge"]) == ("#ffffff", 0.05, True)
+    # The overlay casing is retired (2026-10-30): null here as on the dark card and in print.
+    assert (light["markCasing"], light["wedgeAlpha"], light["wedgeEdge"]) == (None, 0.05, True)
     assert (light["divergingPalette"], light["divergingLinearPalette"]) == ("puor_light", "puor_light_linear")
     assert (light["qualitativePalette"], light["speciesPalette"]) == ("dark2", "species_print")
     assert light["tooltipBackground"] == "rgba(255,255,255,0.97)"
@@ -669,20 +723,73 @@ def test_the_light_turbo_keeps_its_spectrum_and_a_deep_peak(theme_results):
     assert contrast(table_rgb(lut, 255), WHITE) >= 10
 
 
-def test_a_light_raster_spans_its_ramp_in_full(theme_results):
+#: The light screen's transfer on a log scale (scale.js LIGHT_FIELD_GAMMA, Martin's directive of 2026-10-30).
+GAMMA = 1.85
+LOG_SCALES = ("gev", "areal", "gevFloor", "relative", "relativeHigh")
+
+
+def test_the_light_transfer_constants(theme_results):
+    transfer = theme_results["lightTransfer"]
+    assert (transfer["gamma"], transfer["fadeDecades"]) == (GAMMA, 0.8)
+
+
+def test_a_light_raster_spans_its_ramp_in_full_through_the_transfer(theme_results):
+    """On a log scale entry i is the ramp's entry round(255 (i/255)^1.85); a linear scale (Grad-CAM) takes the ramp
+    as it is. Either way the floor is the ramp's palest tint and the peak its deepest tone."""
     for palette, entry in theme_results["lightSlots"].items():
-        assert all(entry["fieldIsLut"].values()), (palette, entry["fieldIsLut"])
+        lut = entry["lut"]
+        for kind, table in entry["fieldTables"].items():
+            if kind in LOG_SCALES:
+                expected = [lut[3 * round(255 * (i / 255) ** GAMMA) + k] for i in range(256) for k in range(3)]
+            else:
+                expected = lut
+            assert table == expected, (palette, kind)
+            assert table_rgb(table, 0) == table_rgb(lut, 0) and table_rgb(table, 255) == table_rgb(lut, 255)
+
+
+def test_the_transfer_is_the_light_screens_log_rasters_only(theme_results):
+    transfer = theme_results["lightTransfer"]
+    assert transfer["light"]["lightField"] == {k: k in LOG_SCALES for k in (*LOG_SCALES, "gradcam", "signed")}
+    assert not any(transfer["dark"]["lightField"].values()) and not any(transfer["print"]["lightField"].values())
+    # The fade: 0.8 decade on a light log raster; the theme's own elsewhere (the signed ramps keep half a decade,
+    # where PuOr's light arms reach 3:1), 0.5 on the dark card and 0 in print.
+    assert transfer["light"]["fade"] == {**{k: 0.8 for k in LOG_SCALES}, "gradcam": 0.5, "signed": 0.5}
+    assert set(transfer["dark"]["fade"].values()) == {0.5} and set(transfer["print"]["fade"].values()) == {0}
+
+
+def _decade(entry, lo, hi):
+    """The raster's codes of the three-decade relative ramp whose value lies in [lo, hi] (log10 of rho / rho_ref)."""
+    return [c for c in entry["fieldCodes"][2:] if lo - 1e-9 <= c[4] <= hi + 1e-9]
+
+
+@pytest.mark.parametrize("palette", SEQUENTIAL)
+def test_the_bottom_decade_stays_a_pale_tint(theme_results, palette):
+    """10^-3 to 10^-2 of the reference is drawn in tints between L* 96 and 84, on every slot (the directive's band)."""
+    lights = [lstar(c[:3]) for c in _decade(theme_results["lightSlots"][palette], -3, -2)]
+    assert lights and min(lights) >= 84 and max(lights) <= 96.5, (palette, min(lights), max(lights))
+
+
+@pytest.mark.parametrize("palette", MONOTONE)
+def test_the_ramp_is_spent_on_the_shower_structure(theme_results, palette):
+    """10^-1.5 to 10^0 of the reference spans at least 70% of the ramp's lightness, the bottom decade under 10%."""
+    entry = theme_results["lightSlots"][palette]
+    lut = entry["lut"]
+    full = lstar(table_rgb(lut, 0)) - lstar(table_rgb(lut, 255))
+    core = _decade(entry, -1.5, 0)
+    bottom = _decade(entry, -3, -2)
+    assert (lstar(core[0][:3]) - lstar(core[-1][:3])) / full >= 0.7, palette
+    assert (lstar(bottom[0][:3]) - lstar(bottom[-1][:3])) / full < 0.1, palette
 
 
 @pytest.mark.parametrize("palette", SEQUENTIAL)
 def test_the_light_raster_fades_into_the_card_from_its_palest_tint(theme_results, palette):
-    """Below 10^-3 nothing; over the next half decade the ramp's palest tint fades in; opaque above 10^-2.5."""
+    """Below 10^-3 nothing; over the next 0.8 decade the ramp's palest tints fade in; opaque from 10^-2.2."""
     entry = theme_results["lightSlots"][palette]
     ramp = [c for c in entry["fieldCodes"][2:]]
-    assert all(c[3] == 255 for c in ramp if c[4] >= -2.5 + 1e-6), palette
-    fading = [c for c in ramp if c[4] < -2.5 - 1e-6]
-    assert fading and fading[0][3] < 40, palette
-    assert lstar(fading[0][:3]) > 85, "the floor takes a pale tint, never a dark colour fading in"
+    assert all(c[3] == 255 for c in ramp if c[4] >= -2.2 + 1e-6), palette
+    fading = [c for c in ramp if c[4] < -2.2 - 1e-6]
+    assert fading and fading[0][3] < 40 and fading[-1][3] < 255, palette
+    assert all(lstar(c[:3]) > 85 for c in fading), "the fade is pale tints, never a dark colour fading in"
     if palette in MONOTONE:
         lights = [lstar(over_white(c)) for c in ramp]
         rises = [i for i, (a, b) in enumerate(zip(lights, lights[1:])) if b > a + 1e-6]
@@ -690,10 +797,17 @@ def test_the_light_raster_fades_into_the_card_from_its_palest_tint(theme_results
 
 
 def test_the_light_raster_legend_is_its_ramp_with_the_fade(theme_results):
+    """The colour bar is the raster's own table and alphas: transparent at the floor, opaque from 10^-2.2."""
     for palette, entry in theme_results["lightSlots"].items():
         stops, lut = entry["legend"]["stops"], entry["lut"]
         assert stops[0].startswith("rgba(") and stops[0].endswith(",0.000)"), palette
         assert rgb_of(stops[0]) == table_rgb(lut, 0) and rgb_of(stops[-1]) == table_rgb(lut, 255), palette
+        table = entry["fieldTables"]["relative"]
+        for k, stop in enumerate(stops):
+            t = k / (len(stops) - 1)
+            assert rgb_of(stop) == table_rgb(table, round(255 * t)), (palette, k)
+            opaque = stop.startswith("rgb(")
+            assert opaque == (3 * t >= 0.8 - 1e-9), (palette, k, stop)
         assert entry["legend"]["text"][1].endswith("fades to not drawn")
 
 
@@ -718,7 +832,7 @@ def test_light_cubes_darken_on_white_along_the_ramp(theme_results, palette):
 
 def test_the_light_mark_runs_are_the_deep_ends_of_the_light_ramps(theme_results):
     runs = {p: (round(e["marks"]["from"], 3), round(e["marks"]["to"], 3)) for p, e in theme_results["lightSlots"].items()}
-    assert runs == {"viridis": (0.537, 1.0), "cividis": (0.384, 1.0), "plasma": (0.42, 1.0), "turbo": (0.675, 1.0)}
+    assert runs == {"viridis": (0.537, 1.0), "cividis": (0.384, 1.0), "plasma": (0.42, 1.0), "turbo": (0.722, 1.0)}
     tree = theme_results["lightTree"]
     assert tree["palette"] == "viridis_light" and round(tree["from"], 3) == 0.537
 
@@ -743,42 +857,88 @@ def test_count_ramps_use_the_server_block_only_on_its_own_card(theme_results):
 # ------------------------------------------------------------ overlays --
 
 
-def _stroked_white(el) -> bool:
-    return (el.get("style") or {}).get("stroke") == "#ffffff"
+def _strokes(el) -> list:
+    """Every stroke colour of a drawn custom element, its group's children included."""
+    if not el:
+        return []
+    own = [(el.get("style") or {}).get("stroke")]
+    return own + [c for child in el.get("children") or [] for c in _strokes(child)]
 
 
-def _cased(entry) -> bool:
-    """A custom overlay element drawn on a white casing: a group whose first child is the white stroke."""
-    el = entry.get("el") or {}
-    return el.get("type") == "group" and _stroked_white(el["children"][0])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_no_overlay_mark_is_cased(theme_results, theme):
+    """No white underlay on either card (Martin's directive of 2026-10-30: the casings fused into a white blob on
+    the D-Y' strip and banded the dashed axes): every overlay is one mark, no silent copy of it underneath."""
+    overlays = theme_results["overlays"][theme]
+    for key, entries in overlays.items():
+        for entry in entries:
+            el = entry.get("el") or {}
+            assert "#ffffff" not in _strokes(el), (theme, key, entry["name"])
+            if entry["type"] == "custom" and el.get("type") == "group" and not entry["name"].endswith(
+                    ("— spread", "95% interval")):
+                # A cross (P0) is a group of its two arms, and nothing else.
+                assert [c["type"] for c in el["children"]] == ["line", "line"], (theme, key, entry["name"])
+            # The casing copies were unnamed silent series laid under their mark.
+            assert not (entry["type"] in ("scatter", "line") and entry["silent"] and not entry["name"]), (theme, key)
+            for style in ("itemStyle", "lineStyle"):
+                block = entry.get(style) or {}
+                assert block.get("borderColor") != "#ffffff" and block.get("color") != "#ffffff", (theme, key)
 
 
-def _casing_series(entries) -> list:
-    return [e for e in entries if e["type"] in ("scatter", "line") and e["silent"]
-            and ((e.get("itemStyle") or {}).get("borderColor") == "#ffffff"
-                 or (e.get("lineStyle") or {}).get("color") == "#ffffff")]
+def test_the_light_axes_are_one_clean_dashed_line(theme_results):
+    """An ensemble or windowed axis on the light screen: a single 1.25 px dashed polyline in its shower's colour.
+    The dark card keeps its 1.8 px."""
+    for theme, width in (("light", 1.25), ("dark", 1.8)):
+        overlays = theme_results["overlays"][theme]
+        axes = [e for key in ("ensemble", "window") for e in overlays[key] if "axis —" in e["name"]]
+        assert len(axes) == 3, theme
+        for entry in axes:
+            el = entry["el"]
+            assert el["type"] == "polyline" and el["style"]["lineWidth"] == width, (theme, entry["name"])
+            assert el["style"]["lineDash"] == "dashed"
 
 
-def test_overlay_marks_sit_on_a_white_casing_on_the_light_screen(theme_results):
-    """The marks on the deep shower core: rings, anchors, axes, centroids, the D vector, P0 and its line."""
-    light = theme_results["overlays"]["light"]
-    by_name = {key: {e["name"]: e for e in entries if e["name"]} for key, entries in light.items()}
-    assert len(_casing_series(light["origin"])) == 1, "the merged anchor ring at the origin"
-    assert len(_casing_series(light["entry"])) == 2, "the two anchors"
+def test_a_light_strip_draws_small_marks(theme_results):
+    """Under 70 px tall, on the light screen only: 8 px anchor rings, 6 px centroids, 1.2 px bars, outlines <= 1 px."""
+    assert theme_results["stripMarks"] == {"height": 70, "marks": {"anchor": 8, "centroid": 6, "line": 1.2, "border": 1}}
+    marks = theme_results["stripMarks"]["marks"]
+    assert theme_results["strip"]["light"] == {"20": marks, "38": marks, "69.9": marks, "70": None, "220": None}
+    assert set(map(str, theme_results["strip"]["dark"].values())) == {"None"}
+    assert set(map(str, theme_results["strip"]["print"].values())) == {"None"}
+
+    light = {e["name"]: e for e in theme_results["overlays"]["light"]["stripEntry"]}
+    for name in ("Anchor A", "Anchor B"):
+        assert light[name]["itemStyle"]["borderWidth"] == 1, name
+    for name in ("Truth — A", "Truth — B", "Predicted — A", "Predicted — B"):
+        assert light[name]["itemStyle"]["borderWidth"] <= 1, name
     for name in ("Anchor A — spread", "Anchor B — spread", "Mean entry separation"):
-        assert _cased(by_name["entry"][name]), name
-    for name in ("Ensemble axis — A", "Ensemble axis — B"):
-        assert _cased(by_name["ensemble"][name]), name
-    assert _cased(by_name["window"]["Windowed axis — A"])
-    assert _cased(by_name["axes"]["Centre of deposited energy — A"])
-    assert len(_casing_series(light["centroids"])) == 3, "two centroids and the D vector"
-    assert all(_cased(e) for e in light["marks"]), "P0 and the incident axis"
+        assert light[name]["el"]["style"]["lineWidth"] <= 1.2, name
 
-
-def test_dark_overlays_draw_as_before(theme_results):
+    # The dark strip is drawn exactly as a roomy panel: no strip sizing off the light screen.
     dark = theme_results["overlays"]["dark"]
-    assert "#ffffff" not in json.dumps(dark), "no casing on the dark card"
-    assert not any(_casing_series(entries) for entries in dark.values())
+    assert dark["stripEntry"] == dark["entry"] + dark["canonicalCentroids"]
+
+
+def test_the_strip_sizes_reach_the_symbols(theme_results):
+    """The symbol sizes themselves, read from the harness's raw series."""
+    sizes = {theme: {e["name"]: e["symbolSize"] for e in theme_results["overlays"][theme]["stripEntry"]
+                     if e["type"] == "scatter"} for theme in ("dark", "light")}
+    assert sizes["light"] == {"Anchor A": 8, "Anchor B": 8, "Truth — A": 6, "Truth — B": 6, "Predicted — A": 6,
+                              "Predicted — B": 6}
+    assert sizes["dark"] == {"Anchor A": 13, "Anchor B": 13, "Truth — A": 7, "Truth — B": 7, "Predicted — A": 7,
+                             "Predicted — B": 7}
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_the_marks_toggle_leaves_the_raster_alone(theme_results, theme):
+    """Hidden marks: the raster (and a depth panel's calorimeter faces) alone; shown, the overlays are back."""
+    toggle = theme_results["marksToggle"][theme]
+    assert [s["id"] for s in toggle["xyHidden"]] == ["raster"]
+    assert len(toggle["xyShown"]) > 1 and toggle["xyShown"][0]["id"] == "raster"
+    assert toggle["unset"] == toggle["xyShown"], "a panel built without the flag draws its marks"
+    hidden = [s["name"] for s in toggle["yzHidden"][1:]]
+    assert hidden == ["Calorimeter front face", "Calorimeter back face"], hidden
+    assert len(toggle["yzShown"]) > len(toggle["yzHidden"])
 
 
 def test_the_light_wedges_are_faint_washes_carried_by_their_outlines(theme_results):

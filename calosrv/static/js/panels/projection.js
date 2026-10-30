@@ -34,7 +34,8 @@
  * Every overlay line is a custom series from `marks.js`, clipped to the grid
  * and hit-testable, so its tooltip naming the quantity actually fires. The
  * canonical anchors and centroids live in `canonical_overlays.js`; the lab
- * frame keeps its centroid markers and D vector here, unchanged.
+ * frame keeps its centroid markers and D vector here, unchanged. The card's
+ * Marks toggle (`setMarksShown`) leaves every overlay out.
  *
  * The bin readout answers everywhere on the plot. On an overlay's drawn ink the
  * overlay's own text leads it; the ensemble wedges are silent and are named in
@@ -52,8 +53,9 @@ import {
   customLine, customPolyline, customMarker, customBand, insideWedge, symbolOf, onInk, projectMarks,
 } from './marks.js';
 import {
-  addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread, overlayCasing, pushCased, pushCasedLine,
+  addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread, stripMarks,
 } from './canonical_overlays.js';
+import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
 import { axisSymbol, panelOf } from '../axis_symbols.js';
 import {
@@ -168,6 +170,19 @@ function wedgeOpacity(part, faded) {
   return THEME.wedgeAlpha * factor * (faded ? 0.5 : 1);
 }
 
+/** Stroke (px) of an ensemble or windowed axis on the light screen. */
+export const LIGHT_AXIS_WIDTH = 1.25;
+
+/**
+ * The stroke of an ensemble or windowed axis: 1.8 px on the dark card and in
+ * print, as always; on the light screen one clean 1.25 px dash with nothing
+ * under it (Martin's directive of 2026-10-30: a white casing under the dashes
+ * read as a white band through the shower core).
+ */
+function axisWidth() {
+  return !isPrintTheme() && onLightCard() ? LIGHT_AXIS_WIDTH : 1.8 * THEME.lineAxis;
+}
+
 /** Fraction of the fitted region added as breathing room on each side. */
 const ROI_PADDING = 0.06;
 
@@ -198,6 +213,9 @@ export class ProjectionPanel {
     this.isometric = isometric;
     this.payload = null;
     this.raster = null;
+    // The Marks toggle (`setMarksShown`): false draws the raster, axes and
+    // colour bar alone. Kept across renders; the export follows it.
+    this.marksShown = true;
     this.view = null;   // {col: [lo, hi], row: [lo, hi]} in mm; null = full extent
     this.drag = null;
     this.lastOpts = null;
@@ -432,25 +450,30 @@ export class ProjectionPanel {
     }];
 
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
-    if (marks) this.addMarks(series, marks, col, row, extent, markInk, panelOf(payload.axes));
-    if (axes) this.addShowerAxes(series, axes, col, row);
-    if (trajectories && showerKey) {
-      this.addTrajectories(series, trajectories, col, row, showerKey);
-    }
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
+    // On the light screen a plot a few dozen pixels tall draws its marks small.
+    const strip = stripMarks(rect.height);
 
-    if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
-    if (windowAxis) this.addWindowAxis(series, windowAxis, col, row);
-    if (canonical) {
-      addCanonicalCentroids(series, centroids, col, row, symbols);
-      addCanonicalAnchors(series, anchors, frame, col, row, symbols);
-    } else if (coregistered) {
-      // Superimposed showers: the centroid sets by shape, and the mean
-      // per-event centroid with its SD cross and 95% t-whiskers.
-      addCanonicalCentroids(series, centroids, col, row, symbols);
-      addFrameMeanSpread(series, centroids?.frame_mean, col, row);
-    } else if (centroids) {
-      this.addCentroids(series, centroids, col, row, showVector);
+    // The overlay marks, unless the Marks toggle has hidden them.
+    if (this.marksShown !== false) {
+      if (marks) this.addMarks(series, marks, col, row, extent, markInk, panelOf(payload.axes));
+      if (axes) this.addShowerAxes(series, axes, col, row);
+      if (trajectories && showerKey) {
+        this.addTrajectories(series, trajectories, col, row, showerKey);
+      }
+      if (ensembleAxes) this.addEnsembleAxes(series, ensembleAxes, ensembleMeta, col, row);
+      if (windowAxis) this.addWindowAxis(series, windowAxis, col, row);
+      if (canonical) {
+        addCanonicalCentroids(series, centroids, col, row, symbols, strip);
+        addCanonicalAnchors(series, anchors, frame, col, row, symbols, strip);
+      } else if (coregistered) {
+        // Superimposed showers: the centroid sets by shape, and the mean
+        // per-event centroid with its SD cross and 95% t-whiskers.
+        addCanonicalCentroids(series, centroids, col, row, symbols, strip);
+        addFrameMeanSpread(series, centroids?.frame_mean, col, row, strip);
+      } else if (centroids) {
+        this.addCentroids(series, centroids, col, row, showVector, strip);
+      }
     }
 
     const provisional = frame?.fit?.provisional
@@ -513,7 +536,25 @@ export class ProjectionPanel {
   setOverlay(key, value) {
     if (!this.lastOpts) return;
     this.lastOpts = { ...this.lastOpts, [key]: value };
-    if (!this.payload || !this.raster) return;
+    this.redraw();
+  }
+
+  /**
+   * Show or hide the overlay marks - anchors, centroids, the ensemble and
+   * windowed axes with their wedges, the centre of deposited energy, the
+   * trajectories, the D vector - and redraw from the payload in hand at the
+   * displayed window, with no request: the card's Marks toggle, so the shower
+   * core can be read unobstructed. The raster, the axes, the colour bar and
+   * the calorimeter faces stay. The export follows it.
+   */
+  setMarksShown(shown) {
+    this.marksShown = Boolean(shown);
+    this.redraw();
+  }
+
+  /** Rebuild the option from the retained payload at the current size, keeping the displayed window. */
+  redraw() {
+    if (!this.payload || !this.raster || !this.lastOpts) return;
     const width = this.element.clientWidth;
     const height = this.element.clientHeight;
     if (!(width > 0 && height > 0)) {
@@ -554,7 +595,7 @@ export class ProjectionPanel {
       if (mark.type === 'point') {
         series.push(customMarker({
           name: mark.name, at: mark.at, color: colour ?? THEME.text, sizePx: 6,
-          width: 1.6 * THEME.lineAxis, z: 12, tooltip: mark.tooltip, casing: overlayCasing(1.6 * THEME.lineAxis),
+          width: 1.6 * THEME.lineAxis, z: 12, tooltip: mark.tooltip,
         }));
         continue;
       }
@@ -565,7 +606,6 @@ export class ProjectionPanel {
       }[mark.style] ?? { color: THEME.muted, width: THEME.lineAxis, dash: null, opacity: 0.8 };
       series.push(customLine({
         name: mark.name, from: mark.from, to: mark.to, ...style, z: 7, tooltip: mark.tooltip,
-        casing: overlayCasing(style.width),
       }));
     }
   }
@@ -624,7 +664,6 @@ export class ProjectionPanel {
         opacity: 0.95,
         smooth: 0.2,
         z: 8,
-        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: `Centre of deposited energy — ${shower.toUpperCase()}<br/>`
           + 'energy-weighted centre of the selection’s summed deposit, per depth layer<br/>'
           + 'a property of the summed picture, not a direction',
@@ -719,11 +758,10 @@ export class ProjectionPanel {
         name: `Ensemble axis — ${label}`,
         points: lines.axis,
         color: colour,
-        width: 1.8 * THEME.lineAxis,
+        width: axisWidth(),
         dash: 'dashed',
         opacity: faded ? FADE_OPACITY : 0.95,
         z: 9,
-        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: () =>
           `Ensemble shower axis — ${label}<br/>` +
           `mean incident direction in the Separation-Aligned (D-Frame) (slope ${formatSigned(Number(lines.slope), 4)})<br/>` +
@@ -773,11 +811,10 @@ export class ProjectionPanel {
         name: `Windowed axis — ${label}`,
         points: lines.axis,
         color: colour,
-        width: 1.8 * THEME.lineAxis,
+        width: axisWidth(),
         dash: 'dashed',
         opacity: faded ? FADE_OPACITY : 0.95,
         z: 9,
-        casing: overlayCasing(1.8 * THEME.lineAxis),
         tooltip: () =>
           `Windowed ensemble axis — ${label}<br/>` +
           `mean incident trajectory of the ${n} events entering this window${of} ` +
@@ -808,7 +845,7 @@ export class ProjectionPanel {
     }
   }
 
-  addCentroids(series, centroids, col, row, showVector) {
+  addCentroids(series, centroids, col, row, showVector, strip = null) {
     for (const [key, pair] of Object.entries(centroids)) {
       if (!pair || !pair.a) continue;
       const style = CENTROID_STYLE[key];
@@ -822,16 +859,17 @@ export class ProjectionPanel {
         const cx = point[col.name];
         const cy = point[row.name];
         if (cx === null || cy === null || cx === undefined || cy === undefined) continue;
-        pushCased(series, {
+        series.push({
           type: 'scatter',
           name: lone ? pair.label : `${pair.label} — ${shower}`,
           symbol: shower === 'A' ? 'diamond' : 'circle',
-          symbolSize: style.size * THEME.markerScale,
+          // On a strip the sets keep their order of size, the largest at the strip's anchor size.
+          symbolSize: strip ? style.size * (strip.anchor / LARGEST_CENTROID) : style.size * THEME.markerScale,
           data: [[cx, cy]],
           itemStyle: {
             color: shower === 'A' ? THEME.showerA : THEME.showerB,
             borderColor: THEME.canvas,
-            borderWidth: 1.5 * THEME.lineAxis,
+            borderWidth: strip ? strip.border : 1.5 * THEME.lineAxis,
             opacity: style.opacity,
           },
           tooltip: {
@@ -854,13 +892,13 @@ export class ProjectionPanel {
       const by = pair.b[row.name];
       if (![ax, ay, bx, by].every((v) => v !== null && v !== undefined)) continue;
 
-      pushCasedLine(series, {
+      series.push({
         type: 'line',
         name: 'Separation D',
         data: [[ax, ay], [bx, by]],
         symbol: 'none',
         lineStyle: {
-          color: THEME.text, width: 1.4 * THEME.lineAxis, type: 'dashed', opacity: 0.9,
+          color: THEME.text, width: strip ? strip.line : 1.4 * THEME.lineAxis, type: 'dashed', opacity: 0.9,
         },
         silent: true,
         z: 11,
@@ -1133,7 +1171,8 @@ export class ProjectionPanel {
         `${symbols.col} = ${formatSigned(centreX, 1)} mm<br/>` +
         `${symbols.row} = ${formatSigned(centreY, 1)} mm<br/>`;
       // Named at the pointer, not the bin centre: a wedge edge crosses bins.
-      const wedges = col.name === 'z'
+      // Hidden marks (the Marks toggle) are not named.
+      const wedges = col.name === 'z' && this.marksShown !== false
         ? wedgeNotes(this.lastOpts?.ensembleAxes, this.lastOpts?.ensembleMeta, mmX, mmY,
           this.lastOpts?.windowAxis)
         : [];
@@ -1446,3 +1485,6 @@ const CENTROID_STYLE = {
   // averaged after co-registration, where averaging a position is meaningful.
   canonical_mean: { size: 9, opacity: 0.5, vector: false },
 };
+
+/** The largest lab centroid marker, which a strip draws at its anchor size (`stripMarks`). */
+const LARGEST_CENTROID = Math.max(...Object.values(CENTROID_STYLE).map((style) => style.size));

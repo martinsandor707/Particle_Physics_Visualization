@@ -32,7 +32,10 @@ import {
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
 import { panelSymbols } from './axis_symbols.js';
-import { formatSci, formatInt, isDiverging, legibleSpan, rampPalette, THEME } from './scale.js';
+import {
+  formatSci, formatInt, isDiverging, legibleSpan, rampPalette, THEME, fadesAtFloor, fieldFadeDecades, lightField,
+  LIGHT_FIELD_GAMMA,
+} from './scale.js';
 import { profileAxisKey, ensembleLabel } from './panels/profile.js';
 import { gridSlices, subplotScale, seriesMessage, estimatorNote } from './panels/response_grid.js';
 import { sigmaText, clampInterval, onLightCard, isPrintTheme } from './panels/chart_panel.js';
@@ -131,21 +134,22 @@ export function puorScreenNote() {
  * (`puorScreenNote`), and for a ramp drawn in full. `palette` is the chosen
  * sequential palette's key. On the light screen the slot draws its
  * white-grounded ramp (palette.js), which a raster spans in full: the floor
- * takes the palest tint and fades into the card, the peak the deepest tone.
- * The dark card's sentences are unchanged.
+ * takes the palest tint and fades into the card, the peak the deepest tone,
+ * and on a log scale the light transfer (scale.js `LIGHT_FIELD_GAMMA`) keeps
+ * the faint spray pale. The dark card's sentences are unchanged.
  */
 export function rampStartNote(scale, palette = 'viridis') {
   if (!scale) return '';
   const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
   if (onLightScreen() && !isDiverging(scale)) {
     const ramp = LIGHT_RAMP_WORDS[palette] ?? LIGHT_RAMP_WORDS.viridis;
-    const tapered = (legibleSpan(scale, rampPalette(scale, palette ?? 'viridis'))?.taperEnd ?? 0) > 0;
-    const bottom = tapered
-      ? `the display floor takes its palest tint and fades into the card across the ${num(THEME.floorFadeDecades, 1)} `
-        + 'decade above it'
+    const fade = fieldFadeDecades(scale);
+    const bottom = fadesAtFloor(scale) && fade > 0
+      ? `the display floor takes its palest tint and fades into the card across the ${num(fade, 1)} decade above it`
       : 'the bottom of the colour scale, a bin below the ramp floor included, takes its palest tint';
     return `On the light screen the ${name} slot draws a ramp made for a white card (${ramp}), and a raster spans it `
       + `in full: ${bottom}, and the peak takes its deepest tone, so contrast with the card rises with the value. `
+      + (lightField(scale) ? `${LIGHT_TRANSFER_NOTE} ` : '')
       + `The exported figure carries ${name} itself, in full, on white.`;
   }
   const span = legibleSpan(scale, rampPalette(scale, palette ?? 'viridis'));
@@ -163,13 +167,31 @@ export function rampStartNote(scale, palette = 'viridis') {
     + `included, and not the palette's darkest colour. ${exported}`;
 }
 
+/**
+ * The light screen's transfer on a log scale (scale.js `LIGHT_FIELD_GAMMA`), as
+ * a drawer states it: where the ramp's depth is spent, and that the colour bar
+ * carries the same mapping. The shares are those of the three-decade relative
+ * ramp, computed from γ.
+ */
+export const LIGHT_TRANSFER_NOTE = 'A bin a fraction t of the way up the logarithmic scale is drawn '
+  + `t^${LIGHT_FIELD_GAMMA} of the way along the ramp, so the faint spray round a shower stays a pale tint and the `
+  + `ramp's depth is spent on its structure: on the three-decade relative ramp the bottom decade takes the palest `
+  + `${Math.round(100 * (1 / 3) ** LIGHT_FIELD_GAMMA)}% of the ramp and the top decade the deepest `
+  + `${Math.round(100 * (1 - (2 / 3) ** LIGHT_FIELD_GAMMA))}%. The colour bar is drawn through the same mapping, so a `
+  + 'colour reads off it at its own place, linear in log density between the labelled ends.';
+
+/** What the drawer says when a card's Marks toggle has hidden its overlay marks. */
+export const MARKS_HIDDEN_NOTE = 'The Marks toggle is off: the marks described here are hidden, so the shower core '
+  + 'reads unobstructed, and an export of this panel leaves them out too. The raster, its colour bar and the '
+  + 'calorimeter faces are drawn as always.';
+
 /** What each colour-map slot draws on the light screen (palette.js), as a drawer names it. */
 export const LIGHT_RAMP_WORDS = Object.freeze({
   viridis: 'aqua through emerald-teal and azure to indigo, from ColorBrewer GnBu and YlGnBu',
   cividis: 'ice-azure to deep navy, one hue, from ColorBrewer Blues and PuBu',
   plasma: 'apricot through coral-red to plum, from ColorBrewer OrRd and RdPu',
-  turbo: 'pale sky through cerulean, emerald, amber and vermilion to garnet, whose lightness, like Turbo\'s, is not '
-    + 'monotone',
+  turbo: 'ice and pale sky through cerulean, emerald, amber and vermilion to garnet, whose lightness, like Turbo\'s, '
+    + 'is not monotone',
 });
 
 /** The semantic axes of each Event Inspector panel: column, row. */
@@ -213,10 +235,12 @@ export class Notes {
  * millimetres or null for the full extent, `state` the interface State (null
  * under a bare Node test, which then gets no selection line), `windowAxis`
  * the absolute-frame depth panel's windowed ensemble axis response, when one
- * is drawn.
+ * is drawn. `marksShown` false (the card's Marks toggle) says the overlay
+ * marks are hidden.
  */
 export function projectionNotes({
   payload, panelId, isometric = {}, view = null, state = null, experiment = null, windowAxis = null,
+  marksShown = true,
 }) {
   const panel = payload?.panels?.[panelId];
   if (!panel) return null;
@@ -247,9 +271,11 @@ export function projectionNotes({
   if (windowed) disclosures.push(...windowAxisDisclosures(windowed));
   notes.section(SECTION.disclosures, disclosures);
   const ramp = rampStartNote(panel.scale, state?.get?.('palette'));
-  if (kind !== 'lab') notes.section(SECTION.legend, [exportLegend(panelId, payload, { nShowers }), ramp]);
-  else if (panelId !== 'xy') notes.section(SECTION.legend, [labLegend(payload, { nShowers }), windowAxisLegend(windowed), ramp]);
-  else notes.section(SECTION.legend, [ramp]);
+  const hidden = marksShown ? [] : [MARKS_HIDDEN_NOTE];
+  if (kind !== 'lab') notes.section(SECTION.legend, [...hidden, exportLegend(panelId, payload, { nShowers }), ramp]);
+  else if (panelId !== 'xy') {
+    notes.section(SECTION.legend, [...hidden, labLegend(payload, { nShowers }), windowAxisLegend(windowed), ramp]);
+  } else notes.section(SECTION.legend, [...hidden, ramp]);
   return notes.done(hazards(payload, panelId));
 }
 

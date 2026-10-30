@@ -111,9 +111,13 @@ const SCREEN = {
 
   /* What only the light screen changes, each null or today's value here so the
    * dark card draws exactly as it did. `sequentialPalettes` maps a colour-map
-   * slot to the ramp drawn for it (`screenPalette`); `markCasing` is the halo
-   * under an overlay mark on a raster; `wedgeAlpha` and `wedgeEdge` are the wash
-   * and the outline of an ensemble axis's wedges on the spatial panels. */
+   * slot to the ramp drawn for it (`screenPalette`); `wedgeAlpha` and
+   * `wedgeEdge` are the wash and the outline of an ensemble axis's wedges on
+   * the spatial panels. `markCasing` is retired: the white halo the first light
+   * build laid under the overlay marks cluttered the strips and banded the
+   * dashed axes, and was removed (Martin's directive of 2026-10-30). It is null
+   * in every theme and read by nothing; it stays because the dark golden holds
+   * every dark token (tests/test_js_dark_golden.py). */
   sequentialPalettes: null,
   markCasing: null,
   wedgeAlpha: 0.18,
@@ -190,14 +194,14 @@ const SCREEN_LIGHT = {
   speciesPalette: 'species_print',
   tooltipBackground: 'rgba(255,255,255,0.97)',
 
-  // White-grounded ramps for the four slots (palette.js), a white halo under
-  // the overlay marks, which sit on the deep shower core, and light washes
-  // carried by their outlines for the wedges (0.03 spread, 0.07 envelope),
-  // which at the print weights laid a grey smoke over the raster.
+  // White-grounded ramps for the four slots (palette.js), no casing under the
+  // overlay marks (retired, see SCREEN), and light washes carried by their
+  // outlines for the wedges (0.03 spread, 0.07 envelope), which at the print
+  // weights laid a grey smoke over the raster.
   sequentialPalettes: {
     viridis: 'viridis_light', cividis: 'cividis_light', plasma: 'plasma_light', turbo: 'turbo_light',
   },
-  markCasing: '#ffffff',
+  markCasing: null,
   wedgeAlpha: 0.05,
   wedgeEdge: true,
 };
@@ -331,9 +335,10 @@ export function formatBytes(bytes) {
  *
  * On a relative (a.u.) log ramp the legend mirrors the raster's floor taper
  * (`decode.codeTable`): its bottom stops fade to transparent over the same
- * `THEME.floorFadeDecades` above the same floor, and the bottom label says the
- * floor is not drawn. With the print value 0 the stops stay opaque, matching
- * the hard contour the figure caption names.
+ * `THEME.floorFadeDecades` above the same floor (a light-screen raster's 0.8,
+ * `fieldFadeDecades`), and the bottom label says the floor is not drawn. With
+ * the print value 0 the stops stay opaque, matching the hard contour the
+ * figure caption names.
  */
 export function visualMap(scale, palette, {
   bottomInset = 0, seriesIndex = 0, legible = true, signed = false, field = false,
@@ -361,7 +366,8 @@ export function visualMap(scale, palette, {
   const textStyle = {
     color: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
   };
-  const fade = THEME.floorFadeDecades;
+  // A raster's legend fades as its raster does (`fieldFadeDecades`).
+  const fade = field ? fieldFadeDecades(scale) : THEME.floorFadeDecades;
   const floorExp = floorExponent(scale);
   const title = scale.unit === 'a.u.' && !horizontal ? `${rampTitleText(scale)}\n` : '';
 
@@ -541,18 +547,49 @@ export function fadesAtFloor(scale) {
  * white (palette.js; `screenPalette`, THEME.sequentialPalettes; Martin's
  * directive of 2026-10-30), running from a pale tint to a deep tone, so
  * contrast with the card rises with the value by construction. A continuous
- * raster (`field: true`) spans it in full: its floor takes the palest tint,
- * fading into the card over the bottom half decade, and its peak the deepest
- * tone. A mark that stands alone on the card - a cube, a series line, a
- * histogram cell, a tree leaf - keeps the ramp's run at 3:1 or more, as on
- * the dark card: the Viridis slot from 0.537, Cividis 0.384, Plasma 0.420,
- * Turbo's longest run 0.675-1. Its taper climbs from the ramp's pale start to
- * that colour while its alpha rises, so lightness falls from the card
- * monotonically on the three monotone ramps.
+ * raster (`field: true`) spans it in full: its floor takes the palest tint
+ * and its peak the deepest tone. On a logarithmic scale it is drawn through
+ * the light screen's transfer (`LIGHT_FIELD_GAMMA`, below): position t at t^γ
+ * of the ramp, its floor fading into the card over 0.8 decade. A mark that
+ * stands alone on the card - a cube, a series line, a histogram cell, a tree
+ * leaf - keeps the ramp's run at 3:1 or more, as on the dark card: the
+ * Viridis slot from 0.537, Cividis 0.384, Plasma 0.420, Turbo's longest run
+ * 0.722-1. Its taper climbs from the ramp's pale start to that colour while
+ * its alpha rises, so lightness falls from the card monotonically on the
+ * three monotone ramps.
  */
 
 /** The contrast every opaque on-screen ramp colour clears against the card. */
 export const RAMP_CONTRAST = 3;
+
+/* The light screen's raster transfer (Martin's directive of 2026-10-30).
+ *
+ * On white a ramp taken linearly in log density spent a third of its depth on
+ * the bottom decade: a bin at 1% of the peak was drawn a third of the way to
+ * the deepest tone, so the faint spray round a shower flooded the card with
+ * mid-tones and left the core a dark bruise. A light-screen raster on a
+ * logarithmic scale is therefore drawn at t^γ of its ramp, t its normalised
+ * log position and γ = 1.85: the bottom decade of a three-decade ramp takes
+ * the palest 13% (L* 96 to 88 on every slot), the top decade the deepest 53%,
+ * where the shower's structure is. Its floor fades in over 0.8 decade, 10^−3
+ * to 10^−2.2 of the reference, not half a decade. The colour bar is drawn
+ * from the same table and alphas, so a colour still reads off it at its own
+ * place, linear in log density between the labelled ends. A linear scale
+ * (Grad-CAM's [0, 1]), a signed ramp, a mark standing alone, the dark card
+ * and print are untouched. */
+export const LIGHT_FIELD_GAMMA = 1.85;
+/** Decades over which a light-screen raster on a log scale fades in above its floor. */
+export const LIGHT_FIELD_FADE_DECADES = 0.8;
+
+/** Whether a raster of `scale` takes the light screen's transfer: a sequential log scale on the light screen. */
+export function lightField(scale) {
+  return scale?.scale === 'log10' && !isDiverging(scale) && !isPrintTheme() && onLightCard();
+}
+
+/** Decades over which a raster of `scale` fades in above its floor: the theme's, or the light field's 0.8. */
+export function fieldFadeDecades(scale) {
+  return lightField(scale) ? LIGHT_FIELD_FADE_DECADES : THEME.floorFadeDecades;
+}
 
 /** Where in a floor taper the first 3:1 colour is placed: its full-opacity point, less one code step. */
 export const TAPER_LEGIBLE = 0.97;
@@ -604,7 +641,8 @@ export function legibleSpan(scale, palette, {
 
 /**
  * The 256-entry RGB table a scale's colours are drawn from on screen: the
- * palette's own `lookupTable`, re-indexed onto its legible run (see above).
+ * palette's own `lookupTable`, re-indexed onto its legible run (see above),
+ * or for a light-screen raster on a log scale through the light transfer.
  * `signed: true` folds the raw Shap-CAM linear ramp's arms onto theirs.
  * Pure, and the one owner of the remapping: `decode.codeTable` paints codes
  * through it and `visualMap` samples its legend stops from it, so a bin, a
@@ -629,6 +667,11 @@ export function rampTable(scale, palette, {
       const q = Math.round((s + p * (1 - s)) * 127);
       copy(i, negative ? 127 - q : 128 + q);
     }
+    return out;
+  }
+  if (field && lightField(scale)) {
+    // The light screen's transfer: log position f drawn at f^γ of the ramp.
+    for (let i = 0; i < 256; i += 1) copy(i, Math.round(255 * (i / 255) ** LIGHT_FIELD_GAMMA));
     return out;
   }
   const span = legibleSpan(scale, palette, { legible, fadeDecades, field });

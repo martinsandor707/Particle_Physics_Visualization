@@ -26,6 +26,9 @@ what a reader sees, on the three pages:
   module holds one server);
 * exported figures do not depend on the screen theme: the SVG downloads are
   byte-identical, and the Methodology figures are unchanged;
+* each spatial card's Marks button, in either theme, hides every mark over
+  the raster and brings it back with no request, the raster untouched, the
+  drawer and the export following it and a theme switch keeping it;
 * in light, every visible text of the page's chrome clears 4.5:1 against its
   own opaque ground (dark is measured as the control), the tooltip rule of
   test_browser_tooltip.py holds, the header fits at 1024 and 1600 px with a
@@ -611,6 +614,57 @@ def test_exported_figures_do_not_depend_on_the_screen_theme(live_server):
         assert _unnumbered(light[panel][1]) == _unnumbered(dark[panel][1]), (
             f"the {panel} SVG changed with a live theme switch")
         assert _unnumbered(light[panel][1]) == _unnumbered(booted["dark"][panel][1]), panel
+    assert problems == [], problems
+
+
+#: The series a spatial panel draws, by id or name: the raster alone once its marks are hidden.
+_SERIES = """(plotId) => echarts.getInstanceByDom(document.getElementById(plotId)).getOption().series
+  .map((s) => s.id ?? s.name ?? s.type)"""
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_marks_toggle_clears_the_core_without_a_request(live_server, scheme):
+    """Each spatial card's Marks button hides every mark over the raster and brings it back (Martin's directive of
+    2026-10-30): redrawn from the payload in hand with no request, the raster's bitmap untouched, the button's
+    pressed state and title following, the drawer saying so, the choice kept across a theme switch, and the export
+    leaving the marks out."""
+    base = live_server["base"]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, "/", scheme=scheme, downloads=True,
+                                                  fragment=f"#table_name={BASELINE_TABLE}&frame=canonical")
+        page.locator('.card[data-panel="xy"]').scroll_into_view_if_needed()
+        for panel in ("xy", "yz", "xz"):
+            plot, button = f"plot-{panel}", page.locator(f'.main button[data-toggle-marks="{panel}"]')
+            assert button.get_attribute("aria-pressed") == "true" and "is-active" in button.get_attribute("class")
+            shown, raster = page.evaluate(_SERIES, plot), page.evaluate(_RASTER, plot)
+            svg_shown = _download_svg(page, panel)[1] if panel == "xy" else None
+            before = len(requests)
+            button.click()
+            page.wait_for_timeout(300)
+            assert requests[before:] == [], f"the Marks toggle asked the service: {requests[before:]}"
+            hidden = page.evaluate(_SERIES, plot)
+            faces = [] if panel == "xy" else ["Calorimeter front face", "Calorimeter back face"]
+            assert hidden == ["raster", *faces], (panel, hidden)
+            assert len(shown) > len(hidden), (panel, shown)
+            assert page.evaluate(_RASTER, plot) == raster, f"{panel}: hiding the marks redrew the raster"
+            assert button.get_attribute("aria-pressed") == "false"
+            assert "is-active" not in (button.get_attribute("class") or "")
+            assert button.get_attribute("title").startswith("Show the marks")
+            _open_drawer(page, panel)
+            assert "The Marks toggle is off" in _drawer_text(page), panel
+            if panel == "xy":
+                # The export follows the card: the figure without its marks.
+                assert len(_download_svg(page, panel)[1]) < len(svg_shown)
+                # A theme switch keeps the choice.
+                _toggle(page, requests)
+                assert page.evaluate(_SERIES, plot) == ["raster"]
+                _toggle(page, requests)
+            button.click()
+            page.wait_for_timeout(300)
+            assert page.evaluate(_SERIES, plot) == shown, panel
+            assert button.get_attribute("aria-pressed") == "true" and "is-active" in button.get_attribute("class")
+            assert "The Marks toggle is off" not in _drawer_text(page), panel
+        browser.close()
     assert problems == [], problems
 
 
