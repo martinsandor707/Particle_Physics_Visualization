@@ -72,12 +72,22 @@ GL_CARDS = ("vox-event", "vox-ensemble")
 #: WCAG's floor for text.
 TEXT_FLOOR = 4.5
 
-#: The theme and the body's ground at DOMContentLoaded, before any module ran.
+#: The theme when the first stylesheet enters the document, before it can
+#: style anything (a boot script made deferred, async or a module would leave
+#: it unset there), and the theme and the body's ground at DOMContentLoaded,
+#: before any module ran.
 _RECORD_FIRST_PAINT = """(() => {
+  const watch = new MutationObserver(() => {
+    if ('__atFirstStylesheet' in window || !document.querySelector('link[rel="stylesheet"]')) return;
+    window.__atFirstStylesheet = document.documentElement?.getAttribute('data-theme') ?? null;
+    watch.disconnect();
+  });
+  watch.observe(document, { childList: true, subtree: true });
   document.addEventListener('DOMContentLoaded', () => {
     window.__firstPaint = {
       theme: document.documentElement.dataset.theme ?? null,
       background: getComputedStyle(document.body).backgroundColor,
+      atFirstStylesheet: window.__atFirstStylesheet ?? null,
     };
   }, { once: true });
 })();"""
@@ -298,6 +308,8 @@ def test_the_system_theme_is_in_force_before_the_first_paint(live_server, name, 
         state = _state(page)
         browser.close()
     assert first["theme"] == scheme, first
+    # Set before the first stylesheet entered the document, so before any paint.
+    assert first["atFirstStylesheet"] == scheme, first
     assert state["theme"] == scheme and state["stored"] is None, state
     # The ground at DOMContentLoaded is the one the page keeps: no flash of the other theme.
     assert first["background"] == state["background"] == CANVAS[scheme], (first, state)
@@ -599,6 +611,36 @@ def test_exported_figures_do_not_depend_on_the_screen_theme(live_server):
         assert _unnumbered(light[panel][1]) == _unnumbered(dark[panel][1]), (
             f"the {panel} SVG changed with a live theme switch")
         assert _unnumbered(light[panel][1]) == _unnumbered(booted["dark"][panel][1]), panel
+    assert problems == [], problems
+
+
+def test_an_event_cell_export_does_not_depend_on_the_screen_theme(live_server):
+    """An Event Inspector cell marks its shower's entry point P0 in the shower's ink.
+
+    The cell's options name the shower and the panel resolves the ink when it
+    builds, so the export, built under the print tokens, prints the print ink
+    whichever theme is on screen. The screen ink was once baked into the
+    options, and a dark-screen export printed #58a6ff (2.5:1 on white).
+    """
+    base = live_server["base"]
+    n = _picked(base)
+    ready = "() => document.getElementById('plot-event-lab-xy')?.querySelector('canvas')"
+    files = {}
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        problems = []
+        for scheme in ("dark", "light"):
+            _, page, found, _ = _open(p, base, "/", scheme=scheme, fragment=f"#event={n}&shower=b",
+                                      browser=browser, downloads=True, ready=ready)
+            files[scheme] = _download_svg(page, "event-lab-xy")
+            problems += found
+            page.close()
+        browser.close()
+    assert _same_name(files["dark"][0], files["light"][0])
+    assert files["dark"][1] == files["light"][1], "the event cell's SVG depends on the screen theme"
+    svg = files["dark"][1].lower()
+    assert "#0b5fbe" in svg, "shower B's mark is not in the print ink"
+    assert "#58a6ff" not in svg and "88,166,255" not in svg.replace(" ", ""), "a screen ink reached the figure"
     assert problems == [], problems
 
 
