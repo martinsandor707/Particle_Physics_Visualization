@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/static/js/theme_boot.js"></script>
 <title>Calorimeter Shower Reconstruction Diagnostic Interface</title>
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/layout.css">
@@ -48,6 +49,17 @@
     <div class="badge" id="exact-badge" title="Whether the displayed aggregates are exact or estimated from the preview sample">
       <span class="dot"></span><span id="badge-exact">Exact</span>
     </div>
+
+    <button class="icon-button theme-toggle" id="theme-toggle" type="button"
+            aria-label="Switch to the light theme" title="Switch to the light theme">
+      <svg class="theme-icon theme-icon-sun" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M8 1.5v1.75M8 12.75v1.75M1.5 8h1.75M12.75 8h1.75M3.4 3.4l1.24 1.24M11.36 11.36l1.24 1.24M3.4 12.6l1.24-1.24M11.36 4.64l1.24-1.24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <svg class="theme-icon theme-icon-moon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+    </button>
 
     <button class="action" id="open-admin" type="button"
             title="Upload a dataset, choose the view a new session opens on, and check the automatic ingest">Admin Settings</button>
@@ -294,7 +306,7 @@
       <option value="viridis" selected>Viridis &mdash; perceptually uniform</option>
       <option value="cividis">Cividis &mdash; CVD-optimised</option>
       <option value="plasma">Plasma &mdash; high contrast</option>
-      <option value="turbo">Turbo &mdash; maximum detail</option>
+      <option value="turbo" title="Turbo's lightness is not monotone. On the light theme only its orange-to-dark-red end (0.749 to 1 of the ramp) clears 3:1 against the card, so that end alone is drawn.">Turbo &mdash; maximum detail</option>
     </select>
     <div class="hint" id="colormap-hint" hidden></div>
     <label class="choice" style="margin-top:8px" id="ctl-lock-scale" title="Anchor the colour ramp to the whole dataset so moving a slider changes the image, not the scale.">

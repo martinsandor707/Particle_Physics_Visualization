@@ -52,7 +52,8 @@ def test_the_markup_loads_nothing_from_another_host():
 
 def test_one_module_script_and_the_shell_ids_are_kept():
     html = (STATIC / "methodology.html").read_text(encoding="utf-8")
-    assert re.findall(r"<script\b[^>]*>", html) == ['<script type="module" src="/static/js/methodology_main.js">']
+    assert re.findall(r"<script\b[^>]*>", html) == [
+        '<script src="/static/js/theme_boot.js">', '<script type="module" src="/static/js/methodology_main.js">']
     for element_id in ("sidebar", "sidebar-toggle", "toc", "toc-heading", "main", "paper", "banner", "banner-text",
                        "banner-close", "page-tabs", "view-chip", "view-chip-text", "compute-badge", "badge-memory",
                        "badge-threads"):
