@@ -162,7 +162,9 @@ const SCREEN_LIGHT = {
   bandAlpha: 0.22,
   stripAlpha: 0.07,
 
-  separationRule: 'rgba(17,24,39,0.4)',
+  // Translucent ink, as the dark rule is translucent white: 3.96:1 composited
+  // on the card at 0.55, beside the dark rule's 3.74:1 (0.4 gave only 2.54:1).
+  separationRule: 'rgba(17,24,39,0.55)',
   anchorOpacity: 0.75,
   floorFadeDecades: 0.5,
   divergingPalette: 'puor_light',
@@ -503,8 +505,8 @@ export function fadesAtFloor(scale) {
  * On the light screen's white card the same rule runs the other way ("contrast
  * rises with value", Martin's decision of 2026-10-30). The 3:1 run against
  * white is a ramp's dark end - Viridis 0 to 0.600 (#440154 to #22a784),
- * Cividis 0 to 0.698, Plasma 0 to 0.639, Turbo only 0.749 to 1 (#f6691b to
- * #7a0403) - and `legibleRamp` hands it over oriented from the card outwards,
+ * Cividis 0 to 0.698, Plasma 0 to 0.639, Turbo's longest run 0.749 to 1
+ * (#f6691b to #7a0403) - and `legibleRamp` hands it over oriented from the card outwards,
  * `from` above `to`: the lowest value takes the run's first 3:1 colour and the
  * highest its darkest, so the ramp still gains contrast against its card as
  * the value grows, as it does on the dark one. A floor taper then climbs from

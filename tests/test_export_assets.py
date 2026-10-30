@@ -201,6 +201,24 @@ def test_floor_tokens_exist_on_screen_and_in_print():
     assert float(printed["anchorOpacity"]) == 1
 
 
+def test_the_separation_rule_clears_3_to_1_on_each_screen_card():
+    """The canonical entry panel's separation rule is a line a reader must see.
+
+    It is translucent on screen, white on the dark card and ink on the light
+    one, so its contrast is measured composited over the card it is drawn on:
+    3.74:1 on the dark card at 0.4, 3.96:1 on the light one at 0.55 (0.4 gave
+    the light card only 2.54:1).
+    """
+    for name, screen in _screen_themes().items():
+        rule = re.fullmatch(r"'rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)'", screen["separationRule"])
+        assert rule, f"the {name} separation rule is not an rgba() the test can composite"
+        *rgb, alpha = (float(v) for v in rule.groups())
+        card = screen["card"].strip("'").lstrip("#")
+        ground = [int(card[i:i + 2], 16) for i in (0, 2, 4)]
+        mixed = "#" + "".join(f"{round(alpha * c + (1 - alpha) * g):02x}" for c, g in zip(rgb, ground))
+        assert contrast_ratio(mixed, f"#{card}") >= 3.0, (name, mixed, round(contrast_ratio(mixed, f"#{card}"), 2))
+
+
 def test_both_screen_themes_have_one_key_set_and_print_overrides_it():
     """keys(SCREEN) == keys(SCREEN_LIGHT) ⊆ keys(PRINT_TOKENS): the swap is total from either."""
     screens = _screen_themes()

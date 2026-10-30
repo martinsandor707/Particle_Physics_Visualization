@@ -55,6 +55,7 @@ import {
   THEME, formatNumber, formatInt, formatPercent, axisPadding, typographic,
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
+import { isPrintTheme, onLightCard, seriesStops } from './chart_panel.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
 import { curveAreaLine } from './distribution.js';
@@ -227,9 +228,15 @@ export class EnergyPanel {
     const axis = payload.axis || {};
     const thresholds = payload.thresholds || {};
 
-    const stops = categoricalStops(
-      palette, Math.max(3, slices.length), THEME.categorical,
-    );
+    // On the light screen card the slices take `seriesStops`, each colour at
+    // 3:1 or more against the card: the raw categorical sub-range fell to
+    // 1.40:1 there on Turbo. The dark card and print keep the raw sub-range
+    // they always drew, whose first slice is 2.1:1 on the dark card (TODO.md),
+    // because dark must not move.
+    const count = Math.max(3, slices.length);
+    const stops = onLightCard() && !isPrintTheme()
+      ? seriesStops(palette, count)
+      : categoricalStops(palette, count, THEME.categorical);
     const sliceColor = new Map(slices.map((s, i) => [s.index, stops[i]]));
 
     const shown = (payload.series || []).filter(
