@@ -247,7 +247,7 @@ export const CONSTANTS = Object.freeze({
   LIGHT_PLASMA_FROM: entry(0.639, 'js:panels/chart_panel.js:Number(legibleRamp("plasma", "#ffffff").from.toFixed(3))',
     'The same for Plasma.'),
   LIGHT_TURBO_FROM: entry(0.749, 'js:panels/chart_panel.js:Number(legibleRamp("turbo", "#ffffff").from.toFixed(3))',
-    'Start of Turbo’s only run with 3:1 contrast against the light card (orange).'),
+    'Start of Turbo’s longest run with 3:1 contrast against the light card (orange); its dark-blue end, 0 to 0.176, also clears 3:1 and colours ordered series.'),
   LIGHT_TURBO_TO: entry(1, 'js:panels/chart_panel.js:Number(legibleRamp("turbo", "#ffffff").to.toFixed(3))',
     'End of that run: the top of the ramp, its dark red.'),
   LIGHT_PUOR_NEG_FIRST: entry('#d37610', 'js:palette.js:((c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join(""))(PUOR_LIGHT_ARMS.puor_light.neg[4][1])',

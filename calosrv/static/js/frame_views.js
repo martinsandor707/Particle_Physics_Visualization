@@ -322,7 +322,9 @@ export function channelCaption({ channel, model = 'segmentation', frame = 'lab',
 
   if (channel === 'density') {
     if (!coregistered) {
-      return 'Summed deposited energy per cell, on a logarithmic scale spanning six decades below the brightest cell.';
+      // On the light card the highest cell is the darkest, so it is named by its value there.
+      return 'Summed deposited energy per cell, on a logarithmic scale spanning six decades below the '
+        + `${onLightCard() && !isPrintTheme() ? 'highest-energy' : 'brightest'} cell.`;
     }
     const basis = pf?.rho?.basis ?? 'raw 20 mm-grid peak';
     const unit = unitText(payload?.panels?.xy?.rho_unit);
