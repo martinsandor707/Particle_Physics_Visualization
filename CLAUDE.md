@@ -115,17 +115,28 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - **STRICTLY FORBIDDEN**: Rainbow, Jet, or non-monotonic spectral colormaps.
   - **A signed quantity takes a diverging ramp, symmetric about zero.** Shap-CAM attributions are signed: 11–64% of hits are negative, per network and frame, on the production file. A sequential ramp or a [0, 1] bound would fold every negative attribution into "no attention", and a logarithm cannot take a sign. Raw Shap-CAM is therefore drawn linear on [−1, +1] and its energy-weighted sum on a signed logarithmic ramp ±(10⁻³ … 1) of the selection's peak |value|, on the ColorBrewer **PuOr** diverging palette (orange negative, purple positive) and never on a sequential one. Bins with |value| below 10⁻³ of the peak are transparent and counted, as the density floor is; nothing is clipped.
     - **On the dark screen PuOr is folded; print keeps the standard scheme.** Measured against the `#1c2128` card, standard PuOr's strongest colours vanish (`#2d004b` at 1.07:1, `#7f3b08` at 1.95:1 WCAG contrast) and its `#f7f7f7` centre makes a bright halo round every near-zero bin. On screen each arm therefore runs from the card outwards through PuOr's own colours, brightness rising with |value| and hue alone giving the sign; the first 3:1 colour of each arm (`#b35806` 3.3:1, `#8073ac` 3.8:1) sits at 10^−2.5 of the peak, where the taper above the transparent band reaches full opacity, so nothing a reader is asked to see is drawn below 3:1. The arms' other anchors are placed by CIE lightness, so equal |value| of either sign reads equally bright (mirrored codes agree to 15% in contrast on the signed log, 9% on the linear ramp). Raw Shap-CAM puts zero at border grey `#30363d`, so a populated zero stays distinct from an empty bin. Print keeps the standard 11-class scheme, whose light centre marks zero on white paper. Measure any new palette's anchors against the card before adopting it.
-  - **On screen, every sequential ramp starts at its first 3:1 colour.**
-    - **Why:** Viridis' own first colour is 1.06:1 on the `#1c2128` card. A populated bin, or a floating 3-D cube, at the bottom of the ramp would vanish while being drawn: up to 58% of an event's cubes did.
+    - **On the light screen PuOr keeps its standard direction, re-anchored** (`palette.js` `puor_light`, `puor_light_linear`).
+      - **Why:** on the `#ffffff` card the standard order already raises contrast with |value|, but its pastels sit below 3:1 over the lower two decades of the signed log.
+      - **How:** each arm runs from the card outwards through PuOr's own colours in their standard order.
+        - Its first 3:1 colour (`#d37610` 3.30:1, `#9287b9` 3.29:1, points on PuOr's path at one L*) sits at 10^−2.5 of the peak, as on the dark card.
+        - It ends at `#7f3b08` and `#603b91`, both L* 33.3. The purple arm stops short of `#2d004b`, which would break the mirror.
+        - Anchors are placed by CIE lightness: mirrored codes agree within 1.5% in contrast on the signed log and 1.8% on the linear ramp.
+      - **Zero:** raw Shap-CAM and the correlation matrix put it at the light border `#d0d7de` (1.45:1, as `#30363d` is 1.33:1 on the dark card), so a populated zero stays distinct from an empty bin.
+  - **On screen, every sequential ramp is drawn on its 3:1 run against the card in force, oriented so that contrast rises with value.**
+    - **Why:**
+      - Viridis' own first colour is 1.06:1 on the `#1c2128` card. A populated bin, or a floating 3-D cube, at the bottom of the ramp would vanish while being drawn: up to 58% of an event's cubes did.
+      - On the light `#ffffff` card the failure is the mirror image. Viridis' `#fde725` top is 1.26:1, and its dark end is the most salient mark on white, so the faint halo would read as the strongest one.
     - **Where:** every on-screen sequential ramp, and its legend:
       - both pages' spatial rasters and the Event Inspector;
-      - the Models page's paired projections and 3-D cubes.
-    - **How:** each is painted from its first colour at ≥ 3:1 (`static/js/scale.js` `legibleSpan`, built on `chart_panel.legibleRamp`).
-      - Viridis starts at t = 0.376.
-      - A tapered relative ramp reaches that colour at the taper's full-opacity point.
+      - the Models page's paired projections, 3-D cubes, 2-D histograms and surrogate tree;
+      - the ordered series colours (`seriesStops`).
+    - **How:** each is painted on its palette's longest run at ≥ 3:1 against the card (`static/js/scale.js` `legibleSpan`, built on `chart_panel.legibleRamp`).
+      - On the dark card, Viridis runs from t = 0.376 to 1.
+      - On the light card the run is oriented from the card outwards (Martin's decision, 2026-10-30): Viridis from t = 0.600 (`#22a784`) at the lowest value to 0 (`#440154`) at the highest; Cividis from 0.698 and Plasma from 0.639. Turbo's longest 3:1 run is 0.749–1, orange to dark red, which its rasters and legends use; ordered series take its dark-blue run, 0–0.176.
+      - A tapered relative ramp reaches the run's first colour at the taper's full-opacity point. The taper climbs from the palette's end beyond it, so on either card lightness moves monotonically away from the card.
       - Raw Shap-CAM cubes start each arm at 3:1.
-    - **Print and the exporter** keep the full ramp.
-    - **Disclosure:** the drawers say where the screen ramp starts.
+    - **Print and the exporter** keep the full ramp in the palette's standard direction, from either screen theme.
+    - **Disclosure:** the drawers say where the screen ramp starts, and on the light card that it runs from the palette's light end.
   - **Every rendered negative number is set with the minus sign U+2212**, never the ASCII hyphen: axis ticks, colour-scale ends, tooltips, captions, footnotes, server notices and exported SVG text (`static/js/format.js`, `calosrv/text.py`). JSON numbers are untouched.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
@@ -144,6 +155,12 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - the 3-D card has no export;
       - a page holds at most two WebGL contexts, and the card says so where WebGL is unavailable.
   - Maintain a high-contrast scientific dark theme: canvas `#0d1117` / `#161b22`, card panels `#1c2128`, borders `#30363d`, text `#e6edf3` / `#8b949e`.
+  - **An optional light theme sits beside it** (the header toggle, §5).
+    - **Tokens:** canvas `#f6f8fa` / `#ffffff`, card panels `#ffffff`, borders `#d0d7de`, text `#111827` / `#59636e`, the showers `#a3186b` / `#0b5fbe`.
+    - **Where they live:** the `css/tokens.css` light block (inside `@media screen`) and `scale.js` `SCREEN_LIGHT`, which a test keeps equal.
+    - **The rules:** every rule of this section holds on its card as on the dark one, measured against it. Text clears 4.5:1 on every ground it is drawn on.
+    - **Dark mode does not move:** `tests/test_js_dark_golden.py` records every dark output as it was before the light theme.
+    - **Exports:** an export is the same figure from either theme, because print overrides every screen token.
 * **Outlier Clipping for Readability**:
   - These datasets contain genuine outliers, and per-hit energies span ~15 decades. Fitting an axis or colour ramp to the full data range spends nearly all of it on a handful of extreme values.
   - Default display ranges (axis limits, histogram ranges, colour-scale bounds) to the **1st–99th percentile** rather than min/max.
@@ -245,6 +262,12 @@ When working with calorimeter simulation datasets in this repository:
   - Display channel radio toggle, five options: "Average Hit Density (Summed Energy)", "Grad-CAM Model Attention", "Energy-weighted Grad-CAM", "Shap-CAM Attribution", "Energy-weighted Shap-CAM".
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.
+  - **The theme toggle** (`#theme-toggle`, `js/theme.js`): one header button on all three pages switches between the dark and the light theme.
+    - **Default:** with nothing stored, the page follows the OS (`prefers-color-scheme`), live.
+    - **A click** stores the choice in `localStorage['calosrv.theme']`. A click that lands on the OS's own theme clears it instead, so the page follows the OS again (Martin's decision, 2026-10-30).
+    - **No flash:** a classic `theme_boot.js`, first in `<head>`, sets `data-theme` before the first paint.
+    - **Not view state:** the theme never enters the view state, the URL hash or the Admin defaults, so a link means the same in either theme.
+    - **A switch** redraws every panel from the payloads in hand, with no request, and the 3-D views keep the reader's camera.
   - Reconstruction model radio toggle: "Segmentation Model", "Energy Estimation Model", "Incident Angle Estimation Model" with dynamic contextual captions and metric summary cards. The selected model drives both the attention channels of the three spatial panels (its per-hit CAM columns in the selected frame; the D-frame uses the absolute-frame networks) and the metric cards; plot 4 stays the segmentation reconstruction of the selected frame's segmentation network.
   - The four on-card footnotes are replaced by a per-panel **Details** drawer (`<aside id="inspector">`, `js/shell.js`, text from `js/panel_notes.js`): the former footnote's home, opened from each card's Details button — the keyboard trigger, flagged with a warning dot when the panel carries a hazard — or its title row, in sections Selection / What is drawn / Disclosures / Marks and legend, plus Reading the density axis on the energy panel. Every drawer opens with a link to the Methodology section that explains its panel (see Page 3 below). The key counts stay on screen without opening it: the energy card's `#energy-sparse` notices (which also carry the energy-axis clipping note), the status-bar ρ_ref and **Clipped** readouts (`#stat-clipped`: clipped ramp cells in the Absolute frame, bins below the display floor in a co-registered frame), and the sidebar's info dots (the comb and frame notices).
   - Exported SVG/PNG figures are the plot canvas only, by directive: axes, raster, overlays and the colour-scale legend on `#FFFFFF` in `#111827` ink, with no caption band, no reserved bottom height, no `<g id="figure-disclosure">` and no μ/σ table rows. This overrides the earlier rule that the figure carries its own disclosures; the drawer's text is what goes into a manuscript caption.

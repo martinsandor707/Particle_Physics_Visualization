@@ -1065,6 +1065,10 @@ grid tracks snap — no CSS transition — and every chart re-lays itself out
 synchronously once the class has toggled, so the XY panel stays 1:1 px/mm at
 the new width rather than measuring a half-way geometry.
 
+**The theme toggle.** The header's sun or moon button switches between the
+dark and the light theme. With nothing stored it follows the OS. See
+[Light and dark themes](#light-and-dark-themes).
+
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand
 drawer (`<aside id="inspector">`, `js/shell.js`) with that panel's methodology
@@ -2046,6 +2050,37 @@ card (`static/js/scale.js` `legibleSpan` and `rampTable`, built on
   6,000 cubes and every cube of the raw Shap-CAM event were opaque and under 3:1
   before the change; none is now (the smallest is 3.04:1).
 
+**On the light theme's card the run is oriented so that contrast rises with
+value.** Against `#ffffff` the failure is the mirror image of the dark card's.
+Viridis' `#fde725` top is 1.26:1, and the palette's dark end is the most
+salient mark on white, so a faint halo would read as the strongest one. Each
+sequential ramp is therefore drawn on its 3:1 run against white, from its
+faintest 3:1 colour at the lowest value to its darkest at the highest. Contrast
+then rises with value, as it does on the dark card (Martin's decision,
+2026-10-30). `chart_panel.legibleRamp` orients the run only on a light screen
+card, so the dark card and print keep their order exactly:
+
+| Palette | 3:1 run on the light card, lowest value first | First colour of the run |
+|---|---|---|
+| Viridis | 0.600 → 0 | `#22a784`, 3.03:1 |
+| Cividis | 0.698 → 0 | `#a09565`, 3.01:1 |
+| Plasma | 0.639 → 0 | `#e87159`, 3.03:1 |
+| Turbo | 0.749 → 1 | `#f6691b`, 3.02:1 (Turbo's longest 3:1 run on white; ordered series take its dark-blue run, 0 – 0.176; its option's title says so) |
+
+- **The floor taper** climbs from the palette's light end (Viridis' yellow) to
+  the run's first colour while its alpha rises. Lightness, composited on white,
+  therefore falls monotonically from the card through the whole ramp. Turbo's
+  run has no fainter end beyond it, so it fades its first colour alone.
+- **The 3:1 floor holds:** every opaque code clears it. The worst is 3.008:1 on
+  Cividis and 3.031:1 on Viridis.
+- **Ordered series follow the same orientation** (`seriesStops`), every colour
+  at 3:1 or more. That includes the energy panel's slices, which on the dark
+  card still sample the categorical sub-range raw, with a first slice of 2.1:1
+  (recorded in TODO.md, because dark must not move).
+- **The drawers** say where the screen ramp starts on either card.
+- **Print** keeps the palette's standard direction on white, whichever theme is
+  on screen.
+
 **Conservation, measured on production.** ΣE·Grad-CAM and the positive and
 negative ΣE·Shap-CAM parts, inside plus outside each grid, equal direct DuckDB
 sums over the selected hits to ≤ 3.3 × 10⁻¹³ in all four frames and all three
@@ -2073,6 +2108,23 @@ sequential ramp is chosen (the colour-map control is disabled and says why).
   mirrored codes agree to 15% in contrast on the signed log and 9% on the
   linear ramp. (Spaced evenly, the purple arm of the linear ramp had stayed
   below 3:1 until |v| = 0.43 while the orange one crossed it at 0.24.)
+- **On the light screen it keeps its standard direction, re-anchored**
+  (`puor_light`, `puor_light_linear`). On white the standard order already
+  raises contrast with |value|, but its pastels sit below 3:1 over the lower two
+  decades of the signed log.
+  - **The arms.** Each runs from the card outwards through PuOr's own colours in
+    their standard order.
+  - **The first 3:1 colours.** `#d37610` (3.30:1) and `#9287b9` (3.29:1) are
+    points on PuOr's path at one L*. They sit at 10^−2.5 of the peak, as on the
+    dark card.
+  - **The ends.** `#7f3b08` and `#603b91` (both L* 33.3). Running the purple arm
+    on to `#2d004b` would make mirrored codes differ by 2.1×.
+  - **The mirror.** Mirrored codes agree within 1.5% in contrast on the signed
+    log and 1.8% on the linear ramp.
+  - **Zero.** Raw Shap-CAM and the correlation matrix put it at the light border
+    `#d0d7de` (1.45:1), so a populated zero stays distinct from an empty bin.
+  - **Correlation labels.** A label takes the text ink, white or black,
+    whichever contrasts most with its cell: 4.59:1 at worst.
 
 The legends mark both signs and zero (`+10⁰ a.u.`, `±10⁻³`, `−10⁰ a.u.`; `+1.00`,
 `0`, `−1.00`). Every rendered negative number in the interface and the exported
@@ -2581,6 +2633,71 @@ and carries σ's skewed sampling distribution, which dominates at small N. μ's 
 uncertainty is smaller by a factor of about σ/μ and is neglected, which the
 payload says; the delta-method standard error, which includes it, travels beside
 it for the tooltip.
+
+### Light and dark themes
+
+Each page's header carries a theme toggle (`#theme-toggle`, a sun in the dark
+theme and a moon in the light one: the icon of the theme a click switches to).
+The dark theme is the one the dashboard was designed in. The light theme is an
+option for bright rooms, projectors and screenshots on white slides.
+
+- **Which theme opens.** `static/js/theme_boot.js` is a classic script that
+  runs first in `<head>`, before the stylesheets. It sets `data-theme` on
+  `<html>` to the stored choice if there is one, otherwise the OS's
+  `prefers-color-scheme`, otherwise dark. The page never paints in the wrong
+  theme.
+- **The toggle** (`static/js/theme.js`).
+  - **A click** switches the theme and stores the choice in
+    `localStorage['calosrv.theme']`.
+  - **A click onto the OS's own theme** removes the stored choice instead, so the
+    page follows the OS again (Martin's decision).
+  - **While nothing is stored**, the page follows a change of the OS setting live.
+  - **Open tabs** follow each other.
+  - **The button's title** says which applies and what a click will do.
+- **What the theme is not.** It is a per-browser convenience, like the
+  collapsed sidebar. It never enters the view state, the URL hash or the Admin
+  defaults, so a bookmark opens the same view in either theme.
+- **A switch redraws; it does not reload.**
+  - **The order.** The CSS tokens follow `data-theme`, and the chart tokens
+    (`scale.js` `THEME`) follow `setScreenTheme`. Each page then redraws every
+    panel from the payloads it holds, as a colour-map change does, with **no
+    request**:
+    - the 2×2, the Event Inspector, the compare grid, plot 4, the physics and
+      Models cards, and the energy panel;
+    - every Details drawer already built.
+  - **The 3-D views** keep the reader's rotation, pan and zoom.
+  - **Not yet loaded:** a card loaded later draws in the theme in force.
+- **The light tokens.** They are the `css/tokens.css` light block and
+  `scale.js` `SCREEN_LIGHT`, which a test keeps equal.
+  - **The surfaces:** a `#ffffff` card on a `#f6f8fa` page, `#d0d7de` borders,
+    and `#111827` / `#59636e` text. The showers take the print inks, `#a3186b`
+    and `#0b5fbe`.
+  - **Text contrast:** every text token clears 4.5:1 on the card and on the
+    page.
+  - **Print:** the block sits inside `@media screen`, so the Methodology's print
+    stylesheet still wins on paper.
+  - **The ramps** follow the rules above, measured against the light card.
+- **Dark mode does not move.** `tests/test_js_dark_golden.py` records every
+  dark output as it was before the light theme existed, and fails naming any
+  case that changes:
+  - tokens, ramp and code tables, and legends;
+  - every chart option on the 64 recorded payloads;
+  - drawer sentences;
+  - the Methodology figures.
+
+  `CALOSRV_WRITE_DARK_GOLDEN=1` re-records it. `CALOSRV_DARK_GOLDEN_DUMP=<dir>`
+  writes every case as canonical JSON, to diff against a dump taken before a
+  change.
+- **Exports do not move.** An exported figure is drawn under the print tokens,
+  which override every screen token. It is the same file from either theme:
+  `tests/test_browser_theme.py` compares the bytes of a dark boot's and a light
+  boot's SVGs.
+- **Tests.** `tests/test_browser_theme.py` holds the rest end to end (opt-in,
+  `CALOSRV_BROWSER_TESTS=1`): the OS preference before the first paint, the
+  stored choice, the toggle, zero requests on a switch, the repaint, the 3-D
+  camera, legibility in place, and the header. Every other browser test runs in
+  the dark theme by name (`color_scheme="dark"`), because Playwright emulates a
+  light OS by default.
 
 ### Exporting figures for publication
 

@@ -14,6 +14,7 @@ The figures quoted were measured on the electron files on 2026-10-24 (data chara
 | C6 species voxels and C11 on two-shower events | /models | hits_all_models schema v2 | 5 |
 | Engineering follow-ups (shared size guard, inspector splat k, D-frame cloud cap, φ-spread fixture) | — | nothing; review each | 8 |
 | Follow-ups from the Page 2 review (estimator and fading consistency on Page 1, contracts generator, re-measurements) | both | nothing; review each | 9 |
+| Follow-ups from the light theme (dark contrast shortfalls that only a dark change can fix, the 3-D zoom on a palette change, the 1024 px header, printing) | all | Martin's decision on moving dark | 11 |
 
 The XGBoost views E1, E3, E4 and E5 and the XGBoost series of E2 and of the prediction density are live (§1). An aggregate experiment shows them once its species' s1 models are paired and analysed; until then the cards say why.
 
@@ -173,3 +174,56 @@ Not blocked by data; each is a deliberate change with its own review.
 - **The lattice docstrings.** Re-measured on `ingest/hits_all_models.parquet`: 212 x, 104 y and 60 z positions; two
   sparse x positions sit 0.91 mm and 0.15 mm from a neighbour, which is the 212th (`dd47792`).
 - **MathML beyond Chromium.** Martin checked the equations in Firefox (2026-10-29); no other browser is targeted.
+
+## 11. Follow-ups from the light theme (2026-10-30)
+
+The light theme (branch `light-mode`) left dark mode byte-identical by design (`tests/test_js_dark_golden.py`). So
+the defects it found that dark mode shares, and that only a change to dark could fix, wait here for a decision.
+
+- **Dark correlation labels at 4.01:1.**
+  - **The defect.** The dark card's text-or-canvas label choice (`panels/correlation.js` `labelColour`) reaches
+    only 4.01:1 at r = −0.41, under the 4.5:1 text floor.
+  - **The fix.** The light card takes `inkOn` (4.59:1 at worst); doing the same on dark moves dark's golden.
+- **The energy panel's dark slice colours.**
+  - **The defect.** On the dark card `energy.js` still samples `categoricalStops(THEME.categorical)` raw. The first
+    slice is 2.1:1 on Viridis, and the top slice 1.42:1 on Turbo.
+  - **The fix.** The light card already takes `seriesStops`, at 3:1 or more on every palette. Moving dark to it
+    re-records the energy cases of the golden.
+- **Sidebar text in dark at 3.74:1.**
+  - The metric cards' `<small>` lines measure 3.74:1 in place, and the banner's dismiss glyph 3.83:1
+    (`tests/test_browser_theme.py` measures both).
+  - The light theme raises both with two light-only opacities. Dark keeps its own.
+- **"Brightest" in the server's notes.**
+  - **Where.** `query/event_inspector.py` and `query/voxel_event.py` name the top of a ramp "the brightest bin,
+    cube or voxel".
+  - **The problem.** On the light card the highest value is the darkest. The client's own sentences say
+    "highest-energy" or "highest-valued" there, but the server cannot know the theme.
+  - **The fix.** A wording that holds on both cards ("the highest") changes dark text.
+- **A palette change resets the 3-D zoom.**
+  - **The cause.** echarts-gl writes the reader's rotation and pan back into its model, but not the orthographic
+    zoom. So the palette and isolate paths reset it: 137 → 153, measured.
+  - **The fix.** A theme switch keeps it through `voxel_views.js` `holdZoom`. Passing that on every `keepCamera`
+    paint would fix the others.
+- **The header at 1024 px.**
+  - **The defect.** The Physics and Models headers run 460 and 394 px past a 1024 px window, before the theme
+    toggle; it adds 44 px. The header is `nowrap`, and the experiment picker is 480 px wide with the
+    demonstration's name.
+  - **The fix.** A wrapping header or a narrower picker is a CSS change of its own.
+- **Printing the Physics and Models pages.**
+  - **The defect.** Only the Methodology page has a print stylesheet. The light tokens apply on screen only, so the
+    Methodology print block still wins. A light-mode reader who prints a dashboard page therefore gets the dark
+    tokens' chrome on paper, beside light-ink canvases; a dark-mode reader always did.
+  - **The fix.** The figures' route to paper is the Export menu, which neither theme affects. A print block for
+    those two pages would fix the rest.
+- **Turbo on the light card.**
+  - Its longest 3:1 run on white is 0.749–1, orange to dark red, nearly one hue. The rasters and legends use it,
+    and ordered series take its dark-blue run, 0–0.176. Its option's title says so.
+  - Viridis stays the default.
+- **Dark-golden coverage.**
+  - **The gap.** The golden records the pure builders on the 64 recorded payloads. The Event Inspector's
+    `eventCellOptions` and the windowed-axis marks are not recorded, because no recorded payload carries their
+    rasters.
+  - **The fix.** Add `/api/event` and `/api/window-axis` to `tests/test_payload_fixtures.py` and re-record the
+    golden.
+- **Fixed on the branch, already failing on `main`.** `test_export_assets.py::test_no_retired_frame_vocabulary_ships`
+  failed at 72e4ec6 on "National Laboratory" in the article's byline. The test now drops that proper noun.
