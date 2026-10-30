@@ -122,21 +122,44 @@ Sections 2 through 5 below apply **identically to both architectures**.
         - It ends at `#7f3b08` and `#603b91`, both L* 33.3. The purple arm stops short of `#2d004b`, which would break the mirror.
         - Anchors are placed by CIE lightness: mirrored codes agree within 1.5% in contrast on the signed log and 1.8% on the linear ramp.
       - **Zero:** raw Shap-CAM and the correlation matrix put it at the light border `#d0d7de` (1.45:1, as `#30363d` is 1.33:1 on the dark card), so a populated zero stays distinct from an empty bin.
-  - **On screen, every sequential ramp is drawn on its 3:1 run against the card in force, oriented so that contrast rises with value.**
-    - **Why:**
-      - Viridis' own first colour is 1.06:1 on the `#1c2128` card. A populated bin, or a floating 3-D cube, at the bottom of the ramp would vanish while being drawn: up to 58% of an event's cubes did.
-      - On the light `#ffffff` card the failure is the mirror image. Viridis' `#fde725` top is 1.26:1, and its dark end is the most salient mark on white, so the faint halo would read as the strongest one.
+  - **On the dark screen, every sequential ramp is drawn on its 3:1 run against the card.**
+    - **Why:** Viridis' own first colour is 1.06:1 on the `#1c2128` card. A populated bin, or a floating 3-D cube, at the bottom of the ramp would vanish while being drawn: up to 58% of an event's cubes did.
     - **Where:** every on-screen sequential ramp, and its legend:
       - both pages' spatial rasters and the Event Inspector;
       - the Models page's paired projections, 3-D cubes, 2-D histograms and surrogate tree;
       - the ordered series colours (`seriesStops`).
     - **How:** each is painted on its palette's longest run at ≥ 3:1 against the card (`static/js/scale.js` `legibleSpan`, built on `chart_panel.legibleRamp`).
-      - On the dark card, Viridis runs from t = 0.376 to 1.
-      - On the light card the run is oriented from the card outwards (Martin's decision, 2026-10-30): Viridis from t = 0.600 (`#22a784`) at the lowest value to 0 (`#440154`) at the highest; Cividis from 0.698 and Plasma from 0.639. Turbo's longest 3:1 run is 0.749–1, orange to dark red, which its rasters and legends use; ordered series take its dark-blue run, 0–0.176.
-      - A tapered relative ramp reaches the run's first colour at the taper's full-opacity point. The taper climbs from the palette's end beyond it, so on either card lightness moves monotonically away from the card.
+      - Viridis runs from t = 0.376 to 1.
+      - A tapered relative ramp reaches the run's first colour at the taper's full-opacity point.
       - Raw Shap-CAM cubes start each arm at 3:1.
     - **Print and the exporter** keep the full ramp in the palette's standard direction, from either screen theme.
-    - **Disclosure:** the drawers say where the screen ramp starts, and on the light card that it runs from the palette's light end.
+    - **Disclosure:** the drawers say where the screen ramp starts.
+  - **On the light screen each colour-map slot draws a ramp made for white** (`palette.js` `viridis_light`, `cividis_light`, `plasma_light`, `turbo_light`; `scale.js` `screenPalette`; Martin's directive, 2026-10-31).
+    - **Why:** no dark-ground or paper ramp survives a white card.
+      - Viridis' and Plasma's yellow ends vanish there (1.26:1 and 1.15:1).
+      - Turned round onto white, they fade in through a yellow fringe round every shower, and Cividis muddies to khaki-grey.
+      - Cut to its 3:1 run, Turbo keeps only its orange end.
+    - **The ramps:** ColorBrewer colours, evenly spaced and interpolated in CIELAB.
+      - Each runs from a pale tint at the display floor to a deep tone at the peak, so contrast with the card rises with the value: Martin's "contrast rises with value" of 2026-10-30, by construction.
+      - **Viridis slot:** aqua, emerald-teal, azure, indigo. L* 95.8 to 13.4.
+      - **Cividis slot:** ice-azure to navy in one hue. L* 95.5 to 7.6.
+      - **Plasma slot:** apricot, coral-red, plum. L* 95.4 to 12.7.
+      - **Turbo slot:** pale sky through cerulean, emerald, amber and vermilion to garnet. Like Turbo its lightness is not monotone, so it is never the default and never colour-vision-safe. Its peak is 13.2:1.
+      - The three monotone ramps lose lightness at every table entry.
+      - The directive's emerald `#2ca25f` was left out of the Viridis slot: at L* 59.2 against `#1d91c0`'s 56.4, either spacing gave a lightness rise or a hue contour.
+    - **A continuous raster spans its ramp in full** (`field: true`: the 2 × 2, compare frames, the Event Inspector, the paired projections).
+      - Its floor takes the palest tint and fades into the card over the bottom half decade.
+      - Its peak takes the deepest tone.
+      - A bin sits among its neighbours, and a faint halo should read faint.
+    - **The 3:1 rule still governs every mark that stands alone on the card:** a 3-D cube, a series line or bar, a 2-D histogram cell, a surrogate-tree leaf, text.
+      - Each takes its slot ramp's run at ≥ 3:1: Viridis slot from t = 0.537, Cividis 0.384, Plasma 0.420, Turbo's longest 0.675–1.
+    - **Overlays on the deep core:**
+      - **A white casing** sits under the overlay marks drawn on a raster: anchor and origin rings, ensemble and windowed axes, centroids, the D vector, the separation rule, P0 and its lines, the centre of deposited energy (`THEME.markCasing`; `canonical_overlays.overlayCasing`). Individual per-event trajectories stay uncased: they are many, and drawn faint on purpose.
+      - **An ensemble axis's two wedges** are faint washes carried by their outlines (`THEME.wedgeAlpha` 0.05 against the dark card's 0.18, scaled 0.6 and 1.4 as there):
+        - the spread at 0.03 with dashed long sides;
+        - the 95% envelope of the mean, which at N = 2 spans the panel, at 0.07 with thin solid ones.
+    - **Print and the exporter** keep the standard ramps, with no casing.
+    - **Disclosure:** the drawers name the slot's light ramp and say a raster spans it in full; the colour-map options say what each slot draws on the light theme.
   - **Every rendered negative number is set with the minus sign U+2212**, never the ASCII hyphen: axis ticks, colour-scale ends, tooltips, captions, footnotes, server notices and exported SVG text (`static/js/format.js`, `calosrv/text.py`). JSON numbers are untouched.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
@@ -158,7 +181,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - **An optional light theme sits beside it** (the header toggle, §5).
     - **Tokens:** canvas `#f6f8fa` / `#ffffff`, card panels `#ffffff`, borders `#d0d7de`, text `#111827` / `#59636e`, the showers `#a3186b` / `#0b5fbe`.
     - **Where they live:** the `css/tokens.css` light block (inside `@media screen`) and `scale.js` `SCREEN_LIGHT`, which a test keeps equal.
-    - **The rules:** every rule of this section holds on its card as on the dark one, measured against it. Text clears 4.5:1 on every ground it is drawn on.
+    - **The rules:** every rule of this section holds on its card as on the dark one, measured against it. Text clears 4.5:1 on every ground it is drawn on. One exception: a continuous raster spans its slot's white-grounded ramp in full, its floor a pale tint, while every mark that stands alone keeps 3:1 (the light-screen ramp rule above).
     - **Dark mode does not move:** `tests/test_js_dark_golden.py` records every dark output as it was before the light theme.
     - **Exports:** an export is the same figure from either theme, because print overrides every screen token.
 * **Outlier Clipping for Readability**:
