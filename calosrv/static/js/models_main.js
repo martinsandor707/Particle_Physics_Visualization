@@ -48,8 +48,8 @@ import { notesText, warningsNotShown } from './panel_notes.js';
 
 /* The light or dark theme, first: the chart tokens must be the page's before
  * any card builds an option. A later switch redraws the cards and the 3-D
- * views from what is in hand, with no request (theme.js). */
-initTheme({ applyTokens: setScreenTheme, onChange: () => repaint() });
+ * views from what is in hand, with no request (theme.js, `repaintTheme`). */
+initTheme({ applyTokens: setScreenTheme, onChange: () => repaintTheme() });
 
 const state = new State();
 
@@ -368,6 +368,20 @@ const refreshAll = debounce(async () => {
 function repaint() {
   models.repaint();
   voxels?.repaint?.();
+}
+
+/**
+ * Redraw for a light / dark switch, without a request: the 2-D cards as a
+ * palette change does, the 3-D views with their chrome and the reader's
+ * camera (voxel_views.js `repaint({theme})`), and the open Details drawer,
+ * whose sentences name the card the ramps are measured against. A 2-D card's
+ * repaint rebuilds its own notes; a 3-D card's keeps the old ones, so the
+ * drawer is rebuilt here. A drawer opened later builds afresh (`getNotes`).
+ */
+function repaintTheme() {
+  models.repaint();
+  voxels?.repaint?.({ theme: true });
+  if (shell.inspected) buildNotes(shell.inspected);
 }
 
 /** Admin Settings live on the Physics page; `/?admin=1` opens them there, with this view. */
