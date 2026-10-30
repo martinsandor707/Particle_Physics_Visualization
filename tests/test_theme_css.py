@@ -231,3 +231,28 @@ def test_transition_declarations_are_todays():
     for name, count in expected.items():
         found = re.findall(r"\btransition\s*:", _strip_comments(_read(name)))
         assert len(found) == count, (name, len(found))
+
+
+# ------------------------------------------- the CSS and the chart tokens --
+
+#: The screen style that ECharts reads (js/scale.js) mirrors the stylesheet,
+#: which it cannot read: each pair names the same colour in both places.
+CSS_TO_THEME = {
+    "--text": "text", "--muted": "muted", "--border": "border", "--card": "card", "--canvas": "canvas",
+    "--accent": "accent", "--warn": "warn", "--shower-a": "showerA", "--shower-b": "showerB",
+}
+
+
+def _screen_literal(name: str) -> dict[str, str]:
+    """The `#rrggbb` entries of a top-level object literal in js/scale.js, comments dropped."""
+    source = _strip_comments((CSS.parent / "js" / "scale.js").read_text(encoding="utf-8"))
+    body = source[source.index(f"const {name} = {{"):]
+    body = body[:body.index("\n};")]
+    return dict(re.findall(r"^\s*(\w+):\s*'(#[0-9a-fA-F]{6})'", body, re.MULTILINE))
+
+
+def test_the_chart_tokens_mirror_the_stylesheet_in_both_themes():
+    """A chart and the card it sits on take one colour from two files; they must agree."""
+    for css, screen in ((_dark(), _screen_literal("SCREEN")), (_light(), _screen_literal("SCREEN_LIGHT"))):
+        for token, key in CSS_TO_THEME.items():
+            assert css[token].lower() == screen[key].lower(), (token, css[token], key, screen[key])
