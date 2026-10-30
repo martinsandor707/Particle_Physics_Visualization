@@ -1069,6 +1069,19 @@ the new width rather than measuring a half-way geometry.
 dark and the light theme. With nothing stored it follows the OS. See
 [Light and dark themes](#light-and-dark-themes).
 
+**The Marks toggle.** Each spatial card (XY, YZ, XZ) carries a **Marks**
+button (`data-toggle-marks`, `aria-pressed`). One click hides every mark drawn
+over the raster: the anchors, the centroids, the ensemble and windowed axes
+with their wedges, the centre of deposited energy, the trajectories and the D
+vector. The shower core then reads unobstructed; a second click brings them
+back (Martin's directive of 2026-10-30). The panel redraws from the payload in
+hand (`ProjectionPanel.setMarksShown`), with no request, at the displayed
+window. The raster, the axes, the colour bar and the calorimeter faces stay.
+The choice stays with the card across selections, frames and themes, but not
+across a reload, and it never enters the view state or the hash. An export
+follows it, and the drawer's *Marks and legend* section says when the marks are
+hidden.
+
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand
 drawer (`<aside id="inspector">`, `js/shell.js`) with that panel's methodology
@@ -2066,14 +2079,31 @@ the peak, so contrast with the card rises with the value:
 | Viridis | aqua `#e8f6f3`, emerald-teal, azure, indigo `#081d58` (GnBu / YlGnBu) | 95.8 → 13.4 | t = 0.537 |
 | Cividis | ice-azure `#ebf3fb` to navy `#041633`, one hue (Blues / PuBu) | 95.5 → 7.6 | t = 0.384 |
 | Plasma | apricot `#fff0d9`, coral-red, plum `#3f0047` (OrRd / RdPu) | 95.4 → 12.7 | t = 0.420 |
-| Turbo | pale sky `#d1e5f0`, cerulean, emerald, amber, vermilion, garnet `#67001f` | not monotone | t = 0.675 (longest run) |
+| Turbo | ice `#ebf3fb`, pale sky `#d1e5f0`, cerulean, emerald, amber, vermilion, garnet `#67001f` | not monotone | t = 0.722 (longest run) |
 
 - **A continuous raster spans its ramp in full** (`field: true`). That covers
   the 2 × 2, the compare frames, the Event Inspector and the paired
-  projections. Its floor takes the palest tint and fades into the card over the
-  bottom half decade, and its peak takes the deepest tone. A bin sits among its
-  neighbours, and a faint halo should read faint, so the 3:1 rule does not cut
-  the raster's ramp on the light screen.
+  projections. Its floor takes the palest tint, and its peak takes the deepest
+  tone. A bin sits among its neighbours, and a faint halo should read faint, so
+  the 3:1 rule does not cut the raster's ramp on the light screen.
+- **On a log scale a light raster goes through a transfer made for white**
+  (`scale.js` `LIGHT_FIELD_GAMMA`, `lightField`; Martin's directive of
+  2026-10-30).
+  - **Why.** Taken linearly in log density, a bin at 1% of the peak sat a
+    third of the way to the deepest tone. The faint spray round a shower then
+    flooded the card with mid-tones (bright orange on the Plasma and Turbo
+    slots), and the core read as a bruise.
+  - **The transfer.** A bin a fraction t up the scale is drawn t^1.85 of the
+    way along the ramp. On the three-decade relative ramp the bottom decade
+    takes the palest 13% (L* 96 to 88 on every slot) and the top decade the
+    deepest 53%, where the shower's structure is.
+  - **The fade.** The floor fades into the card over 0.8 decade, 10⁻³ to
+    10⁻²·² of the reference (`LIGHT_FIELD_FADE_DECADES`), not half a decade.
+  - **The colour bar** is drawn from the same table and alphas, so a colour
+    still reads off it at its own place, linear in log density between the
+    labelled ends.
+  - **Untouched:** linear scales (Grad-CAM's [0, 1]), the signed PuOr ramps,
+    the marks that stand alone, the dark card and print.
 - **A mark that stands alone on the card keeps 3:1.** A 3-D cube, a series line
   or bar, a 2-D histogram cell and a surrogate-tree leaf each take the slot
   ramp's run at 3:1 or more (the last column). That includes the energy panel's
@@ -2087,19 +2117,30 @@ the peak, so contrast with the card rises with the value:
   contour.
 - **Turbo's light ramp**, like Turbo, is not monotone in lightness. It is
   offered for detail, never as the default and never as colour-vision-safe. Its
-  peak is 13.2:1 on white.
-- **Overlays on the deep core.** On the light screen the shower core takes the
-  deepest tone, so the overlay marks drawn on a raster sit on a white casing:
-  anchor and origin rings, ensemble and windowed axes, centroids, the D vector,
-  the separation rule, P0 and its lines, the centre of deposited energy
-  (`THEME.markCasing`). An ensemble axis's two wedges are faint washes carried
-  by their outlines, so neither lays smoke over the raster. The spread is 0.03,
-  against the dark card's 0.108, with dashed long sides. The 95% envelope of the
-  mean, which at N = 2 spans the panel, is 0.07 with thin solid ones.
+  peak is 13.2:1 on white. The ice `#ebf3fb` leads it in: from pale sky it
+  reached cerulean (L* 58) within a sixth of the ramp, so under the transfer its
+  bottom decade fell to L* 65.
+- **Overlays on the raster** (Martin's directive of 2026-10-30).
+  - **Nothing is laid under them.** A white casing under each, tried first,
+    fused the anchors, bars and centroids of the narrow D–Y′ strip into one
+    white blob and banded the dashed axes through the core. `THEME.markCasing`
+    is retired: null in every theme, kept only because the dark golden holds
+    every dark token.
+  - **An ensemble or windowed axis** is one 1.25 px dashed line in its shower's
+    colour.
+  - **A strip draws small marks.** On a plot under 70 px tall, such as the D–Y′
+    entrance strip of a widely separated pair, the anchor rings are 8 px, the
+    centroids 6 px, bars and lines at most 1.2 px and no outline above 1 px
+    (`canonical_overlays.js` `stripMarks`), so the two showers' marks never
+    meet across the gap between them.
+  - **The wedges.** An ensemble axis's two wedges are faint washes carried by
+    their outlines, so neither lays smoke over the raster. The spread is 0.03,
+    against the dark card's 0.108, with dashed long sides. The 95% envelope of
+    the mean, which at N = 2 spans the panel, is 0.07 with thin solid ones.
 - **The drawers and the colour-map options** say what each slot draws on the
-  light theme.
-- **Print** keeps the standard ramps, with no casing, whichever theme is on
-  screen.
+  light theme, and the drawers state the transfer and its fade.
+- **Print** keeps the standard ramps, taken linearly to its hard floor, and the
+  marks at their usual sizes, whichever theme is on screen.
 
 **Conservation, measured on production.** ΣE·Grad-CAM and the positive and
 negative ΣE·Shap-CAM parts, inside plus outside each grid, equal direct DuckDB
@@ -2697,8 +2738,9 @@ option for bright rooms, projectors and screenshots on white slides.
   - **Print:** the block sits inside `@media screen`, so the Methodology's print
     stylesheet still wins on paper.
   - **The ramps:** each colour-map slot draws a ramp made for white, as
-    described above. A raster spans it in full, and a mark standing alone takes
-    its 3:1 run. The overlay marks on the deep core sit on a white casing.
+    described above. A raster spans it in full, through the transfer on a log
+    scale, and a mark standing alone takes its 3:1 run. The overlay marks have
+    nothing laid under them, and a strip draws them small.
 - **Dark mode does not move.** `tests/test_js_dark_golden.py` records every
   dark output as it was before the light theme existed, and fails naming any
   case that changes:

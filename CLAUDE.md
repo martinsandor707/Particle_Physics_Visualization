@@ -144,22 +144,29 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - **Viridis slot:** aqua, emerald-teal, azure, indigo. L* 95.8 to 13.4.
       - **Cividis slot:** ice-azure to navy in one hue. L* 95.5 to 7.6.
       - **Plasma slot:** apricot, coral-red, plum. L* 95.4 to 12.7.
-      - **Turbo slot:** pale sky through cerulean, emerald, amber and vermilion to garnet. Like Turbo its lightness is not monotone, so it is never the default and never colour-vision-safe. Its peak is 13.2:1.
+      - **Turbo slot:** ice and pale sky through cerulean, emerald, amber and vermilion to garnet. Like Turbo its lightness is not monotone, so it is never the default and never colour-vision-safe. Its peak is 13.2:1. The ice `#ebf3fb` leads it in, so its bottom decade stays pale under the transfer below.
       - The three monotone ramps lose lightness at every table entry.
       - The directive's emerald `#2ca25f` was left out of the Viridis slot: at L* 59.2 against `#1d91c0`'s 56.4, either spacing gave a lightness rise or a hue contour.
     - **A continuous raster spans its ramp in full** (`field: true`: the 2 × 2, compare frames, the Event Inspector, the paired projections).
-      - Its floor takes the palest tint and fades into the card over the bottom half decade.
-      - Its peak takes the deepest tone.
+      - Its floor takes the palest tint, and its peak the deepest tone.
       - A bin sits among its neighbours, and a faint halo should read faint.
+    - **On a log scale a light raster goes through a transfer made for white** (`scale.js` `LIGHT_FIELD_GAMMA`, `lightField`; Martin's directive, 2026-10-30).
+      - **Why:** taken linearly, a bin at 1% of the peak sat a third of the way to the deepest tone, so the faint spray round a shower flooded the card with mid-tones and the core read as a bruise.
+      - **The transfer:** a bin a fraction t up the scale is drawn t^1.85 of the way along the ramp. On the three-decade relative ramp the bottom decade takes the palest 13% (L* 96 to 88 on every slot) and the top decade the deepest 53%.
+      - **The fade:** the floor fades into the card over 0.8 decade, 10^−3 to 10^−2.2 of the reference (`LIGHT_FIELD_FADE_DECADES`), not half a decade.
+      - **The colour bar** is drawn from the same table and alphas, so a colour reads off it at its own place.
+      - **Untouched:** linear scales (Grad-CAM's [0, 1]), the signed PuOr ramps (half a decade, where their arms reach 3:1), the marks that stand alone, the dark card and print.
     - **The 3:1 rule still governs every mark that stands alone on the card:** a 3-D cube, a series line or bar, a 2-D histogram cell, a surrogate-tree leaf, text.
-      - Each takes its slot ramp's run at ≥ 3:1: Viridis slot from t = 0.537, Cividis 0.384, Plasma 0.420, Turbo's longest 0.675–1.
-    - **Overlays on the deep core:**
-      - **A white casing** sits under the overlay marks drawn on a raster: anchor and origin rings, ensemble and windowed axes, centroids, the D vector, the separation rule, P0 and its lines, the centre of deposited energy (`THEME.markCasing`; `canonical_overlays.overlayCasing`). Individual per-event trajectories stay uncased: they are many, and drawn faint on purpose.
+      - Each takes its slot ramp's run at ≥ 3:1: Viridis slot from t = 0.537, Cividis 0.384, Plasma 0.420, Turbo's longest 0.722–1.
+    - **Overlays on the raster** (Martin's directive, 2026-10-30):
+      - **Nothing is laid under them.** A white casing, tried first, fused the anchors, bars and centroids of the narrow D–Y′ strip into one white blob and banded the dashed axes through the core. `THEME.markCasing` is retired: null in every theme, kept only because the dark golden holds every dark token.
+      - **An ensemble or windowed axis** is one 1.25 px dashed line in its shower's colour (`projection.js` `LIGHT_AXIS_WIDTH`).
+      - **A strip draws small marks.** On a plot under 70 px tall, such as the D–Y′ entrance strip of a widely separated pair, the anchor rings are 8 px, the centroids 6 px, the bars and lines at most 1.2 px and no outline above 1 px (`canonical_overlays.js` `stripMarks`), so the two showers' marks never meet.
       - **An ensemble axis's two wedges** are faint washes carried by their outlines (`THEME.wedgeAlpha` 0.05 against the dark card's 0.18, scaled 0.6 and 1.4 as there):
         - the spread at 0.03 with dashed long sides;
         - the 95% envelope of the mean, which at N = 2 spans the panel, at 0.07 with thin solid ones.
-    - **Print and the exporter** keep the standard ramps, with no casing.
-    - **Disclosure:** the drawers name the slot's light ramp and say a raster spans it in full; the colour-map options say what each slot draws on the light theme.
+    - **Print and the exporter** keep the standard ramps, taken linearly in log density to print's hard floor, and the marks at their usual sizes.
+    - **Disclosure:** the drawers name the slot's light ramp, say a raster spans it in full and state the transfer and its fade; the colour-map options say what each slot draws on the light theme.
   - **Every rendered negative number is set with the minus sign U+2212**, never the ASCII hyphen: axis ticks, colour-scale ends, tooltips, captions, footnotes, server notices and exported SVG text (`static/js/format.js`, `calosrv/text.py`). JSON numbers are untouched.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
@@ -285,6 +292,7 @@ When working with calorimeter simulation datasets in this repository:
   - Display channel radio toggle, five options: "Average Hit Density (Summed Energy)", "Grad-CAM Model Attention", "Energy-weighted Grad-CAM", "Shap-CAM Attribution", "Energy-weighted Shap-CAM".
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.
+  - **The Marks toggle** (`data-toggle-marks`, on the XY, YZ and XZ cards; `ProjectionPanel.setMarksShown`): one click hides every mark drawn over the raster (anchors, centroids, the ensemble and windowed axes with their wedges, the centre of deposited energy, trajectories, the D vector) so the shower core reads unobstructed; a second brings them back. It redraws from the payload in hand, with no request, in either theme. The raster, axes, colour bar and calorimeter faces stay. The choice stays with the card across selections, frames and themes but not across a reload, and never enters the view state or the hash. The export follows it, and the drawer says when the marks are hidden.
   - **The theme toggle** (`#theme-toggle`, `js/theme.js`): one header button on all three pages switches between the dark and the light theme.
     - **Default:** with nothing stored, the page follows the OS (`prefers-color-scheme`), live.
     - **A click** stores the choice in `localStorage['calosrv.theme']`. A click that lands on the OS's own theme clears it instead, so the page follows the OS again (Martin's decision, 2026-10-30).

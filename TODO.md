@@ -220,9 +220,20 @@ the defects it found that dark mode shares, and that only a change to dark could
     sit near one lightness, as Turbo's do. Marks standing alone take its longest 3:1 run, vermilion to garnet.
   - It is offered for detail and never the default. A CVD-checked multi-hue ramp would need a measured design of
     its own.
-- **Trajectories have no casing on the light screen.** The individual per-event trajectories (≤ 50 events) are
-  drawn faint by design and stay uncased, so where one crosses the deep shower core it fades there. A casing for
-  so many lines would lay white streaks across the raster; a lighter ink for them is the other option.
+- **Marks over the deep core on the light screen.** The white casings were removed (Martin's directive of
+  2026-10-30): they fused the D–Y′ strip's marks into a white blob and banded the dashed axes.
+  - **The cost, measured on the light LUTs.** A one-colour mark meets its own lightness somewhere on a ramp
+    running from L* 96 to 8. The shower inks fall to 1.0:1 in each slot's upper half: `#0b5fbe` near 0.57–0.89 of
+    the ramp, `#a3186b` near 0.64–0.91. At the peak they reach only 1.8–2.9:1. The D vector's `#111827` is
+    1.0–1.35:1 on the deepest tone.
+  - **What softens it.** The light transfer confines the deep half of the ramp to the top decade, so a line
+    loses contrast only where it crosses the core.
+  - **The remedy.** The Marks toggle clears the core for reading.
+  - **A design option.** A two-tone dash would keep marks visible on the core: an ink dash with its own pale
+    edge, gaps left open, never a band under the line.
+- **Strip sizing is light-only.** On the dark card a strip under 70 px keeps its 13 px anchors and 7 px
+  centroids, which had no casing and did not collide there. `stripMarks` would extend to dark with one condition,
+  but that moves the dark golden, so it waits for Martin.
 - **Dark-golden coverage.**
   - **The gap.** The golden records the pure builders on the 64 recorded payloads. The Event Inspector's
     `eventCellOptions` and the windowed-axis marks are not recorded, because no recorded payload carries their
