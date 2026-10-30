@@ -2050,36 +2050,56 @@ card (`static/js/scale.js` `legibleSpan` and `rampTable`, built on
   6,000 cubes and every cube of the raw Shap-CAM event were opaque and under 3:1
   before the change; none is now (the smallest is 3.04:1).
 
-**On the light theme's card the run is oriented so that contrast rises with
-value.** Against `#ffffff` the failure is the mirror image of the dark card's.
-Viridis' `#fde725` top is 1.26:1, and the palette's dark end is the most
-salient mark on white, so a faint halo would read as the strongest one. Each
-sequential ramp is therefore drawn on its 3:1 run against white, from its
-faintest 3:1 colour at the lowest value to its darkest at the highest. Contrast
-then rises with value, as it does on the dark card (Martin's decision,
-2026-10-30). `chart_panel.legibleRamp` orients the run only on a light screen
-card, so the dark card and print keep their order exactly:
+**On the light theme each colour-map slot draws a ramp made for white.** No
+ramp made for a dark ground or for paper survives a white card. Viridis' and
+Plasma's yellow ends vanish there (1.26:1 and 1.15:1), and a first attempt that
+turned the ramps round onto white faded every shower in through a yellow fringe,
+muddied Cividis to khaki-grey and cut Turbo to its orange end. So on the light
+screen each slot draws its own white-grounded ramp (`palette.js`;
+`scale.js` `screenPalette`, `THEME.sequentialPalettes`; Martin's directive of
+2026-10-31). These are ColorBrewer colours, evenly spaced and interpolated in
+CIELAB, each running from a pale tint at the display floor to a deep tone at
+the peak, so contrast with the card rises with the value:
 
-| Palette | 3:1 run on the light card, lowest value first | First colour of the run |
-|---|---|---|
-| Viridis | 0.600 → 0 | `#22a784`, 3.03:1 |
-| Cividis | 0.698 → 0 | `#a09565`, 3.01:1 |
-| Plasma | 0.639 → 0 | `#e87159`, 3.03:1 |
-| Turbo | 0.749 → 1 | `#f6691b`, 3.02:1 (Turbo's longest 3:1 run on white; ordered series take its dark-blue run, 0 – 0.176; its option's title says so) |
+| Slot | Light ramp, floor to peak | L* | First 3:1 entry (marks) |
+|---|---|---|---|
+| Viridis | aqua `#e8f6f3`, emerald-teal, azure, indigo `#081d58` (GnBu / YlGnBu) | 95.8 → 13.4 | t = 0.537 |
+| Cividis | ice-azure `#ebf3fb` to navy `#041633`, one hue (Blues / PuBu) | 95.5 → 7.6 | t = 0.384 |
+| Plasma | apricot `#fff0d9`, coral-red, plum `#3f0047` (OrRd / RdPu) | 95.4 → 12.7 | t = 0.420 |
+| Turbo | pale sky `#d1e5f0`, cerulean, emerald, amber, vermilion, garnet `#67001f` | not monotone | t = 0.675 (longest run) |
 
-- **The floor taper** climbs from the palette's light end (Viridis' yellow) to
-  the run's first colour while its alpha rises. Lightness, composited on white,
-  therefore falls monotonically from the card through the whole ramp. Turbo's
-  run has no fainter end beyond it, so it fades its first colour alone.
-- **The 3:1 floor holds:** every opaque code clears it. The worst is 3.008:1 on
-  Cividis and 3.031:1 on Viridis.
-- **Ordered series follow the same orientation** (`seriesStops`), every colour
-  at 3:1 or more. That includes the energy panel's slices, which on the dark
-  card still sample the categorical sub-range raw, with a first slice of 2.1:1
-  (recorded in TODO.md, because dark must not move).
-- **The drawers** say where the screen ramp starts on either card.
-- **Print** keeps the palette's standard direction on white, whichever theme is
-  on screen.
+- **A continuous raster spans its ramp in full** (`field: true`). That covers
+  the 2 × 2, the compare frames, the Event Inspector and the paired
+  projections. Its floor takes the palest tint and fades into the card over the
+  bottom half decade, and its peak takes the deepest tone. A bin sits among its
+  neighbours, and a faint halo should read faint, so the 3:1 rule does not cut
+  the raster's ramp on the light screen.
+- **A mark that stands alone on the card keeps 3:1.** A 3-D cube, a series line
+  or bar, a 2-D histogram cell and a surrogate-tree leaf each take the slot
+  ramp's run at 3:1 or more (the last column). That includes the energy panel's
+  slices, which on the dark card still sample the categorical sub-range raw,
+  with a first slice of 2.1:1 (recorded in TODO.md, because dark must not move).
+- **The three monotone ramps lose lightness at every table entry.** The
+  directive's emerald `#2ca25f` was left out of the Viridis slot after
+  measuring it. At L* 59.2 it sat at nearly the lightness of the next anchor,
+  `#1d91c0` (56.4), so the ramp either rose in lightness there or, spaced by
+  lightness, swung from green to blue within nine entries, which reads as a
+  contour.
+- **Turbo's light ramp**, like Turbo, is not monotone in lightness. It is
+  offered for detail, never as the default and never as colour-vision-safe. Its
+  peak is 13.2:1 on white.
+- **Overlays on the deep core.** On the light screen the shower core takes the
+  deepest tone, so the overlay marks drawn on a raster sit on a white casing:
+  anchor and origin rings, ensemble and windowed axes, centroids, the D vector,
+  the separation rule, P0 and its lines, the centre of deposited energy
+  (`THEME.markCasing`). An ensemble axis's two wedges are faint washes carried
+  by their outlines, so neither lays smoke over the raster. The spread is 0.03,
+  against the dark card's 0.108, with dashed long sides. The 95% envelope of the
+  mean, which at N = 2 spans the panel, is 0.07 with thin solid ones.
+- **The drawers and the colour-map options** say what each slot draws on the
+  light theme.
+- **Print** keeps the standard ramps, with no casing, whichever theme is on
+  screen.
 
 **Conservation, measured on production.** ΣE·Grad-CAM and the positive and
 negative ΣE·Shap-CAM parts, inside plus outside each grid, equal direct DuckDB
@@ -2676,7 +2696,9 @@ option for bright rooms, projectors and screenshots on white slides.
     page.
   - **Print:** the block sits inside `@media screen`, so the Methodology's print
     stylesheet still wins on paper.
-  - **The ramps** follow the rules above, measured against the light card.
+  - **The ramps:** each colour-map slot draws a ramp made for white, as
+    described above. A raster spans it in full, and a mark standing alone takes
+    its 3:1 run. The overlay marks on the deep core sit on a white casing.
 - **Dark mode does not move.** `tests/test_js_dark_golden.py` records every
   dark output as it was before the light theme existed, and fails naming any
   case that changes:
@@ -3600,7 +3622,8 @@ predictions over them ± the within-node SD, an uncapped spread with no whisker.
   · R̄ 0.43", and the drawer's legend says "Values are in rad."
 - *Colour and layout.* θ and the momentum are coloured by the node value on the
   user's sequential ramp narrowed to the run that clears 3:1 against the card in
-  force (Viridis from 0.376 on `#1c2128`, up to 0.600 on white), leaves filled and
+  force (Viridis from 0.376 on `#1c2128`; on the light screen the slot's
+  white-grounded ramp, the Viridis slot from 0.537 on white), leaves filled and
   splits outlined in their value's colour. The tree is drawn top-down (≤ left,
   > right) when every box's text fits its share of the width, otherwise as an
   indented outline in depth-first order, which a single-column export always is.

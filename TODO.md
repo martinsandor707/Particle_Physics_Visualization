@@ -215,10 +215,14 @@ the defects it found that dark mode shares, and that only a change to dark could
     tokens' chrome on paper, beside light-ink canvases; a dark-mode reader always did.
   - **The fix.** The figures' route to paper is the Export menu, which neither theme affects. A print block for
     those two pages would fix the rest.
-- **Turbo on the light card.**
-  - Its longest 3:1 run on white is 0.749–1, orange to dark red, nearly one hue. The rasters and legends use it,
-    and ordered series take its dark-blue run, 0–0.176. Its option's title says so.
-  - Viridis stays the default.
+- **Turbo's light ramp is not colour-vision-safe.**
+  - On the light screen the Turbo slot draws its own multi-hue ramp (`turbo_light`), whose green and orange-reds
+    sit near one lightness, as Turbo's do. Marks standing alone take its longest 3:1 run, vermilion to garnet.
+  - It is offered for detail and never the default. A CVD-checked multi-hue ramp would need a measured design of
+    its own.
+- **Trajectories have no casing on the light screen.** The individual per-event trajectories (≤ 50 events) are
+  drawn faint by design and stay uncased, so where one crosses the deep shower core it fades there. A casing for
+  so many lines would lay white streaks across the raster; a lighter ink for them is the other option.
 - **Dark-golden coverage.**
   - **The gap.** The golden records the pure builders on the 64 recorded payloads. The Event Inspector's
     `eventCellOptions` and the windowed-axis marks are not recorded, because no recorded payload carries their
