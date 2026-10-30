@@ -16,9 +16,13 @@
  * clears 3:1 against the card: pred-truth reads the server's measurement for
  * the user's palette (`color.ramp.by_palette[palette]`, never the top-level
  * Viridis ramp for another palette), D5 measures the palette here
- * (`legibleRange`, the same rule). In print the ramp is measured against white
- * paper instead. Every multiple shares one colour scale (`color.vmin`/`vmax`),
- * so the same colour is the same count in every grid.
+ * (`legibleRamp`, the same rule). The server measures against the dark card,
+ * and its block is used only while that is the card in force: on the light
+ * screen card the ramp is measured against white and runs from the card
+ * outwards (a count of one is the run's faintest 3:1 colour, Viridis #22a784,
+ * and the darkest colour the highest count), and in print against white paper
+ * in the palette's own order. Every multiple shares one colour scale
+ * (`color.vmin`/`vmax`), so the same colour is the same count in every grid.
  *
  * ## No density below N = 15
  *
@@ -48,7 +52,7 @@ import { lookupTable } from '../palette.js';
 import { customLine } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
-  ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, emptyChartOption, legibleRange,
+  ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, emptyChartOption, legibleRamp,
   showerColour, tickLabel, coarseInterval, rgbOf,
 } from './chart_panel.js';
 import { logTick, piLabel } from './distribution.js';
@@ -69,9 +73,12 @@ function linspace(lo, hi, count) {
 }
 
 /**
- * The ramp a count is painted on: {palette, from, to}. Pred-truth passes the
- * server's measured block for the palette; without one (D5), or in print, the
- * longest run of the palette that clears 3:1 against the card in force.
+ * The ramp a count is painted on: {palette, from, to}, the colour of a count
+ * of one at `from`. Pred-truth passes the server's measured block for the
+ * palette, which applies only when the card it was measured against is the
+ * card in force; without one (D5), on the light screen card or in print, the
+ * longest run of the palette that clears 3:1 against the card in force,
+ * oriented as `legibleRamp` orients it.
  */
 export function countRamp(palette, measured = null) {
   const card = THEME.card;
@@ -79,8 +86,8 @@ export function countRamp(palette, measured = null) {
     && String(measured.first_level?.against ?? '').toLowerCase() === String(card).toLowerCase()) {
     return { palette, from: measured.from, to: measured.to, measured: true };
   }
-  const range = legibleRange(palette, card) ?? [0, 1];
-  return { palette, from: range[0], to: range[1], measured: false };
+  const { from, to } = legibleRamp(palette, card);
+  return { palette, from, to, measured: false };
 }
 
 /** The colour of `count` on `ramp` over the shared log10 scale [vmin, vmax]: [r, g, b]. */

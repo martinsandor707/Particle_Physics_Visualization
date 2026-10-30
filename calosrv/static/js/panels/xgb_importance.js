@@ -29,10 +29,11 @@
  *
  * The frame a feature is computed in (absolute, per-shower translated, local
  * or none, a count) is nominal, so it takes ColorBrewer's qualitative hues
- * from palette.js (`qualitativeStops`: Set2 on the dark screen, Dark2 in
- * print, the four checked colours), in the order the performance card uses
- * for the networks' frames, so absolute, translated and local read the same
- * on both cards. The legend names the frames present.
+ * from palette.js (`qualitativeStops`: Set2 on the dark screen, Dark2 on the
+ * light screen and in print, as `THEME.qualitativePalette` names them, the
+ * four checked colours), in the order the performance card uses for the
+ * networks' frames, so absolute, translated and local read the same on both
+ * cards. The legend names the frames present.
  *
  * ## How many rows
  *
@@ -55,7 +56,7 @@ import { customWhiskers } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, withColour, emptyChartOption,
-  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, isPrintTheme, sigFigs,
+  chartLegend, legendTop, niceCeil, niceInterval, FINE_STEPS, sigFigs,
 } from './chart_panel.js';
 
 /** Most feature rows the card draws. */
@@ -79,9 +80,9 @@ const ROW_HOVER_NAME = 'Feature readout';
 
 const pc = (v, d = 1) => formatPercent(v, d);
 
-/** The frame hues on the card in force: Set2 on screen, Dark2 on white paper. */
+/** The frame hues on the card in force: Set2 on the dark screen, Dark2 on white (light screen, print). */
 export function frameColours() {
-  const hues = qualitativeStops(isPrintTheme() ? 'dark2' : 'set2', FRAME_ORDER.length);
+  const hues = qualitativeStops(THEME.qualitativePalette, FRAME_ORDER.length);
   return Object.fromEntries(FRAME_ORDER.map((k, i) => [k, hues[i]]));
 }
 

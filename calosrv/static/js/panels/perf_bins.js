@@ -48,7 +48,8 @@
  *
  * The input frames are nominal categories, so they take ColorBrewer's
  * qualitative hues from palette.js (`qualitativeStops`: Set2 on the dark
- * screen, its Dark2 partner on white paper, the four colours measured there
+ * screen, its Dark2 partner on white - the light screen card and paper -
+ * as `THEME.qualitativePalette` names them, the four colours measured there
  * for contrast and colour-vision deficiency), in the fixed order absolute,
  * per-shower translated, Local, XGBoost - the order the importance card gives
  * absolute, translated, local and no frame - so a frame keeps its colour across
@@ -63,7 +64,7 @@ import { customWhiskers, customLine, binHoverSeries } from './marks.js';
 import { tooltipOption } from './tooltip.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries, clampInterval,
-  withColour, wrappedLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST, isPrintTheme,
+  withColour, wrappedLegend, legendTop, legibleOpacity, rgbOf, emptyChartOption, INK_CONTRAST,
 } from './chart_panel.js';
 
 /** Tick-step mantissas: a step is one of these times a power of ten. */
@@ -168,10 +169,10 @@ export function sourceOf(s) {
   return s?.network?.frame ?? String(s?.key ?? '').split(':')[0];
 }
 
-/** The qualitative hue of each source, on the card in force (screen or print). */
+/** The qualitative hue of each source, on the card in force (dark or light screen, or print). */
 export function sourceColours(sources) {
   const card = rgbOf(THEME.card) ?? [28, 33, 40];
-  const hues = qualitativeStops(isPrintTheme() ? 'dark2' : 'set2', SOURCE_ORDER.length);
+  const hues = qualitativeStops(THEME.qualitativePalette, SOURCE_ORDER.length);
   const out = {};
   // A known source keeps its place in SOURCE_ORDER; another takes the next free hue.
   const rest = sources.filter((k) => !SOURCE_ORDER.includes(k));

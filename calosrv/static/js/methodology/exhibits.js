@@ -11,11 +11,15 @@
  * which render.js mounts in the SVG namespace. Text in a figure is set in the
  * page's own fonts (methodology.css), and a negative number takes U+2212.
  *
- * The ramps and PuOr figures paint their own grounds - the card #1c2128 the
- * screen draws on, and white paper - because the contrast they show is against
- * that ground, so they read the same on screen and in print. The SE(3)
- * schematic has no ground of its own and takes its colours from the page's
- * stylesheet, which has a print variant.
+ * The ramps and PuOr figures paint their own grounds - the dark card #1c2128
+ * the screen draws on, and white paper - because the contrast they show is
+ * against that ground, so they read the same on screen and in print. They are
+ * measured against those grounds by name (`legibleRamp(palette, CARD_HEX)`,
+ * `SCREEN_CARD`), never against the card of the screen theme in force, and
+ * nothing here reads the theme singleton: a reader on the light theme sees,
+ * and exports, the same figures. The SE(3) schematic has no ground of its
+ * own and takes its colours from the page's stylesheet, which has a print
+ * variant.
  *
  * ## Two media
  *
@@ -143,7 +147,7 @@ export function rampsExhibit(id = 'fig-ramps', { medium = 'screen' } = {}) {
   nodes.push(s('rect', { x: 0, y: screenTop - 4, width, height: screenBottom - screenTop + 4, fill: CARD_HEX, rx: 4 }));
   RAMPS.forEach(({ palette, name }, i) => {
     const table = lookupTable(palette);
-    const ramp = legibleRamp(palette);
+    const ramp = legibleRamp(palette, CARD_HEX);
     const y = screenTop + i * screenRow + 4;
     const gid = `${id}-screen-${palette}`;
     defs.push(gradient(gid, table));
@@ -537,7 +541,7 @@ function rampsPaper(id) {
   const markers = [];
   RAMPS.forEach(({ palette, name }, i) => {
     const table = lookupTable(palette);
-    const ramp = legibleRamp(palette);
+    const ramp = legibleRamp(palette, CARD_HEX);
     const top = screenTop + 10 + i * screenRow;
     const gid = `${id}-screen-${palette}`;
     defs.push(gradient(gid, table));

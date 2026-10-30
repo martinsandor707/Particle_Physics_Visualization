@@ -97,7 +97,96 @@ const SCREEN = {
   // the panel is wide. Printed, an entry behind a scroll arrow is an entry that
   // is not there, so the export wraps instead and pays for it in height.
   legendWrap: false,
+
+  /* The medium, and the tokens that differ by the card rather than by it.
+   *
+   * `medium` is what `chart_panel.isPrintTheme` reads: print is a medium, not
+   * a colour, and a white light-screen card must not be taken for paper. The
+   * qualitative palettes are chosen per card (Set2's yellow is 11.7:1 here and
+   * 1.38:1 on white), and so is the tooltip's ground. */
+  medium: 'screen',
+  qualitativePalette: 'set2',
+  speciesPalette: 'species',
+  tooltipBackground: 'rgba(22,27,34,0.95)',
 };
+
+/* The light screen style: the light block of css/tokens.css, which ECharts
+ * cannot read either. Exactly SCREEN's keys, as a flat literal a Python test
+ * parses (tests/test_export_assets.py); the typography, strokes and layout
+ * are SCREEN's, and only what depends on the card changes.
+ *
+ * - Ink is measured against the white card: text 17.74:1, muted 6.11:1,
+ *   accent and shower B 6.19:1, shower A 7.24:1, warn 5.93:1 (the CSS light
+ *   block's values). The border and grid #d0d7de are chrome at 1.45:1, as
+ *   #30363d is 1.33:1 on the dark card.
+ * - The washes take print's white-paper weights: a 0.07 wash that reads on the
+ *   dark card is invisible on white.
+ * - The separation rule is the dark ink at 0.4 where the dark screen draws
+ *   white at 0.4; the floor still fades over half a decade.
+ * - The diverging ramps are PuOr's light arms (palette.js), the hatch the
+ *   print grey #6b7280 (4.83:1).
+ * - `categorical` is the reversed sub-range {0.75, 0}: on white the dark end
+ *   of a ramp is the visible one, so a series index runs from the card
+ *   outwards, as {0.25, 1} does on the dark card (whose bottom is 2.1:1, as
+ *   Viridis 0.75 is on white). `seriesStops` narrows it to the 3:1 run.
+ * - Dark2 for the networks and species_print for the species, the two
+ *   qualitative palettes measured on white (palette.js). */
+const SCREEN_LIGHT = {
+  text: '#111827',
+  muted: '#59636e',
+  border: '#d0d7de',
+  grid: '#d0d7de',
+  canvas: '#f6f8fa',
+  card: '#ffffff',
+  accent: '#0b5fbe',
+  warn: '#8a5a00',
+  showerA: '#a3186b',
+  showerB: '#0b5fbe',
+  labelBg: 'rgba(255,255,255,0.92)',
+  chartBackground: 'transparent',
+
+  fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
+  fontMono: "'JetBrains Mono', 'SF Mono', ui-monospace, monospace",
+  fontSmall: 9,
+  fontLabel: 10,
+  fontName: 10,
+  fontTip: 11,
+
+  lineAxis: 1,
+  lineGrid: 1,
+  gridOpacity: 0.35,
+  axisOnZero: true,
+  markerScale: 1,
+
+  envelopeAlpha: 0.18,
+  bandAlpha: 0.22,
+  stripAlpha: 0.07,
+
+  separationRule: 'rgba(17,24,39,0.4)',
+  anchorOpacity: 0.75,
+  floorFadeDecades: 0.5,
+  divergingPalette: 'puor_light',
+  divergingLinearPalette: 'puor_light_linear',
+  hatch: '#6b7280',
+
+  categorical: { min: 0.75, max: 0.0 },
+  rampOrient: 'vertical',
+  legendWrap: false,
+
+  medium: 'screen',
+  qualitativePalette: 'dark2',
+  speciesPalette: 'species_print',
+  tooltipBackground: 'rgba(255,255,255,0.97)',
+};
+
+/** The two screen styles by name, frozen: the dark one is the cold-boot default. */
+export const SCREEN_THEMES = Object.freeze({
+  dark: Object.freeze({ ...SCREEN }),
+  light: Object.freeze({ ...SCREEN_LIGHT }),
+});
+
+/** The screen style in force between exports: 'dark' or 'light' (`setScreenTheme`). */
+let activeScreen = 'dark';
 
 /**
  * The active style, as a mutable singleton.
@@ -106,16 +195,36 @@ const SCREEN = {
  * forty places. Making the object mutable rather than replacing the binding
  * means the publication exporter can swap the whole style for the duration of
  * one synchronous render without touching a single call site. Nothing else may
- * mutate it - `restoreScreenTheme()` is the only sanctioned way back.
+ * mutate it - `setScreenTheme()` and `restoreScreenTheme()` are the only
+ * sanctioned ways to change it. No module reads it at import time, so a theme
+ * set before the first paint is the one every panel is built in.
  */
 export const THEME = { ...SCREEN };
 
-/** The screen style, for the exporter to restore. */
+/** The dark screen style (methodology/constants.js pins its floor fade). */
 export const SCREEN_THEME = Object.freeze({ ...SCREEN });
 
+/**
+ * Make `name` the screen style: 'light', or else 'dark'. THEME is emptied and
+ * refilled in place, so every holder of the object sees the change, and the
+ * style is recorded as the one `restoreScreenTheme` returns to. Returns the
+ * name applied. The caller repaints; nothing here touches a chart.
+ */
+export function setScreenTheme(name) {
+  activeScreen = name === 'light' ? 'light' : 'dark';
+  restoreScreenTheme();
+  return activeScreen;
+}
+
+/** The active screen style's name, 'dark' or 'light'. */
+export function screenTheme() {
+  return activeScreen;
+}
+
+/** Put the active screen style back: what the exporter calls after a print render. */
 export function restoreScreenTheme() {
   for (const key of Object.keys(THEME)) delete THEME[key];
-  Object.assign(THEME, SCREEN);
+  Object.assign(THEME, SCREEN_THEMES[activeScreen]);
 }
 
 /**
@@ -390,6 +499,24 @@ export function fadesAtFloor(scale) {
  *   drawn in its sign's hue rather than not at all.
  * - Print keeps the full ramp: white paper shows Viridis' dark end best, and
  *   the export swaps the card for white (`isPrintTheme`).
+ *
+ * On the light screen's white card the same rule runs the other way ("contrast
+ * rises with value", Martin's decision of 2026-10-30). The 3:1 run against
+ * white is a ramp's dark end - Viridis 0 to 0.600 (#440154 to #22a784),
+ * Cividis 0 to 0.698, Plasma 0 to 0.639, Turbo only 0.749 to 1 (#f6691b to
+ * #7a0403) - and `legibleRamp` hands it over oriented from the card outwards,
+ * `from` above `to`: the lowest value takes the run's first 3:1 colour and the
+ * highest its darkest, so the ramp still gains contrast against its card as
+ * the value grows, as it does on the dark one. A floor taper then climbs from
+ * the palette's *outer* end - Viridis' yellow, the end beyond `from` - to
+ * `from` while its alpha rises from 0, so lightness composited on the card
+ * falls monotonically from the white card at the floor. Turbo's lightness is
+ * not monotone, but its light run is, and it is drawn on that run alone: its
+ * run already rises in contrast (orange to dark red), and the end beyond its
+ * `from` is the dark blue, not a light one, so its taper fades #f6691b alone
+ * rather than sweep the rainbow (see `rampTable`). The legend is the same
+ * table, so its bottom is the faded light end and the label "fades to not
+ * drawn" still describes it.
  */
 
 /** The contrast every opaque on-screen ramp colour clears against the card. */
@@ -411,6 +538,8 @@ function armStart(table, card, negative, floor = RAMP_CONTRAST) {
  * The ramp position `[from, to]` (0..1) the on-screen colours run over, and
  * where the taper ends: `{from, to, taperEnd}`, or null when the ramp is
  * drawn in full (print, a diverging ramp, the `legible: false` opt-out).
+ * `from` is the colour of the lowest value: below `to` on the dark card,
+ * above it on the light one (`legibleRamp`'s orientation, see above).
  * `taperEnd` is the position (0..1 of the ramp's value range) where the floor
  * taper reaches full opacity, 0 on an untapered ramp.
  */
@@ -462,15 +591,30 @@ export function rampTable(scale, palette, { legible = true, signed = false, fade
   const span = legibleSpan(scale, palette, { legible, fadeDecades });
   if (!span) return base;
   const { from, to, taperEnd } = span;
+  // The taper climbs from the palette's end beyond `from`: 0 on the dark card
+  // (exactly the old `(f / taperEnd) * from`), 1 on the light one. Only from an
+  // end fainter on the card than `from` itself, so the climb darkens on white
+  // and brightens on the dark card: Turbo's light run starts at 0.749 with its
+  // dark blue end beyond it, and a climb from there would sweep the whole
+  // rainbow through the faded half decade, so it fades its first colour alone.
+  const outer = from <= to ? 0 : 1;
+  const card = rgbTriple(THEME.card);
+  const climbs = contrast(tableRgb(base, outer), card) < contrast(tableRgb(base, from), card);
   for (let i = 0; i < 256; i += 1) {
     const f = i / 255;
     let t;
-    if (taperEnd > 0 && f < taperEnd) t = (f / taperEnd) * from;
+    if (taperEnd > 0 && f < taperEnd) t = climbs ? outer + (f / taperEnd) * (from - outer) : from;
     else if (taperEnd > 0) t = from + ((f - taperEnd) / Math.max(1e-9, 1 - taperEnd)) * (to - from);
     else t = from + f * (to - from);
     copy(i, Math.max(0, Math.min(255, Math.round(t * 255))));
   }
   return out;
+}
+
+/** [r, g, b] of a 256-entry table at ramp position t (0..1). */
+function tableRgb(table, t) {
+  const i = Math.max(0, Math.min(255, Math.round(t * 255)));
+  return [table[i * 3], table[i * 3 + 1], table[i * 3 + 2]];
 }
 
 /** [r, g, b] of '#rrggbb', the card's dark grey when unparseable. */
