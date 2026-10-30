@@ -31,9 +31,11 @@ what a reader sees, on the three pages:
   drawer and the export following it and a theme switch keeping it;
 * in light, every visible text of the page's chrome clears 4.5:1 against its
   own opaque ground (dark is measured as the control), the tooltip rule of
-  test_browser_tooltip.py holds, the header fits at 1024 and 1600 px with a
-  keyboard focus ring on the toggle, and in dark the controls keep today's
-  computed colours.
+  test_browser_tooltip.py holds, the header holds its two rows (the
+  application bar, then one pill centred under the tabs) at 1024 and 1600 px
+  without overflow, even with the widest experiment name, with a keyboard
+  focus ring on the toggle, and in dark the controls keep today's computed
+  colours.
 
 Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 """
@@ -810,38 +812,97 @@ def test_the_tooltip_rule_holds_in_the_light_theme(live_server, viewport, monkey
 
 # ----------------------------------------------------------------- layout --
 
+# The widest option the production catalogue writes, an auto-ingested file stem (page_common.js fillExperimentSelect).
+LONG_EXPERIMENT_LABEL = ("electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3"
+                         " — 100,000 events · standalone_events v3")
+LONG_CHIP_TEXT = ("electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3"
+                  " · Separation-Aligned (D-Frame) › Translated · Incident Angle Estimation Model")
+
+# Never throws: a missing element is reported (`missing`, and `rows: 1`) so the assertion message names it.
 _HEADER = """() => {
   const header = document.querySelector('.header');
-  const items = [...header.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
-  const toggle = document.getElementById('theme-toggle').getBoundingClientRect();
+  const bar = document.querySelector('.header .header-bar');
+  const context = document.querySelector('.header .header-context');
+  const field = document.querySelector('.header .context-field');
+  const tabs = document.getElementById('page-tabs');
+  const toggle = document.getElementById('theme-toggle');
+  const missing = [];
+  if (!header) missing.push('.header');
+  if (!bar) missing.push('.header-bar');
+  if (!context) missing.push('.header-context');
+  if (!field) missing.push('.context-field');
+  if (!tabs) missing.push('#page-tabs');
+  if (!toggle) missing.push('#theme-toggle');
+  const over = (el) => (el ? el.scrollWidth - el.clientWidth : 0);
+  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width }; };
+  const centre = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
+  const rendered = (el) => [...(el ? el.children : [])].map((c) => c.getBoundingClientRect()).filter((r) => r.height > 0);
+  const kids = rendered(header);
+  const items = rendered(bar);
+  const hb = header ? header.getBoundingClientRect() : { height: 0 };
   return {
-    height: header.getBoundingClientRect().height,
-    overflow: header.scrollWidth - header.clientWidth,
+    missing,
+    height: hb.height,
+    overflow: over(header), barOverflow: over(bar), contextOverflow: over(context),
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    rows: header ? kids.length : 1,
     // One line: every item's top above every item's bottom.
-    oneLine: Math.max(...items.map((r) => r.top)) < Math.min(...items.map((r) => r.bottom)),
-    toggle: { top: toggle.top, bottom: toggle.bottom, width: toggle.width },
-    headerTop: header.getBoundingClientRect().top, headerBottom: header.getBoundingClientRect().bottom,
+    barOneLine: items.length > 0 && Math.max(...items.map((r) => r.top)) < Math.min(...items.map((r) => r.bottom)),
+    toggle: box(toggle), bar: box(bar),
+    tabsCentre: centre(tabs), fieldCentre: centre(field),
   };
 }"""
 
 _WITHOUT_TOGGLE = "() => { document.getElementById('theme-toggle').style.display = 'none'; }"
 
+_STRESS = """([label, chip, exact]) => {
+  const select = document.getElementById('experiment-select');
+  if (select) {
+    const option = document.createElement('option');
+    option.value = option.textContent = label;
+    select.append(option);
+    select.value = label;   // no `change` event: nothing reloads
+  }
+  const chipText = document.getElementById('view-chip-text');
+  if (chipText) chipText.textContent = chip;
+  const badge = document.getElementById('badge-exact');
+  if (badge) badge.textContent = exact;
+}"""
+
+
+def _assert_two_rows(got, label, *, wide):
+    assert got["missing"] == [], (label, got)
+    assert got["overflow"] <= 0 and got["barOverflow"] <= 0 and got["contextOverflow"] <= 0, (label, got)
+    assert got["page"] <= 0, (label, got)
+    assert got["rows"] == 2, (label, got)
+    assert got["barOneLine"], (label, got)
+    assert got["bar"]["top"] <= got["toggle"]["top"] and got["toggle"]["bottom"] <= got["bar"]["bottom"], (label, got)
+    if wide:
+        assert got["tabsCentre"] is not None and got["fieldCentre"] is not None, (label, got)
+        assert abs(got["tabsCentre"] - got["fieldCentre"]) <= 1, (label, got)
+
 
 @pytest.mark.parametrize("viewport", [(1024, 768), (1600, 900)], ids=lambda v: f"{v[0]}x{v[1]}")
 @pytest.mark.parametrize("name", list(PAGES))
-def test_the_header_fits_and_the_toggle_shows_a_focus_ring(live_server, name, viewport):
-    """The toggle neither wraps nor widens the header past the window, in either theme.
+def test_the_header_holds_two_rows_and_the_toggle_shows_a_focus_ring(live_server, name, viewport):
+    """The header is two rows at 1024 and 1600 px, in either theme, and never scrolls sideways.
 
-    At 1024 px the Physics and Models headers already ran 460 / 394 px past
-    the window before the toggle existed (their `nowrap` row holds the
-    experiment badge, 480 px with the demonstration's name), and the
-    Methodology header already took two lines; neither is the toggle's doing,
-    so there the header is held to what it is without the toggle.
+    Row 1 is the application bar (start group, page tabs, end group) and
+    stays on one line; row 2 is the context pill. At both widths, in both
+    themes: nothing overflows (the header, the bar, the context row, the
+    page), the header has exactly two rendered rows, the toggle lies within
+    the bar's vertical band, and the header's height is the same with the
+    toggle hidden and in both themes. At 1600 px the tabs' centre and the
+    pill's centre coincide within 1 px. A stress with the widest experiment
+    option the catalogue writes, a 140-character view chip and the longest
+    Exact badge text must change none of it: the height stays, nothing
+    overflows, and the centres still agree. The toggle takes a 2 px solid
+    keyboard focus ring in the light accent.
     """
+    wide = viewport[0] >= 1600
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
-        layout, bare = {}, {}
+        layout, bare, stressed = {}, {}, {}
         for scheme in ("dark", "light"):
             _, page, problems, _ = _open(p, live_server["base"], PAGES[name], scheme=scheme, viewport=viewport,
                                          browser=browser)
@@ -857,22 +918,21 @@ def test_the_header_fits_and_the_toggle_shows_a_focus_ring(live_server, name, vi
                                      "color: cs.outlineColor }; }")
             page.evaluate(_WITHOUT_TOGGLE)
             bare[scheme] = page.evaluate(_HEADER)
+            if scheme == "dark":
+                page.evaluate("() => { document.getElementById('theme-toggle').style.display = ''; }")
+                page.evaluate(_STRESS, [LONG_EXPERIMENT_LABEL, LONG_CHIP_TEXT, "Preview (sampled)"])
+                stressed = page.evaluate(_HEADER)
             assert problems == [], problems
             page.close()
         browser.close()
-    print(f"{name} {viewport}: header {layout['dark']['height']} px, past the window by "
-          f"{layout['dark']['overflow']} px ({bare['dark']['overflow']} px without the toggle)")
+    print(f"{name} {viewport}: header {layout['dark']['height']} px, stressed {stressed['height']} px")
     for scheme, got in layout.items():
-        without = bare[scheme]
-        # No wrap: the toggle adds no height, and sits inside the header's band.
-        assert got["height"] == without["height"], (scheme, got, without)
-        assert got["headerTop"] <= got["toggle"]["top"] and got["toggle"]["bottom"] <= got["headerBottom"], got
-        # No overflow the toggle caused.
-        assert without["overflow"] > 0 or got["overflow"] <= 0, (scheme, got, without)
-        assert without["page"] > 0 or got["page"] <= 0, (scheme, got, without)
-        if viewport[0] >= 1600:
-            assert got["oneLine"] and got["overflow"] <= 0 and got["page"] <= 0, (scheme, got)
+        _assert_two_rows(got, scheme, wide=wide)
+        # The toggle adds no height.
+        assert got["height"] == bare[scheme]["height"], (scheme, got, bare[scheme])
     assert layout["light"]["height"] == layout["dark"]["height"], layout
+    _assert_two_rows(stressed, "stress", wide=wide)
+    assert stressed["height"] == layout["dark"]["height"], (stressed, layout["dark"])
     assert ring["id"] == "theme-toggle" and ring["style"] == "solid" and ring["width"] == "2px", ring
     # The light accent, #0b5fbe: 6.19:1 on the white card, 5.81:1 on the header's canvas.
     assert ring["color"] == "rgb(11, 95, 190)", ring

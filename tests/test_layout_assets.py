@@ -724,6 +724,62 @@ def test_every_header_has_one_theme_toggle_before_the_admin_or_export_control():
             "", "<buttonclass=\"action\"", "<aclass=\"action\""), name
 
 
+def _header_of(html: str) -> str:
+    return html[html.index("<header"):html.index("</header>")]
+
+
+def test_every_header_is_two_rows_with_the_application_bar_above_one_context_pill():
+    """Row 1 is the identical application bar; row 2 holds one pill centred under the tabs."""
+    for name, html, action in _all_pages():
+        header = _header_of(html)
+        order = ['<div class="header-bar">', '<div class="header-start">', 'id="sidebar-toggle"', 'class="brand"',
+                 '<nav class="page-tabs" id="page-tabs"', '<div class="header-end">', 'id="compute-badge"',
+                 'id="theme-toggle"', action, '<div class="header-context">', 'class="context-field"']
+        at = -1
+        for token in order:
+            found = header.find(token, at + 1)
+            assert found > at, (name, token, "missing or out of order")
+            at = found
+        context = header[header.index('<div class="header-context">'):]
+        if name in ("physics", "models"):
+            label = '<label class="context-label" for="experiment-select">Experiment</label>'
+            select = '<select class="picker" id="experiment-select"></select>'
+            assert label in context and select in context, name
+            assert context.index(label) < context.index(select), name
+        else:
+            chip = re.search(r'<div\b[^>]*\bid="view-chip"[^>]*>', context)
+            assert chip and 'class="context-field"' in chip.group(0), name
+            inner = context[chip.end():]
+            span = '<span class="context-label">Links open</span>'
+            value = re.search(r'<b\b[^>]*(?=[^>]*\bclass="context-value")[^>]*\bid="view-chip-text"[^>]*>', inner) \
+                or re.search(r'<b\b[^>]*(?=[^>]*\bid="view-chip-text")[^>]*\bclass="context-value"[^>]*>', inner)
+            assert span in inner and value and inner.index(span) < value.start(), name
+        if name == "physics":
+            exact = 'class="badge context-end" id="exact-badge"'
+            assert exact in context and context.index('class="context-field"') < context.index(exact), name
+        else:
+            assert 'id="exact-badge"' not in html, name
+        assert 'style="' not in header and 'class="spacer"' not in header, name
+
+
+def test_the_header_css_holds_two_rows_that_wrap_instead_of_overflowing():
+    css = (STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    flat = _strip_comments(css)
+    norm = lambda body: re.sub(r"\s+", " ", body)  # noqa: E731
+    assert re.search(r"flex-direction:\s*column", _rule(flat, ".header"))
+    assert re.search(r"flex-wrap:\s*wrap", _rule(flat, ".header-bar"))
+    ends = norm(_rule(flat, ".header-start, .header-end"))
+    assert "flex: 1 1 0" in ends and "min-width: max-content" in ends, ends
+    columns = norm(_rule(flat, ".header-context"))
+    assert "grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(max-content, 1fr)" in columns, columns
+    start = css.index("/* ------------------------------------------------------------------ header */")
+    end = css.index("/* ----", start + 10)
+    block = _strip_comments(css[start:end])
+    assert "transition" not in block and "animation" not in block
+    methodology = (STATIC / "css" / "methodology.css").read_text(encoding="utf-8")
+    assert "100vw - 1000px" not in methodology
+
+
 def test_every_colour_map_option_names_what_it_draws_on_the_light_theme():
     """On the light theme a slot draws a ramp made for white (palette.js); its option says which."""
     for html in (_html(), _models_html()):

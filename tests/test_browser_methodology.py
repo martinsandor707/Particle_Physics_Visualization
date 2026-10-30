@@ -462,7 +462,10 @@ def test_export_downloads_the_article_as_one_zip(live_server, tmp_path):
 
 
 def test_the_export_button_stays_in_the_header_at_every_width(live_server, tmp_path):
-    """The header does not wrap above the phone layout: the button must fit beside the chip and the badge."""
+    """At every width the Export button stays on screen inside the header, which never scrolls sideways.
+
+    The chip now sits on the second row, and the bar wraps below about 870 px rather than overflow.
+    """
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
         seen = {}
