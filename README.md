@@ -2057,7 +2057,7 @@ turned the ramps round onto white faded every shower in through a yellow fringe,
 muddied Cividis to khaki-grey and cut Turbo to its orange end. So on the light
 screen each slot draws its own white-grounded ramp (`palette.js`;
 `scale.js` `screenPalette`, `THEME.sequentialPalettes`; Martin's directive of
-2026-10-31). These are ColorBrewer colours, evenly spaced and interpolated in
+2026-10-30). These are ColorBrewer colours, evenly spaced and interpolated in
 CIELAB, each running from a pale tint at the display floor to a deep tone at
 the peak, so contrast with the card rises with the value:
 

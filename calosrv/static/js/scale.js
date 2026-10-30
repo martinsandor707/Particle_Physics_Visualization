@@ -539,7 +539,7 @@ export function fadesAtFloor(scale) {
  * runs they ringed every shower in yellow, muddied Cividis to khaki-grey and
  * cut Turbo to its orange end. So each colour-map slot draws a ramp made for
  * white (palette.js; `screenPalette`, THEME.sequentialPalettes; Martin's
- * directive of 2026-10-31), running from a pale tint to a deep tone, so
+ * directive of 2026-10-30), running from a pale tint to a deep tone, so
  * contrast with the card rises with the value by construction. A continuous
  * raster (`field: true`) spans it in full: its floor takes the palest tint,
  * fading into the card over the bottom half decade, and its peak the deepest
@@ -578,7 +578,7 @@ function armStart(table, card, negative, floor = RAMP_CONTRAST) {
  * `field: true` names a continuous raster, whose bins sit among their
  * neighbours. On the light screen it spans its white-grounded ramp in full
  * (null here): a pale tint at the floor, fading into the card, to the deep
- * core (Martin's directive of 2026-10-31). A mark that stands alone on the
+ * core (Martin's directive of 2026-10-30). A mark that stands alone on the
  * card - a cube, a series - keeps the 3:1 run on either card.
  */
 export function legibleSpan(scale, palette, {

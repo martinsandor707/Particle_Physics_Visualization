@@ -134,7 +134,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - Raw Shap-CAM cubes start each arm at 3:1.
     - **Print and the exporter** keep the full ramp in the palette's standard direction, from either screen theme.
     - **Disclosure:** the drawers say where the screen ramp starts.
-  - **On the light screen each colour-map slot draws a ramp made for white** (`palette.js` `viridis_light`, `cividis_light`, `plasma_light`, `turbo_light`; `scale.js` `screenPalette`; Martin's directive, 2026-10-31).
+  - **On the light screen each colour-map slot draws a ramp made for white** (`palette.js` `viridis_light`, `cividis_light`, `plasma_light`, `turbo_light`; `scale.js` `screenPalette`; Martin's directive, 2026-10-30).
     - **Why:** no dark-ground or paper ramp survives a white card.
       - Viridis' and Plasma's yellow ends vanish there (1.26:1 and 1.15:1).
       - Turned round onto white, they fade in through a yellow fringe round every shower, and Cividis muddies to khaki-grey.

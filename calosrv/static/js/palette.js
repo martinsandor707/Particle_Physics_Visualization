@@ -61,7 +61,7 @@
  * muddy grey. Turbo's only long stretch at 3:1 on white is its orange-to-red
  * end, a quarter of the ramp. So on the light screen each colour-map slot
  * draws a ramp made for white (`scale.js` THEME.sequentialPalettes; Martin's
- * directive of 2026-10-31). Each runs from a pale tint at the display floor to
+ * directive of 2026-10-30). Each runs from a pale tint at the display floor to
  * a deep tone at the peak, so contrast with the card rises with the value and a
  * continuous raster spans the whole ramp, fading into the card:
  *
