@@ -71,8 +71,9 @@
  * its own, because echarts-gl turns a whole series' depth writes off once any
  * of its items is translucent; the opaque cubes keep theirs. Code 0 is "no
  * value" on every channel and is not drawn. Species take the qualitative
- * `species` palette (`palette.QUALITATIVE`, checked for contrast and colour-
- * vision deficiency), with "other" in grey.
+ * palette the card in force names (`THEME.speciesPalette`: `species` on the
+ * dark card, `species_print` on white; `palette.QUALITATIVE`, checked for
+ * contrast and colour-vision deficiency), with "other" in grey.
  *
  * The colour legend is the 2-D visualMap of the 2-D panels (`scale.visualMap`)
  * over the GL layer. It targets no series (`seriesIndex: []`): the cubes carry
@@ -773,9 +774,12 @@ function qualitativeRgb(name) {
  * Continuous channels go through `decode.codeTable` (see the header); the
  * species channel indexes the qualitative palette by species code, with every
  * code past the named ones taking the palette's last ("other") colour.
- * `fadeDecades` is the floor taper of the relative ramps (THEME's on screen).
+ * `fadeDecades` is the floor taper of the relative ramps (THEME's on screen);
+ * `qualitative` the species palette, the card's (THEME's) when not given.
  */
-export function voxelCodeTable(model, palette = 'viridis', { fadeDecades = THEME.floorFadeDecades, qualitative = 'species' } = {}) {
+export function voxelCodeTable(model, palette = 'viridis', {
+  fadeDecades = THEME.floorFadeDecades, qualitative = THEME.speciesPalette,
+} = {}) {
   if (model.scale?.scale === 'categorical') {
     const colours = qualitativeRgb(qualitative);
     const otherCode = model.scale.other_code ?? 7;
@@ -838,7 +842,7 @@ export function speciesLabel(name) {
  * codes, so the legend never states a count the picture does not hold), its
  * swatch and whether it is hidden by an isolate toggle.
  */
-export function speciesLegend(model, hidden = new Set(), qualitative = 'species') {
+export function speciesLegend(model, hidden = new Set(), qualitative = THEME.speciesPalette) {
   if (!model?.species) return [];
   const colours = qualitativeRgb(qualitative);
   const other = model.scale?.other_code ?? 7;
@@ -1305,12 +1309,12 @@ export function partitionCubes(model, rgba, hidden = null) {
  * items in data order, or `halo`), which the tooltip and the tests read.
  * `opts`: `palette`; `hidden` a Set of species codes the isolate toggles
  * hide; `position` the tooltip's placement callback (tooltip.js); `qualitative`
- * the species palette name; `viewport` the chart's `{width, height}` in px,
- * which sets the opening view (`openingView`: the orthographic size and the
- * camera's viewport).
+ * the species palette name (the card's, THEME's, by default); `viewport` the
+ * chart's `{width, height}` in px, which sets the opening view (`openingView`:
+ * the orthographic size and the camera's viewport).
  */
 export function voxelOption(model, {
-  palette = 'viridis', hidden = null, position = null, qualitative = 'species', viewport = null,
+  palette = 'viridis', hidden = null, position = null, qualitative = THEME.speciesPalette, viewport = null,
 } = {}) {
   const rgba = cubeColours(model, palette, { qualitative });
   const bounds = voxelBounds(model);
@@ -1369,9 +1373,11 @@ export function voxelOption(model, {
   const halos = drawnPrimaries.slice(0, HALO_LIMIT);
   for (const i of halos) {
     const path = cubeWireframe(model, i, origin);
-    // Outer light line, inner dark line: the directive's black edge is about
-    // 1.2:1 on the #1c2128 card, so the halo pairs the text colour (14.4:1)
-    // with the canvas colour, legible on any cube colour beneath it.
+    // An outer line in the text colour, an inner one in the canvas colour: the
+    // directive's black edge is about 1.2:1 on the dark #1c2128 card, so the
+    // halo pairs the text colour (14.4:1 there; #111827 is 17.7:1 on the light
+    // card) with the canvas colour, legible on any cube colour beneath it. On
+    // the light card the pair is simply the other way round, dark outside.
     for (const [color, width] of [[THEME.text, 3], [THEME.canvas, 1.2]]) {
       series.push({ type: 'line3D', name: 'primary halo', silent: true, animation: false, lineStyle: { color, width, opacity: 1 }, data: path });
       roles.push({ role: 'halo', members: [i] });

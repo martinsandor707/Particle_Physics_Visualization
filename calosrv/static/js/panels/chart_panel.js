@@ -37,20 +37,32 @@
  *
  * A step outline or a marker is ink the reader must see, so its colour clears
  * 3:1 WCAG contrast against the card it is drawn on (CLAUDE.md section 2;
- * measured, not assumed). `categoricalStops` samples the theme's sub-range
- * (0.25-1 of the ramp on screen), whose lower end is only 2.1:1 on Viridis
- * against #1c2128 (1.7:1 on Cividis, 1.9:1 on Plasma). `seriesStops` keeps
- * the part of that sub-range that clears 3:1 against `THEME.card` - the card
- * on screen, white paper in print - so the ordered lightness ramp survives and
- * no series is drawn below the floor. Measured against #1c2128: Viridis from
- * 0.376, Cividis 0.482, Plasma 0.431, Turbo 0.102-0.859; against white:
- * Viridis to 0.600, Cividis 0.698, Plasma 0.639.
+ * measured, not assumed). `categoricalStops` samples the theme's sub-range,
+ * whose card-side end is below the floor on each card. `seriesStops` keeps
+ * the part of that sub-range that clears 3:1 against `THEME.card`, so the
+ * ordered lightness ramp survives and no series is drawn below the floor.
+ * What holds on each card:
+ *
+ * - The dark screen card #1c2128: the sub-range is 0.25-1, whose lower end
+ *   is only 2.1:1 on Viridis (1.7:1 on Cividis, 1.9:1 on Plasma). The 3:1
+ *   runs of the whole ramp (`legibleRamp`): Viridis from 0.376, Cividis
+ *   0.482, Plasma 0.431, Turbo 0.102-0.859; inside the sub-range Turbo's is
+ *   0.251-0.859.
+ * - The light screen card #ffffff: the sub-range is 0.75-0, reversed, and the
+ *   3:1 runs are the dark ends: Viridis 0-0.600, Cividis 0-0.698, Plasma
+ *   0-0.639, Turbo 0.749-1 (inside the sub-range, Turbo's dark blue end,
+ *   0-0.176). Each is handed over oriented from the card outwards
+ *   (`orientRun`), so on both screen cards the first series and the lowest
+ *   value take the run's faintest 3:1 colour and contrast rises from there.
+ * - White paper (print): the sub-range is 0-0.75 and the runs are the light
+ *   card's, in the palette's standard direction, as print always drew them.
  *
  * The same floor holds for a mark drawn translucent: its colour is measured
  * composited over the card at the opacity it is drawn with
- * (`legibleOpacity`). A dispersion fill is a wash (bandAlpha, 1.4:1) that
- * only tints; the extent a reader must read is carried by a dashed edge at
- * ≥ 3:1 along the mark's long sides, dashed so it never reads as a cap.
+ * (`legibleOpacity`). A dispersion fill is a wash (bandAlpha, 1.4:1 on the
+ * dark card) that only tints; the extent a reader must read is carried by a
+ * dashed edge at ≥ 3:1 along the mark's long sides, dashed so it never reads
+ * as a cap.
  *
  * ## Page 2
  *
@@ -124,13 +136,18 @@ export function legibleRange(palette, background, { min = 0, max = 1 } = {}, flo
  * theme's categorical sub-range, narrowed to where every colour clears 3:1
  * against the card (see the header). Falls back to the whole ramp's legible
  * run when the sub-range holds none, and to the plain sub-range only if the
- * ramp has no legible colour at all.
+ * ramp has no legible colour at all. On the light screen card the run is
+ * oriented as `legibleRamp` orients it, so the first series is the faintest
+ * 3:1 colour on either screen card; a single series takes the run's far end.
  */
 export function seriesStops(palette, count) {
   const range = THEME.categorical ?? { min: 0.25, max: 1 };
-  const legible = legibleRange(palette, THEME.card, range) ?? legibleRange(palette, THEME.card);
+  // The light sub-range is written reversed ({0.75, 0}); the search needs min <= max.
+  const sorted = { min: Math.min(range.min, range.max), max: Math.max(range.min, range.max) };
+  const legible = legibleRange(palette, THEME.card, sorted) ?? legibleRange(palette, THEME.card);
   if (!legible) return categoricalStops(palette, count, range);
-  return categoricalStops(palette, count, { min: legible[0], max: legible[1] });
+  const [from, to] = orientRun(palette, legible, THEME.card);
+  return categoricalStops(palette, count, { min: from, max: to });
 }
 
 /** The two shower colours, or the accent for a single shower. */
@@ -152,7 +169,8 @@ export function blendOver(colour, alpha, background = THEME.card) {
  * WCAG contrast against it (CLAUDE.md section 2, measured, not assumed). A
  * faded weak-bin mark or a de-weighted curve keeps its fading where the
  * colour allows it and stops at the floor where it does not: shower B's
- * #58a6ff needs 0.57 on the #1c2128 card, its print #0b5fbe 0.65 on white.
+ * #58a6ff needs 0.57 on the dark #1c2128 card, its light-screen and print
+ * #0b5fbe 0.65 on white.
  */
 export function legibleOpacity(colour, wanted = 1, floor = INK_CONTRAST) {
   const bg = rgbOf(THEME.card) ?? [28, 33, 40];
@@ -362,7 +380,8 @@ export function wrapTooltip(tooltip) {
  * #333 page text, 1.62:1 and 1.28:1 against #1c2128, while the inactive
  * arrow (#aaa) is 6.97:1 - the live control was the one a reader could not
  * see. The active arrow takes the text ink, the page count the muted ink, and
- * the inactive arrow the border, which reads as disabled.
+ * the inactive arrow the border, which reads as disabled (the light card's
+ * #d0d7de border is 1.45:1 there, as #30363d is 1.33:1 on the dark one).
  */
 export function chartLegend(data, extra = {}) {
   return {
@@ -724,10 +743,27 @@ export function sigFigs(value, digits = 3) {
   return typographic(`${Number(mantissa)}×10${sup}`);
 }
 
-/** Whether the print theme is in force (the card is white paper). */
+/**
+ * Whether the print theme is in force: the medium, not the card's colour.
+ *
+ * This used to ask whether the card was near-white, which was the same
+ * question while only print had a white card. The light screen theme has one
+ * too, and is still a screen: the legible remap, the screen legend layout and
+ * the screen notes all apply to it. A question about the card's colour is
+ * `onLightCard`.
+ */
 export function isPrintTheme() {
-  const card = rgbOf(THEME.card) ?? [28, 33, 40];
-  return contrast(card, [255, 255, 255]) < 2;
+  return THEME.medium === 'print';
+}
+
+/**
+ * Whether `card` is a light ground (contrast below 2:1 against white): the
+ * light screen card or white paper. The old print test, kept for what
+ * depends on the ground rather than the medium.
+ */
+export function onLightCard(card = THEME.card) {
+  const rgb = rgbOf(card) ?? [28, 33, 40];
+  return contrast(rgb, [255, 255, 255]) < 2;
 }
 
 /**
@@ -749,13 +785,40 @@ export function inkOn(fill) {
 }
 
 /**
- * A sequential ramp narrowed to the run that clears 3:1 against the card in
- * force (`legibleRange`): `{palette, from, to}`. A fill a reader must see -
- * a surrogate leaf - is then never darker than the card can show.
+ * A legible run `[lo, hi]` of `palette` as `[from, to]`: reversed when the
+ * medium is the screen, `background` is a light card and the run's low end
+ * has more contrast against it than its high end, so that contrast against
+ * the card rises with value as it does on the dark card. Otherwise as given:
+ * the dark card and print keep today's order exactly.
  */
-export function legibleRamp(palette) {
-  const range = legibleRange(palette, THEME.card) ?? [0, 1];
-  return { palette, from: range[0], to: range[1] };
+function orientRun(palette, [lo, hi], background) {
+  if (isPrintTheme() || !onLightCard(background)) return [lo, hi];
+  const table = lookupTable(palette);
+  const bg = rgbOf(background) ?? [255, 255, 255];
+  const at = (t) => {
+    const i = Math.max(0, Math.min(255, Math.round(t * 255)));
+    return contrast([table[i * 3], table[i * 3 + 1], table[i * 3 + 2]], bg);
+  };
+  return at(lo) > at(hi) ? [hi, lo] : [lo, hi];
+}
+
+/**
+ * A sequential ramp narrowed to the run that clears 3:1 against `background`
+ * (`legibleRange`; the card in force by default): `{palette, from, to}`, the
+ * colour of the lowest value at `from`. A fill a reader must see - a surrogate
+ * leaf, a raster bin, a cube - is then never fainter than the card can show.
+ *
+ * On the light screen card the run is oriented from the card outwards (from
+ * above to; `orientRun`), Martin's "contrast rises with value": Viridis from
+ * 0.600 (#22a784) to 0 (#440154) on white. On the dark card and in print it is
+ * the run in the palette's own order, as it always was: Viridis from 0.376 to
+ * 1 on #1c2128. A figure measured against a fixed card (the Methodology
+ * exhibits) passes that card, so it never depends on the screen theme.
+ */
+export function legibleRamp(palette, background = THEME.card) {
+  const range = legibleRange(palette, background) ?? [0, 1];
+  const [from, to] = orientRun(palette, range, background);
+  return { palette, from, to };
 }
 
 /** The colour at fraction `f` (0..1) of a `legibleRamp`, as '#rrggbb'. */

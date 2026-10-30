@@ -151,26 +151,46 @@ def _top_level_tokens(body: str) -> dict[str, str]:
 #: Canonical-overlay tokens both themes must define.
 FLOOR_TOKENS = ("separationRule", "anchorOpacity", "floorFadeDecades")
 
+#: The medium and the per-card palettes, which every theme must set so the
+#: exporter's swap leaves no screen value behind.
+MEDIUM_TOKENS = ("medium", "qualitativePalette", "speciesPalette", "tooltipBackground")
 
-def test_floor_tokens_exist_on_screen_and_in_print():
-    """The canonical floor, rule and anchor tokens exist in both themes.
 
-    The exporter swaps `THEME` wholesale, so a token defined only on screen
-    would print in its screen value - a translucent white rule on white paper,
-    or the on-screen fade instead of the hard contour the drawer's disclosure
-    names. None
-    of them is ink, so none may sit in `PRINT_INK`, whose members must clear
-    4.5:1: a reference rule that did would compete with the data.
-    """
-    screen = _top_level_tokens(_object_literal(
-        (STATIC / "js" / "scale.js").read_text(encoding="utf-8"), "const SCREEN = {",
-    ))
+def _screen_themes() -> dict[str, dict[str, str]]:
+    """The dark (`SCREEN`) and light (`SCREEN_LIGHT`) literals of scale.js, as text."""
+    source = (STATIC / "js" / "scale.js").read_text(encoding="utf-8")
+    return {
+        "dark": _top_level_tokens(_object_literal(source, "const SCREEN = {")),
+        "light": _top_level_tokens(_object_literal(source, "const SCREEN_LIGHT = {")),
+    }
+
+
+def _print_tokens() -> tuple[dict[str, str], dict[str, str]]:
+    """`PRINT_TOKENS`' own literal keys and `PRINT_INK`'s, which it spreads, as text."""
     tokens_js = (EXPORT_JS / "tokens.js").read_text(encoding="utf-8")
     printed = _top_level_tokens(_object_literal(tokens_js, "export const PRINT_TOKENS = {"))
     ink = _top_level_tokens(_object_literal(tokens_js, "export const PRINT_INK = {"))
+    return printed, ink
 
+
+def test_floor_tokens_exist_on_screen_and_in_print():
+    """The canonical floor, rule and anchor tokens exist in every theme.
+
+    The exporter swaps `THEME` wholesale, so a token defined only on screen
+    would print in its screen value - a translucent rule on white paper, or
+    the on-screen fade instead of the hard contour the drawer's disclosure
+    names. Both screen themes, dark and light, must define them. None of them
+    is ink, so none may sit in `PRINT_INK`, whose members must clear 4.5:1: a
+    reference rule that did would compete with the data.
+    """
+    screens = _screen_themes()
+    printed, ink = _print_tokens()
+
+    for name, screen in screens.items():
+        for token in FLOOR_TOKENS:
+            assert token in screen, f"the {name} screen theme lacks {token}"
+        assert float(screen["floorFadeDecades"]) > 0, f"the {name} screen floor must fade"
     for token in FLOOR_TOKENS:
-        assert token in screen, f"screen theme lacks {token}"
         assert token in printed, f"print tokens lack {token}"
         assert token not in ink, f"{token} is chrome, not ink, and must stay out of PRINT_INK"
 
@@ -178,8 +198,57 @@ def test_floor_tokens_exist_on_screen_and_in_print():
         "the print separation rule must be an opaque #rrggbb"
     )
     assert float(printed["floorFadeDecades"]) == 0, "print must draw a hard floor contour"
-    assert float(screen["floorFadeDecades"]) > 0, "the screen floor must fade"
     assert float(printed["anchorOpacity"]) == 1
+
+
+def test_both_screen_themes_have_one_key_set_and_print_overrides_it():
+    """keys(SCREEN) == keys(SCREEN_LIGHT) ⊆ keys(PRINT_TOKENS): the swap is total from either."""
+    screens = _screen_themes()
+    printed, ink = _print_tokens()
+    assert set(screens["dark"]) == set(screens["light"])
+    missing = set(screens["dark"]) - set(printed) - set(ink)
+    assert not missing, f"print leaves {sorted(missing)} to the screen theme"
+
+
+def test_the_light_screen_ink_is_legible_on_its_card_and_canvas():
+    """The light theme's text-role inks clear 4.5:1 on the white card and the #f6f8fa canvas.
+
+    The text-role tokens are `PRINT_INK`'s, less the border: on screen the
+    border is chrome (#d0d7de, 1.45:1, as #30363d is 1.33:1 on the dark card).
+    """
+    light = _screen_themes()["light"]
+    _, ink = _print_tokens()
+    roles = [key for key in ink if key != "border"]
+    assert roles == ["text", "muted", "accent", "warn", "showerA", "showerB"]
+    failures = {}
+    for key in roles:
+        colour = re.fullmatch(r"'(#[0-9a-fA-F]{6})'", light[key])
+        assert colour, f"SCREEN_LIGHT.{key} must be an opaque #rrggbb"
+        for ground in ("#FFFFFF", "#F6F8FA"):
+            ratio = contrast_ratio(colour.group(1), ground)
+            if ratio < MIN_CONTRAST:
+                failures[(key, ground)] = round(ratio, 2)
+    assert not failures, f"below {MIN_CONTRAST}:1: {failures}"
+    assert light["card"] == "'#ffffff'"
+    assert contrast_ratio("#6b7280", "#FFFFFF") >= MIN_CONTRAST and light["hatch"] == "'#6b7280'"
+
+
+def test_the_medium_and_palette_tokens_exist_in_all_three_themes():
+    """`medium` tells print from a white screen card; the palettes and tooltip ground follow the card."""
+    screens = _screen_themes()
+    printed, _ = _print_tokens()
+    themes = {"dark": screens["dark"], "light": screens["light"], "print": printed}
+    for name, theme in themes.items():
+        for token in MEDIUM_TOKENS:
+            assert token in theme, f"the {name} theme lacks {token}"
+    assert screens["dark"]["medium"] == screens["light"]["medium"] == "'screen'"
+    assert printed["medium"] == "'print'"
+    assert (screens["dark"]["qualitativePalette"], screens["light"]["qualitativePalette"],
+            printed["qualitativePalette"]) == ("'set2'", "'dark2'", "'dark2'")
+    assert (screens["dark"]["speciesPalette"], screens["light"]["speciesPalette"],
+            printed["speciesPalette"]) == ("'species'", "'species_print'", "'species_print'")
+    assert screens["dark"]["tooltipBackground"] == "'rgba(22,27,34,0.95)'"
+    assert screens["light"]["tooltipBackground"] == "'rgba(255,255,255,0.97)'"
 
 
 def test_print_type_clears_the_nine_point_floor():
@@ -649,10 +718,18 @@ def test_every_chart_tooltip_is_mounted_on_the_layer_and_placed_by_one_module():
         assert "tooltip: tooltipOption(this.tooltipPosition)" in source, name
         assert "this.tooltipPosition = tooltipPosition(this.chart" in source, name
         assert "hideTooltipOnScroll(this.chart)" in source, name
+    # The ground is a theme token, read by the one builder.
+    assert re.search(r"backgroundColor:\s*THEME\.tooltipBackground", tooltip)
     for path in (STATIC / "js").rglob("*.js"):
         if "vendor" in path.parts or path.name == "tooltip.js":
             continue
         text = path.read_text(encoding="utf-8")
+        if path.name == "scale.js":
+            # The dark screen theme's token, its one home.
+            code = _strip_comments(text)
+            assert code.count("rgba(22,27,34,0.95)") == 1
+            assert re.search(r"tooltipBackground:\s*'rgba\(22,27,34,0\.95\)'", code)
+            continue
         assert "rgba(22,27,34,0.95)" not in text, (
             f"{path.name} builds its own tooltip instead of tooltipOption()"
         )
@@ -832,6 +909,8 @@ def test_no_retired_frame_vocabulary_ships():
         text = path.read_text(encoding="utf-8")
         text = (re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL) if path.suffix == ".html"
                 else _strip_comments(text))
+        # An affiliation in the article's byline is a proper name, not a frame.
+        text = text.replace("National Laboratory", "")
         for phrase in retired:
             assert phrase not in text, f"{path.name} still says {phrase!r}"
 

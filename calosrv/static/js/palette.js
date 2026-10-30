@@ -37,6 +37,19 @@
  * into the card, so nothing the reader is asked to see is drawn at under 3:1.
  * The raw (linear) Shap-CAM puts zero at border grey #30363d instead, so a
  * populated bin with zero attribution stays distinct from an empty one.
+ *
+ * ## The light screen: PuOr in its standard direction, re-anchored on white
+ *
+ * On the light theme's white card (#ffffff) the failure is the mirror image:
+ * PuOr's light centre vanishes (#f7f7f7 1.07:1, #fee0b6 1.27:1, #d8daeb
+ * 1.39:1) and its dark extremes are the colours that show (#7f3b08 8.30:1,
+ * #2d004b 17.31:1). So the light arms keep PuOr's standard order, dark
+ * extremes outermost, and are folded the same way: each arm runs from the
+ * card outwards through PuOr's own colours, darkness rising with |value| and
+ * hue alone giving the sign. `puor_light` (signed log) and `puor_light_linear`
+ * (raw Shap-CAM and the correlation matrices) are measured against white in
+ * WCAG contrast and placed by CIE L*, as the dark arms are; the numbers are
+ * in the comment above their anchors. The standard table `puor` stays print's.
  */
 
 const ANCHORS = {
@@ -91,6 +104,59 @@ const ARM_NEG_LINEAR = [[0, BORDER], [0.391, [179, 88, 6]], [0.630, [224, 130, 2
 const ARM_POS_LINEAR = [[0, BORDER], [0.072, [84, 39, 136]], [0.451, [128, 115, 172]],
   [0.760, [178, 171, 210]], [1, [216, 218, 235]]];
 
+const WHITE = [255, 255, 255];      // the light card #ffffff
+const LIGHT_BORDER = [208, 215, 222]; // #d0d7de
+
+/* The light screen's arms, from zero outwards: [arm position p, rgb], measured
+ * against the white card (WCAG contrast, CIE L* from the same luminance).
+ *
+ * Both arms of each ramp follow one L* line, so equal |value| reads equally
+ * dark whatever its sign. Three of the anchors are not ColorBrewer classes
+ * but points on PuOr's own path between two of them, chosen by L*:
+ *
+ * - #d37610 (3.30:1, L* 58.8), 29% of the way from #e08214 to #b35806, and
+ *   #9287b9 (3.29:1, L* 58.9), 64% from #b2abd2 to #8073ac: each arm's first
+ *   colour at 3:1 with the dark arms' margin (#b35806 is 3.33:1 on #1c2128),
+ *   at one lightness on both arms. The class colours past 3:1, #b35806
+ *   (4.87:1) and #8073ac (4.23:1), would have spent all but L* 15 of the arm
+ *   on the faded bottom half decade.
+ * - #603b91 (8.29:1, L* 33.3), 73% from #8073ac to #542788: the purple arm's
+ *   end, at the lightness of the orange arm's #7f3b08 (8.30:1, L* 33.3).
+ *   PuOr has no orange as dark as #542788 (10.38:1, L* 27.1) or #2d004b
+ *   (17.31:1, L* 9.5), so a purple arm run to either would draw a positive
+ *   value darker, and so stronger, than a negative one of the same size.
+ *
+ * Signed log (`puor_light`). Each arm starts at the card (p = 0) and reaches
+ * its 3:1 colour at p = 1/6, 10^-2.5 of the peak on the three-decade ramp,
+ * where the taper of `decode.codeTable` turns opaque; the faded bottom half
+ * decade climbs through PuOr's light classes on the L* line from the card's
+ * 100 to 58.9 (orange #fee0b6 L* 90.7, #fdb863 79.7, #e08214 63.2; purple
+ * #d8daeb 87.4, #b2abd2 71.7), and the opaque arm runs on one line from 58.9
+ * to 33.3 (#b35806 L* 47.7, #8073ac 51.6). Every colour from p = 1/6 out is
+ * 3.29:1 or more, and code 107, the first at 10^-2.5 (p = 20/127), 3.05:1.
+ *
+ * Linear (`puor_light_linear`). Zero is the light border #d0d7de (L* 85.7,
+ * 1.45:1 against the card, mirroring #30363d's 1.33:1 on the dark one), so a
+ * populated bin with zero attribution, or r = 0, stays distinct from an empty
+ * one. Both arms follow one L* line from it to the shared dark end at L* 33.3
+ * (#fdb863 79.7, #b2abd2 71.7, #e08214 63.2, #8073ac 51.6, #b35806 47.7). The
+ * classes lighter than the zero, #fee0b6 and #d8daeb, are left out, so
+ * lightness falls from the zero on both arms; 3:1 is crossed at |v| ≈ 0.46.
+ *
+ * Measured on the 256-entry tables: L* never rises outwards on either arm
+ * (the 8-bit table repeats a colour where the purple arm's last segment
+ * changes by less than one code value per step), and the contrasts of
+ * mirrored codes agree within 1.4% on the signed log and 1.8% on the linear
+ * ramp, against the dark design's 15% and 9%. */
+const ARM_NEG_LIGHT = [[0, WHITE], [0.038, [254, 224, 182]], [0.082, [253, 184, 99]],
+  [0.149, [224, 130, 20]], [1 / 6, [211, 118, 16]], [0.529, [179, 88, 6]], [1, [127, 59, 8]]];
+const ARM_POS_LIGHT = [[0, WHITE], [0.051, [216, 218, 235]], [0.115, [178, 171, 210]],
+  [1 / 6, [146, 135, 185]], [0.402, [128, 115, 172]], [1, [96, 59, 145]]];
+const ARM_NEG_LIGHT_LINEAR = [[0, LIGHT_BORDER], [0.114, [253, 184, 99]], [0.428, [224, 130, 20]],
+  [0.724, [179, 88, 6]], [1, [127, 59, 8]]];
+const ARM_POS_LIGHT_LINEAR = [[0, LIGHT_BORDER], [0.266, [178, 171, 210]], [0.649, [128, 115, 172]],
+  [1, [96, 59, 145]]];
+
 /** The colour at arm position p of positioned anchors [[p, rgb], ...]. */
 function armColour(arm, p) {
   let i = 0;
@@ -133,6 +199,8 @@ const DIVERGING = {
   puor: () => buildTable(PUOR),
   puor_screen: () => buildFolded(ARM_NEG, ARM_POS),
   puor_screen_linear: () => buildFolded(ARM_NEG_LINEAR, ARM_POS_LINEAR),
+  puor_light: () => buildFolded(ARM_NEG_LIGHT, ARM_POS_LIGHT),
+  puor_light_linear: () => buildFolded(ARM_NEG_LIGHT_LINEAR, ARM_POS_LIGHT_LINEAR),
 };
 
 const CACHE = new Map();
@@ -214,10 +282,21 @@ export function categoricalStops(name, count, { min = 0.25, max = 1.0 } = {}) {
 export const SEQUENTIAL_PALETTES = Object.keys(ANCHORS);
 export const PALETTES = SEQUENTIAL_PALETTES;
 
-/** The diverging ramps: print, and the folded screen arms (signed log / linear). */
+/** The diverging ramps: print, and the folded screen arms (signed log / linear) of the dark and light cards. */
 export const DIVERGING_PALETTES = Object.keys(DIVERGING);
+
+const frozenArm = (arm) => Object.freeze(arm.map(([p, rgb]) => Object.freeze([p, Object.freeze([...rgb])])));
+
+/** The light arms' anchors, [p, rgb] from zero outwards, for the tests and the article to measure. */
+export const PUOR_LIGHT_ARMS = Object.freeze({
+  puor_light: Object.freeze({ neg: frozenArm(ARM_NEG_LIGHT), pos: frozenArm(ARM_POS_LIGHT) }),
+  puor_light_linear: Object.freeze({ neg: frozenArm(ARM_NEG_LIGHT_LINEAR), pos: frozenArm(ARM_POS_LIGHT_LINEAR) }),
+});
 export const PUOR_ANCHORS = PUOR;
+/** The dark screen card #1c2128, which the dark arms are measured against. */
 export const SCREEN_CARD = CARD;
+/** The light screen card #ffffff, which the light arms are measured against. */
+export const LIGHT_CARD = WHITE;
 
 /* ## Nominal categories: qualitative palettes
  *

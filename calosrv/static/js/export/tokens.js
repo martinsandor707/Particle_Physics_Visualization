@@ -140,6 +140,18 @@ export const PRINT_TOKENS = {
   divergingLinearPalette: 'puor',
   // The circular-cell hatch: chrome, not ink, so outside PRINT_INK (4.8:1 on white).
   hatch: '#6b7280',
+
+  /* The medium, and the per-card palettes. `medium` is what
+   * `chart_panel.isPrintTheme` reads, so the light screen theme's white card
+   * is never taken for paper. These four complete the override: every key of
+   * either screen theme (scale.js SCREEN, SCREEN_LIGHT) is set here, so the
+   * exporter's swap yields this one print theme whichever screen theme was in
+   * force. The tooltip ground is never drawn in a figure; it is set so no
+   * screen value survives the swap. */
+  medium: 'print',
+  qualitativePalette: 'dark2',
+  speciesPalette: 'species_print',
+  tooltipBackground: 'rgba(255,255,255,0.97)',
 };
 
 /** Logical pixels for a figure of the given printed width. */

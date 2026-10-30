@@ -103,8 +103,9 @@ export const READOUT_SHARE = 0.2;
 
 /**
  * The chart-level tooltip option. Read at build time, like every THEME value,
- * so the print theme applies when a figure is exported. `position` is the
- * chart's placement callback (`tooltipPosition`); without one, ECharts' own
+ * so the print theme applies when a figure is exported and the light screen
+ * theme's near-white ground when it is in force. `position` is the chart's
+ * placement callback (`tooltipPosition`); without one, ECharts' own
  * follow-the-pointer placement applies.
  */
 export function tooltipOption(position = null) {
@@ -116,7 +117,7 @@ export function tooltipOption(position = null) {
     hideDelay: 0,
     className: TOOLTIP_CLASS,
     ...(position ? { position } : {}),
-    backgroundColor: 'rgba(22,27,34,0.95)',
+    backgroundColor: THEME.tooltipBackground,
     borderColor: THEME.border,
     textStyle: { color: THEME.text, fontSize: THEME.fontTip },
   };
