@@ -204,7 +204,7 @@ def _open(p, base, table, *, viewport=(1600, 900), fragment="", init=(), browser
     `init` are scripts run before the page's own; `browser` opens the page in
     a browser already launched (a second page of one test)."""
     browser = browser or p.chromium.launch()
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+    page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     problems, requests = [], []
     page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
     page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
@@ -1101,7 +1101,7 @@ def _land(p, base, query, table, fragment="", outcome="drawer"):
     (`outcome="banner"`).
     """
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
     problems = []
     page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
     page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
@@ -1202,7 +1202,7 @@ def test_every_drawer_links_to_the_section_explaining_its_panel(physics_live_ser
     base = physics_live_server["base"]
     with physics_live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
         problems = []
         page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))

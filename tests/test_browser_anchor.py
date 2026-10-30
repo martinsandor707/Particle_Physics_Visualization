@@ -47,7 +47,7 @@ def _js_round(value: float) -> str:
 
 def _open(p, base, viewport):
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+    page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type in ("error", "warning") else None)
@@ -119,7 +119,7 @@ def test_the_entry_anchor_i_button_explains_both_definitions(live_server, viewpo
 def test_the_i_button_is_hidden_outside_the_translated_view(live_server):
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
         page.goto(f"{live_server['base']}/")
         page.wait_for_function("() => document.getElementById('stat-events').textContent !== '—'", timeout=30_000)
         assert not page.is_visible("#info-anchor")

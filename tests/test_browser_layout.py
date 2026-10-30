@@ -41,7 +41,7 @@ _BODY_TEXT = "() => document.getElementById('inspector-body').textContent"
 
 def _open(p, base, fragment="", viewport=(1600, 900)):
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+    page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     page.goto(f"{base}/{fragment}")
     page.wait_for_function(
         "() => ['plot-xy','plot-yz','plot-xz','plot-energy'].every((id) => "

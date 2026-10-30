@@ -208,7 +208,9 @@ _CHART_TEXTS = """(plotId) => {
 def _open(p, base, table, *, fragment=None, viewport=(1600, 900), init=(), browser=None, path="/models"):
     """The Models page on `table`, with every console error, page error and failed request recorded."""
     browser = browser or p.chromium.launch(args=GL_ARGS)
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]}, accept_downloads=True)
+    page = browser.new_page(
+        color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]}, accept_downloads=True,
+    )
     problems, requests = [], []
     page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
     page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
@@ -882,7 +884,7 @@ def test_a_badge_link_lands_on_its_models_card_with_the_way_back(models_live_ser
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch(args=GL_ARGS)
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
         problems = []
         page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
@@ -905,7 +907,7 @@ def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_li
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch(args=GL_ARGS)
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
         problems = []
         page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
@@ -936,4 +938,38 @@ def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_li
                             "- document.getElementById('main').getBoundingClientRect().top")
         assert -2 <= top <= 40, top
         browser.close()
+    assert problems == [], problems
+
+
+# -------------------------------------------------------------- the theme --
+
+
+def test_the_species_legend_and_cubes_follow_a_theme_switch(models_live_server):
+    """The 3-D event's species legend (the HTML swatches under the card) and its cubes take the screen
+    theme's qualitative palette (scale.js `speciesPalette`: `species` on dark, `species_print` on light),
+    on a switch with no request, and back again. The species channel needs the single-shower hits'
+    particle columns, which only this module's server holds (test_browser_theme.py covers the rest)."""
+    swatches = "() => [...document.querySelectorAll('.voxel-swatch')].map((s) => s.style.getPropertyValue('--swatch'))"
+    cubes = ("() => echarts.getInstanceByDom(document.getElementById('plot-vox-event')).getOption().series"
+             ".filter((s) => s.type === 'bar3D').flatMap((s) => (s.data || []).slice(0, 50)"
+             ".map((d) => d.itemStyle?.color ?? null))")
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], SINGLE_HITS_TABLE)
+        assert page.evaluate("() => document.documentElement.dataset.theme") == "dark"
+        _scroll_to(page, "vox-event")
+        page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "species")
+        page.wait_for_function("() => document.querySelectorAll('.voxel-swatch').length > 0", timeout=30_000)
+        page.wait_for_timeout(600)
+        seen = []
+        for _ in range(3):
+            seen.append((page.evaluate(swatches), page.evaluate(cubes)))
+            before = len(requests)
+            page.click("#theme-toggle")
+            page.wait_for_timeout(1200)
+            assert requests[before:] == [], requests[before:]
+        browser.close()
+    (dark, dark_cubes), (light, light_cubes), (again, again_cubes) = seen
+    assert dark and len(dark) == len(light) and dark != light, (dark, light)
+    assert dark_cubes and len(dark_cubes) == len(light_cubes) and dark_cubes != light_cubes
+    assert (again, again_cubes) == (dark, dark_cubes)
     assert problems == [], problems

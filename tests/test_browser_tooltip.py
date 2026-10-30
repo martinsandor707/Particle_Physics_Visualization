@@ -131,7 +131,7 @@ _DOCUMENT = """() => ({ sw: document.documentElement.scrollWidth, sh: document.d
 
 def _open(p, live_server, viewport, fragment):
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+    page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     page.goto(f"{live_server['base']}/{fragment}")
     page.wait_for_function(
         "() => ['plot-xy','plot-yz','plot-xz','plot-energy'].every((id) => "

@@ -730,3 +730,45 @@ def test_both_turbo_options_name_the_light_themes_3_to_1_run():
         assert option, "Turbo option"
         title = re.search(r'title="([^"]+)"', option.group(1))
         assert title and "3:1" in title.group(1) and "0.749" in title.group(1) and "light" in title.group(1)
+
+
+def _browser_page_calls():
+    """Every Playwright page or context creation in tests/test_browser_*.py.
+
+    Yields `(where, keywords, from_context)`: the call's file and line, the
+    keyword names it passes, and whether its receiver is a context this module
+    made with `new_context(...)` (whose pages inherit the context's scheme).
+    """
+    import ast
+
+    for path in sorted(Path(__file__).resolve().parent.glob("test_browser_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        contexts = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "new_context"):
+                contexts.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("new_page", "new_context")):
+                continue
+            receiver = node.func.value
+            from_context = (node.func.attr == "new_page" and isinstance(receiver, ast.Name)
+                            and receiver.id in contexts)
+            yield (f"{path.name}:{node.lineno}", {k.arg for k in node.keywords}, from_context)
+
+
+def test_every_browser_page_names_its_colour_scheme():
+    """Playwright emulates `prefers-color-scheme: light` unless told otherwise.
+
+    The page follows the system's theme when nothing is stored (theme.js), so a
+    browser test that names no scheme would silently boot the light theme and
+    check that instead of the dark one it was written for. Every page and
+    context a browser test opens therefore names its scheme; a page made from a
+    context inherits the context's.
+    """
+    calls = list(_browser_page_calls())
+    assert len(calls) >= 16, calls
+    unnamed = [where for where, keywords, from_context in calls
+               if not from_context and "color_scheme" not in keywords]
+    assert not unnamed, f"name color_scheme= at {unnamed}"

@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 
 def _page(p, base):
     browser = p.chromium.launch()
-    page = browser.new_page(viewport={"width": 1600, "height": 900})
+    page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
     page.goto(f"{base}/")
     page.wait_for_function("() => document.getElementById('plot-xy')?.querySelector('canvas')",
                            timeout=30_000)

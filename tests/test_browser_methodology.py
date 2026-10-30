@@ -64,7 +64,7 @@ def _screens(tmp_path: Path) -> Path:
 def _open(p, base, *, fragment=VIEW, viewport=(1600, 900), browser=None, clipboard=False):
     """The page with `fragment`, with every console error, page error and failed request recorded."""
     browser = browser or p.chromium.launch()
-    context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
+    context = browser.new_context(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     if clipboard:
         context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base)
     page = context.new_page()
