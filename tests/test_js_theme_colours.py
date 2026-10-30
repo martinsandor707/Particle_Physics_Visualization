@@ -740,19 +740,23 @@ def test_weak_correlation_cells_fade_toward_white(theme_results):
 
 
 def test_correlation_labels_on_the_light_card(theme_results):
-    """The label takes whichever of the text and canvas inks contrasts more with its cell.
+    """On the light card a label takes `inkOn`'s ink: the text ink, white or black.
 
-    Measured: no worse than the dark card's 4.01:1 (at r = -0.41 there; 4.10:1
-    at r = +0.66 on white, where neither ink reaches 4.5:1 on a mid-ramp
-    purple). A faded cell's label is set against the faded colour, 9.6:1 or more.
+    The text-or-canvas choice of the dark card reached only 4.10:1 on white (at
+    r = +0.66, a mid-ramp purple), so the light card asks `inkOn`, which clears
+    4.5:1 on every cell (4.59:1 measured). The dark card keeps its text-or-canvas
+    choice, unchanged: 4.01:1 at worst (r = -0.41), below the ink floor, and
+    recorded in TODO.md rather than changed here, because dark must not move. A
+    faded cell's label is set against the faded colour, 9.6:1 or more.
     """
     c = theme_results["correlation"]
-    inks = {c["ink"]["text"], c["ink"]["canvas"]}
+    inks = {c["ink"]["text"], c["ink"]["canvas"], "#ffffff", "#000000"}
     worst = min(contrast(cell["rgb"], rgb_of(cell["label"])) for cell in c["sweep"])
     worst_faded = min(contrast(cell["shown"], rgb_of(cell["shownLabel"])) for cell in c["sweep"])
     assert all(cell["label"] in inks and cell["shownLabel"] in inks for cell in c["sweep"])
+    assert worst >= 4.5, worst
     dark_worst = min(contrast(cell["rgb"], rgb_of(cell["label"])) for cell in theme_results["correlationDark"])
-    assert worst >= dark_worst >= 4.0, (worst, dark_worst)
+    assert dark_worst >= 4.0, dark_worst
     assert worst_faded >= 4.5
 
 

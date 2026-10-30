@@ -60,7 +60,9 @@ import { THEME, axisPadding, formatNumber, formatInt, formatSigned, rampPalette,
 import { contrast, lookupTable } from '../palette.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
-import { ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, rgbOf, blendOver } from './chart_panel.js';
+import {
+  ChartPanel, baseOption, wrapTooltip, mutedLine, escapeHtml, rgbOf, blendOver, inkOn, isPrintTheme, onLightCard,
+} from './chart_panel.js';
 
 /** How each variable is written on the matrix axes. */
 const SYMBOLS = {
@@ -110,8 +112,16 @@ export function cellColour(r, palette) {
   return [table[i * 3], table[i * 3 + 1], table[i * 3 + 2]];
 }
 
-/** The label colour that contrasts more with `rgb`: the theme's text or canvas. */
+/**
+ * The label colour that contrasts more with `rgb`: the theme's text or canvas.
+ *
+ * On the light screen card neither reaches 4.5:1 on a mid-ramp PuOr cell
+ * (4.10:1 at r = +0.66), so there the label takes `inkOn`'s choice of the
+ * text ink, white or black, which clears 4.59:1 on every cell. The dark card
+ * and print keep the text-or-canvas choice they always made.
+ */
 export function labelColour(rgb) {
+  if (onLightCard() && !isPrintTheme()) return inkOn(`rgb(${rgb.join(',')})`);
   const text = rgbOf(THEME.text) ?? [230, 237, 243];
   const canvas = rgbOf(THEME.canvas) ?? [13, 17, 23];
   return contrast(rgb, text) >= contrast(rgb, canvas) ? THEME.text : THEME.canvas;
