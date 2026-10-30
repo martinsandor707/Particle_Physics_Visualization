@@ -55,7 +55,7 @@ input[type="search"]:focus,
 .numeric-pair .numeric:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+  box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 input[type="number"]:disabled,
@@ -79,10 +79,10 @@ input[type="file"] {
 input[type="file"]::file-selector-button {
   margin-right: 8px;
   padding: 4px 10px;
-  background: #21262d;
+  background: var(--control-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: #c9d1d9;
+  color: var(--control-text);
   font-size: 12px;
   cursor: pointer;
 }
@@ -240,7 +240,7 @@ input[type="file"]::file-selector-button:hover {
 .picker:focus, .textinput:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+  box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 /* Native dropdown options are drawn by the platform and default to a white
@@ -258,8 +258,8 @@ input[type="file"]::file-selector-button:hover {
   white-space: nowrap;
 }
 .action:hover { border-color: var(--accent); color: var(--accent); }
-.action.primary { background: var(--accent); border-color: var(--accent); color: #04101f; font-weight: 600; }
-.action.primary:hover { filter: brightness(1.1); color: #04101f; }
+.action.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.action.primary:hover { filter: brightness(1.1); color: var(--on-accent); }
 .action:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* The sidebar toggle: one icon button in the header, collapsing and expanding
@@ -300,6 +300,12 @@ input[type="file"]::file-selector-button:hover {
 .metric .v { font-variant-numeric: tabular-nums; font-weight: 600; font-family: var(--mono); }
 .metric.is-primary .v { color: var(--accent); font-size: 13px; }
 .metric .k small { display: block; font-size: 10px; opacity: 0.75; font-weight: 400; }
+/* 0.75 of the light muted ink is 3.5:1 on the white card, under the 4.5:1 a
+   10 px caption needs (dark: 3.57:1, an accepted dark figure that stays as it
+   is). At 0.9 it is 4.82:1 on the card and 4.59:1 on the control ground. */
+@media screen {
+  :root[data-theme="light"] .metric .k small { opacity: 0.9; }
+}
 .metric .k small.caveat { font-style: italic; }
 /* The uncertainty of a card's statistic, under its value. */
 .metric .v small { display: block; font-size: 9px; color: var(--muted); font-weight: 400; text-align: right; }
@@ -377,7 +383,7 @@ input[type="file"]::file-selector-button:hover {
 .info-dot:hover { background: var(--warn-bg); }
 .info-dot[hidden] { display: none; }
 .info-dot.is-neutral { border-color: var(--muted); color: var(--muted); }
-.info-dot.is-neutral:hover { background: rgba(139, 148, 158, 0.14); }
+.info-dot.is-neutral:hover { background: var(--muted-wash); }
 
 .popover {
   position: fixed;
@@ -387,7 +393,7 @@ input[type="file"]::file-selector-button:hover {
   background: var(--canvas-alt);
   border: 1px solid var(--warn);
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  box-shadow: 0 8px 24px var(--shadow);
   font-size: 11px;
   line-height: 1.45;
   color: var(--text);
@@ -456,16 +462,16 @@ input[type="file"]::file-selector-button:hover {
 /* Secondary HUD button: Auto-fit RoI, Reset, and the A / B / Both toggles. */
 .mini {
   padding: 3px 8px;
-  background: #21262d;
+  background: var(--control-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: #c9d1d9;
+  color: var(--control-text);
   font-size: 10px;
   line-height: 1.5;
   cursor: pointer;
   white-space: nowrap;
 }
-.mini:hover { background: #2d333b; border-color: var(--accent); color: var(--accent); }
+.mini:hover { background: var(--control-hover); border-color: var(--accent); color: var(--accent); }
 .mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* A tinted active state rather than a solid fill: these toggles sit inside a
@@ -473,7 +479,7 @@ input[type="file"]::file-selector-button:hover {
    competes with the data for attention. */
 .mini.is-active,
 .mini[data-inspect][aria-expanded="true"] {
-  background: rgba(88, 166, 255, 0.15);
+  background: var(--accent-wash);
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
@@ -522,7 +528,7 @@ input[type="file"]::file-selector-button:hover {
   background: var(--canvas-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 .menu-item {
@@ -541,7 +547,7 @@ input[type="file"]::file-selector-button:hover {
   cursor: pointer;
 }
 .menu-item small { color: var(--muted); font-size: 10px; }
-.menu-item:hover { background: rgba(88, 166, 255, 0.12); color: var(--accent); }
+.menu-item:hover { background: var(--accent-wash-soft); color: var(--accent); }
 .menu-item:hover small { color: var(--accent); }
 .menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
@@ -551,7 +557,7 @@ input[type="file"]::file-selector-button:hover {
   margin-top: 6px;
   padding: 6px 9px;
   border-left: 2px solid var(--muted);
-  background: rgba(139, 148, 158, 0.08);
+  background: var(--muted-wash-soft);
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
@@ -630,10 +636,10 @@ a.action { display: inline-block; text-decoration: none; }
    hit-level cards), sized like the .mini buttons beside it. */
 .mini-select {
   padding: 2px 6px;
-  background: #21262d;
+  background: var(--control-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: #c9d1d9;
+  color: var(--control-text);
   font-size: 10px;
   line-height: 1.5;
   max-width: 190px;

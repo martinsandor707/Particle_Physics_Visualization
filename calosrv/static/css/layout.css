@@ -308,6 +308,11 @@
   opacity: 0.7;
 }
 .banner .banner-close:hover { opacity: 1; }
+/* The close glyph at 0.7 of the warn ink on the warn banner's tint is 2.93:1,
+   under the 3:1 a control glyph needs (danger: 3.09:1, dark unaffected). */
+@media screen {
+  :root[data-theme="light"] .banner .banner-close { opacity: 0.85; }
+}
 
 /* ------------------------------------------------------------- status bar */
 
@@ -345,7 +350,7 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(1, 4, 9, 0.78);
+  background: var(--backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
