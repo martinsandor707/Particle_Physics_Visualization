@@ -17,7 +17,8 @@
  * matched.
  */
 
-import { Notes, SECTION, eventNotes, projectionNotes } from './panel_notes.js';
+import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
+import { legibleRamp } from './panels/chart_panel.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
 import { HALO_LIMIT, referenceTopLabel, speciesLabel } from './voxels.js';
@@ -103,6 +104,21 @@ export const LEGIBLE_RAMP_NOTE = 'On screen the ramp starts at its first colour 
   + 'against the card (Viridis from 0.376 of its range; the measured 3:1 run of the other palettes), so no '
   + 'opaque cube - a cube below the ramp floor included - is drawn darker than the card can show.';
 
+/**
+ * `LEGIBLE_RAMP_NOTE` for the card in force. The constant is the dark card's
+ * sentence and stays byte for byte (the dark golden records it). On the light
+ * card the run is oriented so that contrast rises with value, Viridis from
+ * 0.600 toward 0, and what the card cannot show is a cube drawn lighter.
+ */
+export function legibleRampNote() {
+  if (!onLightScreen()) return LEGIBLE_RAMP_NOTE;
+  const { from } = legibleRamp('viridis');
+  return 'On screen the ramp starts at its first colour with at least 3:1 contrast '
+    + `against the card (Viridis from ${from.toFixed(3)} of its range toward 0, so contrast rises with the value; `
+    + 'the measured 3:1 run of the other palettes), so no opaque cube - a cube below the ramp floor included - '
+    + 'is drawn lighter than the card can show.';
+}
+
 /* -------------------------------------------------------------- event -- */
 
 /**
@@ -179,16 +195,16 @@ export function voxelEventNotes({
   } else {
     legend.push('The colour bar at the right is the ramp the cubes are painted with, labelled in the channel\'s '
       + 'own units; it is the 2-D panels\' code-to-colour table, so a cube and the bin beside it agree.');
-    legend.push(LEGIBLE_RAMP_NOTE + (scale.diverging
+    legend.push(legibleRampNote() + (scale.diverging
       ? ' A raw Shap-CAM cube near zero takes its sign\'s first 3:1 colour (orange or purple) where the 2-D '
         + 'panels draw zero in border grey: a cube prints no number, so none may vanish.'
       : ''));
   }
-  legend.push('A halo - a light outer and a dark inner outline - marks a primary-tagged cube (is_secondary = 0).');
+  legend.push(`A halo - a ${onLightScreen() ? 'dark outer and a light inner' : 'light outer and a dark inner'} outline - marks a primary-tagged cube (is_secondary = 0).`);
   if ((vox.cubes?.shower_codes ?? []).filter((c) => c && c !== '—').length > 1) {
     legend.push(`Each cube's tooltip names whose rows it holds: ${listText(vox.cubes.shower_codes)}.`);
   }
-  legend.push(`The ${formatInt((vox.topk ?? []).length)} brightest cubes carry exact values in their tooltips; `
+  legend.push(`The ${formatInt((vox.topk ?? []).length)} ${onLightScreen() ? 'highest-valued' : 'brightest'} cubes carry exact values in their tooltips; `
     + 'every other value is read back from its 8-bit colour code and labelled so.');
   notes.section(SECTION.legend, legend);
 
@@ -346,7 +362,7 @@ export function voxelEnsembleNotes({
       + ')'
       + (scale.scale === 'signed_log10' ? ', diverging on PuOr: orange negative, purple positive' : '')
       + (provisional ? '; it is labelled provisional because the selection is too small to fix its reference.' : '.'),
-    `The ${formatInt((payload.topk ?? []).length)} brightest voxels carry exact values in their tooltips; every `
+    `The ${formatInt((payload.topk ?? []).length)} ${onLightScreen() ? 'highest-valued' : 'brightest'} voxels carry exact values in their tooltips; every `
       + 'other value is read back from its 8-bit colour code and labelled so.',
   ]);
 

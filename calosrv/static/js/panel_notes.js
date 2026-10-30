@@ -35,7 +35,7 @@ import { panelSymbols } from './axis_symbols.js';
 import { formatSci, formatInt, legibleSpan, rampPalette, THEME } from './scale.js';
 import { profileAxisKey, ensembleLabel } from './panels/profile.js';
 import { gridSlices, subplotScale, seriesMessage, estimatorNote } from './panels/response_grid.js';
-import { sigmaText, clampInterval } from './panels/chart_panel.js';
+import { sigmaText, clampInterval, onLightCard, isPrintTheme } from './panels/chart_panel.js';
 import { SHAPE_FLOOR_SHOWERS } from './panels/distribution.js';
 
 export const SECTION = Object.freeze({
@@ -88,10 +88,41 @@ export const EVENT_MARKS =
   + 'every mark belongs to this one shower, and the principal-axis tilt is printed, not drawn.';
 
 /**
+ * Whether the drawer is describing the light screen: a light card on the
+ * screen medium. Paper is a light card too, but no drawer is built there, and
+ * the exported figure keeps the palette's standard direction on white whichever
+ * theme is on screen. Every sentence that names the ramp's lightness, the
+ * ink or the folded arms branches here, so each is true on the card in force.
+ */
+export function onLightScreen() {
+  return onLightCard() && !isPrintTheme();
+}
+
+/**
+ * The PuOr sentence of a signed ramp's drawer, appended to "linear on
+ * [−1, +1]". The dark screen folds each arm from the card outwards;
+ * the light screen runs each arm from the card's own white (the linear ramp
+ * from a pale grey zero) outwards through PuOr's own colours in their
+ * standard order, placed by CIE lightness; print keeps the standard scheme.
+ */
+export function puorScreenNote() {
+  return onLightScreen()
+    ? '; on the light screen each arm runs outwards from the card (from a pale grey zero on the linear ramp) '
+      + 'through PuOr\'s own colours in their standard order, darkening with |value| and placed by CIE '
+      + 'lightness, and print keeps the standard scheme.'
+    : ', folded on the dark screen and standard in print.';
+}
+
+/**
  * What the lowest drawn colour of a spatial panel's sequential ramp means on
  * screen (fix round C, decision D-2), and that the exported figure keeps the
- * full ramp. '' for a signed ramp, whose folded PuOr arms are unchanged, and
- * for a ramp drawn in full. `palette` is the chosen sequential palette's key.
+ * full ramp. '' for a signed ramp, whose PuOr arms are described elsewhere
+ * (`puorScreenNote`), and for a ramp drawn in full. `palette` is the chosen
+ * sequential palette's key. On the light card the 3:1 run is oriented so that
+ * contrast rises with value (`legibleRamp`): the lowest value takes the run's
+ * light end, the taper climbs from the palette's light end, and nothing is
+ * drawn lighter than the first 3:1 colour; the dark card's sentences are
+ * unchanged.
  */
 export function rampStartNote(scale, palette = 'viridis') {
   if (!scale) return '';
@@ -100,7 +131,14 @@ export function rampStartNote(scale, palette = 'viridis') {
   const name = String(palette ?? 'viridis').replace(/^./, (c) => c.toUpperCase());
   const start = `${name} from ${num(span.from, 3)} of its range`;
   const exported = 'The exported figure carries the full ramp, from the palette\'s first colour, on white.';
+  const light = onLightScreen();
   if (span.taperEnd > 0) {
+    if (light) {
+      return `On screen the ramp fades in across the ${num(THEME.floorFadeDecades, 1)} decade above the display floor `
+        + `and reaches its first colour with at least 3:1 contrast against the card (${start}) where the fade turns `
+        + 'opaque; its lightness only falls from the card outwards, and every opaque bin is drawn at that colour or '
+        + `darker, so the lightest opaque colour marks the top of the fade, not the floor. ${exported}`;
+    }
     return `On screen the ramp fades in across the ${num(THEME.floorFadeDecades, 1)} decade above the display floor `
       + `and reaches its first colour with at least 3:1 contrast against the card (${start}) where the fade turns `
       + 'opaque; every opaque bin is drawn at that colour or brighter, so the darkest opaque colour marks the top '
@@ -108,7 +146,7 @@ export function rampStartNote(scale, palette = 'viridis') {
   }
   return 'On screen the ramp starts at its first colour with at least 3:1 contrast against the card '
     + `(${start}), so the lowest drawn colour is the bottom of the colour scale, a bin below the ramp floor `
-    + `included, and not the palette's darkest colour. ${exported}`;
+    + `included, and not the palette's ${light ? 'lightest' : 'darkest'} colour. ${exported}`;
 }
 
 /** The semantic axes of each Event Inspector panel: column, row. */
@@ -891,7 +929,7 @@ export function correlationNotes({ payload, title = null, state = null, experime
   ]);
   notes.section(SECTION.drawn, [
     'Pearson r, lower triangle only (the matrix is symmetric and its diagonal is 1), on PuOr symmetric about zero: '
-      + 'linear on [−1, +1], folded on the dark screen and standard in print.',
+      + `linear on [−1, +1]${puorScreenNote()}`,
     ...(payload.notes ?? []),
   ]);
   const disclosures = [];
