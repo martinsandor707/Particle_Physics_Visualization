@@ -19,7 +19,7 @@
  * from structure only, never by matching text.
  */
 
-import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE } from './panel_notes.js';
+import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE, onLightScreen, puorScreenNote } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText } from './panels/chart_panel.js';
@@ -155,7 +155,7 @@ export function perfBinsNotes({ payload, state = null, experiment = null, title 
   notes.section(SECTION.legend, [
     xgb ? 'Colour is the series (ColorBrewer qualitative hues, each ≥ 3:1 against the card): the XGBoost regressor on its validation split, one shower per event.'
       : 'Colour is the network\'s input frame (ColorBrewer qualitative hues, each ≥ 3:1 against the card); a solid bar is shower A, a light wash with a solid outline shower B, and their legend swatches are drawn the same way.',
-    `The capped whisker is the 95% interval of the plotted statistic - ${q.interval ?? 'as the server names it'} - never the spread of the ${noun}s in the bin. It is light ink on a dark casing, so it reads over any bar and over the card.`,
+    `The capped whisker is the 95% interval of the plotted statistic - ${q.interval ?? 'as the server names it'} - never the spread of the ${noun}s in the bin. It is ${onLightScreen() ? 'dark ink on a light' : 'light ink on a dark'} casing, so it reads over any bar and over the card.`,
     `A faded, dash-outlined bar has no interval. A dot is a bin of one ${noun}: an observation, not an aggregate. A caret at the axis marks a bar, dot or whisker clipped there. The readout lists every series of the bin under the pointer.`,
   ]);
   notes.section(MODELS_HEADINGS.estimators, [
@@ -195,7 +195,9 @@ export function predTruthNotes({ payload, state = null, experiment = null, title
   ]);
   notes.section(SECTION.drawn, [
     rampSentence(payload, palette),
-    palette === 'viridis' ? payload.color?.note ?? '' : '',
+    // The server measured this note against the dark card (its #1c2128 is named in the text): on the light card
+    // it would contradict the ramp sentence above, which is computed against the card in force.
+    palette === 'viridis' && !onLightScreen() ? payload.color?.note ?? '' : '',
     'Square axes, 1:1: truth and prediction share one dataset-wide range in one unit, so the identity line is the diagonal.',
     payload.notes?.pairs ?? '',
     payload.notes?.axes ?? '',
@@ -376,7 +378,7 @@ export function featureCorrNotes({ payload, state = null, experiment = null, tit
       ? `${plural(payload.n_excluded_eps, 'shower')} with a floored factor left out of the pairs with ${(payload.eps_pair_features ?? []).join(', ')}.` : '',
   ]);
   notes.section(SECTION.drawn, [
-    `${payload.scale?.label ?? 'Pearson r'}, lower triangle only (the matrix is symmetric and its diagonal 1), on PuOr symmetric about zero: linear on [−1, +1], folded on the dark screen and standard in print.`,
+    `${payload.scale?.label ?? 'Pearson r'}, lower triangle only (the matrix is symmetric and its diagonal 1), on PuOr symmetric about zero: linear on [−1, +1]${puorScreenNote()}`,
     ...noteLines(payload.notes),
   ]);
   const cells = m.matrix.flatMap((row) => row.filter(Boolean));
