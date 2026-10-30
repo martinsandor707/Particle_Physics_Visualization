@@ -59,6 +59,22 @@
 .header-start { gap: 10px; }
 .header-end { gap: 8px; justify-content: flex-end; }
 
+/* From 761 to 950 px, below the width at which the bar holds one line and
+   above the Methodology page's phone layout, the start and end groups share
+   the first line and the tabs take a centred line of their own, so they keep
+   the pill's centre line. Left to wrap by itself, the bar would push the
+   tabs to its right edge. */
+@media (min-width: 761px) and (max-width: 950px) {
+  .header-bar {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    justify-content: space-between;
+  }
+  .header-start { grid-area: 1 / 1; }
+  .header-end { grid-area: 1 / 2; }
+  .header-bar > .page-tabs { grid-area: 2 / 1 / 3 / 3; justify-self: center; }
+}
+
 .header h1 { font-size: 15px; letter-spacing: 0.01em; white-space: nowrap; }
 .header .subtitle { font-size: 11px; color: var(--muted); }
 
@@ -68,7 +84,7 @@
    Physics page). When the row is tight the start track empties first, then
    the pill, whose picker or text shrinks rather than overflows: a native
    select is as wide as its longest option, and experiment names are long
-   file stems. The pill has one fixed height, so a select (Physics, Models)
+   file stems. The pill has one minimum height, so a select (Physics, Models)
    and a line of text (Methodology) give every page the same header. */
 .header-context {
   display: grid;
@@ -88,21 +104,23 @@
   border-radius: 999px;
   background: var(--card);
 }
-.context-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+.context-field:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .context-label { flex: none; font-size: 11px; color: var(--muted); }
 .context-field .picker, .context-value { min-width: 0; font-size: 12px; font-weight: 600; color: var(--text); }
 
-/* The picker sits borderless in the pill, which carries the focus ring. */
+/* The picker sits borderless in the pill, which carries the focus outline,
+   the same 2 px accent line as every other control in the header. */
 .context-field .picker {
   flex: 0 1 auto;
   width: auto;
-  min-width: min(200px, 100%);
   max-width: 100%;
   padding: 3px 6px;
   border: 0;
   background: transparent;
 }
 .context-field .picker:focus { box-shadow: none; }
+/* Before the catalogue arrives the select has no option, and so no width. */
+.context-field .picker:empty { min-width: 12em; }
 .context-field .picker option { font-weight: 400; }
 
 /* A long value is cut with an ellipsis; its pill's title says all. */
@@ -548,10 +566,10 @@
 
 /* ---------------------------------------------------------- page tabs */
 
-/* The header's two page tabs (Physics at /, Models at /models). Plain links:
-   page_common.js wirePageTabs gives each the current view's hash when it is
-   about to be followed. The current page's tab is filled; the other reads as
-   a link. Nothing here is animated. */
+/* The header's three page tabs (Physics at /, Models at /models, Methodology
+   at /methodology). Plain links: page_common.js wirePageTabs gives each the
+   current view's hash when it is about to be followed. The current page's tab
+   is filled; the others read as links. Nothing here is animated. */
 .page-tabs {
   display: inline-flex;
   gap: 2px;

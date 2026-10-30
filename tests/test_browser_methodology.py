@@ -464,7 +464,8 @@ def test_export_downloads_the_article_as_one_zip(live_server, tmp_path):
 def test_the_export_button_stays_in_the_header_at_every_width(live_server, tmp_path):
     """At every width the Export button stays on screen inside the header, which never scrolls sideways.
 
-    The chip now sits on the second row, and the bar wraps below about 870 px rather than overflow.
+    The chip sits on the second row. From 761 to 950 px the tabs take a line of their own under the bar's two
+    groups, and on the phone layout the title does, so the bar never overflows.
     """
     with live_server["playwright"].sync_playwright() as p:
         browser = p.chromium.launch()

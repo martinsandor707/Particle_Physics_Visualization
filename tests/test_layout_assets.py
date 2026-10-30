@@ -13,6 +13,7 @@ nodes only, and that the upload form lives in the admin panel.
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 STATIC = Path(__file__).resolve().parent.parent / "calosrv" / "static"
@@ -728,10 +729,67 @@ def _header_of(html: str) -> str:
     return html[html.index("<header"):html.index("</header>")]
 
 
+_VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+class _Parents(HTMLParser):
+    """Each element's parent, every element named by its id, else its first class, else its tag."""
+
+    def __init__(self):
+        super().__init__()
+        self.stack: list[str] = []
+        self.parent: dict[str, str | None] = {}
+
+    @staticmethod
+    def _key(tag, attrs):
+        attrs = dict(attrs)
+        return attrs.get("id") or (attrs.get("class") or tag).split()[0]
+
+    def handle_starttag(self, tag, attrs):
+        key = self._key(tag, attrs)
+        self.parent.setdefault(key, self.stack[-1] if self.stack else None)
+        if tag not in _VOID:
+            self.stack.append(key)
+
+    def handle_startendtag(self, tag, attrs):
+        self.parent.setdefault(self._key(tag, attrs), self.stack[-1] if self.stack else None)
+
+    def handle_endtag(self, tag):
+        if tag not in _VOID and self.stack:
+            self.stack.pop()
+
+
+def _parents(markup: str) -> dict[str, str | None]:
+    parser = _Parents()
+    parser.feed(markup)
+    return parser.parent
+
+
+#: The page action's name in `_Parents` terms: its id, or the Models link's class.
+_ACTION_KEY = {"physics": "open-admin", "models": "action", "methodology": "export-article"}
+
+
 def test_every_header_is_two_rows_with_the_application_bar_above_one_context_pill():
-    """Row 1 is the identical application bar; row 2 holds one pill centred under the tabs."""
+    """Row 1 is the identical application bar; row 2 holds one pill centred under the tabs.
+
+    The order of the markup is checked, and so is its nesting: a tab strip
+    moved into the start group, or the action out of the end group, would keep
+    the order and break the layout.
+    """
     for name, html, action in _all_pages():
         header = _header_of(html)
+        expected = {"header-bar": "header", "header-context": "header", "header-start": "header-bar",
+                    "page-tabs": "header-bar", "header-end": "header-bar", "sidebar-toggle": "header-start",
+                    "brand": "header-start", "compute-badge": "header-end", "theme-toggle": "header-end",
+                    _ACTION_KEY[name]: "header-end"}
+        if name == "methodology":
+            expected.update({"view-chip": "header-context", "view-chip-text": "view-chip"})
+        else:
+            expected.update({"context-field": "header-context", "experiment-select": "context-field"})
+        if name == "physics":
+            expected["exact-badge"] = "header-context"
+        parents = _parents(header)
+        assert {key: parents.get(key) for key in expected} == expected, (name, parents)
         order = ['<div class="header-bar">', '<div class="header-start">', 'id="sidebar-toggle"', 'class="brand"',
                  '<nav class="page-tabs" id="page-tabs"', '<div class="header-end">', 'id="compute-badge"',
                  'id="theme-toggle"', action, '<div class="header-context">', 'class="context-field"']
