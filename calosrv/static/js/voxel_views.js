@@ -352,6 +352,61 @@ function sameViewport(a, b) {
     || Math.abs((a?.[k] ?? NaN) - (b?.[k] ?? NaN)) < 0.5);
 }
 
+/**
+ * The parts of a built 3-D option the screen theme colours, apart from the
+ * series and the legend: the three axes (names, lines, ticks, labels), the
+ * box's axis line, the tooltip (its ground and ink), the ramp's zero label
+ * (`graphic`) and the text style. A theme switch merges these over the chart
+ * in hand. `viewControl` is never among them: echarts-gl writes the reader's
+ * alpha, beta, distance and centre back into the model (`setView`), so a merge
+ * that leaves it out keeps the rotation and the pan. Nor is the box's place
+ * (`left`, `top`, `width`, `height`, `right`), which the opening fit and the
+ * resize refit own.
+ */
+export function themeChrome(option) {
+  const chrome = {
+    backgroundColor: option.backgroundColor,
+    textStyle: option.textStyle,
+    tooltip: option.tooltip,
+    xAxis3D: option.xAxis3D,
+    yAxis3D: option.yAxis3D,
+    zAxis3D: option.zAxis3D,
+    grid3D: { axisLine: option.grid3D?.axisLine },
+  };
+  if (option.graphic) chrome.graphic = option.graphic;
+  return chrome;
+}
+
+/**
+ * Keep the reader's zoom across a `setOption`: returns the function that puts
+ * it back, or null when it cannot be read.
+ *
+ * echarts-gl's grid3D view re-reads its whole `viewControl` model on every
+ * render (`setFromViewControlModel`), and its `setView` writes alpha, beta,
+ * distance and centre back into that model but not `orthographicSize`, so a
+ * wheel zoom lives in the orbit control alone and any later render returns it
+ * to the model's opening size. The size is read from the control before the
+ * merge and set on it again after; the model is left as it was, so a resize
+ * still refits from the opening view (`resizeChart`). Measured in Chromium:
+ * without this a theme switch returned a zoomed view to its opening size.
+ */
+function holdZoom(chart) {
+  try {
+    const model = chart.getModel?.()?.getComponent?.('grid3D');
+    const control = model ? chart.getViewOfComponentModel?.(model)?._control : null;
+    const size = control?.getOrthographicSize?.();
+    if (!Number.isFinite(size)) return null;
+    return () => {
+      const after = chart.getViewOfComponentModel?.(chart.getModel().getComponent('grid3D'))?._control;
+      if (!after || after.getOrthographicSize() === size) return;
+      after.setOrthographicSize(size);
+      after.update?.();
+    };
+  } catch {
+    return null;
+  }
+}
+
 function make(tag, className = '', text = null) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -1017,8 +1072,12 @@ export class VoxelSection {
    * legend only (an isolate toggle, a palette change), so the reader's
    * rotation survives; otherwise the option is replaced whole and the camera
    * opens orthographic at its default angles.
+   *
+   * `chrome` (with `keepCamera`: a theme switch) also merges everything else
+   * the screen theme colours (`themeChrome`) and keeps the reader's zoom
+   * (`holdZoom`). The palette path stays the series-and-legend swap it was.
    */
-  paintGl(pair, { keepCamera = false } = {}) {
+  paintGl(pair, { keepCamera = false, chrome = false } = {}) {
     const record = pair.gl;
     if (!pair.model || !this.glAvailable()) return;
     const chart = this.ensureChart(record);
@@ -1045,10 +1104,13 @@ export class VoxelSection {
     if (record.lost) return;
     this.hideMessage(record);
     if (keepCamera) {
+      const zoom = chrome ? holdZoom(chart) : null;
       chart.setOption({
         series: built.option.series,
         ...(built.option.visualMap ? { visualMap: built.option.visualMap } : {}),
+        ...(chrome ? themeChrome(built.option) : {}),
       }, { replaceMerge: ['series', 'visualMap'] });
+      zoom?.();
     } else {
       chart.setOption(built.option, { notMerge: true });
       const grid = built.option.grid3D;
@@ -1354,8 +1416,15 @@ export class VoxelSection {
     }
   }
 
-  /** Redraw everything in hand with the current palette; no request. */
-  repaint() {
+  /**
+   * Redraw everything in hand with the current palette; no request.
+   *
+   * `theme` (a light / dark switch) also repaints the 3-D chrome the palette
+   * path leaves alone - axes, box line, tooltip, zero label - keeping the
+   * reader's rotation, pan and zoom (`paintGl` `chrome`). The projections and
+   * the species legend under the 3-D card are rebuilt either way.
+   */
+  repaint({ theme = false } = {}) {
     for (const pair of Object.values(this.pairs)) {
       if (!pair.view) continue;
       if (pair.name === 'event' && pair.payloads.raster) {
@@ -1364,7 +1433,7 @@ export class VoxelSection {
       if (pair.name === 'ensemble' && pair.payloads.projections) {
         this.drawEnsembleCells(pair, { status: 'fulfilled', value: pair.payloads.projections });
       }
-      if (pair.model) this.paintGl(pair, { keepCamera: true });
+      if (pair.model) this.paintGl(pair, { keepCamera: true, chrome: theme });
     }
   }
 

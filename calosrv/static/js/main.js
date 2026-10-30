@@ -52,14 +52,8 @@ import {
 
 /* The light or dark theme, first: the chart tokens must be the page's before
  * any panel builds an option. A later switch redraws what is in hand, as a
- * colour-map change does, with no request (theme.js). */
-initTheme({
-  applyTokens: setScreenTheme,
-  onChange: () => {
-    repaint();
-    renderEnergy();
-  },
-});
+ * colour-map change does, with no request (theme.js, `repaintTheme`). */
+initTheme({ applyTokens: setScreenTheme, onChange: () => repaintTheme() });
 
 const state = new State();
 
@@ -491,8 +485,12 @@ function panelOptions(payload, id) {
   return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'));
 }
 
-/** Draw the three spatial panels from a projections payload. */
-function renderPanels(payload) {
+/**
+ * Draw the three spatial panels from a projections payload. `windowAxes`
+ * false keeps a zoomed depth panel's windowed axis without asking for it
+ * again: a repaint that changes no selection and no window (a theme switch).
+ */
+function renderPanels(payload, { windowAxes = true } = {}) {
   const coregistered = kindOf(payload) !== 'lab';
   panels.xy.isometric = true;
   panels.xy.render(payload.panels.xy, panelOptions(payload, 'xy'));
@@ -503,7 +501,7 @@ function renderPanels(payload) {
     // redraw and asks for a fresh one for the new selection.
     const windowAxis = coregistered ? null : (panel.lastOpts?.windowAxis ?? null);
     panel.render(payload.panels[id], { ...panelOptions(payload, id), windowAxis });
-    requestWindowAxis(id);
+    if (windowAxes) requestWindowAxis(id);
   }
 }
 
@@ -1256,13 +1254,36 @@ const refreshAll = debounce(async () => {
   }
 }, DEBOUNCE_MS);
 
-/** Redraw from the payloads already in hand, without another request. */
-function repaint() {
-  if (lastProjections) renderPanels(lastProjections);
+/**
+ * Redraw from the payloads already in hand. A zoomed absolute-frame depth
+ * panel still asks for its windowed axis afresh unless `windowAxes` is false
+ * (`renderPanels`).
+ */
+function repaint({ windowAxes = true } = {}) {
+  if (lastProjections) renderPanels(lastProjections, { windowAxes });
   if (inspector.payload && state.get('event') !== null) inspector.render(inspector.payload);
   if (state.get('compare') && compareGrid.visible) renderCompare();
   renderPlot4();
   physics.repaint();
+}
+
+/**
+ * Redraw for a light / dark switch, with no request at all: every picture in
+ * hand as a colour-map change redraws it (the 2 x 2, the Event Inspector or
+ * the compare grid, plot 4, the physics cards, the energy panel and its fit
+ * table), the windowed axes kept rather than asked for again; then every
+ * Details text built so far. The drawer's sentences name the card the ramps
+ * are measured against, and the store is what a drawer opened later shows
+ * (`getNotes`), so an old theme's notes are rebuilt, not only the open one's.
+ * A physics card not loaded yet draws in the theme in force when it loads.
+ */
+function repaintTheme() {
+  repaint({ windowAxes: false });
+  renderEnergy();
+  for (const id of Object.keys(panelNotes)) {
+    if (panelNotes[id] !== null || id === shell.inspected) buildNotes(id);
+  }
+  if (shell.inspected && !(shell.inspected in panelNotes)) buildNotes(shell.inspected);
 }
 
 function reportError(error, context = '') {
