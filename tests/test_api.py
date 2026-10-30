@@ -892,6 +892,12 @@ def test_every_module_is_reached_from_an_entry_point():
     js = Path(__file__).resolve().parent.parent / "calosrv" / "static" / "js"
     reached = (_module_graph(js / "main.js") | _module_graph(js / "models_main.js")
                | _module_graph(js / "methodology_main.js"))
+    # A classic script a page loads itself (the theme boot, which must run
+    # before the stylesheets) is reached from the markup, not from a module.
+    for page in ("index.html", "models.html", "methodology.html"):
+        html = (js.parent / page).read_text(encoding="utf-8")
+        for src in re.findall(r'<script\b[^>]*\bsrc="/static/js/([^"?]+)"', html):
+            reached.add((js / src).resolve())
     orphans = sorted(str(path.relative_to(js)) for path in js.rglob("*.js")
                      if "vendor" not in path.parts and path.resolve() not in reached)
     assert not orphans, f"modules no entry point reaches: {orphans}"

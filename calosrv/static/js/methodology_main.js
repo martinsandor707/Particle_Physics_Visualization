@@ -26,6 +26,13 @@ import { badgeHref, readAt, viewChipText, writeAt } from './methodology/links.js
 import { getJson } from './api.js';
 import { Banner, describeError, fillComputeBadges, methodologyHref, wireLiveLinks, wirePageTabs } from './page_common.js';
 import { Shell, readSidebarPreference } from './shell.js';
+import { setScreenTheme } from './scale.js';
+import { initTheme } from './theme.js';
+
+/* The light or dark theme. The article is CSS, and its figures paint their
+ * own grounds and measure against them (exhibits.js), so a switch needs no
+ * redraw; the chart tokens follow the page only to stay in step with it. */
+initTheme({ applyTokens: setScreenTheme });
 
 /* The outline sits in the configuration sidebar's track, under its own key;
  * the shell wires the header's toggle to it. */
