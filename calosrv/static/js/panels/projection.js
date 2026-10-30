@@ -338,9 +338,12 @@ export class ProjectionPanel {
       palette, centroids = null, showVector = false,
       axes = null, trajectories = null, showerKey = null,
       frame = null, ensembleAxes = null, ensembleMeta = null,
-      anchors = null, depthBounds = null, marks = null, markColour = null,
+      anchors = null, depthBounds = null, marks = null, markColour = null, markShower = null,
       framed = false, windowAxis = null,
     } = opts;
+    // A shower's marks take its ink from the theme in force at build time, so a
+    // print rebuild draws them in the print ink, never in the screen's.
+    const markInk = markShower === 'a' ? THEME.showerA : markShower === 'b' ? THEME.showerB : markColour;
 
     const col = payload.axes.col;
     const row = payload.axes.row;
@@ -391,7 +394,7 @@ export class ProjectionPanel {
     }];
 
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
-    if (marks) this.addMarks(series, marks, col, row, extent, markColour, panelOf(payload.axes));
+    if (marks) this.addMarks(series, marks, col, row, extent, markInk, panelOf(payload.axes));
     if (axes) this.addShowerAxes(series, axes, col, row);
     if (trajectories && showerKey) {
       this.addTrajectories(series, trajectories, col, row, showerKey);
