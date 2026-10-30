@@ -1275,11 +1275,14 @@ function repaint({ windowAxes = true } = {}) {
  * Details text built so far. The drawer's sentences name the card the ramps
  * are measured against, and the store is what a drawer opened later shows
  * (`getNotes`), so an old theme's notes are rebuilt, not only the open one's.
+ * The sidebar's channel caption is rewritten too: its Shap-CAM sentence says
+ * which way the PuOr arms run on the card in force.
  * A physics card not loaded yet draws in the theme in force when it loads.
  */
 function repaintTheme() {
   repaint({ windowAxes: false });
   renderEnergy();
+  setText('channel-caption', currentChannelCaption());
   for (const id of Object.keys(panelNotes)) {
     if (panelNotes[id] !== null || id === shell.inspected) buildNotes(id);
   }
