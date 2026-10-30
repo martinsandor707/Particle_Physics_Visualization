@@ -211,9 +211,13 @@ def test_a_badge_opens_its_panel_with_the_view(live_server):
                     "page": badge.get_attribute("data-page"), "section": badge.get_attribute("data-from-sec"),
                     "set": badge.get_attribute("data-set")}
         before = list(problems)
+        # The URL as the page arrived. The landing page drops the query at its
+        # first hash write, which can come before the load ends under a busy
+        # machine, so page.url read afterwards could miss ?panel=.
+        page.add_init_script("window.__arrivedAt = location.href;")
         with page.expect_navigation():
             badge.click()
-        url = urlparse(page.url)
+        url = urlparse(page.evaluate("() => window.__arrivedAt"))
         browser.close()
     assert before == []
     assert url.path == ("/" if expected["page"] == "physics" else "/models")
