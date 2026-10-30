@@ -1108,6 +1108,10 @@ export class VoxelSection {
       chart.setOption({
         series: built.option.series,
         ...(built.option.visualMap ? { visualMap: built.option.visualMap } : {}),
+        // Always the new tooltip: its formatter maps a hovered item through
+        // this build's series roles, which an isolate or species toggle
+        // re-partitions. The old one described a cube by another's readout.
+        tooltip: built.option.tooltip,
         ...(chrome ? themeChrome(built.option) : {}),
       }, { replaceMerge: ['series', 'visualMap'] });
       zoom?.();
