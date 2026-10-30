@@ -895,9 +895,12 @@ def test_the_header_holds_two_rows_and_the_toggle_shows_a_focus_ring(live_server
     toggle hidden and in both themes. At 1600 px the tabs' centre and the
     pill's centre coincide within 1 px. A stress with the widest experiment
     option the catalogue writes, a 140-character view chip and the longest
-    Exact badge text must change none of it: the height stays, nothing
-    overflows, and the centres still agree. The toggle takes a 2 px solid
-    keyboard focus ring in the light accent.
+    Exact badge text, in either theme, must change none of it: the height
+    stays, nothing overflows, the bar stays one line, and at 1600 px the
+    centres still agree. (At 1024 px the stressed Physics pill may sit off the
+    tabs' centre line: its row keeps the Exact badge's width before the
+    pill's.) The toggle takes a 2 px solid keyboard focus ring in the light
+    accent.
     """
     wide = viewport[0] >= 1600
     with live_server["playwright"].sync_playwright() as p:
@@ -918,21 +921,20 @@ def test_the_header_holds_two_rows_and_the_toggle_shows_a_focus_ring(live_server
                                      "color: cs.outlineColor }; }")
             page.evaluate(_WITHOUT_TOGGLE)
             bare[scheme] = page.evaluate(_HEADER)
-            if scheme == "dark":
-                page.evaluate("() => { document.getElementById('theme-toggle').style.display = ''; }")
-                page.evaluate(_STRESS, [LONG_EXPERIMENT_LABEL, LONG_CHIP_TEXT, "Preview (sampled)"])
-                stressed = page.evaluate(_HEADER)
+            page.evaluate("() => { document.getElementById('theme-toggle').style.display = ''; }")
+            page.evaluate(_STRESS, [LONG_EXPERIMENT_LABEL, LONG_CHIP_TEXT, "Preview (sampled)"])
+            stressed[scheme] = page.evaluate(_HEADER)
             assert problems == [], problems
             page.close()
         browser.close()
-    print(f"{name} {viewport}: header {layout['dark']['height']} px, stressed {stressed['height']} px")
+    print(f"{name} {viewport}: header {layout['dark']['height']} px, stressed {stressed['dark']['height']} px")
     for scheme, got in layout.items():
         _assert_two_rows(got, scheme, wide=wide)
         # The toggle adds no height.
         assert got["height"] == bare[scheme]["height"], (scheme, got, bare[scheme])
+        _assert_two_rows(stressed[scheme], f"{scheme} stress", wide=wide)
+        assert stressed[scheme]["height"] == got["height"], (scheme, stressed[scheme], got)
     assert layout["light"]["height"] == layout["dark"]["height"], layout
-    _assert_two_rows(stressed, "stress", wide=wide)
-    assert stressed["height"] == layout["dark"]["height"], (stressed, layout["dark"])
     assert ring["id"] == "theme-toggle" and ring["style"] == "solid" and ring["width"] == "2px", ring
     # The light accent, #0b5fbe: 6.19:1 on the white card, 5.81:1 on the header's canvas.
     assert ring["color"] == "rgb(11, 95, 190)", ring
