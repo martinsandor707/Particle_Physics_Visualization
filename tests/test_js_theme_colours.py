@@ -468,7 +468,7 @@ def test_the_light_tokens_are_the_brief_values(theme_results):
                                   "showerB", "labelBg", "hatch", "separationRule")} == {
         "text": "#111827", "muted": "#59636e", "border": "#d0d7de", "grid": "#d0d7de", "canvas": "#f6f8fa",
         "card": "#ffffff", "accent": "#0b5fbe", "warn": "#8a5a00", "showerA": "#a3186b", "showerB": "#0b5fbe",
-        "labelBg": "rgba(255,255,255,0.92)", "hatch": "#6b7280", "separationRule": "rgba(17,24,39,0.4)",
+        "labelBg": "rgba(255,255,255,0.92)", "hatch": "#6b7280", "separationRule": "rgba(17,24,39,0.55)",
     }
     assert (light["envelopeAlpha"], light["bandAlpha"], light["stripAlpha"]) == (0.18, 0.22, 0.07)
     assert light["categorical"] == {"min": 0.75, "max": 0.0}
