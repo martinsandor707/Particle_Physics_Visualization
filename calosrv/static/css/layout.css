@@ -23,19 +23,91 @@
 
 /* ------------------------------------------------------------------ header */
 
+/* Two rows on every page: the application bar, then the context row. The
+   bar is the same on all three pages; the context row holds the one thing
+   the page is about (the experiment, or the view the article's links open). */
 .header {
   grid-area: header;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 18px;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 18px;
   background: var(--canvas-alt);
   border-bottom: 1px solid var(--border);
 }
 
+/* The application bar: the sidebar toggle and title, the tabs between the
+   pages, then the compute badge, the theme toggle and the page's action.
+   The start and end groups grow alike from nothing and never shrink below
+   their content, so while each fits in half of what the tabs leave, the
+   tabs sit at the exact centre; a group wider than its half keeps its width
+   and the tabs give way; narrower still, the bar wraps rather than push a
+   control off the window. */
+.header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+}
+.header-start, .header-end {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: max-content;
+}
+.header-start { gap: 10px; }
+.header-end { gap: 8px; justify-content: flex-end; }
+
 .header h1 { font-size: 15px; letter-spacing: 0.01em; white-space: nowrap; }
 .header .subtitle { font-size: 11px; color: var(--muted); }
-.header .spacer { flex: 1 1 auto; }
+
+/* The context row: one pill centred under the tabs, so the two share a
+   vertical centre line. The outer tracks share what is left equally; the end
+   track never gives up the width of what it holds (the Exact badge on the
+   Physics page). When the row is tight the start track empties first, then
+   the pill, whose picker or text shrinks rather than overflows: a native
+   select is as wide as its longest option, and experiment names are long
+   file stems. The pill has one fixed height, so a select (Physics, Models)
+   and a line of text (Methodology) give every page the same header. */
+.header-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content) minmax(max-content, 1fr);
+  align-items: center;
+  column-gap: 12px;
+}
+.context-field {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 1px 4px 1px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+.context-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+.context-label { flex: none; font-size: 11px; color: var(--muted); }
+.context-field .picker, .context-value { min-width: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+
+/* The picker sits borderless in the pill, which carries the focus ring. */
+.context-field .picker {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: min(200px, 100%);
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
+}
+.context-field .picker:focus { box-shadow: none; }
+.context-field .picker option { font-weight: 400; }
+
+/* A long value is cut with an ellipsis; its pill's title says all. */
+.context-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px 4px 0; }
+.header-context > .context-end { grid-column: 3; justify-self: start; }
 
 .badge {
   display: inline-flex;

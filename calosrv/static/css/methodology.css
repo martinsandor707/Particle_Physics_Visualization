@@ -396,16 +396,6 @@ pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
 .toc-number { flex: none; min-width: 2em; font-variant-numeric: tabular-nums; }
 .toc-title { min-width: 0; }
 
-/* The view chip: a long experiment name is cut, its title says all. It
-   leaves the header room for the Export button beside the compute badge. */
-#view-chip-text {
-  display: inline-block;
-  max-width: clamp(8em, 100vw - 1000px, 34em);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: bottom;
-}
-
 /* -------------------------------------------------------------- shell -- */
 
 /* The page's name in the header: the article's title is the page's one h1. */
@@ -429,19 +419,14 @@ pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
 }
 .methodology-app .banner.is-error { background-image: linear-gradient(var(--danger-bg), var(--danger-bg)); }
 
-/* The header wraps rather than push its last controls off the window: on a
-   wide screen everything fits on one line and nothing moves; between the
-   phone layout and about 1100 px the Export button and the badges take a
-   second line, at its right. */
-.methodology-app .header { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
-
 /* The Export button: the header's action style (controls.css), busy while the zip is built. */
 .methodology-app #export-article { white-space: nowrap; }
 .methodology-app #export-article[aria-busy="true"] { cursor: progress; }
 
 /* A narrow screen: one column. The outline, when unfolded, sits above the
    article and scrolls on its own; it starts folded (methodology_main.js). The
-   header wraps instead of scrolling sideways. */
+   header's title takes a line of its own and may wrap, so the bar never
+   scrolls sideways. */
 @media (max-width: 760px) {
   .methodology-app {
     grid-template-columns: minmax(0, 1fr);
@@ -454,12 +439,12 @@ pre.tex-error { overflow-x: auto; font-size: 12px; margin: 0; }
     border-bottom: 1px solid var(--border);
   }
   .methodology-app.is-sidebar-collapsed .sidebar { display: none; }
-  .methodology-app .header { flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; }
+  .methodology-app .header { padding: 8px 12px; }
+  .methodology-app .header-bar { gap: 8px 12px; }
+  .methodology-app .header-start { flex: 1 1 100%; min-width: 0; }
   .methodology-app .header .app-name { white-space: normal; }
   .methodology-app .header .subtitle,
   .methodology-app #compute-badge { display: none; }
-  .methodology-app #view-chip { max-width: 100%; min-width: 0; }
-  .methodology-app #view-chip b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .methodology-app .main { padding: 0 14px; }
 }
 
