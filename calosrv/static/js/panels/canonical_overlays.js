@@ -69,6 +69,55 @@ function showerColour(shower) {
   return shower === 'a' ? THEME.showerA : THEME.showerB;
 }
 
+/** Pixels of halo either side of an overlay mark on the light screen. */
+const CASING_PX = 1.5;
+
+/**
+ * The halo laid under an overlay mark drawn on a raster, `{color, width}` for a
+ * line or cross `width` wide, or null.
+ *
+ * On the light screen the shower core takes its ramp's deepest tone, where a
+ * dark mark - an anchor ring, an ensemble axis, a centroid - would vanish. A
+ * white casing parts the mark from the core and disappears into the white card
+ * (THEME.markCasing). It is null on the dark card and in print, which draw
+ * exactly as before.
+ */
+export function overlayCasing(width) {
+  return THEME.markCasing ? { color: THEME.markCasing, width: width + 2 * CASING_PX } : null;
+}
+
+/**
+ * Push a scatter mark (an open ring, a centroid) and, on the light screen,
+ * first a silent copy of its outline in the casing colour, `CASING_PX` wider
+ * each side, so the ring sits on a white halo.
+ */
+export function pushCased(series, mark) {
+  const casing = overlayCasing(mark.itemStyle?.borderWidth ?? 0);
+  if (casing) {
+    series.push({
+      type: 'scatter', silent: true, symbol: mark.symbol, symbolSize: mark.symbolSize, data: mark.data,
+      z: mark.z, tooltip: { show: false },
+      itemStyle: { color: 'transparent', borderColor: casing.color, borderWidth: casing.width,
+        opacity: mark.itemStyle?.opacity ?? 1 },
+    });
+  }
+  series.push(mark);
+}
+
+/** Push a `line` series and, on the light screen, first a solid casing of it. */
+export function pushCasedLine(series, mark) {
+  const style = mark.lineStyle ?? {};
+  const casing = overlayCasing(style.width ?? 1);
+  if (casing) {
+    series.push({
+      type: 'line', silent: true, data: mark.data, symbol: 'none', z: mark.z, clip: mark.clip,
+      lineStyle: { color: casing.color, width: casing.width, type: 'solid', opacity: style.opacity ?? 1 },
+      tooltip: { show: false },
+    });
+  }
+  series.push(mark);
+}
+
 /** An open outline in the given colour, at the anchor opacity. */
 function openStyle(colour, width) {
   return {
@@ -119,7 +168,7 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
   const axisName = symbols?.[depthPanel ? 'row' : 'col'] ?? 'x′';
 
   if (depthPanel && row.name !== 'x' && anchors.a && anchors.b) {
-    series.push({
+    pushCased(series, {
       type: 'scatter',
       name: 'Anchors A and B',
       symbol: 'circle',
@@ -162,13 +211,14 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
         width: 2.5 * THEME.lineAxis,
         opacity: SPREAD_OPACITY,
         z: 9,
+        casing: overlayCasing(2.5 * THEME.lineAxis),
         tooltip: `Anchor ${label} — ± ${sd.toFixed(1)} mm<br/>`
           + '± sample SD of D_entry/2 across events (dispersion, not the uncertainty of the mean)'
           + (anchor.dof_note ? `<br/><i>${anchor.dof_note}</i>` : ''),
       }));
     }
 
-    series.push({
+    pushCased(series, {
       type: 'scatter',
       name: `Anchor ${label}`,
       symbol: shower === 'a' ? 'diamond' : 'circle',
@@ -206,6 +256,7 @@ export function addCanonicalAnchors(series, anchors, frame, col, row, symbols = 
     width: THEME.lineAxis,
     dash: 'dashed',
     z: 10,
+    casing: overlayCasing(THEME.lineAxis),
     tooltip: ['Mean entry separation', entry, dataset].filter(Boolean).join('<br/>'),
   }));
 }
@@ -230,7 +281,7 @@ export function addCanonicalCentroids(series, centroids, col, row, symbols = nul
       const cy = point[row.name];
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
       const colour = showerColour(shower);
-      series.push({
+      pushCased(series, {
         type: 'scatter',
         name: `${pair.label} — ${label}`,
         symbol: style.symbol,
@@ -352,6 +403,7 @@ export function addFrameMeanSpread(series, pair, col, row) {
         opacity: SPREAD_OPACITY,
         z: 8,
         tooltip: text,
+        casing: overlayCasing(2.5 * THEME.lineAxis),
       }));
     } else {
       text = `Mean centroid ${label} — ${formatSigned(value, 1)} ± ${half.toFixed(1)} mm in ${sym}<br/>`
@@ -366,6 +418,7 @@ export function addFrameMeanSpread(series, pair, col, row) {
         width: THEME.lineAxis,
         z: 9,
         tooltip: text,
+        casing: overlayCasing(THEME.lineAxis),
       }));
     }
     for (const [end, other, isClipped] of [[mark.lo, mark.hi, mark.clipLo], [mark.hi, mark.lo, mark.clipHi]]) {

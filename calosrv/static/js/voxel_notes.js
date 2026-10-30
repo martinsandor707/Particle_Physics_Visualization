@@ -20,7 +20,7 @@
 import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
 import { legibleRamp } from './panels/chart_panel.js';
 import { describeSelection } from './export/caption.js';
-import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
+import { formatInt, formatSci, formatPercent, screenPalette, typographic } from './scale.js';
 import { HALO_LIMIT, referenceTopLabel, speciesLabel } from './voxels.js';
 
 /** The card titles of the section, by card id. */
@@ -107,16 +107,17 @@ export const LEGIBLE_RAMP_NOTE = 'On screen the ramp starts at its first colour 
 /**
  * `LEGIBLE_RAMP_NOTE` for the card in force. The constant is the dark card's
  * sentence and stays byte for byte (the dark golden records it). On the light
- * card the run is oriented so that contrast rises with value, Viridis from
- * 0.600 toward 0, and what the card cannot show is a cube drawn lighter.
+ * screen a slot draws its white-grounded ramp (palette.js), and a cube takes
+ * that ramp's run at 3:1 or more, so what the card cannot show is a cube
+ * drawn too faint.
  */
 export function legibleRampNote() {
   if (!onLightScreen()) return LEGIBLE_RAMP_NOTE;
-  const { from } = legibleRamp('viridis');
-  return 'On screen the ramp starts at its first colour with at least 3:1 contrast '
-    + `against the card (Viridis from ${from.toFixed(3)} of its range toward 0, so contrast rises with the value; `
-    + 'the measured 3:1 run of the other palettes), so no opaque cube - a cube below the ramp floor included - '
-    + 'is drawn lighter than the card can show.';
+  const { from } = legibleRamp(screenPalette('viridis'));
+  return 'On the light screen each colour-map slot draws a ramp made for a white card, and a cube, which stands '
+    + 'alone on the card, takes only its run at 3:1 or more (the Viridis slot from '
+    + `${from.toFixed(3)} of its aqua-to-indigo ramp; the measured run of the others), so no opaque cube - a cube `
+    + 'below the ramp floor included - is drawn fainter than the card can show.';
 }
 
 /* -------------------------------------------------------------- event -- */

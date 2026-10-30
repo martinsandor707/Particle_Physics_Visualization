@@ -47,7 +47,7 @@
  * every multiple below legibility.
  */
 
-import { THEME, axisPadding, formatInt, formatNumber } from '../scale.js';
+import { THEME, axisPadding, formatInt, formatNumber, screenPalette } from '../scale.js';
 import { lookupTable } from '../palette.js';
 import { customLine } from './marks.js';
 import { tooltipOption } from './tooltip.js';
@@ -77,8 +77,9 @@ function linspace(lo, hi, count) {
  * of one at `from`. Pred-truth passes the server's measured block for the
  * palette, which applies only when the card it was measured against is the
  * card in force; without one (D5), on the light screen card or in print, the
- * longest run of the palette that clears 3:1 against the card in force,
- * oriented as `legibleRamp` orients it.
+ * longest run of the ramp the slot draws (`screenPalette`: on the light screen
+ * its white-grounded ramp) that clears 3:1 against the card in force. A cell
+ * stands alone on the card, so it keeps 3:1, as a cube does.
  */
 export function countRamp(palette, measured = null) {
   const card = THEME.card;
@@ -86,8 +87,9 @@ export function countRamp(palette, measured = null) {
     && String(measured.first_level?.against ?? '').toLowerCase() === String(card).toLowerCase()) {
     return { palette, from: measured.from, to: measured.to, measured: true };
   }
-  const { from, to } = legibleRamp(palette, card);
-  return { palette, from, to, measured: false };
+  const drawn = screenPalette(palette);
+  const { from, to } = legibleRamp(drawn, card);
+  return { palette: drawn, from, to, measured: false };
 }
 
 /** The colour of `count` on `ramp` over the shared log10 scale [vmin, vmax]: [r, g, b]. */

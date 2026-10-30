@@ -9,7 +9,7 @@ import { contrast, lookupTable } from './palette.js';
 import { fitsWidth, measureText } from './textfit.js';
 // A cycle (chart_panel.js imports this module), safe because neither module
 // calls the other while it is being evaluated: both use these at call time.
-import { isPrintTheme, legibleRamp } from './panels/chart_panel.js';
+import { isPrintTheme, legibleRamp, onLightCard } from './panels/chart_panel.js';
 import { MINUS, formatSigned, typographic } from './format.js';
 
 export { MINUS, formatSigned, typographic };
@@ -108,6 +108,16 @@ const SCREEN = {
   qualitativePalette: 'set2',
   speciesPalette: 'species',
   tooltipBackground: 'rgba(22,27,34,0.95)',
+
+  /* What only the light screen changes, each null or today's value here so the
+   * dark card draws exactly as it did. `sequentialPalettes` maps a colour-map
+   * slot to the ramp drawn for it (`screenPalette`); `markCasing` is the halo
+   * under an overlay mark on a raster; `wedgeAlpha` and `wedgeEdge` are the wash
+   * and the outline of an ensemble axis's wedges on the spatial panels. */
+  sequentialPalettes: null,
+  markCasing: null,
+  wedgeAlpha: 0.18,
+  wedgeEdge: false,
 };
 
 /* The light screen style: the light block of css/tokens.css, which ECharts
@@ -171,7 +181,7 @@ const SCREEN_LIGHT = {
   divergingLinearPalette: 'puor_light_linear',
   hatch: '#6b7280',
 
-  categorical: { min: 0.75, max: 0.0 },
+  categorical: { min: 0.25, max: 1.0 },
   rampOrient: 'vertical',
   legendWrap: false,
 
@@ -179,6 +189,17 @@ const SCREEN_LIGHT = {
   qualitativePalette: 'dark2',
   speciesPalette: 'species_print',
   tooltipBackground: 'rgba(255,255,255,0.97)',
+
+  // White-grounded ramps for the four slots (palette.js), a white halo under
+  // the overlay marks, which sit on the deep shower core, and light washes
+  // carried by their outlines for the wedges (0.03 spread, 0.07 envelope),
+  // which at the print weights laid a grey smoke over the raster.
+  sequentialPalettes: {
+    viridis: 'viridis_light', cividis: 'cividis_light', plasma: 'plasma_light', turbo: 'turbo_light',
+  },
+  markCasing: '#ffffff',
+  wedgeAlpha: 0.05,
+  wedgeEdge: true,
 };
 
 /** The two screen styles by name, frozen: the dark one is the cold-boot default. */
@@ -315,11 +336,12 @@ export function formatBytes(bytes) {
  * the hard contour the figure caption names.
  */
 export function visualMap(scale, palette, {
-  bottomInset = 0, seriesIndex = 0, legible = true, signed = false,
+  bottomInset = 0, seriesIndex = 0, legible = true, signed = false, field = false,
 } = {}) {
   // The table the colours are drawn from: the legible run on screen (above),
-  // the same remapping `decode.codeTable` paints through.
-  const table = rampTable(scale, palette, { legible, signed });
+  // the same remapping `decode.codeTable` paints through; a raster's legend
+  // passes `field`, as its raster does.
+  const table = rampTable(scale, palette, { legible, signed, field });
   const horizontal = THEME.rampOrient === 'horizontal';
   const place = horizontal
     /* Below the x-axis title, where a figure has height to spare, rather than
@@ -464,8 +486,18 @@ export function isDiverging(scale) {
  * theme (folded on screen, standard in print; palette.js).
  */
 export function rampPalette(scale, chosen) {
-  if (!isDiverging(scale)) return chosen;
+  if (!isDiverging(scale)) return screenPalette(chosen);
   return scale.scale === 'signed_log10' ? THEME.divergingPalette : THEME.divergingLinearPalette;
+}
+
+/**
+ * The ramp drawn for a colour-map slot in the theme in force: the slot itself
+ * on the dark card and in print, its white-grounded ramp on the light screen
+ * (`THEME.sequentialPalettes`, palette.js). Every place that draws a chosen
+ * sequential palette goes through here, so a slot draws one ramp everywhere.
+ */
+export function screenPalette(name) {
+  return THEME.sequentialPalettes?.[name] ?? name;
 }
 
 /** Whether a ramp fades to transparent above a stated display floor. */
@@ -502,23 +534,21 @@ export function fadesAtFloor(scale) {
  * - Print keeps the full ramp: white paper shows Viridis' dark end best, and
  *   the export swaps the card for white (`isPrintTheme`).
  *
- * On the light screen's white card the same rule runs the other way ("contrast
- * rises with value", Martin's decision of 2026-10-30). The 3:1 run against
- * white is a ramp's dark end - Viridis 0 to 0.600 (#440154 to #22a784),
- * Cividis 0 to 0.698, Plasma 0 to 0.639, Turbo's longest run 0.749 to 1
- * (#f6691b to #7a0403) - and `legibleRamp` hands it over oriented from the card outwards,
- * `from` above `to`: the lowest value takes the run's first 3:1 colour and the
- * highest its darkest, so the ramp still gains contrast against its card as
- * the value grows, as it does on the dark one. A floor taper then climbs from
- * the palette's *outer* end - Viridis' yellow, the end beyond `from` - to
- * `from` while its alpha rises from 0, so lightness composited on the card
- * falls monotonically from the white card at the floor. Turbo's lightness is
- * not monotone, but its light run is, and it is drawn on that run alone: its
- * run already rises in contrast (orange to dark red), and the end beyond its
- * `from` is the dark blue, not a light one, so its taper fades #f6691b alone
- * rather than sweep the rainbow (see `rampTable`). The legend is the same
- * table, so its bottom is the faded light end and the label "fades to not
- * drawn" still describes it.
+ * On the light screen's white card no standard ramp works: Viridis' and
+ * Plasma's yellow ends vanish there, and turned round or cut to their 3:1
+ * runs they ringed every shower in yellow, muddied Cividis to khaki-grey and
+ * cut Turbo to its orange end. So each colour-map slot draws a ramp made for
+ * white (palette.js; `screenPalette`, THEME.sequentialPalettes; Martin's
+ * directive of 2026-10-31), running from a pale tint to a deep tone, so
+ * contrast with the card rises with the value by construction. A continuous
+ * raster (`field: true`) spans it in full: its floor takes the palest tint,
+ * fading into the card over the bottom half decade, and its peak the deepest
+ * tone. A mark that stands alone on the card - a cube, a series line, a
+ * histogram cell, a tree leaf - keeps the ramp's run at 3:1 or more, as on
+ * the dark card: the Viridis slot from 0.537, Cividis 0.384, Plasma 0.420,
+ * Turbo's longest run 0.675-1. Its taper climbs from the ramp's pale start to
+ * that colour while its alpha rises, so lightness falls from the card
+ * monotonically on the three monotone ramps.
  */
 
 /** The contrast every opaque on-screen ramp colour clears against the card. */
@@ -540,13 +570,22 @@ function armStart(table, card, negative, floor = RAMP_CONTRAST) {
  * The ramp position `[from, to]` (0..1) the on-screen colours run over, and
  * where the taper ends: `{from, to, taperEnd}`, or null when the ramp is
  * drawn in full (print, a diverging ramp, the `legible: false` opt-out).
- * `from` is the colour of the lowest value: below `to` on the dark card,
- * above it on the light one (`legibleRamp`'s orientation, see above).
+ * `from` is the colour of the lowest value, below `to` on either card (each
+ * slot's light ramp runs from pale to deep, see above).
  * `taperEnd` is the position (0..1 of the ramp's value range) where the floor
  * taper reaches full opacity, 0 on an untapered ramp.
+ *
+ * `field: true` names a continuous raster, whose bins sit among their
+ * neighbours. On the light screen it spans its white-grounded ramp in full
+ * (null here): a pale tint at the floor, fading into the card, to the deep
+ * core (Martin's directive of 2026-10-31). A mark that stands alone on the
+ * card - a cube, a series - keeps the 3:1 run on either card.
  */
-export function legibleSpan(scale, palette, { legible = true, fadeDecades = THEME.floorFadeDecades } = {}) {
+export function legibleSpan(scale, palette, {
+  legible = true, fadeDecades = THEME.floorFadeDecades, field = false,
+} = {}) {
   if (!legible || isDiverging(scale) || isPrintTheme()) return null;
+  if (field && onLightCard()) return null;
   const { from, to } = legibleRamp(palette);
   if (!(from > 0 || to < 1)) return null;
   let taperEnd = 0;
@@ -571,7 +610,9 @@ export function legibleSpan(scale, palette, { legible = true, fadeDecades = THEM
  * through it and `visualMap` samples its legend stops from it, so a bin, a
  * cube and the colour bar agree.
  */
-export function rampTable(scale, palette, { legible = true, signed = false, fadeDecades = THEME.floorFadeDecades } = {}) {
+export function rampTable(scale, palette, {
+  legible = true, signed = false, fadeDecades = THEME.floorFadeDecades, field = false,
+} = {}) {
   const base = lookupTable(palette);
   if (!legible || isPrintTheme()) return base;
   const out = new Uint8ClampedArray(256 * 3);
@@ -590,33 +631,18 @@ export function rampTable(scale, palette, { legible = true, signed = false, fade
     }
     return out;
   }
-  const span = legibleSpan(scale, palette, { legible, fadeDecades });
+  const span = legibleSpan(scale, palette, { legible, fadeDecades, field });
   if (!span) return base;
   const { from, to, taperEnd } = span;
-  // The taper climbs from the palette's end beyond `from`: 0 on the dark card
-  // (exactly the old `(f / taperEnd) * from`), 1 on the light one. Only from an
-  // end fainter on the card than `from` itself, so the climb darkens on white
-  // and brightens on the dark card: Turbo's light run starts at 0.749 with its
-  // dark blue end beyond it, and a climb from there would sweep the whole
-  // rainbow through the faded half decade, so it fades its first colour alone.
-  const outer = from <= to ? 0 : 1;
-  const card = rgbTriple(THEME.card);
-  const climbs = contrast(tableRgb(base, outer), card) < contrast(tableRgb(base, from), card);
   for (let i = 0; i < 256; i += 1) {
     const f = i / 255;
     let t;
-    if (taperEnd > 0 && f < taperEnd) t = climbs ? outer + (f / taperEnd) * (from - outer) : from;
+    if (taperEnd > 0 && f < taperEnd) t = (f / taperEnd) * from;
     else if (taperEnd > 0) t = from + ((f - taperEnd) / Math.max(1e-9, 1 - taperEnd)) * (to - from);
     else t = from + f * (to - from);
     copy(i, Math.max(0, Math.min(255, Math.round(t * 255))));
   }
   return out;
-}
-
-/** [r, g, b] of a 256-entry table at ramp position t (0..1). */
-function tableRgb(table, t) {
-  const i = Math.max(0, Math.min(255, Math.round(t * 255)));
-  return [table[i * 3], table[i * 3 + 1], table[i * 3 + 2]];
 }
 
 /** [r, g, b] of '#rrggbb', the card's dark grey when unparseable. */

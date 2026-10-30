@@ -48,14 +48,14 @@
  *   runs of the whole ramp (`legibleRamp`): Viridis from 0.376, Cividis
  *   0.482, Plasma 0.431, Turbo 0.102-0.859; inside the sub-range Turbo's is
  *   0.251-0.859.
- * - The light screen card #ffffff: the sub-range is 0.75-0, reversed, and the
- *   3:1 runs are the dark ends: Viridis 0-0.600, Cividis 0-0.698, Plasma
- *   0-0.639, Turbo 0.749-1 (inside the sub-range, Turbo's dark blue end,
- *   0-0.176). Each is handed over oriented from the card outwards
- *   (`orientRun`), so on both screen cards the first series and the lowest
- *   value take the run's faintest 3:1 colour and contrast rises from there.
- * - White paper (print): the sub-range is 0-0.75 and the runs are the light
- *   card's, in the palette's standard direction, as print always drew them.
+ * - The light screen card #ffffff: each slot draws its white-grounded ramp
+ *   (palette.js, `scale.screenPalette`), which runs from a pale tint to a deep
+ *   tone, so the sub-range is 0.25-1 as on the dark card and the 3:1 runs are
+ *   the deep ends: the Viridis slot from 0.537, Cividis 0.384, Plasma 0.420.
+ *   On both screen cards the first series and the lowest value take the run's
+ *   faintest 3:1 colour, and contrast rises from there.
+ * - White paper (print): the sub-range is 0-0.75 of the standard ramps, as
+ *   print always drew them.
  *
  * The same floor holds for a mark drawn translucent: its colour is measured
  * composited over the card at the opacity it is drawn with
@@ -76,7 +76,7 @@
  * `plotGrid` beside the option, for the tooltip placement.
  */
 
-import { THEME, axisPadding, typographic, formatNumber } from '../scale.js';
+import { THEME, axisPadding, typographic, formatNumber, screenPalette } from '../scale.js';
 import { categoricalStops, contrast, lookupTable } from '../palette.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import {
@@ -136,18 +136,18 @@ export function legibleRange(palette, background, { min = 0, max = 1 } = {}, flo
  * theme's categorical sub-range, narrowed to where every colour clears 3:1
  * against the card (see the header). Falls back to the whole ramp's legible
  * run when the sub-range holds none, and to the plain sub-range only if the
- * ramp has no legible colour at all. On the light screen card the run is
- * oriented as `legibleRamp` orients it, so the first series is the faintest
- * 3:1 colour on either screen card; a single series takes the run's far end.
+ * ramp has no legible colour at all. `chosen` is the colour-map slot; on the
+ * light screen it draws its white-grounded ramp (`scale.screenPalette`), so
+ * the first series is the faintest 3:1 colour on either screen card; a single
+ * series takes the run's far end.
  */
-export function seriesStops(palette, count) {
+export function seriesStops(chosen, count) {
+  // The ramp the slot draws in the theme in force (the light screen's own).
+  const palette = screenPalette(chosen);
   const range = THEME.categorical ?? { min: 0.25, max: 1 };
-  // The light sub-range is written reversed ({0.75, 0}); the search needs min <= max.
-  const sorted = { min: Math.min(range.min, range.max), max: Math.max(range.min, range.max) };
-  const legible = legibleRange(palette, THEME.card, sorted) ?? legibleRange(palette, THEME.card);
+  const legible = legibleRange(palette, THEME.card, range) ?? legibleRange(palette, THEME.card);
   if (!legible) return categoricalStops(palette, count, range);
-  const [from, to] = orientRun(palette, legible, THEME.card);
-  return categoricalStops(palette, count, { min: from, max: to });
+  return categoricalStops(palette, count, { min: legible[0], max: legible[1] });
 }
 
 /** The two shower colours, or the accent for a single shower. */
@@ -785,40 +785,18 @@ export function inkOn(fill) {
 }
 
 /**
- * A legible run `[lo, hi]` of `palette` as `[from, to]`: reversed when the
- * medium is the screen, `background` is a light card and the run's low end
- * has more contrast against it than its high end, so that contrast against
- * the card rises with value as it does on the dark card. Otherwise as given:
- * the dark card and print keep today's order exactly.
- */
-function orientRun(palette, [lo, hi], background) {
-  if (isPrintTheme() || !onLightCard(background)) return [lo, hi];
-  const table = lookupTable(palette);
-  const bg = rgbOf(background) ?? [255, 255, 255];
-  const at = (t) => {
-    const i = Math.max(0, Math.min(255, Math.round(t * 255)));
-    return contrast([table[i * 3], table[i * 3 + 1], table[i * 3 + 2]], bg);
-  };
-  return at(lo) > at(hi) ? [hi, lo] : [lo, hi];
-}
-
-/**
  * A sequential ramp narrowed to the run that clears 3:1 against `background`
- * (`legibleRange`; the card in force by default): `{palette, from, to}`, the
- * colour of the lowest value at `from`. A fill a reader must see - a surrogate
- * leaf, a raster bin, a cube - is then never fainter than the card can show.
- *
- * On the light screen card the run is oriented from the card outwards (from
- * above to; `orientRun`), Martin's "contrast rises with value": Viridis from
- * 0.600 (#22a784) to 0 (#440154) on white. On the dark card and in print it is
- * the run in the palette's own order, as it always was: Viridis from 0.376 to
- * 1 on #1c2128. A figure measured against a fixed card (the Methodology
- * exhibits) passes that card, so it never depends on the screen theme.
+ * (`legibleRange`; the card in force by default): `{palette, from, to}`. A fill
+ * a reader must see standing alone on the card - a surrogate leaf, a cube, a
+ * 2-D histogram cell - is then never fainter than the card can show: Viridis
+ * from 0.376 to 1 on the dark #1c2128, the light screen's Viridis slot from
+ * 0.537 to 1 on white. The caller passes the ramp it draws (`screenPalette`).
+ * A figure measured against a fixed card (the Methodology exhibits) passes
+ * that card, so it never depends on the screen theme.
  */
 export function legibleRamp(palette, background = THEME.card) {
   const range = legibleRange(palette, background) ?? [0, 1];
-  const [from, to] = orientRun(palette, range, background);
-  return { palette, from, to };
+  return { palette, from: range[0], to: range[1] };
 }
 
 /** The colour at fraction `f` (0..1) of a `legibleRamp`, as '#rrggbb'. */

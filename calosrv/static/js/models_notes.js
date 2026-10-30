@@ -19,7 +19,7 @@
  * from structure only, never by matching text.
  */
 
-import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE, onLightScreen, puorScreenNote } from './panel_notes.js';
+import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE, onLightScreen, puorScreenNote, rampName } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText } from './panels/chart_panel.js';
@@ -174,7 +174,7 @@ export function perfBinsNotes({ payload, state = null, experiment = null, title 
 function rampSentence(payload, palette) {
   const ramp = countRamp(palette, payload.color?.ramp?.by_palette?.[palette] ?? null);
   const measured = payload.color?.ramp?.by_palette?.[palette];
-  const head = `log₁₀ of the showers per bin on ${palette}, positions ${num(ramp.from, 2)} to ${num(ramp.to, 2)} of the ramp; an empty bin is transparent.`;
+  const head = `log₁₀ of the showers per bin on ${rampName(palette)}, positions ${num(ramp.from, 2)} to ${num(ramp.to, 2)} of the ramp; an empty bin is transparent.`;
   if (ramp.measured && measured?.first_level) {
     return `${head} A bin of one shower is ${measured.first_level.color}, ${num(measured.first_level.contrast, 2)}:1 against the ${measured.first_level.against} card.`;
   }

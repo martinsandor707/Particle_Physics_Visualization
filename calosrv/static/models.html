@@ -152,10 +152,10 @@
     <div class="sidebar-group" id="group-m-colormap">
     <h2>Colour Map</h2>
     <select class="picker" id="m-colormap" aria-label="Colour map of the density panels">
-      <option value="viridis" selected>Viridis &mdash; perceptually uniform</option>
-      <option value="cividis">Cividis &mdash; CVD-optimised</option>
-      <option value="plasma">Plasma &mdash; high contrast</option>
-      <option value="turbo" title="Turbo's lightness is not monotone. On the light theme its longest stretch at 3:1 or more against the card is its orange-to-dark-red end (0.749 to 1 of the ramp), which the maps and their colour bars are drawn on; ordered lines take its dark-blue end (0 to 0.176).">Turbo &mdash; maximum detail</option>
+      <option value="viridis" selected title="Perceptually uniform. On the light theme this slot draws a ramp made for white, aqua through emerald-teal and azure to indigo (ColorBrewer GnBu and YlGnBu), because Viridis&#8217; yellow end vanishes on white.">Viridis &mdash; perceptually uniform</option>
+      <option value="cividis" title="Optimised for colour-vision deficiency. On the light theme this slot draws a ramp made for white, ice-azure to deep navy in one hue (ColorBrewer Blues and PuBu).">Cividis &mdash; CVD-optimised</option>
+      <option value="plasma" title="On the light theme this slot draws a ramp made for white, apricot through coral-red to plum (ColorBrewer OrRd and RdPu), without Plasma&#8217;s lemon-yellow end.">Plasma &mdash; high contrast</option>
+      <option value="turbo" title="Turbo&#8217;s lightness is not monotone. On the light theme this slot draws a ramp made for white that keeps its detail, pale sky through cerulean, emerald, amber and vermilion to garnet; a line or other mark standing alone on the card takes its run at 3:1 or more, vermilion to garnet.">Turbo &mdash; maximum detail</option>
     </select>
     </div>
 
