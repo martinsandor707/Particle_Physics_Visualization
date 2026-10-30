@@ -314,8 +314,8 @@ def test_models_page_is_served(client):
     assert "Calorimeter Shower Reconstruction" in response.text
     html = response.text
     scripts = re.findall(r'<script[^>]*src="([^"?]+)', html)
-    assert scripts == ["/static/js/vendor/echarts.min.js", "/static/js/vendor/echarts-gl.min.js",
-                       "/static/js/models_main.js"]
+    assert scripts == ["/static/js/theme_boot.js", "/static/js/vendor/echarts.min.js",
+                       "/static/js/vendor/echarts-gl.min.js", "/static/js/models_main.js"]
     assert '<script type="module" src="/static/js/models_main.js' in html
     assert "echarts-gl" not in client.get("/").text
 
@@ -327,7 +327,7 @@ def test_methodology_page_is_served(client):
     html = response.text
     assert "Calorimeter Shower Reconstruction" in html
     scripts = re.findall(r'<script[^>]*src="([^"?]+)', html)
-    assert scripts == ["/static/js/methodology_main.js"]
+    assert scripts == ["/static/js/theme_boot.js", "/static/js/methodology_main.js"]
     assert '<script type="module" src="/static/js/methodology_main.js' in html
 
 
@@ -741,6 +741,12 @@ def test_energy_payload_stays_within_the_budget(client):
 
 
 # --------------------------------------------------------- asset integrity --
+
+
+@pytest.mark.parametrize("page", ["/", "/models", "/methodology"])
+def test_served_pages_stamp_the_theme_boot_script(client, page):
+    """The blocking boot script is stamped like every other asset, so a stale copy cannot pair with new markup."""
+    assert '<script src="/static/js/theme_boot.js?v=' in client.get(page).text
 
 
 @pytest.mark.parametrize("page", ["/", "/models", "/methodology"])

@@ -513,7 +513,7 @@ def test_the_models_page_has_the_physics_pages_shell():
     # .main's overflow box and exists before any chart is created.
     assert re.search(r'<aside class="inspector" id="inspector" aria-labelledby="inspector-title" hidden>', html)
     assert html.index("</main>") < html.index('id="inspector"') < html.index('id="tooltip-layer"')
-    assert html.index('id="tooltip-layer"') < html.index("<script")
+    assert html.index('id="tooltip-layer"') < html.index("<script", html.index("<body"))
     # Admin Settings live on the Physics page: a link, no modal and no upload form.
     assert 'id="admin-modal"' not in html and 'id="upload-' not in html and "modal-backdrop" not in html
     assert re.search(r'<a class="action" href="/\?admin=1" data-page-tab', html)
@@ -530,10 +530,11 @@ def test_the_filter_block_is_the_physics_pages_byte_for_byte():
 def test_the_models_page_loads_echarts_gl_and_its_own_entry_in_order():
     html = _models_html()
     scripts = re.findall(r'<script([^>]*)src="([^"]+)"', html)
-    assert [src for _, src in scripts] == ["/static/js/vendor/echarts.min.js", "/static/js/vendor/echarts-gl.min.js",
-                                           "/static/js/models_main.js"]
-    assert 'type="module"' not in scripts[1][0], "echarts-gl is a classic script"
-    assert 'type="module"' in scripts[2][0]
+    assert [src for _, src in scripts] == ["/static/js/theme_boot.js", "/static/js/vendor/echarts.min.js",
+                                           "/static/js/vendor/echarts-gl.min.js", "/static/js/models_main.js"]
+    assert 'type="module"' not in scripts[0][0], "the boot script is classic"
+    assert 'type="module"' not in scripts[2][0], "echarts-gl is a classic script"
+    assert 'type="module"' in scripts[3][0]
     assert "echarts-gl" not in _html()
     assert html.index("css/controls.css") < html.index("css/models.css")
 
@@ -678,3 +679,54 @@ def test_the_models_cards_have_the_page_card_anatomy():
     caps = _strip_comments((JS / "capabilities.js").read_text(encoding="utf-8"))
     assert "xgbNotice: runs.length ? null :" in caps
     assert "setHidden('xgb-notice', !plan.xgbNotice);" in main
+
+
+# ------------------------------------------------------------- the theme --
+
+
+def _methodology_page() -> str:
+    return (STATIC / "methodology.html").read_text(encoding="utf-8")
+
+
+def _all_pages():
+    return (("physics", _html(), 'id="open-admin"'), ("models", _models_html(), 'href="/?admin=1"'),
+            ("methodology", _methodology_page(), 'id="export-article"'))
+
+
+def test_the_first_script_of_every_page_is_the_classic_theme_boot_in_the_head():
+    for name, html, _ in _all_pages():
+        first = re.search(r"<script\b[^>]*>", html)
+        assert first and first.group(0) == '<script src="/static/js/theme_boot.js">', name
+        assert not re.search(r"\b(type|defer|async)\b", first.group(0)), name
+        assert html.index("<head>") < first.start() < html.index("</head>"), name
+        assert first.start() < html.index('<link rel="stylesheet"'), name
+
+
+def test_every_header_has_one_theme_toggle_before_the_admin_or_export_control():
+    for name, html, control in _all_pages():
+        assert html.count('id="theme-toggle"') == 1, name
+        header = html[html.index("<header"):html.index("</header>")]
+        assert 'id="theme-toggle"' in header, name
+        button = re.search(r'<button class="icon-button theme-toggle" id="theme-toggle" type="button"(.*?)</button>',
+                           header, re.DOTALL)
+        assert button, name
+        body = button.group(1)
+        for attribute in ("aria-label", "title"):
+            assert re.search(rf'{attribute}="[^"]+"', body), (name, attribute)
+        svgs = re.findall(r"<svg\b([^>]*)>", body)
+        assert len(svgs) == 2 and all('aria-hidden="true"' in s for s in svgs), name
+        assert 'class="theme-icon theme-icon-sun"' in svgs[0] and 'class="theme-icon theme-icon-moon"' in svgs[1], name
+        after = header[button.end():]
+        assert control in after, name
+        # Nothing but whitespace and comments between the toggle and the control.
+        gap = after[:after.index(control)]
+        assert re.sub(r"<!--.*?-->|\s|<(?:button|a)\b[^>]*?class=\"action\"[^>]*?(?=$)", "", gap, flags=re.DOTALL) in (
+            "", "<buttonclass=\"action\"", "<aclass=\"action\""), name
+
+
+def test_both_turbo_options_name_the_light_themes_3_to_1_run():
+    for html in (_html(), _models_html()):
+        option = re.search(r'<option value="turbo"([^>]*)>', html)
+        assert option, "Turbo option"
+        title = re.search(r'title="([^"]+)"', option.group(1))
+        assert title and "3:1" in title.group(1) and "0.749" in title.group(1) and "light" in title.group(1)
