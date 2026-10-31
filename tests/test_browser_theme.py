@@ -23,7 +23,8 @@ what a reader sees, on the three pages:
   a page booted in the new theme shows, and the 3-D views take the new chrome
   while keeping the reader's rotation, pan and zoom (the species legend, which
   needs the single-shower hits, is checked in test_browser_models.py: one
-  module holds one server);
+  module holds one server); a 3-D event cut into slices keeps its slice, its
+  readout and its camera, and its depth projections' band takes the new ink;
 * exported figures do not depend on the screen theme: the SVG downloads are
   byte-identical, and the Methodology figures are unchanged;
 * each spatial card's Marks button, in either theme, hides every mark over
@@ -550,6 +551,71 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
         # The paired projections follow.
         for plot in ("plot-vproj-xy", "plot-eproj-xy"):
             assert MUTED["light"] in page.evaluate(_AXIS_INK, plot), plot
+        browser.close()
+    assert problems == [], problems
+
+
+#: The colours a projection's slice band is painted in: every stroke and fill its wash and faces drew.
+_BAND_INK = """(plotId) => {
+  const chart = echarts.getInstanceByDom(document.getElementById(plotId));
+  const out = new Set();
+  for (const model of chart.getModel().getSeries()) {
+    if (!(model.name || '').startsWith('Depth slice drawn in 3-D')) continue;
+    chart.getViewOfSeriesModel(model).group.traverse((el) => {
+      if (el.style?.stroke && el.style.stroke !== 'none') out.add(String(el.style.stroke).toLowerCase());
+      if (el.style?.fill && el.style.fill !== 'none') out.add(String(el.style.fill).toLowerCase());
+    });
+  }
+  return [...out].sort();
+}"""
+#: scale.js `SCREEN.text` / `SCREEN_LIGHT.text`: the slice band's ink (projection.js addDepthSlab).
+TEXT = {"dark": "#e6edf3", "light": "#111827"}
+
+
+def test_a_switch_while_sliced_keeps_the_slice_the_band_and_the_camera(live_server):
+    """A theme switch while the 3-D event shows slice 3 of 6 (plan §3.5): no request; the readout, the scrubber,
+    the cubes drawn and the reader's turned and zoomed camera stay; the depth projections keep the band at the
+    same depth, repainted in the new theme's ink; and a switch back returns all of it."""
+    base = live_server["base"]
+    from test_browser_models import SLICE_PAIRS, _CUBES, _DEPTH_BAND, _SLICE_ROW, _set_slices, _step_slice, \
+        _turn_and_zoom
+
+    def view(page):
+        return {
+            "row": page.evaluate(_SLICE_ROW, "vox-event"),
+            "cubes": page.evaluate(_CUBES, "vox-event"),
+            "bands": [page.evaluate(_DEPTH_BAND, c) for c in SLICE_PAIRS["vox-event"][1]],
+            "camera": page.evaluate(_CAMERA, "vox-event")["control"],
+        }
+
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy&frame=lab", gl=True)
+        for card_id in ("vox-event", "vproj-xy", "vproj-xz", "vproj-yz"):
+            _models_card(page, card_id)
+        page.wait_for_function(_GL_DRAWN, arg="vox-event", timeout=30_000)
+        page.wait_for_timeout(800)
+        _set_slices(page, "vox-event", 6)
+        _step_slice(page, "vox-event", "next")
+        _step_slice(page, "vox-event", "next")
+        _turn_and_zoom(page, "vox-event")
+        dark = view(page)
+        assert dark["row"]["readout"].startswith("Slice 3 of 6 — ") and dark["row"]["k"] == "3", dark["row"]
+        assert all(b and b["faces"] == 2 for b in dark["bands"]), dark["bands"]
+        dark_ink = [page.evaluate(_BAND_INK, f"plot-{c}") for c in SLICE_PAIRS["vox-event"][1]]
+        assert all(TEXT["dark"] in ink and TEXT["light"] not in ink for ink in dark_ink), dark_ink
+
+        assert _toggle(page, requests) == [], "a theme switch while sliced asked the service"
+        assert _state(page)["theme"] == "light"
+        light = view(page)
+        assert light == dark, (dark, light)
+        light_ink = [page.evaluate(_BAND_INK, f"plot-{c}") for c in SLICE_PAIRS["vox-event"][1]]
+        assert all(TEXT["light"] in ink and TEXT["dark"] not in ink for ink in light_ink), light_ink
+        # The 3-D chrome follows (test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views).
+        assert page.evaluate(_CAMERA, "vox-event")["axisLine"] == BORDER["light"]
+
+        assert _toggle(page, requests) == []
+        assert view(page) == dark
         browser.close()
     assert problems == [], problems
 
