@@ -49,7 +49,7 @@ PAGE1_CARDS: tuple[str, ...] = (
 
 #: Page 2 cards.
 PAGE2_CARDS: tuple[str, ...] = (
-    "perf-bins", "pred-truth", "pred-residuals",
+    "perf-bins", "res-scaling", "pred-truth", "pred-residuals",
     "feat-table", "feat-corr", "feat-hist", "feat-hist2d",
     "prim-rate", "vox-event", "vox-ensemble",
 )
@@ -72,7 +72,7 @@ SINGLE_SHOWER_READY: frozenset[str] = frozenset({
     "response-b1", "response-b2", "response-res", "response-b3",
     "profile-w", "profile-r", "distribution", "correlation", "statistics", "negative-depth",
     # Page 2 cards that read the event table or Group-1.
-    "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
+    "res-scaling", "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
     # The 2 x 2 diagnostic's spatial panels in the absolute, per-shower
     # translated and local frames, and the views built on them.
     "xy", "yz", "xz", "frame-lab", "frame-trans", "frame-local",
@@ -92,7 +92,7 @@ IMPLEMENTED: frozenset[str] = frozenset({
     "response-b1", "response-b2", "response-res", "response-b3",
     "profile-w", "profile-r", "distribution", "correlation", "statistics", "negative-depth",
     # Page 2 cards.
-    "perf-bins", "pred-truth", "pred-residuals",
+    "perf-bins", "res-scaling", "pred-truth", "pred-residuals",
     "feat-table", "feat-corr", "feat-hist", "feat-hist2d", "prim-rate",
     "vox-event", "vox-species", "vox-ensemble", "vox-attention",
     # The XGBoost model views (GET /api/xgboost), and the XGBoost series of E2.
@@ -288,6 +288,10 @@ def of(record: ExperimentRecord) -> Capabilities:
     # Physics section. The response cards read the event table of any kind.
     for name in ("response-b1", "response-b2", "response-res", "response-b3"):
         gate(name, two or single_ready(name) or kind == ddl.KIND_SINGLE_EVENTS, _NOT_YET_SINGLE)
+    # σ/E against 1/√E (Page 2) reads the event table of any kind, as response-res does;
+    # the model series inside it follows the networks or the xgboost gate.
+    gate("res-scaling", two or single_ready("res-scaling") or kind == ddl.KIND_SINGLE_EVENTS,
+         _NOT_YET_SINGLE)
     # Distributions: θ, φ and p come from the event table of every kind; the
     # route refuses the hit quantities where there are no hits.
     gate("distribution", two or single_ready("distribution") or kind == ddl.KIND_SINGLE_EVENTS,

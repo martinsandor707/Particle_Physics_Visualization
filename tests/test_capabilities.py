@@ -93,6 +93,23 @@ def test_xgboost_is_shut_without_an_analysis_and_says_why():
     assert capabilities.of(TWO).can("perf-bins")
 
 
+def test_resolution_scaling_is_open_on_every_kind_as_the_page_1_resolution_is():
+    """The res-scaling card reads the event table of any kind: its gate is response-res's."""
+    assert "res-scaling" in capabilities.PAGE2_CARDS
+    assert "res-scaling" in capabilities.SINGLE_SHOWER_READY
+    assert "res-scaling" in capabilities.IMPLEMENTED
+    for record in (SINGLE_HITS, SINGLE_EVENTS, TWO):
+        caps = capabilities.of(record)
+        assert caps.can("res-scaling") and caps.can("response-res"), record.kind
+        assert "res-scaling" not in caps.reasons
+        assert caps.as_dict()["pages"]["models"]
+    # Shut with the rest when the experiment is not ready, and says why.
+    import dataclasses
+
+    pending = capabilities.of(dataclasses.replace(TWO, status="ingesting"))
+    assert not pending.can("res-scaling") and "Not ready" in pending.reasons["res-scaling"]
+
+
 def test_capability_block_matches_contract():
     for record in (SINGLE_HITS, SINGLE_EVENTS, TWO):
         block = capabilities.of(record).as_dict()
