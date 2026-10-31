@@ -319,7 +319,8 @@ When working with calorimeter simulation datasets in this repository:
     - prediction against truth and its residuals;
     - the feature explorer (table, correlations, histogram, 2-D histogram), which draws one shower at a time on two-shower data and never pools A and B;
     - the primary-tag rate;
-    - the two 3-D views of the recorded exception above;
+    - the energy-resolution scaling, σ/E against 1/√E, in a section of its own;
+    - the two 3-D views of the recorded exception above, each with a slice mode;
     - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
   - **E2's per-bin marks follow the low-N table.**
     - One shower is drawn as a dot, never as an aggregate bar.
@@ -345,6 +346,16 @@ When working with calorimeter simulation datasets in this repository:
   - **The feature explorer:**
     - fades the correlation cells whose 95% interval contains 0;
     - on an aggregate experiment, offers a frame choice (absolute, per-shower translated, local; never the D-frame) through the shared `frame` key.
+  - **The energy-resolution card** (`res-scaling`; `query/resolution_scaling.py`, `stats/resolution_fit.py`, `panels/resolution_scaling.js`; Martin's decisions, 2026-10-31).
+    - **What it plots.** Per 1 GeV momentum window, σ/E = s(R)/R̄ of the per-event ratio R = E_est/p, at x = ⟨1/√p⟩, so the window's momentum spread and the estimator's bias are divided out and the calibration cancels.
+    - **Its series.** The detector's calibrated deposit, labelled "Calibrated deposit c·E_dep — linear-sum benchmark" and never called a limit, since a shape-aware model can beat a plain sum; the energy network of the selected frame on two-shower data; the XGBoost momentum hold-out on a paired aggregate.
+    - **Its axes.** A reversed axis linear in 1/√E whose right border is the origin (E → ∞); the top axis is the exact relabelling E = 1/x², carrying no data; y from zero.
+    - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV; a window below 4 GeV is off the axis, counted and listed.
+    - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. The quadrature form is tabled, never drawn.
+  - **The slice mode of the 3-D cards** (`voxels.js` `depthDomain`, `sliceEdges`, `slicePlan`; `voxel_views.js`; Martin's decisions, 2026-10-31).
+    - **The rule.** K whole-bin slices of the drawn volume, from the first to the last depth bin holding a drawn cube, with edges ⌊kL/K⌋; never a coordinate window. The reference notebook's ±3σ cut of standardised depth put its first slice upstream of the detector, empty in every figure.
+    - **A step** only swaps the drawn cubes: no request, the camera and the zoom held. The box, the colour scale and the floor stay the whole volume's. K and k are the card's own, never in the view state or the hash; K = 1 is today's card.
+    - **Disclosure.** Exact shares from the server's per-layer `depth_profile`, signed attention shares kept apart; the paired depth projections draw the slice as a band.
   - **The training-split check.** An analysis whose training split is not reproduced is still shown, and its cards and its Admin row carry the hazard. Reproduced means the validation/training MSE at `random_state` 42 clears the largest of 99 other seeds by the stated margin.
 * **Methodology page (Page 3) requirements**:
   - **The article follows the code.** Where the two disagree, the code is right and the article is corrected. The content lives in `static/js/methodology/content/`, as plain data in one module per part.
