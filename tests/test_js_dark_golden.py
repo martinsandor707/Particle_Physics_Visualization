@@ -82,6 +82,7 @@ FAMILIES = [
     "models/perf", "models/hist2d", "models/residual", "models/hist", "models/corr", "models/rates", "models/table",
     "xgb/cv", "xgb/binary", "xgb/tree", "xgb/importance", "xgb/variant",
     "models/resolution", "voxels/event", "voxels/ensemble", "voxels/crop", "voxels/notes", "voxels/slices",
+    "voxels/selection",
     "notes/profile", "notes/response", "notes/grid", "notes/energy", "notes/distribution", "notes/correlation",
     "notes/statistics", "notes/models_perf", "notes/models_pred", "notes/models_features", "notes/models_resolution",
     "notes/xgb", "notes/voxels",
@@ -354,6 +355,8 @@ const SCALES = {
   voxel_gev_mm3: { scale: 'log10', vmin: -10.7, vmax: -6.27, unit: 'GeV/mm^3', mode: 'percentile', locked: true,
     quantity: 'energy_density', floor_density: 1.9e-11 },
 };
+/* Payload fixtures recorded after the golden froze (the selection's cells, 2026-10-31): walked last. */
+const LATER_FIXTURES = ['selection_cells_'];
 // Every distinct scale block the recorded payloads carry.
 {
   const found = {};
@@ -367,14 +370,25 @@ const SCALES = {
     }
     for (const [k, x] of Object.entries(o)) if (k !== 'data') walk(x, `${where}/${k}`);
   };
-  for (const file of fs.readdirSync(fixtureDir).sort()) {
-    if (!file.endsWith('.json')) continue;
+  // Fixtures recorded after the golden froze are walked last, into names of their own: a scale case is named
+  // by the order the walk finds it, so a file sorting among the old ones would rename every case after it.
+  const later = (file) => LATER_FIXTURES.some((prefix) => file.startsWith(prefix));
+  const files = fs.readdirSync(fixtureDir).filter((f) => f.endsWith('.json')).sort();
+  for (const file of files.filter((f) => !later(f))) {
     walk(JSON.parse(fs.readFileSync(`${fixtureDir}/${file}`, 'utf8')), file.replace('.json', ''));
   }
   const dedup = Object.values(found);
   dedup.forEach((entry, i) => { SCALES[`fixture_${String(i).padStart(2, '0')}_${entry.where.replace(/[^A-Za-z0-9]+/g, '_')}`] = entry.scale; });
+  put('scale/names', Object.keys(SCALES));
+  const before = new Set(Object.keys(found));
+  for (const file of files.filter(later)) {
+    walk(JSON.parse(fs.readFileSync(`${fixtureDir}/${file}`, 'utf8')), file.replace('.json', ''));
+  }
+  Object.entries(found).filter(([key]) => !before.has(key)).forEach(([, entry], i) => {
+    SCALES[`later_${String(i).padStart(2, '0')}_${entry.where.replace(/[^A-Za-z0-9]+/g, '_')}`] = entry.scale;
+  });
+  put('scale/names_later', Object.keys(SCALES).filter((name) => name.startsWith('later_')));
 }
-put('scale/names', Object.keys(SCALES));
 
 const RAMP_METRICS = [{}, { width: 600, reservedBottom: 40 }, { width: 120 }];
 for (const [sname, sc] of Object.entries(SCALES)) {
@@ -1007,6 +1021,18 @@ for (const name of ['event_voxels_base_lab', 'event_voxels_base_canonical', 'eve
   both(`voxels/event/${name}/colours_print`, () => ({ rgba: v.cubeColours(model, 'viridis'), table: v.voxelCodeTable(model, 'viridis'), legend: v.voxelLegend(model, 'viridis') }),
     (id, out) => put(id, out));
   optionCase(`voxels/event/${name}/hidden_species`, v.voxelOption(model, { hidden: new Set([0, 2]) }).option);
+}
+// The selection's detector cells (GET /api/selection-cells): the event body with a `selection` block.
+for (const name of ['selection_cells_base', 'selection_cells_base_shapcam', 'selection_cells_single']) {
+  const payload = load(name);
+  const model = v.decodeEventVoxels(payload);
+  const built = v.voxelOption(model, { palette: 'viridis' });
+  put(`voxels/selection/${name}/option`, voxelSummary(built));
+  put(`voxels/selection/${name}/colours`, { rgba: v.cubeColours(model, 'viridis'), table: v.voxelCodeTable(model, 'viridis'),
+    legend: v.voxelLegend(model, 'viridis') });
+  const picks = [...new Set([0, Math.floor(model.n / 2), model.n - 1, ...payload.voxels.topk.slice(0, 3).map((t) => t.i)])];
+  put(`voxels/selection/${name}/text`, { scope: model.scope, nShowers: model.nShowers, tips: picks.map((i) => v.voxelTooltip(model, i)),
+    notes: vn.voxelEventNotes({ payload, drawn: built }) });
 }
 for (const name of ['voxels_base_local', 'voxels_base_canonical_shapcam', 'voxels_single_local', 'voxels_two_local']) {
   const payload = load(name);

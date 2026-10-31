@@ -773,7 +773,12 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
                                  ".getOption().grid3D[0].viewControl.projection") == "orthographic"
         live = page.evaluate(_LIVE_GL)
         assert sorted(live) == ["vox-ensemble", "vox-event"], live
-        # A change of the 3-D event's channel redraws on the same chart: still two contexts.
+        # The card opens on the selection; one event, and a change of its channel, redraw on the same chart:
+        # still two contexts. (The selection draws energy only here: species belong to one event.)
+        page.click('.card[data-panel="vox-event"] [data-voxel-scope="event"]')
+        _settled(page, "vox-event")
+        page.wait_for_timeout(800)
+        assert len(page.evaluate(_LIVE_GL)) <= 2
         page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "species")
         _settled(page, "vox-event")
         page.wait_for_timeout(800)
@@ -839,7 +844,8 @@ def test_both_showers_draw_in_the_absolute_frame_and_are_shut_with_a_reason_else
         assert page.evaluate(lit) == ["a"]
         browser.close()
 
-        browser, page, problems2, requests = _open(p, base, BASELINE_TABLE, fragment="&model=energy&frame=lab")
+        # In the Absolute frame the card opens on the selection, whose showers are summed; Both is one event's.
+        browser, page, problems2, requests = _open(p, base, BASELINE_TABLE, fragment="&model=energy&frame=lab&voxel_scope=event")
         _scroll_to(page, "vox-event")
         assert page.evaluate(f"() => document.querySelector('{both}').disabled") is False
         page.click(both)
@@ -967,6 +973,86 @@ def _slice_view(page, card_id, camera):
         "bands": [page.evaluate(_DEPTH_BAND, c) for c in depth],
         "camera": page.evaluate(camera, card_id)["control"],
     }
+
+
+#: The 3-D event card's scope buttons and title, and whether its event picker shows.
+_SCOPE = """() => {
+  const card = document.querySelector('.main .card[data-panel="vox-event"]');
+  const button = (v) => card.querySelector(`[data-voxel-scope="${v}"]`);
+  const visible = (el) => Boolean(el) && !el.hidden && el.getClientRects().length > 0;
+  return {
+    title: card.querySelector('.title')?.textContent ?? null,
+    selection: { pressed: button('selection').getAttribute('aria-pressed'), disabled: button('selection').disabled,
+      title: button('selection').title },
+    event: { pressed: button('event').getAttribute('aria-pressed') },
+    picker: visible(card.querySelector('[data-voxel-event]')),
+    showersShut: [...card.querySelectorAll('[data-voxel-shower]')].every((b) => b.disabled),
+    projection: document.querySelector('.main .card[data-panel="vproj-xz"] .title')?.textContent ?? null,
+  };
+}"""
+
+
+def test_the_absolute_3d_card_opens_on_the_selection_and_one_event_is_a_click_away(models_live_server):
+    """Martin's directive (2026-10-31): in the Absolute frame the 3-D event card draws the whole selection by
+    default - its cells from /api/selection-cells, its projections the Physics page's - with no pick and no event
+    request. "One event" loads the densest event; "Selection" returns with no request. An older link that names an
+    event opens it, and outside the Absolute frame the Selection button is shut with its reason."""
+    base = models_live_server["base"]
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE)
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        for card in ("vproj-xy", "vproj-xz", "vproj-yz"):
+            _scroll_to(page, card)
+        state = page.evaluate(_SCOPE)
+        assert state["title"] == "The Selection in 3-D — Detector Cells", state
+        assert state["selection"]["pressed"] == "true" and state["event"]["pressed"] == "false", state
+        assert not state["picker"] and state["showersShut"], state
+        assert not (state["projection"] or "").startswith("Event "), state
+        assert _requests_of(requests, "/api/selection-cells"), _urls(requests)
+        assert _requests_of(requests, "/api/projections", coord_system="lab", frame="lab", channel="density")
+        assert not _requests_of(requests, "/api/event/pick") and not _requests_of(requests, "/api/event"), _urls(requests)
+        assert "voxel_scope" not in _hash(page), "the cold-boot scope is not written to the link"
+
+        # One event: the densest, picked and drawn; the link says so.
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-scope="event"]')
+        page.wait_for_function("() => document.querySelector('.main .card[data-panel=\"vox-event\"] .title')"
+                               "?.textContent === 'One Event in 3-D — Detector Cells'", timeout=30_000)
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        one = page.evaluate(_SCOPE)
+        assert one["event"]["pressed"] == "true" and one["picker"] and not one["showersShut"], one
+        assert _requests_of(requests, "/api/event/pick") and _requests_of(requests, "/api/event", format="voxels")
+        assert _hash(page).get("voxel_scope") == "event"
+
+        # Back to the selection: drawn from the responses in hand, no request.
+        before = len(_requests_of(requests, "/api/selection-cells"))
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-scope="selection"]')
+        page.wait_for_function("() => document.querySelector('.main .card[data-panel=\"vox-event\"] .title')"
+                               "?.textContent === 'The Selection in 3-D — Detector Cells'", timeout=30_000)
+        assert len(_requests_of(requests, "/api/selection-cells")) == before
+        assert "voxel_scope" not in _hash(page) and "voxel_event" not in _hash(page)
+        browser.close()
+        assert problems == [], problems
+
+        # An older link names an event and no scope: it opens that event.
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE, fragment="&voxel_event=0")
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        assert page.evaluate(_SCOPE)["title"] == "One Event in 3-D — Detector Cells"
+        assert not _requests_of(requests, "/api/selection-cells")
+        browser.close()
+        assert problems == [], problems
+
+        # Outside the Absolute frame: one event, the Selection button shut with its reason.
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE, fragment="&frame=local")
+        _scroll_to(page, "vox-event")
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
+        local = page.evaluate(_SCOPE)
+        assert local["selection"]["disabled"] and local["selection"]["title"].startswith("The selection is drawn on the detector cells")
+        assert local["event"]["pressed"] == "true" and not _requests_of(requests, "/api/selection-cells")
+        browser.close()
+        assert problems == [], problems
 
 
 def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camera(models_live_server):
@@ -1371,7 +1457,9 @@ def test_the_species_legend_and_cubes_follow_a_theme_switch(models_live_server):
              ".filter((s) => s.type === 'bar3D').flatMap((s) => (s.data || []).slice(0, 50)"
              ".map((d) => d.itemStyle?.color ?? null))")
     with models_live_server["playwright"].sync_playwright() as p:
-        browser, page, problems, requests = _open(p, models_live_server["base"], SINGLE_HITS_TABLE)
+        # Species belong to one event: the card's selection scope draws energy alone.
+        browser, page, problems, requests = _open(p, models_live_server["base"], SINGLE_HITS_TABLE,
+                                                  fragment=FRAGMENT.get(SINGLE_HITS_TABLE, "") + "&voxel_scope=event")
         assert page.evaluate("() => document.documentElement.dataset.theme") == "dark"
         _scroll_to(page, "vox-event")
         page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "species")

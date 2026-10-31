@@ -121,12 +121,10 @@ ATTENTION_UNIT = "GeV/event"
 #: Where the energy ramp's floor is measured: the cubes drawn.
 FLOOR_BASIS = "drawn_cells"
 
-#: The named cache of per-cell sums: a production selection's whole-detector
-#: sums are 14 bytes per populated cell (38 with a network channel's), a few
-#: tens of MB for the 1.3 million cells of the lattice at most.
-CACHE_NAME = "selection_cells"
+#: The named cache of per-cell sums (``query/cache.py`` ``SELECTION_CACHE``, its budget there).
+CACHE_NAME = cache_mod.SELECTION_CACHE
 CACHE_ENTRIES = 32
-CACHE_MAX_BYTES = 128 * 1024 ** 2
+CACHE_MAX_BYTES = cache_mod.DEFAULT_MAX_BYTES[cache_mod.SELECTION_CACHE]
 #: Bumped when the cached sums change shape, so a stale entry is never read.
 CACHE_VERSION = 1
 

@@ -58,7 +58,7 @@ const TAXONOMY = {
     [k('feat-hist2d'), 'D5', 'Models', '2-D count raster per class against deposited energy', 'None (counts); events drawn below the floor', `Raster from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Sequential log count, shared scale'],
     [k('res-scaling'), 'Resolution scaling', 'Models', `σ/E in percent from zero against $1/\\sqrt E$, reversed to end at the origin; fitted lines`, 'χ² whisker of the window’s σ/μ; 95% confidence band of each fitted line', `Whisker from ${C.RES_WHISKER_MIN_N}; fit and range from ${C.RES_FIT_MIN_N}; provisional below two anchors`, 'Ink for the deposit; E2’s hues for models; filled A, hollow B'],
     [k('prim-rate'), 'C11', 'Models', 'Point per momentum bin; overall dotted rule', 'Capped asymmetric Wilson whisker', 'From one event', 'Accent'],
-    [k('vox-event'), 'C5, C6', 'Models', 'Orthographic cubes of one event, beside three 2-D projections', 'None in 3-D; numbers on the projections', `Event window ≥ ${C.EVENT_WINDOW_MIN_HALF_MM} mm per axis`, 'Sequential, folded PuOr, or qualitative species'],
+    [k('vox-event'), 'C5, C6', 'Models', 'Orthographic cubes of the selection\u2019s detector cells (Absolute frame, the default) or of one event, beside three 2-D projections', 'None in 3-D; numbers on the projections', `Event window ≥ ${C.EVENT_WINDOW_MIN_HALF_MM} mm per axis`, 'Sequential, folded PuOr, or qualitative species'],
     [k('vox-ensemble'), '3-D ensemble', 'Models', 'Orthographic voxel cloud, beside three 2-D projections', 'None in 3-D; numbers on the projections', 'As the 2 × 2', 'The relative ramp of the 2-D panels'],
   ],
   note: String.raw`The paired projections of the 3-D cards (${k('vproj-xy')}, ${k('vproj-xz')}, ${k('vproj-yz')}, ${k('eproj-xy')}, ${k('eproj-yz')}, ${k('eproj-xz')}) follow their 2-D counterparts on the Physics page. Card ids are those of ${k('physics_section.js')} ${k('PHYSICS_CARDS')}, ${k('models_cards.js')} ${k('MODELS_CARDS')} and ${k('voxel_views.js')} ${k('VOXEL_CARDS')}.`,
@@ -350,10 +350,14 @@ const MODELS = {
       items: [
         String.raw`an orthographic camera and one millimetre scale on all three axes, 1:1:1, so no length is foreshortened;`,
         String.raw`measured cells of ${C.CELL_X_MM} × ${C.CELL_Y_MM} × ${C.Z_PITCH_MM} mm in the Absolute and per-shower translated frames; in Local and the D-frame, axis-aligned splat voxels of ${C.CANONICAL_PITCH_MM} mm for one event (coarser only where ${C.MAX_VOXELS_PER_AXIS} per axis cannot cover it) and ${C.CLOUD_VOXEL_MERGE * C.CANONICAL_PITCH_MM} mm for the cloud;`,
-        String.raw`flat, unlit colour, because lighting modulates the luminance that encodes the value, on the 2-D panels' ramps from their first 3:1 colour;`,
+        String.raw`flat, unlit colour, because lighting modulates the luminance that encodes the value, on the 2-D panels' ramps: on the dark card from their first 3:1 colour, on the light card exactly as the raster bins beside them;`,
         String.raw`per-axis energy-weighted ${C.WINDOW_LOW_PERCENTILE}–${C.WINDOW_HIGH_PERCENTILE} percentile windows, padded by one cell footprint (one layer pitch along depth), at least ${C.EVENT_WINDOW_MIN_HALF_MM} mm and snapped to ${C.EVENT_WINDOW_SNAP_MM} mm, so stray cells cannot stretch the box;`,
         String.raw`three paired 2-D projections beside each card, which carry the numbers and the export; the 3-D card has none, and at most two WebGL contexts per page.`,
       ],
+    },
+    {
+      kind: 'p',
+      text: String.raw`**The selection in the Absolute frame.** In the Absolute frame the event card draws the whole selection by default, every selected event's hits of both showers summed per detector cell, and one event is a click away (${k('voxel_views.js')}; ${k('GET /api/selection-cells')}). A cube is a measured cell, coloured by the one-event view's channels averaged over the selection: the energy as the mean deposit per selected event over the cell's volume, Grad-CAM and Shap-CAM as the energy-weighted mean over the selection's hits in it, the Physics page's own aggregation, so the three projections beside it, the Physics page's Absolute panels of the same channel, read alike. The segmentation error and the species belong to one event and have no selection projection: the view draws energy and says so. Only the Absolute frame shares one lattice across events; the per-shower frames move every shower to its own entry point, and the cloud card draws the co-registered selection.`,
     },
     {
       kind: 'p',
