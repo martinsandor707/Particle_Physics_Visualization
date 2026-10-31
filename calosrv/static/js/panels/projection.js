@@ -395,7 +395,7 @@ export class ProjectionPanel {
       axes = null, trajectories = null, showerKey = null,
       frame = null, ensembleAxes = null, ensembleMeta = null,
       anchors = null, depthBounds = null, marks = null, markColour = null, markShower = null,
-      framed = false, windowAxis = null,
+      framed = false, windowAxis = null, depthSlab = null,
     } = opts;
     // A shower's marks take its ink from the theme in force at build time, so a
     // print rebuild draws them in the print ink, never in the screen's.
@@ -450,6 +450,8 @@ export class ProjectionPanel {
     }];
 
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
+    // The 3-D card's slice, on its paired depth panels only (voxel_views.js); Page 1 never sets it.
+    if (depthSlab) this.addDepthSlab(series, depthSlab, col, extent.row);
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
     // On the light screen a plot a few dozen pixels tall draws its marks small.
     const strip = stripMarks(rect.height);
@@ -822,6 +824,41 @@ export class ProjectionPanel {
           `${coherence}${fan}` +
           (faded ? '<br/><i>the mean lean lies within the fan: these showers go straight on average; drawn faded</i>' : '') +
           (lines.label && !faded && lines.n >= 2 ? `<br/><i>${lines.label}</i>` : ''),
+      }));
+    }
+  }
+
+  /**
+   * The depth range of the slice its paired 3-D card draws (`depthSlab`
+   * `{lo, hi, tooltip}`, mm on this panel's depth axis): a faint wash over
+   * [lo, hi] across the whole transverse span, its two faces outlined, on a
+   * depth panel only (the column axis is depth on both). Context, like the
+   * calorimeter faces: above the raster (z 2 and 4, under the plot frame's
+   * z 3 for the wash) and below every mark, in the theme's ink at its strip
+   * weight, so it rebuilds with the theme and prints with the print tokens.
+   * The 2-D panel still sums every layer; the band says which of them the
+   * 3-D view beside it draws.
+   */
+  addDepthSlab(series, slab, col, rowSpan) {
+    if (col.name !== 'z' || !Number.isFinite(slab?.lo) || !Number.isFinite(slab?.hi) || !(slab.hi > slab.lo)) return;
+    const [lo, hi] = rowSpan;
+    series.push(customBand({
+      name: 'Depth slice drawn in 3-D',
+      points: [[slab.lo, lo, hi], [slab.hi, lo, hi]],
+      color: THEME.text,
+      opacity: THEME.stripAlpha,
+      z: 2,
+    }));
+    for (const [depth, face] of [[slab.lo, 'upstream'], [slab.hi, 'downstream']]) {
+      series.push(customLine({
+        name: `Depth slice drawn in 3-D — ${face} face`,
+        from: [depth, lo],
+        to: [depth, hi],
+        color: THEME.text,
+        width: 1.25 * THEME.lineAxis,
+        opacity: 0.85,
+        z: 4,
+        tooltip: slab.tooltip ?? null,
       }));
     }
   }

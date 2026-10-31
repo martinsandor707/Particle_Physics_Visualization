@@ -1052,6 +1052,326 @@ export function cubeWireframe(model, i, lo, pad = HALO_PAD) {
   return WIREFRAME_PATH.map((k) => corners[k]);
 }
 
+/* -------------------------------------------------------------- slices -- */
+
+/*
+ * ## The slice mode: K runs of whole layers from the first drawn one
+ *
+ * Both 3-D cards can draw one longitudinal slice of their volume at a time:
+ * K = 1…L slices, stepped with Previous and Next, with no request and no
+ * change of camera, box or colour scale (voxel_views.js). It replaces the
+ * reference notebook's `save_detector_saliency_interactive`
+ * (energy_regression.ipynb), whose first slice was always empty: it cut ±3σ of
+ * the *standardised* hit depth into six equal parts, an interval set by the
+ * network's input grid rather than by the detector. The detector's first layer
+ * sits at −1.50σ of that coordinate (the last at +2.76σ), so its first slice,
+ * −3σ … −2σ, lay wholly upstream of the front face, and its six "equal"
+ * slices held 0, 7, 14, 14, 14 and 11 layers.
+ *
+ * Here a slice is a run of whole depth bins of the payload's own depth axis
+ * (detector layers; the shower's own layers in the per-shower translated
+ * frame; w bins of the layer pitch in Local), counted from the first bin that
+ * holds a drawn cube to the last (`depthDomain`), and split as evenly as whole
+ * bins allow (`sliceEdges`). No slice can begin upstream of the first drawn
+ * cube, no layer is split between two slices, and every slice holds at least
+ * one bin. The physical extent of a slice is read from the stored bin centres,
+ * never an index times a pitch (the lattice's layers need not be contiguous).
+ */
+
+/**
+ * The display offset of the front face below raw z (`ddl.CORE_SHIFT_Z_MM`,
+ * the producer's `core.SHIFT_Z`): a card that quotes depth below the front
+ * face writes it `z − 3649`, and only in the Absolute frame, whose depth is
+ * raw z. Nothing is computed in it.
+ */
+export const CORE_SHIFT_Z_MM = 3649;
+
+/** The depth profile of a voxel payload: inside `voxels` on one event, top level on the cloud. */
+function profileOf(payload) {
+  return payload?.voxels?.depth_profile ?? payload?.depth_profile ?? null;
+}
+
+/** Σ `values[a..b]` (inclusive), 0 off the array or without one. */
+function sumBins(values, a, b) {
+  let s = 0;
+  if (!Array.isArray(values)) return s;
+  for (let j = Math.max(0, a); j <= Math.min(values.length - 1, b); j += 1) {
+    if (Number.isFinite(values[j])) s += values[j];
+  }
+  return s;
+}
+
+/** Whose energy a share of an event's or a cloud's total is, as the readout writes it. */
+function energyOwner(payload, kind) {
+  if (kind === 'ensemble') return 'the selection\'s energy';
+  const showers = payload?.event?.showers ?? [];
+  // One of two showers drawn (named by letter) is that shower's energy; both, or a lone shower, the event's.
+  if (showers.length === 1 && ['A', 'B'].includes(showers[0]?.label)) return `shower ${showers[0].label}'s energy`;
+  return 'the event\'s energy';
+}
+
+/**
+ * The slice domain of a voxel payload: the run of its depth bins that holds
+ * the drawn volume, with the exact per-bin sums its slices are read from.
+ *
+ * Returns null without a `depth_profile` or without one occupied bin, else
+ * `{kind, frame, n, centres, pitch, numbering, firstLayer, layersContiguous,
+ * symbol, energy, attention, totals, j0, j1, L, clip, energyBefore,
+ * energyAfter, energyOutside, whose}`.
+ *
+ * **Why the drawn cubes, not the energy.** j0 and j1 are the lowest and
+ * highest depth bin holding a shipped cube whose code carries a value (event:
+ * `model.iz[i]` with code ≠ 0; cloud: `model.layer[i]`, and only the cubes
+ * inside the crop window when the model is cropped), or, without a model, the
+ * first and last bin with energy. Measured on the recorded fixtures: a stray
+ * deposit far below the display floor holds energy in the Local cloud's very
+ * first bin (w = −646 mm), so "the first bin with energy" would open slice 1
+ * on nothing drawn - the notebook's empty first slice by another route (see
+ * the section header). The drawn set is the server's floor and cap, so the
+ * domain does not move with the theme, the palette or the species toggles.
+ *
+ * `window` is `[lo, hi]` mm on depth (the ensemble's crop window; taken from
+ * `model.crop.window.z` when not given): a bin counts only where its centre
+ * lies inside it, as a cube belongs where its centre is. The shares still come
+ * from the profile's exact sums, and every joule is accounted for: the energy
+ * in bins before j0 (`energyBefore`) and after j1 (`energyAfter`) is reported
+ * beside the energy off the axis (`energyOutside`, outside the event's window
+ * or the cloud's grid), so domain + before + after + outside = total.
+ */
+export function depthDomain(payload, model = null, window = null) {
+  const profile = profileOf(payload);
+  if (!profile || !Array.isArray(profile.energy_gev) || !Array.isArray(profile.centres_mm)) return null;
+  const n = profile.energy_gev.length;
+  const centres = profile.centres_mm;
+  const clip = window ?? model?.crop?.window?.z ?? null;
+  const inClip = (j) => !clip || (centres[j] >= clip[0] && centres[j] <= clip[1]);
+  let j0 = Infinity;
+  let j1 = -Infinity;
+  const take = (j) => {
+    if (!(j >= 0 && j < n) || !inClip(j)) return;
+    if (j < j0) j0 = j;
+    if (j > j1) j1 = j;
+  };
+  const kind = model?.kind ?? (payload?.voxels?.cubes ? 'event' : 'ensemble');
+  if (model) {
+    const bins = kind === 'event' ? model.iz : model.layer;
+    const c = model.codes ?? {};
+    for (let i = 0; i < model.n; i += 1) {
+      const code = model.code[i];
+      if (code === (c.empty ?? 0) || (Number.isInteger(c.below) && code === c.below)) continue;
+      if (!inCrop(model, i)) continue;
+      take(bins[i]);
+    }
+  } else {
+    for (let j = 0; j < n; j += 1) if (profile.energy_gev[j] > 0) take(j);
+  }
+  if (!(j1 >= j0)) return null;
+  const symbols = model?.symbols ?? payload?.voxels?.symbols ?? payload?.frame?.symbols ?? {};
+  const attention = profile.attention ?? null;
+  return {
+    kind,
+    frame: model?.frame ?? payload?.voxels?.frame ?? payload?.frame?.kind ?? null,
+    n,
+    centres,
+    pitch: profile.pitch_mm,
+    numbering: profile.numbering,
+    firstLayer: Number.isInteger(profile.first_layer) ? profile.first_layer : null,
+    layersContiguous: profile.layers_contiguous === true,
+    symbol: symbols.z ?? 'z',
+    energy: profile.energy_gev,
+    attention,
+    totals: {
+      energy: profile.energy_total_gev,
+      outside: profile.energy_outside_gev,
+      attention: attention ? {
+        total: attention.total, positive: attention.positive_total, negative: attention.negative_total,
+        outside: attention.outside,
+      } : null,
+    },
+    j0,
+    j1,
+    L: j1 - j0 + 1,
+    clip,
+    energyBefore: sumBins(profile.energy_gev, 0, j0 - 1),
+    energyAfter: sumBins(profile.energy_gev, j1 + 1, n - 1),
+    energyOutside: Number.isFinite(profile.energy_outside_gev) ? profile.energy_outside_gev : 0,
+    whose: energyOwner(payload, kind),
+  };
+}
+
+/** A whole number clamped to [lo, hi]; `fallback` for anything not a finite number. */
+function clampInt(value, lo, hi, fallback = lo) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(lo, Math.min(hi, Math.round(v)));
+}
+
+/**
+ * The K + 1 edges that split L whole bins into K slices: offsets
+ * `⌊k·L/K⌋` for k = 0…K from the domain's first bin, with K clamped to
+ * [1, L]. Slice k (1-based) is the bins [e(k−1), e(k) − 1]: every slice holds
+ * ⌊L/K⌋ or ⌈L/K⌉ bins and never none; K = 1 is the whole volume and K = L one
+ * bin per slice.
+ *
+ * This is the notebook fix (see the section header): the reference notebook
+ * cut ±3σ of standardised depth into six equal parts, and since the detector's
+ * first layer sits at −1.50σ its first slice lay upstream of the front face
+ * and was empty in every figure. Edges between whole bins of the drawn volume,
+ * from its first drawn bin, cannot produce an empty slice.
+ */
+export function sliceEdges(L, K) {
+  const n = Math.max(1, Math.floor(Number(L) || 0));
+  const k = clampInt(K, 1, n, 1);
+  const edges = [];
+  for (let i = 0; i <= k; i += 1) edges.push(Math.floor((i * n) / k));
+  return edges;
+}
+
+/** A share `part / total`, or null where the total cannot carry one. */
+function share(part, total) {
+  return Number.isFinite(total) && total > 0 && Number.isFinite(part) ? part / total : null;
+}
+
+/**
+ * One slice of a domain (`depthDomain`): the requested `K` clamped to [1, L]
+ * (never written back: a later, deeper domain takes the reader's K again) and
+ * `k` to [1, K].
+ *
+ * Returns `{K, k, requestedK, clamped, L, bins: [a, b], loMm, hiMm, layers,
+ * energyGev, energyShare, attention, ...}`: `bins` the absolute depth bins of
+ * the payload's axis; the physical extent `[centre(a) − p/2, centre(b) + p/2]`
+ * from the stored centres; `layers` the layer numbers `[first, last]` only
+ * where the layers are contiguous and numbered (`first_layer + j`), else null
+ * (a gapped lattice, or Local's w bins, is labelled by depth alone); shares
+ * over the payload's totals (`energy_total_gev`; attention totals including
+ * the part outside the axis). For Shap-CAM the positive and the negative parts
+ * are shared separately, `{positiveShare, negativeShare}`: a signed share of a
+ * signed total is never quoted, because that total can be near zero.
+ */
+export function slicePlan(domain, { K = 1, k = 1 } = {}) {
+  if (!domain) return null;
+  const L = domain.L;
+  const requestedK = clampInt(K, 1, Infinity, 1);
+  const Kc = Math.min(requestedK, L);
+  const kc = clampInt(k, 1, Kc, 1);
+  const edges = sliceEdges(L, Kc);
+  const a = domain.j0 + edges[kc - 1];
+  const b = domain.j0 + edges[kc] - 1;
+  const half = domain.pitch / 2;
+  const numbered = domain.layersContiguous && Number.isInteger(domain.firstLayer) && domain.numbering !== 'w_bins';
+  const energyGev = sumBins(domain.energy, a, b);
+  const att = domain.attention;
+  let attention = null;
+  if (att) {
+    attention = att.signed
+      ? {
+        signed: true,
+        quantity: att.quantity,
+        positiveShare: share(sumBins(att.positive, a, b), att.positive_total),
+        negativeShare: share(sumBins(att.negative, a, b), att.negative_total),
+      }
+      : { signed: false, quantity: att.quantity, share: share(sumBins(att.values, a, b), att.total) };
+  }
+  const total = domain.totals.energy;
+  return {
+    K: Kc,
+    k: kc,
+    requestedK,
+    clamped: requestedK > Kc,
+    L,
+    j0: domain.j0,
+    j1: domain.j1,
+    bins: [a, b],
+    loMm: domain.centres[a] - half,
+    hiMm: domain.centres[b] + half,
+    // The whole sliced range, j0 … j1, for the drawer.
+    domainLoMm: domain.centres[domain.j0] - half,
+    domainHiMm: domain.centres[domain.j1] + half,
+    sizes: [Math.floor(L / Kc), Math.ceil(L / Kc)],
+    layers: numbered ? [domain.firstLayer + a, domain.firstLayer + b] : null,
+    energyGev,
+    energyShare: share(energyGev, total),
+    attention,
+    // What lies outside the sliced range, as shares of the same total.
+    beforeShare: share(domain.energyBefore, total),
+    afterShare: share(domain.energyAfter, total),
+    outsideShare: share(domain.energyOutside, total),
+    totalGev: total,
+    kind: domain.kind,
+    frame: domain.frame,
+    symbol: domain.symbol,
+    numbering: domain.numbering,
+    pitch: domain.pitch,
+    whose: domain.whose,
+  };
+}
+
+/**
+ * The slice of a new K that holds the old slice's centre bin: a K change
+ * keeps the reader where they were in depth. Returns the 1-based k.
+ */
+export function keepCentre(domain, plan, newK) {
+  if (!domain) return 1;
+  const Kc = clampInt(newK, 1, domain.L, 1);
+  if (!plan) return 1;
+  const centre = Math.floor((plan.bins[0] + plan.bins[1]) / 2) - domain.j0;
+  const off = Math.max(0, Math.min(domain.L - 1, centre));
+  const edges = sliceEdges(domain.L, Kc);
+  for (let k = 1; k <= Kc; k += 1) if (off < edges[k]) return k;
+  return Kc;
+}
+
+/** A depth in mm as the readout writes it: one decimal, U+2212 for a minus. */
+const depthText = (v) => typographic(Number(v).toFixed(1));
+
+/** "lo–hi", or "lo to hi" where an end is negative (an en dash after a minus sign reads as one mark). */
+function spanText(lo, hi) {
+  return lo < 0 || hi < 0 ? `${depthText(lo)} to ${depthText(hi)}` : `${depthText(lo)}–${depthText(hi)}`;
+}
+
+/** A slice's depth range, "z 4062.2–4267.2 mm" in the frame's own symbol, plus "z − 3649" in the Absolute frame. */
+export function sliceRangeText(plan) {
+  if (!plan) return '';
+  let text = `${plan.symbol} ${spanText(plan.loMm, plan.hiMm)} mm`;
+  if (plan.frame === 'lab') {
+    text += ` (${plan.symbol} − ${CORE_SHIFT_Z_MM} = ${spanText(plan.loMm - CORE_SHIFT_Z_MM, plan.hiMm - CORE_SHIFT_Z_MM)} mm)`;
+  }
+  return text;
+}
+
+/** The layers of a slice, "layers 21–30" (own layers in the per-shower translated frame), or '' where unnumbered. */
+export function sliceLayersText(plan) {
+  if (!plan?.layers) return '';
+  const [a, b] = plan.layers.map((v) => typographic(String(v)));
+  const word = plan.numbering === 'own_layers' ? 'own layer' : 'layer';
+  return a === b ? `${word} ${a}` : `${word}s ${a}–${b}`;
+}
+
+/** The attention shares of a slice, as the readout writes them, or ''. */
+export function sliceAttentionText(plan) {
+  const att = plan?.attention;
+  if (!att) return '';
+  const q = att.quantity ?? 'attention';
+  if (att.signed) {
+    const base = q.replace(/^Σ E·/, '');
+    return `${formatPercent(att.positiveShare, 1)} of Σ E·${base}⁺ · ${formatPercent(att.negativeShare, 1)} of Σ E·|${base}⁻|`;
+  }
+  return `${formatPercent(att.share, 1)} of ${q}`;
+}
+
+/**
+ * The slice readout: "Slice 3 of 6 — layers 21–30 · z 4062.2–4267.2 mm
+ * (z − 3649 = 413.2–618.2 mm) · 31.2% of the event's energy", plus the
+ * channel's shares. Layer numbers only where the layers are contiguous; depth
+ * alone otherwise. Every number through scale.js / format.js.
+ */
+export function sliceReadout(plan) {
+  if (!plan) return '';
+  const parts = [sliceLayersText(plan), sliceRangeText(plan), `${formatPercent(plan.energyShare, 1)} of ${plan.whose}`,
+    sliceAttentionText(plan)].filter(Boolean);
+  return `Slice ${formatInt(plan.k)} of ${formatInt(plan.K)} — ${parts.join(' · ')}`;
+}
+
 /* ------------------------------------------------------------- tooltip -- */
 
 const fixed = (value, digits = 1) => typographic(Number(value).toFixed(digits));
@@ -1274,14 +1594,23 @@ export function axisNames(symbols) {
  * payload order, and the counts of those not drawn - `noValue`, whose code
  * carries no colour (alpha 0: code 0, or the bottom of a floor taper), and
  * `hidden`, whose species an isolate toggle hides.
+ *
+ * `slice` (`{bins: [a, b]}`, the slice mode's depth bins: `model.iz` on one
+ * event, `model.layer` on the cloud) draws only the cubes of those bins; a
+ * cube that would otherwise be drawn outside them is counted as
+ * `outsideSlice`, so the drawn cubes of every slice add up to the K = 1
+ * picture. Without a slice the result has no `outsideSlice` key.
  */
-export function partitionCubes(model, rgba, hidden = null) {
+export function partitionCubes(model, rgba, hidden = null, slice = null) {
   const opaque = [];
   const translucent = [];
   let noValue = 0;
   let hiddenCount = 0;
   let cropped = 0;
+  let outsideSlice = 0;
   const categorical = model.scale?.scale === 'categorical';
+  const bins = slice ? (model.kind === 'event' ? model.iz : model.layer) : null;
+  const [a, b] = slice?.bins ?? [-Infinity, Infinity];
   for (let i = 0; i < model.n; i += 1) {
     const alpha = rgba[i * 4 + 3] / 255;
     if (!inCrop(model, i)) {
@@ -1291,11 +1620,16 @@ export function partitionCubes(model, rgba, hidden = null) {
       noValue += 1;
     } else if (categorical && hidden?.has(model.code[i])) {
       hiddenCount += 1;
+    } else if (bins && !(bins[i] >= a && bins[i] <= b)) {
+      // Drawable, but in another slice: counted apart, so every slice's cubes add up to the whole volume's.
+      outsideSlice += 1;
     } else {
       (alpha >= OPAQUE_ALPHA ? opaque : translucent).push(i);
     }
   }
-  return { opaque, translucent, noValue, hidden: hiddenCount, skipped: noValue + hiddenCount, cropped };
+  const parts = { opaque, translucent, noValue, hidden: hiddenCount, skipped: noValue + hiddenCount, cropped };
+  if (slice) parts.outsideSlice = outsideSlice;
+  return parts;
 }
 
 /**
@@ -1311,10 +1645,19 @@ export function partitionCubes(model, rgba, hidden = null) {
  * hide; `position` the tooltip's placement callback (tooltip.js); `qualitative`
  * the species palette name (the card's, THEME's, by default); `viewport` the
  * chart's `{width, height}` in px, which sets the opening view (`openingView`:
- * the orthographic size and the camera's viewport).
+ * the orthographic size and the camera's viewport); `slice` the slice mode's
+ * `{bins: [a, b]}` (`slicePlan`), or null for the whole volume.
+ *
+ * A slice changes only which cubes are drawn (`partitionCubes`, counted as
+ * `outsideSlice` in the summary): the box, the ticks, the opening fit, the
+ * legend and every cube's colour are computed from every cube, exactly as at
+ * K = 1, so stepping through the slices never moves the camera's frame or
+ * re-normalises the ramp. With `slice` null the return value is exactly the
+ * whole-volume option (the dark golden holds it).
  */
 export function voxelOption(model, {
   palette = 'viridis', hidden = null, position = null, qualitative = THEME.speciesPalette, viewport = null,
+  slice = null,
 } = {}) {
   const rgba = cubeColours(model, palette, { qualitative });
   const bounds = voxelBounds(model);
@@ -1328,7 +1671,7 @@ export function voxelOption(model, {
   };
   const origin = { x: ticks.x.origin, y: ticks.y.origin, z: ticks.z.origin };
   const barSize = [box.S * model.box.z, box.S * model.box.x];
-  const parts = partitionCubes(model, rgba, hidden);
+  const parts = partitionCubes(model, rgba, hidden, slice);
 
   const series = [];
   const roles = [];
@@ -1439,7 +1782,7 @@ export function voxelOption(model, {
     option.visualMap = legend;
     if (mid) option.graphic = [mid];
   }
-  return {
+  const built = {
     option,
     roles,
     bounds,
@@ -1455,4 +1798,9 @@ export function voxelOption(model, {
     primaries: drawnPrimaries.length,
     halos: halos.length,
   };
+  if (slice) {
+    built.outsideSlice = parts.outsideSlice;
+    built.slice = { bins: [...slice.bins] };
+  }
+  return built;
 }

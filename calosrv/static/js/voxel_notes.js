@@ -15,13 +15,22 @@
  * Each builder takes `{payload, ...}` and returns `{title, hazards,
  * sections}`, or null with no payload; `hazards` are structural, never text
  * matched.
+ *
+ * A 3-D card drawing one longitudinal slice (`slice`, voxels.js `slicePlan`,
+ * K > 1) adds the slice rule, the slice's range and exact shares, the energy
+ * outside the sliced range, the cubes of the other slices, that the colour
+ * scale is the whole volume's, and why its slices cannot be empty where the
+ * reference notebook's first one always was. At K = 1 (`slice` null) every
+ * drawer reads byte for byte as before.
  */
 
 import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
 import { legibleRamp } from './panels/chart_panel.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, screenPalette, typographic } from './scale.js';
-import { HALO_LIMIT, referenceTopLabel, speciesLabel } from './voxels.js';
+import {
+  HALO_LIMIT, referenceTopLabel, speciesLabel, sliceRangeText, sliceLayersText, sliceAttentionText,
+} from './voxels.js';
 
 /** The card titles of the section, by card id. */
 export const VOXEL_TITLES = Object.freeze({
@@ -120,6 +129,80 @@ export function legibleRampNote() {
     + 'below the ramp floor included - is drawn fainter than the card can show.';
 }
 
+/* -------------------------------------------------------------- slices -- */
+
+/**
+ * Why a slice cannot be empty, and why the reference notebook's first one
+ * always was (plan §3.7): voxels.js `sliceEdges` and `depthDomain` argue it.
+ */
+export const SLICE_NOTEBOOK_FIX = 'A slice is a run of whole layers starting at the first that holds a drawn cube. '
+  + 'The reference notebook (energy_regression.ipynb, save_detector_saliency_interactive) cut ±3σ of standardised '
+  + 'depth into six equal parts. The detector\'s first layer sits at −1.50σ, so its first slice lay wholly upstream of '
+  + 'the front face and was empty in every figure.';
+
+/** That the colour scale does not follow the slice (`cube`: 'cube' on one event, 'voxel' on the cloud). */
+export function sliceScaleNote(cube = 'cube') {
+  return 'The colour scale is the whole volume\'s: the ramp, its floor and the colour bar are those of every '
+    + `${cube} shipped, so a slice is never re-normalised and a colour means the same in every slice. The box, the axes `
+    + 'and the opening view are the whole volume\'s too.';
+}
+
+/** "6 layers", "6 of the shower's own layers", "6 w bins of the layer pitch": a plan's depth bins counted. */
+function binCount(plan, n) {
+  if (plan.numbering === 'w_bins') return `${formatInt(n)} w bin${n === 1 ? '' : 's'} of the layer pitch`;
+  if (plan.numbering === 'own_layers') return `${formatInt(n)} of the shower's own layers`;
+  return plural(n, 'layer');
+}
+
+/**
+ * The slice's lines by drawer section, or empty sections without a slice.
+ * `kind` 'event' | 'ensemble'; `drawn` the option builder's summary, whose
+ * `outsideSlice` counts the cubes of the other slices.
+ */
+export function sliceNoteLines(slice, drawn = null, kind = 'event') {
+  const none = { drawn: [], disclosures: [], legend: [], hazards: [] };
+  if (!slice || !(slice.K > 1)) return none;
+  const [small, large] = slice.sizes ?? [];
+  const sizes = small === large ? binCount(slice, small) : `${formatInt(small)} or ${binCount(slice, large)}`;
+  const domain = { ...slice, loMm: slice.domainLoMm, hiMm: slice.domainHiMm };
+  const layers = sliceLayersText(slice);
+  const cube = kind === 'event' ? 'cube' : 'voxel';
+  const lines = { ...none };
+  lines.drawn = [
+    `Slice mode: the drawn volume occupies ${binCount(slice, slice.L)} along depth, ${sliceRangeText(domain)}, from the `
+      + `first that holds a drawn ${cube} to the last. They are cut into ${formatInt(slice.K)} slices of ${sizes} `
+      + 'each, with edges between whole bins (⌊k·L/K⌋): every slice holds at least one bin, none begins upstream of the '
+      + `first drawn ${cube}, and no bin is split. One slice is drawn at a time; a slice inside the shower may still hold no `
+      + `${cube} above the display floor, and its readout says so.`,
+    `Drawn: slice ${formatInt(slice.k)} of ${formatInt(slice.K)}, ${layers ? `${layers}, ` : ''}${sliceRangeText(slice)}.`
+      + (slice.layers ? '' : ' Its bins are named by depth alone: '
+        + (slice.numbering === 'w_bins' ? 'w bins carry no layer number.' : 'the lattice\'s layers are not contiguous here.')),
+    SLICE_NOTEBOOK_FIX,
+  ];
+  const attention = sliceAttentionText(slice);
+  const total = Number.isFinite(slice.totalGev) ? ` (${formatSci(slice.energyGev, 3)} of ${formatSci(slice.totalGev, 4)} GeV)` : '';
+  lines.disclosures = [
+    `This slice holds ${formatPercent(slice.energyShare, 2)} of ${slice.whose}${total}`
+      + (attention ? `, and ${attention}` : '')
+      + `: exact sums over every ${cube} of its depth bins in the ${kind === 'event' ? 'window' : 'grid'}, before the cap.`
+      + (slice.attention?.signed ? ' The positive and the negative Shap-CAM parts are shared separately: a share of the '
+        + 'signed total is never quoted, because that total can lie near zero.' : ''),
+    `Outside the sliced range: ${formatPercent(slice.beforeShare, 2)} of ${slice.whose} lies in depth bins upstream of `
+      + `the first drawn ${cube}, ${formatPercent(slice.afterShare, 2)} downstream of the last, and `
+      + `${formatPercent(slice.outsideShare, 2)} off the depth axis (outside the ${kind === 'event' ? 'event\'s window' : 'accumulation grid'}) `
+      + '- every part counted.',
+    Number.isFinite(drawn?.outsideSlice)
+      ? `${plural(drawn.outsideSlice, cube)} of the other slices ${drawn.outsideSlice === 1 ? 'is' : 'are'} not drawn.`
+      : '',
+    kind === 'event'
+      ? 'The paired XY projection still sums every layer; the two depth projections mark the slice with a band.'
+      : 'The paired entry-plane projection still sums every layer; the two depth projections mark the slice with a band.',
+  ];
+  lines.legend = [sliceScaleNote(cube)];
+  lines.hazards = ['one depth slice drawn'];
+  return lines;
+}
+
 /* -------------------------------------------------------------- event -- */
 
 /**
@@ -134,10 +217,11 @@ export function legibleRampNote() {
  */
 export function voxelEventNotes({
   payload, drawn = null, hidden = [], pick = null, fallbacks = [], gl = null,
-  state = null, experiment = null, title = null,
+  state = null, experiment = null, title = null, slice = null,
 }) {
   const vox = payload?.voxels;
   if (!vox) return null;
+  const sliced = sliceNoteLines(slice, drawn, 'event');
   const notes = new Notes(title ?? VOXEL_TITLES['vox-event']);
   const event = payload.event ?? {};
   notes.section(SECTION.selection, [...eventSelection(event, pick), filtersLine(state, experiment)]);
@@ -156,6 +240,7 @@ export function voxelEventNotes({
     payload.coordinates?.note ?? '',
     payload.window?.rule ?? '',
     ...fallbacks,
+    ...sliced.drawn,
   ]);
 
   const disclosures = [...noticeLines(payload.meta?.notices), ...(vox.notes ?? [])];
@@ -180,6 +265,7 @@ export function voxelEventNotes({
     disclosures.push('The two entry points of this event lie closer than the D-frame\'s ill-conditioning '
       + 'threshold, so its A→B rotation ψ is poorly defined.');
   }
+  disclosures.push(...sliced.disclosures);
   disclosures.push(VOXEL_OCCLUSION);
   disclosures.push(...(payload.meta?.warnings ?? []));
   notes.section(SECTION.disclosures, disclosures);
@@ -207,6 +293,7 @@ export function voxelEventNotes({
   }
   legend.push(`The ${formatInt((vox.topk ?? []).length)} ${onLightScreen() ? 'highest-valued' : 'brightest'} cubes carry exact values in their tooltips; `
     + 'every other value is read back from its 8-bit colour code and labelled so.');
+  legend.push(...sliced.legend);
   notes.section(SECTION.legend, legend);
 
   const hazards = [];
@@ -217,6 +304,7 @@ export function voxelEventNotes({
   if (hidden.length) hazards.push('species hidden');
   if (fallbacks.length) hazards.push('drawn in another frame or channel');
   if (event.d_frame?.ill_conditioned) hazards.push('ill-conditioned D-frame');
+  hazards.push(...sliced.hazards);
   return notes.done(hazards);
 }
 
@@ -287,8 +375,10 @@ export function cropLines(crop, symbols = {}, channel = 'density') {
  */
 export function voxelEnsembleNotes({
   payload, drawn = null, fallbacks = [], gl = null, state = null, experiment = null, title = null, crop = null,
+  slice = null,
 }) {
   if (!payload?.voxels || !payload.grid) return null;
+  const sliced = sliceNoteLines(slice, drawn, 'ensemble');
   const notes = new Notes(title ?? VOXEL_TITLES['vox-ensemble']);
   const frame = payload.frame ?? {};
   const grid = payload.grid;
@@ -324,6 +414,7 @@ export function voxelEnsembleNotes({
       + 'measured axes with their dispersion and interval, and in the Local frame every incident direction is '
       + '+w by construction.',
     ...fallbacks,
+    ...sliced.drawn,
   ]);
 
   const disclosures = [...noticeLines(meta.notices)];
@@ -348,6 +439,7 @@ export function voxelEnsembleNotes({
     disclosures.push(`${plural(drawn.translucent, 'voxel')} within half a decade of the floor ${drawn.translucent === 1 ? 'is' : 'are'} `
       + 'drawn translucent, fading into the card as the 2-D rasters do, so the halo ends without a rim.');
   }
+  disclosures.push(...sliced.disclosures);
   disclosures.push(VOXEL_OCCLUSION);
   disclosures.push(...(meta.warnings ?? []));
   if (meta.exact === false) disclosures.push('Sampled preview: the exact cloud follows.');
@@ -365,6 +457,7 @@ export function voxelEnsembleNotes({
       + (provisional ? '; it is labelled provisional because the selection is too small to fix its reference.' : '.'),
     `The ${formatInt((payload.topk ?? []).length)} ${onLightScreen() ? 'highest-valued' : 'brightest'} voxels carry exact values in their tooltips; every `
       + 'other value is read back from its 8-bit colour code and labelled so.',
+    ...sliced.legend,
   ]);
 
   const hazards = [];
@@ -375,6 +468,7 @@ export function voxelEnsembleNotes({
   if (meta.exact === false) hazards.push('sampled preview');
   if ((frame.n_events ?? 0) === 0) hazards.push('empty selection');
   if (fallbacks.length) hazards.push('drawn in another frame or channel');
+  hazards.push(...sliced.hazards);
   return notes.done(hazards);
 }
 

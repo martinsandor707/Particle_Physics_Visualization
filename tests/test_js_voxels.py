@@ -24,7 +24,14 @@ tests here hold the result to the contracts and to CLAUDE.md section 2:
   fractions, and no rendered number uses a hyphen for a minus;
 * the section builds its cards with Export on the 2-D projections only, asks for
   the densest event when the link names none, keeps the 2-D half when the 3-D
-  half is refused, holds at most two WebGL charts and says when it has none.
+  half is refused, holds at most two WebGL charts and says when it has none;
+* the slice mode: edges between whole bins (never an empty slice), a domain
+  spanning the shipped valued cubes inside the crop, exact shares that add up
+  (the signed Shap-CAM parts apart), a slice that draws only its cubes while the
+  box, ticks, fit, legend and colours stay the whole volume's (and K = 1 the
+  option and the drawers unchanged), the depth band on the depth panels only and
+  inside their axis, and a row that steps with no request, no State write and
+  the reader's zoom held.
 
 Skipped without `node`.
 """
@@ -418,9 +425,20 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
   const charts = [];
   const lib = {
     init: (el) => {
+      // The orbit control's zoom, as echarts-gl keeps it: any setOption re-reads the model's
+      // opening size and drops a wheel zoom (voxel_views.js holdZoom puts it back).
+      const control = { size: null, opening: null, getOrthographicSize() { return this.size; },
+        setOrthographicSize(v) { this.size = v; }, update() {} };
       const chart = {
-        el, options: [], disposed: false, cleared: 0,
-        setOption(option, flags) { this.options.push([option, flags]); },
+        el, options: [], disposed: false, cleared: 0, control,
+        setOption(option, flags) {
+          this.options.push([option, flags]);
+          const size = option?.grid3D?.viewControl?.orthographicSize;
+          if (Number.isFinite(size)) control.opening = size;
+          control.size = control.opening;
+        },
+        getModel: () => ({ getComponent: () => ({ grid3D: true }) }),
+        getViewOfComponentModel: () => ({ _control: control }),
         getWidth: () => 600, getHeight: () => 400, getDom: () => el,
         clear() { this.cleared += 1; }, resize() {}, dispose() { this.disposed = true; }, dispatchAction() {},
       };
@@ -429,9 +447,11 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
     },
   };
   const renders = [];
+  const overlays = [];
   class FakeProjection {
     constructor(id, opts) { this.id = id; this.isometric = opts.isometric; this.element = { clientWidth: 600, clientHeight: 400 }; }
-    render(payload, opts) { this.payload = payload; renders.push([this.id, Object.keys(opts).sort()]); }
+    render(payload, opts) { this.payload = payload; this.opts = opts; renders.push([this.id, Object.keys(opts).sort()]); }
+    setOverlay(key, value) { this.opts = { ...this.opts, [key]: value }; overlays.push([this.id, key, value]); }
     clear() {} relayout() {} setBusy() {} currentView() { return null; }
   }
   const state = {
@@ -457,8 +477,9 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
   let acted = null;
   if (act) {
     const before = requests.length;
-    await act(section);
+    const value = await act(section, { requests, overlays, charts, renders, state });
     acted = { requests: requests.slice(before).map(([path, q]) => [path, q.format ?? null, q.shower ?? null]) };
+    if (value !== undefined) acted.value = value;
   }
   const cards = {};
   for (const id of section.ids()) {
@@ -478,6 +499,7 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       sparse: rec.sparse ? (rec.sparse.hidden ? null : rec.sparse.textContent) : undefined,
       options: rec.controls.channel ? rec.controls.channel.options.map((o) => [o.value, o.disabled, o.title]) : null,
       showersHidden: rec.controls.showers ? rec.controls.showers.hidden : null,
+      slices: rec.slices ? { hidden: rec.slices.element.hidden, readout: rec.slices.readout.textContent } : null,
       showerButtons: rec.controls.showerButtons ? [...rec.controls.showerButtons].map(([value, b]) => ({
         value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active') })) : null,
       // The species legend: laid out by models.css, each swatch carrying only its colour.
@@ -526,7 +548,10 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       height: v.glPlotHeight(588, fitted.right, fitted.frame), frameKeys: Object.keys(fitted.frame).sort() };
   }
   section.reset();
-  result.afterReset = { cleared: charts.map((c) => (c.disposed ? null : c.cleared)), notes: section.notes('vox-event') };
+  result.afterReset = { cleared: charts.map((c) => (c.disposed ? null : c.cleared)), notes: section.notes('vox-event'),
+    // An experiment switch returns every pair to K = 1, its slice row hidden.
+    slices: Object.fromEntries(Object.entries(section.pairs).map(([name, p]) => [name, { slices: { ...p.slices }, plan: p.plan,
+      hidden: p.gl.slices.element.hidden, readout: p.gl.slices.readout.textContent }])) };
   result.warnings = section.warnings();
   return result;
 }
@@ -556,6 +581,268 @@ out.section.pinned = await runSection({ table: 'experiment_baseline', values: { 
 // "Both" asked for in the Local frame, as a link or a hash edit can: nothing reloads, and the card says why it draws A.
 out.section.localBoth = await runSection({ table: 'experiment_baseline', values: { frame: 'local' },
   act: async (section) => { section.setValue({ voxel_shower: 'both' }); await section.refresh(); } });
+
+/* ---- the slice mode: K runs of whole layers, one drawn at a time ------------ */
+{
+  const S = { edges: {}, domains: {}, plans: {}, keep: {}, options: {}, notes: {}, readouts: [] };
+  for (const [L, K] of [[1, 1], [1, 4], [5, 1], [5, 2], [5, 3], [5, 5], [5, 9], [55, 6], [60, 7], [52, 10], [58, 58], [7, 0], [7, -3], [7, 2.6]]) {
+    S.edges[`${L}|${K}`] = v.sliceEdges(L, K);
+  }
+  const strip = (d) => (d ? { ...d, energy: undefined, centres: undefined, attention: undefined } : d);
+  const models = {};
+  for (const name of EVENTS) models[name] = [load(name), v.decodeEventVoxels(load(name))];
+  for (const name of ENSEMBLES) models[name] = [load(name), v.decodeEnsembleVoxels(load(name))];
+  {
+    // The cloud as the section draws it: cropped to its paired projections' window, and to a narrow depth window.
+    const payload = load('voxels_single_local');
+    const window = v.pairedWindow(load('projections_single_local'));
+    models['voxels_single_local@paired'] = [payload, v.cropToWindow(v.decodeEnsembleVoxels(payload), window)];
+    models['voxels_single_local@narrow'] = [payload, v.cropToWindow(v.decodeEnsembleVoxels(payload), { ...window, z: [100, 500] })];
+  }
+  for (const [name, [payload, model]] of Object.entries(models)) {
+    const domain = v.depthDomain(payload, model);
+    const bare = v.depthDomain(payload);
+    S.domains[name] = {
+      domain: strip(domain), bare: strip(bare), kind: model.kind,
+      bins: arr(model.kind === 'event' ? model.iz : model.layer), code: arr(model.code),
+      inside: model.crop ? arr(model.crop.inside) : null,
+      windowArg: strip(v.depthDomain(payload, null, [domain.centres[domain.j0 + 2] - 1, domain.centres[domain.j1 - 2] + 1])),
+    };
+    const plans = {};
+    for (const K of [1, 2, 3, 7, domain.L, domain.L + 5]) {
+      const Kc = Math.min(K, domain.L);
+      plans[K] = [];
+      for (let k = 1; k <= Kc; k += 1) plans[K].push(v.slicePlan(domain, { K, k }));
+    }
+    plans.overK = v.slicePlan(domain, { K: 3, k: 99 });
+    plans.zeroK = v.slicePlan(domain, { K: 0, k: 0 });
+    S.plans[name] = plans;
+    const from = v.slicePlan(domain, { K: 6, k: 3 });
+    S.keep[name] = { from, to: Object.fromEntries([1, 2, 4, 5, 12, domain.L].map((K) => [K, v.keepCentre(domain, from, K)])) };
+    for (const p of [v.slicePlan(domain, { K: 1 }), from, plans[domain.L][0], plans[domain.L][domain.L - 1]]) {
+      S.readouts.push([name, v.sliceReadout(p)]);
+    }
+  }
+  // voxelOption with a slice draws only its cubes and keeps everything else the whole volume's.
+  const summaryOf = (built) => JSON.parse(JSON.stringify({ ...built, option: { ...built.option, series: undefined, tooltip: undefined } }));
+  for (const name of ['event_voxels_base_lab', 'event_voxels_base_local_shapcam', 'event_voxels_single_species', 'voxels_single_local@paired', 'voxels_base_canonical_shapcam']) {
+    const [payload, model] = models[name];
+    const domain = v.depthDomain(payload, model);
+    const whole = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 } });
+    const nulled = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 }, slice: null });
+    const slices = [];
+    const K = Math.min(4, domain.L);
+    for (let k = 1; k <= K; k += 1) {
+      const plan = v.slicePlan(domain, { K, k });
+      const built = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 }, slice: { bins: plan.bins } });
+      const members = built.roles.filter((r) => r.role === 'cube').flatMap((r) => r.members);
+      const colours = {};
+      for (const s of built.option.series.filter((x) => x.name?.startsWith('cubes'))) for (const d of s.data) colours[d.value[3]] = [d.itemStyle.color, d.itemStyle.opacity];
+      slices.push({ plan: { bins: plan.bins }, drawn: built.drawn, outsideSlice: built.outsideSlice, skipped: built.skipped,
+        cropped: built.cropped, members, colours, summary: summaryOf(built), sliceKey: built.slice,
+        notes: name.startsWith('event') ? vn.voxelEventNotes({ payload, drawn: built, slice: plan })
+          : vn.voxelEnsembleNotes({ payload, drawn: built, slice: plan, crop: model.crop ?? null }) });
+    }
+    const wholeColours = {};
+    for (const s of whole.option.series.filter((x) => x.name?.startsWith('cubes'))) for (const d of s.data) wholeColours[d.value[3]] = [d.itemStyle.color, d.itemStyle.opacity];
+    S.options[name] = {
+      whole: summaryOf(whole), wholeDrawn: whole.drawn, wholeColours, wholeKeys: Object.keys(whole).sort(),
+      nulledSame: JSON.stringify(nulled) === JSON.stringify(whole) && Object.keys(nulled).join() === Object.keys(whole).join()
+        && nulled.option.series.length === whole.option.series.length
+        && nulled.option.series.every((s, i) => JSON.stringify(s) === JSON.stringify(whole.option.series[i])),
+      partsWhole: Object.keys(v.partitionCubes(model, v.cubeColours(model, 'viridis'))).sort(),
+      slices,
+      bins: arr(model.kind === 'event' ? model.iz : model.layer),
+    };
+    // The drawers: with no slice (or slice null) exactly as before; with one, the slice's lines.
+    const notesOf = (extra) => (name.startsWith('event') ? vn.voxelEventNotes({ payload, drawn: whole, ...extra })
+      : vn.voxelEnsembleNotes({ payload, drawn: whole, crop: model.crop ?? null, ...extra }));
+    S.notes[name] = { none: notesOf({}), nulled: notesOf({ slice: null }), one: notesOf({ slice: v.slicePlan(domain, { K: 1 }) }) };
+  }
+  S.fix = vn.SLICE_NOTEBOOK_FIX;
+  out.slices = S;
+}
+
+/* ---- projection.js: the depth slab on a paired depth panel -------------------- */
+{
+  const decode = await imp('decode.js');
+  const proj = await imp('panels/projection.js');
+  const cells = await imp('event_cells.js');
+  const fakeChart = { getWidth: () => 600, getHeight: () => 400, setOption() {}, resize() {}, clear() {}, on() {}, dispatchAction() {},
+    getDom: () => ({ closest: () => null, addEventListener() {} }),
+    getZr: () => ({ on() {}, off() {} }) };
+  const fakeEl2 = () => ({ clientWidth: 600, clientHeight: 400, style: {}, addEventListener() {}, classList: { toggle() {} } });
+  const fakeCanvas = () => {
+    const c = { width: 0, height: 0 };
+    c.getContext = () => ({ createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      putImageData() {}, drawImage() {}, set imageSmoothingEnabled(_) {}, font: '', measureText: (t) => ({ width: String(t).length * 6 }) });
+    return c;
+  };
+  const savedDoc = globalThis.document;
+  const savedWin = globalThis.window;
+  globalThis.document = { ...savedDoc, createElement: (t) => (t === 'canvas' ? fakeCanvas() : savedDoc.createElement(t)), getElementById: () => fakeEl2() };
+  globalThis.window = { ...savedWin, addEventListener() {} };
+  globalThis.echarts = { init: () => fakeChart };
+  const payload = load('projections_single_local');
+  const P = { panels: {} };
+  // The slab of the recorded cloud's slices, cropped as the section crops it, against its paired projections.
+  const cloud = v.cropToWindow(v.decodeEnsembleVoxels(load('voxels_single_local')), v.pairedWindow(payload));
+  const domain = v.depthDomain(load('voxels_single_local'), cloud);
+  const slabs = [];
+  for (let k = 1; k <= domain.L; k += 1) slabs.push(vv.sliceSlab(v.slicePlan(domain, { K: domain.L, k })));
+  P.slabs = slabs;
+  P.slabK1 = vv.sliceSlab(v.slicePlan(domain, { K: 1 }));
+  const slab = vv.sliceSlab(v.slicePlan(domain, { K: 4, k: 2 }));
+  const api = { coord: (p) => p, value: () => 0, style: () => ({}) };
+  for (const id of ['xy', 'yz', 'xz']) {
+    const sub = payload.panels[id];
+    const opts = cells.ensembleCellOptions(payload, id, 'viridis');
+    const build = (o) => {
+      const panel = new proj.ProjectionPanel('plot-x', { isometric: true });
+      const raster = decode.renderRaster(sub, o.palette);
+      return panel.buildOption({ payload: sub, opts: o, raster, metrics: { width: 600, height: 400 } });
+    };
+    const plain = build(opts);
+    const slabbed = build({ ...opts, depthSlab: slab });
+    const nulled = build({ ...opts, depthSlab: null });
+    const added = slabbed.series.filter((s) => !plain.series.some((p) => p.name === s.name && p.z === s.z && JSON.stringify(p) === JSON.stringify(s)));
+    P.panels[id] = {
+      axes: sub.axes,
+      same: JSON.stringify(nulled) === JSON.stringify(plain) && nulled.series.length === plain.series.length,
+      plainNames: plain.series.map((s) => [s.name ?? s.id ?? null, s.z]),
+      slabbedNames: slabbed.series.map((s) => [s.name ?? s.id ?? null, s.z]),
+      added: added.map((s) => ({ name: s.name, z: s.z, silent: s.silent, tooltip: s.tooltip ? s.tooltip.formatter() : null,
+        drawn: s.renderItem({}, api) })),
+    };
+  }
+  P.slab = slab;
+  out.projectionSlab = P;
+  globalThis.document = savedDoc;
+  globalThis.window = savedWin;
+}
+
+/* ---- the section's slice row, on the fake DOM: no request per step -------------- */
+const sliceAct = async (section, ctx) => {
+  const pair = section.pairs.event;
+  const row = pair.gl.slices;
+  const gl = section.cards.get('vox-event');
+  const chart = ctx.charts.find((c) => c.el === gl.plot);
+  const snap = (label) => ({
+    label, hidden: row.element.hidden, K: pair.slices.K, k: pair.slices.k, plan: pair.plan ? { K: pair.plan.K, k: pair.plan.k,
+      L: pair.plan.L, bins: pair.plan.bins, requestedK: pair.plan.requestedK, clamped: pair.plan.clamped } : null,
+    count: { value: row.count.value, max: row.count.max, min: row.count.min, title: row.count.title },
+    range: { value: row.range.value, max: row.range.max, disabled: row.range.disabled },
+    prev: row.prev.disabled, next: row.next.disabled, readout: row.readout.textContent,
+    drawn: pair.built?.drawn ?? null, outsideSlice: pair.built?.outsideSlice ?? null,
+    lastFlags: chart ? chart.options[chart.options.length - 1][1] ?? null : null,
+    lastKeys: chart ? Object.keys(chart.options[chart.options.length - 1][0]).sort() : null,
+    zoom: chart ? chart.control.size : null,
+    sparse: gl.sparse.hidden ? null : gl.sparse.textContent,
+    hazards: section.notes('vox-event')?.hazards ?? null,
+    overlays: ctx.overlays.length,
+  });
+  const steps = [snap('loaded')];
+  const markup = {
+    order: gl.element.children.map((c) => c.className),
+    row: row.element.children.map((c) => [c.tagName, c.className, { ...c.dataset }, c.ownText, c.type ?? null,
+      c.attributes ?? {}, c.children.map((x) => [x.tagName, x.className, { ...x.dataset }, x.type ?? null])]),
+  };
+  // The reader zooms in, then asks for six slices.
+  chart.control.size = 77;
+  row.count.value = '6';
+  row.count.fire('change');
+  steps.push(snap('K=6'));
+  const overlaysAtSix = ctx.overlays.slice();
+  row.next.fire('click');
+  steps.push(snap('next'));
+  row.prev.fire('click');
+  row.prev.fire('click');
+  steps.push(snap('prev twice'));
+  row.range.value = '1';
+  row.range.fire('input');
+  steps.push(snap('range 1'));
+  row.prev.fire('click');
+  steps.push(snap('prev at the first'));
+  row.range.value = '6';
+  row.range.fire('input');
+  row.next.fire('click');
+  steps.push(snap('next at the last'));
+  row.count.value = '1000';
+  row.count.fire('change');
+  steps.push(snap('K=1000'));
+  row.count.value = 'abc';
+  row.count.fire('change');
+  steps.push(snap('K=abc'));
+  row.count.value = '0';
+  row.count.fire('change');
+  steps.push(snap('K=0'));
+  row.count.value = String(pair.domain.L);
+  row.count.fire('change');
+  const requestsBeforeModel = ctx.requests.length;
+  const stepRequests = ctx.requests.length;
+  // A new model (another frame): the requested K kept, clamped to its L for drawing, never written back.
+  const lab = { L: pair.domain.L, K: pair.slices.K };
+  section.setValue({ frame: 'local' });
+  await section.refresh();
+  steps.push(snap('local'));
+  section.setValue({ frame: 'lab' });
+  await section.refresh();
+  steps.push(snap('lab again'));
+  // A K change keeps the slice holding the old slice's centre.
+  row.count.value = '6';
+  row.count.fire('change');
+  row.range.value = '4';
+  row.range.fire('input');
+  const before = { bins: pair.plan.bins };
+  row.count.value = '3';
+  row.count.fire('change');
+  steps.push(snap('K 6 to 3'));
+  // Reset view keeps the slice; the theme and palette repaints keep it and the camera.
+  section.resetCamera('event');
+  steps.push(snap('reset view'));
+  chart.control.size = 55;
+  section.repaint({ theme: true });
+  steps.push(snap('theme'));
+  const rendersAfterTheme = ctx.renders.slice(-6);
+  const projectionOpts = Object.fromEntries(section.pairs.event.cells.map((r) => [r.spec.col, r.panel?.opts?.depthSlab ?? null]));
+  const drawerSlice = section.notes('vox-event');
+  const projectionDrawer = section.notes('vproj-xz');
+  const state = { ...ctx.state.values };
+  return { steps, markup, overlaysAtSix, lab, before, rendersAfterTheme, projectionOpts, state,
+    requestsDuringSteps: stepRequests, requestsBeforeModel,
+    drawer: drawerSlice ? { hazards: drawerSlice.hazards, lines: drawerSlice.sections.flatMap((x) => x.lines) } : null,
+    projectionDrawer: projectionDrawer ? projectionDrawer.sections.flatMap((x) => x.lines) : null };
+};
+out.section.slices = await runSection({ table: 'experiment_baseline', act: async (section, ctx) => {
+  const before = ctx.requests.length;
+  const value = await sliceAct(section, ctx);
+  return { ...value, requestsDuringSteps: value.requestsDuringSteps - before };
+} });
+// Stepping alone: not one request, not one State write.
+out.section.sliceSteps = await runSection({ table: 'single_hits', act: async (section, ctx) => {
+  const sets = [];
+  const set = ctx.state.set.bind(ctx.state);
+  ctx.state.set = (patch) => { sets.push(patch); return set(patch); };
+  const keys = ['event', 'ensemble'].map((n) => section.keyOf(n));
+  const pair = section.pairs.ensemble;
+  const row = pair.gl.slices;
+  const overlays0 = ctx.overlays.length;
+  row.count.value = '4';
+  row.count.fire('change');
+  const seen = [];
+  for (let i = 0; i < 6; i += 1) {
+    seen.push({ k: pair.plan.k, bins: pair.plan.bins, lo: pair.plan.loMm, hi: pair.plan.hiMm, readout: row.readout.textContent,
+      drawn: pair.built.drawn, outsideSlice: pair.built.outsideSlice });
+    row.next.fire('click');
+  }
+  const ev = section.pairs.event.gl.slices;
+  ev.count.value = '3';
+  ev.count.fire('change');
+  ev.next.fire('click');
+  return { sets, keysSame: ['event', 'ensemble'].every((n, i) => section.keyOf(n) === keys[i]), seen,
+    overlays: ctx.overlays.slice(overlays0), window: v.pairedWindow(load('projections_single_local')),
+    eventReadout: ev.readout.textContent, ensembleNotes: section.notes('vox-ensemble') };
+} });
 
 console.log(JSON.stringify(out));
 """
@@ -1682,3 +1969,364 @@ def test_the_3d_plot_height_follows_its_width(out):
     assert by["tall"] == {506: 560, 586: 560, 746: 560}
     assert by["long"][746] < 400 and by["long"][746] < by["cube"][746]
     assert by["flat"][586] <= by["cube"][586] and by["flat"][746] <= by["cube"][746]
+
+
+# ------------------------------------------------------------ the slice mode --
+
+SLICE_NAMES = EVENTS + ENSEMBLES + ["voxels_single_local@paired", "voxels_single_local@narrow"]
+SLICE_OPTIONS = ["event_voxels_base_lab", "event_voxels_base_local_shapcam", "event_voxels_single_species",
+                 "voxels_single_local@paired", "voxels_base_canonical_shapcam"]
+
+
+def _profile(name: str) -> dict:
+    payload = _load(name.split("@")[0])
+    return payload["voxels"]["depth_profile"] if "cubes" in payload.get("voxels", {}) else payload["depth_profile"]
+
+
+def _drawn_bins(entry: dict, profile: dict) -> list[int]:
+    """The depth bins holding a shipped cube whose code carries a value, inside the crop and the depth clip."""
+    empty = {0} if entry["kind"] == "event" else {0, 1}
+    clip = entry["domain"]["clip"]
+    out = set()
+    for i, (b, code) in enumerate(zip(entry["bins"], entry["code"])):
+        if code in empty or (entry["inside"] is not None and not entry["inside"][i]):
+            continue
+        if clip and not clip[0] <= profile["centres_mm"][b] <= clip[1]:
+            continue
+        out.add(b)
+    return sorted(out)
+
+
+@pytest.mark.parametrize("key", ["1|1", "1|4", "5|1", "5|2", "5|3", "5|5", "5|9", "55|6", "60|7", "52|10", "58|58",
+                                 "7|0", "7|-3", "7|2.6"])
+def test_slice_edges_are_contiguous_covering_balanced_and_never_empty(out, key):
+    """e(k) = ⌊k·L/K⌋ for k = 0…K, K clamped to [1, L] (and rounded): every slice holds ⌊L/K⌋ or ⌈L/K⌉ bins."""
+    L, K = key.split("|")
+    L = int(L)
+    k_eff = max(1, min(L, math.floor(float(K) + 0.5)))
+    edges = out["slices"]["edges"][key]
+    assert edges == [k * L // k_eff for k in range(k_eff + 1)]
+    assert edges[0] == 0 and edges[-1] == L and len(edges) == k_eff + 1
+    sizes = [b - a for a, b in zip(edges, edges[1:])]
+    assert all(size >= 1 for size in sizes), sizes
+    assert set(sizes) <= {L // k_eff, -(-L // k_eff)}, sizes
+
+
+@pytest.mark.parametrize("name", SLICE_NAMES)
+def test_the_slice_domain_spans_the_shipped_valued_cubes_and_accounts_for_every_joule(out, name):
+    entry = out["slices"]["domains"][name]
+    profile = _profile(name)
+    domain = entry["domain"]
+    n = len(profile["centres_mm"])
+    assert domain["n"] == n == len(profile["energy_gev"])
+    drawn = _drawn_bins(entry, profile)
+    # j0 and j1 each hold a shipped valued cube, and nothing drawn lies outside them.
+    assert domain["j0"] == drawn[0] and domain["j1"] == drawn[-1], (domain["j0"], domain["j1"], drawn[:3], drawn[-3:])
+    assert 0 <= domain["j0"] <= domain["j1"] < n and domain["L"] == domain["j1"] - domain["j0"] + 1
+    e = profile["energy_gev"]
+    inside = sum(e[domain["j0"]:domain["j1"] + 1])
+    assert domain["energyBefore"] == pytest.approx(sum(e[:domain["j0"]]), abs=1e-12)
+    assert domain["energyAfter"] == pytest.approx(sum(e[domain["j1"] + 1:]), abs=1e-12)
+    assert domain["energyBefore"] + inside + domain["energyAfter"] + domain["energyOutside"] == pytest.approx(
+        profile["energy_total_gev"], rel=1e-8)
+    assert domain["pitch"] == profile["pitch_mm"] and domain["numbering"] == profile["numbering"]
+    # Without a model: the first and last bin with energy.
+    with_energy = [j for j, v in enumerate(e) if v > 0]
+    assert (entry["bare"]["j0"], entry["bare"]["j1"]) == (with_energy[0], with_energy[-1])
+    # An explicit depth window clips the domain to the bins whose centres it holds.
+    win = entry["windowArg"]
+    if win is not None:
+        lo, hi = win["clip"]
+        assert lo <= profile["centres_mm"][win["j0"]] and profile["centres_mm"][win["j1"]] <= hi
+        assert win["j0"] >= domain["j0"] and win["j1"] <= domain["j1"]
+
+
+def test_the_cropped_cloud_slices_only_inside_its_depth_window(out):
+    narrow = out["slices"]["domains"]["voxels_single_local@narrow"]["domain"]
+    centres = _profile("voxels_single_local")["centres_mm"]
+    assert narrow["clip"] == [100, 500]
+    assert 100 <= centres[narrow["j0"]] and centres[narrow["j1"]] <= 500
+    assert 100 > centres[narrow["j0"] - 1] and centres[narrow["j1"] + 1] > 500
+    # What the crop leaves upstream and downstream is reported, never dropped.
+    assert narrow["energyBefore"] > 0 and narrow["energyAfter"] > 0
+    paired = out["slices"]["domains"]["voxels_single_local@paired"]["domain"]
+    window = out["crop"]["window"]
+    assert paired["clip"] == window["z"]
+    # The D-frame cloud: energy beyond the last drawn layer (below the floor) stays outside the domain, counted.
+    canonical = out["slices"]["domains"]["voxels_base_canonical_shapcam"]
+    assert canonical["domain"]["j1"] < canonical["bare"]["j1"] and canonical["domain"]["energyAfter"] > 0
+
+
+@pytest.mark.parametrize("name", SLICE_NAMES)
+def test_slice_plans_partition_the_domain_and_their_shares_add_up(out, name):
+    domain = out["slices"]["domains"][name]["domain"]
+    profile = _profile(name)
+    centres, pitch = profile["centres_mm"], profile["pitch_mm"]
+    j0, j1, L = domain["j0"], domain["j1"], domain["L"]
+    total = profile["energy_total_gev"]
+    att = profile.get("attention")
+    numbered = profile["layers_contiguous"] and profile["numbering"] != "w_bins" and profile["first_layer"] is not None
+    for K, plans in out["slices"]["plans"][name].items():
+        if K in ("overK", "zeroK"):
+            continue
+        K = int(K)
+        k_eff = min(K, L)
+        assert len(plans) == k_eff
+        assert plans[0]["bins"][0] == j0 and plans[-1]["bins"][1] == j1
+        for k, (plan, nxt) in enumerate(zip(plans, plans[1:] + [None]), start=1):
+            a, b = plan["bins"]
+            assert plan["K"] == k_eff and plan["k"] == k and plan["requestedK"] == K and plan["clamped"] == (K > L)
+            assert a <= b, plan["bins"]
+            if nxt:
+                assert nxt["bins"][0] == b + 1
+            # The extent from the stored centres, never an index times a pitch.
+            assert plan["loMm"] == pytest.approx(centres[a] - pitch / 2) and plan["hiMm"] == pytest.approx(centres[b] + pitch / 2)
+            assert plan["layers"] == ([profile["first_layer"] + a, profile["first_layer"] + b] if numbered else None)
+            assert plan["energyShare"] == pytest.approx(sum(profile["energy_gev"][a:b + 1]) / total, rel=1e-9, abs=1e-15)
+        assert sum(p["energyShare"] for p in plans) == pytest.approx(sum(profile["energy_gev"][j0:j1 + 1]) / total, rel=1e-9)
+        if att is None:
+            assert all(p["attention"] is None for p in plans)
+        elif att["signed"]:
+            # The signed parts are shared separately; no share of the signed total is ever quoted.
+            assert all(set(p["attention"]) == {"signed", "quantity", "positiveShare", "negativeShare"} for p in plans)
+            assert sum(p["attention"]["positiveShare"] for p in plans) == pytest.approx(
+                sum(att["positive"][j0:j1 + 1]) / att["positive_total"], rel=1e-9)
+            assert sum(p["attention"]["negativeShare"] for p in plans) == pytest.approx(
+                sum(att["negative"][j0:j1 + 1]) / att["negative_total"], rel=1e-9)
+        else:
+            assert sum(p["attention"]["share"] for p in plans) == pytest.approx(
+                sum(att["values"][j0:j1 + 1]) / att["total"], rel=1e-9)
+    over, zero = out["slices"]["plans"][name]["overK"], out["slices"]["plans"][name]["zeroK"]
+    assert over["k"] == min(3, L) and zero["K"] == 1 and zero["k"] == 1 and zero["bins"] == [j0, j1]
+
+
+@pytest.mark.parametrize("name", SLICE_NAMES)
+def test_a_new_k_keeps_the_slice_holding_the_old_slices_centre(out, name):
+    domain = out["slices"]["domains"][name]["domain"]
+    keep = out["slices"]["keep"][name]
+    a, b = keep["from"]["bins"]
+    centre = (a + b) // 2 - domain["j0"]
+    for K, k in keep["to"].items():
+        k_eff = min(int(K), domain["L"])
+        edges = [i * domain["L"] // k_eff for i in range(k_eff + 1)]
+        assert 1 <= k <= k_eff and edges[k - 1] <= centre < edges[k], (K, k, centre, edges)
+
+
+@pytest.mark.parametrize("name", SLICE_OPTIONS)
+def test_a_slice_draws_only_its_cubes_and_keeps_box_ticks_fit_legend_and_colours(out, name):
+    got = out["slices"]["options"][name]
+    # No slice, or slice null: exactly the whole-volume option, with no new key.
+    assert got["nulledSame"]
+    assert "outsideSlice" not in got["wholeKeys"] and "slice" not in got["wholeKeys"]
+    assert "outsideSlice" not in got["partsWhole"]
+    whole = got["whole"]
+    whole_members = sorted(i for r in whole["roles"] if r["role"] == "cube" for i in r["members"])
+    seen = []
+    for s in got["slices"]:
+        a, b = s["plan"]["bins"]
+        assert s["sliceKey"] == {"bins": [a, b]}
+        assert all(a <= got["bins"][i] <= b for i in s["members"]), "a cube of another slice is drawn"
+        assert s["drawn"] + s["outsideSlice"] == got["wholeDrawn"]
+        seen += s["members"]
+        # Every cube keeps the colour the whole volume gives it: the scale is never re-normalised.
+        for i, colour in s["colours"].items():
+            assert colour == got["wholeColours"][i]
+        summary = s["summary"]
+        for key in ("box", "bounds", "ticks", "fit", "skipped", "noValue", "hidden", "cropped"):
+            assert summary[key] == whole[key], key
+        assert summary["option"] == whole["option"], "the axes, the grid, the camera or the legend moved"
+    # The slices partition the whole picture.
+    assert sorted(seen) == whole_members
+
+
+@pytest.mark.parametrize("name", SLICE_OPTIONS)
+def test_the_drawers_read_as_before_without_a_slice(out, name):
+    notes = out["slices"]["notes"][name]
+    assert notes["none"] == notes["nulled"] == notes["one"]
+    assert "one depth slice drawn" not in notes["none"]["hazards"]
+
+
+@pytest.mark.parametrize("name", SLICE_OPTIONS)
+def test_the_drawers_state_the_slice_its_shares_and_the_notebook_fix(out, name):
+    fix = out["slices"]["fix"]
+    assert "save_detector_saliency_interactive" in fix and "−1.50σ" in fix and "±3σ" in fix
+    kind = "cube" if name.startswith("event") else "voxel"
+    for s in out["slices"]["options"][name]["slices"]:
+        notes = s["notes"]
+        lines = _note_lines(notes)
+        text = " ".join(lines)
+        assert "one depth slice drawn" in notes["hazards"]
+        assert fix in lines
+        assert any(line.startswith("Slice mode:") for line in lines)
+        assert "The colour scale is the whole volume's" in text
+        assert "Outside the sliced range:" in text and "every part counted" in text
+        assert f"{s['outsideSlice']:,} {kind}{'' if s['outsideSlice'] == 1 else 's'} of the other slices" in text
+        assert "still sums every layer" in text
+        _no_hyphen_numbers(lines)
+
+
+def test_the_readouts_name_depth_layers_and_shares_with_true_minus_signs(out):
+    readouts = out["slices"]["readouts"]
+    _no_hyphen_numbers(text for _, text in readouts)
+    for name, text in readouts:
+        assert text.startswith("Slice ") and " — " in text
+        lab = name.startswith("event") and _load(name.split("@")[0])["voxels"]["frame"] == "lab"
+        assert ("z − 3649 =" in text) == lab, text
+        if not name.startswith("event"):
+            assert "of the selection's energy" in text
+        profile = _profile(name)
+        # Layer numbers only where the layers are contiguous; w bins and gapped lattices by depth alone.
+        numbered = profile["layers_contiguous"] and profile["numbering"] != "w_bins"
+        assert ("layer" in text) == numbered, text
+    species = [t for n, t in readouts if n == "event_voxels_single_species"]
+    assert species[0].startswith("Slice 1 of 1 — layers 1–6 · z ")
+    shap = [t for n, t in readouts if n == "event_voxels_base_local_shapcam"][1]
+    assert "of Σ E·Shap-CAM⁺" in shap and "of Σ E·|Shap-CAM⁻|" in shap and "shower A's energy" in shap
+    assert any("w −" in t and " to " in t for _, t in readouts)
+
+
+@pytest.mark.parametrize("panel", ["xy", "yz", "xz"])
+def test_the_depth_slab_is_drawn_on_a_depth_panel_only_and_nothing_changes_without_it(out, panel):
+    got = out["projectionSlab"]["panels"][panel]
+    slab = out["projectionSlab"]["slab"]
+    assert got["same"], "depthSlab null changed the option"
+    if got["axes"]["col"]["name"] != "z":
+        assert got["slabbedNames"] == got["plainNames"] and not got["added"]
+        return
+    added = got["added"]
+    assert [a["z"] for a in added] == [2, 4, 4]
+    # Above the raster (z 1), below every mark (z 5 and up).
+    marks = [z for name, z in got["plainNames"] if name != "raster"]
+    assert all(1 < a["z"] < min(marks + [5]) for a in added)
+    row = got["axes"]["row"]
+    band = added[0]["drawn"]
+    assert band["type"] == "polygon" and band["style"]["stroke"] == "none" and band["style"]["opacity"] < 0.1
+    assert sorted({p[0] for p in band["shape"]["points"]}) == [slab["lo"], slab["hi"]]
+    assert sorted({p[1] for p in band["shape"]["points"]}) == [row["lo"], row["hi"]]
+    faces = [a["drawn"]["shape"]["points"] for a in added[1:]]
+    assert faces == [[[slab["lo"], row["lo"]], [slab["lo"], row["hi"]]], [[slab["hi"], row["lo"]], [slab["hi"], row["hi"]]]]
+    assert all(a["tooltip"] and a["tooltip"].startswith("Slice 2 of 4 drawn in 3-D") for a in added[1:])
+
+
+def test_every_slab_of_the_recorded_cloud_lies_inside_its_paired_depth_axis(out):
+    """voxels_single_local's slices against projections_single_local: the slab is in the depth panels' own mm."""
+    got = out["projectionSlab"]
+    assert got["slabK1"] is None
+    slabs = got["slabs"]
+    for panel in ("yz", "xz"):
+        axis = got["panels"][panel]["axes"]["col"]
+        assert axis["name"] == "z"
+        for slab in slabs:
+            assert axis["lo"] - 1e-9 <= slab["lo"] < slab["hi"] <= axis["hi"] + 1e-9, (panel, slab, axis)
+    # The slabs tile the depth range they cover: each face is the next slab's.
+    assert all(abs(a["hi"] - b["lo"]) < 1e-9 for a, b in zip(slabs, slabs[1:]))
+
+
+def test_the_slice_row_sits_between_the_caption_and_the_plot(out):
+    value = out["section"]["slices"]["acted"]["value"]
+    assert value["markup"]["order"][1:4] == ["card-caption", "voxel-slices", "plot-frame"]
+    row = value["markup"]["row"]
+    label, prev, scrub, nxt, readout = row
+    assert label[0] == "LABEL" and label[1] == "voxel-slices-k" and label[3] == "Slices "
+    assert label[6] == [["INPUT", "mini-select", {"voxelSlices": ""}, "number"]]
+    assert prev[:5] == ["BUTTON", "mini", {"voxelSliceStep": "prev"}, "← Previous slice", "button"]
+    assert scrub[0] == "INPUT" and scrub[2] == {"voxelSlice": ""} and scrub[4] == "range"
+    assert nxt[:5] == ["BUTTON", "mini", {"voxelSliceStep": "next"}, "Next slice →", "button"]
+    assert readout[0] == "SPAN" and readout[1] == "voxel-slice-readout"
+    assert readout[5] == {"role": "status", "aria-live": "polite"}
+    # Hidden while the card has no model: without WebGL, after a refusal, on an events-only experiment.
+    for run in ("noGl", "refused", "events"):
+        for card in ("vox-event", "vox-ensemble"):
+            assert out["section"][run]["cards"][card]["slices"]["hidden"], (run, card)
+    assert not out["section"]["base"]["cards"]["vox-event"]["slices"]["hidden"]
+
+
+def test_stepping_sends_no_request_writes_no_state_and_keeps_the_camera(out):
+    value = out["section"]["slices"]["acted"]["value"]
+    assert value["requestsDuringSteps"] == 0
+    steps = {s["label"]: s for s in value["steps"]}
+    loaded = steps["loaded"]
+    assert loaded["plan"]["K"] == 1 and loaded["prev"] and loaded["next"] and loaded["outsideSlice"] is None
+    six = steps["K=6"]
+    assert six["plan"]["K"] == 6 and six["plan"]["k"] == 4  # the slice holding the whole volume's centre bin
+    for label in ("K=6", "next", "prev twice", "range 1", "next at the last", "K=1000"):
+        s = steps[label]
+        assert s["lastFlags"] == {"replaceMerge": ["series", "visualMap"]}, label
+        assert s["zoom"] == 77, f"{label}: the reader's zoom was dropped"
+        assert s["drawn"] + s["outsideSlice"] == loaded["drawn"], label
+    assert steps["next"]["k"] == 5 and steps["prev twice"]["k"] == 3
+    assert steps["range 1"]["k"] == 1 and steps["range 1"]["prev"] and not steps["range 1"]["next"]
+    assert steps["prev at the first"]["k"] == 1 and steps["prev at the first"]["overlays"] == steps["range 1"]["overlays"]
+    assert steps["next at the last"]["k"] == 6 and steps["next at the last"]["next"]
+    # K is clamped to the volume's L; a nonsense entry changes nothing.
+    assert steps["K=1000"]["plan"]["K"] == 55 and steps["K=1000"]["count"]["value"] == "55"
+    assert steps["K=1000"]["count"]["max"] == "55"
+    for label in ("K=abc", "K=0"):
+        assert steps[label]["plan"] == steps["K=1000"]["plan"] and steps[label]["count"]["value"] == "55"
+    assert value["state"]["frame"] == "lab"
+    assert not any(k in value["state"] for k in ("slices", "slice", "K", "k"))
+    steps_only = out["section"]["sliceSteps"]["acted"]
+    assert steps_only["requests"] == [] and steps_only["value"]["sets"] == [] and steps_only["value"]["keysSame"]
+
+
+def test_a_new_model_keeps_the_requested_k_clamped_and_never_written_back(out):
+    value = out["section"]["slices"]["acted"]["value"]
+    steps = {s["label"]: s for s in value["steps"]}
+    assert value["lab"] == {"L": 55, "K": 55}
+    local = steps["local"]
+    assert local["K"] == 55 and local["plan"]["K"] == 52 and local["plan"]["clamped"] and local["plan"]["requestedK"] == 55
+    assert local["count"]["value"] == "52" and "55 asked" in local["count"]["title"]
+    assert local["lastFlags"] == {"notMerge": True}, "a new volume opens on the opening camera"
+    again = steps["lab again"]
+    assert again["plan"]["K"] == 55 and not again["plan"]["clamped"]
+    # A K change keeps the slice holding the old slice's centre bin.
+    a, b = value["before"]["bins"]
+    centre = (a + b) // 2
+    lo, hi = steps["K 6 to 3"]["plan"]["bins"]
+    assert lo <= centre <= hi and steps["K 6 to 3"]["plan"]["K"] == 3
+
+
+def test_reset_view_theme_and_experiment_switch(out):
+    value = out["section"]["slices"]["acted"]["value"]
+    steps = {s["label"]: s for s in value["steps"]}
+    kept = steps["K 6 to 3"]["plan"]
+    # Reset view: the opening camera, the slice kept.
+    assert steps["reset view"]["plan"] == kept and steps["reset view"]["lastFlags"] == {"notMerge": True}
+    # A theme switch: the slice, the zoom and the band kept, the band rebuilt in every later render.
+    assert steps["theme"]["plan"] == kept and steps["theme"]["zoom"] == 55
+    renders = dict(value["rendersAfterTheme"])
+    assert "depthSlab" in renders["plot-vproj-xz"] and "depthSlab" in renders["plot-vproj-yz"]
+    assert "depthSlab" not in renders["plot-vproj-xy"]
+    assert value["projectionOpts"]["xy"] is None
+    for col in ("xz", "yz"):
+        slab = value["projectionOpts"][col]
+        assert slab["lo"] < slab["hi"] and slab["tooltip"].startswith("Slice 2 of 3 drawn in 3-D")
+    # The band reaches both depth projections on a change, through setOverlay.
+    six = value["overlaysAtSix"]
+    assert sorted(o[0] for o in six[-2:]) == ["plot-vproj-xz", "plot-vproj-yz"] and all(o[1] == "depthSlab" for o in six)
+    assert value["drawer"]["hazards"][-1] == "one depth slice drawn"
+    assert any(line.startswith("The band marks slice 2 of 3") for line in value["projectionDrawer"])
+    # The experiment switch: K = 1, the row hidden, on both cards.
+    after = out["section"]["slices"]["afterReset"]["slices"]
+    for name in ("event", "ensemble"):
+        assert after[name]["slices"] == {"K": 1, "k": 1} and after[name]["plan"] is None and after[name]["hidden"]
+
+
+def test_the_cloud_steps_its_slices_and_bands_its_own_depth_projections(out):
+    got = out["section"]["sliceSteps"]["acted"]["value"]
+    seen = got["seen"]
+    assert [s["k"] for s in seen] == [2, 3, 4, 4, 4, 4]
+    window = got["window"]["z"]
+    for s in seen:
+        assert window[0] <= s["lo"] < s["hi"] <= window[1]
+        assert "of the selection's energy" in s["readout"]
+    # The cloud's steps band its own depth projections; the event's (stepped last) its own.
+    ensemble = [o for o in got["overlays"] if "eproj" in o[0]]
+    assert {o[0] for o in ensemble} == {"plot-eproj-yz", "plot-eproj-xz"}
+    assert all("vproj" in o[0] for o in got["overlays"][len(ensemble):])
+    assert {o[0] for o in got["overlays"]} <= {"plot-eproj-yz", "plot-eproj-xz", "plot-vproj-yz", "plot-vproj-xz"}
+    for _, key, slab in ensemble:
+        assert key == "depthSlab" and window[0] <= slab["lo"] < slab["hi"] <= window[1]
+    _no_hyphen_numbers([s["readout"] for s in seen] + [got["eventReadout"]])
+    assert "one depth slice drawn" in got["ensembleNotes"]["hazards"]
+    _no_hyphen_numbers(_note_lines(got["ensembleNotes"]))
