@@ -2920,8 +2920,8 @@ cached response and blanks every card before anything is drawn, and each card
 checks its request key after its response lands, so a late response never draws
 the previous experiment's data under the new one's name.
 
-The sections, in page order: **Model performance** (three cards), **XGBoost
-model** (four cards), **Event features** (four cards), **Primaries** (one card)
+The sections, in page order: **Model performance** (three cards), **Energy
+resolution** (one card), **XGBoost model** (four cards), **Event features** (four cards), **Primaries** (one card)
 and the **3-D views** (two pairs of a 3-D card and three 2-D projections).
 
 ### What each kind of experiment shows
@@ -2936,6 +2936,7 @@ is left out; nothing is substituted for what is missing.
 | Section | `two_shower_hits` | `single_shower_hits` | `single_shower_events` (aggregate) |
 |---|---|---|---|
 | Model performance | The energy and angle networks' per-shower predictions, in every input frame at once (segmentation has no per-shower prediction) | Absent: no networks | The **XGBoost** hold-out series, once an analysis is done; otherwise absent |
+| Energy resolution | The calibrated deposit and the energy network of the selected frame, showers A and B kept apart | The calibrated deposit, named after the selection's species | The calibrated deposit and, once an analysis is done, the XGBoost momentum hold-out |
 | XGBoost model | Absent | Absent | Shown when a model run pairs with the experiment; its cards open when the analysis is done and current |
 | Event features | Both showers, each in its own right, in the Absolute, per-shower translated and Local frames, rebuilt from the per-event Group-1 sums | Shower A, same frames | The producer's own feature columns, as stored |
 | Primaries | Absent: the species columns are not in the two-shower export | The share of events with no primary-tagged hit | Absent: no hits |
@@ -3168,6 +3169,64 @@ by name, its reconstruction being Page 1's energy panel.
 - **Shower colour is the Physics page's.** A pink and B blue and dashed on
   two-shower data, a single shower in the accent blue (`chart_panel.showerColour`),
   and the residual drawer says so.
+
+### The energy-resolution card
+
+`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, in
+a section of its own: its detector series needs no model, so it shows on every
+kind of experiment, where the performance section does not
+(`query/resolution_scaling.py`, `stats/resolution_fit.py`,
+`static/js/panels/resolution_scaling.js`).
+
+- **What is plotted.** Per series and per 1 GeV momentum window (the producer's
+  integer bin of the shower's own momentum), σ/E = s(R)/R̄ in percent, with
+  R = E_est/p per event: c·E_dep for the detector, the energy network's
+  prediction over its truth, or the XGBoost momentum regressor's prediction over
+  the true momentum. Dividing by p event by event removes the window's own
+  momentum spread (5.2 % at 5 GeV and 1.5 % at 19 GeV for a uniform 1 GeV window)
+  and each estimator's own bias, and c cancels: the detector series does not
+  depend on the calibration, and it is Page 1's response-ratio series. A window
+  sits at x = ⟨1/√p⟩ over its events.
+- **The series.** The detector series is labelled "Calibrated deposit c·E_dep —
+  linear-sum benchmark": a plain sum, which a model reading the shower's shape
+  can beat, so it is a benchmark and not a limit. Two-shower data adds the energy
+  network of the selected frame (the D-frame reads the absolute-frame networks),
+  showers A and B kept apart; a paired aggregate adds the XGBoost momentum
+  regressor on its 20 % validation split once its analysis is done; single-shower
+  hit data has the detector series only, named after the selection's species
+  where one covers 95 % of it. E on both axes is the incident momentum p.
+- **The axes.** y is σ/E from zero. The bottom axis is linear in x = 1/√E and
+  reversed, from 0.5 GeV⁻¹ᐟ² (4 GeV) at the left to 0 at the right border, so the
+  bottom-right corner is the origin, E → ∞, where a purely stochastic resolution
+  vanishes. The top axis relabels the same positions in GeV (5, 10, 15, 20, 30,
+  50, 100 and ∞), E = 1/x²: an exact unit conversion, the one kind of second axis
+  CLAUDE.md allows, with no data plotted against it. The y range follows the
+  windows with N ≥ 20 and the fits through them; a weaker mark beyond it is
+  clipped with a caret and counted, and with no window at N ≥ 20 the range is
+  labelled provisional.
+- **The marks.** A window's σ/E is reported from N = 2, drawn with its capped
+  95 % χ² whisker [s_lo/R̄, s_hi/R̄] from N = 8 (a faded ring below), faded below
+  N = 20, and off the axis below 4 GeV, where it is counted and listed in the
+  drawer. The detector series is drawn in ink and a model in its E2 hue; shower A
+  filled, B hollow.
+- **The fits.** Weighted least squares in closed form, through three anchor
+  windows by default - the lowest bin from 5 GeV, the highest, and the one
+  between them nearest in log E to their geometric mean, chosen on the whole
+  table so they do not move with the selection ({5, 10, 19} on the 0–20 GeV
+  files) - or, with **All ≥ 4 GeV**, through every window with N ≥ 20. A thin
+  anchor is replaced by its nearest eligible window, by name; with fewer than two
+  the fit runs through windows of N ≥ 8 and is provisional. The affine fit
+  a/√E + b (solid for A, dashed for B) and the origin-pinned a₀/√E (dotted, into
+  the corner) each draw their 95 % confidence band. The weights are 1/se², with
+  the delta-method se recomputed at the fitted value and iterated, which removes
+  the pull towards windows that fluctuated low; χ²/ν, its p-value and the PDG
+  scale factor S, applied when χ²/ν > 1, are quoted. The quadrature form
+  √(a²/E + b²) is fitted as a line in (σ/E)² against 1/E and tabled, never
+  drawn: its constant term is not the linear sum's b.
+- **The fit table** under the plot (screen only; the export is the plot) gives
+  a ± SE(a), b ± SE(b), χ²/ν, a₀ ± SE(a₀), the quadrature terms, the windows used
+  and the status of every series in the mode in force. The windows and the
+  showers repaint without a request.
 
 ### The feature explorer
 
@@ -3522,6 +3581,39 @@ per event.
 - *Controls.* The channel (density, energy-weighted Grad-CAM, energy-weighted
   Shap-CAM) and a camera reset; the frame is the page's (Absolute and per-shower
   translated fall back to Local).
+
+**Longitudinal slices.** Each 3-D card carries a row under its title - **Slices
+K**, **← Previous slice**, a scrubber, **Next slice →** and a readout - that
+draws one slice of the volume at a time, in place of the reference notebook's
+`save_detector_saliency_interactive`.
+
+- *Whole bins of the drawn volume.* A slice is a run of whole bins of the
+  payload's own depth axis (the detector's layers in the Absolute frame and the
+  D-frame, the shower's own layers in the per-shower translated frame, bins of
+  the layer pitch along w in Local), from the first to the last bin holding a
+  drawn cube. K runs from 1, the whole volume, to that count L, one bin per
+  slice (at most 60 on the detector's layers; a tilted shower can fill more w
+  bins in Local), and the edges are ⌊kL/K⌋. The notebook cut ±3σ of standardised
+  depth into six parts. Measured on its stored figures, the first layer sat at
+  −1.50σ, so its first slice (raw z 3236–3520 mm) lay wholly upstream of the
+  front face and was empty in every figure, and the six held 0, 7, 14, 14, 14 and
+  11 layers. Here no slice can open upstream of the first drawn cube, none splits
+  a layer, and a stray deposit below the display floor cannot open the domain.
+- *What stays.* The box, the axes, the camera (rotation, pan and zoom), the
+  colour scale and the floor are the whole volume's, so slices compare and
+  nothing is renormalised. A step only swaps the drawn cubes: no request, and the
+  zoom held. A theme or palette switch keeps the slice, an experiment switch
+  returns to K = 1, and Reset view resets the camera alone. From K = 1 slicing
+  opens at the entrance; between two values of K the slice holding the old one's
+  centre is kept. K and k are the card's own, never in the link.
+- *The readout* names the slice, its layers where they are contiguous, its depth
+  in the frame's own symbol (with z − 3649 in the Absolute frame), and its share
+  of the event's or the selection's energy, exact from the server's per-layer
+  `depth_profile`; on an attention channel, the share of Σ E·Grad-CAM, or the
+  positive and negative Σ E·Shap-CAM shares apart.
+- *The band.* The paired depth projections draw the slice as a faint band with
+  its two faces outlined; the XY projection still sums every layer. The drawers
+  state the rule, the range, the shares and the energy outside the sliced range.
 
 ### The XGBoost cards
 
@@ -4083,12 +4175,13 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/upload-info` | Upload limits and the disk headroom per format, and the accepted schemas: `schemas` (each with `name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns`, `note`) and `accepted`, the one-sentence list. `schema` still describes `hits_all_models` alone. |
 | `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Unknown values return 422 naming the field. **Payload compaction** (so the 900-view matrix stays under the guard, see [Performance](#performance)): `topk[].value` travels at 7 significant figures, rounded toward zero (the float32 source's precision, so a shipped value never exceeds the cell's own and the brightest value never passes the panel's peak); `meta.stagger` is sent **in the Absolute frame only**, the co-registered frames' comb being `frame.comb` (`measured_on` unchanged); and the per-shower frames' `frame.coordinates.note` is no longer copied into `meta.notices`, the client putting it back in the same position (`frame_views.js` `frameNotices`). Together they save 1.6–3.05 KB a response. |
-| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. |
+| `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). The voxel body carries `voxels.depth_profile`: per bin of its own depth axis, the energy of every cell or voxel in the window before the cap, the channel's energy-weighted attention (Shap-CAM split by sign), the energy off the axis and the total, the exact sums the slice mode quotes. `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. |
 | `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. `rule=tilted` (the default, and the only one a request naming none gets, byte for byte as before) or `densest`: the event with the most cells, ties to the lowest event number, which the 3-D event view opens on. |
 | `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: σ/E of the per-event ratio E_est/p in percent, its χ² interval, the delta-method SE and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
@@ -4096,7 +4189,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/prediction-density` | The Models page's prediction-against-truth and residual cards. `model=energy\|angle` (default `energy`; `segmentation` is a 422), `coord_system=lab\|trans\|local` (the network's input frame; unused by an aggregate), `bins` (16–128, default 64; stepped down with a notice when the body would reach 100 KB), `label=theta\|phi` (the XGBoost angle regressor's output, θ by default; the networks predict θ only, so `phi` is a 422 on two-shower data). Per shower (A and B kept apart), a count density on dataset-wide axes, the identity line, and the residual block on the energy panel's ladder; `residual.statistics` is `linear` or `circular` (φ). On an aggregate with its analysis done: the hold-out rows within the selection, one shower, `source` `xgb` ([Prediction](#prediction-against-truth-and-residuals)). |
 | `GET /api/features` | The feature explorer, one cached per-event bundle. `view=catalog\|describe\|corr\|hist\|hist2d` (default `catalog`: the features, flags, class sizes and which views the experiment serves), `coord_system=lab\|trans\|local` (default `lab`), `shower=a\|b` (default `a`; `b` is refused where there is one shower), `classes=windows\|bins\|label`, `class_index` (`corr`: a class index or `pooled`, the default; required with `classes=bins`), `feature` (`hist` and `hist2d`, an id from the catalog), `scale=auto\|linear\|log`, `y_scale=auto\|linear\|log` (`hist2d`), `exclude_eps` (leave out events whose value involves core.py's 10⁻⁶ mm floor; default true for `corr`, false elsewhere). Each view is its card's capability gate (`feat-table`, `feat-corr`, `feat-hist`, `feat-hist2d`); a body that could reach 100 KB sheds resolution in stated steps and says which, and `meta.budget` gives its measured size ([The feature explorer](#the-feature-explorer)). |
 | `GET /api/primaries` | C11, single-shower hit experiments only (a 422 on any other kind): per 1 GeV bin, the events with no primary-tagged hit row, with their 95% Wilson interval, the whole selection's fraction, and the exact count of primary-tagged rows per event. Filters only. |
-| `GET /api/voxels` | The ensemble 3-D cloud of a co-registered frame: 40 mm voxels, floored at 10⁻³ of the raw peak, capped by energy, layer-run packed under the 100 KB contract. `frame=local\|canonical` (default `local`; `trans` is refused; `canonical` needs two showers), `channel=density\|gradcam_energy\|shapcam_energy` (the attention channels need the networks), `model` (the network whose CAM an attention channel reads), `anchor` (`frame=canonical`) and `coordinates` (`frame=local`) as `/api/projections`, `cap` (1,000–15,000, default 15,000; lowered, with a sentence, when the body would pass 100 KB), `preview`. Needs the frame extents (`vox-ensemble`) ([The 3-D views](#the-3-d-views)). |
+| `GET /api/voxels` | The ensemble 3-D cloud of a co-registered frame: 40 mm voxels, floored at 10⁻³ of the raw peak, capped by energy, layer-run packed under the 100 KB contract. `frame=local\|canonical` (default `local`; `trans` is refused; `canonical` needs two showers), `channel=density\|gradcam_energy\|shapcam_energy` (the attention channels need the networks), `model` (the network whose CAM an attention channel reads), `anchor` (`frame=canonical`) and `coordinates` (`frame=local`) as `/api/projections`, `cap` (1,000–15,000, default 15,000; lowered, with a sentence, when the body would pass 100 KB), `preview`. Needs the frame extents (`vox-ensemble`). The body carries `depth_profile`, the per-layer sums of every inside voxel, for the slice mode ([The 3-D views](#the-3-d-views)). |
 | `GET /api/xgboost` | The XGBoost views, read from the stored analysis; dataset-wide (`filtered: false`), the selection's parameters being accepted and not applied. `view` (required) `cv\|binary\|surrogate\|importance` (E1, E3, E4, E5), `task=momentum\|angle` (default `momentum`; `view=binary` with `angle` is a 422). Every payload carries a `run` block (species, seed, model file, sha256, the split check) and warns when the split was not reproduced. Refused (422, capability `xgboost`) with the analysis's own sentence while the analysis is queued, running, failed or stale, and for an experiment that pairs with no models ([The XGBoost cards](#the-xgboost-cards)). |
 | `GET /api/admin/model-runs` | **Read-only.** The models folder's scan (`models`: its files and the rejected ones with reasons), and, in `runs[]`, one flat entry per aggregate experiment: its pairing (`paired`, `species`, `seed`, `models`, `reason`), `status`, `step`, `steps`, `step_label`, `progress`, `duration_s`, `timings` and the stored runs, one per task (`analysis_version`, `split`: `reproduced`, `ratio_42`, `max_others`, `seed_of_max`, `n_others`, `margin`). It re-pairs and compares the cheap part of the stamp, may report an analysis `stale`, and queues nothing. |
 | `POST /api/admin/model-runs/scan` | Rescan models: re-pair, compare the whole stamp (the values included) and queue every missing or stale analysis; answers with the list the `GET` reads. Idempotent. |
@@ -4105,7 +4198,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 
 The routes of the Models page are the `slice_by=momentum_bin` mode of
 `/api/model-performance`, `/api/prediction-density`, `/api/features`,
-`/api/primaries`, `/api/voxels`, `/api/event?format=voxels` with the `densest`
+`/api/primaries`, `/api/resolution-scaling`, `/api/voxels`, `/api/event?format=voxels` with the `densest`
 rule of `/api/event/pick`, `/api/xgboost` and the model-run admin routes; each
 row above links to the card it serves, and [The Models page](#the-models-page)
 documents what they draw and the rule behind every mark.
