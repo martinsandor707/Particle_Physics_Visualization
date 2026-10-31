@@ -41,6 +41,7 @@ from .api import (
     routes_profiles,
     routes_resolution,
     routes_response,
+    routes_selection_cells,
     routes_statistics,
     routes_window_axis,
     routes_experiments,
@@ -365,6 +366,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_prediction,
         routes_features,
         routes_voxels,
+        routes_selection_cells,
         routes_xgboost,
     ):
         app.include_router(module.router)

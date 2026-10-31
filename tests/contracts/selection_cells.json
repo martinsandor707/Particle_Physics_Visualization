@@ -1,0 +1,1230 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/selection-cells",
+ "description": "The current selection's detector cells as cubes in the laboratory frame, both showers summed: the body of GET /api/event?format=voxels&frame=lab&shower=both with a selection block in place of event, so one decoder reads both. One regime (cells, placed through geometry.axes) and three ramp shapes (log10 energy density per selected event, GeV/mm^3/event, floored at the 1st percentile of the drawn cubes; linear [0, 1] Grad-CAM; signed linear [-1, +1] Shap-CAM with its zero code). Every energy in the body is a mean per selected event. No object at any depth may carry a 'hits' or 'points' key.",
+ "type": "object",
+ "required": [
+  "meta",
+  "selection",
+  "coordinates",
+  "window",
+  "footprint_mm",
+  "voxels",
+  "filter"
+ ],
+ "properties": {
+  "meta": {
+   "$ref": "#/$defs/meta"
+  },
+  "selection": {
+   "$ref": "#/$defs/selection"
+  },
+  "coordinates": {
+   "type": "object",
+   "required": [
+    "source",
+    "residual_max_mm",
+    "tolerance_mm",
+    "within_tolerance",
+    "note"
+   ],
+   "properties": {
+    "source": {
+     "const": "lattice"
+    },
+    "residual_max_mm": {
+     "type": "null"
+    },
+    "tolerance_mm": {
+     "type": "number"
+    },
+    "within_tolerance": {
+     "type": "null"
+    },
+    "note": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "window": {
+   "type": "object",
+   "required": [
+    "mode",
+    "half_mm",
+    "half_mm_axes",
+    "percentiles",
+    "min_half_mm",
+    "axes",
+    "rule"
+   ],
+   "properties": {
+    "mode": {
+     "enum": [
+      "shared",
+      "per_axis"
+     ]
+    },
+    "half_mm": {
+     "type": "number"
+    },
+    "half_mm_axes": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "x": {
+       "type": "number",
+       "minimum": 0
+      },
+      "y": {
+       "type": "number",
+       "minimum": 0
+      },
+      "z": {
+       "type": "number",
+       "minimum": 0
+      }
+     }
+    },
+    "percentiles": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "min_half_mm": {
+     "type": "number"
+    },
+    "rule": {
+     "type": "string"
+    },
+    "axes": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "additionalProperties": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     }
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "footprint_mm": {
+   "$ref": "#/$defs/triple"
+  },
+  "voxels": {
+   "$ref": "#/$defs/voxels_cells"
+  },
+  "filter": {
+   "$ref": "#/$defs/filter"
+  }
+ },
+ "propertyNames": {
+  "$ref": "#/$defs/no_raw_keys"
+ },
+ "additionalProperties": false,
+ "$defs": {
+  "no_raw_keys": {
+   "not": {
+    "enum": [
+     "hits",
+     "points"
+    ]
+   }
+  },
+  "triple": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   },
+   "minItems": 3,
+   "maxItems": 3
+  },
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "notice": {
+   "type": "object",
+   "required": [
+    "scope",
+    "text"
+   ],
+   "properties": {
+    "scope": {
+     "enum": [
+      "selection",
+      "channel",
+      "budget"
+     ]
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "cam": {
+   "type": "object",
+   "required": [
+    "column",
+    "model",
+    "network_frame",
+    "normalisation",
+    "aggregation",
+    "note"
+   ],
+   "properties": {
+    "column": {
+     "type": "string"
+    },
+    "model": {
+     "enum": [
+      "angle",
+      "energy",
+      "segmentation"
+     ]
+    },
+    "network_frame": {
+     "type": "string"
+    },
+    "normalisation": {
+     "enum": [
+      "event",
+      "shower"
+     ]
+    },
+    "aggregation": {
+     "type": "string"
+    },
+    "note": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "meta": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "exact",
+    "query_ms",
+    "total_ms",
+    "cached",
+    "warnings",
+    "format",
+    "shower",
+    "frame",
+    "channel",
+    "model",
+    "window",
+    "cam",
+    "notices"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "exact": {
+     "const": true
+    },
+    "query_ms": {
+     "type": "number"
+    },
+    "total_ms": {
+     "type": "number"
+    },
+    "cached": {
+     "type": "boolean"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "format": {
+     "const": "voxels"
+    },
+    "shower": {
+     "enum": [
+      "a",
+      "both"
+     ]
+    },
+    "frame": {
+     "const": "lab"
+    },
+    "channel": {
+     "enum": [
+      "energy",
+      "gradcam",
+      "shapcam"
+     ]
+    },
+    "model": {
+     "enum": [
+      "angle",
+      "energy",
+      "segmentation",
+      null
+     ]
+    },
+    "window": {
+     "enum": [
+      "shared",
+      "per_axis"
+     ]
+    },
+    "cam": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/cam"
+      }
+     ]
+    },
+    "notices": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/notice"
+     },
+     "minItems": 1
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "selection": {
+   "type": "object",
+   "description": "What the cubes are: N selected events (the per-event normaliser), the hits summed, the populated cells, and two sentences - what a cube holds, and how the selection was summed.",
+   "required": [
+    "n_events",
+    "n_hits",
+    "n_cells",
+    "quantity",
+    "aggregation"
+   ],
+   "properties": {
+    "n_events": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_hits": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_cells": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "quantity": {
+     "type": "string"
+    },
+    "aggregation": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "lattice_axis": {
+   "type": "object",
+   "required": [
+    "i0",
+    "coords"
+   ],
+   "properties": {
+    "i0": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "coords": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 1
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "geometry_cells": {
+   "type": "object",
+   "required": [
+    "cube_mm",
+    "axes",
+    "coords_rounding_mm",
+    "origin_mm",
+    "grid",
+    "splat",
+    "depth",
+    "note"
+   ],
+   "properties": {
+    "cube_mm": {
+     "$ref": "#/$defs/triple"
+    },
+    "axes": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "properties": {
+      "x": {
+       "$ref": "#/$defs/lattice_axis"
+      },
+      "y": {
+       "$ref": "#/$defs/lattice_axis"
+      },
+      "z": {
+       "$ref": "#/$defs/lattice_axis"
+      }
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     },
+     "additionalProperties": false
+    },
+    "coords_rounding_mm": {
+     "type": "number"
+    },
+    "origin_mm": {
+     "$ref": "#/$defs/triple"
+    },
+    "grid": {
+     "type": "null"
+    },
+    "splat": {
+     "type": "null"
+    },
+    "depth": {
+     "type": "object",
+     "required": [
+      "policy",
+      "note"
+     ],
+     "properties": {
+      "policy": {
+       "const": "native_layers"
+      },
+      "note": {
+       "type": "string"
+      }
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     }
+    },
+    "note": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "cubes": {
+   "type": "object",
+   "required": [
+    "n",
+    "order",
+    "dtype",
+    "ix",
+    "iy",
+    "iz",
+    "code",
+    "flags",
+    "flag_bits",
+    "shower_codes"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "order": {
+     "const": "ascending energy"
+    },
+    "dtype": {
+     "type": "object",
+     "required": [
+      "ix",
+      "iy",
+      "iz",
+      "code",
+      "flags"
+     ],
+     "properties": {
+      "ix": {
+       "enum": [
+        "u8",
+        "u16le"
+       ]
+      },
+      "iy": {
+       "enum": [
+        "u8",
+        "u16le"
+       ]
+      },
+      "iz": {
+       "enum": [
+        "u8",
+        "u16le"
+       ]
+      },
+      "code": {
+       "const": "u8"
+      },
+      "flags": {
+       "const": "u8"
+      }
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     },
+     "additionalProperties": false
+    },
+    "ix": {
+     "type": "string"
+    },
+    "iy": {
+     "type": "string"
+    },
+    "iz": {
+     "type": "string"
+    },
+    "code": {
+     "type": "string"
+    },
+    "flags": {
+     "type": "string"
+    },
+    "flag_bits": {
+     "type": "object",
+     "required": [
+      "shower",
+      "primary",
+      "below_floor"
+     ],
+     "properties": {
+      "shower": {
+       "const": [
+        0,
+        1
+       ]
+      },
+      "primary": {
+       "const": 2
+      },
+      "below_floor": {
+       "const": 3
+      }
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     }
+    },
+    "shower_codes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 4,
+     "maxItems": 4
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "scale_energy": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "unit",
+    "quantity",
+    "floor_density",
+    "top_density",
+    "floor_percentile",
+    "floor_basis",
+    "degenerate",
+    "min_code",
+    "clipped_low",
+    "floor_rule"
+   ],
+   "properties": {
+    "unit": {
+     "const": "GeV/mm^3/event"
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer"
+    },
+    "scale": {
+     "const": "log10"
+    },
+    "vmin": {
+     "type": "number"
+    },
+    "vmax": {
+     "type": "number"
+    },
+    "quantity": {
+     "const": "energy_density"
+    },
+    "floor_density": {
+     "type": "number",
+     "minimum": 0
+    },
+    "top_density": {
+     "type": "number",
+     "minimum": 0
+    },
+    "floor_percentile": {
+     "type": "number"
+    },
+    "floor_basis": {
+     "const": "drawn_cells"
+    },
+    "degenerate": {
+     "type": "boolean"
+    },
+    "min_code": {
+     "type": "integer"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "scale_unsigned": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "quantity",
+    "clipped_low",
+    "clipped_high",
+    "floor_rule"
+   ],
+   "properties": {
+    "unit": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer"
+    },
+    "scale": {
+     "const": "linear"
+    },
+    "vmin": {
+     "const": 0
+    },
+    "vmax": {
+     "const": 1
+    },
+    "quantity": {
+     "const": "gradcam"
+    },
+    "clipped_high": {
+     "type": "integer"
+    },
+    "diverging": {
+     "const": false
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "scale_signed": {
+   "type": "object",
+   "required": [
+    "scale",
+    "vmin",
+    "vmax",
+    "quantity",
+    "clipped_low",
+    "clipped_high",
+    "floor_rule",
+    "diverging",
+    "zero_code"
+   ],
+   "properties": {
+    "unit": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "floor_rule": {
+     "type": "string"
+    },
+    "clipped_low": {
+     "type": "integer"
+    },
+    "scale": {
+     "const": "linear"
+    },
+    "vmin": {
+     "const": -1
+    },
+    "vmax": {
+     "const": 1
+    },
+    "quantity": {
+     "const": "shapcam"
+    },
+    "clipped_high": {
+     "type": "integer"
+    },
+    "diverging": {
+     "const": true
+    },
+    "zero_code": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 255
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "scale": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/scale_energy"
+    },
+    {
+     "$ref": "#/$defs/scale_unsigned"
+    },
+    {
+     "$ref": "#/$defs/scale_signed"
+    }
+   ]
+  },
+  "topk": {
+   "type": "array",
+   "maxItems": 64,
+   "items": {
+    "type": "object",
+    "required": [
+     "i",
+     "value",
+     "energy_gev"
+    ],
+    "properties": {
+     "i": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 14999
+     },
+     "value": {
+      "type": "number"
+     },
+     "energy_gev": {
+      "type": "number"
+     }
+    },
+    "propertyNames": {
+     "$ref": "#/$defs/no_raw_keys"
+    }
+   }
+  },
+  "cap": {
+   "type": "object",
+   "required": [
+    "limit",
+    "n_total",
+    "n_drawn",
+    "energy_total_gev",
+    "energy_drawn_gev",
+    "energy_beyond_gev",
+    "fraction_beyond",
+    "energy_outside_window_gev",
+    "requested",
+    "n_beyond",
+    "rank",
+    "fraction_outside_window",
+    "cells_outside_window"
+   ],
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_total": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "n_drawn": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "energy_total_gev": {
+     "type": "number"
+    },
+    "energy_drawn_gev": {
+     "type": "number"
+    },
+    "energy_beyond_gev": {
+     "type": "number"
+    },
+    "fraction_beyond": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "energy_outside_window_gev": {
+     "type": "number"
+    },
+    "requested": {
+     "type": "integer",
+     "minimum": 100,
+     "maximum": 15000
+    },
+    "n_beyond": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "rank": {
+     "const": "energy"
+    },
+    "fraction_outside_window": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "cells_outside_window": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "below_floor": {
+   "type": "object",
+   "required": [
+    "n",
+    "drawn_as"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "drawn_as": {
+     "type": "string"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   }
+  },
+  "voxels_cells": {
+   "type": "object",
+   "required": [
+    "frame",
+    "regime",
+    "symbols",
+    "channel",
+    "geometry",
+    "cubes",
+    "scale",
+    "topk",
+    "cap",
+    "below_floor",
+    "species",
+    "notes",
+    "model",
+    "topk_quantity",
+    "topk_unit",
+    "depth_profile"
+   ],
+   "properties": {
+    "frame": {
+     "const": "lab"
+    },
+    "regime": {
+     "const": "cells"
+    },
+    "symbols": {
+     "type": "object",
+     "required": [
+      "x",
+      "y",
+      "z"
+     ],
+     "additionalProperties": {
+      "type": "string"
+     },
+     "propertyNames": {
+      "$ref": "#/$defs/no_raw_keys"
+     }
+    },
+    "channel": {
+     "enum": [
+      "energy",
+      "gradcam",
+      "shapcam"
+     ]
+    },
+    "model": {
+     "enum": [
+      "angle",
+      "energy",
+      "segmentation",
+      null
+     ]
+    },
+    "geometry": {
+     "$ref": "#/$defs/geometry_cells"
+    },
+    "cubes": {
+     "$ref": "#/$defs/cubes"
+    },
+    "scale": {
+     "$ref": "#/$defs/scale"
+    },
+    "topk": {
+     "$ref": "#/$defs/topk"
+    },
+    "topk_quantity": {
+     "enum": [
+      "energy_density",
+      "gradcam",
+      "shapcam"
+     ]
+    },
+    "topk_unit": {
+     "type": "string"
+    },
+    "cap": {
+     "$ref": "#/$defs/cap"
+    },
+    "below_floor": {
+     "$ref": "#/$defs/below_floor"
+    },
+    "species": {
+     "type": "null"
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "depth_profile": {
+     "$ref": "#/$defs/depth_profile"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "depth_attention_unsigned": {
+   "type": "object",
+   "required": [
+    "channel",
+    "quantity",
+    "signed",
+    "values",
+    "total",
+    "outside",
+    "unit"
+   ],
+   "properties": {
+    "channel": {
+     "enum": [
+      "gradcam",
+      "shapcam"
+     ]
+    },
+    "quantity": {
+     "type": "string"
+    },
+    "signed": {
+     "const": false
+    },
+    "values": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "total": {
+     "type": "number"
+    },
+    "outside": {
+     "type": "number"
+    },
+    "unit": {
+     "const": "GeV/event"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "depth_attention_signed": {
+   "type": "object",
+   "required": [
+    "channel",
+    "quantity",
+    "signed",
+    "positive",
+    "negative",
+    "total",
+    "positive_total",
+    "negative_total",
+    "outside",
+    "positive_outside",
+    "negative_outside",
+    "unit"
+   ],
+   "properties": {
+    "channel": {
+     "enum": [
+      "gradcam",
+      "shapcam"
+     ]
+    },
+    "quantity": {
+     "type": "string"
+    },
+    "signed": {
+     "const": true
+    },
+    "positive": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "negative": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "total": {
+     "type": "number"
+    },
+    "positive_total": {
+     "type": "number",
+     "minimum": 0
+    },
+    "negative_total": {
+     "type": "number",
+     "minimum": 0
+    },
+    "outside": {
+     "type": "number"
+    },
+    "positive_outside": {
+     "type": "number",
+     "minimum": 0
+    },
+    "negative_outside": {
+     "type": "number",
+     "minimum": 0
+    },
+    "unit": {
+     "const": "GeV/event"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false
+  },
+  "depth_profile": {
+   "type": "object",
+   "required": [
+    "n",
+    "index",
+    "centres_mm",
+    "pitch_mm",
+    "numbering",
+    "first_layer",
+    "layers_contiguous",
+    "energy_gev",
+    "energy_total_gev",
+    "energy_outside_gev",
+    "attention",
+    "note"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "index": {
+     "const": "cubes.iz"
+    },
+    "centres_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "pitch_mm": {
+     "type": "number",
+     "minimum": 0
+    },
+    "numbering": {
+     "const": "detector_layers"
+    },
+    "first_layer": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "energy_gev": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "energy_total_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "energy_outside_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "attention": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/depth_attention_unsigned"
+      },
+      {
+       "$ref": "#/$defs/depth_attention_signed"
+      }
+     ]
+    },
+    "note": {
+     "type": "string"
+    },
+    "layers_contiguous": {
+     "type": "boolean"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw_keys"
+   },
+   "additionalProperties": false,
+   "description": "Per-layer sums, per selected event, of every cell inside the window, before the cap; sum(energy_gev) + energy_outside_gev == energy_total_gev, all in GeV per selected event. Signed attention parts are magnitudes: total = positive_total - negative_total and outside = positive_outside - negative_outside; unsigned total = sum(values) + outside."
+  }
+ }
+}
