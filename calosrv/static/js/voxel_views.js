@@ -70,6 +70,29 @@
  * asks for nothing, and its projections still load. A lost context shows the
  * same kind of notice and, once restored, the chart is rebuilt from the
  * payload in hand.
+ *
+ * ## Slices
+ *
+ * Each 3-D card can draw one longitudinal slice of its volume at a time: a
+ * `.voxel-slices` row under its caption asks for K slices (1…L, L the depth
+ * bins the drawn volume occupies; voxels.js `depthDomain`) and steps through
+ * them with Previous and Next or the scrubber. The slices are runs of whole
+ * layers from the first drawn one (`sliceEdges`), which fixes the reference
+ * notebook's always-empty first slice; the readout quotes each slice's layers,
+ * its depth and its exact share of the energy (and of the channel's
+ * attention) from the payload's `depth_profile` (`slicePlan`).
+ *
+ * K and k live on the pair (`pair.slices`, the requested K and the slice
+ * shown), like the species toggles: never in the State or the link, so they
+ * never reach `keyOf` and a step sends no request. A step only repaints the
+ * series (`paintGl` `keepCamera`, the zoom held), so the reader's rotation,
+ * pan and zoom, the box and the colour scale stay those of the whole volume.
+ * A new payload (event, frame, channel) keeps the requested K, clamped to its
+ * own L for drawing and never written back, and clamps k; a K change keeps the
+ * slice holding the old slice's centre bin; an experiment switch returns to
+ * K = 1; Reset view keeps the slice. The two paired depth projections mark the
+ * slice's depth with a band (`depthSlab`, projection.js), carried by every
+ * later render. At K = 1 nothing of this reaches either chart.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
@@ -84,8 +107,9 @@ import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
 import { formatInt, formatPercent, formatSci } from './scale.js';
 import {
   decodeEventVoxels, decodeEnsembleVoxels, voxelOption, openingView, glPlotHeight, voxelFit, speciesLegend, pairedWindow,
-  cropToWindow,
+  cropToWindow, depthDomain, slicePlan, keepCentre, sliceReadout, sliceRangeText,
 } from './voxels.js';
+import { mutedLine } from './panels/chart_panel.js';
 import {
   ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle,
 } from './event_cells.js';
@@ -164,6 +188,40 @@ export const PROJECTIONS_ONE_SHOWER = 'These projections show shower A: the Even
   + 'one shower each, while the 3-D view beside them draws both.';
 
 const DETAILS_TITLE = 'Methodology and disclosures for this panel';
+
+/** The slice controls' titles. */
+export const SLICES_TITLE = 'How many longitudinal slices to cut the drawn volume into: runs of whole layers from the '
+  + 'first that holds a drawn cube, one drawn at a time (1 draws the whole volume)';
+export const SLICE_PREV_TITLE = 'Draw the previous (upstream) slice; the camera and the colour scale stay';
+export const SLICE_NEXT_TITLE = 'Draw the next (downstream) slice; the camera and the colour scale stay';
+export const SLICE_RANGE_TITLE = 'The slice drawn, from the most upstream';
+
+/**
+ * The band a slice puts on its pair's depth projections (projection.js
+ * `depthSlab`), or null at K = 1 or without a plan. Pure.
+ */
+export function sliceSlab(plan) {
+  if (!plan || !(plan.K > 1)) return null;
+  return {
+    lo: plan.loMm,
+    hi: plan.hiMm,
+    tooltip: `Slice ${formatInt(plan.k)} of ${formatInt(plan.K)} drawn in 3-D<br/>${sliceRangeText(plan)}<br/>`
+      + mutedLine('This panel still sums every layer; the band marks the depth the 3-D view beside it draws.'),
+  };
+}
+
+/** What a depth projection's drawer says of the slice band it carries. */
+export function sliceBandNote(plan) {
+  if (!plan) return null;
+  return `The band marks slice ${formatInt(plan.k)} of ${formatInt(plan.K)}, the depth the 3-D view beside this panel `
+    + `draws: ${sliceRangeText(plan)}. This panel still sums every layer, inside the band and out.`;
+}
+
+/** Whether two slabs draw the same band (null for none). */
+function sameSlab(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.lo === b.lo && a.hi === b.hi && a.tooltip === b.tooltip;
+}
 const EXPORT_TITLE = 'Export this panel\'s plot as a publication figure (white background, 300 DPI, '
   + 'plot area only — see Details for its disclosures)';
 
@@ -477,6 +535,8 @@ export class VoxelSection {
       name, element, gl: null, cells: [], entry: null,
       view: null, payloads: {}, model: null, built: null, hidden: new Set(),
       pick: null, loading: null,
+      // The slice mode (`.voxel-slices`): the requested K and the slice shown; never in the State.
+      slices: { K: 1, k: 1 }, domain: null, plan: null,
     };
     this.pairs[name] = pair;
     for (const spec of VOXEL_CARDS.filter((s) => s.pair === name)) {
@@ -513,6 +573,7 @@ export class VoxelSection {
       spec, element: card, title, tag, details, controls: {}, exporter: null,
       caption: null, plot: null, message: null, legend: null, sparse: null,
       panel: null, chart: null, watched: null, lost: false, disabled: null, error: null,
+      slices: null, slab: null,
     };
     if (spec.gl) this.buildGlControls(record, actions);
     else {
@@ -533,7 +594,12 @@ export class VoxelSection {
     message.setAttribute('role', 'status');
     message.hidden = true;
     frame.append(plot, message);
-    card.append(heading, caption, frame);
+    if (spec.gl) {
+      record.slices = this.buildSliceRow(record);
+      card.append(heading, caption, record.slices.element, frame);
+    } else {
+      card.append(heading, caption, frame);
+    }
     Object.assign(record, { caption, plot, message });
     if (spec.gl) {
       record.legend = make('div', 'voxel-legend');
@@ -599,6 +665,46 @@ export class VoxelSection {
     c.reset = miniButton('Reset view', 'Back to the opening camera: orthographic, 1:1:1', { voxelReset: record.spec.id });
     c.reset.addEventListener('click', () => this.resetCamera(record.spec.pair));
     actions.append(c.reset);
+  }
+
+  /**
+   * The slice row of a 3-D card, between its caption and its plot: the count
+   * K, Previous, the scrubber, Next and the readout (a polite live region).
+   * Hidden until the card holds a model with a slice domain.
+   */
+  buildSliceRow(record) {
+    const name = record.spec.pair;
+    const element = make('div', 'voxel-slices');
+    element.hidden = true;
+    const label = make('label', 'voxel-slices-k', 'Slices ');
+    const count = make('input', 'mini-select');
+    count.type = 'number';
+    count.min = '1';
+    count.step = '1';
+    count.value = '1';
+    count.dataset.voxelSlices = '';
+    count.title = SLICES_TITLE;
+    count.setAttribute('aria-label', 'Number of longitudinal slices');
+    count.addEventListener('change', () => this.setSliceCount(name, count.value));
+    label.append(count);
+    const prev = miniButton('← Previous slice', SLICE_PREV_TITLE, { voxelSliceStep: 'prev' });
+    prev.addEventListener('click', () => this.stepSlice(name, -1));
+    const range = make('input');
+    range.type = 'range';
+    range.min = '1';
+    range.step = '1';
+    range.value = '1';
+    range.dataset.voxelSlice = '';
+    range.title = SLICE_RANGE_TITLE;
+    range.setAttribute('aria-label', 'Slice drawn');
+    for (const type of ['input', 'change']) range.addEventListener(type, () => this.setSlice(name, range.value));
+    const next = miniButton('Next slice →', SLICE_NEXT_TITLE, { voxelSliceStep: 'next' });
+    next.addEventListener('click', () => this.stepSlice(name, 1));
+    const readout = make('span', 'voxel-slice-readout');
+    readout.setAttribute('role', 'status');
+    readout.setAttribute('aria-live', 'polite');
+    element.append(label, prev, range, next, readout);
+    return { element, count, prev, range, next, readout };
   }
 
   channelSelect(attr, label, labels, onChange) {
@@ -919,7 +1025,7 @@ export class VoxelSection {
       try {
         const panel = this.ensureProjection(record);
         panel.isometric = true;
-        panel.render(frame.panels[col], eventCellOptions(raster, view.frame, col, palette));
+        panel.render(frame.panels[col], this.withSlab(pair, record, eventCellOptions(raster, view.frame, col, palette)));
       } catch (error) {
         // One card that cannot draw says so; its pair and its neighbours still draw.
         this.failCard(record, error);
@@ -956,7 +1062,7 @@ export class VoxelSection {
         const panel = this.ensureProjection(record);
         panel.isometric = col === 'xy' || depthIsometric(panel, panelPayload);
         if (col !== 'xy') panel.onRelayout = (p) => { p.isometric = depthIsometric(p, p.payload); };
-        panel.render(panelPayload, ensembleCellOptions(payload, col, palette));
+        panel.render(panelPayload, this.withSlab(pair, record, ensembleCellOptions(payload, col, palette)));
       } catch (error) {
         this.failCard(record, error);
         continue;
@@ -977,6 +1083,7 @@ export class VoxelSection {
       pair.payloads.voxels = null;
       pair.model = null;
       pair.built = null;
+      this.planSlices(pair);
       this.blank(record);
       this.showMessage(record, GL_UNAVAILABLE, { kind: 'notice' });
       this.onRendered(record.spec.id, null);
@@ -986,6 +1093,7 @@ export class VoxelSection {
       pair.payloads.voxels = null;
       pair.model = null;
       pair.built = null;
+      this.planSlices(pair);
       this.failCard(record, result?.reason ?? new Error('No cubes were returned.'));
       return;
     }
@@ -994,6 +1102,8 @@ export class VoxelSection {
       model = decode(result.value);
     } catch (error) {
       pair.payloads.voxels = null;
+      pair.model = null;
+      this.planSlices(pair);
       this.failCard(record, error);
       return;
     }
@@ -1001,6 +1111,8 @@ export class VoxelSection {
     pair.model = model;
     // Species hidden on one event stay hidden on the next only if it holds them.
     if (model.scale?.scale !== 'categorical') pair.hidden.clear();
+    // The new volume's slices: the reader's K kept (clamped to its L, not written back), k clamped.
+    this.planSlices(pair);
     record.error = null;
     try {
       this.paintGl(pair);
@@ -1008,6 +1120,7 @@ export class VoxelSection {
       pair.payloads.voxels = null;
       pair.model = null;
       pair.built = null;
+      this.planSlices(pair);
       this.failCard(record, error);
       return;
     }
@@ -1074,8 +1187,12 @@ export class VoxelSection {
    * opens orthographic at its default angles.
    *
    * `chrome` (with `keepCamera`: a theme switch) also merges everything else
-   * the screen theme colours (`themeChrome`) and keeps the reader's zoom
-   * (`holdZoom`). The palette path stays the series-and-legend swap it was.
+   * the screen theme colours (`themeChrome`). Every `keepCamera` swap - a
+   * slice step, a toggle, a palette or a theme - keeps the reader's zoom
+   * (`holdZoom`), which echarts-gl would otherwise drop on any re-render. The
+   * slice shown (`pair.plan`, K > 1) draws its cubes alone; the box, the
+   * axes and the colour scale stay the whole volume's (voxels.js
+   * `voxelOption`).
    */
   paintGl(pair, { keepCamera = false, chrome = false } = {}) {
     const record = pair.gl;
@@ -1091,6 +1208,7 @@ export class VoxelSection {
     const built = voxelOption(pair.model, {
       palette: this.value('palette'), hidden: pair.hidden, position: record.tooltipPosition,
       viewport: { width: chart.getWidth(), height: chart.getHeight() },
+      slice: pair.plan && pair.plan.K > 1 ? { bins: pair.plan.bins } : null,
     });
     pair.built = built;
     if (pair.name === 'event') {
@@ -1101,10 +1219,11 @@ export class VoxelSection {
     this.setCaption(record, pair.view?.notes ?? []);
     this.renderLegend(pair);
     this.renderSparse(pair);
+    this.syncSlices(pair);
     if (record.lost) return;
     this.hideMessage(record);
     if (keepCamera) {
-      const zoom = chrome ? holdZoom(chart) : null;
+      const zoom = holdZoom(chart);
       chart.setOption({
         series: built.option.series,
         ...(built.option.visualMap ? { visualMap: built.option.visualMap } : {}),
@@ -1269,6 +1388,12 @@ export class VoxelSection {
         lines.push(`ρ_ref = ${formatSci(payload.rho.rho_ref, 3)} GeV mm⁻³ per event, this selection's raw 3-D peak.`);
       }
     }
+    if (payload && pair.plan && pair.plan.K > 1 && Number.isFinite(pair.built?.outsideSlice)) {
+      const n = pair.built.outsideSlice;
+      lines.push(`Slice ${formatInt(pair.plan.k)} of ${formatInt(pair.plan.K)}: ${formatInt(n)} `
+        + `${pair.name === 'event' ? 'cubes' : 'voxels'} of the other slices ${n === 1 ? 'is' : 'are'} not drawn; `
+        + 'the box, the axes and the colour scale are the whole volume\'s.');
+    }
     writeSparseNote(pair.gl.sparse, lines);
   }
 
@@ -1396,6 +1521,7 @@ export class VoxelSection {
       this.syncChannel(c.channel, this.offer.ensemble, this.ensembleView().channel);
       c.reset.disabled = !ensemble.model;
     }
+    for (const pair of Object.values(this.pairs)) this.syncSlices(pair);
   }
 
   /** A channel select: the drawn channel selected, the ones the experiment cannot serve disabled with why. */
@@ -1408,6 +1534,119 @@ export class VoxelSection {
     }
     if (drawn) select.value = drawn;
     select.disabled = view.channels.length < 2;
+  }
+
+  /* -------------------------------------------------------------- slices */
+
+  /**
+   * A pair's slice domain and plan for the model in hand: the reader's
+   * requested K is kept and clamped to the new volume's L only for drawing
+   * (never written back, so a deeper volume takes it again), and k is clamped
+   * and kept. No model, or no depth profile: no plan, and the row hides.
+   */
+  planSlices(pair) {
+    pair.domain = pair.model ? depthDomain(pair.payloads.voxels, pair.model) : null;
+    pair.plan = pair.domain ? slicePlan(pair.domain, pair.slices) : null;
+    if (pair.plan) pair.slices.k = pair.plan.k;
+    this.applySlab(pair);
+    this.syncSlices(pair);
+  }
+
+  /** Ask for K slices (the count input): the slice holding the old slice's centre bin is drawn. */
+  setSliceCount(name, raw) {
+    const pair = this.pairs[name];
+    const n = Number(String(raw ?? '').trim());
+    if (!pair?.domain || !Number.isInteger(n) || n < 1) {
+      if (pair) this.syncSlices(pair);
+      return;
+    }
+    const K = Math.min(n, pair.domain.L);
+    const k = keepCentre(pair.domain, pair.plan, K);
+    pair.slices = { K, k };
+    this.showSlice(pair);
+  }
+
+  /** Draw slice k (the scrubber). */
+  setSlice(name, raw) {
+    const pair = this.pairs[name];
+    const k = Number(raw);
+    if (!pair?.plan || !Number.isInteger(k)) return;
+    if (k === pair.plan.k) {
+      this.syncSlices(pair);
+      return;
+    }
+    pair.slices = { ...pair.slices, k };
+    this.showSlice(pair);
+  }
+
+  /** One slice upstream (−1) or downstream (+1); nothing past either end. */
+  stepSlice(name, direction) {
+    const pair = this.pairs[name];
+    if (!pair?.plan) return;
+    const k = pair.plan.k + direction;
+    if (k < 1 || k > pair.plan.K) return;
+    pair.slices = { ...pair.slices, k };
+    this.showSlice(pair);
+  }
+
+  /**
+   * Draw the slice the pair asks for, from the payload in hand: a series swap
+   * that keeps the camera (`paintGl` `keepCamera`), the band on the depth
+   * projections, the row and the drawer. Never a State write or a refresh: K
+   * and k are not in `keyOf`, so no request is made.
+   */
+  showSlice(pair) {
+    if (!pair.domain) return;
+    pair.plan = slicePlan(pair.domain, pair.slices);
+    pair.slices.k = pair.plan.k;
+    if (pair.model && pair.gl.chart) this.paintGl(pair, { keepCamera: true });
+    this.applySlab(pair);
+    this.syncSlices(pair);
+    this.onRendered(pair.gl.spec.id, pair.payloads.voxels ?? null);
+  }
+
+  /** The render options of a projection card, with its pair's slab where it is a depth panel. */
+  withSlab(pair, record, opts) {
+    const slab = record.spec.col === 'xy' ? null : sliceSlab(pair.plan);
+    record.slab = slab;
+    return slab ? { ...opts, depthSlab: slab } : opts;
+  }
+
+  /** Put the pair's slab on its two depth projections (`setOverlay`, which keeps their zoom), where it changed. */
+  applySlab(pair) {
+    const slab = sliceSlab(pair.plan);
+    for (const record of pair.cells) {
+      if (record.spec.col === 'xy' || !record.panel || sameSlab(record.slab, slab)) continue;
+      record.slab = slab;
+      record.panel.setOverlay?.('depthSlab', slab);
+    }
+  }
+
+  /** Reflect a pair's plan on its slice row: hidden without one. */
+  syncSlices(pair) {
+    const row = pair?.gl?.slices;
+    if (!row) return;
+    const plan = pair.model ? pair.plan : null;
+    row.element.hidden = !plan;
+    if (!plan) {
+      row.readout.textContent = '';
+      return;
+    }
+    row.count.max = String(plan.L);
+    row.count.value = String(plan.K);
+    row.count.title = plan.clamped
+      ? `${SLICES_TITLE}. ${formatInt(plan.requestedK)} asked; this volume occupies ${formatInt(plan.L)} depth bins, `
+        + `so ${formatInt(plan.K)} are drawn.`
+      : SLICES_TITLE;
+    row.range.max = String(plan.K);
+    row.range.value = String(plan.k);
+    row.range.disabled = plan.K < 2;
+    row.prev.disabled = plan.k <= 1;
+    row.next.disabled = plan.k >= plan.K;
+    // A slice inside the shower can hold no cube above the floor (or only hidden species): said, never left blank.
+    const empty = plan.K > 1 && pair.built && pair.built.drawn === 0;
+    const what = pair.name === 'event' ? 'cube' : 'voxel';
+    row.readout.textContent = sliceReadout(plan) + (empty ? ` · no ${what} drawn in this slice` : '');
   }
 
   /* ---------------------------------------------------- page-level calls */
@@ -1461,10 +1700,15 @@ export class VoxelSection {
       pair.pick = null;
       pair.hidden = new Set();
       pair.loading = null;
+      // A new experiment opens on the whole volume.
+      pair.slices = { K: 1, k: 1 };
+      pair.domain = null;
+      pair.plan = null;
       this.setPairBusy(pair, false);
       for (const record of [pair.gl, ...pair.cells]) {
         this.blank(record);
         record.error = null;
+        record.slab = null;
         this.setCaption(record, []);
         if (!record.disabled) this.hideMessage(record);
       }
@@ -1506,15 +1750,18 @@ export class VoxelSection {
       if (!payload) return record.error ? shut(record.error) : null;
       const drawn = pair.built ?? null;
       const gl = record.lost ? GL_LOST : null;
+      // The slice shown, or null on the whole volume (the drawer then reads as it always did).
+      const slice = pair.plan && pair.plan.K > 1 ? pair.plan : null;
       if (pair.name === 'event') {
         return voxelEventNotes({
           payload, drawn, hidden: [...pair.hidden], gl, state, experiment, title,
           pick: Number.isInteger(this.value('voxel_event')) ? null : pair.pick,
-          fallbacks: pair.view?.notes ?? [],
+          fallbacks: pair.view?.notes ?? [], slice,
         });
       }
       return voxelEnsembleNotes({
         payload, drawn, gl, state, experiment, title, fallbacks: pair.view?.notes ?? [], crop: pair.model?.crop ?? null,
+        slice,
       });
     }
     const payload = pair.name === 'event' ? pair.payloads.raster : pair.payloads.projections;
@@ -1523,7 +1770,7 @@ export class VoxelSection {
     return voxelProjectionNotes({
       pair: pair.name, payload, panelId: col, frameKind: pair.view?.frame ?? 'lab',
       view: record.panel?.currentView?.() ?? null, isometric: { [col]: Boolean(record.panel?.isometric) },
-      pairing: this.pairing(pair), state, experiment, title,
+      pairing: [...this.pairing(pair), record.slab ? sliceBandNote(pair.plan) : null], state, experiment, title,
     });
   }
 
