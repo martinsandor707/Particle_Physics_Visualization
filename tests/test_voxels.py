@@ -442,7 +442,12 @@ def _production_sized(bundle: voxels.VoxelBundle, n: int = 40_000) -> voxels.Vox
 @pytest.mark.parametrize("frame", voxels.FRAMES)
 @pytest.mark.parametrize("channel", voxels.CHANNELS)
 def test_the_full_cap_fits_the_contract_on_a_production_sized_cloud(client, monkeypatch, frame, channel):
-    """15 000 voxels above the floor on the production grid: about 75 KB, no reduction needed."""
+    """15 000 voxels above the floor on the production grid: about 81 KB, no reduction needed.
+
+    The slice explorer's depth_profile (per-layer energy and, on Shap-CAM, both
+    signed attention arrays, at 10 significant figures) adds about 3-4 KB to the
+    75 KB the cubes take; the body still sits well under the 100 KB contract.
+    """
     real = voxels.bundle_for
 
     def production(*args, **kwargs):
@@ -457,7 +462,7 @@ def test_the_full_cap_fits_the_contract_on_a_production_sized_cloud(client, monk
     assert budget["n_above_floor"] + budget["n_partial_edge"] == 40_000
     assert budget["n_beyond_cap"] == budget["n_above_floor"] - voxels.DEFAULT_CAP > 0
     assert not any("voxel cap was lowered" in text for text in body["meta"]["notices"])
-    assert 60_000 < density.wire_size(body) < 80_000
+    assert 60_000 < density.wire_size(body) < 85_000
     assert body["voxels"]["dtype"]["xy"] == "u8"
 
 
@@ -577,8 +582,6 @@ def test_the_depth_profile_block_satisfies_the_contract(client, frame, channel):
         contract_check.check(broken, "voxels")
 
 
-@pytest.mark.xfail(reason="routes_voxels.VoxelResponse.build must pass rendered['depth_profile'] into the "
-                          "envelope (one line, a file the depth-profile agent does not own)")
 @pytest.mark.parametrize("frame,channel", [("local", "density"), ("canonical", "shapcam_energy")])
 def test_the_served_body_carries_the_depth_profile(client, frame, channel):
     body = _get(client, frame=frame, channel=channel)

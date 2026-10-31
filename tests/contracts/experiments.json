@@ -374,6 +374,7 @@
       "correlation",
       "statistics",
       "perf-bins",
+      "res-scaling",
       "pred-truth",
       "pred-residuals",
       "feat-table",
@@ -436,6 +437,9 @@
        "type": "boolean"
       },
       "perf-bins": {
+       "type": "boolean"
+      },
+      "res-scaling": {
        "type": "boolean"
       },
       "pred-truth": {
@@ -519,6 +523,7 @@
        "correlation",
        "statistics",
        "perf-bins",
+       "res-scaling",
        "pred-truth",
        "pred-residuals",
        "feat-table",

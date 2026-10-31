@@ -1608,7 +1608,8 @@
     "budget",
     "topk",
     "filter",
-    "meta"
+    "meta",
+    "depth_profile"
    ],
    "propertyNames": {
     "$ref": "#/$defs/no_raw"
@@ -1658,7 +1659,8 @@
     "budget",
     "topk",
     "filter",
-    "meta"
+    "meta",
+    "depth_profile"
    ],
    "propertyNames": {
     "$ref": "#/$defs/no_raw"
@@ -1708,7 +1710,8 @@
     "budget",
     "topk",
     "filter",
-    "meta"
+    "meta",
+    "depth_profile"
    ],
    "propertyNames": {
     "$ref": "#/$defs/no_raw"

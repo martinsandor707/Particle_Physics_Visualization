@@ -744,7 +744,35 @@
   },
   "notes": [
    "All 64 cells inside the window are drawn. 2 of the event's 66 cells lie outside the window and are counted, not drawn. 1.884e−05 GeV (0.0998%) falls outside the window and is counted, not drawn."
-  ]
+  ],
+  "depth_profile": {
+   "n": 6,
+   "index": "cubes.iz",
+   "centres_mm": [
+    3662.4,
+    3682.9,
+    3703.4,
+    3723.9,
+    3744.4,
+    3764.9
+   ],
+   "pitch_mm": 20.5,
+   "numbering": "detector_layers",
+   "first_layer": 1,
+   "layers_contiguous": true,
+   "energy_gev": [
+    0.01710546705,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.001748274042
+   ],
+   "energy_total_gev": 0.01887258428331081,
+   "energy_outside_gev": 1.8843186848939914e-05,
+   "attention": null,
+   "note": "Per-depth-bin sums of every cell/voxel inside the window, before the cap: the exact shares the slice readout quotes."
+  }
  },
  "filter": {
   "e1": [
