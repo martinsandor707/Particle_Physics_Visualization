@@ -18,6 +18,10 @@ export default [
     text: 'C. W. Fabjan, F. Gianotti, Calorimetry for particle physics, Reviews of Modern Physics 75 (2003) 1243–1286.',
     bib: { type: 'article', author: ['Fabjan, C. W.', 'Gianotti, F.'], title: 'Calorimetry for particle physics', journal: 'Reviews of Modern Physics', volume: '75', pages: '1243–1286', year: '2003' },
   },
+  { key: 'pdg2024',
+    text: 'S. Navas et al. (Particle Data Group), Review of Particle Physics, Physical Review D 110 (2024) 030001.',
+    bib: { type: 'article', author: ['Navas, S.', { org: 'Particle Data Group' }], title: 'Review of Particle Physics', journal: 'Physical Review D', volume: '110', pages: '030001', year: '2024' },
+  },
 
   // Statistics.
   { key: 'student1908',
