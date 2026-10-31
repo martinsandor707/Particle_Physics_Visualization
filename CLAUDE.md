@@ -175,7 +175,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
 * **Tuftean Data-Ink Optimization**:
   - Eliminate decorative chartjunk, 3D projections, heavy borders, redundant legends, and non-informative gridlines.
   - **Recorded exception: the orthographic 3-D views of the Models page** (`static/js/voxels.js`, `voxel_views.js`; data from `query/voxel_event.py` and `query/voxels.py`).
-    - **What may be drawn in 3-D.** One event's cells and the selection's co-registered cloud. Where the energy sits in depth and around the axis is what a reader looks for there, and two projections lose it.
+    - **What may be drawn in 3-D.** One event's cells, the selection's cells in the Absolute frame, and the selection's co-registered cloud. Where the energy sits in depth and around the axis is what a reader looks for there, and two projections lose it.
     - **How it is held:**
       - an orthographic camera, never perspective;
       - one scale on all three axes, 1:1:1 in millimetres, with the box proportional to the physical spans;
@@ -362,6 +362,11 @@ When working with calorimeter simulation datasets in this repository:
     - **The rule.** K whole-bin slices of the drawn volume, from the first to the last depth bin holding a drawn cube, with edges ⌊kL/K⌋; never a coordinate window. The reference notebook's ±3σ cut of standardised depth put its first slice upstream of the detector, empty in every figure.
     - **A step** only swaps the drawn cubes: no request, the camera and the zoom held. The box, the colour scale and the floor stay the whole volume's. K and k are the card's own, never in the view state or the hash; K = 1 is today's card.
     - **Disclosure.** Exact shares from the server's per-layer `depth_profile`, signed attention shares kept apart; the paired depth projections mark the slice with a bracket of two face lines, never a wash over the raster.
+  - **The selection scope of the 3-D event card** (`voxel_views.js`; `GET /api/selection-cells`, `query/voxel_selection.py`; Martin's directive and decisions, 2026-10-31).
+    - **The default.** In the Absolute frame the card draws the whole selection: every selected event's hits, both showers, summed per detector cell, beside the Physics page's Absolute projections of the same channel. "One event" is a click away; the event picker belongs to it.
+    - **Its colour** is the one-event view's channels, averaged over the selection: energy as the mean GeV/mm³ per selected event in each cell; Grad-CAM and Shap-CAM as the energy-weighted mean over the selection's hits in it, the Physics page's aggregation. Segmentation error and species are per-event quantities with no selection projection: the view draws energy and says so.
+    - **Other frames** draw one event: the per-shower frames move every shower to its own entry point, so their cells share no lattice, and the cloud card draws the co-registered selection.
+    - **The link.** `voxel_scope` (`selection` | `event`) is view state; a link that names a `voxel_event` opens that event whatever the scope, so an older bookmark keeps its meaning.
   - **The training-split check.** An analysis whose training split is not reproduced is still shown, and its cards and its Admin row carry the hazard. Reproduced means the validation/training MSE at `random_state` 42 clears the largest of 99 other seeds by the stated margin.
 * **Methodology page (Page 3) requirements**:
   - **The article follows the code.** Where the two disagree, the code is right and the article is corrected. The content lives in `static/js/methodology/content/`, as plain data in one module per part.

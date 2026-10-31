@@ -114,7 +114,7 @@ import {
   ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle,
 } from './event_cells.js';
 import {
-  voxelEventNotes, voxelEnsembleNotes, voxelProjectionNotes, VOXEL_TITLES,
+  voxelEventNotes, voxelEnsembleNotes, voxelProjectionNotes, VOXEL_TITLES, SELECTION_3D_TITLE,
 } from './voxel_notes.js';
 import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
 
@@ -186,6 +186,46 @@ export const BOTH_SHOWERS_SHUT = 'Both showers are drawn together in the Absolut
 /** What the projections say when the 3-D view draws both showers. */
 export const PROJECTIONS_ONE_SHOWER = 'These projections show shower A: the Event Inspector\'s rasters hold '
   + 'one shower each, while the 3-D view beside them draws both.';
+
+/* ## The selection scope (Martin's directive of 2026-10-31)
+ *
+ * In the Absolute frame the 3-D event card draws the whole selection by
+ * default: every selected event's hits summed per detector cell, both
+ * showers, from `GET /api/selection-cells`, beside the Physics page's
+ * Absolute projections of the same selection and channel
+ * (`/api/projections`). One event is a click away. The selection is coloured
+ * by the one-event view's channels, averaged (Martin's decision): energy as
+ * the mean GeV/mm³ per selected event in each cell, Grad-CAM and Shap-CAM as
+ * the energy-weighted mean over the selection's hits in it. Segmentation
+ * error and species are per-event quantities with no selection projection:
+ * the view draws energy and says so. Outside the Absolute frame the card draws
+ * one event: the per-shower frames move every shower to its own entry point,
+ * so their cells share no lattice to sum on, and the cloud card beside shows
+ * the co-registered selection. A link that names an event opens it whatever
+ * the scope (state.js), so an older bookmark keeps its meaning. */
+
+/** The scope buttons of the 3-D event card. */
+export const SCOPE_LABELS = Object.freeze({ selection: 'Selection', event: 'One event' });
+export const SCOPE_TITLES = Object.freeze({
+  selection: 'The whole selection: every selected event\'s hits summed per detector cell, both showers (Absolute frame)',
+  event: 'One event of the selection: the densest, or the one you pick',
+});
+/** Why the selection is not drawn outside the Absolute frame. */
+export const SELECTION_SHUT = 'The selection is drawn on the detector cells, in the Absolute frame only: the '
+  + 'per-shower frames move every shower to its own entry point, so their cells share no lattice to sum on, and '
+  + 'the cloud card beside shows the co-registered selection. Choose the Absolute frame to draw it.';
+/** Why the D-frame's event card draws the selection in the Absolute frame. */
+export const SELECTION_CANONICAL_NOTE = 'Drawn in the Absolute frame: the selection is summed on the detector '
+  + 'cells, which the D-frame turns event by event; the cloud card beside draws the selection in the D-frame. The '
+  + 'selected frame is kept for the other views.';
+/** The selection view's channels, each with the Physics page channel its paired projections draw. */
+export const SELECTION_CHANNELS = Object.freeze({ energy: 'density', gradcam: 'gradcam', shapcam: 'shapcam' });
+/** Why the selection view draws a per-event channel by energy. */
+export const SELECTION_CHANNEL_SHUT = 'a per-event quantity: the selection view draws energy, Grad-CAM or '
+  + 'Shap-CAM, as the Physics page\'s projections beside it do';
+/** The shower buttons' title while the selection is drawn. */
+export const SELECTION_SHOWERS_TITLE = 'The selection is drawn with every hit, both showers summed, as the '
+  + 'Physics page\'s Absolute projections beside it; the A / B / Both choice applies to one event';
 
 const DETAILS_TITLE = 'Methodology and disclosures for this panel';
 
@@ -263,27 +303,40 @@ function channelNote(asked, drawn, labels, reason) {
  * frame; `bothDrawable` says whether "Both" can be drawn: two showers, in the
  * Absolute frame. Pure.
  */
-export function resolveEventView({ frame, channel, shower } = {}, offer) {
+export function resolveEventView({ frame, channel, shower, scope = 'event' } = {}, offer) {
   const notes = [];
   const n = offer.nShowers ?? 2;
   const allowed = offer.event.frames.filter((f) => PAIRED_EVENT_FRAMES.includes(f));
   let drawn;
+  let canonical = false;
   if (frame === 'canonical' && allowed.includes('lab')) {
     drawn = 'lab';
-    notes.push(EVENT_CANONICAL_NOTE);
+    canonical = true;
   } else {
     const resolved = viewFrame('event', frame, allowed, n);
     drawn = resolved.frame;
     if (resolved.note) notes.push(resolved.note);
   }
+  // The selection is summed on the detector cells: the Absolute frame only (see "The selection scope").
+  const selectionOffered = drawn === 'lab';
+  const selection = scope === 'selection' && selectionOffered;
+  if (canonical) notes.push(selection ? SELECTION_CANONICAL_NOTE : EVENT_CANONICAL_NOTE);
   const channels = offer.event.channels;
-  const ch = channels.includes(channel) ? channel : (channels.includes('energy') ? 'energy' : channels[0] ?? null);
+  let ch = channels.includes(channel) ? channel : (channels.includes('energy') ? 'energy' : channels[0] ?? null);
   if (ch && channel && ch !== channel) {
     notes.push(channelNote(channel, ch, EVENT_CHANNEL_LABELS, offer.event.disabledChannels[channel]));
   }
+  if (selection && ch && !(ch in SELECTION_CHANNELS)) {
+    notes.push(`Drawn by ${EVENT_CHANNEL_LABELS.energy}: ${EVENT_CHANNEL_LABELS[ch] ?? ch} is `
+      + `${SELECTION_CHANNEL_SHUT}. The selected channel is kept in the link.`);
+    ch = 'energy';
+  }
   const bothDrawable = n === 2 && drawn === 'lab';
   let three = n === 2 && ['a', 'b', 'both'].includes(shower) ? shower : 'a';
-  if (three === 'both' && !bothDrawable) {
+  if (selection) {
+    // Every hit of the selection, as the Physics page's projections beside it (Martin's decision).
+    three = n === 2 ? 'both' : 'a';
+  } else if (three === 'both' && !bothDrawable) {
     three = 'a';
     notes.push(BOTH_SHOWERS_NOTE);
   }
@@ -293,8 +346,10 @@ export function resolveEventView({ frame, channel, shower } = {}, offer) {
     shower: three,
     rasterShower: three === 'both' ? 'a' : three,
     notes,
-    projectionNote: three === 'both' ? PROJECTIONS_ONE_SHOWER : null,
+    projectionNote: three === 'both' && !selection ? PROJECTIONS_ONE_SHOWER : null,
     bothDrawable,
+    scope: selection ? 'selection' : 'event',
+    selectionOffered,
   };
 }
 
@@ -348,6 +403,35 @@ export function eventRequests({ filters, eventNumber, view, model = 'segmentatio
     },
   } : null;
   return { raster, voxels };
+}
+
+/**
+ * The event pair's two requests in the selection scope: the selection's
+ * cells (null without WebGL) and the Physics page's Absolute projections of
+ * the same selection and channel, on their Native Grid and the selection's
+ * own reference. The network is named only where a CAM channel reads it.
+ * Pure.
+ */
+export function selectionRequests({ filters, view, model = 'segmentation', gl = true }) {
+  const network = EVENT_CAM.has(view.channel) ? model : undefined;
+  const projections = view.channel ? {
+    route: '/api/projections',
+    abortKey: VOXEL_ABORT_KEYS.event2d,
+    params: {
+      ...filters,
+      ...apiFrame('lab'),
+      channel: SELECTION_CHANNELS[view.channel] ?? 'density',
+      model: network,
+      display: 'native',
+      rho_norm: 'selection',
+    },
+  } : null;
+  const voxels = gl && view.channel ? {
+    route: '/api/selection-cells',
+    abortKey: VOXEL_ABORT_KEYS.event3d,
+    params: { ...filters, channel: view.channel, model: network, window: EVENT_WINDOW },
+  } : null;
+  return { projections, voxels };
 }
 
 /**
@@ -614,10 +698,20 @@ export class VoxelSection {
     return record;
   }
 
-  /** The 3-D cards' own controls: the event picker, the shower, the channel, the camera. */
+  /** The 3-D cards' own controls: the scope, the event picker, the shower, the channel, the camera. */
   buildGlControls(record, actions) {
     const c = record.controls;
     if (record.spec.pair === 'event') {
+      const scope = make('span', 'seg');
+      scope.setAttribute('role', 'group');
+      scope.setAttribute('aria-label', 'What the 3-D view draws');
+      const scopeButtons = new Map();
+      for (const value of ['selection', 'event']) {
+        const button = miniButton(SCOPE_LABELS[value], SCOPE_TITLES[value], { voxelScope: value });
+        button.addEventListener('click', () => this.setScope(value));
+        scopeButtons.set(value, button);
+        scope.append(button);
+      }
       const number = make('input', 'mini-select');
       number.type = 'number';
       number.min = '0';
@@ -656,8 +750,8 @@ export class VoxelSection {
       }
       const channel = this.channelSelect('voxelChannel', 'Colour the cubes by', EVENT_CHANNEL_LABELS,
         (value) => this.setValue({ voxel_channel: value }));
-      Object.assign(c, { number, prev, next, densest, pick, showers, showerButtons, channel });
-      actions.append(number, prev, next, densest, pick, showers, channel);
+      Object.assign(c, { scope, scopeButtons, number, prev, next, densest, pick, showers, showerButtons, channel });
+      actions.append(scope, number, prev, next, densest, pick, showers, channel);
     } else {
       c.channel = this.channelSelect('ensChannel', 'Colour the voxels by', ENSEMBLE_CHANNEL_LABELS,
         (value) => this.setValue({ ens_channel: value }));
@@ -727,7 +821,7 @@ export class VoxelSection {
   /** A view key, with its built-in default while the state does not hold it. */
   value(key) {
     const fallback = {
-      voxel_event: null, voxel_shower: 'a', voxel_channel: 'energy', ens_channel: 'density',
+      voxel_scope: 'selection', voxel_event: null, voxel_shower: 'a', voxel_channel: 'energy', ens_channel: 'density',
       frame: 'lab', model: 'segmentation', anchor: 'backprojected', palette: 'viridis',
     }[key] ?? null;
     const v = this.state?.get?.(key);
@@ -741,9 +835,25 @@ export class VoxelSection {
     this.refreshVisible();
   }
 
+  /** Draw one event (null: the densest); choosing one leaves the selection scope. */
   setEvent(eventNumber) {
     this.pickRule = null;
-    this.setValue({ voxel_event: eventNumber });
+    this.setValue({ voxel_event: eventNumber, voxel_scope: 'event' });
+  }
+
+  /** Draw the selection, or one event. The selection forgets a pinned event, so the link means it. */
+  setScope(scope) {
+    this.pickRule = null;
+    this.setValue(scope === 'selection' ? { voxel_scope: 'selection', voxel_event: null } : { voxel_scope: 'event' });
+  }
+
+  /**
+   * The scope asked for: one event where the link names one, whatever the
+   * scope key says (an older bookmark keeps its meaning), else the key's.
+   */
+  eventScope() {
+    if (Number.isInteger(this.value('voxel_event'))) return 'event';
+    return this.value('voxel_scope') === 'event' ? 'event' : 'selection';
   }
 
   /** The neighbouring event within the selection, as the last response named it. */
@@ -769,6 +879,7 @@ export class VoxelSection {
   eventView() {
     return resolveEventView({
       frame: this.value('frame'), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
+      scope: this.eventScope(),
     }, this.offer);
   }
 
@@ -831,6 +942,11 @@ export class VoxelSection {
     if (name === 'event') {
       const view = this.eventView();
       if (!view.frame || !view.channel) return null;
+      if (view.scope === 'selection') {
+        return requestKey('vox-selection', {
+          ...filters, channel: view.channel, model: EVENT_CAM.has(view.channel) ? this.value('model') : undefined, gl,
+        });
+      }
       const event = this.value('voxel_event');
       return requestKey('vox-event', {
         ...filters, event: Number.isInteger(event) ? event : 'densest', frame: view.frame, channel: view.channel,
@@ -877,7 +993,8 @@ export class VoxelSection {
   }
 
   loadPair(name, key) {
-    return name === 'event' ? this.loadEvent(key) : this.loadEnsemble(key);
+    if (name === 'event') return this.eventView().scope === 'selection' ? this.loadSelection(key) : this.loadEvent(key);
+    return this.loadEnsemble(key);
   }
 
   /** One response per request: joined while in flight, kept for a view returned to. */
@@ -947,6 +1064,7 @@ export class VoxelSection {
       }
       pair.view = view;
       pair.pick = pick;
+      pair.payloads.projections = null;
       this.drawEventCells(pair, results[0]);
       this.drawGl(pair, results[1], gl, decodeEventVoxels);
       this.syncControls();
@@ -954,6 +1072,39 @@ export class VoxelSection {
     } catch (error) {
       if (!isAbort(error) && stage === 'pick' && this.keyOf('event') === key) this.failPair(pair, error);
       throw error;
+    } finally {
+      if (pair.loading === loading) {
+        pair.loading = null;
+        this.setPairBusy(pair, false);
+      }
+    }
+  }
+
+  /** The selection scope: its cells and the Physics page's Absolute projections of it; no pick. */
+  async loadSelection(key) {
+    const pair = this.pairs.event;
+    const loading = {};
+    pair.loading = loading;
+    this.setPairBusy(pair, true);
+    try {
+      const view = this.eventView();
+      const gl = this.glAvailable();
+      const requests = selectionRequests({ filters: this.state.filterParams(), view, model: this.value('model'), gl });
+      const results = await Promise.allSettled([
+        this.fetchShared(requests.projections),
+        requests.voxels ? this.fetchShared(requests.voxels) : Promise.resolve(null),
+      ]);
+      if (this.keyOf('event') !== key || results.some((r) => r.status === 'rejected' && isAbort(r.reason))) {
+        VoxelSection.settle(results);
+        return;
+      }
+      pair.view = view;
+      pair.pick = null;
+      pair.payloads.raster = null;
+      this.drawEnsembleCells(pair, results[0], 'the 3-D selection');
+      this.drawGl(pair, results[1], gl, decodeEventVoxels);
+      this.syncControls();
+      VoxelSection.settle(results);
     } finally {
       if (pair.loading === loading) {
         pair.loading = null;
@@ -1041,8 +1192,11 @@ export class VoxelSection {
     }
   }
 
-  /** The selection's three spatial panels, in the cloud's frame. */
-  drawEnsembleCells(pair, result) {
+  /**
+   * The selection's three spatial panels: the cloud's frame, or the Absolute
+   * frame beside the selection's cells (`beside` names the 3-D view).
+   */
+  drawEnsembleCells(pair, result, beside = 'the 3-D cloud') {
     if (result.status !== 'fulfilled') {
       pair.payloads.projections = null;
       for (const record of pair.cells) this.failCard(record, result.reason);
@@ -1072,7 +1226,7 @@ export class VoxelSection {
       this.hideMessage(record);
       record.title.textContent = panelTitle(col, kind, this.offer.nShowers);
       this.setTag(record, null);
-      this.setCaption(record, [this.drawnIn(pair.view, 'the 3-D cloud')]);
+      this.setCaption(record, [this.drawnIn(pair.view, beside)]);
       this.onRendered(record.spec.id, payload);
     }
   }
@@ -1213,8 +1367,8 @@ export class VoxelSection {
     });
     pair.built = built;
     if (pair.name === 'event') {
-      record.title.textContent = pair.model.regime === 'cells'
-        ? VOXEL_TITLES['vox-event'] : 'One Event in 3-D — Sub-deposit Voxels';
+      record.title.textContent = pair.model.scope === 'selection' ? SELECTION_3D_TITLE
+        : (pair.model.regime === 'cells' ? VOXEL_TITLES['vox-event'] : 'One Event in 3-D — Sub-deposit Voxels');
     }
     this.setTag(record, frameLabel(pair.model.frame, this.offer.nShowers));
     this.setCaption(record, pair.view?.notes ?? []);
@@ -1346,7 +1500,20 @@ export class VoxelSection {
   renderSparse(pair) {
     const payload = pair.payloads.voxels;
     const lines = [];
-    if (payload && pair.name === 'event') {
+    if (payload && pair.name === 'event' && payload.selection) {
+      // The selection's cells (GET /api/selection-cells): its counts, no event to name.
+      const cap = payload.voxels?.cap ?? {};
+      lines.push(`The selection, ${formatInt(payload.selection.n_events)} events: ${formatInt(cap.n_drawn)} of `
+        + `${formatInt(cap.n_total)} cells drawn, each the mean per selected event.`);
+      if ((cap.n_beyond ?? 0) > 0) {
+        lines.push(`Cap ${formatInt(cap.limit)}: the ${formatInt(cap.n_beyond)} weakest cells beyond it hold `
+          + `${formatPercent(cap.fraction_beyond, 3)} of the energy, counted and not drawn.`);
+      }
+      const below = payload.voxels?.below_floor?.n ?? 0;
+      if (below > 0 && payload.voxels?.channel === 'energy') {
+        lines.push(`${formatInt(below)} below the ramp floor, drawn at its lowest colour and flagged.`);
+      }
+    } else if (payload && pair.name === 'event') {
       const event = payload.event ?? {};
       const cap = payload.voxels?.cap ?? {};
       // A single-shower experiment's one shower needs no name.
@@ -1499,21 +1666,50 @@ export class VoxelSection {
       if (c.next) c.next.disabled = !Number.isInteger(shown?.next);
       if (c.densest) c.densest.classList.toggle('is-active', !Number.isInteger(n));
       const view = this.eventView();
+      const selection = view.scope === 'selection';
+      if (c.scopeButtons) {
+        for (const [value, button] of c.scopeButtons) {
+          button.classList.toggle('is-active', value === view.scope);
+          button.setAttribute('aria-pressed', String(value === view.scope));
+        }
+        const whole = c.scopeButtons.get('selection');
+        whole.disabled = !view.selectionOffered;
+        whole.title = view.selectionOffered ? SCOPE_TITLES.selection : SELECTION_SHUT;
+      }
+      // The event picker belongs to one event; the selection has none to step through.
+      for (const control of [c.number, c.prev, c.next, c.densest, c.pick]) if (control) control.hidden = selection;
       if (c.showers) {
         c.showers.hidden = (this.offer.nShowers ?? 2) !== 2;
-        for (const [value, button] of c.showerButtons) button.classList.toggle('is-active', value === view.shower);
-        const both = c.showerButtons.get('both');
-        both.disabled = !view.bothDrawable;
-        both.title = view.bothDrawable ? BOTH_SHOWERS_TITLE : BOTH_SHOWERS_SHUT;
+        for (const [value, button] of c.showerButtons) {
+          button.classList.toggle('is-active', value === view.shower);
+          button.disabled = selection;
+          button.title = selection ? SELECTION_SHOWERS_TITLE
+            : { a: 'Shower A', b: 'Shower B', both: BOTH_SHOWERS_TITLE }[value];
+        }
+        if (!selection) {
+          const both = c.showerButtons.get('both');
+          both.disabled = !view.bothDrawable;
+          both.title = view.bothDrawable ? BOTH_SHOWERS_TITLE : BOTH_SHOWERS_SHUT;
+        }
       }
       // A choice that resolves to the picture in hand (both showers in a per-shower frame, a channel the
       // experiment lacks) changes no request, so nothing reloads: its note goes on the card here.
       if (event.model && event.view && event.view.frame === view.frame && event.view.channel === view.channel
-        && event.view.shower === view.shower) {
+        && event.view.shower === view.shower && event.view.scope === view.scope) {
         event.view = view;
         this.setCaption(event.gl, view.notes);
       }
-      this.syncChannel(c.channel, this.offer.event, view.channel);
+      // The selection draws energy, Grad-CAM or Shap-CAM: the per-event channels are shut, saying why.
+      const offer = selection ? {
+        ...this.offer.event,
+        channels: this.offer.event.channels.filter((ch) => ch in SELECTION_CHANNELS),
+        disabledChannels: {
+          ...this.offer.event.disabledChannels,
+          ...Object.fromEntries(this.offer.event.channels.filter((ch) => !(ch in SELECTION_CHANNELS))
+            .map((ch) => [ch, `${EVENT_CHANNEL_LABELS[ch] ?? ch} is ${SELECTION_CHANNEL_SHUT}.`])),
+        },
+      } : this.offer.event;
+      this.syncChannel(c.channel, offer, view.channel);
       c.reset.disabled = !event.model;
     }
     const ensemble = this.pairs.ensemble;
@@ -1682,6 +1878,9 @@ export class VoxelSection {
       if (pair.name === 'event' && pair.payloads.raster) {
         this.drawEventCells(pair, { status: 'fulfilled', value: pair.payloads.raster });
       }
+      if (pair.name === 'event' && pair.view.scope === 'selection' && pair.payloads.projections) {
+        this.drawEnsembleCells(pair, { status: 'fulfilled', value: pair.payloads.projections }, 'the 3-D selection');
+      }
       if (pair.name === 'ensemble' && pair.payloads.projections) {
         this.drawEnsembleCells(pair, { status: 'fulfilled', value: pair.payloads.projections });
       }
@@ -1730,6 +1929,15 @@ export class VoxelSection {
 
   /** The sentences that tie a projection to its 3-D view. */
   pairing(pair) {
+    if (pair.name === 'event' && pair.view?.scope === 'selection') {
+      return ['Paired with the 3-D view of the same selection: the Physics page\'s Absolute projections of the '
+        + 'same channel on their Native Grid, every hit of both showers summed, each with its own window, floor '
+        + 'and disclosures. The XY panel sums the entrance slab, as on the Physics page; the 3-D view beside it '
+        + 'draws every layer.',
+        'Each ramp is labelled in its own units: an energy panel here sums the selection\'s energy over a projected '
+        + 'cell, where a cube holds the mean per selected event over its cell\'s volume, so the two differ by the '
+        + 'number of events and the cell\'s size and are read on their own colour bars.'];
+    }
     if (pair.name === 'event') {
       const view = pair.view ?? {};
       const lines = [view.projectionNote];
@@ -1773,11 +1981,13 @@ export class VoxelSection {
         slice,
       });
     }
-    const payload = pair.name === 'event' ? pair.payloads.raster : pair.payloads.projections;
+    // The selection scope's projections are the Physics page's, as the cloud's are.
+    const raster = pair.name === 'event' && pair.view?.scope !== 'selection';
+    const payload = raster ? pair.payloads.raster : pair.payloads.projections;
     if (!payload) return record.error ? shut(record.error) : null;
     const col = record.spec.col;
     return voxelProjectionNotes({
-      pair: pair.name, payload, panelId: col, frameKind: pair.view?.frame ?? 'lab',
+      pair: raster ? 'event' : 'ensemble', payload, panelId: col, frameKind: pair.view?.frame ?? 'lab',
       view: record.panel?.currentView?.() ?? null, isometric: { [col]: Boolean(record.panel?.isometric) },
       pairing: [...this.pairing(pair), record.slab ? sliceBandNote(pair.plan) : null], state, experiment, title,
     });
@@ -1792,7 +2002,7 @@ export class VoxelSection {
     if (!record) return undefined;
     if (record.spec.gl || record.disabled || !record.panel || record.error) return null;
     const pair = this.pairs[record.spec.pair];
-    if (pair.name === 'event') {
+    if (pair.name === 'event' && pair.view?.scope !== 'selection') {
       const raster = pair.payloads.raster;
       if (!raster) return null;
       const kind = pair.view?.frame ?? 'lab';
@@ -1817,7 +2027,7 @@ export class VoxelSection {
     for (const record of this.cards.values()) {
       const pair = this.pairs[record.spec.pair];
       const payload = record.spec.gl ? pair.payloads.voxels
-        : (pair.name === 'event' ? pair.payloads.raster : pair.payloads.projections);
+        : (pair.name === 'event' && pair.view?.scope !== 'selection' ? pair.payloads.raster : pair.payloads.projections);
       if (!payload || record.disabled) continue;
       out.push(...warningsNotShown(payload.meta?.warnings ?? [], notesText(this.notes(record.spec.id))));
     }

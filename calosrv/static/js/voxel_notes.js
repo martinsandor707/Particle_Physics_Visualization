@@ -37,6 +37,23 @@ export const VOXEL_TITLES = Object.freeze({
   'vox-ensemble': 'The Selection in 3-D — Voxel Cloud',
 });
 
+/**
+ * The event card's title while it draws the selection (voxel_views.js, "The
+ * selection scope"). Kept out of VOXEL_TITLES, which the dark golden records
+ * as it stood.
+ */
+export const SELECTION_3D_TITLE = 'The Selection in 3-D — Detector Cells';
+
+/** The selection's line of the Selection section: its events, hits and cells, every hit summed. */
+function selectionLine(selection, vox) {
+  const n = selection.n_events ?? 0;
+  // Two showers where the cubes can hold either's rows (voxels.js reads the same labels).
+  const showers = (vox?.cubes?.shower_codes ?? []).filter((c) => c && c !== '—').length > 1;
+  const both = showers ? ' of both showers' : '';
+  return `${plural(n, 'selected event')}: ${plural(selection.n_hits ?? 0, 'hit')} in `
+    + `${plural(selection.n_cells ?? 0, 'detector cell')}, every hit${both} summed per cell.`;
+}
+
 /** The recorded exception, as every 3-D drawer states it. */
 export const VOXEL_EXCEPTION =
   'A 3-D view under the recorded exception to the no-3-D rule: an orthographic camera (no '
@@ -163,7 +180,7 @@ function binCount(plan, n) {
  * `kind` 'event' | 'ensemble'; `drawn` the option builder's summary, whose
  * `outsideSlice` counts the cubes of the other slices.
  */
-export function sliceNoteLines(slice, drawn = null, kind = 'event') {
+export function sliceNoteLines(slice, drawn = null, kind = 'event', { selection = false } = {}) {
   const none = { drawn: [], disclosures: [], legend: [], hazards: [] };
   if (!slice || !(slice.K > 1)) return none;
   const [small, large] = slice.sizes ?? [];
@@ -198,9 +215,12 @@ export function sliceNoteLines(slice, drawn = null, kind = 'event') {
     Number.isFinite(drawn?.outsideSlice)
       ? `${plural(drawn.outsideSlice, cube)} of the other slices ${drawn.outsideSlice === 1 ? 'is' : 'are'} not drawn.`
       : '',
-    kind === 'event'
-      ? 'The paired XY projection still sums every layer; the two depth projections mark the slice with a bracket.'
-      : 'The paired entry-plane projection still sums every layer; the two depth projections mark the slice with a bracket.',
+    selection
+      ? 'The paired XY projection is the Physics page\'s entrance slab, whatever the slice; the two depth projections '
+        + 'mark the slice with a bracket.'
+      : kind === 'event'
+        ? 'The paired XY projection still sums every layer; the two depth projections mark the slice with a bracket.'
+        : 'The paired entry-plane projection still sums every layer; the two depth projections mark the slice with a bracket.',
   ];
   lines.legend = [sliceScaleNote(cube)];
   lines.hazards = ['one depth slice drawn'];
@@ -225,10 +245,14 @@ export function voxelEventNotes({
 }) {
   const vox = payload?.voxels;
   if (!vox) return null;
-  const sliced = sliceNoteLines(slice, drawn, 'event');
-  const notes = new Notes(title ?? VOXEL_TITLES['vox-event']);
+  // The selection's cells (`GET /api/selection-cells`) come in the same body, with `selection` for `event`.
+  const selection = payload.selection ?? null;
+  const sliced = sliceNoteLines(slice, drawn, 'event', { selection: Boolean(selection) });
+  const notes = new Notes(title ?? (selection ? SELECTION_3D_TITLE : VOXEL_TITLES['vox-event']));
   const event = payload.event ?? {};
-  notes.section(SECTION.selection, [...eventSelection(event, pick), filtersLine(state, experiment)]);
+  notes.section(SECTION.selection, selection
+    ? [selectionLine(selection, vox), filtersLine(state, experiment)]
+    : [...eventSelection(event, pick), filtersLine(state, experiment)]);
 
   const scale = vox.scale ?? {};
   const channel = EVENT_CHANNELS[vox.channel] ?? vox.channel;
@@ -236,6 +260,8 @@ export function voxelEventNotes({
   notes.section(SECTION.drawn, [
     VOXEL_EXCEPTION,
     `Coloured by ${channel}${network}.`,
+    selection?.quantity ?? '',
+    selection?.aggregation ?? '',
     vox.geometry?.note ?? '',
     vox.geometry?.depth?.note ? `Depth: ${vox.geometry.depth.note}.` : '',
     scale.floor_rule ?? '',
@@ -292,7 +318,10 @@ export function voxelEventNotes({
       : ' A raw Shap-CAM cube near zero is drawn in the border grey of zero, as the 2-D panels draw it.';
     legend.push(legibleRampNote() + (scale.diverging ? raw : ''));
   }
-  legend.push(`A halo - a ${onLightScreen() ? 'dark outer and a light inner' : 'light outer and a dark inner'} outline - marks a primary-tagged cube (is_secondary = 0).`);
+  // A primary tag belongs to one event's rows; the selection's cells carry none.
+  if (!selection) {
+    legend.push(`A halo - a ${onLightScreen() ? 'dark outer and a light inner' : 'light outer and a dark inner'} outline - marks a primary-tagged cube (is_secondary = 0).`);
+  }
   if ((vox.cubes?.shower_codes ?? []).filter((c) => c && c !== '—').length > 1) {
     legend.push(`Each cube's tooltip names whose rows it holds: ${listText(vox.cubes.shower_codes)}.`);
   }

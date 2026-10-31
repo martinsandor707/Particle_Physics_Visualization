@@ -62,7 +62,11 @@ export const SHOWERS = ['a', 'b'];
  * page keeps both pages' state. `event` and `shower` pin the Physics page's
  * Event Inspector and are never reused here: the 3-D event view has its own
  * `voxel_event` and `voxel_shower`, so opening the Models page never pins an
- * event on the Physics page, nor the reverse. */
+ * event on the Physics page, nor the reverse. `voxel_scope` says whether that
+ * card draws the whole selection (the default in the Absolute frame, Martin's
+ * directive of 2026-10-31) or one event; a link that names a `voxel_event`
+ * opens that event whatever the scope, so an older bookmark keeps its
+ * meaning. */
 
 /* The per-event features the explorer offers (GET /api/features?view=catalog):
  * the 19 features of the aggregate, plus the two circular companions a hit
@@ -81,6 +85,8 @@ export const FEATURE_CLASSES = Object.freeze(['windows', 'label']);
 export const FEATURE_SHOWERS = Object.freeze(['a', 'b']);
 /* The 3-D event view: one shower of the event, or both (two-shower data). */
 export const VOXEL_SHOWERS = Object.freeze(['a', 'b', 'both']);
+/* What the 3-D event card draws in the Absolute frame: the selection's cells, or one event. */
+export const VOXEL_SCOPES = Object.freeze(['selection', 'event']);
 /* The 3-D views' channels (GET /api/event?format=voxels, GET /api/voxels). */
 export const VOXEL_CHANNELS = Object.freeze(['energy', 'gradcam', 'shapcam', 'segerr', 'species']);
 export const ENSEMBLE_CHANNELS = Object.freeze(['density', 'gradcam_energy', 'shapcam_energy']);
@@ -106,6 +112,7 @@ const ENUMS = {
   fclass: FEATURE_CLASSES,
   fshower: FEATURE_SHOWERS,
   voxel_shower: VOXEL_SHOWERS,
+  voxel_scope: VOXEL_SCOPES,
   voxel_channel: VOXEL_CHANNELS,
   ens_channel: ENSEMBLE_CHANNELS,
   xgb_task: XGB_TASKS,
@@ -197,12 +204,14 @@ export const DEFAULTS = Object.freeze({
   // The Models page (see "The Models page's keys" above). The feature the
   // explorer's histograms draw, the classes it splits the selection into and,
   // on two-shower data, whose features (shower A or B); the 3-D event view's
-  // event (null = none chosen yet: the view offers the densest), shower and
-  // channel; the ensemble cloud's channel; the XGBoost task and, for the angle
-  // model, which output a per-label view draws.
+  // scope (the selection, or one event), event (null = none chosen yet: one
+  // event is the densest), shower and channel; the ensemble cloud's channel;
+  // the XGBoost task and, for the angle model, which output a per-label view
+  // draws.
   feature: 'num_hits',
   fclass: 'windows',
   fshower: 'a',
+  voxel_scope: 'selection',
   voxel_event: null,
   voxel_shower: 'a',
   voxel_channel: 'energy',

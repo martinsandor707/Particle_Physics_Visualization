@@ -398,6 +398,12 @@ function raster(eventNumber) {
   };
 }
 
+/* The selection's cells (GET /api/selection-cells) the fake server answers with, by experiment and channel. */
+function selectionFixture(table, channel) {
+  if (table === 'single_hits') return 'selection_cells_single';
+  return channel === 'shapcam' ? 'selection_cells_base_shapcam' : 'selection_cells_base';
+}
+
 async function runSection({ table, values = {}, webgl = true, refuse3d = false, act = null }) {
   const exp = experiments.find((e) => e.table_name === table);
   const requests = [];
@@ -420,7 +426,15 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
     if (u.pathname === '/api/voxels') {
       return json(load(table === 'single_hits' ? 'voxels_single_local' : (q.frame === 'canonical' ? 'voxels_base_canonical_shapcam' : 'voxels_base_local')));
     }
-    if (u.pathname === '/api/projections') return json(load(table === 'single_hits' ? 'projections_single_local' : 'projections_base_lab'));
+    if (u.pathname === '/api/projections') {
+      // The selection scope asks for the Physics page's Absolute projections (coord_system and frame lab).
+      const lab = q.coord_system === 'lab' && q.frame === 'lab';
+      return json(load(table === 'single_hits' ? (lab ? 'projections_single_lab' : 'projections_single_local') : 'projections_base_lab'));
+    }
+    if (u.pathname === '/api/selection-cells') {
+      if (refuse3d) return json({ title: 'Unsupported capability', detail: 'The 3-D view is shut for this test.' }, 422);
+      return json(load(selectionFixture(table, q.channel)));
+    }
     return json({ detail: 'no such route' }, 404);
   };
   const charts = [];
@@ -455,9 +469,10 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
     setOverlay(key, value) { this.opts = { ...this.opts, [key]: value }; overlays.push([this.id, key, value]); }
     clear() {} relayout() {} setBusy() {} currentView() { return null; }
   }
+  // One event unless a run asks otherwise: the selection scope (the cold-boot default) has runs of its own.
   const state = {
-    values: { table_name: table, voxel_event: null, voxel_shower: 'a', voxel_channel: 'energy', ens_channel: 'density',
-      frame: 'lab', model: 'segmentation', palette: 'viridis', anchor: 'backprojected', ...values },
+    values: { table_name: table, voxel_scope: 'event', voxel_event: null, voxel_shower: 'a', voxel_channel: 'energy',
+      ens_channel: 'density', frame: 'lab', model: 'segmentation', palette: 'viridis', anchor: 'backprojected', ...values },
     get(k) { return this.values[k]; },
     set(patch) { Object.assign(this.values, patch); return true; },
     filterParams() { return { table_name: this.values.table_name }; },
@@ -500,6 +515,10 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
       sparse: rec.sparse ? (rec.sparse.hidden ? null : rec.sparse.textContent) : undefined,
       options: rec.controls.channel ? rec.controls.channel.options.map((o) => [o.value, o.disabled, o.title]) : null,
       showersHidden: rec.controls.showers ? rec.controls.showers.hidden : null,
+      scopeButtons: rec.controls.scopeButtons ? [...rec.controls.scopeButtons].map(([value, b]) => ({
+        value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active'),
+        pressed: b.getAttribute('aria-pressed') })) : null,
+      pickerHidden: rec.controls.number ? ['number', 'prev', 'next', 'densest', 'pick'].map((k) => Boolean(rec.controls[k].hidden)) : null,
       slices: rec.slices ? { hidden: rec.slices.element.hidden, readout: rec.slices.readout.textContent } : null,
       showerButtons: rec.controls.showerButtons ? [...rec.controls.showerButtons].map(([value, b]) => ({
         value, disabled: Boolean(b.disabled), title: b.title, active: b.classList.contains('is-active') })) : null,
@@ -578,6 +597,50 @@ out.section.single = await runSection({ table: 'single_hits', values: { voxel_ch
 out.section.noGl = await runSection({ table: 'experiment_baseline', webgl: false });
 out.section.refused = await runSection({ table: 'experiment_baseline', refuse3d: true });
 out.section.events = await runSection({ table: 'single_events' });
+/* The selection scope (the cold-boot default in the Absolute frame): `voxel_scope` left to its fallback. */
+out.section.selection = await runSection({ table: 'experiment_baseline', values: { voxel_scope: undefined } });
+out.section.selectionShap = await runSection({ table: 'experiment_baseline', values: { voxel_scope: 'selection', voxel_channel: 'shapcam' } });
+out.section.selectionSingle = await runSection({ table: 'single_hits', values: { voxel_scope: undefined, voxel_channel: 'species' } });
+// An older link names an event and no scope: it opens that event.
+out.section.oldLink = await runSection({ table: 'experiment_baseline', values: { voxel_scope: undefined, voxel_event: 7 } });
+// Outside the Absolute frame the card draws one event; the Selection button says why it is shut.
+out.section.selectionLocal = await runSection({ table: 'experiment_baseline', values: { voxel_scope: undefined, frame: 'local' } });
+// The reader leaves the selection for one event, comes back, then picks an event by number.
+out.section.scopeSwitch = await runSection({ table: 'experiment_baseline', values: { voxel_scope: undefined },
+  act: async (section, ctx) => {
+    const snap = (label) => ({ label, scope: section.eventView().scope, state: { scope: ctx.state.values.voxel_scope,
+      event: ctx.state.values.voxel_event }, title: section.cards.get('vox-event').title.textContent,
+      vproj: section.cards.get('vproj-xz').title.textContent, requests: ctx.requests.length });
+    const steps = [snap('selection')];
+    section.setScope('event');
+    await section.refresh();
+    steps.push(snap('one event'));
+    section.setScope('selection');
+    await section.refresh();
+    steps.push(snap('selection again'));
+    section.setEvent(5);
+    await section.refresh();
+    steps.push(snap('event 5'));
+    section.setScope('selection');
+    await section.refresh();
+    steps.push(snap('selection after an event'));
+    return { steps, paths: ctx.requests.map(([path, q]) => [path, q.coord_system ?? null, q.channel ?? null]) };
+  } });
+/* The scope's pure helpers. */
+{
+  const exp = experiments.find((e) => e.table_name === 'experiment_baseline');
+  const offer = vv.normaliseOffer(caps.page2Plan(exp).voxels);
+  const filters = { table_name: exp.table_name };
+  out.scope = {
+    views: Object.fromEntries(['lab', 'trans', 'local', 'canonical'].flatMap((frame) => ['energy', 'gradcam', 'segerr']
+      .map((channel) => [`${frame}|${channel}`, vv.resolveEventView({ frame, channel, shower: 'a', scope: 'selection' }, offer)]))),
+    eventDefault: vv.resolveEventView({ frame: 'lab', channel: 'energy', shower: 'b' }, offer),
+    requests: Object.fromEntries(['energy', 'gradcam', 'shapcam'].map((channel) => {
+      const view = vv.resolveEventView({ frame: 'lab', channel, shower: 'a', scope: 'selection' }, offer);
+      return [channel, { gl: vv.selectionRequests({ filters, view, model: 'energy' }), noGl: vv.selectionRequests({ filters, view, gl: false }) }];
+    })),
+  };
+}
 out.section.pinned = await runSection({ table: 'experiment_baseline', values: { voxel_event: 7, frame: 'local', voxel_channel: 'shapcam', model: 'angle' } });
 // "Both" asked for in the Local frame, as a link or a hash edit can: nothing reloads, and the card says why it draws A.
 out.section.localBoth = await runSection({ table: 'experiment_baseline', values: { frame: 'local' },
@@ -1736,6 +1799,118 @@ def test_the_ensemble_view_is_co_registered_and_gates_its_parameters(out):
 
 
 # ----------------------------------------------------------------- section --
+
+
+# ------------------------------------------------------------- the selection scope --
+
+
+def test_the_selection_is_resolved_in_the_absolute_frame_only(out):
+    """Martin's directive (2026-10-31): the Absolute card draws the selection; the D-frame draws it in Absolute;
+    the per-shower frames draw one event. Segmentation error falls back to energy with its reason; both showers."""
+    views = out["scope"]["views"]
+    for channel in ("energy", "gradcam"):
+        lab = views[f"lab|{channel}"]
+        assert lab["scope"] == "selection" and lab["selectionOffered"] and lab["shower"] == "both" and lab["channel"] == channel
+        assert lab["projectionNote"] is None and lab["notes"] == []
+        canonical = views[f"canonical|{channel}"]
+        assert canonical["frame"] == "lab" and canonical["scope"] == "selection"
+        assert any(n.startswith("Drawn in the Absolute frame: the selection is summed") for n in canonical["notes"])
+        for frame in ("trans", "local"):
+            one = views[f"{frame}|{channel}"]
+            assert one["scope"] == "event" and not one["selectionOffered"] and one["shower"] == "a"
+    seg = views["lab|segerr"]
+    assert seg["channel"] == "energy" and any("is a per-event quantity" in n and "kept in the link" in n for n in seg["notes"])
+    assert views["local|segerr"]["channel"] == "segerr", "one event keeps its channel"
+    assert out["scope"]["eventDefault"]["scope"] == "event" and out["scope"]["eventDefault"]["shower"] == "b"
+
+
+def test_the_selection_asks_for_its_cells_and_the_physics_pages_absolute_projections(out):
+    for channel, page1 in (("energy", "density"), ("gradcam", "gradcam"), ("shapcam", "shapcam")):
+        got = out["scope"]["requests"][channel]
+        cells, proj = got["gl"]["voxels"], got["gl"]["projections"]
+        assert cells["route"] == "/api/selection-cells" and cells["abortKey"] == "vox-event-3d"
+        assert cells["params"]["channel"] == channel and cells["params"]["window"] == "per_axis"
+        assert cells["params"].get("model") == ("energy" if channel != "energy" else None)
+        assert "event_number" not in cells["params"] and "shower" not in cells["params"] and "frame" not in cells["params"]
+        assert proj["route"] == "/api/projections" and proj["abortKey"] == "vox-event-2d"
+        assert (proj["params"]["coord_system"], proj["params"]["frame"]) == ("lab", "lab")
+        assert proj["params"]["channel"] == page1 and proj["params"]["display"] == "native"
+        assert proj["params"]["rho_norm"] == "selection"
+        assert got["noGl"]["voxels"] is None and got["noGl"]["projections"] is not None
+
+
+def test_the_cold_boot_draws_the_selection_with_no_pick_and_no_event(out):
+    run = out["section"]["selection"]
+    paths = [path for path, _ in run["requests"]]
+    assert "/api/selection-cells" in paths and "/api/event/pick" not in paths and "/api/event" not in paths
+    proj = [q for path, q in run["requests"] if path == "/api/projections" and q.get("coord_system") == "lab"]
+    assert proj and proj[0]["frame"] == "lab" and proj[0]["channel"] == "density"
+    card = run["cards"]["vox-event"]
+    assert card["title"] == "The Selection in 3-D — Detector Cells"
+    assert [(b["value"], b["active"], b["pressed"], b["disabled"]) for b in card["scopeButtons"]] == [
+        ("selection", True, "true", False), ("event", False, "false", False)]
+    assert card["pickerHidden"] == [True] * 5
+    assert all(b["disabled"] and "both showers summed" in b["title"] for b in card["showerButtons"])
+    assert card["notes"]["title"] == "The Selection in 3-D — Detector Cells"
+    assert not card["slices"]["hidden"] and "of the selection's energy" in card["slices"]["readout"]
+    # The 2-D cards are the Physics page's Absolute panels, drawn through the cloud's own path.
+    for col in ("xy", "xz", "yz"):
+        cell = run["cards"][f"vproj-{col}"]
+        # Drawn in the selected frame, so no "drawn in" caption; exportable, with a drawer.
+        assert cell["message"] is None and cell["caption"] is None
+        assert sorted(cell["exportTarget"]) == ["meta", "panel"]
+        assert cell["notes"] and cell["notes"]["headings"]
+    assert run["errors"] == [] and run["refreshError"] is None
+
+
+def test_the_selection_shuts_the_per_event_channels_and_draws_energy(out):
+    single = out["section"]["selectionSingle"]
+    card = single["cards"]["vox-event"]
+    assert card["title"] == "The Selection in 3-D — Detector Cells"
+    asked = [q for path, q in single["requests"] if path == "/api/selection-cells"]
+    assert asked and asked[0]["channel"] == "energy"
+    options = {value: (disabled, title) for value, disabled, title in card["options"]}
+    assert options["species"][0] and "is a per-event quantity" in options["species"][1]
+    assert "Particle species is a per-event quantity" in (card["caption"] or "") and "kept in the link" in (card["caption"] or "")
+    shap = out["section"]["selectionShap"]
+    asked = [q for path, q in shap["requests"] if path == "/api/selection-cells"]
+    assert asked and asked[0]["channel"] == "shapcam" and asked[0]["model"] == "segmentation"
+    page1 = [q for path, q in shap["requests"] if path == "/api/projections" and q.get("coord_system") == "lab"]
+    assert page1 and page1[0]["channel"] == "shapcam"
+
+
+def test_an_older_link_naming_an_event_opens_it(out):
+    run = out["section"]["oldLink"]
+    paths = [path for path, _ in run["requests"]]
+    assert "/api/selection-cells" not in paths and "/api/event" in paths
+    card = run["cards"]["vox-event"]
+    assert card["title"] == "One Event in 3-D — Detector Cells"
+    assert [(b["value"], b["active"]) for b in card["scopeButtons"]] == [("selection", False), ("event", True)]
+    assert card["pickerHidden"] == [False] * 5
+
+
+def test_outside_the_absolute_frame_the_selection_button_says_why_it_is_shut(out):
+    run = out["section"]["selectionLocal"]
+    assert "/api/selection-cells" not in [path for path, _ in run["requests"]]
+    selection, event = run["cards"]["vox-event"]["scopeButtons"]
+    assert selection["disabled"] and selection["title"].startswith("The selection is drawn on the detector cells")
+    assert event["active"] and not event["disabled"]
+
+
+def test_switching_scope_costs_only_what_it_changes(out):
+    value = out["section"]["scopeSwitch"]["acted"]["value"]
+    steps = {s["label"]: s for s in value["steps"]}
+    assert steps["selection"]["scope"] == "selection" and steps["selection"]["title"].startswith("The Selection in 3-D")
+    one = steps["one event"]
+    assert one["scope"] == "event" and one["state"] == {"scope": "event", "event": None}
+    assert one["title"] == "One Event in 3-D — Detector Cells" and one["vproj"].startswith("Event ")
+    back = steps["selection again"]
+    assert back["scope"] == "selection" and back["state"] == {"scope": "selection", "event": None}
+    assert back["requests"] == one["requests"], "the selection's responses are kept: no request on the way back"
+    five = steps["event 5"]
+    assert five["scope"] == "event" and five["state"] == {"scope": "event", "event": 5}
+    after = steps["selection after an event"]
+    assert after["state"] == {"scope": "selection", "event": None}, "the selection forgets the pinned event"
 
 
 def test_the_section_builds_its_cards_with_export_on_the_projections_only(out):

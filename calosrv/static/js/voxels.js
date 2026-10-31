@@ -594,6 +594,10 @@ function topkMap(entries) {
  * `window` the server's window `{x, y, z: [lo, hi]}`: one half-width per axis
  * by default (`window.mode` 'per_axis'), the spans then unequal and the box
  * still 1:1:1 (`boxSizes`); one for all three under 'shared'.
+ *
+ * The selection's cells (`GET /api/selection-cells`) come in the same body,
+ * with a `selection` block where one event's `event` block would be: decoded
+ * alike, `scope` 'selection' (else 'event').
  */
 export function decodeEventVoxels(payload) {
   const vox = payload?.voxels;
@@ -671,7 +675,12 @@ export function decodeEventVoxels(payload) {
     topkUnit: vox.topk_unit ?? null,
     showerCodes: cubes.shower_codes ?? [],
     species,
-    nShowers: (payload.event?.showers ?? []).length || 1,
+    // The selection (`GET /api/selection-cells`) sums every hit of both showers per cell: its cubes name
+    // whose rows they hold wherever the data has two showers.
+    nShowers: payload.selection
+      ? (payload.selection.n_showers ?? ((cubes.shower_codes ?? []).filter((c) => c && c !== '—').length > 1 ? 2 : 1))
+      : ((payload.event?.showers ?? []).length || 1),
+    scope: payload.selection ? 'selection' : 'event',
   };
 }
 
@@ -1129,7 +1138,7 @@ function sumBins(values, a, b) {
 
 /** Whose energy a share of an event's or a cloud's total is, as the readout writes it. */
 function energyOwner(payload, kind) {
-  if (kind === 'ensemble') return 'the selection\'s energy';
+  if (kind === 'ensemble' || payload?.selection) return 'the selection\'s energy';
   const showers = payload?.event?.showers ?? [];
   // One of two showers drawn (named by letter) is that shower's energy; both, or a lone shower, the event's.
   if (showers.length === 1 && ['A', 'B'].includes(showers[0]?.label)) return `shower ${showers[0].label}'s energy`;
@@ -1412,7 +1421,8 @@ const fixed = (value, digits = 1) => typographic(Number(value).toFixed(digits));
 
 /** The unit a model's values are written in, for a reader. */
 function valueUnit(model) {
-  if (model.kind === 'event' && model.scale?.unit === 'GeV/mm^3') return unitSuffix(model.scale.unit);
+  // One event's density, or the selection's mean per selected event (GET /api/selection-cells).
+  if (model.kind === 'event' && ['GeV/mm^3', 'GeV/mm^3/event'].includes(model.scale?.unit)) return unitSuffix(model.scale.unit);
   return '';
 }
 
@@ -1442,13 +1452,15 @@ function valueLine(model, i) {
     if (exact && Number.isFinite(exact.energy_gev)) parts.push(`${formatSci(exact.energy_gev, 3)} GeV`);
     return parts.join(' · ');
   }
+  // The selection's energies are means per selected event.
+  const perEvent = model.scope === 'selection' ? ' per event' : '';
   const label = { energy: 'E/V', gradcam: 'Grad-CAM', shapcam: 'Shap-CAM', segerr: '|f_A,pred − f_A,true|' }[quantity] ?? 'value';
   const unit = valueUnit(model);
   const write = (v) => (quantity === 'shapcam' ? formatSigned(v, 3, { plus: true })
     : quantity === 'energy' ? formatSci(v, 3) : typographic(Number(v).toFixed(3)));
   if (exact && Number.isFinite(exact.value)) {
     return `${label} = ${write(exact.value)}${unit ? ` ${unit}` : ''} (exact)`
-      + (Number.isFinite(exact.energy_gev) ? ` · ${formatSci(exact.energy_gev, 3)} GeV in the cube` : '');
+      + (Number.isFinite(exact.energy_gev) ? ` · ${formatSci(exact.energy_gev, 3)} GeV${perEvent} in the cube` : '');
   }
   const value = codeValue(model, model.code[i]);
   if (value === null) return `${label}: no value`;

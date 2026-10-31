@@ -1,0 +1,730 @@
+{
+ "meta": {
+  "table_name": "single_hits",
+  "exact": true,
+  "warnings": [],
+  "format": "voxels",
+  "frame": "lab",
+  "shower": "a",
+  "channel": "energy",
+  "model": null,
+  "window": "per_axis",
+  "cam": null,
+  "notices": [
+   {
+    "scope": "selection",
+    "text": "Each cube is one detector cell holding the selection's mean energy per selected event as a volumetric density, Σ E / (N · V) in GeV per mm³ per event: every hit of the shower in the cell, summed over the N = 287 selected events and divided by N and by the cell's 48.27 × 48.60 × 20.5 mm volume. Every energy in this body (the cap block, the depth profile, the exact values) is a mean per selected event, in GeV per event."
+   },
+   {
+    "scope": "selection",
+    "text": "One exact scan of the projection table, never the preview sample, sums the 8,573 hits of the N = 287 selected events by detector cell (ix, iy, iz). N is the number of selected events, the selection count every absolute-frame response reports. An event with no hit in a cell adds zero to that cell's mean."
+   },
+   {
+    "scope": "selection",
+    "text": "Cube positions are the laboratory lattice coordinates measured at ingest; the per-shower coordinate columns are not read in this frame."
+   },
+   {
+    "scope": "selection",
+    "text": "Per-axis half-widths: each axis's own energy-weighted 0.1st–99.9th percentile range of the selection's cells (summed over its 287 events), plus one cell footprint across the beam and one layer pitch along depth, so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (x 1,980 mm, y 1,020 mm, z 460 mm here). The box keeps one scale on all three axes (1:1:1), so each side is as long as its axis's span; cells snap it to whole cells. The cells beyond it are counted with the cap, below."
+   },
+   {
+    "scope": "selection",
+    "text": "Logarithmic ramp of the mean volumetric energy density per selected event, Σ E / (N · V) in GeV per mm³ per event, from the 1st percentile of the drawn cubes' positive densities (3.37e−15) to the brightest drawn cube (1.45e−07); 2 cubes below the floor are drawn at the lowest colour and flagged. The floor is the drawn cubes' own, not every cell's: the cap keeps the selection's most energetic cells, and a floor taken over all of them would spend the bottom of the ramp on cells not drawn."
+   },
+   {
+    "scope": "selection",
+    "text": "The notebook's 3-D displays (C5) draw one event; this view draws the selection's mean deposit per selected event in each detector cell, as volumetric density on the one-event view's logarithmic ramp with its 1st-percentile floor, taken here on the drawn cubes, because cell densities span many decades."
+   },
+   {
+    "scope": "selection",
+    "text": "All 117 cells inside the window are drawn. 3 of the selection's 120 cells lie outside the window and are counted, not drawn. 1.36e−05 GeV per selected event (0.0141%) falls outside the window and is counted, not drawn."
+   }
+  ]
+ },
+ "selection": {
+  "n_events": 287,
+  "n_hits": 8573,
+  "n_cells": 120,
+  "quantity": "Each cube is one detector cell holding the selection's mean energy per selected event as a volumetric density, Σ E / (N · V) in GeV per mm³ per event: every hit of the shower in the cell, summed over the N = 287 selected events and divided by N and by the cell's 48.27 × 48.60 × 20.5 mm volume. Every energy in this body (the cap block, the depth profile, the exact values) is a mean per selected event, in GeV per event.",
+  "aggregation": "One exact scan of the projection table, never the preview sample, sums the 8,573 hits of the N = 287 selected events by detector cell (ix, iy, iz). N is the number of selected events, the selection count every absolute-frame response reports. An event with no hit in a cell adds zero to that cell's mean."
+ },
+ "coordinates": {
+  "source": "lattice",
+  "residual_max_mm": null,
+  "tolerance_mm": 0.01,
+  "within_tolerance": null,
+  "note": "Cube positions are the laboratory lattice coordinates measured at ingest; the per-shower coordinate columns are not read in this frame."
+ },
+ "window": {
+  "mode": "per_axis",
+  "half_mm": 1980.0,
+  "half_mm_axes": {
+   "x": 1980.0,
+   "y": 1020.0,
+   "z": 460.0
+  },
+  "percentiles": [
+   0.1,
+   99.9
+  ],
+  "min_half_mm": 150.0,
+  "axes": {
+   "x": [
+    -2260.0,
+    1700.0
+   ],
+   "y": [
+    -240.0,
+    1800.0
+   ],
+   "z": [
+    3640.0,
+    4560.0
+   ]
+  },
+  "rule": "Per-axis half-widths: each axis's own energy-weighted 0.1st–99.9th percentile range of the selection's cells (summed over its 287 events), plus one cell footprint across the beam and one layer pitch along depth, so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (x 1,980 mm, y 1,020 mm, z 460 mm here). The box keeps one scale on all three axes (1:1:1), so each side is as long as its axis's span; cells snap it to whole cells. The cells beyond it are counted with the cap, below."
+ },
+ "footprint_mm": [
+  48.27001953125,
+  48.5999755859375,
+  20.5
+ ],
+ "voxels": {
+  "frame": "lab",
+  "regime": "cells",
+  "symbols": {
+   "x": "x",
+   "y": "y",
+   "z": "z"
+  },
+  "channel": "energy",
+  "model": null,
+  "geometry": {
+   "cube_mm": [
+    48.27001953125,
+    48.5999755859375,
+    20.5
+   ],
+   "axes": {
+    "x": {
+     "i0": 0,
+     "coords": [
+      -2195.087,
+      -2045.873,
+      -2041.468,
+      -1993.198,
+      -1944.928,
+      -1892.254,
+      -1887.849,
+      -1843.984,
+      -1839.579,
+      -1791.309,
+      -1786.905,
+      -1743.039,
+      -1488.476,
+      -1484.072,
+      -1440.206,
+      -1435.802,
+      -1387.532,
+      -1383.127,
+      -1339.262,
+      -1334.857,
+      -1286.587,
+      -1282.183,
+      -1238.317,
+      -1233.913,
+      -1132.968,
+      -1032.024,
+      -983.754,
+      -979.349,
+      -931.079,
+      -882.809,
+      -830.135,
+      -781.865,
+      -777.461,
+      -733.595,
+      -729.191,
+      -680.921,
+      -676.516,
+      -632.651,
+      -628.246,
+      -579.976,
+      -575.572,
+      -531.706,
+      -527.302,
+      -479.032,
+      -430.762,
+      -378.087,
+      -325.413,
+      -224.468,
+      -176.198,
+      -127.928,
+      887.809,
+      936.079,
+      984.349,
+      1041.428,
+      1089.698,
+      1190.643,
+      1238.913,
+      1243.317,
+      1541.746,
+      1546.151,
+      1642.691
+     ]
+    },
+    "y": {
+     "i0": 0,
+     "coords": [
+      -175.8,
+      329.2,
+      478.8,
+      531.2,
+      579.8,
+      632.2,
+      680.8,
+      733.2,
+      781.8,
+      834.2,
+      882.8,
+      935.2,
+      983.8,
+      1036.2,
+      1084.8,
+      1185.8,
+      1286.8,
+      1339.2,
+      1387.8,
+      1440.2,
+      1488.8,
+      1541.2,
+      1589.8,
+      1690.8,
+      1743.2
+     ]
+    },
+    "z": {
+     "i0": 0,
+     "coords": [
+      3662.4,
+      3682.9,
+      3703.4,
+      3723.9,
+      3744.4,
+      3764.9,
+      3785.4,
+      3805.9,
+      3826.4,
+      3846.9,
+      3867.4,
+      3887.9,
+      3908.4,
+      3928.9,
+      3949.4,
+      3969.9,
+      3990.4,
+      4010.9,
+      4031.4,
+      4051.9,
+      4072.4,
+      4092.9,
+      4215.9,
+      4297.9,
+      4523.4
+     ]
+    }
+   },
+   "coords_rounding_mm": 0.001,
+   "origin_mm": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "grid": null,
+   "splat": null,
+   "depth": {
+    "policy": "native_layers",
+    "note": "the detector's own sampling layers"
+   },
+   "note": "One cube per detector cell, centred on its measured lattice coordinates, sized by the measured cell footprint (48.27 × 48.60 mm, the pitch between populated neighbours in one row or column) and the 20.5 mm layer pitch. Centre = axes.<a>.coords[index] − origin_mm; the lattice's x cells are irregular, so no index is ever turned into a position by a pitch."
+  },
+  "cubes": {
+   "n": 117,
+   "order": "ascending energy",
+   "dtype": {
+    "ix": "u8",
+    "iy": "u8",
+    "iz": "u8",
+    "code": "u8",
+    "flags": "u8"
+   },
+   "ix": "DCghDR4PJgEkGCMtHx0cKRwiECgsEhknIBgqJC0mEygsIyUeKicQGysaER4dFRQpLikdDiElFSwhKTgwNxcdLwgFBwUDNTs2NjU2NTU1BzoLNgU1NTUHFgA1NQkGNTYKNQQcNgc2Cjk0BwcKAgcFBDMyCgo8",
+   "iy": "EwkIEgsSCAYLEAkDDwkKCxcKEQoNFgcMBhMKCAsMEw0CCg0PEA8SCgUHFAgKEhMIBQgUEwgTFQoHDwABABIKBAcGBQYHDQsNDQ0NDQ0NBRAHDQUNDg4FEwcODgQHDg4FDQQFDgUOBQ4OBQUFFQUGBw4OBQUY",
+   "iz": "AAAAAAAABQAABQUFBQAAAAAAAAAFAAAFBQAABQUFAAAFBQUFAAAFBQUFAAAFAAAFAAAAAAUAAAAFAAUAAAAAABcUEQ8MBBMAAgcDCQYICxUWAREFCw0PABgODwUQDBAICgwAERASBhILDQwKGA4ODAwNCQcW",
+   "code": "AQEOKjA4a3l8fYCDiIiIiImLi4yNkZSUlZWWl5ebm52enp6fn6OkpaWmpqewvL+/v8HFx8fIyszNzs/Q0dra2tvb293d3t/f39/f39/f3+Dh4eHi4+Pj5OTk5OTl5ufn6enp6evu7u7v7/Dy8/X2+Pj4+fv/",
+   "flags": "CAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "flag_bits": {
+    "shower": [
+     0,
+     1
+    ],
+    "primary": 2,
+    "below_floor": 3
+   },
+   "shower_codes": [
+    "Shower",
+    "—",
+    "—",
+    "—"
+   ]
+  },
+  "scale": {
+   "scale": "log10",
+   "vmin": -14.472079661326394,
+   "vmax": -6.839335958072877,
+   "unit": "GeV/mm^3/event",
+   "mode": "percentile",
+   "locked": true,
+   "global_vmax": 1.4476515575020606e-07,
+   "clipped_low": 2,
+   "clipped_high": 0,
+   "empty_cells": 0,
+   "quantity": "energy_density",
+   "floor_density": 3.372254467393046e-15,
+   "top_density": 1.4476515575020606e-07,
+   "floor_percentile": 1.0,
+   "floor_basis": "drawn_cells",
+   "degenerate": false,
+   "min_code": 1,
+   "floor_rule": "Logarithmic ramp of the mean volumetric energy density per selected event, Σ E / (N · V) in GeV per mm³ per event, from the 1st percentile of the drawn cubes' positive densities (3.37e−15) to the brightest drawn cube (1.45e−07); 2 cubes below the floor are drawn at the lowest colour and flagged. The floor is the drawn cubes' own, not every cell's: the cap keeps the selection's most energetic cells, and a floor taken over all of them would spend the bottom of the ramp on cells not drawn."
+  },
+  "topk": [
+   {
+    "i": 116,
+    "value": 1.4476515575020606e-07,
+    "energy_gev": 0.006961958475673051
+   },
+   {
+    "i": 115,
+    "value": 1.0843284747565322e-07,
+    "energy_gev": 0.005214687039933038
+   },
+   {
+    "i": 114,
+    "value": 9.253205028808367e-08,
+    "energy_gev": 0.004449995500893261
+   },
+   {
+    "i": 113,
+    "value": 8.963878560803674e-08,
+    "energy_gev": 0.0043108543625631586
+   },
+   {
+    "i": 112,
+    "value": 8.875704490343669e-08,
+    "energy_gev": 0.004268450220904039
+   },
+   {
+    "i": 111,
+    "value": 8.71703625785343e-08,
+    "energy_gev": 0.00419214445241431
+   },
+   {
+    "i": 110,
+    "value": 7.645283573510118e-08,
+    "energy_gev": 0.003676723621626536
+   },
+   {
+    "i": 109,
+    "value": 7.433475217530874e-08,
+    "energy_gev": 0.0035748620257551847
+   },
+   {
+    "i": 108,
+    "value": 6.39939253268504e-08,
+    "energy_gev": 0.0030775572237121043
+   },
+   {
+    "i": 107,
+    "value": 5.976086949037463e-08,
+    "energy_gev": 0.0028739836579184043
+   },
+   {
+    "i": 106,
+    "value": 5.0359013561256374e-08,
+    "energy_gev": 0.0024218352784718634
+   },
+   {
+    "i": 105,
+    "value": 4.671315870024853e-08,
+    "energy_gev": 0.002246501027497376
+   },
+   {
+    "i": 104,
+    "value": 4.6516569367055385e-08,
+    "energy_gev": 0.0022370467719663523
+   },
+   {
+    "i": 103,
+    "value": 4.549964585041719e-08,
+    "energy_gev": 0.002188141500120503
+   },
+   {
+    "i": 102,
+    "value": 4.490369691895636e-08,
+    "energy_gev": 0.002159481483882817
+   },
+   {
+    "i": 101,
+    "value": 4.420543084377981e-08,
+    "energy_gev": 0.002125900893338373
+   },
+   {
+    "i": 100,
+    "value": 3.713563861276571e-08,
+    "energy_gev": 0.0017859047133951477
+   },
+   {
+    "i": 99,
+    "value": 3.135319548768428e-08,
+    "energy_gev": 0.0015078189494823026
+   },
+   {
+    "i": 98,
+    "value": 3.108070056055689e-08,
+    "energy_gev": 0.0014947142879519694
+   },
+   {
+    "i": 97,
+    "value": 3.097934431587207e-08,
+    "energy_gev": 0.001489839924621311
+   },
+   {
+    "i": 96,
+    "value": 3.062355551329551e-08,
+    "energy_gev": 0.001472729544317355
+   },
+   {
+    "i": 95,
+    "value": 2.8099087902631323e-08,
+    "energy_gev": 0.0013513243720053663
+   },
+   {
+    "i": 94,
+    "value": 2.671757353591061e-08,
+    "energy_gev": 0.001284885417100697
+   },
+   {
+    "i": 93,
+    "value": 2.6478663268425456e-08,
+    "energy_gev": 0.0012733958887468327
+   },
+   {
+    "i": 92,
+    "value": 2.420754313087412e-08,
+    "energy_gev": 0.0011641745501660204
+   },
+   {
+    "i": 91,
+    "value": 2.2847156473765124e-08,
+    "energy_gev": 0.0010987516563172083
+   },
+   {
+    "i": 90,
+    "value": 2.25428335609362e-08,
+    "energy_gev": 0.0010841163425130587
+   },
+   {
+    "i": 89,
+    "value": 2.1964461836847266e-08,
+    "energy_gev": 0.0010563016387209491
+   },
+   {
+    "i": 88,
+    "value": 2.190677911122933e-08,
+    "energy_gev": 0.0010535275959035696
+   },
+   {
+    "i": 87,
+    "value": 2.1729619032582758e-08,
+    "energy_gev": 0.0010450077203527663
+   },
+   {
+    "i": 86,
+    "value": 2.1295632793825996e-08,
+    "energy_gev": 0.0010241367161557926
+   },
+   {
+    "i": 85,
+    "value": 2.1046284656191216e-08,
+    "energy_gev": 0.0010121452160520303
+   },
+   {
+    "i": 84,
+    "value": 2.0737260316294466e-08,
+    "energy_gev": 0.0009972838040555846
+   },
+   {
+    "i": 83,
+    "value": 1.9405643340370072e-08,
+    "energy_gev": 0.0009332444843460574
+   },
+   {
+    "i": 82,
+    "value": 1.8763489970009612e-08,
+    "energy_gev": 0.0009023624321264115
+   },
+   {
+    "i": 81,
+    "value": 1.84834367734843e-08,
+    "energy_gev": 0.0008888942828671174
+   },
+   {
+    "i": 80,
+    "value": 1.774671111188882e-08,
+    "energy_gev": 0.0008534641171106511
+   },
+   {
+    "i": 79,
+    "value": 1.6461823525549227e-08,
+    "energy_gev": 0.0007916720789945225
+   },
+   {
+    "i": 78,
+    "value": 1.6220142349446008e-08,
+    "energy_gev": 0.0007800492937761946
+   },
+   {
+    "i": 77,
+    "value": 1.6185291128802754e-08,
+    "energy_gev": 0.0007783732499126869
+   },
+   {
+    "i": 76,
+    "value": 1.6073530127561446e-08,
+    "energy_gev": 0.0007729985073110611
+   },
+   {
+    "i": 75,
+    "value": 1.6060082022349685e-08,
+    "energy_gev": 0.0007723517691538328
+   },
+   {
+    "i": 74,
+    "value": 1.595523312702744e-08,
+    "energy_gev": 0.000767309439377231
+   },
+   {
+    "i": 73,
+    "value": 1.5665987638322122e-08,
+    "energy_gev": 0.0007533992199517992
+   },
+   {
+    "i": 72,
+    "value": 1.5601313351987154e-08,
+    "energy_gev": 0.0007502889432172183
+   },
+   {
+    "i": 71,
+    "value": 1.5579374655503555e-08,
+    "energy_gev": 0.0007492338806703112
+   },
+   {
+    "i": 70,
+    "value": 1.5318771275889864e-08,
+    "energy_gev": 0.0007367011002640842
+   },
+   {
+    "i": 69,
+    "value": 1.523535013824941e-08,
+    "energy_gev": 0.0007326892612739864
+   },
+   {
+    "i": 68,
+    "value": 1.425552123756982e-08,
+    "energy_gev": 0.0006855679213048139
+   },
+   {
+    "i": 67,
+    "value": 1.403715352494341e-08,
+    "energy_gev": 0.0006750663130976842
+   },
+   {
+    "i": 66,
+    "value": 1.2384561882082696e-08,
+    "energy_gev": 0.0005955908734781318
+   },
+   {
+    "i": 65,
+    "value": 1.2188049739712108e-08,
+    "energy_gev": 0.0005861403301615462
+   },
+   {
+    "i": 64,
+    "value": 1.179561926443921e-08,
+    "energy_gev": 0.0005672678006548409
+   },
+   {
+    "i": 63,
+    "value": 1.120007925211474e-08,
+    "energy_gev": 0.0005386274499093966
+   },
+   {
+    "i": 62,
+    "value": 1.1065605353492455e-08,
+    "energy_gev": 0.0005321604123586917
+   },
+   {
+    "i": 61,
+    "value": 1.0864883043939574e-08,
+    "energy_gev": 0.0005225073962236515
+   },
+   {
+    "i": 60,
+    "value": 6.079838341677746e-09,
+    "energy_gev": 0.00029238791513202324
+   },
+   {
+    "i": 59,
+    "value": 5.696397268476367e-09,
+    "energy_gev": 0.000273947698522843
+   },
+   {
+    "i": 58,
+    "value": 5.376668904848913e-09,
+    "energy_gev": 0.00025857151507915503
+   },
+   {
+    "i": 57,
+    "value": 4.713938195362628e-09,
+    "energy_gev": 0.00022669986988880134
+   },
+   {
+    "i": 56,
+    "value": 4.630647028739795e-09,
+    "energy_gev": 0.00022269428138641962
+   },
+   {
+    "i": 55,
+    "value": 4.39125326115952e-09,
+    "energy_gev": 0.0002111815008378695
+   },
+   {
+    "i": 54,
+    "value": 3.807806948272441e-09,
+    "energy_gev": 0.00018312275298480675
+   },
+   {
+    "i": 53,
+    "value": 3.17845249091946e-09,
+    "energy_gev": 0.00015285621836281802
+   }
+  ],
+  "topk_quantity": "energy_density",
+  "topk_unit": "GeV/mm^3/event",
+  "cap": {
+   "limit": 15000,
+   "requested": 15000,
+   "n_total": 117,
+   "n_drawn": 117,
+   "n_beyond": 0,
+   "rank": "energy",
+   "energy_total_gev": 0.09674864211845285,
+   "energy_drawn_gev": 0.09673504363301366,
+   "energy_beyond_gev": 0.0,
+   "fraction_beyond": 0.0,
+   "energy_outside_window_gev": 1.3598485439187885e-05,
+   "fraction_outside_window": 0.00014055479375657561,
+   "cells_outside_window": 3
+  },
+  "below_floor": {
+   "n": 2,
+   "drawn_as": "lowest colour"
+  },
+  "species": null,
+  "notes": [
+   "The notebook's 3-D displays (C5) draw one event; this view draws the selection's mean deposit per selected event in each detector cell, as volumetric density on the one-event view's logarithmic ramp with its 1st-percentile floor, taken here on the drawn cubes, because cell densities span many decades.",
+   "All 117 cells inside the window are drawn. 3 of the selection's 120 cells lie outside the window and are counted, not drawn. 1.36e−05 GeV per selected event (0.0141%) falls outside the window and is counted, not drawn."
+  ],
+  "depth_profile": {
+   "n": 25,
+   "index": "cubes.iz",
+   "centres_mm": [
+    3662.4,
+    3682.9,
+    3703.4,
+    3723.9,
+    3744.4,
+    3764.9,
+    3785.4,
+    3805.9,
+    3826.4,
+    3846.9,
+    3867.4,
+    3887.9,
+    3908.4,
+    3928.9,
+    3949.4,
+    3969.9,
+    3990.4,
+    4010.9,
+    4031.4,
+    4051.9,
+    4072.4,
+    4092.9,
+    4215.9,
+    4297.9,
+    4523.4
+   ],
+   "pitch_mm": 20.5,
+   "numbering": "detector_layers",
+   "first_layer": 1,
+   "layers_contiguous": false,
+   "energy_gev": [
+    0.006915569847,
+    0.0008888942829,
+    0.0007502889432,
+    0.0007673094394,
+    0.0007326892613,
+    0.002891578643,
+    0.002932479991,
+    0.00596808626,
+    0.002129697622,
+    0.00522234727,
+    0.004346713202,
+    0.00401437987,
+    0.01433123369,
+    0.007569500606,
+    0.008307887286,
+    0.002783319372,
+    0.004234964681,
+    0.003005772255,
+    0.004314042393,
+    0.0007367011003,
+    0.0005861403302,
+    0.000791672079,
+    0.007815422593,
+    0.0005672678007,
+    0.00413108482
+   ],
+   "energy_total_gev": 0.09674864211845285,
+   "energy_outside_gev": 1.3598485439187885e-05,
+   "attention": null,
+   "note": "Per-layer sums, per selected event, of every cell inside the window, before the cap: Σ E / N and, on a network channel, Σ E·v / N (Shap-CAM's positive and negative parts apart), the exact shares the slice readout quotes."
+  }
+ },
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

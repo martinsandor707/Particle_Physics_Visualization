@@ -478,6 +478,7 @@ export function unitSuffix(unit) {
   if (unit === 'GeV/mm^2') return 'GeV/mm²';
   if (unit === 'GeV/mm^2/event') return 'GeV/mm²/event';
   if (unit === 'GeV/mm^3') return 'GeV/mm³';
+  if (unit === 'GeV/mm^3/event') return 'GeV/mm³/event';
   return unit === 'GeV' || !unit ? 'GeV' : String(unit);
 }
 
