@@ -22,7 +22,8 @@
 import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE, onLightScreen, puorScreenNote, rampName } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
-import { sigmaText } from './panels/chart_panel.js';
+import { sigmaText, sigFigs } from './panels/chart_panel.js';
+import { resolutionModel, modeLabel, DRAWN_FORMS } from './panels/resolution_scaling.js';
 import { perfModel, perfQuantities, SOURCE_LABELS } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
@@ -537,6 +538,142 @@ export function primariesNotes({ payload, state = null, experiment = null, title
   return notes.done(modelsHazards(payload, 'prim-rate'));
 }
 
+/* ========================================================== res-scaling == */
+
+/**
+ * The drawer title of the resolution card when the shell passes none. Kept
+ * out of MODELS_TITLES, which the dark golden records as it stood.
+ */
+export const RES_SCALING_TITLE = 'Energy Resolution vs. 1/√E';
+
+/** The payload notes the builder states itself, from structure, in the section they belong to. */
+function restatedNote(line, labels) {
+  return labels.some((label) => line.startsWith(`${label} (`))
+    || /^Off the axis:|^The y range follows|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from/.test(line);
+}
+
+/**
+ * The notes of the resolution card: σ/E against 1/√E with its fits. `windows`
+ * ('anchors' | 'all') and `shower` are the card's render options; the drawer
+ * describes the mode in force and the series the shower choice draws, through
+ * the panel's own pure model, so it never states what the plot does not show.
+ */
+export function resolutionScalingNotes({
+  payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
+} = {}) {
+  if (!payload) return null;
+  const notes = new Notes(title ?? RES_SCALING_TITLE);
+  const model = resolutionModel(payload, { windows, shower });
+  if (!model) {
+    notes.section(SECTION.disclosures, ['This response carries no energy-resolution series.', ...metaDisclosures(payload)]);
+    return notes.done([]);
+  }
+  const { gates, mode } = model;
+  const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
+  const sig = (v) => sigFigs(v, 3);
+  const m = payload.model ?? {};
+
+  // ---- Selection
+  const selection = [
+    selectionLine(state, experiment),
+    `${plural(payload.n_events ?? 0, 'event')}; ${model.series.length ? model.series.map((s) => `${s.label} (N = ${formatInt(s.raw.n)})`).join('; ') : 'no series'}`
+      + `${shower && shower !== 'both' && model.nShowers > 1 ? `; shower ${String(shower).toUpperCase()} only` : ''}.`,
+  ];
+  if (m.available) {
+    selection.push(m.source === 'xgb'
+      ? `Model series: ${m.label ?? 'the XGBoost momentum regressor'}.`
+      : `Model series: ${m.label ?? 'the energy network'}${m.frame ? `, read in the ${m.frame} frame` : ''}.`);
+  } else if (m.reason) {
+    selection.push(`No model series: ${sentence(m.reason)}`);
+  }
+  if (m.split) {
+    selection.push(`Validation split: ${formatInt(m.split.n_validation)} of the ${formatInt(m.split.n_selected)} selected events `
+      + `(${formatNumber(100 * (m.split.fraction ?? 0), 0)}%); ${formatInt(m.split.n_training_excluded)} training events are left out of the model series`
+      + `${m.split.reproduced === false ? ', and the notebook\'s training split is not reproduced' : ''}.`);
+  }
+  if (payload.meta?.coord_system_note) selection.push(sentence(payload.meta.coord_system_note));
+  notes.section(SECTION.selection, selection);
+
+  // ---- What is drawn
+  const labels = (payload.series ?? []).map((s) => s.label).filter(Boolean);
+  const est = payload.estimator ?? {};
+  const nominal = payload.anchors?.labels ?? [];
+  notes.section(SECTION.drawn, [
+    est.definition ? sentence(est.definition) : '',
+    `Each window is the producer's 1 GeV momentum bin; its abscissa is x = ⟨1/√p⟩ over its events, in GeV⁻¹ᐟ², on a reversed axis from 0.5 (4 GeV) at the left to 0 (E → ∞) at the right border, and σ/E starts at zero, so the bottom-right corner is the origin.`,
+    `Mode drawn: ${modeLabel(mode, gates)}${mode === 'anchors' ? '' : '; windows of N < 20 are drawn faded and not fitted'}.`,
+    'Two fits per series are drawn, each by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated: the affine σ/E = a/√E + b and the origin-pinned σ/E = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled under the plot, not drawn.',
+    payload.anchors?.rule
+      ? `Anchors${nominal.length ? ` (nominal: ${nominal.join(', ')})` : ''}: ${sentence(payload.anchors.rule)}`
+      : '',
+    `The top axis is a second x axis allowed only as an exact unit conversion: ${sentence(payload.axis?.top?.rule ?? 'E = 1/x², an exact relabelling of the bottom axis; no data are plotted against it.')}`,
+    ...noteLines(payload.notes).filter((line) => !restatedNote(line, labels)),
+  ]);
+
+  // ---- Disclosures
+  const disclosures = [];
+  if (model.y.provisional) disclosures.push(`The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows.`);
+  else disclosures.push(`The y range follows the windows with N ≥ ${formatInt(gates.fit_n)} (whiskers included) and the non-provisional fits, from zero.`);
+  const clipped = model.clipped.markers + model.clipped.whiskers;
+  if (clipped) {
+    disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window and fit, both modes: ${formatInt(model.y.n_clipped)}).`);
+  }
+  for (const s of model.series) {
+    const off = (s.raw.windows ?? []).filter((w) => w.off_axis);
+    if (off.length) {
+      disclosures.push(`${s.label}: off the axis (below ${formatNumber(gates.e_min_gev)} GeV, x > 0.5), not drawn: `
+        + `${off.map((w) => `${w.label} ${Number.isFinite(w.value) ? pct(w.value) : 'not estimable'} (N = ${formatInt(w.n)})`).join(', ')}.`);
+    }
+  }
+  const points = model.series.flatMap((s) => s.points);
+  const weak = points.filter((p) => p.weak && !p.subFloor).length;
+  if (weak) disclosures.push(`${plural(weak, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weak === 1 ? 'its' : 'their'} χ² whisker${mode === 'anchors' ? ', in a provisional fit' : ', not fitted'}.`);
+  const sub = points.filter((p) => p.subFloor).length;
+  if (sub) disclosures.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: σ/E is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
+  for (const s of model.series) {
+    const mf = s.mf;
+    if (!mf) continue;
+    if (mf.provisional) disclosures.push(`${s.label}: the fits are provisional, through windows of N ≥ ${formatInt(gates.whisker_n)}, because fewer than two windows reach N = ${formatInt(gates.fit_n)}; drawn faded.`);
+    if (mode === 'anchors') for (const x of mf.substitutions ?? []) disclosures.push(`${s.label}: ${sentence(x.reason)}`);
+    const affine = mf.affine;
+    const pinned = mf.pinned;
+    if (!affine) disclosures.push(`${s.label}: fewer than two windows to fit, so no line is drawn.`);
+    for (const fit of [affine, pinned]) {
+      if (!fit) continue;
+      const name = fit.form === 'affine' ? 'affine fit' : 'origin-pinned fit';
+      if (!(fit.ndf > 0)) disclosures.push(`${s.label}, ${name}: ν = 0, the line passes through its points exactly and has no χ² test.`);
+      if (fit.scale_factor > 1) {
+        disclosures.push(`${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)}, so its standard errors and band are scaled by S = ${sig(fit.scale_factor)} (PDG); the unscaled errors are in its tooltip.`);
+      }
+    }
+    if (affine?.negative_intercept) {
+      disclosures.push(`${s.label}: the affine b is negative (${pct(affine.params?.b)}): the points fall faster than a/√E; the line runs down to the axis and stops there.`);
+    }
+    if (Number.isFinite(affine?.params?.a) && affine.params.a < 0) {
+      disclosures.push(`${s.label}: the affine a is negative (${sig(affine.params.a)} %·√GeV): σ/E rises with E over these windows, which no stochastic term describes.`);
+    }
+    const q = mf.quadrature?.params;
+    if (q) {
+      if (q.a_defined === false) disclosures.push(`${s.label}: quadrature A = ${sig(q.a2)} ± ${sig(q.se_a2)} %²·GeV ≤ 0, so a = √A is undefined.`);
+      if (q.b_defined === false) disclosures.push(`${s.label}: quadrature B = ${sig(q.b2)} ± ${sig(q.se_b2)} %² ≤ 0, so b = √B is undefined (consistent with zero within ${sig(Math.abs(q.b2 / q.se_b2))} SE).`);
+    }
+  }
+  disclosures.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
+  if (m.source === 'xgb') disclosures.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
+  disclosures.push('E on both axes is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
+  disclosures.push(...metaDisclosures(payload));
+  notes.section(SECTION.disclosures, disclosures);
+
+  // ---- Marks and legend
+  notes.section(SECTION.legend, [
+    'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
+    `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
+    'The shaded bands are the fits\' 95% confidence bands, ±1.96 √(gᵀΣg) from the parameter covariance (scaled by S where χ²/ν > 1): the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it.',
+    'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker or whisker clipped there. A legend entry shows or hides every mark of its series.',
+  ]);
+  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower }));
+}
+
 /* ============================================================ hazards == */
 
 /** Structural hazards of the models cards, by card id; never text matching. */
@@ -604,6 +741,16 @@ export function modelsHazards(payload, card, opts = {}) {
   }
   if (card === 'prim-rate') {
     if (rateBins(payload).some((b) => b.n < WIDE_BELOW_N)) out.push('small bins');
+    return out;
+  }
+  if (card === 'res-scaling') {
+    const model = resolutionModel(payload, opts);
+    if (!model) return out;
+    const drawsFit = (s) => DRAWN_FORMS.some((f) => s.fits[f]);
+    if (model.series.some((s) => s.provisional && drawsFit(s))) out.push('provisional fit');
+    if (model.series.some((s) => s.points.some((p) => p.weak))) out.push('weak windows drawn');
+    if (model.y.provisional) out.push('provisional range');
+    if (model.clipped.markers || model.clipped.whiskers) out.push('marks clipped at the axis');
     return out;
   }
   return out;
