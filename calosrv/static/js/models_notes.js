@@ -598,10 +598,16 @@ export function resolutionScalingNotes({
   const labels = (payload.series ?? []).map((s) => s.label).filter(Boolean);
   const est = payload.estimator ?? {};
   const nominal = payload.anchors?.labels ?? [];
+  // A series with fewer than two windows of N ≥ 20 is fitted provisionally, through its weaker windows.
+  const provisional = model.series.some((s) => s.provisional);
+  const weakRule = mode === 'anchors' ? ''
+    : provisional
+      ? `; windows of N < ${formatInt(gates.fit_n)} are drawn faded, and fitted only by a series with fewer than two windows of N ≥ ${formatInt(gates.fit_n)}, whose fit is then provisional`
+      : `; windows of N < ${formatInt(gates.fit_n)} are drawn faded and not fitted`;
   notes.section(SECTION.drawn, [
     est.definition ? sentence(est.definition) : '',
     `Each window is the producer's 1 GeV momentum bin; its abscissa is x = ⟨1/√p⟩ over its events, in GeV⁻¹ᐟ², on a reversed axis from 0.5 (4 GeV) at the left to 0 (E → ∞) at the right border, and σ/E starts at zero, so the bottom-right corner is the origin.`,
-    `Mode drawn: ${modeLabel(mode, gates)}${mode === 'anchors' ? '' : '; windows of N < 20 are drawn faded and not fitted'}.`,
+    `Mode drawn: ${modeLabel(mode, gates)}${weakRule}.`,
     'Two fits per series are drawn, each by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated: the affine σ/E = a/√E + b and the origin-pinned σ/E = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled under the plot, not drawn.',
     payload.anchors?.rule
       ? `Anchors${nominal.length ? ` (nominal: ${nominal.join(', ')})` : ''}: ${sentence(payload.anchors.rule)}`
@@ -618,6 +624,13 @@ export function resolutionScalingNotes({
   if (clipped) {
     disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window and fit, both modes: ${formatInt(model.y.n_clipped)}).`);
   }
+  const cutFits = model.series.flatMap((s) => DRAWN_FORMS.map((f) => s.fits[f]).filter((f) => f?.cut).map((f) => [s, f]));
+  if (cutFits.length) {
+    disclosures.push(`${plural(cutFits.length, 'fit')} ${cutFits.length === 1 ? 'leaves' : 'leave'} the top of the plot, line or band, each clipped there with a caret whose tooltip gives its true values: `
+      + `${cutFits.map(([s, f]) => `${s.label}, ${f.form === 'affine' ? 'affine' : 'origin-pinned'}${f.provisional ? ' (provisional)' : ''} `
+        + `${f.cut.lineAt !== null ? 'line and band' : 'band'}, highest ${pct(f.cut.peak[3])} at x = ${formatNumber(f.cut.peak[0], 3)}`).join('; ')}. `
+      + `The range follows the windows of N ≥ ${formatInt(gates.fit_n)} and the lines fitted through them; a provisional fit and a band never set it.`);
+  }
   for (const s of model.series) {
     const off = (s.raw.windows ?? []).filter((w) => w.off_axis);
     if (off.length) {
@@ -625,9 +638,26 @@ export function resolutionScalingNotes({
         + `${off.map((w) => `${w.label} ${Number.isFinite(w.value) ? pct(w.value) : 'not estimable'} (N = ${formatInt(w.n)})`).join(', ')}.`);
     }
   }
+  for (const s of model.series) {
+    if (!s.unreported.length) continue;
+    disclosures.push(`${s.label}: on the axis but not drawn, σ/E not estimable: `
+      + `${s.unreported.map((w) => `${w.label} (${(w.n ?? 0) < gates.report_n ? `N = ${formatInt(w.n ?? 0)}` : 'R̄ ≤ 0'})`).join(', ')}; σ/E is reported from N = ${formatInt(gates.report_n)}.`);
+  }
   const points = model.series.flatMap((s) => s.points);
-  const weak = points.filter((p) => p.weak && !p.subFloor).length;
-  if (weak) disclosures.push(`${plural(weak, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weak === 1 ? 'its' : 'their'} χ² whisker${mode === 'anchors' ? ', in a provisional fit' : ', not fitted'}.`);
+  const weak = points.filter((p) => p.weak && !p.subFloor);
+  const weakFitted = weak.filter((p) => p.fitted).length;
+  const weakAlone = weak.length - weakFitted;
+  if (weakFitted) disclosures.push(`${plural(weakFitted, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakFitted === 1 ? 'its' : 'their'} χ² whisker and fitted, in a provisional fit.`);
+  if (weakAlone) disclosures.push(`${plural(weakAlone, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakAlone === 1 ? 'its' : 'their'} χ² whisker, not fitted.`);
+  // The all-windows mode starts at 4 GeV, below the anchors' 5 GeV floor: the windows it fits there are named.
+  const belowAnchors = model.series.filter((s) => s.points.some((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev));
+  if (mode === 'all' && belowAnchors.length) {
+    const windows = [...new Set(belowAnchors.flatMap((s) => s.points
+      .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
+    disclosures.push(`This mode fits every window from ${formatNumber(gates.e_min_gev)} GeV, ${windows.join(', ')} included `
+      + `(${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, the anchors' floor, the sampling `
+      + 'fraction is still rising and a/√E + b may not describe σ/E.');
+  }
   const sub = points.filter((p) => p.subFloor).length;
   if (sub) disclosures.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: σ/E is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
   for (const s of model.series) {
@@ -638,12 +668,18 @@ export function resolutionScalingNotes({
     const affine = mf.affine;
     const pinned = mf.pinned;
     if (!affine) disclosures.push(`${s.label}: fewer than two windows to fit, so no line is drawn.`);
-    for (const fit of [affine, pinned]) {
+    for (const fit of [affine, pinned, mf.quadrature]) {
       if (!fit) continue;
-      const name = fit.form === 'affine' ? 'affine fit' : 'origin-pinned fit';
-      if (!(fit.ndf > 0)) disclosures.push(`${s.label}, ${name}: ν = 0, the line passes through its points exactly and has no χ² test.`);
+      const name = { affine: 'affine fit', pinned: 'origin-pinned fit', quadrature: 'quadrature fit (tabled)' }[fit.form];
+      if (!(fit.ndf > 0)) disclosures.push(`${s.label}, ${name}: ν = 0, the fit passes through its points exactly and has no χ² test.`);
       if (fit.scale_factor > 1) {
-        disclosures.push(`${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)}, so its standard errors and band are scaled by S = ${sig(fit.scale_factor)} (PDG); the unscaled errors are in its tooltip.`);
+        disclosures.push(fit.form === 'quadrature'
+          ? `${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so the standard errors in the table are scaled by S = ${sig(fit.scale_factor)} (PDG).`
+          : `${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so its standard errors are scaled by S = ${sig(fit.scale_factor)} (PDG), `
+            + `and its band takes Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(fit.band_quantile, 4)} rather than 1.96, since S is estimated from the fit's own ν = ${formatInt(fit.ndf)}; the unscaled errors are in its tooltip.`);
+      }
+      if (fit.converged === false) {
+        disclosures.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${fit.form === 'quadrature' ? 'fit' : 'line'}, not a fixed point.`);
       }
     }
     if (affine?.negative_intercept) {
@@ -655,7 +691,11 @@ export function resolutionScalingNotes({
     const q = mf.quadrature?.params;
     if (q) {
       if (q.a_defined === false) disclosures.push(`${s.label}: quadrature A = ${sig(q.a2)} ± ${sig(q.se_a2)} %²·GeV ≤ 0, so a = √A is undefined.`);
-      if (q.b_defined === false) disclosures.push(`${s.label}: quadrature B = ${sig(q.b2)} ± ${sig(q.se_b2)} %² ≤ 0, so b = √B is undefined (consistent with zero within ${sig(Math.abs(q.b2 / q.se_b2))} SE).`);
+      if (q.b_defined === false) {
+        const z = Math.abs(q.b2 / q.se_b2);
+        disclosures.push(`${s.label}: quadrature B = ${sig(q.b2)} ± ${sig(q.se_b2)} %² ≤ 0, so b = √B is undefined; B lies ${sig(z)} SE below zero, `
+          + (z < 1.96 ? 'consistent with zero at 95%.' : 'not consistent with zero at 95%, so the quadrature form does not describe these windows.'));
+      }
     }
   }
   disclosures.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
@@ -668,8 +708,8 @@ export function resolutionScalingNotes({
   notes.section(SECTION.legend, [
     'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
     `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
-    'The shaded bands are the fits\' 95% confidence bands, ±1.96 √(gᵀΣg) from the parameter covariance (scaled by S where χ²/ν > 1): the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it.',
-    'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker or whisker clipped there. A legend entry shows or hides every mark of its series.',
+    'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it.',
+    'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker, whisker, fitted line or band clipped there, its true values in its tooltip. A legend entry shows or hides every mark of its series.',
   ]);
   return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower }));
 }
@@ -750,7 +790,9 @@ export function modelsHazards(payload, card, opts = {}) {
     if (model.series.some((s) => s.provisional && drawsFit(s))) out.push('provisional fit');
     if (model.series.some((s) => s.points.some((p) => p.weak))) out.push('weak windows drawn');
     if (model.y.provisional) out.push('provisional range');
-    if (model.clipped.markers || model.clipped.whiskers) out.push('marks clipped at the axis');
+    if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits) out.push('marks clipped at the axis');
+    const fitsOf = (s) => [...DRAWN_FORMS.map((f) => s.mf?.[f]), s.mf?.quadrature].filter(Boolean);
+    if (model.series.some((s) => fitsOf(s).some((fit) => fit.converged === false))) out.push('fit not converged');
     return out;
   }
   return out;

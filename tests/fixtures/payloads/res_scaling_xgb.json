@@ -100,7 +100,7 @@
    "10–11 GeV",
    "19–20 GeV"
   ],
-  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
+  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
  },
  "model": {
   "available": true,
@@ -388,12 +388,12 @@
       {
        "nominal": 5,
        "used": 7,
-       "reason": "The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window in log E with N ≥ 20 is 7–8 GeV (N = 20)."
+       "reason": "The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20)."
       },
       {
        "nominal": 19,
        "used": null,
-       "reason": "The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 4 GeV with N ≥ 20 is left: it is dropped."
+       "reason": "The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 5 GeV with N ≥ 20 is left: it is dropped."
       }
      ],
      "fallback": false,
@@ -417,6 +417,7 @@
       "iterations": 1,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -562,6 +563,7 @@
       "scale_factor": 1.0,
       "iterations": 4,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -707,7 +709,11 @@
        "b_defined": true,
        "a2": 8611.51,
        "se_a2": 112311.0,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 605.136,
+       "se_b_stat": 69.1779,
+       "se_a2_stat": 112311.0,
+       "se_b2_stat": 11312.1
       },
       "chi2": 2.79382e-28,
       "p_value": null,
@@ -746,6 +752,7 @@
       "iterations": 1,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -891,6 +898,7 @@
       "scale_factor": 1.0,
       "iterations": 4,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1036,7 +1044,11 @@
        "b_defined": true,
        "a2": 8611.51,
        "se_a2": 112311.0,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 605.136,
+       "se_b_stat": 69.1779,
+       "se_a2_stat": 112311.0,
+       "se_b2_stat": 11312.1
       },
       "chi2": 2.79382e-28,
       "p_value": null,
@@ -1249,12 +1261,12 @@
       {
        "nominal": 5,
        "used": 7,
-       "reason": "The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8)."
+       "reason": "The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8)."
       },
       {
        "nominal": 19,
        "used": null,
-       "reason": "The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 4 GeV with N ≥ 8 (provisional) is left: it is dropped."
+       "reason": "The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped."
       }
      ],
      "fallback": true,
@@ -1278,6 +1290,7 @@
       "iterations": 1,
       "converged": true,
       "negative_intercept": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1421,8 +1434,9 @@
       "chi2": 24.472,
       "p_value": 7.53965e-07,
       "scale_factor": 4.94692,
-      "iterations": 4,
+      "iterations": 18,
       "converged": true,
+      "band_quantile": 12.706,
       "curve": [
        [
         0.0,
@@ -1433,126 +1447,126 @@
        [
         0.025,
         0.193806,
-        -0.0720934,
-        0.459706
+        -1.52996,
+        1.91757
        ],
        [
         0.05,
         0.387612,
-        -0.144187,
-        0.919411
+        -3.05992,
+        3.83514
        ],
        [
         0.075,
         0.581418,
-        -0.21628,
-        1.37912
+        -4.58988,
+        5.75272
        ],
        [
         0.1,
         0.775224,
-        -0.288374,
-        1.83882
+        -6.11984,
+        7.67029
        ],
        [
         0.125,
         0.96903,
-        -0.360467,
-        2.29853
+        -7.6498,
+        9.58786
        ],
        [
         0.15,
         1.16284,
-        -0.432561,
-        2.75823
+        -9.17976,
+        11.5054
        ],
        [
         0.175,
         1.35664,
-        -0.504654,
-        3.21794
+        -10.7097,
+        13.423
        ],
        [
         0.2,
         1.55045,
-        -0.576748,
-        3.67764
+        -12.2397,
+        15.3406
        ],
        [
         0.225,
         1.74425,
-        -0.648841,
-        4.13735
+        -13.7696,
+        17.2581
        ],
        [
         0.25,
         1.93806,
-        -0.720934,
-        4.59706
+        -15.2996,
+        19.1757
        ],
        [
         0.275,
         2.13187,
-        -0.793028,
-        5.05676
+        -16.8296,
+        21.0933
        ],
        [
         0.3,
         2.32567,
-        -0.865121,
-        5.51647
+        -18.3595,
+        23.0109
        ],
        [
         0.325,
         2.51948,
-        -0.937215,
-        5.97617
+        -19.8895,
+        24.9284
        ],
        [
         0.35,
         2.71329,
-        -1.00931,
-        6.43588
+        -21.4194,
+        26.846
        ],
        [
         0.375,
         2.90709,
-        -1.0814,
-        6.89558
+        -22.9494,
+        28.7636
        ],
        [
         0.4,
         3.1009,
-        -1.1535,
-        7.35529
+        -24.4794,
+        30.6812
        ],
        [
         0.425,
         3.2947,
-        -1.22559,
-        7.815
+        -26.0093,
+        32.5987
        ],
        [
         0.45,
         3.48851,
-        -1.29768,
-        8.2747
+        -27.5393,
+        34.5163
        ],
        [
         0.475,
         3.68232,
-        -1.36978,
-        8.73441
+        -29.0692,
+        36.4339
        ],
        [
         0.5,
         3.87612,
-        -1.44187,
-        9.19411
+        -30.5992,
+        38.3514
        ]
       ],
       "provisional": true,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (4 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG); the unscaled ones are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
       "form": "quadrature",
@@ -1568,7 +1582,11 @@
        "b_defined": false,
        "a2": 908.697,
        "se_a2": 513.42,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 8.51596,
+       "se_b_stat": null,
+       "se_a2_stat": 513.42,
+       "se_b2_stat": 48.4837
       },
       "chi2": 8.76647e-24,
       "p_value": null,
@@ -1607,6 +1625,7 @@
       "iterations": 1,
       "converged": true,
       "negative_intercept": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1750,8 +1769,9 @@
       "chi2": 24.472,
       "p_value": 7.53965e-07,
       "scale_factor": 4.94692,
-      "iterations": 4,
+      "iterations": 18,
       "converged": true,
+      "band_quantile": 12.706,
       "curve": [
        [
         0.0,
@@ -1762,126 +1782,126 @@
        [
         0.025,
         0.193806,
-        -0.0720934,
-        0.459706
+        -1.52996,
+        1.91757
        ],
        [
         0.05,
         0.387612,
-        -0.144187,
-        0.919411
+        -3.05992,
+        3.83514
        ],
        [
         0.075,
         0.581418,
-        -0.21628,
-        1.37912
+        -4.58988,
+        5.75272
        ],
        [
         0.1,
         0.775224,
-        -0.288374,
-        1.83882
+        -6.11984,
+        7.67029
        ],
        [
         0.125,
         0.96903,
-        -0.360467,
-        2.29853
+        -7.6498,
+        9.58786
        ],
        [
         0.15,
         1.16284,
-        -0.432561,
-        2.75823
+        -9.17976,
+        11.5054
        ],
        [
         0.175,
         1.35664,
-        -0.504654,
-        3.21794
+        -10.7097,
+        13.423
        ],
        [
         0.2,
         1.55045,
-        -0.576748,
-        3.67764
+        -12.2397,
+        15.3406
        ],
        [
         0.225,
         1.74425,
-        -0.648841,
-        4.13735
+        -13.7696,
+        17.2581
        ],
        [
         0.25,
         1.93806,
-        -0.720934,
-        4.59706
+        -15.2996,
+        19.1757
        ],
        [
         0.275,
         2.13187,
-        -0.793028,
-        5.05676
+        -16.8296,
+        21.0933
        ],
        [
         0.3,
         2.32567,
-        -0.865121,
-        5.51647
+        -18.3595,
+        23.0109
        ],
        [
         0.325,
         2.51948,
-        -0.937215,
-        5.97617
+        -19.8895,
+        24.9284
        ],
        [
         0.35,
         2.71329,
-        -1.00931,
-        6.43588
+        -21.4194,
+        26.846
        ],
        [
         0.375,
         2.90709,
-        -1.0814,
-        6.89558
+        -22.9494,
+        28.7636
        ],
        [
         0.4,
         3.1009,
-        -1.1535,
-        7.35529
+        -24.4794,
+        30.6812
        ],
        [
         0.425,
         3.2947,
-        -1.22559,
-        7.815
+        -26.0093,
+        32.5987
        ],
        [
         0.45,
         3.48851,
-        -1.29768,
-        8.2747
+        -27.5393,
+        34.5163
        ],
        [
         0.475,
         3.68232,
-        -1.36978,
-        8.73441
+        -29.0692,
+        36.4339
        ],
        [
         0.5,
         3.87612,
-        -1.44187,
-        9.19411
+        -30.5992,
+        38.3514
        ]
       ],
       "provisional": true,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (4 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG); the unscaled ones are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
       "form": "quadrature",
@@ -1897,7 +1917,11 @@
        "b_defined": false,
        "a2": 908.697,
        "se_a2": 513.42,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 8.51596,
+       "se_b_stat": null,
+       "se_a2_stat": 513.42,
+       "se_b2_stat": 48.4837
       },
       "chi2": 8.76647e-24,
       "p_value": null,
@@ -1939,17 +1963,17 @@
   "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
-  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated; χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG). The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
-  "Anchors: the lowest bin from 5 GeV, the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV.",
+  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower: c = Σ p / Σ E_dep = 105.4 over N = 307 events, fitted once over the whole selection.",
   "The shower is named Electron e⁻: the species of the paired XGBoost models (electron).",
   "The model series is the shipped XGBoost momentum regressor on the notebook's 20% validation split: 62 of the 307 selected events. The detector series uses every selected event, so the two series do not share their events.",
   "Off the axis: 7 windows below 4 GeV (158 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
-  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window in log E with N ≥ 20 is 7–8 GeV (N = 20).",
-  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 4 GeV with N ≥ 20 is left: it is dropped.",
-  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8).",
-  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 4 GeV with N ≥ 8 (provisional) is left: it is dropped.",
+  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20).",
+  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 5 GeV with N ≥ 20 is left: it is dropped.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8).",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (anchors, pinned): χ²/ν = 24.5, so its errors are scaled by S = 4.95.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): the affine b is negative (−24.2%): the points fall faster than a/√E, and the line is drawn down to zero.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (all, pinned): χ²/ν = 24.5, so its errors are scaled by S = 4.95.",

@@ -112,6 +112,7 @@ class El {
   getAttribute(k) { return this.attributes[k] ?? null; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   fire(type) { for (const fn of this.listeners[type] ?? []) fn({ preventDefault() {} }); }
+  focus() { globalThis.document.activeElement = this; }
   querySelectorAll(sel) { return sel === 'canvas' ? this.canvases : []; }
   closest() { return null; }
   getContext() { return null; }
@@ -604,7 +605,7 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
     const domain = v.depthDomain(payload, model);
     const bare = v.depthDomain(payload);
     S.domains[name] = {
-      domain: strip(domain), bare: strip(bare), kind: model.kind,
+      domain: strip(domain), bare: strip(bare), kind: model.kind, categorical: model.scale?.scale === 'categorical',
       bins: arr(model.kind === 'event' ? model.iz : model.layer), code: arr(model.code),
       inside: model.crop ? arr(model.crop.inside) : null,
       windowArg: strip(v.depthDomain(payload, null, [domain.centres[domain.j0 + 2] - 1, domain.centres[domain.j1 - 2] + 1])),
@@ -640,7 +641,7 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
       const members = built.roles.filter((r) => r.role === 'cube').flatMap((r) => r.members);
       const colours = {};
       for (const s of built.option.series.filter((x) => x.name?.startsWith('cubes'))) for (const d of s.data) colours[d.value[3]] = [d.itemStyle.color, d.itemStyle.opacity];
-      slices.push({ plan: { bins: plan.bins }, drawn: built.drawn, outsideSlice: built.outsideSlice, skipped: built.skipped,
+      slices.push({ plan: { bins: plan.bins, numbering: plan.numbering }, drawn: built.drawn, outsideSlice: built.outsideSlice, skipped: built.skipped,
         cropped: built.cropped, members, colours, summary: summaryOf(built), sliceKey: built.slice,
         notes: name.startsWith('event') ? vn.voxelEventNotes({ payload, drawn: built, slice: plan })
           : vn.voxelEnsembleNotes({ payload, drawn: built, slice: plan, crop: model.crop ?? null }) });
@@ -662,6 +663,23 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
     S.notes[name] = { none: notesOf({}), nulled: notesOf({ slice: null }), one: notesOf({ slice: v.slicePlan(domain, { K: 1 }) }) };
   }
   S.fix = vn.SLICE_NOTEBOOK_FIX;
+  {
+    // The species channel's code 0 is the electron, not "empty": an entry layer of e⁻ cubes alone opens the domain.
+    const payload = load('event_voxels_single_species');
+    const model = v.decodeEventVoxels(payload);
+    const first = Math.min(...model.iz);
+    const last = Math.max(...model.iz);
+    for (let i = 0; i < model.n; i += 1) if (model.iz[i] === first || model.iz[i] === last) model.code[i] = 0;
+    const domain = v.depthDomain(payload, model);
+    const whole = v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 } });
+    const perSlice = [];
+    for (let k = 1; k <= (domain?.L ?? 0); k += 1) {
+      perSlice.push(v.voxelOption(model, { palette: 'viridis', viewport: { width: 588, height: 560 },
+        slice: { bins: v.slicePlan(domain, { K: domain.L, k }).bins } }).drawn);
+    }
+    S.speciesZero = { first, last, j0: domain?.j0 ?? null, j1: domain?.j1 ?? null, wholeDrawn: whole.drawn, perSlice,
+      zeros: arr(model.code).filter((c) => c === 0).length };
+  }
   out.slices = S;
 }
 
@@ -714,7 +732,7 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
       plainNames: plain.series.map((s) => [s.name ?? s.id ?? null, s.z]),
       slabbedNames: slabbed.series.map((s) => [s.name ?? s.id ?? null, s.z]),
       added: added.map((s) => ({ name: s.name, z: s.z, silent: s.silent, tooltip: s.tooltip ? s.tooltip.formatter() : null,
-        drawn: s.renderItem({}, api) })),
+        drawn: s.renderItem({ coordSys: { x: 40, y: 10, width: 520, height: 300 } }, api) })),
     };
   }
   P.slab = slab;
@@ -769,6 +787,17 @@ const sliceAct = async (section, ctx) => {
   row.range.fire('input');
   row.next.fire('click');
   steps.push(snap('next at the last'));
+  // Next from slice 5, focused: it lands on the last slice and disables itself, so focus moves to the scrubber.
+  row.range.value = '5';
+  row.range.fire('input');
+  document.activeElement = row.next;
+  row.next.fire('click');
+  const focusHandoff = { k: pair.plan.k, next: row.next.disabled, onRange: document.activeElement === row.range };
+  document.activeElement = row.prev;
+  row.range.value = '3';
+  row.range.fire('input');
+  focusHandoff.keptElsewhere = document.activeElement === row.prev;
+  document.activeElement = null;
   row.count.value = '1000';
   row.count.fire('change');
   steps.push(snap('K=1000'));
@@ -810,7 +839,7 @@ const sliceAct = async (section, ctx) => {
   const drawerSlice = section.notes('vox-event');
   const projectionDrawer = section.notes('vproj-xz');
   const state = { ...ctx.state.values };
-  return { steps, markup, overlaysAtSix, lab, before, rendersAfterTheme, projectionOpts, state,
+  return { steps, markup, overlaysAtSix, lab, before, rendersAfterTheme, projectionOpts, state, focusHandoff,
     requestsDuringSteps: stepRequests, requestsBeforeModel,
     drawer: drawerSlice ? { hazards: drawerSlice.hazards, lines: drawerSlice.sections.flatMap((x) => x.lines) } : null,
     projectionDrawer: projectionDrawer ? projectionDrawer.sections.flatMap((x) => x.lines) : null };
@@ -1986,8 +2015,11 @@ def _profile(name: str) -> dict:
 
 
 def _drawn_bins(entry: dict, profile: dict) -> list[int]:
-    """The depth bins holding a shipped cube whose code carries a value, inside the crop and the depth clip."""
-    empty = {0} if entry["kind"] == "event" else {0, 1}
+    """The depth bins holding a shipped cube whose code carries a value, inside the crop and the depth clip.
+
+    Every species code is a species (code 0 is e⁻); on a ramp code 0, and the cloud's below-floor 1, carry none.
+    """
+    empty = set() if entry["categorical"] else ({0} if entry["kind"] == "event" else {0, 1})
     clip = entry["domain"]["clip"]
     out = set()
     for i, (b, code) in enumerate(zip(entry["bins"], entry["code"])):
@@ -2041,6 +2073,15 @@ def test_the_slice_domain_spans_the_shipped_valued_cubes_and_accounts_for_every_
         lo, hi = win["clip"]
         assert lo <= profile["centres_mm"][win["j0"]] and profile["centres_mm"][win["j1"]] <= hi
         assert win["j0"] >= domain["j0"] and win["j1"] <= domain["j1"]
+
+
+def test_an_entry_layer_of_electrons_opens_the_species_slice_domain(out):
+    """Species code 0 is e⁻, drawn in its colour: the domain starts at its layer and every cube is in one slice."""
+    zero = out["slices"]["speciesZero"]
+    assert zero["zeros"] > 0
+    assert (zero["j0"], zero["j1"]) == (zero["first"], zero["last"])
+    assert sum(zero["perSlice"]) == zero["wholeDrawn"] > 0
+    assert zero["perSlice"][0] > 0 and zero["perSlice"][-1] > 0
 
 
 def test_the_cropped_cloud_slices_only_inside_its_depth_window(out):
@@ -2167,7 +2208,10 @@ def test_the_drawers_state_the_slice_its_shares_and_the_notebook_fix(out, name):
         lines = _note_lines(notes)
         text = " ".join(lines)
         assert "one depth slice drawn" in notes["hazards"]
-        assert fix in lines
+        # The rule names the volume's own bins and marks; the notebook's audit follows it on the same line.
+        bins = {"w_bins": "w bins of the layer pitch", "own_layers": "layers of the shower's own"}.get(
+            s["plan"]["numbering"], "layers")
+        assert f"A slice is a run of whole {bins}, starting at the first that holds a drawn {kind}. {fix}" in lines
         assert any(line.startswith("Slice mode:") for line in lines)
         assert "The colour scale is the whole volume's" in text
         assert "Outside the sliced range:" in text and "every part counted" in text
@@ -2205,18 +2249,22 @@ def test_the_depth_slab_is_drawn_on_a_depth_panel_only_and_nothing_changes_witho
         assert got["slabbedNames"] == got["plainNames"] and not got["added"]
         return
     added = got["added"]
-    assert [a["z"] for a in added] == [2, 4, 4]
+    assert [a["z"] for a in added] == [4, 4]
     # Above the raster (z 1), below every mark (z 5 and up).
     marks = [z for name, z in got["plainNames"] if name != "raster"]
     assert all(1 < a["z"] < min(marks + [5]) for a in added)
-    row = got["axes"]["row"]
-    band = added[0]["drawn"]
-    assert band["type"] == "polygon" and band["style"]["stroke"] == "none" and band["style"]["opacity"] < 0.1
-    assert sorted({p[0] for p in band["shape"]["points"]}) == [slab["lo"], slab["hi"]]
-    assert sorted({p[1] for p in band["shape"]["points"]}) == [row["lo"], row["hi"]]
-    faces = [a["drawn"]["shape"]["points"] for a in added[1:]]
-    assert faces == [[[slab["lo"], row["lo"]], [slab["lo"], row["hi"]]], [[slab["hi"], row["lo"]], [slab["hi"], row["hi"]]]]
-    assert all(a["tooltip"] and a["tooltip"].startswith("Slice 2 of 4 drawn in 3-D") for a in added[1:])
+    # A bracket of lines, never a wash: nothing filled over the raster, so every bin keeps its colour-bar colour.
+    drawn = [a["drawn"] for a in added]
+    assert all(d["type"] == "polyline" and d["style"]["fill"] == "none" for d in drawn)
+    # Each face spans the plot's height, inset by its own width, with a 6 px tick at either end into the slice.
+    width = drawn[0]["style"]["lineWidth"]
+    top, bottom = 10 + width, 10 + 300 - width
+    lo, hi = slab["lo"], slab["hi"]
+    assert [d["shape"]["points"] for d in drawn] == [
+        [[lo + 6, top], [lo, top], [lo, bottom], [lo + 6, bottom]],
+        [[hi - 6, top], [hi, top], [hi, bottom], [hi - 6, bottom]],
+    ]
+    assert all(a["tooltip"] and a["tooltip"].startswith("Slice 2 of 4 drawn in 3-D") for a in added)
 
 
 def test_every_slab_of_the_recorded_cloud_lies_inside_its_paired_depth_axis(out):
@@ -2271,9 +2319,13 @@ def test_stepping_sends_no_request_writes_no_state_and_keeps_the_camera(out):
     assert steps["range 1"]["k"] == 1 and steps["range 1"]["prev"] and not steps["range 1"]["next"]
     assert steps["prev at the first"]["k"] == 1 and steps["prev at the first"]["overlays"] == steps["range 1"]["overlays"]
     assert steps["next at the last"]["k"] == 6 and steps["next at the last"]["next"]
-    # K is clamped to the volume's L; a nonsense entry changes nothing.
+    # A step onto the last slice disables Next, and its focus moves to the scrubber; a focus elsewhere stays put.
+    assert value["focusHandoff"] == {"k": 6, "next": True, "onRange": True, "keptElsewhere": True}
+    # K is clamped to the volume's L for drawing and kept as asked; a nonsense entry changes nothing.
     assert steps["K=1000"]["plan"]["K"] == 55 and steps["K=1000"]["count"]["value"] == "55"
     assert steps["K=1000"]["count"]["max"] == "55"
+    assert steps["K=1000"]["K"] == 1000 and steps["K=1000"]["plan"]["clamped"]
+    assert "1,000 asked; this volume occupies 55 depth bins" in steps["K=1000"]["count"]["title"]
     for label in ("K=abc", "K=0"):
         assert steps[label]["plan"] == steps["K=1000"]["plan"] and steps[label]["count"]["value"] == "55"
     assert value["state"]["frame"] == "lab"
@@ -2318,7 +2370,7 @@ def test_reset_view_theme_and_experiment_switch(out):
     six = value["overlaysAtSix"]
     assert sorted(o[0] for o in six[-2:]) == ["plot-vproj-xz", "plot-vproj-yz"] and all(o[1] == "depthSlab" for o in six)
     assert value["drawer"]["hazards"][-1] == "one depth slice drawn"
-    assert any(line.startswith("The band marks slice 2 of 3") for line in value["projectionDrawer"])
+    assert any(line.startswith("The bracket marks slice 2 of 3") for line in value["projectionDrawer"])
     # The experiment switch: K = 1, the row hidden, on both cards.
     after = out["section"]["slices"]["afterReset"]["slices"]
     for name in ("event", "ensemble"):

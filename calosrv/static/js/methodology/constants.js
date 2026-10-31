@@ -236,9 +236,11 @@ export const CONSTANTS = Object.freeze({
   RES_BAND_POINTS: entry(21, 'py:calosrv.query.resolution_scaling:BAND_POINTS',
     'Points of each fitted line and its band over the axis.'),
   RES_DOMINANT_SHARE: entry(0.95, 'py:calosrv.query.resolution_scaling:DOMINANT_SHARE',
-    'Share of the selection one species must cover to name a one-shower series after it.'),
-  RES_MAX_ITERATIONS: entry(50, 'py:calosrv.stats.resolution_fit:MAX_ITERATIONS',
+    'Share of the selection (events without a primary particle included) one species must cover to name a one-shower series after it.'),
+  RES_MAX_ITERATIONS: entry(200, 'py:calosrv.stats.resolution_fit:MAX_ITERATIONS',
     'Most model-weight refits of a resolution fit.'),
+  RES_DAMPING: entry(0.5, 'py:calosrv.stats.resolution_fit:DAMPING',
+    'Fraction of the way to each refit the parameters move once the refits oscillate.'),
   RES_TOLERANCE: entry(1e-10, 'py:calosrv.stats.resolution_fit:TOLERANCE',
     'A refit has converged when no parameter moves by more than this, relative to max(1, |θ|).'),
 

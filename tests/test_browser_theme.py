@@ -555,7 +555,7 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
     assert problems == [], problems
 
 
-#: The colours a projection's slice band is painted in: every stroke and fill its wash and faces drew.
+#: The colours a projection's slice bracket is painted in: every stroke and fill its two faces drew.
 _BAND_INK = """(plotId) => {
   const chart = echarts.getInstanceByDom(document.getElementById(plotId));
   const out = new Set();
@@ -568,13 +568,13 @@ _BAND_INK = """(plotId) => {
   }
   return [...out].sort();
 }"""
-#: scale.js `SCREEN.text` / `SCREEN_LIGHT.text`: the slice band's ink (projection.js addDepthSlab).
+#: scale.js `SCREEN.text` / `SCREEN_LIGHT.text`: the slice bracket's ink (projection.js addDepthSlab).
 TEXT = {"dark": "#e6edf3", "light": "#111827"}
 
 
-def test_a_switch_while_sliced_keeps_the_slice_the_band_and_the_camera(live_server):
+def test_a_switch_while_sliced_keeps_the_slice_the_bracket_and_the_camera(live_server):
     """A theme switch while the 3-D event shows slice 3 of 6 (plan §3.5): no request; the readout, the scrubber,
-    the cubes drawn and the reader's turned and zoomed camera stay; the depth projections keep the band at the
+    the cubes drawn and the reader's turned and zoomed camera stay; the depth projections keep the bracket at the
     same depth, repainted in the new theme's ink; and a switch back returns all of it."""
     base = live_server["base"]
     from test_browser_models import SLICE_PAIRS, _CUBES, _DEPTH_BAND, _SLICE_ROW, _set_slices, _step_slice, \

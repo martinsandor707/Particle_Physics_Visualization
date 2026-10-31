@@ -631,7 +631,7 @@
        "null"
       ]
      },
-     "description": "affine: a (%·√GeV), se_a, b (%), se_b, rho_ab, se_a_stat, se_b_stat; pinned: a0, se_a0, se_a0_stat; quadrature: a, se_a, b (null when B ≤ 0), se_b, b2 (%²), se_b2, b_defined, a2, se_a2, a_defined. SEs are scaled by scale_factor; *_stat are not."
+     "description": "affine: a (%·√GeV), se_a, b (%), se_b, rho_ab, se_a_stat, se_b_stat; pinned: a0, se_a0, se_a0_stat; quadrature: a, se_a, b (null when B ≤ 0), se_b, b2 (%²), se_b2, b_defined, a2, se_a2, a_defined, se_a_stat, se_b_stat, se_a2_stat, se_b2_stat. SEs are scaled by scale_factor; *_stat are not."
     },
     "chi2": {
      "type": "number"
@@ -657,6 +657,11 @@
     },
     "negative_intercept": {
      "type": "boolean"
+    },
+    "band_quantile": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "The band's multiplier on √(gᵀΣg): Student's t₀.₉₇₅,ndf when scale_factor > 1, else z₀.₉₇₅ = 1.96; affine and pinned only (the quadrature fit has no band)."
     },
     "curve": {
      "anyOf": [

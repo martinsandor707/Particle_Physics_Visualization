@@ -3194,16 +3194,18 @@ kind of experiment, where the performance section does not
   showers A and B kept apart; a paired aggregate adds the XGBoost momentum
   regressor on its 20 % validation split once its analysis is done; single-shower
   hit data has the detector series only, named after the selection's species
-  where one covers 95 % of it. E on both axes is the incident momentum p.
+  where one covers 95 % of it, counting the events without a primary particle
+  against the name. E on both axes is the incident momentum p.
 - **The axes.** y is σ/E from zero. The bottom axis is linear in x = 1/√E and
   reversed, from 0.5 GeV⁻¹ᐟ² (4 GeV) at the left to 0 at the right border, so the
   bottom-right corner is the origin, E → ∞, where a purely stochastic resolution
   vanishes. The top axis relabels the same positions in GeV (5, 10, 15, 20, 30,
   50, 100 and ∞), E = 1/x²: an exact unit conversion, the one kind of second axis
   CLAUDE.md allows, with no data plotted against it. The y range follows the
-  windows with N ≥ 20 and the fits through them; a weaker mark beyond it is
-  clipped with a caret and counted, and with no window at N ≥ 20 the range is
-  labelled provisional.
+  windows with N ≥ 20 and the lines fitted through them; a weaker mark beyond
+  it, a provisional fit's line or a band that leaves the top, is clipped with a
+  caret carrying its true values and counted in the drawer, and with no window
+  at N ≥ 20 the range is labelled provisional.
 - **The marks.** A window's σ/E is reported from N = 2, drawn with its capped
   95 % χ² whisker [s_lo/R̄, s_hi/R̄] from N = 8 (a faded ring below), faded below
   N = 20, and off the axis below 4 GeV, where it is counted and listed in the
@@ -3213,20 +3215,26 @@ kind of experiment, where the performance section does not
   windows by default - the lowest bin from 5 GeV, the highest, and the one
   between them nearest in log E to their geometric mean, chosen on the whole
   table so they do not move with the selection ({5, 10, 19} on the 0–20 GeV
-  files) - or, with **All ≥ 4 GeV**, through every window with N ≥ 20. A thin
-  anchor is replaced by its nearest eligible window, by name; with fewer than two
-  the fit runs through windows of N ≥ 8 and is provisional. The affine fit
-  a/√E + b (solid for A, dashed for B) and the origin-pinned a₀/√E (dotted, into
-  the corner) each draw their 95 % confidence band. The weights are 1/se², with
-  the delta-method se recomputed at the fitted value and iterated, which removes
-  the pull towards windows that fluctuated low; χ²/ν, its p-value and the PDG
-  scale factor S, applied when χ²/ν > 1, are quoted. The quadrature form
-  √(a²/E + b²) is fitted as a line in (σ/E)² against 1/E and tabled, never
-  drawn: its constant term is not the linear sum's b.
-- **The fit table** under the plot (screen only; the export is the plot) gives
-  a ± SE(a), b ± SE(b), χ²/ν, a₀ ± SE(a₀), the quadrature terms, the windows used
-  and the status of every series in the mode in force. The windows and the
-  showers repaint without a request.
+  files) - or, with **All ≥ 4 GeV**, through every window with N ≥ 20, the
+  4–5 GeV window included, which the drawer then names. A thin anchor is
+  replaced by its nearest eligible window from 5 GeV, by name, never one below
+  the floor the low anchor keeps; with fewer than two the fit runs through
+  windows of N ≥ 8 and is provisional. The affine fit a/√E + b (solid for A,
+  dashed for B) and the origin-pinned a₀/√E (dotted, into the corner) each draw
+  their 95 % confidence band, ±1.96 √(gᵀΣg) while the windows' own errors stand
+  and ±t₀.₉₇₅,ν √(gᵀΣg) once S scales Σ, since S is then estimated from the
+  fit's own ν (12.71 at ν = 1). The weights are 1/se², with the delta-method se
+  recomputed at the fitted value and iterated, half-stepped once the refits
+  oscillate, for at most 200 refits; a fit that does not settle says so in its
+  tooltip, the table and the drawer. χ²/ν, its p-value and the PDG scale factor
+  S, applied when χ²/ν > 1, are quoted. The quadrature form √(a²/E + b²) is
+  fitted as a line in (σ/E)² against 1/E and tabled, never drawn: its constant
+  term is not the linear sum's b.
+- **The fit table** under the plot (screen only; the export is the plot) has a
+  row group per series and a row per fit (affine, origin-pinned, quadrature):
+  its a and b with their SEs, χ²/ν with p, S and its status, with the windows
+  used spanning the group. Its text columns wrap, so it keeps to the card. The
+  windows and the showers repaint without a request.
 
 ### The feature explorer
 
@@ -3611,8 +3619,10 @@ draws one slice of the volume at a time, in place of the reference notebook's
   of the event's or the selection's energy, exact from the server's per-layer
   `depth_profile`; on an attention channel, the share of Σ E·Grad-CAM, or the
   positive and negative Σ E·Shap-CAM shares apart.
-- *The band.* The paired depth projections draw the slice as a faint band with
-  its two faces outlined; the XY projection still sums every layer. The drawers
+- *The bracket.* The paired depth projections mark the slice with a bracket:
+  its two faces as lines across the plot, each with a short tick into the slice
+  at either end. It is never a wash, which would re-tint every bin inside it
+  against the colour bar. The XY projection still sums every layer. The drawers
   state the rule, the range, the shares and the energy outside the sliced range.
 
 ### The XGBoost cards

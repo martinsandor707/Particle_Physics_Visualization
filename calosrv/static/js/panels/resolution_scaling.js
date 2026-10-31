@@ -34,7 +34,8 @@
  * and the lines behind it. From N = 2 to 7 the window is a faded hollow ring
  * with a dashed outline and no whisker, and its tooltip names the N = 8 floor.
  * A window below N = 20 is faded (`legibleOpacity`, never below 3:1 against
- * the card) and is not fitted; it does not set the y range either. A mark
+ * the card) and fitted only by a provisional fit, where a series has fewer
+ * than two windows of N ≥ 20; it never sets the y range. A mark
  * beyond the server's range is clipped at the axis with a caret whose tooltip
  * gives the true value. Series whose windows share an x (a detector and a
  * network series read the same events) are set a few pixels apart.
@@ -42,14 +43,21 @@
  * ## The fits are lines with their 95% confidence bands
  *
  * The affine fit is a line and the origin-pinned fit a thinner dotted one, each
- * with its 95% confidence band from the parameter covariance (scaled by the
- * PDG factor S where χ²/ν > 1): the uncertainty of the fitted line, not the
- * spread of the events, and the band's tooltip says so. The affine band is a
- * wash at `bandAlpha`, the pinned one at half of it. A line and its band are
+ * with its 95% confidence band from the parameter covariance: ±1.96 √(gᵀΣg)
+ * while the windows' own standard errors stand, ±t₀.₉₇₅,ν √(gᵀΣg) once the PDG
+ * factor S = √(χ²/ν) > 1 scales Σ (S is then estimated from the fit's own ν;
+ * the server ships the quantile). It is the uncertainty of the fitted line, not
+ * the spread of the events, and the band's tooltip says so. The affine band is
+ * a wash at `bandAlpha`, the pinned one at half of it. A line and its band are
  * clipped to the plot: an affine fit with a negative intercept runs down to the
- * axis and stops there. A provisional fit (fewer than two windows of N ≥ 20,
- * so it runs through windows of N ≥ 8) is drawn faded. The quadrature fit is
- * never drawn; it is tabled.
+ * axis and stops there. A line or band that leaves the top of the plot (a
+ * provisional fit never sets the range, and a band may be far wider than its
+ * line) is clipped and said so, as a weak window is: a caret where it leaves,
+ * its true values in the caret's tooltip, and a count in the drawer. A
+ * provisional fit (fewer than two windows of N ≥ 20, so it runs through
+ * windows of N ≥ 8) is drawn faded. A fit whose iterated weights did not
+ * settle says so in its tooltip, the table and the drawer. The quadrature fit
+ * is never drawn; it is tabled.
  *
  * ## Colour is the estimator, fill and dash are the shower
  *
@@ -65,11 +73,13 @@
  * ## The fit table
  *
  * Under the plot, on screen only, the panel keeps a table of the fits of the
- * mode in force: one row per series drawn, a ± SE(a), b ± SE(b), χ²/ν with its
- * p, a₀ ± SE(a₀) with its χ²/ν, the quadrature a and b (or the undefined term
- * with its standard error), the windows fitted with their substitutions, and
- * the provisional flag. It is built with `createElement` and `textContent`
- * only, from the pure `fitTableRows`. The export is the chart alone.
+ * mode in force: one row group per series drawn, one row per fit (affine,
+ * origin-pinned, quadrature), each with its a and b (or the undefined
+ * quadrature term with its standard error), χ²/ν with its p, the scale factor
+ * S and its status; the series and the windows it fitted, with their
+ * substitutions, span the group. Its text columns wrap, so it keeps to the
+ * card's width. It is built with `createElement` and `textContent` only, from
+ * the pure `fitTableRows`. The export is the chart alone.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../scale.js';
@@ -200,6 +210,34 @@ export function clipPolyline(points, lo, hi) {
   return runs;
 }
 
+/**
+ * Where a fit leaves the top of the plot, or null where it stays inside:
+ * `{at, lineAt, bandAt, peak}`. `lineAt` and `bandAt` are the x where the
+ * line and the band's upper edge first rise above `hi`, scanning from x = 0
+ * (null where one stays inside); `at` is where the caret goes, the line's exit
+ * where the line leaves, else the band's; `peak` is the curve point
+ * `[x, y, lo, hi]` whose band reaches highest, its true values.
+ */
+function cutAbove(curve, hi) {
+  if (!Number.isFinite(hi) || !curve.length) return null;
+  const exit = (index) => {
+    for (let i = 0; i < curve.length; i += 1) {
+      const v = curve[i][index];
+      if (!(v > hi)) continue;
+      if (i === 0) return curve[0][0];
+      const before = curve[i - 1][index];
+      const t = (hi - before) / (v - before);
+      return curve[i - 1][0] + t * (curve[i][0] - curve[i - 1][0]);
+    }
+    return null;
+  };
+  const lineAt = exit(1);
+  const bandAt = exit(3);
+  if (lineAt === null && bandAt === null) return null;
+  const peak = curve.reduce((a, c) => (c[3] > a[3] ? c : a), curve[0]);
+  return { at: lineAt ?? bandAt, lineAt, bandAt, peak };
+}
+
 /** What one window is in the mode in force: the role line(s) its tooltip states. */
 function roleOf(payload, s, mf, mode, w, gates) {
   const fitted = (mf?.points ?? []).includes(w.bin);
@@ -234,9 +272,12 @@ function roleOf(payload, s, mf, mode, w, gates) {
  *
  * {mode, gates, y: {lo, hi, interval, provisional, name, n_clipped}, nShowers,
  * series: [{key, label, raw, colour, isB, offsetPx, mf, provisional, points,
- * fits: {affine, pinned}}], clipped: {markers, whiskers}, nPoints, nLines}.
- * A point is {w, x, value, lo, hi, n, whisker, weak, subFloor, anchor, fitted,
- * opacity, clip, over, roles}; a fit is {form, fit, runs, band, provisional}.
+ * fits: {affine, pinned}, unreported}], clipped: {markers, whiskers, fits},
+ * nPoints, nLines}. A point is {w, x, value, lo, hi, n, whisker, weak,
+ * subFloor, anchor, fitted, opacity, clip, over, roles}; a fit is {form, fit,
+ * runs, band, provisional, cut, floorCut, converged}, `cut` (`cutAbove`) where
+ * its line or band leaves the top of the plot; `unreported` the on-axis
+ * windows with no σ/E.
  */
 export function resolutionModel(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series) || !payload.axis) return null;
@@ -251,7 +292,7 @@ export function resolutionModel(payload, opts = {}) {
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
   const shown = shownSeries(payload, opts.shower);
   const colours = seriesColours(shown);
-  const clipped = { markers: 0, whiskers: 0 };
+  const clipped = { markers: 0, whiskers: 0, fits: 0 };
   const hi = Number.isFinite(y.hi) ? y.hi : Infinity;
 
   const series = shown.map((s, k) => {
@@ -279,23 +320,31 @@ export function resolutionModel(payload, opts = {}) {
         roles: roleOf(payload, s, mf, mode, w, gates),
       };
     });
+    // Windows on the axis that report no σ/E (one event, or R̄ ≤ 0): never drawn, and named in the drawer.
+    const unreported = (s.windows ?? []).filter((w) => !w.off_axis && (w.p_lo ?? 0) >= gates.e_min_gev
+      && !((w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)));
     const fits = {};
     for (const form of DRAWN_FORMS) {
       const fit = mf?.[form] ?? null;
       if (!fit || !Array.isArray(fit.curve) || !fit.curve.length) { fits[form] = null; continue; }
       const curve = fit.curve.filter((c) => Array.isArray(c) && c.every(Number.isFinite));
       const clampY = (v) => Math.min(Math.max(v, y.lo), hi);
+      const cut = cutAbove(curve, hi);
+      if (cut) clipped.fits += 1;
       fits[form] = {
         form, fit,
         runs: clipPolyline(curve.map(([cx, cy]) => [cx, cy]), y.lo, hi),
         band: curve.map(([cx, , lo, up]) => [cx, clampY(lo), clampY(up)]),
         provisional: Boolean(fit.provisional ?? mf.provisional),
+        cut,
+        floorCut: curve.some((c) => c[2] < y.lo),
+        converged: fit.converged !== false,
       };
     }
     return {
       key: s.key, label: s.label ?? s.key, raw: s, colour, isB,
       offsetPx: (k - (shown.length - 1) / 2) * SERIES_OFFSET_PX,
-      mf, provisional: Boolean(mf?.provisional), points, fits,
+      mf, provisional: Boolean(mf?.provisional), points, fits, unreported,
     };
   });
   return {
@@ -392,19 +441,56 @@ export function lineTip(model, s, f, payload = null) {
   if (form === 'affine' && Number.isFinite(p.a) && p.a < 0) {
     lines.push(mutedLine('a < 0: σ/E rises with E here, which no stochastic term describes.'));
   }
+  if (!f.converged) {
+    lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's line, not a fixed point.`));
+  }
+  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   lines.push(mutedLine('The shaded band beside it is the line\'s 95% confidence band.'));
   return lines.join('<br/>');
 }
 
+/** The band's half-width as the card writes it: ±1.96 √(gᵀΣg), or ±t₀.₉₇₅,ν √(gᵀΣg) once S scales Σ. */
+function bandRule(fit) {
+  const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
+  const q = Number.isFinite(fit.band_quantile) ? fit.band_quantile : 1.96;
+  return scaled
+    ? `±t₀.₉₇₅,${formatInt(fit.ndf)} √(gᵀΣg) = ±${sig(q, 4)} √(gᵀΣg) from the parameter covariance scaled by S = ${sig(fit.scale_factor)}: S is estimated from the fit's own ν = ${formatInt(fit.ndf)}, so Student's t replaces 1.96`
+    : '±1.96 √(gᵀΣg) from the parameter covariance';
+}
+
 /** The tooltip of one fit's band. */
 export function bandTip(s, f) {
-  const scaled = Number.isFinite(f.fit.scale_factor) && f.fit.scale_factor > 1;
   const name = f.form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E';
-  return [
+  const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
-    `95% confidence band of the ${name}: ±1.96 √(gᵀΣg) from the parameter covariance${scaled ? `, scaled by S = ${sig(f.fit.scale_factor)}` : ''}`,
+    `95% confidence band of the ${name}: ${bandRule(f.fit)}`,
     mutedLine('The uncertainty of the fitted line, not the spread of the events.'),
-  ].join('<br/>');
+  ];
+  if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
+  if (f.floorCut) lines.push(mutedLine('Its lower edge is cut at σ/E = 0, the floor of the axis.'));
+  return lines.join('<br/>');
+}
+
+/** "x = 0.354 GeV⁻¹ᐟ² (E = 8 GeV)": a place on the bottom axis with its energy. */
+function placeText(x) {
+  return `x = ${formatNumber(x, 3)} ${X_UNIT} (${x > 0 ? `E = ${sig(1 / (x * x))} GeV` : 'E → ∞'})`;
+}
+
+/** The tooltip of the caret where a fit's line or band leaves the top of the plot: its true values. */
+export function fitCutTip(model, s, f) {
+  const { cut } = f;
+  const name = f.form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E';
+  const [px, py, plo, pup] = cut.peak;
+  const lines = [
+    `<b>${escapeHtml(s.label)}</b>`,
+    `The ${f.provisional ? 'provisional ' : ''}${name} leaves the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}):`
+      + `${cut.lineAt !== null ? ` its line from ${placeText(cut.lineAt)},` : ''} its 95% band from ${placeText(cut.bandAt ?? cut.lineAt)}.`,
+    `True values where the band reaches highest, at ${placeText(px)}: the line ${pct(py)}, the band [${pct(plo)}, ${pct(pup)}].`,
+    mutedLine(f.provisional
+      ? 'Clipped, not rescaled: a provisional fit runs through windows of N < 20 and never sets the range.'
+      : 'Clipped, not rescaled: the range follows the windows of N ≥ 20 and the fitted lines through them, not the bands.'),
+  ];
+  return lines.join('<br/>');
 }
 
 /* --------------------------------------------------------------- marks -- */
@@ -481,6 +567,11 @@ function seriesMarks(model, s, payload) {
     if (p.value > y.hi || p.clip?.cutHi) carets.push({ at: [p.x, y.hi], dir: 'up', tooltip: tip });
     if (p.value < y.lo || p.clip?.cutLo) carets.push({ at: [p.x, y.lo], dir: 'down', tooltip: tip });
   }
+  // A line or band that leaves the top of the plot: one caret where it leaves, with its true values.
+  for (const form of DRAWN_FORMS) {
+    const f = s.fits[form];
+    if (f?.cut) carets.push({ at: [f.cut.at, y.hi], dir: 'up', tooltip: fitCutTip(model, s, f) });
+  }
   if (carets.length) {
     out.push(named({ ...caretSeries({ name: s.label, carets, color: s.colour, offsetPx: s.offsetPx }), id: `${s.key}|carets` }));
   }
@@ -549,10 +640,19 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
     return emptyChartOption(opts, metrics, 'No series of the chosen shower in this response.');
   }
   if (!model.nPoints || !(model.y.hi > 0)) {
+    const { gates } = model;
     const offAxis = model.series.reduce((a, s) => a + (s.raw.windows ?? []).filter((w) => w.off_axis && Number.isFinite(w.value)).length, 0);
+    const listed = offAxis ? ` ${plural(offAxis, 'window')} below ${formatNumber(gates.e_min_gev)} GeV ${offAxis === 1 ? 'is' : 'are'} listed in the Details drawer.` : '';
+    // Windows that report σ/E (N ≥ 2) but cannot anchor a fit (N < 8): the anchors mode draws none of them.
+    const reportable = model.series.reduce((a, s) => a + (s.raw.windows ?? []).filter((w) => !w.off_axis
+      && (w.p_lo ?? 0) >= gates.e_min_gev && (w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)).length, 0);
+    if (model.mode === 'anchors' && reportable && model.y.hi > 0) {
+      return emptyChartOption(opts, metrics, `No window from ${formatNumber(gates.anchor_low_gev)} GeV reaches N = ${formatInt(gates.whisker_n)}, `
+        + `the fewest an anchor fit runs through, so the 3-anchor mode draws nothing. "All ≥ ${formatNumber(gates.e_min_gev)} GeV" draws the `
+        + `${plural(reportable, 'window')} from ${formatNumber(gates.e_min_gev)} GeV that report σ/E (N ≥ ${formatInt(gates.report_n)}).${listed}`);
+    }
     const mode = model.mode === 'anchors' ? ' No series has a window its anchors fit can run through.' : '';
-    return emptyChartOption(opts, metrics, `No momentum window from ${formatNumber(model.gates.e_min_gev)} GeV holds two events in this selection, so no σ/E can be drawn on this axis.${mode}`
-      + (offAxis ? ` ${plural(offAxis, 'window')} below ${formatNumber(model.gates.e_min_gev)} GeV ${offAxis === 1 ? 'is' : 'are'} listed in the Details drawer.` : ''));
+    return emptyChartOption(opts, metrics, `No momentum window from ${formatNumber(gates.e_min_gev)} GeV holds two events in this selection, so no σ/E can be drawn on this axis.${mode}${listed}`);
   }
   const pad = axisPadding();
   const width = metrics.width || 760;
@@ -595,71 +695,95 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
 
 /* ---------------------------------------------------------- fit table -- */
 
-/** The column heads of the fit table. */
+/** The column heads of the fit table: one row per fit, the series and its windows spanning its rows. */
 export const FIT_TABLE_COLUMNS = Object.freeze([
-  'Series', `a ± SE(a) [${A_UNIT}]`, 'b ± SE(b) [%]', 'χ²/ν (p)', `a₀ ± SE(a₀) [${A_UNIT}]`, 'χ²/ν (p) of a₀',
-  `Quadrature a [${A_UNIT}]`, 'Quadrature b [%]', 'Windows fitted', 'Status',
+  'Series', 'Fit', `a ± SE [${A_UNIT}]`, 'b ± SE [%]', 'χ²/ν (p)', 'S', 'Windows fitted', 'Status',
 ]);
 
-const pm = (v, se) => (Number.isFinite(v) ? `${sig(v)} ± ${sig(se)}` : '—');
+/** The left-aligned text columns; the rest are right-aligned numbers, each value kept whole by `NBSP`. */
+export const FIT_TABLE_TEXT_COLUMNS = Object.freeze([0, 1, 6, 7]);
 
-/** A χ² cell: χ²/ν (p), or ν = 0 said; S where it scaled the errors. */
+/** The fits of one series, in the table's order, with the name its Fit cell gives each. */
+const TABLE_FORMS = Object.freeze([
+  ['affine', 'Affine a/√E + b'],
+  ['pinned', 'Origin-pinned a₀/√E'],
+  ['quadrature', 'Quadrature √(a²/E + b²), tabled only'],
+]);
+
+/** No-break space: a value and its SE, or p and its value, never split across lines as the table wraps. */
+const NBSP = '\u00a0';
+
+const pm = (v, se) => (Number.isFinite(v) ? `${sig(v)}${NBSP}±${NBSP}${sig(se)}` : '—');
+
+/** A χ² cell: χ²/ν (p), or ν = 0 said. */
 function chi2Cell(fit) {
   if (!fit) return '—';
-  const base = fit.ndf > 0 && Number.isFinite(fit.p_value)
-    ? `${sig(fit.chi2)}/${formatInt(fit.ndf)} (p = ${sig(fit.p_value)})`
+  return fit.ndf > 0 && Number.isFinite(fit.p_value)
+    ? `${sig(fit.chi2)}/${formatInt(fit.ndf)} (p${NBSP}=${NBSP}${sig(fit.p_value)})`
     : 'ν = 0: no χ² test';
-  return Number.isFinite(fit.scale_factor) && fit.scale_factor > 1 ? `${base}; S = ${sig(fit.scale_factor)}` : base;
 }
 
-/** The quadrature terms: a and b, or the undefined one as A or B with its standard error. */
-function quadratureCells(fit) {
+/** The scale factor cell: S where it scaled the errors, 1 where they stand, — without a test. */
+function scaleCell(fit) {
+  if (!fit || !(fit.ndf > 0)) return '—';
+  return Number.isFinite(fit.scale_factor) && fit.scale_factor > 1 ? sig(fit.scale_factor) : '1';
+}
+
+/** The a and b cells of one fit: the pinned b is zero by construction; an undefined quadrature term is its square. */
+function termCells(fit) {
   if (!fit) return ['—', '—'];
   const p = fit.params ?? {};
+  if (fit.form === 'affine') return [pm(p.a, p.se_a), pm(p.b, p.se_b)];
+  if (fit.form === 'pinned') return [pm(p.a0, p.se_a0), '0 (through the origin)'];
   const a = p.a_defined === false || !Number.isFinite(p.a)
-    ? `A = ${sig(p.a2)} ± ${sig(p.se_a2)} %²·GeV: a undefined`
+    ? `A${NBSP}=${NBSP}${pm(p.a2, p.se_a2)}${NBSP}%²·GeV: a undefined`
     : pm(p.a, p.se_a);
   const b = p.b_defined === false || !Number.isFinite(p.b)
-    ? `B = ${sig(p.b2)} ± ${sig(p.se_b2)} %²: b undefined`
+    ? `B${NBSP}=${NBSP}${pm(p.b2, p.se_b2)}${NBSP}%²: b undefined`
     : pm(p.b, p.se_b);
   return [a, b];
 }
 
+/** The status of one fit: provisional, not converged, a negative intercept, or robust. */
+function statusCell(fit, mf, gates) {
+  if (!fit) return 'too few windows';
+  const status = [];
+  if (mf?.provisional) status.push(`provisional (windows of N ≥ ${formatInt(gates.whisker_n)})`);
+  if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
+  if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
+  return status.length ? status.join('; ') : `robust (N ≥ ${formatInt(gates.fit_n)})`;
+}
+
 /**
  * The fit table of the mode in force. Pure: {mode, caption, columns, rows:
- * [{key, label, cells: [string]}]}, one row per series the shower choice
- * admits, every cell a string with U+2212 for a minus. Null without a payload.
+ * [{key, label, windows, fits: [{form, cells: [string]}]}]}, one row group per
+ * series the shower choice admits and one row per fit; `cells` are the Fit
+ * column onwards except the windows, which span the group (`windows`). Every
+ * cell is a string with U+2212 for a minus. Null without a payload.
  */
 export function fitTableRows(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series)) return null;
   const mode = windowMode(opts?.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
+  const text = (c) => typographic(String(c));
   const rows = shownSeries(payload, opts?.shower).map((s) => {
     const mf = s.fits?.[mode] ?? null;
-    const affine = mf?.affine ?? null;
-    const pinned = mf?.pinned ?? null;
-    const status = [];
-    if (mf?.provisional) status.push(`provisional (windows of N ≥ ${formatInt(gates.whisker_n)})`);
-    if (affine?.negative_intercept) status.push('b < 0');
-    if (!affine) status.push('too few windows for a line');
-    const [qa, qb] = quadratureCells(mf?.quadrature ?? null);
-    const cells = [
-      s.label ?? s.key,
-      affine ? pm(affine.params?.a, affine.params?.se_a) : '—',
-      affine ? pm(affine.params?.b, affine.params?.se_b) : '—',
-      chi2Cell(affine),
-      pinned ? pm(pinned.params?.a0, pinned.params?.se_a0) : '—',
-      chi2Cell(pinned),
-      qa, qb,
-      windowsText(payload, s, mf),
-      status.length ? status.join('; ') : `robust (N ≥ ${formatInt(gates.fit_n)})`,
-    ].map((c) => typographic(String(c)));
-    return { key: s.key, label: s.label ?? s.key, cells };
+    return {
+      key: s.key,
+      label: s.label ?? s.key,
+      windows: text(windowsText(payload, s, mf)),
+      fits: TABLE_FORMS.map(([form, name]) => {
+        const fit = mf?.[form] ?? null;
+        const [a, b] = termCells(fit);
+        return { form, cells: [name, a, b, chi2Cell(fit), scaleCell(fit), statusCell(fit, mf, gates)].map(text) };
+      }),
+    };
   });
   return {
     mode,
-    caption: `Fits through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
-      + 'SEs are scaled by S where χ²/ν > 1.',
+    caption: typographic(`Fits through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
+      + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
+      + 'S = 1 where the windows\' own errors stand.'),
     columns: [...FIT_TABLE_COLUMNS],
     rows,
   };
@@ -700,7 +824,13 @@ export class ResolutionScalingPanel extends ChartPanel {
     return host;
   }
 
-  /** Text nodes only: every label comes from a payload. */
+  /**
+   * Text nodes only: every label comes from a payload. One `tbody` per series:
+   * its name (a row-group header) and the windows it fitted span its three
+   * fit rows, each headed by the fit's name. Every cell wraps at its spaces;
+   * text is left-aligned (`text`) and numbers right-aligned (`num`), a value
+   * and its SE held together by no-break spaces.
+   */
   renderTable() {
     const host = this.ensureTableHost();
     if (!host) return;
@@ -710,9 +840,10 @@ export class ResolutionScalingPanel extends ChartPanel {
       return;
     }
     const doc = this.tableDoc ?? host.ownerDocument ?? globalThis.document;
-    const el = (tag, text) => {
+    const el = (tag, text, column = null) => {
       const node = doc.createElement(tag);
       if (text !== undefined && text !== null) node.textContent = text;
+      if (column !== null) node.className = FIT_TABLE_TEXT_COLUMNS.includes(column) ? 'text' : 'num';
       return node;
     };
     const table = el('table');
@@ -720,23 +851,38 @@ export class ResolutionScalingPanel extends ChartPanel {
     table.append(el('caption', model.caption));
     const head = el('thead');
     const names = el('tr');
-    for (const c of model.columns) {
-      const th = el('th', c);
+    model.columns.forEach((c, i) => {
+      const th = el('th', c, i);
       th.setAttribute?.('scope', 'col');
       names.append(th);
-    }
+    });
     head.append(names);
-    const body = el('tbody');
+    table.append(head);
     for (const row of model.rows) {
-      const tr = el('tr');
-      row.cells.forEach((text, i) => {
-        const cell = el(i === 0 ? 'th' : 'td', text);
-        if (i === 0) cell.setAttribute?.('scope', 'row');
-        tr.append(cell);
+      const body = el('tbody');
+      row.fits.forEach((fit, k) => {
+        const tr = el('tr');
+        if (k === 0) {
+          const series = el('th', row.label, 0);
+          series.setAttribute?.('scope', 'rowgroup');
+          series.setAttribute?.('rowspan', String(row.fits.length));
+          tr.append(series);
+        }
+        // Fit, a, b, χ²/ν, S, then (once) the windows, then the status.
+        const [name, a, b, chi2, scale, status] = fit.cells;
+        const fitName = el('th', name, 1);
+        fitName.setAttribute?.('scope', 'row');
+        tr.append(fitName, el('td', a, 2), el('td', b, 3), el('td', chi2, 4), el('td', scale, 5));
+        if (k === 0) {
+          const windows = el('td', row.windows, 6);
+          windows.setAttribute?.('rowspan', String(row.fits.length));
+          tr.append(windows);
+        }
+        tr.append(el('td', status, 7));
+        body.append(tr);
       });
-      body.append(tr);
+      table.append(body);
     }
-    table.append(head, body);
     host.replaceChildren(table);
   }
 

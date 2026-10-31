@@ -398,7 +398,9 @@ for (const name of %(corrs)s) {
       points: s.points.map((p) => ({ bin: p.w.bin, n: p.n, whisker: p.whisker, weak: p.weak, subFloor: p.subFloor, over: p.over,
         tip: rs.pointTip(m, s, p) })),
       fits: Object.fromEntries(rs.DRAWN_FORMS.map((f) => [f, s.fits[f] ? { runs: s.fits[f].runs.length,
-        line: rs.lineTip(m, s, s.fits[f], payload), band: rs.bandTip(s, s.fits[f]) } : null])) })) };
+        line: rs.lineTip(m, s, s.fits[f], payload), band: rs.bandTip(s, s.fits[f]), cut: s.fits[f].cut,
+        cutTip: s.fits[f].cut ? rs.fitCutTip(m, s, s.fits[f]) : null } : null])),
+      unreported: s.unreported.map((w) => w.bin) })), y: m.y };
   };
   for (const name of %(res)s) {
     const payload = load(name);
@@ -440,6 +442,17 @@ for (const name of %(corrs)s) {
   w.n = 5; w.whisker = false; w.weak = true; w.eligible = false;
   out.res.thin = { bin: w.bin, chart: walk(rs.resolutionScalingOption(thin, { windows: 'all' }, RW)), model: modelOf(thin, 'all', 'both') };
   out.res.clip = rs.clipPolyline([[0, -10], [0.25, 5], [0.5, 20]], 0, 15);
+  // A fit whose iterated weights did not settle: said in its tooltip, the table, the drawer and the hazards.
+  const unsettled = clone(load('res_scaling_two'));
+  const uf = unsettled.series.find((x) => x.key === 'network:a').fits.anchors.affine;
+  uf.converged = false; uf.iterations = 200;
+  const um = rs.resolutionModel(unsettled, { windows: 'anchors' });
+  const us = um.series.find((x) => x.key === 'network:a');
+  out.res.unsettled = {
+    lineTip: rs.lineTip(um, us, us.fits.affine, unsettled),
+    status: rs.fitTableRows(unsettled, { windows: 'anchors' }).rows.find((r) => r.key === 'network:a').fits[0].cells[5],
+    notes: packR(mn.resolutionScalingNotes({ payload: unsettled, windows: 'anchors' })),
+  };
 }
 
 /* ---- drawer notes ---------------------------------------------------------- */
@@ -514,8 +527,10 @@ for (const name of %(corrs)s) {
   const host = inserted[0];
   const table = host.children[0];
   const option = panel.buildOption({ payload: load('res_scaling_two'), opts: { windows: 'all' }, metrics: { width: 760, height: 420 } }).option;
+  const cellOf = (c) => ({ tag: c.tag, text: flat(c), cls: c.className, scope: c.attrs.scope ?? null, rowspan: c.attrs.rowspan ?? null });
   out.res.panel = { inserted: inserted.length, hostClass: host.className, tag: table.tag, kinds: table.children.map((c) => c.tag),
-    head: table.children[1].children[0].children.map(flat), rows: table.children[2].children.map((tr) => tr.children.map(flat)),
+    head: table.children[1].children[0].children.map(flat), headCls: table.children[1].children[0].children.map((c) => c.className),
+    bodies: table.children.filter((c) => c.tag === 'tbody').map((b) => b.children.map((tr) => tr.children.map(cellOf))),
     kind: panel.kind, series: option.series.length, export: panel.exportMetrics(321) };
   panel.clear();
   out.res.panel.cleared = host.children.length;
@@ -1411,10 +1426,43 @@ def test_res_marks_beyond_the_range_are_clipped_with_carets_carrying_true_values
     model = clipped["model"]
     assert model["clipped"]["markers"] > 0 or model["clipped"]["whiskers"] > 0
     carets = _ids(clipped["chart"], "|carets")
-    assert carets and all("clipped at the" in i["tip"] for c in carets for i in c["items"])
+    tips = [i["tip"] for c in carets for i in c["items"]]
+    # A window's caret says it is clipped; a fit's says where its line or band leaves the plot.
+    assert tips and all("clipped at the" in t or "leaves the top of the" in t for t in tips)
     over = [p for s in model["series"] for p in s["points"] if p["over"]]
-    assert sum(len(c["items"]) for c in carets) >= len(over)
+    cut = [f for s in model["series"] for f in s["fits"].values() if f and f["cut"]]
+    assert sum("clipped at the" in t for t in tips) >= len(over)
+    assert sum("leaves the top of the" in t for t in tips) == len(cut) == model["clipped"]["fits"] > 0
     assert "marks clipped at the axis" in clipped["notes"]["hazards"]
+    disclosures = " ".join(clipped["notes"]["sections"]["Disclosures"])
+    assert f"{len(cut)} fit" in disclosures and "leave the top of the plot" in disclosures
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_every_fit_leaving_the_plot_is_clipped_with_a_caret_and_counted(out, name):
+    """CLAUDE.md: an estimate beyond the range is clipped and said so. A fit's line or band above y.hi gets a caret
+    at the exit with its true values, and the model counts it; a fit inside the range gets none."""
+    payload = _load(name)
+    for key in RES_KEYS:
+        mode, shower = key.split(":")
+        model = out["res"][name]["models"][key]
+        hi = model["y"]["hi"]
+        expected = 0
+        for s, m in zip(_res_shown(payload, shower), model["series"]):
+            for form in ("affine", "pinned"):
+                fit = s["fits"][mode][form]
+                got = m["fits"][form]
+                if not fit or not fit.get("curve"):
+                    continue
+                above = max(c[3] for c in fit["curve"]) > hi
+                expected += above
+                assert bool(got["cut"]) == above, (name, key, s["key"], form)
+                if above:
+                    peak = max(fit["curve"], key=lambda c: c[3])
+                    assert got["cut"]["peak"] == peak
+                    assert "leaves the top of the" in got["cutTip"] and "True values" in got["cutTip"]
+                    assert "the caret there gives its true values" in got["line"]
+        assert model["clipped"]["fits"] == expected, (name, key)
 
 
 def test_res_with_no_drawable_window_the_panel_says_so(out):
@@ -1425,33 +1473,82 @@ def test_res_with_no_drawable_window_the_panel_says_so(out):
     assert out["res"]["nothing"]["graphics"]
 
 
+def _fit_rows(table):
+    """{series key: {form: cells}}, the cells from the Fit column on (Fit, a, b, χ²/ν, S, Status)."""
+    return {r["key"]: {f["form"]: f["cells"] for f in r["fits"]} for r in table["rows"]}
+
+
 def test_res_fit_table_rows(out):
+    """One row group per series, one row per fit: a, b, χ²/ν (p), S and the status of each, the windows spanning the group."""
     two = out["res"]["res_scaling_two"]["tables"]
     for key in RES_KEYS:
         table = two[key]
-        assert len(table["columns"]) == 10 and table["columns"][0] == "Series"
+        assert table["columns"] == ["Series", "Fit", "a ± SE [%·√GeV]", "b ± SE [%]", "χ²/ν (p)", "S", "Windows fitted", "Status"]
         shower = key.split(":")[1]
         assert [r["key"] for r in table["rows"]] == [s["key"] for s in _res_shown(_load("res_scaling_two"), shower)]
-        assert all(len(r["cells"]) == 10 for r in table["rows"])
-    rows = {r["key"]: r["cells"] for r in two["anchors:both"]["rows"]}
-    assert rows["network:a"][1].startswith("−135"), rows["network:a"]
-    assert "a undefined" in rows["network:a"][6]
-    assert "(for 5–6 GeV)" in rows["detector:a"][8]
-    assert "S = " in rows["network:a"][5]
-    xgb = {r["key"]: r["cells"] for r in out["res"]["res_scaling_xgb"]["tables"]["anchors:both"]["rows"]}
-    assert "b undefined" in xgb["xgb:a"][7] and "ν = 0" in xgb["xgb:a"][3]
-    assert "provisional" in xgb["xgb:a"][9] and "dropped" in xgb["xgb:a"][8]
-    single = out["res"]["res_scaling_single_hits"]["tables"]["anchors:both"]["rows"][0]["cells"]
-    assert "provisional" in single[9]
+        for r in table["rows"]:
+            assert [f["form"] for f in r["fits"]] == ["affine", "pinned", "quadrature"]
+            assert all(len(f["cells"]) == 6 for f in r["fits"]) and r["windows"]
+    payload = _load("res_scaling_two")
+    fits = {s["key"]: s["fits"]["anchors"] for s in payload["series"]}
+    rows = _fit_rows(two["anchors:both"])
+    windows = {r["key"]: r["windows"] for r in two["anchors:both"]["rows"]}
+    for key, by_form in rows.items():
+        for form, cells in by_form.items():
+            fit = fits[key][form]
+            # The S column: S where it scaled the errors, 1 where they stand, — without a χ² test.
+            if fit["ndf"] == 0:
+                assert cells[4] == "—" and "ν = 0" in cells[3]
+            elif fit["scale_factor"] > 1:
+                assert cells[4] != "1" and cells[4] != "—"
+            else:
+                assert cells[4] == "1"
+        assert by_form["pinned"][2] == "0 (through the origin)"
+        assert by_form["affine"][1].startswith(("−", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"))
+    # An undefined quadrature term is printed as its square with its SE, the defined one as a ± SE.
+    for key, by_form in rows.items():
+        q = fits[key]["quadrature"]["params"]
+        assert ("a undefined" in by_form["quadrature"][1]) == (q["a_defined"] is False), key
+        assert ("b undefined" in by_form["quadrature"][2]) == (q["b_defined"] is False), key
+    assert any(fits[key]["quadrature"]["params"]["a_defined"] is False for key in rows)
+    assert "(for 5–6 GeV)" in windows["detector:a"]
+    xgb = out["res"]["res_scaling_xgb"]["tables"]["anchors:both"]
+    xrows, xwin = _fit_rows(xgb), {r["key"]: r["windows"] for r in xgb["rows"]}
+    assert "b undefined" in xrows["xgb:a"]["quadrature"][2] and "ν = 0" in xrows["xgb:a"]["affine"][3]
+    assert all("provisional" in xrows["xgb:a"][form][5] for form in ("affine", "pinned", "quadrature"))
+    assert "dropped" in xwin["xgb:a"]
+    single = _fit_rows(out["res"]["res_scaling_single_hits"]["tables"]["anchors:both"])["detector:a"]
+    assert all("provisional" in cells[5] for cells in single.values())
+    assert "S = √(χ²/ν)" in xgb["caption"] and "Student's t" in xgb["caption"]
+
+
+def test_res_a_fit_that_did_not_settle_says_so_everywhere(out):
+    """converged = false reaches the line's tooltip, the table's status, the drawer and the hazards."""
+    got = out["res"]["unsettled"]
+    assert "Not converged" in got["lineTip"] and "last refit" in got["lineTip"]
+    assert got["status"].startswith("not converged in 200 refits") or "not converged in 200 refits" in got["status"]
+    assert any("did not settle within 200 refits" in line for line in got["notes"]["sections"]["Disclosures"])
+    assert "fit not converged" in got["notes"]["hazards"]
+    assert "fit not converged" not in out["res"]["res_scaling_two"]["notes"]["anchors"]["hazards"]
 
 
 def test_res_the_panel_inserts_its_table_once_after_the_plot_frame(out):
     panel = out["res"]["panel"]
     assert panel["inserted"] == 1 and panel["hostClass"] == "res-fit-table"
-    assert panel["tag"] == "table" and panel["kinds"] == ["caption", "thead", "tbody"]
-    assert panel["head"][0] == "Series" and len(panel["head"]) == 10
     two = _load("res_scaling_two")
-    assert [r[0] for r in panel["rows"]] == [s["label"] for s in two["series"] if s["shower"] == "a"]
+    shown = [s["label"] for s in two["series"] if s["shower"] == "a"]
+    # One tbody per series: its name heads the group and, with its windows, spans the three fit rows.
+    assert panel["tag"] == "table" and panel["kinds"] == ["caption", "thead"] + ["tbody"] * len(shown)
+    assert panel["head"][0] == "Series" and len(panel["head"]) == 8
+    assert panel["headCls"] == ["text", "text", "num", "num", "num", "num", "text", "text"]
+    for label, body in zip(shown, panel["bodies"]):
+        assert len(body) == 3 and [len(tr) for tr in body] == [8, 6, 6]
+        series, fit = body[0][0], body[0][1]
+        assert (series["tag"], series["scope"], series["rowspan"], series["text"]) == ("th", "rowgroup", "3", label)
+        assert (fit["tag"], fit["scope"]) == ("th", "row") and fit["text"].startswith("Affine")
+        assert body[0][6]["rowspan"] == "3" and body[0][6]["cls"] == "text"
+        assert [tr[0]["text"].split()[0] for tr in body[1:]] == ["Origin-pinned", "Quadrature"]
+        assert [c["cls"] for c in body[1]] == ["text", "num", "num", "num", "num", "text"]
     assert panel["kind"] == "res-scaling" and panel["series"] > 0
     assert panel["export"]["width"] == 321 and panel["export"]["height"] > 0
     assert panel["cleared"] == 0 and panel["payloadCleared"]
@@ -1478,7 +1575,7 @@ def test_res_notes_have_the_four_sections_and_name_what_is_drawn(out, name):
     assert ("provisional fit" in hazards) == provisional
     if name == "res_scaling_two":
         disclosures = " ".join(out["res"][name]["notes"]["anchors"]["sections"][section["disclosures"]])
-        assert "nearest window in log E" in disclosures and "S = " in disclosures
+        assert "nearest window from 5 GeV in log E" in disclosures and "S = " in disclosures
         assert "weak windows drawn" in out["res"][name]["notes"]["all"]["hazards"]
     if name == "res_scaling_xgb":
         disclosures = " ".join(out["res"][name]["notes"]["anchors"]["sections"][section["disclosures"]])
@@ -1506,7 +1603,8 @@ def test_res_no_rendered_number_uses_an_ascii_hyphen(out):
             _no_hyphen_numbers(entry["charts"][key]["strings"])
             _no_hyphen_numbers(entry["axes"][key]["x"][1]["labels"])
             table = entry["tables"][key]
-            _no_hyphen_numbers([table["caption"], *table["columns"], *(c for r in table["rows"] for c in r["cells"])])
+            _no_hyphen_numbers([table["caption"], *table["columns"], *(r["windows"] for r in table["rows"]),
+                                *(c for r in table["rows"] for f in r["fits"] for c in f["cells"])])
         for n in entry["notes"].values():
             _no_hyphen_numbers(line for lines in n["sections"].values() for line in lines)
     _no_hyphen_numbers(out["res"]["clipped"]["chart"]["strings"])

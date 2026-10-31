@@ -132,13 +132,20 @@ export function legibleRampNote() {
 /* -------------------------------------------------------------- slices -- */
 
 /**
- * Why a slice cannot be empty, and why the reference notebook's first one
- * always was (plan §3.7): voxels.js `sliceEdges` and `depthDomain` argue it.
+ * Why the reference notebook's first slice was always empty (plan §3.7):
+ * voxels.js `sliceEdges` and `depthDomain` argue it. The drawer puts the
+ * volume's own slice rule before it (`sliceRule`).
  */
-export const SLICE_NOTEBOOK_FIX = 'A slice is a run of whole layers starting at the first that holds a drawn cube. '
-  + 'The reference notebook (energy_regression.ipynb, save_detector_saliency_interactive) cut ±3σ of standardised '
-  + 'depth into six equal parts. The detector\'s first layer sits at −1.50σ, so its first slice lay wholly upstream of '
-  + 'the front face and was empty in every figure.';
+export const SLICE_NOTEBOOK_FIX = 'The reference notebook (energy_regression.ipynb, save_detector_saliency_interactive) '
+  + 'cut ±3σ of standardised depth into six equal parts. The detector\'s first layer sits at −1.50σ, so its first slice '
+  + 'lay wholly upstream of the front face and was empty in every figure.';
+
+/** What a slice is a run of, in the volume's own depth bins: layers, the shower's own layers or w bins. */
+function sliceRule(plan, cube) {
+  const bins = plan.numbering === 'w_bins' ? 'w bins of the layer pitch'
+    : plan.numbering === 'own_layers' ? 'layers of the shower\'s own' : 'layers';
+  return `A slice is a run of whole ${bins}, starting at the first that holds a drawn ${cube}.`;
+}
 
 /** That the colour scale does not follow the slice (`cube`: 'cube' on one event, 'voxel' on the cloud). */
 export function sliceScaleNote(cube = 'cube') {
@@ -177,7 +184,7 @@ export function sliceNoteLines(slice, drawn = null, kind = 'event') {
     `Drawn: slice ${formatInt(slice.k)} of ${formatInt(slice.K)}, ${layers ? `${layers}, ` : ''}${sliceRangeText(slice)}.`
       + (slice.layers ? '' : ' Its bins are named by depth alone: '
         + (slice.numbering === 'w_bins' ? 'w bins carry no layer number.' : 'the lattice\'s layers are not contiguous here.')),
-    SLICE_NOTEBOOK_FIX,
+    `${sliceRule(slice, cube)} ${SLICE_NOTEBOOK_FIX}`,
   ];
   const attention = sliceAttentionText(slice);
   const total = Number.isFinite(slice.totalGev) ? ` (${formatSci(slice.energyGev, 3)} of ${formatSci(slice.totalGev, 4)} GeV)` : '';
@@ -195,8 +202,8 @@ export function sliceNoteLines(slice, drawn = null, kind = 'event') {
       ? `${plural(drawn.outsideSlice, cube)} of the other slices ${drawn.outsideSlice === 1 ? 'is' : 'are'} not drawn.`
       : '',
     kind === 'event'
-      ? 'The paired XY projection still sums every layer; the two depth projections mark the slice with a band.'
-      : 'The paired entry-plane projection still sums every layer; the two depth projections mark the slice with a band.',
+      ? 'The paired XY projection still sums every layer; the two depth projections mark the slice with a bracket.'
+      : 'The paired entry-plane projection still sums every layer; the two depth projections mark the slice with a bracket.',
   ];
   lines.legend = [sliceScaleNote(cube)];
   lines.hazards = ['one depth slice drawn'];

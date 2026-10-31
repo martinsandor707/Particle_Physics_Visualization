@@ -192,12 +192,15 @@ def test_single_shower_hits_draw_the_detector_only_and_name_the_species(single_c
     assert series["key"] == "detector:a" and series["colour_slot"] == "detector"
 
     events = _events(single_client, SINGLE_HITS_TABLE, "n_hits > 0")
-    types = events["primary_type"].dropna()
-    top = types.value_counts()
-    expected = (rs.SPECIES_CODES.get(top.index[0])
-                if top.iloc[0] / top.sum() >= rs.DOMINANT_SHARE else None) or "Shower"
+    # The share is of every selected event: one without a primary particle counts against the name.
+    top = events["primary_type"].dropna().value_counts()
+    share = top.iloc[0] / len(events)
+    expected = (rs.SPECIES_CODES.get(top.index[0]) if share >= rs.DOMINANT_SHARE else None) or "Shower"
     assert series["shower_label"] == expected
-    assert any("named" in n for n in body["notes"]) or expected == "Shower"
+    (named,) = [n for n in body["notes"] if "named" in n]
+    assert f"of the {len(events):,} selected events" in named and f"{100 * share:.1f}%" in named
+    untyped = int(events["primary_type"].isna().sum())
+    assert (f"{untyped:,} of them have no primary particle" in named) == (untyped > 0)
 
     _check_detector_window(series, events["e_dep"].to_numpy(float), events["e1"].to_numpy(float),
                            events["e1_bin"].to_numpy(float))

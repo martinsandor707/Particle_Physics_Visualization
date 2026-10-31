@@ -122,9 +122,34 @@ def test_scale_factor_inflates_errors_and_band_and_keeps_the_stat_ones():
     assert fit.chi2 / fit.ndf > 1
     assert fit.scale_factor == approx(math.sqrt(fit.chi2 / fit.ndf))
     assert fit.se[0] == approx(fit.se_stat[0] * fit.scale_factor)
+    # S is estimated from ν = 2 residual degrees of freedom: the band takes t₀.₉₇₅,₂ = 4.303, not 1.96.
+    assert fit.ndf == 2 and fit.band_quantile == gaussian.t_quantile_975(2) == 4.303
     y, lo, hi = rf.band(fit, [0.0, 0.3])
-    half = rf.Z95 * math.sqrt(fit.cov[1, 1])
+    half = 4.303 * math.sqrt(fit.cov[1, 1])
     assert hi[0] - y[0] == approx(half) and y[0] - lo[0] == approx(half)
+
+
+def test_an_unscaled_band_keeps_the_normal_quantile():
+    """While χ²/ν ≤ 1 the windows' own standard errors stand, and the band is ±z₀.₉₇₅."""
+    x = 1 / np.sqrt(np.array([5.5, 8.5, 12.5, 19.5]))
+    fit = rf.fit_affine(x, 0.2 * x + 0.01, [400, 400, 400, 400])
+    assert fit.scale_factor == 1.0 and fit.band_quantile == rf.Z95
+    y, lo, hi = rf.band(fit, [0.0])
+    assert hi[0] - y[0] == approx(rf.Z95 * math.sqrt(fit.cov[1, 1]))
+
+
+def test_an_oscillating_refit_is_damped_to_its_fixed_point():
+    """Five windows at σ/E near 100% whose quadrature refits swing between A ≈ 3 and 23: settled by half steps."""
+    x = 1 / np.sqrt(np.array([5.5, 7.5, 10.5, 14.5, 19.5]))
+    r = np.array([2.1, 1.166, 0.55, 0.557, 0.819])
+    n = np.array([30, 31, 29, 30, 29])
+    fit = rf.fit_quadrature(x, r, n)
+    assert fit.converged and fit.iterations < rf.MAX_ITERATIONS
+    # The fixed point: one more refit at the fitted value returns the same parameters.
+    yhat = fit.predict(x)
+    w = 1.0 / (2.0 * yhat * rf.resolution_se(yhat, n)) ** 2
+    again, _ = rf.wls_affine(x * x, r * r, w)
+    assert again == approx(np.array(fit.theta), rel=1e-8)
 
 
 # -------------------------------------------------------------- recovery --
@@ -234,6 +259,16 @@ def test_a_thin_anchor_takes_the_nearest_eligible_window_and_says_so():
     every = rs.mode_fits("all", (5, 10, 19), windows)
     assert every.points == [6, 10, 19]
     assert all(mode.fits[form] is not None for form in ("affine", "pinned", "quadrature"))
+
+
+def test_a_thin_anchor_never_takes_a_window_below_the_anchor_floor():
+    """The 4–5 GeV window may be fitted in the all-windows mode, but it never stands in for an anchor."""
+    windows = _series_windows({4: 60, 5: 10, 7: 30, 10: 50, 19: 25})
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows)
+    assert mode.points == [7, 10, 19]
+    (sub,) = mode.substitutions
+    assert sub["used"] == 7 and "from 5 GeV" in sub["reason"]
+    assert rs.mode_fits("all", (5, 10, 19), windows).points == [4, 7, 10, 19]
 
 
 def test_an_anchor_with_nothing_left_is_dropped():
