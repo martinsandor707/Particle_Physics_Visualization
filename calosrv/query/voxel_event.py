@@ -211,6 +211,31 @@ FLAG_BITS = {"shower": [0, 1], "primary": 2, "below_floor": 3}
 
 _ORDER_NOTE = "ascending energy"
 
+#: Depth-profile numbering: how a bin of the profile is called by the detector.
+NUMBERING_DETECTOR = "detector_layers"
+NUMBERING_OWN = "own_layers"
+NUMBERING_W = "w_bins"
+
+#: Significant figures of a shipped per-bin sum: the sums add to the total within 5e-11 relative,
+#: far inside the 1e-9 the profile is tested to, and a bin costs a third fewer bytes than a
+#: full double.
+DEPTH_DIGITS = 10
+
+#: What the profile's attention quantity is called, per channel.
+_ATTENTION_QUANTITY = {
+    CHANNEL_GRADCAM: "Σ E·Grad-CAM",
+    CHANNEL_SHAPCAM: "Σ E·Shap-CAM",
+    CHANNEL_SEGERR: "Σ E·|f_A,pred − f_A,true|",
+    # The ensemble card's energy-weighted channels (query/voxels.py) sum the same quantities.
+    planes.CHANNEL_GRADCAM_ENERGY: "Σ E·Grad-CAM",
+    planes.CHANNEL_SHAPCAM_ENERGY: "Σ E·Shap-CAM",
+}
+
+_DEPTH_NOTE = (
+    "Per-depth-bin sums of every cell/voxel inside the window, before the cap: the exact shares the "
+    "slice readout quotes."
+)
+
 _SYMBOLS = {
     FRAME_LAB: event_inspector.SYMBOLS["lab"],
     KIND_TRANS: event_inspector.SYMBOLS[KIND_TRANS],
@@ -486,6 +511,97 @@ def _voxel_rows(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, event_
     return rows
 
 
+# ------------------------------------------------------------ depth profile --
+
+
+def depth_attention(channel: str, part: Any) -> dict[str, Any]:
+    """One channel's per-depth-bin attention sums, from ``part(factor) -> (per_bin, outside)``.
+
+    ``part`` returns the per-bin sum, and the part outside the window, of
+    ``E * factor(value)`` over the finite values: ``factor`` is the identity
+    for Grad-CAM and the segmentation error (already ``|f_pred - f_true|``),
+    ``max(v, 0)`` and ``min(v, 0)`` for the two halves of Shap-CAM. The
+    negative half is carried as a magnitude, so every shipped part is >= 0.
+    """
+    if channel == CHANNEL_SHAPCAM:
+        pos, pos_out = part(lambda v: np.maximum(v, 0.0))
+        neg, neg_out = part(lambda v: np.minimum(v, 0.0))
+        return {"signed": True, "positive": pos, "negative": np.abs(neg),
+                "positive_outside": pos_out, "negative_outside": abs(neg_out)}
+    values, outside = part(lambda v: v)
+    return {"signed": False, "values": values, "outside": outside}
+
+
+def _sig_list(values: Any) -> list[float]:
+    return [float(f"{float(v):.{DEPTH_DIGITS}g}") for v in values]
+
+
+def attention_block(channel: str, parts: dict[str, Any]) -> dict[str, Any]:
+    """The profile's ``attention`` block from :func:`depth_attention`'s sums.
+
+    ``total`` is the whole selection's Σ E·value: the bins plus what lies
+    outside the window (event) or the grid (ensemble). Shap-CAM's parts are
+    magnitudes, ``total = positive_total - negative_total`` is the signed sum
+    and ``outside`` the signed part outside, so ``total`` is still the bins
+    plus ``outside``.
+    """
+    quantity = _ATTENTION_QUANTITY[channel]
+    if not parts["signed"]:
+        values = np.asarray(parts["values"], dtype=np.float64)
+        return {"channel": channel, "quantity": quantity, "signed": False,
+                "values": _sig_list(values),
+                "total": float(values.sum()) + float(parts["outside"]),
+                "outside": float(parts["outside"]), "unit": "GeV"}
+    pos = np.asarray(parts["positive"], dtype=np.float64)
+    neg = np.asarray(parts["negative"], dtype=np.float64)
+    pos_total = float(pos.sum()) + float(parts["positive_outside"])
+    neg_total = float(neg.sum()) + float(parts["negative_outside"])
+    return {"channel": channel, "quantity": quantity, "signed": True,
+            "positive": _sig_list(pos), "negative": _sig_list(neg),
+            "total": pos_total - neg_total,
+            "positive_total": pos_total, "negative_total": neg_total,
+            "outside": float(parts["positive_outside"]) - float(parts["negative_outside"]),
+            "positive_outside": float(parts["positive_outside"]),
+            "negative_outside": float(parts["negative_outside"]),
+            "unit": "GeV"}
+
+
+def depth_profile_block(
+    *, index: str, centres_mm: Any, pitch_mm: float, numbering: str, first_layer: int | None,
+    energy: Any, energy_total_gev: float, energy_outside_gev: float,
+    attention: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The ``depth_profile`` block both 3-D payloads carry (the slice readout's exact shares).
+
+    One entry per bin of the payload's own depth axis: ``energy`` in GeV of
+    every cell or voxel inside the window or the grid, counted before the cap;
+    ``energy_outside_gev`` is what lies off that axis. ``first_layer`` counts the lattice's own
+    layer ordinals from 1 (an ordinal, not a measured position: positions are ``centres_mm``). ``attention`` is the
+    channel's block (:func:`attention_block`) or None. The bins sum, with the
+    outside part, to the total.
+    """
+    energy = np.asarray(energy, dtype=np.float64)
+    return {
+        "n": int(energy.size),
+        "index": index,
+        "centres_mm": [round(float(v), COORD_DECIMALS) for v in centres_mm],
+        "pitch_mm": float(pitch_mm),
+        "numbering": numbering,
+        "first_layer": None if first_layer is None else int(first_layer),
+        # Whether bin j is layer first_layer + j: the centres step by exactly one pitch. True on the
+        # production lattice (60 layers at 20.5 mm); a lattice fitted from the layers a file
+        # populates (the demonstration file's) can skip an unpopulated one, and then the layer
+        # number is the lattice's own ordinal and the centres are the position.
+        "layers_contiguous": bool(len(centres_mm) < 2 or np.allclose(
+            np.diff(np.asarray(centres_mm, dtype=np.float64)), pitch_mm, rtol=0.0, atol=2e-3)),
+        "energy_gev": _sig_list(energy),
+        "energy_total_gev": float(energy_total_gev),
+        "energy_outside_gev": float(energy_outside_gev),
+        "attention": attention,
+        "note": typographic(_DEPTH_NOTE),
+    }
+
+
 # ------------------------------------------------------------------ cubes --
 
 
@@ -508,6 +624,9 @@ class Cubes:
     parent: np.ndarray | None = None
     n_daughters: np.ndarray | None = None
     daughter_mode: np.ndarray | None = None
+    #: The channel's per-depth-bin sums over every in-window cell or voxel, before the cap
+    #: (:func:`depth_attention`); None on a channel with no attention.
+    depth_attention: dict[str, Any] | None = None
 
     @property
     def n(self) -> int:
@@ -671,6 +790,8 @@ class Builder:
             iz=cells.iz[sel] - crops["z"][0], energy=cells.energy[sel], shower=cells.shower[sel],
             volume_mm3=self.cell_volume, geometry=geometry,
             outside_gev=float(cells.energy[~inside].sum()),
+            depth_attention=self._cell_depth_attention(inside[cells.inverse], crops["z"],
+                                                       len(axes["z"]["coords"])),
             value=None if cells.value is None else cells.value[sel],
             primary=None if cells.primary is None else cells.primary[sel],
             species=None if cells.species is None else cells.species[sel],
@@ -699,6 +820,30 @@ class Builder:
                 mode[j] = daughters[top]
         return {"parent": parent, "n_daughters": count, "daughter_mode": mode}
 
+    def _cell_depth_attention(self, row_inside: np.ndarray, z_crop: tuple[int, int],
+                              n_depth: int) -> dict[str, Any] | None:
+        """The channel's Σ E·value per depth bin of the cell frames, from the rows themselves.
+
+        A cell's value is the energy-weighted mean over its *finite* rows, so
+        cell energy × cell value equals the rows' sum only where every row is
+        finite; the rows are summed directly, finite values only, split by sign
+        for Shap-CAM. ``row_inside`` marks the rows of cells inside the window.
+        """
+        rows = self.rows
+        if self.channel not in NETWORK_CHANNELS or rows.value is None:
+            return None
+        finite = np.isfinite(rows.value)
+        value = np.where(finite, rows.value, 0.0)
+        depth = rows.iz - z_crop[0]
+        keep = row_inside & (depth >= 0) & (depth < n_depth)
+
+        def part(weights: np.ndarray) -> tuple[np.ndarray, float]:
+            per_bin = np.bincount(depth[keep], weights=weights[keep], minlength=n_depth)
+            return per_bin, float(weights[~row_inside].sum())
+
+        return depth_attention(
+            self.channel, lambda factor: part(rows.energy * factor(value)))
+
     def _splat_cubes(self, pitch: float | None) -> Cubes:
         """The cells' footprints split into sub-deposits, moved with the frame, binned onto voxels."""
         assert pitch is not None
@@ -721,10 +866,12 @@ class Builder:
                                   float(self.centres[:, 2].max()), margin)
         edges = (x_edges, y_edges, z_edges)
 
-        def binned(factor: np.ndarray | None) -> np.ndarray:
+        def binned_outside(factor: np.ndarray | None) -> tuple[np.ndarray, float]:
             w = weights if factor is None else weights * np.repeat(np.asarray(factor, dtype=np.float64), m)
-            cube, _ = footprint_mod.bin_uniform(points, w, edges)
-            return cube
+            return footprint_mod.bin_uniform(points, w, edges)
+
+        def binned(factor: np.ndarray | None) -> np.ndarray:
+            return binned_outside(factor)[0]
 
         energy_cube, outside = footprint_mod.bin_uniform(points, weights, edges)
         jx, jy, jz = np.nonzero(energy_cube > 0)
@@ -748,6 +895,16 @@ class Builder:
             ev = binned(np.where(finite, rows.value, 0.0))[jx, jy, jz]
             with np.errstate(invalid="ignore", divide="ignore"):
                 cubes.value = np.where(ef > 0, ev / np.where(ef > 0, ef, 1.0), np.nan)
+            if self.channel in NETWORK_CHANNELS:
+                # Σ E·value per depth bin from the sub-deposits themselves (weight × the row's
+                # value), never from a voxel's mean times its energy.
+                value = np.where(finite, rows.value, 0.0)
+
+                def depth_part(factor):
+                    cube, out = binned_outside(factor(value))
+                    return cube.sum(axis=(0, 1)), float(out)
+
+                cubes.depth_attention = depth_attention(self.channel, depth_part)
         if rows.primary is not None:
             cubes.primary = binned(rows.primary.astype(np.float64))[jx, jy, jz] > 0
         if self.channel == CHANNEL_SPECIES and rows.codes is not None:
@@ -893,6 +1050,7 @@ class Builder:
             "species": self._species_block(cubes, drawn) if self.channel == CHANNEL_SPECIES else None,
             # The geometry sentence is shipped once, at geometry.note.
             "notes": [typographic(n) for n in [*self.build_notes, *notes, cap_note]],
+            "depth_profile": self._depth_profile(cubes, cap_block),
         }
         return {
             "event": self._event_block(),
@@ -902,6 +1060,52 @@ class Builder:
             "voxels": voxels,
             "elapsed_ms": (time.perf_counter() - self.started) * 1000.0,
         }
+
+    # ------------------------------------------------------- depth profile --
+
+    def _depth_profile(self, cubes: Cubes, cap_block: dict[str, Any]) -> dict[str, Any]:
+        """Per-depth-bin energy and attention of every in-window cube, before the cap.
+
+        Indexed like ``cubes.iz``: the cell frames' bins are the lattice layers of ``axes.z``
+        (placed through its coordinates, never a pitch), the splat frames' the grid's depth
+        bins - native layers in the D-frame, uniform bins along w in Local. Numbering: the
+        laboratory frame and the D-frame count detector layers (``first_layer`` = the first
+        bin's 1-based layer); the per-shower translated frame counts the shower's own layers
+        from its first populated one (layer 1 at depth 0, so a window that opens above it
+        starts at a layer <= 0, a pad layer of the box); Local's bins are w bins, unnumbered.
+        """
+        geometry = cubes.geometry
+        pitch = self.pitch_z
+        if self.regime == REGIME_CELLS:
+            axis = geometry["axes"]["z"]
+            origin_z = geometry["origin_mm"][2]
+            centres = [float(c) - origin_z for c in axis["coords"]]
+            n_depth = len(centres)
+            if self.frame == FRAME_LAB:
+                numbering, first = NUMBERING_DETECTOR, int(axis["i0"]) + 1
+            else:
+                numbering = NUMBERING_OWN
+                first = int(round(centres[0] / pitch)) + 1 if centres else 1
+            index = "cubes.iz"
+        elif self.frame == KIND_CANONICAL:
+            axis = geometry["axes"]["z"]
+            centres = list(axis["coords"])
+            n_depth = len(centres)
+            numbering, first = NUMBERING_DETECTOR, int(axis["i0"]) + 1
+            index = "cubes.iz"
+        else:
+            grid = geometry["grid"]
+            n_depth = int(grid["n"][2])
+            centres = [grid["z0"] + (j + 0.5) * pitch for j in range(n_depth)]
+            numbering, first = NUMBERING_W, None
+            index = "cubes.iz"
+        energy = np.bincount(cubes.iz, weights=cubes.energy, minlength=n_depth)
+        attention = (None if cubes.depth_attention is None
+                     else attention_block(self.channel, cubes.depth_attention))
+        return depth_profile_block(
+            index=index, centres_mm=centres, pitch_mm=pitch, numbering=numbering, first_layer=first,
+            energy=energy, energy_total_gev=cap_block["energy_total_gev"],
+            energy_outside_gev=cap_block["energy_outside_window_gev"], attention=attention)
 
     # ------------------------------------------------------------- colour --
 

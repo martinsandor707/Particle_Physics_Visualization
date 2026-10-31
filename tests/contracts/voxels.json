@@ -1640,6 +1640,9 @@
     },
     "meta": {
      "$ref": "#/$defs/meta_density"
+    },
+    "depth_profile": {
+     "$ref": "#/$defs/depth_profile"
     }
    },
    "description": "The body of channel=density."
@@ -1687,6 +1690,9 @@
     },
     "meta": {
      "$ref": "#/$defs/meta_gradcam_energy"
+    },
+    "depth_profile": {
+     "$ref": "#/$defs/depth_profile"
     }
    },
    "description": "The body of channel=gradcam_energy."
@@ -1734,6 +1740,9 @@
     },
     "meta": {
      "$ref": "#/$defs/meta_shapcam_energy"
+    },
+    "depth_profile": {
+     "$ref": "#/$defs/depth_profile"
     }
    },
    "description": "The body of channel=shapcam_energy."
@@ -2133,6 +2142,208 @@
      "type": "null"
     }
    }
+  },
+  "depth_attention_unsigned": {
+   "type": "object",
+   "required": [
+    "channel",
+    "quantity",
+    "signed",
+    "values",
+    "total",
+    "outside",
+    "unit"
+   ],
+   "properties": {
+    "channel": {
+     "type": "string"
+    },
+    "quantity": {
+     "type": "string"
+    },
+    "signed": {
+     "const": false
+    },
+    "values": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "total": {
+     "type": "number"
+    },
+    "outside": {
+     "type": "number"
+    },
+    "unit": {
+     "const": "GeV"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "additionalProperties": false
+  },
+  "depth_attention_signed": {
+   "type": "object",
+   "required": [
+    "channel",
+    "quantity",
+    "signed",
+    "positive",
+    "negative",
+    "total",
+    "positive_total",
+    "negative_total",
+    "outside",
+    "positive_outside",
+    "negative_outside",
+    "unit"
+   ],
+   "properties": {
+    "channel": {
+     "type": "string"
+    },
+    "quantity": {
+     "type": "string"
+    },
+    "signed": {
+     "const": true
+    },
+    "positive": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "negative": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "total": {
+     "type": "number"
+    },
+    "positive_total": {
+     "type": "number",
+     "minimum": 0
+    },
+    "negative_total": {
+     "type": "number",
+     "minimum": 0
+    },
+    "outside": {
+     "type": "number"
+    },
+    "positive_outside": {
+     "type": "number",
+     "minimum": 0
+    },
+    "negative_outside": {
+     "type": "number",
+     "minimum": 0
+    },
+    "unit": {
+     "const": "GeV"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "additionalProperties": false
+  },
+  "depth_profile": {
+   "type": "object",
+   "required": [
+    "n",
+    "index",
+    "centres_mm",
+    "pitch_mm",
+    "numbering",
+    "first_layer",
+    "layers_contiguous",
+    "energy_gev",
+    "energy_total_gev",
+    "energy_outside_gev",
+    "attention",
+    "note"
+   ],
+   "properties": {
+    "n": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "index": {
+     "const": "grid layer (grid.z_centres)"
+    },
+    "centres_mm": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "pitch_mm": {
+     "type": "number",
+     "minimum": 0
+    },
+    "numbering": {
+     "enum": [
+      "detector_layers",
+      "own_layers",
+      "w_bins"
+     ]
+    },
+    "first_layer": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "energy_gev": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     }
+    },
+    "energy_total_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "energy_outside_gev": {
+     "type": "number",
+     "minimum": 0
+    },
+    "attention": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/depth_attention_unsigned"
+      },
+      {
+       "$ref": "#/$defs/depth_attention_signed"
+      }
+     ]
+    },
+    "note": {
+     "type": "string"
+    },
+    "layers_contiguous": {
+     "type": "boolean"
+    }
+   },
+   "propertyNames": {
+    "$ref": "#/$defs/no_raw"
+   },
+   "additionalProperties": false,
+   "description": "Per-depth-bin sums of every cell/voxel inside the window (grid), before the cap; sum(energy_gev) + energy_outside_gev == energy_total_gev. Signed attention parts are magnitudes: total = positive_total - negative_total and outside = positive_outside - negative_outside; unsigned total = sum(values) + outside."
   }
  }
 }
