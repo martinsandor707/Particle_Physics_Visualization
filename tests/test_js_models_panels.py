@@ -50,6 +50,7 @@ HISTS = ["features_single_hist", "features_single_hist_phi"]
 CORRS = ["features_single_corr", "features_two_corr"]
 DESCRIBE = ["features_single_describe", "features_events_describe"]
 PALETTES = ["viridis", "cividis", "plasma", "turbo"]
+RES = ["res_scaling_two", "res_scaling_xgb", "res_scaling_single_hits", "res_scaling_single_events"]
 
 #: An ASCII hyphen signing a number: every rendered negative must use U+2212.
 HYPHEN_NUMBER = re.compile(r"(?<![\w])-(?=[\d.∞])")
@@ -69,6 +70,7 @@ const corr = await imp('panels/correlation.js');
 const rates = await imp('panels/rates.js');
 const ft = await imp('panels/feature_table.js');
 const mn = await imp('models_notes.js');
+const rs = await imp('panels/resolution_scaling.js');
 const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -134,7 +136,7 @@ function walk(option) {
       items.push({ el: summary, tip, value, decal: datum?.itemStyle?.decal ?? null, label });
     }
     return {
-      name: s.name, type: s.type, silent: Boolean(s.silent), xAxisIndex: s.xAxisIndex ?? 0,
+      name: s.name, id: s.id ?? null, type: s.type, silent: Boolean(s.silent), xAxisIndex: s.xAxisIndex ?? 0,
       colour: s.itemStyle?.color ?? null, labelShow: s.label?.show ?? null, items,
     };
   });
@@ -151,7 +153,7 @@ function walk(option) {
   };
 }
 
-const out = { perf: {}, pred: {}, residual: {}, hist: {}, hist2d: {}, corr: {}, rates: {}, table: {}, notes: {}, contrast: {} };
+const out = { perf: {}, pred: {}, residual: {}, hist: {}, hist2d: {}, corr: {}, rates: {}, table: {}, notes: {}, contrast: {}, res: {} };
 const W = { width: 760, height: 340 };
 
 /* ---- E2 ------------------------------------------------------------------ */
@@ -374,6 +376,72 @@ for (const name of %(corrs)s) {
   out.table.cleared = host.children.length;
 }
 
+/* ---- res-scaling ------------------------------------------------------------- */
+{
+  const packR = (n) => (n ? { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
+    sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null);
+  const stubR = { isTouched: () => false, get: () => null };
+  const RW = { width: 760, height: 420 };
+  const axesOf = (o) => ({
+    x: [].concat(o.xAxis).map((a) => ({ position: a.position ?? null, min: a.min ?? null, max: a.max ?? null, inverse: Boolean(a.inverse),
+      interval: a.interval ?? null, name: a.name ?? '', tickValues: a.axisTick?.customValues ?? null,
+      labelValues: a.axisLabel?.customValues ?? null, labelShow: a.axisLabel?.show !== false,
+      labels: (a.axisLabel?.customValues ?? []).map((v) => String(a.axisLabel.formatter(v))), split: a.splitLine?.show ?? null })),
+    y: [].concat(o.yAxis).map((a) => ({ min: a.min ?? null, max: a.max ?? null, interval: a.interval ?? null, name: a.name ?? '',
+      labelShow: a.axisLabel?.show !== false })),
+    seriesAxes: o.series.map((x) => x.xAxisIndex ?? 0),
+    graphics: (o.graphic ?? []).map((g) => g.style?.text).filter(Boolean),
+  });
+  const modelOf = (payload, windows, shower) => {
+    const m = rs.resolutionModel(payload, { windows, shower });
+    return { clipped: m.clipped, series: m.series.map((s) => ({ key: s.key, colour: s.colour, isB: s.isB,
+      points: s.points.map((p) => ({ bin: p.w.bin, n: p.n, whisker: p.whisker, weak: p.weak, subFloor: p.subFloor, over: p.over,
+        tip: rs.pointTip(m, s, p) })),
+      fits: Object.fromEntries(rs.DRAWN_FORMS.map((f) => [f, s.fits[f] ? { runs: s.fits[f].runs.length,
+        line: rs.lineTip(m, s, s.fits[f], payload), band: rs.bandTip(s, s.fits[f]) } : null])) })) };
+  };
+  for (const name of %(res)s) {
+    const payload = load(name);
+    const entry = { charts: {}, axes: {}, tables: {}, models: {}, notes: {}, ink: scale.THEME.text,
+      hues: perf.sourceColours(['absolute', 'trans', 'local', 'xgb']) };
+    for (const windows of ['anchors', 'all']) {
+      for (const shower of ['both', 'a', 'b']) {
+        const key = `${windows}:${shower}`;
+        const opt = rs.resolutionScalingOption(payload, { windows, shower, palette: 'viridis', card: 'res-scaling' }, RW);
+        entry.charts[key] = walk(opt);
+        entry.axes[key] = axesOf(opt);
+        entry.tables[key] = rs.fitTableRows(payload, { windows, shower });
+        entry.models[key] = modelOf(payload, windows, shower);
+      }
+      entry.notes[windows] = packR(mn.resolutionScalingNotes({ payload, state: stubR, experiment: { display_name: 'Demo' }, windows }));
+    }
+    entry.notes.shownA = packR(mn.resolutionScalingNotes({ payload, windows: 'all', shower: 'a' }));
+    out.res[name] = entry;
+  }
+  // A provisional range: the axis says so.
+  const prov = clone(load('res_scaling_two'));
+  prov.axis.y.provisional = true;
+  out.res.provisional = axesOf(rs.resolutionScalingOption(prov, { windows: 'anchors' }, RW));
+  out.res.provisionalNotes = packR(mn.resolutionScalingNotes({ payload: prov, windows: 'anchors' }));
+  // A lower range: markers and whiskers clipped with carets carrying their true values.
+  const low = clone(load('res_scaling_single_hits'));
+  low.axis.y.hi = 60; low.axis.y.interval = 10;
+  out.res.clipped = { chart: walk(rs.resolutionScalingOption(low, { windows: 'all' }, RW)), model: modelOf(low, 'all', 'both'),
+    notes: packR(mn.resolutionScalingNotes({ payload: low, windows: 'all' })) };
+  // No drawable window: every window off the axis.
+  const none = clone(load('res_scaling_two'));
+  for (const s of none.series) for (const w of s.windows) { w.off_axis = true; w.p_lo = Math.min(w.p_lo, 3); }
+  const emptyOpt = rs.resolutionScalingOption(none, { windows: 'all' }, RW);
+  out.res.empty = { chart: walk(emptyOpt), axes: axesOf(emptyOpt) };
+  out.res.nothing = walk(rs.resolutionScalingOption(null, {}, RW));
+  // A window of N = 5 in the all mode: a dashed ring without a whisker, its tip naming the floor.
+  const thin = clone(load('res_scaling_single_events'));
+  const w = thin.series[0].windows.find((x) => !x.off_axis);
+  w.n = 5; w.whisker = false; w.weak = true; w.eligible = false;
+  out.res.thin = { bin: w.bin, chart: walk(rs.resolutionScalingOption(thin, { windows: 'all' }, RW)), model: modelOf(thin, 'all', 'both') };
+  out.res.clip = rs.clipPolyline([[0, -10], [0.25, 5], [0.5, 20]], 0, 15);
+}
+
 /* ---- drawer notes ---------------------------------------------------------- */
 {
   const pack = (n) => (n ? { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
@@ -425,6 +493,35 @@ for (const name of %(corrs)s) {
   out.panels.c4Dispatch = residualPanel.buildOption({ payload: load('distribution_single_u'), opts: { palette: 'viridis' }, metrics: W }).option.xAxis.name;
 }
 
+{
+  // The resolution panel: the fit table goes once after the card's plot frame, text nodes only.
+  const make = (tag) => ({
+    tag, children: [], textContent: '', className: '', attrs: {},
+    append(...nodes) { for (const n of nodes) this.children.push(typeof n === 'string' ? { tag: '#text', textContent: n, children: [] } : n); },
+    replaceChildren(...nodes) { this.children = []; this.append(...nodes); },
+    setAttribute(k, v) { this.attrs[k] = v; },
+  });
+  const doc = { createElement: make };
+  const inserted = [];
+  const frame = { ownerDocument: doc, after: (node) => inserted.push(node) };
+  const card = { querySelector: (sel) => (sel === '.plot-frame' ? frame : null) };
+  const element = { clientWidth: 760, clientHeight: 420, style: {}, classList: { toggle: () => {} },
+    closest: (sel) => (sel === '.card' ? card : null) };
+  const panel = new rs.ResolutionScalingPanel(element, { card: 'res-scaling' });
+  panel.render(load('res_scaling_two'), { windows: 'anchors', shower: 'both' });
+  panel.render(load('res_scaling_two'), { windows: 'all', shower: 'a' });
+  const flat = (node) => [node.textContent, ...node.children.flatMap(flat)].filter(Boolean).join(' ');
+  const host = inserted[0];
+  const table = host.children[0];
+  const option = panel.buildOption({ payload: load('res_scaling_two'), opts: { windows: 'all' }, metrics: { width: 760, height: 420 } }).option;
+  out.res.panel = { inserted: inserted.length, hostClass: host.className, tag: table.tag, kinds: table.children.map((c) => c.tag),
+    head: table.children[1].children[0].children.map(flat), rows: table.children[2].children.map((tr) => tr.children.map(flat)),
+    kind: panel.kind, series: option.series.length, export: panel.exportMetrics(321) };
+  panel.clear();
+  out.res.panel.cleared = host.children.length;
+  out.res.panel.payloadCleared = panel.lastPayload === null;
+}
+
 /* ---- colours a reader must see, against the card on screen and in print ----- */
 function measureInk(theme) {
   const card = cp.rgbOf(scale.THEME.card);
@@ -450,6 +547,8 @@ out.contrast.screen = measureInk('screen');
 Object.assign(scale.THEME, PRINT_TOKENS);
 out.contrast.print = measureInk('print');
 out.printPerf = walk(perf.perfBinsOption(load('perf_two_energy'), { quantity: 'bias' }, { width: 321, height: 300 }));
+out.printRes = { chart: walk(rs.resolutionScalingOption(load('res_scaling_two'), { windows: 'all' }, { width: 321, height: 300 })),
+  ink: scale.THEME.text, card: scale.THEME.card, hues: perf.sourceColours(['absolute', 'trans', 'local', 'xgb']) };
 scale.restoreScreenTheme();
 
 console.log(JSON.stringify(out));
@@ -459,7 +558,7 @@ console.log(JSON.stringify(out));
 def _script() -> str:
     return _SCRIPT % {
         "perf": json.dumps(PERF), "pred": json.dumps(PRED), "hists": json.dumps(HISTS), "corrs": json.dumps(CORRS),
-        "describe": json.dumps(DESCRIBE), "palettes": json.dumps(PALETTES),
+        "describe": json.dumps(DESCRIBE), "palettes": json.dumps(PALETTES), "res": json.dumps(RES),
     }
 
 
@@ -1050,8 +1149,8 @@ def test_no_rendered_number_uses_an_ascii_hyphen(out):
 
 # ------------------------------------------------------------- sources --
 
-NEW_MODULES = ["perf_bins.js", "hist2d.js", "rates.js", "feature_table.js"]
-CHART_MODULES = ["perf_bins.js", "hist2d.js", "rates.js"]
+NEW_MODULES = ["perf_bins.js", "hist2d.js", "rates.js", "feature_table.js", "resolution_scaling.js"]
+CHART_MODULES = ["perf_bins.js", "hist2d.js", "rates.js", "resolution_scaling.js"]
 
 
 def _strip_comments(source: str) -> str:
@@ -1135,3 +1234,279 @@ def test_the_residual_drawer_states_the_freedman_diaconis_exception(out):
         drawn = out["notes"]["residual"][name]["sections"]["What is drawn"]
         line = next(line for line in drawn if line.startswith("Bins:"))
         assert "Freedman" in line and "Rice" in line and "prediction residuals only" in line
+
+
+# ------------------------------------------------------------- res-scaling --
+#
+# The resolution card on the four recorded payloads: σ/E against a reversed
+# 1/√E axis that ends at the origin, an exact Energy axis on top carrying no
+# data, χ² whiskers only from N = 8, one line and one band per drawn fit and
+# none for the quadrature form, and the fit table beneath.
+
+RES_KEYS = [f"{w}:{s}" for w in ("anchors", "all") for s in ("both", "a", "b")]
+
+
+def _res_shown(payload: dict, shower: str) -> list[dict]:
+    n_showers = len({s["shower"] for s in payload["series"]})
+    return [s for s in payload["series"] if shower == "both" or n_showers < 2 or s["shower"] == shower]
+
+
+def _res_drawn_bins(series: dict, windows: str) -> list[int]:
+    """The windows a mode draws: the fit's points, or every on-axis window with a value."""
+    on_axis = [w for w in series["windows"]
+               if w["value"] is not None and not w["off_axis"] and w["p_lo"] >= 4 and w["n"] >= 2]
+    if windows == "anchors":
+        points = set(series["fits"]["anchors"]["points"])
+        return [w["bin"] for w in on_axis if w["bin"] in points]
+    return [w["bin"] for w in on_axis]
+
+
+def _ids(chart: dict, suffix: str, key: str | None = None) -> list[dict]:
+    return [s for s in chart["series"] if (s["id"] or "").endswith(suffix) and (key is None or s["id"].startswith(f"{key}|"))]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_axes_end_at_the_origin_with_an_exact_energy_axis_on_top(out, name):
+    payload = _load(name)
+    top = payload["axis"]["top"]
+    for key in RES_KEYS:
+        axes = out["res"][name]["axes"][key]
+        bottom, upper = axes["x"]
+        assert bottom["position"] == "bottom" and bottom["inverse"] is True
+        assert (bottom["min"], bottom["max"], bottom["interval"]) == (0, 0.5, 0.1)
+        assert bottom["name"] == payload["axis"]["x"]["name"]
+        assert upper["position"] == "top" and upper["inverse"] is True
+        assert (upper["min"], upper["max"]) == (0, 0.5)
+        assert upper["tickValues"] == [t["x"] for t in top["ticks"]] == upper["labelValues"]
+        assert upper["labels"] == [t["label"] for t in top["ticks"]]
+        assert upper["labels"][upper["labelValues"].index(0.0)] == "∞"
+        assert upper["name"] == top["name"] and upper["split"] is False
+        assert all(i == 0 for i in axes["seriesAxes"]), "no series is plotted against the energy axis"
+        (y,) = axes["y"]
+        assert y["min"] == 0 and y["max"] == payload["axis"]["y"]["hi"] and y["interval"] == payload["axis"]["y"]["interval"]
+        assert ("provisional" in y["name"]) == payload["axis"]["y"]["provisional"]
+    assert "provisional" in out["res"]["provisional"]["y"][0]["name"]
+    assert "provisional range" in out["res"]["provisionalNotes"]["hazards"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_modes_draw_exactly_their_windows_with_whiskers_from_n_eight(out, name):
+    payload = _load(name)
+    for key in RES_KEYS:
+        windows, shower = key.split(":")
+        chart = out["res"][name]["charts"][key]
+        model = out["res"][name]["models"][key]
+        shown = _res_shown(payload, shower)
+        assert [s["key"] for s in model["series"]] == [s["key"] for s in shown]
+        for s, m in zip(shown, model["series"]):
+            expected = _res_drawn_bins(s, windows)
+            assert [p["bin"] for p in m["points"]] == expected, (key, s["key"])
+            if windows == "anchors":
+                assert sorted(expected) == sorted(s["fits"]["anchors"]["points"])
+            by_bin = {w["bin"]: w for w in s["windows"]}
+            for p in m["points"]:
+                assert p["whisker"] == by_bin[p["bin"]]["whisker"]
+            markers = _ids(chart, "|markers", s["key"])
+            drawn = [p for p in m["points"] if not p["over"]]
+            assert sum(len(x["items"]) for x in markers) == len(drawn)
+            whiskers = _ids(chart, "|whiskers", s["key"])
+            assert sum(len(x["items"]) for x in whiskers) == sum(1 for p in m["points"] if p["whisker"])
+            for x in whiskers:
+                for item in x["items"]:
+                    assert item["el"]["type"] == "group" and len(item["el"]["children"]) == 2, "the whisker lies on a casing"
+                    assert "not the spread of its events" in item["tip"]
+
+
+def test_res_a_window_below_eight_is_a_faded_ring_without_a_whisker(out):
+    thin = out["res"]["thin"]
+    (series,) = thin["model"]["series"]
+    point = next(p for p in series["points"] if p["bin"] == thin["bin"])
+    assert point["subFloor"] and not point["whisker"]
+    assert "N = 8 floor" in point["tip"] and "No whisker" in point["tip"]
+    whiskers = _ids(thin["chart"], "|whiskers")
+    assert sum(len(x["items"]) for x in whiskers) == sum(1 for p in series["points"] if p["whisker"])
+    markers = _ids(thin["chart"], "|markers")[0]
+    ring = next(i["el"] for i in markers["items"] if "N = 5 " in (i["tip"] or "") or "N = 5 events" in (i["tip"] or ""))
+    circle = ring["children"][0] if ring["type"] == "group" else ring
+    assert circle["dash"] and circle["opacity"] < 1
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_a_line_and_a_band_per_drawn_fit_and_none_for_the_quadrature(out, name):
+    payload = _load(name)
+    for key in RES_KEYS:
+        windows, shower = key.split(":")
+        chart = out["res"][name]["charts"][key]
+        assert not [s for s in chart["series"] if "quadrature" in (s["id"] or "")]
+        for s in _res_shown(payload, shower):
+            mf = s["fits"][windows]
+            for form in ("affine", "pinned"):
+                lines = [x for x in chart["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|line|")]
+                bands = _ids(chart, f"|{form}|band", s["key"])
+                if mf[form] is None:
+                    assert not lines and not bands
+                    continue
+                assert len(lines) >= 1 and len(bands) == 1, (key, s["key"], form)
+                tip = bands[0]["items"][0]["tip"]
+                assert "95% confidence band" in tip and "not the spread of the events" in tip
+                assert not bands[0]["silent"]
+                assert "σ/E" in lines[0]["items"][0]["tip"]
+                # Clipped to the plot: nothing is drawn below zero or above the range.
+                y_hi = payload["axis"]["y"]["hi"]
+                for line in lines:
+                    for pt in line["items"][0]["el"]["pts"]:
+                        assert -1e-9 <= pt[1] <= y_hi + 1e-9
+
+
+def test_res_a_negative_intercept_runs_down_to_the_axis_and_stops(out):
+    (run,) = out["res"]["clip"]
+    assert run[0] == pytest.approx([0.1666666, 0], abs=1e-6)
+    assert run[-1] == pytest.approx([0.4166666, 15], abs=1e-6)
+    xgb = out["res"]["res_scaling_xgb"]["models"]["anchors:both"]
+    tip = next(s for s in xgb["series"] if s["key"] == "xgb:a")["fits"]["affine"]["line"]
+    assert "b &lt; 0" in tip or "b < 0" in tip
+    assert "ν = 0" in tip
+
+
+def test_res_the_shower_filter_keeps_one_showers_series(out):
+    payload = _load("res_scaling_two")
+    for windows in ("anchors", "all"):
+        for shower in ("a", "b"):
+            chart = out["res"]["res_scaling_two"]["charts"][f"{windows}:{shower}"]
+            keys = {s["id"].split("|")[0] for s in chart["series"]}
+            assert keys == {s["key"] for s in payload["series"] if s["shower"] == shower}
+            assert set(chart["legend"]) == {s["label"] for s in payload["series"] if s["shower"] == shower}
+    for name in ("res_scaling_single_hits", "res_scaling_single_events"):
+        assert out["res"][name]["charts"]["anchors:b"]["legend"] == out["res"][name]["charts"]["anchors:both"]["legend"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_colour_is_the_estimator_and_every_mark_carries_its_series_name(out, name):
+    payload = _load(name)
+    entry = out["res"][name]
+    for key in RES_KEYS:
+        chart = entry["charts"][key]
+        shown = _res_shown(payload, key.split(":")[1])
+        assert chart["legend"] == [s["label"] for s in shown]
+        labels = {s["key"]: s["label"] for s in shown}
+        for series in chart["series"]:
+            assert series["name"] == labels[series["id"].split("|")[0]]
+        for s, m in zip(shown, entry["models"][key]["series"]):
+            expected = entry["ink"] if s["colour_slot"] == "detector" else entry["hues"][s["colour_slot"]]
+            assert m["colour"] == expected
+            for item in (x for markers in _ids(chart, "|markers", s["key"]) for x in markers["items"]):
+                el = item["el"]
+                if el["type"] == "group":
+                    # Shower A's sub-floor ring: the ring in the series' colour, its centre dot filled with it.
+                    assert el["children"][0]["stroke"] == expected and el["children"][1]["fill"] == expected
+                    continue
+                if el["dash"]:
+                    assert el["stroke"] == expected and m["isB"], "only shower B's sub-floor ring is a bare ring"
+                    continue
+                assert (el["stroke"] if m["isB"] else el["fill"]) == expected
+
+
+def test_res_marks_beyond_the_range_are_clipped_with_carets_carrying_true_values(out):
+    clipped = out["res"]["clipped"]
+    model = clipped["model"]
+    assert model["clipped"]["markers"] > 0 or model["clipped"]["whiskers"] > 0
+    carets = _ids(clipped["chart"], "|carets")
+    assert carets and all("clipped at the" in i["tip"] for c in carets for i in c["items"])
+    over = [p for s in model["series"] for p in s["points"] if p["over"]]
+    assert sum(len(c["items"]) for c in carets) >= len(over)
+    assert "marks clipped at the axis" in clipped["notes"]["hazards"]
+
+
+def test_res_with_no_drawable_window_the_panel_says_so(out):
+    empty = out["res"]["empty"]
+    assert not empty["chart"]["series"]
+    assert empty["axes"]["graphics"] and "No momentum window" in empty["axes"]["graphics"][0]
+    assert not empty["axes"]["y"][0]["labelShow"]
+    assert out["res"]["nothing"]["graphics"]
+
+
+def test_res_fit_table_rows(out):
+    two = out["res"]["res_scaling_two"]["tables"]
+    for key in RES_KEYS:
+        table = two[key]
+        assert len(table["columns"]) == 10 and table["columns"][0] == "Series"
+        shower = key.split(":")[1]
+        assert [r["key"] for r in table["rows"]] == [s["key"] for s in _res_shown(_load("res_scaling_two"), shower)]
+        assert all(len(r["cells"]) == 10 for r in table["rows"])
+    rows = {r["key"]: r["cells"] for r in two["anchors:both"]["rows"]}
+    assert rows["network:a"][1].startswith("−135"), rows["network:a"]
+    assert "a undefined" in rows["network:a"][6]
+    assert "(for 5–6 GeV)" in rows["detector:a"][8]
+    assert "S = " in rows["network:a"][5]
+    xgb = {r["key"]: r["cells"] for r in out["res"]["res_scaling_xgb"]["tables"]["anchors:both"]["rows"]}
+    assert "b undefined" in xgb["xgb:a"][7] and "ν = 0" in xgb["xgb:a"][3]
+    assert "provisional" in xgb["xgb:a"][9] and "dropped" in xgb["xgb:a"][8]
+    single = out["res"]["res_scaling_single_hits"]["tables"]["anchors:both"]["rows"][0]["cells"]
+    assert "provisional" in single[9]
+
+
+def test_res_the_panel_inserts_its_table_once_after_the_plot_frame(out):
+    panel = out["res"]["panel"]
+    assert panel["inserted"] == 1 and panel["hostClass"] == "res-fit-table"
+    assert panel["tag"] == "table" and panel["kinds"] == ["caption", "thead", "tbody"]
+    assert panel["head"][0] == "Series" and len(panel["head"]) == 10
+    two = _load("res_scaling_two")
+    assert [r[0] for r in panel["rows"]] == [s["label"] for s in two["series"] if s["shower"] == "a"]
+    assert panel["kind"] == "res-scaling" and panel["series"] > 0
+    assert panel["export"]["width"] == 321 and panel["export"]["height"] > 0
+    assert panel["cleared"] == 0 and panel["payloadCleared"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_notes_have_the_four_sections_and_name_what_is_drawn(out, name):
+    section = out["notes"]["section"]
+    for mode in ("anchors", "all", "shownA"):
+        n = out["res"][name]["notes"][mode]
+        _check_notes(n, section)
+        assert n["headings"] == [section["selection"], section["drawn"], section["disclosures"], section["legend"]]
+        legend = " ".join(n["sections"][section["legend"]])
+        assert "95% χ² interval" in legend and "not the spread of the events" in legend and "confidence band" in legend
+        drawn = " ".join(n["sections"][section["drawn"]])
+        assert "exact unit conversion" in drawn and "a/√E + b" in drawn and "a₀/√E" in drawn
+        disclosures = " ".join(n["sections"][section["disclosures"]])
+        assert "quadrature b and the affine b are different" in disclosures
+        assert "incident momentum p" in disclosures
+        assert "off the axis" in disclosures
+    payload = _load(name)
+    hazards = out["res"][name]["notes"]["anchors"]["hazards"]
+    provisional = any(s["fits"]["anchors"]["provisional"] for s in payload["series"])
+    assert ("provisional fit" in hazards) == provisional
+    if name == "res_scaling_two":
+        disclosures = " ".join(out["res"][name]["notes"]["anchors"]["sections"][section["disclosures"]])
+        assert "nearest window in log E" in disclosures and "S = " in disclosures
+        assert "weak windows drawn" in out["res"][name]["notes"]["all"]["hazards"]
+    if name == "res_scaling_xgb":
+        disclosures = " ".join(out["res"][name]["notes"]["anchors"]["sections"][section["disclosures"]])
+        assert "validation split" in disclosures and "negative" in disclosures
+        selection = " ".join(out["res"][name]["notes"]["anchors"]["sections"][section["selection"]])
+        assert "62 of the 307" in selection
+
+
+def test_res_print_tokens_build(out):
+    printed = out["printRes"]
+    chart = printed["chart"]
+    assert chart["series"] and chart["legend"]
+    for s in chart["series"]:
+        if s["id"].startswith("detector:a|markers"):
+            assert all(i["el"]["fill"] == printed["ink"] for i in s["items"])
+        if s["id"].startswith("network:a|markers"):
+            assert all(i["el"]["fill"] == printed["hues"]["absolute"] for i in s["items"])
+    _no_hyphen_numbers(chart["strings"])
+
+
+def test_res_no_rendered_number_uses_an_ascii_hyphen(out):
+    for name in RES:
+        entry = out["res"][name]
+        for key in RES_KEYS:
+            _no_hyphen_numbers(entry["charts"][key]["strings"])
+            _no_hyphen_numbers(entry["axes"][key]["x"][1]["labels"])
+            table = entry["tables"][key]
+            _no_hyphen_numbers([table["caption"], *table["columns"], *(c for r in table["rows"] for c in r["cells"])])
+        for n in entry["notes"].values():
+            _no_hyphen_numbers(line for lines in n["sections"].values() for line in lines)
+    _no_hyphen_numbers(out["res"]["clipped"]["chart"]["strings"])
