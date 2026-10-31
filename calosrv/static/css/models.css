@@ -107,8 +107,68 @@
 }
 .voxel-species-name { color: var(--text); }
 
+/* The slice row inside each 3-D card, between its caption and its plot: the
+   slice count, the two step buttons, the scrubber and the readout. It wraps
+   rather than overflow a narrow card, and the readout takes what the row
+   leaves, wrapping its own sentence. Nothing here is animated. */
+.voxel-slices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.voxel-slices[hidden] { display: none; }
+.voxel-slices-k { display: inline-flex; align-items: center; gap: 6px; }
+.voxel-slices-k .mini-select { width: 4.5em; }
+.voxel-slices input[type="range"] {
+  flex: 0 1 10em;
+  width: 10em;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.voxel-slice-readout {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
 /* Side by side needs room for both toolbars; below that the pair stacks. */
 @container main (max-width: 980px) {
   .voxel-pair { grid-template-columns: minmax(0, 1fr); }
   .voxel-3d { grid-row: auto; }
+}
+
+/* ------------------------------------------------ energy resolution */
+
+/* The resolution card's plot keeps a fixed height, as every Models plot does:
+   its reversed energy axis along the top needs more room than the 330 px of
+   an ordinary card. */
+#plot-res-scaling { height: 420px; }
+
+/* The fit table under that plot (js/panels/resolution_scaling.js, screen
+   only): one row per series, numbers right-aligned in tabular figures, a muted
+   header over one thin rule. It scrolls inside its card when the card is
+   narrower than its columns, never the page. */
+.res-fit-table {
+  margin-top: 8px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.res-fit-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.res-fit-table th,
+.res-fit-table td { padding: 3px 8px; text-align: right; white-space: nowrap; }
+.res-fit-table th:first-child,
+.res-fit-table td:first-child { text-align: left; padding-left: 0; }
+.res-fit-table thead th {
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
 }
