@@ -599,6 +599,15 @@ def test_the_export_menu_is_reached_from_the_models_entry_point(client):
         assert "?v=" in spec, f"unstamped dynamic import: {spec}"
 
 
+def test_the_resolution_scaling_panel_is_served_and_stamped(client):
+    cards = client.get("/static/js/models_cards.js").text
+    assert "./panels/resolution_scaling.js?v=" in cards
+    served = client.get("/static/js/panels/resolution_scaling.js")
+    assert served.status_code == 200
+    for spec in re.findall(r"from\s+'(\.\.?/[^']+)'", served.text):
+        assert "?v=" in spec, f"unstamped import: {spec}"
+
+
 def test_export_controls_say_the_figure_is_plot_only():
     markup = (STATIC / "index.html").read_text(encoding="utf-8")
     titles = re.findall(r'<button class="mini" data-export="\w+"[^>]*title="([^"]*)"', markup)
