@@ -117,7 +117,8 @@ def _reason(kind: str, gate: str) -> str:
 
 def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_results):
     plan = plan_results["plans"]["two_shower_hits"]
-    assert plan["sections"] == {"perf": True, "xgb": False, "features": True, "primaries": True, "voxels": True}
+    assert plan["sections"] == {"perf": True, "resolution": True, "xgb": False, "features": True, "primaries": True,
+                                "voxels": True}
     for card in PERF + FEATURES:
         assert plan["cards"][card] == {"shown": True, "enabled": True, "reason": None}, card
     # The primaries need species: the card is on show, shut with the server's reason.
@@ -144,7 +145,8 @@ def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_resul
 
 def test_a_single_shower_plan_hides_the_network_cards_and_says_so(plan_results):
     plan = plan_results["plans"]["single_shower_hits"]
-    assert plan["sections"] == {"perf": False, "xgb": False, "features": True, "primaries": True, "voxels": True}
+    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "features": True, "primaries": True,
+                                "voxels": True}
     assert plan["cards"]["prim-rate"] == {"shown": True, "enabled": True, "reason": None}
     assert plan["banner"] == plan_results["texts"]["missing"]
     assert plan["networks"] is False and plan["models"] == []
@@ -161,7 +163,8 @@ def test_a_single_shower_plan_hides_the_network_cards_and_says_so(plan_results):
 
 def test_the_events_only_plan_keeps_the_features_and_hides_the_hit_sections(plan_results):
     plan = plan_results["plans"]["single_shower_events"]
-    assert plan["sections"] == {"perf": False, "xgb": False, "features": True, "primaries": False, "voxels": False}
+    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "features": True, "primaries": False,
+                                "voxels": False}
     for card in FEATURES:
         assert plan["cards"][card]["enabled"] is True
     assert plan["cards"]["vox-event"]["shown"] is False
@@ -178,6 +181,8 @@ def test_a_paired_aggregate_opens_the_xgboost_section_and_hides_its_notice(plan_
     assert [r["status"] for r in experiment["capabilities"]["model_runs"]] == ["done", "done"]
     plan = plan_results["open"]
     assert plan["sections"]["xgb"] is True and plan["sections"]["perf"] is True
+    assert plan["sections"]["resolution"] is True
+    assert plan["cards"]["res-scaling"] == {"shown": True, "enabled": True, "reason": None}
     for card in XGB:
         assert plan["cards"][card] == {"shown": True, "enabled": True, "reason": None}, card
     for card in PERF:
@@ -453,6 +458,20 @@ out.featureShower = {
   control: cards.cardControls('feat-hist').map((c) => c.name),
 };
 out.openTable = out_open_table;
+// The resolution card: the selection alone, and on a networked plan the energy network of the frame.
+out.resScaling = {
+  two: cards.cardRequest('res-scaling', { filters: filters.two, plan: plans.two_shower_hits, view: view({ frame: 'canonical' }) }),
+  twoLocal: cards.cardRequest('res-scaling', { filters: filters.two, plan: plans.two_shower_hits,
+    view: view({ frame: 'local', model: 'angle' }) }),
+  one: cards.cardRequest('res-scaling', { filters: filters.one, plan: plans.single_shower_hits, view: view({ frame: 'local' }) }),
+  open: cards.cardRequest('res-scaling', { filters: filters.open, plan: plans.open, view: view() }),
+  optionsTwo: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
+    controls: { resWindows: 'all', resScalingShower: 'b' } }),
+  optionsOne: cards.cardOptions('res-scaling', { plan: plans.single_shower_hits, view: view(),
+    controls: { resScalingShower: 'b' } }),
+  notice: cards.cardNotice('res-scaling', { plan: plans.two_shower_hits, view: view() }),
+  controls: cards.cardControls('res-scaling').map((c) => c.name),
+};
 out.abortKeys = cards.ABORT_KEYS;
 out.segmentationNotice = cards.SEGMENTATION_NOTICE;
 console.log(JSON.stringify(out));
@@ -467,7 +486,7 @@ def request_results() -> dict:
 
 def test_the_abort_keys_are_the_interfaces(request_results):
     assert sorted(request_results["abortKeys"].values()) == sorted([
-        "models-perf", "models-pred", "models-feat-table", "models-feat-corr", "models-feat-hist",
+        "models-perf", "models-pred", "models-res-scaling", "models-feat-table", "models-feat-corr", "models-feat-hist",
         "models-feat-hist2d", "models-prim", "models-xgb-cv", "models-xgb-binary", "models-xgb-surrogate",
         "models-xgb-importance",
     ])
@@ -586,6 +605,22 @@ def test_the_render_options_are_the_interfaces(request_results):
                          "fadeNull": True}
     assert o["tree"] == {"palette": "viridis", "card": "xgb-surrogate", "task": "angle", "label": "phi"}
     assert o["binary"] == {"palette": "viridis", "card": "xgb-binary"}
+
+
+def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_network(request_results):
+    r = request_results["resScaling"]
+    assert r["two"]["route"] == "/api/resolution-scaling" and r["two"]["abortKey"] == "models-res-scaling"
+    # The D-frame reads the absolute-frame networks; the sidebar's network choice never enters.
+    assert r["two"]["params"] == {**_TWO_FILTERS, "coord_system": "lab"}
+    assert r["twoLocal"]["params"]["coord_system"] == "local"
+    # Without networks the detector series and the XGBoost hold-out need the selection alone.
+    assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
+    # It draws whatever network is selected: no notice, unlike the performance cards.
+    assert r["notice"] is None
+    assert r["controls"] == ["resWindows", "resScalingShower"]
+    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "windows": "all", "shower": "b"}
+    # One shower: no shower choice reaches the panel.
+    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "windows": "anchors", "shower": "both"}
 
 
 _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, "e2_min": 1, "e2_max": 20,

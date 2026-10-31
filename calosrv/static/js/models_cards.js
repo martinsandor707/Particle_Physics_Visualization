@@ -1,6 +1,7 @@
-/* The Models page's 2-D cards: network performance, the XGBoost views, the
- * feature explorer and the primaries, each loaded when it scrolls into view
- * and again only when its request changes (lazy_cards.js).
+/* The Models page's 2-D cards: network performance, the energy-resolution
+ * scaling, the XGBoost views, the feature explorer and the primaries, each
+ * loaded when it scrolls into view and again only when its request changes
+ * (lazy_cards.js).
  *
  * The pattern is the Physics page's section (physics_section.js): the cards
  * are built here at construction, with the anatomy of every card on either
@@ -55,6 +56,7 @@ import { MODELS_LABELS, featureChoices } from './labels.js';
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
   PerfBinsPanel: () => import('./panels/perf_bins.js'),
+  ResolutionScalingPanel: () => import('./panels/resolution_scaling.js'),
   Hist2dPanel: () => import('./panels/hist2d.js'),
   DistributionPanel: () => import('./panels/distribution.js'),
   FeatureTablePanel: () => import('./panels/feature_table.js'),
@@ -100,6 +102,10 @@ export const MODELS_CARDS = Object.freeze([
     group: 'pred', notes: ['models', 'residualNotes'], exportable: true,
   },
   {
+    id: 'res-scaling', section: 'resolution', title: 'Energy Resolution vs. 1/√E', panel: 'ResolutionScalingPanel',
+    group: 'res-scaling', notes: ['models', 'resolutionScalingNotes'], exportable: true, wide: true,
+  },
+  {
     id: 'xgb-cv', section: 'xgb', title: 'Cross-validation (5 Folds)', panel: 'XgbCvPanel',
     group: 'xgb-cv', notes: ['xgb', 'xgbCvNotes'], exportable: true,
   },
@@ -143,6 +149,7 @@ const SPEC = Object.fromEntries(MODELS_CARDS.map((spec) => [spec.id, spec]));
 export const ABORT_KEYS = Object.freeze({
   perf: 'models-perf',
   pred: 'models-pred',
+  'res-scaling': 'models-res-scaling',
   'feat-table': 'models-feat-table',
   'feat-corr': 'models-feat-corr',
   'feat-hist': 'models-feat-hist',
@@ -161,13 +168,16 @@ const XGB_VIEWS = { 'xgb-cv': 'cv', 'xgb-binary': 'binary', 'xgb-surrogate': 'su
 
 /* The cards' own controls that no link carries, like the Physics page's: the
  * E2 statistic, the showers each network card draws (two-shower data reports
- * A and B separately, each with its own N), the feature table's statistic,
- * the correlation card's class and the histogram's feature axis. */
+ * A and B separately, each with its own N), the resolution card's windows, the
+ * feature table's statistic, the correlation card's class and the histogram's
+ * feature axis. */
 export const DEFAULT_CONTROLS = Object.freeze({
   perfStat: 'rmse',
   perfShower: 'both',
   predShower: 'both',
   resShower: 'both',
+  resWindows: 'anchors',
+  resScalingShower: 'both',
   tableStat: 'median',
   corrClass: 'pooled',
   histScale: 'auto',
@@ -389,10 +399,19 @@ const TABLE_STAT_CONTROL = {
   choices: () => TABLE_STAT_CHOICES,
 };
 
+/* The resolution card's windows: the three anchors its fits are defined on, or
+ * every 1 GeV window from 4 GeV. One response carries both fits, so the choice
+ * repaints. */
+const RES_WINDOWS_CONTROL = {
+  name: 'resWindows', kind: 'seg', attr: 'resWindows', label: 'Windows',
+  choices: () => MODELS_LABELS.res_windows,
+};
+
 const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
+  'res-scaling': [RES_WINDOWS_CONTROL, showerControl('resScalingShower')],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -440,6 +459,14 @@ export function cardRequest(id, { filters, view = VIEW_DEFAULTS, controls = DEFA
       if (plan?.networks) params.coord_system = viewFrame('network', v.frame).frame;
       if (predLabelApplies(plan, v)) params.label = v.xgb_label;
       return { route: '/api/prediction-density', abortKey, params };
+    }
+    case 'res-scaling': {
+      // The detector series needs the selection alone; on two-shower data the
+      // model series is the energy network of the selected frame (the D-frame
+      // reads the absolute-frame networks), so only a networked plan names it.
+      const params = { ...filters };
+      if (plan?.networks) params.coord_system = viewFrame('network', v.frame).frame;
+      return { route: '/api/resolution-scaling', abortKey, params };
     }
     case 'feat-table':
     case 'feat-corr':
@@ -513,6 +540,9 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     opts.task = perfTask(plan, v);
     if (predLabelApplies(plan, v)) opts.label = v.xgb_label;
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
+  } else if (spec.group === 'res-scaling') {
+    opts.windows = c.resWindows;
+    opts.shower = two ? c.resScalingShower : 'both';
   } else if (spec.section === 'features') {
     opts.classes = v.fclass;
     opts.frame = featureFrame(plan, v).frame;
