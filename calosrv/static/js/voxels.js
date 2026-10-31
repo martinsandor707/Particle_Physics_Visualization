@@ -78,17 +78,28 @@
  * The colour legend is the 2-D visualMap of the 2-D panels (`scale.visualMap`)
  * over the GL layer. It targets no series (`seriesIndex: []`): the cubes carry
  * their colours, so the legend can never recolour them.
+ *
+ * **On the light screen a cube is painted exactly as a 2-D raster bin**
+ * (`cubesAsRasters`; Martin's directive of 2026-10-31): its slot's white-
+ * grounded ramp in full, from the pale floor tint to the deep peak, through
+ * the light transfer and its 0.8-decade fade on a log scale, and the light
+ * PuOr unfolded, zero in border grey. Cut to the run at 3:1 against the card,
+ * as a mark standing alone is, the ramps lost a pale end (the Viridis slot
+ * kept 0.537-1, Turbo 0.722-1, each Shap-CAM arm its 3:1 start), and the
+ * cubes read in a few deep tones that matched no bin of the projections
+ * beside them. On the dark card and in print the legible run stays: the dark
+ * golden records it.
  */
 
 import { decodeBase64, codeTable, dequantize } from './decode.js';
 import {
   THEME, MINUS, visualMap, rampPalette, rampMidLabel, typographic, formatSci, formatInt, formatPercent,
-  formatSigned, unitSuffix,
+  formatSigned, unitSuffix, fieldFadeDecades,
 } from './scale.js';
 import { QUALITATIVE } from './palette.js';
 import { measureText } from './textfit.js';
 import { tooltipOption } from './panels/tooltip.js';
-import { escapeHtml, mutedLine, wrapTooltip } from './panels/chart_panel.js';
+import { escapeHtml, mutedLine, wrapTooltip, isPrintTheme, onLightCard } from './panels/chart_panel.js';
 
 /** World units of the longest box side; every side is S = BOX_UNITS / longest span per mm. */
 export const BOX_UNITS = 100;
@@ -769,16 +780,27 @@ function qualitativeRgb(name) {
 }
 
 /**
+ * Whether the cubes take the 2-D rasters' ramps (see the header): on the
+ * light screen, never on the dark card or in print.
+ */
+export function cubesAsRasters() {
+  return onLightCard() && !isPrintTheme();
+}
+
+/**
  * The 256-entry RGBA table one model's codes are painted through.
  *
- * Continuous channels go through `decode.codeTable` (see the header); the
- * species channel indexes the qualitative palette by species code, with every
- * code past the named ones taking the palette's last ("other") colour.
- * `fadeDecades` is the floor taper of the relative ramps (THEME's on screen);
- * `qualitative` the species palette, the card's (THEME's) when not given.
+ * Continuous channels go through `decode.codeTable` (see the header): on the
+ * light screen with the raster's own options (`field`, its fade), elsewhere
+ * on the legible run with the folded Shap-CAM arms. The species channel
+ * indexes the qualitative palette by species code, with every code past the
+ * named ones taking the palette's last ("other") colour. `fadeDecades` is the
+ * floor taper of the relative ramps (the theme's, or the light raster's 0.8
+ * decade, when not given); `qualitative` the species palette, the card's
+ * (THEME's) when not given.
  */
 export function voxelCodeTable(model, palette = 'viridis', {
-  fadeDecades = THEME.floorFadeDecades, qualitative = THEME.speciesPalette,
+  fadeDecades = null, qualitative = THEME.speciesPalette,
 } = {}) {
   if (model.scale?.scale === 'categorical') {
     const colours = qualitativeRgb(qualitative);
@@ -791,6 +813,8 @@ export function voxelCodeTable(model, palette = 'viridis', {
     return table;
   }
   const c = model.codes;
+  const field = cubesAsRasters();
+  const fade = fadeDecades ?? (field ? fieldFadeDecades(model.scale ?? {}) : THEME.floorFadeDecades);
   return codeTable({
     scale: model.scale,
     empty_code: c.empty,
@@ -798,7 +822,7 @@ export function voxelCodeTable(model, palette = 'viridis', {
     max_code: c.max,
     ...(Number.isInteger(c.below) ? { below_code: c.below } : {}),
     ...(Number.isInteger(c.split) ? { split_code: c.split } : {}),
-  }, palette, fadeDecades, { legible: true, signed: true });
+  }, palette, fade, { legible: true, signed: !field, field });
 }
 
 /** Each cube's RGBA, from the model's code table. */
@@ -878,8 +902,10 @@ export const PROVISIONAL_TAG = 'provisional';
 export function voxelLegend(model, palette = 'viridis') {
   const scale = model.scale;
   if (!scale || scale.scale === 'categorical' || scale.degenerate) return null;
-  // The ramp's unit is written by scale.js `unitSuffix` (GeV/mm^3 as GeV/mm³), as on every 2-D ramp.
-  const legend = visualMap(scale, rampPalette(scale, palette), { seriesIndex: [], signed: true });
+  // The ramp's unit is written by scale.js `unitSuffix` (GeV/mm^3 as GeV/mm³), as on every 2-D ramp; on the
+  // light screen it is the raster's own colour bar, as the cubes are its colours (`cubesAsRasters`).
+  const field = cubesAsRasters();
+  const legend = visualMap(scale, rampPalette(scale, palette), { seriesIndex: [], signed: !field, field });
   const top = referenceTopLabel(model);
   if (top && Array.isArray(legend.text)) {
     // The relative ramp's top is the reference itself: "1 = ρ_ref", not "10⁰·⁰ a.u." (P-25).

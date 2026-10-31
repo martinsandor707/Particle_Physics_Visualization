@@ -2114,9 +2114,15 @@ the peak, so contrast with the card rises with the value:
     labelled ends.
   - **Untouched:** linear scales (Grad-CAM's [0, 1]), the signed PuOr ramps,
     the marks that stand alone, the dark card and print.
-- **A mark that stands alone on the card keeps 3:1.** A 3-D cube, a series line
-  or bar, a 2-D histogram cell and a surrogate-tree leaf each take the slot
-  ramp's run at 3:1 or more (the last column). That includes the energy panel's
+- **A mark that stands alone on the card keeps 3:1.** A series line or bar, a
+  2-D histogram cell and a surrogate-tree leaf each take the slot ramp's run at
+  3:1 or more (the last column).
+- **A 3-D cube takes the rasters' colour map** (Martin's directive, 2026-10-31).
+  Cut to their 3:1 runs the ramps lost their pale ends, and the cubes read in a
+  few deep tones that matched no bin of the projections beside them. On the
+  light screen the cube table and the 3-D colour bar are the raster's own: the
+  slot's ramp in full, through the transfer and its fade on a log scale, and
+  raw Shap-CAM's zero in the border grey. The dark card's cubes are unchanged. That includes the energy panel's
   slices, which on the dark card still sample the categorical sub-range raw,
   with a first slice of 2.1:1 (recorded in TODO.md, because dark must not move).
 - **The three monotone ramps lose lightness at every table entry.** The
@@ -2749,7 +2755,8 @@ option for bright rooms, projectors and screenshots on white slides.
     stylesheet still wins on paper.
   - **The ramps:** each colour-map slot draws a ramp made for white, as
     described above. A raster spans it in full, through the transfer on a log
-    scale, and a mark standing alone takes its 3:1 run. The overlay marks have
+    scale, and so does a 3-D cube; any other mark standing alone takes its 3:1
+    run. The overlay marks have
     nothing laid under them, and a strip draws them small.
 - **Dark mode does not move.** `tests/test_js_dark_golden.py` records every
   dark output as it was before the light theme existed, and fails naming any
@@ -3463,12 +3470,15 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   the part of a tilted footprint that overlaps it, so voxel densities run below
   cell densities); a cube below the floor is drawn at the lowest colour and
   counted, and a frame whose cubes all share one density says its ramp is
-  degenerate. On screen the lowest colour is the ramp's first colour with 3:1
-  contrast against the card, not the palette's darkest, so no opaque cube is
-  drawn below 3:1 (see [Display channels](#display-channels)); the drawer says so. Grad-CAM and the segmentation error |f_A,pred − f_A,true| are linear
-  on [0, 1]; Shap-CAM is signed, linear on [−1, +1] on the folded PuOr, and a raw
-  Shap-CAM cube near zero takes its sign's first 3:1 colour where the 2-D panels
-  draw zero in border grey, since a cube prints no number; these
+  degenerate. On the dark screen the lowest colour is the ramp's first colour
+  with 3:1 contrast against the card, not the palette's darkest, so no opaque
+  cube is drawn below 3:1 (see [Display channels](#display-channels)); on the
+  light screen a cube takes the 2-D panels' colour map exactly, its floor the
+  slot's palest tint; the drawer says which. Grad-CAM and the segmentation error |f_A,pred − f_A,true| are linear
+  on [0, 1]; Shap-CAM is signed, linear on [−1, +1] on the folded PuOr, and on
+  the dark screen a raw Shap-CAM cube near zero takes its sign's first 3:1 colour
+  where the 2-D panels draw zero in border grey, since a cube prints no number
+  (on the light screen it is the 2-D panels' grey); these
   three need the networks' columns. The **species** channel (single-shower hit
   files) takes stable global codes (e⁻, e⁺, γ, n, p, π⁺, π⁻, then "other" in
   grey) on a qualitative palette whose every pair stays apart under simulated
