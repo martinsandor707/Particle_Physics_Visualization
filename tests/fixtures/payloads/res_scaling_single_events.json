@@ -1,0 +1,1057 @@
+{
+ "meta": {
+  "table_name": "single_events",
+  "exact": true,
+  "warnings": [],
+  "coord_system": "lab",
+  "coord_system_applies": false,
+  "coord_system_note": "coord_system selects the energy network's input frame on two-shower data only; it does not apply to this experiment."
+ },
+ "kind": "single_shower_events",
+ "n_events": 286,
+ "unit": "%",
+ "estimator": {
+  "name": "response_ratio",
+  "definition": "R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the unbiased (ddof = 1) sample SD.",
+  "label": "σ(R)/μ(R), R = E_est / p"
+ },
+ "axis": {
+  "x": {
+   "min": 0.0,
+   "max": 0.5,
+   "inverse": true,
+   "interval": 0.1,
+   "unit": "GeV^−1/2",
+   "name": "⟵ 1/√E [GeV⁻¹ᐟ²]"
+  },
+  "top": {
+   "name": "Energy (GeV) ⟶",
+   "ticks": [
+    {
+     "e_gev": 5,
+     "x": 0.447214,
+     "label": "5"
+    },
+    {
+     "e_gev": 10,
+     "x": 0.316228,
+     "label": "10"
+    },
+    {
+     "e_gev": 15,
+     "x": 0.258199,
+     "label": "15"
+    },
+    {
+     "e_gev": 20,
+     "x": 0.223607,
+     "label": "20"
+    },
+    {
+     "e_gev": 30,
+     "x": 0.182574,
+     "label": "30"
+    },
+    {
+     "e_gev": 50,
+     "x": 0.141421,
+     "label": "50"
+    },
+    {
+     "e_gev": 100,
+     "x": 0.1,
+     "label": "100"
+    },
+    {
+     "e_gev": null,
+     "x": 0.0,
+     "label": "∞"
+    }
+   ],
+   "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are plotted against it."
+  },
+  "y": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 110.0,
+   "interval": 10.0,
+   "provisional": false,
+   "n_clipped": 3,
+   "unit": "%",
+   "name": "σ/E [%]"
+  }
+ },
+ "gates": {
+  "report_n": 2,
+  "whisker_n": 8,
+  "fit_n": 20,
+  "e_min_gev": 4.0,
+  "anchor_low_gev": 5.0,
+  "n_anchors": 3
+ },
+ "anchors": {
+  "nominal_bins": [
+   5,
+   10,
+   19
+  ],
+  "labels": [
+   "5–6 GeV",
+   "10–11 GeV",
+   "19–20 GeV"
+  ],
+  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
+ },
+ "model": {
+  "available": false,
+  "source": null,
+  "frame": null,
+  "label": null,
+  "reason": "No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>).",
+  "split": null
+ },
+ "series": [
+  {
+   "key": "detector:a",
+   "source": "detector",
+   "shower": "a",
+   "shower_label": "Shower",
+   "estimator_label": "Calibrated deposit c·E_dep — linear-sum benchmark",
+   "label": "Shower · Calibrated deposit c·E_dep — linear-sum benchmark",
+   "colour_slot": "detector",
+   "n": 286,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 1,
+     "label": "1–2 GeV",
+     "p_lo": 1.0,
+     "p_hi": 2.0,
+     "n": 8,
+     "p_mean": 1.56524,
+     "x": 0.816838,
+     "mean_r": 0.996286,
+     "sd_r": 0.918722,
+     "value": 92.2147,
+     "ci95": [
+      60.9695,
+      187.675
+     ],
+     "se_delta": 38.8751,
+     "c4": 0.96503,
+     "bias": -0.371381,
+     "momentum_spread": 24.5083,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 20,
+     "p_mean": 2.48505,
+     "x": 0.637144,
+     "mean_r": 0.996286,
+     "sd_r": 0.881711,
+     "value": 88.4998,
+     "ci95": [
+      67.3036,
+      129.257
+     ],
+     "se_delta": 22.6457,
+     "c4": null,
+     "bias": -0.371381,
+     "momentum_spread": 11.007,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 1,
+     "p_mean": 3.16019,
+     "x": 0.562527,
+     "mean_r": 1.69697,
+     "sd_r": null,
+     "value": null,
+     "ci95": null,
+     "se_delta": null,
+     "c4": null,
+     "bias": 69.6967,
+     "momentum_spread": null,
+     "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 15,
+     "p_mean": 5.54689,
+     "x": 0.424975,
+     "mean_r": 1.0612,
+     "sd_r": 0.878532,
+     "value": 82.7868,
+     "ci95": [
+      60.6103,
+      130.56
+     ],
+     "se_delta": 23.6204,
+     "c4": null,
+     "bias": 6.1198,
+     "momentum_spread": 4.99202,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 2,
+     "p_mean": 7.22742,
+     "x": 0.37199,
+     "mean_r": 1.13278,
+     "sd_r": 1.21569,
+     "value": 107.319,
+     "ci95": [
+      47.8798,
+      3424.69
+     ],
+     "se_delta": 111.316,
+     "c4": 0.797885,
+     "bias": 13.2784,
+     "momentum_spread": 1.66368,
+     "dof_note": "1 d.o.f.",
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 200,
+     "p_mean": 10.4986,
+     "x": 0.308715,
+     "mean_r": 0.996286,
+     "sd_r": 0.861542,
+     "value": 86.4754,
+     "ci95": [
+      78.7495,
+      95.8958
+     ],
+     "se_delta": 6.83733,
+     "c4": null,
+     "bias": -0.371381,
+     "momentum_spread": 2.76062,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 7,
+     "p_mean": 12.5139,
+     "x": 0.28272,
+     "mean_r": 1.09959,
+     "sd_r": 0.940809,
+     "value": 85.56,
+     "ci95": [
+      55.135,
+      188.435
+     ],
+     "se_delta": 37.0893,
+     "c4": 0.959369,
+     "bias": 9.95901,
+     "momentum_spread": 1.91202,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 14,
+     "p_mean": 15.5464,
+     "x": 0.253646,
+     "mean_r": 0.875086,
+     "sd_r": 0.882646,
+     "value": 100.864,
+     "ci95": [
+      73.1211,
+      162.492
+     ],
+     "se_delta": 33.6241,
+     "c4": 0.980971,
+     "bias": -12.4914,
+     "momentum_spread": 1.70886,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 19,
+     "label": "19–20 GeV",
+     "p_lo": 19.0,
+     "p_hi": 20.0,
+     "n": 19,
+     "p_mean": 19.5093,
+     "x": 0.226421,
+     "mean_r": 1.03435,
+     "sd_r": 0.888833,
+     "value": 85.9319,
+     "ci95": [
+      64.9316,
+      127.076
+     ],
+     "se_delta": 22.1835,
+     "c4": null,
+     "bias": 3.43455,
+     "momentum_spread": 1.54357,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      5,
+      10,
+      19
+     ],
+     "substitutions": [],
+     "fallback": true,
+     "provisional": true,
+     "affine": {
+      "form": "affine",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": -17.648,
+       "se_a": 166.997,
+       "b": 91.662,
+       "se_b": 52.2071,
+       "rho_ab": -0.992696,
+       "se_a_stat": 166.997,
+       "se_b_stat": 52.2071
+      },
+      "chi2": 0.0104328,
+      "p_value": 0.918645,
+      "scale_factor": 1.0,
+      "iterations": 7,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        91.662,
+        -10.6621,
+        193.986
+       ],
+       [
+        0.025,
+        91.2208,
+        -2.98552,
+        185.427
+       ],
+       [
+        0.05,
+        90.7796,
+        4.67876,
+        176.881
+       ],
+       [
+        0.075,
+        90.3384,
+        12.3269,
+        168.35
+       ],
+       [
+        0.1,
+        89.8972,
+        19.9533,
+        159.841
+       ],
+       [
+        0.125,
+        89.456,
+        27.5495,
+        151.363
+       ],
+       [
+        0.15,
+        89.0148,
+        35.102,
+        142.928
+       ],
+       [
+        0.175,
+        88.5736,
+        42.5879,
+        134.559
+       ],
+       [
+        0.2,
+        88.1324,
+        49.9658,
+        126.299
+       ],
+       [
+        0.225,
+        87.6912,
+        57.1526,
+        118.23
+       ],
+       [
+        0.25,
+        87.25,
+        63.9597,
+        110.54
+       ],
+       [
+        0.275,
+        86.8088,
+        69.8919,
+        103.726
+       ],
+       [
+        0.3,
+        86.3676,
+        73.5675,
+        99.1678
+       ],
+       [
+        0.325,
+        85.9264,
+        72.682,
+        99.1709
+       ],
+       [
+        0.35,
+        85.4852,
+        67.5716,
+        103.399
+       ],
+       [
+        0.375,
+        85.044,
+        60.5431,
+        109.545
+       ],
+       [
+        0.4,
+        84.6029,
+        52.7656,
+        116.44
+       ],
+       [
+        0.425,
+        84.1617,
+        44.6542,
+        123.669
+       ],
+       [
+        0.45,
+        83.7205,
+        36.371,
+        131.07
+       ],
+       [
+        0.475,
+        83.2793,
+        27.9889,
+        138.57
+       ],
+       [
+        0.5,
+        82.8381,
+        19.5451,
+        146.131
+       ]
+      ],
+      "provisional": true,
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 0.0104/1, p = 0.919. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 3,
+      "ndf": 2,
+      "params": {
+       "a0": 287.54,
+       "se_a0": 25.71,
+       "se_a0_stat": 21.2941
+      },
+      "chi2": 2.91553,
+      "p_value": 0.232756,
+      "scale_factor": 1.20738,
+      "iterations": 6,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        7.1885,
+        5.92873,
+        8.44827
+       ],
+       [
+        0.05,
+        14.377,
+        11.8575,
+        16.8965
+       ],
+       [
+        0.075,
+        21.5655,
+        17.7862,
+        25.3448
+       ],
+       [
+        0.1,
+        28.754,
+        23.7149,
+        33.7931
+       ],
+       [
+        0.125,
+        35.9425,
+        29.6437,
+        42.2413
+       ],
+       [
+        0.15,
+        43.131,
+        35.5724,
+        50.6896
+       ],
+       [
+        0.175,
+        50.3195,
+        41.5011,
+        59.1379
+       ],
+       [
+        0.2,
+        57.508,
+        47.4299,
+        67.5862
+       ],
+       [
+        0.225,
+        64.6965,
+        53.3586,
+        76.0344
+       ],
+       [
+        0.25,
+        71.885,
+        59.2873,
+        84.4827
+       ],
+       [
+        0.275,
+        79.0735,
+        65.2161,
+        92.931
+       ],
+       [
+        0.3,
+        86.262,
+        71.1448,
+        101.379
+       ],
+       [
+        0.325,
+        93.4505,
+        77.0735,
+        109.828
+       ],
+       [
+        0.35,
+        100.639,
+        83.0023,
+        118.276
+       ],
+       [
+        0.375,
+        107.828,
+        88.931,
+        126.724
+       ],
+       [
+        0.4,
+        115.016,
+        94.8597,
+        135.172
+       ],
+       [
+        0.425,
+        122.205,
+        100.788,
+        143.621
+       ],
+       [
+        0.45,
+        129.393,
+        106.717,
+        152.069
+       ],
+       [
+        0.475,
+        136.582,
+        112.646,
+        160.517
+       ],
+       [
+        0.5,
+        143.77,
+        118.575,
+        168.965
+       ]
+      ],
+      "provisional": true,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 2.92/2, p = 0.233. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.21 (PDG); the unscaled ones are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": null,
+       "se_a": null,
+       "b": 89.0628,
+       "se_b": 24.0229,
+       "b2": 7932.18,
+       "se_b2": 4279.1,
+       "b_defined": true,
+       "a2": -5154.45,
+       "se_a2": 42112.2,
+       "a_defined": false
+      },
+      "chi2": 0.00736372,
+      "p_value": 0.931616,
+      "scale_factor": 1.0,
+      "iterations": 8,
+      "converged": true,
+      "curve": null,
+      "provisional": true,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.00736/1, p = 0.932. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     }
+    },
+    "all": {
+     "points": [
+      5,
+      10,
+      15,
+      19
+     ],
+     "substitutions": [],
+     "fallback": true,
+     "provisional": true,
+     "affine": {
+      "form": "affine",
+      "n_points": 4,
+      "ndf": 2,
+      "params": {
+       "a": -43.218,
+       "se_a": 156.675,
+       "b": 100.249,
+       "se_b": 48.7726,
+       "rho_ab": -0.991866,
+       "se_a_stat": 156.675,
+       "se_b_stat": 48.7726
+      },
+      "chi2": 0.217073,
+      "p_value": 0.897146,
+      "scale_factor": 1.0,
+      "iterations": 6,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        100.249,
+        4.6563,
+        195.841
+       ],
+       [
+        0.025,
+        99.1684,
+        11.1849,
+        187.152
+       ],
+       [
+        0.05,
+        98.088,
+        17.7007,
+        178.475
+       ],
+       [
+        0.075,
+        97.0075,
+        24.1994,
+        169.816
+       ],
+       [
+        0.1,
+        95.9271,
+        30.6754,
+        161.179
+       ],
+       [
+        0.125,
+        94.8466,
+        37.1195,
+        152.574
+       ],
+       [
+        0.15,
+        93.7662,
+        43.5175,
+        144.015
+       ],
+       [
+        0.175,
+        92.6857,
+        49.8451,
+        135.526
+       ],
+       [
+        0.2,
+        91.6053,
+        56.0586,
+        127.152
+       ],
+       [
+        0.225,
+        90.5248,
+        62.0697,
+        118.98
+       ],
+       [
+        0.25,
+        89.4444,
+        67.68,
+        111.209
+       ],
+       [
+        0.275,
+        88.3639,
+        72.3778,
+        104.35
+       ],
+       [
+        0.3,
+        87.2835,
+        74.8218,
+        99.7451
+       ],
+       [
+        0.325,
+        86.203,
+        73.0538,
+        99.3523
+       ],
+       [
+        0.35,
+        85.1226,
+        67.5617,
+        102.683
+       ],
+       [
+        0.375,
+        84.0421,
+        60.3411,
+        107.743
+       ],
+       [
+        0.4,
+        82.9617,
+        52.4173,
+        113.506
+       ],
+       [
+        0.425,
+        81.8812,
+        44.1711,
+        119.591
+       ],
+       [
+        0.45,
+        80.8008,
+        35.7561,
+        125.845
+       ],
+       [
+        0.475,
+        79.7203,
+        27.2431,
+        132.198
+       ],
+       [
+        0.5,
+        78.6399,
+        18.6685,
+        138.611
+       ]
+      ],
+      "provisional": true,
+      "note": "σ/E = a/√E + b: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.217/2, p = 0.897. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 4,
+      "ndf": 3,
+      "params": {
+       "a0": 295.048,
+       "se_a0": 25.7984,
+       "se_a0_stat": 21.4335
+      },
+      "chi2": 4.34631,
+      "p_value": 0.226415,
+      "scale_factor": 1.20365,
+      "iterations": 7,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        7.37621,
+        6.11211,
+        8.6403
+       ],
+       [
+        0.05,
+        14.7524,
+        12.2242,
+        17.2806
+       ],
+       [
+        0.075,
+        22.1286,
+        18.3363,
+        25.9209
+       ],
+       [
+        0.1,
+        29.5048,
+        24.4484,
+        34.5612
+       ],
+       [
+        0.125,
+        36.881,
+        30.5605,
+        43.2015
+       ],
+       [
+        0.15,
+        44.2572,
+        36.6727,
+        51.8418
+       ],
+       [
+        0.175,
+        51.6334,
+        42.7848,
+        60.4821
+       ],
+       [
+        0.2,
+        59.0096,
+        48.8969,
+        69.1224
+       ],
+       [
+        0.225,
+        66.3859,
+        55.009,
+        77.7627
+       ],
+       [
+        0.25,
+        73.7621,
+        61.1211,
+        86.403
+       ],
+       [
+        0.275,
+        81.1383,
+        67.2332,
+        95.0433
+       ],
+       [
+        0.3,
+        88.5145,
+        73.3453,
+        103.684
+       ],
+       [
+        0.325,
+        95.8907,
+        79.4574,
+        112.324
+       ],
+       [
+        0.35,
+        103.267,
+        85.5695,
+        120.964
+       ],
+       [
+        0.375,
+        110.643,
+        91.6816,
+        129.605
+       ],
+       [
+        0.4,
+        118.019,
+        97.7937,
+        138.245
+       ],
+       [
+        0.425,
+        125.396,
+        103.906,
+        146.885
+       ],
+       [
+        0.45,
+        132.772,
+        110.018,
+        155.525
+       ],
+       [
+        0.475,
+        140.148,
+        116.13,
+        164.166
+       ],
+       [
+        0.5,
+        147.524,
+        122.242,
+        172.806
+       ]
+      ],
+      "provisional": true,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 4.35/3, p = 0.226. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.2 (PDG); the unscaled ones are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 4,
+      "ndf": 2,
+      "params": {
+       "a": null,
+       "se_a": null,
+       "b": 92.9079,
+       "se_b": 21.4144,
+       "b2": 8631.87,
+       "se_b2": 3979.12,
+       "b_defined": true,
+       "a2": -11014.2,
+       "se_a2": 39067.5,
+       "a_defined": false
+      },
+      "chi2": 0.248287,
+      "p_value": 0.883253,
+      "scale_factor": 1.0,
+      "iterations": 10,
+      "converged": true,
+      "curve": null,
+      "provisional": true,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (10 refits). χ²/ν = 0.248/2, p = 0.883. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     }
+    }
+   }
+  }
+ ],
+ "off_axis": [
+  {
+   "series": "detector:a",
+   "bins": [
+    1,
+    2,
+    3
+   ],
+   "n": 29
+  }
+ ],
+ "notes": [
+  "The deposit E_dep is the producer's total_hit_energy and p its incoming_momentum, both read from the 59-column event aggregate: one shower per event, no hits.",
+  "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ (N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread and the estimator's bias, and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+  "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
+  "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
+  "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
+  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated; χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG). The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "Anchors: the lowest bin from 5 GeV, the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV.",
+  "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
+  "Shower: c = Σ p / Σ E_dep = 105.8 over N = 286 events, fitted once over the whole selection.",
+  "No model series: No XGBoost models pair with this experiment: its source file name 'single_events.csv' does not name a species and seed (expected <species>_standalone_…_aggr_s<seed>_v<n>).",
+  "Off the axis: 3 windows below 4 GeV (29 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
+  "Shower · Calibrated deposit c·E_dep — linear-sum benchmark (anchors, pinned): χ²/ν = 1.46, so its errors are scaled by S = 1.21.",
+  "Shower · Calibrated deposit c·E_dep — linear-sum benchmark (all, pinned): χ²/ν = 1.45, so its errors are scaled by S = 1.2.",
+  "The y range follows the windows with N ≥ 20 (whiskers included) and the fits through them, from zero. 3 marks beyond it are clipped, not rescaled."
+ ],
+ "filter": {
+  "e1": [
+   1.0355231918074073,
+   19.9199191215521
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

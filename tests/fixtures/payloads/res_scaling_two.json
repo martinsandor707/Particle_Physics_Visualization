@@ -1,0 +1,4553 @@
+{
+ "meta": {
+  "table_name": "experiment_baseline",
+  "exact": true,
+  "warnings": [],
+  "coord_system": "lab",
+  "coord_system_applies": true,
+  "coord_system_note": "coord_system = lab selects the energy network's input frame (absolute)."
+ },
+ "kind": "two_shower_hits",
+ "n_events": 286,
+ "unit": "%",
+ "estimator": {
+  "name": "response_ratio",
+  "definition": "R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the unbiased (ddof = 1) sample SD.",
+  "label": "σ(R)/μ(R), R = E_est / p"
+ },
+ "axis": {
+  "x": {
+   "min": 0.0,
+   "max": 0.5,
+   "inverse": true,
+   "interval": 0.1,
+   "unit": "GeV^−1/2",
+   "name": "⟵ 1/√E [GeV⁻¹ᐟ²]"
+  },
+  "top": {
+   "name": "Energy (GeV) ⟶",
+   "ticks": [
+    {
+     "e_gev": 5,
+     "x": 0.447214,
+     "label": "5"
+    },
+    {
+     "e_gev": 10,
+     "x": 0.316228,
+     "label": "10"
+    },
+    {
+     "e_gev": 15,
+     "x": 0.258199,
+     "label": "15"
+    },
+    {
+     "e_gev": 20,
+     "x": 0.223607,
+     "label": "20"
+    },
+    {
+     "e_gev": 30,
+     "x": 0.182574,
+     "label": "30"
+    },
+    {
+     "e_gev": 50,
+     "x": 0.141421,
+     "label": "50"
+    },
+    {
+     "e_gev": 100,
+     "x": 0.1,
+     "label": "100"
+    },
+    {
+     "e_gev": null,
+     "x": 0.0,
+     "label": "∞"
+    }
+   ],
+   "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are plotted against it."
+  },
+  "y": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 200.0,
+   "interval": 20.0,
+   "provisional": false,
+   "n_clipped": 2,
+   "unit": "%",
+   "name": "σ/E [%]"
+  }
+ },
+ "gates": {
+  "report_n": 2,
+  "whisker_n": 8,
+  "fit_n": 20,
+  "e_min_gev": 4.0,
+  "anchor_low_gev": 5.0,
+  "n_anchors": 3
+ },
+ "anchors": {
+  "nominal_bins": [
+   5,
+   9,
+   17
+  ],
+  "labels": [
+   "5–6 GeV",
+   "9–10 GeV",
+   "17–18 GeV"
+  ],
+  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
+ },
+ "model": {
+  "available": true,
+  "source": "network",
+  "frame": "absolute",
+  "label": "Energy network · absolute frame",
+  "reason": null,
+  "split": null
+ },
+ "series": [
+  {
+   "key": "detector:a",
+   "source": "detector",
+   "shower": "a",
+   "shower_label": "Shower A",
+   "estimator_label": "Calibrated deposit c·E_dep — linear-sum benchmark",
+   "label": "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark",
+   "colour_slot": "detector",
+   "n": 286,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 18,
+     "p_mean": 2.51804,
+     "x": 0.633594,
+     "mean_r": 1.13752,
+     "sd_r": 0.651603,
+     "value": 57.283,
+     "ci95": [
+      42.9845,
+      85.8766
+     ],
+     "se_delta": 12.5031,
+     "c4": null,
+     "bias": 13.7516,
+     "momentum_spread": 12.2033,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 20,
+     "p_mean": 3.522,
+     "x": 0.534362,
+     "mean_r": 0.668444,
+     "sd_r": 0.577082,
+     "value": 86.3322,
+     "ci95": [
+      65.6551,
+      126.091
+     ],
+     "se_delta": 21.7691,
+     "c4": null,
+     "bias": -33.1556,
+     "momentum_spread": 8.87613,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 4,
+     "label": "4–5 GeV",
+     "p_lo": 4.0,
+     "p_hi": 5.0,
+     "n": 20,
+     "p_mean": 4.50163,
+     "x": 0.47206,
+     "mean_r": 0.79834,
+     "sd_r": 0.635664,
+     "value": 79.6232,
+     "ci95": [
+      60.5529,
+      116.292
+     ],
+     "se_delta": 19.1783,
+     "c4": null,
+     "bias": -20.166,
+     "momentum_spread": 6.65189,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 17,
+     "p_mean": 5.5209,
+     "x": 0.4259,
+     "mean_r": 1.1078,
+     "sd_r": 0.658966,
+     "value": 59.4842,
+     "ci95": [
+      44.3023,
+      90.5285
+     ],
+     "se_delta": 13.5728,
+     "c4": null,
+     "bias": 10.7801,
+     "momentum_spread": 4.46053,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 6,
+     "label": "6–7 GeV",
+     "p_lo": 6.0,
+     "p_hi": 7.0,
+     "n": 18,
+     "p_mean": 6.53837,
+     "x": 0.391369,
+     "mean_r": 1.06535,
+     "sd_r": 0.664176,
+     "value": 62.3434,
+     "ci95": [
+      46.7817,
+      93.4628
+     ],
+     "se_delta": 14.0797,
+     "c4": null,
+     "bias": 6.53506,
+     "momentum_spread": 4.52246,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 23,
+     "p_mean": 7.49591,
+     "x": 0.365457,
+     "mean_r": 1.19085,
+     "sd_r": 0.632578,
+     "value": 53.1196,
+     "ci95": [
+      41.0823,
+      75.1841
+     ],
+     "se_delta": 9.93714,
+     "c4": null,
+     "bias": 19.0855,
+     "momentum_spread": 3.99146,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 8,
+     "label": "8–9 GeV",
+     "p_lo": 8.0,
+     "p_hi": 9.0,
+     "n": 21,
+     "p_mean": 8.46376,
+     "x": 0.34389,
+     "mean_r": 1.02411,
+     "sd_r": 0.664768,
+     "value": 64.9116,
+     "ci95": [
+      49.6609,
+      93.7357
+     ],
+     "se_delta": 13.7797,
+     "c4": null,
+     "bias": 2.41136,
+     "momentum_spread": 3.58607,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 9,
+     "label": "9–10 GeV",
+     "p_lo": 9.0,
+     "p_hi": 10.0,
+     "n": 14,
+     "p_mean": 9.46639,
+     "x": 0.325141,
+     "mean_r": 0.993186,
+     "sd_r": 0.674002,
+     "value": 67.8626,
+     "ci95": [
+      49.1969,
+      109.327
+     ],
+     "se_delta": 18.1279,
+     "c4": 0.980971,
+     "bias": -0.681429,
+     "momentum_spread": 3.28777,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 21,
+     "p_mean": 10.4606,
+     "x": 0.309284,
+     "mean_r": 1.14782,
+     "sd_r": 0.646384,
+     "value": 56.3138,
+     "ci95": [
+      43.0832,
+      81.3201
+     ],
+     "se_delta": 11.277,
+     "c4": null,
+     "bias": 14.7825,
+     "momentum_spread": 2.97964,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 11,
+     "label": "11–12 GeV",
+     "p_lo": 11.0,
+     "p_hi": 12.0,
+     "n": 15,
+     "p_mean": 11.4804,
+     "x": 0.295206,
+     "mean_r": 0.776691,
+     "sd_r": 0.633832,
+     "value": 81.6067,
+     "ci95": [
+      59.7464,
+      128.699
+     ],
+     "se_delta": 23.098,
+     "c4": null,
+     "bias": -22.3309,
+     "momentum_spread": 2.60766,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 14,
+     "p_mean": 12.4543,
+     "x": 0.28341,
+     "mean_r": 0.900402,
+     "sd_r": 0.667089,
+     "value": 74.0878,
+     "ci95": [
+      53.7098,
+      119.356
+     ],
+     "se_delta": 20.6476,
+     "c4": 0.980971,
+     "bias": -9.95977,
+     "momentum_spread": 2.21372,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 13,
+     "label": "13–14 GeV",
+     "p_lo": 13.0,
+     "p_hi": 14.0,
+     "n": 17,
+     "p_mean": 13.4882,
+     "x": 0.272334,
+     "mean_r": 1.1078,
+     "sd_r": 0.658966,
+     "value": 59.4842,
+     "ci95": [
+      44.3023,
+      90.5285
+     ],
+     "se_delta": 13.5728,
+     "c4": null,
+     "bias": 10.7801,
+     "momentum_spread": 2.26727,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 14,
+     "label": "14–15 GeV",
+     "p_lo": 14.0,
+     "p_hi": 15.0,
+     "n": 18,
+     "p_mean": 14.4197,
+     "x": 0.263384,
+     "mean_r": 0.704526,
+     "sd_r": 0.59868,
+     "value": 84.9762,
+     "ci95": [
+      63.7651,
+      127.393
+     ],
+     "se_delta": 22.4067,
+     "c4": null,
+     "bias": -29.5474,
+     "momentum_spread": 2.09926,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 21,
+     "p_mean": 15.4804,
+     "x": 0.254198,
+     "mean_r": 1.08597,
+     "sd_r": 0.658697,
+     "value": 60.6552,
+     "ci95": [
+      46.4046,
+      87.5894
+     ],
+     "se_delta": 12.5072,
+     "c4": null,
+     "bias": 8.59692,
+     "momentum_spread": 2.01702,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 16,
+     "label": "16–17 GeV",
+     "p_lo": 16.0,
+     "p_hi": 17.0,
+     "n": 17,
+     "p_mean": 16.4812,
+     "x": 0.246339,
+     "mean_r": 1.1078,
+     "sd_r": 0.658966,
+     "value": 59.4842,
+     "ci95": [
+      44.3023,
+      90.5285
+     ],
+     "se_delta": 13.5728,
+     "c4": null,
+     "bias": 10.7801,
+     "momentum_spread": 1.34709,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 17,
+     "label": "17–18 GeV",
+     "p_lo": 17.0,
+     "p_hi": 18.0,
+     "n": 12,
+     "p_mean": 17.5449,
+     "x": 0.238761,
+     "mean_r": 0.993186,
+     "sd_r": 0.678364,
+     "value": 68.3018,
+     "ci95": [
+      48.3847,
+      115.964
+     ],
+     "se_delta": 19.8347,
+     "c4": 0.977559,
+     "bias": -0.681427,
+     "momentum_spread": 1.60877,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      4,
+      10,
+      15
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 4,
+       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20)."
+      },
+      {
+       "nominal": 9,
+       "used": 10,
+       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21)."
+      },
+      {
+       "nominal": 17,
+       "used": 15,
+       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21)."
+      }
+     ],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 89.6512,
+       "se_a": 98.458,
+       "b": 34.4146,
+       "se_b": 31.8954,
+       "rho_ab": -0.969838,
+       "se_a_stat": 98.458,
+       "se_b_stat": 31.8954
+      },
+      "chi2": 0.317855,
+      "p_value": 0.5729,
+      "scale_factor": 1.0,
+      "iterations": 11,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        34.4146,
+        -28.0993,
+        96.9286
+       ],
+       [
+        0.025,
+        36.6559,
+        -21.1911,
+        94.5029
+       ],
+       [
+        0.05,
+        38.8972,
+        -14.311,
+        92.1054
+       ],
+       [
+        0.075,
+        41.1385,
+        -7.46711,
+        89.7441
+       ],
+       [
+        0.1,
+        43.3798,
+        -0.670646,
+        87.4302
+       ],
+       [
+        0.125,
+        45.621,
+        6.06194,
+        85.1801
+       ],
+       [
+        0.15,
+        47.8623,
+        12.7062,
+        83.0185
+       ],
+       [
+        0.175,
+        50.1036,
+        19.2242,
+        80.983
+       ],
+       [
+        0.2,
+        52.3449,
+        25.5556,
+        79.1342
+       ],
+       [
+        0.225,
+        54.5862,
+        31.6004,
+        77.5719
+       ],
+       [
+        0.25,
+        56.8274,
+        37.1914,
+        76.4635
+       ],
+       [
+        0.275,
+        59.0687,
+        42.0584,
+        76.079
+       ],
+       [
+        0.3,
+        61.31,
+        45.8285,
+        76.7915
+       ],
+       [
+        0.325,
+        63.5513,
+        48.171,
+        78.9315
+       ],
+       [
+        0.35,
+        65.7925,
+        49.0601,
+        82.525
+       ],
+       [
+        0.375,
+        68.0338,
+        48.7998,
+        87.2678
+       ],
+       [
+        0.4,
+        70.2751,
+        47.7703,
+        92.78
+       ],
+       [
+        0.425,
+        72.5164,
+        46.2573,
+        98.7754
+       ],
+       [
+        0.45,
+        74.7577,
+        44.4401,
+        105.075
+       ],
+       [
+        0.475,
+        76.9989,
+        42.4255,
+        111.572
+       ],
+       [
+        0.5,
+        79.2402,
+        40.2782,
+        118.202
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.318/1, p = 0.573."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 3,
+      "ndf": 2,
+      "params": {
+       "a0": 202.868,
+       "se_a0": 25.5053,
+       "se_a0_stat": 25.5053
+      },
+      "chi2": 1.45811,
+      "p_value": 0.482365,
+      "scale_factor": 1.0,
+      "iterations": 7,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        5.07171,
+        3.82197,
+        6.32145
+       ],
+       [
+        0.05,
+        10.1434,
+        7.64395,
+        12.6429
+       ],
+       [
+        0.075,
+        15.2151,
+        11.4659,
+        18.9643
+       ],
+       [
+        0.1,
+        20.2868,
+        15.2879,
+        25.2858
+       ],
+       [
+        0.125,
+        25.3585,
+        19.1099,
+        31.6072
+       ],
+       [
+        0.15,
+        30.4303,
+        22.9318,
+        37.9287
+       ],
+       [
+        0.175,
+        35.502,
+        26.7538,
+        44.2501
+       ],
+       [
+        0.2,
+        40.5737,
+        30.5758,
+        50.5716
+       ],
+       [
+        0.225,
+        45.6454,
+        34.3978,
+        56.893
+       ],
+       [
+        0.25,
+        50.7171,
+        38.2197,
+        63.2145
+       ],
+       [
+        0.275,
+        55.7888,
+        42.0417,
+        69.5359
+       ],
+       [
+        0.3,
+        60.8605,
+        45.8637,
+        75.8574
+       ],
+       [
+        0.325,
+        65.9322,
+        49.6856,
+        82.1788
+       ],
+       [
+        0.35,
+        71.0039,
+        53.5076,
+        88.5002
+       ],
+       [
+        0.375,
+        76.0756,
+        57.3296,
+        94.8217
+       ],
+       [
+        0.4,
+        81.1473,
+        61.1516,
+        101.143
+       ],
+       [
+        0.425,
+        86.2191,
+        64.9735,
+        107.465
+       ],
+       [
+        0.45,
+        91.2908,
+        68.7955,
+        113.786
+       ],
+       [
+        0.475,
+        96.3625,
+        72.6175,
+        120.107
+       ],
+       [
+        0.5,
+        101.434,
+        76.4395,
+        126.429
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 1.46/2, p = 0.482."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 128.945,
+       "se_a": 76.2642,
+       "b": 47.2659,
+       "se_b": 22.126,
+       "b2": 2234.06,
+       "se_b2": 2091.61,
+       "b_defined": true,
+       "a2": 16626.9,
+       "se_a2": 19667.9,
+       "a_defined": true
+      },
+      "chi2": 0.266096,
+      "p_value": 0.605963,
+      "scale_factor": 1.0,
+      "iterations": 14,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (14 refits). χ²/ν = 0.266/1, p = 0.606."
+     }
+    },
+    "all": {
+     "points": [
+      4,
+      7,
+      8,
+      10,
+      15
+     ],
+     "substitutions": [],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 5,
+      "ndf": 3,
+      "params": {
+       "a": 70.7526,
+       "se_a": 86.1775,
+       "b": 37.8351,
+       "se_b": 29.2609,
+       "rho_ab": -0.980741,
+       "se_a_stat": 86.1775,
+       "se_b_stat": 29.2609
+      },
+      "chi2": 1.26156,
+      "p_value": 0.73828,
+      "scale_factor": 1.0,
+      "iterations": 17,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        37.8351,
+        -19.5153,
+        95.1854
+       ],
+       [
+        0.025,
+        39.6039,
+        -13.6115,
+        92.8193
+       ],
+       [
+        0.05,
+        41.3727,
+        -7.72275,
+        90.4682
+       ],
+       [
+        0.075,
+        43.1415,
+        -1.853,
+        88.136
+       ],
+       [
+        0.1,
+        44.9103,
+        3.99199,
+        85.8287
+       ],
+       [
+        0.125,
+        46.6791,
+        9.804,
+        83.5543
+       ],
+       [
+        0.15,
+        48.448,
+        15.5709,
+        81.3251
+       ],
+       [
+        0.175,
+        50.2168,
+        21.2739,
+        79.1597
+       ],
+       [
+        0.2,
+        51.9856,
+        26.883,
+        77.0882
+       ],
+       [
+        0.225,
+        53.7544,
+        32.3477,
+        75.1611
+       ],
+       [
+        0.25,
+        55.5232,
+        37.5783,
+        73.4681
+       ],
+       [
+        0.275,
+        57.292,
+        42.4108,
+        72.1733
+       ],
+       [
+        0.3,
+        59.0609,
+        46.5491,
+        71.5726
+       ],
+       [
+        0.325,
+        60.8297,
+        49.5471,
+        72.1123
+       ],
+       [
+        0.35,
+        62.5985,
+        51.0351,
+        74.1619
+       ],
+       [
+        0.375,
+        64.3673,
+        51.1088,
+        77.6258
+       ],
+       [
+        0.4,
+        66.1361,
+        50.2137,
+        82.0586
+       ],
+       [
+        0.425,
+        67.9049,
+        48.7497,
+        87.0601
+       ],
+       [
+        0.45,
+        69.6738,
+        46.9586,
+        92.389
+       ],
+       [
+        0.475,
+        71.4426,
+        44.9718,
+        97.9133
+       ],
+       [
+        0.5,
+        73.2114,
+        42.8621,
+        103.561
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (17 refits). χ²/ν = 1.26/3, p = 0.738."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 5,
+      "ndf": 4,
+      "params": {
+       "a0": 188.03,
+       "se_a0": 17.7039,
+       "se_a0_stat": 17.7039
+      },
+      "chi2": 3.39412,
+      "p_value": 0.494159,
+      "scale_factor": 1.0,
+      "iterations": 7,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        4.70075,
+        3.83328,
+        5.56823
+       ],
+       [
+        0.05,
+        9.40151,
+        7.66656,
+        11.1365
+       ],
+       [
+        0.075,
+        14.1023,
+        11.4998,
+        16.7047
+       ],
+       [
+        0.1,
+        18.803,
+        15.3331,
+        22.2729
+       ],
+       [
+        0.125,
+        23.5038,
+        19.1664,
+        27.8411
+       ],
+       [
+        0.15,
+        28.2045,
+        22.9997,
+        33.4094
+       ],
+       [
+        0.175,
+        32.9053,
+        26.833,
+        38.9776
+       ],
+       [
+        0.2,
+        37.606,
+        30.6662,
+        44.5458
+       ],
+       [
+        0.225,
+        42.3068,
+        34.4995,
+        50.114
+       ],
+       [
+        0.25,
+        47.0075,
+        38.3328,
+        55.6823
+       ],
+       [
+        0.275,
+        51.7083,
+        42.1661,
+        61.2505
+       ],
+       [
+        0.3,
+        56.409,
+        45.9994,
+        66.8187
+       ],
+       [
+        0.325,
+        61.1098,
+        49.8326,
+        72.387
+       ],
+       [
+        0.35,
+        65.8105,
+        53.6659,
+        77.9552
+       ],
+       [
+        0.375,
+        70.5113,
+        57.4992,
+        83.5234
+       ],
+       [
+        0.4,
+        75.2121,
+        61.3325,
+        89.0916
+       ],
+       [
+        0.425,
+        79.9128,
+        65.1657,
+        94.6599
+       ],
+       [
+        0.45,
+        84.6136,
+        68.999,
+        100.228
+       ],
+       [
+        0.475,
+        89.3143,
+        72.8323,
+        105.796
+       ],
+       [
+        0.5,
+        94.0151,
+        76.6656,
+        111.365
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 3.39/4, p = 0.494."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 5,
+      "ndf": 3,
+      "params": {
+       "a": 114.311,
+       "se_a": 70.6902,
+       "b": 48.1459,
+       "se_b": 19.5932,
+       "b2": 2318.03,
+       "se_b2": 1886.66,
+       "b_defined": true,
+       "a2": 13067.0,
+       "se_a2": 16161.3,
+       "a_defined": true
+      },
+      "chi2": 1.08001,
+      "p_value": 0.781902,
+      "scale_factor": 1.0,
+      "iterations": 26,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (26 refits). χ²/ν = 1.08/3, p = 0.782."
+     }
+    }
+   }
+  },
+  {
+   "key": "network:a",
+   "source": "network",
+   "shower": "a",
+   "shower_label": "Shower A",
+   "estimator_label": "Energy network · absolute frame",
+   "label": "Shower A · Energy network · absolute frame",
+   "colour_slot": "absolute",
+   "n": 286,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 18,
+     "p_mean": 2.51804,
+     "x": 0.633594,
+     "mean_r": 3.70292,
+     "sd_r": 3.23208,
+     "value": 87.2847,
+     "ci95": [
+      65.4973,
+      130.854
+     ],
+     "se_delta": 23.3782,
+     "c4": null,
+     "bias": 270.292,
+     "momentum_spread": 12.2033,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 20,
+     "p_mean": 3.522,
+     "x": 0.534362,
+     "mean_r": 4.29414,
+     "sd_r": 2.05002,
+     "value": 47.74,
+     "ci95": [
+      36.306,
+      69.7258
+     ],
+     "se_delta": 9.27083,
+     "c4": null,
+     "bias": 329.414,
+     "momentum_spread": 8.87613,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 4,
+     "label": "4–5 GeV",
+     "p_lo": 4.0,
+     "p_hi": 5.0,
+     "n": 20,
+     "p_mean": 4.50163,
+     "x": 0.47206,
+     "mean_r": 3.00028,
+     "sd_r": 1.75723,
+     "value": 58.5688,
+     "ci95": [
+      44.5412,
+      85.5416
+     ],
+     "se_delta": 12.2109,
+     "c4": null,
+     "bias": 200.028,
+     "momentum_spread": 6.65189,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 17,
+     "p_mean": 5.5209,
+     "x": 0.4259,
+     "mean_r": 1.7733,
+     "sd_r": 1.5172,
+     "value": 85.5578,
+     "ci95": [
+      63.7212,
+      130.21
+     ],
+     "se_delta": 23.3229,
+     "c4": null,
+     "bias": 77.3301,
+     "momentum_spread": 4.46053,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 6,
+     "label": "6–7 GeV",
+     "p_lo": 6.0,
+     "p_hi": 7.0,
+     "n": 18,
+     "p_mean": 6.53837,
+     "x": 0.391369,
+     "mean_r": 1.57483,
+     "sd_r": 1.28446,
+     "value": 81.5619,
+     "ci95": [
+      61.203,
+      122.274
+     ],
+     "se_delta": 21.0121,
+     "c4": null,
+     "bias": 57.4827,
+     "momentum_spread": 4.52246,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 23,
+     "p_mean": 7.49591,
+     "x": 0.365457,
+     "mean_r": 1.1561,
+     "sd_r": 1.05356,
+     "value": 91.1303,
+     "ci95": [
+      70.4795,
+      128.983
+     ],
+     "se_delta": 22.1045,
+     "c4": null,
+     "bias": 15.6102,
+     "momentum_spread": 3.99146,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 8,
+     "label": "8–9 GeV",
+     "p_lo": 8.0,
+     "p_hi": 9.0,
+     "n": 21,
+     "p_mean": 8.46376,
+     "x": 0.34389,
+     "mean_r": 1.26763,
+     "sd_r": 0.979226,
+     "value": 77.2487,
+     "ci95": [
+      59.0995,
+      111.551
+     ],
+     "se_delta": 17.8536,
+     "c4": null,
+     "bias": 26.7628,
+     "momentum_spread": 3.58607,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 9,
+     "label": "9–10 GeV",
+     "p_lo": 9.0,
+     "p_hi": 10.0,
+     "n": 14,
+     "p_mean": 9.46639,
+     "x": 0.325141,
+     "mean_r": 1.16499,
+     "sd_r": 0.873763,
+     "value": 75.0017,
+     "ci95": [
+      54.3723,
+      120.828
+     ],
+     "se_delta": 21.0328,
+     "c4": 0.980971,
+     "bias": 16.4992,
+     "momentum_spread": 3.28777,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 21,
+     "p_mean": 10.4606,
+     "x": 0.309284,
+     "mean_r": 0.877611,
+     "sd_r": 0.767865,
+     "value": 87.4948,
+     "ci95": [
+      66.9383,
+      126.347
+     ],
+     "se_delta": 21.6899,
+     "c4": null,
+     "bias": -12.2389,
+     "momentum_spread": 2.97964,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 11,
+     "label": "11–12 GeV",
+     "p_lo": 11.0,
+     "p_hi": 12.0,
+     "n": 15,
+     "p_mean": 11.4804,
+     "x": 0.295206,
+     "mean_r": 1.20711,
+     "sd_r": 0.692901,
+     "value": 57.4015,
+     "ci95": [
+      42.0251,
+      90.5257
+     ],
+     "se_delta": 13.786,
+     "c4": null,
+     "bias": 20.7113,
+     "momentum_spread": 2.60766,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 14,
+     "p_mean": 12.4543,
+     "x": 0.28341,
+     "mean_r": 0.989411,
+     "sd_r": 0.672713,
+     "value": 67.9913,
+     "ci95": [
+      49.2901,
+      109.534
+     ],
+     "se_delta": 18.1782,
+     "c4": 0.980971,
+     "bias": -1.05886,
+     "momentum_spread": 2.21372,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 13,
+     "label": "13–14 GeV",
+     "p_lo": 13.0,
+     "p_hi": 14.0,
+     "n": 17,
+     "p_mean": 13.4882,
+     "x": 0.272334,
+     "mean_r": 0.712818,
+     "sd_r": 0.599316,
+     "value": 84.077,
+     "ci95": [
+      62.6184,
+      127.956
+     ],
+     "se_delta": 22.6902,
+     "c4": null,
+     "bias": -28.7182,
+     "momentum_spread": 2.26727,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 14,
+     "label": "14–15 GeV",
+     "p_lo": 14.0,
+     "p_hi": 15.0,
+     "n": 18,
+     "p_mean": 14.4197,
+     "x": 0.263384,
+     "mean_r": 1.02327,
+     "sd_r": 0.520879,
+     "value": 50.9036,
+     "ci95": [
+      38.1974,
+      76.3127
+     ],
+     "se_delta": 10.6542,
+     "c4": null,
+     "bias": 2.32662,
+     "momentum_spread": 2.09926,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 21,
+     "p_mean": 15.4804,
+     "x": 0.254198,
+     "mean_r": 0.643616,
+     "sd_r": 0.530305,
+     "value": 82.3945,
+     "ci95": [
+      63.0363,
+      118.982
+     ],
+     "se_delta": 19.7279,
+     "c4": null,
+     "bias": -35.6384,
+     "momentum_spread": 2.01702,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 16,
+     "label": "16–17 GeV",
+     "p_lo": 16.0,
+     "p_hi": 17.0,
+     "n": 17,
+     "p_mean": 16.4812,
+     "x": 0.246339,
+     "mean_r": 0.588039,
+     "sd_r": 0.498121,
+     "value": 84.7088,
+     "ci95": [
+      63.089,
+      128.918
+     ],
+     "se_delta": 22.959,
+     "c4": null,
+     "bias": -41.1961,
+     "momentum_spread": 1.34709,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 17,
+     "label": "17–18 GeV",
+     "p_lo": 17.0,
+     "p_hi": 18.0,
+     "n": 12,
+     "p_mean": 17.5449,
+     "x": 0.238761,
+     "mean_r": 0.634317,
+     "sd_r": 0.482529,
+     "value": 76.0707,
+     "ci95": [
+      53.8882,
+      129.155
+     ],
+     "se_delta": 23.2828,
+     "c4": 0.977559,
+     "bias": -36.5683,
+     "momentum_spread": 1.60877,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      4,
+      10,
+      15
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 4,
+       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20)."
+      },
+      {
+       "nominal": 9,
+       "used": 10,
+       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21)."
+      },
+      {
+       "nominal": 17,
+       "used": 15,
+       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21)."
+      }
+     ],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": -134.867,
+       "se_a": 100.601,
+       "b": 122.895,
+       "se_b": 40.6922,
+       "rho_ab": -0.972744,
+       "se_a_stat": 100.601,
+       "se_b_stat": 40.6922
+      },
+      "chi2": 0.188965,
+      "p_value": 0.663779,
+      "scale_factor": 1.0,
+      "iterations": 8,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        122.895,
+        43.1397,
+        202.65
+       ],
+       [
+        0.025,
+        119.523,
+        44.5543,
+        194.492
+       ],
+       [
+        0.05,
+        116.152,
+        45.9491,
+        186.354
+       ],
+       [
+        0.075,
+        112.78,
+        47.3198,
+        178.24
+       ],
+       [
+        0.1,
+        109.408,
+        48.6606,
+        170.156
+       ],
+       [
+        0.125,
+        106.037,
+        49.9643,
+        162.109
+       ],
+       [
+        0.15,
+        102.665,
+        51.2204,
+        154.109
+       ],
+       [
+        0.175,
+        99.2932,
+        52.415,
+        146.171
+       ],
+       [
+        0.2,
+        95.9215,
+        53.5283,
+        138.315
+       ],
+       [
+        0.225,
+        92.5498,
+        54.5313,
+        130.568
+       ],
+       [
+        0.25,
+        89.1782,
+        55.3813,
+        122.975
+       ],
+       [
+        0.275,
+        85.8065,
+        56.0132,
+        115.6
+       ],
+       [
+        0.3,
+        82.4348,
+        56.3263,
+        108.543
+       ],
+       [
+        0.325,
+        79.0632,
+        56.1663,
+        101.96
+       ],
+       [
+        0.35,
+        75.6915,
+        55.3084,
+        96.0746
+       ],
+       [
+        0.375,
+        72.3198,
+        53.4711,
+        91.1685
+       ],
+       [
+        0.4,
+        68.9482,
+        50.4097,
+        87.4866
+       ],
+       [
+        0.425,
+        65.5765,
+        46.0658,
+        85.0872
+       ],
+       [
+        0.45,
+        62.2048,
+        40.6117,
+        83.7979
+       ],
+       [
+        0.475,
+        58.8331,
+        34.329,
+        83.3373
+       ],
+       [
+        0.5,
+        55.4615,
+        27.4751,
+        83.4479
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.189/1, p = 0.664."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 3,
+      "ndf": 2,
+      "params": {
+       "a0": 270.132,
+       "se_a0": 52.5445,
+       "se_a0_stat": 39.18
+      },
+      "chi2": 3.59713,
+      "p_value": 0.165536,
+      "scale_factor": 1.34111,
+      "iterations": 9,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        6.75329,
+        4.17865,
+        9.32792
+       ],
+       [
+        0.05,
+        13.5066,
+        8.35731,
+        18.6558
+       ],
+       [
+        0.075,
+        20.2599,
+        12.536,
+        27.9838
+       ],
+       [
+        0.1,
+        27.0132,
+        16.7146,
+        37.3117
+       ],
+       [
+        0.125,
+        33.7664,
+        20.8933,
+        46.6396
+       ],
+       [
+        0.15,
+        40.5197,
+        25.0719,
+        55.9675
+       ],
+       [
+        0.175,
+        47.273,
+        29.2506,
+        65.2955
+       ],
+       [
+        0.2,
+        54.0263,
+        33.4292,
+        74.6234
+       ],
+       [
+        0.225,
+        60.7796,
+        37.6079,
+        83.9513
+       ],
+       [
+        0.25,
+        67.5329,
+        41.7865,
+        93.2792
+       ],
+       [
+        0.275,
+        74.2862,
+        45.9652,
+        102.607
+       ],
+       [
+        0.3,
+        81.0395,
+        50.1439,
+        111.935
+       ],
+       [
+        0.325,
+        87.7927,
+        54.3225,
+        121.263
+       ],
+       [
+        0.35,
+        94.546,
+        58.5012,
+        130.591
+       ],
+       [
+        0.375,
+        101.299,
+        62.6798,
+        139.919
+       ],
+       [
+        0.4,
+        108.053,
+        66.8585,
+        149.247
+       ],
+       [
+        0.425,
+        114.806,
+        71.0371,
+        158.575
+       ],
+       [
+        0.45,
+        121.559,
+        75.2158,
+        167.903
+       ],
+       [
+        0.475,
+        128.312,
+        79.3944,
+        177.231
+       ],
+       [
+        0.5,
+        135.066,
+        83.5731,
+        186.558
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (9 refits). χ²/ν = 3.6/2, p = 0.166. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.34 (PDG); the unscaled ones are the _stat fields."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": null,
+       "se_a": null,
+       "b": 96.8697,
+       "se_b": 20.67,
+       "b2": 9383.75,
+       "se_b2": 4004.6,
+       "b_defined": true,
+       "a2": -26577.1,
+       "se_a2": 20310.2,
+       "a_defined": false
+      },
+      "chi2": 0.115165,
+      "p_value": 0.734339,
+      "scale_factor": 1.0,
+      "iterations": 8,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.115/1, p = 0.734. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
+     }
+    },
+    "all": {
+     "points": [
+      4,
+      7,
+      8,
+      10,
+      15
+     ],
+     "substitutions": [],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 5,
+      "ndf": 3,
+      "params": {
+       "a": -145.574,
+       "se_a": 105.104,
+       "b": 130.859,
+       "se_b": 40.7374,
+       "rho_ab": -0.980684,
+       "se_a_stat": 105.104,
+       "se_b_stat": 40.7374
+      },
+      "chi2": 0.95057,
+      "p_value": 0.81321,
+      "scale_factor": 1.0,
+      "iterations": 14,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        130.859,
+        51.0148,
+        210.703
+       ],
+       [
+        0.025,
+        127.219,
+        52.4192,
+        202.02
+       ],
+       [
+        0.05,
+        123.58,
+        53.8081,
+        193.352
+       ],
+       [
+        0.075,
+        119.941,
+        55.1778,
+        184.703
+       ],
+       [
+        0.1,
+        116.301,
+        56.5236,
+        176.079
+       ],
+       [
+        0.125,
+        112.662,
+        57.8389,
+        167.485
+       ],
+       [
+        0.15,
+        109.023,
+        59.1146,
+        158.931
+       ],
+       [
+        0.175,
+        105.383,
+        60.3378,
+        150.429
+       ],
+       [
+        0.2,
+        101.744,
+        61.4894,
+        141.998
+       ],
+       [
+        0.225,
+        98.1045,
+        62.5406,
+        133.668
+       ],
+       [
+        0.25,
+        94.4652,
+        63.4456,
+        125.485
+       ],
+       [
+        0.275,
+        90.8258,
+        64.1297,
+        117.522
+       ],
+       [
+        0.3,
+        87.1864,
+        64.4665,
+        109.906
+       ],
+       [
+        0.325,
+        83.5471,
+        64.2403,
+        102.854
+       ],
+       [
+        0.35,
+        79.9077,
+        63.1043,
+        96.7111
+       ],
+       [
+        0.375,
+        76.2684,
+        60.6158,
+        91.9209
+       ],
+       [
+        0.4,
+        72.629,
+        56.4829,
+        88.7751
+       ],
+       [
+        0.425,
+        68.9897,
+        50.8393,
+        87.14
+       ],
+       [
+        0.45,
+        65.3503,
+        44.1084,
+        86.5922
+       ],
+       [
+        0.475,
+        61.7109,
+        36.69,
+        86.7319
+       ],
+       [
+        0.5,
+        58.0716,
+        28.8496,
+        87.2936
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (14 refits). χ²/ν = 0.951/3, p = 0.813."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 5,
+      "ndf": 4,
+      "params": {
+       "a0": 256.688,
+       "se_a0": 30.4344,
+       "se_a0_stat": 28.2108
+      },
+      "chi2": 4.65541,
+      "p_value": 0.324516,
+      "scale_factor": 1.07882,
+      "iterations": 8,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        6.41721,
+        4.92596,
+        7.90847
+       ],
+       [
+        0.05,
+        12.8344,
+        9.85191,
+        15.8169
+       ],
+       [
+        0.075,
+        19.2516,
+        14.7779,
+        23.7254
+       ],
+       [
+        0.1,
+        25.6688,
+        19.7038,
+        31.6339
+       ],
+       [
+        0.125,
+        32.0861,
+        24.6298,
+        39.5423
+       ],
+       [
+        0.15,
+        38.5033,
+        29.5557,
+        47.4508
+       ],
+       [
+        0.175,
+        44.9205,
+        34.4817,
+        55.3593
+       ],
+       [
+        0.2,
+        51.3377,
+        39.4076,
+        63.2677
+       ],
+       [
+        0.225,
+        57.7549,
+        44.3336,
+        71.1762
+       ],
+       [
+        0.25,
+        64.1721,
+        49.2596,
+        79.0847
+       ],
+       [
+        0.275,
+        70.5893,
+        54.1855,
+        86.9932
+       ],
+       [
+        0.3,
+        77.0065,
+        59.1115,
+        94.9016
+       ],
+       [
+        0.325,
+        83.4238,
+        64.0374,
+        102.81
+       ],
+       [
+        0.35,
+        89.841,
+        68.9634,
+        110.719
+       ],
+       [
+        0.375,
+        96.2582,
+        73.8893,
+        118.627
+       ],
+       [
+        0.4,
+        102.675,
+        78.8153,
+        126.535
+       ],
+       [
+        0.425,
+        109.093,
+        83.7412,
+        134.444
+       ],
+       [
+        0.45,
+        115.51,
+        88.6672,
+        142.352
+       ],
+       [
+        0.475,
+        121.927,
+        93.5932,
+        150.261
+       ],
+       [
+        0.5,
+        128.344,
+        98.5191,
+        158.169
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 4.66/4, p = 0.325. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.08 (PDG); the unscaled ones are the _stat fields."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 5,
+      "ndf": 3,
+      "params": {
+       "a": null,
+       "se_a": null,
+       "b": 102.28,
+       "se_b": 17.5045,
+       "b2": 10461.2,
+       "se_b2": 3580.71,
+       "b_defined": true,
+       "a2": -30729.7,
+       "se_a2": 19602.7,
+       "a_defined": false
+      },
+      "chi2": 0.702167,
+      "p_value": 0.872694,
+      "scale_factor": 1.0,
+      "iterations": 13,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (13 refits). χ²/ν = 0.702/3, p = 0.873. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
+     }
+    }
+   }
+  },
+  {
+   "key": "detector:b",
+   "source": "detector",
+   "shower": "b",
+   "shower_label": "Shower B",
+   "estimator_label": "Calibrated deposit c·E_dep — linear-sum benchmark",
+   "label": "Shower B · Calibrated deposit c·E_dep — linear-sum benchmark",
+   "colour_slot": "detector",
+   "n": 286,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 16,
+     "p_mean": 2.5589,
+     "x": 0.627849,
+     "mean_r": 0.874956,
+     "sd_r": 0.990608,
+     "value": 113.218,
+     "ci95": [
+      83.6353,
+      175.228
+     ],
+     "se_delta": 38.1341,
+     "c4": null,
+     "bias": -12.5044,
+     "momentum_spread": 10.9236,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 28,
+     "p_mean": 3.51491,
+     "x": 0.534817,
+     "mean_r": 0.995798,
+     "sd_r": 0.984474,
+     "value": 98.8628,
+     "ci95": [
+      78.1624,
+      134.568
+     ],
+     "se_delta": 22.851,
+     "c4": null,
+     "bias": -0.420201,
+     "momentum_spread": 8.61476,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 4,
+     "label": "4–5 GeV",
+     "p_lo": 4.0,
+     "p_hi": 5.0,
+     "n": 24,
+     "p_mean": 4.53156,
+     "x": 0.470418,
+     "mean_r": 0.834676,
+     "sd_r": 0.973714,
+     "value": 116.658,
+     "ci95": [
+      90.6676,
+      163.64
+     ],
+     "se_delta": 32.6732,
+     "c4": null,
+     "bias": -16.5324,
+     "momentum_spread": 6.20667,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 8,
+     "p_mean": 5.35434,
+     "x": 0.432419,
+     "mean_r": 0.995798,
+     "sd_r": 1.03348,
+     "value": 103.784,
+     "ci95": [
+      68.619,
+      211.221
+     ],
+     "se_delta": 47.1126,
+     "c4": 0.96503,
+     "bias": -0.420202,
+     "momentum_spread": 4.26466,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 6,
+     "label": "6–7 GeV",
+     "p_lo": 6.0,
+     "p_hi": 7.0,
+     "n": 16,
+     "p_mean": 6.45946,
+     "x": 0.393787,
+     "mean_r": 1.11664,
+     "sd_r": 0.990608,
+     "value": 88.7133,
+     "ci95": [
+      65.5334,
+      137.302
+     ],
+     "se_delta": 25.4842,
+     "c4": null,
+     "bias": 11.664,
+     "momentum_spread": 4.8425,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 15,
+     "p_mean": 7.42285,
+     "x": 0.367211,
+     "mean_r": 1.31804,
+     "sd_r": 0.943436,
+     "value": 71.5785,
+     "ci95": [
+      52.4045,
+      112.884
+     ],
+     "se_delta": 18.9204,
+     "c4": null,
+     "bias": 31.8043,
+     "momentum_spread": 3.66171,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 8,
+     "label": "8–9 GeV",
+     "p_lo": 8.0,
+     "p_hi": 9.0,
+     "n": 15,
+     "p_mean": 8.52755,
+     "x": 0.342613,
+     "mean_r": 0.931349,
+     "sd_r": 0.998439,
+     "value": 107.203,
+     "ci95": [
+      78.4864,
+      169.066
+     ],
+     "se_delta": 35.9302,
+     "c4": null,
+     "bias": -6.86509,
+     "momentum_spread": 3.76479,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 9,
+     "label": "9–10 GeV",
+     "p_lo": 9.0,
+     "p_hi": 10.0,
+     "n": 22,
+     "p_mean": 9.46097,
+     "x": 0.325203,
+     "mean_r": 1.08368,
+     "sd_r": 0.985387,
+     "value": 90.9294,
+     "ci95": [
+      69.9565,
+      129.943
+     ],
+     "se_delta": 22.53,
+     "c4": null,
+     "bias": 8.36829,
+     "momentum_spread": 2.81017,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 23,
+     "p_mean": 10.5662,
+     "x": 0.307727,
+     "mean_r": 0.953766,
+     "sd_r": 0.987526,
+     "value": 103.54,
+     "ci95": [
+      80.0767,
+      146.547
+     ],
+     "se_delta": 27.2642,
+     "c4": null,
+     "bias": -4.62339,
+     "momentum_spread": 2.82579,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 11,
+     "label": "11–12 GeV",
+     "p_lo": 11.0,
+     "p_hi": 12.0,
+     "n": 19,
+     "p_mean": 11.5142,
+     "x": 0.294764,
+     "mean_r": 1.04668,
+     "sd_r": 0.991848,
+     "value": 94.7615,
+     "ci95": [
+      71.6034,
+      140.133
+     ],
+     "se_delta": 25.9583,
+     "c4": null,
+     "bias": 4.66787,
+     "momentum_spread": 2.45261,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 20,
+     "p_mean": 12.489,
+     "x": 0.283037,
+     "mean_r": 0.995798,
+     "sd_r": 0.991848,
+     "value": 99.6033,
+     "ci95": [
+      75.7478,
+      145.474
+     ],
+     "se_delta": 27.4443,
+     "c4": null,
+     "bias": -0.420201,
+     "momentum_spread": 2.62699,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 13,
+     "label": "13–14 GeV",
+     "p_lo": 13.0,
+     "p_hi": 14.0,
+     "n": 10,
+     "p_mean": 13.4953,
+     "x": 0.272258,
+     "mean_r": 0.802451,
+     "sd_r": 0.998439,
+     "value": 124.424,
+     "ci95": [
+      85.5824,
+      227.165
+     ],
+     "se_delta": 57.068,
+     "c4": 0.972659,
+     "bias": -19.7549,
+     "momentum_spread": 2.2247,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 14,
+     "label": "14–15 GeV",
+     "p_lo": 14.0,
+     "p_hi": 15.0,
+     "n": 13,
+     "p_mean": 14.5366,
+     "x": 0.262314,
+     "mean_r": 1.21889,
+     "sd_r": 0.97905,
+     "value": 80.323,
+     "ci95": [
+      57.5981,
+      132.589
+     ],
+     "se_delta": 24.2698,
+     "c4": 0.979406,
+     "bias": 21.889,
+     "momentum_spread": 1.87526,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 22,
+     "p_mean": 15.538,
+     "x": 0.253711,
+     "mean_r": 0.820028,
+     "sd_r": 0.972991,
+     "value": 118.653,
+     "ci95": [
+      91.286,
+      169.563
+     ],
+     "se_delta": 35.1589,
+     "c4": null,
+     "bias": -17.9972,
+     "momentum_spread": 1.54772,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 16,
+     "label": "16–17 GeV",
+     "p_lo": 16.0,
+     "p_hi": 17.0,
+     "n": 13,
+     "p_mean": 16.3553,
+     "x": 0.247299,
+     "mean_r": 0.921434,
+     "sd_r": 1.00323,
+     "value": 108.877,
+     "ci95": [
+      78.0734,
+      179.722
+     ],
+     "se_delta": 39.6844,
+     "c4": 0.979406,
+     "bias": -7.85662,
+     "momentum_spread": 1.84775,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 17,
+     "label": "17–18 GeV",
+     "p_lo": 17.0,
+     "p_hi": 18.0,
+     "n": 22,
+     "p_mean": 17.4905,
+     "x": 0.23913,
+     "mean_r": 1.08368,
+     "sd_r": 0.985387,
+     "value": 90.9294,
+     "ci95": [
+      69.9565,
+      129.943
+     ],
+     "se_delta": 22.53,
+     "c4": null,
+     "bias": 8.36829,
+     "momentum_spread": 1.50594,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      4,
+      9,
+      17
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 4,
+       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24)."
+      }
+     ],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 108.2,
+       "se_a": 162.391,
+       "b": 62.151,
+       "se_b": 53.5502,
+       "rho_ab": -0.963052,
+       "se_a_stat": 162.391,
+       "se_b_stat": 53.5502
+      },
+      "chi2": 0.0968395,
+      "p_value": 0.755656,
+      "scale_factor": 1.0,
+      "iterations": 9,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        62.151,
+        -42.8055,
+        167.107
+       ],
+       [
+        0.025,
+        64.856,
+        -32.461,
+        162.173
+       ],
+       [
+        0.05,
+        67.561,
+        -22.1718,
+        157.294
+       ],
+       [
+        0.075,
+        70.266,
+        -11.9531,
+        152.485
+       ],
+       [
+        0.1,
+        72.971,
+        -1.82607,
+        147.768
+       ],
+       [
+        0.125,
+        75.676,
+        8.1789,
+        143.173
+       ],
+       [
+        0.15,
+        78.381,
+        18.0176,
+        138.745
+       ],
+       [
+        0.175,
+        81.086,
+        27.6233,
+        134.549
+       ],
+       [
+        0.2,
+        83.7911,
+        36.8932,
+        130.689
+       ],
+       [
+        0.225,
+        86.4961,
+        45.6649,
+        127.327
+       ],
+       [
+        0.25,
+        89.2011,
+        53.6823,
+        124.72
+       ],
+       [
+        0.275,
+        91.9061,
+        60.5594,
+        123.253
+       ],
+       [
+        0.3,
+        94.6111,
+        65.7966,
+        123.426
+       ],
+       [
+        0.325,
+        97.3161,
+        68.9513,
+        125.681
+       ],
+       [
+        0.35,
+        100.021,
+        69.9299,
+        130.112
+       ],
+       [
+        0.375,
+        102.726,
+        69.0656,
+        136.387
+       ],
+       [
+        0.4,
+        105.431,
+        66.8669,
+        143.995
+       ],
+       [
+        0.425,
+        108.136,
+        63.7739,
+        152.498
+       ],
+       [
+        0.45,
+        110.841,
+        60.0924,
+        161.59
+       ],
+       [
+        0.475,
+        113.546,
+        56.0179,
+        171.074
+       ],
+       [
+        0.5,
+        116.251,
+        51.6742,
+        180.828
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (9 refits). χ²/ν = 0.0968/1, p = 0.756."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 3,
+      "ndf": 2,
+      "params": {
+       "a0": 320.539,
+       "se_a0": 49.4353,
+       "se_a0_stat": 49.4353
+      },
+      "chi2": 1.34956,
+      "p_value": 0.509269,
+      "scale_factor": 1.0,
+      "iterations": 8,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        8.01348,
+        5.5912,
+        10.4358
+       ],
+       [
+        0.05,
+        16.027,
+        11.1824,
+        20.8715
+       ],
+       [
+        0.075,
+        24.0404,
+        16.7736,
+        31.3073
+       ],
+       [
+        0.1,
+        32.0539,
+        22.3648,
+        41.7431
+       ],
+       [
+        0.125,
+        40.0674,
+        27.956,
+        52.1788
+       ],
+       [
+        0.15,
+        48.0809,
+        33.5472,
+        62.6146
+       ],
+       [
+        0.175,
+        56.0944,
+        39.1384,
+        73.0503
+       ],
+       [
+        0.2,
+        64.1078,
+        44.7296,
+        83.4861
+       ],
+       [
+        0.225,
+        72.1213,
+        50.3208,
+        93.9219
+       ],
+       [
+        0.25,
+        80.1348,
+        55.912,
+        104.358
+       ],
+       [
+        0.275,
+        88.1483,
+        61.5031,
+        114.793
+       ],
+       [
+        0.3,
+        96.1617,
+        67.0943,
+        125.229
+       ],
+       [
+        0.325,
+        104.175,
+        72.6855,
+        135.665
+       ],
+       [
+        0.35,
+        112.189,
+        78.2767,
+        146.101
+       ],
+       [
+        0.375,
+        120.202,
+        83.8679,
+        156.536
+       ],
+       [
+        0.4,
+        128.216,
+        89.4591,
+        166.972
+       ],
+       [
+        0.425,
+        136.229,
+        95.0503,
+        177.408
+       ],
+       [
+        0.45,
+        144.243,
+        100.642,
+        187.844
+       ],
+       [
+        0.475,
+        152.256,
+        106.233,
+        198.279
+       ],
+       [
+        0.5,
+        160.27,
+        111.824,
+        208.715
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 1.35/2, p = 0.509."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 176.665,
+       "se_a": 138.281,
+       "b": 77.5797,
+       "se_b": 35.4758,
+       "b2": 6018.61,
+       "se_b2": 5504.4,
+       "b_defined": true,
+       "a2": 31210.6,
+       "se_a2": 48858.9,
+       "a_defined": true
+      },
+      "chi2": 0.0722879,
+      "p_value": 0.788034,
+      "scale_factor": 1.0,
+      "iterations": 11,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.0723/1, p = 0.788."
+     }
+    },
+    "all": {
+     "points": [
+      4,
+      9,
+      10,
+      12,
+      15,
+      17
+     ],
+     "substitutions": [],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 6,
+      "ndf": 4,
+      "params": {
+       "a": 54.8854,
+       "se_a": 156.826,
+       "b": 86.2787,
+       "se_b": 49.3266,
+       "rho_ab": -0.97343,
+       "se_a_stat": 156.826,
+       "se_b_stat": 49.3266
+      },
+      "chi2": 0.842224,
+      "p_value": 0.932699,
+      "scale_factor": 1.0,
+      "iterations": 11,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        86.2787,
+        -10.3996,
+        182.957
+       ],
+       [
+        0.025,
+        87.6508,
+        -1.56464,
+        176.866
+       ],
+       [
+        0.05,
+        89.023,
+        7.22928,
+        170.817
+       ],
+       [
+        0.075,
+        90.3951,
+        15.9699,
+        164.82
+       ],
+       [
+        0.1,
+        91.7672,
+        24.6396,
+        158.895
+       ],
+       [
+        0.125,
+        93.1394,
+        33.2126,
+        153.066
+       ],
+       [
+        0.15,
+        94.5115,
+        41.6492,
+        147.374
+       ],
+       [
+        0.175,
+        95.8836,
+        49.8867,
+        141.881
+       ],
+       [
+        0.2,
+        97.2558,
+        57.8209,
+        136.691
+       ],
+       [
+        0.225,
+        98.6279,
+        65.2722,
+        131.984
+       ],
+       [
+        0.25,
+        100.0,
+        71.9252,
+        128.075
+       ],
+       [
+        0.275,
+        101.372,
+        77.2498,
+        125.495
+       ],
+       [
+        0.3,
+        102.744,
+        80.5255,
+        124.963
+       ],
+       [
+        0.325,
+        104.116,
+        81.235,
+        126.998
+       ],
+       [
+        0.35,
+        105.489,
+        79.5744,
+        131.403
+       ],
+       [
+        0.375,
+        106.861,
+        76.24,
+        137.481
+       ],
+       [
+        0.4,
+        108.233,
+        71.8762,
+        144.59
+       ],
+       [
+        0.425,
+        109.605,
+        66.8957,
+        152.314
+       ],
+       [
+        0.45,
+        110.977,
+        61.5356,
+        160.419
+       ],
+       [
+        0.475,
+        112.349,
+        55.9317,
+        168.767
+       ],
+       [
+        0.5,
+        113.721,
+        50.1643,
+        177.279
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.842/4, p = 0.933."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 6,
+      "ndf": 5,
+      "params": {
+       "a0": 359.438,
+       "se_a0": 40.6008,
+       "se_a0_stat": 40.6008
+      },
+      "chi2": 2.84616,
+      "p_value": 0.723688,
+      "scale_factor": 1.0,
+      "iterations": 7,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        8.98595,
+        6.99655,
+        10.9754
+       ],
+       [
+        0.05,
+        17.9719,
+        13.9931,
+        21.9507
+       ],
+       [
+        0.075,
+        26.9579,
+        20.9897,
+        32.9261
+       ],
+       [
+        0.1,
+        35.9438,
+        27.9862,
+        43.9014
+       ],
+       [
+        0.125,
+        44.9298,
+        34.9828,
+        54.8768
+       ],
+       [
+        0.15,
+        53.9157,
+        41.9793,
+        65.8521
+       ],
+       [
+        0.175,
+        62.9017,
+        48.9759,
+        76.8275
+       ],
+       [
+        0.2,
+        71.8876,
+        55.9724,
+        87.8028
+       ],
+       [
+        0.225,
+        80.8736,
+        62.969,
+        98.7782
+       ],
+       [
+        0.25,
+        89.8595,
+        69.9655,
+        109.754
+       ],
+       [
+        0.275,
+        98.8455,
+        76.9621,
+        120.729
+       ],
+       [
+        0.3,
+        107.831,
+        83.9586,
+        131.704
+       ],
+       [
+        0.325,
+        116.817,
+        90.9552,
+        142.68
+       ],
+       [
+        0.35,
+        125.803,
+        97.9517,
+        153.655
+       ],
+       [
+        0.375,
+        134.789,
+        104.948,
+        164.63
+       ],
+       [
+        0.4,
+        143.775,
+        111.945,
+        175.606
+       ],
+       [
+        0.425,
+        152.761,
+        118.941,
+        186.581
+       ],
+       [
+        0.45,
+        161.747,
+        125.938,
+        197.556
+       ],
+       [
+        0.475,
+        170.733,
+        132.934,
+        208.532
+       ],
+       [
+        0.5,
+        179.719,
+        139.931,
+        219.507
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 2.85/5, p = 0.724."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 6,
+      "ndf": 4,
+      "params": {
+       "a": 127.524,
+       "se_a": 190.913,
+       "b": 95.5677,
+       "se_b": 27.2476,
+       "b2": 9133.19,
+       "se_b2": 5207.98,
+       "b_defined": true,
+       "a2": 16262.5,
+       "se_a2": 48692.1,
+       "a_defined": true
+      },
+      "chi2": 0.855141,
+      "p_value": 0.930906,
+      "scale_factor": 1.0,
+      "iterations": 14,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (14 refits). χ²/ν = 0.855/4, p = 0.931."
+     }
+    }
+   }
+  },
+  {
+   "key": "network:b",
+   "source": "network",
+   "shower": "b",
+   "shower_label": "Shower B",
+   "estimator_label": "Energy network · absolute frame",
+   "label": "Shower B · Energy network · absolute frame",
+   "colour_slot": "absolute",
+   "n": 286,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 16,
+     "p_mean": 2.5589,
+     "x": 0.627849,
+     "mean_r": 3.49372,
+     "sd_r": 1.22045,
+     "value": 34.9328,
+     "ci95": [
+      25.8052,
+      54.0657
+     ],
+     "se_delta": 7.06991,
+     "c4": null,
+     "bias": 249.372,
+     "momentum_spread": 10.9236,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 28,
+     "p_mean": 3.51491,
+     "x": 0.534817,
+     "mean_r": 2.67362,
+     "sd_r": 0.936993,
+     "value": 35.0458,
+     "ci95": [
+      27.7078,
+      47.7028
+     ],
+     "se_delta": 5.30397,
+     "c4": null,
+     "bias": 167.362,
+     "momentum_spread": 8.61476,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 4,
+     "label": "4–5 GeV",
+     "p_lo": 4.0,
+     "p_hi": 5.0,
+     "n": 24,
+     "p_mean": 4.53156,
+     "x": 0.470418,
+     "mean_r": 1.96391,
+     "sd_r": 0.748584,
+     "value": 38.117,
+     "ci95": [
+      29.6249,
+      53.468
+     ],
+     "se_delta": 6.35457,
+     "c4": null,
+     "bias": 96.391,
+     "momentum_spread": 6.20667,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 8,
+     "p_mean": 5.35434,
+     "x": 0.432419,
+     "mean_r": 1.74374,
+     "sd_r": 0.620486,
+     "value": 35.5835,
+     "ci95": [
+      23.5267,
+      72.4194
+     ],
+     "se_delta": 10.5111,
+     "c4": 0.96503,
+     "bias": 74.3745,
+     "momentum_spread": 4.26466,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 6,
+     "label": "6–7 GeV",
+     "p_lo": 6.0,
+     "p_hi": 7.0,
+     "n": 16,
+     "p_mean": 6.45946,
+     "x": 0.393787,
+     "mean_r": 1.5024,
+     "sd_r": 0.477914,
+     "value": 31.8101,
+     "ci95": [
+      23.4984,
+      49.2327
+     ],
+     "se_delta": 6.33473,
+     "c4": null,
+     "bias": 50.2397,
+     "momentum_spread": 4.8425,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 15,
+     "p_mean": 7.42285,
+     "x": 0.367211,
+     "mean_r": 1.40981,
+     "sd_r": 0.434944,
+     "value": 30.8514,
+     "ci95": [
+      22.5871,
+      48.6545
+     ],
+     "se_delta": 6.32713,
+     "c4": null,
+     "bias": 40.9806,
+     "momentum_spread": 3.66171,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 8,
+     "label": "8–9 GeV",
+     "p_lo": 8.0,
+     "p_hi": 9.0,
+     "n": 15,
+     "p_mean": 8.52755,
+     "x": 0.342613,
+     "mean_r": 1.07057,
+     "sd_r": 0.376905,
+     "value": 35.206,
+     "ci95": [
+      25.7752,
+      55.522
+     ],
+     "se_delta": 7.38297,
+     "c4": null,
+     "bias": 7.05698,
+     "momentum_spread": 3.76479,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 9,
+     "label": "9–10 GeV",
+     "p_lo": 9.0,
+     "p_hi": 10.0,
+     "n": 22,
+     "p_mean": 9.46097,
+     "x": 0.325203,
+     "mean_r": 1.02251,
+     "sd_r": 0.350612,
+     "value": 34.2894,
+     "ci95": [
+      26.3806,
+      49.0016
+     ],
+     "se_delta": 5.85476,
+     "c4": null,
+     "bias": 2.25059,
+     "momentum_spread": 2.81017,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 23,
+     "p_mean": 10.5662,
+     "x": 0.307727,
+     "mean_r": 0.872027,
+     "sd_r": 0.305284,
+     "value": 35.0086,
+     "ci95": [
+      27.0753,
+      49.5502
+     ],
+     "se_delta": 5.86391,
+     "c4": null,
+     "bias": -12.7973,
+     "momentum_spread": 2.82579,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 11,
+     "label": "11–12 GeV",
+     "p_lo": 11.0,
+     "p_hi": 12.0,
+     "n": 19,
+     "p_mean": 11.5142,
+     "x": 0.294764,
+     "mean_r": 0.828579,
+     "sd_r": 0.286941,
+     "value": 34.6305,
+     "ci95": [
+      26.1674,
+      51.2117
+     ],
+     "se_delta": 6.39397,
+     "c4": null,
+     "bias": -17.1421,
+     "momentum_spread": 2.45261,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 20,
+     "p_mean": 12.489,
+     "x": 0.283037,
+     "mean_r": 0.749575,
+     "sd_r": 0.261823,
+     "value": 34.9295,
+     "ci95": [
+      26.5637,
+      51.0157
+     ],
+     "se_delta": 6.28888,
+     "c4": null,
+     "bias": -25.0425,
+     "momentum_spread": 2.62699,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 13,
+     "label": "13–14 GeV",
+     "p_lo": 13.0,
+     "p_hi": 14.0,
+     "n": 10,
+     "p_mean": 13.4953,
+     "x": 0.272258,
+     "mean_r": 0.645368,
+     "sd_r": 0.239886,
+     "value": 37.1704,
+     "ci95": [
+      25.5669,
+      67.8635
+     ],
+     "se_delta": 9.79014,
+     "c4": 0.972659,
+     "bias": -35.4632,
+     "momentum_spread": 2.2247,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 14,
+     "label": "14–15 GeV",
+     "p_lo": 14.0,
+     "p_hi": 15.0,
+     "n": 13,
+     "p_mean": 14.5366,
+     "x": 0.262314,
+     "mean_r": 0.694822,
+     "sd_r": 0.223458,
+     "value": 32.1604,
+     "ci95": [
+      23.0616,
+      53.087
+     ],
+     "se_delta": 7.16411,
+     "c4": 0.979406,
+     "bias": -30.5178,
+     "momentum_spread": 1.87526,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 22,
+     "p_mean": 15.538,
+     "x": 0.253711,
+     "mean_r": 0.565417,
+     "sd_r": 0.206907,
+     "value": 36.5937,
+     "ci95": [
+      28.1534,
+      52.2946
+     ],
+     "se_delta": 6.32726,
+     "c4": null,
+     "bias": -43.4583,
+     "momentum_spread": 1.54772,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 16,
+     "label": "16–17 GeV",
+     "p_lo": 16.0,
+     "p_hi": 17.0,
+     "n": 13,
+     "p_mean": 16.3553,
+     "x": 0.247299,
+     "mean_r": 0.558025,
+     "sd_r": 0.204214,
+     "value": 36.5959,
+     "ci95": [
+      26.2422,
+      60.4086
+     ],
+     "se_delta": 8.34262,
+     "c4": 0.979406,
+     "bias": -44.1975,
+     "momentum_spread": 1.84775,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 17,
+     "label": "17–18 GeV",
+     "p_lo": 17.0,
+     "p_hi": 18.0,
+     "n": 22,
+     "p_mean": 17.4905,
+     "x": 0.23913,
+     "mean_r": 0.55128,
+     "sd_r": 0.184611,
+     "value": 33.4877,
+     "ci95": [
+      25.7637,
+      47.8558
+     ],
+     "se_delta": 5.69359,
+     "c4": null,
+     "bias": -44.872,
+     "momentum_spread": 1.50594,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      4,
+      9,
+      17
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 4,
+       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24)."
+      }
+     ],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 20.3923,
+       "se_a": 36.4049,
+       "b": 28.2706,
+       "se_b": 12.7137,
+       "rho_ab": -0.962804,
+       "se_a_stat": 36.4049,
+       "se_b_stat": 12.7137
+      },
+      "chi2": 0.015789,
+      "p_value": 0.900006,
+      "scale_factor": 1.0,
+      "iterations": 5,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        28.2706,
+        3.35234,
+        53.189
+       ],
+       [
+        0.025,
+        28.7805,
+        5.57459,
+        51.9863
+       ],
+       [
+        0.05,
+        29.2903,
+        7.78525,
+        50.7953
+       ],
+       [
+        0.075,
+        29.8001,
+        9.98131,
+        49.6188
+       ],
+       [
+        0.1,
+        30.3099,
+        12.1587,
+        48.461
+       ],
+       [
+        0.125,
+        30.8197,
+        14.3118,
+        47.3276
+       ],
+       [
+        0.15,
+        31.3295,
+        16.4325,
+        46.2265
+       ],
+       [
+        0.175,
+        31.8393,
+        18.5091,
+        45.1695
+       ],
+       [
+        0.2,
+        32.3491,
+        20.5241,
+        44.1741
+       ],
+       [
+        0.225,
+        32.8589,
+        22.4507,
+        43.2671
+       ],
+       [
+        0.25,
+        33.3687,
+        24.2475,
+        42.4899
+       ],
+       [
+        0.275,
+        33.8785,
+        25.852,
+        41.9051
+       ],
+       [
+        0.3,
+        34.3883,
+        27.176,
+        41.6007
+       ],
+       [
+        0.325,
+        34.8981,
+        28.1176,
+        41.6786
+       ],
+       [
+        0.35,
+        35.4079,
+        28.6038,
+        42.2121
+       ],
+       [
+        0.375,
+        35.9178,
+        28.639,
+        43.1965
+       ],
+       [
+        0.4,
+        36.4276,
+        28.3017,
+        44.5534
+       ],
+       [
+        0.425,
+        36.9374,
+        27.6939,
+        46.1808
+       ],
+       [
+        0.45,
+        37.4472,
+        26.9012,
+        47.9932
+       ],
+       [
+        0.475,
+        37.957,
+        25.9837,
+        49.9302
+       ],
+       [
+        0.5,
+        38.4668,
+        24.9811,
+        51.9524
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (5 refits). χ²/ν = 0.0158/1, p = 0.9."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 3,
+      "ndf": 2,
+      "params": {
+       "a0": 110.82,
+       "se_a0": 17.1592,
+       "se_a0_stat": 11.0306
+      },
+      "chi2": 4.83984,
+      "p_value": 0.0889288,
+      "scale_factor": 1.55561,
+      "iterations": 8,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        2.7705,
+        1.92972,
+        3.61129
+       ],
+       [
+        0.05,
+        5.54101,
+        3.85943,
+        7.22258
+       ],
+       [
+        0.075,
+        8.31151,
+        5.78915,
+        10.8339
+       ],
+       [
+        0.1,
+        11.082,
+        7.71887,
+        14.4452
+       ],
+       [
+        0.125,
+        13.8525,
+        9.64858,
+        18.0565
+       ],
+       [
+        0.15,
+        16.623,
+        11.5783,
+        21.6677
+       ],
+       [
+        0.175,
+        19.3935,
+        13.508,
+        25.279
+       ],
+       [
+        0.2,
+        22.164,
+        15.4377,
+        28.8903
+       ],
+       [
+        0.225,
+        24.9345,
+        17.3674,
+        32.5016
+       ],
+       [
+        0.25,
+        27.705,
+        19.2972,
+        36.1129
+       ],
+       [
+        0.275,
+        30.4755,
+        21.2269,
+        39.7242
+       ],
+       [
+        0.3,
+        33.246,
+        23.1566,
+        43.3355
+       ],
+       [
+        0.325,
+        36.0165,
+        25.0863,
+        46.9468
+       ],
+       [
+        0.35,
+        38.787,
+        27.016,
+        50.5581
+       ],
+       [
+        0.375,
+        41.5576,
+        28.9457,
+        54.1694
+       ],
+       [
+        0.4,
+        44.3281,
+        30.8755,
+        57.7806
+       ],
+       [
+        0.425,
+        47.0986,
+        32.8052,
+        61.3919
+       ],
+       [
+        0.45,
+        49.8691,
+        34.7349,
+        65.0032
+       ],
+       [
+        0.475,
+        52.6396,
+        36.6646,
+        68.6145
+       ],
+       [
+        0.5,
+        55.4101,
+        38.5943,
+        72.2258
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 4.84/2, p = 0.0889. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.56 (PDG); the unscaled ones are the _stat fields."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 3,
+      "ndf": 1,
+      "params": {
+       "a": 45.2938,
+       "se_a": 40.7871,
+       "b": 31.4233,
+       "se_b": 7.75433,
+       "b2": 987.422,
+       "se_b2": 487.333,
+       "b_defined": true,
+       "a2": 2051.53,
+       "se_a2": 3694.81,
+       "a_defined": true
+      },
+      "chi2": 0.00737295,
+      "p_value": 0.931573,
+      "scale_factor": 1.0,
+      "iterations": 6,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.00737/1, p = 0.932."
+     }
+    },
+    "all": {
+     "points": [
+      4,
+      9,
+      10,
+      12,
+      15,
+      17
+     ],
+     "substitutions": [],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 6,
+      "ndf": 4,
+      "params": {
+       "a": 14.1983,
+       "se_a": 33.002,
+       "b": 30.9624,
+       "se_b": 10.5426,
+       "rho_ab": -0.972107,
+       "se_a_stat": 33.002,
+       "se_b_stat": 10.5426
+      },
+      "chi2": 0.193124,
+      "p_value": 0.995627,
+      "scale_factor": 1.0,
+      "iterations": 6,
+      "converged": true,
+      "negative_intercept": false,
+      "curve": [
+       [
+        0.0,
+        30.9624,
+        10.2993,
+        51.6255
+       ],
+       [
+        0.025,
+        31.3174,
+        12.2224,
+        50.4123
+       ],
+       [
+        0.05,
+        31.6723,
+        14.1367,
+        49.2079
+       ],
+       [
+        0.075,
+        32.0273,
+        16.0395,
+        48.015
+       ],
+       [
+        0.1,
+        32.3822,
+        17.9271,
+        46.8373
+       ],
+       [
+        0.125,
+        32.7372,
+        19.7942,
+        45.6802
+       ],
+       [
+        0.15,
+        33.0921,
+        21.6326,
+        44.5517
+       ],
+       [
+        0.175,
+        33.4471,
+        23.4295,
+        43.4647
+       ],
+       [
+        0.2,
+        33.802,
+        25.1642,
+        42.4399
+       ],
+       [
+        0.225,
+        34.157,
+        26.8016,
+        41.5124
+       ],
+       [
+        0.25,
+        34.512,
+        28.2812,
+        40.7427
+       ],
+       [
+        0.275,
+        34.8669,
+        29.503,
+        40.2308
+       ],
+       [
+        0.3,
+        35.2219,
+        30.3279,
+        40.1159
+       ],
+       [
+        0.325,
+        35.5768,
+        30.6412,
+        40.5125
+       ],
+       [
+        0.35,
+        35.9318,
+        30.4546,
+        41.409
+       ],
+       [
+        0.375,
+        36.2867,
+        29.8939,
+        42.6796
+       ],
+       [
+        0.4,
+        36.6417,
+        29.094,
+        44.1894
+       ],
+       [
+        0.425,
+        36.9967,
+        28.1481,
+        45.8452
+       ],
+       [
+        0.45,
+        37.3516,
+        27.1118,
+        47.5915
+       ],
+       [
+        0.475,
+        37.7066,
+        26.0171,
+        49.396
+       ],
+       [
+        0.5,
+        38.0615,
+        24.8835,
+        51.2396
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.193/4, p = 0.996."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 6,
+      "ndf": 5,
+      "params": {
+       "a0": 119.454,
+       "se_a0": 9.37495,
+       "se_a0_stat": 8.4569
+      },
+      "chi2": 6.14448,
+      "p_value": 0.292413,
+      "scale_factor": 1.10856,
+      "iterations": 7,
+      "converged": true,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        2.98636,
+        2.52699,
+        3.44572
+       ],
+       [
+        0.05,
+        5.97271,
+        5.05399,
+        6.89144
+       ],
+       [
+        0.075,
+        8.95907,
+        7.58098,
+        10.3372
+       ],
+       [
+        0.1,
+        11.9454,
+        10.108,
+        13.7829
+       ],
+       [
+        0.125,
+        14.9318,
+        12.635,
+        17.2286
+       ],
+       [
+        0.15,
+        17.9181,
+        15.162,
+        20.6743
+       ],
+       [
+        0.175,
+        20.9045,
+        17.689,
+        24.12
+       ],
+       [
+        0.2,
+        23.8909,
+        20.2159,
+        27.5658
+       ],
+       [
+        0.225,
+        26.8772,
+        22.7429,
+        31.0115
+       ],
+       [
+        0.25,
+        29.8636,
+        25.2699,
+        34.4572
+       ],
+       [
+        0.275,
+        32.8499,
+        27.7969,
+        37.9029
+       ],
+       [
+        0.3,
+        35.8363,
+        30.3239,
+        41.3487
+       ],
+       [
+        0.325,
+        38.8226,
+        32.8509,
+        44.7944
+       ],
+       [
+        0.35,
+        41.809,
+        35.3779,
+        48.2401
+       ],
+       [
+        0.375,
+        44.7954,
+        37.9049,
+        51.6858
+       ],
+       [
+        0.4,
+        47.7817,
+        40.4319,
+        55.1315
+       ],
+       [
+        0.425,
+        50.7681,
+        42.9589,
+        58.5773
+       ],
+       [
+        0.45,
+        53.7544,
+        45.4859,
+        62.023
+       ],
+       [
+        0.475,
+        56.7408,
+        48.0129,
+        65.4687
+       ],
+       [
+        0.5,
+        59.7271,
+        50.5399,
+        68.9144
+       ]
+      ],
+      "provisional": false,
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 6.14/5, p = 0.292. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.11 (PDG); the unscaled ones are the _stat fields."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 6,
+      "ndf": 4,
+      "params": {
+       "a": 38.0907,
+       "se_a": 44.6787,
+       "b": 33.2453,
+       "se_b": 5.70544,
+       "b2": 1105.25,
+       "se_b2": 379.358,
+       "b_defined": true,
+       "a2": 1450.9,
+       "se_a2": 3403.69,
+       "a_defined": true
+      },
+      "chi2": 0.185939,
+      "p_value": 0.995937,
+      "scale_factor": 1.0,
+      "iterations": 7,
+      "converged": true,
+      "curve": null,
+      "provisional": false,
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 0.186/4, p = 0.996."
+     }
+    }
+   }
+  }
+ ],
+ "off_axis": [
+  {
+   "series": "detector:a",
+   "bins": [
+    2,
+    3
+   ],
+   "n": 38
+  },
+  {
+   "series": "network:a",
+   "bins": [
+    2,
+    3
+   ],
+   "n": 38
+  },
+  {
+   "series": "detector:b",
+   "bins": [
+    2,
+    3
+   ],
+   "n": 44
+  },
+  {
+   "series": "network:b",
+   "bins": [
+    2,
+    3
+   ],
+   "n": 44
+  }
+ ],
+ "notes": [
+  "Each shower's deposit E_dep is the truth segmentation's share of the event's hit energy (a cell both showers hit is divided by the truth fraction) and p is that shower's own incident momentum. Showers A and B are separate series with one value per event each; an event in which a shower has no hit rows is not part of that shower's series.",
+  "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ (N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread and the estimator's bias, and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+  "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
+  "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
+  "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
+  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated; χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG). The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "Anchors: the lowest bin from 5 GeV, the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV.",
+  "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
+  "Shower A: c = Σ p / Σ E_dep = 138.3 over N = 286 events, fitted once over the whole selection.",
+  "Shower B: c = Σ p / Σ E_dep = 136.1 over N = 286 events, fitted once over the whole selection.",
+  "The model series is the energy network of the absolute frame (coord_system), R = predicted energy / its truth; the networks predict the momentum scale directly, with no calibration.",
+  "Off the axis: 8 windows below 4 GeV (164 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20).",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21).",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21).",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20).",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21).",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21).",
+  "Shower A · Energy network · absolute frame (anchors, pinned): χ²/ν = 1.8, so its errors are scaled by S = 1.34.",
+  "Shower A · Energy network · absolute frame (all, pinned): χ²/ν = 1.16, so its errors are scaled by S = 1.08.",
+  "Shower B · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24).",
+  "Shower B · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24).",
+  "Shower B · Energy network · absolute frame (anchors, pinned): χ²/ν = 2.42, so its errors are scaled by S = 1.56.",
+  "Shower B · Energy network · absolute frame (all, pinned): χ²/ν = 1.23, so its errors are scaled by S = 1.11.",
+  "The y range follows the windows with N ≥ 20 (whiskers included) and the fits through them, from zero. 2 marks beyond it are clipped, not rescaled."
+ ],
+ "filter": {
+  "e1": [
+   2.0321333408355713,
+   17.956544876098633
+  ],
+  "e2": [
+   2.053401470184326,
+   17.97946548461914
+  ],
+  "d": [
+   29.387434005737305,
+   619.7904663085938
+  ],
+  "include_undefined_d": false
+ }
+}

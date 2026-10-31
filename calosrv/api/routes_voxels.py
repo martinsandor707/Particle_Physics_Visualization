@@ -427,6 +427,8 @@ class VoxelResponse:
             rho=rendered["rho"],
             budget=rendered["budget"],
             topk=rendered["topk"],
+            # The slice explorer's exact per-layer sums (voxels.render).
+            depth_profile=rendered["depth_profile"],
             filter=self.spec.as_dict(),
         ))
         self._last = (cap, body)
