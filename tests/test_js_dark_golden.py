@@ -81,9 +81,10 @@ FAMILIES = [
     "physics/statistics", "physics/energy", "physics/projection", "physics/marks",
     "models/perf", "models/hist2d", "models/residual", "models/hist", "models/corr", "models/rates", "models/table",
     "xgb/cv", "xgb/binary", "xgb/tree", "xgb/importance", "xgb/variant",
-    "voxels/event", "voxels/ensemble", "voxels/crop", "voxels/notes",
+    "models/resolution", "voxels/event", "voxels/ensemble", "voxels/crop", "voxels/notes", "voxels/slices",
     "notes/profile", "notes/response", "notes/grid", "notes/energy", "notes/distribution", "notes/correlation",
-    "notes/statistics", "notes/models_perf", "notes/models_pred", "notes/models_features", "notes/xgb", "notes/voxels",
+    "notes/statistics", "notes/models_perf", "notes/models_pred", "notes/models_features", "notes/models_resolution",
+    "notes/xgb", "notes/voxels",
     "text/projection", "text/frame_views", "methodology/exhibit",
 ]
 
@@ -111,6 +112,7 @@ const dist = await imp('panels/distribution.js');
 const corr = await imp('panels/correlation.js');
 const stats = await imp('panels/statistics.js');
 const perf = await imp('panels/perf_bins.js');
+const rs = await imp('panels/resolution_scaling.js');
 const h2 = await imp('panels/hist2d.js');
 const rates = await imp('panels/rates.js');
 const ft = await imp('panels/feature_table.js');
@@ -783,6 +785,18 @@ for (const name of ['perf_two_energy', 'perf_two_angle', 'perf_xgb_energy', 'per
   put('models/perf/tips', m.series.flatMap((x) => x.points.map((pt) => perf.perfTip(m, x, pt))));
 }
 
+/* ---- Models: the resolution scaling card (added with it, never moved by it) ----------------- */
+for (const name of ['res_scaling_two', 'res_scaling_xgb', 'res_scaling_single_hits', 'res_scaling_single_events']) {
+  const payload = load(name);
+  for (const windows of ['anchors', 'all']) {
+    both(`models/resolution/${name}/${windows}`, () => rs.resolutionScalingOption(payload, { windows, shower: 'both' }, MW));
+    put(`models/resolution/${name}/${windows}/table`, rs.fitTableRows(payload, { windows, shower: 'both' }));
+    put(`notes/models_resolution/${name}/${windows}`, mn.resolutionScalingNotes({ payload, windows, shower: 'both' }));
+  }
+  optionCase(`models/resolution/${name}/showerA`, rs.resolutionScalingOption(payload, { windows: 'anchors', shower: 'a' }, MW));
+  optionCase(`models/resolution/${name}/narrow`, rs.resolutionScalingOption(payload, { windows: 'all', shower: 'both' }, { width: 360, height: 420 }));
+}
+
 for (const name of ['pred_density_two_energy', 'pred_density_two_angle', 'pred_density_xgb_energy', 'pred_density_xgb_phi', 'pred_density_xgb_theta']) {
   const payload = load(name);
   for (const p of ['viridis', 'cividis', 'plasma', 'turbo']) {
@@ -1030,6 +1044,37 @@ put('voxels/geometry', { camera: v.CAMERA, axes: v.cameraAxes(), heights: [300, 
   put('voxels/notes/perAxis', vn.voxelProjectionNotes({ pair: 'event', payload: perAxis, panelId: 'xz', frameKind: 'local' }));
   put('notes/physics/eventInspector', Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xy', 'xz', 'yz'].map(
     (panelId) => [`${kind}:${panelId}`, pn.eventNotes({ payload: body, kind, panelId })]))));
+}
+
+/* ---- the 3-D slice mode (added with it; K = 1 leaves every case above as it was) ----------- */
+{
+  const sliced = (name, payload, model, window_ = null) => {
+    const domain = v.depthDomain(payload, model, window_);
+    const plans = [1, 3, domain.L].map((K) => v.slicePlan(domain, { K, k: Math.min(2, K) }));
+    const built = v.voxelOption(model, { palette: 'viridis', slice: { bins: plans[1].bins } });
+    put(`voxels/slices/${name}`, { domain, plans, readouts: plans.map((pl) => v.sliceReadout(pl)), edges: [1, 2, 7, 60].map((K) => v.sliceEdges(domain.L, K)),
+      keep: [2, 6, domain.L].map((K) => v.keepCentre(domain, plans[1], K)), built: voxelSummary(built), outsideSlice: built.outsideSlice });
+    return { built, plan: plans[1] };
+  };
+  for (const name of ['event_voxels_base_lab', 'event_voxels_base_local_shapcam', 'event_voxels_single_species']) {
+    const payload = load(name);
+    const model = v.decodeEventVoxels(payload);
+    const { built, plan } = sliced(name, payload, model);
+    put(`voxels/slices/${name}/notes`, vn.voxelEventNotes({ payload, drawn: built, slice: plan }));
+  }
+  const projections = load('projections_single_local');
+  const payload = load('voxels_single_local');
+  const model = v.cropToWindow(v.decodeEnsembleVoxels(payload), v.pairedWindow(projections));
+  const { built, plan } = sliced('voxels_single_local', payload, model, model.crop?.window?.z ?? null);
+  put('voxels/slices/voxels_single_local/notes', vn.voxelEnsembleNotes({ payload, drawn: built, crop: model.crop, slice: plan }));
+  // The band on a paired depth projection: a depth panel only, and nothing at all without it.
+  const sub = projections.panels.yz;
+  const slab = { lo: plan.loMm, hi: plan.hiMm, tooltip: 'Slice 2 of 3 drawn in 3-D' };
+  both('voxels/slices/projection/yz', () => {
+    const panel = new projMod.ProjectionPanel('plot-xy', { isometric: true });
+    const opts = { ...cells.ensembleCellOptions(projections, 'yz', 'viridis'), depthSlab: slab };
+    return panel.buildOption({ payload: sub, opts, raster: decode.renderRaster(sub, 'viridis'), metrics: { width: 600, height: 400 } });
+  }, (id, option) => put(id, { option, calls: exercise(option) }));
 }
 
 /* ---- drawer notes ---------------------------------------------------------------------------------- */

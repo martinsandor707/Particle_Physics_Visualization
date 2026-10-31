@@ -584,7 +584,8 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
 
 /* ---- the slice mode: K runs of whole layers, one drawn at a time ------------ */
 {
-  const S = { edges: {}, domains: {}, plans: {}, keep: {}, options: {}, notes: {}, readouts: [] };
+  const S = { edges: {}, domains: {}, plans: {}, keep: {}, options: {}, notes: {}, readouts: [],
+    coreShift: v.CORE_SHIFT_Z_MM };
   for (const [L, K] of [[1, 1], [1, 4], [5, 1], [5, 2], [5, 3], [5, 5], [5, 9], [55, 6], [60, 7], [52, 10], [58, 58], [7, 0], [7, -3], [7, 2.6]]) {
     S.edges[`${L}|${K}`] = v.sliceEdges(L, K);
   }
@@ -618,7 +619,8 @@ out.section.localBoth = await runSection({ table: 'experiment_baseline', values:
     plans.zeroK = v.slicePlan(domain, { K: 0, k: 0 });
     S.plans[name] = plans;
     const from = v.slicePlan(domain, { K: 6, k: 3 });
-    S.keep[name] = { from, to: Object.fromEntries([1, 2, 4, 5, 12, domain.L].map((K) => [K, v.keepCentre(domain, from, K)])) };
+    S.keep[name] = { from, to: Object.fromEntries([1, 2, 4, 5, 12, domain.L].map((K) => [K, v.keepCentre(domain, from, K)])),
+      fromWhole: Object.fromEntries([2, 6, domain.L].map((K) => [K, v.keepCentre(domain, v.slicePlan(domain, { K: 1 }), K)])) };
     for (const p of [v.slicePlan(domain, { K: 1 }), from, plans[domain.L][0], plans[domain.L][domain.L - 1]]) {
       S.readouts.push([name, v.sliceReadout(p)]);
     }
@@ -2100,6 +2102,13 @@ def test_slice_plans_partition_the_domain_and_their_shares_add_up(out, name):
     assert over["k"] == min(3, L) and zero["K"] == 1 and zero["k"] == 1 and zero["bins"] == [j0, j1]
 
 
+def test_the_readouts_display_offset_is_the_servers(out):
+    """The readout's \"z − 3649\" is ddl.CORE_SHIFT_Z_MM, the one display offset (CLAUDE.md §5)."""
+    from calosrv.db import ddl
+
+    assert out["slices"]["coreShift"] == ddl.CORE_SHIFT_Z_MM
+
+
 @pytest.mark.parametrize("name", SLICE_NAMES)
 def test_a_new_k_keeps_the_slice_holding_the_old_slices_centre(out, name):
     domain = out["slices"]["domains"][name]["domain"]
@@ -2110,6 +2119,8 @@ def test_a_new_k_keeps_the_slice_holding_the_old_slices_centre(out, name):
         k_eff = min(int(K), domain["L"])
         edges = [i * domain["L"] // k_eff for i in range(k_eff + 1)]
         assert 1 <= k <= k_eff and edges[k - 1] <= centre < edges[k], (K, k, centre, edges)
+    # From the whole volume there is no depth to keep: slicing starts at the entrance.
+    assert set(keep["fromWhole"].values()) == {1}, keep["fromWhole"]
 
 
 @pytest.mark.parametrize("name", SLICE_OPTIONS)

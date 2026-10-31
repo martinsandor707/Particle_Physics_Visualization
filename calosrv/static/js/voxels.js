@@ -1309,11 +1309,15 @@ export function slicePlan(domain, { K = 1, k = 1 } = {}) {
 /**
  * The slice of a new K that holds the old slice's centre bin: a K change
  * keeps the reader where they were in depth. Returns the 1-based k.
+ *
+ * From the whole volume (K = 1) there is no depth to keep - its centre is
+ * wherever the shower's length puts it - so slicing starts at slice 1, the
+ * entrance, and the reader steps in from there.
  */
 export function keepCentre(domain, plan, newK) {
   if (!domain) return 1;
   const Kc = clampInt(newK, 1, domain.L, 1);
-  if (!plan) return 1;
+  if (!plan || plan.K <= 1) return 1;
   const centre = Math.floor((plan.bins[0] + plan.bins[1]) / 2) - domain.j0;
   const off = Math.max(0, Math.min(domain.L - 1, centre));
   const edges = sliceEdges(domain.L, Kc);
