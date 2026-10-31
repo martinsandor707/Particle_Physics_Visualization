@@ -33,7 +33,7 @@ page is checked as a reader meets it:
   baseline's two events draw its empty state, with the table still there);
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
-  the whole volume's, the paired depth projections banding the slice drawn,
+  the whole volume's, the paired depth projections bracketing the slice drawn,
   with no request and the reader's turned and zoomed camera kept, and the
   slice row hidden without WebGL.
 
@@ -631,7 +631,10 @@ _RES_TABLE = """() => {
     host: box(host), plot: box(plot),
     caption: host.querySelector('caption')?.textContent ?? null,
     heads: [...host.querySelectorAll('thead th')].map((th) => th.textContent),
-    rows: [...host.querySelectorAll('tbody tr')].map((tr) => tr.cells[0].textContent),
+    // One tbody per series, headed by its name across its fit rows (panels/resolution_scaling.js renderTable).
+    rows: [...host.querySelectorAll('tbody th[scope="rowgroup"]')].map((th) => th.textContent),
+    fits: [...host.querySelectorAll('tbody th[scope="row"]')].map((th) => th.textContent),
+    overflow: host.scrollWidth - host.clientWidth,
   };
 }"""
 
@@ -681,7 +684,9 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         assert fit["host"]["top"] >= fit["plot"]["bottom"] - 0.5, fit
         assert fit["caption"].startswith("Fits through the 3 anchor windows"), fit
         assert fit["heads"][0] == "Series" and "Windows fitted" in fit["heads"], fit
-        assert fit["rows"], fit
+        assert fit["rows"] and len(fit["fits"]) == 3 * len(fit["rows"]), fit
+        # Its text columns wrap, so at 1600 px the table keeps to its card (it ran 1721 px in 1212 kept on one line).
+        assert fit["overflow"] <= 1, fit
 
         if table in RES_DRAWN:
             assert state["series"] > 0, state
@@ -900,14 +905,15 @@ _SLICE_ROW = """(id) => {
 _CUBES = """(id) => echarts.getInstanceByDom(document.getElementById(`plot-${id}`)).getOption().series
   .filter((s) => s.type === 'bar3D').reduce((n, s) => n + (s.data || []).length, 0)"""
 
-#: A projection's slice band (projection.js addDepthSlab): the wash's depth range and its two faces, or null.
+#: A projection's slice bracket (projection.js addDepthSlab): the depths of its two faces, their count and whether
+#: anything was laid over the raster as a wash (never), or null without a bracket.
 _DEPTH_BAND = """(id) => {
   const series = echarts.getInstanceByDom(document.getElementById(`plot-${id}`)).getOption().series || [];
-  const wash = series.find((s) => s.name === 'Depth slice drawn in 3-D');
-  const faces = series.filter((s) => (s.name || '').startsWith('Depth slice drawn in 3-D — ')).length;
-  if (!wash) return faces ? { lo: null, hi: null, faces } : null;
-  const points = wash.data[0];
-  return { lo: points[0][0], hi: points[points.length - 1][0], faces };
+  const faces = series.filter((s) => (s.name || '').startsWith('Depth slice drawn in 3-D — '));
+  if (!faces.length) return null;
+  const at = faces.map((s) => s.data[0][0]);
+  const wash = series.some((s) => s.name === 'Depth slice drawn in 3-D' || (s.name || '').includes('wash'));
+  return { lo: Math.min(...at), hi: Math.max(...at), faces: faces.length, wash };
 }"""
 
 #: Each 3-D card, its XY projection and its two depth projections (voxel_views.js: `col.name === 'z'`).
@@ -971,8 +977,8 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
     and wheel-zoomed the view: K = 6 reads "Slice 1 of 6", Next twice "Slice 3 of 6", Previous and the
     scrubber step, each button is disabled at its end, and a K above the volume's depth L is drawn as L, the
     count's max. The cubes drawn change with the slice and the six slices' cubes add up to the whole
-    volume's. The paired depth projections band the slice drawn (moving with Next), the XY projection never,
-    and the band prints in the depth projection's export only while a slice is shown. Across every step the
+    volume's. The paired depth projections bracket the slice drawn (moving with Next), the XY projection never,
+    and the bracket prints in the depth projection's export only while a slice is shown. Across every step the
     request log gains nothing and the camera (alpha, beta, the orthographic zoom, the centre) does not move;
     the page still holds at most two WebGL contexts.
     """
@@ -1019,9 +1025,10 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
             assert (row["K"], row["k"], row["kMax"]) == ("6", "1", "6") and not row["rangeDisabled"], (where, row)
             assert row["prev"] and not row["next"], (where, "Previous is shut at slice 1", row)
             assert views[1]["xy"] is None, (where, "the XY projection sums every layer and carries no band")
-            assert all(b and b["faces"] == 2 and b["hi"] > b["lo"] for b in views[1]["bands"]), (where, views[1])
+            assert all(b and b["faces"] == 2 and b["hi"] > b["lo"] and not b["wash"] for b in views[1]["bands"]), \
+                (where, views[1])
 
-            # Next twice: slice 3; the band moves downstream.
+            # Next twice: slice 3; the bracket moves downstream.
             _step_slice(page, card_id, "next")
             views[2] = _slice_view(page, card_id, theme._CAMERA)
             _step_slice(page, card_id, "next")
@@ -1047,16 +1054,24 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
             counts = [views[k]["cubes"] for k in range(1, 7)]
             assert sum(counts) == whole["cubes"], (where, counts, whole["cubes"])
             assert len(set(counts)) > 1 and max(counts) < whole["cubes"], (where, counts)
-            # The six bands tile the depth the slices cover, entrance first.
+            # The six brackets tile the depth the slices cover, entrance first.
             for column in range(2):
                 bands = [views[k]["bands"][column] for k in range(1, 7)]
                 assert all(a["hi"] == pytest.approx(b["lo"]) for a, b in zip(bands, bands[1:])), (where, bands)
+            # A keyboard reader whose Enter lands on the last slice keeps their place: Next shuts, focus moves to
+            # the scrubber rather than falling back to the top of the page.
+            _scrub_slice(page, card_id, 5)
+            page.locator(f'.main .card[data-panel="{card_id}"] [data-voxel-slice-step="next"]').focus()
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(250)
+            assert page.evaluate(_SLICE_ROW, card_id)["k"] == "6", where
+            assert page.evaluate("() => document.activeElement?.matches('[data-voxel-slice]') === true"), where
 
             if card_id == "vox-event":
-                # The band prints with the depth projection while a slice is shown (wash and two faces).
+                # The bracket prints with the depth projection while a slice is shown (its two faces).
                 page.locator(f'.main .card[data-panel="{depth[0]}"]').scroll_into_view_if_needed()
                 _download_svg(page, depth[0])
-                assert page.evaluate("() => window.__exportSeries.at(-1)") == unsliced_export + 3
+                assert page.evaluate("() => window.__exportSeries.at(-1)") == unsliced_export + 2
                 page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
                 page.wait_for_timeout(300)
 
@@ -1065,7 +1080,7 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
             row = page.evaluate(_SLICE_ROW, card_id)
             assert (row["K"], row["max"], row["kMax"]) == (str(depth_bins),) * 3, (where, row)
             assert re.match(rf"^Slice \d+ of {depth_bins} — ", row["readout"]), (where, row)
-            # And K = 1 is the whole volume again, the bands gone.
+            # And K = 1 is the whole volume again, the brackets gone.
             _set_slices(page, card_id, 1)
             back = _slice_view(page, card_id, theme._CAMERA)
             assert back["cubes"] == whole["cubes"] and back["bands"] == [None, None], (where, back)
@@ -1320,8 +1335,8 @@ def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_li
         page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
         assert page.locator("#inspector-body .inspector-return").count() == 0
         link = page.locator("#inspector-body .inspector-method a")
-        assert link.inner_text() == ("How it is drawn: Methodology §3.6 Model evaluation, the surrogate "
-                                     "tree and the 3-D views (E1–E5, C5, C6, C11)")
+        assert link.inner_text() == ("How it is drawn: Methodology §3.6 Model evaluation, resolution "
+                                     "scaling, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)")
         # A long title keeps to one line, cut with an ellipsis; the tooltip carries it whole.
         line = page.evaluate("""() => { const a = document.querySelector('#inspector-body .inspector-method a');
           const size = parseFloat(getComputedStyle(a).fontSize);

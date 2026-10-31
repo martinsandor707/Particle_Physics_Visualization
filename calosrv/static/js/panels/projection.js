@@ -192,6 +192,9 @@ const ZOOM_STEP = 1.18;
 /** Plot-area height as a fraction of its width, for the two depth panels. */
 const DEPTH_PLOT_ASPECT = 0.55;
 
+/** The inward tick at either end of a slice bracket's face (`addDepthSlab`), in px. */
+const SLAB_TICK_PX = 6;
+
 export class ProjectionPanel {
   constructor(elementId, { isometric = false } = {}) {
     this.element = document.getElementById(elementId);
@@ -451,7 +454,7 @@ export class ProjectionPanel {
 
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
     // The 3-D card's slice, on its paired depth panels only (voxel_views.js); Page 1 never sets it.
-    if (depthSlab) this.addDepthSlab(series, depthSlab, col, extent.row);
+    if (depthSlab) this.addDepthSlab(series, depthSlab, col);
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
     // On the light screen a plot a few dozen pixels tall draws its marks small.
     const strip = stripMarks(rect.height);
@@ -830,36 +833,42 @@ export class ProjectionPanel {
 
   /**
    * The depth range of the slice its paired 3-D card draws (`depthSlab`
-   * `{lo, hi, tooltip}`, mm on this panel's depth axis): a faint wash over
-   * [lo, hi] across the whole transverse span, its two faces outlined, on a
-   * depth panel only (the column axis is depth on both). Context, like the
-   * calorimeter faces: above the raster (z 2 and 4, under the plot frame's
-   * z 3 for the wash) and below every mark, in the theme's ink at its strip
-   * weight, so it rebuilds with the theme and prints with the print tokens.
-   * The 2-D panel still sums every layer; the band says which of them the
-   * 3-D view beside it draws.
+   * `{lo, hi, tooltip}`, mm on this panel's depth axis), on a depth panel only
+   * (the column axis is depth on both): a bracket, each face a line across the
+   * plot with a short tick at either end pointing into the slice. Lines only,
+   * never a wash: a fill over the raster re-tinted every bin inside it, so its
+   * colour no longer read true against the colour bar. Context, like the
+   * calorimeter faces: above the raster (z 4) and below every mark, in the
+   * theme's ink, so it rebuilds with the theme and prints with the print
+   * tokens. The bracket spans the plot's own height at any zoom. The 2-D panel
+   * still sums every layer; the bracket says which of them the 3-D view beside
+   * it draws.
    */
-  addDepthSlab(series, slab, col, rowSpan) {
+  addDepthSlab(series, slab, col) {
     if (col.name !== 'z' || !Number.isFinite(slab?.lo) || !Number.isFinite(slab?.hi) || !(slab.hi > slab.lo)) return;
-    const [lo, hi] = rowSpan;
-    series.push(customBand({
-      name: 'Depth slice drawn in 3-D',
-      points: [[slab.lo, lo, hi], [slab.hi, lo, hi]],
-      color: THEME.text,
-      opacity: THEME.stripAlpha,
-      z: 2,
-    }));
-    for (const [depth, face] of [[slab.lo, 'upstream'], [slab.hi, 'downstream']]) {
-      series.push(customLine({
+    const width = 1.25 * THEME.lineAxis;
+    for (const [depth, toward, face] of [[slab.lo, slab.hi, 'upstream'], [slab.hi, slab.lo, 'downstream']]) {
+      series.push({
+        type: 'custom',
         name: `Depth slice drawn in 3-D — ${face} face`,
-        from: [depth, lo],
-        to: [depth, hi],
-        color: THEME.text,
-        width: 1.25 * THEME.lineAxis,
-        opacity: 0.85,
+        clip: true,
         z: 4,
-        tooltip: slab.tooltip ?? null,
-      }));
+        silent: !slab.tooltip,
+        data: [[depth, 0]],
+        renderItem: (params, api) => {
+          // Inside the plot frame by the line's own width, so the ticks never merge with its border.
+          const top = params.coordSys.y + width;
+          const bottom = params.coordSys.y + params.coordSys.height - width;
+          const x = api.coord([depth, 0])[0];
+          const tick = Math.sign(api.coord([toward, 0])[0] - x) * SLAB_TICK_PX;
+          return {
+            type: 'polyline',
+            shape: { points: [[x + tick, top], [x, top], [x, bottom], [x + tick, bottom]] },
+            style: { fill: 'none', stroke: THEME.text, lineWidth: width, opacity: 0.85 },
+          };
+        },
+        ...(slab.tooltip ? { tooltip: { formatter: () => slab.tooltip } } : {}),
+      });
     }
   }
 

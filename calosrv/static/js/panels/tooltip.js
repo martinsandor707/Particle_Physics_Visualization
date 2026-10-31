@@ -102,6 +102,15 @@ export const PREFER_OUTSIDE = 'outside';
 export const READOUT_SHARE = 0.2;
 
 /**
+ * How far the drawn tip can lie outside the box it was placed as, in px:
+ * ECharts writes the tip's position rounded to whole pixels (`toFixed(0)`),
+ * and measures its size with offsetWidth and offsetHeight, also rounded. A
+ * readout checked at the cap without it was drawn over 20.15% of a Local
+ * entry panel against 20%.
+ */
+const SNAP_PX = 1;
+
+/**
  * The chart-level tooltip option. Read at build time, like every THEME value,
  * so the print theme applies when a figure is exported and the light screen
  * theme's near-white ground when it is in force. `position` is the chart's
@@ -250,13 +259,14 @@ export function placeTooltip({
   const result = (rect, mode) => ({ x: rect.left, y: rect.top, mode });
   const clean = (rect, within) => fits(rect, within) && !covers(rect, pointer);
 
-  // Beside the pointer only where it covers at most `readoutShare` of the plot there; a readout
-  // that would hide more of the panel being hovered is placed as an explanation.
+  // Beside the pointer only where it covers at most `readoutShare` of the plot there, checked on the
+  // box grown by the pixel ECharts' rounding can move it (`SNAP_PX`); a readout that would hide more
+  // of the panel being hovered is placed as an explanation.
   if (prefer === PREFER_POINTER) {
     const cap = readoutShare * area(plot);
     for (const within of [content, view]) {
       const near = besidePointer(pointer, w, h, within);
-      if (clean(near, within) && area(intersect(near, plot)) <= cap + 0.5) return result(near, 'pointer');
+      if (clean(near, within) && area(intersect(inset(near, -SNAP_PX), plot)) <= cap) return result(near, 'pointer');
     }
   }
 

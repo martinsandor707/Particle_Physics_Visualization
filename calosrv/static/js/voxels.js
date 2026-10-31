@@ -1121,9 +1121,12 @@ function energyOwner(payload, kind) {
  *
  * **Why the drawn cubes, not the energy.** j0 and j1 are the lowest and
  * highest depth bin holding a shipped cube whose code carries a value (event:
- * `model.iz[i]` with code ≠ 0; cloud: `model.layer[i]`, and only the cubes
- * inside the crop window when the model is cropped), or, without a model, the
- * first and last bin with energy. Measured on the recorded fixtures: a stray
+ * `model.iz[i]`; cloud: `model.layer[i]`, and only the cubes inside the crop
+ * window when the model is cropped), or, without a model, the first and last
+ * bin with energy. On a ramp, code 0 (and the cloud's below-floor code 1)
+ * carries none. On the species channel every code is a species, drawn in its
+ * own colour, and code 0 is the electron: an e⁻ cube at the entry layer opens
+ * the domain like any other. Measured on the recorded fixtures: a stray
  * deposit far below the display floor holds energy in the Local cloud's very
  * first bin (w = −646 mm), so "the first bin with energy" would open slice 1
  * on nothing drawn - the notebook's empty first slice by another route (see
@@ -1156,9 +1159,10 @@ export function depthDomain(payload, model = null, window = null) {
   if (model) {
     const bins = kind === 'event' ? model.iz : model.layer;
     const c = model.codes ?? {};
+    const categorical = model.scale?.scale === 'categorical';
     for (let i = 0; i < model.n; i += 1) {
       const code = model.code[i];
-      if (code === (c.empty ?? 0) || (Number.isInteger(c.below) && code === c.below)) continue;
+      if (!categorical && (code === (c.empty ?? 0) || (Number.isInteger(c.below) && code === c.below))) continue;
       if (!inCrop(model, i)) continue;
       take(bins[i]);
     }

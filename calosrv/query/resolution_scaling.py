@@ -37,10 +37,12 @@ three nominal windows chosen on the whole table's bin axis
 sampling fraction is still rising, which a/√E + b does not describe), the
 highest bin, and the bin between them nearest in log E to the geometric mean of
 their centres. On the 0–20 GeV files that is {5, 10, 19}. A series whose
-anchor window is thin takes its nearest eligible window instead, by name; with
-too few eligible windows the fit falls back to windows of N ≥ 8 and is
-labelled provisional. The "all windows" mode fits every eligible window. Both
-modes are computed here; the card's toggle only repaints.
+anchor window is thin takes its nearest eligible window from 5 GeV instead, by
+name, never one below the floor the low anchor keeps; with too few eligible
+windows the fit falls back to windows of N ≥ 8 and is labelled provisional.
+The "all windows" mode fits every eligible window from 4 GeV, the 4–5 GeV
+window included, as asked of it, and its notes say so. Both modes are computed
+here; the card's toggle only repaints.
 
 **Reads.** The event table (one row per event: deposits, momenta, bins, the
 networks' predictions) and, on an aggregate, the XGBoost prediction table. No
@@ -99,7 +101,8 @@ FIDELITY_STEPS: tuple[tuple[int, int], ...] = (
     (SIGNIFICANT, BAND_POINTS), (5, BAND_POINTS), (4, BAND_POINTS), (4, 11),
 )
 
-#: A one-shower selection is named after its species when one covers this share of it.
+#: A one-shower selection is named after its species when one covers this share of it:
+#: of every selected event, those without a primary particle included.
 DOMINANT_SHARE = 0.95
 
 DETECTOR_LABEL = "Calibrated deposit c·E_dep — linear-sum benchmark"
@@ -289,15 +292,16 @@ def _choose_anchors(nominal: Sequence[int], windows: Sequence[Window], threshold
                     ) -> tuple[list[int], list[dict[str, Any]]]:
     """The nominal anchors this series can fit, each thin one replaced by its nearest candidate.
 
-    A candidate is a window with ``N ≥ threshold`` from ``E_MIN_GEV``; a thin
-    anchor takes the candidate nearest in ``|ln|`` of the centres that no other
-    anchor uses, or is dropped when none is left. ``axis`` names and places an
-    anchor the series holds no event in.
+    A candidate is a window with ``N ≥ threshold`` from ``ANCHOR_LOW_GEV``, the
+    low anchor's own floor (below it the sampling fraction is still rising): a
+    thin anchor takes the candidate nearest in ``|ln|`` of the centres that no
+    other anchor uses, or is dropped when none is left. ``axis`` names and
+    places an anchor the series holds no event in.
     """
     by_bin = {w.bin: w for w in windows}
     on_axis = ({k: (axis.labels[i], 0.5 * (axis.p_lo[i] + axis.p_hi[i]))
                 for i, k in enumerate(axis.numbers)} if axis is not None else {})
-    candidates = [w for w in windows if w.fittable(threshold)]
+    candidates = [w for w in windows if w.fittable(threshold) and w.p_lo >= ANCHOR_LOW_GEV]
     chosen = {k for k in nominal if k in by_bin and by_bin[k].fittable(threshold)}
     substitutions = []
     for k in nominal:
@@ -312,14 +316,14 @@ def _choose_anchors(nominal: Sequence[int], windows: Sequence[Window], threshold
         if not pool:
             substitutions.append({"nominal": k, "used": None, "reason": (
                 f"The nominal anchor {label} holds N = {n} for this series and no other window "
-                f"from {E_MIN_GEV:g} GeV with {floor} is left: it is dropped.")})
+                f"from {ANCHOR_LOW_GEV:g} GeV with {floor} is left: it is dropped.")})
             continue
         best = _nearest(centre, pool)
         chosen.add(best.bin)
         substitutions.append({"nominal": k, "used": best.bin, "reason": (
             f"The nominal anchor {label} holds N = {n} for this series, below "
-            f"{threshold}; the nearest window in log E with {floor} is {best.label} "
-            f"(N = {best.n}).")})
+            f"{threshold}; the nearest window from {ANCHOR_LOW_GEV:g} GeV in log E with {floor} "
+            f"is {best.label} (N = {best.n}).")})
     return sorted(chosen), substitutions
 
 
@@ -420,26 +424,33 @@ def species_label(code: str | None = None, word: str | None = None) -> str | Non
 
 def _dominant_species(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
                       spec: FilterSpec) -> tuple[str | None, str]:
-    """The selection's dominant ``primary_type`` where it covers ≥ 95% of the events with one."""
+    """The selection's dominant ``primary_type`` where it covers ≥ 95% of the selected events.
+
+    The share is of every selected event: an event without a primary particle
+    counts against the name, since nothing says it is of that species.
+    """
     table = quote(naming.event_table(record.table_name))
     try:
         rows = con.execute(
             f"SELECT primary_type, count(*) AS n FROM {table} WHERE {spec.where_sql()} "
-            "AND primary_type IS NOT NULL GROUP BY 1 ORDER BY n DESC, 1",
+            "GROUP BY 1 ORDER BY n DESC, 1",
             spec.params()).fetchall()
     except duckdb.Error:
         return None, "The event table holds no primary_type, so the shower is not named."
     total = sum(int(n) for _, n in rows)
-    if not total:
+    typed = [(code, int(n)) for code, n in rows if code is not None]
+    if not typed:
         return None, "No selected event has a primary particle, so the shower is not named."
-    code, n = rows[0][0], int(rows[0][1])
+    code, n = typed[0]
     share = n / total
+    untyped = total - sum(m for _, m in typed)
+    without = (f"; {untyped:,} of them have no primary particle" if untyped else "")
     label = species_label(code=code)
     if share >= DOMINANT_SHARE and label is not None:
         return label, (f"The shower is named {label}: the primary particle of {n:,} of the "
-                       f"{total:,} selected events with one ({100 * share:.1f}%).")
+                       f"{total:,} selected events ({100 * share:.1f}%{without}).")
     return None, (f"The shower is not named after a species: the commonest primary particle, "
-                  f"{code}, covers {100 * share:.1f}% of the {total:,} selected events with one, "
+                  f"{code}, covers {100 * share:.1f}% of the {total:,} selected events{without}, "
                   f"below {100 * DOMINANT_SHARE:g}%.")
 
 
@@ -467,9 +478,14 @@ def _fit_note(fit: rfit.Fit, provisional: bool) -> str:
         parts.append("ν = 0: the fit passes through its points exactly, so there is no χ² test.")
     else:
         parts.append(f"χ²/ν = {fit.chi2:.3g}/{fit.ndf}, p = {fit.p_value:.3g}.")
-    if fit.scale_factor > 1.0:
+    if fit.scale_factor > 1.0 and fit.form == rfit.FORM_QUADRATURE:
+        parts.append(f"χ²/ν > 1, so the standard errors are scaled by S = {fit.scale_factor:.3g} "
+                     "(PDG); the unscaled ones are the _stat fields.")
+    elif fit.scale_factor > 1.0:
         parts.append(f"χ²/ν > 1, so the standard errors and the band are scaled by "
-                     f"S = {fit.scale_factor:.3g} (PDG); the unscaled ones are the _stat fields.")
+                     f"S = {fit.scale_factor:.3g} (PDG), and the band takes Student's "
+                     f"t₀.₉₇₅,{fit.ndf} = {fit.band_quantile:.4g} for the variance scale S² "
+                     f"estimated from ν = {fit.ndf}; the unscaled errors are the _stat fields.")
     if fit.form == rfit.FORM_AFFINE and fit.theta[1] < 0:
         parts.append("b < 0: the points fall faster than a/√E; the line is drawn down to zero.")
     if fit.form == rfit.FORM_QUADRATURE and fit.theta[0] <= 0:
@@ -509,6 +525,8 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
             "b2": 1e4 * t.b2, "se_b2": 1e4 * t.se_b2, "b_defined": t.b_defined,
             # A ≤ 0 leaves a undefined too (a falling σ/E): A is reported as B is.
             "a2": 1e4 * t.a2, "se_a2": 1e4 * t.se_a2, "a_defined": t.a_defined,
+            "se_a_stat": pct(t.se_a_stat), "se_b_stat": pct(t.se_b_stat),
+            "se_a2_stat": 1e4 * t.se_a2_stat, "se_b2_stat": 1e4 * t.se_b2_stat,
         }
     out.update({
         "chi2": fit.chi2, "p_value": fit.p_value, "scale_factor": fit.scale_factor,
@@ -516,6 +534,8 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
     })
     if fit.form == rfit.FORM_AFFINE:
         out["negative_intercept"] = fit.theta[1] < 0
+    if fit.form != rfit.FORM_QUADRATURE:
+        out["band_quantile"] = fit.band_quantile
     out["curve"] = None if fit.form == rfit.FORM_QUADRATURE else _curve(fit, band_points)
     out["provisional"] = provisional
     out["note"] = _fit_note(fit, provisional)
@@ -622,18 +642,21 @@ class ResolutionScaling:
             f"and p ≥ {E_MIN_GEV:g} GeV.",
             "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
             "1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and "
-            "iterated; χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the "
-            "95% band are scaled by S = √(χ²/ν) (PDG). The band is the 95% confidence band of the "
-            "line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as "
-            "(σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different "
-            "constant terms.",
-            f"Anchors: the lowest bin from {ANCHOR_LOW_GEV:g} GeV, the highest bin and the bin "
-            "between them nearest in log E to the geometric mean of their centres, chosen on the "
-            "whole table so they do not move with the selection. A series whose anchor window "
-            f"holds N < {FIT_MIN_N} takes its nearest window in log E with N ≥ {FIT_MIN_N} "
-            "instead; with fewer than two such windows its fit runs through windows of "
-            f"N ≥ {WHISKER_MIN_N} and is provisional. The other mode fits every window with "
-            f"N ≥ {FIT_MIN_N} from {E_MIN_GEV:g} GeV.",
+            "iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where "
+            "χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the "
+            "band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the "
+            "fit's own ν. The band is the 95% confidence band of the line, not the spread of the "
+            "events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, "
+            "not drawn; its b and the affine b are different constant terms.",
+            f"Anchors: the lowest bin from {ANCHOR_LOW_GEV:g} GeV (below it the sampling fraction "
+            "is still rising), the highest bin and the bin between them nearest in log E to the "
+            "geometric mean of their centres, chosen on the whole table so they do not move with "
+            f"the selection. A series whose anchor window holds N < {FIT_MIN_N} takes its nearest "
+            f"window from {ANCHOR_LOW_GEV:g} GeV in log E with N ≥ {FIT_MIN_N} instead; with fewer "
+            f"than two such windows its fit runs through windows of N ≥ {WHISKER_MIN_N} and is "
+            f"provisional. The other mode fits every window with N ≥ {FIT_MIN_N} from "
+            f"{E_MIN_GEV:g} GeV, the {E_MIN_GEV:g}–{ANCHOR_LOW_GEV:g} GeV window included, below "
+            "the anchors' floor.",
             "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic "
             "unit conversion, and no data are plotted against it.",
         ]
@@ -726,9 +749,9 @@ class ResolutionScaling:
             "rule": (f"Chosen on the whole table's bins, not the selection: the lowest bin from "
                      f"{ANCHOR_LOW_GEV:g} GeV, the highest bin, and the bin between them nearest "
                      "in log E to the geometric mean of their centres. A series whose anchor "
-                     f"holds N < {FIT_MIN_N} takes its nearest window in log E with "
-                     f"N ≥ {FIT_MIN_N}, named in substitutions; with fewer than two, windows of "
-                     f"N ≥ {WHISKER_MIN_N} and the fit is provisional."),
+                     f"holds N < {FIT_MIN_N} takes its nearest window from {ANCHOR_LOW_GEV:g} GeV "
+                     f"in log E with N ≥ {FIT_MIN_N}, named in substitutions; with fewer than two, "
+                     f"windows of N ≥ {WHISKER_MIN_N} and the fit is provisional."),
         }
 
     def _series_dict(self, s: Series, band_points: int) -> dict[str, Any]:

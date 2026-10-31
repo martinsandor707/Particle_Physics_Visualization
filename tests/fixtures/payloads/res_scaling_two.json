@@ -100,7 +100,7 @@
    "9–10 GeV",
    "17–18 GeV"
   ],
-  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
+  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20, named in substitutions; with fewer than two, windows of N ≥ 8 and the fit is provisional."
  },
  "model": {
   "available": true,
@@ -528,25 +528,25 @@
    "fits": {
     "anchors": {
      "points": [
-      4,
+      7,
       10,
       15
      ],
      "substitutions": [
       {
        "nominal": 5,
-       "used": 4,
-       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20)."
+       "used": 7,
+       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23)."
       },
       {
        "nominal": 9,
        "used": 10,
-       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21)."
+       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21)."
       },
       {
        "nominal": 17,
        "used": 15,
-       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21)."
+       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21)."
       }
      ],
      "fallback": false,
@@ -556,165 +556,167 @@
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 89.6512,
-       "se_a": 98.458,
-       "b": 34.4146,
-       "se_b": 31.8954,
-       "rho_ab": -0.969838,
-       "se_a_stat": 98.458,
-       "se_b_stat": 31.8954
+       "a": -66.8907,
+       "se_a": 141.572,
+       "b": 77.412,
+       "se_b": 45.4995,
+       "rho_ab": -0.990044,
+       "se_a_stat": 141.572,
+       "se_b_stat": 45.4995
       },
-      "chi2": 0.317855,
-      "p_value": 0.5729,
+      "chi2": 0.00192881,
+      "p_value": 0.96497,
       "scale_factor": 1.0,
-      "iterations": 11,
+      "iterations": 17,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
-        34.4146,
-        -28.0993,
-        96.9286
+        77.412,
+        -11.7653,
+        166.589
        ],
        [
         0.025,
-        36.6559,
-        -21.1911,
-        94.5029
+        75.7398,
+        -6.57556,
+        158.055
        ],
        [
         0.05,
-        38.8972,
-        -14.311,
-        92.1054
+        74.0675,
+        -1.39949,
+        149.534
        ],
        [
         0.075,
-        41.1385,
-        -7.46711,
-        89.7441
+        72.3952,
+        3.7588,
+        141.032
        ],
        [
         0.1,
-        43.3798,
-        -0.670646,
-        87.4302
+        70.723,
+        8.8934,
+        132.553
        ],
        [
         0.125,
-        45.621,
-        6.06194,
-        85.1801
+        69.0507,
+        13.9955,
+        124.106
        ],
        [
         0.15,
-        47.8623,
-        12.7062,
-        83.0185
+        67.3784,
+        19.0516,
+        115.705
        ],
        [
         0.175,
-        50.1036,
-        19.2242,
-        80.983
+        65.7062,
+        24.0391,
+        107.373
        ],
        [
         0.2,
-        52.3449,
-        25.5556,
-        79.1342
+        64.0339,
+        28.9192,
+        99.1485
        ],
        [
         0.225,
-        54.5862,
-        31.6004,
-        77.5719
+        62.3616,
+        33.6183,
+        91.1049
        ],
        [
         0.25,
-        56.8274,
-        37.1914,
-        76.4635
+        60.6894,
+        37.9835,
+        83.3952
        ],
        [
         0.275,
-        59.0687,
-        42.0584,
-        76.079
+        59.0171,
+        41.6627,
+        76.3715
        ],
        [
         0.3,
-        61.31,
-        45.8285,
-        76.7915
+        57.3448,
+        43.8158,
+        70.8738
        ],
        [
         0.325,
-        63.5513,
-        48.171,
-        78.9315
+        55.6726,
+        42.9787,
+        68.3664
        ],
        [
         0.35,
-        65.7925,
-        49.0601,
-        82.525
+        54.0003,
+        38.6551,
+        69.3455
        ],
        [
         0.375,
-        68.0338,
-        48.7998,
-        87.2678
+        52.328,
+        32.1772,
+        72.4789
        ],
        [
         0.4,
-        70.2751,
-        47.7703,
-        92.78
+        50.6558,
+        24.7159,
+        76.5957
        ],
        [
         0.425,
-        72.5164,
-        46.2573,
-        98.7754
+        48.9835,
+        16.7974,
+        81.1695
        ],
        [
         0.45,
-        74.7577,
-        44.4401,
-        105.075
+        47.3112,
+        8.64283,
+        85.9796
        ],
        [
         0.475,
-        76.9989,
-        42.4255,
-        111.572
+        45.6389,
+        0.353322,
+        90.9246
        ],
        [
         0.5,
-        79.2402,
-        40.2782,
-        118.202
+        43.9667,
+        -8.01959,
+        95.953
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.318/1, p = 0.573."
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (17 refits). χ²/ν = 0.00193/1, p = 0.965."
      },
      "pinned": {
       "form": "pinned",
       "n_points": 3,
       "ndf": 2,
       "params": {
-       "a0": 202.868,
-       "se_a0": 25.5053,
-       "se_a0_stat": 25.5053
+       "a0": 191.836,
+       "se_a0": 27.4224,
+       "se_a0_stat": 22.2777
       },
-      "chi2": 1.45811,
-      "p_value": 0.482365,
-      "scale_factor": 1.0,
+      "chi2": 3.03041,
+      "p_value": 0.219763,
+      "scale_factor": 1.23094,
       "iterations": 7,
       "converged": true,
+      "band_quantile": 4.303,
       "curve": [
        [
         0.0,
@@ -724,152 +726,156 @@
        ],
        [
         0.025,
-        5.07171,
-        3.82197,
-        6.32145
+        4.7959,
+        1.84594,
+        7.74587
        ],
        [
         0.05,
-        10.1434,
-        7.64395,
-        12.6429
+        9.59181,
+        3.69188,
+        15.4917
        ],
        [
         0.075,
-        15.2151,
-        11.4659,
-        18.9643
+        14.3877,
+        5.53783,
+        23.2376
        ],
        [
         0.1,
-        20.2868,
-        15.2879,
-        25.2858
+        19.1836,
+        7.38377,
+        30.9835
        ],
        [
         0.125,
-        25.3585,
-        19.1099,
-        31.6072
+        23.9795,
+        9.22971,
+        38.7293
        ],
        [
         0.15,
-        30.4303,
-        22.9318,
-        37.9287
+        28.7754,
+        11.0757,
+        46.4752
        ],
        [
         0.175,
-        35.502,
-        26.7538,
-        44.2501
+        33.5713,
+        12.9216,
+        54.2211
        ],
        [
         0.2,
-        40.5737,
-        30.5758,
-        50.5716
+        38.3672,
+        14.7675,
+        61.9669
        ],
        [
         0.225,
-        45.6454,
-        34.3978,
-        56.893
+        43.1631,
+        16.6135,
+        69.7128
        ],
        [
         0.25,
-        50.7171,
-        38.2197,
-        63.2145
+        47.959,
+        18.4594,
+        77.4587
        ],
        [
         0.275,
-        55.7888,
-        42.0417,
-        69.5359
+        52.755,
+        20.3054,
+        85.2045
        ],
        [
         0.3,
-        60.8605,
-        45.8637,
-        75.8574
+        57.5509,
+        22.1513,
+        92.9504
        ],
        [
         0.325,
-        65.9322,
-        49.6856,
-        82.1788
+        62.3468,
+        23.9973,
+        100.696
        ],
        [
         0.35,
-        71.0039,
-        53.5076,
-        88.5002
+        67.1427,
+        25.8432,
+        108.442
        ],
        [
         0.375,
-        76.0756,
-        57.3296,
-        94.8217
+        71.9386,
+        27.6891,
+        116.188
        ],
        [
         0.4,
-        81.1473,
-        61.1516,
-        101.143
+        76.7345,
+        29.5351,
+        123.934
        ],
        [
         0.425,
-        86.2191,
-        64.9735,
-        107.465
+        81.5304,
+        31.381,
+        131.68
        ],
        [
         0.45,
-        91.2908,
-        68.7955,
-        113.786
+        86.3263,
+        33.227,
+        139.426
        ],
        [
         0.475,
-        96.3625,
-        72.6175,
-        120.107
+        91.1222,
+        35.0729,
+        147.171
        ],
        [
         0.5,
-        101.434,
-        76.4395,
-        126.429
+        95.9181,
+        36.9188,
+        154.917
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 1.46/2, p = 0.482."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 3.03/2, p = 0.22. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.23 (PDG), and the band takes Student's t₀.₉₇₅,2 = 4.303 for the variance scale S² estimated from ν = 2; the unscaled errors are the _stat fields."
      },
      "quadrature": {
       "form": "quadrature",
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 128.945,
-       "se_a": 76.2642,
-       "b": 47.2659,
-       "se_b": 22.126,
-       "b2": 2234.06,
-       "se_b2": 2091.61,
+       "a": null,
+       "se_a": null,
+       "b": 66.2854,
+       "se_b": 21.194,
+       "b2": 4393.75,
+       "se_b2": 2809.7,
        "b_defined": true,
-       "a2": 16626.9,
-       "se_a2": 19667.9,
-       "a_defined": true
+       "a2": -11942.9,
+       "se_a2": 25569.5,
+       "a_defined": false,
+       "se_a_stat": null,
+       "se_b_stat": 21.194,
+       "se_a2_stat": 25569.5,
+       "se_b2_stat": 2809.7
       },
-      "chi2": 0.266096,
-      "p_value": 0.605963,
+      "chi2": 0.00569803,
+      "p_value": 0.939829,
       "scale_factor": 1.0,
-      "iterations": 14,
+      "iterations": 21,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (14 refits). χ²/ν = 0.266/1, p = 0.606."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (21 refits). χ²/ν = 0.0057/1, p = 0.94. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
      }
     },
     "all": {
@@ -899,9 +905,10 @@
       "chi2": 1.26156,
       "p_value": 0.73828,
       "scale_factor": 1.0,
-      "iterations": 17,
+      "iterations": 22,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1031,7 +1038,7 @@
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (17 refits). χ²/ν = 1.26/3, p = 0.738."
+      "note": "σ/E = a/√E + b: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (22 refits). χ²/ν = 1.26/3, p = 0.738."
      },
      "pinned": {
       "form": "pinned",
@@ -1047,6 +1054,7 @@
       "scale_factor": 1.0,
       "iterations": 7,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1192,7 +1200,11 @@
        "b_defined": true,
        "a2": 13067.0,
        "se_a2": 16161.3,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 70.6902,
+       "se_b_stat": 19.5932,
+       "se_a2_stat": 16161.3,
+       "se_b2_stat": 1886.66
       },
       "chi2": 1.08001,
       "p_value": 0.781902,
@@ -1623,25 +1635,25 @@
    "fits": {
     "anchors": {
      "points": [
-      4,
+      7,
       10,
       15
      ],
      "substitutions": [
       {
        "nominal": 5,
-       "used": 4,
-       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20)."
+       "used": 7,
+       "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23)."
       },
       {
        "nominal": 9,
        "used": 10,
-       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21)."
+       "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21)."
       },
       {
        "nominal": 17,
        "used": 15,
-       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21)."
+       "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21)."
       }
      ],
      "fallback": false,
@@ -1651,165 +1663,167 @@
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": -134.867,
-       "se_a": 100.601,
-       "b": 122.895,
-       "se_b": 40.6922,
-       "rho_ab": -0.972744,
-       "se_a_stat": 100.601,
-       "se_b_stat": 40.6922
+       "a": 78.9886,
+       "se_a": 267.058,
+       "b": 62.5408,
+       "se_b": 82.4518,
+       "rho_ab": -0.989029,
+       "se_a_stat": 267.058,
+       "se_b_stat": 82.4518
       },
-      "chi2": 0.188965,
-      "p_value": 0.663779,
+      "chi2": 0.000880098,
+      "p_value": 0.976333,
       "scale_factor": 1.0,
-      "iterations": 8,
+      "iterations": 4,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
-        122.895,
-        43.1397,
-        202.65
+        62.5408,
+        -99.0618,
+        224.143
        ],
        [
         0.025,
-        119.523,
-        44.5543,
-        194.492
+        64.5155,
+        -84.1576,
+        213.189
        ],
        [
         0.05,
-        116.152,
-        45.9491,
-        186.354
+        66.4902,
+        -69.2833,
+        202.264
        ],
        [
         0.075,
-        112.78,
-        47.3198,
-        178.24
+        68.465,
+        -54.4484,
+        191.378
        ],
        [
         0.1,
-        109.408,
-        48.6606,
-        170.156
+        70.4397,
+        -39.6665,
+        180.546
        ],
        [
         0.125,
-        106.037,
-        49.9643,
-        162.109
+        72.4144,
+        -24.9588,
+        169.788
        ],
        [
         0.15,
-        102.665,
-        51.2204,
-        154.109
+        74.3891,
+        -10.3586,
+        159.137
        ],
        [
         0.175,
-        99.2932,
-        52.415,
-        146.171
+        76.3638,
+        4.07786,
+        148.65
        ],
        [
         0.2,
-        95.9215,
-        53.5283,
-        138.315
+        78.3385,
+        18.2484,
+        138.429
        ],
        [
         0.225,
-        92.5498,
-        54.5313,
-        130.568
+        80.3132,
+        31.9516,
+        128.675
        ],
        [
         0.25,
-        89.1782,
-        55.3813,
-        122.975
+        82.288,
+        44.7468,
+        119.829
        ],
        [
         0.275,
-        85.8065,
-        56.0132,
-        115.6
+        84.2627,
+        55.5869,
+        112.938
        ],
        [
         0.3,
-        82.4348,
-        56.3263,
-        108.543
+        86.2374,
+        62.2014,
+        110.273
        ],
        [
         0.325,
-        79.0632,
-        56.1663,
-        101.96
+        88.2121,
+        62.2194,
+        114.205
        ],
        [
         0.35,
-        75.6915,
-        55.3084,
-        96.0746
+        90.1868,
+        56.7806,
+        123.593
        ],
        [
         0.375,
-        72.3198,
-        53.4711,
-        91.1685
+        92.1615,
+        48.5863,
+        135.737
        ],
        [
         0.4,
-        68.9482,
-        50.4097,
-        87.4866
+        94.1362,
+        39.1445,
+        149.128
        ],
        [
         0.425,
-        65.5765,
-        46.0658,
-        85.0872
+        96.111,
+        29.0897,
+        163.132
        ],
        [
         0.45,
-        62.2048,
-        40.6117,
-        83.7979
+        98.0857,
+        18.7001,
+        177.471
        ],
        [
         0.475,
-        58.8331,
-        34.329,
-        83.3373
+        100.06,
+        8.11059,
+        192.01
        ],
        [
         0.5,
-        55.4615,
-        27.4751,
-        83.4479
+        102.035,
+        -2.60678,
+        206.677
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.189/1, p = 0.664."
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (4 refits). χ²/ν = 0.00088/1, p = 0.976."
      },
      "pinned": {
       "form": "pinned",
       "n_points": 3,
       "ndf": 2,
       "params": {
-       "a0": 270.132,
-       "se_a0": 52.5445,
-       "se_a0_stat": 39.18
+       "a0": 289.811,
+       "se_a0": 41.2076,
+       "se_a0_stat": 41.2076
       },
-      "chi2": 3.59713,
-      "p_value": 0.165536,
-      "scale_factor": 1.34111,
-      "iterations": 9,
+      "chi2": 0.557364,
+      "p_value": 0.756781,
+      "scale_factor": 1.0,
+      "iterations": 6,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -1819,152 +1833,156 @@
        ],
        [
         0.025,
-        6.75329,
-        4.17865,
-        9.32792
+        7.24527,
+        5.22614,
+        9.26441
        ],
        [
         0.05,
-        13.5066,
-        8.35731,
-        18.6558
+        14.4905,
+        10.4523,
+        18.5288
        ],
        [
         0.075,
-        20.2599,
-        12.536,
-        27.9838
+        21.7358,
+        15.6784,
+        27.7932
        ],
        [
         0.1,
-        27.0132,
-        16.7146,
-        37.3117
+        28.9811,
+        20.9046,
+        37.0576
        ],
        [
         0.125,
-        33.7664,
-        20.8933,
-        46.6396
+        36.2264,
+        26.1307,
+        46.322
        ],
        [
         0.15,
-        40.5197,
-        25.0719,
-        55.9675
+        43.4716,
+        31.3568,
+        55.5865
        ],
        [
         0.175,
-        47.273,
-        29.2506,
-        65.2955
+        50.7169,
+        36.583,
+        64.8509
        ],
        [
         0.2,
-        54.0263,
-        33.4292,
-        74.6234
+        57.9622,
+        41.8091,
+        74.1153
        ],
        [
         0.225,
-        60.7796,
-        37.6079,
-        83.9513
+        65.2075,
+        47.0352,
+        83.3797
        ],
        [
         0.25,
-        67.5329,
-        41.7865,
-        93.2792
+        72.4527,
+        52.2614,
+        92.6441
        ],
        [
         0.275,
-        74.2862,
-        45.9652,
-        102.607
+        79.698,
+        57.4875,
+        101.908
        ],
        [
         0.3,
-        81.0395,
-        50.1439,
-        111.935
+        86.9433,
+        62.7137,
+        111.173
        ],
        [
         0.325,
-        87.7927,
-        54.3225,
-        121.263
+        94.1886,
+        67.9398,
+        120.437
        ],
        [
         0.35,
-        94.546,
-        58.5012,
-        130.591
+        101.434,
+        73.1659,
+        129.702
        ],
        [
         0.375,
-        101.299,
-        62.6798,
-        139.919
+        108.679,
+        78.3921,
+        138.966
        ],
        [
         0.4,
-        108.053,
-        66.8585,
-        149.247
+        115.924,
+        83.6182,
+        148.231
        ],
        [
         0.425,
-        114.806,
-        71.0371,
-        158.575
+        123.17,
+        88.8443,
+        157.495
        ],
        [
         0.45,
-        121.559,
-        75.2158,
-        167.903
+        130.415,
+        94.0705,
+        166.759
        ],
        [
         0.475,
-        128.312,
-        79.3944,
-        177.231
+        137.66,
+        99.2966,
+        176.024
        ],
        [
         0.5,
-        135.066,
-        83.5731,
-        186.558
+        144.905,
+        104.523,
+        185.288
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (9 refits). χ²/ν = 3.6/2, p = 0.166. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.34 (PDG); the unscaled ones are the _stat fields."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.557/2, p = 0.757."
      },
      "quadrature": {
       "form": "quadrature",
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": null,
-       "se_a": null,
-       "b": 96.8697,
-       "se_b": 20.67,
-       "b2": 9383.75,
-       "se_b2": 4004.6,
+       "a": 148.957,
+       "se_a": 254.135,
+       "b": 73.5427,
+       "se_b": 49.9812,
+       "b2": 5408.52,
+       "se_b2": 7351.49,
        "b_defined": true,
-       "a2": -26577.1,
-       "se_a2": 20310.2,
-       "a_defined": false
+       "a2": 22188.3,
+       "se_a2": 75710.4,
+       "a_defined": true,
+       "se_a_stat": 254.135,
+       "se_b_stat": 49.9812,
+       "se_a2_stat": 75710.4,
+       "se_b2_stat": 7351.49
       },
-      "chi2": 0.115165,
-      "p_value": 0.734339,
+      "chi2": 0.00165721,
+      "p_value": 0.967528,
       "scale_factor": 1.0,
-      "iterations": 8,
+      "iterations": 5,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.115/1, p = 0.734. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (5 refits). χ²/ν = 0.00166/1, p = 0.968."
      }
     },
     "all": {
@@ -1997,6 +2015,7 @@
       "iterations": 14,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -2142,6 +2161,7 @@
       "scale_factor": 1.07882,
       "iterations": 8,
       "converged": true,
+      "band_quantile": 2.776,
       "curve": [
        [
         0.0,
@@ -2152,126 +2172,126 @@
        [
         0.025,
         6.41721,
-        4.92596,
-        7.90847
+        4.30507,
+        8.52936
        ],
        [
         0.05,
         12.8344,
-        9.85191,
-        15.8169
+        8.61013,
+        17.0587
        ],
        [
         0.075,
         19.2516,
-        14.7779,
-        23.7254
+        12.9152,
+        25.5881
        ],
        [
         0.1,
         25.6688,
-        19.7038,
-        31.6339
+        17.2203,
+        34.1174
        ],
        [
         0.125,
         32.0861,
-        24.6298,
-        39.5423
+        21.5253,
+        42.6468
        ],
        [
         0.15,
         38.5033,
-        29.5557,
-        47.4508
+        25.8304,
+        51.1761
        ],
        [
         0.175,
         44.9205,
-        34.4817,
-        55.3593
+        30.1355,
+        59.7055
        ],
        [
         0.2,
         51.3377,
-        39.4076,
-        63.2677
+        34.4405,
+        68.2349
        ],
        [
         0.225,
         57.7549,
-        44.3336,
-        71.1762
+        38.7456,
+        76.7642
        ],
        [
         0.25,
         64.1721,
-        49.2596,
-        79.0847
+        43.0507,
+        85.2936
        ],
        [
         0.275,
         70.5893,
-        54.1855,
-        86.9932
+        47.3557,
+        93.8229
        ],
        [
         0.3,
         77.0065,
-        59.1115,
-        94.9016
+        51.6608,
+        102.352
        ],
        [
         0.325,
         83.4238,
-        64.0374,
-        102.81
+        55.9659,
+        110.882
        ],
        [
         0.35,
         89.841,
-        68.9634,
-        110.719
+        60.2709,
+        119.411
        ],
        [
         0.375,
         96.2582,
-        73.8893,
-        118.627
+        64.576,
+        127.94
        ],
        [
         0.4,
         102.675,
-        78.8153,
-        126.535
+        68.8811,
+        136.47
        ],
        [
         0.425,
         109.093,
-        83.7412,
-        134.444
+        73.1861,
+        144.999
        ],
        [
         0.45,
         115.51,
-        88.6672,
-        142.352
+        77.4912,
+        153.528
        ],
        [
         0.475,
         121.927,
-        93.5932,
-        150.261
+        81.7963,
+        162.058
        ],
        [
         0.5,
         128.344,
-        98.5191,
-        158.169
+        86.1013,
+        170.587
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 4.66/4, p = 0.325. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.08 (PDG); the unscaled ones are the _stat fields."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 5 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 4.66/4, p = 0.325. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.08 (PDG), and the band takes Student's t₀.₉₇₅,4 = 2.776 for the variance scale S² estimated from ν = 4; the unscaled errors are the _stat fields."
      },
      "quadrature": {
       "form": "quadrature",
@@ -2287,7 +2307,11 @@
        "b_defined": true,
        "a2": -30729.7,
        "se_a2": 19602.7,
-       "a_defined": false
+       "a_defined": false,
+       "se_a_stat": null,
+       "se_b_stat": 17.5045,
+       "se_a2_stat": 19602.7,
+       "se_b2_stat": 3580.71
       },
       "chi2": 0.702167,
       "p_value": 0.872694,
@@ -2718,15 +2742,15 @@
    "fits": {
     "anchors": {
      "points": [
-      4,
       9,
+      10,
       17
      ],
      "substitutions": [
       {
        "nominal": 5,
-       "used": 4,
-       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24)."
+       "used": 10,
+       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23)."
       }
      ],
      "fallback": false,
@@ -2736,165 +2760,167 @@
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 108.2,
-       "se_a": 162.391,
-       "b": 62.151,
-       "se_b": 53.5502,
-       "rho_ab": -0.963052,
-       "se_a_stat": 162.391,
-       "se_b_stat": 53.5502
+       "a": 57.5262,
+       "se_a": 368.998,
+       "b": 78.5279,
+       "se_b": 107.244,
+       "rho_ab": -0.991566,
+       "se_a_stat": 368.998,
+       "se_b_stat": 107.244
       },
-      "chi2": 0.0968395,
-      "p_value": 0.755656,
+      "chi2": 0.158022,
+      "p_value": 0.690984,
       "scale_factor": 1.0,
       "iterations": 9,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
-        62.151,
-        -42.8055,
-        167.107
+        78.5279,
+        -131.666,
+        288.722
        ],
        [
         0.025,
-        64.856,
-        -32.461,
-        162.173
+        79.966,
+        -112.314,
+        272.246
        ],
        [
         0.05,
-        67.561,
-        -22.1718,
-        157.294
+        81.4042,
+        -92.9967,
+        255.805
        ],
        [
         0.075,
-        70.266,
-        -11.9531,
-        152.485
+        82.8424,
+        -73.7254,
+        239.41
        ],
        [
         0.1,
-        72.971,
-        -1.82607,
-        147.768
+        84.2805,
+        -54.5181,
+        223.079
        ],
        [
         0.125,
-        75.676,
-        8.1789,
-        143.173
+        85.7187,
+        -35.4031,
+        206.84
        ],
        [
         0.15,
-        78.381,
-        18.0176,
-        138.745
+        87.1568,
+        -16.4275,
+        190.741
        ],
        [
         0.175,
-        81.086,
-        27.6233,
-        134.549
+        88.595,
+        2.32363,
+        174.866
        ],
        [
         0.2,
-        83.7911,
-        36.8932,
-        130.689
+        90.0331,
+        20.6818,
+        159.384
        ],
        [
         0.225,
-        86.4961,
-        45.6649,
-        127.327
+        91.4713,
+        38.271,
+        144.672
        ],
        [
         0.25,
-        89.2011,
-        53.6823,
-        124.72
+        92.9094,
+        54.1183,
+        131.701
        ],
        [
         0.275,
-        91.9061,
-        60.5594,
-        123.253
+        94.3476,
+        65.4849,
+        123.21
        ],
        [
         0.3,
-        94.6111,
-        65.7966,
-        123.426
+        95.7858,
+        67.2346,
+        124.337
        ],
        [
         0.325,
-        97.3161,
-        68.9513,
-        125.681
+        97.2239,
+        59.1307,
+        135.317
        ],
        [
         0.35,
-        100.021,
-        69.9299,
-        130.112
+        98.6621,
+        46.3091,
+        151.015
        ],
        [
         0.375,
-        102.726,
-        69.0656,
-        136.387
+        100.1,
+        31.6576,
+        168.543
        ],
        [
         0.4,
-        105.431,
-        66.8669,
-        143.995
+        101.538,
+        16.2051,
+        186.872
        ],
        [
         0.425,
-        108.136,
-        63.7739,
-        152.498
+        102.977,
+        0.3464,
+        205.607
        ],
        [
         0.45,
-        110.841,
-        60.0924,
-        161.59
+        104.415,
+        -15.7433,
+        224.573
        ],
        [
         0.475,
-        113.546,
-        56.0179,
-        171.074
+        105.853,
+        -31.9759,
+        243.682
        ],
        [
         0.5,
-        116.251,
-        51.6742,
-        180.828
+        107.291,
+        -48.3026,
+        262.885
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (9 refits). χ²/ν = 0.0968/1, p = 0.756."
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (9 refits). χ²/ν = 0.158/1, p = 0.691."
      },
      "pinned": {
       "form": "pinned",
       "n_points": 3,
       "ndf": 2,
       "params": {
-       "a0": 320.539,
-       "se_a0": 49.4353,
-       "se_a0_stat": 49.4353
+       "a0": 338.577,
+       "se_a0": 50.1237,
+       "se_a0_stat": 50.1237
       },
-      "chi2": 1.34956,
-      "p_value": 0.509269,
+      "chi2": 0.667558,
+      "p_value": 0.716212,
       "scale_factor": 1.0,
-      "iterations": 8,
+      "iterations": 6,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -2904,152 +2930,156 @@
        ],
        [
         0.025,
-        8.01348,
-        5.5912,
-        10.4358
+        8.46442,
+        6.00841,
+        10.9204
        ],
        [
         0.05,
-        16.027,
-        11.1824,
-        20.8715
+        16.9288,
+        12.0168,
+        21.8409
        ],
        [
         0.075,
-        24.0404,
-        16.7736,
-        31.3073
+        25.3933,
+        18.0252,
+        32.7613
        ],
        [
         0.1,
-        32.0539,
-        22.3648,
-        41.7431
+        33.8577,
+        24.0336,
+        43.6818
        ],
        [
         0.125,
-        40.0674,
-        27.956,
-        52.1788
+        42.3221,
+        30.042,
+        54.6022
        ],
        [
         0.15,
-        48.0809,
-        33.5472,
-        62.6146
+        50.7865,
+        36.0504,
+        65.5227
        ],
        [
         0.175,
-        56.0944,
-        39.1384,
-        73.0503
+        59.251,
+        42.0588,
+        76.4431
        ],
        [
         0.2,
-        64.1078,
-        44.7296,
-        83.4861
+        67.7154,
+        48.0672,
+        87.3635
        ],
        [
         0.225,
-        72.1213,
-        50.3208,
-        93.9219
+        76.1798,
+        54.0756,
+        98.284
        ],
        [
         0.25,
-        80.1348,
-        55.912,
-        104.358
+        84.6442,
+        60.0841,
+        109.204
        ],
        [
         0.275,
-        88.1483,
-        61.5031,
-        114.793
+        93.1087,
+        66.0925,
+        120.125
        ],
        [
         0.3,
-        96.1617,
-        67.0943,
-        125.229
+        101.573,
+        72.1009,
+        131.045
        ],
        [
         0.325,
-        104.175,
-        72.6855,
-        135.665
+        110.038,
+        78.1093,
+        141.966
        ],
        [
         0.35,
-        112.189,
-        78.2767,
-        146.101
+        118.502,
+        84.1177,
+        152.886
        ],
        [
         0.375,
-        120.202,
-        83.8679,
-        156.536
+        126.966,
+        90.1261,
+        163.807
        ],
        [
         0.4,
-        128.216,
-        89.4591,
-        166.972
+        135.431,
+        96.1345,
+        174.727
        ],
        [
         0.425,
-        136.229,
-        95.0503,
-        177.408
+        143.895,
+        102.143,
+        185.648
        ],
        [
         0.45,
-        144.243,
-        100.642,
-        187.844
+        152.36,
+        108.151,
+        196.568
        ],
        [
         0.475,
-        152.256,
-        106.233,
-        198.279
+        160.824,
+        114.16,
+        207.488
        ],
        [
         0.5,
-        160.27,
-        111.824,
-        208.715
+        169.288,
+        120.168,
+        218.409
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 1.35/2, p = 0.509."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.668/2, p = 0.716."
      },
      "quadrature": {
       "form": "quadrature",
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 176.665,
-       "se_a": 138.281,
-       "b": 77.5797,
-       "se_b": 35.4758,
-       "b2": 6018.61,
-       "se_b2": 5504.4,
+       "a": 140.525,
+       "se_a": 444.404,
+       "b": 86.1044,
+       "se_b": 62.4684,
+       "b2": 7413.97,
+       "se_b2": 10757.6,
        "b_defined": true,
-       "a2": 31210.6,
-       "se_a2": 48858.9,
-       "a_defined": true
+       "a2": 19747.4,
+       "se_a2": 124900.0,
+       "a_defined": true,
+       "se_a_stat": 444.404,
+       "se_b_stat": 62.4684,
+       "se_a2_stat": 124900.0,
+       "se_b2_stat": 10757.6
       },
-      "chi2": 0.0722879,
-      "p_value": 0.788034,
+      "chi2": 0.16195,
+      "p_value": 0.687368,
       "scale_factor": 1.0,
-      "iterations": 11,
+      "iterations": 12,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.0723/1, p = 0.788."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (12 refits). χ²/ν = 0.162/1, p = 0.687."
      }
     },
     "all": {
@@ -3080,9 +3110,10 @@
       "chi2": 0.842224,
       "p_value": 0.932699,
       "scale_factor": 1.0,
-      "iterations": 11,
+      "iterations": 26,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -3212,7 +3243,7 @@
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (11 refits). χ²/ν = 0.842/4, p = 0.933."
+      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (26 refits). χ²/ν = 0.842/4, p = 0.933."
      },
      "pinned": {
       "form": "pinned",
@@ -3228,6 +3259,7 @@
       "scale_factor": 1.0,
       "iterations": 7,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -3373,16 +3405,20 @@
        "b_defined": true,
        "a2": 16262.5,
        "se_a2": 48692.1,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 190.913,
+       "se_b_stat": 27.2476,
+       "se_a2_stat": 48692.1,
+       "se_b2_stat": 5207.98
       },
       "chi2": 0.855141,
       "p_value": 0.930906,
       "scale_factor": 1.0,
-      "iterations": 14,
+      "iterations": 26,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (14 refits). χ²/ν = 0.855/4, p = 0.931."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (26 refits). χ²/ν = 0.855/4, p = 0.931."
      }
     }
    }
@@ -3804,15 +3840,15 @@
    "fits": {
     "anchors": {
      "points": [
-      4,
       9,
+      10,
       17
      ],
      "substitutions": [
       {
        "nominal": 5,
-       "used": 4,
-       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24)."
+       "used": 10,
+       "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23)."
       }
      ],
      "fallback": false,
@@ -3822,165 +3858,167 @@
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 20.3923,
-       "se_a": 36.4049,
-       "b": 28.2706,
-       "se_b": 12.7137,
-       "rho_ab": -0.962804,
-       "se_a_stat": 36.4049,
-       "se_b_stat": 12.7137
+       "a": 13.1845,
+       "se_a": 89.876,
+       "b": 30.4375,
+       "se_b": 26.2512,
+       "rho_ab": -0.99182,
+       "se_a_stat": 89.876,
+       "se_b_stat": 26.2512
       },
-      "chi2": 0.015789,
-      "p_value": 0.900006,
+      "chi2": 0.0136508,
+      "p_value": 0.90699,
       "scale_factor": 1.0,
       "iterations": 5,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
-        28.2706,
-        3.35234,
-        53.189
+        30.4375,
+        -21.0139,
+        81.8889
        ],
        [
         0.025,
-        28.7805,
-        5.57459,
-        51.9863
+        30.7671,
+        -16.3199,
+        77.854
        ],
        [
         0.05,
-        29.2903,
-        7.78525,
-        50.7953
+        31.0967,
+        -11.6339,
+        73.8273
        ],
        [
         0.075,
-        29.8001,
-        9.98131,
-        49.6188
+        31.4263,
+        -6.9587,
+        69.8113
        ],
        [
         0.1,
-        30.3099,
-        12.1587,
-        48.461
+        31.7559,
+        -2.29851,
+        65.8104
        ],
        [
         0.125,
-        30.8197,
-        14.3118,
-        47.3276
+        32.0855,
+        2.34015,
+        61.8309
        ],
        [
         0.15,
-        31.3295,
-        16.4325,
-        46.2265
+        32.4152,
+        6.94635,
+        57.884
        ],
        [
         0.175,
-        31.8393,
-        18.5091,
-        45.1695
+        32.7448,
+        11.5005,
+        53.989
        ],
        [
         0.2,
-        32.3491,
-        20.5241,
-        44.1741
+        33.0744,
+        15.964,
+        50.1848
        ],
        [
         0.225,
-        32.8589,
-        22.4507,
-        43.2671
+        33.404,
+        20.2511,
+        46.5569
        ],
        [
         0.25,
-        33.3687,
-        24.2475,
-        42.4899
+        33.7336,
+        24.1408,
+        43.3264
        ],
        [
         0.275,
-        33.8785,
-        25.852,
-        41.9051
+        34.0632,
+        27.0041,
+        41.1224
        ],
        [
         0.3,
-        34.3883,
-        27.176,
-        41.6007
+        34.3928,
+        27.5789,
+        41.2067
        ],
        [
         0.325,
-        34.8981,
-        28.1176,
-        41.6786
+        34.7225,
+        25.6773,
+        43.7676
        ],
        [
         0.35,
-        35.4079,
-        28.6038,
-        42.2121
+        35.0521,
+        22.5626,
+        47.5415
        ],
        [
         0.375,
-        35.9178,
-        28.639,
-        43.1965
+        35.3817,
+        18.9821,
+        51.7813
        ],
        [
         0.4,
-        36.4276,
-        28.3017,
-        44.5534
+        35.7113,
+        15.2004,
+        56.2222
        ],
        [
         0.425,
-        36.9374,
-        27.6939,
-        46.1808
+        36.0409,
+        11.3178,
+        60.764
        ],
        [
         0.45,
-        37.4472,
-        26.9012,
-        47.9932
+        36.3705,
+        7.3782,
+        65.3628
        ],
        [
         0.475,
-        37.957,
-        25.9837,
-        49.9302
+        36.7001,
+        3.4035,
+        69.9968
        ],
        [
         0.5,
-        38.4668,
-        24.9811,
-        51.9524
+        37.0297,
+        -0.594246,
+        74.6537
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (5 refits). χ²/ν = 0.0158/1, p = 0.9."
+      "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (5 refits). χ²/ν = 0.0137/1, p = 0.907."
      },
      "pinned": {
       "form": "pinned",
       "n_points": 3,
       "ndf": 2,
       "params": {
-       "a0": 110.82,
-       "se_a0": 17.1592,
-       "se_a0_stat": 11.0306
+       "a0": 120.35,
+       "se_a0": 11.8231,
+       "se_a0_stat": 11.8231
       },
-      "chi2": 4.83984,
-      "p_value": 0.0889288,
-      "scale_factor": 1.55561,
-      "iterations": 8,
+      "chi2": 1.57378,
+      "p_value": 0.455258,
+      "scale_factor": 1.0,
+      "iterations": 6,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -3990,152 +4028,156 @@
        ],
        [
         0.025,
-        2.7705,
-        1.92972,
-        3.61129
+        3.00876,
+        2.42943,
+        3.58808
        ],
        [
         0.05,
-        5.54101,
-        3.85943,
-        7.22258
+        6.01751,
+        4.85887,
+        7.17616
        ],
        [
         0.075,
-        8.31151,
-        5.78915,
-        10.8339
+        9.02627,
+        7.2883,
+        10.7642
        ],
        [
         0.1,
-        11.082,
-        7.71887,
-        14.4452
+        12.035,
+        9.71774,
+        14.3523
        ],
        [
         0.125,
-        13.8525,
-        9.64858,
-        18.0565
+        15.0438,
+        12.1472,
+        17.9404
        ],
        [
         0.15,
-        16.623,
-        11.5783,
-        21.6677
+        18.0525,
+        14.5766,
+        21.5285
        ],
        [
         0.175,
-        19.3935,
-        13.508,
-        25.279
+        21.0613,
+        17.006,
+        25.1165
        ],
        [
         0.2,
-        22.164,
-        15.4377,
-        28.8903
+        24.07,
+        19.4355,
+        28.7046
        ],
        [
         0.225,
-        24.9345,
-        17.3674,
-        32.5016
+        27.0788,
+        21.8649,
+        32.2927
        ],
        [
         0.25,
-        27.705,
-        19.2972,
-        36.1129
+        30.0876,
+        24.2943,
+        35.8808
        ],
        [
         0.275,
-        30.4755,
-        21.2269,
-        39.7242
+        33.0963,
+        26.7238,
+        39.4689
        ],
        [
         0.3,
-        33.246,
-        23.1566,
-        43.3355
+        36.1051,
+        29.1532,
+        43.0569
        ],
        [
         0.325,
-        36.0165,
-        25.0863,
-        46.9468
+        39.1138,
+        31.5826,
+        46.645
        ],
        [
         0.35,
-        38.787,
-        27.016,
-        50.5581
+        42.1226,
+        34.0121,
+        50.2331
        ],
        [
         0.375,
-        41.5576,
-        28.9457,
-        54.1694
+        45.1313,
+        36.4415,
+        53.8212
        ],
        [
         0.4,
-        44.3281,
-        30.8755,
-        57.7806
+        48.1401,
+        38.871,
+        57.4092
        ],
        [
         0.425,
-        47.0986,
-        32.8052,
-        61.3919
+        51.1489,
+        41.3004,
+        60.9973
        ],
        [
         0.45,
-        49.8691,
-        34.7349,
-        65.0032
+        54.1576,
+        43.7298,
+        64.5854
        ],
        [
         0.475,
-        52.6396,
-        36.6646,
-        68.6145
+        57.1664,
+        46.1593,
+        68.1735
        ],
        [
         0.5,
-        55.4101,
-        38.5943,
-        72.2258
+        60.1751,
+        48.5887,
+        71.7616
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 4.84/2, p = 0.0889. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.56 (PDG); the unscaled ones are the _stat fields."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 1.57/2, p = 0.455."
      },
      "quadrature": {
       "form": "quadrature",
       "n_points": 3,
       "ndf": 1,
       "params": {
-       "a": 45.2938,
-       "se_a": 40.7871,
-       "b": 31.4233,
-       "se_b": 7.75433,
-       "b2": 987.422,
-       "se_b2": 487.333,
+       "a": 39.8633,
+       "se_a": 137.163,
+       "b": 32.224,
+       "se_b": 14.8107,
+       "b2": 1038.39,
+       "se_b2": 954.52,
        "b_defined": true,
-       "a2": 2051.53,
-       "se_a2": 3694.81,
-       "a_defined": true
+       "a2": 1589.08,
+       "se_a2": 10935.6,
+       "a_defined": true,
+       "se_a_stat": 137.163,
+       "se_b_stat": 14.8107,
+       "se_a2_stat": 10935.6,
+       "se_b2_stat": 954.52
       },
-      "chi2": 0.00737295,
-      "p_value": 0.931573,
+      "chi2": 0.0144896,
+      "p_value": 0.904188,
       "scale_factor": 1.0,
       "iterations": 6,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.00737/1, p = 0.932."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.0145/1, p = 0.904."
      }
     },
     "all": {
@@ -4166,9 +4208,10 @@
       "chi2": 0.193124,
       "p_value": 0.995627,
       "scale_factor": 1.0,
-      "iterations": 6,
+      "iterations": 22,
       "converged": true,
       "negative_intercept": false,
+      "band_quantile": 1.95996,
       "curve": [
        [
         0.0,
@@ -4298,7 +4341,7 @@
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 0.193/4, p = 0.996."
+      "note": "σ/E = a/√E + b: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (22 refits). χ²/ν = 0.193/4, p = 0.996."
      },
      "pinned": {
       "form": "pinned",
@@ -4314,6 +4357,7 @@
       "scale_factor": 1.10856,
       "iterations": 7,
       "converged": true,
+      "band_quantile": 2.571,
       "curve": [
        [
         0.0,
@@ -4324,126 +4368,126 @@
        [
         0.025,
         2.98636,
-        2.52699,
-        3.44572
+        2.38378,
+        3.58893
        ],
        [
         0.05,
         5.97271,
-        5.05399,
-        6.89144
+        4.76756,
+        7.17786
        ],
        [
         0.075,
         8.95907,
-        7.58098,
-        10.3372
+        7.15135,
+        10.7668
        ],
        [
         0.1,
         11.9454,
-        10.108,
-        13.7829
+        9.53513,
+        14.3557
        ],
        [
         0.125,
         14.9318,
-        12.635,
-        17.2286
+        11.9189,
+        17.9447
        ],
        [
         0.15,
         17.9181,
-        15.162,
-        20.6743
+        14.3027,
+        21.5336
        ],
        [
         0.175,
         20.9045,
-        17.689,
-        24.12
+        16.6865,
+        25.1225
        ],
        [
         0.2,
         23.8909,
-        20.2159,
-        27.5658
+        19.0703,
+        28.7115
        ],
        [
         0.225,
         26.8772,
-        22.7429,
-        31.0115
+        21.454,
+        32.3004
        ],
        [
         0.25,
         29.8636,
-        25.2699,
-        34.4572
+        23.8378,
+        35.8893
        ],
        [
         0.275,
         32.8499,
-        27.7969,
-        37.9029
+        26.2216,
+        39.4783
        ],
        [
         0.3,
         35.8363,
-        30.3239,
-        41.3487
+        28.6054,
+        43.0672
        ],
        [
         0.325,
         38.8226,
-        32.8509,
-        44.7944
+        30.9892,
+        46.6561
        ],
        [
         0.35,
         41.809,
-        35.3779,
-        48.2401
+        33.373,
+        50.245
        ],
        [
         0.375,
         44.7954,
-        37.9049,
-        51.6858
+        35.7567,
+        53.834
        ],
        [
         0.4,
         47.7817,
-        40.4319,
-        55.1315
+        38.1405,
+        57.4229
        ],
        [
         0.425,
         50.7681,
-        42.9589,
-        58.5773
+        40.5243,
+        61.0118
        ],
        [
         0.45,
         53.7544,
-        45.4859,
-        62.023
+        42.9081,
+        64.6008
        ],
        [
         0.475,
         56.7408,
-        48.0129,
-        65.4687
+        45.2919,
+        68.1897
        ],
        [
         0.5,
         59.7271,
-        50.5399,
-        68.9144
+        47.6756,
+        71.7786
        ]
       ],
       "provisional": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 6.14/5, p = 0.292. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.11 (PDG); the unscaled ones are the _stat fields."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 6.14/5, p = 0.292. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.11 (PDG), and the band takes Student's t₀.₉₇₅,5 = 2.571 for the variance scale S² estimated from ν = 5; the unscaled errors are the _stat fields."
      },
      "quadrature": {
       "form": "quadrature",
@@ -4459,16 +4503,20 @@
        "b_defined": true,
        "a2": 1450.9,
        "se_a2": 3403.69,
-       "a_defined": true
+       "a_defined": true,
+       "se_a_stat": 44.6787,
+       "se_b_stat": 5.70544,
+       "se_a2_stat": 3403.69,
+       "se_b2_stat": 379.358
       },
       "chi2": 0.185939,
       "p_value": 0.995937,
       "scale_factor": 1.0,
-      "iterations": 7,
+      "iterations": 23,
       "converged": true,
       "curve": null,
       "provisional": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 0.186/4, p = 0.996."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 6 windows, weights 1/se² with se recomputed at the fitted value (23 refits). χ²/ν = 0.186/4, p = 0.996."
      }
     }
    }
@@ -4514,24 +4562,23 @@
   "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
-  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated; χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG). The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
-  "Anchors: the lowest bin from 5 GeV, the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV.",
+  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower A: c = Σ p / Σ E_dep = 138.3 over N = 286 events, fitted once over the whole selection.",
   "Shower B: c = Σ p / Σ E_dep = 136.1 over N = 286 events, fitted once over the whole selection.",
   "The model series is the energy network of the absolute frame (coord_system), R = predicted energy / its truth; the networks predict the momentum scale directly, with no calibration.",
   "Off the axis: 8 windows below 4 GeV (164 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
-  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20).",
-  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21).",
-  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21).",
-  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 20).",
-  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window in log E with N ≥ 20 is 10–11 GeV (N = 21).",
-  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window in log E with N ≥ 20 is 15–16 GeV (N = 21).",
-  "Shower A · Energy network · absolute frame (anchors, pinned): χ²/ν = 1.8, so its errors are scaled by S = 1.34.",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23).",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21).",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21).",
+  "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors, pinned): χ²/ν = 1.52, so its errors are scaled by S = 1.23.",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23).",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21).",
+  "Shower A · Energy network · absolute frame (anchors): The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21).",
   "Shower A · Energy network · absolute frame (all, pinned): χ²/ν = 1.16, so its errors are scaled by S = 1.08.",
-  "Shower B · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24).",
-  "Shower B · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window in log E with N ≥ 20 is 4–5 GeV (N = 24).",
-  "Shower B · Energy network · absolute frame (anchors, pinned): χ²/ν = 2.42, so its errors are scaled by S = 1.56.",
+  "Shower B · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23).",
+  "Shower B · Energy network · absolute frame (anchors): The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23).",
   "Shower B · Energy network · absolute frame (all, pinned): χ²/ν = 1.23, so its errors are scaled by S = 1.11.",
   "The y range follows the windows with N ≥ 20 (whiskers included) and the fits through them, from zero. 2 marks beyond it are clipped, not rescaled."
  ],

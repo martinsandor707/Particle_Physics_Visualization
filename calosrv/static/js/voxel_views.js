@@ -91,7 +91,7 @@
  * own L for drawing and never written back, and clamps k; a K change keeps the
  * slice holding the old slice's centre bin; an experiment switch returns to
  * K = 1; Reset view keeps the slice. The two paired depth projections mark the
- * slice's depth with a band (`depthSlab`, projection.js), carried by every
+ * slice's depth with a bracket (`depthSlab`, projection.js), carried by every
  * later render. At K = 1 nothing of this reaches either chart.
  */
 
@@ -197,7 +197,7 @@ export const SLICE_NEXT_TITLE = 'Draw the next (downstream) slice; the camera an
 export const SLICE_RANGE_TITLE = 'The slice drawn, from the most upstream';
 
 /**
- * The band a slice puts on its pair's depth projections (projection.js
+ * The bracket a slice puts on its pair's depth projections (projection.js
  * `depthSlab`), or null at K = 1 or without a plan. Pure.
  */
 export function sliceSlab(plan) {
@@ -206,18 +206,19 @@ export function sliceSlab(plan) {
     lo: plan.loMm,
     hi: plan.hiMm,
     tooltip: `Slice ${formatInt(plan.k)} of ${formatInt(plan.K)} drawn in 3-D<br/>${sliceRangeText(plan)}<br/>`
-      + mutedLine('This panel still sums every layer; the band marks the depth the 3-D view beside it draws.'),
+      + mutedLine('This panel still sums every layer; the bracket marks the depth the 3-D view beside it draws.'),
   };
 }
 
-/** What a depth projection's drawer says of the slice band it carries. */
+/** What a depth projection's drawer says of the slice bracket it carries. */
 export function sliceBandNote(plan) {
   if (!plan) return null;
-  return `The band marks slice ${formatInt(plan.k)} of ${formatInt(plan.K)}, the depth the 3-D view beside this panel `
-    + `draws: ${sliceRangeText(plan)}. This panel still sums every layer, inside the band and out.`;
+  return `The bracket marks slice ${formatInt(plan.k)} of ${formatInt(plan.K)}, the depth the 3-D view beside this `
+    + `panel draws: ${sliceRangeText(plan)}. This panel still sums every layer, inside the bracket and out; the `
+    + 'bracket is two lines, never a wash, so every bin keeps the colour it reads against the colour bar.';
 }
 
-/** Whether two slabs draw the same band (null for none). */
+/** Whether two slabs draw the same bracket (null for none). */
 function sameSlab(a, b) {
   if (!a || !b) return !a && !b;
   return a.lo === b.lo && a.hi === b.hi && a.tooltip === b.tooltip;
@@ -1552,7 +1553,12 @@ export class VoxelSection {
     this.syncSlices(pair);
   }
 
-  /** Ask for K slices (the count input): the slice holding the old slice's centre bin is drawn. */
+  /**
+   * Ask for K slices (the count input): the slice holding the old slice's
+   * centre bin is drawn. The K asked is kept as asked, and `slicePlan` clamps
+   * it to this volume's L for drawing, as it does for a new payload: the
+   * count's title says how many were asked, and a deeper volume takes it again.
+   */
   setSliceCount(name, raw) {
     const pair = this.pairs[name];
     const n = Number(String(raw ?? '').trim());
@@ -1560,9 +1566,8 @@ export class VoxelSection {
       if (pair) this.syncSlices(pair);
       return;
     }
-    const K = Math.min(n, pair.domain.L);
-    const k = keepCentre(pair.domain, pair.plan, K);
-    pair.slices = { K, k };
+    const k = keepCentre(pair.domain, pair.plan, n);
+    pair.slices = { K: n, k };
     this.showSlice(pair);
   }
 
@@ -1591,7 +1596,7 @@ export class VoxelSection {
 
   /**
    * Draw the slice the pair asks for, from the payload in hand: a series swap
-   * that keeps the camera (`paintGl` `keepCamera`), the band on the depth
+   * that keeps the camera (`paintGl` `keepCamera`), the bracket on the depth
    * projections, the row and the drawer. Never a State write or a refresh: K
    * and k are not in `keyOf`, so no request is made.
    */
@@ -1641,8 +1646,12 @@ export class VoxelSection {
     row.range.max = String(plan.K);
     row.range.value = String(plan.k);
     row.range.disabled = plan.K < 2;
+    // A step onto the first or last slice disables the button it was made with: focus moves to the scrubber, so a
+    // keyboard reader keeps their place in the row instead of falling back to the top of the page.
+    const focused = globalThis.document?.activeElement ?? null;
     row.prev.disabled = plan.k <= 1;
     row.next.disabled = plan.k >= plan.K;
+    if ((focused === row.prev || focused === row.next) && focused.disabled && !row.range.disabled) row.range.focus?.();
     // A slice inside the shower can hold no cube above the floor (or only hidden species): said, never left blank.
     const empty = plan.K > 1 && pair.built && pair.built.drawn === 0;
     const what = pair.name === 'event' ? 'cube' : 'voxel';

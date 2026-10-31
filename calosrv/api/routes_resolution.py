@@ -75,7 +75,8 @@ def get_resolution_scaling(
         at = steps.index(step)
         return steps[at + 1] if at + 1 < len(steps) else None
 
-    # About 15-30 KB for two showers and two series each; the ladder guards a dataset
-    # with many more windows than the producers write.
+    # About 53 KB for two showers with a network (the recorded fixture: four series over
+    # 16 windows, each series' fits about 6 KB, the notes about 5 KB) and about 60 KB at
+    # 20 windows; the ladder guards a dataset with many more windows than the producers write.
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")
