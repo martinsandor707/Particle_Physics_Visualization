@@ -314,7 +314,7 @@ const DISTRIBUTIONS = {
 
 const MODELS = {
   id: 'sec-models',
-  title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)',
+  title: 'Model evaluation, resolution scaling, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)',
   blocks: [
     {
       kind: 'p',
