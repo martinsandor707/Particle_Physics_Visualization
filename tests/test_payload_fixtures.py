@@ -155,6 +155,11 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
                                        "channel": "shapcam_energy"}, "voxels"),
     "voxels_single_local": ("single_client", "/api/voxels", {**HITS, "frame": "local"}, "voxels"),
     "voxels_two_local": ("synthetic_client", "/api/voxels", {"frame": "local"}, "voxels"),
+    # The Absolute-frame cells card on the whole selection: both showers summed, energy per event.
+    "selection_cells_base": ("single_client", "/api/selection-cells", BASE, "selection_cells"),
+    "selection_cells_base_shapcam": ("single_client", "/api/selection-cells",
+                                     {**BASE, "channel": "shapcam"}, "selection_cells"),
+    "selection_cells_single": ("single_client", "/api/selection-cells", HITS, "selection_cells"),
     # The 2 x 2 on one shower, and the Local frame's C9 block.
     "projections_single_lab": ("single_client", "/api/projections", HITS, None),
     "projections_single_local": ("single_client", "/api/projections",

@@ -99,7 +99,7 @@ import math
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import duckdb
 import numpy as np
@@ -645,7 +645,26 @@ class _ShowerInfo:
 
 @dataclass
 class Builder:
-    """One event's voxel view: rows read once, rendered at any (cap, pitch) the size guard asks for."""
+    """One event's voxel view: rows read once, rendered at any (cap, pitch) the size guard asks for.
+
+    The selection's cells (``query/voxel_selection.py``) render through the same
+    cells regime: a subclass that holds per-cell sums instead of rows, and words
+    its energies per selected event through the class attributes below.
+    """
+
+    #: The energy channel's density unit, and the sentences that name one event's
+    #: energies: the ramp's disclosure, how a cell's network value is formed, and
+    #: the cap sentence's unit, whose energy a share is of and whose cells lie
+    #: outside the window.
+    ENERGY_UNIT: ClassVar[str] = UNIT
+    ENERGY_NOTE: ClassVar[str] = (
+        "The notebook's C5 display colours each hit's raw energy on a linear ramp with no "
+        "floor; this view colours volumetric density on a logarithmic ramp with the "
+        "1st-percentile floor of its A1/C2 figure, because cell energies span many decades.")
+    CELL_VALUE_HOW: ClassVar[str] = "the cell's value (energy-weighted over its rows)"
+    CAP_UNIT: ClassVar[str] = "GeV"
+    CAP_SHARE_OF: ClassVar[str] = "the drawn showers' energy"
+    CAP_CELLS_OF: ClassVar[str] = "the event's"
 
     record: ExperimentRecord
     frame: str
@@ -706,6 +725,11 @@ class Builder:
     @property
     def cell_volume(self) -> float:
         return float(self.footprint[0] * self.footprint[1] * self.pitch_z)
+
+    @property
+    def energy_total(self) -> float:
+        """The drawn rows' energy in GeV, inside the window or not: the cap block's and the profile's total."""
+        return float(self.rows.energy.sum())
 
     def n_cubes(self, pitch: float | None) -> int:
         return self.cubes(pitch).n
@@ -971,7 +995,7 @@ class Builder:
         """
         cubes = self.cubes(pitch)
         cap = max(1, int(cap))
-        total = float(self.rows.energy.sum())
+        total = self.energy_total
         order = np.lexsort((cubes.ix, cubes.iy, cubes.iz, -cubes.energy))
         kept, beyond = order[:cap], order[cap:]
         drawn = kept[::-1]          # ascending energy: the notebook's draw order
@@ -1013,14 +1037,15 @@ class Builder:
         cap_note = (
             f"All {n_total:,} {what}{inside} are drawn." if not beyond.size else
             f"The {drawn.size:,} most energetic of {n_total:,} {what}{inside} are drawn (cap {cap:,}, ranked by "
-            f"energy); the {beyond.size:,} beyond the cap hold {energy_beyond:.4g} GeV, "
-            f"{100.0 * cap_block['fraction_beyond']:.3g}% of the drawn showers' energy, counted and not drawn."
+            f"energy); the {beyond.size:,} beyond the cap hold {energy_beyond:.4g} {self.CAP_UNIT}, "
+            f"{100.0 * cap_block['fraction_beyond']:.3g}% of {self.CAP_SHARE_OF}, counted and not drawn."
         )
         if n_out > 0:
-            cap_note += (f" {n_out:,} of the event's {int(self.outside_cells.get('n_cells_total', 0)):,} cells "
-                         "lie outside the window and are counted, not drawn.")
+            cap_note += (f" {n_out:,} of {self.CAP_CELLS_OF} {int(self.outside_cells.get('n_cells_total', 0)):,} "
+                         "cells lie outside the window and are counted, not drawn.")
         if cubes.outside_gev > 0:
-            cap_note += (f" {cubes.outside_gev:.4g} GeV ({100.0 * cap_block['fraction_outside_window']:.3g}%) "
+            cap_note += (f" {cubes.outside_gev:.4g} {self.CAP_UNIT} "
+                         f"({100.0 * cap_block['fraction_outside_window']:.3g}%) "
                          "falls outside the window and is counted, not drawn.")
         voxels: dict[str, Any] = {
             "frame": self.frame,
@@ -1053,7 +1078,7 @@ class Builder:
             "depth_profile": self._depth_profile(cubes, cap_block),
         }
         return {
-            "event": self._event_block(),
+            **self._head_block(),
             "coordinates": self._coordinates_block(),
             "window": self._window_block(),
             "footprint_mm": [float(self.footprint[0]), float(self.footprint[1]), float(self.pitch_z)],
@@ -1116,7 +1141,7 @@ class Builder:
         notes: list[str] = []
         if self.channel in (CHANNEL_ENERGY, CHANNEL_SPECIES):
             ranked, signed = dens, False
-            quantity, unit = "energy_density", UNIT
+            quantity, unit = "energy_density", self.ENERGY_UNIT
         else:
             ranked, signed = cubes.value[drawn], self.channel == CHANNEL_SHAPCAM
             quantity, unit = self.channel, ("attribution" if signed else
@@ -1137,7 +1162,7 @@ class Builder:
                 vmin, vmax = math.log10(floor), math.log10(top)
                 below = dens < floor
             colour = scale_mod.ColorScale(
-                scale=scale_mod.SCALE_LOG, vmin=vmin, vmax=vmax, unit=UNIT,
+                scale=scale_mod.SCALE_LOG, vmin=vmin, vmax=vmax, unit=self.ENERGY_UNIT,
                 mode=scale_mod.MODE_PERCENTILE, locked=True, global_vmax=top if top > 0 else None,
                 n_below=int(below.sum()), n_above=0, n_empty=0, quantity="energy_density",
             )
@@ -1150,10 +1175,7 @@ class Builder:
                 "min_code": quantize_mod.MIN_CODE,
                 "floor_rule": typographic(self._floor_rule(floor, top, degenerate, int(below.sum()), pitch)),
             })
-            notes.append(
-                "The notebook's C5 display colours each hit's raw energy on a linear ramp with no "
-                "floor; this view colours volumetric density on a logarithmic ramp with the "
-                "1st-percentile floor of its A1/C2 figure, because cell energies span many decades.")
+            notes.append(self.ENERGY_NOTE)
             return scale, codes, below, top_values, notes
         if self.channel == CHANNEL_SPECIES:
             codes = cubes.species[drawn].astype(np.int64)
@@ -1175,7 +1197,7 @@ class Builder:
             scale["zero_code"] = int(quantize_mod.quantize(np.zeros(1), colour)[0])
         missing = int((~np.isfinite(values)).sum())
         how = ("energy-weighted mean over the voxel's sub-deposits" if self.regime == REGIME_SPLAT
-               else "the cell's value (energy-weighted over its rows)")
+               else self.CELL_VALUE_HOW)
         if self.channel == CHANNEL_SEGERR:
             scale["floor_rule"] = typographic(
                 f"No floor: |f_A,pred − f_A,true| of the {network}-frame segmentation network, {how}, "
@@ -1311,6 +1333,10 @@ class Builder:
 
     # ------------------------------------------------------------- blocks --
 
+    def _head_block(self) -> dict[str, Any]:
+        """The body's first block, naming what is drawn: here the event."""
+        return {"event": self._event_block()}
+
     def _event_block(self) -> dict[str, Any]:
         event = self.event
         showers = []
@@ -1431,6 +1457,29 @@ class Builder:
 # ------------------------------------------------------------------ build --
 
 
+def frame_windows(
+    window: str, xyz: np.ndarray, energy: np.ndarray, frame: str, footprint, pitch_z: float,
+) -> tuple[float, dict[str, float], dict[str, tuple[float, float]]]:
+    """``(half, halves, windows)``: the window rule on cell centres ``xyz`` (one row per cell or row) in ``frame``.
+
+    ``shared`` is Page 1's rule (``event_inspector._window``, Martin's decision
+    D-3): the energy-weighted 0.1st-99.9th percentile of the cells on each
+    axis, one half-width, never below 150 mm. ``per_axis`` is one half-width
+    per axis (``event_inspector.frame_window``, the raster's own per-axis
+    rule); ``half`` is then the largest of them. The frames centred on an
+    origin keep their transverse windows symmetric about it.
+    """
+    if window == event_inspector.WINDOW_SHARED:
+        centred = frame in (KIND_LOCAL, KIND_CANONICAL)
+        half, centre = _window({axis: xyz[:, i] for i, axis in enumerate("xyz")}, energy,
+                               centred=("x", "y") if centred else (),
+                               pad=max(footprint[0], footprint[1], pitch_z))
+        return (half, {axis: half for axis in "xyz"},
+                {axis: (centre[axis] - half, centre[axis] + half) for axis in "xyz"})
+    halves, windows = event_inspector.frame_window(xyz, energy, frame, footprint, pitch_z)
+    return max(halves.values()), halves, windows
+
+
 def build(
     con: duckdb.DuckDBPyConnection,
     record: ExperimentRecord,
@@ -1539,19 +1588,8 @@ def build(
     else:
         centres = lab
 
-    centred = frame in (KIND_LOCAL, KIND_CANONICAL)
     window_xyz = centres if window_xyz is None else window_xyz
-    if window == event_inspector.WINDOW_SHARED:
-        # Page 1's rule (event_inspector._window, Martin's decision D-3): the energy-weighted
-        # 0.1st-99.9th percentile of the cells on each axis, one half-width, never below 150 mm.
-        half, centre = _window({axis: window_xyz[:, i] for i, axis in enumerate("xyz")}, rows.energy,
-                               centred=("x", "y") if centred else (), pad=max(fp[0], fp[1], pitch_z))
-        windows = {axis: (centre[axis] - half, centre[axis] + half) for axis in "xyz"}
-        halves = {axis: half for axis in "xyz"}
-    else:
-        # One half-width per axis (event_inspector.frame_window, the raster's own per-axis rule).
-        halves, windows = event_inspector.frame_window(window_xyz, rows.energy, frame, fp, pitch_z)
-        half = max(halves.values())
+    half, halves, windows = frame_windows(window, window_xyz, rows.energy, frame, fp, pitch_z)
     inside_rows = np.ones(rows.n, dtype=bool)
     for i, axis in enumerate("xyz"):
         inside_rows &= (centres[:, i] >= windows[axis][0]) & (centres[:, i] <= windows[axis][1])
