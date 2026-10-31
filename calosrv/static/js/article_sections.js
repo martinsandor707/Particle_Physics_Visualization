@@ -63,6 +63,7 @@ const ENTRIES = {
     'perf-bins': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
     'pred-truth': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
     'pred-residuals': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
+    'res-scaling': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
     'xgb-cv': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
     'xgb-binary': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
     'xgb-surrogate': { at: 'lnk-results-models', section: '3.6', title: 'Model evaluation, the surrogate tree and the 3-D views (E1–E5, C5, C6, C11)' },
