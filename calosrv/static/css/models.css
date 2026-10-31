@@ -130,8 +130,10 @@
   min-width: 0;
   accent-color: var(--accent);
 }
+/* A line of its own under the controls: beside them on a 3-D card's width it
+   was squeezed into four lines. */
 .voxel-slice-readout {
-  flex: 1 1 14em;
+  flex: 1 1 100%;
   min-width: 0;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -167,6 +169,13 @@
 .res-fit-table td { padding: 3px 8px; text-align: right; white-space: nowrap; }
 .res-fit-table th:first-child,
 .res-fit-table td:first-child { text-align: left; padding-left: 0; }
+.res-fit-table caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 0 4px;
+  color: var(--muted);
+  white-space: normal;
+}
 .res-fit-table thead th {
   font-weight: 500;
   color: var(--muted);
