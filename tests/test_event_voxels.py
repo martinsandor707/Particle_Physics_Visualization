@@ -1537,3 +1537,205 @@ def test_the_box_and_its_projections_span_the_same_millimetres(single_client, ta
         assert vox["window"]["axes"][axis] == pytest.approx(projection["window"][axis], abs=1e-9), axis
         assert vox["window"]["half_mm_axes"][axis] == projection["half_mm_axes"][axis]
     assert vox["voxels"]["cap"]["cells_outside_window"] == projection["outside_window"]["n_cells"]
+
+
+# ------------------------------------------------------------ depth profile --
+#
+# ``voxels.depth_profile``: per-depth-bin energy and attention of every in-window cell or voxel,
+# counted before the cap, for the slice readout. The identity that matters is that the bins plus
+# the energy outside the axis are the event's total; the attention is checked against the rows
+# the database holds, since a cell's value is an energy-weighted mean over its finite rows and a
+# voxel's over its sub-deposits, neither of which times its energy is the rows' sum in general.
+
+_DEPTH_CASES = [
+    (BASELINE_TABLE, 0, "lab", "both", "energy"),
+    (BASELINE_TABLE, 0, "lab", "a", "segerr"),
+    (BASELINE_TABLE, 0, "lab", "both", "gradcam"),
+    (BASELINE_TABLE, 0, "trans", "a", "shapcam"),
+    (BASELINE_TABLE, 0, "trans", "a", "energy"),
+    (BASELINE_TABLE, 0, "local", "a", "shapcam"),
+    (BASELINE_TABLE, 0, "local", "a", "gradcam"),
+    (BASELINE_TABLE, 0, "local", "a", "segerr"),
+    (BASELINE_TABLE, 0, "canonical", "both", "energy"),
+    (BASELINE_TABLE, 0, "canonical", "both", "shapcam"),
+    (BASELINE_TABLE, 0, "canonical", "both", "gradcam"),
+    (BASELINE_TABLE, 0, "canonical", "a", "segerr"),
+    (SINGLE_HITS_TABLE, 3, "lab", "a", "energy"),
+    (SINGLE_HITS_TABLE, 3, "lab", "a", "species"),
+    (SINGLE_HITS_TABLE, 3, "trans", "a", "energy"),
+    (SINGLE_HITS_TABLE, 3, "local", "a", "energy"),
+    (SINGLE_HITS_TABLE, 3, "local", "a", "species"),
+]
+
+
+def _depth_axis(vox: dict) -> tuple[int, np.ndarray]:
+    """``(bins, centres)`` of the payload's own depth axis, from its stated placement rule."""
+    geometry = vox["geometry"]
+    if vox["regime"] == "cells":
+        coords = np.asarray(geometry["axes"]["z"]["coords"]) - geometry["origin_mm"][2]
+        return coords.size, coords
+    grid = geometry["grid"]
+    n = grid["n"][2]
+    if grid["z_axis"] == "native_layers":
+        return n, np.asarray(geometry["axes"]["z"]["coords"])
+    return n, grid["z0"] + (np.arange(n) + 0.5) * grid["pitch_z_mm"]
+
+
+def _attention_totals(con, table: str, event: int, shower: str, frame: str, channel: str, model: str):
+    """The channel's Σ E·value over the finite rows of the drawn shower(s), from the database."""
+    coord = "lab" if frame in ("lab", "canonical") else frame
+    if channel == "segerr":
+        expr = (f"abs(CAST({ddl.seg_column('pred', coord)} AS DOUBLE) - "
+                f"CAST({ddl.seg_column('true', coord)} AS DOUBLE))")
+    else:
+        expr = f"CAST({ddl.cam_column(model, coord, channel)} AS DOUBLE)"
+    where = "TRUE" if shower == "both" else _shower_where(shower)
+    rows = _rows(con, table, event, where, extra=f", {expr} AS v")
+    v = np.asarray(np.ma.filled(np.ma.asarray(rows["v"]).astype(np.float64), np.nan), dtype=np.float64)
+    finite = np.isfinite(v)
+    e = rows["energy"].astype(np.float64)
+    return {"sum": float((e * np.where(finite, v, 0.0))[finite].sum()),
+            "positive": float((e * np.maximum(v, 0.0))[finite].sum()),
+            "negative": float(abs((e * np.minimum(v, 0.0))[finite].sum()))}
+
+
+def _check_depth_profile(body: dict) -> dict:
+    vox = body["voxels"]
+    dp = vox["depth_profile"]
+    n, centres = _depth_axis(vox)
+    assert dp["n"] == n == len(dp["energy_gev"]) == len(dp["centres_mm"])
+    assert dp["index"] == "cubes.iz" and dp["pitch_mm"] == body["footprint_mm"][2]
+    # The bins and what lies off the axis are the event's energy; both quoted are the cap block's.
+    cap = vox["cap"]
+    assert dp["energy_total_gev"] == cap["energy_total_gev"]
+    assert dp["energy_outside_gev"] == cap["energy_outside_window_gev"]
+    assert sum(dp["energy_gev"]) + dp["energy_outside_gev"] == pytest.approx(dp["energy_total_gev"], rel=1e-9)
+    assert all(v >= 0.0 for v in dp["energy_gev"])
+    # centres_mm are the cubes' own depth placement (axes.z.coords - origin, or the splat grid's).
+    np.testing.assert_allclose(dp["centres_mm"], centres, atol=6e-4)
+    steps = np.diff(dp["centres_mm"])
+    assert dp["layers_contiguous"] is bool(np.allclose(steps, dp["pitch_mm"], rtol=0, atol=2e-3))
+    return dp
+
+
+def _check_depth_attention(dp: dict, channel: str, reference: dict | None) -> None:
+    att = dp["attention"]
+    if channel in ("energy", "species"):
+        assert att is None
+        return
+    assert att["channel"] == channel and att["unit"] == "GeV"
+    assert att["quantity"] == {"gradcam": "Σ E·Grad-CAM", "shapcam": "Σ E·Shap-CAM",
+                               "segerr": "Σ E·|f_A,pred − f_A,true|"}[channel]
+    n = dp["n"]
+    if channel == "shapcam":
+        assert att["signed"] is True and "values" not in att
+        pos, neg = np.asarray(att["positive"]), np.asarray(att["negative"])
+        assert pos.size == neg.size == n and (pos >= 0).all() and (neg >= 0).all()
+        assert att["positive_outside"] >= 0 and att["negative_outside"] >= 0
+        assert pos.sum() + att["positive_outside"] == pytest.approx(att["positive_total"], rel=1e-9)
+        assert neg.sum() + att["negative_outside"] == pytest.approx(att["negative_total"], rel=1e-9)
+        assert att["total"] == pytest.approx(att["positive_total"] - att["negative_total"], rel=1e-9, abs=1e-15)
+        assert att["outside"] == pytest.approx(att["positive_outside"] - att["negative_outside"], abs=1e-15)
+        if reference is not None:
+            assert att["positive_total"] == pytest.approx(reference["positive"], rel=1e-9, abs=1e-15)
+            assert att["negative_total"] == pytest.approx(reference["negative"], rel=1e-9, abs=1e-15)
+    else:
+        assert att["signed"] is False and "positive" not in att
+        values = np.asarray(att["values"])
+        assert values.size == n and (values >= 0).all() and att["outside"] >= 0
+        assert values.sum() + att["outside"] == pytest.approx(att["total"], rel=1e-9)
+        if reference is not None:
+            assert att["total"] == pytest.approx(reference["sum"], rel=1e-9, abs=1e-15)
+
+
+@pytest.mark.parametrize("table,event,frame,shower,channel", _DEPTH_CASES)
+def test_the_depth_profile_adds_up_and_matches_the_cubes(single_client, table, event, frame, shower, channel):
+    params = {"table_name": table, "event_number": event, "frame": frame, "shower": shower,
+              "channel": channel, "model": "energy", "cap": 15000}
+    body = _served(single_client, **params)
+    dp = _check_depth_profile(body)
+    with _con(single_client) as con:
+        rows = _rows(con, table, event, "TRUE" if shower == "both" else _shower_where(shower))
+        reference = (_attention_totals(con, table, event, shower, frame, channel, "energy")
+                     if channel in ("gradcam", "shapcam", "segerr") else None)
+        builder = voxel_event.build(con, _record(con, table), filters.build(_record(con, table)), event,
+                                    frame, shower, channel, "energy",
+                                    footprint=canonical.cell_footprint(con, _record(con, table)))
+    # Every row's energy is in the bins or beyond the axis.
+    assert dp["energy_total_gev"] == pytest.approx(float(rows["energy"].sum()), rel=1e-12)
+    _check_depth_attention(dp, channel, reference)
+    # Nothing was dropped by the cap, so the bins are a re-binning of the decoded cubes' energy.
+    assert body["voxels"]["cap"]["n_beyond"] == 0
+    centre, energy, _ = _placed(builder, body)
+    rebinned = np.bincount(_cubes(body)["iz"], weights=energy, minlength=dp["n"])
+    np.testing.assert_allclose(dp["energy_gev"], rebinned, rtol=1e-9, atol=1e-15)
+    # Each cube's depth is its bin's centre.
+    np.testing.assert_allclose(centre[:, 2], np.asarray(dp["centres_mm"])[_cubes(body)["iz"]], atol=6e-4)
+
+
+@pytest.mark.parametrize("table,event,frame,shower,channel", _DEPTH_CASES)
+def test_the_depth_profile_names_its_layers(single_client, table, event, frame, shower, channel):
+    body = _served(single_client, table_name=table, event_number=event, frame=frame, shower=shower,
+                   channel=channel, model="energy")
+    dp = body["voxels"]["depth_profile"]
+    geometry = body["voxels"]["geometry"]
+    if frame == "local":
+        assert (dp["numbering"], dp["first_layer"]) == ("w_bins", None)
+    elif frame == "trans":
+        # Own layers, 1 at the shower's first populated layer (depth 0); a window that opens
+        # above it starts at a layer <= 0.
+        assert dp["numbering"] == "own_layers"
+        assert dp["first_layer"] == round(dp["centres_mm"][0] / dp["pitch_mm"]) + 1
+        assert dp["first_layer"] <= 1
+        steps = np.diff(dp["centres_mm"]) / dp["pitch_mm"]
+        np.testing.assert_allclose(steps, np.round(steps), atol=1e-3)
+    else:
+        assert dp["numbering"] == "detector_layers"
+        assert dp["first_layer"] == geometry["axes"]["z"]["i0"] + 1
+
+
+def test_a_cap_leaves_the_depth_profile_whole(single_client):
+    """The profile counts every in-window cube, so a cap that drops cubes does not move it."""
+    kwargs = {**BASE, "event_number": 0, "frame": "local", "shower": "a", "channel": "shapcam",
+              "model": "energy"}
+    whole = _served(single_client, **kwargs, cap=15000)
+    capped = _served(single_client, **kwargs, cap=100)
+    assert capped["voxels"]["cap"]["n_beyond"] > 0
+    assert capped["voxels"]["depth_profile"] == whole["voxels"]["depth_profile"]
+
+
+def test_the_depth_profile_adds_up_at_a_coarsened_pitch(single_client, monkeypatch):
+    """A coarser grid cuts the beam's edge differently, so what lies off the axis moves with it;
+    the bins plus that remainder are still the event's energy and attention."""
+    kwargs = {**BASE, "event_number": 0, "frame": "local", "shower": "a", "channel": "shapcam",
+              "model": "energy", "cap": 15000}
+    baseline = _served(single_client, **kwargs)
+    monkeypatch.setattr(voxel_event, "MAX_VOXELS_PER_AXIS", 8)
+    coarse = _served(single_client, **kwargs)
+    assert coarse["voxels"]["geometry"]["grid"]["pitch_mm"] > baseline["voxels"]["geometry"]["grid"]["pitch_mm"]
+    dp = _check_depth_profile(coarse)
+    assert dp["energy_outside_gev"] > baseline["voxels"]["depth_profile"]["energy_outside_gev"]
+    _check_depth_attention(dp, "shapcam", None)
+    # The depth axis is the layer pitch along w whatever the pitch across the beam.
+    assert dp["centres_mm"] == baseline["voxels"]["depth_profile"]["centres_mm"]
+
+
+def test_a_cell_that_holds_a_non_finite_row_is_summed_by_its_rows(single_client):
+    """Cell energy x cell value is the rows' sum only where every row is finite; the profile sums rows."""
+    with _con(single_client) as con:
+        record = _record(con, BASELINE_TABLE)
+        builder = voxel_event.build(con, record, filters.build(record), 0, "lab", "a", "gradcam", "energy",
+                                    footprint=canonical.cell_footprint(con, record))
+    rows = builder.rows
+    rows.value = rows.value.copy()
+    rows.value[::7] = np.nan
+    builder.cells = voxel_event.merge_cells(rows.ix, rows.iy, rows.iz, rows.org, rows.energy, value=rows.value)
+    builder._cache.clear()
+    body = builder.assemble(15000, None)
+    att = body["voxels"]["depth_profile"]["attention"]
+    finite = np.isfinite(rows.value)
+    expected = float((rows.energy * np.where(finite, rows.value, 0.0)).sum())
+    assert att["total"] == pytest.approx(expected, rel=1e-9)
+    cubes = builder.cubes(None)
+    by_cell = float((cubes.energy * cubes.value).sum())
+    assert by_cell != pytest.approx(expected, rel=1e-6)   # the shortcut the profile does not take

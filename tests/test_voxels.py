@@ -554,6 +554,39 @@ def test_an_impossible_limit_is_served_with_a_stated_overrun(client, monkeypatch
     assert not any("voxel cap was lowered" in text for text in body["meta"]["notices"])
 
 
+# ------------------------------------------------------ depth profile (client) --
+#
+# The block itself is tested at query level below; these two hold the body that carries it.
+
+
+@pytest.mark.parametrize("frame,channel", [("local", "density"), ("canonical", "shapcam_energy"),
+                                           ("local", "gradcam_energy")])
+def test_the_depth_profile_block_satisfies_the_contract(client, frame, channel):
+    """The block the route must carry, laid into a served body, against ``voxels.json``."""
+    body = _get(client, frame=frame, channel=channel)
+    response = _response(client, frame=frame, channel=channel)
+    body["depth_profile"] = voxels.render(response.bundle, channel, voxels.DEFAULT_CAP)["depth_profile"]
+    contract_check.check(body, "voxels")
+    assert not [p for p, k, _ in _walk(body["depth_profile"]) if k in ("hits", "points")]
+    for path, key, value in _walk(body["depth_profile"]):
+        if isinstance(value, str):
+            assert not signed_hyphens(value), (path, value)
+    broken = copy.deepcopy(body)
+    del broken["depth_profile"]["energy_outside_gev"]
+    with pytest.raises(contract_check.ContractError):
+        contract_check.check(broken, "voxels")
+
+
+@pytest.mark.xfail(reason="routes_voxels.VoxelResponse.build must pass rendered['depth_profile'] into the "
+                          "envelope (one line, a file the depth-profile agent does not own)")
+@pytest.mark.parametrize("frame,channel", [("local", "density"), ("canonical", "shapcam_energy")])
+def test_the_served_body_carries_the_depth_profile(client, frame, channel):
+    body = _get(client, frame=frame, channel=channel)
+    dp = body["depth_profile"]
+    assert sum(dp["energy_gev"]) + dp["energy_outside_gev"] == pytest.approx(dp["energy_total_gev"], rel=1e-9)
+    assert dp["energy_total_gev"] == body["budget"]["energy_total_gev"]
+
+
 # ---------------------------------------------------- synthetic_client --
 
 
@@ -1072,3 +1105,89 @@ def test_a_rotated_footprint_is_never_point_binned(cursor, built):
     with pytest.raises(ValueError, match="never point-binned"):
         voxels.fetch(cursor, record, built["spec"].clamped(record), "local", stats.n_events, grid,
                      built["footprint"], 1, 2)
+
+
+# ------------------------------------------------------------ depth profile --
+#
+# ``depth_profile``: a bincount over the voxels' depth index of the bundle's own sums, so the
+# layers plus the energy outside the grid are the selection's total, whatever the cap.
+
+
+def _layer_sums(flat, plane: str) -> np.ndarray:
+    """One plane summed over the transverse axis of the 2-D bundle's X-Z raster: per depth layer."""
+    return np.asarray(flat.xz.planes[plane]).sum(axis=0)
+
+
+@pytest.mark.parametrize("kind", voxels.FRAMES)
+@pytest.mark.parametrize("channel", voxels.CHANNELS)
+def test_the_depth_profile_is_the_bundles_per_layer_sums(built, kind, channel):
+    bundle = built[kind][0]
+    flat = built["flat", kind][0]
+    dp = voxels.render(bundle, channel, voxels.DEFAULT_CAP)["depth_profile"]
+    n_z = bundle.grid.n_z
+    assert dp["n"] == len(dp["energy_gev"]) == len(dp["centres_mm"]) == n_z
+    assert dp["index"] == "grid layer (grid.z_centres)" and dp["pitch_mm"] == bundle.dz
+    np.testing.assert_allclose(dp["centres_mm"], np.round(bundle.z_centres, 3), atol=1e-9)
+    # Every inside voxel, the half-width edge ones included, plus the energy outside the grid.
+    assert sum(dp["energy_gev"]) + dp["energy_outside_gev"] == pytest.approx(dp["energy_total_gev"], rel=1e-9)
+    assert dp["energy_total_gev"] == bundle.total_energy
+    assert dp["energy_outside_gev"] == pytest.approx(flat.energy_outside, rel=1e-9, abs=1e-15)
+    np.testing.assert_allclose(dp["energy_gev"], _layer_sums(flat, "e"), rtol=1e-8, atol=1e-13)
+    assert all(v >= 0 for v in dp["energy_gev"])
+    gaps = np.diff(bundle.z_centres)
+    assert dp["layers_contiguous"] is bool(np.allclose(gaps, bundle.dz, rtol=0, atol=2e-3))
+    if kind == "local":
+        assert (dp["numbering"], dp["first_layer"], dp["layers_contiguous"]) == ("w_bins", None, True)
+    else:
+        # The D-frame keeps the whole lattice's native layers: bin 0 is detector layer 1.
+        assert (dp["numbering"], dp["first_layer"]) == ("detector_layers", 1)
+        assert bundle.z_centres[0] == 0.0 and bundle.grid.n_z == len(built["record"].lattice.z.coords)
+    att = dp["attention"]
+    if channel == "density":
+        assert att is None
+    elif channel == "gradcam_energy":
+        assert att["signed"] is False and att["channel"] == channel and att["quantity"] == "Σ E·Grad-CAM"
+        values = np.asarray(att["values"])
+        assert values.size == n_z and (values >= 0).all()
+        np.testing.assert_allclose(values, _layer_sums(flat, "eg"), rtol=1e-8, atol=1e-13)
+        assert values.sum() + att["outside"] == pytest.approx(att["total"], rel=1e-9)
+        assert att["outside"] == pytest.approx(flat.plane_outside["eg"], rel=1e-9, abs=1e-15)
+        assert att["total"] == pytest.approx(voxels.classify(bundle, channel).cam["total"], rel=1e-12)
+    else:
+        assert att["signed"] is True and att["quantity"] == "Σ E·Shap-CAM"
+        pos, neg = np.asarray(att["positive"]), np.asarray(att["negative"])
+        assert pos.size == neg.size == n_z and (pos >= 0).all() and (neg >= 0).all()
+        # esn = Σ E·min(φ, 0) is <= 0 in the bundle; the profile ships its magnitude.
+        assert (bundle.sums["esn"] <= 0).all() and (bundle.sums["esp"] >= 0).all()
+        np.testing.assert_allclose(pos, _layer_sums(flat, "esp"), rtol=1e-8, atol=1e-13)
+        np.testing.assert_allclose(neg, -_layer_sums(flat, "esn"), rtol=1e-8, atol=1e-13)
+        assert pos.sum() + att["positive_outside"] == pytest.approx(att["positive_total"], rel=1e-9)
+        assert neg.sum() + att["negative_outside"] == pytest.approx(att["negative_total"], rel=1e-9)
+        assert att["positive_outside"] >= 0 and att["negative_outside"] >= 0
+        assert att["total"] == pytest.approx(att["positive_total"] - att["negative_total"], rel=1e-9, abs=1e-15)
+        assert att["outside"] == pytest.approx(att["positive_outside"] - att["negative_outside"], abs=1e-15)
+        cam = voxels.classify(bundle, channel).cam
+        assert att["total"] == pytest.approx(cam["total"], rel=1e-9, abs=1e-15)
+
+
+@pytest.mark.parametrize("kind", voxels.FRAMES)
+def test_the_depth_profile_does_not_depend_on_the_cap(built, kind):
+    """The profile is taken before the cap and the floor: a cap that drops voxels leaves it whole."""
+    bundle = built[kind][0]
+    whole = voxels.render(bundle, "shapcam_energy", voxels.DEFAULT_CAP)
+    capped = voxels.render(bundle, "shapcam_energy", 20)
+    assert capped["budget"]["n_beyond_cap"] > 0
+    assert capped["depth_profile"] == whole["depth_profile"]
+
+
+def test_a_sampled_bundles_profile_is_scaled_with_its_sums(cursor, built, monkeypatch):
+    record, spec, settings, footprint = (built[k] for k in ("record", "spec", "settings", "footprint"))
+    monkeypatch.setattr(sampling, "SAMPLE_THRESHOLD_ROWS", 0)
+    decision = sampling.decide(record, True, 10.0)
+    bundle, *_ = voxels.bundle_for(cursor, record, spec, settings, "local", footprint, True,
+                                   decision.percent)
+    assert not bundle.exact
+    dp = voxels.render(bundle, "shapcam_energy", voxels.DEFAULT_CAP)["depth_profile"]
+    assert dp["energy_total_gev"] == bundle.total_energy
+    assert sum(dp["energy_gev"]) + dp["energy_outside_gev"] == pytest.approx(bundle.total_energy, rel=1e-9)
+    assert sum(dp["energy_gev"]) == pytest.approx(float(bundle.sums["e"].sum()), rel=1e-9)

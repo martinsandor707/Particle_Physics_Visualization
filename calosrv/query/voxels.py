@@ -80,6 +80,7 @@ from .canonical import FrameStats, _column
 from .filters import FilterSpec
 from .frame_sql import ANCHOR_BACKPROJECTED, SOURCE_FILE
 from .shower_frames import ShowerStats
+from .voxel_event import NUMBERING_DETECTOR, NUMBERING_W, attention_block, depth_profile_block
 
 log = logging.getLogger(__name__)
 
@@ -696,6 +697,50 @@ def classify(bundle: VoxelBundle, channel: str) -> Classified:
                       order=order, energy=energy, cam=cam)
 
 
+# ------------------------------------------------------------ depth profile --
+
+
+def depth_profile(bundle: VoxelBundle, channel: str) -> dict[str, Any]:
+    """Per-depth-layer energy and attention of every inside voxel of the bundle, before any cap.
+
+    A ``bincount`` over the voxels' depth index, with no extra scan: ``e`` for
+    energy, and the channel's own numerator planes for the attention (``eg``
+    for Grad-CAM; ``esp`` and ``esn`` for Shap-CAM, where ``esn`` = Σ E·min(φ, 0)
+    is <= 0 and is shipped as a magnitude). Every inside voxel counts, the
+    half-width edge voxels the grid does not draw included, so the layers plus
+    the energy outside the grid add up to the selection's total. A sampled
+    bundle is already scaled to the full population.
+
+    Depth index = layer of ``grid.z_centres``. The D-frame keeps the detector's
+    native layers over the whole lattice, so bin 0 is detector layer 1; Local
+    bins w at the layer pitch about the entry point and has no layer number.
+    """
+    n_z = bundle.grid.n_z
+    vz = bundle.vz.astype(np.int64)
+
+    def per_layer(plane: str) -> np.ndarray:
+        return np.bincount(vz, weights=bundle.sums[plane], minlength=n_z)
+
+    outside = bundle.outside
+    attention = None
+    if channel == planes_mod.CHANNEL_GRADCAM_ENERGY:
+        attention = attention_block(channel, {
+            "signed": False, "values": per_layer("eg"), "outside": float(outside.get("eg", 0.0))})
+    elif channel == planes_mod.CHANNEL_SHAPCAM_ENERGY:
+        attention = attention_block(channel, {
+            "signed": True, "positive": per_layer("esp"), "negative": np.abs(per_layer("esn")),
+            "positive_outside": float(outside.get("esp", 0.0)),
+            "negative_outside": abs(float(outside.get("esn", 0.0)))})
+    canonical_frame = bundle.kind == KIND_CANONICAL
+    block = depth_profile_block(
+        index="grid layer (grid.z_centres)", centres_mm=bundle.z_centres, pitch_mm=bundle.dz,
+        numbering=NUMBERING_DETECTOR if canonical_frame else NUMBERING_W,
+        first_layer=1 if canonical_frame else None,
+        energy=per_layer("e"), energy_total_gev=bundle.total_energy,
+        energy_outside_gev=float(bundle.outside.get("e", 0.0)), attention=attention)
+    return block
+
+
 # ------------------------------------------------------------------ render --
 
 
@@ -938,4 +983,5 @@ def render(bundle: VoxelBundle, channel: str, cap: int,
         "rho": rho,
         "budget": budget,
         "topk": topk,
+        "depth_profile": depth_profile(bundle, channel),
     })
