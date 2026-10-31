@@ -544,7 +544,7 @@ def test_the_models_page_banners_status_and_sections_are_in_order():
     html = _models_html()
     main = html[html.index('<main class="main">'):html.index("</main>")]
     order = ['id="banner"', 'id="xgb-notice"', 'id="networks-notice"', 'class="statusbar"', 'id="perf-grid"',
-             'id="xgb-grid"', 'id="features-grid"', 'id="primaries-grid"', 'id="voxels-grid"']
+             'id="resolution-grid"', 'id="xgb-grid"', 'id="features-grid"', 'id="primaries-grid"', 'id="voxels-grid"']
     positions = [main.index(token) for token in order]
     assert positions == sorted(positions)
     assert '<div class="banner is-info" id="xgb-notice"' in main
@@ -553,7 +553,7 @@ def test_the_models_page_banners_status_and_sections_are_in_order():
     status = main[main.index('class="statusbar"'):main.index("</div>", main.index('class="statusbar"'))]
     for token in ('id="stat-events"', 'id="stat-kind"', 'class="spacer"', 'id="stat-latency"'):
         assert token in status, token
-    for section in ("perf-grid", "xgb-grid", "features-grid", "primaries-grid"):
+    for section in ("perf-grid", "resolution-grid", "xgb-grid", "features-grid", "primaries-grid"):
         assert f'<section class="grid models-grid" id="{section}" hidden' in main, section
     # The 3-D host is empty: VoxelSection builds its own cards.
     assert re.search(r'<section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>', main)
@@ -662,7 +662,7 @@ def test_the_models_cards_have_the_page_card_anatomy():
                       "getElementById"):
         assert forbidden not in code, forbidden
     # Every panel and notes module is a guarded dynamic import with a literal specifier.
-    for module in ("perf_bins", "hist2d", "distribution", "feature_table", "correlation", "rates", "xgb_cv",
+    for module in ("perf_bins", "resolution_scaling", "hist2d", "distribution", "feature_table", "correlation", "rates", "xgb_cv",
                    "xgb_binary", "xgb_tree", "xgb_importance"):
         assert f"import('./panels/{module}.js')" in code, module
     for module in ("models_notes", "xgb_notes"):
