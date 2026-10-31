@@ -2259,13 +2259,15 @@ def test_stepping_sends_no_request_writes_no_state_and_keeps_the_camera(out):
     loaded = steps["loaded"]
     assert loaded["plan"]["K"] == 1 and loaded["prev"] and loaded["next"] and loaded["outsideSlice"] is None
     six = steps["K=6"]
-    assert six["plan"]["K"] == 6 and six["plan"]["k"] == 4  # the slice holding the whole volume's centre bin
+    # From the whole volume there is no depth to keep: slicing opens at the entrance.
+    assert six["plan"]["K"] == 6 and six["plan"]["k"] == 1
     for label in ("K=6", "next", "prev twice", "range 1", "next at the last", "K=1000"):
         s = steps[label]
         assert s["lastFlags"] == {"replaceMerge": ["series", "visualMap"]}, label
         assert s["zoom"] == 77, f"{label}: the reader's zoom was dropped"
         assert s["drawn"] + s["outsideSlice"] == loaded["drawn"], label
-    assert steps["next"]["k"] == 5 and steps["prev twice"]["k"] == 3
+    # The second Previous, at the first slice, changes nothing.
+    assert steps["next"]["k"] == 2 and steps["prev twice"]["k"] == 1
     assert steps["range 1"]["k"] == 1 and steps["range 1"]["prev"] and not steps["range 1"]["next"]
     assert steps["prev at the first"]["k"] == 1 and steps["prev at the first"]["overlays"] == steps["range 1"]["overlays"]
     assert steps["next at the last"]["k"] == 6 and steps["next at the last"]["next"]
@@ -2326,7 +2328,8 @@ def test_reset_view_theme_and_experiment_switch(out):
 def test_the_cloud_steps_its_slices_and_bands_its_own_depth_projections(out):
     got = out["section"]["sliceSteps"]["acted"]["value"]
     seen = got["seen"]
-    assert [s["k"] for s in seen] == [2, 3, 4, 4, 4, 4]
+    # K = 4 from the whole cloud opens at the entrance; Next stops at the last slice.
+    assert [s["k"] for s in seen] == [1, 2, 3, 4, 4, 4]
     window = got["window"]["z"]
     for s in seen:
         assert window[0] <= s["lo"] < s["hi"] <= window[1]
