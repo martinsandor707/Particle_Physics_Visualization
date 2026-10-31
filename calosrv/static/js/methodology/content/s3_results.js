@@ -56,6 +56,7 @@ const TAXONOMY = {
     [k('feat-corr'), 'D3', 'Models', 'Lower-triangle feature matrix', 'Fisher-z interval; faded where it contains 0', 'As C8', 'PuOr; hatch for azimuths'],
     [k('feat-hist'), 'D4', 'Models', 'Histograms and Gaussian KDEs per class', 'Event strip below the floor', `KDE from ${C.MIN_KDE_SAMPLES}, histogram from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Ordered sequential stops'],
     [k('feat-hist2d'), 'D5', 'Models', '2-D count raster per class against deposited energy', 'None (counts); events drawn below the floor', `Raster from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Sequential log count, shared scale'],
+    [k('res-scaling'), 'Resolution scaling', 'Models', `σ/E in percent from zero against $1/\\sqrt E$, reversed to end at the origin; fitted lines`, 'χ² whisker of the window’s σ/μ; 95% confidence band of each fitted line', `Whisker from ${C.RES_WHISKER_MIN_N}; fit and range from ${C.RES_FIT_MIN_N}; provisional below two anchors`, 'Ink for the deposit; E2’s hues for models; filled A, hollow B'],
     [k('prim-rate'), 'C11', 'Models', 'Point per momentum bin; overall dotted rule', 'Capped asymmetric Wilson whisker', 'From one event', 'Accent'],
     [k('vox-event'), 'C5, C6', 'Models', 'Orthographic cubes of one event, beside three 2-D projections', 'None in 3-D; numbers on the projections', `Event window ≥ ${C.EVENT_WINDOW_MIN_HALF_MM} mm per axis`, 'Sequential, folded PuOr, or qualitative species'],
     [k('vox-ensemble'), '3-D ensemble', 'Models', 'Orthographic voxel cloud, beside three 2-D projections', 'None in 3-D; numbers on the projections', 'As the 2 × 2', 'The relative ramp of the 2-D panels'],
@@ -333,6 +334,14 @@ const MODELS = {
     },
     {
       kind: 'p',
+      text: String.raw`**Resolution scaling** plots the relative resolution σ/E, in percent, of three estimators of the incident momentum against $1/\sqrt E$: the calibrated deposit, the energy network and the XGBoost regressor, per shower. The estimators are those of [[sec-resolution-scaling]] ([[eq-res-ratio]], [[eq-res-window]]); this audit covers what is drawn. **The bottom axis is linear in $1/\sqrt E$ and reversed**, from ${C.RES_X_MAX} GeV$^{-1/2}$ (${C.RES_E_MIN_GEV} GeV) at the left to exactly 0 at the right border, and the vertical axis starts at zero, so the bottom-right corner is the origin, $E \to \infty$, where the stochastic term vanishes. A purely stochastic resolution is then a straight line into that corner, and a constant term shows as the height at which a line meets the border; a log-$E$ axis would bend the first into a curve and hide the second. A window below ${C.RES_E_MIN_GEV} GeV lies off the axis and is counted and listed in the drawer, never drawn at a clipped position. **The top axis** labels ${C.RES_ENERGY_TICKS_GEV.join(', ')} GeV and ∞ at the same positions, $E = 1/x^2$: an exact relabelling, a deterministic unit conversion, and the one form of a second axis the dashboard permits. No series is plotted against it.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**Two uncertainties, neither the spread of the events.** A window's marker carries a capped whisker, the $\chi^2_{N-1}$ 95% interval of $s$ over $\bar\eta$ ([[eq-resolution-whisker]]): the uncertainty of the plotted aggregate, asymmetric at small $N$ and never negative. Each fitted line carries a 95% confidence band from its parameter covariance, multiplied by the scale factor where $\chi^2/\nu > 1$ ([[eq-res-band]], [[eq-res-chi2]]): the uncertainty of the line, drawn as a wash and named so in its tooltip. The affine fit is the line with the stronger wash, the origin-pinned fit a thinner dotted line with half of it ([[eq-res-affine]], [[eq-res-pinned]]). The quadrature form ([[eq-res-quadrature]]) is tabled, never drawn: it is a straight line in $\varepsilon^2$ against $\upsilon^2$, so on this axis it is a curve whose bend would be read as physics, and the fit table beside the plot, which names the form each number belongs to, is where its two terms are compared with the affine pair. **The gates** are those of the low-$N$ ladder: a window is reported from $N = ${C.MIN_MOMENT_SAMPLES}$, drawn with its whisker from $N = ${C.RES_WHISKER_MIN_N}$ (from $N = ${C.MIN_MOMENT_SAMPLES}$ to ${C.RES_WHISKER_MIN_N - 1} a faded dashed ring without interval, its tooltip naming the floor), and fitted, and allowed to set the vertical range, from $N = ${C.RES_FIT_MIN_N}$, so a thin window cannot flatten the well-measured ones. Below ${C.RES_FIT_MIN_N} a window is faded but never below 3:1. A mark beyond the range is clipped at the axis with a caret, its true value in the tooltip. **The anchors** of the default fit are chosen on the whole table's momentum bins, not the selection, so the same windows are used however the filters move and the fit changes only because the events do; with fewer than two of them the fit takes windows of $N \ge ${C.RES_WHISKER_MIN_N}$ and is labelled provisional and drawn faded, and a substituted anchor is named. **Colour** adds no palette: the deposit is drawn in ink, the neutral benchmark (a linear sum that a shape-aware model may beat, so not a limit), and each model takes the hue E2 gives its input frame, so a network keeps its colour across the cards; shower A is a filled marker on a solid line and B a hollow one on a dashed line, which reads in greyscale. Every mark of a series carries its name, so one legend entry hides all of it. The window mode (anchors or all windows) and the shower choice only repaint the payload in hand.`,
+    },
+    {
+      kind: 'p',
       text: String.raw`**The 3-D views** (C5, C6, the ensemble cloud) are the one recorded exception to the rule against 3-D, because where energy sits in depth and around the axis is lost by two projections. They are held to strict terms (${k('voxels.js')}, ${k('voxel_views.js')}):`,
     },
     {
@@ -345,6 +354,10 @@ const MODELS = {
         String.raw`per-axis energy-weighted ${C.WINDOW_LOW_PERCENTILE}–${C.WINDOW_HIGH_PERCENTILE} percentile windows, padded by one cell footprint (one layer pitch along depth), at least ${C.EVENT_WINDOW_MIN_HALF_MM} mm and snapped to ${C.EVENT_WINDOW_SNAP_MM} mm, so stray cells cannot stretch the box;`,
         String.raw`three paired 2-D projections beside each card, which carry the numbers and the export; the 3-D card has none, and at most two WebGL contexts per page.`,
       ],
+    },
+    {
+      kind: 'p',
+      text: String.raw`**Longitudinal slices** let each 3-D card draw one depth slab of its volume at a time ([[sec-slices]], [[eq-slice-edges]]; ${k('voxel_views.js')}, ${k('voxels.js')}), because a single cloud hides the cubes behind the front ones and the notebook's fixed cut of the standardised depth opened on an empty slice. A slice is a run of whole depth bins counted from the first to the last bin holding a drawn cube, so none opens upstream of the shower and none divides a layer. Four things are held whole so the slices compare: the box, the camera, the colour scale and the display floor are those of the whole volume, and nothing is rescaled per slice, which would stretch a faint tail to the brightness of the core. The two paired depth projections mark the slab with a band, a position and not a quantity; each still sums every layer, inside the band and out, and its drawer says so. The readout gives the slab's depth range and its energy and attention shares exactly, from the server's per-layer sums of the whole volume and not from the cubes drawn, so a floored cube changes nothing; the energy outside the domain is named beside them. Signed Shap-CAM has its positive and negative parts shared apart, each over its own total, since a signed share of a near-zero total is not a number. Stepping makes no request.`,
     },
     {
       kind: 'p',
@@ -362,6 +375,7 @@ const MODELS = {
         { page: 'models', panel: 'xgb-surrogate', label: 'E4' },
         { page: 'models', panel: 'xgb-importance', label: 'E5' },
         { page: 'models', panel: 'prim-rate', label: 'C11' },
+        { page: 'models', panel: 'res-scaling', label: 'Resolution scaling' },
         { page: 'models', panel: 'vox-event', label: 'C5 / C6' },
         { page: 'models', panel: 'vox-ensemble', label: '3-D cloud' },
       ],
