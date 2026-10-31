@@ -267,6 +267,12 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'theta', label: 'θ', title: 'The polar angle θ output of the angle regressor' },
     { value: 'phi', label: 'φ', title: 'The azimuth φ output of the angle regressor; its residual is wrapped to (−π, π]' },
   ],
+  // The resolution card's windows: the three anchors its fits are defined on, or every
+  // 1 GeV window from 4 GeV. Both are fitted in one response, so the choice repaints.
+  res_windows: [
+    { value: 'anchors', label: '3 anchors', title: 'Draw and fit the three anchor windows: the lowest from 5 GeV, the highest, and the one nearest their geometric-mean energy' },
+    { value: 'all', label: 'All ≥ 4 GeV', title: 'Draw and fit every 1 GeV window from 4 GeV that holds at least 20 events' },
+  ],
   voxel_channel: [
     { value: 'energy', label: 'Deposited energy' },
     { value: 'gradcam', label: 'Grad-CAM Model Attention' },

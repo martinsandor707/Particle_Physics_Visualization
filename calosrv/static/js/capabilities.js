@@ -308,6 +308,7 @@ export function carriedFrame(previousPlan, plan, frame) {
 /** The Models page's sections, in page order, and the cards each holds (card id = the server's gate). */
 export const PAGE2_SECTIONS = Object.freeze({
   perf: Object.freeze(['perf-bins', 'pred-truth', 'pred-residuals']),
+  resolution: Object.freeze(['res-scaling']),
   xgb: Object.freeze(['xgb-cv', 'xgb-binary', 'xgb-surrogate', 'xgb-importance']),
   features: Object.freeze(['feat-table', 'feat-corr', 'feat-hist', 'feat-hist2d']),
   primaries: Object.freeze(['prim-rate']),
@@ -434,7 +435,9 @@ function xgbBlock(caps, runs, open) {
  *
  * - `sections`: which of the page's sections are on show. The performance
  *   section shows when a network (or a paired XGBoost regressor, through the
- *   same gates) can serve one of its cards; the XGBoost section when a model
+ *   same gates) can serve one of its cards; the resolution section wherever
+ *   its card can be served, which is every kind with an event table, since
+ *   its detector series needs no model; the XGBoost section when a model
  *   run pairs with the experiment; the features section when its cards can
  *   be served or a rebuild would open them; the primaries and the 3-D views
  *   wherever there are hits (a shut card says why).
@@ -466,6 +469,7 @@ export function page2Plan(experiment) {
 
   const sections = {
     perf: Boolean(caps.panels) && anyOpen(PAGE2_SECTIONS.perf),
+    resolution: Boolean(caps.panels) && anyOpen(PAGE2_SECTIONS.resolution),
     xgb: Boolean(caps.panels) && runs.length > 0,
     features: Boolean(caps.panels) && (anyOpen(PAGE2_SECTIONS.features) || rebuildable(PAGE2_SECTIONS.features)),
     primaries: Boolean(caps.panels) && caps.hasHits,

@@ -79,6 +79,7 @@ let plan = page2Plan(null);
  * wired, so their Export buttons are wired with the rest. */
 const models = new ModelsSection({
   perf: document.getElementById('perf-grid'),
+  resolution: document.getElementById('resolution-grid'),
   xgb: document.getElementById('xgb-grid'),
   features: document.getElementById('features-grid'),
   primaries: document.getElementById('primaries-grid'),
@@ -326,7 +327,8 @@ function applyPagePlan(notices = []) {
   kindBanner.show([...plan.notices, ...notices]);
 
   const sections = {
-    perf: 'perf-grid', xgb: 'xgb-grid', features: 'features-grid', primaries: 'primaries-grid', voxels: 'voxels-grid',
+    perf: 'perf-grid', resolution: 'resolution-grid', xgb: 'xgb-grid', features: 'features-grid',
+    primaries: 'primaries-grid', voxels: 'voxels-grid',
   };
   for (const [key, id] of Object.entries(sections)) setHidden(id, !plan.sections[key]);
   const run = plan.xgb.runs[0];
@@ -495,7 +497,7 @@ const MODELS_REQUIRED_IDS = [
   'banner', 'banner-text', 'banner-close', 'kind-banner', 'kind-banner-text', 'kind-banner-close',
   'xgb-notice', 'xgb-notice-text', 'networks-notice', 'networks-notice-text',
   'stat-events', 'stat-kind', 'stat-latency', 'experiment-select', 'badge-memory', 'badge-threads',
-  'perf-grid', 'xgb-grid', 'xgb-grid-title', 'features-grid', 'primaries-grid', 'voxels-grid',
+  'perf-grid', 'resolution-grid', 'xgb-grid', 'xgb-grid-title', 'features-grid', 'primaries-grid', 'voxels-grid',
   'group-m-model', 'm-model', 'm-model-caption', 'group-m-frame', 'm-frame', 'm-frame-caption', 'm-colormap',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi', 'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi', 'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d',
