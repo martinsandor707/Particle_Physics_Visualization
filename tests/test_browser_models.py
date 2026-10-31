@@ -25,7 +25,17 @@ page is checked as a reader meets it:
 * the φ residual card draws no arithmetic-mean marker, whisker or σ band;
 * the feature explorer's A / B toggle (two showers) goes on every feature
   request and round-trips in the hash;
-* Admin Settings lists the model runs and rescans them.
+* Admin Settings lists the model runs and rescans them;
+* the energy-resolution card (``res-scaling``) draws its reversed 1/√E axis
+  ending at the origin corner, the Energy (GeV) axis on top over the same
+  range with ∞ at 0, a y axis from 0 and its fit table under the plot; its
+  window, shower and theme switches repaint with no request (the two-shower
+  baseline's two events draw its empty state, with the table still there);
+* the 3-D cards' slice mode: K slices stepped with Previous, Next and the
+  scrubber, K clamped to the volume's depth, the slices' cubes adding up to
+  the whole volume's, the paired depth projections banding the slice drawn,
+  with no request and the reader's turned and zoomed camera kept, and the
+  slice row hidden without WebGL.
 
 Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 """
@@ -54,7 +64,10 @@ pytestmark = pytest.mark.skipif(
 GL_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
 
 PERF = ["perf-bins", "pred-truth", "pred-residuals"]
-XGB = ["xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance"]
+#: The energy-resolution section (capabilities.js PAGE2_SECTIONS.resolution): its detector series needs no
+#: model, so it shows on every kind, between the performance and the XGBoost sections.
+RES = ["res-scaling"]
+XGB =["xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance"]
 FEATURES = ["feat-table", "feat-corr", "feat-hist", "feat-hist2d"]
 EVENT_PAIR = ["vox-event", "vproj-xy", "vproj-xz", "vproj-yz"]
 ENSEMBLE_PAIR = ["vox-ensemble", "eproj-xy", "eproj-yz", "eproj-xz"]
@@ -64,10 +77,13 @@ GL_CARDS = ("vox-event", "vox-ensemble")
 #: energy network, so its performance cards draw rather than state the
 #: segmentation network's notice.
 CARDS = {
-    BASELINE_TABLE: PERF + FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
-    SINGLE_HITS_TABLE: FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
-    MODELS_XGB_TABLE: PERF + XGB + FEATURES,
+    BASELINE_TABLE: PERF + RES + FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
+    SINGLE_HITS_TABLE: RES + FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
+    MODELS_XGB_TABLE: PERF + RES + XGB + FEATURES,
 }
+#: The tables whose selection holds momentum windows the resolution card can draw: the baseline's two
+#: events hold none from 4 GeV with two events, so it draws its empty state there.
+RES_DRAWN = (SINGLE_HITS_TABLE, MODELS_XGB_TABLE)
 FRAGMENT = {BASELINE_TABLE: "&model=energy", SINGLE_HITS_TABLE: "", MODELS_XGB_TABLE: ""}
 #: Cards shut by the server's gate on a kind, with the reason on the card.
 SHUT = {BASELINE_TABLE: {"prim-rate"}}
@@ -453,16 +469,24 @@ def test_every_2d_card_renders_without_a_console_error(models_live_server, table
     assert _hyphen_negatives(drawers) == [], "drawer text with an ASCII hyphen-minus"
 
 
-#: The cards on show, and any element that runs past its card's left or right edge.
+#: The cards on show, and any element that runs past its card's left or right edge. Content inside a
+#: horizontal scroller of the card (the resolution card's fit table, `.res-fit-table { overflow-x: auto }`)
+#: is clipped there and judged by its scroller, which is itself checked as an element of the card.
 _OVERFLOW = """() => {
   const main = document.querySelector('.main');
   const cards = [];
+  const scrolled = (el, card) => {
+    for (let a = el.parentElement; a && a !== card; a = a.parentElement) {
+      if (['auto', 'scroll'].includes(getComputedStyle(a).overflowX)) return true;
+    }
+    return false;
+  };
   for (const card of document.querySelectorAll('.main .card[data-panel]')) {
     if (card.hidden || !card.offsetParent) continue;
     const r = card.getBoundingClientRect();
     const out = [...card.querySelectorAll('*')].filter((el) => {
       const b = el.getBoundingClientRect();
-      return b.width > 0 && (b.right > r.right + 0.5 || b.left < r.left - 0.5);
+      return b.width > 0 && (b.right > r.right + 0.5 || b.left < r.left - 0.5) && !scrolled(el, card);
     }).map((el) => `${el.tagName}.${el.className}`);
     if (out.length) cards.push([card.dataset.panel, out.slice(0, 3)]);
   }
@@ -510,6 +534,17 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
             totals["readouts"] += readouts
             totals["explanations"] += explanations
             tips += [probe["text"] for _, probe, _ in found]
+            if card_id == "res-scaling" and table in RES_DRAWN:
+                # Its markers, lines and bands explain themselves on the layer, and none covers more than the
+                # cap of the plot being read (a band's or a fit's tooltip is an explanation: it leaves the plot).
+                assert found, f"{table} res-scaling: no tooltip over its fits and bands"
+                covered = []
+                for (x, y), probe, boxes in found:
+                    plot = boxes["plot"]
+                    area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                    covered.append(_overlap(probe["tip"], plot) / area)
+                    assert covered[-1] <= PROJECTION_READOUT_SHARE, (table, (x, y), probe["text"][:60], covered[-1])
+                shares[card_id] = round(max(covered), 3)
         browser.close()
     assert totals["explanations"], totals
     print(f"largest share of a plot under a projection readout, {table}: {shares}")
@@ -549,8 +584,170 @@ def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(mo
         assert "figure-disclosure" not in svg and "Experiment " not in svg, card_id
         assert texts, card_id
         assert _hyphen_negatives(texts) == [], (card_id, _hyphen_negatives(texts))
+        if card_id == "res-scaling":
+            # The plot alone: both x axes (the top one's ∞ at the origin) and no row of the screen's fit table.
+            assert "∞" in texts and any("1/√E" in t for t in texts), texts
+            assert not [t for t in texts if "Windows fitted" in t or "Quadrature" in t or "SE(a" in t], texts
     for card_id, (live, printed) in series.items():
         assert printed is not None and printed > 0, (card_id, live, printed)
+
+
+# ------------------------------------------------- the energy-resolution card --
+
+#: The resolution card's axes as the chart holds them, the top axis's labels through its own formatter,
+#: any series not on the bottom axis, and where the axes put values on the canvas.
+_RES_AXES = """() => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const o = inst.getOption();
+  const x = (o.xAxis || []).map((a) => ({
+    position: a.position ?? null, inverse: Boolean(a.inverse), min: a.min, max: a.max, name: a.name,
+    values: a.axisLabel?.customValues ?? null, ticks: a.axisTick?.customValues ?? null,
+    labels: (a.axisLabel?.customValues ?? []).map((v) =>
+      (typeof a.axisLabel.formatter === 'function' ? a.axisLabel.formatter(v) : String(v))),
+  }));
+  const y = (o.yAxis || []).map((a) => ({ min: a.min, max: a.max, name: a.name }));
+  const offBottom = (o.series || []).filter((s) => (s.xAxisIndex ?? 0) !== 0).map((s) => s.id ?? s.name);
+  let px = null;
+  if (x.length === 2 && y.length) {
+    const rect = inst.getModel().getComponent('grid', 0).coordinateSystem.getRect();
+    const at = (i, v) => inst.convertToPixel({ xAxisIndex: i }, v);
+    px = { grid: { left: rect.x, right: rect.x + rect.width, top: rect.y, bottom: rect.y + rect.height },
+           bottom: [0, 0.1, 0.25, 0.5].map((v) => at(0, v)), top: [0, 0.1, 0.25, 0.5].map((v) => at(1, v)),
+           y0: inst.convertToPixel({ yAxisIndex: 0 }, 0) };
+  }
+  return { x, y, offBottom, px, series: (o.series || []).length, graphic: (o.graphic || []).length };
+}"""
+
+#: The card's fit table: where it sits against the plot, and what it says.
+_RES_TABLE = """() => {
+  const card = document.querySelector('.main .card[data-panel="res-scaling"]');
+  const host = card.querySelector('.res-fit-table');
+  if (!host) return null;
+  const frame = card.querySelector('.plot-frame');
+  const plot = document.getElementById('plot-res-scaling');
+  const box = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+  return {
+    inFrame: frame.contains(host), afterFrame: frame.nextElementSibling === host, inCard: card.contains(host),
+    host: box(host), plot: box(plot),
+    caption: host.querySelector('caption')?.textContent ?? null,
+    heads: [...host.querySelectorAll('thead th')].map((th) => th.textContent),
+    rows: [...host.querySelectorAll('tbody tr')].map((tr) => tr.cells[0].textContent),
+  };
+}"""
+
+#: Every series the resolution card draws, with its data: what a repaint changes.
+_RES_SERIES = """() => JSON.stringify((echarts.getInstanceByDom(document.getElementById('plot-res-scaling'))
+  .getOption().series || []).map((s) => [s.id ?? s.name, s.data]))"""
+
+
+def _res_press(page, attr, value):
+    """Click one of the resolution card's segmented buttons; whether it is then the pressed one."""
+    button = page.locator(f'.main .card[data-panel="res-scaling"] button[data-{attr}="{value}"]')
+    button.click()
+    page.wait_for_timeout(250)
+    return button.get_attribute("aria-pressed") == "true"
+
+
+def _theme_module():
+    """test_browser_theme.py's probes (`_AXIS_INK`, `MUTED`, `_CAMERA`, `_GL_DRAWN`). Imported when a test runs:
+    that module imports this one at its top."""
+    import test_browser_theme
+    return test_browser_theme
+
+
+@pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a_request(models_live_server, table):
+    """The res-scaling card (plan §2.6-§2.7): the bottom axis 1/√E runs reversed over [0, 0.5], so x = 0 is the
+    right border; the top axis is the same range relabelled E = 1/x² with ∞ at 0, carries no series and puts every
+    value at the bottom axis's pixel; the y axis starts at 0 on the plot's bottom edge, so the bottom-right corner is
+    the origin. The fit table sits under the plot, outside the chart. "3 anchors" / "All ≥ 4 GeV", the shower
+    buttons (two showers) and a theme switch repaint from the response in hand."""
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], table)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        asked = _requests_of(requests, "/api/resolution-scaling")
+        assert len(asked) == 1, _urls(requests)
+        # A networked plan names the energy network's frame (models_cards.js cardRequest).
+        assert (asked[0].get("coord_system") == "lab") is (table == BASELINE_TABLE), asked
+        axes = page.evaluate(_RES_AXES)
+        fit = page.evaluate(_RES_TABLE)
+        series = page.evaluate(_RES_SERIES)
+        before = len(requests)
+
+        # The fit table: after the plot frame, inside the card, below the plot and clear of it.
+        assert fit is not None and fit["inCard"] and fit["afterFrame"] and not fit["inFrame"], fit
+        assert fit["host"]["top"] >= fit["plot"]["bottom"] - 0.5, fit
+        assert fit["caption"].startswith("Fits through the 3 anchor windows"), fit
+        assert fit["heads"][0] == "Series" and "Windows fitted" in fit["heads"], fit
+        assert fit["rows"], fit
+
+        if table in RES_DRAWN:
+            assert state["series"] > 0, state
+            bottom, top = axes["x"]
+            assert bottom["position"] in (None, "bottom") and bottom["inverse"], bottom
+            assert (bottom["min"], bottom["max"]) == (0, 0.5) and "1/√E" in bottom["name"], bottom
+            assert top["position"] == "top" and top["inverse"] and (top["min"], top["max"]) == (0, 0.5), top
+            assert top["name"].startswith("Energy (GeV)"), top
+            assert top["values"] == top["ticks"] and 0 in top["values"], top
+            assert top["labels"][top["values"].index(0)] == "∞", top
+            assert "5" in top["labels"] and "10" in top["labels"], top
+            # E = 1/x²: every labelled energy sits at its own 1/√E.
+            for x, label in zip(top["values"], top["labels"]):
+                if label != "∞":
+                    assert x == pytest.approx(1 / float(label) ** 0.5, abs=1e-5), (x, label)
+            assert axes["offBottom"] == [], "no series is drawn against the top axis"
+            assert [a["min"] for a in axes["y"]] == [0] and axes["y"][0]["max"] > 0, axes["y"]
+            # The origin corner: x = 0 at the right border, 0.5 at the left, y = 0 on the bottom edge,
+            # and the top axis an exact relabelling of the bottom one.
+            px = axes["px"]
+            assert px["bottom"][0] == pytest.approx(px["grid"]["right"], abs=0.5), px
+            assert px["bottom"][-1] == pytest.approx(px["grid"]["left"], abs=0.5), px
+            assert px["top"] == pytest.approx(px["bottom"], abs=0.01), px
+            assert px["y0"] == pytest.approx(px["grid"]["bottom"], abs=0.5), px
+
+            # Every window from 4 GeV, then the anchors again: a repaint, back to the same picture.
+            assert _res_press(page, "res-windows", "all")
+            assert page.evaluate(_RES_SERIES) != series
+            assert page.evaluate(_RES_TABLE)["caption"] != fit["caption"]
+            assert _res_press(page, "res-windows", "anchors")
+            assert page.evaluate(_RES_SERIES) == series and page.evaluate(_RES_TABLE) == fit
+            # One shower: no shower buttons.
+            assert page.evaluate("() => document.querySelector('.main .card[data-panel=\"res-scaling\"] "
+                                 "[aria-label=\"Showers\"]').hidden") is True
+        else:
+            # Two events hold no window of two events from 4 GeV: the empty state, said on the chart.
+            assert state["series"] == 0 and state["graphic"] == 1, state
+            texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
+            assert any("no σ/E can be drawn" in t for t in texts), texts
+            assert {r.split(" · ")[0] for r in fit["rows"]} == {"Shower A", "Shower B"}, fit
+            assert _res_press(page, "res-windows", "all")
+            assert page.evaluate(_RES_TABLE)["caption"] != fit["caption"]
+            assert _res_press(page, "res-windows", "anchors")
+            # Each shower alone, then both: the table follows, the chart is repainted from the same response.
+            for shower, letters in (("a", {"Shower A"}), ("b", {"Shower B"}), ("both", {"Shower A", "Shower B"})):
+                assert _res_press(page, "models-shower", shower), shower
+                rows = page.evaluate(_RES_TABLE)["rows"]
+                assert rows and {r.split(" · ")[0] for r in rows} == letters, (shower, rows)
+            assert page.evaluate(_RES_TABLE) == fit
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+
+        # A theme switch repaints the chart and the table from the response in hand.
+        dark = page.evaluate(theme._AXIS_INK, "plot-res-scaling")
+        page.click("#theme-toggle")
+        page.wait_for_timeout(1200)
+        assert requests[before:] == [], f"a theme switch asked the service: {requests[before:]}"
+        assert page.evaluate("() => document.documentElement.dataset.theme") == "light"
+        if table in RES_DRAWN:
+            light = page.evaluate(theme._AXIS_INK, "plot-res-scaling")
+            assert theme.MUTED["dark"] in dark and theme.MUTED["light"] in light and theme.MUTED["dark"] not in light, \
+                (dark, light)
+            # The picture is the same one: the same axes and the same series, in the new ink.
+            assert page.evaluate(_RES_AXES)["x"] == axes["x"]
+        assert page.evaluate(_RES_TABLE)["rows"] == fit["rows"]
+        browser.close()
+    assert problems == [], problems
 
 
 # ---------------------------------------------------------------- 3-D views --
@@ -604,6 +801,9 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
             page.locator(f'.card[data-panel="{card_id}"]').scroll_into_view_if_needed()
             state = _settled(page, card_id)
             assert state["kind"] == "notice" and state["message"].startswith(GL_UNAVAILABLE), state
+            # No volume, so no slice row: K = 1 … L has nothing to cut.
+            row = page.evaluate(_SLICE_ROW, card_id)
+            assert row is not None and row["hidden"] and not row["visible"], (card_id, row)
             title, headings, body = _drawer(page, card_id)
             assert GL_UNAVAILABLE in body
         for card_id in ("vproj-xy", "vproj-xz", "vproj-yz", "eproj-xy", "eproj-yz", "eproj-xz"):
@@ -674,6 +874,208 @@ def test_the_3d_cards_open_fitted_to_their_box(models_live_server, width):
             page.close()
         browser.close()
     print(f"3-D opening fill at {width} px: " + ", ".join(f"{t} {c} {g['fill']}" for (t, c), g in seen.items()))
+    assert problems == [], problems
+
+
+# ------------------------------------------------------------ the slice mode --
+
+#: A 3-D card's slice row (voxel_views.js buildSliceRow): shown, the count and its bound, the scrubber,
+#: the step buttons and the readout, and where the row sits in the card.
+_SLICE_ROW = """(id) => {
+  const card = document.querySelector(`.main .card[data-panel="${id}"]`);
+  const row = card?.querySelector('.voxel-slices');
+  if (!row) return null;
+  const q = (s) => row.querySelector(s);
+  const count = q('[data-voxel-slices]'), range = q('[data-voxel-slice]');
+  return {
+    hidden: row.hidden, visible: row.offsetParent !== null,
+    K: count.value, max: count.max, k: range.value, kMax: range.max, rangeDisabled: range.disabled,
+    prev: q('[data-voxel-slice-step="prev"]').disabled, next: q('[data-voxel-slice-step="next"]').disabled,
+    readout: q('.voxel-slice-readout').textContent, live: q('.voxel-slice-readout').getAttribute('aria-live'),
+    beforePlot: row.nextElementSibling === card.querySelector('.plot-frame'),
+  };
+}"""
+
+#: The cubes a 3-D card draws: every bar3D series' data.
+_CUBES = """(id) => echarts.getInstanceByDom(document.getElementById(`plot-${id}`)).getOption().series
+  .filter((s) => s.type === 'bar3D').reduce((n, s) => n + (s.data || []).length, 0)"""
+
+#: A projection's slice band (projection.js addDepthSlab): the wash's depth range and its two faces, or null.
+_DEPTH_BAND = """(id) => {
+  const series = echarts.getInstanceByDom(document.getElementById(`plot-${id}`)).getOption().series || [];
+  const wash = series.find((s) => s.name === 'Depth slice drawn in 3-D');
+  const faces = series.filter((s) => (s.name || '').startsWith('Depth slice drawn in 3-D — ')).length;
+  if (!wash) return faces ? { lo: null, hi: null, faces } : null;
+  const points = wash.data[0];
+  return { lo: points[0][0], hi: points[points.length - 1][0], faces };
+}"""
+
+#: Each 3-D card, its XY projection and its two depth projections (voxel_views.js: `col.name === 'z'`).
+SLICE_PAIRS = {"vox-event": ("vproj-xy", ("vproj-xz", "vproj-yz")),
+               "vox-ensemble": ("eproj-xy", ("eproj-yz", "eproj-xz"))}
+
+
+def _set_slices(page, card_id, value):
+    """Type K into a 3-D card's count and commit it (`change`, as the input does on Enter or blur)."""
+    count = page.locator(f'.main .card[data-panel="{card_id}"] [data-voxel-slices]')
+    count.fill(str(value))
+    count.dispatch_event("change")
+    page.wait_for_timeout(250)
+
+
+def _step_slice(page, card_id, direction):
+    page.click(f'.main .card[data-panel="{card_id}"] [data-voxel-slice-step="{direction}"]')
+    page.wait_for_timeout(250)
+
+
+def _scrub_slice(page, card_id, k):
+    """Drag the scrubber to slice k: the range input's value and its `input` event, as a drag fires."""
+    page.locator(f'.main .card[data-panel="{card_id}"] [data-voxel-slice]').evaluate(
+        "(el, k) => { el.value = String(k); el.dispatchEvent(new Event('input', { bubbles: true })); }", k)
+    page.wait_for_timeout(250)
+
+
+def _turn_and_zoom(page, card_id):
+    """The reader turns the cubes with a drag and zooms with the wheel (test_browser_theme.py's gesture)."""
+    page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
+    page.wait_for_timeout(300)
+    box = page.locator(f"#plot-{card_id}").bounding_box()
+    x, y = box["x"] + box["width"] * 0.4, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 60, y + 25, steps=8)
+    page.mouse.up()
+    for _ in range(3):
+        page.mouse.wheel(0, -200)
+        page.wait_for_timeout(120)
+    page.wait_for_timeout(500)
+
+
+def _slice_view(page, card_id, camera):
+    """What a slice step must and must not move: the row, the cubes, the bands and the camera."""
+    xy, depth = SLICE_PAIRS[card_id]
+    return {
+        "row": page.evaluate(_SLICE_ROW, card_id),
+        "cubes": page.evaluate(_CUBES, card_id),
+        "xy": page.evaluate(_DEPTH_BAND, xy),
+        "bands": [page.evaluate(_DEPTH_BAND, c) for c in depth],
+        "camera": page.evaluate(camera, card_id)["control"],
+    }
+
+
+def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camera(models_live_server):
+    """The slice mode (plan §3.4-§3.6) on the two-shower event in the Absolute frame (37 layers) and on the
+    co-registered cloud, in Chromium with SwiftShader WebGL.
+
+    The row shows once the cubes are drawn, at K = 1 (the whole volume, no band). After the reader has turned
+    and wheel-zoomed the view: K = 6 reads "Slice 1 of 6", Next twice "Slice 3 of 6", Previous and the
+    scrubber step, each button is disabled at its end, and a K above the volume's depth L is drawn as L, the
+    count's max. The cubes drawn change with the slice and the six slices' cubes add up to the whole
+    volume's. The paired depth projections band the slice drawn (moving with Next), the XY projection never,
+    and the band prints in the depth projection's export only while a slice is shown. Across every step the
+    request log gains nothing and the camera (alpha, beta, the orthographic zoom, the centre) does not move;
+    the page still holds at most two WebGL contexts.
+    """
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, models_live_server["base"], BASELINE_TABLE, fragment="&model=energy&frame=lab", init=(_COUNT_GL,))
+        page.evaluate(_WATCH_EXPORTS)
+        for card_id, (xy, depth) in SLICE_PAIRS.items():
+            for cell in (card_id, xy, *depth):
+                state = _scroll_to(page, cell)
+                assert state["message"] is None, (cell, state)
+            page.wait_for_function(theme._GL_DRAWN, arg=card_id, timeout=30_000)
+            page.wait_for_timeout(600)
+            where = card_id
+
+            # K = 1: the whole volume, the row shown with nothing to step, no band anywhere.
+            whole = _slice_view(page, card_id, theme._CAMERA)
+            row = whole["row"]
+            assert row["visible"] and not row["hidden"] and row["beforePlot"], (where, row)
+            assert row["K"] == "1" and row["k"] == "1" and row["rangeDisabled"], (where, row)
+            assert row["prev"] and row["next"] and row["live"] == "polite", (where, row)
+            assert row["readout"].startswith("Slice 1 of 1 — "), (where, row)
+            depth_bins = int(row["max"])
+            assert depth_bins > 6, (where, row)
+            assert whole["xy"] is None and whole["bands"] == [None, None], (where, whole)
+            if card_id == "vox-event":
+                assert "layers 1–" in row["readout"] and "z − 3649 = " in row["readout"], row["readout"]
+                page.locator(f'.main .card[data-panel="{depth[0]}"]').scroll_into_view_if_needed()
+                _download_svg(page, depth[0])
+                unsliced_export = page.evaluate("() => window.__exportSeries.at(-1)")
+
+            _turn_and_zoom(page, card_id)
+            camera = page.evaluate(theme._CAMERA, card_id)
+            assert camera["control"]["zoom"] != pytest.approx(camera["model"]["size"]), (where, "the wheel did not zoom")
+            assert (camera["control"]["alpha"], camera["control"]["beta"]) != (25, 40), (where, "the drag did not turn")
+            before = len(requests)
+
+            # K = 6: the first slice, at the entrance.
+            _set_slices(page, card_id, 6)
+            views = {1: _slice_view(page, card_id, theme._CAMERA)}
+            row = views[1]["row"]
+            assert row["readout"].startswith("Slice 1 of 6 — "), (where, row)
+            assert (row["K"], row["k"], row["kMax"]) == ("6", "1", "6") and not row["rangeDisabled"], (where, row)
+            assert row["prev"] and not row["next"], (where, "Previous is shut at slice 1", row)
+            assert views[1]["xy"] is None, (where, "the XY projection sums every layer and carries no band")
+            assert all(b and b["faces"] == 2 and b["hi"] > b["lo"] for b in views[1]["bands"]), (where, views[1])
+
+            # Next twice: slice 3; the band moves downstream.
+            _step_slice(page, card_id, "next")
+            views[2] = _slice_view(page, card_id, theme._CAMERA)
+            _step_slice(page, card_id, "next")
+            views[3] = _slice_view(page, card_id, theme._CAMERA)
+            assert views[3]["row"]["readout"].startswith("Slice 3 of 6 — "), (where, views[3]["row"])
+            assert views[3]["row"]["k"] == "3" and not views[3]["row"]["prev"] and not views[3]["row"]["next"]
+            for b1, b2, b3 in zip(views[1]["bands"], views[2]["bands"], views[3]["bands"]):
+                assert b1["hi"] == pytest.approx(b2["lo"]) and b2["hi"] == pytest.approx(b3["lo"]), (where, b1, b2, b3)
+            # Previous: slice 2 again, the same picture.
+            _step_slice(page, card_id, "prev")
+            again = _slice_view(page, card_id, theme._CAMERA)
+            assert again["row"]["readout"] == views[2]["row"]["readout"] and again["cubes"] == views[2]["cubes"]
+            assert again["bands"] == views[2]["bands"], where
+            # The scrubber: the last slice, where Next is shut; then the rest of the six.
+            _scrub_slice(page, card_id, 6)
+            views[6] = _slice_view(page, card_id, theme._CAMERA)
+            assert views[6]["row"]["readout"].startswith("Slice 6 of 6 — "), (where, views[6]["row"])
+            assert views[6]["row"]["next"] and not views[6]["row"]["prev"], (where, "Next is shut at the last slice")
+            for k in (5, 4):
+                _scrub_slice(page, card_id, k)
+                views[k] = _slice_view(page, card_id, theme._CAMERA)
+                assert views[k]["row"]["readout"].startswith(f"Slice {k} of 6 — "), (where, k, views[k]["row"])
+            counts = [views[k]["cubes"] for k in range(1, 7)]
+            assert sum(counts) == whole["cubes"], (where, counts, whole["cubes"])
+            assert len(set(counts)) > 1 and max(counts) < whole["cubes"], (where, counts)
+            # The six bands tile the depth the slices cover, entrance first.
+            for column in range(2):
+                bands = [views[k]["bands"][column] for k in range(1, 7)]
+                assert all(a["hi"] == pytest.approx(b["lo"]) for a, b in zip(bands, bands[1:])), (where, bands)
+
+            if card_id == "vox-event":
+                # The band prints with the depth projection while a slice is shown (wash and two faces).
+                page.locator(f'.main .card[data-panel="{depth[0]}"]').scroll_into_view_if_needed()
+                _download_svg(page, depth[0])
+                assert page.evaluate("() => window.__exportSeries.at(-1)") == unsliced_export + 3
+                page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
+                page.wait_for_timeout(300)
+
+            # A K above the volume's depth is drawn as L, the count's own bound.
+            _set_slices(page, card_id, depth_bins + 7)
+            row = page.evaluate(_SLICE_ROW, card_id)
+            assert (row["K"], row["max"], row["kMax"]) == (str(depth_bins),) * 3, (where, row)
+            assert re.match(rf"^Slice \d+ of {depth_bins} — ", row["readout"]), (where, row)
+            # And K = 1 is the whole volume again, the bands gone.
+            _set_slices(page, card_id, 1)
+            back = _slice_view(page, card_id, theme._CAMERA)
+            assert back["cubes"] == whole["cubes"] and back["bands"] == [None, None], (where, back)
+            assert back["row"]["readout"] == whole["row"]["readout"], where
+
+            assert requests[before:] == [], f"{where}: a slice step asked the service: {requests[before:]}"
+            for k, view in {**views, "again": again, "back": back}.items():
+                assert view["camera"] == camera["control"], (where, k, camera["control"], view["camera"])
+        assert len(page.evaluate(_LIVE_GL)) <= 2, page.evaluate(_LIVE_GL)
+        browser.close()
     assert problems == [], problems
 
 
