@@ -21,14 +21,17 @@ it does, measured on the code's own tables:
   a raster spans it in full, through the light transfer on a log scale
   (``scale.js`` ``LIGHT_FIELD_GAMMA`` 1.85, its floor fading over 0.8 decade),
   so the bottom decade stays a pale tint on every slot; a mark standing alone
-  (a cube, a series, a cell, a leaf) keeps the ramp's 3:1 run;
+  (a series, a cell, a leaf) keeps the ramp's 3:1 run, and a 3-D cube takes the
+  raster's colour map exactly (``voxels.js`` ``cubesAsRasters``, Martin's
+  directive of 2026-10-31);
 * the overlays on the spatial panels: no casing on either card, the light
   axes one 1.25 px dashed line, small marks on a light strip under 70 px
   (``canonical_overlays.stripMarks``), and the Marks toggle leaving the raster
   alone;
 * PuOr's light arms (``puor_light``, ``puor_light_linear``): 3:1 from p = 1/6,
   L* falling outward, mirrored codes matched in contrast, the linear zero at
-  the light border ``#d0d7de``, and the 3-D cubes' arms starting at 3:1;
+  the light border ``#d0d7de``, the 3-D cubes' too, and ``signed: true``
+  starting each arm at 3:1 where it is still asked for (the dark card's cubes);
 * the correlation matrix on the light card: the light linear PuOr, weak cells
   faded toward white, and its labels' contrast;
 * series colours, the qualitative palettes, the species palette and the
@@ -264,9 +267,9 @@ for (const p of pal.SEQUENTIAL_PALETTES) {
       const vm = scale.visualMap(SCALES.relative, scale.rampPalette(SCALES.relative, p), { field: true });
       return { stops: vm.inRange.color, text: vm.text };
     })(),
-    // A mark standing alone on the card keeps the ramp's 3:1 run (cubes, series, cells, leaves).
+    // A mark standing alone on the card keeps the ramp's 3:1 run (series, cells, leaves).
     marks: cp.legibleRamp(drawn),
-    cubes: Object.fromEntries(Object.entries(SCALES).flatMap(([sk, sc]) => Object.entries(LAYOUTS)
+    alone: Object.fromEntries(Object.entries(SCALES).flatMap(([sk, sc]) => Object.entries(LAYOUTS)
       .map(([lk, layout]) => [`${sk}:${lk}`, codes({ scale: sc, ...layout }, p)]))),
   };
 }
@@ -424,6 +427,35 @@ out.lightCard = pal.LIGHT_CARD;
     mid: scale.rampMidLabel(shap)?.style.text,
   };
   scale.setScreenTheme('dark');
+}
+
+/* ---- the 3-D cubes: on the light screen, the 2-D rasters' colour map exactly ---- */
+{
+  const models = {
+    energy: vox.decodeEventVoxels(load('event_voxels_base_lab')),
+    shapcam: vox.decodeEventVoxels(load('event_voxels_base_local_shapcam')),
+    density: vox.decodeEnsembleVoxels(load('voxels_base_local')),
+    signed: vox.decodeEnsembleVoxels(load('voxels_base_canonical_shapcam')),
+  };
+  // The cube codes as a raster payload, painted as decode.js `renderRaster` paints one.
+  const asRaster = (m) => ({ scale: m.scale, empty_code: m.codes.empty, min_code: m.codes.min, max_code: m.codes.max,
+    ...(Number.isInteger(m.codes.below) ? { below_code: m.codes.below } : {}),
+    ...(Number.isInteger(m.codes.split) ? { split_code: m.codes.split } : {}) });
+  const snap = () => ({
+    asRasters: vox.cubesAsRasters(),
+    cases: Object.fromEntries(Object.entries(models).flatMap(([name, m]) => pal.SEQUENTIAL_PALETTES.map((p) => [`${name}:${p}`, {
+      cube: Array.from(vox.voxelCodeTable(m, p)),
+      raster: Array.from(decode.codeTable(asRaster(m), p, scale.fieldFadeDecades(m.scale), { field: true })),
+      legend: vox.voxelLegend(m, p)?.inRange?.color ?? null,
+      rasterLegend: scale.visualMap(m.scale, scale.rampPalette(m.scale, p), { seriesIndex: [], field: true }).inRange.color,
+      minCode: m.codes.min,
+      zero: m.scale.scale === 'linear' && m.scale.diverging ? 128 : null,
+    }]))),
+  });
+  scale.setScreenTheme('light');
+  out.cubesLight = snap();
+  scale.setScreenTheme('dark');
+  out.cubesDark = snap();
 }
 
 /* ---- the correlation matrix on the light card ----------------------------- */
@@ -812,18 +844,18 @@ def test_the_light_raster_legend_is_its_ramp_with_the_fade(theme_results):
 
 
 @pytest.mark.parametrize("palette", SEQUENTIAL)
-def test_a_cube_on_the_light_screen_clears_three_to_one(theme_results, palette):
-    """A mark standing alone on the card keeps the 3:1 run of its slot's light ramp."""
-    for case, codes in theme_results["lightSlots"][palette]["cubes"].items():
+def test_a_mark_standing_alone_on_the_light_screen_clears_three_to_one(theme_results, palette):
+    """A mark standing alone on the card (a series, a cell, a leaf) keeps the 3:1 run of its slot's light ramp."""
+    for case, codes in theme_results["lightSlots"][palette]["alone"].items():
         opaque = [c for c in codes if c[3] == 255]
         assert opaque, case
         assert min(contrast(c, WHITE) for c in opaque) >= 3.0, (palette, case)
 
 
 @pytest.mark.parametrize("palette", MONOTONE)
-def test_light_cubes_darken_on_white_along_the_ramp(theme_results, palette):
+def test_light_marks_darken_on_white_along_the_ramp(theme_results, palette):
     """Contrast rises with value: lightness composited on white never rises, the taper included."""
-    for case, codes in theme_results["lightSlots"][palette]["cubes"].items():
+    for case, codes in theme_results["lightSlots"][palette]["alone"].items():
         lights = [lstar(over_white(c)) for c in codes]
         rises = [(i, b - a) for i, (a, b) in enumerate(zip(lights, lights[1:])) if b > a + 1e-9]
         assert not rises, (palette, case, rises[:5])
@@ -1051,13 +1083,50 @@ def test_the_light_linear_zero_is_the_light_border(theme_results):
     assert tuple(theme_results["lightCard"]) == WHITE
 
 
-def test_the_light_cubes_start_each_arm_at_three_to_one(theme_results):
+def test_signed_true_starts_each_light_arm_at_three_to_one(theme_results):
+    """`signed: true` (asked for by the dark card's cubes) still starts each light arm at 3:1; the raster's zero is grey."""
     shap = theme_results["shapLight"]
     assert shap["palette"] == "puor_light_linear" and shap["mid"] == "0"
-    cubes = shap["cubes"]
-    assert contrast(table_rgb(cubes, 127), WHITE) >= 3.0 and contrast(table_rgb(cubes, 128), WHITE) >= 3.0
-    assert min(contrast(table_rgb(cubes, i), WHITE) for i in range(256)) >= 3.0
+    folded = shap["cubes"]
+    assert contrast(table_rgb(folded, 127), WHITE) >= 3.0 and contrast(table_rgb(folded, 128), WHITE) >= 3.0
+    assert min(contrast(table_rgb(folded, i), WHITE) for i in range(256)) >= 3.0
     assert table_rgb(shap["flat"], 127) == (208, 215, 222), "the 2-D raster keeps the border-grey zero"
+
+
+@pytest.mark.parametrize("model", ["energy", "shapcam", "density", "signed"])
+@pytest.mark.parametrize("palette", SEQUENTIAL)
+def test_light_cubes_take_the_rasters_colour_map_exactly(theme_results, model, palette):
+    """Martin's directive (2026-10-31): on the light screen a cube is painted as the 2-D bin beside it, code for code,
+    alpha included, and its colour bar is the raster's; the ramps are no longer cut to their 3:1 runs."""
+    light = theme_results["cubesLight"]
+    case = light["cases"][f"{model}:{palette}"]
+    assert light["asRasters"] is True
+    assert case["cube"] == case["raster"]
+    if case["legend"] is not None:
+        assert case["legend"] == case["rasterLegend"]
+    table = case["cube"]
+    if model == "energy":
+        # The floor takes the slot's palest tint: nothing is trimmed off the pale end any more.
+        floor = tuple(table[case["minCode"] * 4: case["minCode"] * 4 + 3])
+        assert contrast(floor, WHITE) < 1.5, (palette, floor)
+    if case["zero"] is not None:
+        # Raw Shap-CAM: zero in the light border grey, as on the 2-D panels.
+        assert tuple(table[case["zero"] * 4: case["zero"] * 4 + 3]) == (208, 215, 222)
+
+
+def test_dark_cubes_keep_their_folded_arms(theme_results):
+    """On the dark card the cubes are painted as before (the dark golden pins them). There `field` changes no
+    sequential ramp, so the one difference from the raster is a raw Shap-CAM cube, whose arms start at 3:1."""
+    dark = theme_results["cubesDark"]
+    assert dark["asRasters"] is False
+    for palette in SEQUENTIAL:
+        case = dark["cases"][f"energy:{palette}"]
+        assert case["cube"] == case["raster"], palette
+    shap = dark["cases"]["shapcam:viridis"]
+    assert shap["cube"] != shap["raster"]
+    assert tuple(shap["raster"][128 * 4: 128 * 4 + 3]) == (48, 54, 61)
+    assert tuple(shap["cube"][128 * 4: 128 * 4 + 3]) != (48, 54, 61), \
+        "the dark card's cubes start each Shap-CAM arm at 3:1, not at the border grey"
 
 
 # ------------------------------------------------------------------ correlation --

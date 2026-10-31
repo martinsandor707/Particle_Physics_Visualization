@@ -156,8 +156,12 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - **The fade:** the floor fades into the card over 0.8 decade, 10^−3 to 10^−2.2 of the reference (`LIGHT_FIELD_FADE_DECADES`), not half a decade.
       - **The colour bar** is drawn from the same table and alphas, so a colour reads off it at its own place.
       - **Untouched:** linear scales (Grad-CAM's [0, 1]), the signed PuOr ramps (half a decade, where their arms reach 3:1), the marks that stand alone, the dark card and print.
-    - **The 3:1 rule still governs every mark that stands alone on the card:** a 3-D cube, a series line or bar, a 2-D histogram cell, a surrogate-tree leaf, text.
+    - **The 3:1 rule still governs every mark that stands alone on the card:** a series line or bar, a 2-D histogram cell, a surrogate-tree leaf, text.
       - Each takes its slot ramp's run at ≥ 3:1: Viridis slot from t = 0.537, Cividis 0.384, Plasma 0.420, Turbo's longest 0.722–1.
+    - **A 3-D cube on the light screen takes the 2-D rasters' colour map exactly** (`voxels.js` `cubesAsRasters`; Martin's directive, 2026-10-31).
+      - **Why:** cut to their 3:1 runs, the ramps lost their pale ends (the Viridis slot kept 0.537–1, Turbo 0.722–1, each raw Shap-CAM arm started at 3:1), so the cubes read in a few deep tones that matched no bin of the projections beside them.
+      - **How:** the cube table and the 3-D colour bar are the raster's (`field: true`): the slot's ramp in full, through the light transfer and its 0.8-decade fade on a log scale; the light PuOr unfolded, raw Shap-CAM zero in the border grey.
+      - **Untouched:** the dark card's cubes keep their 3:1 run and folded arms (the dark golden pins them); the species palette.
     - **Overlays on the raster** (Martin's directive, 2026-10-30):
       - **Nothing is laid under them.** A white casing, tried first, fused the anchors, bars and centroids of the narrow D–Y′ strip into one white blob and banded the dashed axes through the core. `THEME.markCasing` is retired: null in every theme, kept only because the dark golden holds every dark token.
       - **An ensemble or windowed axis** is one 1.25 px dashed line in its shower's colour (`projection.js` `LIGHT_AXIS_WIDTH`).
@@ -188,7 +192,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - **An optional light theme sits beside it** (the header toggle, §5).
     - **Tokens:** canvas `#f6f8fa` / `#ffffff`, card panels `#ffffff`, borders `#d0d7de`, text `#111827` / `#59636e`, the showers `#a3186b` / `#0b5fbe`.
     - **Where they live:** the `css/tokens.css` light block (inside `@media screen`) and `scale.js` `SCREEN_LIGHT`, which a test keeps equal.
-    - **The rules:** every rule of this section holds on its card as on the dark one, measured against it. Text clears 4.5:1 on every ground it is drawn on. One exception: a continuous raster spans its slot's white-grounded ramp in full, its floor a pale tint, while every mark that stands alone keeps 3:1 (the light-screen ramp rule above).
+    - **The rules:** every rule of this section holds on its card as on the dark one, measured against it. Text clears 4.5:1 on every ground it is drawn on. One exception: a continuous raster, and a 3-D cube with it, spans its slot's white-grounded ramp in full, its floor a pale tint, while every other mark that stands alone keeps 3:1 (the light-screen ramp rule above).
     - **Dark mode does not move:** `tests/test_js_dark_golden.py` records every dark output as it was before the light theme.
     - **Exports:** an export is the same figure from either theme, because print overrides every screen token.
 * **Outlier Clipping for Readability**:

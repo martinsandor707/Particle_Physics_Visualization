@@ -25,9 +25,8 @@
  */
 
 import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
-import { legibleRamp } from './panels/chart_panel.js';
 import { describeSelection } from './export/caption.js';
-import { formatInt, formatSci, formatPercent, screenPalette, typographic } from './scale.js';
+import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
 import {
   HALO_LIMIT, referenceTopLabel, speciesLabel, sliceRangeText, sliceLayersText, sliceAttentionText,
 } from './voxels.js';
@@ -116,17 +115,15 @@ export const LEGIBLE_RAMP_NOTE = 'On screen the ramp starts at its first colour 
 /**
  * `LEGIBLE_RAMP_NOTE` for the card in force. The constant is the dark card's
  * sentence and stays byte for byte (the dark golden records it). On the light
- * screen a slot draws its white-grounded ramp (palette.js), and a cube takes
- * that ramp's run at 3:1 or more, so what the card cannot show is a cube
- * drawn too faint.
+ * screen a cube is painted exactly as the 2-D panels' bins (voxels.js
+ * `cubesAsRasters`; Martin's directive of 2026-10-31).
  */
 export function legibleRampNote() {
   if (!onLightScreen()) return LEGIBLE_RAMP_NOTE;
-  const { from } = legibleRamp(screenPalette('viridis'));
-  return 'On the light screen each colour-map slot draws a ramp made for a white card, and a cube, which stands '
-    + 'alone on the card, takes only its run at 3:1 or more (the Viridis slot from '
-    + `${from.toFixed(3)} of its aqua-to-indigo ramp; the measured run of the others), so no opaque cube - a cube `
-    + 'below the ramp floor included - is drawn fainter than the card can show.';
+  return 'On the light screen the cubes take the 2-D panels\' colour map exactly: the slot\'s ramp made for a '
+    + 'white card in full, from its palest tint at the floor to its deepest tone at the peak, through the same '
+    + 'transfer on a logarithmic scale (a value t up the scale drawn t^1.85 of the way along the ramp, the floor '
+    + 'fading into the card over 0.8 decade), so a faint cube reads faint, as the bin beside it does.';
 }
 
 /* -------------------------------------------------------------- slices -- */
@@ -289,10 +286,11 @@ export function voxelEventNotes({
   } else {
     legend.push('The colour bar at the right is the ramp the cubes are painted with, labelled in the channel\'s '
       + 'own units; it is the 2-D panels\' code-to-colour table, so a cube and the bin beside it agree.');
-    legend.push(legibleRampNote() + (scale.diverging
+    const raw = scale.diverging && !onLightScreen()
       ? ' A raw Shap-CAM cube near zero takes its sign\'s first 3:1 colour (orange or purple) where the 2-D '
         + 'panels draw zero in border grey: a cube prints no number, so none may vanish.'
-      : ''));
+      : ' A raw Shap-CAM cube near zero is drawn in the border grey of zero, as the 2-D panels draw it.';
+    legend.push(legibleRampNote() + (scale.diverging ? raw : ''));
   }
   legend.push(`A halo - a ${onLightScreen() ? 'dark outer and a light inner' : 'light outer and a dark inner'} outline - marks a primary-tagged cube (is_secondary = 0).`);
   if ((vox.cubes?.shower_codes ?? []).filter((c) => c && c !== '—').length > 1) {
@@ -454,10 +452,15 @@ export function voxelEnsembleNotes({
 
   const provisional = Boolean(frame.provisional || rho.provisional);
   const topLabel = referenceTopLabel({ kind: 'ensemble', scale, refName: scale.ref_name ?? 'rho_ref' });
+  // On the light screen the cubes take the 2-D panels' colour map exactly (voxels.js `cubesAsRasters`).
+  const fadeText = onLightScreen() && scale.scale !== 'signed_log10'
+    ? 'fading in from the card over 0.8 decade, to 10⁻²·² of the reference, and drawn through the light '
+      + 'transfer, a value t up the scale t^1.85 of the way along the slot\'s ramp, exactly as the 2-D panels'
+    : 'fading to transparent at the floor, and reaching its first 3:1 colour where the fade turns opaque, '
+      + '10⁻²·⁵ of the reference';
   notes.section(SECTION.legend, [
     'The colour bar at the right is the 2-D panels\' relative ramp (three decades below the reference, '
-      + 'fading to transparent at the floor, and reaching its first 3:1 colour where the fade turns opaque, '
-      + '10⁻²·⁵ of the reference'
+      + fadeText
       + (topLabel ? `; its top is labelled "${topLabel}"` : '')
       + ')'
       + (scale.scale === 'signed_log10' ? ', diverging on PuOr: orange negative, purple positive' : '')
