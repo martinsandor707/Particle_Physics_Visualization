@@ -105,6 +105,8 @@ import { panelTitle } from './frame_views.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
 import { formatInt, formatPercent, formatSci } from './scale.js';
+import { panelGroupSpec, panelLayerAxis } from './layer_groups.js';
+import { effectiveMode } from './controls/layer_groups_control.js';
 import {
   decodeEventVoxels, decodeEnsembleVoxels, voxelOption, openingView, glPlotHeight, voxelFit, speciesLegend, pairedWindow,
   cropToWindow, depthDomain, slicePlan, keepCentre, sliceReadout, sliceRangeText,
@@ -576,11 +578,16 @@ export class VoxelSection {
    *   payload|null)` after a card drew (or failed); `lazy` the LazyCards the
    *   section watches its pairs with (its own when omitted); `webgl` forces
    *   the availability probe's answer and `echarts` the library (tests);
-   *   `ProjectionClass` replaces the 2-D panel class (tests).
+   *   `ProjectionClass` replaces the 2-D panel class (tests); `draftCounts()`
+   *   the Longitudinal Channels partition being edited in the modal, or null
+   *   (drawn instead of the State's while live); `onDepthContext(block |
+   *   null)` the `depth_layers` / `layer_planes` block of the payload in hand,
+   *   for the control's ribbon.
    */
   constructor(hostEl, {
     state, getExperiment = () => null, onError = () => {}, onRendered = () => {}, lazy = null,
     webgl = null, echarts: lib = null, ProjectionClass = ProjectionPanel,
+    draftCounts = () => null, onDepthContext = () => {},
   } = {}) {
     this.host = hostEl;
     this.state = state;
@@ -591,6 +598,8 @@ export class VoxelSection {
     this.glChecked = null;
     this.lib = lib;
     this.ProjectionClass = ProjectionClass;
+    this.draftCounts = draftCounts;
+    this.onDepthContext = onDepthContext;
     this.offer = normaliseOffer(null);
     this.cards = new Map();
     this.pairs = {};
@@ -619,7 +628,7 @@ export class VoxelSection {
     const pair = {
       name, element, gl: null, cells: [], entry: null,
       view: null, payloads: {}, model: null, built: null, hidden: new Set(),
-      pick: null, loading: null,
+      pick: null, loading: null, depthBlock: null,
       // The slice mode (`.voxel-slices`): the requested K and the slice shown; never in the State.
       slices: { K: 1, k: 1 }, domain: null, plan: null,
     };
@@ -1161,6 +1170,8 @@ export class VoxelSection {
     const view = pair.view;
     if (result.status !== 'fulfilled') {
       pair.payloads.raster = null;
+      pair.depthBlock = null;
+      this.emitDepthContext();
       for (const record of pair.cells) this.failCard(record, result.reason);
       return;
     }
@@ -1177,7 +1188,8 @@ export class VoxelSection {
       try {
         const panel = this.ensureProjection(record);
         panel.isometric = true;
-        panel.render(frame.panels[col], this.withSlab(pair, record, eventCellOptions(raster, view.frame, col, palette)));
+        const opts = { ...eventCellOptions(raster, view.frame, col, palette), ...this.layerOptions(pair, record, { layerPlanes: frame.layer_planes ?? null, frameKind: view.frame, nEvents: 1 }) };
+        panel.render(frame.panels[col], this.withSlab(pair, record, opts));
       } catch (error) {
         // One card that cannot draw says so; its pair and its neighbours still draw.
         this.failCard(record, error);
@@ -1199,6 +1211,8 @@ export class VoxelSection {
   drawEnsembleCells(pair, result, beside = 'the 3-D cloud') {
     if (result.status !== 'fulfilled') {
       pair.payloads.projections = null;
+      pair.depthBlock = null;
+      this.emitDepthContext();
       for (const record of pair.cells) this.failCard(record, result.reason);
       return;
     }
@@ -1217,7 +1231,13 @@ export class VoxelSection {
         const panel = this.ensureProjection(record);
         panel.isometric = col === 'xy' || depthIsometric(panel, panelPayload);
         if (col !== 'xy') panel.onRelayout = (p) => { p.isometric = depthIsometric(p, p.payload); };
-        panel.render(panelPayload, this.withSlab(pair, record, ensembleCellOptions(payload, col, palette)));
+        const opts = {
+          ...ensembleCellOptions(payload, col, palette),
+          ...this.layerOptions(pair, record, {
+            depthLayers: payload.depth_layers ?? null, frameKind: kind, nEvents: payload.selection?.n_events ?? null,
+          }),
+        };
+        panel.render(panelPayload, this.withSlab(pair, record, opts));
       } catch (error) {
         this.failCard(record, error);
         continue;
@@ -1806,6 +1826,63 @@ export class VoxelSection {
     this.onRendered(pair.gl.spec.id, pair.payloads.voxels ?? null);
   }
 
+  /**
+   * The Longitudinal Channels options of a depth projection from the payload
+   * in hand: `layerGroups` (`panelGroupSpec`) where a partition is drawn,
+   * `layerAxis` always, so the bin readout names the layer with none. The
+   * Models page draws boundaries only, never pooled (`effectiveMode`), and
+   * never requests a partition (no `depth_groups` leaves this page). The
+   * source is kept on the card so a change of mode or partition repaints
+   * with no request (`setLayerGroups`).
+   */
+  layerOptions(pair, record, source) {
+    const col = record.spec.col;
+    if (col === 'xy') return {};
+    record.layerSource = source;
+    const block = source.layerPlanes ?? source.depthLayers ?? null;
+    if (pair.depthBlock !== block) {
+      pair.depthBlock = block;
+      this.emitDepthContext();
+    }
+    const resolved = this.state.layerGroups?.() ?? { mode: 'off', counts: null };
+    const mode = effectiveMode(resolved.mode, { page: 'models', frame: source.frameKind });
+    const counts = this.draftCounts?.() ?? resolved.counts;
+    const panelId = col;
+    const where = { panelId, depthLayers: source.depthLayers ?? null, layerPlanes: source.layerPlanes ?? null };
+    const spec = panelGroupSpec({
+      mode, counts, ...where, highlight: null, nEvents: source.nEvents ?? null,
+      onHover: (group) => {
+        for (const other of pair.cells) if (other.spec.col !== 'xy') other.panel?.setGroupHighlight?.(group);
+      },
+    });
+    return { layerGroups: spec, layerAxis: panelLayerAxis(where) };
+  }
+
+  /** The depth block the control's ribbon reads: the event pair's, else the ensemble pair's. */
+  emitDepthContext() {
+    const block = this.pairs.event?.depthBlock ?? this.pairs.ensemble?.depthBlock ?? null;
+    this.onDepthContext?.(block);
+  }
+
+  /**
+   * Repaint every drawn depth projection for a change of the Longitudinal
+   * Channels mode or partition (or a live draft): from the payloads in hand,
+   * no request, the zoom kept. The drawer's notes are rebuilt through
+   * `onRendered`.
+   */
+  setLayerGroups() {
+    for (const pair of Object.values(this.pairs)) {
+      for (const record of pair.cells) {
+        if (record.spec.col === 'xy' || !record.panel || !record.layerSource || record.error) continue;
+        const { layerGroups } = this.layerOptions(pair, record, record.layerSource);
+        record.panel.setLayerGroups(layerGroups);
+        const payload = pair.name === 'event' && pair.view?.scope !== 'selection'
+          ? pair.payloads.raster : pair.payloads.projections;
+        this.onRendered(record.spec.id, payload ?? null);
+      }
+    }
+  }
+
   /** The render options of a projection card, with its pair's slab where it is a depth panel. */
   withSlab(pair, record, opts) {
     const slab = record.spec.col === 'xy' ? null : sliceSlab(pair.plan);
@@ -1912,15 +1989,18 @@ export class VoxelSection {
       pair.slices = { K: 1, k: 1 };
       pair.domain = null;
       pair.plan = null;
+      pair.depthBlock = null;
       this.setPairBusy(pair, false);
       for (const record of [pair.gl, ...pair.cells]) {
         this.blank(record);
         record.error = null;
         record.slab = null;
+        record.layerSource = null;
         this.setCaption(record, []);
         if (!record.disabled) this.hideMessage(record);
       }
     }
+    this.emitDepthContext();
     this.syncControls();
     this.lazy.forget();
   }
@@ -1990,6 +2070,7 @@ export class VoxelSection {
       pair: raster ? 'event' : 'ensemble', payload, panelId: col, frameKind: pair.view?.frame ?? 'lab',
       view: record.panel?.currentView?.() ?? null, isometric: { [col]: Boolean(record.panel?.isometric) },
       pairing: [...this.pairing(pair), record.slab ? sliceBandNote(pair.plan) : null], state, experiment, title,
+      layerGroups: record.panel?.lastOpts?.layerGroups ?? null,
     });
   }
 
