@@ -44,11 +44,12 @@ from ..config import Settings
 from ..db.registry import ExperimentRecord
 from ..errors import ValidationError
 from ..grid import frame as frame_mod
+from ..grid import layer_groups
 from ..grid.frame import KIND_LOCAL, KIND_TRANS
 from ..models.common import ApiMeta, Timer, envelope
 from ..text import fmt_signed, typographic
 from ..query import canonical, centroids, density, negative_depth, reconstruct, sampling, summary, window
-from ..query import frame_sql
+from ..query import frame_sql, layer_profile
 from ..query import planes as planes_mod
 from ..query import shower_frames
 from ..query import showers as showers_mod
@@ -56,7 +57,8 @@ from ..query import stagger as stagger_mod
 from ..query.filters import FilterSpec
 from ..query.shower_frames import ShowerBundle, ShowerStats
 from .frame_canonical import (
-    COMB_MEASURED_ON, _attenuation_notice, _floor_notice, _reference_notice, serve_within_budget,
+    COMB_MEASURED_ON, _attenuation_notice, _floor_notice, _reference_notice, pooled_notice,
+    serve_within_budget,
 )
 
 FRAME_TITLE = {KIND_TRANS: "per-shower translated", KIND_LOCAL: "local"}
@@ -288,8 +290,17 @@ def build_response(
     lock_scale: bool | None = None,
     scale_mode: str = "decades",
     coordinates: str = frame_sql.SOURCE_FILE,
+    depth_groups: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
-    """The full translated- or local-frame response, budgeted as it goes on the wire."""
+    """The full translated- or local-frame response, budgeted as it goes on the wire.
+
+    ``depth_groups`` pools the translated frame's relative layers into layer
+    groups at render time; the route refuses it in the Local frame, which has
+    no common layer grid.
+    """
+    if depth_groups is not None and kind == KIND_LOCAL:  # pragma: no cover - the route refuses first
+        raise ValidationError("the Local frame has no common layer grid to pool",
+                              field=layer_groups.FIELD)
     if kind not in frame_mod.SHOWER_KINDS:  # pragma: no cover - the route validates first
         raise ValidationError(f"not a per-shower frame: {kind!r}", field="coord_system")
     if coordinates not in frame_sql.SOURCES:  # pragma: no cover - the route validates first
@@ -332,10 +343,29 @@ def build_response(
     if rho_norm == density.NORM_DATASET:
         reference = shower_frames.dataset_reference(con, record, settings, kind, footprint)
 
+    depth_edges = grid.axis("z").edges
+    pool = None if depth_groups is None else layer_groups.pooled_operator(depth_edges, depth_groups)
+    if kind == KIND_TRANS:
+        depth_block = layer_profile.depth_layers(
+            kind, record, edges=depth_edges,
+            profile=layer_profile.bundle_profile(
+                bundle, "xz", channel, layer_profile.NUMBERING_RELATIVE,
+                outside_gev=bundle.energy_outside, plane_outside=bundle.plane_outside),
+            reach_block=layer_profile.reach(con, record, spec, grid.n_z),
+            pool=pool, is_contiguous=True,
+        )
+    else:
+        n_relative = int(record.frame_bounds.n_layers_trans)
+        depth_block = layer_profile.depth_layers(
+            kind, record, edges=None,
+            profile=layer_profile.layer_table_profile(con, record, spec, n_relative),
+            reach_block=layer_profile.reach(con, record, spec, n_relative),
+        )
+
     def render(limit: int, **resume: Any) -> dict[str, Any]:
         return density.render_canonical(
             bundle, fit, display, resolution, channel, weighting, rho_norm, reference,
-            limit=limit, kernel=kernel, symbols=symbols, **resume,
+            limit=limit, kernel=kernel, symbols=symbols, depth_pool=pool, **resume,
         )
 
     rendered = render(density.PAYLOAD_LIMIT)
@@ -385,6 +415,8 @@ def build_response(
         notices: list[dict[str, str]] = []
         for note in (*rendered["resolution"]["warnings"], *rendered["notices"], *budget_notes):
             notices.append({"scope": "resolution", "text": note})
+        if pool is not None:
+            notices.append({"scope": "resolution", "text": pooled_notice(pool)})
         notices.append({"scope": "frame", "text": (
             f"{title.capitalize()} frame: {stats.n_events:,} event(s), {stats.n_showers:,} showers "
             "superimposed at their own entry points"
@@ -562,6 +594,7 @@ def build_response(
                 ),
             },
             frame=frame_block,
+            depth_layers=depth_block,
         )
 
     return serve_within_budget(assemble, render, rendered, display)

@@ -1,0 +1,4436 @@
+{
+ "meta": {
+  "table_name": "experiment_baseline",
+  "exact": true,
+  "warnings": [],
+  "event": 0,
+  "shower": "a",
+  "coordinates": "file",
+  "notices": [
+   {
+    "scope": "event",
+    "text": "Coordinates: the file's own x/y_trans and x/y/z_local; the motions (P₀ subtracted, then R(θ, φ) applied) were also applied to every cell here, and the two differ by at most 3.82e−05 mm (within the 0.01 mm tolerance)."
+   },
+   {
+    "scope": "event",
+    "text": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (700 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 170 cells lie inside it in every frame."
+   },
+   {
+    "scope": "event",
+    "text": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour."
+   }
+  ]
+ },
+ "frames": {
+  "lab": {
+   "kind": "lab",
+   "title": "Original — detector coordinates (x, y, z)",
+   "symbols": {
+    "x": "x",
+    "y": "y",
+    "z": "z"
+   },
+   "window": {
+    "x": [
+     580.0,
+     1980.0
+    ],
+    "y": [
+     540.0,
+     1940.0
+    ],
+    "z": [
+     3340.0,
+     4740.0
+    ]
+   },
+   "raster": {
+    "x": [
+     355.8054962158203,
+     2101.3449096679688
+    ],
+    "y": [
+     707.0,
+     1894.699951171875
+    ],
+    "z": [
+     3652.14990234375,
+     4410.64990234375
+    ]
+   },
+   "half_mm": 700.0,
+   "outside_window": {
+    "n_cells": 0,
+    "n_cells_total": 170,
+    "energy_gev": 0.0,
+    "fraction": 0.0
+   },
+   "panels": {
+    "xy": {
+     "panel": "xy",
+     "encoding": "u8-b64",
+     "shape": [
+      21,
+      38
+     ],
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABWAI7HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAo6EAtQAAkgAAowAAAAAAAAAAAAAAAAAAAAAAmQAAAAAAAADCAKIAANIAAAAAdgAAAAAAAGsAAEAArwAAAAAApQAxvAAAAAAAoJ0AmwAAAAAAAAC2AAAtAAAAAC2QAAAAAPEA5gAAnwAAAKmwAM0AAJYAlQEAAAAAAAAAAAAAAAAA6uoA4gAA7wDsqACaAADhgIEAyAAAwAB2rwAAAAAAAKwAAAAAAAAAAJMAAMkAogAAOABsagAAAHIAd84AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB1AAAAAAAvAAAAAAAAAAAAAAAAAAAAAAAAmAAAAAAAjgAAAAAAAAAAAAAAAAAAAACUsQAAAABGAAAAAAAAMQAAAAAAAAAAAEIwAAAAAAAAAAAAAAAAALzRAHIAAAAAAAAAAKAAmwAAAAAApQCzAAAwAAAAAAAAAAAAAAAAAACmAAAAAAAAAAAskAAAAAAAAABMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wAAAAAA",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 1,
+      "clipped_high": 0,
+      "empty_cells": 713
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": 707.0,
+       "hi": 1894.699951171875,
+       "n": 21,
+       "uniform": false,
+       "unit": "mm",
+       "edges": [
+        707.0,
+        757.5,
+        808.0,
+        858.5,
+        909.0,
+        959.5,
+        1009.9999694824219,
+        1060.5,
+        1111.0,
+        1161.5,
+        1212.0,
+        1262.5,
+        1313.0,
+        1363.5,
+        1414.0,
+        1464.5,
+        1515.0,
+        1565.5,
+        1616.0,
+        1666.5,
+        1717.0,
+        1894.699951171875
+       ],
+       "symbol": "y"
+      },
+      "col": {
+       "name": "x",
+       "lo": 355.8054962158203,
+       "hi": 2101.3449096679688,
+       "n": 38,
+       "uniform": false,
+       "unit": "mm",
+       "edges": [
+        355.8054962158203,
+        811.0,
+        837.3370056152344,
+        861.4720153808594,
+        885.6070251464844,
+        911.9440002441406,
+        938.281494140625,
+        962.41650390625,
+        986.551513671875,
+        1012.8890380859375,
+        1039.2260131835938,
+        1063.3609619140625,
+        1087.4959716796875,
+        1113.8330078125,
+        1140.1705322265625,
+        1164.3055419921875,
+        1188.4404907226562,
+        1214.7779541015625,
+        1241.114990234375,
+        1267.4520263671875,
+        1315.7220458984375,
+        1342.0595092773438,
+        1366.1944580078125,
+        1390.3294677734375,
+        1416.6669921875,
+        1443.0040283203125,
+        1467.1390380859375,
+        1491.2739868164062,
+        1517.6109619140625,
+        1543.948486328125,
+        1568.08349609375,
+        1592.218505859375,
+        1618.5560302734375,
+        1644.8930053710938,
+        1669.0280151367188,
+        1693.1630249023438,
+        1719.5,
+        1745.8369750976562,
+        2101.3449096679688
+       ],
+       "symbol": "x"
+      }
+     },
+     "occupancy": 0.106516,
+     "total": 0.049815063967396815,
+     "topk": [
+      {
+       "i": 6,
+       "j": 10,
+       "value": 5.383114967890564e-06
+      },
+      {
+       "i": 7,
+       "j": 10,
+       "value": 4.722559585590889e-06
+      },
+      {
+       "i": 7,
+       "j": 12,
+       "value": 3.904030721608748e-06
+      },
+      {
+       "i": 7,
+       "j": 4,
+       "value": 3.4212254938052602e-06
+      },
+      {
+       "i": 7,
+       "j": 5,
+       "value": 3.387505544982334e-06
+      },
+      {
+       "i": 6,
+       "j": 12,
+       "value": 2.5008676087433835e-06
+      },
+      {
+       "i": 7,
+       "j": 7,
+       "value": 1.9373666846361947e-06
+      },
+      {
+       "i": 7,
+       "j": 18,
+       "value": 1.853015655539502e-06
+      },
+      {
+       "i": 20,
+       "j": 32,
+       "value": 1.6227412093094923e-06
+      },
+      {
+       "i": 4,
+       "j": 29,
+       "value": 6.852076587193162e-07
+      },
+      {
+       "i": 11,
+       "j": 28,
+       "value": 6.283264795845659e-07
+      },
+      {
+       "i": 8,
+       "j": 24,
+       "value": 5.108071182473247e-07
+      },
+      {
+       "i": 6,
+       "j": 22,
+       "value": 5.016290913817991e-07
+      },
+      {
+       "i": 8,
+       "j": 9,
+       "value": 3.6742774190765675e-07
+      },
+      {
+       "i": 7,
+       "j": 22,
+       "value": 3.434231923917755e-07
+      },
+      {
+       "i": 0,
+       "j": 32,
+       "value": 3.31600128058015e-07
+      },
+      {
+       "i": 2,
+       "j": 27,
+       "value": 2.7608187753105223e-07
+      },
+      {
+       "i": 4,
+       "j": 24,
+       "value": 2.3965007902071724e-07
+      },
+      {
+       "i": 7,
+       "j": 25,
+       "value": 2.051102520322724e-07
+      },
+      {
+       "i": 11,
+       "j": 27,
+       "value": 1.5731721434461288e-07
+      },
+      {
+       "i": 5,
+       "j": 17,
+       "value": 1.5458122954163367e-07
+      },
+      {
+       "i": 5,
+       "j": 34,
+       "value": 1.0236353161417009e-07
+      },
+      {
+       "i": 3,
+       "j": 30,
+       "value": 9.685070127921519e-08
+      },
+      {
+       "i": 1,
+       "j": 31,
+       "value": 9.492556974678206e-08
+      },
+      {
+       "i": 12,
+       "j": 11,
+       "value": 8.707564892789832e-08
+      },
+      {
+       "i": 10,
+       "j": 28,
+       "value": 7.360539563808828e-08
+      },
+      {
+       "i": 18,
+       "j": 35,
+       "value": 7.277687724582853e-08
+      },
+      {
+       "i": 6,
+       "j": 20,
+       "value": 7.136571642568397e-08
+      },
+      {
+       "i": 7,
+       "j": 28,
+       "value": 6.793434706724029e-08
+      },
+      {
+       "i": 5,
+       "j": 8,
+       "value": 6.632952929947309e-08
+      },
+      {
+       "i": 7,
+       "j": 35,
+       "value": 5.340095789839615e-08
+      },
+      {
+       "i": 6,
+       "j": 19,
+       "value": 4.401298996335168e-08
+      },
+      {
+       "i": 7,
+       "j": 13,
+       "value": 4.176258695750445e-08
+      },
+      {
+       "i": 12,
+       "j": 29,
+       "value": 3.663819572424804e-08
+      },
+      {
+       "i": 5,
+       "j": 14,
+       "value": 3.3844049867396514e-08
+      },
+      {
+       "i": 12,
+       "j": 9,
+       "value": 3.306218745625025e-08
+      },
+      {
+       "i": 3,
+       "j": 36,
+       "value": 3.016022853076556e-08
+      },
+      {
+       "i": 3,
+       "j": 27,
+       "value": 2.9867615738667674e-08
+      },
+      {
+       "i": 8,
+       "j": 11,
+       "value": 2.7256007635108905e-08
+      },
+      {
+       "i": 4,
+       "j": 26,
+       "value": 2.699585740306958e-08
+      },
+      {
+       "i": 3,
+       "j": 28,
+       "value": 2.5211132324697718e-08
+      },
+      {
+       "i": 5,
+       "j": 23,
+       "value": 2.40502458125215e-08
+      },
+      {
+       "i": 12,
+       "j": 1,
+       "value": 2.3715858442714852e-08
+      },
+      {
+       "i": 6,
+       "j": 15,
+       "value": 2.2515656666390248e-08
+      },
+      {
+       "i": 5,
+       "j": 24,
+       "value": 2.0303646001385204e-08
+      },
+      {
+       "i": 5,
+       "j": 26,
+       "value": 1.7490849757005682e-08
+      },
+      {
+       "i": 12,
+       "j": 3,
+       "value": 1.7330923846566768e-08
+      },
+      {
+       "i": 7,
+       "j": 15,
+       "value": 1.628266671175363e-08
+      },
+      {
+       "i": 4,
+       "j": 16,
+       "value": 1.5206183456462594e-08
+      },
+      {
+       "i": 10,
+       "j": 4,
+       "value": 1.4443834550256933e-08
+      },
+      {
+       "i": 6,
+       "j": 25,
+       "value": 1.2735682723054295e-08
+      },
+      {
+       "i": 6,
+       "j": 27,
+       "value": 1.1501423353871829e-08
+      },
+      {
+       "i": 10,
+       "j": 27,
+       "value": 1.080394854363739e-08
+      },
+      {
+       "i": 8,
+       "j": 6,
+       "value": 1.0390062806323845e-08
+      },
+      {
+       "i": 3,
+       "j": 33,
+       "value": 9.758006526503185e-09
+      },
+      {
+       "i": 6,
+       "j": 5,
+       "value": 8.531212776011678e-09
+      },
+      {
+       "i": 13,
+       "j": 1,
+       "value": 8.289536848028414e-09
+      },
+      {
+       "i": 10,
+       "j": 10,
+       "value": 7.440341258027856e-09
+      },
+      {
+       "i": 0,
+       "j": 31,
+       "value": 7.07028138741036e-09
+      },
+      {
+       "i": 7,
+       "j": 20,
+       "value": 3.1336717429130215e-09
+      },
+      {
+       "i": 7,
+       "j": 19,
+       "value": 2.9485609991674075e-09
+      },
+      {
+       "i": 8,
+       "j": 23,
+       "value": 1.613215147228295e-09
+      },
+      {
+       "i": 4,
+       "j": 34,
+       "value": 1.500631287145062e-09
+      },
+      {
+       "i": 7,
+       "j": 27,
+       "value": 1.4660445684882328e-09
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 5.383114967890564e-06,
+     "bin_area_mm2": [
+      1218.8141743484885,
+      80888.0410961546
+     ]
+    },
+    "xz": {
+     "panel": "xz",
+     "encoding": "u8-b64",
+     "shape": [
+      38,
+      37
+     ],
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADgQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAqwAAAJ2NAFxIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgAAAAAAAAAAAAAAAAByaQAAAAAAAAAAAAAAAKkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAAApgAAAAAAAAAAAAAAAAAAAAAAAJ74AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE4AAAAAAAAAAAAAAAAAlwCVAAAAAAAAAAAAAAAAAAAAAAAA7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM0AAABZs78AwQAAAAAAAAAAAAAAAAAAAAAAAADf4t/f39/p4+fj5OQAAK0AAAB+AACHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMEAcAAArwAAAAAAAAAAAAAAAAAAAAAA3eDe3gAAAAAAAAAAAAAAT+bo7QAAAAAAcwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgAAALYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAzMwAAp6kAAAAARgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKdvAAAAAAAAAKwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAegA0AAAApz8AAAARAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIgAPwAAAACKAADJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACgAAAAAAAA7gAAPgDEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtmBBAHoAAAAIAAAAiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACoALkAjwAAAACMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMfwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFdrgCnAEUAFwDXAAAAAADAAAAAAAAAANUAAAAAAAAAAAAAAAAApWEAQgAAgwAAAAAAAAAAoFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKsAAMKgAAAAAADQAAAAAADYAAAAAAAAAAAAAAAAAAAAAABuAMCyr76KAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKkAAAAAAACvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKQAAAAAobXH0wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAArLcBAAAAmAAAnN9PvQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGQAAJ+03wAAfgCYsQAAAAAAAAAAAAAAAAAAAAAAnwAAAAAAAAAAAABbwQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATaLBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1QAAAAAAAADMAAD/AAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAABUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAurcAg1sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALkAAAAAAAC+AAAAALEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 2,
+      "clipped_high": 0,
+      "empty_cells": 1251
+     },
+     "axes": {
+      "row": {
+       "name": "x",
+       "lo": 355.8054962158203,
+       "hi": 2101.3449096679688,
+       "n": 38,
+       "uniform": false,
+       "unit": "mm",
+       "edges": [
+        355.8054962158203,
+        811.0,
+        837.3370056152344,
+        861.4720153808594,
+        885.6070251464844,
+        911.9440002441406,
+        938.281494140625,
+        962.41650390625,
+        986.551513671875,
+        1012.8890380859375,
+        1039.2260131835938,
+        1063.3609619140625,
+        1087.4959716796875,
+        1113.8330078125,
+        1140.1705322265625,
+        1164.3055419921875,
+        1188.4404907226562,
+        1214.7779541015625,
+        1241.114990234375,
+        1267.4520263671875,
+        1315.7220458984375,
+        1342.0595092773438,
+        1366.1944580078125,
+        1390.3294677734375,
+        1416.6669921875,
+        1443.0040283203125,
+        1467.1390380859375,
+        1491.2739868164062,
+        1517.6109619140625,
+        1543.948486328125,
+        1568.08349609375,
+        1592.218505859375,
+        1618.5560302734375,
+        1644.8930053710938,
+        1669.0280151367188,
+        1693.1630249023438,
+        1719.5,
+        1745.8369750976562,
+        2101.3449096679688
+       ],
+       "symbol": "x"
+      },
+      "col": {
+       "name": "z",
+       "lo": 3652.14990234375,
+       "hi": 4410.64990234375,
+       "n": 37,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "z"
+      }
+     },
+     "occupancy": 0.110242,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 32,
+       "j": 27,
+       "value": 1.3610914138007614e-05
+      },
+      {
+       "i": 4,
+       "j": 13,
+       "value": 8.427924596652292e-06
+      },
+      {
+       "i": 5,
+       "j": 12,
+       "value": 8.34483073276136e-06
+      },
+      {
+       "i": 7,
+       "j": 11,
+       "value": 4.772537442640382e-06
+      },
+      {
+       "i": 18,
+       "j": 18,
+       "value": 4.277896394222391e-06
+      },
+      {
+       "i": 12,
+       "j": 18,
+       "value": 4.1562137391871385e-06
+      },
+      {
+       "i": 10,
+       "j": 10,
+       "value": 3.141943546317701e-06
+      },
+      {
+       "i": 12,
+       "j": 17,
+       "value": 2.9478410088083033e-06
+      },
+      {
+       "i": 10,
+       "j": 12,
+       "value": 2.735010747824633e-06
+      },
+      {
+       "i": 12,
+       "j": 16,
+       "value": 2.5119978266950738e-06
+      },
+      {
+       "i": 10,
+       "j": 15,
+       "value": 2.312870247602269e-06
+      },
+      {
+       "i": 10,
+       "j": 14,
+       "value": 2.253529936674462e-06
+      },
+      {
+       "i": 10,
+       "j": 13,
+       "value": 2.1593259548446597e-06
+      },
+      {
+       "i": 10,
+       "j": 11,
+       "value": 2.127620393092624e-06
+      },
+      {
+       "i": 10,
+       "j": 5,
+       "value": 1.990997937158129e-06
+      },
+      {
+       "i": 12,
+       "j": 1,
+       "value": 1.7378207247167192e-06
+      },
+      {
+       "i": 10,
+       "j": 8,
+       "value": 1.6605932967299153e-06
+      },
+      {
+       "i": 10,
+       "j": 6,
+       "value": 1.649126739346411e-06
+      },
+      {
+       "i": 10,
+       "j": 9,
+       "value": 1.647746978352886e-06
+      },
+      {
+       "i": 10,
+       "j": 7,
+       "value": 1.6073133224373319e-06
+      },
+      {
+       "i": 28,
+       "j": 21,
+       "value": 1.5915709265077278e-06
+      },
+      {
+       "i": 29,
+       "j": 19,
+       "value": 1.5716853259863774e-06
+      },
+      {
+       "i": 10,
+       "j": 4,
+       "value": 1.5631303824920207e-06
+      },
+      {
+       "i": 12,
+       "j": 3,
+       "value": 1.5001179237192355e-06
+      },
+      {
+       "i": 12,
+       "j": 2,
+       "value": 1.4668422333003177e-06
+      },
+      {
+       "i": 12,
+       "j": 0,
+       "value": 1.4558967066521906e-06
+      },
+      {
+       "i": 24,
+       "j": 26,
+       "value": 1.0019569549799324e-06
+      },
+      {
+       "i": 22,
+       "j": 16,
+       "value": 9.684755332687333e-07
+      },
+      {
+       "i": 32,
+       "j": 16,
+       "value": 8.16868608142915e-07
+      },
+      {
+       "i": 22,
+       "j": 30,
+       "value": 8.085991324507855e-07
+      },
+      {
+       "i": 27,
+       "j": 21,
+       "value": 7.276390007717764e-07
+      },
+      {
+       "i": 24,
+       "j": 20,
+       "value": 5.903575117339619e-07
+      },
+      {
+       "i": 9,
+       "j": 13,
+       "value": 4.877278617093837e-07
+      },
+      {
+       "i": 32,
+       "j": 24,
+       "value": 4.554777477917104e-07
+      },
+      {
+       "i": 17,
+       "j": 24,
+       "value": 3.7537280214417984e-07
+      },
+      {
+       "i": 27,
+       "j": 20,
+       "value": 3.1672879194100555e-07
+      },
+      {
+       "i": 18,
+       "j": 23,
+       "value": 2.620225998792829e-07
+      },
+      {
+       "i": 24,
+       "j": 13,
+       "value": 2.3290045798270512e-07
+      },
+      {
+       "i": 9,
+       "j": 21,
+       "value": 2.2566957581289736e-07
+      },
+      {
+       "i": 31,
+       "j": 16,
+       "value": 2.235494857596668e-07
+      },
+      {
+       "i": 30,
+       "j": 18,
+       "value": 2.1856722430576618e-07
+      },
+      {
+       "i": 11,
+       "j": 14,
+       "value": 2.1353841484598385e-07
+      },
+      {
+       "i": 22,
+       "j": 22,
+       "value": 2.0479687223721477e-07
+      },
+      {
+       "i": 25,
+       "j": 9,
+       "value": 2.0265600105871655e-07
+      },
+      {
+       "i": 9,
+       "j": 19,
+       "value": 1.8686913507182878e-07
+      },
+      {
+       "i": 25,
+       "j": 12,
+       "value": 1.823562687781028e-07
+      },
+      {
+       "i": 35,
+       "j": 36,
+       "value": 1.792796244348459e-07
+      },
+      {
+       "i": 28,
+       "j": 23,
+       "value": 1.6685131328909e-07
+      },
+      {
+       "i": 8,
+       "j": 10,
+       "value": 1.6339703441008773e-07
+      },
+      {
+       "i": 34,
+       "j": 11,
+       "value": 1.395228894061229e-07
+      },
+      {
+       "i": 35,
+       "j": 29,
+       "value": 1.3154870116434174e-07
+      },
+      {
+       "i": 20,
+       "j": 14,
+       "value": 1.2912531109686396e-07
+      },
+      {
+       "i": 28,
+       "j": 12,
+       "value": 1.1446197396599909e-07
+      },
+      {
+       "i": 34,
+       "j": 12,
+       "value": 1.1249338342804114e-07
+      },
+      {
+       "i": 19,
+       "j": 11,
+       "value": 1.0842230908873754e-07
+      },
+      {
+       "i": 13,
+       "j": 18,
+       "value": 1.0287856787092558e-07
+      },
+      {
+       "i": 27,
+       "j": 19,
+       "value": 9.685019433715974e-08
+      },
+      {
+       "i": 29,
+       "j": 18,
+       "value": 9.409339123166647e-08
+      },
+      {
+       "i": 9,
+       "j": 18,
+       "value": 8.630618022917331e-08
+      },
+      {
+       "i": 25,
+       "j": 10,
+       "value": 7.803543828158582e-08
+      },
+      {
+       "i": 36,
+       "j": 4,
+       "value": 7.429714833188589e-08
+      },
+      {
+       "i": 29,
+       "j": 25,
+       "value": 7.401556220454046e-08
+      },
+      {
+       "i": 11,
+       "j": 19,
+       "value": 6.71428480767317e-08
+      },
+      {
+       "i": 25,
+       "j": 11,
+       "value": 6.701804541931671e-08
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 1.3610914138007614e-05,
+     "bin_area_mm2": [
+      494.7664489746094,
+      9331.487327575684
+     ]
+    },
+    "yz": {
+     "panel": "yz",
+     "encoding": "u8-b64",
+     "shape": [
+      21,
+      37
+     ],
+     "data": "AAAAAAAAAAAAAAAAAABckcsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIm4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADIAAAAAAAAAAAAAAAAAAAAAAAAlacAlAAAAAAAAAAAAAAAtgCfqgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeEIAlLHUxwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnAAAt7OsRgBcAAAAnJ6Alka/AAAAAAAAAAAAAAAA1NbU1NPX1NTV1N65npuvAMwAAAAAgrkAAAAAAAAAAAAAAAAAAAAAAAAAAAEAALWs6vLx2dnc3u4HADVzuml8AAAAsMoAAAAAAAAAAAAAAAAAAFUAOEFzyZgAPAB+uQC4AAAAO86MAIoAAAAAAAAAAAAAAAAAAAAzAAAAAAB4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJEAAAAAj5gAAAAAswAAAAAAnAAAAAAAAAAAAAAAAAAAAAAAAAAAADRFAFB0q7zVRQAAAAAAAAAAAAAAMwAAAAAAAAAAAAAAAAAAAAC2KGUAqAAAAHMAjK2iAAAAAIQAAD4AAAAAAAAAAAAAAAAAAAAAAAAATwAAAAAAAAAAAAAAAJNZMVIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACvAADiAAAAAAAAAAAA",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 1,
+      "clipped_high": 0,
+      "empty_cells": 662
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": 707.0,
+       "hi": 1894.699951171875,
+       "n": 21,
+       "uniform": false,
+       "unit": "mm",
+       "edges": [
+        707.0,
+        757.5,
+        808.0,
+        858.5,
+        909.0,
+        959.5,
+        1009.9999694824219,
+        1060.5,
+        1111.0,
+        1161.5,
+        1212.0,
+        1262.5,
+        1313.0,
+        1363.5,
+        1414.0,
+        1464.5,
+        1515.0,
+        1565.5,
+        1616.0,
+        1666.5,
+        1717.0,
+        1894.699951171875
+       ],
+       "symbol": "y"
+      },
+      "col": {
+       "name": "z",
+       "lo": 3652.14990234375,
+       "hi": 4410.64990234375,
+       "n": 37,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "z"
+      }
+     },
+     "occupancy": 0.148005,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 7,
+       "j": 12,
+       "value": 5.7976692373270755e-06
+      },
+      {
+       "i": 7,
+       "j": 13,
+       "value": 5.4479817446552385e-06
+      },
+      {
+       "i": 7,
+       "j": 18,
+       "value": 4.479278287999512e-06
+      },
+      {
+       "i": 7,
+       "j": 11,
+       "value": 3.358419070651294e-06
+      },
+      {
+       "i": 20,
+       "j": 27,
+       "value": 2.0172785886830334e-06
+      },
+      {
+       "i": 7,
+       "j": 17,
+       "value": 1.5373741616390244e-06
+      },
+      {
+       "i": 6,
+       "j": 10,
+       "value": 1.5015960510758432e-06
+      },
+      {
+       "i": 7,
+       "j": 16,
+       "value": 1.3140439849921574e-06
+      },
+      {
+       "i": 7,
+       "j": 15,
+       "value": 1.1071519503544623e-06
+      },
+      {
+       "i": 7,
+       "j": 14,
+       "value": 1.0775102490845992e-06
+      },
+      {
+       "i": 6,
+       "j": 5,
+       "value": 9.515367147957317e-07
+      },
+      {
+       "i": 6,
+       "j": 1,
+       "value": 9.063172190219425e-07
+      },
+      {
+       "i": 6,
+       "j": 8,
+       "value": 8.233432008545617e-07
+      },
+      {
+       "i": 11,
+       "j": 21,
+       "value": 8.071898812222168e-07
+      },
+      {
+       "i": 6,
+       "j": 6,
+       "value": 7.881498069652954e-07
+      },
+      {
+       "i": 6,
+       "j": 9,
+       "value": 7.874903922976661e-07
+      },
+      {
+       "i": 6,
+       "j": 3,
+       "value": 7.823492294073157e-07
+      },
+      {
+       "i": 6,
+       "j": 7,
+       "value": 7.687194109888296e-07
+      },
+      {
+       "i": 6,
+       "j": 2,
+       "value": 7.649951198765845e-07
+      },
+      {
+       "i": 6,
+       "j": 0,
+       "value": 7.592867524187857e-07
+      },
+      {
+       "i": 4,
+       "j": 19,
+       "value": 7.51141399825163e-07
+      },
+      {
+       "i": 6,
+       "j": 4,
+       "value": 7.470504721249858e-07
+      },
+      {
+       "i": 8,
+       "j": 26,
+       "value": 5.225460698382034e-07
+      },
+      {
+       "i": 6,
+       "j": 16,
+       "value": 4.628545015447791e-07
+      },
+      {
+       "i": 0,
+       "j": 16,
+       "value": 4.260167958557836e-07
+      },
+      {
+       "i": 7,
+       "j": 30,
+       "value": 3.864464942212992e-07
+      },
+      {
+       "i": 8,
+       "j": 13,
+       "value": 3.776945395967996e-07
+      },
+      {
+       "i": 2,
+       "j": 21,
+       "value": 3.5469080650973195e-07
+      },
+      {
+       "i": 4,
+       "j": 20,
+       "value": 3.2742268733256166e-07
+      },
+      {
+       "i": 5,
+       "j": 24,
+       "value": 1.9576659460730072e-07
+      },
+      {
+       "i": 11,
+       "j": 20,
+       "value": 1.516004964039604e-07
+      },
+      {
+       "i": 7,
+       "j": 23,
+       "value": 1.4144435773285622e-07
+      },
+      {
+       "i": 8,
+       "j": 19,
+       "value": 1.2954576338477448e-07
+      },
+      {
+       "i": 6,
+       "j": 11,
+       "value": 1.2644502472132426e-07
+      },
+      {
+       "i": 6,
+       "j": 22,
+       "value": 1.243846745470102e-07
+      },
+      {
+       "i": 8,
+       "j": 21,
+       "value": 1.1769215838580053e-07
+      },
+      {
+       "i": 1,
+       "j": 16,
+       "value": 1.1658891166230379e-07
+      },
+      {
+       "i": 5,
+       "j": 10,
+       "value": 1.1128928454346704e-07
+      },
+      {
+       "i": 3,
+       "j": 18,
+       "value": 1.0320391876812364e-07
+      },
+      {
+       "i": 12,
+       "j": 14,
+       "value": 1.020544896563149e-07
+      },
+      {
+       "i": 7,
+       "j": 9,
+       "value": 9.685355573494325e-08
+      },
+      {
+       "i": 18,
+       "j": 36,
+       "value": 9.349867335163766e-08
+      },
+      {
+       "i": 5,
+       "j": 11,
+       "value": 8.782952084184713e-08
+      },
+      {
+       "i": 10,
+       "j": 23,
+       "value": 8.701882252019403e-08
+      },
+      {
+       "i": 4,
+       "j": 18,
+       "value": 7.675182257266839e-08
+      },
+      {
+       "i": 7,
+       "j": 29,
+       "value": 6.860583894444143e-08
+      },
+      {
+       "i": 20,
+       "j": 24,
+       "value": 6.750652446451236e-08
+      },
+      {
+       "i": 6,
+       "j": 14,
+       "value": 6.729157809683812e-08
+      },
+      {
+       "i": 12,
+       "j": 25,
+       "value": 5.577759122236685e-08
+      },
+      {
+       "i": 7,
+       "j": 10,
+       "value": 5.5139687759507126e-08
+      },
+      {
+       "i": 5,
+       "j": 12,
+       "value": 5.4058703365624825e-08
+      },
+      {
+       "i": 11,
+       "j": 19,
+       "value": 5.0509725870513755e-08
+      },
+      {
+       "i": 3,
+       "j": 21,
+       "value": 4.7660864288231596e-08
+      },
+      {
+       "i": 12,
+       "j": 18,
+       "value": 4.24760003760637e-08
+      },
+      {
+       "i": 3,
+       "j": 4,
+       "value": 3.874776525631191e-08
+      },
+      {
+       "i": 12,
+       "j": 26,
+       "value": 2.675640728055668e-08
+      },
+      {
+       "i": 3,
+       "j": 20,
+       "value": 2.3101158396819273e-08
+      },
+      {
+       "i": 5,
+       "j": 20,
+       "value": 2.1486825972951498e-08
+      },
+      {
+       "i": 6,
+       "j": 12,
+       "value": 2.1121491277858e-08
+      },
+      {
+       "i": 10,
+       "j": 29,
+       "value": 1.855643467633092e-08
+      },
+      {
+       "i": 5,
+       "j": 19,
+       "value": 1.8358367883532126e-08
+      },
+      {
+       "i": 5,
+       "j": 7,
+       "value": 1.8192624947886654e-08
+      },
+      {
+       "i": 6,
+       "j": 13,
+       "value": 1.7512768255125935e-08
+      },
+      {
+       "i": 8,
+       "j": 14,
+       "value": 1.4059156335995605e-08
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 5.7976692373270755e-06,
+     "bin_area_mm2": [
+      1035.2493743896484,
+      3642.8489990234375
+     ]
+    }
+   },
+   "marks": [
+    {
+     "type": "line",
+     "style": "forward",
+     "origin": [
+      1089.697998046875,
+      1036.199951171875,
+      3662.39990234375
+     ],
+     "direction": [
+      0.27756346725898356,
+      0.25874387996416276,
+      0.9252081529170947
+     ],
+     "panels": null,
+     "name": "Incident direction (forward)",
+     "tooltip": "Incident direction (forward) from the shower origin, along (θ, φ)"
+    },
+    {
+     "type": "line",
+     "style": "backward",
+     "origin": [
+      1089.697998046875,
+      1036.199951171875,
+      3662.39990234375
+     ],
+     "direction": [
+      -0.27756346725898356,
+      -0.25874387996416276,
+      -0.9252081529170947
+     ],
+     "panels": null,
+     "name": "Extrapolated backward",
+     "tooltip": "Incident direction extrapolated backward, upstream of the origin"
+    },
+    {
+     "type": "plane",
+     "style": "plane",
+     "axis": "z",
+     "at": 3662.39990234375,
+     "panels": [
+      "xz",
+      "yz"
+     ],
+     "name": "1st layer plane (z = z₀)",
+     "tooltip": "The plane of the shower's first populated layer, z = z₀"
+    },
+    {
+     "type": "point",
+     "style": "origin",
+     "at": [
+      1089.697998046875,
+      1036.199951171875,
+      3662.39990234375
+     ],
+     "panels": null,
+     "name": "Shower origin (1st layer centre of mass)",
+     "tooltip": "Shower origin P₀: the energy-weighted centroid of the first populated layer"
+    }
+   ],
+   "depth": {
+    "policy": "native_layers",
+    "pitch_mm": 20.5,
+    "note": "the detector's own sampling layers, cropped to the event"
+   },
+   "splat": {
+    "regime": "native_lattice",
+    "pitch_mm": null
+   },
+   "layer_planes": {
+    "numbering": "detector",
+    "normal": [
+     0.0,
+     0.0,
+     1.0
+    ],
+    "edges_mm": [
+     3652.149902,
+     3672.649902,
+     3693.149902,
+     3713.649902,
+     3734.149902,
+     3754.649902,
+     3775.149902,
+     3795.649902,
+     3816.149902,
+     3836.649902,
+     3857.149902,
+     3877.649902,
+     3898.149902,
+     3918.649902,
+     3939.149902,
+     3959.649902,
+     3980.149902,
+     4000.649902,
+     4021.149902,
+     4041.649902,
+     4062.149902,
+     4082.649902,
+     4103.149902,
+     4123.649902,
+     4144.149902,
+     4164.649902,
+     4185.149902,
+     4205.649902,
+     4226.149902,
+     4246.649902,
+     4267.149902,
+     4287.649902,
+     4308.149902,
+     4328.649902,
+     4349.149902,
+     4369.649902,
+     4390.149902,
+     4410.649902,
+     4431.149902,
+     4451.649902,
+     4472.149902,
+     4492.649902,
+     4513.149902,
+     4533.649902,
+     4554.149902,
+     4574.649902,
+     4595.149902,
+     4615.649902,
+     4636.149902,
+     4656.649902,
+     4677.149902,
+     4697.649902,
+     4718.149902,
+     4738.649902,
+     4769.399902,
+     4810.399902,
+     4851.399902
+    ],
+    "first_layer": 1,
+    "n_layers": 56,
+    "energy_gev": [
+     0.0007860520855,
+     0.000938265468,
+     0.0007919616764,
+     0.0008218207631,
+     0.0008134980926,
+     0.0009850789793,
+     0.000827134353,
+     0.0008146511547,
+     0.000852556987,
+     0.0009155175649,
+     0.00172684799,
+     0.003698676179,
+     0.006090223742,
+     0.006049224521,
+     0.001309204906,
+     0.001161475148,
+     0.002401783879,
+     0.001610658753,
+     0.004885737009,
+     0.0009830280324,
+     0.0005420684483,
+     0.001380378212,
+     0.0001444159361,
+     0.0002365785471,
+     0.00045604467,
+     5.998814177e-05,
+     0.0005686653894,
+     0.007355406659,
+     0.0,
+     9.613296788e-05,
+     0.0004109574656,
+     4.029083186e-06,
+     1.55447939e-08,
+     1.365072109e-07,
+     5.460901242e-08,
+     0.0,
+     9.679450159e-05,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "line_panels": [
+     "xz",
+     "yz"
+    ],
+    "tilt": null,
+    "start_layer": 1,
+    "reach_layers": null,
+    "display_offset_mm": 3649.0
+   }
+  },
+  "trans": {
+   "kind": "trans",
+   "title": "Translated only — origin shifted to P₀, not rotated (Δx, Δy, Δz)",
+   "symbols": {
+    "x": "Δx",
+    "y": "Δy",
+    "z": "Δz"
+   },
+   "window": {
+    "x": [
+     -500.0,
+     900.0
+    ],
+    "y": [
+     -500.0,
+     900.0
+    ],
+    "z": [
+     -340.0,
+     1060.0
+    ]
+   },
+   "raster": {
+    "x": [
+     -360.0,
+     720.0
+    ],
+    "y": [
+     -360.0,
+     760.0
+    ],
+    "z": [
+     -10.25,
+     748.25
+    ]
+   },
+   "half_mm": 700.0,
+   "outside_window": {
+    "n_cells": 0,
+    "n_cells_total": 170,
+    "energy_gev": 0.0,
+    "fraction": 0.0
+   },
+   "panels": {
+    "xy": {
+     "panel": "xy",
+     "encoding": "u8-b64",
+     "shape": [
+      56,
+      54
+     ],
+     "data": "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",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 9,
+      "clipped_high": 0,
+      "empty_cells": 2302
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": -360.0,
+       "hi": 760.0,
+       "n": 56,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δy"
+      },
+      "col": {
+       "name": "x",
+       "lo": -360.0,
+       "hi": 720.0,
+       "n": 54,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δx"
+      }
+     },
+     "occupancy": 0.238757,
+     "total": 0.04981506396739683,
+     "topk": [
+      {
+       "i": 53,
+       "j": 45,
+       "value": 3.2373446793051897e-06
+      },
+      {
+       "i": 52,
+       "j": 45,
+       "value": 2.800301171680606e-06
+      },
+      {
+       "i": 17,
+       "j": 15,
+       "value": 2.796779004558105e-06
+      },
+      {
+       "i": 18,
+       "j": 15,
+       "value": 2.796779004558105e-06
+      },
+      {
+       "i": 53,
+       "j": 46,
+       "value": 2.77247036125091e-06
+      },
+      {
+       "i": 19,
+       "j": 15,
+       "value": 2.5273590599633746e-06
+      },
+      {
+       "i": 17,
+       "j": 16,
+       "value": 2.5116884237688057e-06
+      },
+      {
+       "i": 18,
+       "j": 16,
+       "value": 2.5116884237688057e-06
+      },
+      {
+       "i": 20,
+       "j": 15,
+       "value": 2.453588227980249e-06
+      },
+      {
+       "i": 19,
+       "j": 16,
+       "value": 2.4270810967211148e-06
+      },
+      {
+       "i": 20,
+       "j": 16,
+       "value": 2.4039271640637988e-06
+      },
+      {
+       "i": 52,
+       "j": 46,
+       "value": 2.39818517030042e-06
+      },
+      {
+       "i": 20,
+       "j": 18,
+       "value": 2.2133901789730113e-06
+      },
+      {
+       "i": 20,
+       "j": 17,
+       "value": 2.2133901789730113e-06
+      },
+      {
+       "i": 19,
+       "j": 18,
+       "value": 2.0423398269937875e-06
+      },
+      {
+       "i": 19,
+       "j": 17,
+       "value": 2.0423398269937875e-06
+      },
+      {
+       "i": 20,
+       "j": 8,
+       "value": 1.93965926474611e-06
+      },
+      {
+       "i": 20,
+       "j": 7,
+       "value": 1.93965926474611e-06
+      },
+      {
+       "i": 20,
+       "j": 9,
+       "value": 1.922728153072288e-06
+      },
+      {
+       "i": 20,
+       "j": 10,
+       "value": 1.920579616185722e-06
+      },
+      {
+       "i": 54,
+       "j": 45,
+       "value": 1.8290977678890488e-06
+      },
+      {
+       "i": 53,
+       "j": 44,
+       "value": 1.803519504416389e-06
+      },
+      {
+       "i": 18,
+       "j": 14,
+       "value": 1.7347062744214095e-06
+      },
+      {
+       "i": 17,
+       "j": 14,
+       "value": 1.7347062744214095e-06
+      },
+      {
+       "i": 21,
+       "j": 15,
+       "value": 1.6169463536232304e-06
+      },
+      {
+       "i": 21,
+       "j": 16,
+       "value": 1.5712375466183905e-06
+      },
+      {
+       "i": 19,
+       "j": 14,
+       "value": 1.5675981591284058e-06
+      },
+      {
+       "i": 54,
+       "j": 46,
+       "value": 1.5664440619251474e-06
+      },
+      {
+       "i": 52,
+       "j": 44,
+       "value": 1.5600432705392287e-06
+      },
+      {
+       "i": 19,
+       "j": 8,
+       "value": 1.522623236050164e-06
+      },
+      {
+       "i": 19,
+       "j": 7,
+       "value": 1.522623236050164e-06
+      },
+      {
+       "i": 20,
+       "j": 14,
+       "value": 1.5218416925281301e-06
+      },
+      {
+       "i": 19,
+       "j": 9,
+       "value": 1.5102543317413633e-06
+      },
+      {
+       "i": 19,
+       "j": 10,
+       "value": 1.5086843701624714e-06
+      },
+      {
+       "i": 20,
+       "j": 11,
+       "value": 1.4871483547547769e-06
+      },
+      {
+       "i": 21,
+       "j": 17,
+       "value": 1.4299826442582263e-06
+      },
+      {
+       "i": 21,
+       "j": 18,
+       "value": 1.4299512130147973e-06
+      },
+      {
+       "i": 18,
+       "j": 18,
+       "value": 1.4178677228518179e-06
+      },
+      {
+       "i": 17,
+       "j": 18,
+       "value": 1.4178677228518179e-06
+      },
+      {
+       "i": 17,
+       "j": 17,
+       "value": 1.4178677228518179e-06
+      },
+      {
+       "i": 18,
+       "j": 17,
+       "value": 1.4178677228518179e-06
+      },
+      {
+       "i": 21,
+       "j": 7,
+       "value": 1.2510885128796814e-06
+      },
+      {
+       "i": 21,
+       "j": 8,
+       "value": 1.2510885128796814e-06
+      },
+      {
+       "i": 21,
+       "j": 9,
+       "value": 1.240762363504089e-06
+      },
+      {
+       "i": 21,
+       "j": 10,
+       "value": 1.2396727465347376e-06
+      },
+      {
+       "i": 19,
+       "j": 11,
+       "value": 1.167950079608511e-06
+      },
+      {
+       "i": 20,
+       "j": 25,
+       "value": 1.05056720756651e-06
+      },
+      {
+       "i": 54,
+       "j": 44,
+       "value": 1.0189874192143124e-06
+      },
+      {
+       "i": 21,
+       "j": 14,
+       "value": 1.0104818215599732e-06
+      },
+      {
+       "i": 20,
+       "j": 12,
+       "value": 1.006554184385611e-06
+      },
+      {
+       "i": 21,
+       "j": 11,
+       "value": 9.59881541664009e-07
+      },
+      {
+       "i": 20,
+       "j": 13,
+       "value": 9.454568860230932e-07
+      },
+      {
+       "i": 20,
+       "j": 26,
+       "value": 9.329340621644874e-07
+      },
+      {
+       "i": 19,
+       "j": 25,
+       "value": 8.246894870016805e-07
+      },
+      {
+       "i": 19,
+       "j": 12,
+       "value": 7.90139505575432e-07
+      },
+      {
+       "i": 19,
+       "j": 13,
+       "value": 7.421784619783391e-07
+      },
+      {
+       "i": 19,
+       "j": 26,
+       "value": 7.334523146153292e-07
+      },
+      {
+       "i": 21,
+       "j": 25,
+       "value": 6.77681379582848e-07
+      },
+      {
+       "i": 21,
+       "j": 12,
+       "value": 6.492317493921532e-07
+      },
+      {
+       "i": 21,
+       "j": 13,
+       "value": 6.098237309125087e-07
+      },
+      {
+       "i": 21,
+       "j": 26,
+       "value": 6.01787201611142e-07
+      },
+      {
+       "i": 16,
+       "j": 15,
+       "value": 6.013057789615572e-07
+      },
+      {
+       "i": 20,
+       "j": 6,
+       "value": 5.842240919575402e-07
+      },
+      {
+       "i": 20,
+       "j": 24,
+       "value": 5.526733081759665e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 3.2373446793051897e-06,
+     "bin_area_mm2": [
+      400.0,
+      400.0
+     ]
+    },
+    "xz": {
+     "panel": "xz",
+     "encoding": "u8-b64",
+     "shape": [
+      54,
+      37
+     ],
+     "data": "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",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 12,
+      "clipped_high": 0,
+      "empty_cells": 1569
+     },
+     "axes": {
+      "row": {
+       "name": "x",
+       "lo": -360.0,
+       "hi": 720.0,
+       "n": 54,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δx"
+      },
+      "col": {
+       "name": "z",
+       "lo": -10.25,
+       "hi": 748.25,
+       "n": 37,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δz"
+      }
+     },
+     "occupancy": 0.214715,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 45,
+       "j": 27,
+       "value": 7.426355120427708e-06
+      },
+      {
+       "i": 46,
+       "j": 27,
+       "value": 6.359949743729083e-06
+      },
+      {
+       "i": 8,
+       "j": 13,
+       "value": 4.5984244958354586e-06
+      },
+      {
+       "i": 7,
+       "j": 13,
+       "value": 4.5984244958354586e-06
+      },
+      {
+       "i": 10,
+       "j": 12,
+       "value": 4.553176705242698e-06
+      },
+      {
+       "i": 44,
+       "j": 27,
+       "value": 4.137210471295404e-06
+      },
+      {
+       "i": 9,
+       "j": 12,
+       "value": 4.041861408613301e-06
+      },
+      {
+       "i": 11,
+       "j": 12,
+       "value": 2.3940583107088787e-06
+      },
+      {
+       "i": 12,
+       "j": 11,
+       "value": 2.3862687213201914e-06
+      },
+      {
+       "i": 25,
+       "j": 18,
+       "value": 2.3341012289030206e-06
+      },
+      {
+       "i": 18,
+       "j": 18,
+       "value": 2.2677088695561337e-06
+      },
+      {
+       "i": 17,
+       "j": 18,
+       "value": 2.2677088695561337e-06
+      },
+      {
+       "i": 13,
+       "j": 11,
+       "value": 2.241423491623357e-06
+      },
+      {
+       "i": 26,
+       "j": 18,
+       "value": 2.0719849660210214e-06
+      },
+      {
+       "i": 18,
+       "j": 17,
+       "value": 1.6083978402475743e-06
+      },
+      {
+       "i": 17,
+       "j": 17,
+       "value": 1.6083978402475743e-06
+      },
+      {
+       "i": 15,
+       "j": 10,
+       "value": 1.5709678003198682e-06
+      },
+      {
+       "i": 6,
+       "j": 13,
+       "value": 1.3850424269576182e-06
+      },
+      {
+       "i": 17,
+       "j": 16,
+       "value": 1.3710760585577664e-06
+      },
+      {
+       "i": 18,
+       "j": 16,
+       "value": 1.371069567808701e-06
+      },
+      {
+       "i": 15,
+       "j": 12,
+       "value": 1.3675019156206074e-06
+      },
+      {
+       "i": 15,
+       "j": 13,
+       "value": 1.345773181607356e-06
+      },
+      {
+       "i": 16,
+       "j": 10,
+       "value": 1.246169440529614e-06
+      },
+      {
+       "i": 24,
+       "j": 18,
+       "value": 1.2272694004291292e-06
+      },
+      {
+       "i": 15,
+       "j": 15,
+       "value": 1.1564321992861183e-06
+      },
+      {
+       "i": 11,
+       "j": 11,
+       "value": 1.1375989603644158e-06
+      },
+      {
+       "i": 15,
+       "j": 14,
+       "value": 1.1267621188552311e-06
+      },
+      {
+       "i": 16,
+       "j": 12,
+       "value": 1.0847702268405019e-06
+      },
+      {
+       "i": 15,
+       "j": 11,
+       "value": 1.0638075062709735e-06
+      },
+      {
+       "i": 16,
+       "j": 13,
+       "value": 1.008936773565683e-06
+      },
+      {
+       "i": 15,
+       "j": 5,
+       "value": 9.954964510563586e-07
+      },
+      {
+       "i": 14,
+       "j": 10,
+       "value": 9.886198051999884e-07
+      },
+      {
+       "i": 17,
+       "j": 1,
+       "value": 9.481878744545312e-07
+      },
+      {
+       "i": 18,
+       "j": 1,
+       "value": 9.481878744545312e-07
+      },
+      {
+       "i": 16,
+       "j": 14,
+       "value": 9.393889473681156e-07
+      },
+      {
+       "i": 16,
+       "j": 15,
+       "value": 9.173516848715266e-07
+      },
+      {
+       "i": 14,
+       "j": 13,
+       "value": 8.933149328679369e-07
+      },
+      {
+       "i": 40,
+       "j": 21,
+       "value": 8.684073166051162e-07
+      },
+      {
+       "i": 14,
+       "j": 12,
+       "value": 8.481950663403159e-07
+      },
+      {
+       "i": 16,
+       "j": 11,
+       "value": 8.438647849121908e-07
+      },
+      {
+       "i": 15,
+       "j": 8,
+       "value": 8.302945486232894e-07
+      },
+      {
+       "i": 15,
+       "j": 6,
+       "value": 8.245612844304567e-07
+      },
+      {
+       "i": 15,
+       "j": 9,
+       "value": 8.238714056783368e-07
+      },
+      {
+       "i": 18,
+       "j": 3,
+       "value": 8.184927278700451e-07
+      },
+      {
+       "i": 17,
+       "j": 3,
+       "value": 8.184927278700451e-07
+      },
+      {
+       "i": 15,
+       "j": 7,
+       "value": 8.036546288470049e-07
+      },
+      {
+       "i": 18,
+       "j": 2,
+       "value": 8.003368814581756e-07
+      },
+      {
+       "i": 17,
+       "j": 2,
+       "value": 8.003368814581756e-07
+      },
+      {
+       "i": 17,
+       "j": 0,
+       "value": 7.943647949824749e-07
+      },
+      {
+       "i": 18,
+       "j": 0,
+       "value": 7.943647949824749e-07
+      },
+      {
+       "i": 16,
+       "j": 5,
+       "value": 7.896770737182048e-07
+      },
+      {
+       "i": 40,
+       "j": 19,
+       "value": 7.858426629931888e-07
+      },
+      {
+       "i": 41,
+       "j": 19,
+       "value": 7.858426629931888e-07
+      },
+      {
+       "i": 15,
+       "j": 4,
+       "value": 7.815632147415866e-07
+      },
+      {
+       "i": 14,
+       "j": 15,
+       "value": 7.172787655996942e-07
+      },
+      {
+       "i": 41,
+       "j": 21,
+       "value": 7.026710593851125e-07
+      },
+      {
+       "i": 14,
+       "j": 14,
+       "value": 6.988758547504046e-07
+      },
+      {
+       "i": 39,
+       "j": 21,
+       "value": 6.819008837619172e-07
+      },
+      {
+       "i": 14,
+       "j": 11,
+       "value": 6.598281640763481e-07
+      },
+      {
+       "i": 16,
+       "j": 8,
+       "value": 6.586307452781643e-07
+      },
+      {
+       "i": 16,
+       "j": 6,
+       "value": 6.540828362566451e-07
+      },
+      {
+       "i": 16,
+       "j": 9,
+       "value": 6.535355902733808e-07
+      },
+      {
+       "i": 16,
+       "j": 7,
+       "value": 6.374986419233998e-07
+      },
+      {
+       "i": 16,
+       "j": 4,
+       "value": 6.199746384711001e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 7.426355120427708e-06,
+     "bin_area_mm2": [
+      410.0,
+      410.0
+     ]
+    },
+    "yz": {
+     "panel": "yz",
+     "encoding": "u8-b64",
+     "shape": [
+      56,
+      37
+     ],
+     "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYO8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFySzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABckswAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM4u7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACKuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf64AAAAAuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADJAAAAAAAAAAAAAAAAAAAAAAAAlKYAkwAAAAAAAAAAAAAAtACeswAAAAAAAAAAAAAAAAAAAAAAAJWoAJQAAAAAAAAAAAAAALYAoKsAAAAAAAAAAAAAAAAAAAAAAACMnwCLAAAAAAAAAGUvAICywLaiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5QwCUstTIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeUMAlLLUyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAmgAAtbGqRF5aAHmXu7F+lES9AAAAAAAAAAAAAAAAAAAAAAAAAJwAALe0rUcAXQAAAJyfgJdHwAAAAAAAAAAAAAAAAL3Avb69wb6+vr7KsqeFmVW2AACVl36mP7gAAAAAAAAAAAAAAADU19TV1NjV1NXV37mfnLAAzQAAAACDuQAAAAAAAAAAAAAAAAAA1NfU1dTY1dTV1d+5n5ywAM0AAAAAg7kAAAAAAAAAAAAAAAAAAL3Avb69wb69vsPJ5+/u1tba2+sEAGyjt2Z5AAAArccAAAAAAAAAAAAAAAABAAC1revz8tra3d/vCAA1dLtqfAAAALDKAAAAAAAAAAAAAAAAAQA7r6bk7OzT09bY6J8AnW20Y3a0cgCqxAAAAAAAAAAAAAAAAAAAVgA4QnTKmAA8AH+6ALgAAAA8z40AiwAAAAAAAAAAAAAAAAAAAFYAOEJ0ypgAPAB/ugC4AAAAPM+NAIsAAAAAAAAAAAAAAAAAAABGACQuYLaJACgAa6YApAAAACi7eQB3AAAAAAAAAAAAAAAAAAAAMwAAAAAAeQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4AAABxAHMAAG94AAAAAJMAAAAAAHwAAAAAAAAAAAAAAAAAAAAAAAAAkQAAAACPmAAAAAC0AAAAAACdAAAAAAAAAAAAAAAAAAAAAAAAAJEAAAAAj5gAAAAAtAAAAAAAnQAAAAAAAAAAAAAAAAAAAAAAAACAAC9AAH6KprbQQKIAAAAAAIsAAAAALgAAAAAAAAAAAAAAAAAAAAA0RgBQdKy81UYAAAAAAAAAAAAAADQAAAAAAAAAAAAAAAAAAAAAjUI8TISnuNFRAGSEeQAAAABbAAAyAAAAAAAAAAAAAAAAAAAAALYpZQCpAAAAcwCNraIAAAAAhAAAPwAAAAAAAAAAAAAAAAAAAAC2KWUAqQAAAHMAja2iAAAAAIQAAD8AAAAAAAAAAAAAAAAAAAAApxpWSZoAAABkAH6ekwAAAI13K0wwAAAAAAAAAAAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAACUWjJSAAAAAAAAAAAAAAAAAAAAAAAAAABMAAAAAAAAAAAAAAAAkVYuTwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMEAAPQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADDAAD2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAugAA7QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 2,
+      "clipped_high": 0,
+      "empty_cells": 1716
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": -360.0,
+       "hi": 760.0,
+       "n": 56,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δy"
+      },
+      "col": {
+       "name": "z",
+       "lo": -10.25,
+       "hi": 748.25,
+       "n": 37,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "Δz"
+      }
+     },
+     "occupancy": 0.171815,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 53,
+       "j": 27,
+       "value": 7.375935942090638e-06
+      },
+      {
+       "i": 52,
+       "j": 27,
+       "value": 6.380180087994374e-06
+      },
+      {
+       "i": 20,
+       "j": 12,
+       "value": 6.02433011447303e-06
+      },
+      {
+       "i": 20,
+       "j": 13,
+       "value": 5.660971529061775e-06
+      },
+      {
+       "i": 19,
+       "j": 12,
+       "value": 4.733784693201136e-06
+      },
+      {
+       "i": 20,
+       "j": 18,
+       "value": 4.654396443965042e-06
+      },
+      {
+       "i": 19,
+       "j": 13,
+       "value": 4.447743993008927e-06
+      },
+      {
+       "i": 54,
+       "j": 27,
+       "value": 4.167399305367183e-06
+      },
+      {
+       "i": 21,
+       "j": 12,
+       "value": 3.885931969402685e-06
+      },
+      {
+       "i": 21,
+       "j": 13,
+       "value": 3.7161065774742727e-06
+      },
+      {
+       "i": 19,
+       "j": 18,
+       "value": 3.6536756411492793e-06
+      },
+      {
+       "i": 20,
+       "j": 11,
+       "value": 3.489717042511529e-06
+      },
+      {
+       "i": 21,
+       "j": 18,
+       "value": 3.002540177949888e-06
+      },
+      {
+       "i": 19,
+       "j": 11,
+       "value": 2.7676571548291063e-06
+      },
+      {
+       "i": 21,
+       "j": 11,
+       "value": 2.2508898692732447e-06
+      },
+      {
+       "i": 20,
+       "j": 17,
+       "value": 1.5974780692119373e-06
+      },
+      {
+       "i": 17,
+       "j": 10,
+       "value": 1.5603021501588291e-06
+      },
+      {
+       "i": 18,
+       "j": 10,
+       "value": 1.5603021501588291e-06
+      },
+      {
+       "i": 20,
+       "j": 16,
+       "value": 1.365416760853376e-06
+      },
+      {
+       "i": 19,
+       "j": 17,
+       "value": 1.2540115091222505e-06
+      },
+      {
+       "i": 19,
+       "j": 16,
+       "value": 1.1752486495172288e-06
+      },
+      {
+       "i": 20,
+       "j": 15,
+       "value": 1.1504362464963533e-06
+      },
+      {
+       "i": 20,
+       "j": 14,
+       "value": 1.119635697811279e-06
+      },
+      {
+       "i": 21,
+       "j": 17,
+       "value": 1.0303801798043487e-06
+      },
+      {
+       "i": 18,
+       "j": 5,
+       "value": 9.887378040100211e-07
+      },
+      {
+       "i": 17,
+       "j": 5,
+       "value": 9.887378040100211e-07
+      },
+      {
+       "i": 18,
+       "j": 1,
+       "value": 9.417504158676574e-07
+      },
+      {
+       "i": 17,
+       "j": 1,
+       "value": 9.417504158676574e-07
+      },
+      {
+       "i": 19,
+       "j": 15,
+       "value": 9.030861339645919e-07
+      },
+      {
+       "i": 19,
+       "j": 14,
+       "value": 8.939411449416526e-07
+      },
+      {
+       "i": 21,
+       "j": 16,
+       "value": 8.807047791157499e-07
+      },
+      {
+       "i": 17,
+       "j": 8,
+       "value": 8.55532462070346e-07
+      },
+      {
+       "i": 18,
+       "j": 8,
+       "value": 8.55532462070346e-07
+      },
+      {
+       "i": 30,
+       "j": 21,
+       "value": 8.387471086202939e-07
+      },
+      {
+       "i": 17,
+       "j": 6,
+       "value": 8.189631542878264e-07
+      },
+      {
+       "i": 18,
+       "j": 6,
+       "value": 8.189631542878264e-07
+      },
+      {
+       "i": 18,
+       "j": 9,
+       "value": 8.182779592761512e-07
+      },
+      {
+       "i": 17,
+       "j": 9,
+       "value": 8.182779592761512e-07
+      },
+      {
+       "i": 17,
+       "j": 3,
+       "value": 8.129357985090238e-07
+      },
+      {
+       "i": 18,
+       "j": 3,
+       "value": 8.129357985090238e-07
+      },
+      {
+       "i": 17,
+       "j": 7,
+       "value": 7.98773111433894e-07
+      },
+      {
+       "i": 18,
+       "j": 7,
+       "value": 7.98773111433894e-07
+      },
+      {
+       "i": 18,
+       "j": 2,
+       "value": 7.949032161807129e-07
+      },
+      {
+       "i": 17,
+       "j": 2,
+       "value": 7.949032161807129e-07
+      },
+      {
+       "i": 18,
+       "j": 0,
+       "value": 7.889716755297379e-07
+      },
+      {
+       "i": 17,
+       "j": 0,
+       "value": 7.889716755297379e-07
+      },
+      {
+       "i": 13,
+       "j": 19,
+       "value": 7.805074021919183e-07
+      },
+      {
+       "i": 12,
+       "j": 19,
+       "value": 7.805074021919183e-07
+      },
+      {
+       "i": 18,
+       "j": 4,
+       "value": 7.762570080672848e-07
+      },
+      {
+       "i": 17,
+       "j": 4,
+       "value": 7.762570080672848e-07
+      },
+      {
+       "i": 21,
+       "j": 15,
+       "value": 7.420362941840721e-07
+      },
+      {
+       "i": 21,
+       "j": 14,
+       "value": 7.245802520147347e-07
+      },
+      {
+       "i": 31,
+       "j": 21,
+       "value": 6.248701794363769e-07
+      },
+      {
+       "i": 29,
+       "j": 21,
+       "value": 5.745371620294266e-07
+      },
+      {
+       "i": 23,
+       "j": 26,
+       "value": 5.42975098416816e-07
+      },
+      {
+       "i": 22,
+       "j": 26,
+       "value": 5.42975098416816e-07
+      },
+      {
+       "i": 18,
+       "j": 16,
+       "value": 4.809501686246344e-07
+      },
+      {
+       "i": 17,
+       "j": 16,
+       "value": 4.809501686246344e-07
+      },
+      {
+       "i": 3,
+       "j": 16,
+       "value": 4.4267199584647837e-07
+      },
+      {
+       "i": 2,
+       "j": 16,
+       "value": 4.4267199584647837e-07
+      },
+      {
+       "i": 16,
+       "j": 10,
+       "value": 4.0427000371359145e-07
+      },
+      {
+       "i": 20,
+       "j": 30,
+       "value": 4.015546864559017e-07
+      },
+      {
+       "i": 22,
+       "j": 13,
+       "value": 3.924605726583401e-07
+      },
+      {
+       "i": 23,
+       "j": 13,
+       "value": 3.924605726583401e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 7.375935942090638e-06,
+     "bin_area_mm2": [
+      410.0,
+      410.0
+     ]
+    }
+   },
+   "marks": [
+    {
+     "type": "line",
+     "style": "forward",
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "direction": [
+      0.27756346725898356,
+      0.25874387996416276,
+      0.9252081529170947
+     ],
+     "panels": null,
+     "name": "Incident direction (forward)",
+     "tooltip": "Incident direction (forward) from the shower origin, along (θ, φ)"
+    },
+    {
+     "type": "line",
+     "style": "backward",
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "direction": [
+      -0.27756346725898356,
+      -0.25874387996416276,
+      -0.9252081529170947
+     ],
+     "panels": null,
+     "name": "Extrapolated backward",
+     "tooltip": "Incident direction extrapolated backward, upstream of the origin"
+    },
+    {
+     "type": "plane",
+     "style": "plane",
+     "axis": "z",
+     "at": 0.0,
+     "panels": [
+      "xz",
+      "yz"
+     ],
+     "name": "1st layer plane (z = z₀)",
+     "tooltip": "The plane of the shower's first populated layer, z = z₀"
+    },
+    {
+     "type": "point",
+     "style": "origin",
+     "at": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "panels": null,
+     "name": "Shower origin (1st layer centre of mass)",
+     "tooltip": "Shower origin P₀: the energy-weighted centroid of the first populated layer"
+    }
+   ],
+   "depth": {
+    "policy": "native_layers",
+    "pitch_mm": 20.5,
+    "note": "the shower's own sampling layers counted from its first, cropped to the event"
+   },
+   "splat": {
+    "regime": "box_overlap",
+    "pitch_mm": 20.0,
+    "k": null,
+    "k_z": null
+   },
+   "layer_planes": {
+    "numbering": "relative",
+    "normal": [
+     0.0,
+     0.0,
+     1.0
+    ],
+    "edges_mm": [
+     -10.25,
+     10.25,
+     30.75,
+     51.25,
+     71.75,
+     92.25,
+     112.75,
+     133.25,
+     153.75,
+     174.25,
+     194.75,
+     215.25,
+     235.75,
+     256.25,
+     276.75,
+     297.25,
+     317.75,
+     338.25,
+     358.75,
+     379.25,
+     399.75,
+     420.25,
+     440.75,
+     461.25,
+     481.75,
+     502.25,
+     522.75,
+     543.25,
+     563.75,
+     584.25,
+     604.75,
+     625.25,
+     645.75,
+     666.25,
+     686.75,
+     707.25,
+     727.75,
+     748.25,
+     768.75,
+     789.25,
+     809.75,
+     830.25,
+     850.75,
+     871.25,
+     891.75,
+     912.25,
+     932.75,
+     953.25,
+     973.75,
+     994.25,
+     1014.75,
+     1035.25,
+     1055.75,
+     1076.25,
+     1096.75,
+     1117.25,
+     1137.75,
+     1158.25,
+     1178.75
+    ],
+    "first_layer": 1,
+    "n_layers": 58,
+    "energy_gev": [
+     0.0007860520855,
+     0.000938265468,
+     0.0007919616764,
+     0.0008218207631,
+     0.0008134980926,
+     0.0009850789793,
+     0.000827134353,
+     0.0008146511547,
+     0.000852556987,
+     0.0009155175649,
+     0.00172684799,
+     0.003698676179,
+     0.006090223742,
+     0.006049224521,
+     0.001309204906,
+     0.001161475148,
+     0.002401783879,
+     0.001610658753,
+     0.004885737009,
+     0.0009830280324,
+     0.0005420684483,
+     0.001380378212,
+     0.0001444159361,
+     0.0002365785471,
+     0.00045604467,
+     5.998814177e-05,
+     0.0005686653894,
+     0.007355406659,
+     0.0,
+     9.613296788e-05,
+     0.0004109574656,
+     4.029083186e-06,
+     1.55447939e-08,
+     1.365072109e-07,
+     5.460901242e-08,
+     0.0,
+     9.679450159e-05,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "line_panels": [
+     "xz",
+     "yz"
+    ],
+    "tilt": null,
+    "start_layer": 1,
+    "reach_layers": 58,
+    "display_offset_mm": null
+   }
+  },
+  "local": {
+   "kind": "local",
+   "title": "Local — translated and rotated by R(θ, φ) (u, v, w)",
+   "symbols": {
+    "x": "u",
+    "y": "v",
+    "z": "w"
+   },
+   "window": {
+    "x": [
+     -700.0,
+     700.0
+    ],
+    "y": [
+     -700.0,
+     700.0
+    ],
+    "z": [
+     -200.0,
+     1200.0
+    ]
+   },
+   "raster": {
+    "x": [
+     -340.0,
+     700.0
+    ],
+    "y": [
+     -660.0,
+     520.0
+    ],
+    "z": [
+     -61.5,
+     1066.0
+    ]
+   },
+   "half_mm": 700.0,
+   "outside_window": {
+    "n_cells": 0,
+    "n_cells_total": 170,
+    "energy_gev": 0.0,
+    "fraction": 0.0
+   },
+   "panels": {
+    "xy": {
+     "panel": "xy",
+     "encoding": "u8-b64",
+     "shape": [
+      59,
+      52
+     ],
+     "data": "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",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 8,
+      "clipped_high": 0,
+      "empty_cells": 2404
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": -660.0,
+       "hi": 520.0,
+       "n": 59,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "v"
+      },
+      "col": {
+       "name": "x",
+       "lo": -340.0,
+       "hi": 700.0,
+       "n": 52,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "u"
+      }
+     },
+     "occupancy": 0.216428,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 35,
+       "j": 11,
+       "value": 5.999922665168371e-06
+      },
+      {
+       "i": 35,
+       "j": 12,
+       "value": 4.94081928776435e-06
+      },
+      {
+       "i": 34,
+       "j": 12,
+       "value": 4.348672654888727e-06
+      },
+      {
+       "i": 39,
+       "j": 47,
+       "value": 4.095636977581265e-06
+      },
+      {
+       "i": 34,
+       "j": 11,
+       "value": 3.6506990222203447e-06
+      },
+      {
+       "i": 40,
+       "j": 47,
+       "value": 3.4830999902623904e-06
+      },
+      {
+       "i": 40,
+       "j": 48,
+       "value": 2.9858361631340314e-06
+      },
+      {
+       "i": 36,
+       "j": 11,
+       "value": 2.944549899410599e-06
+      },
+      {
+       "i": 36,
+       "j": 12,
+       "value": 2.5544544779947265e-06
+      },
+      {
+       "i": 42,
+       "j": 6,
+       "value": 2.4884392405510858e-06
+      },
+      {
+       "i": 39,
+       "j": 8,
+       "value": 2.463961463945406e-06
+      },
+      {
+       "i": 33,
+       "j": 11,
+       "value": 2.408009277416983e-06
+      },
+      {
+       "i": 39,
+       "j": 46,
+       "value": 2.2964504023548126e-06
+      },
+      {
+       "i": 34,
+       "j": 13,
+       "value": 2.2623971757023883e-06
+      },
+      {
+       "i": 33,
+       "j": 12,
+       "value": 2.1351632713548765e-06
+      },
+      {
+       "i": 40,
+       "j": 9,
+       "value": 2.1119669690960622e-06
+      },
+      {
+       "i": 40,
+       "j": 8,
+       "value": 2.1119669690960622e-06
+      },
+      {
+       "i": 37,
+       "j": 11,
+       "value": 2.0153881248318286e-06
+      },
+      {
+       "i": 39,
+       "j": 48,
+       "value": 1.8376109619566249e-06
+      },
+      {
+       "i": 34,
+       "j": 10,
+       "value": 1.8125785850955603e-06
+      },
+      {
+       "i": 35,
+       "j": 13,
+       "value": 1.7829011656224676e-06
+      },
+      {
+       "i": 41,
+       "j": 7,
+       "value": 1.777456600393633e-06
+      },
+      {
+       "i": 41,
+       "j": 6,
+       "value": 1.777456600393633e-06
+      },
+      {
+       "i": 40,
+       "j": 6,
+       "value": 1.777456600393633e-06
+      },
+      {
+       "i": 40,
+       "j": 46,
+       "value": 1.7223378017661093e-06
+      },
+      {
+       "i": 37,
+       "j": 10,
+       "value": 1.7129416911387062e-06
+      },
+      {
+       "i": 33,
+       "j": 16,
+       "value": 1.6229804149254494e-06
+      },
+      {
+       "i": 35,
+       "j": 10,
+       "value": 1.579238641600192e-06
+      },
+      {
+       "i": 32,
+       "j": 16,
+       "value": 1.5116890898717928e-06
+      },
+      {
+       "i": 29,
+       "j": 16,
+       "value": 1.4553825666860329e-06
+      },
+      {
+       "i": 41,
+       "j": 5,
+       "value": 1.4250699684921476e-06
+      },
+      {
+       "i": 39,
+       "j": 7,
+       "value": 1.413296834300555e-06
+      },
+      {
+       "i": 32,
+       "j": 15,
+       "value": 1.2920982222408087e-06
+      },
+      {
+       "i": 36,
+       "j": 10,
+       "value": 1.2532442492840009e-06
+      },
+      {
+       "i": 41,
+       "j": 47,
+       "value": 1.1482252011774063e-06
+      },
+      {
+       "i": 38,
+       "j": 47,
+       "value": 1.1482252011774063e-06
+      },
+      {
+       "i": 33,
+       "j": 17,
+       "value": 1.118978768250393e-06
+      },
+      {
+       "i": 36,
+       "j": 13,
+       "value": 1.0947579409048224e-06
+      },
+      {
+       "i": 39,
+       "j": 9,
+       "value": 1.0750211106369218e-06
+      },
+      {
+       "i": 42,
+       "j": 7,
+       "value": 1.0664739602361797e-06
+      },
+      {
+       "i": 38,
+       "j": 10,
+       "value": 1.0630249420983315e-06
+      },
+      {
+       "i": 40,
+       "j": 7,
+       "value": 1.059480309777414e-06
+      },
+      {
+       "i": 37,
+       "j": 12,
+       "value": 1.0317204188936125e-06
+      },
+      {
+       "i": 38,
+       "j": 11,
+       "value": 1.0249496899205504e-06
+      },
+      {
+       "i": 39,
+       "j": 10,
+       "value": 9.843086433391568e-07
+      },
+      {
+       "i": 29,
+       "j": 17,
+       "value": 9.022171823927763e-07
+      },
+      {
+       "i": 33,
+       "j": 13,
+       "value": 9.015398825342882e-07
+      },
+      {
+       "i": 38,
+       "j": 9,
+       "value": 8.20301517592211e-07
+      },
+      {
+       "i": 29,
+       "j": 15,
+       "value": 7.770455488023529e-07
+      },
+      {
+       "i": 34,
+       "j": 14,
+       "value": 7.374301011396485e-07
+      },
+      {
+       "i": 30,
+       "j": 16,
+       "value": 7.280164996339985e-07
+      },
+      {
+       "i": 30,
+       "j": 17,
+       "value": 7.24801622311588e-07
+      },
+      {
+       "i": 28,
+       "j": 16,
+       "value": 7.237134448864755e-07
+      },
+      {
+       "i": 38,
+       "j": 8,
+       "value": 7.179401818291162e-07
+      },
+      {
+       "i": 42,
+       "j": 5,
+       "value": 7.125682740749534e-07
+      },
+      {
+       "i": 33,
+       "j": 15,
+       "value": 7.104700175091563e-07
+      },
+      {
+       "i": 41,
+       "j": 8,
+       "value": 7.039889896986874e-07
+      },
+      {
+       "i": 32,
+       "j": 17,
+       "value": 5.921806802895536e-07
+      },
+      {
+       "i": 35,
+       "j": 14,
+       "value": 3.956012369598906e-07
+      },
+      {
+       "i": 27,
+       "j": 31,
+       "value": 3.783408522300752e-07
+      },
+      {
+       "i": 28,
+       "j": 17,
+       "value": 3.6166250826071506e-07
+      },
+      {
+       "i": 31,
+       "j": 16,
+       "value": 3.4412531779491994e-07
+      },
+      {
+       "i": 27,
+       "j": 32,
+       "value": 3.434997823109474e-07
+      },
+      {
+       "i": 34,
+       "j": 16,
+       "value": 3.317590914043888e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 5.999922665168371e-06,
+     "bin_area_mm2": [
+      400.0,
+      400.0
+     ]
+    },
+    "xz": {
+     "panel": "xz",
+     "encoding": "u8-b64",
+     "shape": [
+      52,
+      55
+     ],
+     "data": "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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJyZAAAAAAAAAAAAADEAaGteAK+vdACHlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBAAAAAAAAAAAAAAAAACpRdwAAAGVNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVG5eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEVSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACjmQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAq7EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADg5AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnLQAz/kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADFnADszwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAt7EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 13,
+      "clipped_high": 0,
+      "empty_cells": 2343
+     },
+     "axes": {
+      "row": {
+       "name": "x",
+       "lo": -340.0,
+       "hi": 700.0,
+       "n": 52,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "u"
+      },
+      "col": {
+       "name": "z",
+       "lo": -61.5,
+       "hi": 1066.0,
+       "n": 55,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "w"
+      }
+     },
+     "occupancy": 0.180769,
+     "total": 0.04981506396739682,
+     "topk": [
+      {
+       "i": 47,
+       "j": 44,
+       "value": 8.961757667726096e-06
+      },
+      {
+       "i": 8,
+       "j": 12,
+       "value": 4.807729685747134e-06
+      },
+      {
+       "i": 48,
+       "j": 44,
+       "value": 3.920768979630168e-06
+      },
+      {
+       "i": 6,
+       "j": 12,
+       "value": 3.4682216534790045e-06
+      },
+      {
+       "i": 7,
+       "j": 12,
+       "value": 3.4511503167222945e-06
+      },
+      {
+       "i": 11,
+       "j": 20,
+       "value": 2.603966036270647e-06
+      },
+      {
+       "i": 9,
+       "j": 12,
+       "value": 2.6003863817228047e-06
+      },
+      {
+       "i": 6,
+       "j": 13,
+       "value": 2.427750530700562e-06
+      },
+      {
+       "i": 10,
+       "j": 12,
+       "value": 2.3397001425065245e-06
+      },
+      {
+       "i": 46,
+       "j": 44,
+       "value": 2.2404394169315245e-06
+      },
+      {
+       "i": 11,
+       "j": 11,
+       "value": 2.1327369301238873e-06
+      },
+      {
+       "i": 5,
+       "j": 12,
+       "value": 2.0810036830675182e-06
+      },
+      {
+       "i": 16,
+       "j": 22,
+       "value": 1.9498724735213477e-06
+      },
+      {
+       "i": 11,
+       "j": 12,
+       "value": 1.94072996325811e-06
+      },
+      {
+       "i": 17,
+       "j": 22,
+       "value": 1.807346330213299e-06
+      },
+      {
+       "i": 12,
+       "j": 18,
+       "value": 1.7573372155666385e-06
+      },
+      {
+       "i": 11,
+       "j": 19,
+       "value": 1.7297212019129847e-06
+      },
+      {
+       "i": 46,
+       "j": 43,
+       "value": 1.6803295626986433e-06
+      },
+      {
+       "i": 12,
+       "j": 19,
+       "value": 1.5770095892437806e-06
+      },
+      {
+       "i": 10,
+       "j": 11,
+       "value": 1.549305431204032e-06
+      },
+      {
+       "i": 12,
+       "j": 13,
+       "value": 1.5194827716274694e-06
+      },
+      {
+       "i": 11,
+       "j": 15,
+       "value": 1.419835692703079e-06
+      },
+      {
+       "i": 12,
+       "j": 20,
+       "value": 1.4118164273906568e-06
+      },
+      {
+       "i": 7,
+       "j": 13,
+       "value": 1.3872832003072257e-06
+      },
+      {
+       "i": 11,
+       "j": 16,
+       "value": 1.379860703131982e-06
+      },
+      {
+       "i": 11,
+       "j": 18,
+       "value": 1.3301515914130563e-06
+      },
+      {
+       "i": 12,
+       "j": 14,
+       "value": 1.1863965460733231e-06
+      },
+      {
+       "i": 13,
+       "j": 6,
+       "value": 1.1634513013143522e-06
+      },
+      {
+       "i": 11,
+       "j": 13,
+       "value": 1.1600330031885365e-06
+      },
+      {
+       "i": 12,
+       "j": 9,
+       "value": 1.1131385113779269e-06
+      },
+      {
+       "i": 13,
+       "j": 7,
+       "value": 1.0852855245124998e-06
+      },
+      {
+       "i": 16,
+       "j": 3,
+       "value": 1.0630147721158155e-06
+      },
+      {
+       "i": 11,
+       "j": 14,
+       "value": 1.0402155323123784e-06
+      },
+      {
+       "i": 9,
+       "j": 13,
+       "value": 1.0302277898029572e-06
+      },
+      {
+       "i": 8,
+       "j": 13,
+       "value": 1.0302277898029572e-06
+      },
+      {
+       "i": 16,
+       "j": 4,
+       "value": 9.946536188291843e-07
+      },
+      {
+       "i": 11,
+       "j": 10,
+       "value": 9.320692697655868e-07
+      },
+      {
+       "i": 12,
+       "j": 12,
+       "value": 9.170968796086661e-07
+      },
+      {
+       "i": 12,
+       "j": 15,
+       "value": 8.969887680793294e-07
+      },
+      {
+       "i": 31,
+       "j": 31,
+       "value": 8.916925719126678e-07
+      },
+      {
+       "i": 16,
+       "j": 21,
+       "value": 8.802118117739331e-07
+      },
+      {
+       "i": 10,
+       "j": 16,
+       "value": 8.722032007204269e-07
+      },
+      {
+       "i": 20,
+       "j": 21,
+       "value": 8.686304875636312e-07
+      },
+      {
+       "i": 12,
+       "j": 8,
+       "value": 8.548915680076982e-07
+      },
+      {
+       "i": 16,
+       "j": 5,
+       "value": 8.519277998413413e-07
+      },
+      {
+       "i": 12,
+       "j": 7,
+       "value": 8.471465507016386e-07
+      },
+      {
+       "i": 11,
+       "j": 17,
+       "value": 8.334402525910748e-07
+      },
+      {
+       "i": 15,
+       "j": 5,
+       "value": 8.025196554471113e-07
+      },
+      {
+       "i": 21,
+       "j": 25,
+       "value": 7.705067640394055e-07
+      },
+      {
+       "i": 10,
+       "j": 15,
+       "value": 7.648429146217682e-07
+      },
+      {
+       "i": 12,
+       "j": 11,
+       "value": 7.282838629268826e-07
+      },
+      {
+       "i": 13,
+       "j": 13,
+       "value": 7.221095030417379e-07
+      },
+      {
+       "i": 19,
+       "j": 21,
+       "value": 7.135256711329754e-07
+      },
+      {
+       "i": 11,
+       "j": 9,
+       "value": 6.88846366978285e-07
+      },
+      {
+       "i": 12,
+       "j": 10,
+       "value": 6.859396928963643e-07
+      },
+      {
+       "i": 15,
+       "j": 4,
+       "value": 6.63992259211288e-07
+      },
+      {
+       "i": 10,
+       "j": 19,
+       "value": 6.522697806137312e-07
+      },
+      {
+       "i": 17,
+       "j": 3,
+       "value": 6.339299544356784e-07
+      },
+      {
+       "i": 13,
+       "j": 8,
+       "value": 6.140157338671493e-07
+      },
+      {
+       "i": 32,
+       "j": 31,
+       "value": 5.732309390867149e-07
+      },
+      {
+       "i": 10,
+       "j": 20,
+       "value": 5.704578496040108e-07
+      },
+      {
+       "i": 48,
+       "j": 45,
+       "value": 5.601098542328811e-07
+      },
+      {
+       "i": 47,
+       "j": 43,
+       "value": 5.601098542328811e-07
+      },
+      {
+       "i": 22,
+       "j": 25,
+       "value": 5.568113310134863e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 8.961757667726096e-06,
+     "bin_area_mm2": [
+      410.0,
+      410.0
+     ]
+    },
+    "yz": {
+     "panel": "yz",
+     "encoding": "u8-b64",
+     "shape": [
+      59,
+      55
+     ],
+     "data": "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",
+     "empty_code": 0,
+     "min_code": 1,
+     "max_code": 255,
+     "scale": {
+      "scale": "log10",
+      "vmin": -12.218565144633189,
+      "vmax": -4.866112705673943,
+      "unit": "GeV/mm^2",
+      "mode": "percentile",
+      "locked": true,
+      "global_vmax": 1.3610914138007614e-05,
+      "clipped_low": 18,
+      "clipped_high": 0,
+      "empty_cells": 2614
+     },
+     "axes": {
+      "row": {
+       "name": "y",
+       "lo": -660.0,
+       "hi": 520.0,
+       "n": 59,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "v"
+      },
+      "col": {
+       "name": "z",
+       "lo": -61.5,
+       "hi": 1066.0,
+       "n": 55,
+       "uniform": true,
+       "unit": "mm",
+       "symbol": "w"
+      }
+     },
+     "occupancy": 0.194453,
+     "total": 0.04981506396739683,
+     "topk": [
+      {
+       "i": 39,
+       "j": 44,
+       "value": 6.721318250794573e-06
+      },
+      {
+       "i": 40,
+       "j": 44,
+       "value": 6.161208396561692e-06
+      },
+      {
+       "i": 40,
+       "j": 12,
+       "value": 4.821384935206249e-06
+      },
+      {
+       "i": 39,
+       "j": 12,
+       "value": 4.677401357250554e-06
+      },
+      {
+       "i": 41,
+       "j": 12,
+       "value": 3.8082080027821873e-06
+      },
+      {
+       "i": 42,
+       "j": 12,
+       "value": 2.7745664006144514e-06
+      },
+      {
+       "i": 38,
+       "j": 12,
+       "value": 2.486590142480564e-06
+      },
+      {
+       "i": 29,
+       "j": 22,
+       "value": 2.2919415982869387e-06
+      },
+      {
+       "i": 40,
+       "j": 13,
+       "value": 2.067278653224223e-06
+      },
+      {
+       "i": 34,
+       "j": 20,
+       "value": 2.0114354550596535e-06
+      },
+      {
+       "i": 37,
+       "j": 12,
+       "value": 1.9602570807688796e-06
+      },
+      {
+       "i": 34,
+       "j": 19,
+       "value": 1.8301036343043274e-06
+      },
+      {
+       "i": 41,
+       "j": 13,
+       "value": 1.7341040003840322e-06
+      },
+      {
+       "i": 36,
+       "j": 13,
+       "value": 1.5997209532394344e-06
+      },
+      {
+       "i": 34,
+       "j": 18,
+       "value": 1.5014930627829659e-06
+      },
+      {
+       "i": 36,
+       "j": 15,
+       "value": 1.4977132129232013e-06
+      },
+      {
+       "i": 36,
+       "j": 14,
+       "value": 1.492045934045061e-06
+      },
+      {
+       "i": 34,
+       "j": 11,
+       "value": 1.4897530890288263e-06
+      },
+      {
+       "i": 36,
+       "j": 16,
+       "value": 1.4670810232040246e-06
+      },
+      {
+       "i": 35,
+       "j": 11,
+       "value": 1.4276227224813309e-06
+      },
+      {
+       "i": 42,
+       "j": 13,
+       "value": 1.3872832003072257e-06
+      },
+      {
+       "i": 35,
+       "j": 20,
+       "value": 1.370411460650893e-06
+      },
+      {
+       "i": 35,
+       "j": 19,
+       "value": 1.33172589832011e-06
+      },
+      {
+       "i": 30,
+       "j": 22,
+       "value": 1.232296536483506e-06
+      },
+      {
+       "i": 35,
+       "j": 18,
+       "value": 1.1729718563601142e-06
+      },
+      {
+       "i": 39,
+       "j": 43,
+       "value": 1.1202197084657622e-06
+      },
+      {
+       "i": 38,
+       "j": 44,
+       "value": 1.1202197084657622e-06
+      },
+      {
+       "i": 41,
+       "j": 44,
+       "value": 1.1202197084657622e-06
+      },
+      {
+       "i": 40,
+       "j": 43,
+       "value": 1.1202197084657622e-06
+      },
+      {
+       "i": 34,
+       "j": 9,
+       "value": 1.1011193758504435e-06
+      },
+      {
+       "i": 35,
+       "j": 13,
+       "value": 1.0960968033830488e-06
+      },
+      {
+       "i": 34,
+       "j": 7,
+       "value": 1.0852855245124998e-06
+      },
+      {
+       "i": 33,
+       "j": 5,
+       "value": 1.0328768062541082e-06
+      },
+      {
+       "i": 32,
+       "j": 4,
+       "value": 1.0215629406114025e-06
+      },
+      {
+       "i": 34,
+       "j": 10,
+       "value": 1.0151463922694155e-06
+      },
+      {
+       "i": 32,
+       "j": 3,
+       "value": 1.003102265602157e-06
+      },
+      {
+       "i": 33,
+       "j": 4,
+       "value": 9.835024152047333e-07
+      },
+      {
+       "i": 33,
+       "j": 3,
+       "value": 9.798990060694285e-07
+      },
+      {
+       "i": 35,
+       "j": 7,
+       "value": 9.480133019500761e-07
+      },
+      {
+       "i": 34,
+       "j": 6,
+       "value": 9.382045834903811e-07
+      },
+      {
+       "i": 35,
+       "j": 15,
+       "value": 9.205979550620121e-07
+      },
+      {
+       "i": 35,
+       "j": 14,
+       "value": 8.983738442155489e-07
+      },
+      {
+       "i": 33,
+       "j": 20,
+       "value": 8.981972136380805e-07
+      },
+      {
+       "i": 35,
+       "j": 9,
+       "value": 8.821249782446651e-07
+      },
+      {
+       "i": 28,
+       "j": 22,
+       "value": 8.81913345929783e-07
+      },
+      {
+       "i": 35,
+       "j": 16,
+       "value": 8.654898787115548e-07
+      },
+      {
+       "i": 32,
+       "j": 5,
+       "value": 8.601438910373475e-07
+      },
+      {
+       "i": 34,
+       "j": 8,
+       "value": 8.564683878098017e-07
+      },
+      {
+       "i": 35,
+       "j": 6,
+       "value": 8.041753572774695e-07
+      },
+      {
+       "i": 33,
+       "j": 19,
+       "value": 7.789533547988151e-07
+      },
+      {
+       "i": 35,
+       "j": 10,
+       "value": 7.735210158166165e-07
+      },
+      {
+       "i": 33,
+       "j": 11,
+       "value": 7.730502613590016e-07
+      },
+      {
+       "i": 33,
+       "j": 6,
+       "value": 7.724813657681707e-07
+      },
+      {
+       "i": 33,
+       "j": 18,
+       "value": 7.424016673916737e-07
+      },
+      {
+       "i": 35,
+       "j": 8,
+       "value": 7.33665241036372e-07
+      },
+      {
+       "i": 29,
+       "j": 21,
+       "value": 7.271650989013121e-07
+      },
+      {
+       "i": 37,
+       "j": 15,
+       "value": 7.046447513502133e-07
+      },
+      {
+       "i": 26,
+       "j": 31,
+       "value": 7.006201011550344e-07
+      },
+      {
+       "i": 39,
+       "j": 13,
+       "value": 6.868196643131172e-07
+      },
+      {
+       "i": 13,
+       "j": 25,
+       "value": 6.784656609230723e-07
+      },
+      {
+       "i": 37,
+       "j": 13,
+       "value": 6.282827909183842e-07
+      },
+      {
+       "i": 34,
+       "j": 5,
+       "value": 5.964564035998324e-07
+      },
+      {
+       "i": 12,
+       "j": 25,
+       "value": 5.953610321661708e-07
+      },
+      {
+       "i": 40,
+       "j": 45,
+       "value": 5.601098542328811e-07
+      }
+     ],
+     "total_energy_all_gev": 0.04981506396739682,
+     "energy_outside_window_gev": 0.0,
+     "energy_fraction_outside_window": 0.0,
+     "kernel": "none",
+     "n_events": 1,
+     "rho_unit": "GeV/mm^2",
+     "rho_peak": 6.721318250794573e-06,
+     "bin_area_mm2": [
+      410.0,
+      410.0
+     ]
+    }
+   },
+   "marks": [
+    {
+     "type": "line",
+     "style": "forward",
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "direction": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "panels": null,
+     "name": "Incident direction (forward)",
+     "tooltip": "Incident direction (forward) from the shower origin, along (θ, φ)"
+    },
+    {
+     "type": "line",
+     "style": "backward",
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "direction": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "panels": null,
+     "name": "Extrapolated backward",
+     "tooltip": "Incident direction extrapolated backward, upstream of the origin"
+    },
+    {
+     "type": "line",
+     "style": "plane",
+     "origin": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "direction": [
+      1.0,
+      0.0,
+      0.410134708948733
+     ],
+     "panels": [
+      "xz"
+     ],
+     "name": "1st layer plane",
+     "tooltip": "The plane of the shower's first layer, z = z₀, which the rotation tilts to w = tan θ · u; it has no image on the other panels"
+    },
+    {
+     "type": "point",
+     "style": "origin",
+     "at": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "panels": null,
+     "name": "Shower origin (1st layer centre of mass)",
+     "tooltip": "Shower origin P₀: the energy-weighted centroid of the first populated layer"
+    }
+   ],
+   "depth": {
+    "policy": "uniform_bins",
+    "pitch_mm": 20.5,
+    "note": "uniform bins of the layer pitch along w, cropped to the event, never smoothed"
+   },
+   "splat": {
+    "regime": "subdeposit3d",
+    "pitch_mm": 20.0,
+    "k": 4,
+    "k_z": 2
+   },
+   "layer_planes": {
+    "numbering": "relative",
+    "normal": [
+     -0.3794599765136475,
+     0.0,
+     0.9252081529170947
+    ],
+    "edges_mm": [
+     -10.25,
+     10.25,
+     30.75,
+     51.25,
+     71.75,
+     92.25,
+     112.75,
+     133.25,
+     153.75,
+     174.25,
+     194.75,
+     215.25,
+     235.75,
+     256.25,
+     276.75,
+     297.25,
+     317.75,
+     338.25,
+     358.75,
+     379.25,
+     399.75,
+     420.25,
+     440.75,
+     461.25,
+     481.75,
+     502.25,
+     522.75,
+     543.25,
+     563.75,
+     584.25,
+     604.75,
+     625.25,
+     645.75,
+     666.25,
+     686.75,
+     707.25,
+     727.75,
+     748.25,
+     768.75,
+     789.25,
+     809.75,
+     830.25,
+     850.75,
+     871.25,
+     891.75,
+     912.25,
+     932.75,
+     953.25,
+     973.75,
+     994.25,
+     1014.75,
+     1035.25,
+     1055.75,
+     1076.25,
+     1096.75,
+     1117.25,
+     1137.75,
+     1158.25,
+     1178.75
+    ],
+    "first_layer": 1,
+    "n_layers": 58,
+    "energy_gev": [
+     0.0007860520855,
+     0.000938265468,
+     0.0007919616764,
+     0.0008218207631,
+     0.0008134980926,
+     0.0009850789793,
+     0.000827134353,
+     0.0008146511547,
+     0.000852556987,
+     0.0009155175649,
+     0.00172684799,
+     0.003698676179,
+     0.006090223742,
+     0.006049224521,
+     0.001309204906,
+     0.001161475148,
+     0.002401783879,
+     0.001610658753,
+     0.004885737009,
+     0.0009830280324,
+     0.0005420684483,
+     0.001380378212,
+     0.0001444159361,
+     0.0002365785471,
+     0.00045604467,
+     5.998814177e-05,
+     0.0005686653894,
+     0.007355406659,
+     0.0,
+     9.613296788e-05,
+     0.0004109574656,
+     4.029083186e-06,
+     1.55447939e-08,
+     1.365072109e-07,
+     5.460901242e-08,
+     0.0,
+     9.679450159e-05,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "line_panels": [
+     "xz"
+    ],
+    "tilt": {
+     "theta": 0.38921254873275757,
+     "theta_deg": 22.300236375916885,
+     "pitch_along_w_mm": 22.157176128815358
+    },
+    "start_layer": 1,
+    "reach_layers": 58,
+    "display_offset_mm": null
+   }
+  }
+ },
+ "scale": {
+  "unit": "GeV/mm^2",
+  "floor": 6.045536608523721e-13,
+  "top": 1.3610914138007614e-05,
+  "vmin": -12.218565144633189,
+  "vmax": -4.866112705673943,
+  "floor_percentile": 1.0,
+  "n_below": 66,
+  "rule": "One logarithmic ramp for every panel of this event: projected energy surface density in GeV per mm², from the 1st percentile of this shower's positive lattice-cell densities (6.05e−13) to its brightest bin (1.36e−05); 66 bins below the floor are drawn at the lowest colour."
+ },
+ "grid": {
+  "pitch_mm": 20.0,
+  "notes": []
+ },
+ "event": {
+  "event_number": 0,
+  "in_selection": true,
+  "prev": null,
+  "next": 1,
+  "n_hits": 921,
+  "d": 3077.028076171875,
+  "e1": 2.712594747543335,
+  "e2": 12.54078197479248,
+  "overlap": 0,
+  "shower": {
+   "key": "a",
+   "label": "A",
+   "n_hits": 170,
+   "energy_gev": 0.04981506396739682,
+   "momentum_gev": 2.712594747543335,
+   "theta": 0.38921254873275757,
+   "phi": 0.7503215074539185,
+   "theta_deg": 22.300236375916885,
+   "phi_deg": 42.99025565500327,
+   "p0": [
+    1089.697998046875,
+    1036.199951171875,
+    3662.39990234375
+   ],
+   "first_layer_z": 3662.39990234375,
+   "direction": [
+    0.27756346725898356,
+    0.25874387996416276,
+    0.9252081529170947
+   ],
+   "principal_axis": {
+    "tilt_deg": 46.871077031709525,
+    "axis": [
+     0.7297829876404802,
+     0.007073410977927241,
+     0.6836422732743141
+    ],
+    "eigenvalues": [
+     7456.85840287934,
+     20823.495928011977,
+     126329.2612677228
+    ],
+    "n": 170
+   }
+  }
+ },
+ "coordinates": {
+  "source": "file",
+  "residual_max_mm": 3.817302786046639e-05,
+  "tolerance_mm": 0.01,
+  "within_tolerance": true,
+  "note": "Coordinates: the file's own x/y_trans and x/y/z_local; the motions (P₀ subtracted, then R(θ, φ) applied) were also applied to every cell here, and the two differ by at most 3.82e−05 mm (within the 0.01 mm tolerance)."
+ },
+ "window": {
+  "half_mm": 700.0,
+  "percentiles": [
+   0.1,
+   99.9
+  ],
+  "min_half_mm": 150.0,
+  "rule": "One half-width for every panel of this event: the widest energy-weighted 0.1st–99.9th percentile range of its cells over x, y, z and u, v, w (u and v about the shower's own axis), plus one cell footprint so the cells at either end are drawn whole, never below 150 mm and snapped outward to 20 mm (700 mm here); lattice panels snap it outward to whole cells, grid panels to whole bins; depth is cropped to the event, which the ensemble frames never do. All 170 cells lie inside it in every frame."
+ },
+ "footprint_mm": [
+  48.27001953125,
+  48.5999755859375,
+  20.5
+ ],
+ "filter": {
+  "e1": [
+   2.712594747543335,
+   17.876461029052734
+  ],
+  "e2": [
+   6.385610580444336,
+   12.54078197479248
+  ],
+  "d": [
+   2258.51123046875,
+   3077.028076171875
+  ],
+  "include_undefined_d": false
+ }
+}

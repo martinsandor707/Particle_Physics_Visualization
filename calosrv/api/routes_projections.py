@@ -10,6 +10,14 @@ field: an aggregated experiment has no hits at all, a single-shower one has no
 D-frame (``frame``) and no networks, so only the density channel
 (``channel``). A single-shower experiment's ``model`` is accepted and has
 nothing to select.
+
+**Layer groups.** Every response carries a top-level ``depth_layers`` block
+(``query/layer_profile.py``): the frame's depth numbering, its native edges as
+stored, the selection's exact energy per layer and, where depth counts from
+each shower's own first layer, the reach. ``depth_groups`` (13 sizes summing
+to the lattice's layer count) pools the YZ and XZ depth axis into those groups
+at render time, from the unpooled cached bundle; the Local frame has no common
+layer grid and refuses it (422, ``field=depth_groups``).
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ import dataclasses
 
 from fastapi import APIRouter, Query
 
+from ..grid import layer_groups
 from ..grid.resolution import (
     DEFAULT_RESOLUTION,
     DISPLAY_MODES,
@@ -33,7 +42,7 @@ from ..errors import ValidationError
 from ..models.common import ApiMeta, Timer, envelope
 from ..query import cache as cache_mod
 from ..query import capabilities
-from ..query import centroids, density, frame_sql, panels, planes, projections, sampling
+from ..query import centroids, density, frame_sql, layer_profile, panels, planes, projections, sampling
 from ..query import stagger as stagger_mod
 from ..query import summary
 from . import frame_canonical
@@ -55,6 +64,39 @@ def _require(record: ExperimentRecord, frame: str, coord_system: str, channel: s
         capabilities.require(record, "frame-canonical", field="frame")
     capabilities.require(record, f"frame-{coord_system}", field="coord_system")
     capabilities.require_choice(record, "channel", channel, caps.channels, "channel")
+
+
+def _depth_groups(record: ExperimentRecord, coord_system: str, text: str | None) -> tuple[int, ...] | None:
+    """The validated layer-group sizes, or None when the depth axis stays native.
+
+    Refused with ``coord_system=local``: every shower's layers there are tilted
+    by its own (θ, φ), so the superimposed showers share no layer grid to pool.
+    """
+    if text is None:
+        return None
+    if coord_system == "local":
+        raise ValidationError(
+            "depth_groups pools the depth axis into detector layer groups, but the Local frame has "
+            "no common layer grid: each shower's layers are tilted by its own (θ, φ). Pool in the "
+            "absolute frame, the D-frame or the per-shower translated frame instead.",
+            field=layer_groups.FIELD,
+        )
+    return layer_groups.parse_counts(text, record.lattice.z.n)
+
+
+def pooled_notice(pool: layer_groups.PooledAxis) -> str:
+    """The sentence that says the absolute frame's depth panels are pooled, and by which operator."""
+    text = (
+        f"Depth pooled into {pool.n_dst} layer groups ({layer_groups.format_counts(pool.counts)}) at "
+        "the lattice's stored cell edges: each group bin holds the group's energy in GeV per layer "
+        f"pitch ({pool.pitch_mm:g} mm), Σ E · p / ΔZ, a weighted mean of its layers, so no bin "
+        "exceeds the per-layer peak and the energy is conserved. The colour scale and its clipping "
+        "counts are measured on the pooled rasters; the comb is still measured on the native raster."
+    )
+    if pool.beyond:
+        text += (f" Group(s) {', '.join(str(m) for m in pool.beyond)} lie wholly beyond this depth "
+                 "axis and are not drawn.")
+    return text
 
 
 @router.get("/api/projections", summary="Pre-aggregated XY, YZ and XZ projections")
@@ -174,6 +216,16 @@ def get_projections(
             "the largest difference between the two over the selection."
         ),
     ),
+    depth_groups: str | None = Query(
+        None,
+        description=(
+            "Pool the depth axis of the YZ and XZ panels into 13 contiguous layer groups "
+            "('Longitudinal Channels'): 13 positive integers joined by '.', summing to the "
+            "experiment's lattice layer count (e.g. 5.5.5.5.5.5.5.5.4.4.4.4.4 for 60 layers). "
+            "Absolute frame (both display modes), frame=canonical and coord_system=trans; refused "
+            "with coord_system=local, which has no common layer grid. Omitted: native layers."
+        ),
+    ),
 ):
     timer = Timer()
 
@@ -220,6 +272,7 @@ def get_projections(
             field="coordinates",
         )
     _require(record, frame, coord_system, channel)
+    counts = _depth_groups(record, coord_system, depth_groups)
 
     if coord_system != "lab":
         from . import frame_shower
@@ -229,6 +282,7 @@ def get_projections(
             resolution=resolution, display=display, channel=channel, model=model,
             weighting=weighting, rho_norm=rho_norm, preview=preview, timer=timer,
             lock_scale=lock_scale, scale_mode=scale_mode, coordinates=coordinates,
+            depth_groups=counts,
         )
 
     if frame == frame_canonical.FRAME_CANONICAL:
@@ -239,6 +293,7 @@ def get_projections(
             resolution=resolution, display=display, channel=channel,
             weighting=weighting, rho_norm=rho_norm, preview=preview, timer=timer,
             lock_scale=lock_scale, scale_mode=scale_mode, model=model, anchor=anchor,
+            depth_groups=counts,
         )
 
     decision = sampling.decide(record, preview, settings.sample_percent)
@@ -263,6 +318,18 @@ def get_projections(
         was_cached = bundle is not None
     if bundle is None:
         bundle, was_cached = cache.get_or_compute((*base, model), compute)
+
+    # Layer groups pool the depth panels at render time; the bundle above, and
+    # every cache key, stay the native layers.
+    pool = None
+    if counts is not None:
+        pool = layer_groups.pooled_operator(
+            record.lattice.z.edges, counts, pitch_mm=layer_profile.layer_pitch(record))
+    depth_block = layer_profile.depth_layers(
+        "lab", record, edges=record.lattice.z.edges,
+        profile=layer_profile.bundle_profile(bundle, "yz", channel, layer_profile.NUMBERING_DETECTOR),
+        pool=pool, is_contiguous=layer_profile.lattice_contiguous(record),
+    )
 
     centroid_sets = {k: v.as_dict() for k, v in centroids.compute(bundle).items()}
     selection = summary.summarise(con, record, spec)
@@ -327,6 +394,8 @@ def get_projections(
             })
         if cam is not None:
             notices.append({"scope": "channel", "text": cam["note"]})
+        if pool is not None:
+            notices.append({"scope": "resolution", "text": pooled_notice(pool)})
         notes = {
             "frame": frame_canonical.FRAME_LAB,
             "coord_system": "lab",
@@ -374,6 +443,7 @@ def get_projections(
                     f"z = {record.lattice.z.lo:.1f} mm."
                 ),
             },
+            depth_layers=depth_block,
         )
 
     def render(plan_used):
@@ -385,6 +455,7 @@ def get_projections(
             global_vmax=record.cell_e_max,
             lock_scale=lock_scale,
             scale_mode=scale_mode,
+            depth_pool=pool,
         )
 
     body = assemble(plan, render(plan), [])

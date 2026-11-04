@@ -1,0 +1,2063 @@
+{
+ "meta": {
+  "table_name": "experiment_baseline",
+  "exact": true,
+  "warnings": [],
+  "frame": "trans",
+  "coord_system": "trans",
+  "coordinates": "file",
+  "model": "segmentation",
+  "resolution": {
+   "mode": "native",
+   "requested": 150,
+   "r_x": 74,
+   "r_y": 70,
+   "r_z": 13,
+   "pitch_mm": 20.0,
+   "display_pitch_mm": 20.0,
+   "merge": 1,
+   "shapes": {
+    "xy": [
+     70,
+     74
+    ],
+    "yz": [
+     90,
+     13
+    ],
+    "xz": [
+     92,
+     13
+    ]
+   },
+   "warnings": [],
+   "kernel": {
+    "type": "none",
+    "sigma_mm": null,
+    "bin_spread_rms_mm": 5.774,
+    "separable": true,
+    "conservative": true,
+    "non_negative": true
+   }
+  },
+  "channel": "density",
+  "weighting": "energy",
+  "sample_percent": 100.0,
+  "notices": [
+   {
+    "scope": "resolution",
+    "text": "Depth pooled into 13 layer groups (5.5.5.5.4.4.4.4.4.4.4.4.4) at the native layers' stored edges: each group bin holds the width-weighted mean of its layers' densities, the exact area-weighted overlap of the native layers, so no bin exceeds the per-layer peak and the energy is conserved. The selection's ρ_ref, the colour scale and the floor counts are the pooled grid's; a dataset reference stays the per-layer peak, which bounds the pooled values too. The comb is still measured on the raw accumulation grid."
+   },
+   {
+    "scope": "frame",
+    "text": "Per-shower translated frame: 2 event(s), 4 showers superimposed at their own entry points. ⟨ρ⟩ is energy per event and per mm², so it sums both showers of an event."
+   },
+   {
+    "scope": "frame",
+    "text": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.06, Δy −0.10); each cell's footprint is integrated exactly by area-weighted box overlap."
+   },
+   {
+    "scope": "frame",
+    "text": "Bins below 10⁻³ of ρ_ref are not drawn (ΔxΔy 312 bins holding 0.178% of its in-window energy; ΔyΔz 177 bins holding 0.332% of its in-window energy; ΔxΔz 134 bins holding 0.2% of its in-window energy), so the outer edge of the colour is the display floor, not the edge of the shower. Bins with no energy at all are empty."
+   },
+   {
+    "scope": "frame",
+    "text": "Colours are relative to this selection's own peak density on the raw 20 mm accumulation grid (stated in the panel's Details drawer), which the displayed field never exceeds; switch the density normalisation to the dataset peak to compare colours across selections."
+   },
+   {
+    "scope": "frame",
+    "text": "With 2 event(s) the fitted display ranges and the mean centroids rest on weak evidence and are labelled provisional."
+   }
+  ]
+ },
+ "panels": {
+  "xy": {
+   "panel": "xy",
+   "encoding": "u8-b64",
+   "shape": [
+    70,
+    74
+   ],
+   "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE6mpn0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAaMHBmAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmv7+VAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6QS8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADpBLwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGyIRAQEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEBAQEAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACLrq4nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI+ysisAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQMDeZycFQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABICABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEfHwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEBAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABQwBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+   "empty_code": 0,
+   "below_code": 1,
+   "min_code": 2,
+   "max_code": 255,
+   "scale": {
+    "scale": "log10",
+    "vmin": -3.0,
+    "vmax": 0.0,
+    "unit": "a.u.",
+    "mode": "relative",
+    "locked": false,
+    "global_vmax": 2.2654813830806025e-06,
+    "clipped_low": 312,
+    "empty_cells": 4282,
+    "rho_ref": 2.2654813830806025e-06,
+    "rho_unit": "GeV/mm^2/event",
+    "decades": 3.0,
+    "norm": "selection",
+    "floor": "transparent",
+    "floor_ratio": 0.001
+   },
+   "axes": {
+    "row": {
+     "name": "y",
+     "lo": -700.0,
+     "hi": 700.0,
+     "n": 70,
+     "uniform": true,
+     "unit": "mm",
+     "symbol": "Δy"
+    },
+    "col": {
+     "name": "x",
+     "lo": -740.0,
+     "hi": 740.0,
+     "n": 74,
+     "uniform": true,
+     "unit": "mm",
+     "symbol": "Δx"
+    }
+   },
+   "occupancy": 0.113127,
+   "total": 0.06579011932372583,
+   "topk": [
+    {
+     "i": 16,
+     "j": 34,
+     "value": 2.265481e-06
+    },
+    {
+     "i": 17,
+     "j": 34,
+     "value": 2.265481e-06
+    },
+    {
+     "i": 16,
+     "j": 33,
+     "value": 1.887651e-06
+    },
+    {
+     "i": 17,
+     "j": 33,
+     "value": 1.887651e-06
+    },
+    {
+     "i": 57,
+     "j": 18,
+     "value": 1.583878e-06
+    },
+    {
+     "i": 57,
+     "j": 19,
+     "value": 1.583878e-06
+    },
+    {
+     "i": 56,
+     "j": 19,
+     "value": 1.483539e-06
+    },
+    {
+     "i": 56,
+     "j": 18,
+     "value": 1.483539e-06
+    },
+    {
+     "i": 17,
+     "j": 35,
+     "value": 1.314608e-06
+    },
+    {
+     "i": 16,
+     "j": 35,
+     "value": 1.314608e-06
+    },
+    {
+     "i": 30,
+     "j": 49,
+     "value": 1.203865e-06
+    },
+    {
+     "i": 29,
+     "j": 49,
+     "value": 1.203865e-06
+    },
+    {
+     "i": 29,
+     "j": 50,
+     "value": 1.134934e-06
+    },
+    {
+     "i": 30,
+     "j": 50,
+     "value": 1.134853e-06
+    },
+    {
+     "i": 35,
+     "j": 37,
+     "value": 8.800656e-07
+    },
+    {
+     "i": 34,
+     "j": 36,
+     "value": 8.800656e-07
+    },
+    {
+     "i": 35,
+     "j": 36,
+     "value": 8.800656e-07
+    },
+    {
+     "i": 34,
+     "j": 37,
+     "value": 8.800656e-07
+    },
+    {
+     "i": 29,
+     "j": 36,
+     "value": 8.505e-07
+    },
+    {
+     "i": 29,
+     "j": 37,
+     "value": 8.452061e-07
+    },
+    {
+     "i": 14,
+     "j": 69,
+     "value": 8.16377e-07
+    },
+    {
+     "i": 54,
+     "j": 19,
+     "value": 7.919445e-07
+    },
+    {
+     "i": 58,
+     "j": 18,
+     "value": 7.814042e-07
+    },
+    {
+     "i": 58,
+     "j": 19,
+     "value": 7.814042e-07
+    },
+    {
+     "i": 13,
+     "j": 69,
+     "value": 7.809856e-07
+    },
+    {
+     "i": 54,
+     "j": 18,
+     "value": 7.746285e-07
+    },
+    {
+     "i": 15,
+     "j": 34,
+     "value": 7.626675e-07
+    },
+    {
+     "i": 14,
+     "j": 70,
+     "value": 7.435787e-07
+    },
+    {
+     "i": 13,
+     "j": 70,
+     "value": 7.113433e-07
+    },
+    {
+     "i": 55,
+     "j": 19,
+     "value": 6.916475e-07
+    },
+    {
+     "i": 28,
+     "j": 36,
+     "value": 6.866047e-07
+    },
+    {
+     "i": 28,
+     "j": 37,
+     "value": 6.823311e-07
+    },
+    {
+     "i": 55,
+     "j": 18,
+     "value": 6.765246e-07
+    },
+    {
+     "i": 15,
+     "j": 33,
+     "value": 6.354724e-07
+    },
+    {
+     "i": 29,
+     "j": 48,
+     "value": 5.868754e-07
+    },
+    {
+     "i": 30,
+     "j": 48,
+     "value": 5.865166e-07
+    },
+    {
+     "i": 32,
+     "j": 52,
+     "value": 5.465172e-07
+    },
+    {
+     "i": 30,
+     "j": 36,
+     "value": 5.301602e-07
+    },
+    {
+     "i": 30,
+     "j": 37,
+     "value": 5.268603e-07
+    },
+    {
+     "i": 35,
+     "j": 35,
+     "value": 4.792578e-07
+    },
+    {
+     "i": 34,
+     "j": 35,
+     "value": 4.792578e-07
+    },
+    {
+     "i": 32,
+     "j": 51,
+     "value": 4.722121e-07
+    },
+    {
+     "i": 15,
+     "j": 35,
+     "value": 4.425589e-07
+    },
+    {
+     "i": 53,
+     "j": 19,
+     "value": 4.408321e-07
+    },
+    {
+     "i": 33,
+     "j": 52,
+     "value": 4.338634e-07
+    },
+    {
+     "i": 53,
+     "j": 18,
+     "value": 4.311932e-07
+    },
+    {
+     "i": 1,
+     "j": 72,
+     "value": 4.15212e-07
+    },
+    {
+     "i": 1,
+     "j": 71,
+     "value": 4.15212e-07
+    },
+    {
+     "i": 14,
+     "j": 68,
+     "value": 4.103709e-07
+    },
+    {
+     "i": 57,
+     "j": 17,
+     "value": 4.076121e-07
+    },
+    {
+     "i": 13,
+     "j": 68,
+     "value": 3.925806e-07
+    },
+    {
+     "i": 2,
+     "j": 72,
+     "value": 3.916916e-07
+    },
+    {
+     "i": 2,
+     "j": 71,
+     "value": 3.916916e-07
+    },
+    {
+     "i": 15,
+     "j": 69,
+     "value": 3.864325e-07
+    },
+    {
+     "i": 56,
+     "j": 17,
+     "value": 3.817899e-07
+    },
+    {
+     "i": 33,
+     "j": 51,
+     "value": 3.758103e-07
+    },
+    {
+     "i": 31,
+     "j": 52,
+     "value": 3.757405e-07
+    },
+    {
+     "i": 35,
+     "j": 34,
+     "value": 3.747924e-07
+    },
+    {
+     "i": 34,
+     "j": 34,
+     "value": 3.747924e-07
+    },
+    {
+     "i": 29,
+     "j": 35,
+     "value": 3.586353e-07
+    },
+    {
+     "i": 15,
+     "j": 70,
+     "value": 3.519734e-07
+    },
+    {
+     "i": 54,
+     "j": 20,
+     "value": 3.4733e-07
+    },
+    {
+     "i": 57,
+     "j": 20,
+     "value": 3.458812e-07
+    },
+    {
+     "i": 44,
+     "j": 54,
+     "value": 3.436003e-07
+    }
+   ],
+   "below_floor_cells": 312,
+   "topk_unit": "GeV/mm^2/event",
+   "kernel": "none",
+   "total_energy_all_gev": 0.06584663386295747,
+   "energy_outside_window_gev": 5.651453923163907e-05,
+   "energy_fraction_outside_window": 0.00085828,
+   "energy_fraction_outside_window_raw": 0.00085828,
+   "below_floor_energy_fraction": 0.00178095,
+   "n_events": 2,
+   "bin_area_mm2": [
+    400.0,
+    400.0
+   ],
+   "rho_peak": 2.2654813830806025e-06,
+   "rho_unit": "GeV/mm^2/event"
+  },
+  "yz": {
+   "panel": "yz",
+   "encoding": "u8-b64",
+   "shape": [
+    90,
+    13
+   ],
+   "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF8AAAAAAAAAAAAAAAB5AAAAAAAAAAAAAAAAdwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAQAAAAAAAAAAAAAAAQEAAAAAAAAAAAAAAAEBAAAAAAAAAAAAAAABAQAAAAAAAAAAAAAAAAEAAQABCgAAAAAAAAABAAEAARAAAAAAAACQAQFFAAE/AAAAAAAAkgEBZQABWQAAAAAAAKABAWUAAVkAAAAAAAC5DRMBAAEBAAAAAAAAuQ0bAAABAQAAAAAAAGQDCyEAAQEAAAAAAAAZFwFGAAEcAAAAAAAAHE4BRgABHAAAAAAAAAF0AV0AAQEBAAAAADABdAtmAAABAQAAAAA7U3oRYxoAAQEBAAAALViEHGFEAAEAAQAAAABEeRxhRAABAAEAAAAAFm8mZhsAAQB8AQAAAB95MG8QAAEAigEAAACZkJtyXwEXAX4BAAAApavKeo0gPAEBAAAAAJeqynqNIDwBAQAAAAB08O7DZkYZYAEBARIAgP/80l5PFG8BARIiAIf49tCCb2hoCQEVGwCbv9fErZqeHD4BHgEAm7/XxK2anhw+AR4BAHaT5MCXoaeUa5IBAgFnd+3Cl62ypnulAREBYG/jt5Cnq6B1ngEsAQ8BTT83VQErAQEBXAEPAU0/N1UBKwEBAVwBAQEeDgpdARcBAQErAQEBAQABagMWAQANAABkDyUBAWYRNAEACQAAdDhxARwoPnEOAAAAAGo2cQEcKD5xDgAAAAABEGQSXQEUYwEAAAAAAQFoJmgAAGUBAAAAAAEBZiJeAQFjAQAAAAABAQ4BARELCQAAAAAAAQEOAQERCwkAAAAAAAEBAQEBAQEBAAAAAAABAQABAAABAQAAAAAAgAEAAQABAQEAAAAAAJUKAAAAAQENAAAAAACQBQAAAAEBDQAAAAAAswAAAAABAQEAAAAAALYAAAAABwABAAAAAACfAAAAAAcAAQAAAAAAYAAAAAABFgEAAAAAAF0AAAAAARcBAAAAAABmAAAAAAEBCwwAAAAAagAAAAABATEzAAAAAFQAAAAAAQExMwAAAAABAAAAAAEBARcAAAAAAQAAAAABAAATAAAAAAAAAAAAAQAAAQAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAEAAAAArgAAAAAAAAABAAAAALMAAAAAAAAAAQAAAACeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABEQAAEAAAAAAAAAAAAZFwABAAAAAAAAAAAABwaQAQAAAAAAAAAAAAAAzAAAAAAAAAAAAAAAAMwAAAAAAAAAAAAAAACXAQAA",
+   "empty_code": 0,
+   "below_code": 1,
+   "min_code": 2,
+   "max_code": 255,
+   "scale": {
+    "scale": "log10",
+    "vmin": -3.0,
+    "vmax": 0.0,
+    "unit": "a.u.",
+    "mode": "relative",
+    "locked": false,
+    "global_vmax": 7.602874905361089e-06,
+    "clipped_low": 177,
+    "empty_cells": 713,
+    "rho_ref": 7.602874905361089e-06,
+    "rho_unit": "GeV/mm^2/event",
+    "decades": 3.0,
+    "norm": "selection",
+    "floor": "transparent",
+    "floor_ratio": 0.001,
+    "shared_with": "yz+xz"
+   },
+   "axes": {
+    "row": {
+     "name": "y",
+     "lo": -900.0,
+     "hi": 900.0,
+     "n": 90,
+     "uniform": true,
+     "unit": "mm",
+     "symbol": "Δy"
+    },
+    "col": {
+     "name": "z",
+     "lo": -10.25,
+     "hi": 1178.75,
+     "n": 13,
+     "uniform": false,
+     "unit": "mm",
+     "edges": [
+      -10.25,
+      92.25,
+      194.75,
+      297.25,
+      399.75,
+      481.75,
+      563.75,
+      645.75,
+      727.75,
+      809.75,
+      891.75,
+      973.75,
+      1055.75,
+      1178.75
+     ],
+     "symbol": "Δz"
+    }
+   },
+   "occupancy": 0.239316,
+   "total": 0.465939650598995,
+   "topk": [
+    {
+     "i": 42,
+     "j": 1,
+     "value": 7.602874e-06
+    },
+    {
+     "i": 42,
+     "j": 2,
+     "value": 6.915966e-06
+    },
+    {
+     "i": 43,
+     "j": 1,
+     "value": 6.251698e-06
+    },
+    {
+     "i": 43,
+     "j": 2,
+     "value": 5.970142e-06
+    },
+    {
+     "i": 41,
+     "j": 1,
+     "value": 5.026492e-06
+    },
+    {
+     "i": 41,
+     "j": 2,
+     "value": 4.761493e-06
+    },
+    {
+     "i": 47,
+     "j": 2,
+     "value": 4.657276e-06
+    },
+    {
+     "i": 46,
+     "j": 2,
+     "value": 3.627856e-06
+    },
+    {
+     "i": 48,
+     "j": 2,
+     "value": 3.587761e-06
+    },
+    {
+     "i": 44,
+     "j": 2,
+     "value": 2.540026e-06
+    },
+    {
+     "i": 45,
+     "j": 2,
+     "value": 2.540026e-06
+    },
+    {
+     "i": 42,
+     "j": 3,
+     "value": 2.247274e-06
+    },
+    {
+     "i": 43,
+     "j": 3,
+     "value": 2.086057e-06
+    },
+    {
+     "i": 88,
+     "j": 9,
+     "value": 1.87943e-06
+    },
+    {
+     "i": 87,
+     "j": 9,
+     "value": 1.87943e-06
+    },
+    {
+     "i": 40,
+     "j": 2,
+     "value": 1.792176e-06
+    },
+    {
+     "i": 39,
+     "j": 2,
+     "value": 1.792176e-06
+    },
+    {
+     "i": 44,
+     "j": 3,
+     "value": 1.499136e-06
+    },
+    {
+     "i": 45,
+     "j": 3,
+     "value": 1.499136e-06
+    },
+    {
+     "i": 41,
+     "j": 3,
+     "value": 1.482671e-06
+    },
+    {
+     "i": 47,
+     "j": 3,
+     "value": 1.456944e-06
+    },
+    {
+     "i": 46,
+     "j": 3,
+     "value": 1.355776e-06
+    },
+    {
+     "i": 44,
+     "j": 1,
+     "value": 1.309375e-06
+    },
+    {
+     "i": 45,
+     "j": 1,
+     "value": 1.307833e-06
+    },
+    {
+     "i": 27,
+     "j": 0,
+     "value": 1.1274e-06
+    },
+    {
+     "i": 26,
+     "j": 0,
+     "value": 1.127266e-06
+    },
+    {
+     "i": 48,
+     "j": 3,
+     "value": 1.05654e-06
+    },
+    {
+     "i": 67,
+     "j": 0,
+     "value": 1.022676e-06
+    },
+    {
+     "i": 66,
+     "j": 0,
+     "value": 9.578903e-07
+    },
+    {
+     "i": 80,
+     "j": 5,
+     "value": 9.528456e-07
+    },
+    {
+     "i": 47,
+     "j": 6,
+     "value": 9.411428e-07
+    },
+    {
+     "i": 79,
+     "j": 5,
+     "value": 8.242109e-07
+    },
+    {
+     "i": 45,
+     "j": 4,
+     "value": 8.107139e-07
+    },
+    {
+     "i": 44,
+     "j": 4,
+     "value": 8.107139e-07
+    },
+    {
+     "i": 47,
+     "j": 5,
+     "value": 7.995676e-07
+    },
+    {
+     "i": 48,
+     "j": 6,
+     "value": 7.748715e-07
+    },
+    {
+     "i": 39,
+     "j": 1,
+     "value": 7.692441e-07
+    },
+    {
+     "i": 40,
+     "j": 1,
+     "value": 7.562693e-07
+    },
+    {
+     "i": 46,
+     "j": 6,
+     "value": 6.853757e-07
+    },
+    {
+     "i": 48,
+     "j": 5,
+     "value": 6.796043e-07
+    },
+    {
+     "i": 47,
+     "j": 7,
+     "value": 6.73523e-07
+    },
+    {
+     "i": 47,
+     "j": 9,
+     "value": 6.443589e-07
+    },
+    {
+     "i": 39,
+     "j": 0,
+     "value": 6.439849e-07
+    },
+    {
+     "i": 46,
+     "j": 5,
+     "value": 5.794165e-07
+    },
+    {
+     "i": 48,
+     "j": 7,
+     "value": 5.662169e-07
+    },
+    {
+     "i": 25,
+     "j": 0,
+     "value": 5.612978e-07
+    },
+    {
+     "i": 68,
+     "j": 0,
+     "value": 5.543992e-07
+    },
+    {
+     "i": 48,
+     "j": 9,
+     "value": 5.38724e-07
+    },
+    {
+     "i": 81,
+     "j": 5,
+     "value": 5.383572e-07
+    },
+    {
+     "i": 44,
+     "j": 6,
+     "value": 5.310138e-07
+    },
+    {
+     "i": 45,
+     "j": 6,
+     "value": 5.310138e-07
+    },
+    {
+     "i": 45,
+     "j": 0,
+     "value": 5.011205e-07
+    },
+    {
+     "i": 44,
+     "j": 0,
+     "value": 5.003358e-07
+    },
+    {
+     "i": 38,
+     "j": 2,
+     "value": 4.948068e-07
+    },
+    {
+     "i": 45,
+     "j": 5,
+     "value": 4.818949e-07
+    },
+    {
+     "i": 44,
+     "j": 5,
+     "value": 4.818949e-07
+    },
+    {
+     "i": 38,
+     "j": 0,
+     "value": 4.731511e-07
+    },
+    {
+     "i": 47,
+     "j": 4,
+     "value": 4.431121e-07
+    },
+    {
+     "i": 89,
+     "j": 9,
+     "value": 4.416615e-07
+    },
+    {
+     "i": 46,
+     "j": 4,
+     "value": 4.414754e-07
+    },
+    {
+     "i": 40,
+     "j": 0,
+     "value": 4.413941e-07
+    },
+    {
+     "i": 64,
+     "j": 0,
+     "value": 4.207332e-07
+    },
+    {
+     "i": 46,
+     "j": 7,
+     "value": 4.04057e-07
+    },
+    {
+     "i": 46,
+     "j": 1,
+     "value": 3.958916e-07
+    }
+   ],
+   "below_floor_cells": 177,
+   "topk_unit": "GeV/mm^2/event",
+   "kernel": "none",
+   "total_energy_all_gev": 0.4659663980263412,
+   "energy_outside_window_gev": 2.674742734620761e-05,
+   "energy_fraction_outside_window": 5.74e-05,
+   "energy_fraction_outside_window_raw": 5.74e-05,
+   "below_floor_energy_fraction": 0.00331687,
+   "n_events": 2,
+   "bin_area_mm2": [
+    1640.0,
+    2460.0
+   ],
+   "rho_peak": 7.602874905361089e-06,
+   "rho_unit": "GeV/mm^2/event"
+  },
+  "xz": {
+   "panel": "xz",
+   "encoding": "u8-b64",
+   "shape": [
+    92,
+    13
+   ],
+   "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAADQAAAAAAAAAAAAAAABhAAAAAAAAAAAAAAAAYQAAAAAAAAAAAAAAACMBAAAAAAAAAAAAAAAUCgAAAAAAAAAAAAAAFAEAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAYwAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAACRAAAAAAAAAAAAAAAAuQAAAAAAAAEAAAAAALkAAAAAAAABAAAAAACMAAAAAAABAQAAAAAAAAAAAAAAASUAAAAAAAABAAAAAAElAAAAAAABAQAAAAEBAQAAAAAAAQEAAAABFgEAAAAAAAEBbAAAARMBAAAAAAAAAJgAAB8BAAAAAAAAAACYAAAfAQAAAAAAAAEBmAAAAQEGGpYAAAABAZgAAAEBGzalAAAAAQSPAAABARc0mgABAAEnggAAXW8WAQAAAQABJn8AAF1vFgEAAAEAs4WUWyBLTBdWABgBALqWpWswOQEhdgApAAC0j5x8JTABJXUAIwAAsDlOngEBJ50EzAEAALA5Tp4BASidAcwBAABzW4psHT9ujV2tAQEAa22gRj1mkYByAQEBAGZmtUM9ZpF8bAEBAQAjTN8Vfo9TXAcBAQEAIkvfEICRRlwHAQEAABGYzraee1JtTwEBAAARp9PSs0RagHgBAQAADqDX0rA8V355AQEAACSk8s44RItMSgEBAAAnpPPNAUaPRDkAAAAAatLUqnpleCAfAAAAAHD90Z6VeRwBDgAAAABi/dGfk35KAQsAAAAAhMe3hBqjlSABAAAAAIiprXsao5UfAQAAAACPppRiNYR0BAEAAAAAgaZcV0RTcwEAAAAAAGykWlk9SXMBAAAAAAABTBpxVAFSAAAAAAAAAQ8cbVQBQAAAAAAAAGgIFF1hATIAAAAAAABwBxJfZwohAAAAAAAAXQEMYGAKIQAAAAAAAAEBATEBAQEAAAAAAAAAAQEtAAEAAAAAAAAAOAEBOACeAAAAAAAAAE8AAEMAswAAAAAAAABJAAE9AK4AAAAAAAAAAQAVAQAABQASAAAAAAAAFQEAAAgAFQAAAAB5AAEBAAABAQEBAAAAkgAAAQAAAAEBAQAAAJEAAAEAAAABAQEAAAB5AAABAAAAAQEBAAAAeQAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAQEAAAAAAAAAAAAAEwEBAAAAAAAAAAAAAAIBAQAAAAAAAAAAAAABLDoAAAAAAAAAAAAAAS07AAAAAAAAAAAAAAFYHQAAAAAAAAAAAAABXQA=",
+   "empty_code": 0,
+   "below_code": 1,
+   "min_code": 2,
+   "max_code": 255,
+   "scale": {
+    "scale": "log10",
+    "vmin": -3.0,
+    "vmax": 0.0,
+    "unit": "a.u.",
+    "mode": "relative",
+    "locked": false,
+    "global_vmax": 7.602874905361089e-06,
+    "clipped_low": 134,
+    "empty_cells": 759,
+    "rho_ref": 7.602874905361089e-06,
+    "rho_unit": "GeV/mm^2/event",
+    "decades": 3.0,
+    "norm": "selection",
+    "floor": "transparent",
+    "floor_ratio": 0.001,
+    "shared_with": "yz+xz"
+   },
+   "axes": {
+    "row": {
+     "name": "x",
+     "lo": -920.0,
+     "hi": 920.0,
+     "n": 92,
+     "uniform": true,
+     "unit": "mm",
+     "symbol": "Δx"
+    },
+    "col": {
+     "name": "z",
+     "lo": -10.25,
+     "hi": 1178.75,
+     "n": 13,
+     "uniform": false,
+     "unit": "mm",
+     "edges": [
+      -10.25,
+      92.25,
+      194.75,
+      297.25,
+      399.75,
+      481.75,
+      563.75,
+      645.75,
+      727.75,
+      809.75,
+      891.75,
+      973.75,
+      1055.75,
+      1178.75
+     ],
+     "symbol": "Δz"
+    }
+   },
+   "occupancy": 0.253344,
+   "total": 0.4657234400890282,
+   "topk": [
+    {
+     "i": 58,
+     "j": 1,
+     "value": 7.244539e-06
+    },
+    {
+     "i": 59,
+     "j": 1,
+     "value": 7.198848e-06
+    },
+    {
+     "i": 56,
+     "j": 2,
+     "value": 5.412169e-06
+    },
+    {
+     "i": 55,
+     "j": 2,
+     "value": 5.366119e-06
+    },
+    {
+     "i": 50,
+     "j": 2,
+     "value": 3.201243e-06
+    },
+    {
+     "i": 51,
+     "j": 2,
+     "value": 3.194347e-06
+    },
+    {
+     "i": 54,
+     "j": 2,
+     "value": 2.570339e-06
+    },
+    {
+     "i": 57,
+     "j": 2,
+     "value": 2.36602e-06
+    },
+    {
+     "i": 53,
+     "j": 2,
+     "value": 2.264863e-06
+    },
+    {
+     "i": 54,
+     "j": 3,
+     "value": 2.24283e-06
+    },
+    {
+     "i": 57,
+     "j": 1,
+     "value": 2.219325e-06
+    },
+    {
+     "i": 53,
+     "j": 3,
+     "value": 2.213545e-06
+    },
+    {
+     "i": 59,
+     "j": 2,
+     "value": 2.193808e-06
+    },
+    {
+     "i": 58,
+     "j": 2,
+     "value": 2.176647e-06
+    },
+    {
+     "i": 55,
+     "j": 3,
+     "value": 2.016342e-06
+    },
+    {
+     "i": 52,
+     "j": 2,
+     "value": 1.970632e-06
+    },
+    {
+     "i": 56,
+     "j": 3,
+     "value": 1.960918e-06
+    },
+    {
+     "i": 46,
+     "j": 9,
+     "value": 1.892277e-06
+    },
+    {
+     "i": 45,
+     "j": 9,
+     "value": 1.866729e-06
+    },
+    {
+     "i": 60,
+     "j": 1,
+     "value": 1.628964e-06
+    },
+    {
+     "i": 43,
+     "j": 0,
+     "value": 1.155091e-06
+    },
+    {
+     "i": 28,
+     "j": 0,
+     "value": 1.126487e-06
+    },
+    {
+     "i": 27,
+     "j": 0,
+     "value": 1.121577e-06
+    },
+    {
+     "i": 60,
+     "j": 2,
+     "value": 1.074681e-06
+    },
+    {
+     "i": 52,
+     "j": 3,
+     "value": 1.035129e-06
+    },
+    {
+     "i": 49,
+     "j": 2,
+     "value": 1.004342e-06
+    },
+    {
+     "i": 44,
+     "j": 0,
+     "value": 9.701033e-07
+    },
+    {
+     "i": 73,
+     "j": 5,
+     "value": 9.593589e-07
+    },
+    {
+     "i": 53,
+     "j": 4,
+     "value": 9.529206e-07
+    },
+    {
+     "i": 42,
+     "j": 0,
+     "value": 9.458046e-07
+    },
+    {
+     "i": 45,
+     "j": 0,
+     "value": 8.890102e-07
+    },
+    {
+     "i": 46,
+     "j": 0,
+     "value": 8.861485e-07
+    },
+    {
+     "i": 54,
+     "j": 4,
+     "value": 8.799655e-07
+    },
+    {
+     "i": 74,
+     "j": 5,
+     "value": 8.215975e-07
+    },
+    {
+     "i": 61,
+     "j": 2,
+     "value": 8.19267e-07
+    },
+    {
+     "i": 47,
+     "j": 9,
+     "value": 8.103974e-07
+    },
+    {
+     "i": 57,
+     "j": 3,
+     "value": 7.55713e-07
+    },
+    {
+     "i": 61,
+     "j": 1,
+     "value": 7.197927e-07
+    },
+    {
+     "i": 53,
+     "j": 1,
+     "value": 6.788242e-07
+    },
+    {
+     "i": 63,
+     "j": 1,
+     "value": 6.70237e-07
+    },
+    {
+     "i": 62,
+     "j": 1,
+     "value": 6.672356e-07
+    },
+    {
+     "i": 43,
+     "j": 2,
+     "value": 6.503084e-07
+    },
+    {
+     "i": 38,
+     "j": 9,
+     "value": 6.477755e-07
+    },
+    {
+     "i": 55,
+     "j": 1,
+     "value": 6.404153e-07
+    },
+    {
+     "i": 64,
+     "j": 1,
+     "value": 6.391268e-07
+    },
+    {
+     "i": 56,
+     "j": 1,
+     "value": 6.256244e-07
+    },
+    {
+     "i": 61,
+     "j": 5,
+     "value": 6.246738e-07
+    },
+    {
+     "i": 60,
+     "j": 5,
+     "value": 6.224814e-07
+    },
+    {
+     "i": 54,
+     "j": 1,
+     "value": 5.759165e-07
+    },
+    {
+     "i": 48,
+     "j": 2,
+     "value": 5.666756e-07
+    },
+    {
+     "i": 59,
+     "j": 3,
+     "value": 5.486045e-07
+    },
+    {
+     "i": 52,
+     "j": 4,
+     "value": 5.450552e-07
+    },
+    {
+     "i": 46,
+     "j": 3,
+     "value": 5.430615e-07
+    },
+    {
+     "i": 45,
+     "j": 3,
+     "value": 5.429572e-07
+    },
+    {
+     "i": 72,
+     "j": 5,
+     "value": 5.345569e-07
+    },
+    {
+     "i": 58,
+     "j": 3,
+     "value": 5.342563e-07
+    },
+    {
+     "i": 46,
+     "j": 7,
+     "value": 5.30434e-07
+    },
+    {
+     "i": 45,
+     "j": 7,
+     "value": 5.236344e-07
+    },
+    {
+     "i": 44,
+     "j": 2,
+     "value": 5.157776e-07
+    },
+    {
+     "i": 39,
+     "j": 9,
+     "value": 4.832775e-07
+    },
+    {
+     "i": 38,
+     "j": 2,
+     "value": 4.605788e-07
+    },
+    {
+     "i": 35,
+     "j": 2,
+     "value": 4.599315e-07
+    },
+    {
+     "i": 36,
+     "j": 2,
+     "value": 4.599219e-07
+    },
+    {
+     "i": 37,
+     "j": 2,
+     "value": 4.595912e-07
+    }
+   ],
+   "below_floor_cells": 134,
+   "topk_unit": "GeV/mm^2/event",
+   "kernel": "none",
+   "total_energy_all_gev": 0.4659663980263412,
+   "energy_outside_window_gev": 0.0002429579373129931,
+   "energy_fraction_outside_window": 0.00052141,
+   "energy_fraction_outside_window_raw": 0.00052141,
+   "below_floor_energy_fraction": 0.00200139,
+   "n_events": 2,
+   "bin_area_mm2": [
+    1640.0,
+    2460.0
+   ],
+   "rho_peak": 7.244539656390006e-06,
+   "rho_unit": "GeV/mm^2/event"
+  }
+ },
+ "centroids": {
+  "truth_voxel": {
+   "label": "Ground truth (voxel-weighted)",
+   "a": {
+    "x": 12.185879911675311,
+    "y": -16.81870023747152,
+    "z": 164.0562768912091,
+    "energy": 0.051216538210513
+   },
+   "b": {
+    "x": 209.80280340989253,
+    "y": -50.520394469005176,
+    "z": 316.9555668888855,
+    "energy": 0.014630095652444455
+   },
+   "offset_mm": 200.47007918134824,
+   "separation_mm": null,
+   "offset_note": "A-B offset of the two superimposed ensemble centroids in the ΔxΔy plane, each relative to its own shower's entry point: not a separation, which is D, the absolute-frame 3-D centroid distance."
+  },
+  "pred_voxel": {
+   "label": "Model prediction (voxel-weighted)",
+   "a": {
+    "x": 78.6332325279045,
+    "y": 48.33811227788227,
+    "z": 150.74773707513452,
+    "energy": 0.023861669042010036
+   },
+   "b": {
+    "x": 43.28295864075194,
+    "y": -65.59352510784359,
+    "z": 295.7796451274588,
+    "energy": 0.04198496482094743
+   },
+   "offset_mm": 119.28981457479605,
+   "separation_mm": null,
+   "offset_note": "A-B offset of the two superimposed ensemble centroids in the ΔxΔy plane, each relative to its own shower's entry point: not a separation, which is D, the absolute-frame 3-D centroid distance."
+  },
+  "frame_mean": {
+   "label": "Mean per-event centroid (centroid_*_trans), relative to each shower's entry point",
+   "a": {
+    "x": 158.2885513305664,
+    "y": 34.63463592529297,
+    "z": 307.8743133544922,
+    "energy": null
+   },
+   "b": {
+    "x": 147.8425407409668,
+    "y": -8.225364685058594,
+    "z": 343.7833251953125,
+    "energy": null
+   },
+   "separation_mm": null,
+   "n": 2,
+   "sd": {
+    "a": {
+     "x": 91.21861979350504,
+     "y": 142.41472171618375,
+     "z": 0.943852035593213
+    },
+    "b": {
+     "x": 59.178593647718316,
+     "y": 29.73711155355826,
+     "z": 36.80856779077961
+    }
+   },
+   "ci95_half": {
+    "a": {
+     "x": 819.5535765838623,
+     "y": 1279.524890914917,
+     "z": 8.480037445068358
+    },
+    "b": {
+     "x": 531.6900013504028,
+     "y": 267.17304193115234,
+     "z": 330.7065317382812
+    }
+   },
+   "dof_note": "N = 2: SD with ddof = 1 and a Student-t 95% interval on 1 degree(s) of freedom; weak evidence, labelled provisional."
+  }
+ },
+ "selection": {
+  "n_events": 2,
+  "n_hits": 1000,
+  "n_events_no_d": 0,
+  "e_dep_total": 0.4660127169402757,
+  "d": {
+   "mean": 2667.7696533203125,
+   "median": 2667.76953125,
+   "sd": 578.7788121121027,
+   "min": 2258.51123046875,
+   "max": 3077.028076171875
+  },
+  "e1_mean": 10.294527888298035,
+  "e2_mean": 9.463196277618408,
+  "centroid_dataset": {
+   "label": "Dataset centroids (absolute-frame per-event average; not drawn in the per-shower translated frame - see centroids.frame_mean)",
+   "a": {
+    "x": 263.86279296875,
+    "y": 1050.0510864257812,
+    "z": 3970.274169921875
+   },
+   "b": {
+    "x": -279.77252197265625,
+    "y": 244.27462005615234,
+    "z": 4006.1832275390625
+   },
+   "separation_mm": 972.0159820736321
+  }
+ },
+ "filter": {
+  "e1": [
+   2.712594747543335,
+   17.876461029052734
+  ],
+  "e2": [
+   6.385610580444336,
+   12.54078197479248
+  ],
+  "d": [
+   2258.51123046875,
+   3077.028076171875
+  ],
+  "include_undefined_d": false
+ },
+ "overlays": {
+  "axes": {},
+  "trajectories": [
+   {
+    "event": 0,
+    "a": {
+     "theta": 0.38921254873275757,
+     "phi": 0.7503215074539185,
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.0
+    },
+    "b": {
+     "theta": 0.460832804441452,
+     "phi": 2.8038368225097656,
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.0
+    }
+   },
+   {
+    "event": 1,
+    "a": {
+     "theta": 0.28402936458587646,
+     "phi": 2.1638870239257812,
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.0
+    },
+    "b": {
+     "theta": 0.3169478476047516,
+     "phi": -0.14560233056545258,
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.0
+    }
+   }
+  ],
+  "coherence": {
+   "n": 2,
+   "r_a": 0.7604550544404053,
+   "r_b": 0.09592900851406062,
+   "theta_a_mean": 0.336620956659317,
+   "theta_b_mean": 0.3888903260231018,
+   "note": "The per-shower translated frame does not rotate, so every shower keeps its absolute-frame incident direction and the azimuth keeps its absolute-frame distribution (resultant length above): no averaged direction is drawn. Individual trajectories are drawn from the origin for at most 50 events."
+  },
+  "max_trajectory_events": 50
+ },
+ "slab": {
+  "mm": 123.0,
+  "layers": 6,
+  "z_front": 0.0,
+  "note": "The ΔxΔy panel sums each shower's entrance slab: its own first 6 sampling layers (123 mm), counted from the layer holding its entry point."
+ },
+ "frame": {
+  "kind": "trans",
+  "anchor": "own_shower_entry_point",
+  "anchor_note": "Each hit is shifted by its own shower's entry point P0 - the energy-weighted x, y centroid of that shower's first populated layer, at that layer's depth. D (the slider) is the absolute-frame 3-D centroid distance.",
+  "symbols": {
+   "x": "Δx",
+   "y": "Δy",
+   "z": "Δz"
+  },
+  "pitch_mm": 20.0,
+  "depth_mm": 1189.0,
+  "depth": {
+   "policy": "native_layers",
+   "text": "each shower's own sampling layers counted from its first, never smoothed",
+   "pitch_mm": 20.5,
+   "n": 58,
+   "range_mm": [
+    -10.25,
+    1178.75
+   ]
+  },
+  "footprint_mm": [
+   48.27001953125,
+   48.5999755859375
+  ],
+  "splat": {
+   "regime": "box_overlap",
+   "k": null,
+   "k_z": null,
+   "budget_rows": 30000000
+  },
+  "subsample_k": null,
+  "rows_scanned": 1000,
+  "window": {
+   "pitch_mm": 20.0,
+   "x": [
+    -3360.0,
+    3360.0
+   ],
+   "y": [
+    -1000.0,
+    1000.0
+   ],
+   "n_x": 336,
+   "n_y": 100,
+   "n_z": 58,
+   "z_front_mm": 0.0,
+   "planned_from": "dataset energy-weighted 10⁻⁴ and 0.9999 quantiles plus half a footprint",
+   "energy_outside_gev": 4.631891393411247e-05,
+   "energy_fraction_outside": 9.939e-05,
+   "hits_outside": 5
+  },
+  "fit": {
+   "percentiles": [
+    0.1,
+    99.9
+   ],
+   "rule": "symmetric",
+   "floor_mm": 200.0,
+   "snap_mm": 20.0,
+   "provisional": true,
+   "xy": {
+    "row": {
+     "range": [
+      -700.0,
+      700.0
+     ],
+     "bins": [
+      15,
+      85
+     ],
+     "energy_fraction_outside": 8.926e-05,
+     "applied": true,
+     "percentile_range": [
+      -700.0,
+      580.0
+     ],
+     "symmetric": true,
+     "half_width": 700.0,
+     "floored": false,
+     "clamped": false
+    },
+    "col": {
+     "range": [
+      -740.0,
+      740.0
+     ],
+     "bins": [
+      131,
+      205
+     ],
+     "energy_fraction_outside": 0.00076901,
+     "applied": true,
+     "percentile_range": [
+      -600.0,
+      740.0
+     ],
+     "symmetric": true,
+     "half_width": 740.0,
+     "floored": false,
+     "clamped": false
+    },
+    "energy_fraction_outside": 0.00085828
+   },
+   "yz": {
+    "row": {
+     "range": [
+      -900.0,
+      900.0
+     ],
+     "bins": [
+      5,
+      95
+     ],
+     "energy_fraction_outside": 5.74e-05,
+     "applied": true,
+     "percentile_range": [
+      -680.0,
+      900.0
+     ],
+     "symmetric": true,
+     "half_width": 900.0,
+     "floored": false,
+     "clamped": false
+    },
+    "col": {
+     "range": [
+      -10.25,
+      1178.75
+     ],
+     "bins": [
+      0,
+      58
+     ],
+     "energy_fraction_outside": 0.0,
+     "applied": false,
+     "percentile_range": null,
+     "symmetric": false,
+     "half_width": null,
+     "floored": false,
+     "clamped": false
+    },
+    "energy_fraction_outside": 5.74e-05
+   },
+   "xz": {
+    "row": {
+     "range": [
+      -920.0,
+      920.0
+     ],
+     "bins": [
+      122,
+      214
+     ],
+     "energy_fraction_outside": 0.00052141,
+     "applied": true,
+     "percentile_range": [
+      -580.0,
+      920.0
+     ],
+     "symmetric": true,
+     "half_width": 920.0,
+     "floored": false,
+     "clamped": false
+    },
+    "col": {
+     "range": [
+      -10.25,
+      1178.75
+     ],
+     "bins": [
+      0,
+      58
+     ],
+     "energy_fraction_outside": 0.0,
+     "applied": false,
+     "percentile_range": null,
+     "symmetric": false,
+     "half_width": null,
+     "floored": false,
+     "clamped": false
+    },
+    "energy_fraction_outside": 0.00052141
+   },
+   "note": "Display windows are symmetric about the origin along Δx and Δy, each half-width covering the 0.1st to 99.9th energy percentile, never below 200 mm (a provisional one-shower floor), and snapped outward to whole 20 mm bins. Up to 0.086% of a panel's energy lies outside its window on the raw accumulation grid; it is excluded from the view but not from the statistics. Depth is never cropped. With 2 co-registered event(s) the fitted ranges are provisional."
+  },
+  "n_events": 2,
+  "n_selected": 2,
+  "n_excluded_no_frame": 0,
+  "n_showers": 4,
+  "n_hits": 1000,
+  "n_ab_hits": 0,
+  "theta_max": 0.460832804441452,
+  "d_dataset": {
+   "mean": 2667.7696533203125,
+   "ci95_half": 5200.037520751953,
+   "sd": 578.7788121121027,
+   "n": 2
+  },
+  "phi_resultant": {
+   "a": 0.7604550544404053,
+   "b": 0.09592900851406062
+  },
+  "cam_zero_events": {
+   "gradcam": 0,
+   "shapcam": 0
+  },
+  "coordinates": {
+   "source": "file",
+   "residual_max_mm": 3.439071906541358e-05,
+   "tolerance_mm": 0.01,
+   "ingest_residual_mm": 6.103515625e-05,
+   "ingest_residual_key": "p0_spread_mm",
+   "within_tolerance": true,
+   "note": "Coordinates: the file's own x/y_trans and the own-shower layer, as every response of this frame binned them; the same motion (the shower's entry point P0 subtracted from the laboratory position) was applied to every hit inside the scan as a cross-check, and over this selection the two differ by at most 3.44e−05 mm (ingest-wide 6.1e−05 mm), within the 0.01 mm tolerance."
+  },
+  "comb": {
+   "staggered": false,
+   "combed_axes": [],
+   "lag1": {
+    "x": 0.0587128801032901,
+    "y": -0.0960269886754901
+   },
+   "axes": {
+    "x": {
+     "occupancy": 0.0587128801032901,
+     "energy_columns": 0.5444390845958157,
+     "energy_core_row": 0.5005521854056341
+    },
+    "y": {
+     "occupancy": -0.0960269886754901,
+     "energy_columns": 0.4886843186746576,
+     "energy_core_row": 0.48978913841474353
+    }
+   },
+   "threshold": -0.1,
+   "measured_on": "raw accumulation grid, before display smoothing",
+   "note": "No cell-footprint comb measured on the raw per-shower translated accumulation grid, before any display smoothing (worst lag-1 per axis: Δx +0.06, Δy −0.10); each cell's footprint is integrated exactly by area-weighted box overlap."
+  },
+  "rho": {
+   "norm": "selection",
+   "ref": {
+    "xy": 2.2654813830806025e-06,
+    "depth": 7.602874905361089e-06
+   },
+   "ref_k": 1,
+   "selection_k": 1,
+   "selection_peak": {
+    "xy": 2.2654813830806025e-06,
+    "depth": 7.602874905361089e-06
+   },
+   "unit": "GeV/mm^2/event",
+   "decades": 3.0,
+   "basis": "peak of the raw 20 mm accumulation grid of this selection, before display reconstruction",
+   "displayed_peak": {
+    "xy": 2.2654813830806025e-06,
+    "yz": 7.602874905361089e-06,
+    "xz": 7.244539656390006e-06
+   },
+   "displayed_over_ref": {
+    "xy": 1.0,
+    "yz": 1.0,
+    "xz": 0.952868
+   },
+   "kernel_attenuation": {
+    "xy": 1.0,
+    "yz": 1.0,
+    "xz": 1.0
+   }
+  },
+  "reconstruction": {
+   "display": "native",
+   "kernel": "none",
+   "label": "none (raw bins)",
+   "sigma_mm": null,
+   "bin_spread_rms_mm": 5.774,
+   "blur_rms_mm": {
+    "x": 16.15,
+    "y": 16.233
+   },
+   "subsample_k": null,
+   "splat_regime": "box_overlap",
+   "gaussian_below_n": 50,
+   "axes": [
+    "Δx",
+    "Δy"
+   ],
+   "depth": "each shower's own sampling layers counted from its first, never smoothed",
+   "conservative": true,
+   "floor_ratio": 0.001,
+   "energy_fraction_outside": {
+    "xy": 0.00085828,
+    "yz": 5.74e-05,
+    "xz": 0.00052141
+   },
+   "below_floor": {
+    "xy": {
+     "cells": 312,
+     "energy_fraction": 0.00178095
+    },
+    "yz": {
+     "cells": 177,
+     "energy_fraction": 0.00331687
+    },
+    "xz": {
+     "cells": 134,
+     "energy_fraction": 0.00200139
+    }
+   },
+   "note": "Native Grid: the raw 20 mm accumulation bins with no reconstruction, the audit view. Total transverse blur including the exact area-weighted overlap of each cell's footprint and the 20 mm binning: 16.2 mm RMS in Δx, 16.2 mm in Δy."
+  },
+  "notes": [],
+  "coherence": {
+   "r_a": 0.7604550544404053,
+   "r_b": 0.09592900851406062,
+   "n": 2
+  }
+ },
+ "depth_layers": {
+  "numbering": "relative",
+  "n_layers": 58,
+  "partition_layers": 56,
+  "pitch_mm": 20.5,
+  "edges_mm": [
+   -10.25,
+   10.25,
+   30.75,
+   51.25,
+   71.75,
+   92.25,
+   112.75,
+   133.25,
+   153.75,
+   174.25,
+   194.75,
+   215.25,
+   235.75,
+   256.25,
+   276.75,
+   297.25,
+   317.75,
+   338.25,
+   358.75,
+   379.25,
+   399.75,
+   420.25,
+   440.75,
+   461.25,
+   481.75,
+   502.25,
+   522.75,
+   543.25,
+   563.75,
+   584.25,
+   604.75,
+   625.25,
+   645.75,
+   666.25,
+   686.75,
+   707.25,
+   727.75,
+   748.25,
+   768.75,
+   789.25,
+   809.75,
+   830.25,
+   850.75,
+   871.25,
+   891.75,
+   912.25,
+   932.75,
+   953.25,
+   973.75,
+   994.25,
+   1014.75,
+   1035.25,
+   1055.75,
+   1076.25,
+   1096.75,
+   1117.25,
+   1137.75,
+   1158.25,
+   1178.75
+  ],
+  "first_layer": 1,
+  "contiguous": true,
+  "display_offset_mm": null,
+  "symbol": "Δz",
+  "profile": {
+   "numbering": "relative",
+   "energy_gev": [
+    0.04333022367,
+    0.001067711336,
+    0.002275727836,
+    0.002920623787,
+    0.002114002018,
+    0.01413834521,
+    0.01714008095,
+    0.03206320445,
+    0.01344255101,
+    0.0286964259,
+    0.02306949693,
+    0.01599103653,
+    0.05711725465,
+    0.02517745473,
+    0.0413437096,
+    0.01295586418,
+    0.02010018407,
+    0.01357730963,
+    0.007424062512,
+    0.005692983281,
+    0.006261915523,
+    0.003738138312,
+    0.00184617743,
+    0.003424419871,
+    0.00300192719,
+    0.002348070167,
+    0.002432492883,
+    0.01275962485,
+    0.002922648722,
+    0.004766620384,
+    0.002812031257,
+    0.003241506898,
+    0.002388688137,
+    0.003395238343,
+    0.001966969846,
+    0.001967897459,
+    0.001930760735,
+    0.001568498271,
+    0.001567135206,
+    1.435585948e-05,
+    3.604515717e-05,
+    5.217483733e-05,
+    0.02011443828,
+    1.734582554e-06,
+    0.000111324606,
+    6.962855158e-06,
+    0.000108358543,
+    0.0001169181118,
+    2.602969721e-05,
+    0.0008923097857,
+    1.281423806e-06,
+    7.326818741e-05,
+    3.487629385e-07,
+    4.0708108e-09,
+    0.0,
+    4.378501762e-05,
+    0.0,
+    0.0003880444856
+   ],
+   "attention": null,
+   "outside_gev": 4.631891393411247e-05,
+   "total_gev": 0.46601271694027535,
+   "exact": true
+  },
+  "reach": {
+   "n_showers": 4,
+   "counts": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "n_without_start": 0,
+   "l_phys": 58,
+   "note": "Relative layer k + 1 lies inside the detector for a shower whose first populated layer is the physical layer s when s ≤ L_phys − 1 − k, with L_phys = 58 layer slots of 20.5 mm from z = 3662.4 to 4830.9 mm and s = round((P₀z − 3662.4 mm) / 20.5 mm); counts[k] is how many of the selection's 4 showers A and B reach it."
+  },
+  "groups": {
+   "counts": [
+    5,
+    5,
+    5,
+    5,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "pooled": true,
+   "bins": [
+    {
+     "group": 1,
+     "first": 1,
+     "last": 5
+    },
+    {
+     "group": 2,
+     "first": 6,
+     "last": 10
+    },
+    {
+     "group": 3,
+     "first": 11,
+     "last": 15
+    },
+    {
+     "group": 4,
+     "first": 16,
+     "last": 20
+    },
+    {
+     "group": 5,
+     "first": 21,
+     "last": 24
+    },
+    {
+     "group": 6,
+     "first": 25,
+     "last": 28
+    },
+    {
+     "group": 7,
+     "first": 29,
+     "last": 32
+    },
+    {
+     "group": 8,
+     "first": 33,
+     "last": 36
+    },
+    {
+     "group": 9,
+     "first": 37,
+     "last": 40
+    },
+    {
+     "group": 10,
+     "first": 41,
+     "last": 44
+    },
+    {
+     "group": 11,
+     "first": 45,
+     "last": 48
+    },
+    {
+     "group": 12,
+     "first": 49,
+     "last": 52
+    },
+    {
+     "group": 13,
+     "first": 53,
+     "last": 58
+    }
+   ],
+   "beyond_axis": []
+  },
+  "note": "Relative layers 1–58, counted from each shower's own first populated layer (relative layer 1 at Δz = 0); seams at (k − ½) × 20.5 mm, the last group running to the end of the axis."
+ }
+}

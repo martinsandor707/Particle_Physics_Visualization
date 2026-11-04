@@ -36,6 +36,8 @@ _BYTES = re.compile(r"\d[\d,]* bytes")
 HITS = {"table_name": SINGLE_HITS_TABLE}
 EVENTS = {"table_name": SINGLE_EVENTS_TABLE}
 BASE = {"table_name": BASELINE_TABLE}
+#: The uniform layer-group partition of the base lattice's 56 layers (``grid/layer_groups.py``).
+BASE_UNIFORM_GROUPS = "5.5.5.5.4.4.4.4.4.4.4.4.4"
 #: The aggregate ``xgb_client`` analyses with its in-test XGBoost models.
 XGB = {"table_name": xgb_table(XGB_SOURCE)}
 
@@ -165,6 +167,19 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
     "projections_single_local": ("single_client", "/api/projections",
                                  {**HITS, "coord_system": "local"}, None),
     "projections_base_lab": ("single_client", "/api/projections", BASE, None),
+    # Layer groups: depth_layers in the per-shower translated frame and the D-frame, the pooled
+    # depth axis (13 groups, the uniform partition of the base lattice's 56 layers), and one
+    # event's raster frames with their layer_planes.
+    "projections_base_trans": ("single_client", "/api/projections",
+                               {**BASE, "coord_system": "trans"}, None),
+    "projections_base_canonical": ("single_client", "/api/projections",
+                                   {**BASE, "frame": "canonical"}, None),
+    "projections_base_lab_pooled": ("single_client", "/api/projections",
+                                    {**BASE, "depth_groups": BASE_UNIFORM_GROUPS}, None),
+    "projections_base_trans_pooled": ("single_client", "/api/projections",
+                                      {**BASE, "coord_system": "trans",
+                                       "depth_groups": BASE_UNIFORM_GROUPS}, None),
+    "event_raster_base": ("single_client", "/api/event", {**BASE, "event_number": 0}, None),
     # XGBoost (Page 2): the catalogue with model runs, the Admin Settings list, the four
     # views (each task they apply to, requested as the shell does: no selection), and
     # the XGBoost series of E2 and of the prediction density.

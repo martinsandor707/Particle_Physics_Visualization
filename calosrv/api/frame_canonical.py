@@ -47,12 +47,13 @@ import duckdb
 from ..config import Settings
 from ..db.registry import ExperimentRecord
 from ..grid import frame as frame_mod
+from ..grid import layer_groups
 from ..grid.resolution import MODE_CONTINUOUS, MODE_NATIVE
 from ..models.common import ApiMeta, Timer, envelope
 from ..text import fmt_signed
 from ..query import cache as cache_mod
 from ..query import canonical, canonical_cache, centroids, density, ensemble, reconstruct, sampling, summary, window
-from ..query import frame_sql
+from ..query import frame_sql, layer_profile
 from ..query import stagger as stagger_mod
 from ..query import planes as planes_mod
 from ..query.panels import CHANNEL_GRADCAM
@@ -313,13 +314,16 @@ def build_response(
     scale_mode: str = "decades",
     model: str = "segmentation",
     anchor: str = frame_sql.ANCHOR_BACKPROJECTED,
+    depth_groups: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     """The full canonical-frame response, budgeted as it goes on the wire.
 
     ``anchor`` is the entry-point definition the frame is built on
     (``query/frame_sql.py``): the back-projected 3-D centroid, or the shower's
     own first-layer entry point P0. The residual between the two is reported
-    whichever is in use.
+    whichever is in use. ``depth_groups`` pools the depth panels into layer
+    groups at render time; the D-frame's z′ layers are the detector's own, so
+    they are numbered and pooled as detector layers.
     """
     assert record.lattice is not None
     frame_sql.check_anchor(anchor)
@@ -350,10 +354,20 @@ def build_response(
     if rho_norm == density.NORM_DATASET:
         reference = dataset_reference(con, record, settings, footprint, anchor=anchor)
 
+    depth_edges = grid.axis("z").edges
+    pool = None if depth_groups is None else layer_groups.pooled_operator(depth_edges, depth_groups)
+    depth_block = layer_profile.depth_layers(
+        FRAME_CANONICAL, record, edges=depth_edges,
+        profile=layer_profile.bundle_profile(
+            bundle, "xz", channel, layer_profile.NUMBERING_DETECTOR,
+            outside_gev=bundle.energy_outside, plane_outside=bundle.plane_outside),
+        pool=pool, is_contiguous=layer_profile.lattice_contiguous(record),
+    )
+
     def render(limit: int, **resume: Any) -> dict[str, Any]:
         return density.render_canonical(
             bundle, fit, display, resolution, channel, weighting, rho_norm, reference,
-            limit=limit, kernel=kernel, **resume,
+            limit=limit, kernel=kernel, depth_pool=pool, **resume,
         )
 
     rendered = render(density.PAYLOAD_LIMIT)
@@ -398,6 +412,8 @@ def build_response(
             notices.append({"scope": "resolution", "text": note})
         for note in budget_notes:
             notices.append({"scope": "resolution", "text": note})
+        if pool is not None:
+            notices.append({"scope": "resolution", "text": pooled_notice(pool)})
         notices.append({"scope": "frame", "text": comb["note"]})
         notices.append({"scope": "frame", "text": _floor_notice(channel, display, rendered["panels"])})
         if stats.n_excluded_no_frame:
@@ -560,9 +576,26 @@ def build_response(
                 ),
             },
             frame=frame_block,
+            depth_layers=depth_block,
         )
 
     return serve_within_budget(assemble, render, rendered, display)
+
+
+def pooled_notice(pool: layer_groups.PooledAxis) -> str:
+    """The sentence that says a co-registered frame's depth panels are pooled into layer groups."""
+    text = (
+        f"Depth pooled into {pool.n_dst} layer groups ({layer_groups.format_counts(pool.counts)}) at "
+        "the native layers' stored edges: each group bin holds the width-weighted mean of its "
+        "layers' densities, the exact area-weighted overlap of the native layers, so no bin exceeds "
+        "the per-layer peak and the energy is conserved. The selection's ρ_ref, the colour scale and "
+        "the floor counts are the pooled grid's; a dataset reference stays the per-layer peak, which "
+        "bounds the pooled values too. The comb is still measured on the raw accumulation grid."
+    )
+    if pool.beyond:
+        text += (f" Group(s) {', '.join(str(m) for m in pool.beyond)} lie wholly beyond this depth "
+                 "axis and are not drawn.")
+    return text
 
 
 def ill_conditioned_notice(n_ill: int, *, axis_statistics: bool = True) -> str | None:
