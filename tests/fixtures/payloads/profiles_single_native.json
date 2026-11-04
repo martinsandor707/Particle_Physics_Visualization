@@ -1311,7 +1311,7 @@
    ],
    "n_without_start": 0,
    "l_phys": 43,
-   "note": "Relative layer k + 1 lies inside the detector for a shower whose first populated layer is the physical layer s when s ≤ L_phys − 1 − k, with L_phys = 43 layer slots of 20.5 mm from z = 3662.4 to 4523.4 mm and s = round((P₀z − 3662.4 mm) / 20.5 mm); counts[k] is how many of the selection's 287 shower reach it."
+   "note": "Relative layer k + 1 lies inside the detector for a shower whose first populated layer is the physical layer s when s ≤ L_phys − 1 − k, with L_phys = 43 layer slots of 20.5 mm from z = 3662.4 to 4523.4 mm and s = round((P₀z − 3662.4 mm) / 20.5 mm); counts[k] is how many of the selection's 287 showers reach it."
   },
   "note": "Relative layers kt + 1, counted from each shower's own first populated layer; the reach says how many of the selected showers have each relative layer inside the detector."
  },

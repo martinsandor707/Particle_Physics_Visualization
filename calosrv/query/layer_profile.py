@@ -54,8 +54,39 @@ NUMBERING_NONE = "none"
 #: The depth symbol each frame writes.
 SYMBOLS = {"lab": "z", "canonical": "z′", "trans": "Δz", "local": "w"}
 
-#: Significant figures of a shipped per-layer sum (as ``voxel_event.DEPTH_DIGITS``).
-DIGITS = 10
+#: Significant figures of a shipped per-layer sum: ``profile.energy_gev``, the
+#: ``profile.attention`` arrays and ``layer_planes.energy_gev`` (brief §9.1,
+#: LG-C2). The interface prints a layer's share to 0.1 %, and four figures hold
+#: each sum to 0.05 % of itself. The scalar totals (``total_gev``,
+#: ``outside_gev``, ``attention.total`` …) keep full precision.
+DIGITS = 4
+
+#: Decimals of a shipped depth edge: 0.001 mm.
+EDGE_DECIMALS = 3
+
+#: The per-layer arrays of each ``profile.attention`` block, compacted with the energy.
+_ATTENTION_ARRAYS = ("values", "positive", "negative")
+
+#: ``depth_layers.trim_note`` when the guard yielded the layer block and the raster kept its plan.
+TRIM_NOTE = (
+    "The per-layer shares and reach were left out to keep this response under the 100 KB "
+    "contract; the raster kept its resolution."
+)
+#: … and when the raster had to be coarsened as well.
+TRIM_NOTE_COARSENED = (
+    "The per-layer shares and reach were left out to keep this response under the 100 KB "
+    "contract, and the raster was coarsened as well, as the resolution notices say."
+)
+#: ``layer_planes.trim_note`` of ``/api/event`` when the grids kept their pitch.
+TRIM_NOTE_EVENT = (
+    "The shower's per-layer energies were left out to keep this response under the 100 KB "
+    "contract; the grids kept their pitch."
+)
+#: … and when the grids had to be coarsened as well.
+TRIM_NOTE_EVENT_COARSENED = (
+    "The shower's per-layer energies were left out to keep this response under the 100 KB "
+    "contract, and the grids were coarsened as well, as the grid notes say."
+)
 
 
 def _sig(values: Any) -> list[float]:
@@ -63,7 +94,7 @@ def _sig(values: Any) -> list[float]:
 
 
 def _edges(values: Any) -> list[float]:
-    return [round(float(v), 6) for v in np.asarray(values, dtype=np.float64)]
+    return [round(float(v), EDGE_DECIMALS) + 0.0 for v in np.asarray(values, dtype=np.float64)]
 
 
 def physical_layers(record: ExperimentRecord) -> int:
@@ -124,7 +155,13 @@ def reach(
         limit = l_phys - 1 - k
         idx = int(np.searchsorted(starts, limit, side="right"))
         counts.append(int(cumulative[idx - 1]) if idx > 0 else 0)
-    whose = "shower" if len(picked) == 1 else "showers A and B"
+    # The plural agrees with the count (LG-G7); one shower of a two-shower kind is named.
+    if len(picked) == 2:
+        whose = "showers A and B"
+    elif len(showers_mod.of(record)) == 2:
+        whose = f"showers {picked[0].key.upper()}"
+    else:
+        whose = "showers"
     note = (
         f"Relative layer k + 1 lies inside the detector for a shower whose first populated layer is "
         f"the physical layer s when s ≤ L_phys − 1 − k, with L_phys = {l_phys} layer slots of "
@@ -164,7 +201,13 @@ def _attention(channel: str, planes: dict[str, np.ndarray], outside: dict[str, f
                  "negative": np.abs(planes["esn"].sum(axis=pool_axis)),
                  "positive_outside": float(outside.get("esp", 0.0)),
                  "negative_outside": abs(float(outside.get("esn", 0.0)))}
-    return attention_block(channel, parts)
+    # The block's totals are computed from the full-precision sums; only its
+    # per-layer arrays travel compacted.
+    block = attention_block(channel, parts)
+    for key in _ATTENTION_ARRAYS:
+        if key in block:
+            block[key] = _sig(block[key])
+    return block
 
 
 def bundle_profile(bundle: Any, panel_name: str, channel: str, numbering: str,
@@ -387,3 +430,61 @@ def layer_planes(
         "reach_layers": int(max(0, l_phys - s)),
         "display_offset_mm": None,
     }
+
+
+# ------------------------------------------------------- the 100 KB yield --
+#
+# The layer blocks are what a guard gives up first (brief §9.1, LG-C2). Each
+# guard loop measures the body; over the contract it trims the blocks to the
+# shape below and measures the same plan again, and only if it is still over
+# does it lower R or coarsen the grids as before, keeping the blocks trimmed.
+# A trimmed block keeps every scalar, its edges and its groups, so the seams
+# and the pooled axis still draw; only the per-layer arrays and the reach go.
+
+
+def trim_depth_layers(block: dict[str, Any] | None, *, coarsened: bool = False
+                      ) -> tuple[dict[str, Any] | None, bool]:
+    """One ``depth_layers`` block in the trimmed shape, and whether that removed anything.
+
+    ``profile`` and ``reach`` become null, ``trimmed`` true and ``trim_note``
+    the disclosure: :data:`TRIM_NOTE`, or :data:`TRIM_NOTE_COARSENED` when the
+    raster was coarsened as well. A block with neither array (or none at all)
+    is returned as it is, with False.
+    """
+    if not block or (block.get("profile") is None and block.get("reach") is None):
+        return block, False
+    note = TRIM_NOTE_COARSENED if coarsened else TRIM_NOTE
+    return {**block, "profile": None, "reach": None, "trimmed": True,
+            "trim_note": typographic(note)}, True
+
+
+def trim_body(body: dict[str, Any], *, coarsened: bool = False) -> bool:
+    """Trim the ``depth_layers`` block of one assembled ``/api/projections`` body in place.
+
+    Returns whether anything was trimmed; the body is untouched otherwise.
+    """
+    block, trimmed = trim_depth_layers(body.get("depth_layers"), coarsened=coarsened)
+    if trimmed:
+        body["depth_layers"] = block
+    return trimmed
+
+
+def trim_layer_planes(planes: dict[str, dict[str, Any] | None], *, coarsened: bool = False
+                      ) -> tuple[dict[str, dict[str, Any] | None], bool]:
+    """``/api/event``'s per-frame ``layer_planes`` in the trimmed shape, and whether that removed anything.
+
+    Each frame's ``energy_gev`` becomes null, ``trimmed`` true and
+    ``trim_note`` :data:`TRIM_NOTE_EVENT` (or :data:`TRIM_NOTE_EVENT_COARSENED`
+    when the grids were coarsened as well); the normal, edges, tilt, start and
+    reach stay.
+    """
+    note = typographic(TRIM_NOTE_EVENT_COARSENED if coarsened else TRIM_NOTE_EVENT)
+    out: dict[str, dict[str, Any] | None] = {}
+    trimmed = False
+    for kind, block in planes.items():
+        if block is None or block.get("energy_gev") is None:
+            out[kind] = block
+            continue
+        out[kind] = {**block, "energy_gev": None, "trimmed": True, "trim_note": note}
+        trimmed = True
+    return out, trimmed

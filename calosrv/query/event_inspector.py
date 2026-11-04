@@ -858,11 +858,13 @@ def inspect(
     lab_panels, lab_extent = _lab_panels(rows, record, windows["lab"])
     # The detector layer planes in each frame, for any partition into layer
     # groups the client draws (``query/layer_profile.py``): every cell counts.
-    planes = {
+    full_planes = {
         kind: layer_profile.layer_planes(kind, record, iz=rows.iz, kt=rows.kt, energy=rows.energy,
                                          p0_z=float(p0[2]), theta=theta, phi=phi)
         for kind in FRAMES
     }
+    # What `build` ships: the full blocks until the budget below trims them.
+    planes = full_planes
 
     def build(pitch: float, notes: list[str]) -> dict[str, Any]:
         trans_panels, trans_extent = _trans_panels(trans_xyz, rows.energy, fp, pitch_z, windows[KIND_TRANS], pitch,
@@ -957,9 +959,21 @@ def inspect(
                      f"{MAX_BINS_PER_AXIS} bins per axis.")
 
     body = None
+    start_pitch = pitch
+    trimmed = False
     for _attempt in range(6):
+        if trimmed:
+            # Keep the blocks trimmed, and say whether the grids moved too.
+            planes, _ = layer_profile.trim_layer_planes(full_planes, coarsened=pitch > start_pitch)
         body = build(pitch, notes)
         size = density.wire_size(body)
+        if size >= limit and not trimmed:
+            # The layer blocks yield before the grids (brief §9.1): trim them
+            # and measure the same pitch again before coarsening.
+            planes, trimmed = layer_profile.trim_layer_planes(full_planes)
+            if trimmed:
+                body = build(pitch, notes)
+                size = density.wire_size(body)
         if size < limit or pitch >= MAX_PITCH_MM:
             break
         notes.append(f"Grids coarsened from {pitch:.0f} mm to {2 * pitch:.0f} mm to keep the response under the "
