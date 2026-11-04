@@ -158,6 +158,32 @@
     <div class="caption" id="m-frame-caption">&mdash;</div>
     </div>
 
+    <!-- Longitudinal Channels: the 13-channel partition of the detector's layers.
+         Hidden until controls/layer_groups_control.js knows the experiment's layer
+         count (it needs at least 13). The same block sits on both pages. -->
+    <div class="sidebar-group" id="group-lgroups" hidden>
+    <h2>
+      <span id="lgroups-heading">Longitudinal Channels</span>
+      <button class="info-dot" id="info-lgroups" type="button" hidden
+              aria-label="Longitudinal Channels notices">i</button>
+    </h2>
+    <fieldset class="choice-group" id="ctl-lgroups-mode" aria-labelledby="lgroups-heading">
+      <label class="choice" id="lgmode-off-label">
+        <input type="radio" name="lgmode" id="lgmode-off" value="off" checked> Off
+      </label>
+      <label class="choice" id="lgmode-bounds-label">
+        <input type="radio" name="lgmode" id="lgmode-bounds" value="bounds"> Boundaries
+      </label>
+      <label class="choice" id="lgmode-pool-label">
+        <input type="radio" name="lgmode" id="lgmode-pool" value="pool"> Pooled (13 Ch)
+      </label>
+    </fieldset>
+    <div class="lg-bar" id="lgroups-bar" role="img" aria-label="The 13 Longitudinal Channels, widths proportional to their layer counts"></div>
+    <button class="action" id="lgroups-edit" type="button" aria-haspopup="dialog" aria-controls="lgroups-modal">Edit Channels&hellip;</button>
+    <div class="caption" id="lgroups-summary">&mdash;</div>
+    <div class="hint" id="lgroups-notice" hidden></div>
+    </div>
+
     <div class="sidebar-group" id="group-m-colormap">
     <h2>Colour Map</h2>
     <select class="picker" id="m-colormap" aria-label="Colour map of the density panels">
@@ -257,6 +283,57 @@
     </div>
     <div class="inspector-body" id="inspector-body"></div>
   </aside>
+</div>
+
+<!-- The Longitudinal Channels editor: a ribbon of the detector's layers with
+     12 draggable seams, a coupled table, presets and a shorthand field. Every id
+     is the one controls/layer_groups_control.js looks up. The backdrop carries
+     a second class so the Admin panel stays the page's only plain
+     "modal-backdrop". -->
+<div class="modal-backdrop lg-backdrop" id="lgroups-modal" hidden>
+  <div class="modal lg-modal" aria-labelledby="lgroups-title">
+    <h2 id="lgroups-title">Edit Longitudinal Channels</h2>
+    <p class="hint" id="lgroups-depth-note"></p>
+
+    <div class="lg-ribbon-wrap">
+      <div class="lg-scale lg-scale-top" id="lgroups-ribbon-top"></div>
+      <div class="lg-ribbon" id="lgroups-ribbon"></div>
+      <div class="lg-scale lg-scale-bottom" id="lgroups-ribbon-bottom"></div>
+    </div>
+
+    <div class="lg-presets" id="lgroups-presets" role="group" aria-label="Channel presets">
+      <button class="mini" type="button" data-preset="uniform">Uniform</button>
+      <button class="mini" type="button" data-preset="em_hadron">EM-Fine / Hadron-Coarse</button>
+      <button class="mini" type="button" data-preset="log">Logarithmic Depth</button>
+      <button class="mini" type="button" data-preset="custom" id="lgroups-preset-custom" hidden>Last custom</button>
+    </div>
+
+    <div class="lg-shorthand">
+      <label class="field" for="lgroups-shorthand">Shorthand</label>
+      <div class="lg-shorthand-row">
+        <input class="textinput" type="text" id="lgroups-shorthand" autocomplete="off" spellcheck="false"
+               placeholder="e.g. 1-3, 4-5, &hellip; or 3, 2, &hellip;">
+        <button class="mini" type="button" id="lgroups-shorthand-apply">Use</button>
+      </div>
+      <div class="hint" id="lgroups-shorthand-error" role="alert" hidden></div>
+    </div>
+
+    <table class="lg-table" id="lgroups-table">
+      <thead>
+        <tr><th scope="col">Channel</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">Layers</th><th scope="col">Thickness</th></tr>
+      </thead>
+      <tbody id="lgroups-rows"></tbody>
+    </table>
+
+    <div class="lg-live" id="lgroups-live" aria-live="polite"></div>
+
+    <div class="actions">
+      <button class="action" id="lgroups-reset" type="button">Reset to Uniform</button>
+      <span class="spacer"></span>
+      <button class="action" id="lgroups-cancel" type="button">Cancel</button>
+      <button class="action primary" id="lgroups-apply" type="button">Apply</button>
+    </div>
+  </div>
 </div>
 
 <!-- The tooltip layer: fixed to the viewport, outside .main's overflow box, so

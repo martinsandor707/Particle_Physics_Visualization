@@ -516,7 +516,10 @@ def test_the_models_page_has_the_physics_pages_shell():
     assert html.index("</main>") < html.index('id="inspector"') < html.index('id="tooltip-layer"')
     assert html.index('id="tooltip-layer"') < html.index("<script", html.index("<body"))
     # Admin Settings live on the Physics page: a link, no modal and no upload form.
-    assert 'id="admin-modal"' not in html and 'id="upload-' not in html and "modal-backdrop" not in html
+    assert 'id="admin-modal"' not in html and 'id="upload-' not in html
+    # The one modal it carries is the Longitudinal Channels editor, not Admin.
+    assert html.count('class="modal-backdrop lg-backdrop" id="lgroups-modal"') == 1
+    assert len(re.findall(r'<div class="modal-backdrop', html)) == 1
     assert re.search(r'<a class="action" href="/\?admin=1" data-page-tab', html)
     # The same toggle as the Physics page's.
     header = html[html.index("<header"):html.index("</header>")]

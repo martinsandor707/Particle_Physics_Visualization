@@ -50,6 +50,13 @@ DARK = {
     "--muted-wash-soft": "rgba(139, 148, 158, 0.08)",
     "--shadow": "rgba(1, 4, 9, 0.6)",
     "--backdrop": "rgba(1, 4, 9, 0.78)",
+    # Added with the Longitudinal Channels editor.
+    "--lg-fill-a": "#26313f",
+    "--lg-fill-b": "#1c2128",
+    "--lg-edge": "#8b949e",
+    "--lg-handle": "#e6edf3",
+    "--lg-handle-focus": "#f2cc60",
+    "--lg-profile": "#4493f8",
 }
 NON_COLOUR = {"--radius", "--gap", "--sidebar-width", "--inspector-width", "--mono", "--sans"}
 COLOUR_TOKENS = set(DARK) - NON_COLOUR
@@ -155,6 +162,20 @@ def test_light_control_and_accent_pairs():
     for ground in ("--control-bg", "--control-hover"):
         assert contrast(light["--control-text"], light[ground]) >= 4.5, ground
     assert contrast(light["--on-accent"], light["--accent"]) >= 4.5
+
+
+def test_channel_editor_tokens_clear_their_contrast_on_both_themes():
+    """Handle and edge 3:1 against both ribbon fills and the ground; text 4.5:1 on the fills."""
+    for tokens, grounds in ((_dark(), ("--canvas-alt", "--card")), (_light(), ("--canvas-alt", "--card"))):
+        fills = (tokens["--lg-fill-a"], tokens["--lg-fill-b"])
+        for key in ("--lg-handle", "--lg-handle-focus", "--lg-edge", "--lg-profile"):
+            for fill in fills + tuple(tokens[g] for g in grounds):
+                assert contrast(tokens[key], fill) >= 3.0, (key, fill)
+        for fill in fills:
+            assert contrast(tokens["--text"], fill) >= 4.5, fill
+            assert contrast(tokens["--muted"], fill) >= 4.0, fill
+        for fill in fills:
+            assert contrast(tokens["--lg-handle"], fill) >= 3.0
 
 
 def test_light_border_is_a_quiet_line():
