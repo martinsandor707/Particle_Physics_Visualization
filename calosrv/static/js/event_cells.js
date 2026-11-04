@@ -61,11 +61,25 @@ export function layerOptions({ panelId, depthLayers = null, layerPlanes = null, 
   return out;
 }
 
+/**
+ * The events a response's depth shares are summed over: a co-registered
+ * frame's own count (`frame.n_events`, the events it could co-register),
+ * else the selection's. The shares of the D-frame and the per-shower frames
+ * come from the co-registered bundle, so the selection's count would state a
+ * basis the sums do not have.
+ */
+export function sharesEventCount(payload) {
+  const own = payload?.frame?.n_events;
+  if (Number.isInteger(own)) return own;
+  const n = payload?.selection?.n_events;
+  return Number.isInteger(n) ? n : null;
+}
+
 /** The layer-group keys of one ensemble depth panel (`layerOptions` on the response's `depth_layers`). */
 export function ensembleLayerOptions(payload, id, layer = null) {
-  const n = payload?.selection?.n_events;
+  const n = sharesEventCount(payload);
   return layerOptions({
-    panelId: id, depthLayers: payload?.depth_layers ?? null, layer, nEvents: Number.isInteger(n) ? n : null,
+    panelId: id, depthLayers: payload?.depth_layers ?? null, layer, nEvents: n,
   });
 }
 

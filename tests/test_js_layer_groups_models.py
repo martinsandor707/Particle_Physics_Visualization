@@ -49,12 +49,18 @@ const exp = load('experiments').experiments.find((e) => e.table_name === 'experi
 class FakeProjection {
   constructor(id, opts) { this.id = id; this.isometric = opts.isometric; this.element = { clientWidth: 600, clientHeight: 400 }; this.lastOpts = null; this.calls = []; this.highlights = []; }
   render(payload, opts) { this.payload = payload; this.lastOpts = opts; this.calls.push('render'); }
-  setLayerGroups(spec) { this.lastOpts = { ...this.lastOpts, layerGroups: spec ?? null }; this.calls.push('setLayerGroups'); }
+  setLayerGroups(spec, extra = {}) {
+    this.lastOpts = { ...this.lastOpts, layerGroups: spec ?? null };
+    if ('reserveTop' in extra) this.lastOpts.reserveTop = extra.reserveTop;
+    this.calls.push('setLayerGroups');
+  }
+  // The pair's shared band (UI-6) is recorded, not counted as a repaint of the XY panel.
+  setReserveTop(r) { this.lastOpts = { ...this.lastOpts, reserveTop: r ?? null }; this.reserves = [...(this.reserves ?? []), r ?? null]; }
   setGroupHighlight(g) { this.highlights.push(g); }
   setOverlay() {} clear() {} relayout() {} setBusy() {} currentView() { return null; }
 }
 
-async function run({ scope, lgmode = 'off', counts = null, frame = 'lab' }) {
+async function run({ scope, lgmode = 'off', counts = null, frame = 'lab', projections = null }) {
   const requests = [];
   globalThis.fetch = async (url) => {
     const u = new URL(String(url));
@@ -65,7 +71,7 @@ async function run({ scope, lgmode = 'off', counts = null, frame = 'lab' }) {
     if (u.pathname === '/api/event' && q.format === 'voxels') return json(load('event_voxels_base_lab'));
     if (u.pathname === '/api/event') return json(eventBody);
     if (u.pathname === '/api/voxels') return json(load('voxels_base_local'));
-    if (u.pathname === '/api/projections') return json(load('projections_base_lab'));
+    if (u.pathname === '/api/projections') return json(projections ?? load('projections_base_lab'));
     if (u.pathname === '/api/selection-cells') return json(load('selection_cells_base'));
     return { ok: false, status: 404, statusText: '', json: async () => ({ detail: 'no such route' }) };
   };
@@ -102,7 +108,9 @@ async function run({ scope, lgmode = 'off', counts = null, frame = 'lab' }) {
     return {
       keys: Object.keys(panel.lastOpts).sort(),
       spec: spec && { mode: spec.mode, pooled: spec.pooled, counts: spec.counts, numbering: spec.numbering, groups: spec.groups.length,
-        seams: spec.seams.length, basis: spec.axis.source, nEvents: spec.nEvents, highlight: spec.highlight },
+        seams: spec.seams.length, basis: spec.axis.source, nEvents: spec.nEvents, highlight: spec.highlight,
+        tip: spec.groups[0]?.tooltip ?? null },
+      reserveTop: panel.lastOpts.reserveTop ?? null,
       axis: panel.lastOpts.layerAxis ? { source: panel.lastOpts.layerAxis.source, numbering: panel.lastOpts.layerAxis.numbering } : null,
       calls: [...panel.calls],
     };
@@ -135,6 +143,8 @@ async function run({ scope, lgmode = 'off', counts = null, frame = 'lab' }) {
   cells.yz.lastOpts.layerGroups.onHover(3);
   result.highlights = { yz: cells.yz.highlights, xz: cells.xz.highlights, xy: cells.xy.highlights };
   result.notes = section.notes('vox-event-yz') ? true : false;
+  result.ensemble = section.pairs.ensemble
+    ? Object.fromEntries(section.pairs.ensemble.cells.filter((r) => r.panel).map((r) => [r.spec.col, describe(r.panel)])) : null;
   result.noteIds = section.ids();
   return result;
 }
@@ -144,6 +154,11 @@ const out = {};
 out.event = await run({ scope: 'event' });
 out.eventPool = await run({ scope: 'event', lgmode: 'pool' });
 out.selection = await run({ scope: 'selection' });
+// LG-G6: a per-shower translated cloud whose frame co-registered one of the selection's two events.
+const transBody = load('projections_base_trans');
+transBody.frame.n_events = 1;
+transBody.selection.n_events = 2;
+out.transCloud = await run({ scope: 'event', frame: 'trans', lgmode: 'bounds', projections: transBody });
 console.log(JSON.stringify(out));
 """
 
@@ -275,3 +290,22 @@ def test_hovering_a_strip_segment_spotlights_the_partner_depth_panel(sections):
 def test_the_notes_builder_receives_the_drawn_spec():
     src = _source("voxel_views.js")
     assert "layerGroups: record.panel?.lastOpts?.layerGroups ?? null" in src
+
+
+def test_ui6_a_pairs_three_projections_reserve_one_band(sections):
+    """UI-6: with Boundaries on, the XY projection reserves the depth panels' band, so the pair keeps one scale."""
+    for name in ("event", "selection"):
+        run = sections[name]
+        for col in ("xy", "yz", "xz"):
+            assert run["start"][col]["reserveTop"] is None, (name, col)
+            assert run["afterBounds"][col]["reserveTop"] == "strip", (name, col)
+        assert run["afterOff"]["reserveTop"] is None
+
+
+def test_lg_g6_the_cloud_projections_print_the_frames_own_event_count(sections):
+    ensemble = sections["transCloud"]["ensemble"]
+    assert ensemble, "the cloud's projections were drawn"
+    for col in ("yz", "xz"):
+        spec = ensemble[col]["spec"]
+        assert spec["nEvents"] == 1, spec
+        assert " · N = 1 event" in spec["tip"]

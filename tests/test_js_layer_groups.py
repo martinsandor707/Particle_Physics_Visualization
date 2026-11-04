@@ -464,6 +464,178 @@ out.panel = {
   out.timing = { withSpec: time(opts, 200), without: time(ensemble, 200), spec: (performance.now() - engineT0) / 200 };
 }
 
+/* ---- Stage 5 review regressions --------------------------------------------------- */
+{
+  const U56 = lg.uniformCounts(56);
+  const tips = (spec) => spec.groups.map((g) => g.tooltip);
+  const labPooled = load('projections_base_lab_pooled');
+  const transPooled = load('projections_base_trans_pooled');
+  const trans = load('projections_base_trans');
+  const canonical = load('projections_base_canonical');
+  const S5 = {};
+  // LG-C5 / LG-G5 / UI-7: what a pooled column is, by frame and by the channel's own span.
+  const labSpec = spec({ mode: 'pool', counts: U56, panelId: 'yz', depthLayers: labPooled.depth_layers });
+  const transSpec = spec({ mode: 'pool', counts: U56, panelId: 'yz', depthLayers: transPooled.depth_layers });
+  const canonPooledBlock = { ...clone(canonical.depth_layers), groups: { counts: U56, pooled: true, bins: [], beyond_axis: [] } };
+  const canonSpec = spec({ mode: 'pool', counts: U56, panelId: 'yz', depthLayers: canonPooledBlock });
+  const mid = (g) => (g.lo + g.hi) / 2;
+  S5.pooled = {
+    lab: { pooled: labSpec.pooled, first: labSpec.groups[0].tooltip, last: labSpec.groups.at(-1).tooltip,
+      readFirst: lg.layerReadout({ spec: labSpec, panelId: 'yz', col: mid(labSpec.groups[0]), row: 0 }),
+      readLast: lg.layerReadout({ spec: labSpec, panelId: 'yz', col: mid(labSpec.groups.at(-1)), row: 0 }) },
+    trans: { last: transSpec.groups.at(-1).tooltip,
+      readLast: lg.layerReadout({ spec: transSpec, panelId: 'yz', col: mid(transSpec.groups.at(-1)), row: 0 }) },
+    canonical: { pooled: canonSpec.pooled, tips: tips(canonSpec),
+      reads: canonSpec.groups.map((g) => lg.layerReadout({ spec: canonSpec, panelId: 'yz', col: mid(g), row: 0 })),
+      widths: canonSpec.groups.map((g) => {
+        const e = canonical.depth_layers.edges_mm;
+        const w = [];
+        for (let j = g.bins[0]; j <= g.bins[1]; j += 1) w.push(e[j + 1] - e[j]);
+        return w;
+      }) },
+  };
+  // LG-G4: group 13 extended past L = 56 to the 58-bin per-shower translated axis.
+  const reach58 = { ...clone(trans.depth_layers.reach) };
+  reach58.counts = reach58.counts.map((c, k) => (k < 55 ? c : k === 55 ? 3 : k === 56 ? 2 : 1));
+  const extBlock = { ...clone(trans.depth_layers), reach: reach58 };
+  const extSpec = spec({ mode: 'bounds', counts: U56, panelId: 'xz', depthLayers: extBlock });
+  const g13 = extSpec.groups.at(-1);
+  S5.extended = {
+    span: { first: g13.first, last: g13.last, n: g13.n, axisFirst: g13.axisFirst, axisLast: g13.axisLast, nAxis: g13.nAxis,
+      extended: g13.extended },
+    tip: g13.tooltip,
+    readLastBin: lg.layerReadout({ spec: extSpec, panelId: 'xz', col: g13.hi - 1, row: 0 }),
+    readPooled: lg.layerReadout({ spec: transSpec, panelId: 'xz', col: mid(transSpec.groups.at(-1)), row: 0 }),
+    reachDirect: lg.groupReach(reach58, 53, 58),
+  };
+  // LG-G8: the outside energy's name follows the frame.
+  const labOutside = { ...clone(labPooled.depth_layers), groups: null };
+  labOutside.profile.outside_gev = 0.0125;
+  S5.outside = {
+    trans: tips(spec({ mode: 'bounds', counts: U56, panelId: 'yz', depthLayers: trans.depth_layers }))[0],
+    canonical: tips(spec({ mode: 'bounds', counts: U56, panelId: 'yz', depthLayers: canonical.depth_layers }))[0],
+    lab: tips(spec({ mode: 'bounds', counts: U56, panelId: 'yz', depthLayers: labOutside }))[0],
+  };
+  // LG-C2 client half: the trimmed blocks of brief 9.1.
+  const trimNote = 'The per-layer shares and reach were left out to keep this response under the 100 KB contract; the raster kept its resolution.';
+  const trim = (block) => ({ ...clone(block), profile: null, reach: null, trimmed: true, trim_note: trimNote });
+  const ev = load('event_raster_base');
+  const trimmed = {};
+  for (const [name, block, mode] of [['lab', labPooled.depth_layers, 'pool'], ['trans', transPooled.depth_layers, 'pool'],
+    ['transBounds', trans.depth_layers, 'bounds'], ['canonical', canonical.depth_layers, 'bounds']]) {
+    const t = trim(block);
+    const out2 = {};
+    for (const panelId of ['xz', 'yz']) {
+      const sp = spec({ mode, counts: U56, panelId, depthLayers: t, nEvents: 2 });
+      const axis = lg.panelLayerAxis({ panelId, depthLayers: t });
+      out2[panelId] = { trimmed: sp.trimmed, trimNote: sp.trimNote, pooled: sp.pooled, tips: tips(sp),
+        seamTips: sp.seams.map((x) => x.tooltip), axis: Boolean(axis),
+        reads: sp.groups.map((g) => lg.layerReadout({ spec: sp, panelId, col: mid(g), row: 0 })) };
+    }
+    trimmed[name] = out2;
+  }
+  for (const kind of Object.keys(ev.frames)) {
+    const lp = ev.frames[kind].layer_planes;
+    if (!lp) continue;
+    const t = { ...clone(lp), energy_gev: null, trimmed: true, trim_note: trimNote };
+    const out2 = {};
+    for (const panelId of ['xz', 'yz']) {
+      const sp = spec({ mode: 'bounds', counts: U56, panelId, layerPlanes: t, nEvents: 1 });
+      out2[panelId] = { trimmed: sp.trimmed, tips: tips(sp), lines: sp.lines.map((x) => x.tooltip),
+        badge: sp.badge, strip: sp.strip };
+    }
+    trimmed[`event_${kind}`] = out2;
+  }
+  // A trimmed spec draws: buildOption and every strip item render without a throw.
+  const trimmedSpec = spec({ mode: 'pool', counts: U56, panelId: 'yz', depthLayers: trim(labPooled.depth_layers) });
+  const built = build(labPooled.panels.yz, { palette: 'viridis', frame: null, layerGroups: trimmedSpec });
+  trimmed.built = { ids: seriesIds(built) };
+  S5.trimmed = trimmed;
+  S5.trimLines = { shares: lg.TRIMMED_SHARES, reach: lg.TRIMMED_SHARES_REACH };
+  // UI-5: the Local badge leads with its conclusion and has a short form for a narrow plot.
+  S5.badge = {
+    full: lg.LOCAL_BADGE, short: lg.LOCAL_BADGE_SHORT,
+    wide: dg.localBadge(out.specs.local, { left: 52, top: 40, width: 600, height: 300 })?.style.text,
+    compare: dg.localBadge(out.specs.local, { left: 52, top: 40, width: 190, height: 300 })?.style.text,
+    vw: dg.localBadge(out.specs.localEventYz, { left: 52, top: 40, width: 190, height: 300 })?.style.text,
+  };
+  // UI-6: one band for a whole grid, the XY and tilted u–w panels included.
+  const localPlanesFixture = ev.frames.local?.layer_planes;
+  const evXz = spec({ mode: 'bounds', counts: U56, panelId: 'xz', layerPlanes: localPlanesFixture });
+  const evYz = spec({ mode: 'bounds', counts: U56, panelId: 'yz', layerPlanes: localPlanesFixture });
+  S5.reserve = {
+    own: [dg.stripReserve(evXz), dg.stripReserve(evYz)],
+    grid: [dg.gridReserve([evXz, evYz]), dg.gridReserve([null, null]), dg.gridReserve([evXz]), dg.gridReserve([])],
+    px: [dg.reserveTopPx('strip'), dg.reserveTopPx(null), dg.reserveTopPx(12)],
+    band: dg.stripReserve(out.specs.prod),
+  };
+  const xyPlain = build(demo.panels.xy, ensemble);
+  const xyReserved = build(demo.panels.xy, { ...ensemble, reserveTop: 'strip' });
+  const uwPlain = build(sub, { ...ensemble, layerGroups: evXz });
+  const uwReserved = build(sub, { ...ensemble, layerGroups: evXz, reserveTop: 'strip' });
+  const withStrip = build(sub, { ...ensemble, layerGroups: demoSpec });
+  const withStripReserved = build(sub, { ...ensemble, layerGroups: demoSpec, reserveTop: 'strip' });
+  const gridOf = (o) => (Array.isArray(o.grid) ? o.grid[0] : o.grid);
+  S5.reserve.options = {
+    xy: [gridOf(xyPlain), gridOf(xyReserved)], uw: [gridOf(uwPlain), gridOf(uwReserved)],
+    strip: [gridOf(withStrip), gridOf(withStripReserved)],
+  };
+  {
+    const p = panelOf();
+    p.payload = demo.panels.xy;
+    p.extent = proj.extentOf(demo.panels.xy, ensemble);
+    p.lastOpts = ensemble;
+    // The exporter calls exportMetrics under the print tokens: the grid's band is a screen layout.
+    const saved = { ...THEME };
+    Object.assign(THEME, PRINT_TOKENS);
+    const before = p.exportMetrics(600);
+    p.lastOpts = { ...ensemble, reserveTop: 'strip' };
+    const after = p.exportMetrics(600);
+    for (const k of Object.keys(THEME)) delete THEME[k];
+    Object.assign(THEME, saved);
+    S5.reserve.exportMetrics = [before, after];
+  }
+  // setReserveTop redraws only on a change.
+  {
+    zr.handlers = {};
+    const p = panelOf();
+    p.render(demo.panels.xy, { ...ensemble });
+    calls.length = 0;
+    p.setReserveTop('strip');
+    const first = calls.filter((x) => x.option).length;
+    p.setReserveTop('strip');
+    const second = calls.filter((x) => x.option).length - first;
+    p.setLayerGroups(null, { reserveTop: null });
+    S5.reserve.live = { first, second, after: p.lastOpts.reserveTop };
+  }
+  // LG-G1: the pooled readout's bin size is the hovered column's own width.
+  {
+    zr.handlers = {};
+    const payload = transPooled.panels.yz;
+    const p = panelOf();
+    p.render(payload, { palette: 'viridis', frame: transPooled.frame,
+      layerGroups: spec({ mode: 'pool', counts: U56, panelId: 'yz', depthLayers: transPooled.depth_layers }) });
+    const raster = p.raster;
+    const col = payload.axes.col;
+    const rowAxis = payload.axes.row;
+    const readouts = [];
+    for (let c = 0; c < raster.cols; c += 1) {
+      let r0 = null;
+      for (let r = 0; r < raster.rows; r += 1) {
+        const code = raster.codes[r * raster.cols + c];
+        if (code !== (payload.empty_code ?? 0) && code !== payload.below_code) { r0 = r; break; }
+      }
+      if (r0 === null) continue;
+      calls.length = 0;
+      zr.fire('mousemove', { offsetX: decode.cellCentre(col, raster.cols, c), offsetY: decode.cellCentre(rowAxis, raster.rows, r0), target: null });
+      const tip = calls.find((x) => x.action?.type === 'showTip')?.action.tooltip.formatter ?? null;
+      readouts.push({ c, width: col.edges[c + 1] - col.edges[c], tip });
+    }
+    S5.binWidth = { readouts, rowBin: (rowAxis.hi - rowAxis.lo) / raster.rows };
+  }
+  out.stage5 = S5;
+}
+
 /* ---- theme tokens, CORE_SHIFT_Z_MM ------------------------------------------------- */
 const KEYS = ['groupStripFillA', 'groupStripFillB', 'groupStripEdge', 'groupStripText', 'groupStripHot', 'groupSeam', 'groupSpot'];
 out.tokens = {
@@ -520,7 +692,7 @@ def test_constants_are_the_brief_values(out):
     assert c["PRESET_KEYS"] == ["uniform", "em_hadron", "log"]
     assert c["PRESET_LABELS"] == {"uniform": "Uniform", "em_hadron": "EM-Fine / Hadron-Coarse", "log": "Logarithmic Depth"}
     assert c["EM_HADRON_60"] == [2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8]
-    assert c["LOCAL_BADGE"].startswith("Layers tilt by each shower")
+    assert c["LOCAL_BADGE"].startswith("No common layer grid: layers tilt with each shower")
 
 
 def test_the_presets_on_60_layers_are_the_plans_values(out):
@@ -1085,3 +1257,133 @@ def test_the_engine_is_a_leaf_importing_only_format():
     source = (JS / "layer_groups.js").read_text(encoding="utf-8")
     imports = re.findall(r"^import .* from '([^']+)';", source, re.MULTILINE)
     assert imports == ["./format.js"]
+
+
+# ------------------------------------------------- Stage 5 review fixes --
+
+def test_lg_g1_the_pooled_readout_quotes_the_hovered_columns_own_width(out):
+    """LG-G1: a pooled depth axis has columns of 102.5, 82 and 123 mm; the readout's bin is the hovered one's."""
+    bw = out["stage5"]["binWidth"]
+    assert len(bw["readouts"]) >= 5
+    widths = {round(r["width"], 1) for r in bw["readouts"]}
+    assert {102.5, 82.0, 123.0} <= widths, widths
+    for r in bw["readouts"]:
+        assert r["tip"], r
+        m = re.search(r"([\d.]+) × ([\d.]+) mm (?:display )?bin", r["tip"])
+        assert m, r["tip"]
+        assert float(m.group(1)) == pytest.approx(r["width"], abs=0.05)
+        assert float(m.group(2)) == pytest.approx(bw["rowBin"], abs=0.05)
+
+
+def test_lg_c5_a_pooled_absolute_column_over_a_gap_is_named_by_its_operator(out):
+    """LG-C5 / LG-G5 / UI-7: Ch 13 of the demo holds 4 layers over 6.5 pitches; it is Σ E per pitch, not a mean."""
+    lab = out["stage5"]["pooled"]["lab"]
+    assert lab["pooled"] is True
+    assert "pooled: this column is the mean of its 5 layers" in lab["first"]
+    assert lab["readFirst"] == " · Ch 1 [layers 1–5] · mean of 5 layers"
+    assert "mean of its 4 layers" not in lab["last"]
+    assert "Σ E of its 4 layers per 20.5 mm of depth: the sum ÷ 6.5 pitches (133.3 mm thick), not their mean" in lab["last"]
+    assert lab["readLast"] == " · Ch 13 [layers 53–56] · Σ E of 4 layers per 20.5 mm (÷ 6.5 pitches)"
+
+
+def test_lg_c5_a_co_registered_pooled_column_is_a_width_weighted_mean_where_widths_differ(out):
+    canon = out["stage5"]["pooled"]["canonical"]
+    assert canon["pooled"] is True
+    for tip, read, widths in zip(canon["tips"], canon["reads"], canon["widths"]):
+        equal = max(widths) - min(widths) < 1e-6
+        if equal:
+            assert "width-weighted" not in tip and read.endswith(f"mean of {len(widths)} layers")
+        else:
+            assert f"the width-weighted mean of its {len(widths)} layers" in tip
+            assert read.endswith(f"width-weighted mean of {len(widths)} layers")
+    assert any("width-weighted" in r for r in canon["reads"]), "the demo's gapped Ch 13 must be one"
+    trans = out["stage5"]["pooled"]["trans"]
+    assert "pooled: this column is the mean of its 6 layers" in trans["last"]
+
+
+def test_lg_g4_an_extended_group_13_reports_the_layers_it_holds_on_the_axis(out):
+    ext = out["stage5"]["extended"]
+    assert ext["span"] == {"first": 53, "last": 56, "n": 4, "axisFirst": 53, "axisLast": 58, "nAxis": 6, "extended": True}
+    assert ext["tip"].startswith("<b>Rel Ch 13</b> · rel. layers 53–58 (6 on the axis; the partition ends at layer 56)")
+    assert ext["readLastBin"] == " · rel. layer 58 · Rel Ch 13 [53–58]"
+    assert ext["readPooled"] == " · Rel Ch 13 [rel. layers 53–58] · mean of 6 layers"
+    # The reach of its last layer is read at layer 58, where 1 of 4 showers reaches.
+    assert "; 1 reach its last layer" in ext["tip"]
+    assert ext["reachDirect"]["full"] == 1
+
+
+def test_lg_g8_co_registered_outside_energy_is_named_for_the_accumulation_grid(out):
+    o = out["stage5"]["outside"]
+    for name in ("trans", "canonical"):
+        assert "outside the accumulation grid is counted in the total" in o[name]
+        assert "off the depth axis" not in o[name]
+    assert "0.0125 GeV off the depth axis is counted in the total" in o["lab"]
+
+
+def _all_text(block):
+    if isinstance(block, dict):
+        return " ".join(_all_text(v) for v in block.values())
+    if isinstance(block, list):
+        return " ".join(_all_text(v) for v in block)
+    return str(block)
+
+
+def test_lg_c2_the_engine_tolerates_the_trimmed_blocks(out):
+    """LG-C2 (client half): profile, reach and energy_gev null; one short sentence replaces the shares and reach."""
+    trimmed = out["stage5"]["trimmed"]
+    lines = out["stage5"]["trimLines"]
+    assert lines["reach"] == "shares and reach left out: this response sat at the 100 KB guard"
+    assert lines["shares"] == "shares left out: this response sat at the 100 KB guard"
+    for name in ("lab", "trans", "transBounds", "canonical"):
+        for panel in ("xz", "yz"):
+            got = trimmed[name][panel]
+            assert got["trimmed"] is True and got["axis"] is True
+            assert got["trimNote"].startswith("The per-layer shares and reach were left out")
+            want = lines["reach"] if name.startswith("trans") else lines["shares"]
+            assert len(got["tips"]) == 13
+            for tip in got["tips"]:
+                assert f"<i>{want}</i>" in tip
+                assert "energy:" not in tip and "reached by" not in tip
+            assert all(r.startswith(" · ") for r in got["reads"])
+    assert trimmed["lab"]["yz"]["pooled"] is True
+    events = [k for k in trimmed if k.startswith("event_")]
+    assert events
+    for name in events:
+        for panel in ("xz", "yz"):
+            got = trimmed[name][panel]
+            assert got["trimmed"] is True
+            assert all(f"<i>{lines['shares']}</i>" in tip for tip in got["tips"])
+    text = _all_text(trimmed)
+    assert "NaN" not in text and "undefined" not in text and "—%" not in text
+    assert not HYPHEN_NUMBER.search(text)
+    assert "layer-groups-strip" in trimmed["built"]["ids"]
+
+
+def test_ui5_the_local_badge_leads_with_its_conclusion_and_shortens_on_a_narrow_plot(out):
+    badge = out["stage5"]["badge"]
+    assert badge["full"].startswith("No common layer grid")
+    assert badge["wide"] == badge["full"]
+    # The compare grid's Local row at 1600 px is about 190 px wide.
+    assert badge["compare"] == badge["short"] == "Local: no common layer grid"
+    # The one-shower v–w badge is already short and has no other form.
+    assert badge["vw"].startswith("v–w: planes tilt by θ = ")
+
+
+def test_ui6_a_grid_reserves_one_band_on_every_panel(out):
+    r = out["stage5"]["reserve"]
+    band = r["band"]
+    # The tilted u–w spec reserves nothing of its own, its v–w partner the band.
+    assert r["own"] == [0, band]
+    assert r["grid"] == ["strip", None, None, None]
+    assert r["px"] == [band, 0, 12]
+    opts = r["options"]
+    # XY and the tilted u–w take the grid's band, and then sit exactly as a panel with its own strip.
+    for name in ("xy", "uw"):
+        plain, reserved = opts[name]
+        assert reserved["top"] == pytest.approx(plain["top"] + band)
+    assert opts["strip"][0] == opts["strip"][1], "the band is not added twice"
+    assert opts["uw"][1] == opts["strip"][1]
+    # An export is the panel alone: the grid's band is not printed.
+    assert r["exportMetrics"][0] == r["exportMetrics"][1]
+    # setReserveTop redraws once, and not at all for the same band.
+    assert r["live"] == {"first": 1, "second": 0, "after": None}

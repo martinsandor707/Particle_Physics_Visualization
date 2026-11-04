@@ -62,6 +62,27 @@ export function stripReserve(spec) {
   return band + gap;
 }
 
+/**
+ * The band a grid of panels reserves on every cell so they keep one
+ * millimetre-per-pixel scale (UI-6): the largest any of `specs` reserves, or
+ * 0. A panel is given it as `opts.reserveTop`, the XY panels and the tilted
+ * u–w panel included, which reserve nothing of their own. Returned as a
+ * marker the panel resolves under the theme in force (`reserveTopPx`), so a
+ * print rebuild scales it with the type as `stripReserve` does.
+ */
+export function gridReserve(specs) {
+  return (specs ?? []).some((spec) => stripReserve(spec) > 0) ? 'strip' : null;
+}
+
+/** The px a panel's `opts.reserveTop` stands for under the theme in force: a number as given, 'strip' the band. */
+export function reserveTopPx(reserveTop) {
+  if (reserveTop === 'strip') {
+    const { band, gap } = stripGeometry();
+    return band + gap;
+  }
+  return Number.isFinite(reserveTop) && reserveTop > 0 ? reserveTop : 0;
+}
+
 function textWidth(text, px) {
   const w = measureText(text, px, THEME.fontFamily);
   return Number.isFinite(w) ? w : String(text).length * 0.6 * px;
@@ -265,6 +286,11 @@ export function layerGroupSeries({ spec, col, row, view = null, extent = null, m
 export function localBadge(spec, rect) {
   if (!spec?.badge || !rect) return null;
   const { band, gap } = stripGeometry();
+  // The sentence leads with its conclusion; where even that does not fit the
+  // plot (the compare grid's Local row, about 190 px), the short form stands
+  // in, measured with the strip's own text-width estimate (UI-5).
+  const fits = (text) => textWidth(text, THEME.fontSmall) <= rect.width;
+  const text = !fits(spec.badge) && spec.badgeShort ? spec.badgeShort : spec.badge;
   return {
     type: 'text',
     id: 'layer-groups-badge',
@@ -272,12 +298,12 @@ export function localBadge(spec, rect) {
     top: rect.top - gap - band,
     silent: false,
     style: {
-      text: spec.badge,
+      text,
       fill: THEME.muted,
       fontSize: THEME.fontSmall,
       fontFamily: THEME.fontFamily,
       lineHeight: band,
-      // Kept to the plot's width: a long sentence on a narrow panel is cut, its full text in the drawer.
+      // Kept to the plot's width: the last resort on a panel too narrow for the short form; the drawer keeps the sentence.
       width: Math.max(20, rect.width),
       overflow: 'truncate',
     },
