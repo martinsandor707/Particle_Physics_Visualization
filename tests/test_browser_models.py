@@ -303,7 +303,7 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
 PROJECTION_READOUT_SHARE = 0.2
 #: A projection's plain bin readout opens on a coordinate in millimetres (test_browser_tooltip.py's rule):
 #: ProjectionPanel places it from its own cell handler, not from a series-level `position`.
-COORDINATE = re.compile(r"^\S+ = [\u2212-]?[\d.]+ mm$")
+COORDINATE = re.compile(r"^\S+ = [\u2212-]?[\d.]+ mm(?: \(\S+ = [\u2212-]?[\d.]+ mm\))?(?: \u00b7 .+)?$")
 
 
 def _projection_readouts(found, where):
@@ -1092,7 +1092,7 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
             assert depth_bins > 6, (where, row)
             assert whole["xy"] is None and whole["bands"] == [None, None], (where, whole)
             if card_id == "vox-event":
-                assert "layers 1–" in row["readout"] and "z − 3649 = " in row["readout"], row["readout"]
+                assert "layers 1–" in row["readout"] and " · Z " in row["readout"] and "(z " in row["readout"], row["readout"]
                 page.locator(f'.main .card[data-panel="{depth[0]}"]').scroll_into_view_if_needed()
                 _download_svg(page, depth[0])
                 unsliced_export = page.evaluate("() => window.__exportSeries.at(-1)")

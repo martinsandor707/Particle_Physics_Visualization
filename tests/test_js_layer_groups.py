@@ -790,7 +790,9 @@ def test_one_shower_local_draws_tilted_planes_on_u_w_and_a_reason_on_v_w(out):
     assert "pitch along w = p / cos θ = 20.82 mm" in xz["groups"][0]["tooltip"]
     assert "of this shower’s energy" in xz["groups"][0]["tooltip"]
     assert "beyond this shower’s reach" in xz["groups"][12]["tooltip"] or xz["groups"][12]["first"] <= 58
-    assert yz["lines"] == [] and yz["badge"] and "spans a band" in yz["badge"] and "u–w" in yz["badge"]
+    # The badge is the short form a narrow panel can carry; the drawer and tooltips keep the sentence.
+    assert yz["lines"] == [] and yz["badge"].startswith("v–w: planes tilt by θ = ") and yz["badge"].endswith("drawn on u–w")
+    assert "spans a band" in yz["lineReason"] and "u–w" in yz["lineReason"]
     lab = out["specs"]["labEvent"]
     assert lab["strip"] and len(lab["seams"]) == 12 and lab["offset"] == 3649
 

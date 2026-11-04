@@ -656,6 +656,9 @@ class LayerGroupControl {
   setDraft(counts) {
     if (!isValidCounts(counts, this.L)) return;
     this.draft = counts.slice();
+    // A draft from a preset, the table or a handle replaces what the shorthand last refused.
+    if (this.el.shorthandError) this.el.shorthandError.hidden = true;
+    this.el.shorthand?.removeAttribute('aria-invalid');
     this.renderModal();
     this.onDraft?.(this.draft.slice());
   }
@@ -847,6 +850,9 @@ class LayerGroupControl {
       const node = this.doc.createElement('span');
       node.className = 'lg-scale-tick';
       node.style.left = `${at * 100}%`;
+      // The end labels anchor inward, so neither is clipped by the ribbon's box.
+      if (at <= 0) node.style.transform = 'none';
+      else if (at >= 1) node.style.transform = 'translateX(-100%)';
       node.textContent = text;
       host.append(node);
     };
