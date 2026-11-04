@@ -35,6 +35,13 @@ and prints a table of SHA-256 digests, one per case:
 * **Words.** The drawer-note builders on every payload they accept, their
   constants (`rampStartNote`, `LEGIBLE_RAMP_NOTE`), the frame captions, and the
   Methodology figures' node trees for the screen and the paper medium.
+* **Longitudinal Channels** (added 2026-11-04, new case ids only). The depth
+  panels' strip, seams, tilted planes, spotlight and Local badge, built as the
+  pages build them (`event_cells.js` `ensembleCellOptions` / `eventCellOptions`
+  with a `layer` argument, hence `layer_groups.js` `panelGroupSpec`), in
+  Boundaries and Pooled, on the five layer-group fixtures and on the Local
+  ensemble, under the screen and the print tokens; and the drawer notes those
+  specs produce (`projectionNotes`, `eventNotes`, `voxelProjectionNotes`).
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
@@ -87,6 +94,7 @@ FAMILIES = [
     "notes/statistics", "notes/models_perf", "notes/models_pred", "notes/models_features", "notes/models_resolution",
     "notes/xgb", "notes/voxels",
     "text/projection", "text/frame_views", "methodology/exhibit",
+    "physics/layer_groups", "notes/layer_groups",
 ]
 
 _SCRIPT = r"""
@@ -133,6 +141,7 @@ const xn = await imp('xgb_notes.js');
 const v = await imp('voxels.js');
 const exhibits = await imp('methodology/exhibits.js');
 const exportMod = await imp('methodology/export.js');
+const lgMod = await imp('layer_groups.js');
 
 const { THEME } = scale;
 
@@ -357,12 +366,13 @@ const SCALES = {
 };
 /* Payload fixtures recorded after the golden froze (the selection's cells, 2026-10-31): walked last. */
 const LATER_FIXTURES = ['selection_cells_'];
-/* Payload fixtures the two generic walks below (scale blocks, code tables) skip: the layer-group
+/* Payload fixtures the two generic walks below (scale blocks, code tables) skip: the five layer-group
  * responses (2026-11-04) carry the server's existing scale shapes on other selections - of the 407
  * cases the walks derived from them, 34 were new hashes - so they are exercised through their panels'
- * own cases instead, and the walks stay the record of distinct scale shapes. */
+ * own cases instead (the Longitudinal Channels section), and the walks stay the record of distinct
+ * scale shapes. Matched by prefix; each of the five is named, so none is skipped by accident. */
 const WALK_SKIPPED = ['event_raster_base', 'projections_base_canonical', 'projections_base_lab_pooled',
-  'projections_base_trans'];
+  'projections_base_trans', 'projections_base_trans_pooled'];
 const walked = (file) => !WALK_SKIPPED.some((prefix) => file.startsWith(prefix));
 // Every distinct scale block the recorded payloads carry.
 {
@@ -1110,6 +1120,152 @@ put('voxels/geometry', { camera: v.CAMERA, axes: v.cameraAxes(), heights: [300, 
     const opts = { ...cells.ensembleCellOptions(projections, 'yz', 'viridis'), depthSlab: slab };
     return panel.buildOption({ payload: sub, opts, raster: decode.renderRaster(sub, 'viridis'), metrics: { width: 600, height: 400 } });
   }, (id, option) => put(id, { option, calls: exercise(option) }));
+}
+
+/* ---- the Longitudinal Channels (2026-11-04; new case ids, nothing above moves) ------------------ */
+{
+  // As the pages build them: the `layer` argument of event_cells.js (main.js `layerFor`,
+  // event_inspector.js `layerOf`), its options through `ensembleCellOptions` / `eventCellOptions`,
+  // the spec through layer_groups.js `panelGroupSpec`, the panel through `ProjectionPanel.buildOption`.
+  // `onHover` is a function: canonical JSON drops it, and the spec's own tooltips are exercised.
+  const layerArg = (mode, counts, highlight = null) => ({ mode, counts, highlight, onHover: () => {} });
+  const L_DEMO = 56;
+  const uniform = lgMod.uniformCounts(L_DEMO);
+  const emHadron = lgMod.presetCounts('em_hadron', L_DEMO);
+  // A few depth coordinates of the panel, for the bin readout the raster's tooltip appends.
+  const readoutsOf = (spec, axisCtx, sub, panelId) => {
+    const lo = sub.axes?.col?.lo;
+    const hi = sub.axes?.col?.hi;
+    const rlo = sub.axes?.row?.lo;
+    const rhi = sub.axes?.row?.hi;
+    if (![lo, hi, rlo, rhi].every(Number.isFinite)) return null;
+    return [0, 0.03, 0.25, 0.5, 0.77, 0.999].map((t) => {
+      const c = lo + t * (hi - lo);
+      const r = rlo + (1 - t) * (rhi - rlo);
+      return [lgMod.layerReadout({ spec, panelId, col: c, row: r }), lgMod.layerReadout({ axis: axisCtx, panelId, col: c, row: r })];
+    });
+  };
+  const lgCase = (id, sub, makeOpts, { metrics = { width: 600, height: 400 }, marksShown = true, panelId } = {}) => {
+    both(id, () => {
+      const panel = new projMod.ProjectionPanel('plot-xy', { isometric: true });
+      panel.marksShown = marksShown;
+      const opts = makeOpts();
+      const option = panel.buildOption({ payload: sub, opts, raster: decode.renderRaster(sub, opts.palette), metrics });
+      return { option, opts };
+    }, (id2, out) => put(id2, {
+      option: out.option, calls: exercise(out.option), extent: projMod.extentOf(sub, out.opts),
+      spec: out.opts.layerGroups ?? null, layerAxis: out.opts.layerAxis ?? null,
+      readouts: readoutsOf(out.opts.layerGroups ?? null, out.opts.layerAxis ?? null, sub, panelId),
+    }));
+  };
+  const experiment = { display_name: 'Demo' };
+  const specs = {};
+
+  // The ensemble depth panels: Boundaries and Pooled on every frame with a common layer grid, the
+  // pooled responses' own partition where they carry one, else the uniform one of L.
+  const ENSEMBLE = [
+    ['projections_base_lab', ['bounds', 'pool']], ['projections_base_lab_pooled', ['bounds', 'pool']],
+    ['projections_base_trans', ['bounds', 'pool']], ['projections_base_trans_pooled', ['bounds', 'pool']],
+    ['projections_base_canonical', ['bounds', 'pool']],
+    // Local: the page draws Pooled as Boundaries there (layer_groups_control.js `effectiveMode`), and
+    // the spec is the badge either way.
+    ['projections_single_local', ['bounds']],
+  ];
+  for (const [name, modes] of ENSEMBLE) {
+    const payload = load(name);
+    const pooledCounts = payload.depth_layers?.groups?.pooled ? payload.depth_layers.groups.counts : null;
+    const L = payload.depth_layers?.partition_layers ?? L_DEMO;
+    const counts = pooledCounts ?? lgMod.uniformCounts(L);
+    for (const mode of modes) {
+      for (const panelId of ['xz', 'yz']) {
+        const make = () => cells.ensembleCellOptions(payload, panelId, 'viridis', 'energy', layerArg(mode, counts));
+        lgCase(`physics/layer_groups/${name}/${mode}/${panelId}`, payload.panels[panelId], make, { panelId });
+        specs[`${name}/${mode}/${panelId}`] = make().layerGroups ?? null;
+      }
+      // The entry panel takes no spec: its options are exactly what they were.
+      put(`physics/layer_groups/${name}/${mode}/xy_options`,
+        cells.ensembleCellOptions(payload, 'xy', 'viridis', 'energy', layerArg(mode, counts)));
+    }
+  }
+  {
+    // A non-uniform partition (the EM / hadron preset of L), a highlighted spotlight, Marks hidden,
+    // and Pooled asked with another partition than the response's (a live draft).
+    const lab = load('projections_base_lab');
+    const pooled = load('projections_base_lab_pooled');
+    lgCase('physics/layer_groups/variant/em_hadron/yz', lab.panels.yz,
+      () => cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', emHadron)), { panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/highlight/yz', lab.panels.yz,
+      () => cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', uniform, 3)), { panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/highlight_pooled/xz', pooled.panels.xz,
+      () => cells.ensembleCellOptions(pooled, 'xz', 'viridis', 'energy', layerArg('pool', pooled.depth_layers.groups.counts, 13)), { panelId: 'xz' });
+    lgCase('physics/layer_groups/variant/withHighlight/yz', lab.panels.yz, () => {
+      const opts = cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', uniform));
+      return { ...opts, layerGroups: lgMod.withHighlight(opts.layerGroups, 7) };
+    }, { panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/marks_hidden/yz', lab.panels.yz,
+      () => cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', uniform)), { marksShown: false, panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/marks_hidden_pooled/yz', pooled.panels.yz,
+      () => cells.ensembleCellOptions(pooled, 'yz', 'viridis', 'energy', layerArg('pool', pooled.depth_layers.groups.counts)), { marksShown: false, panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/draft/yz', pooled.panels.yz,
+      () => cells.ensembleCellOptions(pooled, 'yz', 'viridis', 'energy', layerArg('pool', emHadron)), { panelId: 'yz' });
+    lgCase('physics/layer_groups/variant/narrow/xz', lab.panels.xz,
+      () => cells.ensembleCellOptions(lab, 'xz', 'viridis', 'energy', layerArg('bounds', uniform)), { metrics: { width: 321, height: 240 }, panelId: 'xz' });
+    specs['variant/em_hadron/yz'] = cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', emHadron)).layerGroups;
+    specs['variant/draft/yz'] = cells.ensembleCellOptions(pooled, 'yz', 'viridis', 'energy', layerArg('pool', emHadron)).layerGroups;
+    // Off, and a partition that does not fit the axis's L: no spec, the options as without `layer` but the readout's axis.
+    put('physics/layer_groups/variant/none', {
+      off: cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('off', uniform)),
+      misfit: cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy', layerArg('bounds', lgMod.uniformCounts(60))),
+      without: cells.ensembleCellOptions(lab, 'yz', 'viridis', 'energy'),
+    });
+  }
+
+  // The event cells (/api/event raster): Boundaries in each row's frame; an event spec is never pooled.
+  const event = load('event_raster_base');
+  const eventSpecs = {};
+  for (const kind of ['lab', 'trans', 'local']) {
+    eventSpecs[kind] = {};
+    for (const col of ['xz', 'yz']) {
+      const make = () => cells.eventCellOptions(event, kind, col, 'viridis', layerArg('bounds', uniform));
+      lgCase(`physics/layer_groups/event_raster_base/${kind}/${col}`, event.frames[kind].panels[col], make,
+        { metrics: { width: 360, height: 300 }, panelId: col });
+      eventSpecs[kind][col] = make().layerGroups ?? null;
+    }
+    put(`physics/layer_groups/event_raster_base/${kind}/xy_options`, cells.eventCellOptions(event, kind, 'xy', 'viridis', layerArg('bounds', uniform)));
+  }
+  lgCase('physics/layer_groups/event_raster_base/local/xz/marks_hidden', event.frames.local.panels.xz,
+    () => cells.eventCellOptions(event, 'local', 'xz', 'viridis', layerArg('bounds', uniform)), { metrics: { width: 360, height: 300 }, marksShown: false, panelId: 'xz' });
+  lgCase('physics/layer_groups/event_raster_base/lab/yz/highlight', event.frames.lab.panels.yz,
+    () => cells.eventCellOptions(event, 'lab', 'yz', 'viridis', layerArg('pool', uniform, 2)), { metrics: { width: 360, height: 300 }, panelId: 'yz' });
+
+  // The drawer text the specs produce.
+  for (const [key, spec] of Object.entries(specs)) {
+    const name = key.split('/')[0] === 'variant' ? 'projections_base_lab' + (key.includes('draft') ? '_pooled' : '') : key.split('/')[0];
+    const panelId = key.split('/').at(-1);
+    const payload = load(name);
+    put(`notes/layer_groups/projection/${key}`, {
+      notes: pn.projectionNotes({ payload, panelId, isometric: {}, experiment, layerGroups: spec }),
+      hidden: pn.projectionNotes({ payload, panelId, isometric: {}, experiment, layerGroups: spec, marksShown: false }),
+      lines: attempt(() => pn.layerGroupLines({ spec, depthLayers: payload.depth_layers ?? null })),
+    });
+  }
+  put('notes/layer_groups/event', Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xy', 'xz', 'yz'].map(
+    (panelId) => [`${kind}:${panelId}`, {
+      notes: pn.eventNotes({ payload: event, kind, panelId, layerGroups: eventSpecs, experiment }),
+      hidden: pn.eventNotes({ payload: event, kind, panelId, layerGroups: eventSpecs, experiment, marksShown: false }),
+    }]))));
+  put('notes/layer_groups/event_lines', Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xz', 'yz'].map(
+    (col) => [`${kind}:${col}`, attempt(() => pn.layerGroupLines({ spec: eventSpecs[kind][col], layerPlanes: event.frames[kind].layer_planes }))]))));
+  // The Models page's paired projections: boundaries only, beside the 3-D card.
+  put('notes/layer_groups/voxel_projection/event', Object.fromEntries(['lab', 'trans', 'local'].flatMap((kind) => ['xz', 'yz'].map(
+    (panelId) => [`${kind}:${panelId}`, vn.voxelProjectionNotes({ pair: 'event', payload: event, panelId, frameKind: kind,
+      layerGroups: eventSpecs[kind][panelId] })]))));
+  put('notes/layer_groups/voxel_projection/ensemble', Object.fromEntries([
+    ['projections_base_lab', 'projections_base_lab/bounds'], ['projections_base_trans', 'projections_base_trans/bounds'],
+    ['projections_single_local', 'projections_single_local/bounds'],
+  ].flatMap(([name, key]) => ['xz', 'yz'].map((panelId) => [`${name}:${panelId}`, vn.voxelProjectionNotes({
+    pair: 'ensemble', payload: load(name), panelId, pairing: ['Paired with the 3-D view.'], title: `${panelId} Projection`,
+    layerGroups: specs[`${key}/${panelId}`] })]))));
 }
 
 /* ---- drawer notes ---------------------------------------------------------------------------------- */
