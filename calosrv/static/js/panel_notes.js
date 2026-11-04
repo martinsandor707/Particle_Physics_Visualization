@@ -394,7 +394,7 @@ export function layerGroupLines({ spec, depthLayers = null, layerPlanes = null, 
   const pooledLine = spec.symbol === 'z' && spec.offset
     ? `a channel's summed energy per ${mmDepth(depthLayers?.pitch_mm ?? 0, 1)} mm layer (GeV, the sum scaled by `
       + 'the layer pitch over the channel\'s thickness)'
-    : 'the mean density of the channel\'s layers';
+    : 'the mean density of the channel\'s layers, weighted by each layer\'s thickness';
 
   out.drawn.push(numberingSentence(spec));
   if (tilted) {
