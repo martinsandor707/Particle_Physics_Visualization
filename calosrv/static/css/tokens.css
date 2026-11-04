@@ -47,6 +47,18 @@
   --shadow: rgba(1, 4, 9, 0.6);
   --backdrop: rgba(1, 4, 9, 0.78);
 
+  /* Longitudinal Channels editor. Measured on the dark modal ground #161b22 and
+     card #1c2128: handle 14.64:1 / 13.70:1 and 11.15:1 / 13.70:1 on the two
+     fills; edge 5.62:1 / 5.26:1 (4.28:1 on fill A); text on fill A 11.15:1,
+     muted 4.28:1 (used only on fill B and the ground); focus ring 11.19:1,
+     profile 5.58:1. */
+  --lg-fill-a: #26313f;
+  --lg-fill-b: #1c2128;
+  --lg-edge: #8b949e;
+  --lg-handle: #e6edf3;
+  --lg-handle-focus: #f2cc60;
+  --lg-profile: #4493f8;
+
   --radius: 6px;
   --gap: 14px;
   --sidebar-width: 330px;
@@ -94,6 +106,15 @@
     --muted-wash-soft: rgba(89, 99, 110, 0.06);
     --shadow: rgba(31, 35, 40, 0.18);
     --backdrop: rgba(31, 35, 40, 0.45);
+    /* Measured on the white modal ground and card: handle 17.74:1 and 14.37:1 on
+       the fills, edge 6.11:1 (4.95:1 on fill A), text 14.37:1 on fill A, muted
+       4.95:1, focus ring 5.05:1, profile 6.19:1. */
+    --lg-fill-a: #dbe9f7;
+    --lg-fill-b: #ffffff;
+    --lg-edge: #59636e;
+    --lg-handle: #111827;
+    --lg-handle-focus: #bf3989;
+    --lg-profile: #0b5fbe;
   }
 }
 

@@ -653,3 +653,216 @@ a.action { display: inline-block; text-decoration: none; }
 .card-link { display: inline-flex; }
 .card-link[hidden] { display: none; }
 
+
+/* ------------------------------------------------- Longitudinal Channels --
+   The sidebar block, its mini bar and the editor modal (controls/
+   layer_groups_control.js builds the cells, handles, scales and table rows).
+   Colours come from the --lg-* tokens, measured in tokens.css. No transitions:
+   the snap rule. The seams of the bar and the ribbon are drawn as edges, never
+   as a wash over anything the page measures. */
+
+#group-lgroups[hidden] { display: none; }
+#lgroups-edit { margin-top: 8px; }
+#lgroups-edit[disabled] { opacity: 0.45; cursor: not-allowed; }
+.choice.is-disabled { opacity: 0.55; cursor: not-allowed; }
+
+.lg-bar {
+  display: flex;
+  height: 14px;
+  margin: 8px 0 0;
+  border: 1px solid var(--lg-edge);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--lg-fill-b);
+}
+.lg-bar-seg {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  background: var(--lg-fill-a);
+  border-right: 1px solid var(--lg-edge);
+}
+.lg-bar-seg:last-child { border-right: 0; }
+.lg-bar-seg.is-alt { background: var(--lg-fill-b); }
+
+/* The modal: wide enough for 60 layers at 14 px, and it scrolls inside the
+   viewport rather than past it (1024 x 700 holds it). */
+.modal.lg-modal {
+  width: min(980px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 16px 18px 16px;
+}
+.lg-modal h2 { margin-bottom: 2px; }
+.lg-modal > .hint { margin: 0 0 10px; }
+.lg-modal > .hint:empty { display: none; }
+
+.lg-ribbon-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 12px 6px;   /* room for the first and last handle's hit area */
+  margin: 0 -12px;
+}
+.lg-scale {
+  position: relative;
+  height: 18px;
+  min-width: 720px;
+  font-size: 10px;
+  line-height: 18px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.lg-scale-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.lg-ribbon {
+  position: relative;
+  display: flex;
+  height: 64px;
+  min-width: 720px;
+  border: 1px solid var(--lg-edge);
+  border-radius: 3px;
+  background: var(--lg-fill-b);
+}
+.lg-cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 10px;
+  background: var(--lg-fill-a);
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  font-size: 9px;
+  line-height: 1;
+  text-align: center;
+  overflow: hidden;
+}
+.lg-cell:last-child { border-right: 0; }
+.lg-cell.is-alt { background: var(--lg-fill-b); }
+
+/* The selection's per-layer energy, drawn faintly over the cells' fills and
+   under the handles. It never takes the pointer. */
+canvas.lg-profile {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.55;
+  color: var(--lg-profile);
+}
+
+/* A seam handle: a 24 px wide hit target around a 3 px rule with a grip. */
+.lg-handle {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 24px;
+  margin-left: -12px;
+  z-index: 2;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: ew-resize;
+  touch-action: none;
+  outline: none;
+}
+.lg-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--lg-handle);
+  border-radius: 1px;
+}
+.lg-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 22px;
+  margin: -11px 0 0 -6px;
+  background: var(--lg-fill-b);
+  border: 2px solid var(--lg-handle);
+  border-radius: 4px;
+}
+.lg-handle:hover::after { border-color: var(--lg-handle-focus); }
+.lg-handle:focus-visible::after,
+.lg-handle:focus-visible::before { background: var(--lg-handle-focus); }
+.lg-handle:focus-visible::after { border-color: var(--lg-handle-focus); outline: 2px solid var(--lg-handle-focus); outline-offset: 2px; }
+.lg-handle.is-dragging { cursor: grabbing; }
+.lg-handle.is-dragging::before { width: 5px; margin-left: -2px; background: var(--lg-handle-focus); }
+.lg-handle.is-dragging::after { border-color: var(--lg-handle-focus); background: var(--lg-handle-focus); }
+
+.lg-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
+.lg-presets .mini[hidden] { display: none; }
+.lg-shorthand { margin-bottom: 12px; }
+.lg-shorthand label.field { margin-bottom: 4px; }
+.lg-shorthand-row { display: flex; gap: 8px; align-items: center; }
+.lg-shorthand-row .textinput { flex: 1 1 auto; min-width: 0; }
+.lg-shorthand .hint[hidden] { display: none; }
+.lg-shorthand .hint:not([hidden]) { color: var(--danger); }
+
+.lg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.lg-table th {
+  text-align: right;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.lg-table th:first-child, .lg-table td:first-child { text-align: left; }
+.lg-table td {
+  padding: 1px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  height: 24px;
+}
+.lg-row.is-alt td { background: var(--muted-wash-soft); }
+.lg-table input[type="number"] {
+  width: 64px;
+  padding: 1px 4px;
+  background: var(--control-bg);
+  color: var(--control-text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lg-table input[type="number"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lg-start, .lg-end { white-space: nowrap; }
+.lg-num, .lg-mm { color: var(--text); }
+.lg-locked { color: var(--muted); }
+.lg-locked input { opacity: 0.6; cursor: not-allowed; }
+/* A value the editor moved to keep the partition valid: a brief outline, set
+   and cleared by the control with no transition. */
+.lg-clamped, .lg-clamped input { outline: 2px solid var(--warn); outline-offset: 1px; }
+
+.lg-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.lg-modal .actions .spacer { flex: 1 1 auto; }
+
+@media (max-width: 1100px) {
+  .modal.lg-modal { padding: 14px 14px 14px; }
+}
