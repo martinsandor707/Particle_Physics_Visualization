@@ -27,6 +27,7 @@
 import { Notes, SECTION, eventNotes, projectionNotes, onLightScreen } from './panel_notes.js';
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatSci, formatPercent, typographic } from './scale.js';
+import { CORE_SHIFT_Z_MM } from './axis_symbols.js';
 import {
   HALO_LIMIT, referenceTopLabel, speciesLabel, sliceRangeText, sliceLayersText, sliceAttentionText,
 } from './voxels.js';
@@ -52,6 +53,16 @@ function selectionLine(selection, vox) {
   const both = showers ? ' of both showers' : '';
   return `${plural(n, 'selected event')}: ${plural(selection.n_hits ?? 0, 'hit')} in `
     + `${plural(selection.n_cells ?? 0, 'detector cell')}, every hit${both} summed per cell.`;
+}
+
+/**
+ * The Absolute 3-D view's depth axis: titled and ticked in Z = z - 3649 mm (a label on the raw z), and the
+ * tooltip's coordinates stay raw. '' for every other frame, which keeps its own symbol.
+ */
+export function zAxisLine(frameKind, zSymbol = 'z') {
+  if (frameKind !== 'lab' || zSymbol !== 'z') return '';
+  return `The depth axis is titled Z = z − ${CORE_SHIFT_Z_MM} mm, the producer's display offset, with round Z ticks: `
+    + 'a label on the raw z, which the cubes keep and the tooltips print beside it.';
 }
 
 /** The recorded exception, as every 3-D drawer states it. */
@@ -189,6 +200,8 @@ export function sliceNoteLines(slice, drawn = null, kind = 'event', { selection 
   const layers = sliceLayersText(slice);
   const cube = kind === 'event' ? 'cube' : 'voxel';
   const lines = { ...none };
+  const readout = slice.frame === 'lab'
+    ? 'In the Absolute frame a slice\'s depth range reads Z first, with the raw z in brackets.' : '';
   lines.drawn = [
     `Slice mode: the drawn volume occupies ${binCount(slice, slice.L)} along depth, ${sliceRangeText(domain)}, from the `
       + `first that holds a drawn ${cube} to the last. They are cut into ${formatInt(slice.K)} slices of ${sizes} `
@@ -199,6 +212,7 @@ export function sliceNoteLines(slice, drawn = null, kind = 'event', { selection 
       + (slice.layers ? '' : ' Its bins are named by depth alone: '
         + (slice.numbering === 'w_bins' ? 'w bins carry no layer number.' : 'the lattice\'s layers are not contiguous here.')),
     `${sliceRule(slice, cube)} ${SLICE_NOTEBOOK_FIX}`,
+    readout,
   ];
   const attention = sliceAttentionText(slice);
   const total = Number.isFinite(slice.totalGev) ? ` (${formatSci(slice.energyGev, 3)} of ${formatSci(slice.totalGev, 4)} GeV)` : '';
@@ -264,6 +278,7 @@ export function voxelEventNotes({
     selection?.aggregation ?? '',
     vox.geometry?.note ?? '',
     vox.geometry?.depth?.note ? `Depth: ${vox.geometry.depth.note}.` : '',
+    zAxisLine(vox.frame, vox.symbols?.z),
     scale.floor_rule ?? '',
     payload.meta?.cam?.note ?? '',
     vox.species?.rule ?? '',
@@ -436,6 +451,7 @@ export function voxelEnsembleNotes({
       + `along (${symbols.x}, ${symbols.y}, ${symbols.z}).`,
     grid.alignment ?? '',
     frame.depth?.text ? `Depth: ${frame.depth.text}.` : '',
+    zAxisLine(frame.kind, symbols.z),
     grid.z_uniform === false
       ? 'The depth axis is the native layers, placed at their own centres, never assumed uniform.' : '',
     scale.floor_rule ? `Drawn ${scale.floor_rule}.` : '',
@@ -534,20 +550,30 @@ function withLines(notes, heading, lines) {
  */
 export function voxelProjectionNotes({
   pair, payload, panelId, frameKind = 'lab', view = null, isometric = {}, pairing = [],
-  state = null, experiment = null, title = null,
+  state = null, experiment = null, title = null, layerGroups = null,
 }) {
   if (!payload) return null;
   let notes = null;
   if (pair === 'event') {
     // The inspector's window is shared by its nine panels; this pair has three, and asks for
     // per-axis half-widths (`window=per_axis`), which eventNotes names axis by axis.
+    // The page passes the card's own spec; eventNotes reads a `{<kind>: {yz, xz}}` map.
+    const map = layerGroups?.kind === 'layer-groups' ? { [frameKind]: { [panelId]: layerGroups } } : layerGroups;
     notes = eventNotes({
       payload, kind: frameKind, panelId, view, state, experiment, windowScope: 'all three projections',
+      layerGroups: map,
     });
   } else {
-    notes = projectionNotes({ payload, panelId, isometric, view, state, experiment });
+    notes = projectionNotes({ payload, panelId, isometric, view, state, experiment, layerGroups });
   }
   if (!notes) return null;
   if (title) notes = { ...notes, title };
-  return withLines(notes, SECTION.drawn, pairing);
+  // Beside a 3-D card the channels are boundaries only: Pooled re-binning reaches the Physics page's panels.
+  const own = layerGroups?.kind === 'layer-groups' ? layerGroups : layerGroups?.[frameKind]?.[panelId];
+  const boundaries = own && own.numbering !== 'none' && panelId !== 'xy'
+    ? 'Longitudinal Channels on this projection are boundaries only (strip and seams): the Models page never pools the '
+      + 'depth axis, so the raster and its colour scale are the whole volume\'s. They share the panel with the slice '
+      + 'bracket, whose two face lines mark the drawn slice.'
+    : null;
+  return withLines(notes, SECTION.drawn, [...pairing, boundaries]);
 }
