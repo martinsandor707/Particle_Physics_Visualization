@@ -664,7 +664,8 @@ a.action { display: inline-block; text-decoration: none; }
 #group-lgroups[hidden] { display: none; }
 #lgroups-edit { margin-top: 8px; }
 #lgroups-edit[disabled] { opacity: 0.45; cursor: not-allowed; }
-.choice.is-disabled { opacity: 0.55; cursor: not-allowed; }
+/* Scoped to this group: the base .choice.is-disabled rule styles every other disabled radio. */
+#group-lgroups .choice.is-disabled { opacity: 0.55; cursor: not-allowed; }
 
 .lg-bar {
   display: flex;
@@ -742,7 +743,9 @@ a.action { display: inline-block; text-decoration: none; }
 .lg-cell.is-alt { background: var(--lg-fill-b); }
 
 /* The selection's per-layer energy, drawn faintly over the cells' fills and
-   under the handles. It never takes the pointer. */
+   under the handles. It never takes the pointer. The opacity is chosen as
+   drawn (tokens.css): the composite clears 3:1 against both fills, and the
+   handle 3:1 against the composite, in both themes. */
 canvas.lg-profile {
   position: absolute;
   inset: 0;
@@ -750,7 +753,7 @@ canvas.lg-profile {
   height: 100%;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.55;
+  opacity: 0.8;
   color: var(--lg-profile);
 }
 

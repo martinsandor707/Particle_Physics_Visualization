@@ -137,6 +137,53 @@ out.vox_lab = dump(vn.voxelEventNotes({ payload: load('event_voxels_base_lab') }
 out.vox_canonical = dump(vn.voxelEventNotes({ payload: load('event_voxels_base_canonical') }));
 out.z_line = [vn.zAxisLine('lab', 'z'), vn.zAxisLine('canonical', 'z′'), vn.zAxisLine('lab', 'w')];
 
+/* ---- Stage 5 regressions (fix-words) ---- */
+// UI-1 / LG-G2 / LG-C3: an event row or C7 handed Pooled draws boundaries, never a draft.
+const evPool = {};
+for (const kind of ['lab', 'trans']) {
+  evPool[kind] = {};
+  for (const panelId of ['yz', 'xz']) {
+    evPool[kind][panelId] = lg.panelGroupSpec({
+      mode: 'pool', counts: cEvent, panelId, layerPlanes: ev.frames[kind].layer_planes, nEvents: 1 });
+  }
+}
+out.event_pool = {
+  lab: dump(pn.eventNotes({ payload: ev, kind: 'lab', panelId: 'xz', layerGroups: evPool })),
+  trans: dump(pn.eventNotes({ payload: ev, kind: 'trans', panelId: 'yz', layerGroups: evPool })),
+};
+const ps = await imp('physics_section.js');
+const c7Pool = ps.profileLayerSpec(native, 'kt', { mode: 'pool', counts: lg.uniformCounts(56), L: 56 });
+out.c7_pool_spec = c7Pool ? { mode: c7Pool.mode, pooled: c7Pool.pooled, panelId: c7Pool.panelId } : null;
+out.profile_native_pool = dump(pn.profileNotes({ payload: native, axis: 'kt', layerGroups: c7Pool }));
+// LG-C2: a block the 100 KB guard trimmed.
+const TRIM = 'The per-layer shares and reach were left out to keep this response under the 100 KB contract; the raster kept its resolution.';
+out.trim_note = TRIM;
+const labTrim = clone(lab);
+Object.assign(labTrim.depth_layers, { profile: null, reach: null, trimmed: true, trim_note: TRIM });
+out.lab_trimmed = notes(labTrim, 'yz', spec(labTrim, 'yz', 'bounds', uniform));
+const transTrim = clone(trans);
+Object.assign(transTrim.depth_layers, { profile: null, reach: null, trimmed: true, trim_note: TRIM });
+out.trans_trimmed = notes(transTrim, 'yz', spec(transTrim, 'yz', 'bounds', lg.uniformCounts(transTrim.depth_layers.partition_layers)));
+const evTrim = clone(ev);
+for (const kind of ['lab', 'trans', 'local']) {
+  Object.assign(evTrim.frames[kind].layer_planes, { energy_gev: null, trimmed: true, trim_note: TRIM });
+}
+const evTrimSpecs = { lab: { yz: lg.panelGroupSpec({
+  mode: 'bounds', counts: cEvent, panelId: 'yz', layerPlanes: evTrim.frames.lab.layer_planes, nEvents: 1 }) } };
+out.event_trimmed = dump(pn.eventNotes({ payload: evTrim, kind: 'lab', panelId: 'yz', layerGroups: evTrimSpecs }));
+out.pair_event_trimmed = dump(vn.voxelProjectionNotes({
+  pair: 'event', payload: evTrim, panelId: 'yz', frameKind: 'lab', layerGroups: evTrimSpecs.lab.yz }));
+// LG-G3: the sidebar caption of a pooled response.
+const transPooled = proj('projections_base_trans_pooled');
+out.display_caption = {
+  lab: fv.displayCaption('lab', lab.meta.resolution, null, lab.depth_layers),
+  labPooled: fv.displayCaption('lab', pooled.meta.resolution, null, pooled.depth_layers),
+  labPooledContinuous: fv.displayCaption('lab', { ...pooled.meta.resolution, mode: 'continuous' }, null, pooled.depth_layers),
+  trans: fv.displayCaption('trans', trans.meta.resolution, trans.frame, trans.depth_layers),
+  transPooled: fv.displayCaption('trans', transPooled.meta.resolution, transPooled.frame, transPooled.depth_layers),
+  labNoBlock: fv.displayCaption('lab', pooled.meta.resolution, null),
+};
+
 /* ---- captions ---- */
 out.captions = {
   lab: fv.labFootnotes(lab),
@@ -502,3 +549,84 @@ def test_the_absolute_captions_name_the_depth_z(out):
 def test_no_drawer_prints_an_ascii_hyphen_as_a_minus_sign(out):
     for text in _walk(out):
         assert not HYPHEN_NUMBER.search(text), text
+
+
+# ------------------------------------------- Stage 5 regressions (fix-words) --
+
+POOL_ELSEWHERE = "Pooled re-bins the Physics page's ensemble depth panels; this panel draws the boundaries."
+
+
+@pytest.mark.parametrize("kind", ["lab", "trans"])
+def test_an_event_row_handed_pooled_states_boundaries_never_a_draft(out, kind):
+    """UI-1 / LG-G2 / LG-C3: the Event Inspector never pools, so no Apply re-bins it."""
+    text = _text(out["event_pool"][kind], "Disclosures")
+    assert "until Apply" not in text and "live draft" not in text
+    assert POOL_ELSEWHERE in text
+
+
+def test_the_c7_card_handed_pooled_states_boundaries_never_a_draft(out):
+    assert out["c7_pool_spec"] == {"mode": "pool", "pooled": False, "panelId": "profile-w"}
+    text = _text(out["profile_native_pool"], "Disclosures")
+    assert "until Apply" not in text and "live draft" not in text
+    assert POOL_ELSEWHERE in text
+
+
+def test_an_ensemble_panel_keeps_its_draft_sentence_and_never_the_elsewhere_one(out):
+    assert "until Apply, which sends one request" in _text(out["lab_pool_not_arrived"], "Disclosures")
+    assert POOL_ELSEWHERE not in _text(out["lab_pool_not_arrived"])
+    assert POOL_ELSEWHERE not in _text(out["lab_bounds"])
+
+
+def test_the_seams_and_spotlight_are_disclosed_as_inked_for_the_card(out):
+    """UI-8: the marks' contrast is measured against the card, and the strip always carries the channels."""
+    text = _text(out["lab_bounds"], "Disclosures")
+    assert ("Seams and the spotlight's faces are drawn in the card's own mark inks, whose contrast is measured "
+            "against the card, not the raster") in text
+    assert "they can fade, while the strip above the plot always carries the channels" in text
+    pooled = _text(out["lab_pooled"], "Disclosures")
+    assert "The spotlight's faces are drawn in the card's own mark inks" in pooled and "Seams and the" not in pooled
+    assert "The plane lines are drawn in the card's own mark ink" in _text(out["event"]["local"]["xz"], "Disclosures")
+    # C7 draws no raster, so it states nothing of the kind.
+    assert "mark ink" not in _text(out["profile_native_pool"])
+
+
+def test_the_paired_projection_tells_the_slice_bracket_from_a_hovered_channel(out):
+    """UI-10: the bracket's faces have inward ticks, a hovered channel's faces have none."""
+    drawn = _text(out["pair_event"], "What is drawn")
+    assert "carry short inward ticks at their ends" in drawn
+    assert "a hovered channel's two faces, drawn in the same ink, have none" in drawn
+
+
+@pytest.mark.parametrize("key", ["lab_trimmed", "trans_trimmed"])
+def test_a_trimmed_ensemble_block_quotes_its_trim_note_and_claims_no_shares(out, key):
+    """LG-C2: profile and reach left out; the drawer says so in the server's words."""
+    text = _text(out[key], "Disclosures")
+    assert out["trim_note"] in text
+    assert "Strip shares are exact" not in text and "Reach:" not in text
+    assert out["trim_note"] not in _text(out["lab_bounds"])
+
+
+def test_a_trimmed_event_block_quotes_its_trim_note_and_claims_no_shares(out):
+    for notes in (out["event_trimmed"], out["pair_event_trimmed"]):
+        text = _text(notes, "Disclosures")
+        assert out["trim_note"] in text
+        assert "Strip shares are of this shower's energy" not in text
+
+
+def test_the_display_caption_names_a_pooled_depth_axis(out):
+    """LG-G3: pooled depth panels are channels over the native layers, a mean per channel."""
+    c = out["display_caption"]
+    pooled = _fixture("projections_base_lab_pooled")["depth_layers"]
+    n_ch, n_native = len(pooled["groups"]["bins"]), pooled["n_layers"]
+    phrase = f"pooled into {n_ch} Longitudinal Channels of the {n_native} native layers, each bin the mean of its channel's layers"
+    assert phrase in c["labPooled"] and phrase in c["labPooledContinuous"]
+    assert "Every bin is a real cell" not in c["labPooled"]
+    assert "Every transverse bin is a real cell" in c["labPooled"]
+    assert "depth locked to" not in c["labPooledContinuous"]
+    trans = _fixture("projections_base_trans_pooled")["depth_layers"]
+    assert (f"pooled into {len(trans['groups']['bins'])} Longitudinal Channels of the {trans['n_layers']} native layers"
+            in c["transPooled"])
+    assert f"{_fixture('projections_base_trans_pooled')['meta']['resolution']['r_z']} depth layers" not in c["transPooled"]
+    # Unpooled responses, and a call with no block, keep the native sentence.
+    assert "Every bin is a real cell" in c["lab"] and "Every bin is a real cell" in c["labNoBlock"]
+    assert "Longitudinal" not in c["trans"]

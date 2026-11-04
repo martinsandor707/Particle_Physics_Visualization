@@ -319,7 +319,7 @@ When working with calorimeter simulation datasets in this repository:
       - seams are 1 px dashed lines at the stored cell edges, never index × pitch;
       - the hover spotlight is the channel's two faces, never a wash, linked across a card's depth panels;
       - the Marks toggle hides the seams and the spotlight; the strip stays.
-    - **Pooled** (`/api/projections?depth_groups=`; Martin's decision: the Physics page's ensemble depth panels only, i.e. the 2 × 2 and the compare grid's Absolute and Translated rows).
+    - **Pooled** (`/api/projections?depth_groups=`; Martin's decision: the Physics page's ensemble depth panels only, i.e. the 2 × 2 and the compare grid's Absolute and per-shower translated rows).
       - A server operator (§2 "Irregular Detector Lattices"): GeV per 20.5 mm layer in the Absolute frame, the mean density of the channel's layers in the co-registered frames.
       - The scale and clipping are recomputed on the pooled raster; the comb is still measured on the raw raster.
       - It is refused in Local. The Event Inspector, C7 and the Models page draw boundaries only.

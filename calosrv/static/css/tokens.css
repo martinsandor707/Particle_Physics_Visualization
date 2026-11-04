@@ -50,8 +50,10 @@
   /* Longitudinal Channels editor. Measured on the dark modal ground #161b22 and
      card #1c2128: handle 14.64:1 / 13.70:1 and 11.15:1 / 13.70:1 on the two
      fills; edge 5.62:1 / 5.26:1 (4.28:1 on fill A); text on fill A 11.15:1,
-     muted 4.28:1 (used only on fill B and the ground); focus ring 11.19:1,
-     profile 5.58:1. */
+     muted 4.28:1 (used only on fill B and the ground); focus ring 11.19:1.
+     The profile is drawn at opacity 0.8 (controls.css canvas.lg-profile): it
+     composites to #3e7fd3 on fill A and #3c7cce on fill B, 3.25:1 and 3.83:1
+     against them, and the handle clears 3.43:1 and 3.58:1 against it. */
   --lg-fill-a: #26313f;
   --lg-fill-b: #1c2128;
   --lg-edge: #8b949e;
@@ -108,7 +110,10 @@
     --backdrop: rgba(31, 35, 40, 0.45);
     /* Measured on the white modal ground and card: handle 17.74:1 and 14.37:1 on
        the fills, edge 6.11:1 (4.95:1 on fill A), text 14.37:1 on fill A, muted
-       4.95:1, focus ring 5.05:1, profile 6.19:1. */
+       4.95:1, focus ring 5.05:1. The profile is drawn at opacity 0.8
+       (controls.css canvas.lg-profile): it composites to #357bc9 on fill A and
+       #3c7fcb on fill B, 3.52:1 and 4.13:1 against them, and the handle clears
+       4.08:1 and 4.30:1 against it. */
     --lg-fill-a: #dbe9f7;
     --lg-fill-b: #ffffff;
     --lg-edge: #59636e;

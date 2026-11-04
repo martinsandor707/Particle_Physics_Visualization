@@ -298,6 +298,11 @@ out.match = { uniform: c.matchPreset(uniform, 60), custom: c.matchPreset(custom,
 out.rowsLab = c.tableRows(uniform, 60, lab);
 out.rowsNone = c.tableRows(uniform, 60, null);
 out.rowsDemo = c.tableRows([5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4], 56, demo);
+// LG-G4: per-shower translated on the gapped demo lattice, L = 56 over a 58-bin axis.
+const transLong = { numbering: 'relative', edgesMm: Array.from({ length: 59 }, (_, b) => (b - 0.5) * 20.5),
+  displayOffsetMm: null, symbol: 'Δz', profile: null, firstLayer: 1 };
+out.rowsLong = c.tableRows([5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4], 56, transLong);
+out.axisLast = [c.axisLastLayer(transLong), c.axisLastLayer(lab), c.axisLastLayer(null)];
 out.seamLab = [1, 6, 12].map((seam) => c.seamModel(uniform, seam, lab));
 out.seamTrans = c.seamModel(uniform, 1, trans);
 out.seamBare = c.seamModel(uniform, 1, null);
@@ -365,7 +370,15 @@ out.fromPayload = {
   eventLocal: c.depthContextFromPayload({ numbering: 'relative', normal: [-0.17, 0, 0.98], edges_mm: transEdges,
     energy_gev: [3], display_offset_mm: null }),
   none: [c.depthContextFromPayload(null), c.depthContextFromPayload({})],
+  // LG-C2: a block the 100 KB guard trimmed carries no profile.
+  trimmedEnsemble: c.depthContextFromPayload({ numbering: 'detector', n_layers: 60, partition_layers: 60, pitch_mm: 20.5,
+    edges_mm: labEdges, first_layer: 1, contiguous: true, display_offset_mm: 3649, symbol: 'z',
+    profile: null, reach: null, trimmed: true, trim_note: 'left out' }),
+  trimmedEvent: c.depthContextFromPayload({ numbering: 'detector', normal: [0, 0, 1], edges_mm: labEdges, first_layer: 1,
+    energy_gev: null, display_offset_mm: 3649, trimmed: true, trim_note: 'left out' }),
 };
+out.trimmedNote = c.depthNote(out.fromPayload.trimmedEnsemble, 60);
+out.trimmedHeights = c.profileHeights(out.fromPayload.trimmedEvent.profile, 60);
 Object.defineProperty(globalThis, 'localStorage', { get() { throw new Error('SecurityError'); }, configurable: true });
 out.storage.viewerBlocked = c.viewerStorage();
 console.log(JSON.stringify(out));
@@ -725,6 +738,16 @@ start3.value = '12'; fire(start3, 'change');
 out.startField = { draft: drafts.at(-1), live: byId('lgroups-live').textContent };
 start3.value = 'x'; fire(start3, 'change');
 out.badField = { live: byId('lgroups-live').textContent, draft: drafts.at(-1) };
+// UI-2: the field still has the focus on Enter, which renderModal skips: the kept value comes back.
+const end3 = field(3, 'end');
+end3.focus();
+const end3Before = end3.value;
+end3.value = '3.5'; fire(end3, 'change');
+const afterDecimal = end3.value;
+const liveDecimal = byId('lgroups-live').textContent;
+end3.value = ''; fire(end3, 'change');
+out.focusedBad = { before: end3Before, decimal: afterDecimal, empty: end3.value, live: liveDecimal, draft: drafts.at(-1) };
+document.activeElement = null;
 const presetButtons = byId('lgroups-presets').children;
 fire(byId('lgroups-presets'), 'click', { target: presetButtons[1] });
 out.preset = { draft: drafts.at(-1), pressed: presetButtons.map((b) => b.getAttribute('aria-pressed')) };
@@ -732,10 +755,15 @@ byId('lgroups-shorthand').value = '1-3, 4-6';
 fire(byId('lgroups-shorthand-apply'), 'click');
 out.shortError = { hidden: byId('lgroups-shorthand-error').hidden, text: byId('lgroups-shorthand-error').textContent,
   invalid: byId('lgroups-shorthand').attrs['aria-invalid'] ?? null };
+// UI-11: role=alert speaks a changed text only, so the same refusal again goes through the live region.
+const liveFirst = byId('lgroups-live').textContent;
+fire(byId('lgroups-shorthand-apply'), 'click');
+out.shortRepeat = { first: liveFirst, repeat: byId('lgroups-live').textContent, text: byId('lgroups-shorthand-error').textContent };
 byId('lgroups-shorthand').value = '3, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 7';
 fire(byId('lgroups-shorthand'), 'keydown', { key: 'Enter' });
 out.shortOk = { draft: drafts.at(-1), hidden: byId('lgroups-shorthand-error').hidden,
-  value: byId('lgroups-shorthand').value };
+  value: byId('lgroups-shorthand').value, text: byId('lgroups-shorthand-error').textContent,
+  invalid: byId('lgroups-shorthand').attrs['aria-invalid'] ?? null };
 out.beforeApply = { state: s.get('lgroups'), mode: s.get('lgmode'), stored: store.get('calosrv.layerGroups.custom') ?? null };
 fire(byId('lgroups-apply'), 'click');
 out.applied = { state: s.get('lgroups'), mode: s.get('lgmode'), hidden: byId('lgroups-modal').hidden,
@@ -950,3 +978,48 @@ def test_cancel_restores_and_a_blocked_storage_is_survived(ui):
 
 def test_a_destroyed_control_stops_listening(ui):
     assert ui["destroyed"] == ["bounds"], "the radios are no longer synced"
+
+
+# ------------------------------------------- Stage 5 regressions (fix-words) --
+
+
+def test_a_refused_field_keeps_its_value_while_focused(ui):
+    """UI-2: Enter on a focused field with a non-integer or an empty value restores the kept layer."""
+    f = ui["focusedBad"]
+    assert f["before"] != ""
+    assert f["decimal"] == f["before"] and f["empty"] == f["before"]
+    assert f["live"] == "Ch 3 end: enter a whole layer number; it was kept."
+    assert f["draft"] == ui["badField"]["draft"]
+
+
+def test_a_repeated_shorthand_refusal_is_announced_again_and_a_success_clears_it(ui):
+    """UI-11: the alert speaks a change only; the live region carries the repeat; no stale reason outlives it."""
+    r = ui["shortRepeat"]
+    assert r["first"] != r["repeat"]
+    assert r["repeat"].startswith("Shorthand not used: ") and r["text"] in r["repeat"]
+    ok = ui["shortOk"]
+    assert ok["text"] == "" and ok["invalid"] is None
+
+
+def test_the_last_channel_runs_to_the_end_of_a_longer_axis_in_the_table(helpers):
+    """LG-G4 (table): Ch 13 on a 58-bin axis over L = 56 is as thick as the strip draws it."""
+    rows = helpers["rowsLong"]
+    last = rows[-1]
+    assert (last["first"], last["last"], last["n"], last["axisLast"]) == (53, 56, 4, 58)
+    assert last["thicknessMm"] == pytest.approx(6 * 20.5)
+    assert all(r["axisLast"] is None for r in rows[:-1])
+    assert helpers["axisLast"] == [58, 60, None]
+    # An axis that ends at the partition's last layer is unchanged.
+    assert all(r["axisLast"] is None for r in helpers["rowsLab"])
+
+
+def test_a_trimmed_block_gives_the_editor_no_background(helpers):
+    """LG-C2: profile null (or energy_gev null) is tolerated: no heights, and the note says why."""
+    p = helpers["fromPayload"]
+    assert p["trimmedEnsemble"]["profile"] is None and p["trimmedEnsemble"]["trimmed"] is True
+    assert p["trimmedEvent"]["profile"] is None and p["trimmedEvent"]["trimmed"] is True
+    assert len(p["trimmedEnsemble"]["edgesMm"]) == 61
+    assert helpers["trimmedHeights"] is None
+    assert "No background is drawn" in helpers["trimmedNote"]
+    assert "faint background" not in helpers["trimmedNote"]
+    assert p["lab"]["trimmed"] is False

@@ -964,3 +964,11 @@ def test_the_channels_modules_name_no_colour_literal():
     for name in ("layer_groups.js", "panels/depth_groups.js", "controls/layer_groups_control.js"):
         source = _strip_comments((JS / name).read_text(encoding="utf-8"))
         assert not colour.search(re.sub(r"'[^'\n]*&#\d+;[^'\n]*'", "", source)), name
+
+
+def test_the_channel_shorthand_is_described_by_its_error_on_both_pages():
+    """UI-11: a field announced as invalid is linked to its reason."""
+    for html in (_html(), _models_html()):
+        field = re.search(r'<input[^>]*id="lgroups-shorthand"[^>]*>', html, re.DOTALL)
+        assert field and 'aria-describedby="lgroups-shorthand-error"' in field.group(0)
+        assert html.count('id="lgroups-shorthand-error"') == 1

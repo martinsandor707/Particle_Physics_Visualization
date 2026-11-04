@@ -215,13 +215,27 @@ const CAM_NORMALISATION =
  * sample of the kernel reconstruction - with the kernel, its width and the
  * total blur, because a smooth picture that does not say how it was smoothed
  * invites a reader to take its smoothness for the shower's.
+ *
+ * `depthLayers` is the response's `depth_layers` block: when its `groups`
+ * say the depth axis is pooled, the caption names the Longitudinal Channels
+ * over the native layers, each bin a mean of its channel's layers, and makes
+ * no one-bin-per-cell claim for the depth panels.
  */
-export function displayCaption(kind, resolution, frame) {
+export function displayCaption(kind, resolution, frame, depthLayers = null) {
   if (!resolution) return '—';
+  const pooled = pooledDepth(depthLayers);
   if (kind === 'lab') {
     const lowered = Number.isFinite(resolution.requested) && resolution.requested !== resolution.r_x
       ? ` R lowered from ${resolution.requested} to ${resolution.r_x} by the 100 KB response guard.`
       : '';
+    if (pooled) {
+      return resolution.mode === 'native'
+        ? `Native lattice: one bin per calorimeter cell transversely (${resolution.r_x} × ${resolution.r_y}); depth `
+          + `${pooled}. Every transverse bin is a real cell; a depth bin is a whole channel of layers, so the depth axes `
+          + 'carry no empty-bin comb.'
+        : `Continuous field: ${resolution.r_x} × ${resolution.r_y} transverse bins by area-weighted splatting, depth `
+          + `${pooled}.${lowered}`;
+    }
     return resolution.mode === 'native'
       ? `Native lattice: one bin per calorimeter cell (${resolution.r_x} × ${resolution.r_y} transverse, ${resolution.r_z} depth layers). Every bin is a real cell, so the depth axes carry no empty-bin comb.`
       : `Continuous field: ${resolution.r_x} × ${resolution.r_y} transverse bins by area-weighted splatting, depth locked to ${resolution.r_z} native layers.${lowered}`;
@@ -231,7 +245,7 @@ export function displayCaption(kind, resolution, frame) {
   const display = displayOf(resolution, frame);
   const layers = kind === 'local'
     ? `${resolution.r_z} uniform w bins`
-    : `${resolution.r_z} depth layers`;
+    : (pooled ? `depth ${pooled}` : `${resolution.r_z} depth layers`);
   if (display.mode === 'native') {
     const merged = display.merge > 1
       ? `; merged ${display.merge}× to ${num(display.displayPitch, 0)} mm by the payload guard`
@@ -255,10 +269,25 @@ export function displayCaption(kind, resolution, frame) {
   const detail = [spread, total].filter(Boolean).join('; ');
   const gate = Number.isFinite(recon.gaussian_below_n)
     ? ` Gaussian below N = ${recon.gaussian_below_n} events, tent above.` : '';
-  const depth = kind === 'local' ? `depth never smoothed (${layers})` : `depth native (${layers})`;
+  const depth = kind === 'local' ? `depth never smoothed (${layers})` : (pooled ? layers : `depth native (${layers})`);
   return `Continuous Field: conservative ${kernel}${detail ? ` (${detail})` : ''}, ${sym.x}/${sym.y} only, `
     + `${depth}; ${num(resolution.display_pitch_mm, 1)} mm display bins `
     + `(R = ${resolution.r_x}).${gate}`;
+}
+
+/**
+ * "pooled into 13 Longitudinal Channels of the 56 native layers, each bin the
+ * mean of its channel's layers" for a pooled `depth_layers` block, else null.
+ * The channel count is the drawn bins' (`groups.bins`), the layer count the
+ * native axis's (`n_layers`).
+ */
+export function pooledDepth(depthLayers) {
+  const groups = depthLayers?.groups;
+  if (!groups?.pooled) return null;
+  const channels = Array.isArray(groups.bins) ? groups.bins.length : (groups.counts?.length ?? 0);
+  const native = Number.isInteger(depthLayers.n_layers) ? ` of the ${depthLayers.n_layers} native layers` : '';
+  return `pooled into ${channels} Longitudinal Channel${channels === 1 ? '' : 's'}${native}, each bin the mean of its `
+    + 'channel\'s layers';
 }
 
 /** How a co-registered frame puts each cell's footprint onto its grid. */

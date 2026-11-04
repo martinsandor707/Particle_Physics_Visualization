@@ -307,3 +307,45 @@ def test_channel_editor_stylesheet_uses_only_its_tokens_for_colour():
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(", section)
     used = set(re.findall(r"var\((--lg-[\w-]+)\)", section))
     assert used <= set(LG_TOKENS) and {"--lg-edge", "--lg-fill-a", "--lg-fill-b", "--lg-handle"} <= used
+
+
+# ------------------------------------------- Stage 5 regressions (fix-words) --
+
+
+def _composite(fg: str, bg: str, alpha: float) -> str:
+    f = [int(fg.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4)]
+    b = [int(bg.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join(f"{round(alpha * x + (1 - alpha) * y):02x}" for x, y in zip(f, b))
+
+
+def test_the_editor_profile_clears_its_contrast_as_drawn_on_both_themes():
+    """UI-9: measured as drawn, at the canvas's opacity: the profile 3:1 against both ribbon
+    fills, and the handle 3:1 against the profile over either fill."""
+    css = _strip_comments(_read("controls.css"))
+    rule = _block(css, "canvas.lg-profile {")
+    alpha = float(re.search(r"opacity:\s*([\d.]+)\s*;", rule).group(1))
+    for tokens in (_dark(), _light()):
+        for fill in ("--lg-fill-a", "--lg-fill-b"):
+            drawn = _composite(tokens["--lg-profile"], tokens[fill], alpha)
+            assert contrast(drawn, tokens[fill]) >= 3.0, (fill, drawn)
+            assert contrast(tokens["--lg-handle"], drawn) >= 3.0, (fill, drawn)
+
+
+def test_the_tokens_comments_quote_the_profile_as_drawn():
+    text = _read("tokens.css")
+    alpha = float(re.search(r"opacity:\s*([\d.]+)\s*;", _block(_strip_comments(_read("controls.css")),
+                                                             "canvas.lg-profile {")).group(1))
+    for tokens in (_dark(), _light()):
+        for fill in ("--lg-fill-a", "--lg-fill-b"):
+            assert _composite(tokens["--lg-profile"], tokens[fill], alpha) in text
+    assert text.count(f"The profile is drawn at opacity {alpha:g}") == 2
+
+
+def test_the_disabled_choice_dimming_is_scoped_to_the_channels_group():
+    """UI-3: the base .choice.is-disabled rule styles every other disabled radio; only Pooled is dimmed further."""
+    css = _strip_comments(_read("controls.css"))
+    for match in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
+        selectors = [s.strip() for s in match.group(1).split(",")]
+        if "opacity" in match.group(2) and any(s.endswith(".choice.is-disabled") for s in selectors):
+            assert all(s.startswith("#group-lgroups ") for s in selectors if s.endswith(".choice.is-disabled")), selectors
+    assert re.search(r"#group-lgroups \.choice\.is-disabled\s*\{[^}]*opacity", css)
