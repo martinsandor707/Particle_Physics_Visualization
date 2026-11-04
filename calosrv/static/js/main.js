@@ -290,15 +290,36 @@ function repaintLayerGroups() {
  */
 function onLayerGroupsChanged() {
   repaintLayerGroups();
-  if (pagePlan.spatial && lastProjections && ensembleWants() !== pooledWith(lastProjections)) {
+  // Against what was last *asked*, not what has landed: a response still in flight
+  // is superseded (the shared request key aborts it) rather than drawn under a
+  // mode it was not asked for.
+  if (pagePlan.spatial && lastProjections && ensembleWants() !== ensembleRequested) {
     reloadEnsembleDepth();
   }
   const compareOn = state.get('event') === null && state.get('compare') && pagePlan.compare;
   if (compareOn) {
     const kinds = GRID_ROWS.filter((kind) => comparePayloads[kind]
-      && (compareParams(kind).depth_groups ?? null) !== pooledWith(comparePayloads[kind]));
+      && (compareParams(kind).depth_groups ?? null) !== compareAsked(kind));
     if (kinds.length) reloadCompareRows(kinds);
   }
+}
+
+/** The pooling the latest request of a compare row asked for, else that of its response in hand. */
+function compareAsked(kind) {
+  return kind in compareRequested ? compareRequested[kind] : pooledWith(comparePayloads[kind]);
+}
+
+/** One compare row's request, recording the pooling it asks for (`compareAsked`). */
+function requestCompareRow(kind) {
+  const params = compareParams(kind);
+  compareRequested[kind] = params.depth_groups ?? null;
+  return getJson('/api/projections', params, `compare-${kind}`);
+}
+
+/** The rows whose response in hand was asked under a pooling the state no longer wants. */
+function staleCompareRows(kinds) {
+  return kinds.filter((kind) => comparePayloads[kind]
+    && (compareParams(kind).depth_groups ?? null) !== pooledWith(comparePayloads[kind]));
 }
 
 /** The 2 x 2 again for a new pooling: one projections request, the windowed axes kept. */
@@ -319,14 +340,14 @@ async function reloadCompareRows(kinds) {
   compareGrid.setBusy(true);
   const generation = viewGeneration;
   try {
-    const results = await Promise.all(kinds.map((kind) => getJson(
-      '/api/projections', compareParams(kind), `compare-${kind}`,
-    )));
+    const results = await Promise.all(kinds.map((kind) => requestCompareRow(kind)));
     checkCurrent(generation);
     kinds.forEach((kind, index) => { comparePayloads[kind] = results[index]; });
     endpointWarnings.compare = GRID_ROWS.flatMap((kind) => comparePayloads[kind]?.meta?.warnings || []);
     renderCompare();
     showBanner(mergedWarnings());
+    const stale = staleCompareRows(kinds);
+    if (stale.length) reloadCompareRows(stale);
   } catch (error) {
     if (!isAbort(error)) reportError(error, 'pooled frame comparison');
   } finally {
@@ -412,6 +433,11 @@ const dom = {
 let experiments = [];
 let activeExperiment = null;
 let lastProjections = null;
+/* The pooling ('.'-joined counts, or null) the latest 2 x 2 request asked for, in
+ * flight or landed, and each compare row's (`requestCompareRow`): what a change of
+ * mode is compared with (`onLayerGroupsChanged`). */
+let ensembleRequested = null;
+const compareRequested = {};
 let lastEnergy = null;
 let showerFilter = 'both';
 /* The compare-frames view's three responses, by frame kind. */
@@ -703,14 +729,15 @@ function compareRowTitle(kind, payload) {
 async function loadCompare() {
   const generation = viewGeneration;
   const kinds = GRID_ROWS.filter((kind) => offeredFrames.includes(kind));
-  const results = await Promise.all(kinds.map((kind) => getJson(
-    '/api/projections', compareParams(kind), `compare-${kind}`,
-  )));
+  const results = await Promise.all(kinds.map((kind) => requestCompareRow(kind)));
   checkCurrent(generation);
   for (const kind of GRID_ROWS) comparePayloads[kind] = null;
   kinds.forEach((kind, index) => { comparePayloads[kind] = results[index]; });
   endpointWarnings.compare = results.flatMap((payload) => payload.meta?.warnings || []);
   renderCompare();
+  // A mode or partition change while the rows were in flight: ask those rows again.
+  const stale = staleCompareRows(kinds);
+  if (stale.length) reloadCompareRows(stale);
   return results;
 }
 
@@ -925,8 +952,15 @@ async function loadProjections(preview = false, { windowAxes = true } = {}) {
   const generation = viewGeneration;
   // The 2 x 2's depth panels pool when Pooled is on (state.js decides).
   const params = state.projectionParams(preview, undefined, { layerPool: true });
+  ensembleRequested = params.depth_groups ?? null;
   const payload = await getJson('/api/projections', params, 'projections');
   checkCurrent(generation);
+  // The mode or the partition changed while this response was in flight: ask
+  // again for the state's own pooling rather than draw it under the wrong one.
+  if ((params.depth_groups ?? null) !== ensembleWants()) {
+    reloadEnsembleDepth();
+    return payload;
+  }
   lastProjections = payload;
 
   const kind = kindOf(payload);
