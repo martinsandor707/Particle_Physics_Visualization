@@ -589,7 +589,7 @@ def test_the_inspector_draws_each_frames_own_layer_planes(event):
     # Local: the tilted planes on u-w, the badge on v-w, no strip on either.
     assert ev["localXz"]["planes"] == 12 and ev["localXz"]["strip"] == 0
     assert ev["localYz"]["planes"] == 0
-    assert ev["localYz"]["badge"].startswith("v–w: a layer plane tilted by θ = ")
+    assert ev["localYz"]["badge"].startswith("v–w: planes tilt by θ = ")
     assert ev["labXy"]["strip"] == 0
 
 

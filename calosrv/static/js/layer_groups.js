@@ -811,7 +811,8 @@ export function panelGroupSpec({
       const deg = typographic(Number(axis.tilt?.theta_deg ?? 0).toFixed(1));
       spec.lineReason = `v–w: a layer plane tilted by θ = ${deg}° spans a band here, not a line; `
         + 'the layer planes are drawn on u–w';
-      spec.badge = spec.lineReason;
+      // The badge is the short form, short enough for a narrow inspector panel; the drawer keeps the sentence.
+      spec.badge = `v–w: planes tilt by θ = ${deg}°, drawn on u–w`;
     }
     return spec;
   }

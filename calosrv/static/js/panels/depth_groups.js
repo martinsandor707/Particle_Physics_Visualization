@@ -144,7 +144,10 @@ function stripSeries(spec) {
           },
         });
       }
-      return { type: 'group', children };
+      // No ECharts hover state: the hovered segment takes groupStripHot through setGroupHighlight,
+      // never a lift of it, so the colour under the pointer is the one the contrast pins measure.
+      // A custom series reads the switch from the element renderItem returns, not from the series.
+      return { type: 'group', children, emphasisDisabled: true };
     },
     tooltip: {
       formatter: (params) => {

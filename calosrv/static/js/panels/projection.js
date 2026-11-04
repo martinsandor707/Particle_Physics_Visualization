@@ -305,6 +305,13 @@ export class ProjectionPanel {
       const group = Array.isArray(params.value) ? params.value[2] : null;
       if (Number.isInteger(group)) hover(group);
     });
+    // A move over a segment also spotlights it: zrender keeps its last hovered element across a
+    // repaint that reuses it (a theme switch), so returning to that segment fires no mouseover.
+    this.chart.on('mousemove', (params) => {
+      if (params?.seriesId !== STRIP_ID) return;
+      const group = Array.isArray(params.value) ? params.value[2] : null;
+      if (Number.isInteger(group) && (this.lastOpts?.layerGroups?.highlight ?? null) !== group) hover(group);
+    });
     this.chart.on('mouseout', (params) => {
       if (params?.seriesId === STRIP_ID) hover(null);
     });

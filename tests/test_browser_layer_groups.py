@@ -732,8 +732,6 @@ _SCALE_TICKS = """() => {
 }"""
 
 
-@pytest.mark.xfail(strict=True, reason="lead: LG-3 the ribbon's end ticks are centred on the ends and clipped: "
-                                       "the depth scale's 'Z = ' and its last value are cut off")
 @pytest.mark.parametrize("viewport", [(1600, 900), (1024, 700)], ids=lambda v: f"{v[0]}x{v[1]}")
 def test_the_ribbon_scales_are_read_whole(physics_live_server, viewport):
     """The layer scale above the ribbon and the depth scale below it: every tick label is inside the box
@@ -846,10 +844,8 @@ def test_hovering_a_segment_spotlights_both_panels_and_the_readout_names_the_lay
                     assert len(drawn["spots"]) == 2, (host, drawn["spots"])
                     assert len(drawn["rects"]) == GROUPS, (host, drawn["rects"])
                     fills = [r["fill"] for r in drawn["rects"]]
-                    # The linked panel draws the hot token; the hovered segment is in ECharts' hover
-                    # state, whose fill is ECharts' lift of the token (LG-2, held exactly below).
-                    lit = "hot" if host == other else ("hot", "emphasis")
-                    assert fills[m - 1] in lit and sum(f in ("hot", "emphasis") for f in fills) == 1, (host, fills)
+                    # Both panels, the hovered one included, draw the hot token itself.
+                    assert fills[m - 1] == "hot" and fills.count("hot") == 1 and "emphasis" not in fills, (host, fills)
                     faces = sorted(s["mx"] for s in drawn["spots"])
                     assert faces[0] == pytest.approx(drawn["rects"][m - 1]["x"], abs=1.5)
                     assert faces[1] == pytest.approx(drawn["rects"][m - 1]["x"] + drawn["rects"][m - 1]["w"], abs=1.5)
@@ -876,8 +872,6 @@ def test_hovering_a_segment_spotlights_both_panels_and_the_readout_names_the_lay
         assert problems == [], problems
 
 
-@pytest.mark.xfail(strict=True, reason="lead: LG-2 the hovered strip segment is drawn in ECharts' emphasis "
-                                       "lift of groupStripHot, not in the token")
 def test_the_hovered_segment_is_drawn_in_the_hot_token_in_both_themes(physics_live_server):
     """The hovered segment takes `groupStripHot` exactly (brief §3.2), the colour whose contrast with
     `groupStripText` the theme tests measure; ECharts' default hover state lifts it instead."""
@@ -898,8 +892,6 @@ def test_the_hovered_segment_is_drawn_in_the_hot_token_in_both_themes(physics_li
         assert problems == [], problems
 
 
-@pytest.mark.xfail(strict=True, reason="lead: LG-1 a shorthand error stays shown after a preset, the table or "
-                                       "a handle has replaced the draft")
 def test_a_shorthand_error_clears_once_the_draft_is_edited_otherwise(physics_live_server):
     base = physics_live_server["base"]
     with physics_live_server["playwright"].sync_playwright() as p:
@@ -910,8 +902,9 @@ def test_a_shorthand_error_clears_once_the_draft_is_edited_otherwise(physics_liv
         assert page.evaluate(_MODAL)["error"], "the refusal is shown"
         page.click('#lgroups-presets [data-preset="log"]')
         state = page.evaluate(_MODAL)
-        # The field now spells the preset's ranges; the sentence about "1, 2, 3" no longer applies.
-        assert state["shorthand"].startswith("1–1, 2–2"), state["shorthand"]
+        # The field now spells the preset's ranges (a one-layer channel written bare, as formatRanges
+        # writes it and parseShorthand reads it back); the sentence about "1, 2, 3" no longer applies.
+        assert state["shorthand"].startswith("1, 2, 3–4, "), state["shorthand"]
         assert state["error"] is None, state["error"]
         assert page.get_attribute("#lgroups-shorthand", "aria-invalid") is None
         browser.close()
@@ -1196,9 +1189,8 @@ def test_a_theme_switch_recolours_the_channels_from_the_new_tokens_with_no_reque
         for plot in DEPTH:
             drawn = _drawn(page, plot, "light")
             fills = [r["fill"] for r in drawn["rects"]]
-            # The hovered segment is in ECharts' hover state (LG-2); the linked one takes the light hot token.
-            lit = ("hot",) if plot == "plot-xz" else ("hot", "emphasis")
-            assert len(drawn["spots"]) == 2 and fills[3] in lit, (plot, fills)
+            # Both depth panels, the hovered one included, take the light hot token.
+            assert len(drawn["spots"]) == 2 and fills[3] == "hot", (plot, fills)
         page.mouse.move(2, 2)
         assert _toggle_theme(page) == "dark"
         for plot in DEPTH:
