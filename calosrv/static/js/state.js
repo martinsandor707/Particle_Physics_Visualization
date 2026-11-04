@@ -40,9 +40,26 @@
  * Links written before the split carried at most one `display=`. It is read as
  * the active frame's mode, so `#display=native` still opens whichever frame the
  * link names in Native.
+ *
+ * ## Longitudinal Channels: `lgmode` and `lgroups`
+ *
+ * The 60 detector layers (L = `lattice.z.n`, 56 on the demo lattice) can be
+ * grouped into 13 contiguous channels (layer_groups.js). Two keys carry them,
+ * and neither is called "channel", which names the display channel:
+ * `lgmode` (`off | bounds | pool`: nothing drawn, the seams drawn, or the
+ * Physics page's ensemble depth panels pooled into the 13 channels) and
+ * `lgroups`, the 13 layer counts joined by `.`. `lgroups` null means Uniform
+ * for whatever L the experiment has, and writing Uniform stores null, so a
+ * link stays short and a Uniform link opened on another lattice is still
+ * Uniform. A partition is checked against L only once the page reports it
+ * (`setLayerCount`): one that does not fit falls back to Uniform and says so
+ * (`layerGroups().fallback`), and the stored string is kept rather than
+ * rewritten, so the link keeps its meaning on the lattice it was made for.
+ * Neither key may be saved as an Admin default.
  */
 
 import { SEQUENTIAL_PALETTES } from './palette.js';
+import { GROUP_COUNT, formatCounts, isValidCounts, parseCounts, sameCounts, uniformCounts } from './layer_groups.js';
 
 export const FRAMES = ['lab', 'trans', 'local', 'canonical'];
 export const CHANNELS = ['density', 'gradcam', 'gradcam_energy', 'shapcam', 'shapcam_energy'];
@@ -94,6 +111,12 @@ export const ENSEMBLE_CHANNELS = Object.freeze(['density', 'gradcam_energy', 'sh
  * outputs a per-label view draws. */
 export const XGB_TASKS = Object.freeze(['momentum', 'angle']);
 export const XGB_LABELS = Object.freeze(['phi', 'theta']);
+/* Longitudinal Channels (see the header): none drawn, their seams drawn, or
+ * the Physics page's ensemble depth panels pooled into them. */
+export const LG_MODES = Object.freeze(['off', 'bounds', 'pool']);
+/* A link's partition: 13 positive integers joined by '.'. Its sum is checked
+ * against the experiment's layer count later (State.layerGroups). */
+const LGROUPS_PATTERN = /^\d+(\.\d+){12}$/;
 
 /** The two display modes the API accepts. */
 const DISPLAYS = new Set(['native', 'continuous']);
@@ -117,6 +140,7 @@ const ENUMS = {
   ens_channel: ENSEMBLE_CHANNELS,
   xgb_task: XGB_TASKS,
   xgb_label: XGB_LABELS,
+  lgmode: LG_MODES,
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
@@ -218,6 +242,10 @@ export const DEFAULTS = Object.freeze({
   ens_channel: 'density',
   xgb_task: 'momentum',
   xgb_label: 'theta',
+  // Longitudinal Channels (see the header): off on a cold boot, and the
+  // partition null, meaning Uniform for the experiment's layer count.
+  lgmode: 'off',
+  lgroups: null,
 });
 
 const NUMERIC = new Set([
@@ -250,8 +278,23 @@ function acceptValue(key, raw) {
   if (BOOLEAN.has(key)) return raw === true || raw === 'true' || raw === '1';
   if (key.startsWith('display_')) return DISPLAYS.has(raw) ? raw : undefined;
   if (ENUMS[key]) return ENUMS[key].includes(raw) ? raw : undefined;
+  if (key === 'lgroups') return acceptGroups(raw);
   // table_name: checked against the experiment list when the view loads.
   return typeof raw === 'string' && raw ? raw : undefined;
+}
+
+/**
+ * A link's `lgroups`, or undefined: 13 '.'-joined integers, every one ≥ 1.
+ *
+ * The sum is not checked here, because the layer count L is not known until
+ * the experiment is adopted; State.layerGroups checks it. The accepted string
+ * is normalised (no leading zeros), so one partition has one spelling.
+ */
+function acceptGroups(raw) {
+  if (typeof raw !== 'string' || !LGROUPS_PATTERN.test(raw)) return undefined;
+  const counts = raw.split('.').map(Number);
+  if (!counts.every((n) => Number.isSafeInteger(n) && n >= 1)) return undefined;
+  return formatCounts(counts);
 }
 
 export class State {
@@ -264,6 +307,9 @@ export class State {
     // null until one is adopted, which means the two-shower set (e1, e2, d).
     this.filterAxes = null;
     this.listeners = new Set();
+    // The active experiment's depth-layer count L (setLayerCount); null until
+    // one is adopted, when `lgroups` cannot yet be checked.
+    this.layerCount = null;
     this.defaultsApplied = false; // applyDefaults runs at most once
     this.readHash();
     // A bound arriving in the URL is a deliberate selection, so it must survive
@@ -324,9 +370,11 @@ export class State {
     // `display` is written onto the frame the patch leaves active, so a patch
     // carrying both a frame and a display does not depend on key order.
     // Listeners still receive the caller's own patch.
-    const entries = Object.entries(patch).map(([key, value]) => (key === 'display'
-      ? [displayKey(patch.frame ?? this.values.frame), value]
-      : [key, value]));
+    const entries = Object.entries(patch).map(([key, value]) => {
+      if (key === 'display') return [displayKey(patch.frame ?? this.values.frame), value];
+      if (key === 'lgroups') return [key, this.storedGroups(value)];
+      return [key, value];
+    });
     for (const [key, value] of entries) {
       if (this.values[key] !== value) {
         this.values[key] = value;
@@ -343,6 +391,60 @@ export class State {
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * The value `lgroups` stores for a written partition (an array of counts or
+   * its '.'-joined string): null for Uniform at the known layer count, so
+   * links stay short; null too for anything that is not 13 positive
+   * integers, which would otherwise reach the API. With L unknown the
+   * partition is stored as written and checked once L arrives.
+   */
+  storedGroups(value) {
+    if (value === null || value === undefined) return null;
+    const text = Array.isArray(value) ? (isValidCounts(value) ? formatCounts(value) : undefined)
+      : acceptGroups(value);
+    if (text === undefined) return null;
+    const L = this.layerCount;
+    if (L !== null && sameCounts(parseCounts(text, L), uniformCounts(L))) return null;
+    return text;
+  }
+
+  /**
+   * The active experiment's depth-layer count L (`lattice.z.n`), called by
+   * the page when it adopts an experiment. Null, or fewer than 13 layers,
+   * means no partition is possible. Nothing stored is rewritten: a link's
+   * partition that does not fit L is resolved as Uniform by layerGroups and
+   * kept, so returning to its own lattice restores it.
+   */
+  setLayerCount(L) {
+    this.layerCount = Number.isInteger(L) && L >= GROUP_COUNT ? L : null;
+    return this.layerCount;
+  }
+
+  /**
+   * The Longitudinal Channels in force: `{mode, counts, fallback, L}`.
+   *
+   * `counts` is the stored partition when it fits L, else Uniform(L);
+   * `fallback` is true exactly when a stored partition did not fit L, which
+   * the sidebar says. With L unknown, `counts` is the stored partition (or
+   * null) and nothing can fall back. `mode` is the stored mode, whatever the
+   * frame or page: a page that cannot pool draws boundaries and keeps it.
+   */
+  layerGroups() {
+    const mode = this.values.lgmode;
+    const stored = this.values.lgroups;
+    const L = this.layerCount;
+    if (L === null) {
+      return { mode, counts: stored === null ? null : parseCounts(stored), fallback: false, L: null };
+    }
+    const fits = stored === null ? null : parseCounts(stored, L);
+    return {
+      mode,
+      counts: fits ?? uniformCounts(L),
+      fallback: stored !== null && fits === null,
+      L,
+    };
   }
 
   /**
@@ -458,10 +560,18 @@ export class State {
    * Parameters of one projections request: the active frame's, or `frame`'s
    * - the compare-frames view asks for each frame in turn, each in the
    * display mode it keeps for itself.
+   *
+   * `layerPool` is the caller saying its panels pool depth (the Physics
+   * page's ensemble depth panels only). `depth_groups` is then sent when the
+   * stored mode is Pooled, the frame is not Local (which has no common layer
+   * grid, and the API refuses it there) and L is known. Every other request
+   * is unchanged and carries no `depth_groups` key at all.
    */
-  projectionParams(preview = false, frame = this.values.frame) {
+  projectionParams(preview = false, frame = this.values.frame, { layerPool = false } = {}) {
     const v = this.values;
     const lab = frame === 'lab';
+    const groups = layerPool && v.lgmode === 'pool' && frame !== 'local' && this.layerCount !== null
+      ? this.layerGroups().counts : null;
     return {
       ...this.filterParams(),
       ...apiFrame(frame),
@@ -481,6 +591,7 @@ export class State {
       // The anchor is a D-frame choice; the API refuses it elsewhere.
       anchor: frame === 'canonical' ? v.anchor : undefined,
       preview,
+      ...(groups ? { depth_groups: formatCounts(groups) } : {}),
     };
   }
 
