@@ -1232,3 +1232,38 @@ def test_the_exhibits_name_the_card_they_are_measured_against(theme_results):
     source = theme_results["exhibitsSource"]
     assert not source["readsTheme"]
     assert source["calls"] == ["legibleRamp(palette, CARD_HEX)", "legibleRamp(palette, CARD_HEX)"]
+
+
+GROUP_TOKENS = ("groupStripFillA", "groupStripFillB", "groupStripEdge", "groupStripText", "groupStripHot",
+                "groupSeam", "groupSpot")
+
+
+@pytest.mark.parametrize("theme", ["dark", "light", "print"])
+def test_the_seven_channel_tokens_exist_in_every_theme_and_clear_the_card(theme_results, theme):
+    tokens = theme_results["themes"][theme]
+    card = {"dark": "#1c2128", "light": "#ffffff", "print": "#ffffff"}[theme]
+    for key in GROUP_TOKENS:
+        assert key in tokens, (theme, key)
+    # marks stand alone on the card: 3:1; text sits on both fills: 4.5:1.
+    for key in ("groupStripEdge", "groupSeam", "groupSpot"):
+        assert contrast(rgb_of(tokens[key]), rgb_of(card)) >= 3.0, (theme, key)
+    for fill in ("groupStripFillA", "groupStripFillB", "groupStripHot"):
+        assert contrast(rgb_of(tokens["groupStripText"]), rgb_of(tokens[fill])) >= 4.5, (theme, fill)
+    for fill in ("groupStripFillA", "groupStripFillB"):
+        assert 1.05 <= contrast(rgb_of(tokens[fill]), rgb_of(card)) <= 1.5, (theme, fill)
+        assert contrast(rgb_of(tokens["groupStripHot"]), rgb_of(tokens[fill])) >= 1.2, (theme, fill)
+
+
+def test_the_channel_tokens_are_in_no_other_file_than_the_three_token_files():
+    from pathlib import Path
+    import re as _re
+
+    root = JS
+    owners = {"scale.js", "export/tokens.js"}
+    for path in root.rglob("*.js"):
+        if "vendor" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for key in GROUP_TOKENS:
+            for hit in _re.finditer(rf"^\s*{key}\s*:\s*'#", text, _re.MULTILINE):
+                assert str(path.relative_to(root)) in owners, (path, key)

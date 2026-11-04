@@ -893,3 +893,74 @@ def test_every_browser_page_names_its_colour_scheme():
     unnamed = [where for where, keywords, from_context in calls
                if not from_context and "color_scheme" not in keywords]
     assert not unnamed, f"name color_scheme= at {unnamed}"
+
+
+# ------------------------------------------------ Longitudinal Channels --
+
+
+def _group_block(html: str) -> str:
+    start = html.index('<div class="sidebar-group" id="group-lgroups" hidden>')
+    end = html.index('<div class="sidebar-group"', start + 10)
+    return html[start:end]
+
+
+def test_the_channels_group_sits_in_each_pages_sidebar_between_its_neighbours():
+    """Physics: after the resolution group, before the display channel. Models: after
+    the frame group, before the colour map. Once per page, inside the sidebar."""
+    for html, before, after in ((_html(), "group-resolution", "group-channel"),
+                                (_models_html(), "group-m-frame", "group-m-colormap")):
+        assert html.count('id="group-lgroups"') == 1
+        position = html.index('id="group-lgroups"')
+        assert html.index(f'id="{before}"') < position < html.index(f'id="{after}"')
+        assert html.index('<aside class="sidebar" id="sidebar">') < position < html.index("</aside>")
+        assert position < html.index('<main class="main">')
+
+
+def test_the_channels_group_is_the_same_markup_on_both_pages_and_starts_hidden():
+    physics, models = _group_block(_html()), _group_block(_models_html())
+    assert physics == models
+    for element_id in ("lgroups-heading", "info-lgroups", "ctl-lgroups-mode", "lgroups-bar", "lgroups-edit",
+                       "lgroups-summary", "lgroups-notice"):
+        assert physics.count(f'id="{element_id}"') == 1, element_id
+    assert 'id="group-lgroups" hidden' in physics
+    assert 'aria-controls="lgroups-modal"' in physics
+
+
+def test_the_channels_modal_is_present_exactly_once_per_page_outside_sidebar_and_main():
+    for html in (_html(), _models_html()):
+        assert html.count('id="lgroups-modal"') == 1
+        assert html.count('aria-labelledby="lgroups-title"') == 1
+        assert html.count('id="lgroups-title"') == 1
+        modal = html.index('id="lgroups-modal"')
+        assert modal > html.index("</main>")
+        assert modal > html.index("</aside>")
+        assert re.search(r'id="lgroups-modal" hidden>', html)
+        body = html[modal:html.index('id="lgroups-apply"', modal)]
+        for element_id in ("lgroups-ribbon", "lgroups-presets", "lgroups-shorthand", "lgroups-table", "lgroups-rows",
+                           "lgroups-live", "lgroups-reset", "lgroups-cancel"):
+            assert f'id="{element_id}"' in body, element_id
+    # No id the channel block or modal owns is declared twice on a page.
+    for html in (_html(), _models_html()):
+        ids = re.findall(r'id="(lgroups-[\w-]+|group-lgroups|ctl-lgroups-mode|info-lgroups)"', html)
+        assert len(ids) == len(set(ids)), sorted(i for i in set(ids) if ids.count(i) > 1)
+
+
+def test_the_channels_markup_and_styles_carry_no_colour_literal():
+    colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+    for html in (_html(), _models_html()):
+        group = _group_block(html)
+        modal = html[html.index('id="lgroups-modal"'):html.index('id="lgroups-apply"')]
+        for part in (group, modal):
+            assert not colour.search(part)
+            assert "style=" not in part
+    css = _strip_comments((STATIC / "css" / "controls.css").read_text(encoding="utf-8"))
+    section = css[css.index("#group-lgroups[hidden]"):]
+    assert not colour.search(section)
+    assert "transition" not in section and "animation" not in section
+
+
+def test_the_channels_modules_name_no_colour_literal():
+    colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+    for name in ("layer_groups.js", "panels/depth_groups.js", "controls/layer_groups_control.js"):
+        source = _strip_comments((JS / name).read_text(encoding="utf-8"))
+        assert not colour.search(re.sub(r"'[^'\n]*&#\d+;[^'\n]*'", "", source)), name
