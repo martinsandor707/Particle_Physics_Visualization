@@ -277,3 +277,33 @@ def test_the_chart_tokens_mirror_the_stylesheet_in_both_themes():
     for css, screen in ((_dark(), _screen_literal("SCREEN")), (_light(), _screen_literal("SCREEN_LIGHT"))):
         for token, key in CSS_TO_THEME.items():
             assert css[token].lower() == screen[key].lower(), (token, css[token], key, screen[key])
+
+
+# ------------------------------------------- Longitudinal Channels tokens --
+
+LG_TOKENS = ("--lg-fill-a", "--lg-fill-b", "--lg-edge", "--lg-handle", "--lg-handle-focus", "--lg-profile")
+
+
+def test_channel_editor_tokens_sit_in_both_theme_blocks_as_hex_and_are_all_pinned():
+    for tokens in (_dark(), _light()):
+        for key in LG_TOKENS:
+            assert re.fullmatch(r"#[0-9a-f]{6}", tokens[key]), key
+    assert {k for k in DARK if k.startswith("--lg-")} == set(LG_TOKENS)
+    assert {k for k in _dark() if k.startswith("--lg-")} == {k for k in _light() if k.startswith("--lg-")} == set(LG_TOKENS)
+
+
+def test_channel_editor_ribbon_fills_are_subtle_and_distinct_on_both_cards():
+    for tokens in (_dark(), _light()):
+        for fill in ("--lg-fill-a", "--lg-fill-b"):
+            assert contrast(tokens[fill], tokens["--card"]) <= 1.5, fill
+        assert contrast(tokens["--lg-fill-a"], tokens["--lg-fill-b"]) >= 1.05
+        # the editor's two grounds are the modal card and the page ground.
+        assert contrast(tokens["--text"], tokens["--lg-fill-a"]) >= 4.5
+
+
+def test_channel_editor_stylesheet_uses_only_its_tokens_for_colour():
+    css = _strip_comments(_read("controls.css"))
+    section = css[css.index("#group-lgroups[hidden]"):]
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(", section)
+    used = set(re.findall(r"var\((--lg-[\w-]+)\)", section))
+    assert used <= set(LG_TOKENS) and {"--lg-edge", "--lg-fill-a", "--lg-fill-b", "--lg-handle"} <= used
