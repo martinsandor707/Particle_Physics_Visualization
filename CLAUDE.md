@@ -228,6 +228,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
     - **Rejected:** bicubic, whose negative lobes produce negative density and overshoot the peak.
     - **Stated** means the kernel, its width and its gate travel in the payload and are printed on the panel's Details drawer.
     - **Uniform sources only:** the tent refuses a non-uniform source, so it can never be applied to the irregular lab lattice.
+    - **The Longitudinal Channels' pooled depth operator is this overlap** (`grid/layer_groups.py`): the destination bins' edges are the lattice's own stored cell edges, each layer cell lies wholly inside one channel, and a pooled bin is a width-weighted mean of whole layers. It therefore never exceeds the raw per-layer peak and conserves Σ value × width (§5).
 * **Staggered Transverse Lattice**:
   - One bin per cell removes empty bins on a *single* axis, but the XY plane is a product of two axes and the populated $(x, y)$ pairs are **not** the full product: adjacent x columns intersect different subsets of the y cells. Measured on the production file, adjacent native columns alternate between 46.2% and 42.3% occupancy (lag-1 autocorrelation of the detrended column profile: $-0.25$).
   - The resulting fine vertical comb is **detector segmentation, not shower structure**, and must never be presented without saying so. Area-weighted splatting to a coarser grid removes it (measured: $+0.05$ at $R = 150$, $+0.85$ at $R = 104$).
@@ -284,6 +285,11 @@ When working with calorimeter simulation datasets in this repository:
     - `core.SHIFT_Z = 3649` mm (`ddl.CORE_SHIFT_Z_MM`) is only a display offset. It applies where a card quotes depth below the front face, labelled `z − 3649 mm` there.
     - Volumes, densities and `centroid_z` stay raw.
     - In the per-shower frames, z = 0 is each shower's own first populated layer.
+    - **The Absolute depth axis is labelled Z = z − 3649** (Martin's directive, 2026-11-04).
+      - **Where:** the depth panels and the 3-D views of the Absolute frame, titled `Z = z − 3649 — depth [mm]`.
+      - **How:** round Z ticks over raw-z data, through ECharts' `customValues` (`scale.js` `spatialAxis`); the ensemble axis starts at Z = 0.
+      - **What stays raw:** every payload, overlay and computed number. The bin readout prints both, `Z = … mm (z = … mm)`.
+      - **The D-frame** keeps its own z′, zero at the first layer's centre (z′ = Z − 13.4 mm).
   - $X, Y$: Transverse coordinates perpendicular to beam entry.
   - $D$: Transverse separation distance between the entrance centroids of Shower A and Shower B at $Z = 0$.
 * **Synchronized 4-Grid Diagnostic Layout**:
@@ -296,7 +302,31 @@ When working with calorimeter simulation datasets in this repository:
   - Display channel radio toggle, five options: "Average Hit Density (Summed Energy)", "Grad-CAM Model Attention", "Energy-weighted Grad-CAM", "Shap-CAM Attribution", "Energy-weighted Shap-CAM".
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.
-  - **The Marks toggle** (`data-toggle-marks`, on the XY, YZ and XZ cards; `ProjectionPanel.setMarksShown`): one click hides every mark drawn over the raster (anchors, centroids, the ensemble and windowed axes with their wedges, the centre of deposited energy, trajectories, the D vector) so the shower core reads unobstructed; a second brings them back. It redraws from the payload in hand, with no request, in either theme. The raster, axes, colour bar and calorimeter faces stay. The choice stays with the card across selections, frames and themes but not across a reload, and never enters the view state or the hash. The export follows it, and the drawer says when the marks are hidden.
+  - **The Marks toggle** (`data-toggle-marks`, on the XY, YZ and XZ cards; `ProjectionPanel.setMarksShown`): one click hides every mark drawn over the raster (anchors, centroids, the ensemble and windowed axes with their wedges, the centre of deposited energy, trajectories, the D vector, the Longitudinal Channels' seams and spotlight) so the shower core reads unobstructed; a second brings them back. It redraws from the payload in hand, with no request, in either theme. The raster, axes, colour bar and calorimeter faces stay. The choice stays with the card across selections, frames and themes but not across a reload, and never enters the view state or the hash. The export follows it, and the drawer says when the marks are hidden.
+  - **Longitudinal Channels** (layer groups; Martin's directive and decisions, 2026-11-04).
+    - **Where it lives:** `grid/layer_groups.py`, `query/layer_profile.py`, `static/js/layer_groups.js`, `panels/depth_groups.js`, `controls/layer_groups_control.js`.
+    - **What.** Thirteen contiguous groups of the lattice's depth layers, numbered by lattice ordinal (60 on production, 56 on the demonstration file).
+      - A sidebar block on both pages: Off | Boundaries | Pooled (13 Ch).
+      - An editor modal: a ribbon with twelve handles that snap to seams, the coupled thirteen-row table, presets (Uniform, EM-Fine / Hadron-Coarse, Logarithmic Depth), shorthand.
+      - Code, API and hash say "layer groups", never "channel", which names the display channels.
+    - **Numbering per frame:**
+      - **Absolute and D-frame:** detector ordinals ("Ch m"). The D-frame's depth is one shift for every event.
+      - **Per-shower translated:** relative layers from each shower's first ("Rel Ch m"), with the reach (the showers whose detector depth holds the layer) in tooltips and drawers.
+      - **Local ensemble:** none. Each shower's layer planes tilt by its own (θ, φ), so it gets a badge, never lines.
+      - **One shower in Local:** the exact tilted planes w = s / cos θ + u tan θ on u–w only; on v–w a plane projects to a band and none is drawn.
+    - **Marks:**
+      - the strip sits in a band reserved above the plot, never over the raster;
+      - seams are 1 px dashed lines at the stored cell edges, never index × pitch;
+      - the hover spotlight is the channel's two faces, never a wash, linked across a card's depth panels;
+      - the Marks toggle hides the seams and the spotlight; the strip stays.
+    - **Pooled** (`/api/projections?depth_groups=`; Martin's decision: the Physics page's ensemble depth panels only, i.e. the 2 × 2 and the compare grid's Absolute and Translated rows).
+      - A server operator (§2 "Irregular Detector Lattices"): GeV per 20.5 mm layer in the Absolute frame, the mean density of the channel's layers in the co-registered frames.
+      - The scale and clipping are recomputed on the pooled raster; the comb is still measured on the raw raster.
+      - It is refused in Local. The Event Inspector, C7 and the Models page draw boundaries only.
+    - **State** (Martin's decision: in the link).
+      - `lgmode` (off | bounds | pool) and `lgroups` (thirteen counts, Uniform stored as null) are view state.
+      - A custom partition is remembered in `localStorage['calosrv.layerGroups.custom']` and offered, never applied silently.
+      - Boundaries changes, edits, drafts and theme switches send no request. Entering Pooled sends one per panel set.
   - **The header has two rows on all three pages** (`css/layout.css`; Martin's choice, 2026-10-30).
     - **The bar:** the sidebar toggle and the page's name, the page tabs at its exact centre, then the compute badge, the theme toggle and the page's action (Admin Settings, or Export on the Methodology page).
     - **The context row:** one pill centred under the tabs, so the page and the data share one centre line. It holds the experiment picker, or on the Methodology page the view its links open. The Physics page's Exact badge sits beside it, because it qualifies the data on screen.
