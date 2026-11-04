@@ -197,6 +197,24 @@ export const CONSTANTS = Object.freeze({
   CELL_X_MM: entry(48.27, 'text:calosrv/query/shower_frames.py:48.27 x 48.6 mm', 'Cell footprint along x.'),
   CELL_Y_MM: entry(48.6, 'text:calosrv/query/shower_frames.py:48.27 x 48.6 mm', 'Cell footprint along y.'),
 
+  /* ------------------------------------------- the Longitudinal Channels -- */
+  LG_GROUP_COUNT: entry(13, 'py:calosrv.grid.layer_groups:GROUP_COUNT',
+    'Longitudinal Channels: how many contiguous groups a partition of the depth layers has (the server’s count).'),
+  LG_GROUP_COUNT_CLIENT: entry(13, 'js:layer_groups.js:GROUP_COUNT',
+    'The same count in the client engine; the two must agree for a partition to travel in a link.'),
+  LG_UNIFORM_60: entry([5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4], 'py:calosrv.grid.layer_groups:list(uniform_counts(60))',
+    'The Uniform preset on the 60-layer production lattice: L = 13q + r gives r channels of q + 1, then q (8 × 5 + 5 × 4).'),
+  LG_UNIFORM_60_CLIENT: entry([5, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4], 'js:layer_groups.js:uniformCounts(60)',
+    'The client engine’s Uniform preset on 60 layers.'),
+  LG_EM_HADRON_60: entry([2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8], 'js:layer_groups.js:EM_HADRON_60',
+    'EM-Fine / Hadron-Coarse on 60 layers: narrow channels where an electromagnetic shower peaks, wide ones in the tail.'),
+  LG_LOG_60: entry([1, 1, 2, 2, 2, 3, 4, 4, 5, 6, 8, 10, 12], 'js:layer_groups.js:presetCounts("log", 60)',
+    'Logarithmic Depth on 60 layers: geometric widths r^(m−1), rounded by largest remainder.'),
+  LG_LOG_RATIO_60: entry(1.2305, 'js:layer_groups.js:Math.round(logRatio(60) * 1e4) / 1e4',
+    'The ratio r of the geometric widths of Logarithmic Depth on 60 layers (Σ r^(m−1) = 60 over 13 channels).'),
+  LG_SEAM_RAW_Z0_MM: entry(3652.15, 'text:calosrv/static/js/layer_groups.js:3652.15 + 20.5·b',
+    'Raw z of the first stored cell edge of the production lattice, half a pitch before the first layer’s centre; the seam after layer b is this plus b pitches there.'),
+
   /* --------------------------------------------------- the XGBoost cards -- */
   KFOLD_SPLITS: entry(5, 'py:calosrv.modelruns.analysis:KFOLD["n_splits"]', 'Folds of the cross-validation (E1).'),
   TEST_SIZE: entry(0.2, 'py:calosrv.modelruns.analysis:TEST_SIZE', 'Hold-out share of the training split.'),
