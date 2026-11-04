@@ -316,10 +316,15 @@ function requestCompareRow(kind) {
   return getJson('/api/projections', params, `compare-${kind}`);
 }
 
-/** The rows whose response in hand was asked under a pooling the state no longer wants. */
+/**
+ * The rows whose response in hand was *asked* under a pooling the state no
+ * longer wants. Compared with what was asked, never with the response's echo:
+ * a response that does not echo the pooling it was asked for would otherwise
+ * be asked again without end.
+ */
 function staleCompareRows(kinds) {
   return kinds.filter((kind) => comparePayloads[kind]
-    && (compareParams(kind).depth_groups ?? null) !== pooledWith(comparePayloads[kind]));
+    && (compareParams(kind).depth_groups ?? null) !== (compareRequested[kind] ?? null));
 }
 
 /** The 2 x 2 again for a new pooling: one projections request, the windowed axes kept. */
