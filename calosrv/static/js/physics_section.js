@@ -34,12 +34,20 @@
  * name (`profileNotes`, `responseNotes`, ...), read off the module at call
  * time; a builder that does not exist yet falls back to the payload's own
  * notes rather than to nothing.
+ *
+ * The longitudinal profile card draws the Longitudinal Channels the page
+ * draws (`getLayerGroups`): on the native-layer axis (kt) the relative
+ * channels' strip and seams, with the reach in their tooltips; on w the
+ * no-grid badge. The profile is never pooled - Pooled draws boundaries here -
+ * and a new mode, partition or live draft repaints the payload in hand
+ * (`repaintLayerGroups`), with no request. The radial card takes none.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import * as notesModule from './panel_notes.js';
 import { describeError, writeSparseNote } from './page_common.js';
+import { panelGroupSpec } from './layer_groups.js';
 
 /** Where each panel class lives; fetched on first use. */
 const PANEL_MODULES = {
@@ -428,14 +436,81 @@ export function cardRequest(id, { filters, controls = DEFAULT_CONTROLS, plan = n
   }
 }
 
+/** Millimetres per unit of the profile card's depth axis, which is drawn in cm. */
+const PROFILE_MM_PER_UNIT = 10;
+
+/** A cm edge as mm, rounded to a micrometre so the cm encoding leaves no binary residue. */
+const cmToMm = (cm) => Math.round(cm * PROFILE_MM_PER_UNIT * 1e6) / 1e6;
+
+/**
+ * The Longitudinal Channels the longitudinal profile card draws on its depth
+ * axis `axisKey`, or null. `layer` is `{mode, counts, L, highlight?,
+ * onHover?}` (the page's mode and partition; null for none).
+ *
+ * - **kt** (`depth=native`, `depth_layers.numbering` 'relative'): the
+ *   relative channels on the card's own bin edges - the stored edges of the
+ *   native-layer axis, in cm, read as mm with `mmPerUnit` 10 - first layer
+ *   from the axis's first edge, the partition over L, the reach from
+ *   `depth_layers.reach`. Group 13 runs to the end of the axis.
+ * - **w** (`numbering` 'none'): the badge spec, no lines.
+ * - The radial axis, mode Off, or a response without `depth_layers`: null.
+ *
+ * Pooled is never a pooled spec here (the response carries no groups):
+ * Pooled draws boundaries on this card. Pure.
+ */
+export function profileLayerSpec(payload, axisKey, layer = null) {
+  if (!layer || (axisKey !== 'kt' && axisKey !== 'w')) return null;
+  const block = payload?.depth_layers;
+  const ax = payload?.axes?.[axisKey];
+  if (!block || !ax) return null;
+  let depthLayers = null;
+  if (axisKey === 'w' && block.numbering === 'none') {
+    depthLayers = { numbering: 'none', symbol: ax.symbol ?? 'w' };
+  } else if (axisKey === 'kt' && block.numbering === 'relative' && Array.isArray(ax.edges_cm) && ax.edges_cm.length > 1) {
+    const edges = ax.edges_cm.map(cmToMm);
+    const pitch = ax.pitch_mm;
+    // The first bin's ordinal from its own edge: kt = 0 is centred on 0, so the
+    // first edge sits half a pitch below the first relative layer's centre.
+    const first = Number.isFinite(pitch) && pitch > 0 ? Math.round(edges[0] / pitch + 0.5) + 1 : 1;
+    depthLayers = {
+      numbering: 'relative',
+      edges_mm: edges,
+      first_layer: first >= 1 ? first : 1,
+      partition_layers: Number.isInteger(layer.L) ? layer.L : null,
+      symbol: ax.symbol ?? 'Δz',
+      display_offset_mm: null,
+      contiguous: true,
+      profile: null,
+      reach: block.reach ?? null,
+      groups: null,
+    };
+  }
+  if (!depthLayers) return null;
+  const n = payload?.ensemble?.n_events;
+  const spec = panelGroupSpec({
+    mode: layer.mode,
+    counts: layer.counts,
+    // The engine names a depth panel; the card is drawn as one along its depth.
+    panelId: 'xz',
+    depthLayers,
+    highlight: layer.highlight ?? null,
+    onHover: layer.onHover ?? null,
+    nEvents: Number.isInteger(n) ? n : null,
+  });
+  return spec ? { ...spec, panelId: 'profile-w', mmPerUnit: PROFILE_MM_PER_UNIT } : null;
+}
+
 /**
  * What a card's panel is rendered with. `axis` is the key of `payload.axes`
  * a profile card draws ('w' or 'kt' for the longitudinal card, 'r' for the
  * radial one); `card` is the card id; `mode` the ResponsePanel reading;
  * `shower` the A/B/Both filter of the payload in hand; `yScale` and
- * `quantity` the distribution card's. Pure.
+ * `quantity` the distribution card's; `layerGroups` the longitudinal card's
+ * channels, from `layer` (`profileLayerSpec`). Pure.
  */
-export function cardOptions(id, { controls = DEFAULT_CONTROLS, palette = 'viridis', plan = null, payload = null } = {}) {
+export function cardOptions(id, {
+  controls = DEFAULT_CONTROLS, palette = 'viridis', plan = null, payload = null, layer = null,
+} = {}) {
   const spec = SPEC[id];
   const c = reconcileControls(controls, plan);
   const opts = { palette, card: id };
@@ -443,6 +518,10 @@ export function cardOptions(id, { controls = DEFAULT_CONTROLS, palette = 'viridi
   if (spec.group === 'profile') {
     opts.axis = id === 'profile-r' ? 'r' : (payload?.depth === 'native' || payload?.axes?.kt ? 'kt' : 'w');
     opts.shower = c.profileShower;
+    if (id === 'profile-w' && layer) {
+      const spec = profileLayerSpec(payload, opts.axis, layer);
+      if (spec) opts.layerGroups = spec;
+    }
   } else if (spec.group === 'response') {
     opts.mode = spec.mode;
     opts.shower = { 'response-b1': c.b1Shower, 'response-b2': c.b2Shower, 'response-res': c.resShower }[id];
@@ -495,6 +574,8 @@ export function physicsNotes(id, payload, { state = null, experiment = null, opt
   const notes = builder({
     payload, state, experiment, title: heading, card: id,
     mode: opts.mode, axis: opts.axis, shower: opts.shower, yScale: opts.yScale, quantity: opts.quantity,
+    // The spec the card was drawn with (panel_notes.js reads it; null for none).
+    layerGroups: opts.layerGroups ?? null,
   });
   return notes ?? fallbackNotes(heading, payload);
 }
@@ -534,11 +615,12 @@ export class PhysicsSection {
    *   page can rebuild its notes; `onError(error, context)` for a load the
    *   observer started; `onOpenAdmin()` for a shut card's rebuild offer;
    *   `root` the scroll container; `panelClasses` overrides the panel
-   *   classes by name (tests).
+   *   classes by name (tests); `getLayerGroups()` the Longitudinal Channels
+   *   the page draws, `{mode, counts, L}`, or null for none.
    */
   constructor(section, {
     state, getExperiment = () => null, onRendered = () => {}, onError = () => {},
-    onOpenAdmin = null, root = null, panelClasses = null,
+    onOpenAdmin = null, root = null, panelClasses = null, getLayerGroups = () => null,
   } = {}) {
     this.section = section;
     this.state = state;
@@ -547,6 +629,7 @@ export class PhysicsSection {
     this.onError = onError;
     this.onOpenAdmin = onOpenAdmin;
     this.panelClasses = panelClasses;
+    this.getLayerGroups = getLayerGroups;
     this.plan = null;
     this.controls = { ...DEFAULT_CONTROLS };
     this.cards = new Map();
@@ -926,6 +1009,7 @@ export class PhysicsSection {
   draw(record, panel, payload) {
     record.opts = cardOptions(record.spec.id, {
       controls: this.controls, palette: this.state.get('palette'), plan: this.plan, payload,
+      layer: this.getLayerGroups(),
     });
     panel.render(payload, record.opts);
     // The response grid's fitted μ and σ and its key counts, from the panel.
@@ -943,6 +1027,16 @@ export class PhysicsSection {
   /** Every drawn card again, with the current palette; no request. */
   repaint() {
     for (const record of this.cards.values()) this.paint(record);
+  }
+
+  /**
+   * The longitudinal profile card again, with the Longitudinal Channels the
+   * page now draws (a mode, a partition, a live draft): the payload in hand,
+   * no request. The other cards draw no channels and are left alone.
+   */
+  repaintLayerGroups() {
+    const record = this.cards.get('profile-w');
+    if (record) this.paint(record);
   }
 
   /** Re-lay every created chart out at its container's size. */

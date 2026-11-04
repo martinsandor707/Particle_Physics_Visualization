@@ -35,12 +35,26 @@
  *
  * x is in cm, as the notebook and the "% per cm" y unit are; the readout adds
  * millimetres. On the w axis the shower's entry point w = 0 is a dashed rule.
+ *
+ * ## The Longitudinal Channels (`opts.layerGroups`)
+ *
+ * On the native-layer axis (kt) the card draws the relative channels as the
+ * depth panels do (panels/depth_groups.js, with `mmPerUnit` 10 for the cm
+ * axis): the strip in a band reserved above the plot, never over a mark, the
+ * dashed seams at the axis's own bin edges, and the hovered channel's two
+ * faces spotlit. Their tooltips carry the reach from the server's
+ * `depth_layers.reach`. On w, where every shower's layers tilt by its own
+ * (θ, φ), there is no common layer grid: a muted badge in the same band says
+ * so and nothing is drawn over the plot. The profile itself is never pooled:
+ * Pooled draws boundaries here. The radial card takes none of it.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, formatPercent } from '../scale.js';
 import { legendRows } from '../textfit.js';
 import { customBand, customPolyline, customLine, customWhiskers, binHoverSeries } from './marks.js';
 import { tooltipOption } from './tooltip.js';
+import { layerGroupSeries, localBadge, stripReserve, STRIP_ID, SPOT_ID } from './depth_groups.js';
+import { withHighlight, groupOfLayer, groupLabel, intText, percentText } from '../layer_groups.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, caretSeries,
   clampInterval, showerColour, withColour, legibleOpacity, chartLegend, EDGE_DASH,
@@ -140,6 +154,18 @@ export function profileColours(payload) {
   return { colour: THEME.accent, pooledColour: THEME.text };
 }
 
+/**
+ * The layer-group spec a card draws on axis `key`, or null: a strip-bearing
+ * spec on kt, the no-grid badge on w, nothing on ρ.
+ */
+export function profileGroupSpec(opts, key) {
+  const spec = opts?.layerGroups ?? null;
+  if (!spec) return null;
+  if (key === 'kt' && spec.numbering === 'relative' && Array.isArray(spec.groups)) return spec;
+  if (key === 'w' && spec.numbering === 'none' && spec.badge) return spec;
+  return null;
+}
+
 /** The low-N label the server gives the ensemble, written on the plot. */
 export function ensembleLabel(payload) {
   const e = payload?.ensemble ?? {};
@@ -172,6 +198,7 @@ export function profileOption(payload, opts = {}, metrics = {}) {
   }
 
   const marks = drawnMarks(payload);
+  const groups = profileGroupSpec(opts, key);
   const edges = ax.edges_cm;
   const n = Math.max(0, edges.length - 1);
   const centres = Array.from({ length: n }, (_, i) => 0.5 * (edges[i] + edges[i + 1]));
@@ -316,6 +343,11 @@ export function profileOption(payload, opts = {}, metrics = {}) {
     }));
   }
 
+  /* ---- the Longitudinal Channels: strip above the plot, seams, spotlight -- */
+  if (groups) {
+    series.push(...layerGroupSeries({ spec: groups, col: null, row: { lo: yLo, hi: yHi }, marks: true }));
+  }
+
   /* ---- the readout: every number of the bin under the pointer ------------ */
   series.push(binHoverSeries({
     name: 'bin readout',
@@ -324,14 +356,16 @@ export function profileOption(payload, opts = {}, metrics = {}) {
     // N and notes, often 150-230 px tall. Like every explanation it leaves the
     // hovered chart (the chart-level placement, tooltip.js), so it never covers
     // the plot it explains; only a short readout stays beside the pointer.
-    tooltip: (i) => profileReadout(payload, key, i),
+    tooltip: (i) => profileReadout(payload, key, i, groups),
   }));
 
   /* ---- axes, legend, the low-N label -------------------------------------- */
   const wraps = THEME.legendWrap;
   const plotWidthPx = Math.max(80, width - pad.left - pad.right);
   const rows = wraps ? Math.max(1, legendRows(legend, plotWidthPx, THEME.fontLabel, { fontFamily: THEME.fontFamily })) : 1;
-  const top = pad.top + rows * 1.6 * THEME.fontLabel;
+  // The channels' strip (or the w badge) takes a band of its own between the
+  // legend and the plot, so it never covers a mark.
+  const top = pad.top + rows * 1.6 * THEME.fontLabel + stripReserve(groups);
   const plotHeightPx = Math.max(60, height - top - pad.bottom);
   const provisional = Boolean(y.provisional);
   const weak = ensembleLabel(payload);
@@ -347,6 +381,8 @@ export function profileOption(payload, opts = {}, metrics = {}) {
     top: top + 4,
     style: { text: weak, fill: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, fontStyle: 'italic' },
   }] : [];
+  const badge = groups ? localBadge(groups, { left: pad.left, top, width: plotWidthPx }) : null;
+  if (badge) graphic.push(badge);
 
   return {
     ...option,
@@ -372,12 +408,35 @@ function binText(ax, edges, i) {
   return `${escapeHtml(ax.symbol)} ${num(a, 3)} – ${num(b, 3)} cm (${num(a * MM_PER_CM, 1)} – ${num(b * MM_PER_CM, 1)} mm)`;
 }
 
-/** The per-bin readout: every mark's value at bin i, each named. */
-export function profileReadout(payload, key, i) {
+/**
+ * The readout's channel line on the kt axis: the bin's relative layer, its
+ * channel and how many showers reach the layer (`depth_layers.reach`). ''
+ * without a spec or for a bin outside the partition.
+ */
+function channelLine(payload, groups, i) {
+  if (!groups || !Array.isArray(groups.counts)) return '';
+  const layer = (groups.axis?.firstLayer ?? 1) + i;
+  const g = groupOfLayer(groups.counts, layer)
+    ?? groups.groups.find((x) => x.extended && layer >= x.first)?.group ?? null;
+  if (!g) return '';
+  let text = `rel. layer ${intText(layer)} · ${groupLabel('relative', g)}`;
+  const reach = payload?.depth_layers?.reach;
+  const reached = reach?.counts?.[layer - 1];
+  if (Number.isFinite(reached) && Number.isFinite(reach.n_showers)) {
+    text += ` · reached by ${intText(reached)} of ${intText(reach.n_showers)} showers`
+      + ` (${percentText(reach.n_showers > 0 ? reached / reach.n_showers : null)})`;
+  }
+  return text;
+}
+
+/** The per-bin readout: every mark's value at bin i, each named; with `groups`, its channel and reach. */
+export function profileReadout(payload, key, i, groups = null) {
   const ax = payload.axes[key];
   const marks = drawnMarks(payload);
   const unit = escapeHtml(ax.value_unit ?? '% per cm');
   const lines = [`<b>${binText(ax, ax.edges_cm, i)}</b>`];
+  const channel = key === 'kt' ? channelLine(payload, groups, i) : '';
+  if (channel) lines.push(mutedLine(channel));
   lines.push(`Per-shower mean: ${num(ax.mean[i])} ${unit}`);
   if (ax.band && marks.band?.drawn) {
     lines.push(`SD band (sample dispersion): ${span(ax.band.lo[i], ax.band.hi[i])} ${unit}`
@@ -430,5 +489,60 @@ export class ProfilePanel extends ChartPanel {
 
   buildOption({ payload, opts = {}, metrics }) {
     return { option: profileOption(payload, { axis: this.axis, ...opts }, metrics) };
+  }
+
+  /**
+   * Create the chart, and attach the channel strip's hover once: hovering a
+   * segment spotlights its channel (the spec's `onHover`, else this card's
+   * own), leaving the strip or the chart clears it.
+   */
+  ensureChart() {
+    const fresh = !this.chart;
+    const chart = super.ensureChart();
+    if (fresh && chart && typeof chart.on === 'function') {
+      const hover = (group) => {
+        const spec = this.lastOpts?.layerGroups;
+        if (!spec) return;
+        if (typeof spec.onHover === 'function') spec.onHover(group);
+        else this.setGroupHighlight(group);
+      };
+      chart.on('mouseover', (params) => {
+        if (params?.seriesId !== STRIP_ID) return;
+        const group = Array.isArray(params.value) ? params.value[2] : null;
+        if (Number.isInteger(group)) hover(group);
+      });
+      chart.on('mouseout', (params) => {
+        if (params?.seriesId === STRIP_ID) hover(null);
+      });
+      chart.on('globalout', () => {
+        if (this.lastOpts?.layerGroups?.highlight) hover(null);
+      });
+    }
+    return chart;
+  }
+
+  /** Draw a new layer-group spec (or none) from the payload in hand: no request. */
+  setLayerGroups(spec) {
+    if (!this.lastPayload) return;
+    this.lastOpts = { ...(this.lastOpts || {}), layerGroups: spec ?? null };
+    this.paint();
+  }
+
+  /**
+   * Spotlight one channel (or none): only the strip and the spotlight series
+   * are patched, in place, so the hovered segment survives the update.
+   */
+  setGroupHighlight(group) {
+    const spec = this.lastOpts?.layerGroups;
+    const next = Number.isInteger(group) ? group : null;
+    if (!spec || (spec.highlight ?? null) === next) return;
+    this.lastOpts = { ...this.lastOpts, layerGroups: withHighlight(spec, next) };
+    if (!this.chart || !this.lastPayload) return;
+    const { width, height } = this.size();
+    if (!width || !height) return;
+    const opts = { ...this.lastOpts, tooltipPosition: this.tooltipPosition, readoutPosition: this.readoutPosition };
+    const { option } = this.buildOption({ payload: this.lastPayload, opts, metrics: { width, height } });
+    const patched = (option.series ?? []).filter((s) => s.id === STRIP_ID || s.id === SPOT_ID);
+    if (patched.length) this.chart.setOption({ series: patched });
   }
 }
