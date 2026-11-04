@@ -367,7 +367,7 @@ console.log(JSON.stringify(n.sections.find((s) => s.heading === 'What is drawn')
                          capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
     text = " ".join(json.loads(run.stdout))
-    assert "carrying the mean density of the channel's layers" in text
+    assert "carrying the mean density of the channel's layers, weighted by each layer's thickness" in text
     assert "GeV, the sum scaled" not in text
 
 
@@ -410,7 +410,8 @@ def test_the_local_ensemble_draws_no_lines_and_says_why(out):
     assert "no common layer grid along w, so no strip, no seams and no pooling" in drawn
     local = _fixture("projections_single_local")["depth_layers"]
     assert local["note"] in _text(out["local"], "Disclosures")
-    assert "Layers tilt by each shower’s (θ, φ): no common layer grid" in _text(out["local"], "Marks and legend")
+    # The badge leads with its conclusion (review UI-5), and the drawer quotes it whole.
+    assert "No common layer grid: layers tilt with each shower’s (θ, φ)" in _text(out["local"], "Marks and legend")
     assert "dashed 1 px" not in _text(out["local"])
 
 

@@ -1018,7 +1018,8 @@ async function loadProjections(preview = false, { windowAxes = true } = {}) {
   const resolution = payload.meta.resolution;
   // The co-registered frames ship the comb once, in frame.comb (review R-4).
   const stagger = payload.meta.stagger ?? payload.frame?.comb ?? {};
-  setText('display-caption', displayCaption(kind, resolution, coregistered ? payload.frame : null));
+  // The depth block says whether the depth panels beside the caption are pooled (review LG-G3).
+  setText('display-caption', displayCaption(kind, resolution, coregistered ? payload.frame : null, payload.depth_layers ?? null));
   setText('channel-caption', currentChannelCaption(payload));
 
   const slabTag = `${payload.slab.layers} layers · ${payload.slab.mm.toFixed(0)} mm`;

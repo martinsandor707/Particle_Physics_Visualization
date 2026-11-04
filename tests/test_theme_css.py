@@ -55,7 +55,7 @@ DARK = {
     "--lg-fill-b": "#1c2128",
     "--lg-edge": "#8b949e",
     "--lg-handle": "#e6edf3",
-    "--lg-handle-focus": "#f2cc60",
+    "--lg-handle-focus": "#ffe7a3",
     "--lg-profile": "#4493f8",
 }
 NON_COLOUR = {"--radius", "--gap", "--sidebar-width", "--inspector-width", "--mono", "--sans"}
@@ -320,7 +320,8 @@ def _composite(fg: str, bg: str, alpha: float) -> str:
 
 def test_the_editor_profile_clears_its_contrast_as_drawn_on_both_themes():
     """UI-9: measured as drawn, at the canvas's opacity: the profile 3:1 against both ribbon
-    fills, and the handle 3:1 against the profile over either fill."""
+    fills, and the handle - resting, and focused or dragged - 3:1 against the profile over
+    either fill, so a keyboard user's focus never vanishes into a profile bar."""
     css = _strip_comments(_read("controls.css"))
     rule = _block(css, "canvas.lg-profile {")
     alpha = float(re.search(r"opacity:\s*([\d.]+)\s*;", rule).group(1))
@@ -328,7 +329,9 @@ def test_the_editor_profile_clears_its_contrast_as_drawn_on_both_themes():
         for fill in ("--lg-fill-a", "--lg-fill-b"):
             drawn = _composite(tokens["--lg-profile"], tokens[fill], alpha)
             assert contrast(drawn, tokens[fill]) >= 3.0, (fill, drawn)
-            assert contrast(tokens["--lg-handle"], drawn) >= 3.0, (fill, drawn)
+            for ink in ("--lg-handle", "--lg-handle-focus"):
+                assert contrast(tokens[ink], drawn) >= 3.0, (ink, fill, drawn)
+                assert contrast(tokens[ink], tokens[fill]) >= 3.0, (ink, fill)
 
 
 def test_the_tokens_comments_quote_the_profile_as_drawn():
