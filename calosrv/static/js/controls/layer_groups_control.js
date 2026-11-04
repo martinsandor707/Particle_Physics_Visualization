@@ -145,20 +145,33 @@ export function depthText(context, boundary) {
   return at === null || !symbol ? null : `${symbol} = ${formatMm(at)} mm`;
 }
 
+/** The last layer the context's depth axis holds (its edges from `firstLayer`), or null without edges. */
+export function axisLastLayer(context) {
+  const edges = context?.edgesMm;
+  if (!Array.isArray(edges) || edges.length < 2) return null;
+  return (context.firstLayer ?? 1) - 1 + edges.length - 1;
+}
+
 /**
  * The table's 13 rows: the group's layers, which of its fields are locked,
  * the range each editable field accepts, and its thickness from the stored
- * edges (null without them, never a count times a pitch).
+ * edges (null without them, never a count times a pitch). The last group
+ * runs to the end of the depth axis, as the strip draws it: on an axis
+ * longer than the partition (per-shower translated on a gapped lattice) its
+ * thickness is taken to the axis's last edge, and `axisLast` names that
+ * layer (null where the axis ends at the partition's last layer).
  */
 export function tableRows(counts, L, context = null) {
   const b = countsToBoundaries(counts);
   const numbering = context?.numbering ?? 'detector';
+  const axisLast = axisLastLayer(context);
   return groupRanges(counts).map(({ group, first, last, n }) => {
     const lo = depthAt(context, first - 1);
-    const hi = depthAt(context, last);
+    const extended = group === GROUP_COUNT && axisLast !== null && axisLast > last;
+    const hi = depthAt(context, extended ? axisLast : last);
     const thickness = lo === null || hi === null ? null : hi - lo;
     return {
-      group, first, last, n,
+      group, first, last, n, axisLast: extended ? axisLast : null,
       label: channelLabel(numbering, group),
       alt: group % 2 === 0,
       startLocked: group === 1,
@@ -309,6 +322,8 @@ export function depthNote(context, L, { frame = 'lab' } = {}) {
   const heights = profileHeights(context?.profile, L, context?.firstLayer ?? 1);
   if (heights) {
     parts.push(`The faint background is the selection’s energy per layer, relative to its peak layer${context.profile.exact === false ? ', from the preview sample' : ''}.`);
+  } else if (context?.trimmed) {
+    parts.push('No background is drawn: the response in hand left its per-layer energies out to stay within its size contract.');
   }
   return parts.join(' ');
 }
@@ -337,6 +352,7 @@ export function depthContextFromPayload(block) {
     profile,
     firstLayer: Number.isInteger(block.first_layer) ? block.first_layer : 1,
     contiguous: typeof block.contiguous === 'boolean' ? block.contiguous : null,
+    trimmed: block.trimmed === true,
   };
 }
 
@@ -591,11 +607,12 @@ class LayerGroupControl {
   }
 
   setDepthContext({ numbering = null, edgesMm = null, displayOffsetMm = null, symbol = null, profile = null,
-    firstLayer = 1, contiguous = null } = {}) {
+    firstLayer = 1, contiguous = null, trimmed = false } = {}) {
     this.context = {
       numbering, edgesMm: Array.isArray(edgesMm) ? edgesMm : null,
       displayOffsetMm: Number.isFinite(displayOffsetMm) ? displayOffsetMm : null,
       symbol, profile, firstLayer: Number.isInteger(firstLayer) ? firstLayer : 1, contiguous,
+      trimmed: trimmed === true,
     };
     this.sync();
     if (this.shell?.isOpen) this.renderModal();
@@ -628,8 +645,7 @@ class LayerGroupControl {
     const resolved = this.state.layerGroups();
     this.draft = (isValidCounts(resolved.counts, this.L) ? resolved.counts : uniformCounts(this.L)).slice();
     if (this.builtFor !== this.L) this.build();
-    if (this.el.shorthandError) this.el.shorthandError.hidden = true;
-    this.el.shorthand?.removeAttribute('aria-invalid');
+    this.clearShorthandError();
     if (this.el.presetCustom) this.el.presetCustom.hidden = !readLastCustom(viewerStorage(), this.L);
     if (this.el.live) this.el.live.textContent = '';
     this.renderModal();
@@ -657,8 +673,7 @@ class LayerGroupControl {
     if (!isValidCounts(counts, this.L)) return;
     this.draft = counts.slice();
     // A draft from a preset, the table or a handle replaces what the shorthand last refused.
-    if (this.el.shorthandError) this.el.shorthandError.hidden = true;
-    this.el.shorthand?.removeAttribute('aria-invalid');
+    this.clearShorthandError();
     this.renderModal();
     this.onDraft?.(this.draft.slice());
   }
@@ -676,18 +691,34 @@ class LayerGroupControl {
     const result = parseShorthand(input.value, this.L);
     const error = this.el.shorthandError;
     if (result.error) {
+      const message = typographic(result.error);
+      // role=alert speaks a changed text only: the same refusal again is spoken through the live region.
+      const repeated = Boolean(error) && !error.hidden && error.textContent === message;
       if (error) {
-        error.textContent = typographic(result.error);
+        error.textContent = message;
         error.hidden = false;
       }
       input.setAttribute('aria-invalid', 'true');
+      if (repeated) this.announce(`Shorthand not used: ${result.error}`);
       return;
     }
-    if (error) error.hidden = true;
-    input.removeAttribute('aria-invalid');
+    this.clearShorthandError();
     this.setDraft(result.counts);
     input.value = formatRanges(this.draft);
     this.announce(`Shorthand used: layers ${formatRanges(this.draft)}.`);
+  }
+
+  /**
+   * Hide the shorthand's refusal and empty it: the field is described by it
+   * (aria-describedby), so a stale reason must not outlive the refusal.
+   */
+  clearShorthandError() {
+    const error = this.el.shorthandError;
+    if (error) {
+      error.hidden = true;
+      error.textContent = '';
+    }
+    this.el.shorthand?.removeAttribute('aria-invalid');
   }
 
   announce(text) {
@@ -814,7 +845,10 @@ class LayerGroupControl {
       fields.mm.textContent = row.thicknessText;
       fields.mm.title = row.thicknessMm === null
         ? 'Depth thickness appears once a panel payload carries the layer edges.'
-        : 'From the stored cell edges of this frame’s depth axis.';
+        : (row.axisLast !== null
+          ? `From the stored cell edges of this frame’s depth axis: ${row.label} runs to the axis’s end at layer `
+            + `${row.axisLast}, past the partition’s layer ${row.last}, as the strip draws it.`
+          : 'From the stored cell edges of this frame’s depth axis.');
     });
 
     const preset = matchPreset(draft, L);
@@ -962,7 +996,9 @@ class LayerGroupControl {
     const seam = field === 'start' ? group - 1 : group;
     const numbering = this.contextForLabels().numbering;
     if (!raw || !Number.isInteger(requested)) {
-      input.value = '';
+      // The focused field is skipped by renderModal, so it takes the kept value back here.
+      const kept = groupRanges(this.draft)[group - 1];
+      input.value = String(field === 'start' ? kept.first : kept.last);
       this.renderModal();
       this.emphasise(input);
       this.announce(`${channelLabel(numbering, group)} ${field}: enter a whole layer number; it was kept.`);

@@ -573,7 +573,8 @@ export function voxelProjectionNotes({
   const boundaries = own && own.numbering !== 'none' && panelId !== 'xy'
     ? 'Longitudinal Channels on this projection are boundaries only (strip and seams): the Models page never pools the '
       + 'depth axis, so the raster and its colour scale are the whole volume\'s. They share the panel with the slice '
-      + 'bracket, whose two face lines mark the drawn slice.'
+      + 'bracket, whose two face lines mark the drawn slice and carry short inward ticks at their ends; a hovered '
+      + 'channel\'s two faces, drawn in the same ink, have none.'
     : null;
   return withLines(notes, SECTION.drawn, [...pairing, boundaries]);
 }

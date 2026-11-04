@@ -370,10 +370,10 @@ const LATER_FIXTURES = ['selection_cells_'];
  * responses (2026-11-04) carry the server's existing scale shapes on other selections - of the 407
  * cases the walks derived from them, 34 were new hashes - so they are exercised through their panels'
  * own cases instead (the Longitudinal Channels section), and the walks stay the record of distinct
- * scale shapes. Matched by prefix; each of the five is named, so none is skipped by accident. */
+ * scale shapes. Matched by exact name, so a later fixture that shares a prefix is still walked. */
 const WALK_SKIPPED = ['event_raster_base', 'projections_base_canonical', 'projections_base_lab_pooled',
   'projections_base_trans', 'projections_base_trans_pooled'];
-const walked = (file) => !WALK_SKIPPED.some((prefix) => file.startsWith(prefix));
+const walked = (file) => !WALK_SKIPPED.includes(file.replace(/\.json$/, ''));
 // Every distinct scale block the recorded payloads carry.
 {
   const found = {};

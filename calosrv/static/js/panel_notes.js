@@ -420,9 +420,12 @@ export function layerGroupLines({ spec, depthLayers = null, layerPlanes = null, 
 
   // Disclosures.
   const profile = depthLayers?.profile ?? null;
+  // A block the 100 KB guard trimmed (`trimmed`, `trim_note`) carries no per-layer arrays: its note says so.
+  const block = depthLayers ?? layerPlanes;
+  const trimmed = block?.trimmed === true;
   if (!tilted && spec.strip) {
     if (event) {
-      out.disclosures.push('Strip shares are of this shower\'s energy on the depth axis, exact per-layer sums.');
+      if (!trimmed) out.disclosures.push('Strip shares are of this shower\'s energy on the depth axis, exact per-layer sums.');
     } else if (profile) {
       const n = Number.isInteger(spec.nEvents) ? ` over N = ${intText(spec.nEvents)} events` : '';
       const outside = profile.outside_gev > 0
@@ -446,6 +449,7 @@ export function layerGroupLines({ spec, depthLayers = null, layerPlanes = null, 
       + `Relative layer ${intText(r.counts.length)} is reached by ${intText(last.reached)} of ${intText(last.of)} `
       + `(${percentText(last.share)}); each channel's tooltip quotes its own reach.`);
   }
+  if (trimmed && typeof block.trim_note === 'string' && block.trim_note) out.disclosures.push(block.trim_note);
   if (event && Number.isFinite(axis.reachLayers)) {
     out.disclosures.push(`This shower's detector ends after relative layer ${intText(axis.reachLayers)}; a channel `
       + 'beyond it is named so in its tooltip.');
@@ -471,13 +475,32 @@ export function layerGroupLines({ spec, depthLayers = null, layerPlanes = null, 
         + '. On v–w the same plane spans a band, tan θ times the shower\'s u extent wide, not a line, so nothing is drawn there.');
     }
   }
-  const draft = spec.mode === 'pool' && !spec.pooled && !tilted;
+  // Only the Physics page's ensemble depth panels pool: an event row or the C7 card handed
+  // Pooled draws the applied boundaries, never a draft awaiting Apply.
+  const pools = !event && spec.panelId !== 'profile-w';
+  const draft = spec.mode === 'pool' && !spec.pooled && !tilted && pools;
+  if (spec.mode === 'pool' && !pools && !tilted) {
+    out.disclosures.push('Pooled re-bins the Physics page\'s ensemble depth panels; this panel draws the boundaries.');
+  }
   if (draft) {
     const have = depthLayers?.groups?.pooled
       ? `the raster in hand is pooled by ${depthLayers.groups.counts.join('.')}`
       : 'the raster in hand is not pooled';
     out.disclosures.push(`Pooled is selected but ${have}: the strip and seams show the live draft's boundaries over that `
       + 'picture until Apply, which sends one request and re-bins the depth axis.');
+  }
+
+  // The marks over the raster are inked for the card (UI-8): say so, and what always carries the channels.
+  if (tilted) {
+    if (spec.lines.length) {
+      out.disclosures.push('The plane lines are drawn in the card\'s own mark ink, whose contrast is measured against '
+        + 'the card, not the raster: where they cross the shower\'s dense bins they can fade.');
+    }
+  } else if (spec.panelId !== 'profile-w') {
+    const marks = spec.pooled ? 'The spotlight\'s faces are' : 'Seams and the spotlight\'s faces are';
+    out.disclosures.push(`${marks} drawn in the card's own mark inks, whose contrast is measured against the card, not `
+      + 'the raster: where they cross the shower\'s dense bins they can fade, while the strip above the plot always '
+      + 'carries the channels.');
   }
 
   // Marks and legend.
