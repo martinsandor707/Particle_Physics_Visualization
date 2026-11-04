@@ -107,7 +107,7 @@ from ..grid import frame as frame_mod
 from ..grid.frame import KIND_CANONICAL, KIND_LOCAL, KIND_TRANS
 from ..stats import shape
 from ..text import typographic
-from . import capabilities, density, frame_sql, shower_frames
+from . import capabilities, density, frame_sql, layer_profile, shower_frames
 from . import showers as showers_mod
 from .filters import FilterSpec
 
@@ -856,6 +856,13 @@ def inspect(
     total = float(rows.energy.sum())
 
     lab_panels, lab_extent = _lab_panels(rows, record, windows["lab"])
+    # The detector layer planes in each frame, for any partition into layer
+    # groups the client draws (``query/layer_profile.py``): every cell counts.
+    planes = {
+        kind: layer_profile.layer_planes(kind, record, iz=rows.iz, kt=rows.kt, energy=rows.energy,
+                                         p0_z=float(p0[2]), theta=theta, phi=phi)
+        for kind in FRAMES
+    }
 
     def build(pitch: float, notes: list[str]) -> dict[str, Any]:
         trans_panels, trans_extent = _trans_panels(trans_xyz, rows.energy, fp, pitch_z, windows[KIND_TRANS], pitch,
@@ -920,6 +927,7 @@ def inspect(
                     if kind == KIND_TRANS else
                     {"regime": "subdeposit3d", "pitch_mm": pitch, "k": k, "k_z": k_z}
                 ),
+                "layer_planes": planes[kind],
             }
         return {
             "frames": frames,

@@ -1436,6 +1436,11 @@
   "'A+B' cells are counted with shower B, as in every per-shower split.",
   "The y range follows the two lines only; band and interval parts beyond it are clipped at the axis with an out-of-range marker, and tooltips carry the true values. w: 3 SD-band bin(s) above the range, 33 SD-band bin(s) below zero; ρ: 2 SD-band bin(s) above the range, 1 envelope bin(s) above the range, 45 SD-band bin(s) below zero."
  ],
+ "depth_layers": {
+  "numbering": "none",
+  "reach": null,
+  "note": "Depth w runs along each shower's own incident direction, so the detector layers are tilted by its (θ, φ) and spaced p / cos θ along w: the selected showers share no common layer grid on this axis, and no layer group is drawn on it."
+ },
  "filter": {
   "e1": [
    2.0321333408355713,

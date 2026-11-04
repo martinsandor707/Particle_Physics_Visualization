@@ -37,6 +37,7 @@ from ..encode import matrix as matrix_encode
 from ..encode import quantize, topk
 from ..encode import scale as scale_mod
 from ..grid import splat
+from ..grid.layer_groups import PooledAxis
 from ..grid.resolution import MODE_NATIVE, ResolutionPlan
 from . import centroids
 from . import planes as planes_mod
@@ -67,22 +68,42 @@ def _plan_shape(plan: ResolutionPlan, panel: str) -> tuple[int, int]:
     }[panel]
 
 
-def _operators(bundle: NativeBundle, panel_name: str, plan: ResolutionPlan):
+def _operators(bundle: NativeBundle, panel_name: str, plan: ResolutionPlan,
+               depth_pool: PooledAxis | None = None):
+    """Row and column operators of one panel.
+
+    ``depth_pool`` replaces the depth (column) axis of YZ and XZ - which is
+    otherwise always the native layers, passed through - with the layer-group
+    operator (``grid/layer_groups.py``): the group's sum in GeV per layer
+    pitch, at the lattice's own stored edges. XY has no depth axis.
+    """
     lattice = bundle.lattice
     row_axis_name, col_axis_name = _PANEL_AXES[panel_name]
     native = plan.mode == MODE_NATIVE
     n_rows, n_cols = _plan_shape(plan, panel_name)
     row_edges_src = lattice.axis(row_axis_name).edges
     col_edges_src = lattice.axis(col_axis_name).edges
+    pooled = depth_pool if (depth_pool is not None and col_axis_name == "z") else None
     return {
         "row_axis": row_axis_name,
         "col_axis": col_axis_name,
         "native": native,
         "row_op": splat.build_axis_operator(row_edges_src, n_rows, native),
-        "col_op": splat.build_axis_operator(col_edges_src, n_cols, native),
+        "col_op": pooled.op if pooled is not None else splat.build_axis_operator(
+            col_edges_src, n_cols, native),
         "row_edges": splat.destination_edges(row_edges_src, n_rows, native),
-        "col_edges": splat.destination_edges(col_edges_src, n_cols, native),
+        "col_edges": pooled.dst_edges if pooled is not None else splat.destination_edges(
+            col_edges_src, n_cols, native),
+        "pooled": pooled,
     }
+
+
+def _energy_total(matrix: np.ndarray, pooled: PooledAxis | None) -> float:
+    """The energy a rendered extensive panel holds: its sum, or on pooled depth Σ value · ΔZ_m / p."""
+    values = np.asarray(matrix, dtype=np.float64)
+    if pooled is None:
+        return float(values.sum())
+    return float((values * pooled.energy_weights()[None, :]).sum())
 
 
 def _sum_planes(panel: Panel, names: tuple[str, ...]) -> np.ndarray:
@@ -102,15 +123,17 @@ def render_panel(
     lock_scale: bool = True,
     scale_mode: str = scale_mod.MODE_DECADES,
     ref: float | None = None,
+    depth_pool: PooledAxis | None = None,
 ) -> tuple[dict[str, Any], np.ndarray]:
     """Resample and encode one panel. Returns ``(payload, resampled_matrix)``.
 
     ``ref`` is the peak an energy-weighted CAM channel is shown against; it
     defaults to this panel's own resampled peak (``render_all`` passes the
-    shared depth-panel peak).
+    shared depth-panel peak). ``depth_pool`` pools a depth panel's layers
+    into the layer groups (:func:`_operators`).
     """
     panel: Panel = bundle.panel(panel_name)
-    ops = _operators(bundle, panel_name, plan)
+    ops = _operators(bundle, panel_name, plan, depth_pool)
     view = planes_mod.view(channel, weighting)
     encode_kwargs: dict[str, Any] = {}
 
@@ -149,7 +172,8 @@ def render_panel(
         if view.kind == KIND_SIGNED:
             scale = scale_mod.signed_log_scale(
                 ratio, populated, peak, "GeV", channel,
-                positive_total=float(parts[0].sum()), negative_total=float(parts[1].sum()),
+                positive_total=_energy_total(parts[0], ops["pooled"]),
+                negative_total=_energy_total(parts[1], ops["pooled"]),
                 split_code=quantize.SPLIT_CODE, decades=CAM_ENERGY_DECADES,
             )
         else:
@@ -170,8 +194,8 @@ def render_panel(
             panel=panel_name, native=ops["native"], **encode_kwargs,
         )
         # `total` keeps a physical meaning: the panel's sum of E x CAM, which
-        # every resampling conserves (signed for Shap-CAM).
-        payload["total"] = float(resampled.sum())
+        # every resampling conserves (signed for Shap-CAM), the pooled depth too.
+        payload["total"] = _energy_total(resampled, ops["pooled"])
         payload["topk_unit"] = "GeV"
         return payload, resampled
 
@@ -186,6 +210,9 @@ def render_panel(
         native=ops["native"],
         top_significant=topk.SIGNIFICANT,
     )
+    if channel == CHANNEL_DENSITY and ops["pooled"] is not None:
+        # GeV per layer pitch does not sum to the energy; the panel's total does.
+        payload["total"] = _energy_total(resampled, ops["pooled"])
     return payload, resampled
 
 
@@ -197,12 +224,17 @@ def _peak(matrix: np.ndarray, kind: str) -> float:
     return float(np.abs(finite).max() if kind == KIND_SIGNED else finite.max())
 
 
-def cam_energy_peaks(bundle: NativeBundle, plan: ResolutionPlan, channel: str) -> dict[str, float]:
-    """The peaks the energy-weighted CAM panels are shown against: XY, and YZ + XZ shared."""
+def cam_energy_peaks(bundle: NativeBundle, plan: ResolutionPlan, channel: str,
+                     depth_pool: PooledAxis | None = None) -> dict[str, float]:
+    """The peaks the energy-weighted CAM panels are shown against: XY, and YZ + XZ shared.
+
+    Measured on the rasters as displayed, so a pooled depth panel is shown
+    against its own pooled peak.
+    """
     view = planes_mod.view(channel)
     peaks = {}
     for name in ("xy", "yz", "xz"):
-        ops = _operators(bundle, name, plan)
+        ops = _operators(bundle, name, plan, depth_pool)
         panel = bundle.panel(name)
         value = _sum_planes(panel, view.numerator)
         peaks[name] = _peak(splat.resample(value, ops["row_op"], ops["col_op"]), view.kind)
@@ -278,6 +310,7 @@ def render_all(
     global_vmax: float | None = None,
     lock_scale: bool = True,
     scale_mode: str = scale_mod.MODE_DECADES,
+    depth_pool: PooledAxis | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Render all three panels.
 
@@ -286,12 +319,19 @@ def render_all(
     normalises to its own maximum. The XY panel keeps its own scale because it
     is restricted to the entrance slab and therefore holds far less energy;
     forcing it onto the depth panels' ramp would render it almost black.
+
+    ``depth_pool`` pools the depth axis of YZ and XZ into the layer groups at
+    render time; the bundle stays the native one the cache holds. The scale,
+    its percentile range and its clipping counts are then measured on the
+    pooled rasters, and the shared depth peak is theirs; the dataset's
+    per-cell peak (``global_vmax``) stays a valid bound, since a group bin is
+    a weighted mean of its layers.
     """
     panels: dict[str, dict[str, Any]] = {}
     view = planes_mod.view(channel, weighting)
     refs = {"xy": None, "yz": None, "xz": None}
     if view.kind in (KIND_EXTENSIVE, KIND_SIGNED) and channel != CHANNEL_DENSITY:
-        peaks = cam_energy_peaks(bundle, plan, channel)
+        peaks = cam_energy_peaks(bundle, plan, channel, depth_pool)
         refs = {"xy": peaks["xy"], "yz": peaks["depth"], "xz": peaks["depth"]}
 
     xy_payload, _ = render_panel(
@@ -304,7 +344,7 @@ def render_all(
     for name in ("yz", "xz"):
         payload, resampled = render_panel(
             bundle, name, plan, channel, weighting, global_vmax, lock_scale, scale_mode,
-            ref=refs[name],
+            ref=refs[name], depth_pool=depth_pool,
         )
         panels[name] = payload
         depth_matrices[name] = resampled
@@ -325,25 +365,20 @@ def render_all(
                     global_vmax=shared_max,
                     lock=True,
                 )
-                lattice = bundle.lattice
-                row_name, col_name = _PANEL_AXES[name]
-                native = plan.mode == MODE_NATIVE
-                n_rows, n_cols = _plan_shape(plan, name)
+                ops = _operators(bundle, name, plan, depth_pool)
                 panels[name] = matrix_encode.encode_matrix(
                     resampled,
                     scale,
-                    row_edges=splat.destination_edges(
-                        lattice.axis(row_name).edges, n_rows, native
-                    ),
-                    col_edges=splat.destination_edges(
-                        lattice.axis(col_name).edges, n_cols, native
-                    ),
-                    row_axis=row_name,
-                    col_axis=col_name,
+                    row_edges=ops["row_edges"],
+                    col_edges=ops["col_edges"],
+                    row_axis=ops["row_axis"],
+                    col_axis=ops["col_axis"],
                     panel=name,
-                    native=native,
+                    native=ops["native"],
                     top_significant=topk.SIGNIFICANT,
                 )
+                if ops["pooled"] is not None:
+                    panels[name]["total"] = _energy_total(resampled, ops["pooled"])
                 panels[name]["scale"]["shared_with"] = "yz+xz"
 
     return panels

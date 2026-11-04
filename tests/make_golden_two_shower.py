@@ -88,6 +88,8 @@ DELIBERATE = (
     "frame.coordinates.note, which the client restores in the frame dot. The lab frame keeps "
     "meta.stagger. /api/event keeps whole top-k values (its 3-D ramp quotes the brightest "
     "cube's value as its top), so /api/event, /api/window-axis and /api/event/pick are unchanged.",
+    "layer-groups, 2026-11-04: /api/projections carries depth_layers; /api/event carries "
+    "frames.<kind>.layer_planes; nothing else moves.",
 )
 
 #: The demonstration file holds two events (E1 2.71 and 17.88 GeV).

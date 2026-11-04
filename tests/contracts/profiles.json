@@ -13,7 +13,8 @@
   "notebook_scale",
   "notes",
   "filter",
-  "convention"
+  "convention",
+  "depth_layers"
  ],
  "properties": {
   "meta": {
@@ -641,6 +642,63 @@
     },
     "dropped_energy_fraction": {
      "type": "number"
+    }
+   }
+  },
+  "depth_layers": {
+   "type": "object",
+   "required": [
+    "numbering",
+    "reach",
+    "note"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "numbering": {
+     "enum": [
+      "relative",
+      "none"
+     ]
+    },
+    "reach": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "object",
+       "required": [
+        "n_showers",
+        "counts",
+        "n_without_start",
+        "l_phys",
+        "note"
+       ],
+       "properties": {
+        "n_showers": {
+         "type": "integer"
+        },
+        "counts": {
+         "type": "array",
+         "items": {
+          "type": "integer"
+         }
+        },
+        "n_without_start": {
+         "type": "integer"
+        },
+        "l_phys": {
+         "type": "integer"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    },
+    "note": {
+     "type": "string"
     }
    }
   }

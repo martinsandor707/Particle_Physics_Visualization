@@ -73,6 +73,7 @@ from ..encode import topk
 from ..grid import frame as frame_mod
 from ..grid import kernel as kernel_mod
 from ..grid.kernel import Kernel
+from ..grid.layer_groups import PooledAxis
 from ..grid.resolution import DEFAULT_RESOLUTION, MIN_RESOLUTION, MODE_CONTINUOUS, MODE_NATIVE
 from . import reconstruct
 from . import planes as planes_mod
@@ -133,52 +134,72 @@ def _bin_area(row_edges: np.ndarray, col_edges: np.ndarray) -> np.ndarray:
     return np.outer(np.diff(row_edges), np.diff(col_edges))
 
 
-def density_planes(bundle: CanonicalBundle) -> dict[str, np.ndarray]:
-    """``<rho>`` on the accumulation grid for each panel, before any crop."""
-    n = max(1, bundle.n_events)
+def _raw_plane(bundle: CanonicalBundle, name: str, plane: np.ndarray,
+               depth_pool: PooledAxis | None) -> tuple[np.ndarray, np.ndarray]:
+    """One panel's raw accumulation plane and its bin areas, the depth pooled when asked."""
     grid = bundle.grid
-    z_edges = grid.axis("z").edges
-    return {
-        "xy": bundle.xy.planes["e"] / (n * _bin_area(grid.y_edges, grid.x_edges)),
-        "yz": bundle.yz.planes["e"] / (n * _bin_area(grid.y_edges, z_edges)),
-        "xz": bundle.xz.planes["e"] / (n * _bin_area(grid.x_edges, z_edges)),
-    }
+    row_name, col_name = _PANEL_AXES[name]
+    row_edges = grid.y_edges if row_name == "y" else grid.x_edges
+    if col_name == "z":
+        if depth_pool is not None:
+            return (np.asarray(plane, dtype=np.float64) @ depth_pool.op.T,
+                    _bin_area(row_edges, depth_pool.dst_edges))
+        return plane, _bin_area(row_edges, grid.axis("z").edges)
+    return plane, _bin_area(row_edges, grid.x_edges)
 
 
-def raw_panel_peaks(bundle: CanonicalBundle) -> dict[str, float]:
-    """Peak ``<rho>`` of each panel's own raw accumulation grid."""
-    rho = density_planes(bundle)
+def density_planes(bundle: CanonicalBundle,
+                   depth_pool: PooledAxis | None = None) -> dict[str, np.ndarray]:
+    """``<rho>`` on the accumulation grid for each panel, before any crop.
+
+    ``depth_pool`` pools the depth panels' layers into the layer groups
+    first: each group bin then holds the width-weighted mean of its layers'
+    densities, the raw grid of what a pooled response displays.
+    """
+    n = max(1, bundle.n_events)
+    out = {}
+    for name in _PANELS:
+        energy, area = _raw_plane(bundle, name, bundle.panel(name).planes["e"], depth_pool)
+        out[name] = energy / (n * area)
+    return out
+
+
+def raw_panel_peaks(bundle: CanonicalBundle,
+                    depth_pool: PooledAxis | None = None) -> dict[str, float]:
+    """Peak ``<rho>`` of each panel's own raw accumulation grid (depth pooled when asked)."""
+    rho = density_planes(bundle, depth_pool)
     return {name: float(rho[name].max()) if rho[name].size else 0.0 for name in _PANELS}
 
 
-def cam_energy_peaks(bundle: CanonicalBundle, channel: str) -> dict[str, float]:
+def cam_energy_peaks(bundle: CanonicalBundle, channel: str,
+                     depth_pool: PooledAxis | None = None) -> dict[str, float]:
     """Raw-grid peak of an energy-weighted CAM density: XY, and YZ + XZ shared.
 
     ``sum(E * CAM) / (N * dA)`` per bin, before any crop or reconstruction, so
     - exactly as for density - the peak bounds every displayed bin (the
     kernels are weighted means). Signed channels take the peak magnitude.
+    ``depth_pool`` measures it on the pooled raw grid.
     """
     view = planes_mod.view(channel)
     n = max(1, bundle.n_events)
-    grid = bundle.grid
-    z_edges = grid.axis("z").edges
-    areas = {
-        "xy": _bin_area(grid.y_edges, grid.x_edges),
-        "yz": _bin_area(grid.y_edges, z_edges),
-        "xz": _bin_area(grid.x_edges, z_edges),
-    }
     peaks = {}
     for name in _PANELS:
         plane = bundle.panel(name).planes
-        value = sum(plane[p] for p in view.numerator) / (n * areas[name])
+        summed, area = _raw_plane(bundle, name, sum(plane[p] for p in view.numerator), depth_pool)
+        value = summed / (n * area)
         peaks[name] = float(np.abs(value).max() if view.kind == KIND_SIGNED else value.max()) \
             if value.size else 0.0
     return {"xy": peaks["xy"], "depth": max(peaks["yz"], peaks["xz"])}
 
 
-def selection_peaks(bundle: CanonicalBundle) -> dict[str, float]:
-    """Peak ``<rho>`` on the accumulation grid: one for XY, one shared by YZ + XZ."""
-    peaks = raw_panel_peaks(bundle)
+def selection_peaks(bundle: CanonicalBundle,
+                    depth_pool: PooledAxis | None = None) -> dict[str, float]:
+    """Peak ``<rho>`` on the accumulation grid: one for XY, one shared by YZ + XZ.
+
+    With ``depth_pool`` the depth peak is the pooled raw grid's: the selection
+    reference is the displayed raster's own peak, before transverse smoothing.
+    """
+    peaks = raw_panel_peaks(bundle, depth_pool)
     return {"xy": peaks["xy"], "depth": max(peaks["yz"], peaks["xz"])}
 
 
@@ -232,6 +253,7 @@ def plan_canonical(
     depth_warning: str | None = None,
     axes: tuple[str, str] = reconstruct.RECONSTRUCTED_AXES,
     depth_clause: str | None = None,
+    n_depth: int | None = None,
 ) -> CanonicalPlan:
     """Bin counts and kernel per panel.
 
@@ -245,8 +267,10 @@ def plan_canonical(
     is the R the caller asked for, when the guard renders a lower one;
     ``depth_warning`` replaces the native-layer sentence for a frame whose
     depth axis is not the detector's layers (the local frame's w bins).
+    ``n_depth`` is the number of depth bins drawn when the layers are pooled
+    into layer groups (``grid/layer_groups.py``); the native layers otherwise.
     """
-    n_z = grid.n_z
+    n_z = grid.n_z if n_depth is None else int(n_depth)
     requested = int(resolution if requested is None else requested)
     if mode == MODE_NATIVE:
         m = max(1, int(merge))
@@ -293,7 +317,7 @@ def plan_canonical(
 
     warnings = [
         depth_warning or (
-            f"Depth is locked to the {n_z} native sampling layers; there is no "
+            f"Depth is locked to the {grid.n_z} native sampling layers; there is no "
             "measurement between layers to interpolate."
         ),
         reconstruct.kernel_sentence(
@@ -333,9 +357,14 @@ class RenderedPanel:
 
 
 def axis_maps(
-    bundle: CanonicalBundle, fit: PanelFit, plan: CanonicalPlan, name: str
+    bundle: CanonicalBundle, fit: PanelFit, plan: CanonicalPlan, name: str,
+    depth_pool: PooledAxis | None = None,
 ) -> tuple[reconstruct.AxisMap, reconstruct.AxisMap]:
-    """Row and column maps of one panel under ``plan``; depth always passes through."""
+    """Row and column maps of one panel under ``plan``.
+
+    Depth passes through, or with ``depth_pool`` is pooled into the layer
+    groups by their exact overlap operator; it is never smoothed either way.
+    """
     grid = bundle.grid
     row_name, col_name = _PANEL_AXES[name]
     row_src = grid.axis(row_name).edges
@@ -348,7 +377,11 @@ def axis_maps(
         return reconstruct.continuous_axis(src, axis, n_dst, plan.kernel, grid.pitch)
 
     row_map = transverse(row_src, fit.row, n_rows)
-    col_map = reconstruct.passthrough(col_src) if col_name == "z" else transverse(col_src, fit.col, n_cols)
+    if col_name == "z":
+        col_map = reconstruct.passthrough(col_src) if depth_pool is None else reconstruct.AxisMap(
+            depth_pool.op, depth_pool.dst_edges, depth_pool.src_slice)
+    else:
+        col_map = transverse(col_src, fit.col, n_cols)
     return row_map, col_map
 
 
@@ -409,15 +442,17 @@ def render_panel(
     rho_norm: str,
     decades: float = frame_mod.RAMP_DECADES,
     symbols: dict[str, str] | None = None,
+    depth_pool: PooledAxis | None = None,
 ) -> RenderedPanel:
     """One panel: crop to its window, reconstruct, normalise, encode.
 
     For an energy-weighted CAM channel ``rho_ref`` is that channel's own
     raw-grid peak (:func:`cam_energy_peaks`), not the density's.
+    ``depth_pool`` pools a depth panel's layers into the layer groups.
     """
     panel = bundle.panel(name)
     row_name, col_name = _PANEL_AXES[name]
-    row_map, col_map = axis_maps(bundle, fit, plan, name)
+    row_map, col_map = axis_maps(bundle, fit, plan, name, depth_pool)
     native = plan.mode == MODE_NATIVE
 
     energy = reconstruct.apply(panel.planes["e"], row_map, col_map)
@@ -594,6 +629,7 @@ def render_canonical(
     kernel: Kernel | None = None,
     start: tuple[int, int] | None = None,
     symbols: dict[str, str] | None = None,
+    depth_pool: PooledAxis | None = None,
 ) -> dict[str, Any]:
     """Render all three panels within the payload budget.
 
@@ -611,13 +647,20 @@ def render_canonical(
     whether it ``fits`` the limit, and ``next``, the state the guard would
     step to from there (``None`` once no step changes anything); it is
     bookkeeping for the caller and is not part of the response.
+
+    ``depth_pool`` pools the depth axis of the two depth panels into the layer
+    groups at render time (``grid/layer_groups.py``), from the native bundle
+    the cache holds. The selection's reference is then the pooled raw grid's
+    peak, the scale and the floor counts are the pooled rasters', and a
+    dataset reference stays the per-layer peak, which bounds the pooled
+    values too.
     """
     if limit is None:
         limit = PAYLOAD_LIMIT
     if kernel is None:
         kernel = reconstruct.choose_kernel(mode, bundle.n_events)
-    raw_peaks = raw_panel_peaks(bundle)
-    peaks = selection_peaks(bundle)
+    raw_peaks = raw_panel_peaks(bundle, depth_pool)
+    peaks = selection_peaks(bundle, depth_pool)
     if rho_norm == NORM_DATASET and reference:
         ref = {"xy": float(reference.get("xy") or peaks["xy"]),
                "depth": float(reference.get("depth") or peaks["depth"])}
@@ -632,7 +675,7 @@ def render_canonical(
     if view.is_cam and view.kind != KIND_RATIO:
         # Energy-weighted CAM: relative to the selection's own raw-grid peak of
         # the same quantity. A dataset reference exists for density only.
-        cam_ref = cam_energy_peaks(bundle, channel)
+        cam_ref = cam_energy_peaks(bundle, channel, depth_pool)
         ref_of = {"xy": cam_ref["xy"], "yz": cam_ref["depth"], "xz": cam_ref["depth"]}
     cell = max(bundle.footprint) if bundle.footprint else None
 
@@ -644,7 +687,8 @@ def render_canonical(
         plan = plan_canonical(fit, bundle.grid, mode, r, merge, kernel, cell, requested=requested,
                               depth_warning=getattr(bundle, "depth_warning", None),
                               axes=((symbols or SYMBOLS)["x"], (symbols or SYMBOLS)["y"]),
-                              depth_clause=getattr(bundle, "depth_clause", None))
+                              depth_clause=getattr(bundle, "depth_clause", None),
+                              n_depth=None if depth_pool is None else depth_pool.n_dst)
         continuous = plan.mode == MODE_CONTINUOUS
         # The step this attempt would take if it is over, or None when no step
         # changes anything any more: R at its minimum, or every transverse axis
@@ -667,7 +711,7 @@ def render_canonical(
             for name in _PANELS:
                 rendered = render_panel(
                     bundle, fit.panel(name), plan, name, channel, weighting, ref_of[name], rho_norm,
-                    symbols=symbols,
+                    symbols=symbols, depth_pool=depth_pool,
                 )
                 panels[name] = rendered.payload
             for name in ("yz", "xz"):
