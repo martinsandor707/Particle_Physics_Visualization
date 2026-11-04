@@ -45,6 +45,7 @@ import { formatInt, formatNumber, setScreenTheme } from './scale.js';
 import { initTheme } from './theme.js';
 import { setText, setHidden, setVal, missingIds } from './dom.js';
 import { notesText, warningsNotShown } from './panel_notes.js';
+import { mountLayerGroupControl, depthContextFromPayload } from './controls/layer_groups_control.js';
 
 /* The light or dark theme, first: the chart tokens must be the page's before
  * any card builds an option. A later switch redraws the cards and the 3-D
@@ -132,6 +133,10 @@ async function mountVoxels() {
         buildNotes(id);
         updateStatus(payload);
       },
+      // The Longitudinal Channels: the partition being edited, and the depth
+      // block of the payload in hand for the control's ribbon.
+      draftCounts: () => draftCounts,
+      onDepthContext: (block) => lgControl.setDepthContext(depthContextFromPayload(block) ?? {}),
       // The section's own lazy loader over the page's scroll container: in
       // view means in view (decision D3), as for every other card.
       lazy: new LazyCards({
@@ -145,6 +150,87 @@ async function mountVoxels() {
     return null;
   }
 }
+
+/* ------------------------------------------------- Longitudinal Channels */
+
+/* The partition being edited in the modal (`onDraft`), drawn in place of the
+ * State's while live; null otherwise. */
+let draftCounts = null;
+
+/* The control, mounted once. This page draws boundaries only (the control
+ * disables Pooled here with its reason) and never sends `depth_groups`: the
+ * depth projections are repainted from the payloads in hand. */
+const lgControl = mountLayerGroupControl({
+  state,
+  page: 'models',
+  onDraft: (counts) => {
+    draftCounts = counts;
+    voxels?.setLayerGroups?.();
+  },
+});
+
+/* The control's own writes (mode, partition) reach the page here; a
+ * change repaints the paired depth projections with no request. The frame is
+ * followed by the control itself. */
+state.subscribe((values, patch) => {
+  if ('lgmode' in patch || 'lgroups' in patch) voxels?.setLayerGroups?.();
+});
+
+/** What the control is told about an experiment: its layer count and whether the 3-D cards' projections exist. */
+function syncLayerControl() {
+  const offer = plan.voxels;
+  const available = Boolean(plan.sections.voxels && (offer?.event?.enabled || offer?.ensemble?.enabled));
+  const reason = plan.sections.voxels
+    ? (offer?.event?.reason ?? offer?.ensemble?.reason ?? 'The 3-D views are not available for this experiment.')
+    : 'This experiment has no hits to draw depth projections from.';
+  lgControl.setExperiment({ nLayers: activeExperiment?.lattice?.z?.n ?? null });
+  lgControl.setFrame(effectiveFrame());
+  lgControl.setAvailable(available, reason);
+}
+
+/* The control's info dot (`#info-lgroups`, `data-notices`) opens a popover,
+ * the minimal equivalent of the Physics page's: this page has no other info
+ * dots. Built with text nodes, so a notice is never parsed as markup. */
+let activePopover = null;
+
+function hidePopover() {
+  activePopover?.remove();
+  activePopover = null;
+}
+
+function showPopover(anchor, texts) {
+  hidePopover();
+  if (!texts.length) return;
+  const node = document.createElement('div');
+  node.className = 'popover';
+  if (texts.length === 1) {
+    node.textContent = texts[0];
+  } else {
+    const list = document.createElement('ul');
+    for (const text of texts) {
+      const item = document.createElement('li');
+      item.textContent = text;
+      list.append(item);
+    }
+    node.append(list);
+  }
+  document.body.appendChild(node);
+  const box = anchor.getBoundingClientRect();
+  node.style.top = `${Math.min(window.innerHeight - node.offsetHeight - 8, box.bottom + 6)}px`;
+  node.style.left = `${Math.min(window.innerWidth - node.offsetWidth - 8, box.left)}px`;
+  activePopover = node;
+}
+
+const lgInfoDot = document.getElementById('info-lgroups');
+lgInfoDot?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (activePopover) { hidePopover(); return; }
+  showPopover(lgInfoDot, JSON.parse(lgInfoDot.dataset.notices || '[]'));
+});
+document.addEventListener('click', hidePopover);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hidePopover();
+});
 
 /* ------------------------------------------------------------- the drawer */
 
@@ -276,6 +362,7 @@ function syncFrameControl() {
     frameGroup.setChoices(frameChoices(current), shown);
   }
   frameGroup.setDisabled(plan.frames.disabled);
+  lgControl.setFrame(shown);
   setHidden('group-m-frame', plan.frames.offered.length === 0);
   const lines = [];
   if (current !== shown) {
@@ -338,6 +425,7 @@ function applyPagePlan(notices = []) {
   setText('stat-kind', plan.kindLabel);
   syncModelControl();
   syncFrameControl();
+  syncLayerControl();
 }
 
 /* --------------------------------------------------------- orchestration */
@@ -498,7 +586,7 @@ const MODELS_REQUIRED_IDS = [
   'xgb-notice', 'xgb-notice-text', 'networks-notice', 'networks-notice-text',
   'stat-events', 'stat-kind', 'stat-latency', 'experiment-select', 'badge-memory', 'badge-threads',
   'perf-grid', 'resolution-grid', 'xgb-grid', 'xgb-grid-title', 'features-grid', 'primaries-grid', 'voxels-grid',
-  'group-m-model', 'm-model', 'm-model-caption', 'group-m-frame', 'm-frame', 'm-frame-caption', 'm-colormap',
+  'group-lgroups', 'info-lgroups', 'lgroups-notice', 'group-m-model', 'm-model', 'm-model-caption', 'group-m-frame', 'm-frame', 'm-frame-caption', 'm-colormap',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi', 'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi', 'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d',
   'opt-undefined-d', 'ctl-e1', 'ctl-e2', 'ctl-d', 'page-tabs',
