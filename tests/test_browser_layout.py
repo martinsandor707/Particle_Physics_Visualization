@@ -368,3 +368,59 @@ def test_exports_are_the_plot_alone(live_server):
         energy = open(_download(page, "energy", "SVG — single column"), encoding="utf-8").read()
         assert "figure-disclosure" not in energy and "μ [GeV]" not in energy and "Estimator" not in energy
         browser.close()
+
+
+# --------------------------------------------- the Longitudinal Channels --
+
+#: The sidebar's Longitudinal Channels group against the sidebar and the page: every box of the group
+#: inside the sidebar's content width, and no horizontal overflow of the page or the sidebar.
+_LG_LAYOUT = """() => {
+  const doc = document.documentElement;
+  const sidebar = document.getElementById('sidebar');
+  const group = document.getElementById('group-lgroups');
+  const s = sidebar.getBoundingClientRect();
+  const inside = [...group.querySelectorAll('*')].filter((el) => el.getClientRects().length > 0).map((el) => {
+    const b = el.getBoundingClientRect();
+    return { id: el.id || el.className || el.tagName, left: b.left, right: b.right, width: b.width };
+  }).filter((b) => b.width > 0 && (b.left < s.left - 0.5 || b.right > s.right + 0.5));
+  return {
+    theme: doc.dataset.theme ?? null,
+    shown: !group.hidden && group.offsetParent !== null,
+    segments: group.querySelectorAll('.lg-bar-seg').length,
+    bar: document.getElementById('lgroups-bar').getBoundingClientRect().width,
+    page: [doc.scrollWidth, doc.clientWidth],
+    sidebar: [sidebar.scrollWidth, sidebar.clientWidth],
+    group: [group.scrollWidth, group.clientWidth],
+    outside: inside,
+  };
+}"""
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("viewport", [(1024, 768), (1600, 900)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize("path", ["/", "/models"], ids=["physics", "models"])
+def test_the_longitudinal_channels_group_fits_the_sidebar(live_server, path, viewport, theme):
+    """Brief 8.1 item 9: with the new group shown (Boundaries, the summary and the notice on the Models
+    page), neither the page nor the sidebar overflows horizontally at 1024 and 1600 px, in either theme
+    (switched through the header toggle)."""
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
+        page.goto(f"{live_server['base']}{path}#lgmode=bounds")
+        page.wait_for_function(
+            "() => !document.getElementById('group-lgroups').hidden "
+            "&& document.querySelectorAll('#lgroups-bar .lg-bar-seg').length === 13", timeout=30_000)
+        page.wait_for_timeout(600)
+        if theme == "light":
+            page.click("#theme-toggle")
+            page.wait_for_function("() => document.documentElement.dataset.theme === 'light'", timeout=10_000)
+            page.wait_for_timeout(300)
+        page.locator("#group-lgroups").scroll_into_view_if_needed()
+        state = page.evaluate(_LG_LAYOUT)
+        browser.close()
+    assert state["theme"] == theme and state["shown"] and state["segments"] == 13, state
+    assert state["bar"] > 100, state
+    assert state["page"][0] <= state["page"][1], f"the page overflows horizontally: {state}"
+    assert state["sidebar"][0] <= state["sidebar"][1], f"the sidebar overflows horizontally: {state}"
+    assert state["group"][0] <= state["group"][1], f"the group overflows: {state}"
+    assert state["outside"] == [], state["outside"]
