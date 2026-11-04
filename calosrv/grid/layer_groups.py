@@ -278,8 +278,8 @@ def pooled_operator(
 def physical_layers(z_lo: float, z_hi: float, pitch_mm: float) -> int:
     """``L_phys``: the detector's layer slots from the first to the last lattice layer.
 
-    ``round((hi - lo) / p) + 1``: 60 on production, and 60 on the
-    demonstration lattice too, which populates 56 of them.
+    ``round((hi - lo) / p) + 1``: 60 on production; 58 on the demonstration
+    lattice, whose 56 populated layers run from 3662.4 to 4830.9 mm.
     """
     if not pitch_mm or pitch_mm <= 0:
         return 0
