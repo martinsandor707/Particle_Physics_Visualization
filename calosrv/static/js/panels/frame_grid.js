@@ -20,12 +20,19 @@
  * Every panel is isometric - the notebook keeps `set_aspect('equal')` on all
  * nine, so a tilt reads at its true angle - and the caller may re-decide a
  * depth panel's aspect exactly as the ensemble grid does.
+ *
+ * A row's two depth panels (X-Z and Y-Z) share their Longitudinal Channels:
+ * hovering a channel on either spotlights it on both (`highlightRow`), and a
+ * new partition or mode is drawn from the payloads in hand
+ * (`setRowLayerGroups`), with no request.
  */
 
 import { ProjectionPanel } from './projection.js';
 
 export const GRID_ROWS = ['lab', 'trans', 'local'];
 export const GRID_COLS = ['xy', 'xz', 'yz'];
+/** The columns whose panels have a depth axis, and so Longitudinal Channels. */
+export const DEPTH_COLS = ['xz', 'yz'];
 
 const EXPORT_TITLE = 'Export this panel\'s plot as a publication figure (white background, 300 DPI, '
   + 'plot area only — see Details for its disclosures)';
@@ -141,6 +148,42 @@ export class FrameGrid {
 
   panelById(id) {
     return this.panels?.[id] ?? null;
+  }
+
+  /** A row's depth panels, by column, for those created. */
+  depthPanels(row) {
+    const out = {};
+    for (const col of DEPTH_COLS) {
+      const panel = this.panel(row, col);
+      if (panel) out[col] = panel;
+    }
+    return out;
+  }
+
+  /**
+   * Spotlight one Longitudinal Channel (1..13), or none, on a row's two depth
+   * panels together: each patches its strip and spotlight in place.
+   */
+  highlightRow(row, group) {
+    for (const panel of Object.values(this.depthPanels(row))) panel.setGroupHighlight(group);
+  }
+
+  /**
+   * Draw a row's Longitudinal Channels from the payloads in hand: `specs`
+   * maps a depth column to its spec (layer_groups.js `panelGroupSpec`) or
+   * null. No request; each panel keeps its displayed window.
+   */
+  setRowLayerGroups(row, specs) {
+    for (const [col, panel] of Object.entries(this.depthPanels(row))) {
+      if (col in specs) panel.setLayerGroups(specs[col] ?? null);
+    }
+  }
+
+  /** The specs a row's depth panels are drawn with, `{xz, yz}` (null where none). */
+  rowLayerGroups(row) {
+    const out = {};
+    for (const col of DEPTH_COLS) out[col] = this.panel(row, col)?.lastOpts?.layerGroups ?? null;
+    return out;
   }
 
   /**

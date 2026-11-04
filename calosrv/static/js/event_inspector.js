@@ -14,13 +14,20 @@
  * uses the notebook's seed (42) and each later click the next one, so
  * repeated picks walk different events while every pick stays reproducible;
  * the response states the rule and the seed, and the sidebar shows it.
+ *
+ * Each row's two depth panels draw the Longitudinal Channels from the frame's
+ * own `layer_planes`: detector layers in the original frame, relative layers
+ * from the shower's first in the translated one, and in the local frame the
+ * tilted layer planes on u-w with a badge on v-w, where a tilted plane has no
+ * line image. One event is never pooled (the engine never pools an event
+ * spec), and a new mode or partition is drawn from the response in hand.
  */
 
 import { getJson } from './api.js';
 import { setText, setHidden } from './dom.js';
 import { eventRowLabel, eventSelectionLine } from './frame_views.js';
-import { GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
-import { EVENT_PANEL_AXES, eventCellTitle, eventCellOptions } from './event_cells.js';
+import { GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
+import { EVENT_PANEL_AXES, eventCellTitle, eventCellOptions, eventLayerOptions } from './event_cells.js';
 
 /* The cells' options and titles have one owner, event_cells.js, which the
  * Models page's 3-D event view shares; they keep their names here. Each
@@ -44,15 +51,18 @@ export class EventInspector {
    *   `state` the interface State; `grid` the event `FrameGrid`; `palette()`
    *   the active colour map; `onRendered(payload)` after the nine panels are
    *   drawn; `onError(error, context)`; `onViewMode()` after the pinned state
-   *   changed, so the page can swap the grids.
+   *   changed, so the page can swap the grids; `layerGroups(kind)` the
+   *   Longitudinal Channels the page draws in that row's frame, `{mode,
+   *   counts}`, or null for none.
    */
-  constructor({ state, grid, palette, onRendered, onError, onViewMode }) {
+  constructor({ state, grid, palette, onRendered, onError, onViewMode, layerGroups }) {
     this.state = state;
     this.grid = grid;
     this.palette = palette || (() => 'viridis');
     this.onRendered = onRendered || (() => {});
     this.onError = onError || (() => {});
     this.onViewMode = onViewMode || (() => {});
+    this.layerGroups = layerGroups || (() => null);
     this.payload = null;
     this.seed = FIRST_SEED;
     this.pickRule = null;
@@ -172,6 +182,43 @@ export class EventInspector {
     }
   }
 
+  /**
+   * The `layer` argument of one row's cells (event_cells.js): the page's
+   * mode and partition for the row's frame, and a hover that spotlights the
+   * channel on the row's two depth panels together. Null for none.
+   */
+  layerOf(kind) {
+    const drawn = this.layerGroups(kind);
+    if (!drawn) return null;
+    return { ...drawn, highlight: null, onHover: (group) => this.grid.highlightRow(kind, group) };
+  }
+
+  /**
+   * Redraw every row's Longitudinal Channels from the response in hand - a
+   * new mode, partition or live draft - with no request; each panel keeps
+   * its displayed window.
+   */
+  repaintLayerGroups() {
+    const payload = this.payload;
+    if (!payload) return;
+    for (const kind of GRID_ROWS) {
+      if (!payload.frames?.[kind]) continue;
+      const layer = this.layerOf(kind);
+      const specs = {};
+      for (const col of DEPTH_COLS) specs[col] = eventLayerOptions(payload, kind, col, layer).layerGroups ?? null;
+      this.grid.setRowLayerGroups(kind, specs);
+    }
+  }
+
+  /** The specs the depth cells are drawn with, `{<kind>: {xz, yz}}`, for the drawer (panel_notes.js `eventNotes`). */
+  layerSpecs() {
+    const out = {};
+    for (const kind of GRID_ROWS) {
+      if (this.payload?.frames?.[kind]) out[kind] = this.grid.rowLayerGroups(kind);
+    }
+    return out;
+  }
+
   /** Draw the nine panels from a response, and label the grid. */
   render(payload) {
     const palette = this.palette();
@@ -179,12 +226,13 @@ export class EventInspector {
     for (const kind of GRID_ROWS) {
       const frame = payload.frames?.[kind];
       if (!frame) continue;
+      const layer = this.layerOf(kind);
       const cells = {};
       for (const col of GRID_COLS) {
         cells[col] = {
           title: cellTitle(frame, col),
           payload: frame.panels[col],
-          opts: cellOptions(payload, kind, col, palette),
+          opts: cellOptions(payload, kind, col, palette, layer),
           isometric: true,
         };
       }

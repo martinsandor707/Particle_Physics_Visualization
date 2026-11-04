@@ -17,7 +17,68 @@
  *
  * Both pages import it, so it imports nothing either page owns: the Models
  * page's module graph may hold no Physics page module (tests/test_api.py).
+ * The Longitudinal Channels engine (layer_groups.js) is a shared leaf.
+ *
+ * ## The Longitudinal Channels of a depth panel
+ *
+ * Both option builders take an optional last argument, `layer`:
+ * `{mode, counts, highlight, onHover}` - the mode the page draws
+ * (controls/layer_groups_control.js `effectiveMode`), the partition drawn (a
+ * live draft's or the state's), the spotlit group and the hover callback that
+ * links a panel to its partner. With it, a depth panel's options carry
+ * `layerAxis` (layer_groups.js `panelLayerAxis`: the bin readout names the
+ * layer) and, when a partition is drawn, `layerGroups` (`panelGroupSpec`, the
+ * one spec builder). Without it, the options are exactly what they were.
  */
+
+import { panelGroupSpec, panelLayerAxis } from './layer_groups.js';
+
+const DEPTH_PANELS = new Set(['yz', 'xz']);
+
+/**
+ * The layer-group keys of one depth panel's options: `layerAxis` whenever the
+ * payload carries a layer axis - kept beside a spec, so a later
+ * `setLayerGroups(null)` still leaves the readout naming the layer - and
+ * `layerGroups` when `layer` draws a partition. `{}` for `xy`, without
+ * `layer`, or without layer data. `nEvents` is printed beside the shares.
+ */
+export function layerOptions({ panelId, depthLayers = null, layerPlanes = null, layer = null, nEvents = null }) {
+  if (!layer || !DEPTH_PANELS.has(panelId)) return {};
+  const out = {};
+  const layerAxis = panelLayerAxis({ panelId, depthLayers, layerPlanes });
+  if (layerAxis) out.layerAxis = layerAxis;
+  const spec = panelGroupSpec({
+    mode: layer.mode,
+    counts: layer.counts,
+    panelId,
+    depthLayers,
+    layerPlanes,
+    highlight: layer.highlight ?? null,
+    onHover: layer.onHover ?? null,
+    nEvents,
+  });
+  if (spec) out.layerGroups = spec;
+  return out;
+}
+
+/** The layer-group keys of one ensemble depth panel (`layerOptions` on the response's `depth_layers`). */
+export function ensembleLayerOptions(payload, id, layer = null) {
+  const n = payload?.selection?.n_events;
+  return layerOptions({
+    panelId: id, depthLayers: payload?.depth_layers ?? null, layer, nEvents: Number.isInteger(n) ? n : null,
+  });
+}
+
+/**
+ * The layer-group keys of one event cell (`layerOptions` on the frame's
+ * `layer_planes`). The engine never pools an event spec: one event's
+ * raster is always drawn at its native layers.
+ */
+export function eventLayerOptions(payload, kind, col, layer = null) {
+  return layerOptions({
+    panelId: col, layerPlanes: payload?.frames?.[kind]?.layer_planes ?? null, layer, nEvents: 1,
+  });
+}
 
 /** Each event panel's two axes as semantic names: column (horizontal), row (vertical). */
 export const EVENT_PANEL_AXES = Object.freeze({ xy: ['x', 'y'], xz: ['z', 'x'], yz: ['z', 'y'] });
@@ -34,9 +95,10 @@ export function eventCellTitle(frame, col) {
  * response: the frame's window for this panel's two axes, the frame's marks
  * in the drawn shower's colour, a framed plot, and `resolution: {mode:
  * 'native'}` - raw lattice cells or raw grid bins, no reconstruction - for
- * the drawer and the export file name.
+ * the drawer and the export file name. `layer` (optional) adds the depth
+ * panel's Longitudinal Channels (`eventLayerOptions`).
  */
-export function eventCellOptions(payload, kind, col, palette) {
+export function eventCellOptions(payload, kind, col, palette, layer = null) {
   const frame = payload.frames[kind];
   const shower = payload.event.shower;
   const [c, r] = EVENT_PANEL_AXES[col];
@@ -52,6 +114,7 @@ export function eventCellOptions(payload, kind, col, palette) {
     // and is the same figure from either screen theme.
     markShower: shower.key === 'b' ? 'b' : 'a',
     resolution: { mode: 'native' },
+    ...eventLayerOptions(payload, kind, col, layer),
   };
 }
 
@@ -92,9 +155,10 @@ export function depthIsometric(panel, panelPayload) {
  * ensemble axes and depth bounds, the sanctioned exception of CLAUDE.md
  * section 2; the Local frame draws no direction, since every incident
  * direction is +w by construction. `weighting` is the one the response was
- * served with, else `weighting` (the page's own choice).
+ * served with, else `weighting` (the page's own choice). `layer` (optional)
+ * adds a depth panel's Longitudinal Channels (`ensembleLayerOptions`).
  */
-export function ensembleCellOptions(payload, id, palette, weighting = 'energy') {
+export function ensembleCellOptions(payload, id, palette, weighting = 'energy', layer = null) {
   const overlays = payload?.overlays || {};
   const kind = kindOf(payload);
   const canonical = kind === 'canonical';
@@ -121,5 +185,6 @@ export function ensembleCellOptions(payload, id, palette, weighting = 'energy') 
     ensembleMeta: canonical ? frame?.ensemble || null : null,
     anchors,
     depthBounds: canonical ? { front: 0, back: frame.depth_mm } : null,
+    ...ensembleLayerOptions(payload, id, layer),
   };
 }

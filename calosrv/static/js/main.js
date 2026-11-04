@@ -12,6 +12,15 @@
  * first, so a failed load never leaves another experiment's data on screen,
  * and every loader drops a response that lands after the switch, so a late
  * one never draws the previous experiment's data under the new one's name.
+ *
+ * The Longitudinal Channels (controls/layer_groups_control.js) are drawn on
+ * every depth panel from the payload in hand: a change of mode or partition
+ * that leaves every request as it was, a live draft in the editor and a theme
+ * switch repaint with no request. Only Pooled re-bins on the server, and only
+ * the ensemble panels (the 2 x 2 and the compare grid's Absolute and
+ * per-shower translated rows): entering or leaving it, or a new partition
+ * while it is on, asks once more for exactly the panel sets whose request
+ * changed. The Event Inspector and the profile card draw boundaries only.
  */
 
 import { getJson, debounce, DEBOUNCE_MS, isAbort, abortRequest } from './api.js';
@@ -20,9 +29,11 @@ import { UploadForm } from './controls/upload.js';
 import { AdminModal } from './controls/admin.js';
 import { FilterBlock } from './controls/filter_block.js';
 import { ProjectionPanel } from './panels/projection.js';
-import { FrameGrid, GRID_ROWS, GRID_COLS } from './panels/frame_grid.js';
+import { FrameGrid, GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
 import { EventInspector } from './event_inspector.js';
-import { depthIsometric, ensembleCellOptions } from './event_cells.js';
+import { depthIsometric, ensembleCellOptions, ensembleLayerOptions } from './event_cells.js';
+import { mountLayerGroupControl, depthContextFromPayload, effectiveMode } from './controls/layer_groups_control.js';
+import { formatCounts } from './layer_groups.js';
 import { EnergyPanel } from './panels/energy.js';
 import { MetricsPanel } from './panels/metrics.js';
 import { formatInt, formatNumber, formatSci, isDiverging, setScreenTheme } from './scale.js';
@@ -165,6 +176,168 @@ const physics = new PhysicsSection(document.getElementById('physics-grid'), {
   },
   onError: (error, context) => reportError(error, context),
   onOpenAdmin: () => adminModal?.open(),
+  // The longitudinal profile card draws the relative channels on its native
+  // axis; its frame is the per-shower translated one, where Pooled draws boundaries.
+  getLayerGroups: () => layerFor('trans'),
+});
+
+/* ------------------------------------------------- Longitudinal Channels */
+
+/* The partition of a live edit in the channel editor, drawn in place of the
+ * state's until the editor closes (`onDraft`); null otherwise. A draft never
+ * asks for anything: in Pooled it is drawn as its strip and seams over the
+ * pooled picture in hand, until Apply asks once (brief 7.2). */
+let layerDraft = null;
+
+/* The sidebar's Longitudinal Channels group and its editor, mounted once. A
+ * fault in it must not take the dashboard down: the panels then draw no
+ * channels. */
+let layerControl = null;
+try {
+  layerControl = mountLayerGroupControl({
+    state,
+    page: 'physics',
+    onDraft: (counts) => {
+      layerDraft = Array.isArray(counts) ? [...counts] : null;
+      repaintLayerGroups();
+    },
+  });
+} catch (error) {
+  console.error('[calosrv] the Longitudinal Channels control', error);
+}
+
+/**
+ * The `layer` argument of a depth panel in `frame` (event_cells.js): the
+ * mode the page draws there - Pooled is drawn as Boundaries where it cannot
+ * pool (Local) - the partition (a live draft's, else the state's), and the
+ * hover that links the panel to its partner. Null while the control is
+ * hidden (no lattice to group, or no hits to project).
+ */
+function layerFor(frame, onHover = null) {
+  if (!layerControl?.visible) return null;
+  const resolved = state.layerGroups();
+  return {
+    mode: effectiveMode(resolved.mode, { page: 'physics', frame }),
+    counts: layerDraft ?? resolved.counts,
+    L: resolved.L,
+    highlight: null,
+    onHover,
+  };
+}
+
+/** The 2 x 2's two depth panels spotlight one channel together. */
+function ensembleHover(group) {
+  for (const id of ['yz', 'xz']) panels[id].setGroupHighlight(group);
+}
+
+/** The partition a projections response was pooled with, '.'-joined, or null for a native depth axis. */
+function pooledWith(payload) {
+  const groups = payload?.depth_layers?.groups;
+  return groups?.pooled === true && Array.isArray(groups.counts) ? formatCounts(groups.counts) : null;
+}
+
+/* The compare grid's rows that pool when Pooled is on: the ensemble frames
+ * with a common layer grid (state.projectionParams refuses Local anyway). */
+const POOLING_ROWS = new Set(['lab', 'trans', 'canonical']);
+
+/** One compare row's projections request: that frame's own, pooling where the row pools. */
+function compareParams(kind) {
+  return state.projectionParams(false, kind, { layerPool: POOLING_ROWS.has(kind) });
+}
+
+/** The partition the 2 x 2's next request would pool with, or null. */
+function ensembleWants() {
+  return state.projectionParams(false, undefined, { layerPool: true }).depth_groups ?? null;
+}
+
+/**
+ * Draw every depth panel's Longitudinal Channels again from the payloads in
+ * hand - the 2 x 2, the Event Inspector, the compare grid and the profile
+ * card - and rebuild their notes. No request; each panel keeps its window.
+ */
+function repaintLayerGroups() {
+  if (lastProjections) {
+    const layer = layerFor(kindOf(lastProjections), ensembleHover);
+    for (const id of ['yz', 'xz']) {
+      if (!panels[id].payload) continue;
+      panels[id].setLayerGroups(ensembleLayerOptions(lastProjections, id, layer).layerGroups ?? null);
+      buildNotes(id);
+    }
+  }
+  if (inspector.payload && state.get('event') !== null) {
+    inspector.repaintLayerGroups();
+    for (const kind of GRID_ROWS) for (const col of DEPTH_COLS) buildNotes(eventGrid.id(kind, col));
+  }
+  for (const kind of GRID_ROWS) {
+    const payload = comparePayloads[kind];
+    if (!payload || !compareGrid.panels) continue;
+    const layer = layerFor(kindOf(payload), (group) => compareGrid.highlightRow(kind, group));
+    const specs = {};
+    for (const col of DEPTH_COLS) specs[col] = ensembleLayerOptions(payload, col, layer).layerGroups ?? null;
+    compareGrid.setRowLayerGroups(kind, specs);
+    for (const col of DEPTH_COLS) buildNotes(compareGrid.id(kind, col));
+  }
+  physics.repaintLayerGroups();
+}
+
+/**
+ * A change of `lgmode` or `lgroups`: repaint at once from the payloads in
+ * hand, then ask again only for the panel sets whose request it changed -
+ * the 2 x 2 (one request) and, while the compare grid is on show, each of
+ * its rows whose pooling changed (Absolute and per-shower translated; Local
+ * never pools). Boundaries, Off and a partition change outside Pooled change
+ * no request and cost none.
+ */
+function onLayerGroupsChanged() {
+  repaintLayerGroups();
+  if (pagePlan.spatial && lastProjections && ensembleWants() !== pooledWith(lastProjections)) {
+    reloadEnsembleDepth();
+  }
+  const compareOn = state.get('event') === null && state.get('compare') && pagePlan.compare;
+  if (compareOn) {
+    const kinds = GRID_ROWS.filter((kind) => comparePayloads[kind]
+      && (compareParams(kind).depth_groups ?? null) !== pooledWith(comparePayloads[kind]));
+    if (kinds.length) reloadCompareRows(kinds);
+  }
+}
+
+/** The 2 x 2 again for a new pooling: one projections request, the windowed axes kept. */
+async function reloadEnsembleDepth() {
+  for (const panel of Object.values(panels)) panel.setBusy(true);
+  try {
+    await loadProjections(false, { windowAxes: false });
+    showBanner(mergedWarnings());
+  } catch (error) {
+    if (!isAbort(error)) reportError(error, 'pooled projections');
+  } finally {
+    for (const panel of Object.values(panels)) panel.setBusy(false);
+  }
+}
+
+/** The compare rows whose pooling changed, one request each; the other rows keep their responses. */
+async function reloadCompareRows(kinds) {
+  compareGrid.setBusy(true);
+  const generation = viewGeneration;
+  try {
+    const results = await Promise.all(kinds.map((kind) => getJson(
+      '/api/projections', compareParams(kind), `compare-${kind}`,
+    )));
+    checkCurrent(generation);
+    kinds.forEach((kind, index) => { comparePayloads[kind] = results[index]; });
+    endpointWarnings.compare = GRID_ROWS.flatMap((kind) => comparePayloads[kind]?.meta?.warnings || []);
+    renderCompare();
+    showBanner(mergedWarnings());
+  } catch (error) {
+    if (!isAbort(error)) reportError(error, 'pooled frame comparison');
+  } finally {
+    compareGrid.setBusy(false);
+  }
+}
+
+/* The page's channel drawing follows the state: the control writes `lgmode`
+ * and `lgroups` (the mode radios, Apply), and a back/forward hash too. */
+state.subscribe((values, patch) => {
+  if ('lgmode' in patch || 'lgroups' in patch) onLayerGroupsChanged();
 });
 
 /* Plot 4 of a single-shower experiment: the momentum-sliced response grid
@@ -206,6 +379,8 @@ const dom = {
     frame: document.getElementById('info-frame'),
     event: document.getElementById('info-event'),
     anchor: document.getElementById('info-anchor'),
+    // The Longitudinal Channels control writes this dot's notices itself.
+    lgroups: document.getElementById('info-lgroups'),
   },
   frameCaption: document.getElementById('frame-caption'),
   rhoNormControl: document.getElementById('ctl-rho-norm'),
@@ -313,6 +488,8 @@ const inspector = new EventInspector({
   },
   onError: (error, context) => reportError(error, context),
   onViewMode: () => applyViewMode(),
+  // Each row in its own frame; one event is never pooled.
+  layerGroups: (kind) => layerFor(kind),
 });
 
 /* ------------------------------------------------------------------ filters */
@@ -481,8 +658,8 @@ let popoverTrigger = null;
  * draws no direction. Whether a depth panel keeps a 1:1 aspect is
  * `depthIsometric`, from the same module.
  */
-function panelOptions(payload, id) {
-  return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'));
+function panelOptions(payload, id, layer = null) {
+  return ensembleCellOptions(payload, id, state.get('palette'), state.get('weighting'), layer);
 }
 
 /**
@@ -494,13 +671,15 @@ function renderPanels(payload, { windowAxes = true } = {}) {
   const coregistered = kindOf(payload) !== 'lab';
   panels.xy.isometric = true;
   panels.xy.render(payload.panels.xy, panelOptions(payload, 'xy'));
+  // The depth panels draw the Longitudinal Channels, spotlit on both together.
+  const layer = layerFor(kindOf(payload), ensembleHover);
   for (const id of ['yz', 'xz']) {
     const panel = panels[id];
     panel.isometric = coregistered && depthIsometric(panel, payload.panels[id]);
     // A zoomed absolute-frame depth panel keeps its windowed axis across the
     // redraw and asks for a fresh one for the new selection.
     const windowAxis = coregistered ? null : (panel.lastOpts?.windowAxis ?? null);
-    panel.render(payload.panels[id], { ...panelOptions(payload, id), windowAxis });
+    panel.render(payload.panels[id], { ...panelOptions(payload, id, layer), windowAxis });
     if (windowAxes) requestWindowAxis(id);
   }
 }
@@ -525,7 +704,7 @@ async function loadCompare() {
   const generation = viewGeneration;
   const kinds = GRID_ROWS.filter((kind) => offeredFrames.includes(kind));
   const results = await Promise.all(kinds.map((kind) => getJson(
-    '/api/projections', state.projectionParams(false, kind), `compare-${kind}`,
+    '/api/projections', compareParams(kind), `compare-${kind}`,
   )));
   checkCurrent(generation);
   for (const kind of GRID_ROWS) comparePayloads[kind] = null;
@@ -543,13 +722,15 @@ function renderCompare() {
     const payload = comparePayloads[kind];
     if (!payload) continue;
     const frameKind = kindOf(payload);
+    // A row's two depth panels spotlight one channel together.
+    const layer = layerFor(frameKind, (group) => compareGrid.highlightRow(kind, group));
     const cells = {};
     for (const col of GRID_COLS) {
       const panel = compareGrid.panel(kind, col);
       cells[col] = {
         title: panelTitle(col, frameKind, pagePlan.nShowers),
         payload: payload.panels[col],
-        opts: panelOptions(payload, col),
+        opts: panelOptions(payload, col, layer),
         isometric: col === 'xy' || (frameKind !== 'lab' && panel
           ? depthIsometric(panel, payload.panels[col]) : false),
       };
@@ -639,6 +820,8 @@ function buildNotes(panelId) {
       view: panel?.currentView() ?? null,
       state,
       experiment: activeExperiment,
+      // The specs every row's depth cells are drawn with, {<kind>: {yz, xz}}.
+      layerGroups: inspector.layerSpecs(),
     }) : null;
   } else if (panelId.startsWith('compare-')) {
     // One cell of the compare-frames view: that frame's own projections
@@ -653,6 +836,7 @@ function buildNotes(panelId) {
       view: panel.currentView(),
       state,
       experiment: activeExperiment,
+      layerGroups: col === 'xy' ? null : (panel.lastOpts?.layerGroups ?? null),
     }) : null;
   } else if (physics.has(panelId)) {
     notes = physics.notes(panelId, { state, experiment: activeExperiment });
@@ -666,6 +850,7 @@ function buildNotes(panelId) {
       state,
       experiment: activeExperiment,
       marksShown: panels[panelId].marksShown,
+      layerGroups: panelId === 'xy' ? null : (panels[panelId].lastOpts?.layerGroups ?? null),
     });
   }
   panelNotes[panelId] = notes;
@@ -736,16 +921,19 @@ function negativeReadout(block) {
   return `${pct(fraction)}${interval} of energy`;
 }
 
-async function loadProjections(preview = false) {
+async function loadProjections(preview = false, { windowAxes = true } = {}) {
   const generation = viewGeneration;
-  const params = state.projectionParams(preview);
+  // The 2 x 2's depth panels pool when Pooled is on (state.js decides).
+  const params = state.projectionParams(preview, undefined, { layerPool: true });
   const payload = await getJson('/api/projections', params, 'projections');
   checkCurrent(generation);
   lastProjections = payload;
 
   const kind = kindOf(payload);
   const coregistered = kind !== 'lab';
-  renderPanels(payload);
+  // The editor's labels, depth scale and profile follow the active frame's response.
+  if (kind === state.get('frame')) layerControl?.setDepthContext(depthContextFromPayload(payload.depth_layers) ?? {});
+  renderPanels(payload, { windowAxes });
   for (const id of ['xy', 'yz', 'xz']) setText(`title-${id}`, panelTitle(id, kind, pagePlan.nShowers));
   writePanelNotes();
 
@@ -885,6 +1073,8 @@ function syncFrameControl() {
   const control = document.getElementById('ctl-frame');
   if (control) control.dataset.frame = frame;
   setText('frame-caption', frameCaption(frame, pagePlan.nShowers));
+  // A fallback writes the frame silently: the channel control is told here.
+  layerControl?.setFrame(frame);
 }
 
 /** Switch the reference frame and refresh everything that depends on it. */
@@ -1363,6 +1553,11 @@ async function activateExperiment(experiment) {
   }
   notices.push(...applyCapabilities(experiment));
   applyKindPlan(pagePlan, notices);
+  // The Longitudinal Channels partition the experiment's own depth lattice
+  // (L = lattice.z.n), before the first request is built; an experiment with
+  // no hits has no depth panel to draw them on.
+  layerControl?.setExperiment({ nLayers: experiment?.lattice?.z?.n ?? null });
+  layerControl?.setAvailable(pagePlan.spatial, pagePlan.notice?.text ?? null);
   // The experiment's own filter axes and bounds; the domains are recorded
   // before the one hash write, so a link carries no raw dataset bound.
   filters.adopt(experiment, pagePlan.axes);
@@ -1755,7 +1950,7 @@ const REQUIRED_IDS = [
   'kind-banner-text', 'kind-banner-close', 'stat-d-item', 'stat-nod-item', 'stat-wneg-item', 'stat-wneg',
   'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d', 'energy-shower-toggle', 'energy-b3-slices',
   'energy-b3-link', 'plot-energy-b3', 'ctl-e1', 'ctl-e2', 'ctl-d', 'ctl-event', 'ctl-compare',
-  'group-frame', 'group-resolution', 'group-channel', 'group-colormap',
+  'group-frame', 'group-resolution', 'group-channel', 'group-colormap', 'group-lgroups', 'info-lgroups',
 ];
 
 /**
