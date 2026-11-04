@@ -78,7 +78,7 @@ import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
 import { CORE_SHIFT_Z_MM, axisSymbol, panelOf } from '../axis_symbols.js';
 import { layerReadout, depthPointText, withHighlight } from '../layer_groups.js';
-import { layerGroupSeries, localBadge, stripReserve, STRIP_ID, SPOT_ID } from './depth_groups.js';
+import { layerGroupSeries, localBadge, stripReserve, reserveTopPx, STRIP_ID, SPOT_ID } from './depth_groups.js';
 import {
   PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition,
 } from './tooltip.js';
@@ -156,6 +156,24 @@ function depthOffsetOf(payload, opts) {
   const col = payload?.axes?.col;
   if (!col || col.name !== 'z') return 0;
   return displaySymbols(payload, opts).col === 'z' ? CORE_SHIFT_Z_MM : 0;
+}
+
+/**
+ * The band reserved above a panel's plot: its own spec's strip or badge, or
+ * the grid's (`opts.reserveTop`, depth_groups.js `gridReserve`), whichever is
+ * larger, so the panels of one grid keep one millimetre-per-pixel scale (UI-6).
+ * The grid's band is a screen layout: an exported figure is the panel alone,
+ * so under the print tokens only the panel's own strip or badge is reserved.
+ */
+function topReserve(payload, opts) {
+  const own = stripReserve(groupSpecOf(payload, opts));
+  return isPrintTheme() ? own : Math.max(own, reserveTopPx(opts?.reserveTop));
+}
+
+/** The width (mm) of bin `index` of a payload axis: its stored edges where it has them, as `cellAt` reads them. */
+function cellWidth(axis, cells, index) {
+  if (axis.uniform || !Array.isArray(axis.edges)) return (axis.hi - axis.lo) / cells;
+  return axis.edges[index + 1] - axis.edges[index];
 }
 
 /** The layer-group spec of a panel's options, when it belongs on this payload's depth panel. */
@@ -512,7 +530,7 @@ export class ProjectionPanel {
     // The Longitudinal Channels: a spec of layer_groups.panelGroupSpec, or none.
     const groups = groupSpecOf(payload, opts);
     const rect = this.gridRect(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0], metrics, wideRamp,
-      stripReserve(groups));
+      topReserve(payload, opts));
     const canvas = raster.canvas;
     const title = rampTitle(payload.scale, metrics);
     const mid = rampMidLabel(payload.scale, metrics);
@@ -662,9 +680,21 @@ export class ProjectionPanel {
    * null to take them away) from the payload in hand: no request, and the
    * displayed window is kept.
    */
-  setLayerGroups(spec) {
+  setLayerGroups(spec, { reserveTop } = {}) {
     if (!this.lastOpts) return;
     this.lastOpts = { ...this.lastOpts, layerGroups: spec ?? null };
+    if (reserveTop !== undefined) this.lastOpts.reserveTop = reserveTop;
+    this.redraw();
+  }
+
+  /**
+   * The band a grid reserves above every one of its plots (depth_groups.js
+   * `gridReserve`: 'strip' or null), so its panels keep one scale. Redraws
+   * from the payload in hand, only when it changes.
+   */
+  setReserveTop(reserveTop) {
+    if (!this.lastOpts || (this.lastOpts.reserveTop ?? null) === (reserveTop ?? null)) return;
+    this.lastOpts = { ...this.lastOpts, reserveTop: reserveTop ?? null };
     this.redraw();
   }
 
@@ -776,7 +806,7 @@ export class ProjectionPanel {
       }
     }
     // The Longitudinal Channels' band sits above the plot, so the figure grows by it.
-    const reserve = this.payload ? stripReserve(groupSpecOf(this.payload, this.lastOpts)) : 0;
+    const reserve = this.payload ? topReserve(this.payload, this.lastOpts) : 0;
     return {
       width,
       height: Math.round(pad.top + pad.bottom + plotWidth * ratio + reserve),
@@ -1462,8 +1492,11 @@ export class ProjectionPanel {
         // density over, so the number can be quoted either way.
         const rho = exact !== null ? exact : dequantize(code, scale, payload) * scale.rho_ref;
         const ratio = rho / scale.rho_ref;
-        const binW = (col.hi - col.lo) / cols;
-        const binH = (row.hi - row.lo) / rows;
+        // The hovered bin's own width: a pooled depth axis (and the demo's
+        // irregular lattice) has bins of different widths, so the mean
+        // (hi − lo) / n would misstate the area the density is over.
+        const binW = cellWidth(col, cols, c);
+        const binH = cellWidth(row, rows, r);
         body =
           `<b>${ratio.toFixed(3)} a.u.</b> of ρ<sub>ref</sub>${precision}<br/>` +
           `⟨ρ⟩ = ${formatSci(rho, 3)} ${unitText}<br/>` +

@@ -24,7 +24,9 @@
  * A row's two depth panels (X-Z and Y-Z) share their Longitudinal Channels:
  * hovering a channel on either spotlights it on both (`highlightRow`), and a
  * new partition or mode is drawn from the payloads in hand
- * (`setRowLayerGroups`), with no request.
+ * (`setRowLayerGroups`), with no request. The Event Inspector reserves the
+ * channels' band above all nine plots alike (`setLayerGroups`, `reserveTop`),
+ * so its panels keep the one scale its shared half-width promises.
  */
 
 import { ProjectionPanel } from './projection.js';
@@ -176,6 +178,25 @@ export class FrameGrid {
   setRowLayerGroups(row, specs) {
     for (const [col, panel] of Object.entries(this.depthPanels(row))) {
       if (col in specs) panel.setLayerGroups(specs[col] ?? null);
+    }
+  }
+
+  /**
+   * Draw every row's Longitudinal Channels at once, with one band reserved
+   * above all nine plots (`reserveTop`, depth_groups.js `gridReserve`), so the
+   * grid keeps one millimetre-per-pixel scale (UI-6). `rows` maps a row to
+   * `{xz, yz}` specs as `setRowLayerGroups` takes them. No request.
+   */
+  setLayerGroups(rows, reserveTop = null) {
+    if (!this.panels) return;
+    for (const row of GRID_ROWS) {
+      const specs = rows[row];
+      for (const col of GRID_COLS) {
+        const panel = this.panel(row, col);
+        if (!panel) continue;
+        if (specs && DEPTH_COLS.includes(col) && col in specs) panel.setLayerGroups(specs[col] ?? null, { reserveTop });
+        else panel.setReserveTop(reserveTop);
+      }
     }
   }
 

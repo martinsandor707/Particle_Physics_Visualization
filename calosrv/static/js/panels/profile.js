@@ -511,6 +511,14 @@ export class ProfilePanel extends ChartPanel {
         const group = Array.isArray(params.value) ? params.value[2] : null;
         if (Number.isInteger(group)) hover(group);
       });
+      // A move over a segment also spotlights it, as on ProjectionPanel: zrender keeps its last
+      // hovered element across a repaint that reuses it (a theme switch), so returning to that
+      // segment fires no mouseover (UI-4).
+      chart.on('mousemove', (params) => {
+        if (params?.seriesId !== STRIP_ID) return;
+        const group = Array.isArray(params.value) ? params.value[2] : null;
+        if (Number.isInteger(group) && (this.lastOpts?.layerGroups?.highlight ?? null) !== group) hover(group);
+      });
       chart.on('mouseout', (params) => {
         if (params?.seriesId === STRIP_ID) hover(null);
       });

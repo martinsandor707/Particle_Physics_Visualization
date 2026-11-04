@@ -55,8 +55,15 @@ export const PRESET_LABELS = Object.freeze({
 /** EM-Fine / Hadron-Coarse on the 60-layer production lattice: fine where an electromagnetic shower peaks. */
 export const EM_HADRON_60 = Object.freeze([2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8]);
 
-/** The sentence that replaces every line on a Local ensemble panel. */
-export const LOCAL_BADGE = 'Layers tilt by each shower’s (θ, φ): no common layer grid';
+/** The sentence that replaces every line on a Local ensemble panel: its conclusion first, so a cut keeps it. */
+export const LOCAL_BADGE = 'No common layer grid: layers tilt with each shower’s (θ, φ)';
+
+/** The Local badge's short form, for a plot too narrow for the sentence (depth_groups.js `localBadge`). */
+export const LOCAL_BADGE_SHORT = 'Local: no common layer grid';
+
+/** The line that replaces the shares (and the reach) of a block the server trimmed to keep a response under 100 KB. */
+export const TRIMMED_SHARES = 'shares left out: this response sat at the 100 KB guard';
+export const TRIMMED_SHARES_REACH = 'shares and reach left out: this response sat at the 100 KB guard';
 
 /* ---------------------------------------------------------------- numbers -- */
 
@@ -386,10 +393,12 @@ export function seamsOnAxis(edges, counts, { firstLayer = 1 } = {}) {
 
 /**
  * The groups' spans on an axis: `[{group, first, last, n, bins: [j0, j1], lo,
- * hi, partial, extended}]` for every group with a bin on it. `lo`/`hi` are
- * the stored edges; `partial` when the axis cuts the group; `extended` when
- * group 13 runs past layer L to the end of a longer axis. Groups wholly
- * beyond the axis are left out (`groupsBeyond` counts them).
+ * hi, partial, extended, axisFirst, axisLast, nAxis}]` for every group with a
+ * bin on it. `first`/`last`/`n` are the partition's; `axisFirst`/`axisLast`/
+ * `nAxis` the layers the span holds on this axis, which differ where the axis
+ * cuts the group (`partial`) or where group 13 runs past layer L to the end
+ * of a longer axis (`extended`). `lo`/`hi` are the stored edges. Groups
+ * wholly beyond the axis are left out (`groupsBeyond` counts them).
  */
 export function groupSpansOnAxis(edges, counts, { firstLayer = 1 } = {}) {
   if (!Array.isArray(edges) || edges.length < 2 || !isValidCounts(counts)) return [];
@@ -409,6 +418,7 @@ export function groupSpansOnAxis(edges, counts, { firstLayer = 1 } = {}) {
     spans.push({
       group: g.group, first: g.first, last: g.last, n: g.n, bins: [a, b],
       lo: edges[a], hi: edges[b + 1], partial: a !== j0 || b !== j1, extended,
+      axisFirst: firstLayer + a, axisLast: firstLayer + b, nAxis: b - a + 1,
     });
   }
   return spans;
@@ -568,10 +578,20 @@ const nText = (n, what = 'event') => (isWhole(n) ? ` · N = ${intText(n)} ${what
  */
 export function groupTooltip(ctx, span) {
   const { numbering } = ctx;
-  const lines = [`<b>${groupLabel(numbering, span.group)}</b> · ${layersText(numbering, span.first, span.last)} `
-    + `(${intText(span.n)} layer${span.n === 1 ? '' : 's'})`];
-  if (span.extended) lines.push('runs to the end of the depth axis, past the partition’s last layer');
-  if (span.partial) lines.push('the depth axis cuts this channel: only its layers on the axis are drawn');
+  const head = `<b>${groupLabel(numbering, span.group)}</b> · `;
+  const lines = [];
+  if (span.extended) {
+    // Group 13 on an axis longer than L: the layers it holds here, then where the partition ends.
+    lines.push(`${head}${layersText(numbering, span.first, span.axisLast)} `
+      + `(${intText(span.nAxis)} on the axis; the partition ends at layer ${intText(span.last)})`);
+    lines.push('runs to the end of the depth axis, past the partition’s last layer');
+  } else {
+    lines.push(`${head}${layersText(numbering, span.first, span.last)} (${intText(span.n)} layer${span.n === 1 ? '' : 's'})`);
+  }
+  if (span.partial) {
+    lines.push(`the depth axis cuts this channel: only its ${intText(span.nAxis)} layer${span.nAxis === 1 ? '' : 's'} `
+      + `on the axis (${layersText(numbering, span.axisFirst, span.axisLast)}) are drawn`);
+  }
   if (Number.isFinite(span.lo) && Number.isFinite(span.hi)) {
     const thick = span.hi - span.lo;
     lines.push(`${depthSpanText(span.lo, span.hi, ctx)} · ${mm(thick)} mm thick`);
@@ -586,15 +606,20 @@ export function groupTooltip(ctx, span) {
     for (let j = span.bins[0]; j <= span.bins[1]; j += 1) sum += Number.isFinite(energy[j]) ? energy[j] : 0;
     const total = Number.isFinite(ctx.profile.total) ? ctx.profile.total : energy.reduce((a, b) => a + (b || 0), 0);
     const whose = ctx.basis === 'shower' ? 'this shower’s energy' : 'the selection’s energy';
+    // A co-registered bundle's outside energy fell outside its 3-D accumulation grid (mostly
+    // transversely); only the Absolute frame's lies literally past the depth axis.
+    const where = ctx.weighting === 'overlap' ? 'outside the accumulation grid' : 'off the depth axis';
     const outside = Number.isFinite(ctx.profile.outside) && ctx.profile.outside > 0
-      ? `; ${gevText(ctx.profile.outside)} off the depth axis is counted in the total` : '';
+      ? `; ${gevText(ctx.profile.outside)} ${where} is counted in the total` : '';
     lines.push(`energy: ${percentText(total > 0 ? sum / total : null)} of ${whose} `
       + `(Σ E = ${gevText(sum)} of ${gevText(total)}${outside})${ctx.basis === 'shower' ? '' : nText(ctx.nEvents)}`);
     if (ctx.profile.exact === false) lines.push('<i>preview sample: the shares are of the sampled hits</i>');
+  } else if (ctx.trimmed) {
+    lines.push(`<i>${ctx.reachTrimmed ? TRIMMED_SHARES_REACH : TRIMMED_SHARES}</i>`);
   }
   for (const line of attentionLines(ctx.profile?.attention, span)) lines.push(line);
   if (ctx.reach) {
-    const r = groupReach(ctx.reach, span.first, span.last);
+    const r = groupReach(ctx.reach, span.first, span.extended ? span.axisLast : span.last);
     if (r) {
       let text = `reached by ${intText(r.reached)} of ${intText(r.of)} showers (${percentText(r.share)})`;
       if (r.full !== r.reached) text += `; ${intText(r.full)} reach its last layer`;
@@ -604,8 +629,49 @@ export function groupTooltip(ctx, span) {
   if (Number.isFinite(ctx.reachLayers) && span.first > ctx.reachLayers) {
     lines.push(`beyond this shower’s reach: the detector ends after rel. layer ${intText(ctx.reachLayers)}`);
   }
-  if (ctx.pooled) lines.push(`pooled: this column is the mean of its ${intText(span.bins[1] - span.bins[0] + 1)} layers`);
+  if (ctx.pooled) lines.push(`pooled: this column is ${pooledOperator(ctx.axis, span).tooltip}`);
   return lines.join('<br/>');
+}
+
+/** A number of pitches as "6.5", at most two decimals. */
+const slotsText = (v) => typographic(String(Number(v.toFixed(2))));
+
+/**
+ * What a pooled column is, from the native edges it spans (LG-C5):
+ * - the Absolute frame pools Σ E · p / ΔZ (GeV per layer pitch, `per_pitch`):
+ *   the mean of its layers only where ΔZ = n · p, else the sum over ΔZ / p
+ *   pitches, which a gapped lattice makes larger than n;
+ * - a co-registered frame pools the width-weighted mean (`overlap`): the mean
+ *   of its layers only where they are equally wide.
+ * `{readout, tooltip}`, the short and the long wording.
+ */
+export function pooledOperator(axis, span) {
+  const n = span.nAxis ?? span.bins[1] - span.bins[0] + 1;
+  const layers = `${intText(n)} layer${n === 1 ? '' : 's'}`;
+  const mean = { readout: `mean of ${layers}`, tooltip: `the mean of its ${layers}` };
+  const edges = axis?.edges;
+  if (!Array.isArray(edges) || !Number.isFinite(span.lo) || !Number.isFinite(span.hi)) return mean;
+  const thick = span.hi - span.lo;
+  const tol = 1e-3;
+  if (axis.weighting === 'per_pitch') {
+    const p = axis.pitch;
+    if (!(Number.isFinite(p) && p > 0)) return mean;
+    const slots = thick / p;
+    if (Math.abs(slots - n) <= tol * Math.max(1, n)) return mean;
+    return {
+      readout: `Σ E of ${layers} per ${mm(p)} mm (÷ ${slotsText(slots)} pitches)`,
+      tooltip: `Σ E of its ${layers} per ${mm(p)} mm of depth: the sum ÷ ${slotsText(slots)} pitches `
+        + `(${mm(thick)} mm thick), not their mean`,
+    };
+  }
+  const widths = [];
+  for (let j = span.bins[0]; j <= span.bins[1]; j += 1) widths.push(edges[j + 1] - edges[j]);
+  const equal = widths.every((w) => Math.abs(w - widths[0]) <= tol * Math.max(1, Math.abs(widths[0])));
+  if (equal) return mean;
+  return {
+    readout: `width-weighted mean of ${layers}`,
+    tooltip: `the width-weighted mean of its ${layers} (each layer weighted by its own thickness over the ${mm(thick)} mm)`,
+  };
 }
 
 /** A seam's tooltip: where it sits, between which layers and channels. */
@@ -663,6 +729,10 @@ export function panelLayerAxis({ panelId, depthLayers = null, layerPlanes = null
       normal: [0, 0, 1],
       geometry: 'vertical',
       contiguous: depthLayers.contiguous !== false,
+      // The pooled operator: GeV per pitch on the Absolute frame's raw z, a width-weighted
+      // mean in the co-registered frames (grid/layer_groups.py `pooled_operator`).
+      weighting: (depthLayers.symbol ?? 'z') === 'z' ? 'per_pitch' : 'overlap',
+      pitch: Number.isFinite(depthLayers.pitch_mm) ? depthLayers.pitch_mm : null,
     };
   }
   if (layerPlanes) {
@@ -712,9 +782,9 @@ export function layerReadout({ axis = null, spec = null, panelId, col, row }) {
   if (spec?.pooled && Array.isArray(spec.groups)) {
     const span = spec.groups.find((g) => s >= g.lo && s <= g.hi);
     if (!span) return '';
-    const n = span.bins[1] - span.bins[0] + 1;
-    return ` · ${groupLabel(numbering, span.group)} [${layersText(numbering, span.first, span.last)}] · `
-      + `mean of ${intText(n)} layer${n === 1 ? '' : 's'}`;
+    const last = span.extended ? span.axisLast : span.last;
+    return ` · ${groupLabel(numbering, span.group)} [${layersText(numbering, span.first, last)}] · `
+      + pooledOperator(ctx, span).readout;
   }
   const bin = binOf(ctx.edges, s);
   if (bin === null) return '';
@@ -723,7 +793,10 @@ export function layerReadout({ axis = null, spec = null, panelId, col, row }) {
   if (spec && Array.isArray(spec.counts)) {
     const m = groupOfLayer(spec.counts, layer) ?? (layer > 0 ? GROUP_COUNT : null);
     const g = m ? groupRanges(spec.counts)[m - 1] : null;
-    if (g) text += ` · ${groupLabel(numbering, m)} [${g.first === g.last ? g.first : `${g.first}–${g.last}`}]`;
+    // Group 13 extended to the end of a longer axis holds the layers past L too.
+    const span = m && Array.isArray(spec.groups) ? spec.groups.find((x) => x.group === m) : null;
+    const last = span?.extended ? span.axisLast : g?.last;
+    if (g) text += ` · ${groupLabel(numbering, m)} [${g.first === last ? g.first : `${g.first}–${last}`}]`;
   }
   return text;
 }
@@ -751,7 +824,7 @@ export function panelGroupSpec({
   if (axis.numbering === 'none') {
     return {
       ...base, counts: null, numbering: 'none', axis, pooled: false, strip: false, badge: LOCAL_BADGE,
-      groups: [], seams: [], lines: [], lineReason: LOCAL_BADGE, seamsBeyond: 0, groupsBeyond: [],
+      badgeShort: LOCAL_BADGE_SHORT, groups: [], seams: [], lines: [], lineReason: LOCAL_BADGE, seamsBeyond: 0, groupsBeyond: [],
     };
   }
   if (!isValidCounts(counts, axis.L)) return null;
@@ -770,7 +843,10 @@ export function panelGroupSpec({
     numbering: axis.numbering, symbol: axis.symbol, offset: axis.offset, profile, pooled,
     reach: depthLayers?.reach ?? null, reachLayers: axis.reachLayers ?? null,
     tilt: axis.geometry === 'tilted' ? axis.tilt : null, basis: depthLayers ? 'selection' : 'shower',
-    nEvents: isWhole(nEvents) ? nEvents : null,
+    nEvents: isWhole(nEvents) ? nEvents : null, axis, weighting: axis.weighting ?? null,
+    // A block the server trimmed under the 100 KB guard (brief 9.1): no per-layer shares, no reach.
+    trimmed: (depthLayers ?? layerPlanes)?.trimmed === true,
+    reachTrimmed: Boolean(depthLayers) && axis.numbering === 'relative',
   };
   const spans = groupSpansOnAxis(axis.edges, counts, { firstLayer: axis.firstLayer });
   const seamList = seamsOnAxis(axis.edges, counts, { firstLayer: axis.firstLayer });
@@ -790,6 +866,9 @@ export function panelGroupSpec({
     lines: [],
     strip: true,
     nEvents: ctx.nEvents,
+    // The server's 100 KB trim (brief 9.1): the drawers quote `trimNote`.
+    trimmed: ctx.trimmed,
+    trimNote: ctx.trimmed ? ((depthLayers ?? layerPlanes)?.trim_note ?? null) : null,
   };
   if (axis.geometry === 'tilted') {
     // One shower in Local: the strip has no meaning along w, where a layer's w

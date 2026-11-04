@@ -190,11 +190,17 @@ const ROUTES = {
   '/api/model-performance': () => load('perf_two_energy'),
   '/api/event': () => load('event_raster_base'),
 };
+// A gate holds /api/projections responses in flight while `gateOn`, so a scenario
+// can change the mode before a response lands (the LG-C1 races); `openGates` lets them land.
+const gates = [];
+let gateOn = false;
+const openGates = () => { gateOn = false; for (const release of gates.splice(0)) release(); };
 globalThis.fetch = async (url) => {
   const u = new URL(String(url));
   requests.push({ path: u.pathname, params: Object.fromEntries(u.searchParams) });
   const route = ROUTES[u.pathname];
   const body = route ? route(u.searchParams) : { detail: 'not recorded' };
+  if (gateOn && u.pathname === '/api/projections') await new Promise((release) => gates.push(release));
   return {
     ok: Boolean(route), status: route ? 200 : 404, headers: { get: () => 'application/json' },
     json: async () => body, text: async () => JSON.stringify(body),
@@ -251,6 +257,22 @@ const radio = (mode) => {
   el.dispatch('change');
 };
 
+// What each panel holds now: its raster's depth bins and whether a spec is drawn (render and setLayerGroups).
+const projMod = await import(`${jsRoot}/panels/projection.js`);
+const drawn = {};
+const record = (panel) => {
+  const spec = panel.lastOpts?.layerGroups ?? null;
+  drawn[panel.element?.id ?? '?'] = { n: panel.payload?.axes?.col?.n ?? null, spec: Boolean(spec), pooled: spec?.pooled ?? null,
+    counts: spec?.counts ? spec.counts.join('.') : null };
+};
+for (const name of ['render', 'setLayerGroups']) {
+  const original = projMod.ProjectionPanel.prototype[name];
+  projMod.ProjectionPanel.prototype[name] = function (...args) {
+    const result = original.apply(this, args);
+    record(this);
+    return result;
+  };
+}
 await import(`${jsRoot}/main.js`);
 await settle();
 const out = { boot: { requests: requests.map((r) => r.path), projections: projectionRequests() } };
@@ -267,18 +289,23 @@ if (scenario === 'modes') {
   // Boundaries -> Off -> Boundaries: no request.
   let at = requests.length;
   // The repaint is synchronous: its cost here is the page's own (option
-  // building and notes), the ECharts paint being stubbed.
-  const t0 = performance.now();
+  // building and notes), the ECharts paint being stubbed. Timed as the median
+  // of several repaints after a warm-up (LG-C9), never one first sample.
+  const timed = (mode) => { const t = performance.now(); radio(mode); return performance.now() - t; };
+  const median = (xs) => { const v = [...xs].sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+  for (let i = 0; i < 3; i += 1) { timed('off'); timed('bounds'); }
+  const offTimes = [];
+  const backTimes = [];
+  for (let i = 0; i < 9; i += 1) { offTimes.push(timed('off')); backTimes.push(timed('bounds')); }
+  const offMs = median(offTimes);
+  const backMs = median(backTimes);
   radio('off');
-  const offMs = performance.now() - t0;
   await settle();
-  out.off = { requests: since(at), yz: groupsOf('yz'), ms: offMs };
+  out.off = { requests: since(at), yz: groupsOf('yz'), ms: offMs, samples: offTimes.length };
   at = requests.length;
-  const t1 = performance.now();
   radio('bounds');
-  const backMs = performance.now() - t1;
   await settle();
-  out.back = { requests: since(at), yz: groupsOf('yz'), ms: backMs };
+  out.back = { requests: since(at), yz: groupsOf('yz'), ms: backMs, samples: backTimes.length };
   // Entering Pooled: one projections request, with the partition.
   at = requests.length;
   radio('pool');
@@ -364,6 +391,22 @@ if (scenario === 'event') {
     localXz: groupsOf('event-local-xz'), localYz: groupsOf('event-local-yz'),
     labXy: groupsOf('event-lab-xy'),
   };
+  // UI-6: the nine panels keep one millimetre-per-pixel scale, with Boundaries on and off.
+  const scales = () => Object.fromEntries(['lab', 'trans', 'local'].flatMap((k) => ['xy', 'xz', 'yz'].map((c) => {
+    const o = full(`event-${k}-${c}`);
+    if (!o) return [`${k}-${c}`, null];
+    const g = Array.isArray(o.grid) ? o.grid[0] : o.grid;
+    const x = Array.isArray(o.xAxis) ? o.xAxis[0] : o.xAxis;
+    const y = Array.isArray(o.yAxis) ? o.yAxis[0] : o.yAxis;
+    return [`${k}-${c}`, { x: g.width / (x.max - x.min), y: g.height / (y.max - y.min), top: g.top }];
+  })));
+  out.scales = { bounds: scales() };
+  radio('off');
+  await settle();
+  out.scales.off = scales();
+  radio('bounds');
+  await settle();
+  out.scales.back = scales();
   // Hover on one row's strip: its partner spotlights; Pooled asks nothing of the event.
   chartOf('event-trans-yz').fire('mouseover', { seriesId: STRIP, value: [0, 0, 4] });
   out.hover = { transXz: spotData('event-trans-xz'), transYz: spotData('event-trans-yz') };
@@ -386,6 +429,67 @@ if (scenario === 'fallback') {
   const popover = document.body.children.at(-1) ?? null;
   out.popover = popover ? { className: popover.className, html: popover.innerHTML } : null;
   out.yz = groupsOf('yz');
+}
+
+if (scenario === 'race') {
+  // LG-C1, case 1: Off -> Pooled -> Off with the pooled response held in flight.
+  out.before = JSON.parse(JSON.stringify(drawn));
+  gateOn = true;
+  const at = requests.length;
+  radio('pool');
+  await settle(5);
+  radio('off');
+  await settle(5);
+  out.mid = { checkedOff: byId('lgmode-off').checked, held: gates.length };
+  openGates();
+  await settle();
+  out.after = JSON.parse(JSON.stringify(drawn));
+  out.requests = projectionRequests(at);
+  out.yz = groupsOf('yz');
+  await settle();
+  out.later = projectionRequests(at).length;
+}
+
+if (scenario === 'race2') {
+  // LG-C1, case 2: Pooled -> Boundaries -> Pooled with the native response held in flight.
+  radio('pool');
+  await settle();
+  out.pooled = JSON.parse(JSON.stringify(drawn));
+  gateOn = true;
+  const at = requests.length;
+  radio('bounds');
+  await settle(5);
+  radio('pool');
+  await settle(5);
+  out.mid = { held: gates.length };
+  openGates();
+  await settle();
+  out.after = JSON.parse(JSON.stringify(drawn));
+  out.requests = projectionRequests(at);
+  out.yz = groupsOf('yz');
+  await settle();
+  out.later = projectionRequests(at).length;
+}
+
+if (scenario === 'compareEcho') {
+  // f8cc9ee: a compare row whose response does not echo the pooling it was asked
+  // for (the recorded pooled fixtures echo Uniform) is asked once, never again without end.
+  const toggle = byId('opt-compare');
+  toggle.checked = true;
+  toggle.dispatch('change');
+  await settle();
+  radio('pool');
+  await settle();
+  const at = requests.length;
+  byId('lgroups-edit').click();
+  byId('lgroups-shorthand').value = __OTHER__;
+  byId('lgroups-shorthand-apply').click();
+  byId('lgroups-apply').click();
+  await settle(100);
+  out.first = projectionRequests(at);
+  await settle(100);
+  out.later = projectionRequests(at).length;
+  out.echo = drawn['plot-compare-lab-yz'] ?? null;
 }
 
 if (scenario === 'local') {
@@ -440,6 +544,21 @@ def local():
 
 # ------------------------------------------------------------ the control --
 
+@pytest.fixture(scope="module")
+def race():
+    return _run("", "race")
+
+
+@pytest.fixture(scope="module")
+def race2():
+    return _run("#lgmode=bounds", "race2")
+
+
+@pytest.fixture(scope="module")
+def compare_echo():
+    return _run("#lgmode=bounds", "compareEcho")
+
+
 def test_the_control_is_mounted_and_told_the_experiments_layers(modes):
     control = modes["control"]
     assert control["hidden"] is False
@@ -477,7 +596,10 @@ def test_boundaries_draw_the_strip_and_seams_on_both_depth_panels_only(modes):
 
 
 def test_a_boundaries_repaint_stays_inside_the_50_ms_budget(modes):
-    # Headless: the page's own work (specs, options, notes) for both depth panels.
+    # Headless: the page's own work (specs, options, notes) for both depth panels,
+    # the median of nine repaints after a warm-up (LG-C9), never one first sample.
+    assert modes["off"]["samples"] == 9 and modes["back"]["samples"] == 9
+    print(f"Boundaries repaint, median of 9: off {modes['off']['ms']:.2f} ms, back {modes['back']['ms']:.2f} ms")
     assert modes["off"]["ms"] < 50
     assert modes["back"]["ms"] < 50
 
@@ -541,7 +663,7 @@ def test_local_never_pools_and_draws_the_no_grid_badge(local):
     for panel in ("yz", "xz"):
         assert local["local"][panel]["strip"] == 0
         assert local["local"][panel]["seams"] == 0
-        assert local["local"][panel]["badge"].startswith("Layers tilt by each shower")
+        assert local["local"][panel]["badge"].startswith("No common layer grid")
 
 
 # ------------------------------------------------------- the compare grid --
@@ -685,6 +807,17 @@ chart.fire('mouseover', { seriesId: 'layer-groups-strip', value: [0, 0, 5] });
 out.hover = { over: spot(), highlight: panel.lastOpts.layerGroups.highlight };
 chart.fire('mouseout', { seriesId: 'layer-groups-strip' });
 out.hover.out = spot();
+// UI-4: zrender fires no mouseover when the pointer returns to the element it last hovered
+// (after a theme switch); a move over a segment spotlights it, and a second move over the
+// same segment patches nothing.
+const patchesBefore = sets.length;
+chart.fire('mousemove', { seriesId: 'layer-groups-strip', value: [0, 0, 4] });
+out.hover.move = { highlight: panel.lastOpts.layerGroups.highlight, spot: spot(), patches: sets.length - patchesBefore };
+chart.fire('mousemove', { seriesId: 'layer-groups-strip', value: [0, 0, 4] });
+out.hover.moveAgain = sets.length - patchesBefore;
+chart.fire('mousemove', { seriesId: 'raster', value: [0, 0, 9] });
+out.hover.offStrip = panel.lastOpts.layerGroups.highlight;
+chart.fire('mouseout', { seriesId: 'layer-groups-strip' });
 out.hover.fullRedraws = sets.filter((s) => s.flags?.notMerge).length - fulls;
 panel.setLayerGroups(null);
 out.hover.cleared = summary(sets.filter((s) => s.flags?.notMerge).at(-1).option).strip;
@@ -754,7 +887,7 @@ def test_c7_w_has_the_no_grid_badge_and_no_lines(c7):
     w = c7["w"]
     assert w["axis"] == "w"
     assert w["strip"] == 0 and w["seams"] == []
-    assert w["badge"].startswith("Layers tilt by each shower")
+    assert w["badge"].startswith("No common layer grid")
 
 
 def test_the_radial_card_gets_nothing(c7):
@@ -765,3 +898,102 @@ def test_the_radial_card_gets_nothing(c7):
 def test_c7_never_asks_for_a_partition(c7):
     assert c7["request"] is not None
     assert "depth_groups" not in c7["request"]
+
+
+# ------------------------------------------------- Stage 5 review fixes --
+
+def test_lg_c1_leaving_pooled_while_the_pooled_response_is_in_flight_ends_native(race):
+    """Off -> Pooled -> Off, the pooled response held: the 2 x 2 ends on the native raster with no spec."""
+    assert race["before"]["plot-yz"]["n"] == 56
+    assert race["mid"]["checkedOff"] is True and race["mid"]["held"] >= 1
+    for panel in ("plot-yz", "plot-xz"):
+        assert race["after"][panel]["n"] == 56, race["after"]
+        assert race["after"][panel]["spec"] is False
+    assert race["yz"]["strip"] == 0 and race["yz"]["seams"] == 0
+    # One pooled request, then the native one that supersedes it; nothing after.
+    asked = [p.get("depth_groups") for p in race["requests"]]
+    assert asked[0] == UNIFORM_56 and asked[-1] is None, asked
+    assert race["later"] == len(race["requests"])
+
+
+def test_lg_c1_returning_to_pooled_while_the_native_response_is_in_flight_ends_pooled(race2):
+    """Pooled -> Boundaries -> Pooled, the native response held: the 2 x 2 ends on the pooled raster with its spec."""
+    assert race2["pooled"]["plot-yz"]["n"] == 13 and race2["pooled"]["plot-yz"]["pooled"] is True
+    assert race2["mid"]["held"] >= 1
+    for panel in ("plot-yz", "plot-xz"):
+        after = race2["after"][panel]
+        assert after["n"] == 13, race2["after"]
+        assert after["spec"] is True and after["pooled"] is True and after["counts"] == UNIFORM_56
+    assert race2["yz"]["strip"] == 13 and race2["yz"]["seams"] == 0
+    asked = [p.get("depth_groups") for p in race2["requests"]]
+    assert asked[0] is None and asked[-1] == UNIFORM_56, asked
+    assert race2["later"] == len(race2["requests"])
+
+
+def test_a_compare_row_that_does_not_echo_its_pooling_is_not_asked_again_without_end(compare_echo):
+    """f8cc9ee: the pooled fixtures echo Uniform whatever was asked; Apply of another partition asks once per set."""
+    first = compare_echo["first"]
+    assert len(first) == 3, first
+    assert all(p["depth_groups"] == OTHER_56 for p in first)
+    assert compare_echo["later"] == 3, "no further request once the answers landed"
+    echo = compare_echo["echo"]
+    assert echo["n"] == 13 and echo["counts"] == OTHER_56
+    # The response is Uniform's pooled raster, so the asked partition is drawn as a draft, never as pooled.
+    assert echo["pooled"] is False
+
+
+def test_ui6_the_inspectors_nine_panels_keep_one_scale_with_boundaries_on(event):
+    for name in ("bounds", "off", "back"):
+        scales = event["scales"][name]
+        values = [v for v in scales.values() if v]
+        assert len(values) == 9, scales
+        x0 = values[0]["x"]
+        for key, v in scales.items():
+            assert v["x"] == pytest.approx(x0, rel=1e-9), (name, key, scales)
+            assert v["y"] == pytest.approx(v["x"], rel=1e-9), (name, key)
+    # With Boundaries on, the band is reserved on every panel, the XY and u–w panels included.
+    tops_on = {v["top"] for v in event["scales"]["bounds"].values()}
+    tops_off = {v["top"] for v in event["scales"]["off"].values()}
+    assert len(tops_on) == 1 and len(tops_off) == 1
+    assert event["scales"]["bounds"]["lab-xz"]["x"] < event["scales"]["off"]["lab-xz"]["x"]
+    assert event["scales"]["back"] == event["scales"]["bounds"]
+
+
+def test_ui4_c7_a_move_over_a_segment_spotlights_it_after_a_repaint(c7):
+    hover = c7["hover"]
+    assert hover["move"]["highlight"] == 4 and hover["move"]["spot"] == 2
+    assert hover["move"]["patches"] == 1
+    assert hover["moveAgain"] == 1, "the same segment twice patches once"
+    assert hover["offStrip"] == 4, "a move off the strip leaves the spotlight to mouseout"
+
+
+_SHARES_N = r"""
+const [jsRoot, fixtureDir] = JSON.parse(process.argv.at(-1));
+const fs = await import('node:fs');
+const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 'utf8'));
+const cells = await import(`${jsRoot}/event_cells.js`);
+const lg = await import(`${jsRoot}/layer_groups.js`);
+const layer = { mode: 'bounds', counts: lg.uniformCounts(56), highlight: null, onHover: null };
+const trans = load('projections_base_trans');
+// A co-registered response that could co-register one of the selection's two events.
+trans.frame.n_events = 1;
+trans.selection.n_events = 2;
+const lab = load('projections_base_lab');
+const out = {
+  count: [cells.sharesEventCount(trans), cells.sharesEventCount(lab), cells.sharesEventCount({}), cells.sharesEventCount(null)],
+  trans: cells.ensembleLayerOptions(trans, 'yz', layer).layerGroups.groups.map((g) => g.tooltip),
+  lab: cells.ensembleLayerOptions(lab, 'yz', layer).layerGroups.groups.map((g) => g.tooltip),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def test_lg_g6_co_registered_shares_print_the_frames_own_event_count():
+    done = subprocess.run([NODE, "--input-type=module", "-e", _SHARES_N, json.dumps([str(JS), str(PAYLOADS)])],
+                          capture_output=True, text=True, timeout=120, check=False)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert out["count"] == [1, 2, None, None]
+    assert all(" · N = 1 event" in tip and "N = 2 events" not in tip for tip in out["trans"] if "energy:" in tip)
+    assert any("energy:" in tip for tip in out["trans"])
+    assert all(" · N = 2 events" in tip for tip in out["lab"] if "energy:" in tip)

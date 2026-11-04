@@ -27,6 +27,7 @@ import { getJson } from './api.js';
 import { setText, setHidden } from './dom.js';
 import { eventRowLabel, eventSelectionLine } from './frame_views.js';
 import { GRID_ROWS, GRID_COLS, DEPTH_COLS } from './panels/frame_grid.js';
+import { gridReserve } from './panels/depth_groups.js';
 import { EVENT_PANEL_AXES, eventCellTitle, eventCellOptions, eventLayerOptions } from './event_cells.js';
 
 /* The cells' options and titles have one owner, event_cells.js, which the
@@ -201,13 +202,21 @@ export class EventInspector {
   repaintLayerGroups() {
     const payload = this.payload;
     if (!payload) return;
+    const rows = this.rowSpecs(payload);
+    this.grid.setLayerGroups(rows, gridReserve(Object.values(rows).flatMap((specs) => Object.values(specs))));
+  }
+
+  /** Each drawn row's depth specs, `{<kind>: {xz, yz}}`, under the page's mode and partition. */
+  rowSpecs(payload) {
+    const rows = {};
     for (const kind of GRID_ROWS) {
       if (!payload.frames?.[kind]) continue;
       const layer = this.layerOf(kind);
       const specs = {};
       for (const col of DEPTH_COLS) specs[col] = eventLayerOptions(payload, kind, col, layer).layerGroups ?? null;
-      this.grid.setRowLayerGroups(kind, specs);
+      rows[kind] = specs;
     }
+    return rows;
   }
 
   /** The specs the depth cells are drawn with, `{<kind>: {xz, yz}}`, for the drawer (panel_notes.js `eventNotes`). */
@@ -223,6 +232,9 @@ export class EventInspector {
   render(payload) {
     const palette = this.palette();
     const rows = {};
+    // One band above all nine plots, the largest any depth spec reserves, so
+    // the panels keep one millimetre-per-pixel scale with Boundaries on (UI-6).
+    const reserveTop = gridReserve(Object.values(this.rowSpecs(payload)).flatMap((specs) => Object.values(specs)));
     for (const kind of GRID_ROWS) {
       const frame = payload.frames?.[kind];
       if (!frame) continue;
@@ -232,7 +244,7 @@ export class EventInspector {
         cells[col] = {
           title: cellTitle(frame, col),
           payload: frame.panels[col],
-          opts: cellOptions(payload, kind, col, palette, layer),
+          opts: { ...cellOptions(payload, kind, col, palette, layer), reserveTop },
           isometric: true,
         };
       }

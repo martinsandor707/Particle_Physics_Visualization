@@ -112,8 +112,9 @@ import {
   cropToWindow, depthDomain, slicePlan, keepCentre, sliceReadout, sliceRangeText,
 } from './voxels.js';
 import { mutedLine } from './panels/chart_panel.js';
+import { gridReserve } from './panels/depth_groups.js';
 import {
-  ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle,
+  ensembleCellOptions, depthIsometric, eventCellOptions, eventCellTitle, sharesEventCount,
 } from './event_cells.js';
 import {
   voxelEventNotes, voxelEnsembleNotes, voxelProjectionNotes, VOXEL_TITLES, SELECTION_3D_TITLE,
@@ -1171,6 +1172,7 @@ export class VoxelSection {
     if (result.status !== 'fulfilled') {
       pair.payloads.raster = null;
       pair.depthBlock = null;
+      pair.layerSourceAll = null;
       this.emitDepthContext();
       for (const record of pair.cells) this.failCard(record, result.reason);
       return;
@@ -1179,6 +1181,9 @@ export class VoxelSection {
     pair.payloads.raster = raster;
     const frame = raster.frames?.[view.frame];
     const palette = this.value('palette');
+    const source = { layerPlanes: frame?.layer_planes ?? null, frameKind: view.frame, nEvents: 1 };
+    const reserveTop = this.pairReserve(source);
+    pair.layerSourceAll = source;
     for (const record of pair.cells) {
       const col = record.spec.col;
       if (!frame?.panels?.[col]) {
@@ -1188,7 +1193,7 @@ export class VoxelSection {
       try {
         const panel = this.ensureProjection(record);
         panel.isometric = true;
-        const opts = { ...eventCellOptions(raster, view.frame, col, palette), ...this.layerOptions(pair, record, { layerPlanes: frame.layer_planes ?? null, frameKind: view.frame, nEvents: 1 }) };
+        const opts = { ...eventCellOptions(raster, view.frame, col, palette), ...this.layerOptions(pair, record, source), reserveTop };
         panel.render(frame.panels[col], this.withSlab(pair, record, opts));
       } catch (error) {
         // One card that cannot draw says so; its pair and its neighbours still draw.
@@ -1212,6 +1217,7 @@ export class VoxelSection {
     if (result.status !== 'fulfilled') {
       pair.payloads.projections = null;
       pair.depthBlock = null;
+      pair.layerSourceAll = null;
       this.emitDepthContext();
       for (const record of pair.cells) this.failCard(record, result.reason);
       return;
@@ -1220,6 +1226,10 @@ export class VoxelSection {
     pair.payloads.projections = payload;
     const palette = this.value('palette');
     const kind = payload.frame?.kind ?? pair.view.frame;
+    // The shares' own basis: a co-registered frame's count, else the selection's (LG-G6).
+    const source = { depthLayers: payload.depth_layers ?? null, frameKind: kind, nEvents: sharesEventCount(payload) };
+    const reserveTop = this.pairReserve(source);
+    pair.layerSourceAll = source;
     for (const record of pair.cells) {
       const col = record.spec.col;
       const panelPayload = payload.panels?.[col];
@@ -1231,12 +1241,7 @@ export class VoxelSection {
         const panel = this.ensureProjection(record);
         panel.isometric = col === 'xy' || depthIsometric(panel, panelPayload);
         if (col !== 'xy') panel.onRelayout = (p) => { p.isometric = depthIsometric(p, p.payload); };
-        const opts = {
-          ...ensembleCellOptions(payload, col, palette),
-          ...this.layerOptions(pair, record, {
-            depthLayers: payload.depth_layers ?? null, frameKind: kind, nEvents: payload.selection?.n_events ?? null,
-          }),
-        };
+        const opts = { ...ensembleCellOptions(payload, col, palette), ...this.layerOptions(pair, record, source), reserveTop };
         panel.render(panelPayload, this.withSlab(pair, record, opts));
       } catch (error) {
         this.failCard(record, error);
@@ -1844,9 +1849,7 @@ export class VoxelSection {
       pair.depthBlock = block;
       this.emitDepthContext();
     }
-    const resolved = this.state.layerGroups?.() ?? { mode: 'off', counts: null };
-    const mode = effectiveMode(resolved.mode, { page: 'models', frame: source.frameKind });
-    const counts = this.draftCounts?.() ?? resolved.counts;
+    const { mode, counts } = this.drawnLayer(source);
     const panelId = col;
     const where = { panelId, depthLayers: source.depthLayers ?? null, layerPlanes: source.layerPlanes ?? null };
     const spec = panelGroupSpec({
@@ -1856,6 +1859,27 @@ export class VoxelSection {
       },
     });
     return { layerGroups: spec, layerAxis: panelLayerAxis(where) };
+  }
+
+  /** The mode and partition the Models page draws for a source's frame (boundaries only, never pooled). */
+  drawnLayer(source) {
+    const resolved = this.state.layerGroups?.() ?? { mode: 'off', counts: null };
+    return {
+      mode: effectiveMode(resolved.mode, { page: 'models', frame: source.frameKind }),
+      counts: this.draftCounts?.() ?? resolved.counts,
+    };
+  }
+
+  /**
+   * The band a pair's three projections all reserve above their plots
+   * (depth_groups.js `gridReserve`), so the xy and the tilted u–w panel keep
+   * the scale of the panel that draws a strip or a badge (UI-6).
+   */
+  pairReserve(source) {
+    const { mode, counts } = this.drawnLayer(source);
+    return gridReserve(['xz', 'yz'].map((panelId) => panelGroupSpec({
+      mode, counts, panelId, depthLayers: source.depthLayers ?? null, layerPlanes: source.layerPlanes ?? null,
+    })));
   }
 
   /** The depth block the control's ribbon reads: the event pair's, else the ensemble pair's. */
@@ -1872,10 +1896,16 @@ export class VoxelSection {
    */
   setLayerGroups() {
     for (const pair of Object.values(this.pairs)) {
+      const reserveTop = pair.layerSourceAll ? this.pairReserve(pair.layerSourceAll) : null;
       for (const record of pair.cells) {
-        if (record.spec.col === 'xy' || !record.panel || !record.layerSource || record.error) continue;
+        if (!record.panel || record.error) continue;
+        if (record.spec.col === 'xy') {
+          record.panel.setReserveTop?.(reserveTop);
+          continue;
+        }
+        if (!record.layerSource) continue;
         const { layerGroups } = this.layerOptions(pair, record, record.layerSource);
-        record.panel.setLayerGroups(layerGroups);
+        record.panel.setLayerGroups(layerGroups, { reserveTop });
         const payload = pair.name === 'event' && pair.view?.scope !== 'selection'
           ? pair.payloads.raster : pair.payloads.projections;
         this.onRendered(record.spec.id, payload ?? null);
