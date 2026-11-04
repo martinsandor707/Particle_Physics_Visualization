@@ -1208,13 +1208,21 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
     assert max(box["boxWidth"], box["boxDepth"], box["boxHeight"]) == pytest.approx(100)
     # The axes run over the spans shifted by a round origin (P-17), labelled back in the frame's own
     # millimetres: every tick a multiple of a 1-2-5 step, an end labelled only where it is a tick.
+    # The Absolute depth is labelled Z = z − 3649 (CORE_SHIFT_Z_MM): its origin is a round Z, so the
+    # round-tick rules below hold in Z, which `offset` (on that plan only) takes back off raw z.
     lo_, hi_ = option["bounds"]["lo"], option["bounds"]["hi"]
+    from calosrv.db import ddl
+
+    lab = _load(name).get("voxels", {}).get("frame") == "lab"
     for axis, a in zip("zxy", option["axes"]):
         t = option["ticks"][axis]
         step, origin = t["step"], t["origin"]
+        offset = t.get("offset", 0)
+        assert offset == (ddl.CORE_SHIFT_Z_MM if lab and axis == "z" else 0), (name, axis, offset)
         mantissa = step / 10 ** math.floor(math.log10(step))
         assert any(mantissa == pytest.approx(k) for k in (1, 2, 3, 5)), (axis, step)
-        assert origin / step == pytest.approx(round(origin / step)) and origin <= lo_[axis] + 1e-9
+        shown = origin - offset
+        assert shown / step == pytest.approx(round(shown / step)) and origin <= lo_[axis] + 1e-9
         # No explicit interval: echarts-gl would start it at `min`. ECharts' own nice step from
         # splitNumber is `step`, and its ticks sit on the step's multiples.
         assert a["interval"] is None and a["splitNumber"] == t["splitNumber"] and a["min"] >= 0
@@ -1233,7 +1241,7 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
         assert (label_step == step) == (units >= 10), (axis, units, label_step)
         assert label_step * world / span[axis] >= 10 - 1e-9 or label_step == step
         on_tick = lambda v: abs(v / label_step - round(v / label_step)) < 1e-6  # noqa: E731
-        assert a["showMin"] == on_tick(lo_[axis]) and a["showMax"] == on_tick(hi_[axis])
+        assert a["showMin"] == on_tick(lo_[axis] - offset) and a["showMax"] == on_tick(hi_[axis] - offset)
         # The ends are blank unless on the grid (echarts-gl ignores showMin/MaxLabel) ...
         assert (a["labels"][0] != "") == a["showMin"] and (a["labels"][1] != "") == a["showMax"]
         # ... and the ticks read as round millimetres, labelled on the label step.
@@ -1256,13 +1264,15 @@ def test_the_box_is_one_to_one_to_one_in_millimetres(out, name):
 
 def test_event_3s_short_depth_labels_one_tick_in_three(out):
     """The per-axis window gives event 3 a 300 mm depth in a 4,040 mm box: two ticks 200 mm apart
-    would overprint ("3600" over "3800"), so only multiples of 600 mm are labelled."""
+    would overprint, so only multiples of 600 mm are labelled. The depth is the Absolute frame's,
+    labelled Z = z − 3649, so the one labelled tick is Z = 0 (raw z 3649)."""
     option = out["events"]["event_voxels_single_species"]["option"]
     z = option["ticks"]["z"]
     assert option["bounds"]["span"]["z"] == pytest.approx(300)
     assert (z["step"], z["labelStep"]) == (200, 600)
     depth = option["axes"][0]
-    assert [label for label in depth["labels"][2:] if label] == ["3600"]
+    assert [label for label in depth["labels"][2:] if label] == ["0"]
+    assert z["offset"] == 3649 and (z["origin"] - z["offset"]) % z["step"] == 0
     # The long sides keep a label on every tick.
     assert all(option["ticks"][a]["labelStep"] == option["ticks"][a]["step"] for a in "xy")
 
@@ -2319,7 +2329,7 @@ def test_slice_plans_partition_the_domain_and_their_shares_add_up(out, name):
 
 
 def test_the_readouts_display_offset_is_the_servers(out):
-    """The readout's \"z − 3649\" is ddl.CORE_SHIFT_Z_MM, the one display offset (CLAUDE.md §5)."""
+    """The readout's Z = z − 3649 is ddl.CORE_SHIFT_Z_MM, the one display offset (CLAUDE.md §5)."""
     from calosrv.db import ddl
 
     assert out["slices"]["coreShift"] == ddl.CORE_SHIFT_Z_MM
@@ -2401,7 +2411,8 @@ def test_the_readouts_name_depth_layers_and_shares_with_true_minus_signs(out):
     for name, text in readouts:
         assert text.startswith("Slice ") and " — " in text
         lab = name.startswith("event") and _load(name.split("@")[0])["voxels"]["frame"] == "lab"
-        assert ("z − 3649 =" in text) == lab, text
+        # The Absolute frame reads Z first, raw z in brackets: "Z 413.2–618.2 mm (z 4062.2–4267.2 mm)".
+        assert bool(re.search(r"(?:— | · )Z [\d.−]+(–| to )[\d.−]+ mm \(z [\d.−]+(–| to )[\d.−]+ mm\)", text)) == lab, text
         if not name.startswith("event"):
             assert "of the selection's energy" in text
         profile = _profile(name)
@@ -2409,7 +2420,7 @@ def test_the_readouts_name_depth_layers_and_shares_with_true_minus_signs(out):
         numbered = profile["layers_contiguous"] and profile["numbering"] != "w_bins"
         assert ("layer" in text) == numbered, text
     species = [t for n, t in readouts if n == "event_voxels_single_species"]
-    assert species[0].startswith("Slice 1 of 1 — layers 1–6 · z ")
+    assert species[0].startswith("Slice 1 of 1 — layers 1–6 · Z ")
     shap = [t for n, t in readouts if n == "event_voxels_base_local_shapcam"][1]
     assert "of Σ E·Shap-CAM⁺" in shap and "of Σ E·|Shap-CAM⁻|" in shap and "shower A's energy" in shap
     assert any("w −" in t and " to " in t for _, t in readouts)

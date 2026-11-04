@@ -158,6 +158,18 @@ export const PRINT_TOKENS = {
   markCasing: null,
   wedgeAlpha: 0.22,
   wedgeEdge: false,
+
+  /* The Longitudinal Channels on paper, chrome rather than ink, so outside
+   * PRINT_INK: fills 1.10:1 and 1.24:1, the hot fill 1.53:1; the label (the
+   * text ink) 16.1, 14.3 and 11.6:1 on them; edge and seams 4.8:1; the
+   * spotlight's faces in the text ink. */
+  groupStripFillA: '#f3f4f6',
+  groupStripFillB: '#e5e7eb',
+  groupStripEdge: '#6b7280',
+  groupStripText: '#111827',
+  groupStripHot: '#c7d2e0',
+  groupSeam: '#6b7280',
+  groupSpot: '#111827',
 };
 
 /** Logical pixels for a figure of the given printed width. */
