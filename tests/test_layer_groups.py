@@ -255,3 +255,78 @@ def test_a_shower_at_normal_incidence_has_lines_on_both_local_panels():
                                         energy=np.ones(1), p0_z=3662.4, theta=0.0, phi=0.4)
     assert planes["line_panels"] == ["xz", "yz"]
     np.testing.assert_allclose(planes["normal"], [0.0, 0.0, 1.0], atol=1e-15)
+
+
+# ---------------------------------------------- compaction and the yield (LG-C2) --
+
+
+def _figures(value: float) -> int:
+    """Significant figures of a shipped float, as JSON writes it."""
+    digits = repr(abs(float(value))).split("e")[0].replace(".", "").lstrip("0").rstrip("0")
+    return len(digits) or 1
+
+
+def test_per_layer_sums_travel_at_four_figures_and_edges_at_three_decimals():
+    energy = np.array([1.23456789, 0.000987654321, 12345.6789, 0.0, 2.0 / 3.0])
+    planes = layer_profile.layer_planes(
+        "lab", _record(), iz=np.arange(5) + 2, kt=np.arange(5), energy=energy,
+        p0_z=3662.4 + 2 * PITCH, theta=0.0, phi=0.0)
+    shipped = planes["energy_gev"][2:7]
+    assert shipped == [1.235, 0.0009877, 12350.0, 0.0, 0.6667]
+    assert all(_figures(v) <= layer_profile.DIGITS for v in planes["energy_gev"])
+    np.testing.assert_allclose(shipped, energy, rtol=0.5 * 10.0 ** (1 - layer_profile.DIGITS))
+    assert all(round(v, layer_profile.EDGE_DECIMALS) == v for v in planes["edges_mm"])
+    np.testing.assert_allclose(planes["edges_mm"], PRODUCTION_Z.edges, rtol=0, atol=5e-4)
+
+
+def _synthetic_block() -> dict:
+    return {
+        "numbering": "relative", "n_layers": 3, "partition_layers": 60, "pitch_mm": 20.5,
+        "edges_mm": [-10.25, 10.25, 30.75, 51.25], "first_layer": 1, "contiguous": True,
+        "display_offset_mm": None, "symbol": "Δz",
+        "profile": {"numbering": "relative", "energy_gev": [1.0, 2.0, 3.0], "attention": None,
+                    "outside_gev": 0.5, "total_gev": 6.5, "exact": True},
+        "reach": {"n_showers": 4, "counts": [4, 4, 3], "n_without_start": 0, "l_phys": 60,
+                  "note": "…"},
+        "groups": {"counts": [1] * 13, "pooled": True, "bins": [], "beyond_axis": []},
+        "note": "Relative layers 1–3.",
+    }
+
+
+def test_the_trim_helper_keeps_every_scalar_the_edges_and_the_groups():
+    block = _synthetic_block()
+    trimmed, did = layer_profile.trim_depth_layers(block)
+    assert did is True
+    assert trimmed["profile"] is None and trimmed["reach"] is None and trimmed["trimmed"] is True
+    assert trimmed["trim_note"] == layer_profile.TRIM_NOTE
+    assert "kept its resolution" in trimmed["trim_note"]
+    assert {k: v for k, v in trimmed.items() if k not in ("profile", "reach", "trimmed", "trim_note")} \
+        == {k: v for k, v in block.items() if k not in ("profile", "reach")}
+    assert block["profile"] is not None, "the source block is not mutated"
+    coarse, _ = layer_profile.trim_depth_layers(block, coarsened=True)
+    assert coarse["trim_note"] == layer_profile.TRIM_NOTE_COARSENED
+    # Nothing left to trim: returned as it is, and says so.
+    assert layer_profile.trim_depth_layers(trimmed) == (trimmed, False)
+    assert layer_profile.trim_depth_layers(None) == (None, False)
+    body = {"panels": {}, "depth_layers": block}
+    assert layer_profile.trim_body(body) is True and body["depth_layers"]["trimmed"] is True
+    assert layer_profile.trim_body({"depth_layers": None}) is False
+
+
+def test_the_event_trim_helper_drops_only_the_per_layer_energies():
+    kt = np.array([0, 1, 1])
+    planes = {kind: layer_profile.layer_planes(
+        kind, _record(), iz=kt + 10, kt=kt, energy=np.ones(3), p0_z=3662.4 + 10 * PITCH,
+        theta=0.3, phi=1.0) for kind in ("lab", "trans", "local")}
+    trimmed, did = layer_profile.trim_layer_planes(planes)
+    assert did is True
+    for kind, block in trimmed.items():
+        assert block["energy_gev"] is None and block["trimmed"] is True
+        assert block["trim_note"] == layer_profile.TRIM_NOTE_EVENT
+        assert {k: v for k, v in block.items() if k not in ("energy_gev", "trimmed", "trim_note")} \
+            == {k: v for k, v in planes[kind].items() if k != "energy_gev"}
+        assert planes[kind]["energy_gev"] is not None
+    again, did_again = layer_profile.trim_layer_planes(trimmed)
+    assert did_again is False and again == trimmed
+    coarse, _ = layer_profile.trim_layer_planes(planes, coarsened=True)
+    assert all(b["trim_note"] == layer_profile.TRIM_NOTE_EVENT_COARSENED for b in coarse.values())

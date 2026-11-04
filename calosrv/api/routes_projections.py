@@ -17,7 +17,10 @@ stored, the selection's exact energy per layer and, where depth counts from
 each shower's own first layer, the reach. ``depth_groups`` (13 sizes summing
 to the lattice's layer count) pools the YZ and XZ depth axis into those groups
 at render time, from the unpooled cached bundle; the Local frame has no common
-layer grid and refuses it (422, ``field=depth_groups``).
+layer grid and refuses it (422, ``field=depth_groups``). Over the 100 KB
+contract the block yields before the raster: the guard trims its per-layer
+arrays and reach (``layer_profile.trim_body``) and measures the same plan
+again before it lowers R.
 """
 
 from __future__ import annotations
@@ -460,11 +463,24 @@ def get_projections(
 
     body = assemble(plan, render(plan), [])
     size = density.wire_size(body)
+    # Over the contract, the layer block yields before the raster (brief §9.1):
+    # trim it and measure the same plan again. Every later candidate keeps it
+    # trimmed.
+    trimmed = size >= density.RESPONSE_LIMIT and layer_profile.trim_body(body)
+    if trimmed:
+        size = density.wire_size(body)
+
+    def build(plan_used, budget_notes: list[str], coarsened: bool = False) -> dict:
+        built = assemble(plan_used, render(plan_used), budget_notes)
+        if trimmed:
+            layer_profile.trim_body(built, coarsened=coarsened)
+        return built
+
     if size < density.RESPONSE_LIMIT or plan.mode == MODE_NATIVE:
         if size >= density.RESPONSE_LIMIT:
             # The native lattice is the hardware truth and has no coarser form;
             # it is served as measured, and says so.
-            body = assemble(plan, render(plan), [
+            body = build(plan, [
                 f"The native-lattice response measured {size:,} bytes against the "
                 f"{density.RESPONSE_LIMIT:,}-byte contract and is served as it is."
             ])
@@ -487,10 +503,13 @@ def get_projections(
         candidate = dataclasses.replace(
             plan_resolution(record.lattice, display, r), requested=resolution
         )
-        body = assemble(candidate, render(candidate), list(notes))
+        body = build(candidate, list(notes), coarsened=True)
         size = density.wire_size(body)
         if size < density.RESPONSE_LIMIT:
             return body
-    return assemble(candidate, render(candidate), [
+    if r == plan.r_x:
+        # No coarser R was left to try: the plan is served as measured.
+        return build(plan, [f"The response is still {size:,} bytes at R = {r} and is served as it is."])
+    return build(candidate, [
         *notes, f"The response is still {size:,} bytes at R = {r} and is served as it is."
-    ])
+    ], coarsened=True)

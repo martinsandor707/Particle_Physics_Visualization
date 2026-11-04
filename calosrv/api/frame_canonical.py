@@ -675,6 +675,21 @@ def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str
     if size < density.RESPONSE_LIMIT:
         return body
 
+    # The layer block yields before the raster (brief §9.1): trim it, measure
+    # the same guard state again, and keep every later candidate trimmed.
+    trimmed = layer_profile.trim_body(body)
+    if trimmed:
+        size = density.wire_size(body)
+        if size < density.RESPONSE_LIMIT:
+            return body
+
+    def build(rendered: dict[str, Any], budget_notes: list[str],
+              coarsened: bool = False) -> dict[str, Any]:
+        built = assemble(rendered, budget_notes)
+        if trimmed:
+            layer_profile.trim_body(built, coarsened=coarsened)
+        return built
+
     bare = density.wire_size({**body, "panels": {}})
     measured = (
         f"The whole response measured {size:,} bytes against the "
@@ -684,7 +699,7 @@ def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str
     if not guard["fits"]:
         # The panel guard ended over its own, looser limit with no step left
         # or no attempt left; a tighter limit cannot do better.
-        return assemble(rendered, [
+        return build(rendered, [
             f"{measured}; the panel guard had already failed its own limit, so the response is "
             "served as it is."
         ])
@@ -705,6 +720,7 @@ def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str
     ]
     continuous = display == MODE_CONTINUOUS
     whole = size
+    first = rendered
     rendered["notices"] = notes
     for _attempt in range(density.MAX_ATTEMPTS):
         step = rendered["guard"]["next"]
@@ -725,7 +741,7 @@ def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str
                 f"contract ({whole:,}-byte response before merging)."
             )
         rendered["notices"] = [*notes, *rendered["notices"]]
-        body = assemble(rendered, [])
+        body = build(rendered, [], coarsened=True)
         whole = density.wire_size(body)
         if whole < density.RESPONSE_LIMIT:
             return body
@@ -736,6 +752,6 @@ def serve_within_budget(assemble, render, rendered: dict[str, Any], display: str
         )
     else:
         where = f"after {density.MAX_ATTEMPTS} re-renders"
-    return assemble(rendered, [
+    return build(rendered, [
         f"The response is still {whole:,} bytes {where} and is served as it is."
-    ])
+    ], coarsened=rendered is not first)

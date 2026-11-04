@@ -16,7 +16,7 @@ from calosrv.db import ddl, naming, registry
 from calosrv.db.naming import quote
 from calosrv.grid import frame as frame_mod
 from calosrv.grid import layer_groups as lg
-from calosrv.query import density
+from calosrv.query import canonical, density, event_inspector, filters, frame_sql, layer_profile, sampling
 from calosrv.text import signed_hyphens
 from conftest import BASELINE_TABLE, SINGLE_HITS_TABLE
 
@@ -34,6 +34,12 @@ FRAMES = {
 def records(single_client):
     with single_client.app.state.database.read_cursor() as con:
         return {name: registry.require_ready(con, name) for name in (BASELINE_TABLE, SINGLE_HITS_TABLE)}
+
+
+#: The compaction of brief §9.1 (LG-C2): a shipped per-layer sum is within half a unit of its
+#: fourth significant figure of the exact one, and a shipped edge within 0.0005 mm.
+REL = 0.5 * 10.0 ** (1 - layer_profile.DIGITS)
+EDGE_ATOL = 0.5 * 10.0 ** (-layer_profile.EDGE_DECIMALS) + 1e-9
 
 
 def _get(client, params: dict, path: str = "/api/projections") -> dict:
@@ -104,22 +110,23 @@ def test_every_frame_carries_depth_layers_with_its_numbering(single_client, reco
     assert isinstance(block["note"], str) and signed_hyphens(block["note"]) == []
     z = record.lattice.z
     if frame == "lab":
-        np.testing.assert_allclose(block["edges_mm"], z.edges, atol=1e-6)
+        np.testing.assert_allclose(block["edges_mm"], z.edges, rtol=0, atol=EDGE_ATOL)
         assert block["n_layers"] == z.n and block["contiguous"] is False
     elif frame == "canonical":
-        np.testing.assert_allclose(block["edges_mm"], z.edges - z.lo, atol=1e-6)
+        np.testing.assert_allclose(block["edges_mm"], z.edges - z.lo, rtol=0, atol=EDGE_ATOL)
         assert block["n_layers"] == z.n
     elif frame == "trans":
         n = body["frame"]["depth"]["n"]
         assert block["n_layers"] == n and block["contiguous"] is True
-        np.testing.assert_allclose(block["edges_mm"], lg.half_pitch_edges(n, 20.5), atol=1e-6)
+        np.testing.assert_allclose(block["edges_mm"], lg.half_pitch_edges(n, 20.5), rtol=0,
+                                   atol=EDGE_ATOL)
     else:
         assert block["n_layers"] == 0 and block["edges_mm"] is None
     assert (block["reach"] is not None) == (frame in ("trans", "local"))
     profile = block["profile"]
     assert profile["numbering"] == ("detector" if numbering == "detector" else "relative")
     assert sum(profile["energy_gev"]) + profile["outside_gev"] == pytest.approx(
-        profile["total_gev"], rel=1e-9)
+        profile["total_gev"], rel=REL)
     assert profile["attention"] is None
     assert len(json.dumps(block)) < 4000
 
@@ -131,14 +138,33 @@ def test_the_lab_profile_is_the_native_yz_column_sums(single_client, records):
     proj = quote(naming.proj_table(record.table_name))
     rows = dict(_sql(single_client, f"SELECT iz, sum(energy) FROM {proj} GROUP BY iz"))
     expected = [float(rows.get(k, 0.0)) for k in range(record.lattice.z.n)]
-    np.testing.assert_allclose(profile["energy_gev"], expected, rtol=1e-9, atol=1e-15)
+    np.testing.assert_allclose(profile["energy_gev"], expected, rtol=REL, atol=1e-15)
     assert profile["outside_gev"] == 0.0 and profile["exact"] is True
     assert profile["total_gev"] == pytest.approx(sum(expected), rel=1e-9)
 
 
-def test_a_preview_profile_is_marked_inexact(single_client):
-    body = _get(single_client, {**BASE, "preview": "true"})
-    assert body["depth_layers"]["profile"]["exact"] is body["meta"]["exact"]
+@pytest.mark.parametrize("frame, pooled", [
+    ("lab", False), ("lab", True), ("canonical", False), ("canonical", True),
+    ("trans", False), ("trans", True), ("local", False),
+])
+def test_a_preview_profile_is_marked_inexact(single_client, records, monkeypatch, frame, pooled):
+    """LG-C4: the demonstration file is far below the sampling threshold, so lower it and
+    make the preview really sample; a profile summed from the sample must say so."""
+    monkeypatch.setattr(sampling, "SAMPLE_THRESHOLD_ROWS", 0)
+    params = {**BASE, **FRAMES[frame], "preview": "true"}
+    if pooled:
+        params["depth_groups"] = _uniform(records[BASELINE_TABLE])
+    body = _get(single_client, params)
+    profile = body["depth_layers"]["profile"]
+    if frame == "local":
+        # The stated choice: Local's profile is summed from the ingest-time per-shower
+        # layer table over every selected event, never from the sampled hits, so it is
+        # exact even while the preview's rasters are not.
+        assert profile["exact"] is True
+        return
+    assert body["meta"]["exact"] is False
+    assert profile["exact"] is False
+    assert (body["depth_layers"]["groups"] is not None) is pooled
 
 
 def test_the_shapcam_profile_keeps_its_signed_parts_apart(single_client):
@@ -150,7 +176,7 @@ def test_the_shapcam_profile_keeps_its_signed_parts_apart(single_client):
         assert attention["total"] == pytest.approx(
             attention["positive_total"] - attention["negative_total"], rel=1e-9, abs=1e-15)
         assert sum(attention["positive"]) + attention["positive_outside"] == pytest.approx(
-            attention["positive_total"], rel=1e-9)
+            attention["positive_total"], rel=REL)
     grad = _get(single_client, {**BASE, "channel": "gradcam"})["depth_layers"]["profile"]["attention"]
     assert grad["signed"] is False and grad["quantity"] == "Σ E·Grad-CAM"
 
@@ -198,7 +224,7 @@ def test_a_pooled_response_has_13_depth_bins_at_the_stored_edges(single_client, 
     for name in ("yz", "xz"):
         panel = pooled["panels"][name]
         assert panel["shape"][1] == 13 == panel["axes"]["col"]["n"]
-        np.testing.assert_allclose(_col_edges(panel), expected, atol=1e-6)
+        np.testing.assert_allclose(_col_edges(panel), expected, rtol=0, atol=EDGE_ATOL)
         # Rows are untouched.
         assert panel["shape"][0] == native["panels"][name]["shape"][0]
     assert pooled["panels"]["xy"] == native["panels"]["xy"]
@@ -290,14 +316,15 @@ def test_event_frames_carry_layer_planes(single_client, records):
     lab, trans, local = (body["frames"][k]["layer_planes"] for k in ("lab", "trans", "local"))
     z = record.lattice.z
     assert lab["numbering"] == "detector" and lab["normal"] == [0.0, 0.0, 1.0]
-    np.testing.assert_allclose(lab["edges_mm"], z.edges, atol=1e-6)
+    np.testing.assert_allclose(lab["edges_mm"], z.edges, rtol=0, atol=EDGE_ATOL)
     assert lab["n_layers"] == z.n and lab["display_offset_mm"] == ddl.CORE_SHIFT_Z_MM
-    assert sum(lab["energy_gev"]) == pytest.approx(shower["energy_gev"], rel=1e-9)
+    assert sum(lab["energy_gev"]) == pytest.approx(shower["energy_gev"], rel=REL)
     assert lab["start_layer"] == int(z.index_of(np.array([shower["first_layer_z"]]))[0]) + 1
     for planes in (trans, local):
         assert planes["numbering"] == "relative"
-        assert sum(planes["energy_gev"]) == pytest.approx(shower["energy_gev"], rel=1e-9)
-        np.testing.assert_allclose(planes["edges_mm"], lg.half_pitch_edges(planes["n_layers"], 20.5))
+        assert sum(planes["energy_gev"]) == pytest.approx(shower["energy_gev"], rel=REL)
+        np.testing.assert_allclose(planes["edges_mm"], lg.half_pitch_edges(planes["n_layers"], 20.5),
+                                   rtol=0, atol=EDGE_ATOL)
         assert planes["reach_layers"] == lg.physical_layers(z.lo, z.hi, 20.5) - lg.start_layer(
             shower["first_layer_z"], z.lo, 20.5)
         assert planes["display_offset_mm"] is None
@@ -307,3 +334,204 @@ def test_event_frames_carry_layer_planes(single_client, records):
     assert local["line_panels"] == (["xz"] if theta != 0.0 else ["xz", "yz"])
     assert local["tilt"]["theta"] == pytest.approx(theta)
     assert local["tilt"]["pitch_along_w_mm"] == pytest.approx(20.5 / math.cos(theta))
+
+
+def test_the_reach_note_agrees_with_its_count(single_client):
+    """LG-G7: one shower kind writes 'showers', one shower of a pair is named."""
+    single = _get(single_client, {**HITS, "coord_system": "trans"})["depth_layers"]["reach"]
+    assert single["note"].endswith(f"of the selection's {single['n_showers']:,} showers reach it.")
+    both = _get(single_client, {**BASE, "coord_system": "trans"})["depth_layers"]["reach"]
+    assert both["note"].endswith(f"of the selection's {both['n_showers']:,} showers A and B reach it.")
+    for shower in ("a", "b"):
+        one = _get(single_client, {**BASE, "depth": "native", "shower": shower},
+                   "/api/profiles")["depth_layers"]["reach"]
+        assert one["note"].endswith(
+            f"of the selection's {one['n_showers']:,} showers {shower.upper()} reach it.")
+    c7 = _get(single_client, {**HITS, "depth": "native"}, "/api/profiles")["depth_layers"]["reach"]
+    assert " shower reach " not in c7["note"] and c7["note"].endswith("showers reach it.")
+
+
+# ---------------------------------------------- compaction and the 100 KB yield (LG-C2) --
+
+
+def _figures(value: float) -> int:
+    """Significant figures of a shipped float, as JSON writes it."""
+    digits = repr(abs(float(value))).split("e")[0].replace(".", "").lstrip("0").rstrip("0")
+    return len(digits) or 1
+
+
+def _per_layer_arrays(profile: dict) -> list[list[float]]:
+    arrays = [profile["energy_gev"]]
+    attention = profile["attention"]
+    if attention is not None:
+        arrays += [attention[k] for k in ("values", "positive", "negative") if k in attention]
+    return arrays
+
+
+@pytest.mark.parametrize("frame", list(FRAMES))
+def test_the_layer_blocks_travel_compacted(single_client, frame):
+    for channel in ("density", "gradcam", "shapcam_energy"):
+        block = _get(single_client, {**BASE, **FRAMES[frame], "channel": channel})["depth_layers"]
+        for values in _per_layer_arrays(block["profile"]):
+            assert values and all(_figures(v) <= layer_profile.DIGITS for v in values)
+        if block["edges_mm"] is not None:
+            assert all(round(v, layer_profile.EDGE_DECIMALS) == v for v in block["edges_mm"])
+        assert "trimmed" not in block and "trim_note" not in block
+    planes = _get(single_client, {**BASE, "event_number": 0, "shower": "a"}, "/api/event")["frames"]
+    for kind in ("lab", "trans", "local"):
+        block = planes[kind]["layer_planes"]
+        assert all(_figures(v) <= layer_profile.DIGITS for v in block["energy_gev"])
+        assert all(round(v, layer_profile.EDGE_DECIMALS) == v for v in block["edges_mm"])
+        assert "trimmed" not in block
+
+
+def _shapes(body: dict) -> dict:
+    return {name: body["panels"][name]["shape"] for name in ("xy", "yz", "xz")}
+
+
+def _steps(body: dict) -> list[str]:
+    return [n["text"] for n in body["meta"]["notices"]
+            if n["scope"] == "resolution" and ("lowered" in n["text"] or "merged" in n["text"])]
+
+
+def _trimmed_size(body: dict) -> int:
+    block, did = layer_profile.trim_depth_layers(body["depth_layers"])
+    assert did
+    return density.wire_size({**body, "depth_layers": block})
+
+
+@pytest.mark.parametrize("frame", list(FRAMES))
+def test_over_the_contract_the_layer_block_yields_before_the_raster(single_client, monkeypatch, frame):
+    params = {**BASE, **FRAMES[frame], "display": "continuous", "resolution": 100,
+              "channel": "shapcam_energy"}
+    full = _get(single_client, params)
+    assert "trimmed" not in full["depth_layers"]
+    size, trimmed_size = density.wire_size(full), _trimmed_size(full)
+    assert trimmed_size < size - 300
+    # Between the two: over with the block, under without its arrays.
+    monkeypatch.setattr(density, "RESPONSE_LIMIT", (size + trimmed_size) // 2)
+    body = _get(single_client, params)
+    block = body["depth_layers"]
+    assert block["trimmed"] is True and block["profile"] is None and block["reach"] is None
+    assert block["trim_note"] == layer_profile.TRIM_NOTE
+    assert {k: v for k, v in block.items() if k not in ("profile", "reach", "trimmed", "trim_note")} \
+        == {k: v for k, v in full["depth_layers"].items() if k not in ("profile", "reach")}
+    assert _shapes(body) == _shapes(full) and body["meta"]["resolution"] == full["meta"]["resolution"]
+    # No step of its own: only the panel guard's, which the full body took as well.
+    assert _steps(body) == _steps(full)
+    assert not any("served as it is" in n["text"] or "whole response measured" in n["text"]
+                   for n in body["meta"]["notices"])
+    assert density.wire_size(body) < density.RESPONSE_LIMIT
+
+
+@pytest.mark.parametrize("frame", ["lab", "canonical", "trans"])
+def test_still_over_after_the_trim_the_raster_coarsens_and_the_block_stays_trimmed(
+        single_client, monkeypatch, frame):
+    params = {**BASE, **FRAMES[frame], "display": "continuous", "resolution": 300}
+    full = _get(single_client, params)
+    monkeypatch.setattr(density, "RESPONSE_LIMIT", _trimmed_size(full) - 200)
+    body = _get(single_client, params)
+    block = body["depth_layers"]
+    assert block["trimmed"] is True and block["profile"] is None
+    assert block["trim_note"] == layer_profile.TRIM_NOTE_COARSENED
+    assert any("Resolution lowered" in text for text in _steps(body))
+    assert density.wire_size(body) < density.RESPONSE_LIMIT
+
+
+def test_a_native_lab_response_yields_its_block_before_it_is_served_over(single_client, monkeypatch):
+    params = {**BASE, "display": "native", "channel": "gradcam"}
+    full = _get(single_client, params)
+    size, trimmed_size = density.wire_size(full), _trimmed_size(full)
+    monkeypatch.setattr(density, "RESPONSE_LIMIT", (size + trimmed_size) // 2)
+    fits = _get(single_client, params)
+    assert fits["depth_layers"]["trimmed"] is True
+    assert not any("served as it is" in n["text"] for n in fits["meta"]["notices"])
+    assert _shapes(fits) == _shapes(full)
+    # Below even the trimmed body: the native lattice has no coarser form, so it is served
+    # as measured, trimmed, and its note says the raster kept its resolution.
+    monkeypatch.setattr(density, "RESPONSE_LIMIT", trimmed_size - 200)
+    over = _get(single_client, params)
+    assert over["depth_layers"]["trim_note"] == layer_profile.TRIM_NOTE
+    assert any("served as it is" in n["text"] for n in over["meta"]["notices"])
+    assert _shapes(over) == _shapes(full)
+
+
+def test_an_event_over_the_contract_yields_its_layer_planes_before_the_grids(single_client, records):
+    record = records[BASELINE_TABLE]
+    with single_client.app.state.database.read_cursor() as con:
+        spec = filters.build(record)
+        footprint = canonical.cell_footprint(con, record)
+
+        def run(limit=None):
+            return event_inspector.inspect(con, record, spec, 0, "a", frame_sql.SOURCE_FILE,
+                                           footprint, limit=limit)
+
+        full = run()
+        # The guard measures the figure before the event's own metadata joins it.
+        measured = {k: full[k] for k in ("frames", "scale", "grid")}
+        planes, _ = layer_profile.trim_layer_planes(
+            {k: f["layer_planes"] for k, f in full["frames"].items()})
+        trimmed = {**measured, "frames": {k: {**f, "layer_planes": planes[k]}
+                                          for k, f in full["frames"].items()}}
+        size, trimmed_size = density.wire_size(measured), density.wire_size(trimmed)
+        assert trimmed_size < size - 300
+        mid = run((size + trimmed_size) // 2)
+        assert mid["grid"]["pitch_mm"] == full["grid"]["pitch_mm"] and mid["grid"]["notes"] == []
+        for kind, frame in mid["frames"].items():
+            block = frame["layer_planes"]
+            assert block["energy_gev"] is None and block["trimmed"] is True
+            assert block["trim_note"] == layer_profile.TRIM_NOTE_EVENT
+            assert block["edges_mm"] == full["frames"][kind]["layer_planes"]["edges_mm"]
+            assert frame["panels"] == full["frames"][kind]["panels"]
+        tight = run(trimmed_size - 200)
+        assert tight["grid"]["pitch_mm"] > full["grid"]["pitch_mm"]
+        assert all(f["layer_planes"]["trim_note"] == layer_profile.TRIM_NOTE_EVENT_COARSENED
+                   for f in tight["frames"].values())
+
+
+def _guard_cases() -> list[tuple[str, str, str, int]]:
+    cases = []
+    for frame in FRAMES:
+        for channel in ("density", "gradcam", "gradcam_energy", "shapcam", "shapcam_energy"):
+            cases += [(BASELINE_TABLE, frame, channel, r) for r in (300, 350, 400)]
+    for frame in ("lab", "trans", "local"):
+        cases += [(SINGLE_HITS_TABLE, frame, "density", r) for r in (300, 350, 400)]
+    return cases
+
+
+def test_the_layer_blocks_never_lower_the_served_resolution(single_client, monkeypatch):
+    """LG-C2's regression: the continuous R 300/350/400 views of every channel are served at
+    the resolution they would have without the layer block (``depth_layers`` patched away).
+    Before the yield, Absolute gradcam_energy and shapcam_energy at R = 350 stepped to 262."""
+    def served(case):
+        table, frame, channel, r = case
+        body = _get(single_client, {"table_name": table, **FRAMES[frame], "channel": channel,
+                                    "display": "continuous", "resolution": r})
+        assert density.wire_size(body) < density.RESPONSE_LIMIT
+        return _shapes(body), len(_steps(body))
+
+    cases = _guard_cases()
+    with_block = {case: served(case) for case in cases}
+    monkeypatch.setattr(layer_profile, "depth_layers", lambda *a, **k: None)
+    without = {case: served(case) for case in cases}
+    moved = [case for case in cases if with_block[case] != without[case]]
+    assert moved == [], moved
+    # The fixture holds views the guard has to step at all, so the comparison has teeth.
+    assert any(steps for _, steps in without.values())
+
+
+def test_the_layer_planes_never_coarsen_the_event_grids(single_client, monkeypatch):
+    events = [row[0] for row in _sql(
+        single_client, f"SELECT event_number FROM {quote(naming.event_table(BASELINE_TABLE))} "
+        "WHERE d IS NOT NULL ORDER BY event_number")]
+    cases = [(e, s, w) for e in events for s in ("a", "b") for w in ("shared", "per_axis")]
+
+    def pitch(case):
+        event, shower, window = case
+        return _get(single_client, {**BASE, "event_number": event, "shower": shower,
+                                    "window": window}, "/api/event")["grid"]["pitch_mm"]
+
+    with_planes = {case: pitch(case) for case in cases}
+    monkeypatch.setattr(layer_profile, "layer_planes", lambda *a, **k: None)
+    without = {case: pitch(case) for case in cases}
+    assert with_planes == without

@@ -90,6 +90,10 @@ DELIBERATE = (
     "cube's value as its top), so /api/event, /api/window-axis and /api/event/pick are unchanged.",
     "layer-groups, 2026-11-04: /api/projections carries depth_layers; /api/event carries "
     "frames.<kind>.layer_planes; nothing else moves.",
+    "layer-groups compaction (LG-C2, 2026-11-04): per-layer arrays at 4 significant figures and "
+    "edges at 3 decimals (depth_layers.profile.energy_gev and .attention arrays, "
+    "depth_layers.edges_mm, frames.<kind>.layer_planes.energy_gev and .edges_mm); the scalar "
+    "totals and every other value are unchanged.",
 )
 
 #: The demonstration file holds two events (E1 2.71 and 17.88 GeV).
