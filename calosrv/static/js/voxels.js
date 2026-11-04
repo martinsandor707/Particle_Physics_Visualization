@@ -98,6 +98,7 @@ import {
 } from './scale.js';
 import { QUALITATIVE } from './palette.js';
 import { measureText } from './textfit.js';
+import { CORE_SHIFT_Z_MM } from './axis_symbols.js';
 import { tooltipOption } from './panels/tooltip.js';
 import { escapeHtml, mutedLine, wrapTooltip, isPrintTheme, onLightCard } from './panels/chart_panel.js';
 
@@ -214,8 +215,9 @@ export function glFrame(box, ticks = null, names = null, cloud = null) {
   const axis = (plan, name) => {
     const labels = [];
     if (plan) {
-      const lo = plan.min + plan.origin;
-      const hi = plan.max + plan.origin;
+      // In the axis's labelled coordinate: Z on the Absolute depth (`axisTicks` offset).
+      const lo = plan.min + plan.origin - (plan.offset ?? 0);
+      const hi = plan.max + plan.origin - (plan.offset ?? 0);
       const step = plan.labelStep ?? plan.step;
       if (hi > lo && step > 0 && (hi - lo) / step < 200) {
         for (let k = Math.ceil(lo / step - 1e-6); k * step <= hi + step * 1e-6; k += 1) {
@@ -516,14 +518,15 @@ export function legendStrip(legend, mid = null) {
 export function voxelFit(model, palette = 'viridis') {
   const { lo, hi, span } = voxelBounds(model);
   const box = boxSizes(span);
+  const offset = depthOffset(model);
   const ticks = {
-    z: axisTicks(lo.z, hi.z, box.boxWidth),
+    z: axisTicks(lo.z, hi.z, box.boxWidth, { offset }),
     x: axisTicks(lo.x, hi.x, box.boxDepth),
     y: axisTicks(lo.y, hi.y, box.boxHeight),
   };
   const legend = voxelLegend(model, palette);
   return {
-    frame: glFrame(box, ticks, model.symbols ? axisNames(model.symbols) : null, cloudExtent(model, lo, box)),
+    frame: glFrame(box, ticks, model.symbols ? axisNames(model.symbols, { offset }) : null, cloudExtent(model, lo, box)),
     right: legendStrip(legend, legend ? rampMidLabel(model.scale) : null),
   };
 }
@@ -1114,12 +1117,18 @@ export function cubeWireframe(model, i, lo, pad = HALO_PAD) {
  */
 
 /**
- * The display offset of the front face below raw z (`ddl.CORE_SHIFT_Z_MM`,
- * the producer's `core.SHIFT_Z`): a card that quotes depth below the front
- * face writes it `z − 3649`, and only in the Absolute frame, whose depth is
- * raw z. Nothing is computed in it.
+ * The display offset of the Absolute frame's depth (`ddl.CORE_SHIFT_Z_MM`,
+ * the producer's `core.SHIFT_Z`), owned by axis_symbols.js and re-exported
+ * here: the Absolute 3-D depth axis and the slice readout write Z = z − 3649,
+ * and only in the Absolute frame, whose depth is raw z. Nothing is computed
+ * in it.
  */
-export const CORE_SHIFT_Z_MM = 3649;
+export { CORE_SHIFT_Z_MM };
+
+/** The depth offset a model's axis is labelled with: CORE_SHIFT_Z_MM on the Absolute frame's raw z, else 0. */
+export function depthOffset(model) {
+  return model?.frame === 'lab' && (model.symbols?.z ?? 'z') === 'z' ? CORE_SHIFT_Z_MM : 0;
+}
 
 /** The depth profile of a voxel payload: inside `voxels` on one event, top level on the cloud. */
 function profileOf(payload) {
@@ -1372,14 +1381,18 @@ function spanText(lo, hi) {
   return lo < 0 || hi < 0 ? `${depthText(lo)} to ${depthText(hi)}` : `${depthText(lo)}–${depthText(hi)}`;
 }
 
-/** A slice's depth range, "z 4062.2–4267.2 mm" in the frame's own symbol, plus "z − 3649" in the Absolute frame. */
+/**
+ * A slice's depth range in the frame's own symbol, "z′ 0.0–184.5 mm"; in the
+ * Absolute frame Z first, "Z 413.2–618.2 mm (z 4062.2–4267.2 mm)", with
+ * Z = z − CORE_SHIFT_Z_MM as the depth axis writes it.
+ */
 export function sliceRangeText(plan) {
   if (!plan) return '';
-  let text = `${plan.symbol} ${spanText(plan.loMm, plan.hiMm)} mm`;
+  const raw = `${plan.symbol} ${spanText(plan.loMm, plan.hiMm)} mm`;
   if (plan.frame === 'lab') {
-    text += ` (${plan.symbol} − ${CORE_SHIFT_Z_MM} = ${spanText(plan.loMm - CORE_SHIFT_Z_MM, plan.hiMm - CORE_SHIFT_Z_MM)} mm)`;
+    return `Z ${spanText(plan.loMm - CORE_SHIFT_Z_MM, plan.hiMm - CORE_SHIFT_Z_MM)} mm (${raw})`;
   }
-  return text;
+  return raw;
 }
 
 /** The layers of a slice, "layers 21–30" (own layers in the per-shower translated frame), or '' where unnumbered. */
@@ -1403,8 +1416,8 @@ export function sliceAttentionText(plan) {
 }
 
 /**
- * The slice readout: "Slice 3 of 6 — layers 21–30 · z 4062.2–4267.2 mm
- * (z − 3649 = 413.2–618.2 mm) · 31.2% of the event's energy", plus the
+ * The slice readout: "Slice 3 of 6 — layers 21–30 · Z 413.2–618.2 mm
+ * (z 4062.2–4267.2 mm) · 31.2% of the event's energy", plus the
  * channel's shares. Layer numbers only where the layers are contiguous; depth
  * alone otherwise. Every number through scale.js / format.js.
  */
@@ -1582,16 +1595,23 @@ export const MIN_LABEL_UNITS = 10;
  * of it on a side too short for every tick to carry a label
  * (`MIN_LABEL_UNITS`); every tick is still drawn.
  */
-export function axisTicks(lo, hi, world = BOX_UNITS) {
+export function axisTicks(lo, hi, world = BOX_UNITS, { offset = 0 } = {}) {
   const splitNumber = Math.max(2, Math.round((5 * world) / BOX_UNITS));
   const step = niceStep(hi - lo, splitNumber);
-  const origin = Math.floor(lo / step + 1e-9) * step;
+  // With an `offset` (the Absolute depth, labelled Z = z − offset) the round
+  // origin is a round Z, so the ticks fall on round Z values; cubes are still
+  // placed at raw mm − origin, and the labels read Z.
+  const shift = Number.isFinite(offset) ? offset : 0;
+  const origin = Math.floor((lo - shift) / step + 1e-9) * step + shift;
   const units = hi > lo ? (step * world) / (hi - lo) : Infinity;
   const labelStep = units >= MIN_LABEL_UNITS ? step : step * Math.ceil(MIN_LABEL_UNITS / units);
-  return {
+  const plan = {
     step, labelStep, origin, splitNumber, min: lo - origin, max: hi - origin,
-    showMin: onStep(lo, labelStep), showMax: onStep(hi, labelStep),
+    showMin: onStep(lo - shift, labelStep), showMax: onStep(hi - shift, labelStep),
   };
+  // Only a shifted axis carries the key, so every other plan is as it was.
+  if (shift) plan.offset = shift;
+  return plan;
 }
 
 /** A grid3D value axis on a tick plan (`axisTicks`), labelled in the frame's own millimetres. */
@@ -1617,8 +1637,11 @@ function axis3D(name, ticks, { nameGap = null } = {}) {
       // echarts-gl ignores showMin/MaxLabel and labels the axis ends it adds, so an end
       // off the step grid is blanked here: only the round ticks are labelled.
       // On a short side only every labelStep-th millimetre is labelled (`axisTicks`).
-      formatter: (v) => (onStep(Number(v) + ticks.origin, ticks.labelStep ?? ticks.step)
-        ? typographic(String(Math.round(Number(v) + ticks.origin))) : ''),
+      // A shifted axis (the Absolute depth) labels Z = mm − offset.
+      formatter: (v) => {
+        const value = Number(v) + ticks.origin - (ticks.offset ?? 0);
+        return onStep(value, ticks.labelStep ?? ticks.step) ? typographic(String(Math.round(value))) : '';
+      },
     },
     splitLine: { show: false },
     splitArea: { show: false },
@@ -1626,10 +1649,13 @@ function axis3D(name, ticks, { nameGap = null } = {}) {
   };
 }
 
-/** Axis titles of the three display axes, by the frame's symbols. */
-export function axisNames(symbols) {
+/**
+ * Axis titles of the three display axes, by the frame's symbols; with a depth
+ * `offset` (the Absolute frame) the depth reads "Z = z − 3649 — depth [mm]".
+ */
+export function axisNames(symbols, { offset = 0 } = {}) {
   return {
-    depth: `${symbols.z} — depth [mm]`,
+    depth: offset ? `Z = ${symbols.z} − ${Math.round(offset)} — depth [mm]` : `${symbols.z} — depth [mm]`,
     x: `${symbols.x} [mm]`,
     y: `${symbols.y} [mm]`,
   };
@@ -1709,9 +1735,11 @@ export function voxelOption(model, {
   const bounds = voxelBounds(model);
   const { lo, hi, span } = bounds;
   const box = boxSizes(span);
-  // Round ticks: each axis is shifted by its tick plan's round origin, not by the box minimum.
+  // Round ticks: each axis is shifted by its tick plan's round origin, not by the box minimum;
+  // the Absolute depth's origin is a round Z = z − 3649, so its labels read Z.
+  const offset = depthOffset(model);
   const ticks = {
-    z: axisTicks(lo.z, hi.z, box.boxWidth),
+    z: axisTicks(lo.z, hi.z, box.boxWidth, { offset }),
     x: axisTicks(lo.x, hi.x, box.boxDepth),
     y: axisTicks(lo.y, hi.y, box.boxHeight),
   };
@@ -1773,7 +1801,7 @@ export function voxelOption(model, {
     }
   }
 
-  const names = axisNames(model.symbols);
+  const names = axisNames(model.symbols, { offset });
   const legend = voxelLegend(model, palette);
   // A diverging ramp marks its zero ("0", or the undrawn ±10⁻³ band), as the 2-D panels do.
   const mid = legend ? rampMidLabel(model.scale) : null;

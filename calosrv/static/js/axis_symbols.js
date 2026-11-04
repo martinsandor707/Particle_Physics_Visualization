@@ -18,6 +18,18 @@
 
 export const SEPARATION_AXIS = 'D';
 
+/**
+ * The display offset of the Absolute frame's depth (`ddl.CORE_SHIFT_Z_MM`, the
+ * producer's `core.SHIFT_Z`): the depth axes, the 3-D view and the readouts
+ * write Z = z − 3649 mm, a label transform only. The data and every overlay
+ * stay raw z (CLAUDE.md section 5, the z convention), and the co-registered
+ * frames (z′, Δz, w) are never shifted.
+ */
+export const CORE_SHIFT_Z_MM = 3649;
+
+/** The symbol the shifted Absolute depth is written with. */
+export const SHIFTED_DEPTH = 'Z';
+
 /** Fallback symbols per frame kind, for a payload that carries none. */
 export const FRAME_SYMBOLS = Object.freeze({
   lab: { x: 'x', y: 'y', z: 'z' },

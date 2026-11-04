@@ -40,6 +40,25 @@
  * The bin readout answers everywhere on the plot. On an overlay's drawn ink the
  * overlay's own text leads it; the ensemble wedges are silent and are named in
  * the readout instead (see `attachCellTooltip`).
+ *
+ * ## The Absolute depth reads Z = z − 3649
+ *
+ * The Absolute frame's depth panels keep raw z as data - the raster, every
+ * overlay and the zoom window are raw z - and label the axis in
+ * Z = z − CORE_SHIFT_Z_MM (axis_symbols.js): its title, round Z ticks placed
+ * through ECharts 5.6's `customValues` (scale.js `spatialAxis` `offset`), and
+ * a readout that writes "Z = … mm (z = … mm)". An ensemble depth axis starts
+ * at Z = 0; an event window keeps the bounds the server cut. The co-registered
+ * frames (z′, Δz, w) are never shifted.
+ *
+ * ## Longitudinal Channels
+ *
+ * `opts.layerGroups` is a spec of `layer_groups.panelGroupSpec`. Its strip is
+ * drawn in a band reserved above the plot (`gridRect`, `exportMetrics`), never
+ * over the raster; its seams, tilted planes and spotlight are marks and follow
+ * the Marks toggle. `setLayerGroups` and `setGroupHighlight` redraw from the
+ * payload in hand, with no request. `opts.layerAxis` (`panelLayerAxis`) lets a
+ * panel with no partition drawn still name the layer under the pointer.
  */
 
 import {
@@ -57,7 +76,9 @@ import {
 } from './canonical_overlays.js';
 import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
-import { axisSymbol, panelOf } from '../axis_symbols.js';
+import { CORE_SHIFT_Z_MM, axisSymbol, panelOf } from '../axis_symbols.js';
+import { layerReadout, depthPointText, withHighlight } from '../layer_groups.js';
+import { layerGroupSeries, localBadge, stripReserve, STRIP_ID, SPOT_ID } from './depth_groups.js';
 import {
   PREFER_POINTER, hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition,
 } from './tooltip.js';
@@ -113,6 +134,35 @@ const COMPACT_LABEL_WIDTH = 420;
 function axisLabel(symbol, compact = false) {
   if (compact && AXIS_LABEL_COMPACT[symbol]) return AXIS_LABEL_COMPACT[symbol];
   return AXIS_LABEL[symbol] || symbol;
+}
+
+/**
+ * The title of a depth axis labelled in Z = z − offset: "Z = z − 3649 — depth
+ * [mm]", or "Z — depth [mm]" on a plot too small for it. The data stay raw z;
+ * the Details drawer states the convention.
+ */
+function shiftedDepthLabel(offset, compact = false) {
+  return compact ? 'Z — depth [mm]' : `Z = z − ${Math.round(offset)} — depth [mm]`;
+}
+
+/**
+ * The display offset of a panel's depth axis (mm): `opts.depthOffset` when
+ * the caller gives a number, else `CORE_SHIFT_Z_MM` where the column is the
+ * Absolute frame's raw depth (axis `z` written `z`), else 0. The co-registered
+ * frames write z′, Δz or w and are never shifted.
+ */
+function depthOffsetOf(payload, opts) {
+  if (Number.isFinite(opts?.depthOffset)) return opts.depthOffset;
+  const col = payload?.axes?.col;
+  if (!col || col.name !== 'z') return 0;
+  return displaySymbols(payload, opts).col === 'z' ? CORE_SHIFT_Z_MM : 0;
+}
+
+/** The layer-group spec of a panel's options, when it belongs on this payload's depth panel. */
+function groupSpecOf(payload, opts) {
+  const spec = opts?.layerGroups ?? null;
+  if (!spec || payload?.axes?.col?.name !== 'z') return null;
+  return spec.panelId && spec.panelId !== panelOf(payload.axes) ? null : spec;
 }
 
 /**
@@ -233,6 +283,34 @@ export class ProjectionPanel {
     this.onViewChange = null;
     window.addEventListener('resize', () => this.chart.resize());
     this.observeResize();
+    this.attachGroupHover();
+  }
+
+  /**
+   * Hovering a segment of the Longitudinal Channels strip spotlights its
+   * group: the spec's `onHover(group | null)` when the caller links several
+   * panels, else this panel's own `setGroupHighlight`. Chart events persist
+   * across options, so this is attached once.
+   */
+  attachGroupHover() {
+    if (typeof this.chart?.on !== 'function') return;
+    const hover = (group) => {
+      const spec = this.lastOpts?.layerGroups;
+      if (!spec) return;
+      if (typeof spec.onHover === 'function') spec.onHover(group);
+      else this.setGroupHighlight(group);
+    };
+    this.chart.on('mouseover', (params) => {
+      if (params?.seriesId !== STRIP_ID) return;
+      const group = Array.isArray(params.value) ? params.value[2] : null;
+      if (Number.isInteger(group)) hover(group);
+    });
+    this.chart.on('mouseout', (params) => {
+      if (params?.seriesId === STRIP_ID) hover(null);
+    });
+    this.chart.on('globalout', () => {
+      if (this.lastOpts?.layerGroups?.highlight) hover(null);
+    });
   }
 
   /**
@@ -307,11 +385,14 @@ export class ProjectionPanel {
    * container of a different size, and the letterboxing must be recomputed for
    * it. `reservedBottom`, when a caller sets it, is room kept clear below the
    * plot; the exporter reserves none, so the figure is the plot alone.
+   * `reservedTop` is the Longitudinal Channels' band above the plot.
    */
-  gridRect(colSpan, rowSpan, metrics, wideRamp = false) {
+  gridRect(colSpan, rowSpan, metrics, wideRamp = false, reservedTop = 0) {
     const pad = axisPadding({ ramp: true, wideRamp });
+    // `reservedTop`: the band above the plot the Longitudinal Channels strip
+    // is drawn in (depth_groups.js `stripReserve`), so it never covers the raster.
     const padding = {
-      left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom,
+      left: pad.left, right: pad.right, top: pad.top + (reservedTop || 0), bottom: pad.bottom,
     };
     const width = metrics.width - padding.left - padding.right;
     const height = metrics.height - (metrics.reservedBottom || 0)
@@ -421,11 +502,15 @@ export class ProjectionPanel {
     // The vertical a.u. ramp carries its title as a second label line, which
     // needs a wider right inset than the GeV ramp's exponent labels.
     const wideRamp = payload.scale?.unit === 'a.u.' && THEME.rampOrient !== 'horizontal';
-    const rect = this.gridRect(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0], metrics, wideRamp);
+    // The Longitudinal Channels: a spec of layer_groups.panelGroupSpec, or none.
+    const groups = groupSpecOf(payload, opts);
+    const rect = this.gridRect(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0], metrics, wideRamp,
+      stripReserve(groups));
     const canvas = raster.canvas;
     const title = rampTitle(payload.scale, metrics);
     const mid = rampMidLabel(payload.scale, metrics);
-    const graphics = [...graphic, ...(title ? [title] : []), ...(mid ? [mid] : [])];
+    const badge = localBadge(groups, rect);
+    const graphics = [...graphic, ...(title ? [title] : []), ...(mid ? [mid] : []), ...(badge ? [badge] : [])];
 
     const series = [{
       // The raster. renderItem re-runs on every zoom and pan, and `clip` keeps
@@ -455,6 +540,11 @@ export class ProjectionPanel {
     if (depthBounds) this.addDepthBounds(series, depthBounds, col, row);
     // The 3-D card's slice, on its paired depth panels only (voxel_views.js); Page 1 never sets it.
     if (depthSlab) this.addDepthSlab(series, depthSlab, col);
+    // The strip stays when the marks are hidden (it lies above the plot); the
+    // seams, the tilted planes and the spotlight follow the Marks toggle.
+    if (groups) {
+      series.push(...layerGroupSeries({ spec: groups, col, row, view, extent, marks: this.marksShown !== false }));
+    }
     const compact = rect.height < COMPACT_LABEL_HEIGHT || rect.width < COMPACT_LABEL_WIDTH;
     // On the light screen a plot a few dozen pixels tall draws its marks small.
     const strip = stripMarks(rect.height);
@@ -507,6 +597,9 @@ export class ProjectionPanel {
     // crosshair through the origin, which the symmetric window now centres -
     // exactly between the two showers.
     const axisOptions = coregistered ? { onZero: false } : {};
+    // The Absolute depth is labelled Z = z − 3649 (round Z ticks over raw-z data).
+    const depthOffset = depthOffsetOf(payload, opts);
+    const colTitle = depthOffset ? shiftedDepthLabel(depthOffset, compact) : axisLabel(symbols.col, compact);
 
     return {
       backgroundColor: THEME.chartBackground,
@@ -514,8 +607,8 @@ export class ProjectionPanel {
       textStyle: { fontFamily: THEME.fontFamily },
       grid,
       xAxis: spatialAxis(
-        axisLabel(symbols.col, compact) + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
-        axisOptions,
+        colTitle + (col.name !== 'z' ? provisional : ''), view.col[0], view.col[1],
+        depthOffset ? { ...axisOptions, offset: depthOffset } : axisOptions,
       ),
       yAxis: spatialAxis(
         axisLabel(symbols.row, compact) + provisional, view.row[0], view.row[1], axisOptions,
@@ -555,6 +648,39 @@ export class ProjectionPanel {
   setMarksShown(shown) {
     this.marksShown = Boolean(shown);
     this.redraw();
+  }
+
+  /**
+   * Draw the Longitudinal Channels of `spec` (layer_groups.panelGroupSpec, or
+   * null to take them away) from the payload in hand: no request, and the
+   * displayed window is kept.
+   */
+  setLayerGroups(spec) {
+    if (!this.lastOpts) return;
+    this.lastOpts = { ...this.lastOpts, layerGroups: spec ?? null };
+    this.redraw();
+  }
+
+  /**
+   * Spotlight one group (1..13) or none: its two faces drawn solid and its
+   * strip segment in the hot fill. Only the strip and the spotlight series are
+   * patched, in place, so the hovered strip element survives and the raster
+   * is not rebuilt.
+   */
+  setGroupHighlight(group) {
+    const spec = this.lastOpts?.layerGroups;
+    const next = Number.isInteger(group) ? group : null;
+    if (!spec || (spec.highlight ?? null) === next) return;
+    this.lastOpts = { ...this.lastOpts, layerGroups: withHighlight(spec, next) };
+    if (!this.payload || !this.raster) return;
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+    if (!(width > 0 && height > 0)) return;
+    const option = this.buildOption({
+      payload: this.payload, opts: this.lastOpts, raster: this.raster, metrics: { width, height },
+    });
+    const patched = option.series.filter((s) => s.id === STRIP_ID || s.id === SPOT_ID);
+    if (patched.length) this.chart.setOption({ series: patched });
   }
 
   /** Rebuild the option from the retained payload at the current size, keeping the displayed window. */
@@ -642,9 +768,11 @@ export class ProjectionPanel {
         ratio = 1;
       }
     }
+    // The Longitudinal Channels' band sits above the plot, so the figure grows by it.
+    const reserve = this.payload ? stripReserve(groupSpecOf(this.payload, this.lastOpts)) : 0;
     return {
       width,
-      height: Math.round(pad.top + pad.bottom + plotWidth * ratio),
+      height: Math.round(pad.top + pad.bottom + plotWidth * ratio + reserve),
     };
   }
 
@@ -1051,7 +1179,7 @@ export class ProjectionPanel {
   setView(view) {
     this.view = view;
     this.chart.setOption({
-      xAxis: { min: view.col[0], max: view.col[1] },
+      xAxis: this.columnAxisPatch(view.col),
       yAxis: { min: view.row[0], max: view.row[1] },
     });
     this.viewChanged();
@@ -1062,10 +1190,26 @@ export class ProjectionPanel {
     if (!this.payload) return;
     const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
     this.chart.setOption({
-      xAxis: { min: extent.col[0], max: extent.col[1] },
+      xAxis: this.columnAxisPatch(extent.col),
       yAxis: { min: extent.row[0], max: extent.row[1] },
     });
     this.viewChanged();
+  }
+
+  /**
+   * The column axis's bounds for a new window, and on a depth axis labelled in
+   * Z its round ticks for that window too: custom tick values do not follow a
+   * merged min/max on their own.
+   */
+  columnAxisPatch([lo, hi]) {
+    const patch = { min: lo, max: hi };
+    const offset = this.payload ? depthOffsetOf(this.payload, this.lastOpts) : 0;
+    if (offset) {
+      const axis = spatialAxis('', lo, hi, { offset });
+      patch.axisTick = { customValues: axis.axisTick.customValues };
+      patch.axisLabel = { customValues: axis.axisLabel.customValues, formatter: axis.axisLabel.formatter };
+    }
+    return patch;
   }
 
   /** Tell the owner the displayed window changed, so text that states it can follow. */
@@ -1213,8 +1357,24 @@ export class ProjectionPanel {
       const code = codes[r * cols + c];
       const centreX = cellCentre(col, cols, c);
       const centreY = cellCentre(row, rows, r);
+      // The depth reads Z first on the Absolute frame (Z = … mm (z = … mm)),
+      // then its layer and, under a spec, its group (layer_groups.layerReadout).
+      const opts = this.lastOpts ?? {};
+      const offset = col.name === 'z' ? depthOffsetOf(payload, opts) : 0;
+      const colText = offset
+        ? depthPointText(centreX, { symbol: symbols.col, offset })
+        : `${symbols.col} = ${formatSigned(centreX, 1)} mm`;
+      const spec = groupSpecOf(payload, opts);
+      const layer = col.name === 'z'
+        ? layerReadout({
+          axis: spec?.axis ?? opts.layerAxis ?? null, spec, panelId: panelOf(payload.axes),
+          // A tilted plane is read at the pointer (normal·x); the native layer at the bin's centre.
+          col: (spec?.axis ?? opts.layerAxis)?.geometry === 'tilted' ? mmX : centreX,
+          row: mmY,
+        })
+        : '';
       const where =
-        `${symbols.col} = ${formatSigned(centreX, 1)} mm<br/>` +
+        `${colText}${layer}<br/>` +
         `${symbols.row} = ${formatSigned(centreY, 1)} mm<br/>`;
       // Named at the pointer, not the bin centre: a wedge edge crosses bins.
       // Hidden marks (the Marks toggle) are not named.
@@ -1333,7 +1493,10 @@ export class ProjectionPanel {
       if (info.componentMainType && info.componentMainType !== 'series') return null;
       const model = this.chart.getModel().getSeriesByIndex(info.seriesIndex);
       const formatter = model?.get(['tooltip', 'formatter']);
-      if (typeof formatter === 'function') return formatter();
+      // The item's own index, for a series of several items (the channel strip and seams).
+      if (typeof formatter === 'function') {
+        return formatter({ dataIndex: info.dataIndex, seriesIndex: info.seriesIndex });
+      }
       return typeof formatter === 'string' ? formatter : null;
     }
     return null;
@@ -1427,8 +1590,17 @@ export function extentOf(payload, opts) {
   const win = opts?.window;
   const { col, row } = payload.axes;
   const ok = (r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite) && r[1] > r[0];
+  let colExtent = ok(win?.col) ? [win.col[0], win.col[1]] : [col.lo, col.hi];
+  // An ensemble depth axis labelled in Z starts at Z = 0: the raw axis is
+  // extended down to the offset, which leaves the empty sliver between Z = 0
+  // and layer 1's first cell edge (3.15 mm on production) in view. An event
+  // window (the Inspector's) is kept as the server cut it.
+  if (!ok(win?.col)) {
+    const offset = depthOffsetOf(payload, opts);
+    if (offset && colExtent[0] > offset && colExtent[1] > offset) colExtent = [offset, colExtent[1]];
+  }
   return {
-    col: ok(win?.col) ? [win.col[0], win.col[1]] : [col.lo, col.hi],
+    col: colExtent,
     row: ok(win?.row) ? [win.row[0], win.row[1]] : [row.lo, row.hi],
   };
 }

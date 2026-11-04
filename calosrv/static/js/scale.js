@@ -122,6 +122,20 @@ const SCREEN = {
   markCasing: null,
   wedgeAlpha: 0.18,
   wedgeEdge: false,
+
+  /* The Longitudinal Channels (panels/depth_groups.js), measured against the
+   * #1c2128 card: the strip's two fills are subtle (1.15:1 and 1.33:1) and its
+   * hot fill visibly distinct (1.93:1 on the card, 1.45:1 against fill B); its
+   * label clears 4.5:1 on every fill (11.9, 10.3 and 7.1:1); its edge (4.2:1),
+   * the dashed seams (4.3:1) and the spotlight's faces (the text ink, 13.7:1)
+   * clear 3:1. tests/test_js_layer_groups.py measures every pair. */
+  groupStripFillA: '#262c36',
+  groupStripFillB: '#30363f',
+  groupStripEdge: '#768390',
+  groupStripText: '#e6edf3',
+  groupStripHot: '#3d4f66',
+  groupSeam: '#7d8590',
+  groupSpot: '#e6edf3',
 };
 
 /* The light screen style: the light block of css/tokens.css, which ECharts
@@ -204,6 +218,17 @@ const SCREEN_LIGHT = {
   markCasing: null,
   wedgeAlpha: 0.05,
   wedgeEdge: true,
+
+  // The Longitudinal Channels on the white card: fills 1.13:1 and 1.28:1, the
+  // hot fill 1.65:1; label 15.6, 13.9 and 10.7:1 on them; edge and seams
+  // 3.85:1; the spotlight in the text ink, 17.7:1.
+  groupStripFillA: '#eef1f4',
+  groupStripFillB: '#dfe4ea',
+  groupStripEdge: '#7a838c',
+  groupStripText: '#111827',
+  groupStripHot: '#b6cbe8',
+  groupSeam: '#7a838c',
+  groupSpot: '#111827',
 };
 
 /** The two screen styles by name, frozen: the dark one is the cold-boot default. */
@@ -857,8 +882,56 @@ function superscript(text) {
  * `onZero` overrides the theme: the canonical panels pass false, because
  * their windows are symmetric about the origin and an axis line anchored at
  * zero would draw a crosshair through the middle of both showers.
+ *
+ * `offset` (mm, optional) labels the axis in a shifted coordinate while its
+ * data stay raw: the Absolute frame's depth, raw z, is ticked and labelled in
+ * Z = z − offset (`offsetTicks`). The ticks are round Z values placed at
+ * their raw positions through ECharts 5.6's `axisTick/axisLabel.customValues`,
+ * so no series is ever re-registered or shifted. Without an offset the axis
+ * is exactly as before.
  */
-export function spatialAxis(name, lo, hi, { onZero } = {}) {
+export function spatialAxis(name, lo, hi, { onZero, offset } = {}) {
+  const axis = plainSpatialAxis(name, lo, hi, { onZero });
+  if (!(Number.isFinite(offset) && offset !== 0)) return axis;
+  const ticks = offsetTicks(lo, hi, offset);
+  axis.axisTick.customValues = ticks.values;
+  Object.assign(axis.axisLabel, {
+    customValues: ticks.values,
+    // Every custom label is a round tick of its own, so no end is hidden unless it overlaps.
+    showMinLabel: null,
+    showMaxLabel: null,
+    formatter: (v) => typographic((Number(v) - offset).toFixed(ticks.digits)),
+  });
+  return axis;
+}
+
+/**
+ * Round ticks of a shifted coordinate over a raw range [lo, hi]: the
+ * multiples of ECharts' own nice step (1, 2, 3 or 5 × 10ⁿ, about
+ * `splitNumber` of them) of Z = raw − offset inside the range, returned as
+ * raw positions (`values`), with the decimals a label needs (`digits`, 0 for
+ * a whole-millimetre step).
+ */
+export function offsetTicks(lo, hi, offset, splitNumber = 5) {
+  const zLo = lo - offset;
+  const zHi = hi - offset;
+  const raw = (zHi - zLo) / Math.max(1, splitNumber);
+  if (!(raw > 0) || !Number.isFinite(raw)) return { step: null, values: [], digits: 0 };
+  const exp10 = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / exp10;
+  const step = (f < 1.5 ? 1 : f < 2.5 ? 2 : f < 4 ? 3 : f < 7 ? 5 : 10) * exp10;
+  const digits = step >= 1 ? 0 : Math.min(6, Math.ceil(-Math.log10(step) - 1e-9));
+  const values = [];
+  const tol = step * 1e-6;
+  for (let k = Math.ceil(zLo / step - 1e-9); k * step <= zHi + tol; k += 1) {
+    const z = Number((k * step).toFixed(digits + 3));
+    if (z < zLo - tol) continue;
+    values.push(z + offset);
+  }
+  return { step, values, digits };
+}
+
+function plainSpatialAxis(name, lo, hi, { onZero } = {}) {
   return {
     type: 'value',
     name,
