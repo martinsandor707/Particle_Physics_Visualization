@@ -24,7 +24,7 @@
 import {
   formatInt, formatSci, floorLabel, formatSigned, typographic, LIGHT_FIELD_FADE_DECADES,
 } from './scale.js';
-import { FRAME_SYMBOLS, SEPARATION_AXIS } from './axis_symbols.js';
+import { FRAME_SYMBOLS, SEPARATION_AXIS, CORE_SHIFT_Z_MM } from './axis_symbols.js';
 import { beyondGridSentence, ordinal, showersPerEvent } from './export/disclosure.js';
 import { displayOf, kernelPhrase } from './export/caption.js';
 import { centroidLegend, frameMeanOverflowText } from './panels/canonical_overlays.js';
@@ -846,8 +846,8 @@ export function labFootnotes(payload, { nShowers = null } = {}) {
   };
   return {
     xy: `${xy}${floorOf('xy')}`,
-    yz: `Transverse spread against calorimeter depth.${direction}${pointing}${floorOf('yz')}`,
-    xz: 'Lateral profile against depth, sharing the YZ colour scale so the two may '
+    yz: `Transverse spread against depth Z = z − ${CORE_SHIFT_Z_MM} mm.${direction}${pointing}${floorOf('yz')}`,
+    xz: 'Lateral profile against depth Z, sharing the YZ colour scale so the two may '
       + `be read against one another.${direction}${pointing}${floorOf('xz')}`,
   };
 }
@@ -1019,7 +1019,8 @@ export function eventFrameSentence(payload, kind) {
   const depth = frame.depth?.note ? `; depth is ${frame.depth.note}` : '';
   if (kind === 'lab') {
     return 'Original detector coordinates: the native lattice, one bin per populated cell, every layer '
-      + `of the event projected (no entrance slab), cropped to the event's window${depth}.`;
+      + `of the event projected (no entrance slab), cropped to the event's window${depth}; `
+      + `the depth axes are labelled Z = z − ${CORE_SHIFT_Z_MM} mm.`;
   }
   if (kind === 'trans') {
     return `Translated only: every cell moved by −P₀ without rotation, its ${footprint} footprint `

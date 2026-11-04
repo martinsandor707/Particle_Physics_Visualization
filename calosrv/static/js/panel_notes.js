@@ -31,7 +31,11 @@ import {
 } from './frame_views.js';
 import { figureDisclosure, showersPerEvent } from './export/disclosure.js';
 import { describeSelection, describeView, displayOf } from './export/caption.js';
-import { panelSymbols } from './axis_symbols.js';
+import { panelSymbols, CORE_SHIFT_Z_MM } from './axis_symbols.js';
+import { formatSigned } from './format.js';
+import {
+  GROUP_COUNT, formatRanges, groupReach, axisEdges, intText, percentText, gevText,
+} from './layer_groups.js';
 import {
   formatSci, formatInt, isDiverging, legibleSpan, rampPalette, THEME, fadesAtFloor, fieldFadeDecades, lightField,
   LIGHT_FIELD_GAMMA,
@@ -236,11 +240,12 @@ export class Notes {
  * under a bare Node test, which then gets no selection line), `windowAxis`
  * the absolute-frame depth panel's windowed ensemble axis response, when one
  * is drawn. `marksShown` false (the card's Marks toggle) says the overlay
- * marks are hidden.
+ * marks are hidden. `layerGroups` is the depth panel's `panelGroupSpec` (null:
+ * none drawn); a depth panel states its Z convention either way.
  */
 export function projectionNotes({
   payload, panelId, isometric = {}, view = null, state = null, experiment = null, windowAxis = null,
-  marksShown = true,
+  marksShown = true, layerGroups = null,
 }) {
   const panel = payload?.panels?.[panelId];
   if (!panel) return null;
@@ -265,18 +270,229 @@ export function projectionNotes({
   notes.section(SECTION.selection, selection);
 
   const footnote = footnotes(payload, { isometric, nShowers })[panelId] ?? '';
-  notes.section(SECTION.drawn, [footnote]);
+  // Depth panels: the Z convention (Absolute) or z′ (D-frame), and the Longitudinal Channels when drawn.
+  const depthPanel = panelId !== 'xy';
+  const convention = depthPanel
+    ? depthConventionLines({
+      kind, depthLayers: payload.depth_layers ?? null, axis: panel.axes?.col ?? null, frame,
+    })
+    : [];
+  const channels = depthPanel
+    ? layerGroupLines({ spec: layerGroups, depthLayers: payload.depth_layers ?? null, marksShown })
+    : { drawn: [], disclosures: [], legend: [] };
+  notes.section(SECTION.drawn, [footnote, ...convention, ...channels.drawn]);
   const disclosures = figureDisclosure(payload, panelId, state, { isometric: Boolean(isometric[panelId]), nShowers });
+  disclosures.push(...channels.disclosures);
   const windowed = kind === 'lab' && panelId !== 'xy' ? windowAxis : null;
   if (windowed) disclosures.push(...windowAxisDisclosures(windowed));
   notes.section(SECTION.disclosures, disclosures);
   const ramp = rampStartNote(panel.scale, state?.get?.('palette'));
   const hidden = marksShown ? [] : [MARKS_HIDDEN_NOTE];
-  if (kind !== 'lab') notes.section(SECTION.legend, [...hidden, exportLegend(panelId, payload, { nShowers }), ramp]);
+  if (kind !== 'lab') notes.section(SECTION.legend, [...hidden, exportLegend(panelId, payload, { nShowers }), ramp, ...channels.legend]);
   else if (panelId !== 'xy') {
-    notes.section(SECTION.legend, [...hidden, labLegend(payload, { nShowers }), windowAxisLegend(windowed), ramp]);
+    notes.section(SECTION.legend, [...hidden, labLegend(payload, { nShowers }), windowAxisLegend(windowed), ramp, ...channels.legend]);
   } else notes.section(SECTION.legend, [...hidden, ramp]);
   return notes.done(hazards(payload, panelId));
+}
+
+
+/* ------------------------------------------- depth: Z and the channels -- */
+
+/** A depth or length in mm, one decimal, U+2212 for a minus. */
+const mmDepth = (v, digits = 1) => formatSigned(v, digits);
+
+/** "Z = 13.4 mm (z = 3662.4 mm)". */
+const zPoint = (value, offset, digits = 1) => `Z = ${mmDepth(value - offset, digits)} mm (z = ${mmDepth(value, digits)} mm)`;
+
+/**
+ * What the depth panels of the Absolute and D-frames call their depth.
+ *
+ * Absolute (`kind` 'lab'): depth is labelled Z = z − 3649 mm. 3649 mm is the
+ * producer's `core.SHIFT_Z` display offset (the payload's `display_offset_mm`,
+ * else the named constant), a label on the raw z: data, files and tooltips
+ * keep raw z beside it. The first layer's centre and its upstream cell edge
+ * are computed from the lattice's stored edges (`depth_layers.edges_mm`, an
+ * event frame's `layer_planes.edges_mm`, else the panel's own axis).
+ * D-frame (`canonical`): z′ = 0 is the first layer's centre, z′ = z − z_f with
+ * z_f = `frame.z_front_mm`, so z′ = Z − (z_f − offset) on this lattice.
+ * Empty for every other frame, whose depth is relative to the shower.
+ */
+export function depthConventionLines({
+  kind, depthLayers = null, layerPlanes = null, axis = null, frame = null, windowed = false,
+}) {
+  if (kind === 'lab') {
+    const offset = Number.isFinite(depthLayers?.display_offset_mm) ? depthLayers.display_offset_mm
+      : Number.isFinite(layerPlanes?.display_offset_mm) ? layerPlanes.display_offset_mm : CORE_SHIFT_Z_MM;
+    const lines = [
+      `Depth is labelled Z = z − ${offset} mm, where ${offset} mm is the producer's core.SHIFT_Z `
+      + 'display offset: a label on the detector\'s raw z, not a shift of it. The data, the files and the z printed in '
+      + 'tooltips stay raw z, shown beside Z.',
+    ];
+    const edges = depthLayers?.edges_mm ?? layerPlanes?.edges_mm ?? axisEdges(axis);
+    if (Array.isArray(edges) && edges.length >= 2 && edges.every(Number.isFinite)) {
+      const centre = (edges[0] + edges[1]) / 2;
+      let line = `The first layer's centre is at ${zPoint(centre, offset)} and its upstream cell edge at `
+        + `${zPoint(edges[0], offset, 2)}, read from the lattice's stored cell edges.`;
+      if (!windowed && depthLayers && edges[0] > offset) {
+        line += ` An ensemble depth axis starts at Z = 0, so Z = 0 to ${mmDepth(edges[0] - offset, 2)} mm, `
+          + 'upstream of the first cell edge, holds no cell.';
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+  if (kind === 'canonical' && Number.isFinite(frame?.z_front_mm)) {
+    const zf = frame.z_front_mm;
+    return [
+      `The D-frame keeps z′ = z − z_f, with z_f = ${mmDepth(zf)} mm, the first layer's centre: z′ = 0 there, `
+      + `so on this lattice z′ = Z − ${mmDepth(zf - CORE_SHIFT_Z_MM)} mm, where Z = z − ${CORE_SHIFT_Z_MM} mm is the Absolute frame's depth label.`,
+    ];
+  }
+  return [];
+}
+
+/** The numbering sentence of a partition on `spec`'s panel. */
+function numberingSentence(spec) {
+  const ranges = formatRanges(spec.counts);
+  const total = spec.counts.reduce((a, b) => a + b, 0);
+  const cut = `The ${intText(total)} layers are cut into ${GROUP_COUNT} contiguous channels (layers ${ranges}).`;
+  if (spec.numbering === 'relative') {
+    return `${cut} Channels are Rel Ch 1–${GROUP_COUNT}: layers are counted from each shower's own first populated layer `
+      + '(relative layer 1 at Δz = 0), so the same Rel Ch is a different detector depth for each shower.';
+  }
+  if (spec.symbol === 'z′') {
+    return `${cut} The D-frame's depth z′ = z − z_f is one shift for every event, so its channels are the detector's `
+      + 'own hardware layers (Ch 1–13, by detector ordinal), not relative ones.';
+  }
+  return `${cut} Channels are Ch 1–${GROUP_COUNT}, numbered by detector layer ordinal (1 at the lattice's first layer).`;
+}
+
+/**
+ * The Longitudinal Channels sentences of one depth panel, by Details section,
+ * from the panel's `panelGroupSpec` (null: nothing) and the payload block it
+ * was built from (`depth_layers` of an ensemble response, `layer_planes` of
+ * an event frame). Every number is read from the spec or the block.
+ *
+ * `marksShown` is the card's Marks toggle: it hides the seams and the
+ * spotlight, never the strip.
+ */
+export function layerGroupLines({ spec, depthLayers = null, layerPlanes = null, marksShown = true }) {
+  const out = { drawn: [], disclosures: [], legend: [] };
+  if (!spec) return out;
+  const axis = spec.axis ?? {};
+  const event = axis.source === 'event';
+
+  if (spec.numbering === 'none') {
+    out.drawn.push('Local ensemble: the badge in the band above the plot says the layers tilt by each shower\'s (θ, φ). '
+      + 'There is no common layer grid along w, so no strip, no seams and no pooling are drawn.');
+    if (depthLayers?.note) out.disclosures.push(depthLayers.note);
+    out.legend.push(`Badge in the band above the plot: "${spec.badge}".`);
+    return out;
+  }
+
+  const tilted = axis.geometry === 'tilted';
+  const pooledLine = spec.symbol === 'z' && spec.offset
+    ? `a channel's summed energy per ${mmDepth(depthLayers?.pitch_mm ?? 0, 1)} mm layer (GeV, the sum scaled by `
+      + 'the layer pitch over the channel\'s thickness)'
+    : 'the mean density of the channel\'s layers';
+
+  out.drawn.push(numberingSentence(spec));
+  if (tilted) {
+    out.drawn.push('One shower in the Local frame: the layer planes are tilted with that shower, so no strip is drawn '
+      + 'along w, where a layer\'s w range depends on u. '
+      + (spec.lines.length
+        ? `The ${intText(spec.lines.length)} boundaries between channels are drawn as lines on u–w only, at the exact `
+          + 'tilted planes.'
+        : spec.lineReason ?? ''));
+  } else {
+    out.drawn.push('The strip is the channels as segments in a band reserved above the plot, outside the raster and '
+      + 'never over it; each segment spans its channel between the lattice\'s stored cell edges and is clipped to the '
+      + 'visible depth range under zoom.');
+    if (spec.pooled) {
+      out.drawn.push(`Pooled: each depth bin is one channel (${intText(spec.groups.length)} bins), carrying ${pooledLine}, `
+        + 'so a wide channel never reads as a dense one. Seams are not drawn, because they coincide with the bin edges; '
+        + 'the channel\'s total energy and layer count are in its strip tooltip.');
+    } else {
+      out.drawn.push(`Seams are ${intText(spec.seams.length)} dashed 1 px lines across the plot at the lattice's stored `
+        + 'cell edges between a channel\'s last layer and the next channel\'s first, never at an index times the pitch.');
+    }
+  }
+
+  // Disclosures.
+  const profile = depthLayers?.profile ?? null;
+  if (!tilted && spec.strip) {
+    if (event) {
+      out.disclosures.push('Strip shares are of this shower\'s energy on the depth axis, exact per-layer sums.');
+    } else if (profile) {
+      const n = Number.isInteger(spec.nEvents) ? ` over N = ${intText(spec.nEvents)} events` : '';
+      const outside = profile.outside_gev > 0
+        ? `; the ${gevText(profile.outside_gev)} that falls off the depth axis is counted in the total`
+        : '; no energy falls off the depth axis';
+      out.disclosures.push(`Strip shares are exact per-layer sums of the selection's energy on the depth axis${n} `
+        + `(${gevText(profile.total_gev)} in all)${outside}.`);
+      if (profile.attention) {
+        out.disclosures.push('For an attention channel the tooltip also gives each channel\'s share of Σ E·CAM; a signed '
+          + 'Shap-CAM keeps its positive and negative parts apart.');
+      }
+      if (profile.exact === false) out.disclosures.push('This is a sampled preview: the shares are of the sampled hits.');
+    }
+  }
+  if (depthLayers?.reach && spec.numbering === 'relative') {
+    const r = depthLayers.reach;
+    const last = groupReach(r, Math.max(1, r.counts.length), Math.max(1, r.counts.length));
+    out.disclosures.push(`Reach: counts[k] is the number of showers whose depth extends to relative layer k + 1 `
+      + `(first populated layer s ≤ ${intText(r.l_phys)} − 1 − k); the basis is every present shower of the selection, `
+      + `${intText(r.n_showers)} showers${r.n_without_start ? `, ${intText(r.n_without_start)} without a start layer` : ''}. `
+      + `Relative layer ${intText(r.counts.length)} is reached by ${intText(last.reached)} of ${intText(last.of)} `
+      + `(${percentText(last.share)}); each channel's tooltip quotes its own reach.`);
+  }
+  if (event && Number.isFinite(axis.reachLayers)) {
+    out.disclosures.push(`This shower's detector ends after relative layer ${intText(axis.reachLayers)}; a channel `
+      + 'beyond it is named so in its tooltip.');
+  }
+  if (axis.contiguous === false) {
+    out.disclosures.push(`The lattice skips layers the file never populates: the layer numbers are the lattice's ordinals `
+      + `(1–${intText(axis.L ?? spec.counts.reduce((a, b) => a + b, 0))}), not physical layer slots.`);
+  }
+  if (spec.seamsBeyond > 0 || spec.groupsBeyond?.length) {
+    out.disclosures.push(`${intText(spec.seamsBeyond)} seam${spec.seamsBeyond === 1 ? '' : 's'} and `
+      + `${intText(spec.groupsBeyond?.length ?? 0)} channel${spec.groupsBeyond?.length === 1 ? '' : 's'} lie beyond the depth axis and are `
+      + 'not drawn, counted here.');
+  }
+  if (tilted) {
+    const t = axis.tilt;
+    const theta = Number.isFinite(t?.theta_deg) ? `${mmDepth(t.theta_deg)}°` : null;
+    const pitch = Number.isFinite(t?.pitch_along_w_mm) && Number.isFinite(t?.theta)
+      ? t.pitch_along_w_mm * Math.cos(t.theta) : null;
+    if (theta) {
+      out.disclosures.push(`A layer plane Δz = s is w = s / cos θ + u · tan θ on u–w; with this event's θ = ${theta} the `
+        + `pitch along w is p / cos θ = ${mmDepth(t.pitch_along_w_mm, 2)} mm`
+        + (pitch ? ` (p = ${mmDepth(pitch)} mm)` : '')
+        + '. On v–w the same plane spans a band, tan θ times the shower\'s u extent wide, not a line, so nothing is drawn there.');
+    }
+  }
+  const draft = spec.mode === 'pool' && !spec.pooled && !tilted;
+  if (draft) {
+    const have = depthLayers?.groups?.pooled
+      ? `the raster in hand is pooled by ${depthLayers.groups.counts.join('.')}`
+      : 'the raster in hand is not pooled';
+    out.disclosures.push(`Pooled is selected but ${have}: the strip and seams show the live draft's boundaries over that `
+      + 'picture until Apply, which sends one request and re-bins the depth axis.');
+  }
+
+  // Marks and legend.
+  const hide = marksShown ? '' : ' (hidden now)';
+  if (tilted) {
+    out.legend.push(`Dashed lines${hide}: the tilted layer planes between channels, on u–w; hover one for its plane and pitch.`);
+  } else {
+    out.legend.push('Strip: alternating fills, "Ch m" (or "Rel Ch m") where it fits and the bare number where it is narrower; '
+      + 'hover a segment for its layers, depth span, thickness and shares.');
+    if (!spec.pooled) out.legend.push(`Seams${hide}: dashed lines between channels; hover one for its position.`);
+    out.legend.push(`Spotlight${hide}: hovering a channel draws its two faces as solid lines on every linked depth panel, `
+      + 'never a fill over the raster.');
+  }
+  out.legend.push('The Marks toggle hides the seams and the spotlight; the strip, which lies outside the plot, stays.');
+  return out;
 }
 
 /**
@@ -342,6 +558,7 @@ export function energyNotes({
  */
 export function eventNotes({
   payload, kind, panelId, view = null, state = null, experiment = null, windowScope = 'all nine panels',
+  layerGroups = null, marksShown = true,
 }) {
   const frame = payload?.frames?.[kind];
   const panel = frame?.panels?.[panelId];
@@ -375,13 +592,25 @@ export function eventNotes({
     axesLine = `Axes 1:1 (isometric), ${half} half-width on every axis of ${windowScope}, so the tilt reads at `
       + 'its true angle; the raster covers the populated part of the window and the rest is empty.';
   }
+  // `layerGroups` is the `{<kind>: {yz, xz}}` map of specs the page drew; this panel reads its own.
+  const depthPanel = panelId !== 'xy';
+  const layerPlanes = frame.layer_planes ?? null;
+  const convention = depthPanel
+    ? depthConventionLines({ kind, layerPlanes, axis: panel.axes?.col ?? null, windowed: true })
+    : [];
+  const channels = depthPanel
+    ? layerGroupLines({ spec: layerGroups?.[kind]?.[panelId] ?? null, layerPlanes, marksShown })
+    : { drawn: [], disclosures: [], legend: [] };
   notes.section(SECTION.drawn, [
     eventFrameSentence(payload, kind),
     payload.window?.rule ?? '',
     axesLine,
+    ...convention,
+    ...channels.drawn,
   ]);
 
   const disclosures = [payload.scale?.rule ?? ''];
+  disclosures.push(...channels.disclosures);
   const below = panel.scale?.clipped_low ?? 0;
   disclosures.push(below > 0
     ? `${formatInt(below)} populated bin${below === 1 ? '' : 's'} of this panel lie below the ramp floor and are drawn at the lowest colour.`
@@ -405,7 +634,7 @@ export function eventNotes({
     ? `Principal axis of the energy-weighted cloud in the local frame: ${num(axis.tilt_deg, 1)}° from +w `
       + `over ${formatInt(axis.n)} cells - the notebook's check on the rotation, printed in the row label.`
     : 'Principal axis: untestable below 3 populated cells, so no tilt is quoted.';
-  notes.section(SECTION.legend, [EVENT_MARKS, tilt, rampStartNote(panel.scale, state?.get?.('palette'))]);
+  notes.section(SECTION.legend, [EVENT_MARKS, tilt, rampStartNote(panel.scale, state?.get?.('palette')), ...channels.legend]);
   return notes.done(hazards(payload, panelId));
 }
 
@@ -549,7 +778,9 @@ function metaDisclosures(payload) {
  * its structured fields the axis drawn here. `title` is the card's own; a
  * native-depth response is titled as such whatever the card says.
  */
-export function profileNotes({ payload, state = null, experiment = null, axis = 'depth', title = null }) {
+export function profileNotes({
+  payload, state = null, experiment = null, axis = 'depth', title = null, layerGroups = null,
+}) {
   if (!payload) return null;
   const key = profileAxisKey(payload, axis);
   const ax = key ? payload.axes[key] : null;
@@ -564,9 +795,11 @@ export function profileNotes({ payload, state = null, experiment = null, axis = 
       + `${label ? ` — ${label}` : ''}.`,
     payload.convention?.label ? `Convention: ${payload.convention.label}.` : '',
   ]);
-  notes.section(SECTION.drawn, [...(payload.notes ?? [])]);
+  // C7's depth axes: the channels drawn over the native-layer profile, or the reason none are on w.
+  const channels = layerGroupLines({ spec: layerGroups, depthLayers: payload.depth_layers ?? null });
+  notes.section(SECTION.drawn, [...(payload.notes ?? []), ...channels.drawn]);
 
-  const disclosures = [];
+  const disclosures = [...channels.disclosures];
   if (ax) {
     const c = ax.y?.clipped ?? {};
     const parts = [];
@@ -608,6 +841,7 @@ export function profileNotes({ payload, state = null, experiment = null, axis = 
     legend.push('Dashed vertical: w = 0, the shower’s entry point P₀; no bin straddles it.');
   }
   legend.push('Carets at the axis mark a band or interval clipped there; the readout gives every value of the bin under the pointer.');
+  legend.push(...channels.legend);
   notes.section(SECTION.legend, legend);
   return notes.done(hazards(payload, id));
 }
