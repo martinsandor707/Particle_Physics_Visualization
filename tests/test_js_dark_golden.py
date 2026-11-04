@@ -357,6 +357,13 @@ const SCALES = {
 };
 /* Payload fixtures recorded after the golden froze (the selection's cells, 2026-10-31): walked last. */
 const LATER_FIXTURES = ['selection_cells_'];
+/* Payload fixtures the two generic walks below (scale blocks, code tables) skip: the layer-group
+ * responses (2026-11-04) carry the server's existing scale shapes on other selections - of the 407
+ * cases the walks derived from them, 34 were new hashes - so they are exercised through their panels'
+ * own cases instead, and the walks stay the record of distinct scale shapes. */
+const WALK_SKIPPED = ['event_raster_base', 'projections_base_canonical', 'projections_base_lab_pooled',
+  'projections_base_trans'];
+const walked = (file) => !WALK_SKIPPED.some((prefix) => file.startsWith(prefix));
 // Every distinct scale block the recorded payloads carry.
 {
   const found = {};
@@ -373,7 +380,7 @@ const LATER_FIXTURES = ['selection_cells_'];
   // Fixtures recorded after the golden froze are walked last, into names of their own: a scale case is named
   // by the order the walk finds it, so a file sorting among the old ones would rename every case after it.
   const later = (file) => LATER_FIXTURES.some((prefix) => file.startsWith(prefix));
-  const files = fs.readdirSync(fixtureDir).filter((f) => f.endsWith('.json')).sort();
+  const files = fs.readdirSync(fixtureDir).filter((f) => f.endsWith('.json') && walked(f)).sort();
   for (const file of files.filter((f) => !later(f))) {
     walk(JSON.parse(fs.readFileSync(`${fixtureDir}/${file}`, 'utf8')), file.replace('.json', ''));
   }
@@ -381,7 +388,9 @@ const LATER_FIXTURES = ['selection_cells_'];
   dedup.forEach((entry, i) => { SCALES[`fixture_${String(i).padStart(2, '0')}_${entry.where.replace(/[^A-Za-z0-9]+/g, '_')}`] = entry.scale; });
   put('scale/names', Object.keys(SCALES));
   const before = new Set(Object.keys(found));
-  for (const file of files.filter(later)) {
+  // Later batches in the order LATER_FIXTURES lists them, so a newer batch never renames an older one's cases.
+  const batch = (file) => LATER_FIXTURES.findIndex((prefix) => file.startsWith(prefix));
+  for (const file of files.filter(later).sort((a, b) => batch(a) - batch(b) || (a < b ? -1 : a > b ? 1 : 0))) {
     walk(JSON.parse(fs.readFileSync(`${fixtureDir}/${file}`, 'utf8')), file.replace('.json', ''));
   }
   Object.entries(found).filter(([key]) => !before.has(key)).forEach(([, entry], i) => {
@@ -444,7 +453,7 @@ for (const [sname, sc] of Object.entries(SCALES)) {
     }
     for (const [k, x] of Object.entries(o)) if (k !== 'data') walk(x, `${where}/${k}`);
   };
-  for (const file of fs.readdirSync(fixtureDir).sort()) {
+  for (const file of fs.readdirSync(fixtureDir).filter(walked).sort()) {
     if (file.endsWith('.json')) walk(JSON.parse(fs.readFileSync(`${fixtureDir}/${file}`, 'utf8')), file.replace('.json', ''));
   }
   for (const [name, payload] of Object.entries(CODES)) {
