@@ -57,8 +57,12 @@ GRID_Y = tuple(0.15 + 0.7 * j / 6 for j in range(7))  # 7 rows
 SWEEP_STEP_PX = 8
 #: `READOUT_GAP_PX` in static/js/panels/tooltip.js, and the readout's lift.
 GAP_PX, LIFT_PX = 12, 8
-#: The plain readout's first line: a coordinate in millimetres.
-COORDINATE = re.compile(r"^\S+ = [\u2212-]?[\d.]+ mm$")
+#: The plain readout's first line: a coordinate in millimetres. On a depth panel the Absolute
+#: frame reads Z first with raw z beside it ("Z = 13.4 mm (z = 3662.4 mm)"), and every panel
+#: with layer data appends its layer and, under a Longitudinal Channels spec, its channel
+#: (" \u00b7 layer 1 \u00b7 Ch 1 [1\u20135]", " \u00b7 rel. layer 2", " \u00b7 Ch 1 [layers 1\u20135] \u00b7 mean of 5 layers").
+COORDINATE = re.compile(
+    r"^\S+ = [\u2212-]?[\d.]+ mm(?: \(\S+ = [\u2212-]?[\d.]+ mm\))?(?: \u00b7 .+)?$")
 
 _PROBE = """([plotId, px, py]) => {
   const tips = [...document.querySelectorAll('.calo-tooltip')].filter((t) => {
@@ -215,6 +219,12 @@ def test_tooltips_are_readable_and_keep_the_hovered_panel_visible(live_server, v
     assert results, "no tooltip appeared anywhere"
     shown = {plot for plot, *_ in results}
     assert {"plot-xy", "plot-yz", "plot-xz"} & shown, shown
+    readouts, explanations = _assert_tips(results, viewport)
+    assert readouts and explanations, (readouts, explanations)
+
+
+def _assert_tips(results, viewport):
+    """The rules above, for every probed tip; the number of readouts and explanations seen."""
     readouts = explanations = 0
     for plot, kind, (x, y), probe in results:
         where = f"{plot} {kind} at ({x:.0f}, {y:.0f}), viewport {viewport}"
@@ -248,7 +258,97 @@ def test_tooltips_are_readable_and_keep_the_hovered_panel_visible(live_server, v
             elif _room_outside(tip, probe["plot"], vw, vh):
                 assert _overlap(tip, probe["plot"]) < 0.5, (
                     f"{where}: a {size} explanation covers the plot it explains ({probe['text'][:60]!r})")
+    return readouts, explanations
+
+
+# ------------------------------------------------- the Longitudinal Channels --
+
+#: Where a depth panel's Longitudinal Channels can be hovered, in viewport px: the centre of every
+#: strip segment (in the band above the plot) and three points down every seam.
+_CHANNEL_TARGETS = """(plotId) => {
+  const host = document.getElementById(plotId);
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const g = inst.getModel().getComponent('grid', 0).coordinateSystem.getRect();
+  const series = inst.getOption().series || [];
+  const strip = series.find((s) => s.id === 'layer-groups-strip');
+  const seams = series.find((s) => s.id === 'layer-groups-seams');
+  const px = (v) => inst.convertToPixel({ gridIndex: 0 }, [v, 0])[0];
+  const out = [];
+  for (const [lo, hi, group] of strip?.data ?? []) {
+    const a = Math.max(g.x, Math.min(px(lo), px(hi)));
+    const b = Math.min(g.x + g.width, Math.max(px(lo), px(hi)));
+    if (b - a > 2) out.push({ kind: `strip Ch ${group}`, x: c.left + (a + b) / 2, y: c.top + g.y - 10 });
+  }
+  for (const [at, , seam] of seams?.data ?? []) {
+    const x = px(at);
+    if (!(x > g.x && x < g.x + g.width)) continue;
+    for (const f of [0.25, 0.5, 0.75]) out.push({ kind: `seam ${seam}`, x: c.left + x, y: c.top + g.y + f * g.height });
+  }
+  return out;
+}"""
+
+
+def _measure_channels(live_server, viewport, fragment):
+    """Every tooltip of the channels' strip and seams on YZ and XZ, and of the plots' grid and sweep."""
+    results = []
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page = _open(p, live_server, viewport, fragment)
+        page.wait_for_function(
+            "() => ['plot-yz','plot-xz'].every((id) => (echarts.getInstanceByDom(document.getElementById(id))"
+            ".getOption().series || []).some((s) => s.id === 'layer-groups-strip' && s.data.length === 13))",
+            timeout=30_000)
+        page.wait_for_timeout(300)
+        for plot in ("plot-yz", "plot-xz"):
+            element = page.locator(f"#{plot}")
+            element.scroll_into_view_if_needed()
+            page.wait_for_timeout(100)
+            box = element.bounding_box()
+            targets = [(t["kind"], t["x"], t["y"]) for t in page.evaluate(_CHANNEL_TARGETS, plot)]
+            assert sum(k.startswith("strip") for k, *_ in targets) == 13, targets
+            rect = page.evaluate(_PLOT_RECT, plot)
+            y = (rect["top"] + rect["bottom"]) / 2
+            x = rect["left"] + 2
+            while x < rect["right"] - 2:
+                targets.append(("sweep", x, y))
+                x += SWEEP_STEP_PX
+            targets += [("grid", box["x"] + fx * box["width"], box["y"] + fy * box["height"])
+                        for fx in GRID_X[::2] for fy in GRID_Y[::2]]
+            for kind, x, y in targets:
+                page.mouse.move(x, y)
+                page.wait_for_timeout(40)
+                probe = page.evaluate(_PROBE, [plot, x, y])
+                if probe is not None:
+                    results.append((plot, kind, (x, y), probe))
+            page.mouse.move(1, 1)
+            page.wait_for_timeout(100)
+        browser.close()
+    return results
+
+
+@pytest.mark.parametrize("viewport", [(1600, 900), (1024, 768)], ids=lambda v: f"{v[0]}x{v[1]}")
+@pytest.mark.parametrize(
+    "fragment", ["#lgmode=bounds", "#frame=trans&lgmode=bounds", "#frame=canonical&lgmode=bounds", "#lgmode=pool"],
+    ids=["lab-bounds", "trans-bounds", "canonical-bounds", "lab-pooled"],
+)
+def test_the_channel_tooltips_leave_the_plot_and_readouts_keep_the_cap(live_server, viewport, fragment):
+    """The Longitudinal Channels' new tooltips (brief 8.1 item 3): a strip segment's and a seam's
+    explanation leaves the hovered chart wherever there is room, and the bin readout, now ending in
+    "· layer k · Ch m [a–b]" (or "· mean of N layers" on a pooled raster), keeps the 20% cap."""
+    results = _measure_channels(live_server, viewport, fragment)
+    strips = [r for r in results if r[1].startswith("strip")]
+    assert len(strips) >= 20, f"few strip tooltips showed: {len(strips)}"
+    assert all(re.match(r"^(Rel )?Ch \d+ · ", probe["text"]) for _, _, _, probe in strips), \
+        sorted({probe["text"][:40] for _, _, _, probe in strips})
+    if "pool" not in fragment:
+        seams = [r for r in results if r[1].startswith("seam") and r[3]["text"].startswith("Seam ")]
+        assert seams, "no seam tooltip showed"
+    readouts, explanations = _assert_tips(results, viewport)
     assert readouts and explanations, (readouts, explanations)
+    lines = [probe["firstLine"] for plot, kind, _, probe in results if _is_readout(plot, probe)]
+    suffix = r" · Ch \d+ \[layers \d+–\d+\] · mean of \d+ layers$" if "pool" in fragment \
+        else r" · (rel\. )?layer \d+ · (Rel )?Ch \d+ \[\d+(–\d+)?\]$"
+    assert lines and all(re.search(suffix, line) for line in lines), sorted(set(lines))[:5]
 
 
 def _hover_readout(page, plot, fractions=(0.5, 0.4, 0.6, 0.3, 0.7)):
