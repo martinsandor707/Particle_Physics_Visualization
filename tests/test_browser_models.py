@@ -291,6 +291,43 @@ def _settled(page, card_id, timeout=30_000):
     return page.evaluate(_CARD, card_id)
 
 
+def _frames(page, n=2):
+    """Let the page run `n` animation frames: what a switch, a scroll or a click schedules for the next frame
+    (an IntersectionObserver callback, a scroll event, a repaint) has run. A wait on the frame clock, never a
+    guessed delay."""
+    page.evaluate("""(n) => new Promise((done) => {
+      const step = (k) => (k > 0 ? requestAnimationFrame(() => step(k - 1)) : done());
+      step(n);
+    })""", n)
+
+
+#: No card laid out on the subpage on show is still waiting for its response.
+_QUIET = """() => [...document.querySelectorAll('.main .card[data-panel]')]
+  .filter((c) => !c.hidden && c.offsetParent !== null).every((c) => !c.classList.contains('is-loading'))"""
+
+
+def _quiet(page, timeout=30_000):
+    """Wait until what came into view has asked and answered: a frame for the observers to fire, then no card on
+    show loading, then a frame for the repaint. Before an assertion that something was NOT asked, this is the
+    settle that lets a wrong request happen first."""
+    _frames(page)
+    page.wait_for_function(_QUIET, timeout=timeout)
+    _frames(page)
+
+
+def _until(page, check, what, timeout=30_000):
+    """Wait until `check()` (a condition the test holds on the Python side, such as the requests recorded so far)
+    is true, polling on the frame clock; fail naming `what` when it never is."""
+    waited = 0
+    while not check():
+        if waited >= timeout:
+            raise AssertionError(f"timed out after {timeout} ms waiting for {what}")
+        _frames(page)
+        page.wait_for_timeout(50)
+        waited += 66
+    return True
+
+
 #: The subpage on show (`.app[data-msub]`, models_subpages.js) and the one holding a card (its wrapper).
 _SUBPAGE_OF_CARD = """(id) => document.querySelector(`.main .card[data-panel="${id}"]`)
   ?.closest('.models-subpage')?.dataset.msub ?? null"""
@@ -301,25 +338,81 @@ def _subpage(page):
 
 
 def _show_subpage(page, msub):
-    """Click a subpage's tab (unless it is on show); wait for its wrapper to be the one shown."""
+    """Click a subpage's tab (unless it is on show); wait for its wrapper to be the one shown, its tab selected and
+    the catalogue's bar shown off Views, then a frame for the switch's relayout and repaint."""
     if _subpage(page) != msub:
         page.click(f"#msub-tab-{msub}")
+    _wait_subpage(page, msub)
+
+
+def _wait_subpage(page, msub):
+    """Wait, without touching the tabs, until `msub` is the subpage on show (as `_show_subpage` states it)."""
     page.wait_for_function(
         """(m) => document.querySelector('.app')?.dataset.msub === m
           && !document.getElementById(`msub-${m}`).hidden
-          && ['views', 'distill', 'perf'].filter((k) => k !== m).every((k) => document.getElementById(`msub-${k}`).hidden)""",
+          && ['views', 'distill', 'perf'].filter((k) => k !== m).every((k) => document.getElementById(`msub-${k}`).hidden)
+          && document.getElementById(`msub-tab-${m}`).getAttribute('aria-selected') === 'true'
+          && document.getElementById('bench-bar').hidden === (m === 'views')""",
         arg=msub, timeout=10_000)
-    page.wait_for_timeout(150)
+    _frames(page)
+
+
+#: The sticky block at the top of `.main` (Martin's decision 6, 2026-11-05: the tab bar, with the catalogue's
+#: species bar on Distillations and Performance), and a card against it. `block` is the lowest edge of the tab bar
+#: and the catalogue's bar where either is laid out over `.main`'s visible area: a card scrolled into view or
+#: deep-linked must start below it. `onTop` says the bar is what a reader sees at its own left edge: nothing
+#: scrolled over it.
+_STICKY = """(id) => {
+  const scroller = document.querySelector('.main');
+  const main = scroller.getBoundingClientRect();
+  const probe = (el) => {
+    if (!el || el.hidden || !el.getClientRects().length) return null;
+    const r = el.getBoundingClientRect();
+    if (r.height <= 0) return null;
+    const y = Math.min(Math.max((r.top + r.bottom) / 2, main.top + 1), main.bottom - 1);
+    const hit = document.elementFromPoint(r.left + 3, y);
+    return { top: r.top, bottom: r.bottom, height: r.height, onTop: Boolean(hit && el.contains(hit)) };
+  };
+  const nav = probe(document.getElementById('models-subnav'));
+  const bench = probe(document.getElementById('bench-bar'));
+  const over = [nav, bench].filter((b) => b && b.bottom > main.top + 1 && b.top < main.bottom - 1);
+  const block = Math.max(main.top, ...over.map((b) => b.bottom));
+  const el = id ? document.querySelector(`.main .card[data-panel="${id}"]`) : null;
+  const card = el ? el.getBoundingClientRect() : null;
+  return { main: { top: main.top, bottom: main.bottom }, scrollTop: scroller.scrollTop,
+           room: scroller.scrollHeight - scroller.clientHeight, nav, bench, block,
+           card: card ? { top: card.top, bottom: card.bottom } : null,
+           margin: el ? parseFloat(getComputedStyle(el).scrollMarginTop) || 0 : null };
+}"""
+
+#: A card brought to the top of `.main`, as a reader's jump puts it there: `block: 'start'`, so its
+#: `scroll-margin-top` (the sticky block's height, models.css) applies.
+_SCROLL_START = """(id) => document.querySelector(`.main .card[data-panel="${id}"]`)
+  .scrollIntoView({ block: 'start', inline: 'nearest' })"""
+
+
+def _clear_of_sticky(page, card_id, where=""):
+    """Assert a card in view starts below the sticky tab bar and catalogue bar (decision 6); the probe."""
+    got = page.evaluate(_STICKY, card_id)
+    assert got["card"]["top"] >= got["block"] - 1, (
+        f"{where or card_id}: the card's top is {got['block'] - got['card']['top']:.0f} px under the sticky bar", got)
+    return got
 
 
 def _scroll_to(page, card_id):
-    """Bring a card into view on its own subpage (its tab clicked first when another is on show), then wait
-    until it has drawn or says why not."""
+    """Bring a card to the top of `.main` on its own subpage (its tab clicked first when another is on show), wait
+    until it has drawn or says why not, and assert it starts below the sticky bar (decision 6). It is scrolled
+    again once drawn, since a card above it may have changed height while it loaded."""
     msub = page.evaluate(_SUBPAGE_OF_CARD, card_id)
     if msub:
         _show_subpage(page, msub)
-    page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
-    return _settled(page, card_id)
+    page.evaluate(_SCROLL_START, card_id)
+    _frames(page)
+    state = _settled(page, card_id)
+    page.evaluate(_SCROLL_START, card_id)
+    _frames(page)
+    _clear_of_sticky(page, card_id)
+    return state
 
 
 def _shown_cards(page):
@@ -389,20 +482,21 @@ _MARK_POINTS = """([plotId, cap]) => {
 
 
 def _hover_marks(page, plot_id, cap=30):
-    """Hover a chart's own data items; every tooltip that showed, probed (as `_hover_chart` returns them)."""
+    """Hover a chart's own data items; every tooltip that showed, probed (as `_hover_chart` returns them). The
+    tooltips have no show delay and no transition (panels/tooltip.js), so a frame after each move is enough."""
     page.locator(f"#{plot_id}").scroll_into_view_if_needed()
-    page.wait_for_timeout(200)
+    _frames(page)
     page.evaluate(_WATCH_HOVER, plot_id)
     boxes = page.evaluate(_BOXES, plot_id)
     found = []
     for x, y in page.evaluate(_MARK_POINTS, [plot_id, cap]):
         page.mouse.move(x, y)
-        page.wait_for_timeout(60)
+        _frames(page)
         probe = page.evaluate(_PROBE)
         if probe is not None:
             found.append(((x, y), probe, boxes))
     page.mouse.move(2, 2)
-    page.wait_for_timeout(60)
+    _frames(page)
     return found
 
 
@@ -533,8 +627,7 @@ def test_no_card_asks_before_it_scrolls_into_view(models_live_server):
         assert not _requests_of(requests, "/api/model-performance"), _urls(requests)
         # Performance: the cards at its top load once its tab is chosen.
         _show_subpage(page, "perf")
-        page.wait_for_timeout(800)
-        assert _requests_of(requests, "/api/model-performance"), _urls(requests)
+        _until(page, lambda: _requests_of(requests, "/api/model-performance"), "E2's request once Performance shows")
         state = _scroll_to(page, "xgb-cv")
         assert state["canvas"] and state["series"], state
         assert _requests_of(requests, "/api/xgboost", view="cv", task="momentum")
@@ -1663,6 +1756,22 @@ def _tab_state(page, msub):
     return got
 
 
+#: Scroll `.main` to `top` and resolve after its `scroll` event has been handled (a frame later): the subpage
+#: router may remember the position on that event. Resolves at once when `.main` is already there.
+_SCROLL_MAIN = """(top) => new Promise((done) => {
+  const main = document.querySelector('.main');
+  const settle = () => requestAnimationFrame(() => requestAnimationFrame(() => done(main.scrollTop)));
+  if (Math.abs(main.scrollTop - Math.min(top, main.scrollHeight - main.clientHeight)) < 1) { settle(); return; }
+  main.addEventListener('scroll', settle, { once: true });
+  main.scrollTop = top;
+})"""
+
+
+def _scroll_main(page, top):
+    """Scroll `.main` to `top`; its scrollTop once the scroll has been handled."""
+    return page.evaluate(_SCROLL_MAIN, top)
+
+
 def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(models_live_server):
     """The tab bar (WAI-ARIA tabs, automatic activation): one tablist, three tabs each controlling its wrapper;
     a click or Left / Right (wrapping) / Home / End selects, moves the focus and the roving tabindex, writes
@@ -1683,7 +1792,7 @@ def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(mod
 
         # A click.
         page.click("#msub-tab-distill")
-        page.wait_for_timeout(300)
+        _wait_subpage(page, "distill")
         _tab_state(page, "distill")
         assert _visible_cards(page) == BY_SUBPAGE[BASELINE_TABLE]["distill"]
         # The keyboard, from the focused tab: Right, Right (wraps), Left (wraps), End, Home.
@@ -1691,7 +1800,8 @@ def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(mod
         for key, msub in (("ArrowRight", "perf"), ("ArrowRight", "views"), ("ArrowLeft", "perf"), ("Home", "views"),
                           ("End", "perf")):
             page.keyboard.press(key)
-            page.wait_for_timeout(250)
+            page.wait_for_function("(m) => document.activeElement?.id === `msub-tab-${m}`", arg=msub, timeout=10_000)
+            _wait_subpage(page, msub)
             got = _tab_state(page, msub)
             assert got["focus"] == f"msub-tab-{msub}", (key, got)
         # Tab leaves the tablist: the one tab in the order is the selected one.
@@ -1703,19 +1813,14 @@ def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(mod
         # `.main`, into view, and so record the top.
         def switch(msub):
             page.evaluate("(m) => document.getElementById(`msub-tab-${m}`).click()", msub)
-            page.wait_for_timeout(300)
-            assert _subpage(page) == msub
+            _wait_subpage(page, msub)
             return page.evaluate("() => document.querySelector('.main').scrollTop")
 
         switch("views")
-        page.evaluate("() => { document.querySelector('.main').scrollTop = 700; }")
-        page.wait_for_timeout(300)
-        views_at = page.evaluate("() => document.querySelector('.main').scrollTop")
+        views_at = _scroll_main(page, 700)
         assert views_at > 300, views_at
         assert switch("perf") == 0
-        page.evaluate("() => { document.querySelector('.main').scrollTop = 400; }")
-        page.wait_for_timeout(300)
-        perf_at = page.evaluate("() => document.querySelector('.main').scrollTop")
+        perf_at = _scroll_main(page, 400)
         assert perf_at > 100, perf_at
         assert switch("distill") == 0
         assert abs(switch("perf") - perf_at) <= 1
@@ -1794,13 +1899,13 @@ def test_the_3d_views_keep_their_contexts_cameras_and_slices_across_subpage_swit
         # The other subpages once, so what they hold in view has loaded before the measured round trip.
         for msub in ("perf", "distill", "views"):
             _show_subpage(page, msub)
-            page.wait_for_timeout(1500)
+            _quiet(page)
         for card_id, (xy, depth) in SLICE_PAIRS.items():
             for cell in (card_id, xy, *depth):
                 state = _scroll_to(page, cell)
                 assert state["message"] is None, (cell, state)
             page.wait_for_function(theme._GL_DRAWN, arg=card_id, timeout=30_000)
-        page.wait_for_timeout(800)
+        _quiet(page)
         # The reader turns and zooms the event and cuts it into six slices, at the third; the cloud is turned
         # through echarts-gl's camera action.
         _turn_and_zoom(page, "vox-event")
@@ -1809,7 +1914,9 @@ def test_the_3d_views_keep_their_contexts_cameras_and_slices_across_subpage_swit
         _step_slice(page, "vox-event", "next")
         page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
                       ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
-        page.wait_for_timeout(400)
+        page.wait_for_function(f"() => {{ const m = ({theme._CAMERA})('vox-ensemble').model; "
+                               "return m.alpha === 10 && m.beta === 70; }", timeout=10_000)
+        _frames(page)
 
         def view():
             return {
@@ -1832,12 +1939,13 @@ def test_the_3d_views_keep_their_contexts_cameras_and_slices_across_subpage_swit
 
         for msub in ("distill", "perf", "views", "perf", "views"):
             _show_subpage(page, msub)
-            page.wait_for_timeout(700)
+            _quiet(page)
             if msub != "views":
                 # Off show, the 3-D cards stay in the page with their contexts.
                 assert sorted(page.evaluate(_LIVE_GL)) == ["vox-ensemble", "vox-event"], msub
         page.locator('.main .card[data-panel="vox-event"]').scroll_into_view_if_needed()
-        page.wait_for_timeout(800)
+        _quiet(page)
+        page.wait_for_function(theme._GL_DRAWN, arg="vox-event", timeout=30_000)
         after = view()
         assert after == before, (before, after)
         assert requests[asked:] == [], f"a subpage switch asked the service: {requests[asked:]}"
@@ -1863,6 +1971,27 @@ def _all_requests(page):
 #: The option JSON of a chart, for a theme or a species switch to change.
 _OPTION = """(id) => { const inst = echarts.getInstanceByDom(document.getElementById(`plot-${id}`));
   return inst ? JSON.stringify(inst.getOption(), (k, v) => (typeof v === 'function' ? undefined : v)) : null; }"""
+
+
+def _wait_pressed(page, selector, timeout=10_000):
+    """Wait until a segmented button is the pressed one (what its click handler sets)."""
+    page.wait_for_function("(sel) => document.querySelector(sel)?.getAttribute('aria-pressed') === 'true'",
+                           arg=selector, timeout=timeout)
+    _frames(page)
+
+
+def _wait_options(page, cards, ok, *, any_of=False, timeout=10_000):
+    """Wait, on the frame clock, until `ok(option_json, card)` holds for every card (or, `any_of`, for one); the
+    cards for which it held when the wait ended. A repaint compared against the option before it is waited for,
+    never assumed done after a fixed delay."""
+    waited, held = 0, []
+    while True:
+        held = [c for c in cards if ok(page.evaluate(_OPTION, c) or "", c)]
+        if (held if any_of else len(held) == len(cards)) or waited >= timeout:
+            return held
+        _frames(page)
+        page.wait_for_timeout(50)
+        waited += 66
 
 
 @pytest.mark.parametrize("scheme", ["dark", "light"])
@@ -1915,7 +2044,7 @@ def test_the_catalogue_draws_opens_its_drawers_and_switches_species_task_and_the
         # other card of Performance is brought into view once first, so scrolling past it later asks nothing.
         for card_id in BY_SUBPAGE[BASELINE_TABLE]["perf"]:
             _scroll_to(page, card_id)
-        page.wait_for_timeout(500)
+        _quiet(page)
         for msub in ("distill", "perf"):
             _show_subpage(page, msub)
             ids = DISTILL if msub == "distill" else BENCH
@@ -1924,23 +2053,22 @@ def test_the_catalogue_draws_opens_its_drawers_and_switches_species_task_and_the
             seen = {c: page.evaluate(_OPTION, c) for c in charts}
             for species in ("proton", "muon", "electron", "pion", "all"):
                 page.click(f'#bench-bar button[data-bench-species="{species}"]')
-                page.wait_for_timeout(400)
-                assert page.get_attribute(f'#bench-bar button[data-bench-species="{species}"]', "aria-pressed") == "true"
+                _wait_pressed(page, f'#bench-bar button[data-bench-species="{species}"]')
                 assert _hash(page).get("bench_species") == (None if species == "all" else species), (species, page.url)
                 for c in ids:
                     # A card out of view repaints when it comes into view.
                     state = _scroll_to(page, c)
                     assert state["message"] is None, (msub, species, c, state)
                 if species == "muon":
-                    changed = [c for c in charts if page.evaluate(_OPTION, c) != seen[c]]
+                    # A species switch repaints the catalogue: some chart's option leaves the Compare-all one.
+                    changed = _wait_options(page, charts, lambda option, c: option != seen[c], any_of=True)
                     assert changed, (msub, "a species switch repaints the catalogue")
                 texts += _catalog_texts(page)
                 texts += page.evaluate("() => window.__drawnText.slice(-400)")
             if msub == "distill":
                 for task in ("segmentation", "angle", "energy"):
                     page.click(f'#bench-bar button[data-bench-task="{task}"]')
-                    page.wait_for_timeout(400)
-                    assert page.get_attribute(f'#bench-bar button[data-bench-task="{task}"]', "aria-pressed") == "true"
+                    _wait_pressed(page, f'#bench-bar button[data-bench-task="{task}"]')
                     # The shared `model` key; segmentation is its default, so the link leaves it out.
                     assert _hash(page).get("model") == (None if task == "segmentation" else task), (task, page.url)
                     for c in ids:
@@ -1956,17 +2084,19 @@ def test_the_catalogue_draws_opens_its_drawers_and_switches_species_task_and_the
         before = {c: page.evaluate(_OPTION, c) for c in CATALOG_CHARTS}
         api = len(requests)
         page.click("#theme-toggle")
-        page.wait_for_timeout(1200)
-        assert page.evaluate("() => document.documentElement.dataset.theme") == other
+        page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=other, timeout=10_000)
         stale = []
-        for card_id in CATALOG_CHARTS:
-            _scroll_to(page, card_id)
-            page.wait_for_timeout(200)
-            option = page.evaluate(_OPTION, card_id)
+
+        def repainted(option, card_id):
             # The screen ink of the new theme (its text or muted token), none of the old one's.
             ink = {t: [theme.MUTED[t] in option, theme.TEXT[t] in option] for t in (scheme, other)}
-            if not (option != before[card_id] and any(ink[other]) and not any(ink[scheme])):
-                stale.append((card_id, ink))
+            return option != before[card_id] and any(ink[other]) and not any(ink[scheme])
+
+        for card_id in CATALOG_CHARTS:
+            _scroll_to(page, card_id)
+            if not _wait_options(page, [card_id], repainted):
+                option = page.evaluate(_OPTION, card_id)
+                stale.append((card_id, {t: [theme.MUTED[t] in option, theme.TEXT[t] in option] for t in (scheme, other)}))
         assert stale == [], f"still in the {scheme} ink after the switch to {other}: {stale}"
         texts += _catalog_texts(page)
         assert requests[api:] == [], f"a theme switch asked the service: {requests[api:]}"
@@ -2011,9 +2141,11 @@ def test_a_deep_link_opens_its_cards_subpage_first(models_live_server, panel, ms
                                timeout=30_000)
         got = page.evaluate(_LANDED, panel)
         assert got["msub"] == msub and got["open"] and got["title"] == got["cardTitle"], got
+        # Its top is not under the sticky tab bar (decision 6: the cards' scroll margin).
+        _clear_of_sticky(page, panel, f"deep link to {panel}")
         assert got["back"] == "↩ Continue reading §3.6 in the Methodology", got
         assert _hash(page).get("msub") == (None if msub == "views" else msub), page.url
-        page.wait_for_timeout(800)
+        _quiet(page)
         # No request for a card the link did not open a subpage for.
         others = {"views": ("/api/model-performance", "/api/resolution-scaling", "/api/xgboost"),
                   "distill": ("/api/features", "/api/projections", "/api/selection-cells", "/api/model-performance",
@@ -2059,3 +2191,294 @@ def test_the_species_legend_and_cubes_follow_a_theme_switch(models_live_server):
     assert dark_cubes and len(dark_cubes) == len(light_cubes) and dark_cubes != light_cubes
     assert (again, again_cubes) == (dark, dark_cubes)
     assert problems == [], problems
+
+
+# ------------------------------------------- the sticky tab bar (decision 6) --
+
+
+#: Where the sticky block must stand once `.main` has scrolled: the tab bar at the top of `.main`'s visible area
+#: (within a few px, for the scroller's own padding), the catalogue's bar below it on Distillations and
+#: Performance, both entirely in view and nothing drawn over them.
+STICKY_SLACK = 24
+
+
+def _assert_pinned(got, msub, where):
+    nav, bench, main = got["nav"], got["bench"], got["main"]
+    assert nav is not None, (where, "no tab bar laid out", got)
+    assert main["top"] - 1 <= nav["top"] <= main["top"] + STICKY_SLACK, (where, "the tab bar scrolled away", got)
+    assert nav["bottom"] <= main["bottom"] and nav["onTop"], (where, "the tab bar is covered", got)
+    if msub == "views":
+        assert bench is None, (where, "the catalogue's bar shows on Views", got)
+        return
+    assert bench is not None, (where, "no catalogue bar laid out", got)
+    assert nav["bottom"] - 1 <= bench["top"] <= nav["bottom"] + STICKY_SLACK, (where, "the species bar scrolled away", got)
+    assert bench["bottom"] <= main["bottom"] and bench["onTop"], (where, "the species bar is covered", got)
+
+
+@pytest.mark.parametrize("viewport", [(1024, 768), (1600, 900)], ids=lambda v: f"{v[0]}x{v[1]}")
+def test_the_tab_bar_and_the_species_bar_stay_in_view_and_no_card_lands_under_them(models_live_server, viewport):
+    """Martin's decision 6 (2026-11-05): the tab bar is sticky at the top of `.main` on every subpage, with the
+    catalogue's species bar under it on Distillations and Performance. Once `.main` has scrolled both are still
+    in view with nothing over them; every card brought to the top (`scrollIntoView({block: 'start'})`, so the
+    cards' scroll margin applies) starts below them; and a badge's deep link lands its card below them too.
+    At 1024 px the species bar wraps, so the block is at its tallest."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, base, BASELINE_TABLE, viewport=viewport)
+        for msub in SUBPAGES:
+            _show_subpage(page, msub)
+            room = page.evaluate("() => { const m = document.querySelector('.main'); return m.scrollHeight - m.clientHeight; }")
+            assert room > 300, (msub, "the subpage is too short to scroll", room)
+            for top in (room // 2, room):
+                _scroll_main(page, top)
+                got = page.evaluate(_STICKY, None)
+                assert got["scrollTop"] > 200, (msub, got)
+                _assert_pinned(got, msub, f"{msub} scrolled to {got['scrollTop']:.0f}")
+            # Every card of the subpage, brought to the top: its top below the block, the block still pinned.
+            for card_id in BY_SUBPAGE[BASELINE_TABLE][msub]:
+                _scroll_to(page, card_id)
+                got = _clear_of_sticky(page, card_id, f"{msub} {card_id}")
+                if got["scrollTop"] > got["nav"]["height"] + (got["bench"]["height"] if got["bench"] else 0):
+                    _assert_pinned(got, msub, f"{msub} {card_id}")
+                    # The card's own scroll margin is what keeps it there (models.css `scroll-margin-top`).
+                    assert got["margin"] >= got["block"] - got["main"]["top"] - 1, (msub, card_id, got)
+        browser.close()
+
+        # A badge's deep link: the card's subpage, its top below the block (the scroll margin), the block pinned.
+        landed = {}
+        for panel, msub in (("perf-catalog", "perf"), ("perf-diagnostics", "perf"), ("distill-curves", "distill"),
+                            ("feat-corr", "views")):
+            browser = p.chromium.launch(args=GL_ARGS)
+            page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
+            page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+            page.goto(f"{base}/models?panel={panel}&from=lnk-results-models&from_sec=3.6#table_name={BASELINE_TABLE}")
+            page.wait_for_function(f"""() => {{ const s = ({_LANDED})({panel!r});
+              return !location.search && s.open && s.inView && s.title === s.cardTitle; }}""", timeout=30_000)
+            _quiet(page)
+            got = _clear_of_sticky(page, panel, f"deep link to {panel}")
+            landed[panel] = got
+            if got["scrollTop"] > 0:
+                _assert_pinned(got, msub, f"deep link to {panel}")
+            browser.close()
+    assert problems == [], problems
+    # The cards a link lands mid-page are scrolled: the check above is not vacuous.
+    assert landed["perf-catalog"]["scrollTop"] > 0 and landed["distill-curves"]["scrollTop"] > 0, landed
+
+
+# ------------------------------------------------ the accuracy card's Log10 axis --
+
+
+#: The validation-accuracy card's facets as a chart holds them: each x axis's type, and per facet the frame
+#: series (Absolute, Per-shower translated, Local; the proton's TTA ticks and RMSE dots aside) with their series
+#: type and the kinds of element they drew. A `custom` series' circles or a `scatter` series are dots; a rect is
+#: a bar.
+_FACET_MARKS_FN = """(inst) => {
+  const frames = ['Absolute', 'Per-shower translated', 'Local'];
+  const o = inst.getOption();
+  const axes = (o.xAxis || []).map((a) => a.type ?? 'value');
+  const facets = axes.map(() => []);
+  inst.getModel().eachSeries((series) => {
+    if (!frames.includes(series.name)) return;
+    const kinds = new Set();
+    inst.getViewOfSeriesModel(series)?.group.traverse((el) => {
+      if (!el.isGroup && !el.ignore && !el.invisible && el.type !== 'text' && el.type !== 'tspan') kinds.add(el.type);
+    });
+    const i = series.get('xAxisIndex') ?? 0;
+    (facets[i] ??= []).push({ name: series.name, type: series.subType, kinds: [...kinds].sort(), n: series.getData().count() });
+  });
+  return { axes, facets };
+}"""
+
+_FACET_MARKS = f"""(plotId) => ({_FACET_MARKS_FN})(echarts.getInstanceByDom(document.getElementById(plotId)))"""
+
+#: The marks of every SVG export as it is serialised (the exporter's own chart, under the print tokens).
+_WATCH_EXPORT_MARKS = f"""() => {{
+  if (window.__exportMarks) return;
+  window.__exportMarks = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {{
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {{
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {{
+        window.__exportMarks.push(({_FACET_MARKS_FN})(chart));
+        return render(...args);
+      }};
+    }}
+    return chart;
+  }};
+}}"""
+
+#: The angle facet: the accuracy card's second facet (catalog/select.js `perf-catalog` facets: segmentation,
+#: angle, energy, energy R²).
+ANGLE_FACET = 1
+
+
+def _dots(facet):
+    """Every frame series of a facet draws dots: a scatter series, or a custom series whose elements are circles."""
+    return bool(facet) and all(f["n"] == 0 or f["type"] == "scatter" or (f["kinds"] and set(f["kinds"]) <= {"circle"})
+                               for f in facet) and any(f["n"] for f in facet)
+
+
+def _bars(facet):
+    return bool(facet) and all(f["n"] == 0 or "rect" in f["kinds"] for f in facet) and any(f["n"] for f in facet)
+
+
+def test_the_accuracy_cards_log10_button_puts_the_angle_facet_on_a_log_axis_drawn_as_dots(models_live_server):
+    """R2-1 / R3-1: the Log10 button (the control stores 'log10') puts the angle facet on a log₁₀ axis drawn as
+    dots, never bars, on screen and in the exported SVG; the other facets keep their zero-based linear axes, and
+    Linear brings the bars back. A repaint: no request."""
+    card = '.main .card[data-panel="perf-catalog"]'
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE,
+                                                  fragment="&model=angle")
+        page.evaluate(_WATCH_EXPORT_MARKS)
+        _scroll_to(page, "perf-catalog")
+        linear = page.evaluate(_FACET_MARKS, "plot-perf-catalog")
+        assert linear["axes"] == ["value"] * 4, linear
+        assert _bars(linear["facets"][ANGLE_FACET]), linear
+        assert page.get_attribute(f'{card} button[data-bench-scale="linear"]', "aria-pressed") == "true"
+        # The linear export: its circles are the proton's RMSE dots alone.
+        _, linear_svg = _download_svg(page, "perf-catalog")
+        asked = len(requests)
+
+        page.click(f'{card} button[data-bench-scale="log10"]')
+        _wait_pressed(page, f'{card} button[data-bench-scale="log10"]')
+        try:
+            page.wait_for_function(f"() => ({_FACET_MARKS})('plot-perf-catalog').axes[{ANGLE_FACET}] === 'log'",
+                                   timeout=5_000)
+        except Exception:  # noqa: BLE001 - the assertion below names what the chart holds instead
+            pass
+        log = page.evaluate(_FACET_MARKS, "plot-perf-catalog")
+        assert log["axes"][ANGLE_FACET] == "log", ("Log10 pressed, the angle axis is not logarithmic", log)
+        assert [a for i, a in enumerate(log["axes"]) if i != ANGLE_FACET] == ["value"] * 3, log
+        assert _dots(log["facets"][ANGLE_FACET]), ("Log10 draws dots, never bars", log)
+        for i in (0, 2, 3):
+            assert log["facets"][i] == linear["facets"][i], (i, "only the angle facet changes", log)
+
+        # The export draws what the screen shows.
+        name, svg = _download_svg(page, "perf-catalog")
+        exported = page.evaluate("() => window.__exportMarks.at(-1)")
+        assert name.startswith("perf-catalog_") and name.endswith(".svg"), name
+        assert exported["axes"][ANGLE_FACET] == "log", ("the exported angle axis is not logarithmic", exported)
+        assert _dots(exported["facets"][ANGLE_FACET]), ("the export draws bars on the log axis", exported)
+        # In the SVG itself: one more <circle> for every angle value a custom series draws as a dot, beside the RMSE
+        # dots (a scatter series' symbols are paths; the exporter's own chart, above, already holds them).
+        dots = sum(f["n"] for f in exported["facets"][ANGLE_FACET] if f["type"] == "custom")
+        assert svg.count("<circle") - linear_svg.count("<circle") == dots, (
+            "the exported SVG does not draw the angle values as dots", svg.count("<circle"), linear_svg.count("<circle"), dots)
+
+        # Linear again: the bars, as at first.
+        page.click(f'{card} button[data-bench-scale="linear"]')
+        _wait_pressed(page, f'{card} button[data-bench-scale="linear"]')
+        page.wait_for_function(f"() => ({_FACET_MARKS})('plot-perf-catalog').axes[{ANGLE_FACET}] === 'value'",
+                               timeout=5_000)
+        assert page.evaluate(_FACET_MARKS, "plot-perf-catalog") == linear
+        assert requests[asked:] == [], f"the angle axis control asked the service: {requests[asked:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+# ---------------------------------------- the catalogue's text on its canvas --
+
+
+#: Every text a chart drew (zrender's text and tspan elements, through their transforms), in the chart's own
+#: pixels, and those that leave its canvas: a row label or a direct label cut at the edge.
+_CANVAS_TEXT_EDGES = """(plotId) => {
+  const host = document.getElementById(plotId);
+  const inst = echarts.getInstanceByDom(host);
+  const w = inst.getWidth(); const h = inst.getHeight();
+  const out = [];
+  let n = 0;
+  for (const el of inst.getZr().storage.getDisplayList(true)) {
+    if ((el.type !== 'text' && el.type !== 'tspan') || el.ignore || el.invisible) continue;
+    const text = String(el.style?.text ?? '').trim();
+    if (!text) continue;
+    const r = el.getBoundingRect().clone();
+    if (el.transform) r.applyTransform(el.transform);
+    n += 1;
+    if (r.x < -0.5 || r.y < -0.5 || r.x + r.width > w + 0.5 || r.y + r.height > h + 0.5) {
+      out.push({ text, x: Math.round(r.x), y: Math.round(r.y), right: Math.round(r.x + r.width),
+                 bottom: Math.round(r.y + r.height) });
+    }
+  }
+  return { w, h, n, out };
+}"""
+
+#: Every text of an exported SVG, laid out by the browser in the page's own fonts (the SVG mounted in a fixed host
+#: and removed again): those leaving the viewBox, and the pairs that overlap.
+_SVG_TEXT_LAYOUT = """(svgText) => {
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;margin:0;padding:0;border:0;z-index:-1;';
+  const svg = document.importNode(doc.documentElement, true);
+  host.append(svg);
+  document.body.append(host);
+  try {
+    const vb = svg.viewBox?.baseVal;
+    const width = vb && vb.width ? vb.width : parseFloat(svg.getAttribute('width'));
+    const height = vb && vb.height ? vb.height : parseFloat(svg.getAttribute('height'));
+    const s = svg.getBoundingClientRect();
+    const kx = width / s.width; const ky = height / s.height;
+    // Each text's box: the browser's horizontal extent, and vertically one em about its centre (ECharts lays its
+    // text out on a line one font size tall; the browser's line box adds the font's leading, so two tick labels
+    // 13 px apart at 12 px would read as overlapping where no glyph does).
+    const boxes = [...svg.querySelectorAll('text')].filter((t) => t.textContent.trim()).map((t) => {
+      const r = t.getBoundingClientRect();
+      const em = parseFloat(getComputedStyle(t).fontSize) || r.height;
+      const mid = (r.top + r.bottom) / 2 - s.top;
+      return { t: t.textContent.trim(), x: (r.left - s.left) * kx, y: (mid - em / 2) * ky, w: r.width * kx, h: em * ky };
+    });
+    const out = boxes.filter((b) => b.x < -0.5 || b.y < -0.5 || b.x + b.w > width + 0.5 || b.y + b.h > height + 0.5)
+      .map((b) => ({ text: b.t, x: Math.round(b.x), right: Math.round(b.x + b.w), y: Math.round(b.y),
+                     bottom: Math.round(b.y + b.h) }));
+    const overlaps = [];
+    for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i]; const b = boxes[j];
+      const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      if (ox > 0.5 && oy > 0.5) overlaps.push([a.t, b.t]);
+    }
+    return { width, height, n: boxes.length, out, overlaps };
+  } finally {
+    host.remove();
+  }
+}"""
+
+
+@pytest.mark.parametrize("species", ["all", "electron"])
+def test_the_catalogue_text_stays_on_its_canvas_on_screen_and_in_the_single_column_export(models_live_server, species):
+    """R2-2, R2-3, R2-4: no catalogue row label, direct label, facet title or note is cut at its canvas's edge on
+    screen (the diagnostics' 'Per-shower translated' ran 17 px off the left edge), and in the single-column SVG
+    export of every exportable catalogue card (321 px) every text lies inside the viewBox and clear of every other
+    (subtitle lines ran to 590 px; axis names sat over the top ticks; the curves' labels sat on each other). On
+    Compare all (the two-shower file's own choice: the most rows) and on one species, energy task."""
+    found = {"screen": {}, "export": {}, "overlap": {}}
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _show_subpage(page, "distill")
+        if species != "all":
+            page.click(f'#bench-bar button[data-bench-species="{species}"]')
+            _wait_pressed(page, f'#bench-bar button[data-bench-species="{species}"]')
+        for card_id in CATALOG_CHARTS:
+            state = _scroll_to(page, card_id)
+            assert state["message"] is None and state["canvas"] and state["exportButtons"] == 1, (card_id, state)
+            screen = page.evaluate(_CANVAS_TEXT_EDGES, f"plot-{card_id}")
+            assert screen["n"] > 5, (card_id, "no canvas text measured", screen)
+            if screen["out"]:
+                found["screen"][card_id] = screen["out"]
+            name, svg = _download_svg(page, card_id)
+            assert 'width="321"' in svg, (card_id, name)
+            layout = page.evaluate(_SVG_TEXT_LAYOUT, svg)
+            assert layout["width"] == 321 and layout["n"] > 5, (card_id, layout)
+            if layout["out"]:
+                found["export"][card_id] = layout["out"]
+            if layout["overlaps"]:
+                found["overlap"][card_id] = layout["overlaps"]
+        browser.close()
+    assert problems == [], problems
+    # One assertion, so a failure names every defect at once.
+    report = [f"cut at the canvas edge on screen, {c}: {v}" for c, v in found["screen"].items()]
+    report += [f"outside the 321 px viewBox of the export, {c}: {v}" for c, v in found["export"].items()]
+    report += [f"drawn over each other in the export, {c}: {v}" for c, v in found["overlap"].items()]
+    assert not report, f"{species}: catalogue text off its canvas or on another text:\n  " + "\n  ".join(report)

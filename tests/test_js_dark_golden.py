@@ -46,7 +46,9 @@ and prints a table of SHA-256 digests, one per case:
   Every catalogue payload (`catalog/select.js` `catalogPayload`) and every
   catalogue builder on it, for each species and Compare all and each task: the
   six chart builders at the card's 1100 px and the export's 321 px (the
-  accuracy card on its linear and Log10 angle axes too), their `plotHeight`,
+  accuracy card on its linear and Log10 angle axes too, Log10 under both the
+  builder's spelling 'log' and the control's stored 'log10', a '/log10' case
+  equal to its '/log' twin recorded as `same_as` it), their `plotHeight`,
   under the screen and the print tokens; the PySR card's `pysrModel`; the
   accuracy table and the diagnostics blocks; the seven drawer-note builders,
   with and without the panels' own state (a highlighted feature, moved curve
@@ -1386,10 +1388,12 @@ put('methodology/exhibit/consts', { paperWidth: exhibits.PAPER_WIDTH_MM, minFont
       const base = { palette: 'viridis', species, task, angleScale: 'linear' };
       for (const [card, [build, height]] of Object.entries(builders)) {
         const payload = payloadOf(card);
-        const scales = card === 'perf-catalog' ? ['linear', 'log'] : ['linear'];
+        // The accuracy card's angle axis on both spellings: 'log' (the builder's own) and 'log10', the value the
+        // card's control stores (labels.js bench_angle_scale), which must draw the same log axis (R2-1 / R3-1).
+        const scales = card === 'perf-catalog' ? ['linear', 'log', 'log10'] : ['linear'];
         for (const angleScale of scales) {
           const opts = { ...base, card, angleScale };
-          const tag = angleScale === 'log' ? '/log' : '';
+          const tag = angleScale === 'linear' ? '' : `/${angleScale}`;
           for (const [name, width] of Object.entries(CAT_WIDTHS)) {
             both(`catalog/${card}/${at}/${name}${tag}`, () => build(payload, opts, { width, height: height(payload, opts, width) }), chart);
           }
@@ -1417,9 +1421,20 @@ put('methodology/exhibit/consts', { paperWidth: exhibits.PAPER_WIDTH_MM, minFont
         catNotesDistill.curvesNotes({ ...base, card: 'distill-curves', payload: curves, panelState: { values: moved } }));
       both(`catalog/distill-curves/${at}/values`, () => catCurves.distillCurvesOption(curves, { ...base, card: 'distill-curves', values: moved },
         { width: 1100, height: catCurves.plotHeight(curves, { values: moved }, 1100) }), chart);
-      put(`catalog/notes/perf-catalog/${at}/log`,
-        catNotesPerf.accuracyNotes({ ...base, card: 'perf-catalog', angleScale: 'log', payload: payloadOf('perf-catalog') }));
+      for (const angleScale of ['log', 'log10']) {
+        put(`catalog/notes/perf-catalog/${at}/${angleScale}`,
+          catNotesPerf.accuracyNotes({ ...base, card: 'perf-catalog', angleScale, payload: payloadOf('perf-catalog') }));
+      }
     }
+  }
+  // The stored spelling 'log10' draws what 'log' draws: each '/log10' case whose bytes equal its '/log' twin is
+  // recorded as the id it repeats, so the table states the equality and a drift that separates them fails.
+  for (const id of Object.keys(cases).filter((c) => c.startsWith('catalog/') && /\/log10(?=$|\/|@)/.test(c))) {
+    const twin = id.replace(/\/log10(?=$|\/|@)/, '/log');
+    if (!(twin in cases) || cases[twin] !== cases[id]) continue;
+    const text = canon({ same_as: twin });
+    cases[id] = sha(text);
+    if (dumpDir) fs.writeFileSync(`${dumpDir}/${id.replace(/[^A-Za-z0-9_.@-]+/g, '__')}.json`, text);
   }
   // Several cards draw every task whatever the bar's task is (the PySR matrix, the accuracy facets, the energy
   // curves, the diagnostics): their cases for a later task repeat an earlier one's bytes. Each such case is

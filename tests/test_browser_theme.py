@@ -557,6 +557,15 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
         # back (a chart measured at zero size waits for its size), still with no request.
         for c in MODELS_CARDS:
             _models_card(page, c)
+            # Waited for: the repaint of a card brought back by its tab lands a frame or two after the switch (on a
+            # timeout the assertion below names the ink the chart still holds).
+            try:
+                page.wait_for_function(
+                    f"""() => {{ const ink = ({_AXIS_INK})('plot-{c}') ?? [];
+                      return ink.includes({json.dumps(MUTED["light"])}) && !ink.includes({json.dumps(MUTED["dark"])}); }}""",
+                    timeout=10_000)
+            except Exception:  # noqa: BLE001 - a Playwright timeout; the assertion below says what is wrong
+                pass
             ink = page.evaluate(_AXIS_INK, f"plot-{c}")
             assert MUTED["dark"] in dark_cards[c] and MUTED["light"] in ink and MUTED["dark"] not in ink, (c, ink)
         assert requests == requests_at_toggle, f"a theme switch asked the service: {requests[len(requests_at_toggle):]}"
@@ -568,7 +577,7 @@ def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it
     """A theme switch on Views, with nothing else moving (no drawer, no resize): the cards already drawn on
     Performance and Distillations are repainted in the new ink when their tab brings them back, with no request.
     (A chart measured at zero size skips the repaint; it must not keep the old theme once it has its size again.)"""
-    from test_browser_models import _OPTION, _show_subpage
+    from test_browser_models import _OPTION, _quiet, _show_subpage, _wait_options
 
     cards = ("perf-bins", "pred-truth", "res-scaling", "perf-catalog", "distill-triangle")
     with live_server["playwright"].sync_playwright() as p:
@@ -577,16 +586,15 @@ def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it
         for card_id in cards:
             _models_card(page, card_id)
         _show_subpage(page, "views")
-        page.wait_for_timeout(500)
+        _quiet(page)
         before = {c: page.evaluate(_OPTION, c) for c in cards}
         n = len(requests)
         assert _toggle(page, requests) == []
         stale = []
         for card_id in cards:
             _models_card(page, card_id)
-            page.wait_for_timeout(300)
-            option = page.evaluate(_OPTION, card_id)
-            if option == before[card_id] or MUTED["dark"] in option:
+            # The repaint is waited for (its new ink in the option), never assumed done after a delay.
+            if not _wait_options(page, [card_id], lambda option, c: option != before[c] and MUTED["dark"] not in option):
                 stale.append(card_id)
         asked = requests[n:]
         browser.close()
