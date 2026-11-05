@@ -2989,7 +2989,7 @@ experiment, the filters, the reference frame and the reconstruction model with
 Page 1 through the URL hash, so a tab switch carries the view across (see [The
 interface](#the-interface)). Its own state keys are `feature`, `fclass`,
 `fshower`, `voxel_event`, `voxel_shower`, `voxel_channel`, `ens_channel`,
-`xgb_task` and `xgb_label`; like every key they are written only when they
+`xgb_task`, `xgb_label`, `msub` and `bench_species`; like every key they are written only when they
 differ from the built-in value, and none reuses a Page 1 key (`event` and
 `shower` pin Page 1's Event Inspector and are never read here).
 
@@ -3005,9 +3005,139 @@ cached response and blanks every card before anything is drawn, and each card
 checks its request key after its response lands, so a late response never draws
 the previous experiment's data under the new one's name.
 
-The sections, in page order: **Model performance** (three cards), **Energy
-resolution** (one card), **XGBoost model** (four cards), **Event features** (four cards), **Primaries** (one card)
-and the **3-D views** (two pairs of a 3-D card and three 2-D projections).
+The page is split into three subpages (see [The three subpages](#the-three-subpages)).
+Its sections, by subpage and in page order:
+
+| Subpage | Sections |
+|---|---|
+| **Views** | the **3-D views** (two pairs of a 3-D card and three 2-D projections), **Event features** (four cards) and **Primaries** (one card) |
+| **Distillations** | **Distilled formulas and surrogates** (three catalogue cards) and **XGBoost surrogate and importance** (E4 and E5) |
+| **Performance** | **Model performance** (three cards), **Energy resolution** (one card), **XGBoost model** (E1 and E3) and the **Benchmark catalogue** (four cards) |
+
+### The three subpages
+
+A second-tier tab bar, `#models-subnav`, sits first in the page. Its tabs are
+**Views**, **Distillations** and **Performance**; the choice is the hash key
+`msub` (`views | distill | perf`). Views is the default and is written to no
+link, so every older link opens where it always did.
+
+- **Accessibility.** The bar is a `role="tablist"` with a roving `tabindex`; the
+  arrow keys move between tabs (wrapping), Home and End jump to the ends, and a
+  tab activates as it takes focus. Each subpage is a `role="tabpanel"` labelled
+  by its tab. The bar is not sticky: a sticky strip would lie over plots the
+  pointer aims at.
+- **A switch creates and disposes nothing.** It sets `hidden` on three wrappers
+  (`#msub-views`, `#msub-distill`, `#msub-perf`). The two 3-D views therefore keep
+  their WebGL contexts, cameras and slice state while another subpage is on show,
+  and a chart on a hidden subpage returns early at zero size. A card on a hidden
+  subpage never scrolls into view, so it never loads; a switch requests only the
+  stale cards that come into view, and a catalogue card requests nothing. Each
+  subpage's scroll position is kept in memory and is not view state.
+- **A deep link switches first.** `/models?panel=<card>` (the Methodology badges
+  use it) opens the card's own subpage, writes its `msub`, scrolls to the card and
+  opens its drawer.
+- **The sidebar follows the subpage.** The filters, the reconstruction model and
+  the reference frame show everywhere. Longitudinal Channels show on Views only.
+  The Colour Map shows wherever a card on show reads the palette: on Views
+  always, on Distillations when E4 is on show, on Performance when prediction
+  against truth is.
+- **The bench bar** (`#bench-bar`, Distillations and Performance) holds the
+  catalogue's species (Proton, Muon, Electron, Pion, Compare all) and task
+  (Segmentation, Angle, Energy). The task writes the shared `model` key, so the
+  sidebar's radio and E2's own control stay in step. A species left unchosen
+  follows the experiment: the species of its paired XGBoost run, and **Compare all**
+  where the experiment names none (a two-shower experiment never does; the bar
+  says why, and nothing is guessed). Neither key can be an Admin default.
+
+### The benchmark catalogue
+
+**Where the numbers come from.** `models_performance.md`, the training report of
+the 36 models (four species by three tasks by three frames: the proton baseline
+of 2026-09-24, then muon, electron and pion), is committed at the repository root
+as the source of record. It is written in Hungarian with decimal commas. The
+catalogue is its English, frozen transcription,
+`calosrv/static/js/catalog/benchmarks.js`: pure data with no imports, each value
+in the report's own unit with a `unit` field and, where the report qualifies it
+("< 0", "≈ 0", "~1 050", "no meaningful formula"), a qualifier that is never
+coerced into a number. There is no server call: the module is loaded once by a
+literal dynamic `import()`, and a species or task switch answers from it.
+
+**How it is pinned.** `tests/test_benchmark_catalog.py` parses every results table
+of the report, dumps the module with Node, and asserts that every number equals the
+report's and that every numeric token of every table is accounted for. It also
+checks the integrity facts the cards rely on:
+
+- the proton's overlap bins sum to 4,054 events, not the 4,065 the report states,
+  so 11 events lie in no bin (recorded as `unbinned: 11`);
+- the report prints per-bin counts for the proton only, so the other species show
+  "N not reported" and borrow none;
+- the distillation table's angle MAEs are in radians and, in mrad, agree with the
+  summary table to 0.005 mrad;
+- a distillation's segmentation MAE is a voxel-sample MAE and differs from the
+  validation E-MAE;
+- the 5/10/15 GeV momentum windows use the whole exported output, training split
+  included, so their n can exceed the particles (electron and pion);
+- the muon's |bias| equals its MAE at 5 and 15 GeV, so every error in those
+  windows has one sign.
+
+Every report number is shown with the report's printed decimals, so a reader sees
+how far it was rounded; a derived number (a sum, a ratio, rad converted to mrad)
+keeps the precision it can claim. `tests/test_js_catalog_logic.py` holds the
+tier, formula and payload logic, and one test file per panel family
+(`tests/test_js_catalog_distill.py`, `tests/test_js_catalog_perf.py`) holds the
+marks.
+
+**The seven cards.** Each is a `.card[data-panel]` of the usual anatomy, reads a
+static payload from `catalog/select.js` (the selection and the experiment do not
+apply, and the card says so), and is exportable as a plot-only figure except the
+DOM matrix.
+
+| Card | Subpage | What it draws |
+|---|---|---|
+| `distill-pysr` | Distillations | The 3 × 3 matrix (tasks by frames) of PySR formulas as MathML with a copyable LaTeX source, R² with its qualifier, a tier chip and the tree's top features; a click on a feature highlights every cell that uses it. A DOM card, with no export |
+| `distill-triangle` | Distillations | R² fidelity bars from 0 (tree to network, formula to network, tree to truth for the proton) and an MAE dumbbell from 0, in the task's unit (angle in mrad) |
+| `distill-curves` | Distillations | The energy formulas in physical units, p̂ against E_sum, one facet per frame; sliders set the secondary variables, repaint only, and are printed under the plot |
+| `perf-catalog` | Performance | Segmentation E-MAE, angle MAE, energy MAE and energy R², one zero-based facet each and never a dual axis; the angle axis is linear or log10 (dots, never bars, on log) |
+| `perf-overlap` | Performance | Error against the five overlap bins, dots and thin lines per frame, "All" as a dotted rule, and the N strip |
+| `perf-momentum-bias` | Performance | MAE bars from 0 and signed bias dots on a zero-centred axis, in the 4–6, 9–11 and 14–16 GeV windows, for muon, electron and pion |
+| `perf-diagnostics` | Performance | The proton's segmentation indecision as dumbbells, and its H200 throughput, architecture and dataset tables |
+
+**The tiers of a formula** (`catalog/gating.js` `tier()`; the thresholds are module
+constants the Methodology article quotes):
+
+| Tier | Rule | Mark |
+|---|---|---|
+| Physical law | R²_PySR ≥ 0.75 and R²_net ≥ 0.70, in physical units, with no leak flag | Solid border, "Law" chip |
+| High fidelity, truth R² not reported | R²_PySR ≥ 0.75, R²_net not reported | Solid border and its own chip |
+| Partial surrogate | 0.25 ≤ R²_PySR < 0.75, or a formula at 0.75 or above capped by a leak flag or by standardised features | Dashed border |
+| Not a law | R²_PySR < 0.25, "< 0", "≈ 0", no formula, or R²_net < 0.70 | Dotted border, muted ink, the reason printed |
+
+**The decisions** (Martin, 2026-11-05):
+
+1. **Point estimates, as reported.** The report gives no dispersion, so no interval
+   is fabricated or derived. Every mark names its N or says it is not reported, and
+   every catalogue card's Details button carries the hazard "no interval reported".
+   This is a recorded exception in `CLAUDE.md`.
+2. **An unnamed species opens on Compare all**, with a sentence saying why.
+3. **Colour Map shows wherever a card on show reads the palette**; Longitudinal
+   Channels stay on Views.
+4. **E1 and E3 go to Performance, E4 and E5 to Distillations**, so the XGBoost
+   section splits in two and each half carries the run's title.
+
+**Vocabulary and scope.** The report's frame `trans` is the dashboard's
+**Per-shower translated**, never "Translated" alone, which names the D-frame. A
+frame has E2's hue on every card; species are told apart by facets, grouping and
+dash patterns, never by a second colour family. Test-time augmentation, the H200
+throughput, the indecision measures and the per-bin counts exist for the proton
+only: the other species show "not reported", and the report forbids copying the
+proton's throughput onto them. The proton's overlap angle and energy rows are
+per hit and the new species' per particle, so every series carries a unit badge.
+A *leakage signal* mark belongs to segmentation rows only, where a tree fitted to
+the truth beats the network: in the per-shower frames it matches the report's own
+caveat (those frames are defined per particle), and in the Absolute frame the
+report gives no reason, so it is a warning and not a finding. On angle and energy
+rows the same comparison carries a neutral "tree beats the network on truth"
+mark and no leakage hazard.
 
 ### What each kind of experiment shows
 
@@ -3733,7 +3863,8 @@ draws one slice of the volume at a time, in place of the reference notebook's
 
 ### The XGBoost cards
 
-Four cards read `GET /api/xgboost?view=cv|binary|surrogate|importance` (with
+Four cards read `GET /api/xgboost?view=cv|binary|surrogate|importance` (E1 and
+E3 on the Performance subpage, E4 and E5 on Distillations; with
 `task=momentum|angle`; `binary` is the momentum task only and a 422 for angle).
 Each reproduces what the `XGBoost-Reg-*` notebooks compute, on the experiment's
 own event table, from the stored [analysis](#the-xgboost-analysis). **They are

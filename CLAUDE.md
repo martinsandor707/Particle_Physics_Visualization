@@ -29,7 +29,7 @@ This repository contains two complementary halves. **Choose by dataset size**; d
       - `standalone_hits` v3: one shower, one row per cell, 21 columns;
       - `standalone_events` v3: the 59-column event-level aggregate of `core.calc_all_features_v3`.
     - What each kind serves is decided in one place, `calosrv/query/capabilities.py`. Every card a kind cannot serve says why.
-    - Page 1 (`/`, Physics) holds the 4-grid diagnostic of §5 and the physics section below it. Page 2 (`/models`, Models) holds the network and XGBoost analysis, the feature explorer and the 3-D views. Both read one API and one URL hash.
+    - Page 1 (`/`, Physics) holds the 4-grid diagnostic of §5 and the physics section below it. Page 2 (`/models`, Models) holds the network and XGBoost analysis, the feature explorer and the 3-D views, in three subpages (Views, Distillations, Performance) and a catalogue of the training report's benchmarks. Both read one API and one URL hash.
     - Page 3 (`/methodology`, Methodology) is one journal-style article on how every panel of the other two is computed and drawn. It carries the same hash and writes no view key of its own; see §5.
   - **XGBoost runs in the service, never in the browser.**
     - The notebooks' regressors live in `xgboost_models/`, one per species, task and seed; the s1 models are used. A folder scan (`CALOSRV_MODEL_DIR`) finds them and pairs each with the aggregate experiment of the same species and seed.
@@ -62,6 +62,15 @@ Sections 2 through 5 below apply **identically to both architectures**.
   - Aggregated metrics must never be plotted as naked point estimates.
   - Always encode dispersion: standard deviations ($\sigma$), fitted Gaussian curves, confidence intervals, or probability density bands.
   - **A whisker encodes the uncertainty of an aggregate, never the dispersion of the sample.** A capped whisker on a plotted statistic is reserved for its standard error or a confidence interval built from it — at small $N$ the Student-$t$ interval $\bar x \pm t_{0.975,\,n-1}\,s/\sqrt{n}$, not a normal approximation, which understates the half-width by 2.2× at $N = 3$. Sample dispersion is a different quantity answering a different question and gets a different mark: an uncapped shaded range bar behind the marker, or nothing at all when the individual observations are already drawn. The two differ by $\sqrt{N}$, are indistinguishable by shape once a reader has seen both conventions, and so each must name its quantity in its tooltip.
+  - **Recorded exception: documented benchmark point estimates** (`calosrv/static/js/catalog/benchmarks.js`, pinned to `models_performance.md` by `tests/test_benchmark_catalog.py`; Martin's decision, 2026-11-05).
+    - **What.** The catalogue cards of the Models page draw the training report's numbers as reported point estimates.
+    - **Why:** the report gives no dispersion, and a number that carries none cannot be given one by the dashboard. An interval built from a validation count, or from the 5/10/15 GeV windows' n (training split included, so it can exceed the particles), would be fabricated.
+    - **The rules:**
+      - no interval is fabricated or derived;
+      - every mark names its N, or says the N is not reported;
+      - every catalogue card's Details button carries the hazard "no interval reported";
+      - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
+      - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
 * **Display Ranges Follow Robust Evidence**:
   - An axis range, a colour-scale bound or a histogram range is computed **only from the series that carry real statistical weight**. A fitted curve peaks at $1/(\sigma\sqrt{2\pi})$, so letting an under-powered slice set the scale flattens every well-measured series in service of the least reliable one. Measured on this panel: two 10-event slices peaked at 2.52 and 2.09 GeV⁻¹ against a robust maximum of 0.38, which would have compressed four well-measured slices into the bottom 15% of the canvas.
   - Under-powered estimates adapt to the established range. Where one overflows it, **clip it and say so**: an out-of-bounds indicator at the overflow, the true value in its tooltip, and a count in the panel's Details drawer (the former footnote) — the same disclosure discipline the percentile-clipping rule below demands.
@@ -356,6 +365,42 @@ When working with calorimeter simulation datasets in this repository:
     - the energy-resolution scaling, σ/E against 1/√E, in a section of its own;
     - the two 3-D views of the recorded exception above, each with a slice mode;
     - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
+  - **Three subpages** (`static/js/models_subpages.js`, `models_main.js`; hash key `msub`; Martin's decisions, 2026-11-05).
+    - **Which:** Views (`views`, the default, written to no link), Distillations (`distill`) and Performance (`perf`), chosen on the second-tier tab bar `#models-subnav` (`role="tablist"`, roving `tabindex`, arrow, Home and End keys, not sticky).
+    - **What each holds:**
+      - Views: the 3-D event and ensemble cards with their paired projections, the feature explorer and the primary-tag rate;
+      - Distillations: the PySR matrix, the distillation triangle and the energy curves, then E4 and E5;
+      - Performance: E2, prediction against truth with its residuals, the energy-resolution card, E1 and E3, then the four catalogue cards.
+    - **Nothing is created or disposed by a switch.** It sets `hidden` on three wrappers (`#msub-views`, `#msub-distill`, `#msub-perf`), so the 3-D views keep their two WebGL contexts, cameras and slice state. A card on a hidden subpage never loads, and a catalogue card never requests anything. Each subpage keeps its scroll position in memory, not in the link.
+    - **Why:** the page was one scroll of six sections. A hidden card cannot intersect, so the split costs no request, and disposing a WebGL context would lose the reader's camera.
+    - **A deep link switches first.** `?panel=<card>` opens the card's own subpage before it scrolls to it and opens its drawer, the card's `msub` written to the hash.
+    - **The sidebar per subpage** (`capabilities.js` `SUBPAGE_SECTIONS`).
+      - The filters, Reconstruction Model and Reference Frame show on all three.
+      - Longitudinal Channels show on Views only, hidden by CSS on `.app[data-msub]`, so `controls/layer_groups_control.js` keeps the `hidden` attribute to itself.
+      - **Colour Map shows wherever a card on show reads the palette**: always on Views, on Distillations when E4 is on show, on Performance when prediction against truth is.
+  - **The bench bar** (`#bench-bar`, on Distillations and Performance).
+    - **Species:** Proton, Muon, Electron, Pion, Compare all, in the key `bench_species`. A stored `null` follows the experiment: the species of its paired XGBoost run, else **Compare all with a sentence saying why**. A two-shower experiment names no species and nothing is guessed.
+    - **Task:** Segmentation, Angle, Energy. It writes the shared `model` key, so the sidebar radio and E2's own control stay in step.
+    - **Caption:** the provenance of the numbers: from the training report, point estimates, the selection and the experiment do not apply.
+    - **No request:** a species or task switch answers from the catalogue module (`catalog/select.js`, loaded once by a literal dynamic `import()`). Neither key can be an Admin default.
+  - **The benchmark catalogue** (`calosrv/static/js/catalog/`: `benchmarks.js` the frozen data, `gating.js` the tiers, `formula.js` the formula parser, `select.js` the payloads; Martin's decisions, 2026-11-05).
+    - **Source.** The 36 models of the training report `models_performance.md`, committed as the source of record: four species (proton, muon, electron, pion) by three tasks by three frames. The proton baseline is dated 2026-09-24.
+    - **Seven cards**, each a static payload and each under the recorded exception of §2:
+      - `distill-pysr`: the 3 × 3 matrix of PySR formulas as MathML with their LaTeX source, R², tier and feature chips (a DOM card, not exportable);
+      - `distill-triangle`: R² fidelity bars from 0 and the MAE dumbbell of tree, formula and network;
+      - `distill-curves`: the energy formulas in physical units, with sliders for the secondary variables that repaint without a request;
+      - `perf-catalog`: Segmentation E-MAE, angle MAE and energy MAE and R² by frame, one zero-based facet each, never a dual axis;
+      - `perf-overlap`: error against the five overlap bins, with the N strip;
+      - `perf-momentum-bias`: MAE and signed bias in the 4–6, 9–11 and 14–16 GeV windows;
+      - `perf-diagnostics`: the proton's segmentation indecision, throughput, architecture and datasets.
+    - **The tier rule** (`gating.js` `tier()`; the thresholds are module constants the article quotes): *Physical law* when R²_PySR ≥ 0.75 and R²_net ≥ 0.70, in physical units, with no leak flag; *High fidelity, truth R² not reported* when R²_PySR ≥ 0.75 and R²_net is not reported; *Partial surrogate* for 0.25 ≤ R²_PySR < 0.75, or a formula at or above 0.75 capped by a leak flag or by standardised features; *Not a law* below 0.25, for "< 0" and "≈ 0", with no formula, or when R²_net < 0.70. The tier is told by border (solid, dashed, dotted) and chip, never colour alone, and its reason is printed.
+    - **Frames.** The report's `trans` is the dashboard's **Per-shower translated**, never "Translated" alone, which names the D-frame. A frame has E2's hue on every card (`panels/perf_bins.js` `sourceColours`). Species are separated by facets, grouping, dash and direct labels, never by a second colour family.
+    - **Proton-only scope.** Test-time augmentation, the H200 throughput, the indecision measures and the per-bin overlap counts exist for the proton only. The other species show "not reported", and a proton figure is never copied onto them.
+    - **Leakage.** The report's own caveats become flags on the numbers they affect.
+      - A **"leakage signal"** mark belongs to segmentation rows only, where a tree fitted to the truth beats the network. In the per-shower frames it matches the report's own leakage caveat. In the Absolute frame the report gives no reason, so it is a warning, not a finding.
+      - On angle and energy rows the same comparison carries a neutral mark, **"tree beats the network on truth"**, and no leakage hazard.
+      - **Why:** a depth-4 tree beating a network that does not predict muon energy (R² 0.018) is not leakage.
+    - **Not comparable, and never compared:** the proton's overlap angle and energy rows are per hit and the new species' are per particle (a unit badge on every series); a distillation's voxel-sample MAE is not the validation E-MAE; the proton's 4,054 binned events fall 11 short of its 4,065.
   - **E2's per-bin marks follow the low-N table.**
     - One shower is drawn as a dot, never as an aggregate bar.
     - A point without an interval is faded, and its tooltip names the floor of its own quantity.
