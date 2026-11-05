@@ -772,9 +772,18 @@ def test_features_and_caveats(cat, dist):
              "els\u0151 r\u00e9teg": "z_first", "hitsz\u00e1m": "n_hits", "s\u00falypont r": "centroid_r"}
     got = {a: k for k, f in feats.items() for a in f["aliases"]}
     assert got == brief
-    # the proton's formula variables carry an inferred mapping, flagged
-    assert all(d["pysr"]["featureMapInferred"] for d in cat["DISTILLATION"]
-               if d["species"] == "proton" and not d["pysr"]["absent"])
+    # A proton formula's variables carry an inferred mapping exactly when one of them is printed in
+    # Hungarian, i.e. its English key is not in the report's text (review R1-13: "p ≈ 26,1 · √E_sum" maps
+    # nothing); the new species print English keys throughout.
+    for d in cat["DISTILLATION"]:
+        if d["pysr"]["absent"]:
+            continue
+        names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", d["pysr"]["ascii"])) - {"sqrt", "exp", "log", "e"}
+        hungarian = any(n not in d["pysr"]["source"] for n in names)
+        assert d["pysr"]["featureMapInferred"] is (d["species"] == "proton" and hungarian), (d["species"], d["task"], d["frame"])
+    assert [(d["task"], d["frame"]) for d in cat["DISTILLATION"]
+            if d["species"] == "proton" and not d["pysr"]["absent"] and not d["pysr"]["featureMapInferred"]] \
+        == [("energy", "trans"), ("energy", "local")]
     ids = [c["id"] for c in cat["CAVEATS"]]
     assert len(ids) == len(set(ids)) and all(c["text"] for c in cat["CAVEATS"])
     for c in cat["CAVEATS"]:
@@ -785,7 +794,8 @@ def test_features_and_caveats(cat, dist):
     assert {"local-frame-true-angle", "segmentation-frames-per-particle", "input-separation", "oracle-separation"} <= set(ids)
     by_id = {c["id"]: c for c in cat["CAVEATS"]}
     assert by_id["oracle-separation"]["scope"] == {"task": ["angle", "energy"]}
-    assert by_id["local-frame-true-angle"]["scope"] == {"task": ["angle"], "frame": ["local"]}
+    # The frame's definition: every Local model is rotated by the true angle, not only the angle's (R1-14).
+    assert by_id["local-frame-true-angle"]["scope"] == {"frame": ["local"]}
     assert by_id["segmentation-frames-per-particle"]["scope"]["frame"] == ["trans", "local"]
     # F10
     assert by_id["new-species-throughput"]["scope"]["species"] == NEW

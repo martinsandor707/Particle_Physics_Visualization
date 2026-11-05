@@ -3,7 +3,7 @@
  *
  * The payload is `catalog/select.js` `catalogPayload('distill-pysr', { species })`: nine cells, task-major,
  * each with one entry per species shown (all four under Compare all, stacked in the cell). An entry
- * carries the formula (`source` as printed, `ascii` explicit, `tex` for math.js), its R²_PySR (the
+ * carries the formula (`source` as printed, `ascii` explicit, `tex` for math.js), its R² (PySR) (the
  * formula's fidelity to the network's own validation predictions, not to the truth), the network's R² to
  * the truth where the report prints one, the tier `catalog/gating.js` `tier()` gives it, the tree's top
  * features (the chips) and the formula's own variables, the leak flags of its frame and whether its
@@ -11,18 +11,21 @@
  *
  * ## What each entry shows
  *
- *  - the species, and the tier as a text chip AND a border style (solid for a physical law and for a
+ *  - the species, and the tier as a text chip AND a border style (solid for a law candidate and for a
  *    high-fidelity formula whose truth R² is not reported, dashed for a partial surrogate, dotted and in
- *    muted ink for "not a law"): never colour alone;
+ *    muted ink for "not a law"): never colour alone. The top tier is a law *candidate* (Martin's decision
+ *    5): its reason quotes the report ("the tree and the formula explain the network's behaviour; they are
+ *    not an independent physical law"), and where the report's angle table gives the formula's own MAE to
+ *    truth it is printed beside the tier with the network's (`formulaVsNet`);
  *  - the formula as native MathML (`math.js` `texToTree` → `mountMath`, `createElementNS` only), falling
  *    back to its explicit text when the compiler refuses it; where PySR gave no meaningful formula the
  *    entry says so in place, with the R² the report still prints;
  *  - its LaTeX source in a `<code>` with a Copy button (`navigator.clipboard.writeText`; a refusal is said
  *    in the button's title), as the article's display equations carry theirs;
- *  - R²_PySR and the network's R² to truth with their qualifiers (F9), "N not reported" and "point
- *    estimate as reported; no interval" in the title;
+ *  - R² (PySR), set as R² with a PySR subscript in the DOM, and the network's R² to truth with their
+ *    qualifiers (F9), "N not reported" and "point estimate as reported; no interval" in the title;
  *  - badges: standardised voxel features, label leakage (F8), R² < 0, names mapped by inference;
- *  - the reason for any tier below "Physical law", printed;
+ *  - the reason for every tier, printed;
  *  - the tree's top features as chips, and the formula's variables that are not among them.
  *
  * ## Cross-highlighting
@@ -34,12 +37,14 @@
  *
  * ## Long formulas
  *
- * A formula is set at the math size its length allows (`formulaFit`): 14 px up to 40 characters of its
- * explicit form, 12 px up to 70, and 11 px beyond, the stated floor (FORMULA_FIT). A formula still wider
- * than its cell at the floor scrolls sideways inside its own box, never the page: the box keeps a visible
- * scrollbar (css/catalog.css), is marked `data-scrolls`, and a muted line under it says so. The overflow is
- * measured on render and on every relayout (a hidden subpage measures nothing), and the ids of the
- * formulas that scroll travel in `notesState().scrolling`, so the drawer names them.
+ * A formula is measured, not guessed (review R2-5): on render and on every relayout each box is set at
+ * 14 px, and a box wider than its cell steps down to 12 px, then to 11 px, the stated floor (FORMULA_FIT),
+ * re-measured at each step (three layout passes for the whole card). Only a formula still wider than its
+ * cell at the floor scrolls sideways inside its own box, never the page: the box keeps a visible scrollbar
+ * (css/catalog.css), is marked `data-scrolls`, becomes a tab stop (it is the only box a keyboard needs to
+ * reach: review R2-8), and a muted line under it says so. A hidden subpage measures nothing and keeps the
+ * length guess (`formulaFit`). The ids of the formulas that scroll travel in `notesState().scrolling`, so
+ * the drawer names them.
  *
  * ## Printed decimals
  *
@@ -52,6 +57,7 @@
 import { formatInt, typographic } from '../scale.js';
 import { mountMath, texToTree } from '../math.js';
 import { printed, printedQualified } from '../catalog/select.js';
+import { thresholdText } from '../catalog/gating.js';
 import { N_NOT_REPORTED, POINT_ESTIMATE, frameColours } from './distill_triangle.js';
 
 /** The tier marks, in the payload's order: the border style each takes (css/catalog.css). */
@@ -78,8 +84,14 @@ export const FORMULA_FIT = Object.freeze({
   floor: Object.freeze({ maxChars: Infinity, px: 11 }),
 });
 
-/** What the muted line under a formula that scrolls says. */
-export const SCROLL_HINT = 'Wider than its cell at the smallest math size: scroll sideways inside the box to read it all.';
+/** The size steps a measured formula takes, largest first. */
+export const FIT_STEPS = Object.freeze(['normal', 'compact', 'floor']);
+
+/** What the muted line under a formula that scrolls says: shown only at the floor. */
+export const SCROLL_HINT = `Wider than its cell even at the smallest math size (${FORMULA_FIT.floor.px} px): scroll sideways inside the box to read it all.`;
+
+/** The plain-text name of the formula's fidelity R²; the DOM sets it as R² with a PySR subscript. */
+export const R2_PYSR = 'R² (PySR)';
 
 /** The printed length of a formula: its explicit form without the product stars and spaces. */
 export function formulaLength(ascii) {
@@ -136,7 +148,7 @@ export function pysrModel(payload, opts = {}) {
       const badges = [];
       if (e.formula?.units === 'standardised') badges.push({ kind: 'standardised', text: PYSR_BADGES.standardised, title: 'The report: the segmentation formulas use standardised voxel features, so their coefficients have no physical unit.' });
       for (const flag of e.leaks ?? []) badges.push({ kind: 'leak', text: PYSR_BADGES.leak, title: payload.leakText?.[flag] ?? flag, flag });
-      if (negative) badges.push({ kind: 'negative', text: PYSR_BADGES.negative, title: `R²_PySR ${r2.qualifier === 'lt' ? 'is reported only as < 0, with no number' : `is ${printed(r2.value, r2.dp)}`}: worse than predicting the mean.` });
+      if (negative) badges.push({ kind: 'negative', text: PYSR_BADGES.negative, title: `${R2_PYSR} ${r2.qualifier === 'lt' ? 'is reported only as < 0, with no number' : `is ${printed(r2.value, r2.dp)}`}: worse than predicting the mean.` });
       if (e.featureMapInferred) badges.push({ kind: 'inferred', text: PYSR_BADGES.inferred, title: 'The proton\'s formula variables are written in Hungarian in the report; their English keys are mapped by inference (the report does not state the mapping).' });
       const featureKeys = [...(e.features ?? [])];
       const extraVariables = (e.variables ?? []).filter((k) => !featureKeys.includes(k));
@@ -149,9 +161,11 @@ export function pysrModel(payload, opts = {}) {
         speciesLabel: speciesLabels[e.species] ?? e.species,
         task: cell.task,
         frame: cell.frame,
+        place: `${speciesLabels[e.species] ?? e.species} ${(taskLabels[cell.task] ?? cell.task).toLowerCase()} ${frameLabels[cell.frame] ?? cell.frame}`,
         tier: tierKey,
         tierLabel: e.tier?.label ?? tierLabels[tierKey] ?? tierKey,
         reasons: [...(e.tier?.reasons ?? [])],
+        formulaVsNet: e.formulaVsNet ?? null,
         absent: Boolean(e.formula?.absent),
         tex: e.formula?.tex ?? null,
         ascii: e.formula?.ascii ?? null,
@@ -259,17 +273,34 @@ export class PysrMatrixPanel {
   }
 
   /**
-   * Which formulas are wider than their box at their size: marks each box (`data-scrolls`), shows its
-   * hint, and says so to the drawer when the set changes. A hidden card measures zero widths: nothing.
+   * Fit every formula to its cell by measurement (review R2-5): all boxes at 14 px, then each that overflows
+   * one step smaller and measured again, down to the 11 px floor; only a box that still overflows at the
+   * floor scrolls (`data-scrolls`), shows its hint and becomes a tab stop. Three layout passes for the
+   * whole card, never one per box. A hidden card measures zero widths: it keeps what it had and says
+   * nothing. Returns the ids that scroll, and tells the drawer when that set changes.
    */
   measureScroll() {
-    const next = [];
-    for (const [id, { box, hint }] of this.formulaBoxes) {
+    const boxes = [...this.formulaBoxes.entries()];
+    const width = (box) => Number(box.clientWidth);
+    if (!boxes.some(([, { box }]) => Number.isFinite(width(box)) && width(box) > 0)) return [...this.scrolling];
+    const over = (box) => {
       const sw = Number(box.scrollWidth);
-      const cw = Number(box.clientWidth);
-      const scrolls = Number.isFinite(sw) && Number.isFinite(cw) && cw > 0 && sw > cw + 1;
+      const cw = width(box);
+      return Number.isFinite(sw) && Number.isFinite(cw) && cw > 0 && sw > cw + 1;
+    };
+    let pending = boxes.filter(([, { box }]) => width(box) > 0);
+    for (const [, { box }] of pending) if (box.dataset) box.dataset.fit = FIT_STEPS[0];
+    for (let step = 1; step < FIT_STEPS.length && pending.length; step += 1) {
+      pending = pending.filter(([, { box }]) => over(box));
+      for (const [, { box }] of pending) if (box.dataset) box.dataset.fit = FIT_STEPS[step];
+    }
+    const next = [];
+    for (const [id, { box, hint }] of boxes) {
+      const scrolls = width(box) > 0 && box.dataset?.fit === 'floor' && over(box);
       if (scrolls) next.push(id);
       if (box.dataset) box.dataset.scrolls = scrolls ? 'true' : 'false';
+      if (scrolls) box.setAttribute('tabindex', '0');
+      else box.removeAttribute?.('tabindex');
       if (hint) hint.hidden = !scrolls;
     }
     const changed = next.join('|') !== this.scrolling.join('|');
@@ -293,11 +324,25 @@ export class PysrMatrixPanel {
     return node;
   }
 
+  /**
+   * An element whose text sets every "R² (PySR)" as R² with a PySR subscript (review R2-9): text nodes
+   * and a `<sub>`, never markup.
+   */
+  rich(tag, className, content) {
+    const node = this.el(tag, className);
+    const parts = String(content ?? '').split(R2_PYSR);
+    parts.forEach((part, i) => {
+      if (i > 0) node.append(this.doc().createTextNode('R²'), this.el('sub', 'pysr-sub', 'PySR'));
+      if (part) node.append(this.doc().createTextNode(part));
+    });
+    return node;
+  }
+
   build(model) {
     const root = this.el('div', 'pysr-matrix');
-    root.append(this.el('p', 'pysr-caption',
-      `${model.provenance} R²_PySR is the formula's fidelity to the network's own validation predictions, not to the truth; `
-      + `${N_NOT_REPORTED} for any distillation number; ${POINT_ESTIMATE}.`));
+    root.append(this.rich('p', 'pysr-caption',
+      `${model.provenance} ${R2_PYSR} is the formula's fidelity to the network's own validation predictions, not to the truth; `
+      + `${N_NOT_REPORTED} for it; ${POINT_ESTIMATE}. The top tier is a law candidate: the report says its formulas explain the network, not an independent physical law.`));
     root.append(this.legend(model));
     this.statusNode = this.el('p', 'pysr-status', highlightStatus(model));
     this.statusNode.setAttribute('role', 'status');
@@ -347,11 +392,12 @@ export class PysrMatrixPanel {
     const box = this.el('div', 'pysr-legend');
     box.setAttribute('aria-label', 'Tiers');
     const t = model.thresholds;
+    const th = (v, d) => thresholdText(v ?? d);
     const rules = {
-      law: `R²_PySR ≥ ${text(t.lawMinPysrR2 ?? 0.75)} and network R² to truth ≥ ${text(t.lawMinNetR2 ?? 0.7)}, physical units, no leak flag (solid border)`,
-      unverified: `R²_PySR ≥ ${text(t.lawMinPysrR2 ?? 0.75)}, but the report gives no network R² to truth (solid border)`,
-      partial: `${text(t.partialMinPysrR2 ?? 0.25)} ≤ R²_PySR < ${text(t.lawMinPysrR2 ?? 0.75)}, or capped by a leak flag or standardised features (dashed border)`,
-      'not-law': `R²_PySR < ${text(t.partialMinPysrR2 ?? 0.25)}, "< 0", "≈ 0", no formula, or network R² to truth < ${text(t.lawMinNetR2 ?? 0.7)} (dotted border, muted)`,
+      law: `${R2_PYSR} ≥ ${th(t.lawMinPysrR2, 0.75)} and network R² to truth ≥ ${th(t.lawMinNetR2, 0.7)}, physical units, no leak flag (solid border). A law candidate, not a law: the report says the formulas explain the network, not an independent physical law.`,
+      unverified: `${R2_PYSR} ≥ ${th(t.lawMinPysrR2, 0.75)}, but the report gives no network R² to truth (solid border)`,
+      partial: `${th(t.partialMinPysrR2, 0.25)} ≤ ${R2_PYSR} < ${th(t.lawMinPysrR2, 0.75)}, or capped by a leak flag or standardised features (dashed border)`,
+      'not-law': `${R2_PYSR} < ${th(t.partialMinPysrR2, 0.25)}, "< 0", "≈ 0", no formula, or network R² to truth < ${th(t.lawMinNetR2, 0.7)} (dotted border, muted)`,
     };
     for (const tier of Object.keys(TIER_BORDERS)) {
       const chip = this.el('span', 'tier-chip', `${model.tierLabels[tier] ?? tier} (${formatInt(model.counts[tier] ?? 0)})`);
@@ -375,11 +421,16 @@ export class PysrMatrixPanel {
     chip.dataset.tier = entry.tier;
     chip.title = entry.reasons.join(' ');
     top.append(chip);
+    if (entry.formulaVsNet) {
+      const mae = this.el('span', 'pysr-tier-mae', entry.formulaVsNet.text);
+      mae.title = `The PySR formula's own MAE to the true angle beside the network's, as the report prints them; ${N_NOT_REPORTED}; ${POINT_ESTIMATE}.`;
+      top.append(mae);
+    }
     node.append(top);
 
     if (entry.absent) {
-      node.append(this.el('p', 'pysr-absent',
-        `PySR gives no meaningful formula for this model; the report still prints R²_PySR ${entry.r2Text}.`));
+      node.append(this.rich('p', 'pysr-absent',
+        `PySR gives no meaningful formula for this model; the report still prints ${R2_PYSR} ${entry.r2Text}.`));
     } else {
       const box = this.formula(entry);
       const hint = this.el('p', 'pysr-scroll-hint', SCROLL_HINT);
@@ -389,7 +440,7 @@ export class PysrMatrixPanel {
       if (entry.tex) node.append(this.source(entry));
     }
 
-    const r2 = this.el('p', 'pysr-r2', `R²_PySR ${entry.r2Text} · network R² to truth ${entry.netR2Text}`);
+    const r2 = this.rich('p', 'pysr-r2', `${R2_PYSR} ${entry.r2Text} · network R² to truth ${entry.netR2Text}`);
     r2.title = R2_TITLE;
     node.append(r2);
 
@@ -404,8 +455,8 @@ export class PysrMatrixPanel {
       node.append(badges);
     }
 
-    if (entry.tier !== 'law' && entry.reasons.length) {
-      node.append(this.el('p', 'pysr-reason', `${entry.tierLabel}: ${entry.reasons.join(' ')}`));
+    if (entry.reasons.length) {
+      node.append(this.rich('p', 'pysr-reason', `${entry.tierLabel}: ${entry.reasons.join(' ')}`));
     }
 
     if (entry.features.length || entry.extraVariables.length) {
@@ -426,10 +477,10 @@ export class PysrMatrixPanel {
   /** The formula: MathML from math.js, its explicit text when the compiler refuses the TeX. */
   formula(entry) {
     const box = this.el('div', 'pysr-formula');
+    // The length guess until the card is measured (measureScroll); a tab stop only once it scrolls.
     box.dataset.fit = entry.fit ?? 'normal';
-    box.tabIndex = 0;
     box.setAttribute('role', 'group');
-    box.setAttribute('aria-label', `${entry.speciesLabel} formula`);
+    box.setAttribute('aria-label', `${entry.place} formula`);
     if (entry.tex) {
       try {
         box.append(mountMath(texToTree(entry.tex, { display: true }), this.doc()));

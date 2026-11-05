@@ -1019,7 +1019,7 @@ export const DISTILLATION = deepFreeze([
       r2: { value: 0.80, qualifier: null, dp: 2 },
       units: 'physical',
       absent: false,
-      featureMapInferred: true,
+      featureMapInferred: false, // E_sum is printed in English: nothing is mapped (review R1-13)
     },
     dp: { treeR2Net: 3, treeR2Truth: 3 },
   },
@@ -1042,7 +1042,7 @@ export const DISTILLATION = deepFreeze([
       r2: { value: 0.77, qualifier: null, dp: 2 },
       units: 'physical',
       absent: false,
-      featureMapInferred: true,
+      featureMapInferred: false, // E_sum is printed in English: nothing is mapped (review R1-13)
     },
     dp: { treeR2Net: 3, treeR2Truth: 3 },
   },
@@ -1901,7 +1901,8 @@ export const CAVEATS = deepFreeze([
   },
   {
     id: 'local-frame-true-angle',
-    scope: { task: ['angle'], frame: ['local'] },
+    // The frame's definition, so every Local model (not only the angle's) is rotated by the true angle (review R1-14).
+    scope: { frame: ['local'] },
     text: 'The local frame is a translation plus a rotation; z\' runs along the incidence direction, and this needs the true angle (common/coords.py).',
   },
   {

@@ -340,6 +340,46 @@ def test_tier_reasons_are_sentences_with_typographic_minus(tiers):
                for s in tiers[("proton", "angle", "absolute")]["reasons"])
 
 
+def test_no_printed_reason_carries_a_number_shorter_than_its_dp(payloads):
+    """R3-3: gating.tier() takes a formatter and select.js passes the printed one, so every R² in a reason
+    is set with the report's own decimals (1.000, 1.0000, 0.590), never its shortest form, and the
+    thresholds with one precision (0.70). Checked on all 36 models, through the payloads the cards read."""
+    p = payloads[("distill-pysr", "all", "energy")]["payload"]
+    checked = 0
+    for c in p["cells"]:
+        for e in c["entries"]:
+            text = " ".join(e["tier"]["reasons"])
+            qs = [q for q in (e["r2"], e["netR2"]) if q and q.get("value") is not None and q.get("dp") is not None]
+            for q in qs:
+                # every token of this value carries one of the printed precisions of a number of that value
+                allowed = {x["dp"] for x in qs if x["value"] == q["value"]}
+                if abs(q["value"]) in (0.75, 0.70, 0.25):
+                    allowed.add(2)
+                for tok in _NUM_TOKEN.findall(text):
+                    plain = tok.replace("\u2212", "-")
+                    if abs(float(plain)) == abs(q["value"]):
+                        decimals = len(plain.split(".")[1]) if "." in plain else 0
+                        assert decimals in allowed, (e["species"], c["task"], c["frame"], tok, allowed, text)
+                        checked += 1
+            for th in ("0.7)", "0.7 ", "0.7,", " 0.7."):
+                assert th not in text, (e["species"], c["task"], c["frame"], text)
+    assert checked > 30
+    # tier() sets every reported R² through its formatter (the shortest form by default) and nothing else
+    out = _node(IMPORTS + """
+const pysr = { r2: { value: 0.8, qualifier: null, dp: 3 }, units: 'physical', absent: false };
+const net = { value: 0.65, qualifier: null, dp: 4 };
+console.log(JSON.stringify({
+  plain: G.tier({ pysr, netR2: net, task: 'energy', frame: 'absolute' }).reasons,
+  printed: G.tier({ pysr, netR2: net, task: 'energy', frame: 'absolute', fmt: S.printedDigits }).reasons,
+  approx: G.tier({ pysr: { ...pysr, r2: { value: 0, qualifier: 'approx', dp: 2 } }, task: 'energy', frame: 'absolute', fmt: S.printedDigits }).reasons,
+}));
+""")
+    assert out["plain"] == ["The formula describes a network that does not predict the truth: network R² to truth 0.65, below 0.70 (R² (PySR) 0.8)."]
+    assert out["printed"] == ["The formula describes a network that does not predict the truth: network R² to truth 0.6500, below 0.70 (R² (PySR) 0.800)."]
+    assert out["approx"][0].startswith("R² (PySR) is ≈ 0.00:")
+    assert "printedReasons" not in (CATALOG / "select.js").read_text()
+
+
 def test_tier_rules_on_synthetic_inputs():
     cases = {
         "absent": [{"r2": {"value": 0.9, "qualifier": None}, "units": "physical", "absent": True}, 0.9, "energy", "absolute"],
@@ -376,8 +416,16 @@ console.log(JSON.stringify({ res, TIERS: G.TIERS, LABELS: G.TIER_LABELS,
     assert MINUS + "0.5" in out["res"]["negative"]["reasons"][0]
     assert "network R² to truth 0.69" in out["res"]["weakNet"]["reasons"][0]
     assert out["TIERS"] == ["law", "unverified", "partial", "not-law"]
-    assert out["LABELS"] == {"law": "Physical law", "unverified": "High fidelity, truth R² not reported",
+    # Martin's decision 5: the top tier is a law candidate, never "Physical law"; its reason quotes the
+    # report's own sentence.
+    assert out["LABELS"] == {"law": "Law candidate", "unverified": "High fidelity, truth R² not reported",
                              "partial": "Partial surrogate", "not-law": "Not a law"}
+    assert "Physical law" not in json.dumps(out)
+    for key in ("netAtFloor", "plainNet"):
+        assert out["res"][key]["reasons"][-1] == (
+            "The report: \"the tree and the formula explain the network's behaviour; they are not an independent physical law\".")
+    # the thresholds print with one precision (0.70, never 0.7)
+    assert "below 0.70" in out["res"]["weakNet"]["reasons"][0] and "0.7)" not in out["res"]["weakNet"]["reasons"][0]
     assert out["consts"] == [0.75, 0.70, 0.25]
 
 
@@ -486,7 +534,7 @@ def test_pysr_payload(payloads, tiers):
         for e in c["entries"]:
             key = (e["species"], c["task"], c["frame"])
             assert e["tier"]["tier"] == EXPECTED_TIERS[key], key
-            # gating.js's reasons, with each R² re-set to the report's printed decimals (select.js printedReasons)
+            # gating.js's reasons, its R² set by the formatter select.js passes (the report's printed decimals)
             assert [_numbers_as_values(r) for r in e["tier"]["reasons"]] == \
                 [_numbers_as_values(r) for r in tiers[key]["reasons"]]
             assert set(e["features"]) | set(e["variables"]) <= set(p["features"])
@@ -497,10 +545,19 @@ def test_pysr_payload(payloads, tiers):
             if e["formula"]["absent"]:
                 assert e["variables"] == [] and e["formula"]["ascii"] is None
     by = {(e["species"], c["task"], c["frame"]): e for c in p["cells"] for e in c["entries"]}
-    assert by["muon", "segmentation", "absolute"]["tier"]["reasons"][0].startswith("R²_PySR is 0.590, between")
-    assert "R²_PySR is 1.000 (at least 0.75) and the network's R² to truth is 1.0000 (at least 0.7)" \
+    assert by["muon", "segmentation", "absolute"]["tier"]["reasons"][0].startswith("R² (PySR) is 0.590, between")
+    assert "R² (PySR) is 1.000 (at least 0.75) and the network's R² to truth is 1.0000 (at least 0.70)" \
         in by["muon", "angle", "absolute"]["tier"]["reasons"][0]
-    assert "network R² to truth 0.0176, below 0.7 (R²_PySR 0.653)" in by["muon", "energy", "absolute"]["tier"]["reasons"][0]
+    assert "network R² to truth 0.0176, below 0.70 (R² (PySR) 0.653)" in by["muon", "energy", "absolute"]["tier"]["reasons"][0]
+    # decision 5: the formula's own MAE to truth beside the network's, where the angle table gives it
+    assert by["muon", "angle", "trans"]["formulaVsNet"]["text"] == \
+        "Formula MAE to truth 24.25 mrad; network 9.67 mrad (the report's angle table)."
+    assert by["pion", "angle", "trans"]["formulaVsNet"]["text"].startswith("Formula MAE to truth 110.50 mrad; network 53.00 mrad")
+    assert by["proton", "angle", "absolute"]["formulaVsNet"] is None
+    assert all(e["formulaVsNet"] is None for c in p["cells"] if c["task"] != "angle" for e in c["entries"])
+    assert sum(e["formulaVsNet"] is not None for c in p["cells"] for e in c["entries"]) == 9
+    assert by["muon", "angle", "trans"]["tier"]["tier"] == "law"
+    assert by["muon", "angle", "trans"]["tier"]["label"] == "Law candidate"
     assert by["muon", "angle", "trans"]["netR2"] == {"value": 0.984, "qualifier": None, "dp": 4}
     muon_seg = p["cells"][0]["entries"][1]
     assert muon_seg["formula"]["units"] == "standardised"
@@ -549,7 +606,18 @@ def test_triangle_payload(payloads):
     assert fired == sorted([(s, f) for s in ("muon", "electron", "pion") for f in FRAMES] + [("proton", "trans"), ("proton", "local")])
     assert not any(r["treeBeatsNetwork"] for r in seg["rows"])
     assert srows[("muon", "absolute")]["leakSignalText"] == (
-        "Tree→Truth MAE 0.1309 is below the network's 0.1955 on the voxel sample: a depth-4 tree beating the network on truth is a leakage signal.")
+        "Tree→Truth MAE 0.1309 is below the network's 0.1955 in the distillation table: a depth-4 tree beating the network on truth is a leakage signal.")
+    assert srows[("muon", "absolute")]["leakSignalRule"] == "mae"
+    # R1-7: the proton's signal is the dashboard's own rule, stated with its threshold, beside the report's
+    # indecision reading (|2f - 1| predicted against truth, in the row's frame)
+    pt = srows[("proton", "trans")]
+    assert pt["leakSignalRule"] == "proton-r2-gap"
+    assert "R² 0.741 against 0.078 to the network" in pt["leakSignalText"]
+    assert "by more than 0.1 is called a leakage signal (a drawing choice, not the report's)" in pt["leakSignalText"]
+    assert "|2f − 1| 0.74 in the prediction against 0.95 in the truth" in pt["leakSignalText"]
+    assert "|2f − 1| 0.74 in the prediction against 0.94 in the truth" in srows[("proton", "local")]["leakSignalText"]
+    # R1-3: the report states no weighting for the distillation table's MAE
+    assert "MAE (energy-weighted" not in json.dumps(seg) and "voxel sample" not in json.dumps(seg)
     for r in ang["rows"] + seg["rows"] + en["rows"]:
         assert r["missing"], (r["species"], r["frame"])
 
@@ -567,9 +635,12 @@ def test_angle_and_energy_rows_say_tree_beats_network_never_leakage(payloads):
             assert (r["treeBeatsNetworkText"] is not None) is beats
     en = {(r["species"], r["frame"]): r for r in payloads[("distill-triangle", "all", "energy")]["payload"]["rows"]}
     assert sorted(k for k, r in en.items() if r["treeBeatsNetwork"]) == [("muon", "absolute"), ("muon", "trans")]
+    # R1-6: the two printed MAEs and their gap, and that the report cannot say whether it is real
     assert en[("muon", "absolute")]["treeBeatsNetworkText"] == (
-        "Tree→Truth MAE 4.5868 is below the network's 4.6214 GeV: a depth-4 tree on the summary features predicts "
-        "the truth better than the network on this sample.")
+        "The tree's printed MAE to truth (4.5868 GeV) is lower than the network's (4.6214 GeV) by 0.0346 GeV; "
+        "the report gives no uncertainty to say whether the difference is real.")
+    assert "by 0.0025 GeV" in en[("muon", "trans")]["treeBeatsNetworkText"]
+    assert "better" not in en[("muon", "trans")]["treeBeatsNetworkText"]
     assert "leak" not in en[("muon", "absolute")]["treeBeatsNetworkText"]
 
 

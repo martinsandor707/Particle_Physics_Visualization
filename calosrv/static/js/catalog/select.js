@@ -35,8 +35,11 @@
  *   cells: [{ task, frame, entries: [entry] }]    9 cells, task-major (TASKS × FRAMES); every task shown,
  *                                                 whatever `task` is
  *   entry: { species, formula: { source, ascii, tex, units: 'physical'|'standardised', absent },
- *            r2: qualified R²_PySR (to the network), netR2: qualified network R² to truth | null,
- *            tier: { tier, label, reasons: [sentence] }, features: [key] (the tree's top features),
+ *            r2: qualified R² (PySR) (to the network), netR2: qualified network R² to truth | null,
+ *            tier: { tier, label, reasons: [sentence] } (reasons with the report's printed decimals),
+ *            formulaVsNet: formulaVsNet(species, task, frame) | null (angle: the formula's own MAE to truth
+ *                          beside the network's, ANGLE_FORMULA_VS_NET),
+ *            features: [key] (the tree's top features),
  *            variables: [key] (the formula's variables, English keys; [] when absent),
  *            featureMapInferred: boolean (proton: Hungarian names mapped by inference),
  *            leaks: [flag] (gating.js leakFlags), caveats: [flag] ('oracle-separation' on angle/energy) }
@@ -53,24 +56,28 @@
  *            mae: { netTruth, treeTruth, treeNet, formula }   display unit or null; formula = the PySR
  *                                                 formula's MAE to truth (ANGLE_FORMULA_VS_NET, angle only)
  *            maeSource: { netTruth: 'triad'|'accuracy'|null, formula: 'angle-formula-vs-net'|null },
- *            maeScope: 'voxel-sample' | 'validation'  (segmentation MAEs are voxel-sample, F5: never the E-MAE)
+ *            maeScope: 'voxel-sample' | 'validation'  (segmentation: the distillation table's MAE, whose sample
+ *                                             and weighting the report does not state, voxel-level by
+ *                                             inference; F5: never the E-MAE)
  *            maeDp: { netTruth, treeTruth, treeNet, formula }   printed decimals in the display unit
  *            leaks: [flag],
  *            leakSignal: boolean              SEGMENTATION rows only: the tree fitted to truth beats the
- *                                             network on the voxel sample (MAE), or for the proton the
- *                                             tree's R² to truth exceeds its R² to the network by > 0.1
- *            leakSignalText: sentence | null
- *            treeBeatsNetwork: boolean        angle and energy rows: tree→truth MAE < network→truth MAE, a
- *                                             neutral fact (a depth-4 tree on the summary features predicts
- *                                             the truth better than the network on this sample), no hazard
- *            treeBeatsNetworkText: sentence | null
+ *                                             network in the distillation table (MAE), or for the proton
+ *                                             the tree's R² to truth exceeds its R² to the network by more
+ *                                             than PROTON_SIGNAL_MIN_R2_GAP (a drawing choice)
+ *            leakSignalText: sentence | null  (the proton's names its rule and the report's indecision reading)
+ *            leakSignalRule: 'mae' | 'proton-r2-gap' | null
+ *            treeBeatsNetwork: boolean        angle and energy rows: the tree's printed MAE to truth is below
+ *                                             the network's; no badge, no hazard (lead ruling R1-6)
+ *            treeBeatsNetworkText: sentence | null  the gap, and that the report gives no uncertainty to say
+ *                                             whether it is real
  *            missing: [sentence]              what the report does not give for this row }]
  *   Rows run species-major (the requested species), then FRAMES.
  *
  * ── 'distill-curves' ───────────────────────────────────────────────────────────────────────────────────
  *   Energy formulas only, whatever `task` is; physical units and non-absent only.
  *   formulas: [{ species, frame, source, ascii, tex, variables: [key], tier: { tier, label, reasons },
- *                r2: qualified R²_PySR, netR2: qualified | null }]
+ *                r2: qualified R² (PySR), netR2: qualified | null }]
  *   x: { key: 'E_sum', label, unit: 'GeV' }      p̂ [GeV] against E_sum [GeV]
  *   variables: { centroid_r, max_hit_frac, centroid_theta, rms_r }: each { key, label, unit, domain: [lo, hi],
  *              default (the domain midpoint), usedBy: [{ species, frame }] }
@@ -150,10 +157,16 @@ export const PROVENANCE = `From the training report (${SOURCE.file}; proton resu
 export const CURVE_CEILING = Object.freeze({
   value: 20,
   unit: 'GeV',
-  rule: 'The x axis runs from 0 to the E_sum at which a species\' Absolute energy formula reaches 20 GeV (the 0–20 GeV range of the datasets), the largest over the species shown.',
+  rule: 'The x axis runs from 0 to the E_sum at which a species\' Absolute energy formula reaches 20 GeV, the largest over the species shown. 20 GeV is a drawing choice: the top of the XGBoost aggregates\' 0–20 GeV range; the report states no momentum range.',
 });
 
 export const CURVE_BRACKET = Object.freeze([0, 10]);
+
+/**
+ * The proton has no tree MAEs in the report, so its segmentation leakage signal compares the tree's R² to
+ * the truth with its R² to the network: above by more than this, a drawing choice of the dashboard's.
+ */
+export const PROTON_SIGNAL_MIN_R2_GAP = 0.1;
 
 export const CURVE_VARIABLES = Object.freeze({
   centroid_r: Object.freeze({ key: 'centroid_r', label: 'centroid_r', unit: 'mm', domain: Object.freeze([0, 5000]), default: 2500 }),
@@ -208,20 +221,8 @@ export function mradDp(dp) {
   return Number.isInteger(dp) ? Math.max(0, dp - 3) : null;
 }
 
-/**
- * gating.js writes its tier reasons with the shortest form of each R² (String(value)); the reasons a card
- * prints must carry the report's decimals, so the two R² of the formula are re-set here: the number after
- * "R²_PySR" (optionally "is") is the formula's, the one after "R² to truth" (optionally "is") the network's.
- */
-export function printedReasons(reasons, r2, netR2) {
-  const NUMBER = '[−-]?\\d+(?:\\.\\d+)?';
-  const reset = (text, lead, q) => {
-    if (!q || !Number.isInteger(q.dp) || !Number.isFinite(q.value)) return text;
-    const re = new RegExp(`(${lead}(?: is)? )(${NUMBER})(?![\\d.])`, 'g');
-    return text.replace(re, (m, head, token) => (Number(token.replace('−', '-')) === q.value ? head + printed(q.value, q.dp) : m));
-  };
-  return reasons.map((text) => reset(reset(text, 'R²_PySR', r2), 'R² to truth', netR2));
-}
+/** The formatter tier() takes: a qualified scalar with the report's printed decimals (gating.js `fmt`). */
+export const printedDigits = (q) => printed(q.value, q.dp);
 
 /** rad → mrad without binary noise (0.00046 rad → 0.46, not 0.45999999999999996). */
 const toMrad = (rad) => (rad === null || rad === undefined ? null : Number((rad * 1000).toPrecision(12)));
@@ -237,8 +238,28 @@ function formulaVars(pysr) {
 
 function tierOf(row) {
   const netR2 = netR2Of(row.species, row.task, row.frame);
-  const t = tier({ pysr: row.pysr, netR2, task: row.task, frame: row.frame });
-  return { tier: t.tier, label: TIER_LABELS[t.tier], reasons: printedReasons([...t.reasons], row.pysr.r2, netR2) };
+  const t = tier({ pysr: row.pysr, netR2, task: row.task, frame: row.frame, fmt: printedDigits });
+  return { tier: t.tier, label: TIER_LABELS[t.tier], reasons: [...t.reasons] };
+}
+
+/**
+ * The PySR formula's own MAE to the truth, beside the network's, where the report's angle table gives it
+ * (ANGLE_FORMULA_VS_NET: the new species' angle models), else null. Both in mrad with their printed
+ * decimals; `text` is the sentence the cards print beside the tier (Martin's decision 5).
+ */
+export function formulaVsNet(species, task, frame) {
+  if (task !== 'angle') return null;
+  const r = ANGLE_FORMULA_VS_NET.find((x) => x.species === species && x.frame === frame);
+  if (!r) return null;
+  const f = printed(r.formulaMae, r.dp?.formulaMae);
+  const n = printed(r.netMae, r.dp?.netMae);
+  return {
+    formulaMae: r.formulaMae,
+    netMae: r.netMae,
+    unit: r.unit,
+    dp: { formulaMae: r.dp?.formulaMae ?? null, netMae: r.dp?.netMae ?? null },
+    text: `Formula MAE to truth ${f} ${r.unit}; network ${n} ${r.unit} (the report's angle table).`,
+  };
 }
 
 function resolveArgs(card, { species, task } = {}) {
@@ -268,6 +289,7 @@ function pysrBody(shown) {
           r2: row.pysr.r2,
           netR2: netR2Of(species, task, frame),
           tier: tierOf(row),
+          formulaVsNet: formulaVsNet(species, task, frame),
           features: row.features,
           variables: vars,
           featureMapInferred: Boolean(row.pysr.featureMapInferred),
@@ -331,7 +353,7 @@ function triangleRow(species, task, frame) {
   if (isProton) {
     missing.push('The report gives no tree MAEs for the proton (neither to truth nor to the network); only the R² are drawn.');
     if (task === 'segmentation') {
-      missing.push('The proton segmentation network\'s MAE is the validation E-MAE, not a voxel-sample MAE, so it is not drawn here (F5).');
+      missing.push('The proton segmentation network\'s MAE is the validation E-MAE, not a MAE of the distillation table, so it is not drawn here (F5).');
     } else {
       missing.push('The proton network MAE is the validation MAE of the accuracy table.');
     }
@@ -344,8 +366,10 @@ function triangleRow(species, task, frame) {
 
   // A leakage signal is a segmentation finding only (the fix round, brief 12.1): a depth-4 tree beating an
   // angle or energy network on truth (muon energy, whose network does not predict the truth) is no leak.
+  // There the two printed MAEs stay, with a neutral sentence and no badge (lead ruling R1-6).
   let leakSignal = false;
   let leakSignalText = null;
+  let leakSignalRule = null;
   let treeBeatsNetwork = false;
   let treeBeatsNetworkText = null;
   const beats = treeTruth !== null && netTruth !== null && treeTruth < netTruth;
@@ -353,13 +377,21 @@ function triangleRow(species, task, frame) {
   const netTruthText = printed(netTruth, maeDp.netTruth);
   if (task === 'segmentation' && beats) {
     leakSignal = true;
-    leakSignalText = `Tree→Truth MAE ${treeTruthText} is below the network's ${netTruthText}${u} on the voxel sample: a depth-4 tree beating the network on truth is a leakage signal.`;
-  } else if (task === 'segmentation' && isProton && row.treeR2Truth !== null && row.treeR2Truth > row.treeR2Net + 0.1) {
+    leakSignalRule = 'mae';
+    leakSignalText = `Tree→Truth MAE ${treeTruthText} is below the network's ${netTruthText}${u} in the distillation table: a depth-4 tree beating the network on truth is a leakage signal.`;
+  } else if (task === 'segmentation' && isProton && row.treeR2Truth !== null && row.treeR2Truth > row.treeR2Net + PROTON_SIGNAL_MIN_R2_GAP) {
     leakSignal = true;
-    leakSignalText = `The tree fitted to truth reaches R² ${printed(row.treeR2Truth, rowDp.treeR2Truth)} against ${printed(row.treeR2Net, rowDp.treeR2Net)} to the network: the truth is easier for a depth-4 tree than the network's decisions, a leakage signal.`;
+    leakSignalRule = 'proton-r2-gap';
+    const pol = INDECISION.polarisation;
+    const pdp = INDECISION.dp?.polarisation ?? null;
+    leakSignalText = `The tree fitted to truth reaches R² ${printed(row.treeR2Truth, rowDp.treeR2Truth)} against ${printed(row.treeR2Net, rowDp.treeR2Net)} to the network. `
+      + `The report gives no tree MAEs for the proton, so the dashboard's own rule applies: a tree R² to truth above its R² to the network by more than ${printed(PROTON_SIGNAL_MIN_R2_GAP, 1)} is called a leakage signal (a drawing choice, not the report's). `
+      + `The report offers another reading: the network is undecided (energy-weighted |2f − 1| ${printed(pol.predicted[frame], pdp)} in the prediction against ${printed(pol.truth[frame], pdp)} in the truth), and a tree fits a near-binary truth more easily than a hedging network.`;
   } else if (task !== 'segmentation' && beats) {
     treeBeatsNetwork = true;
-    treeBeatsNetworkText = `Tree→Truth MAE ${treeTruthText} is below the network's ${netTruthText}${u}: a depth-4 tree on the summary features predicts the truth better than the network on this sample.`;
+    const gap = netTruth - treeTruth;
+    const gapDp = Math.max(maeDp.treeTruth ?? 0, maeDp.netTruth ?? 0);
+    treeBeatsNetworkText = `The tree's printed MAE to truth (${treeTruthText}${u}) is lower than the network's (${netTruthText}${u}) by ${printed(Number(gap.toFixed(gapDp)), gapDp)}${u}; the report gives no uncertainty to say whether the difference is real.`;
   }
 
   return {
@@ -374,6 +406,7 @@ function triangleRow(species, task, frame) {
     leaks: leakFlags({ task, frame }),
     leakSignal,
     leakSignalText,
+    leakSignalRule,
     treeBeatsNetwork,
     treeBeatsNetworkText,
     missing,

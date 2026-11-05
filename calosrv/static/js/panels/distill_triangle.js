@@ -21,8 +21,9 @@
  * Right, the MAE dumbbell on an axis from zero in the task's display unit: Network → Truth (filled
  * circle) and Tree → Truth (hollow circle) joined by a thin line, Tree → Network (hollow square, a little
  * below the line) and, for the angle task, the PySR formula's MAE to truth (filled diamond, a little above).
- * The segmentation MAEs are voxel-sample MAEs (F5): the axis and every tooltip say so, and the proton's
- * validation E-MAE is never drawn against them. The proton has no tree MAEs in the report: only its
+ * The segmentation MAEs are the distillation table's (F5): the report states neither their sample nor
+ * their weighting (voxel-level by inference, from the voxel features), the axis and every tooltip say so,
+ * and the proton's validation E-MAE is never drawn against them. The proton has no tree MAEs in the report: only its
  * network MAE (from the accuracy table) is drawn, and the gap is stated in the row.
  *
  * ## Colour is the frame; species are rows
@@ -38,15 +39,17 @@
  * leak flag of the report (F8), and "leakage signal" where the tree fitted to truth beats the network on
  * truth on a segmentation row (`leakSignal`). In the per-shower translated and Local segmentation frames
  * that signal matches the report's own leakage caveat; in the Absolute frame the report gives no reason, so
- * it is a warning, not a finding. On an angle or energy row a tree beating the network on truth is no leak
- * (muon energy: the network does not predict the truth); it is a neutral badge "tree beats the network on
- * truth" in the muted ink, with no ⚑ and no hazard.
+ * it is a warning, not a finding. For the proton, which has no tree MAEs, the signal is the dashboard's own
+ * rule (tree R² to truth above its R² to the network by more than 0.1), stated with the report's
+ * indecision reading beside it. On an angle or energy row a tree whose printed MAE to truth is below the
+ * network's carries no badge at all (lead ruling R1-6): the two printed MAEs are drawn, and the tooltip
+ * and the drawer say the report gives no uncertainty to tell whether the gap is real.
  *
  * ## Printed decimals
  *
- * Every number is printed with the report's own decimals (select.js `printed`, the payload's `dp` and
- * `maeDp`), so 1.000 stays 1.000; an angle MAE converted from the triad's radians keeps the triad's digits
- * × 1000.
+ * Every number is printed with the report's own decimals (select.js `printed`, the one formatter of the
+ * catalogue, with the payload's `dp` and `maeDp`), so 1.000 stays 1.000; an angle MAE converted from the
+ * triad's radians keeps the triad's digits × 1000.
  *
  * `triangleModel` decides everything (the notes reuse it); `triangleLayout` places it at a width;
  * `distillTriangleOption` draws it; `plotHeight` is what the panel sets on its plot before ECharts measures.
@@ -78,15 +81,10 @@ export function frameColours() {
   return sourceColours([...CATALOG_FRAMES]);
 }
 
-/** A number as the report prints it: with its printed decimals `dp` (select.js `printed`), U+2212 for a minus. */
-export function reported(value, dp = null) {
-  return Number.isFinite(value) ? printed(value, dp) : '—';
-}
-
-/** A reported number with its display unit. */
+/** A reported number with its display unit (select.js `printed`, the catalogue's one formatter). */
 export function reportedWithUnit(value, unit, dp = null) {
   if (!Number.isFinite(value)) return '—';
-  return `${reported(value, dp)}${unit ? ` ${unit}` : ''}`;
+  return `${printed(value, dp)}${unit ? ` ${unit}` : ''}`;
 }
 
 /** The muted closing line of every catalogue tooltip: the N and the absent interval. */
@@ -98,6 +96,18 @@ export function catalogTipFoot(nText = N_NOT_REPORTED) {
 export function protonValidationN() {
   const d = DATASETS.proton;
   return `N = ${formatInt(d.validationEvents)} validation events (${formatInt(d.validationParticles)} particles), the accuracy table's sample`;
+}
+
+/**
+ * The N of the proton's tree R² (review R1-10): the report measures it on the validation events. Angle and
+ * energy models predict per particle, so the events' particles are the sample; a segmentation tree works on
+ * their voxels, whose count the report does not give.
+ */
+export function protonTreeN(task) {
+  const d = DATASETS.proton;
+  return task === 'segmentation'
+    ? `measured on the voxels of the ${formatInt(d.validationEvents)} validation events (the report); the voxel count is not reported`
+    : `N = ${formatInt(d.validationEvents)} validation events (${formatInt(d.validationParticles)} particles): the report measures the tree's R² on the validation events`;
 }
 
 /** The short names a narrow row label takes: never "Translated" alone (CLAUDE.md, F11). */
@@ -129,11 +139,10 @@ export const MAE_MEASURES = Object.freeze([
   Object.freeze({ key: 'formula', name: 'PySR formula → Truth MAE', mark: 'filled diamond', definition: 'the PySR formula\'s mean absolute error against the true angle (the report\'s angle table)' }),
 ]);
 
-/** The badge texts of the reserved column, full and short. */
+/** The badge texts of the reserved column, full and short (a tree beating the network carries none: R1-6). */
 export const BADGE_TEXT = Object.freeze({
   leak: Object.freeze({ full: 'label leakage', short: 'leak' }),
   signal: Object.freeze({ full: 'leakage signal', short: 'signal' }),
-  beats: Object.freeze({ full: 'tree beats the network on truth', short: 'tree beats net' }),
 });
 
 /** The badges that warn (⚑, warning ink, a drawer hazard); every other badge is neutral (muted ink). */
@@ -151,9 +160,9 @@ export function r2Mark(q) {
   const drawn = negative ? 0 : Math.min(1, q.value);
   let exact;
   if (lt) exact = 'reported only as < 0, with no number';
-  else if (q.qualifier === 'approx') exact = `reported as ≈ ${reported(q.value, q.dp)}`;
-  else if (q.qualifier === 'about') exact = `reported as ~${reported(q.value, q.dp)}`;
-  else exact = `${reported(q.value, q.dp)} exactly as reported`;
+  else if (q.qualifier === 'approx') exact = `reported as ≈ ${printed(q.value, q.dp)}`;
+  else if (q.qualifier === 'about') exact = `reported as ~${printed(q.value, q.dp)}`;
+  else exact = `${printed(q.value, q.dp)} exactly as reported`;
   return {
     q, reported: true, drawn, clamped: negative, approx: q.qualifier === 'approx',
     text: printedQualified(q), exact,
@@ -202,7 +211,6 @@ export function triangleModel(payload, opts = {}) {
     const badges = [];
     if ((r.leaks ?? []).length) badges.push('leak');
     if (r.leakSignal) badges.push('signal');
-    if (r.treeBeatsNetwork) badges.push('beats');
     const maeDp = {};
     for (const m of MAE_MEASURES) maeDp[m.key] = r.maeDp?.[m.key] ?? null;
     return {
@@ -264,6 +272,12 @@ export function triangleModel(payload, opts = {}) {
   };
 }
 
+/** The N sentence of one R² value: the proton's tree R² names its validation sample (R1-10). */
+export function r2NText(model, row, key) {
+  if (row.species === 'proton' && (key === 'treeNet' || key === 'treeTruth')) return protonTreeN(model.task);
+  return N_NOT_REPORTED;
+}
+
 /** The N sentence of one MAE value. */
 export function maeNText(row, key) {
   if (key === 'netTruth' && row.maeSource?.netTruth === 'accuracy') return protonValidationN();
@@ -272,18 +286,43 @@ export function maeNText(row, key) {
 
 /** Where one MAE value comes from, in words. */
 function maeProvenance(model, row, key) {
-  if (model.task === 'segmentation') return 'voxel-sample MAE (energy-weighted), not the validation E-MAE (F5)';
+  if (model.task === 'segmentation') return SEGMENTATION_MAE_SCOPE;
   if (key === 'netTruth' && row.maeSource?.netTruth === 'accuracy') return 'the accuracy table\'s validation MAE';
   if (key === 'formula') return 'the report\'s angle table (formula against the true angle)';
   return model.task === 'angle' ? 'the distillation table, converted from rad (× 1000)' : 'the distillation table';
 }
 
+/** What a segmentation MAE of the distillation table is, and is not (F5; review R1-3). */
+export const SEGMENTATION_MAE_SCOPE = 'MAE of the distillation table (sample and weighting not stated by the report; voxel-level by inference), not the validation E-MAE (F5)';
+
 /* --------------------------------------------------------------- layout -- */
 
-/** Row height in px: a compact row under Compare all. */
-function rowPxOf(model) {
+/** Row height in px: a compact row under Compare all; a row label of `lines` lines needs 1.25 heights each. */
+function rowPxOf(model, lines = 1) {
   const f = THEME.fontLabel;
-  return model.compare ? Math.max(22, 2.3 * f) : Math.max(34, 3.4 * f);
+  const base = model.compare ? Math.max(22, 2.3 * f) : Math.max(34, 3.4 * f);
+  return lines > 1 ? Math.max(base, lines * 1.25 * f + 0.6 * f) : base;
+}
+
+/** The narrowest plot block a stacked layout keeps before it splits its row labels over two lines (px). */
+export const MIN_BLOCK_PX = 120;
+
+/**
+ * The text of a row label at a layout: full, short, or species over frame on two lines; where the badge
+ * column does not fit (a stacked export at 85 mm), the row's flags follow on a line of their own in the
+ * warning ink (ECharts rich text `{flag|…}`).
+ */
+export function rowLabelText(row, layout) {
+  const name = layout.twoLine ? `${row.speciesLabel}\n${SHORT_FRAME[row.frame] ?? row.frameLabel}`
+    : (layout.short ? row.shortLabel : row.label);
+  const flags = layout.badgesInLabel ? badgeLine(row, true) : '';
+  return flags ? `${name}\n{flag|${flags}}` : name;
+}
+
+/** The R² value labels a single species prints at its bars' ends (none under Compare all). */
+function r2LabelTexts(model) {
+  if (model.compare) return [];
+  return model.rows.flatMap((r) => ['treeNet', 'pysrNet'].map((k) => r.r2[k]).filter((m) => m?.reported && !m.clamped).map((m) => m.text));
 }
 
 /** The legend names, in the order drawn. */
@@ -326,45 +365,68 @@ export function triangleLayout(model, width = 1100) {
   const w = Math.max(240, width || 1100);
   const stacked = w < 600;
   const n = Math.max(1, model.rows.length);
-  const rowPx = rowPxOf(model);
-  const fullLabel = Math.max(...model.rows.map((r) => measureText(r.label, f, THEME.fontFamily)), 40);
+  const measure = (t) => measureText(t, f, THEME.fontFamily);
+  const fullLabel = Math.max(...model.rows.map((r) => measure(r.label)), 40);
   const short = fullLabel > 0.26 * w;
-  const labelText = short ? Math.max(...model.rows.map((r) => measureText(r.shortLabel, f, THEME.fontFamily)), 30) : fullLabel;
-  const labelW = Math.ceil(labelText + 1.2 * f);
   const badgeTexts = model.rows.map((r) => badgeLine(r, short));
   const badgeW = badgeTexts.some(Boolean)
     ? Math.ceil(Math.max(...badgeTexts.map((t) => measureText(t, THEME.fontSmall, THEME.fontFamily))) + 1.2 * f)
     : Math.ceil(0.6 * f);
+  // Room right of the R² axis for the value printed at a bar's end (1.000 sits past the axis end).
+  const r2Labels = r2LabelTexts(model);
+  const labelRoom = r2Labels.length ? Math.ceil(Math.max(...r2Labels.map((t) => measureText(t, THEME.fontSmall, THEME.fontFamily))) + 6) : 0;
+  const right = Math.ceil(badgeW + pad.right * 0.6);
+  const shortLabels = Math.max(...model.rows.map((r) => measure(r.shortLabel)), 30);
+  const twoLineLabels = Math.max(...model.rows.flatMap((r) => [measure(r.speciesLabel), measure(SHORT_FRAME[r.frame] ?? r.frameLabel)]), 30);
+  const flagW = Math.max(0, ...model.rows.map((r) => measureText(badgeLine(r, true), THEME.fontSmall, THEME.fontFamily)));
+  const blockOf = (labelText, rightPx) => w - Math.ceil(0.6 * f + labelText + 1.2 * f) - rightPx - labelRoom;
+  // A stacked layout too narrow for its blocks (the export at 85 mm) first puts species over frame on two
+  // lines (Compare all), then moves the flags from their column into the row label, on a line of their own.
+  let labelText = short ? shortLabels : fullLabel;
+  let twoLine = false;
+  let badgesInLabel = false;
+  let rightPx = right;
+  if (stacked && blockOf(labelText, rightPx) < MIN_BLOCK_PX && model.compare) {
+    twoLine = true;
+    labelText = twoLineLabels;
+  }
+  if (stacked && flagW > 0 && blockOf(labelText, rightPx) < MIN_BLOCK_PX) {
+    badgesInLabel = true;
+    rightPx = Math.ceil(0.6 * f + pad.right * 0.6);
+    labelText = Math.max(labelText, flagW);
+  }
+  const lines = (twoLine ? 2 : 1) + (badgesInLabel && model.rows.some((r) => r.badges.length) ? 1 : 0);
+  const rowPx = rowPxOf(model, lines);
+  const labelW = Math.ceil(labelText + 1.2 * f);
   const plotWidth = Math.max(80, w - pad.left - pad.right);
   const top = legendTop(legendNames(model), plotWidth, { wrap: true }) + 0.4 * f;
   const blockH = n * rowPx;
   const left = Math.ceil(0.6 * f + labelW);
-  const right = Math.ceil(badgeW + pad.right * 0.6);
   if (!stacked) {
     const avail = Math.max(160, w - left - right);
-    const gap = 3 * f;
+    const gap = Math.max(3 * f, labelRoom + 1.2 * f);
     const r2W = Math.round((avail - gap) * 0.44);
     const maeW = Math.max(60, avail - gap - r2W);
     return {
-      stacked, short, labelW, badgeW, rowPx, top, width: w,
+      stacked, short, twoLine, badgesInLabel, labelW, badgeW, labelRoom, rowPx, top, width: w,
       r2: { left, top, width: r2W, height: blockH },
       mae: { left: left + r2W + gap, top, width: maeW, height: blockH },
       badgeX: left + r2W + gap + maeW + 0.6 * f,
       height: Math.round(top + blockH + pad.bottom),
     };
   }
-  const avail = Math.max(80, w - left - right);
+  const avail = Math.max(80, w - left - rightPx - labelRoom);
   const secondTop = top + blockH + pad.bottom + 0.8 * f;
   return {
-    stacked, short, labelW, badgeW, rowPx, top, width: w,
+    stacked, short, twoLine, badgesInLabel, labelW, badgeW: badgesInLabel ? 0 : badgeW, labelRoom, rowPx, top, width: w,
     r2: { left, top, width: avail, height: blockH },
-    mae: { left, top: secondTop, width: avail, height: blockH },
-    badgeX: left + avail + 0.6 * f,
+    mae: { left, top: secondTop, width: avail + labelRoom, height: blockH },
+    badgeX: left + avail + labelRoom + 0.6 * f,
     height: Math.round(secondTop + blockH + pad.bottom),
   };
 }
 
-/** A row's badges split by kind: { warn: '⚑ label leakage · …' | '', neutral: 'tree beats …' | '' }. */
+/** A row's badges split by kind: { warn: '⚑ label leakage · …' | '', neutral: '' } (no neutral badge is left: R1-6). */
 export function badgeParts(row, short) {
   const text = (b) => (short ? BADGE_TEXT[b].short : BADGE_TEXT[b].full);
   const warn = row.badges.filter((b) => WARNING_BADGES.includes(b));
@@ -407,7 +469,7 @@ export function r2Tip(model, row, measure) {
   if (measure.key === 'pysrNet' && row.formulaAbsent) lines.push(mutedLine('PySR gives no meaningful formula for this model; the printed R² is kept (dashed outline).'));
   lines.push(mutedLine(measure.definition));
   lines.push(...leakLines(row));
-  lines.push(catalogTipFoot());
+  lines.push(catalogTipFoot(r2NText(model, row, measure.key)));
   return lines.join('<br/>');
 }
 
@@ -484,7 +546,7 @@ function r2Series(model, layout) {
           const yMid = y + half / 2;
           if (mark.clamped) {
             children.push({ type: 'polygon', shape: { points: caretPoints(c0[0] + 1, yMid, Math.max(5, half * 0.8)) }, style: { fill: THEME.text } });
-            const exact = label && Number.isFinite(mark.q.value) ? ` (${reported(mark.q.value, mark.q.dp)})` : '';
+            const exact = label && Number.isFinite(mark.q.value) ? ` (${printed(mark.q.value, mark.q.dp)})` : '';
             children.push(textOf(`R² < 0${exact}`, c0[0] + Math.max(5, half * 0.8) + 4, yMid));
           } else if (mark.approx && mark.drawn === 0) {
             children.push(textOf('≈ 0', c0[0] + 4, yMid));
@@ -568,7 +630,8 @@ function maeSeries(model, layout) {
     });
   }
   // What the report does not give, said in the row itself.
-  const gaps = model.rows.filter((row) => row.noMae || (row.noTreeMae && row.mae.netTruth !== null));
+  // (Skipped where no row has an MAE: one centred sentence says so for the whole block.)
+  const gaps = model.maeTop === null ? [] : model.rows.filter((row) => row.noMae || (row.noTreeMae && row.mae.netTruth !== null));
   if (gaps.length) {
     out.push({
       type: 'custom',
@@ -582,14 +645,18 @@ function maeSeries(model, layout) {
         const row = gaps[params.dataIndex];
         const c = api.coord([row.mae.netTruth ?? 0, row.index]);
         const long = row.noMae
-          ? (model.task === 'segmentation' && row.species === 'proton' ? 'no voxel-sample MAE in the report' : 'no MAE in the report')
+          ? (model.task === 'segmentation' && row.species === 'proton' ? 'no distillation MAE in the report' : 'no MAE in the report')
           : 'tree MAEs not reported';
-        const text = layout.short ? (row.noMae ? 'no MAE reported' : 'no tree MAE') : long;
-        // Beside the marker; before it where the plot ends first and there is room on that side.
+        const shortText = row.noMae ? 'no MAE reported' : 'no tree MAE';
+        // Beside the marker; before it where the plot ends first and there is room on that side; the
+        // longest wording that fits the block, down to a dash (the tooltip says it in full).
         const right = api.coord([model.maeTop ?? 1, row.index])[0];
         const gap = row.noMae ? 4 : r + 6;
-        const width = measureText(text, THEME.fontSmall, THEME.fontFamily);
         const left = api.coord([0, row.index])[0];
+        const room = Math.max(right - c[0] - gap, c[0] - gap - left);
+        const widthOf = (t) => measureText(t, THEME.fontSmall, THEME.fontFamily);
+        const text = [...(layout.short ? [] : [long]), shortText, '—'].find((t) => widthOf(t) <= room) ?? '—';
+        const width = widthOf(text);
         const before = !row.noMae && c[0] + gap + width > right && c[0] - gap - width >= left;
         return {
           type: 'text',
@@ -621,7 +688,7 @@ function decorations(model, layout) {
       });
     }
   }
-  for (const block of (layout.stacked ? [layout.r2, layout.mae] : [layout.r2])) {
+  for (const block of (layout.badgesInLabel ? [] : layout.stacked ? [layout.r2, layout.mae] : [layout.r2])) {
     for (const row of model.rows) {
       const { warn, neutral } = badgeParts(row, layout.short);
       const y = block.top + (row.index + 0.5) * layout.rowPx;
@@ -640,7 +707,7 @@ function decorations(model, layout) {
 }
 
 /** A category axis over the rows: labels on the left (hidden on the second panel side by side). */
-function rowAxis(model, gridIndex, labels, short) {
+function rowAxis(model, gridIndex, labels, layout) {
   return {
     type: 'category',
     gridIndex,
@@ -654,9 +721,11 @@ function rowAxis(model, gridIndex, labels, short) {
       color: THEME.muted,
       fontSize: THEME.fontLabel,
       fontFamily: THEME.fontFamily,
+      lineHeight: Math.ceil(1.25 * THEME.fontLabel),
+      rich: { flag: { color: THEME.warn, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, lineHeight: Math.ceil(1.25 * THEME.fontLabel) } },
       formatter: (value) => {
         const row = model.rows.find((r) => r.key === value);
-        return row ? (short ? row.shortLabel : row.label) : value;
+        return row ? rowLabelText(row, layout) : value;
       },
     },
   };
@@ -673,7 +742,7 @@ export function distillTriangleOption(payload, opts = {}, metrics = {}) {
   const f = THEME.fontLabel;
   const segmentation = model.task === 'segmentation';
   const maeName = segmentation
-    ? fitName(['Voxel-sample MAE (energy-weighted; not the validation E-MAE)', 'Voxel-sample MAE (not the E-MAE)', 'Voxel-sample MAE'], layout.mae.width)
+    ? fitName(['MAE of the distillation table (voxel-level by inference; not the validation E-MAE)', 'Distillation MAE (not the E-MAE)', 'Distillation MAE'], layout.mae.width)
     : fitName([`MAE${model.unitLabel} — from zero`, `MAE${model.unitLabel}`], layout.mae.width);
   const r2Name = fitName(['R² — fidelity, 0 to 1 (R² < 0 drawn at 0)', 'R² (0 to 1)', 'R²'], layout.r2.width);
   const grid = [
@@ -688,7 +757,7 @@ export function distillTriangleOption(payload, opts = {}, metrics = {}) {
       labels: model.maeTop !== null, nameGap: 2.4 * f,
     }),
   ];
-  const yAxis = [rowAxis(model, 0, true, layout.short), rowAxis(model, 1, layout.stacked, layout.short)];
+  const yAxis = [rowAxis(model, 0, true, layout), rowAxis(model, 1, layout.stacked, layout)];
   const series = [...r2Series(model, layout), ...maeSeries(model, layout)];
   const legendData = legendNames(model).map((name) => ({ name, ...legendIcon(name) }));
   const graphic = decorations(model, layout);
@@ -699,6 +768,7 @@ export function distillTriangleOption(payload, opts = {}, metrics = {}) {
         x: layout.mae.left + layout.mae.width / 2, y: layout.mae.top + layout.mae.height / 2,
         text: 'The report gives no MAE for these models.', textAlign: 'center', textVerticalAlign: 'middle',
         fill: THEME.muted, fontSize: THEME.fontTip, fontFamily: THEME.fontFamily,
+        width: Math.max(40, layout.mae.width - 8), overflow: 'break', lineHeight: Math.ceil(1.3 * THEME.fontTip),
       },
     });
   }

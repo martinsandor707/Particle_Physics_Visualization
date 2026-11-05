@@ -218,6 +218,18 @@ Object.assign(THEME, saved);
   const r2Titles = [...new Set(host.findAll((el) => el.className === 'pysr-r2').map((el) => el.title))];
   const r2Lines = Object.fromEntries(entries.map((e) => [e.dataset.entry, e.find((el) => el.className === 'pysr-r2')?.textContent ?? null]));
   const fits = Object.fromEntries(entries.map((e) => [e.dataset.entry, e.find((el) => el.className === 'pysr-formula')?.dataset.fit ?? null]));
+  // The length guess a hidden card keeps until it is measured (pysrModel's `fit`).
+  const guesses = Object.fromEntries(pys.pysrModel(payload, {}).entries.map((e) => [e.id, e.fit]));
+  const formulaBoxes = host.findAll((el) => el.className === 'pysr-formula');
+  const a11y = {
+    labels: formulaBoxes.map((b) => b.attrs['aria-label']),
+    tabStops: formulaBoxes.filter((b) => b.attrs.tabindex !== undefined || b.tabIndex === 0).length,
+    subs: host.findAll((el) => el.tagName === 'SUB').map((el) => el.textContent),
+  };
+  const tierMae = Object.fromEntries(host.findAll((el) => el.className === 'pysr-tier-mae').map((el) => [el.parent.parent.dataset.entry, el.textContent]));
+  const lawReasons = entries.filter((e) => e.dataset.tier === 'law').map((e) => e.find((el) => el.className === 'pysr-reason')?.textContent ?? null);
+  const legendChips = host.findAll((el) => el.className === 'tier-chip' && el.parent?.className === 'pysr-legend').map((el) => ({ text: el.textContent, title: el.title }));
+  const caption = host.find((el) => el.className === 'pysr-caption')?.textContent ?? '';
   const hintsShown = host.findAll((el) => el.className === 'pysr-scroll-hint' && !el.hidden).length;
   const hints = host.findAll((el) => el.className === 'pysr-scroll-hint').length;
   // The chips of an entry whose formula names were mapped by inference say so in their titles.
@@ -290,27 +302,37 @@ Object.assign(THEME, saved);
   const before = events.length;
   const boxOf = (id) => host.findAll((el) => el.className === 'pysr-entry' && el.dataset.entry === id)[0].find((el) => el.className === 'pysr-formula');
   const wide = boxOf('muon:segmentation:absolute');
-  const size = (el, sw, cw) => {
-    Object.defineProperty(el, 'scrollWidth', { value: sw, configurable: true });
+  // The width a formula takes at each math size (review R2-5: measured, not guessed by its length).
+  const size = (el, widths, cw) => {
+    Object.defineProperty(el, 'scrollWidth', { get() { return widths[this.dataset.fit] ?? widths.normal; }, configurable: true });
     Object.defineProperty(el, 'clientWidth', { value: cw, configurable: true });
   };
-  size(wide, 900, 300);
+  size(wide, { normal: 900, compact: 800, floor: 700 }, 300);
   const narrow = boxOf('electron:segmentation:absolute');
-  size(narrow, 200, 300);
+  size(narrow, { normal: 200, compact: 180, floor: 160 }, 300);
+  // The review's example: 189 px at 14 px in a 167 px cell, 170 at 12 px, 149 at 11 px: fits at the floor.
+  const stepped = boxOf('muon:angle:trans');
+  size(stepped, { normal: 189, compact: 170, floor: 149 }, 167);
+  const once = boxOf('pion:angle:trans');
+  size(once, { normal: 263, compact: 207, floor: 190 }, 234);
   panel.relayout();
   const entryOf = (id) => host.findAll((el) => el.className === 'pysr-entry' && el.dataset.entry === id)[0];
+  const hintOf = (id) => !entryOf(id).find((el) => el.className === 'pysr-scroll-hint').hidden;
   const scroll = {
     state: panel.notesState(),
     marked: wide.dataset.scrolls, unmarked: narrow.dataset.scrolls,
-    hintShown: !entryOf('muon:segmentation:absolute').find((el) => el.className === 'pysr-scroll-hint').hidden,
-    otherHintShown: !entryOf('electron:segmentation:absolute').find((el) => el.className === 'pysr-scroll-hint').hidden,
+    hintShown: hintOf('muon:segmentation:absolute'),
+    otherHintShown: hintOf('electron:segmentation:absolute'),
+    fit: { wide: wide.dataset.fit, narrow: narrow.dataset.fit, stepped: stepped.dataset.fit, once: once.dataset.fit },
+    steppedScrolls: stepped.dataset.scrolls, steppedHint: hintOf('muon:angle:trans'), onceHint: hintOf('pion:angle:trans'),
+    tabindex: { wide: wide.attrs.tabindex ?? null, narrow: narrow.attrs.tabindex ?? null, stepped: stepped.attrs.tabindex ?? null },
     events: events.length - before,
   };
   panel.relayout();
   scroll.eventsAgain = events.length - before;
   const scrollNotes = pack(notes.pysrNotes({ payload, panelState: panel.notesState() }));
   result.dom = {
-    r2Lines, fits, hints, hintsShown, scroll, scrollNotes,
+    r2Lines, fits, guesses, a11y, tierMae, lawReasons, legendChips, caption, hints, hintsShown, scroll, scrollNotes,
     entries: entries.length, tiers: entries.map((e) => e.dataset.tier), chips: chips.length, maths: maths.length,
     codes: codes.length, copies: copies.length, absent, tierChips, badges, r2Titles, inferredTitles, plainTitles,
     madeNs: [...new Set(made.map((m) => m[0]))], madeTags: [...new Set(made.map((m) => m[1]))],
@@ -457,7 +479,7 @@ def test_a_negative_r2_is_clamped_at_zero_with_a_visible_mark_and_its_value_in_t
     assert "≈ 0" in seg["wide"]["strings"]
 
 
-def test_angle_maes_are_in_mrad_and_segmentation_maes_are_voxel_sample(out):
+def test_angle_maes_are_in_mrad_and_segmentation_maes_are_the_distillation_tables(out):
     angle = out["dark"]["triangle"]["muon:angle"]
     assert angle["model"]["unit"] == "mrad"
     assert "mrad" in angle["wide"]["xAxis"][1]["name"]
@@ -465,12 +487,19 @@ def test_angle_maes_are_in_mrad_and_segmentation_maes_are_voxel_sample(out):
     assert rows["muon:absolute"]["netTruth"] == 0.46          # 0.00046 rad (F4)
     assert rows["muon:absolute"]["formula"] == 0.87
     seg = out["dark"]["triangle"]["muon:segmentation"]
-    assert seg["wide"]["xAxis"][1]["name"].startswith("Voxel-sample MAE")
+    # R1-3: the report states neither the sample nor the weighting of these MAEs: never "energy-weighted"
+    assert seg["wide"]["xAxis"][1]["name"].startswith(("MAE of the distillation table", "Distillation MAE"))
+    assert "E-MAE" in seg["wide"]["xAxis"][1]["name"]
     for _, tip in _tips(seg["wide"]):
         if "MAE" in tip.split("</b>")[0]:
-            assert "voxel-sample" in tip, tip
+            assert "MAE of the distillation table (sample and weighting not stated by the report; voxel-level by inference), not the validation E-MAE (F5)" in tip, tip
     drawer = out["dark"]["notes"]["triangle:muon:segmentation"]["sections"]["What is drawn"]
-    assert any("voxel-sample" in line and "E-MAE" in line for line in drawer)
+    assert any("distillation table" in line and "E-MAE" in line and "voxel-level by inference" in line for line in drawer)
+    for theme in ("dark", "light", "print"):
+        for key, card in out[theme]["triangle"].items():
+            assert not any(re.search(r"MAEs? \(energy-weighted", t) for t in card["wide"]["strings"] + card["narrow"]["strings"]), key
+        assert not any(re.search(r"MAEs? \(energy-weighted", line) for k, n in out[theme]["notes"].items() if k.startswith("triangle:")
+                       for sec in n["sections"].values() for line in sec)
     assert any("× 1000" in line or "multiplied by 1000" in line for line in out["dark"]["notes"]["triangle:muon:angle"]["sections"]["What is drawn"])
 
 
@@ -480,16 +509,41 @@ def test_every_triangle_tooltip_names_its_n_and_the_absent_interval(out):
         assert tips, key
         for name, tip in tips:
             assert "point estimate as reported; no interval" in tip, (key, name)
-            assert "N not reported" in tip or "N = 4,065 validation events" in tip, (key, name)
+            assert ("N not reported" in tip or "N = 4,065 validation events" in tip
+                    or "voxels of the 4,065 validation events (the report); the voxel count is not reported" in tip), (key, name)
+
+
+def test_the_proton_tree_r2_names_its_validation_sample(out):
+    """R1-10: the report measures the proton's tree R² on its validation events: the angle and energy trees
+    name the 4,065 events (8,130 particles); the segmentation tree's voxel count is not reported. The new
+    species' tree R² stays "N not reported"."""
+    for task, want in (("energy", "N = 4,065 validation events (8,130 particles): the report measures the tree"),
+                       ("angle", "N = 4,065 validation events (8,130 particles)"),
+                       ("segmentation", "measured on the voxels of the 4,065 validation events (the report); the voxel count is not reported")):
+        tips = [t for name, t in _tips(out["dark"]["triangle"][f"proton:{task}"]["wide"]) if name in ("Tree → Network R²", "Tree → Truth R² (proton only)")]
+        assert tips and all(want in t for t in tips), task
+        disc = " ".join(out["dark"]["notes"][f"triangle:proton:{task}"]["sections"]["Disclosures"])
+        assert want.split(":")[0] in disc, task
+    tips = [t for name, t in _tips(out["dark"]["triangle"]["muon:energy"]["wide"]) if name == "Tree → Network R²"]
+    assert tips and all("N not reported" in t for t in tips)
+    pysr = " ".join(out["dark"]["notes"]["pysr:all:energy"]["sections"]["Disclosures"])
+    assert "N not reported for R² (PySR)" in pysr and "N not reported for any R² of a distillation" not in pysr
+    assert "4,000 validation combined events" in pysr
 
 
 def test_the_proton_network_mae_carries_the_accuracy_tables_n(out):
     card = out["dark"]["triangle"]["proton:energy"]
     tips = [t for name, t in _tips(card["wide"]) if name == "Network → Truth MAE"]
     assert tips and all("N = 4,065 validation events (8,130 particles)" in t for t in tips)
-    assert "tree MAEs not reported" in card["wide"]["strings"]
-    seg = out["dark"]["triangle"]["proton:segmentation"]
-    assert "no voxel-sample MAE in the report" in seg["wide"]["strings"]
+    # the longest wording that fits beside the marker (the test's coordinate map is not the chart's)
+    assert {"tree MAEs not reported", "no tree MAE"} & set(card["wide"]["strings"])
+    seg = out["dark"]["triangle"]["all:segmentation"]
+    assert {"no distillation MAE in the report", "no MAE reported", "—"} & set(seg["wide"]["strings"])
+    assert any("is the validation E-MAE, not a MAE of the distillation table" in t for _, t in _tips(seg["wide"]))
+    # with no MAE in the whole block, one centred sentence says so and no row repeats it
+    alone = out["dark"]["triangle"]["proton:segmentation"]["wide"]["strings"]
+    assert "The report gives no MAE for these models." in alone
+    assert not {"no distillation MAE in the report", "no MAE reported", "no MAE in the report"} & set(alone)
 
 
 def test_leak_badges_and_the_leakage_signal_wording(out):
@@ -607,7 +661,9 @@ def test_the_muon_curves_say_they_describe_the_network(out):
 
 def test_the_values_in_force_are_on_the_canvas_and_in_the_drawer(out):
     v = out["dark"]["curves"]["all"]["extreme"]
-    assert any("centroid_r = 5,000 mm" in s and "rms_r = 300 mm" in s for s in v["wide"]["strings"])
+    # the key carries every value in force, one item per variable so it wraps at any width (R2-3)
+    key = " ".join(v["wide"]["strings"])
+    assert "at centroid_r = 5,000 mm," in v["wide"]["strings"] and "rms_r = 300 mm" in key
     values = v["notes"]["sections"]["Values in force"]
     assert any(line.startswith("rms_r = 300 mm") for line in values)
     assert v["model"]["values"] == {"centroid_r": 5000, "max_hit_frac": 1, "centroid_theta": 1, "rms_r": 300}
@@ -868,8 +924,10 @@ def test_report_numbers_print_with_the_reports_decimals(out):
     assert pysr["proton:segmentation:absolute"]["r2Text"] == "\u2248 0"
     assert pysr["pion:angle:local"]["r2Text"] == "\u22120.024"
     d = out["dom"]
-    assert d["r2Lines"]["muon:angle:absolute"] == "R\u00b2_PySR 1.000 \u00b7 network R\u00b2 to truth 1.0000"
-    assert d["r2Lines"]["muon:segmentation:absolute"].startswith("R\u00b2_PySR 0.590 ")
+    # R2-9: R² with a PySR subscript in the DOM (text nodes and a <sub>, never markup)
+    assert d["r2Lines"]["muon:angle:absolute"] == "R\u00b2PySR 1.000 \u00b7 network R\u00b2 to truth 1.0000"
+    assert d["r2Lines"]["muon:segmentation:absolute"].startswith("R\u00b2PySR 0.590 ")
+    assert d["a11y"]["subs"] and set(d["a11y"]["subs"]) == {"PySR"}
     tri = out["dark"]["triangle"]["all:angle"]["wide"]["strings"]
     assert any("Pion \u00b7 Per-shower translated \u2014 PySR formula \u2192 Truth MAE: 110.50 mrad" in t for t in tri)
     assert any("Network \u2192 Truth MAE: 53.0 mrad" in t for t in tri)   # 0.0530 rad: the triad's digits x 1000
@@ -878,45 +936,75 @@ def test_report_numbers_print_with_the_reports_decimals(out):
     assert "Muon \u00b7 Absolute: Tree \u2192 Network R\u00b2 0.995; PySR formula \u2192 Network R\u00b2 1.000" in rows
     assert "PySR formula \u2192 Truth MAE 113.50 mrad" in rows
     tips = " ".join(out["dark"]["curves"]["all"]["defaults"]["wide"]["strings"])
-    assert "R\u00b2_PySR to the network 0.770; the network's R\u00b2 to truth 0.8265" in tips
+    assert "R\u00b2 (PySR) to the network 0.770; the network's R\u00b2 to truth 0.8265" in tips
     pysr_notes = " ".join(out["dark"]["notes"]["pysr:all:energy"]["sections"]["Tiers"])
-    assert "R\u00b2_PySR is 1.000 (at least 0.75) and the network's R\u00b2 to truth is 1.0000" in pysr_notes
+    assert "R\u00b2 (PySR) is 1.000 (at least 0.75) and the network's R\u00b2 to truth is 1.0000" in pysr_notes
 
 
-def test_tree_beats_network_is_a_neutral_badge_never_a_leak(out):
+def test_r2_pysr_is_never_written_with_an_underscore(out):
+    """R2-9: "R² (PySR)" in plain text on the canvas, in tooltips, drawers and reasons; the underscore form
+    lives only in TeX."""
+    for theme in ("dark", "light", "print"):
+        blob = json.dumps(out[theme], ensure_ascii=False)
+        assert "R²_PySR" not in blob, theme
+    assert "R²_PySR" not in json.dumps(out["dom"], ensure_ascii=False)
+    for path in MODULES.values():
+        assert "R²_PySR" not in path.read_text(encoding="utf8"), path.name
+
+
+def test_a_tree_beating_the_network_carries_no_badge_only_its_printed_gap(out):
+    """R1-6 (lead ruling): the "tree beats the network on truth" badge goes, on the canvas and as a chip; the
+    two printed MAEs stay, with the neutral sentence about the unresolved gap in the tooltip and the drawer."""
     rows = {r["key"]: r for r in out["dark"]["triangle"]["all:energy"]["model"]["rows"]}
-    assert rows["muon:absolute"]["badges"] == ["beats"] and rows["muon:trans"]["badges"] == ["beats"]
+    assert rows["muon:absolute"]["badges"] == [] and rows["muon:trans"]["badges"] == []
     assert not rows["muon:absolute"]["leakSignal"] and rows["muon:absolute"]["leakSignalText"] is None
     seg = {r["key"]: r for r in out["dark"]["triangle"]["all:segmentation"]["model"]["rows"]}
-    assert "signal" in seg["muon:absolute"]["badges"] and "beats" not in seg["muon:absolute"]["badges"]
+    assert "signal" in seg["muon:absolute"]["badges"]
+    gap = "the report gives no uncertainty to say whether the difference is real"
     for theme in ("dark", "light", "print"):
-        texts = out[theme]["triangle"]["all:energy"]["wide"]["texts"]
-        neutral = [t for t in texts if "tree beats the network on truth" in t[1]]
-        assert neutral and all("\u2691" not in t[1] for t in neutral)
-        assert all(t[0] >= 4.5 - 1e-9 for t in neutral), (theme, neutral)
+        for key, card in out[theme]["triangle"].items():
+            for t in card["wide"]["texts"] + card["narrow"]["texts"]:
+                assert "tree beats" not in t[1], (theme, key, t)
+        tips = [t for name, t in _tips(out[theme]["triangle"]["muon:energy"]["wide"]) if "MAE" in name]
+        beating = [t for t in tips if "Muon · Absolute" in t or "Muon · Per-shower translated" in t]
+        assert beating and all(gap in t for t in beating)
+        assert not any(gap in t for t in tips if "Muon · Local" in t)
+        assert all("predicts the truth better" not in t for t in tips)
         warn = [t for t in out[theme]["triangle"]["all:segmentation"]["wide"]["texts"] if "leakage signal" in t[1]]
         assert warn and all(t[1].startswith("\u2691") for t in warn)
     n = out["dark"]["notes"]["triangle:muon:energy"]
     disc = " ".join(n["sections"]["Disclosures"])
-    assert "a depth-4 tree on the summary features predicts the truth better than the network on this sample" in disc
-    assert "A neutral fact, not label leakage" in disc and "leakage signal" not in n["hazards"]
+    assert "lower than the network's (4.6214 GeV) by 0.0346 GeV" in disc and gap in disc
+    assert "leakage signal" not in n["hazards"] and n["hazards"] == ["no interval reported"]
     legend = " ".join(n["sections"]["Marks and legend"])
-    assert "tree beats the network on truth" in legend and "no hazard" in legend
+    assert "tree beats the network on truth" not in legend and "carries no flag" in legend
 
 
 def test_long_formulas_step_down_to_a_floor_then_scroll_in_their_cell(out):
+    """R2-5: a formula is measured, stepped down 14 → 12 → 11 px while it overflows, and scrolls (with its
+    hint) only at the floor; R2-8: only a box that scrolls is a tab stop, and each box names its model."""
     d = out["dom"]
-    assert d["fits"]["muon:segmentation:absolute"] == "floor"
-    assert d["fits"]["muon:angle:trans"] == "compact"
-    assert d["fits"]["electron:energy:absolute"] == "normal"
-    assert d["hints"] >= 30 and d["hintsShown"] == 0      # nothing measured overflowing on the fake DOM
+    # the length guess a card keeps until measured
+    assert d["guesses"]["muon:segmentation:absolute"] == "floor"
+    assert d["guesses"]["muon:angle:trans"] == "compact"
+    assert d["guesses"]["electron:energy:absolute"] == "normal"
+    # measured on render: nothing overflows on the fake DOM, so every box is at 14 px, none scrolls
+    assert {v for v in d["fits"].values() if v is not None} == {"normal"}
+    assert d["hints"] >= 30 and d["hintsShown"] == 0
+    assert d["a11y"]["tabStops"] == 0
+    labels = d["a11y"]["labels"]
+    assert len(labels) == len(set(labels)) >= 30
+    assert "Muon angle Per-shower translated formula" in labels and "Proton energy Absolute formula" in labels
     sc = d["scroll"]
     assert sc["state"] == {"highlight": None, "scrolling": ["muon:segmentation:absolute"]}
-    assert sc["marked"] == "true" and sc["unmarked"] == "false"
-    assert sc["hintShown"] and not sc["otherHintShown"]
+    assert sc["fit"] == {"wide": "floor", "narrow": "normal", "stepped": "floor", "once": "compact"}
+    assert sc["marked"] == "true" and sc["unmarked"] == "false" and sc["steppedScrolls"] == "false"
+    assert sc["hintShown"] and not sc["otherHintShown"] and not sc["steppedHint"] and not sc["onceHint"]
+    assert sc["tabindex"] == {"wide": "0", "narrow": None, "stepped": None}
     assert sc["events"] == 1 and sc["eventsAgain"] == 1    # one event per change, none when nothing changed
     disc = " ".join(d["scrollNotes"]["sections"]["Disclosures"])
-    assert "14 px up to 40 characters" in disc and "11 px beyond, the floor" in disc and "never the page" in disc
+    assert "each starts at 14 px" in disc and "then to 11 px, the floor" in disc and "never the page" in disc
+    assert "Only a formula still wider than its cell at the floor scrolls" in disc
     assert "Scrolling sideways at the card's current width: Muon Segmentation Absolute." in disc
 
 
@@ -928,5 +1016,255 @@ def test_the_css_styles_the_fit_steps_the_scrollbar_and_the_new_badges():
     block = block[:block.index("}")]
     assert "overflow-x: auto" in block and "scrollbar-width: thin" in block and "scrollbar-gutter: stable" in block
     assert ".pysr-scroll-hint[hidden] { display: none; }" in css
-    assert '.badge-chip[data-kind="tree-beats"]' in css and '.badge-chip[data-kind="signal"]::before' in css
+    assert '.badge-chip[data-kind="tree-beats"]' not in css and '.badge-chip[data-kind="signal"]::before' in css
     assert not re.search(r"\b(transition|animation)\s*:", css)
+
+
+# ── The exports and the screen as ECharts draws them (reviews R2-3, R2-4) ──────────────────────────────────
+
+_EXPORT_SCRIPT = r"""
+const { createRequire } = await import('node:module');
+const { fileURLToPath } = await import('node:url');
+const [jsRoot] = JSON.parse(process.argv[1]);
+const vendor = fileURLToPath(`${jsRoot}/vendor/echarts.min.js`);
+const echarts = createRequire(vendor)(vendor);
+// ECharts measures its own texts (axis labels, the legend) with the estimate textfit.js uses under Node, so
+// the builders' layout and the renderer agree here as canvas metrics make them agree in a browser.
+echarts.setPlatformAPI({ measureText: (text, font) => ({ width: String(text).length * Number(String(font).match(/([\d.]+)px/)?.[1] ?? 12) * 0.55 }) });
+const imp = (p) => import(`${jsRoot}/${p}`);
+const scale = await imp('scale.js');
+const { THEME } = scale;
+const { PRINT_TOKENS, widthToPx, WIDTH_MM } = await imp('export/tokens.js');
+const { measureText } = await imp('textfit.js');
+const sel = await imp('catalog/select.js');
+const cur = await imp('panels/distill_curves.js');
+const tri = await imp('panels/distill_triangle.js');
+
+const ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+const attr = (tag, name) => { const m = tag.match(new RegExp(`\\s${name}="([^"]*)"`)); return m ? m[1] : null; };
+/** Every <text> of an SVG with its box: the anchor, the central baseline and the transform applied. */
+function texts(svg) {
+  const out = [];
+  for (const m of svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)) {
+    const tag = m[1];
+    const text = m[2].replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENT[e]);
+    if (!text.trim()) continue;
+    const style = attr(tag, 'style') ?? '';
+    const size = Number(style.match(/([\d.]+)px/)?.[1] ?? 12);
+    const w = measureText(text, size, THEME.fontFamily);
+    const x = Number(attr(tag, 'x') ?? 0);
+    const y = Number(attr(tag, 'y') ?? 0);
+    const anchor = attr(tag, 'text-anchor') ?? 'start';
+    const x0 = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w : x;
+    const y0 = (attr(tag, 'dominant-baseline') ?? 'central') === 'central' ? y - size / 2 : y - size;
+    let corners = [[x0, y0], [x0 + w, y0], [x0, y0 + size], [x0 + w, y0 + size]];
+    const tf = attr(tag, 'transform');
+    if (tf) {
+      const mm = tf.match(/matrix\(([^)]*)\)/);
+      const t = tf.match(/translate\(([-\d.e]+)[ ,]+([-\d.e]+)\)/);
+      const k = mm ? mm[1].split(/[ ,]+/).map(Number) : t ? [1, 0, 0, 1, Number(t[1]), Number(t[2])] : [1, 0, 0, 1, 0, 0];
+      corners = corners.map(([a, b]) => [k[0] * a + k[2] * b + k[4], k[1] * a + k[3] * b + k[5]]);
+    }
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    out.push({ text, box: { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } });
+  }
+  return out;
+}
+const meet = (a, b) => a.x0 + 0.5 < b.x1 && b.x0 + 0.5 < a.x1 && a.y0 + 0.5 < b.y1 && b.y0 + 0.5 < a.y1;
+function problems(option, width, height) {
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width, height });
+  chart.setOption(option);
+  const svg = chart.renderToSVGString();
+  chart.dispose();
+  const ts = texts(svg);
+  const out = [];
+  for (const t of ts) {
+    const b = t.box;
+    if (b.x0 < -0.5 || b.y0 < -0.5 || b.x1 > width + 0.5 || b.y1 > height + 0.5) out.push(`outside: ${t.text}`);
+  }
+  for (let i = 0; i < ts.length; i += 1) for (let j = i + 1; j < ts.length; j += 1) {
+    if (meet(ts[i].box, ts[j].box)) out.push(`overlap: ${ts[i].text} | ${ts[j].text}`);
+  }
+  return { out, n: ts.length };
+}
+
+const VALUES = {
+  defaults: null,
+  extreme: { centroid_r: 5000, max_hit_frac: 1, centroid_theta: 1, rms_r: 300 },
+  low: { centroid_r: 0, max_hit_frac: 0, centroid_theta: 0, rms_r: 0 },
+  mixed: { centroid_r: 4000, max_hit_frac: 0.2, centroid_theta: 0.8, rms_r: 40 },
+};
+const single = widthToPx(WIDTH_MM.single);
+const double = widthToPx(WIDTH_MM.double);
+const MEDIA = [['dark', 1100], ['light', 1100], ['dark', 600], ['print', double], ['print', single]];
+const result = { single, double, curves: [], triangle: [], labels: [] };
+const saved = { ...THEME };
+for (const [medium, width] of MEDIA) {
+  if (medium === 'print') { scale.setScreenTheme('dark'); Object.assign(THEME, PRINT_TOKENS); }
+  else { Object.assign(THEME, saved); scale.setScreenTheme(medium); }
+  for (const species of ['proton', 'muon', 'electron', 'pion', 'all']) {
+    const payload = sel.catalogPayload('distill-curves', { species });
+    for (const [name, values] of Object.entries(VALUES)) {
+      const opts = { species, ...(values ? { values } : {}) };
+      const height = cur.plotHeight(payload, opts, width);
+      const { option } = cur.distillCurvesOption(payload, opts, { width, height });
+      const p = problems(option, width, height);
+      result.curves.push({ medium, width, species, values: name, problems: p.out, texts: p.n });
+      // The direct labels against every curve of their facet and every other label, in the facet's pixels.
+      const model = cur.curvesModel(payload, opts);
+      const layout = cur.curvesLayout(model, width);
+      layout.plans.forEach((plan, k) => {
+        const g = layout.facets[k];
+        const px = (pt) => [(pt[0] / model.xTop) * g.width, (1 - pt[1] / model.yTop) * g.height];
+        for (const l of plan.labels) {
+          const on = [];
+          for (const c of model.facets[k].curves) {
+            const hit = c.segments.some((seg) => seg.map(px).some((q, i, a) => i > 0 && cur.segmentMeetsBox(a[i - 1], q, l.box)));
+            if (hit) on.push(c.key);
+          }
+          const over = plan.labels.filter((o) => o !== l && cur.boxesMeet(o.box, l.box)).map((o) => o.text);
+          const leaderOver = l.leader ? plan.labels.filter((o) => o !== l && cur.segmentMeetsBox(l.leader[0], l.leader[1], o.box)).map((o) => o.text) : [];
+          const limit = l.place === 'band' ? plan.limits.band : plan.limits.lines;
+          result.labels.push({ medium, width, species, values: name, facet: model.facets[k].frame, text: l.text, place: l.place,
+            on, over, leaderOver, shift: l.gap, limit, leader: Boolean(l.leader) });
+        }
+        if (name === 'defaults') result.labels.push({ medium, width, species, values: name, facet: model.facets[k].frame, fallback: plan.fallback });
+      });
+    }
+  }
+  for (const species of ['proton', 'muon', 'electron', 'pion', 'all']) for (const task of ['segmentation', 'angle', 'energy']) {
+    const payload = sel.catalogPayload('distill-triangle', { species, task });
+    const height = tri.plotHeight(payload, { task }, width);
+    const { option } = tri.distillTriangleOption(payload, { species, task }, { width, height });
+    const p = problems(option, width, height);
+    result.triangle.push({ medium, width, species, task, problems: p.out, texts: p.n });
+  }
+}
+scale.restoreScreenTheme();
+Object.assign(THEME, saved);
+process.stdout.write(JSON.stringify(result), () => process.exit(0));
+"""
+
+
+@pytest.fixture(scope="module")
+def drawn() -> dict:
+    return _run(_EXPORT_SCRIPT, [JS.as_uri()])
+
+
+def test_every_text_of_the_curves_and_the_triangle_stays_inside_and_apart(drawn):
+    """R2-3: rendered by ECharts itself (SVG, server-side), every text of the curves and the triangle lies
+    inside the chart and overlaps no other text, on screen (1100 and 600 px, both themes) and in the
+    single- and double-column exports (85 and 175 mm under the print tokens), for every species and
+    task and for the curves' default, extreme, low and mixed slider values."""
+    assert round(drawn["single"]) == 321
+    for kind in ("curves", "triangle"):
+        assert drawn[kind]
+        bad = [(r["medium"], r["width"], r["species"], r.get("values", r.get("task")), r["problems"]) for r in drawn[kind] if r["problems"]]
+        assert not bad, (kind, bad[:5])
+        assert all(r["texts"] > 5 for r in drawn[kind])
+
+
+def test_the_curves_labels_sit_at_their_curves_and_on_nothing_else(drawn):
+    """R2-4: a direct label never lies on any curve or over another label (1100 and 321 px included), a
+    leader never crosses another label, and no label moves beyond its stated limit; a label moved off its
+    anchor carries a leader. At the default slider values every curve is labelled at every width."""
+    labels = [r for r in drawn["labels"] if "text" in r]
+    assert {(r["medium"], round(r["width"])) for r in labels} >= {("dark", 1100), ("print", 321)}
+    for r in labels:
+        where = (r["medium"], r["width"], r["species"], r["values"], r["facet"], r["text"])
+        assert not r["on"], where
+        assert not r["over"] and not r["leaderOver"], where
+        assert r["shift"] <= r["limit"] + 1e-9, where
+        if r["shift"] > 0.5:
+            assert r["leader"], where
+    # a curve leaving through the top is labelled in the band over its caret; one ending at the right in the gutter
+    assert any(r["place"] == "band" for r in labels) and any(r["place"] == "gutter" for r in labels)
+    fallback = [r for r in drawn["labels"] if "fallback" in r]
+    assert fallback and not any(r["fallback"] for r in fallback)
+
+
+def test_the_curves_drawer_states_the_label_rule_and_counts_what_falls_back(out):
+    legend = " ".join(out["dark"]["curves"]["all"]["defaults"]["notes"]["sections"]["Marks and legend"])
+    assert "moves at most 4 label lines" in legend and "at most 50 % of the facet's width" in legend
+    assert "named by its end mark in the key" in legend
+
+
+def test_the_top_tier_is_a_law_candidate_everywhere_it_shows(out):
+    """R1-1 / decision 5: "Law candidate", never "Physical law", on the chips, the legend, the curves' key, the
+    tooltips and every drawer; its reason quotes the report's sentence; where the report's angle table gives
+    the formula's own MAE to truth it is printed beside the tier with the network's."""
+    quote = "the tree and the formula explain the network's behaviour; they are not an independent physical law"
+    for theme in ("dark", "light", "print"):
+        blob = json.dumps(out[theme], ensure_ascii=False)
+        assert "Physical law" not in blob and "physical law needs" not in blob, theme
+    assert "Physical law" not in json.dumps(out["dom"], ensure_ascii=False)
+    d = out["dom"]
+    assert any(c["text"].startswith("Law candidate (") for c in d["legendChips"])
+    assert {"tier": "law", "text": "Law candidate"} in d["tierChips"]
+    assert d["lawReasons"] and all(r and r.startswith("Law candidate: ") and quote in r for r in d["lawReasons"])
+    assert "law candidate" in d["caption"]
+    assert d["tierMae"]["muon:angle:trans"] == "Formula MAE to truth 24.25 mrad; network 9.67 mrad (the report's angle table)."
+    assert d["tierMae"]["pion:angle:absolute"] == "Formula MAE to truth 5.07 mrad; network 1.89 mrad (the report's angle table)."
+    assert len(d["tierMae"]) == 9 and all(k.split(":")[1] == "angle" and k.split(":")[0] != "proton" for k in d["tierMae"])
+    key = out["dark"]["curves"]["all"]["defaults"]["wide"]["strings"]
+    assert "Law candidate" in key
+    tiers = " ".join(out["dark"]["notes"]["pysr:all:angle"]["sections"]["Tiers"])
+    assert quote in tiers and "Formula MAE to truth 24.25 mrad; network 9.67 mrad" in tiers
+    disc = " ".join(out["dark"]["notes"]["pysr:all:angle"]["sections"]["Disclosures"])
+    assert "a law candidate needs R² (PySR) ≥ 0.75" in disc and "A law candidate is not a law" in disc
+    assert "Muon Per-shower translated: formula 24.25 mrad, network 9.67 mrad (Law candidate)" in disc
+    curves = " ".join(out["dark"]["curves"]["all"]["defaults"]["notes"]["sections"]["Disclosures"])
+    assert quote in curves
+
+
+def test_the_curves_ceiling_is_a_stated_drawing_choice(out):
+    """R1-8: the report states no momentum range; 20 GeV is the top of the XGBoost aggregates' range."""
+    n = out["dark"]["curves"]["all"]["defaults"]["notes"]
+    drawn = " ".join(n["sections"]["What is drawn"])
+    assert "range of the datasets" not in json.dumps(n, ensure_ascii=False)
+    assert "a drawing choice: the top of the XGBoost aggregates' 0–20 GeV range; the report states no momentum range" in drawn
+
+
+def test_the_proton_leakage_signal_states_its_rule_and_the_reports_reading(out):
+    """R1-7: the proton's signal is the dashboard's rule (tree R² to truth above its R² to the network by
+    more than 0.1), a drawing choice, beside the report's indecision finding."""
+    n = out["dark"]["notes"]["triangle:proton:segmentation"]
+    disc = " ".join(n["sections"]["Disclosures"])
+    assert "a lead of more than 0.1 is flagged" in disc and "drawing choice" in disc
+    assert "The report offers another reading: the network is undecided" in disc
+    assert "leakage signal" in n["hazards"]
+    tips = [t for name, t in _tips(out["dark"]["triangle"]["proton:segmentation"]["wide"]) if "R²" in name]
+    assert any("by more than 0.1 is called a leakage signal" in t for t in tips)
+
+
+def test_a_curve_left_unlabelled_is_named_in_the_drawer():
+    """R2-4's fallback: a label that finds no free place within its limit is left out; the drawer names the
+    curve and says its end mark in the key identifies it (the panel passes the plan at its own width)."""
+    got = _run(r"""
+const [jsRoot] = JSON.parse(process.argv[1]);
+const sel = await import(`${jsRoot}/catalog/select.js`);
+const cur = await import(`${jsRoot}/panels/distill_curves.js`);
+const notes = await import(`${jsRoot}/catalog_notes_distill.js`);
+const payload = sel.catalogPayload('distill-curves', { species: 'all' });
+const low = { centroid_r: 0, max_hit_frac: 0, centroid_theta: 0, rms_r: 0 };
+const plan = cur.curvesLayout(cur.curvesModel(payload, { values: low }), 1100).plans.flatMap((p) => p.fallback);
+const n = notes.curvesNotes({ payload, panelState: { values: low, unlabelled: plan } });
+const none = notes.curvesNotes({ payload, panelState: { values: null, unlabelled: [] } });
+console.log(JSON.stringify({ plan, disc: n.sections.find((s) => s.heading === 'Disclosures').lines,
+  none: none.sections.find((s) => s.heading === 'Disclosures').lines }));
+""", [JS.as_uri()])
+    assert got["plan"], "the low slider values crowd the carets at 1100 px"
+    line = [l for l in got["disc"] if "carry no direct label" in l]
+    assert len(line) == 1 and "named by its species' end mark in the key" in line[0]
+    assert not any("carry no direct label" in l for l in got["none"])
+
+
+def test_one_formatter_for_the_reports_numbers():
+    """R3-2: the triangle keeps no `reported()` copy; every report number goes through catalog/select.js
+    `printed` / `printedQualified`, the catalogue's one formatter, as do the notes."""
+    for name in ("triangle", "curves", "pysr", "notes"):
+        code = MODULES[name].read_text(encoding="utf8")
+        assert not re.search(r"function\s+reported\s*\(", code), name
+        assert not re.search(r"\breported\s*\(", code.replace("reportedWithUnit(", "")), name
+    assert "import { printed, printedQualified } from '../catalog/select.js';" in MODULES["triangle"].read_text(encoding="utf8")

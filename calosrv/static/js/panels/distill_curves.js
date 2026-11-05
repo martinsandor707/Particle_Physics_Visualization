@@ -1,7 +1,7 @@
 /* The distilled energy response p̂(E_sum) of the training report's PySR formulas (`distill-curves`).
  *
  * The payload is `catalog/select.js` `catalogPayload('distill-curves', { species })`: the energy formulas
- * in physical units that PySR gave (whatever task the bench bar shows), each with its tier, its R²_PySR
+ * in physical units that PySR gave (whatever task the bench bar shows), each with its tier, its R² (PySR)
  * and the network's R² to truth, the secondary variables they read (centroid_r, max_hit_frac,
  * centroid_theta, rms_r) with a stated domain and a default at its midpoint, and the 20 GeV ceiling rule.
  * The curves are evaluated here by `catalog/formula.js`, a small parser of the formulas' explicit form:
@@ -9,14 +9,29 @@
  *
  * ## One facet per frame, species by end mark and label
  *
- * Three small multiples (Absolute, Per-shower translated, Local) side by side, stacked below 640 px, each
+ * Three small multiples (Absolute, Per-shower translated, Local) side by side, stacked below 640 px or
+ * where a facet would be narrower than MIN_FACET_PX beside its label gutter, each
  * in its frame's hue (perf_bins.js `sourceColours`). A species is never a second hue: each curve ends in
- * its species' mark (Proton ●, Muon ■, Electron ▲, Pion ◆) with a direct label, so no legend is needed
- * to name it.
+ * its species' mark (Proton ●, Muon ■, Electron ▲, Pion ◆), which the key names, with a direct label.
+ *
+ * ## Direct labels (review R2-4)
+ *
+ * A label sits where its curve ends or leaves the plot, never over a curve or another label:
+ *  - a curve that ends on the right edge is labelled in the facet's gutter, level with its end;
+ *  - a curve that leaves through the top is labelled in a band reserved above the plot, over its caret;
+ *  - anything else (a curve that leaves through the bottom) is labelled inside the plot beside its exit,
+ *    only where no curve passes.
+ * Collisions are resolved by moving a label off its anchor, at most LABEL_SHIFT_MAX_LINES label lines in
+ * the gutter or inside the plot and at most BAND_SHIFT_MAX of the facet's width along the band (a second
+ * band row is used when the first is full); a label moved off its anchor, or set in the second row, gets a
+ * thin muted leader line, which never crosses another label. A label that finds no free place within its
+ * limit is left out, and its curve is named by its species' end mark in the key (`labelPlan().fallback`,
+ * counted in the drawer at the card's width). The gutter and the band hold no curve, so their labels never
+ * touch one.
  *
  * ## The tier is the stroke
  *
- * A curve of the "Physical law" tier is a solid 2 px line. Below it the curve is dashed and faded (its
+ * A curve of the "Law candidate" tier is a solid 2 px line. Below it the curve is dashed and faded (its
  * opacity never below 3:1 against the card, `legibleOpacity`) and thinner: dashed for a partial surrogate,
  * finely dashed for "not a law"; its end label names the tier and its tooltip and the drawer give the
  * reason. The muon curves are labelled as describing the network, whose R² to truth is far below the law
@@ -27,7 +42,8 @@
  * x is E_sum [GeV] from 0 to the E_sum at which the Absolute formula of a shown species reaches 20 GeV at
  * the values in force (`curveDomain`, the largest over the species), exactly: that curve ends in the
  * plot's top-right corner, and the ticks are round steps that need not land on the end; y is p̂
- * [GeV] from 0 to the 20 GeV ceiling, the 0–20 GeV range of the datasets. A curve that leaves the range
+ * [GeV] from 0 to the 20 GeV ceiling, a drawing choice (the top of the XGBoost aggregates' 0–20 GeV range;
+ * the report states no momentum range). A curve that leaves the range
  * (above 20 GeV, or below 0, where a negative coefficient wins) is clipped at the axis: a caret where it
  * leaves, its true values in the caret's tooltip, and a count in the drawer.
  *
@@ -35,7 +51,8 @@
  *
  * The card's own slider row (after its `.plot-frame`, screen only) sets every secondary variable a drawn
  * curve reads, within its stated domain; each value in force is printed under the plot, in the key on the
- * canvas (so an export carries it) and in the drawer. The report gives no feature distributions, so a
+ * canvas (one item per variable, wrapped to the chart's width, so an export at any width carries it) and
+ * in the drawer. The report gives no feature distributions, so a
  * curve is conditional at the stated values, not a marginal prediction, and every tooltip says so. The
  * values live on the instance (`values`, `notesState()`) and reach the builder through `opts.values`, so
  * an export draws what the screen shows.
@@ -44,7 +61,7 @@
 import { THEME, axisPadding, formatNumber, typographic } from '../scale.js';
 import { compileFormula } from '../catalog/formula.js';
 import { curveDomain, printedQualified } from '../catalog/select.js';
-import { LEAK_TEXT } from '../catalog/gating.js';
+import { LEAK_TEXT, TIER_LABELS } from '../catalog/gating.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import {
@@ -66,14 +83,28 @@ export const TIER_STROKE = Object.freeze({
   'not-law': Object.freeze({ dash: [3, 3], width: 1.25, alpha: 0.4, words: 'finely dashed, faded' }),
 });
 
-/** The short tier words an end label adds below the law. */
+/** The short tier words an end label adds below the top tier (a law candidate's label is its species alone). */
 const TIER_SHORT = Object.freeze({ unverified: 'unverified', partial: 'partial', 'not-law': 'not a law' });
 
 /** Samples along E_sum per curve. */
 export const CURVE_SAMPLES = 240;
 
-/** The facet layout switches to a stack below this width (px). */
+/** The facet layout switches to a stack below this width (px), or where a facet side by side would be
+ *  narrower than MIN_FACET_PX once its label gutter is taken (the print fonts at 175 mm). */
 export const STACK_BELOW_PX = 640;
+export const MIN_FACET_PX = 150;
+
+/**
+ * How far a direct label may move off its anchor (review R2-4): in the gutter and inside the plot at most
+ * LABEL_SHIFT_MAX_LINES label lines, along the band above the plot at most BAND_SHIFT_MAX of the facet's
+ * width (carets crowd near the origin there). Beyond, the label is left out and the key names the curve's
+ * end mark.
+ */
+export const LABEL_SHIFT_MAX_LINES = 4;
+export const BAND_SHIFT_MAX = 0.5;
+
+/** The rows of the label band above a facet. */
+export const BAND_ROWS_MAX = 2;
 
 const num = (v, d = 3) => formatNumber(v, d);
 
@@ -296,11 +327,12 @@ function keyItems(model) {
   const items = [];
   for (const tier of ['law', 'unverified', 'partial', 'not-law']) {
     if (!model.tiers.includes(tier)) continue;
-    const label = { law: 'Physical law', unverified: 'High fidelity, truth R² not reported', partial: 'Partial surrogate', 'not-law': 'Not a law' }[tier];
-    items.push({ kind: 'line', tier, text: label });
+    items.push({ kind: 'line', tier, text: TIER_LABELS[tier] ?? tier });
   }
   for (const s of model.species) items.push({ kind: 'mark', species: s, text: model.speciesLabels[s] ?? s });
-  if (model.valuesText) items.push({ kind: 'text', text: `at ${model.valuesText}` });
+  // The values in force, one item per variable so the key wraps between them at any width (review R2-3).
+  const said = Object.keys(model.used).map((k) => `${model.used[k].label ?? k} = ${valueText(model.used[k], model.values[k])}`);
+  said.forEach((text, i) => items.push({ kind: 'text', text: `${i === 0 ? 'at ' : ''}${text}${i < said.length - 1 ? ',' : ''}` }));
   return items;
 }
 
@@ -320,37 +352,218 @@ function flowKey(items, width) {
   return { placed, rows: placed.length ? row + 1 : 0 };
 }
 
+/* ---------------------------------------------------------- end labels -- */
+
+/** The height of one label line (px), from the small font. */
+const lineOf = () => Math.ceil(1.3 * THEME.fontSmall);
+
+/** Whether segment p→q meets box { x0, y0, x1, y1 } (Liang–Barsky clipping). */
+export function segmentMeetsBox(p, q, box) {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  const edges = [[-dx, p[0] - box.x0], [dx, box.x1 - p[0]], [-dy, p[1] - box.y0], [dy, box.y1 - p[1]]];
+  for (const [pp, qq] of edges) {
+    if (pp === 0) { if (qq < 0) return false; continue; }
+    const r = qq / pp;
+    if (pp < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  return true;
+}
+
+/** Whether two boxes overlap (touching edges do not). */
+export function boxesMeet(a, b) {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+/** The distance from point a to box (0 inside). */
+function gapTo(a, box) {
+  const dx = Math.max(box.x0 - a[0], 0, a[0] - box.x1);
+  const dy = Math.max(box.y0 - a[1], 0, a[1] - box.y1);
+  return Math.hypot(dx, dy);
+}
+
+/** The nearest point of a box to a point. */
+function nearestOn(box, a) {
+  return [Math.min(box.x1, Math.max(box.x0, a[0])), Math.min(box.y1, Math.max(box.y0, a[1]))];
+}
+
 /**
- * Where everything sits at `width` px: { stacked, key, facets: [{ left, top, width, height }], height }.
- * Side by side from 640 px, each facet's plot square-ish; stacked below.
+ * The direct labels of one facet, in the facet's own pixels (origin at the plot's top-left, y down; the
+ * band above the plot at negative y, the gutter right of x = width). Pure:
+ * { labels: [{ key, species, text, x, y, align, box, anchor, leader: [[x, y], [x, y]] | null, place:
+ *   'gutter' | 'band' | 'inside', row }], fallback: [curve key], bandRows }.
+ * `curves` are the facet's curves; `geom` = { width, height, gutter, xTop, yTop }.
+ */
+export function labelPlan(curves, geom) {
+  const f = THEME.fontSmall;
+  const lineH = lineOf();
+  const { width: W, height: H, gutter = 0, xTop, yTop } = geom;
+  const lineLimit = LABEL_SHIFT_MAX_LINES * lineH;
+  const bandLimit = Math.max(lineLimit, BAND_SHIFT_MAX * W);
+  const px = (pt) => [(pt[0] / xTop) * W, (1 - pt[1] / yTop) * H];
+  const polylines = curves.map((c) => ({ key: c.key, lines: c.segments.map((seg) => seg.map(px)) }));
+  const leaderZone = Math.ceil(0.8 * lineH);
+  const rowGap = 3;
+  const bandY = (row) => -(leaderZone + lineH / 2 + row * (lineH + rowGap));
+  const placed = [];
+  const fallback = [];
+  const pad = 3; // the clear gap kept between two labels (px)
+  const clear = 1.5; // the clear gap kept between a label and a curve or a leader (px)
+  const free = (box, inside, leader) => {
+    const spaced = { x0: box.x0 - pad, y0: box.y0 - pad, x1: box.x1 + pad, y1: box.y1 + pad };
+    const grown = { x0: box.x0 - clear, y0: box.y0 - clear, x1: box.x1 + clear, y1: box.y1 + clear };
+    if (placed.some((l) => boxesMeet(spaced, l.box))) return false;
+    // A leader never crosses another label, and no label sits on a leader already drawn.
+    if (leader && placed.some((l) => segmentMeetsBox(leader[0], leader[1], l.box))) return false;
+    if (placed.some((l) => l.leader && segmentMeetsBox(l.leader[0], l.leader[1], grown))) return false;
+    if (!inside) return true;
+    for (const pl of polylines) {
+      for (const line of pl.lines) {
+        for (let i = 1; i < line.length; i += 1) if (segmentMeetsBox(line[i - 1], line[i], grown)) return false;
+      }
+    }
+    return true;
+  };
+  const boxAt = (x, cy, w) => ({ x0: x, y0: cy - lineH / 2, x1: x + w, y1: cy + lineH / 2 });
+
+  // The anchors: where each curve ends, or where it leaves through the top or the bottom.
+  const items = [];
+  for (const c of curves) {
+    const text = endLabelText(c);
+    const w = Math.ceil(measureText(text, f, THEME.fontFamily));
+    let anchor = null;
+    let place = 'inside';
+    if (c.end) {
+      anchor = px(c.end);
+      if (anchor[0] >= W - 0.5 && gutter > 0) place = 'gutter';
+      else if (anchor[1] <= 0.5) place = 'band';
+    } else if (c.runs.length) {
+      // Nothing of the curve is inside the range: its first caret is the anchor.
+      const run = c.runs[0];
+      anchor = px([Math.min(xTop, Math.max(0, run.from)), run.dir === 'above' ? yTop : 0]);
+      place = run.dir === 'above' ? 'band' : 'inside';
+    }
+    if (anchor) items.push({ c, text, w, anchor, place });
+  }
+  const order = { gutter: 0, band: 1, inside: 2 };
+  items.sort((a, b) => order[a.place] - order[b.place] || (a.place === 'band' ? a.anchor[0] - b.anchor[0] : a.anchor[1] - b.anchor[1]));
+
+  let bandRows = 0;
+  for (const it of items) {
+    const [ax, ay] = it.anchor;
+    const candidates = [];
+    if (it.place === 'gutter') {
+      const x = W + 7;
+      for (let k = 0; k <= lineLimit + lineH; k += 1) {
+        for (const cy of k ? [ay + k, ay - k] : [ay]) {
+          if (cy - lineH / 2 < 0 || cy + lineH / 2 > H) continue;
+          candidates.push({ box: boxAt(x, cy, it.w), x, y: cy, align: 'left', row: null });
+        }
+      }
+    } else if (it.place === 'band') {
+      for (let row = 0; row < BAND_ROWS_MAX; row += 1) {
+        const cy = bandY(row);
+        for (let k = 0; k <= it.w / 2 + bandLimit; k += 1) {
+          for (const x of k ? [ax - it.w / 2 + k, ax - it.w / 2 - k] : [ax - it.w / 2]) {
+            if (x < 0 || x + it.w > W + gutter) continue;
+            candidates.push({ box: boxAt(x, cy, it.w), x, y: cy, align: 'left', row });
+          }
+        }
+      }
+    } else {
+      // Inside the plot, beside the exit: level with it, above or below, left or right; never on a curve.
+      for (let k = 0; k <= lineLimit; k += 1) {
+        const off = lineH / 2 + 3 + k;
+        for (const dy of [...new Set([-k, k, -off, off])]) {
+          for (const dx of [8, -8 - it.w]) {
+            const cy = ay + dy;
+            const x = ax + dx;
+            if (x < 0 || x + it.w > W || cy - lineH / 2 < 0 || cy + lineH / 2 > H) continue;
+            candidates.push({ box: boxAt(x, cy, it.w), x, y: cy, align: 'left', row: null });
+          }
+        }
+      }
+    }
+    // The shift: how far the label has moved off its standard place beside the anchor (level with the end in
+    // the gutter, over the caret in the band, 8 px beside the exit inside the plot).
+    const shiftOf = (box) => (it.place === 'gutter' ? Math.max(0, Math.abs((box.y0 + box.y1) / 2 - ay) - lineH / 2)
+      : it.place === 'band' ? Math.max(0, box.x0 - ax, ax - box.x1)
+        : Math.max(0, gapTo(it.anchor, box) - 8));
+    const scored = candidates.map((cand) => ({ ...cand, gap: shiftOf(cand.box) }))
+      .filter((cand) => cand.gap <= (it.place === 'band' ? bandLimit : lineLimit));
+    // Nearest first; in the band the first row before the second at the same distance.
+    scored.sort((a, b) => a.gap - b.gap || (a.row ?? 0) - (b.row ?? 0));
+    // A leader joins a label moved off its anchor, and every label of the band's upper rows to its caret.
+    const leaderOf = (cand) => {
+      if (!(cand.gap > 0.5 || (cand.row ?? 0) > 0)) return null;
+      const near = it.place === 'gutter' ? [cand.box.x0 - 1, Math.min(cand.box.y1, Math.max(cand.box.y0, ay))]
+        : it.place === 'band' ? [Math.min(cand.box.x1, Math.max(cand.box.x0, ax)), cand.box.y1]
+          : nearestOn(cand.box, it.anchor);
+      const start = it.place === 'gutter' ? [W + 1, ay] : it.anchor;
+      return [start, near];
+    };
+    const chosen = scored.find((cand) => free(cand.box, it.place === 'inside', leaderOf(cand)));
+    if (!chosen) { fallback.push(it.c.key); continue; }
+    if (chosen.row !== null) bandRows = Math.max(bandRows, chosen.row + 1);
+    const leader = leaderOf(chosen);
+    placed.push({
+      key: it.c.key, species: it.c.species, text: it.text, x: chosen.x, y: chosen.y, align: chosen.align,
+      box: chosen.box, anchor: it.anchor, leader, place: it.place, row: chosen.row, gap: chosen.gap, colour: it.c.colour,
+    });
+  }
+  return { labels: placed, fallback, bandRows, leaderZone, lineH, rowGap, limits: { lines: lineLimit, band: bandLimit } };
+}
+
+/** The x range and the label plan of every facet at the given plot geometry. */
+function planFacets(model, plotW, plotH, gutter) {
+  return model.facets.map((facet) => labelPlan(facet.curves, { width: plotW, height: plotH, gutter, xTop: model.xTop, yTop: model.yTop }));
+}
+
+/**
+ * Where everything sits at `width` px: { stacked, key, facets: [{ left, top, width, height, gutter }],
+ * plans (labelPlan per facet), bandH, height }. Side by side from 640 px, each facet's plot square-ish;
+ * stacked below.
  */
 export function curvesLayout(model, width = 1100) {
   const pad = axisPadding();
   const f = THEME.fontLabel;
   const w = Math.max(240, width || 1100);
-  const stacked = w < STACK_BELOW_PX;
   const keyWidth = Math.max(120, w - pad.left - pad.right);
   const key = flowKey(keyItems(model), keyWidth);
   const keyTop = 0.4 * f;
   const titleH = 1.8 * f;
-  const top = keyTop + key.rows * 1.7 * f + 0.6 * f + titleH;
   const n = model.facets.length;
-  const facets = [];
   // A gutter at each facet's right for the labels of the curves that end on its right edge.
   const labelWidths = model.curves.map((c) => measureText(endLabelText(c), THEME.fontSmall, THEME.fontFamily));
   const gutter = labelWidths.length ? Math.ceil(Math.max(...labelWidths) + 1.2 * f) : 0;
+  const sideGap = 2.2 * f;
+  const sideW = (w - pad.left - pad.right - n * gutter - (n - 1) * sideGap) / n;
+  const stacked = w < STACK_BELOW_PX || sideW < MIN_FACET_PX;
+  let plotW;
+  let plotH;
+  let gap = 0;
   if (!stacked) {
-    const gap = 2.2 * f;
-    const plotW = Math.max(80, (w - pad.left - pad.right - n * gutter - (n - 1) * gap) / n);
-    const plotH = Math.round(Math.min(Math.max(150, plotW * 0.85), 300));
-    for (let i = 0; i < n; i += 1) facets.push({ left: pad.left + i * (plotW + gutter + gap), top, width: plotW, height: plotH, gutter });
-    return { stacked, key, keyTop, keyLeft: pad.left, titleH, gutter, facets, height: Math.round(top + plotH + pad.bottom) };
+    gap = sideGap;
+    plotW = sideW;
+    plotH = Math.round(Math.min(Math.max(150, plotW * 0.85), 300));
+  } else {
+    plotW = Math.max(80, w - pad.left - pad.right - gutter);
+    plotH = Math.round(Math.min(Math.max(140, plotW * 0.6), 260));
   }
-  const plotW = Math.max(80, w - pad.left - pad.right - gutter);
-  const plotH = Math.round(Math.min(Math.max(140, plotW * 0.6), 260));
-  const step = plotH + pad.bottom + titleH + 0.4 * f;
+  const plans = planFacets(model, plotW, plotH, gutter);
+  const rows = Math.max(0, ...plans.map((pl) => pl.bandRows));
+  const bandH = rows ? plans[0].leaderZone + rows * plans[0].lineH + (rows - 1) * plans[0].rowGap + 2 : 0;
+  const top = keyTop + key.rows * 1.7 * f + 0.6 * f + titleH + bandH;
+  const facets = [];
+  if (!stacked) {
+    for (let i = 0; i < n; i += 1) facets.push({ left: pad.left + i * (plotW + gutter + gap), top, width: plotW, height: plotH, gutter });
+    return { stacked, key, keyTop, keyLeft: pad.left, titleH, bandH, gutter, facets, plans, height: Math.round(top + plotH + pad.bottom) };
+  }
+  const step = plotH + pad.bottom + titleH + bandH + 0.4 * f;
   for (let i = 0; i < n; i += 1) facets.push({ left: pad.left, top: top + i * step, width: plotW, height: plotH, gutter });
-  return { stacked, key, keyTop, keyLeft: pad.left, titleH, gutter, facets, height: Math.round(top + (n - 1) * step + plotH + pad.bottom) };
+  return { stacked, key, keyTop, keyLeft: pad.left, titleH, bandH, gutter, facets, plans, height: Math.round(top + (n - 1) * step + plotH + pad.bottom) };
 }
 
 /** The plot height the panel sets before ECharts measures. */
@@ -365,8 +578,8 @@ export function plotHeight(payload, opts = {}, width = 1100) {
 /** The tooltip of one curve. */
 export function curveTip(model, c) {
   const lines = [`<b>${escapeHtml(c.speciesLabel)} · ${escapeHtml(c.frameLabel)}: ${escapeHtml(c.formulaText)}</b>`];
-  lines.push(`${escapeHtml(c.tierLabel)}${c.tier === 'law' ? '' : ` — ${escapeHtml(c.reasons.join(' '))}`}`);
-  lines.push(`R²_PySR to the network ${escapeHtml(c.r2Text)}; the network's R² to truth ${escapeHtml(c.netR2Text)}`);
+  lines.push(`${escapeHtml(c.tierLabel)} — ${escapeHtml(c.reasons.join(' '))}`);
+  lines.push(`R² (PySR) to the network ${escapeHtml(c.r2Text)}; the network's R² to truth ${escapeHtml(c.netR2Text)}`);
   if (c.weakTruth) lines.push(mutedLine(`${c.speciesLabel} curves ${c.weakTruth}.`));
   lines.push(mutedLine(c.at ? `At ${c.at}: conditional at these values, not a marginal prediction.` : 'Depends on E_sum alone.'));
   if (c.clipped) lines.push(mutedLine(`Leaves the 0–${num(model.yTop)} GeV range ${c.runs.length === 1 ? 'once' : `${c.runs.length} times`}: clipped at the axis (carets).`));
@@ -407,50 +620,26 @@ export function endLabelText(c) {
   return `${c.speciesLabel}${c.tier === 'law' ? '' : ` (${TIER_SHORT[c.tier] ?? c.tier})`}`;
 }
 
-/** Spread labels (sorted by y) at least `gap` apart inside [lo, hi], in place. */
-function spread(labels, gap, lo, hi) {
-  labels.sort((a, b) => a.ly - b.ly);
-  for (let i = 1; i < labels.length; i += 1) {
-    if (labels[i].ly - labels[i - 1].ly < gap) labels[i].ly = labels[i - 1].ly + gap;
-  }
-  for (let i = labels.length - 1; i >= 0; i -= 1) {
-    const limit = i === labels.length - 1 ? hi : labels[i + 1].ly - gap;
-    if (labels[i].ly > limit) labels[i].ly = limit;
-  }
-  for (const l of labels) l.ly = Math.max(lo, l.ly);
-}
-
-/**
- * The end labels of one facet in pixel space. A curve that ends on the right edge is labelled in the
- * facet's gutter, level with its end; one that leaves earlier (through the top or the bottom) is
- * labelled beside its last point inside the plot. Each group is spread so no label overprints another.
- */
-function endLabels(model, facet, g) {
-  const f = THEME.fontSmall;
-  const px = (p) => [g.left + (p[0] / model.xTop) * g.width, g.top + (1 - p[1] / model.yTop) * g.height];
-  const right = g.left + g.width;
-  const gutter = [];
-  const inner = [];
-  for (const c of facet.curves.filter((x) => x.end)) {
-    const [x, y] = px(c.end);
-    const text = endLabelText(c);
-    if (x >= right - 0.5 && g.gutter > 0) {
-      gutter.push({ text, align: 'left', lx: right + 7, ly: y });
-    } else {
-      const width = measureText(text, f, THEME.fontFamily);
-      const fits = x + 8 + width <= right;
-      inner.push({ text, align: fits ? 'left' : 'right', lx: fits ? x + 7 : x - 7, ly: y + (y <= g.top + 1 ? f : 0) });
+/** The end labels of one facet as graphic elements, from its label plan, with their leader lines. */
+function endLabels(plan, g) {
+  const out = [];
+  for (const l of plan.labels) {
+    if (l.leader) {
+      out.push({
+        type: 'line', silent: true,
+        shape: { x1: g.left + l.leader[0][0], y1: g.top + l.leader[0][1], x2: g.left + l.leader[1][0], y2: g.top + l.leader[1][1] },
+        style: { stroke: THEME.muted, lineWidth: THEME.lineAxis, opacity: 0.9 },
+      });
     }
+    out.push({
+      type: 'text', silent: true,
+      style: {
+        x: g.left + l.x, y: g.top + l.y, text: l.text, textAlign: l.align, textVerticalAlign: 'middle',
+        fill: THEME.text, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
+      },
+    });
   }
-  spread(gutter, f + 2, g.top, g.top + g.height);
-  spread(inner, f + 2, g.top + f / 2, g.top + g.height - f / 2);
-  return [...gutter, ...inner].map((l) => ({
-    type: 'text', silent: true,
-    style: {
-      x: l.lx, y: l.ly, text: l.text, textAlign: l.align, textVerticalAlign: 'middle',
-      fill: THEME.text, fontSize: f, fontFamily: THEME.fontFamily,
-    },
-  }));
+  return out;
 }
 
 /** The key on the canvas: tier line samples, species end marks, the values in force. */
@@ -507,7 +696,7 @@ export function distillCurvesOption(payload, opts = {}, metrics = {}) {
       interval: niceInterval(model.yTop), split: true, nameGap: 2.6 * f,
     }));
     // The facet's title, with a short stroke of its hue: the frame names the facet, the hue repeats it.
-    const ty = g.top - 0.9 * f;
+    const ty = g.top - layout.bandH - 0.9 * f;
     graphic.push({ type: 'line', silent: true, shape: { x1: g.left, y1: ty, x2: g.left + 14, y2: ty }, style: { stroke: facet.colour, lineWidth: 3 } });
     graphic.push({
       type: 'text', silent: true,
@@ -554,7 +743,7 @@ export function distillCurvesOption(payload, opts = {}, metrics = {}) {
         series[series.length - 1].yAxisIndex = k;
       }
     }
-    graphic.push(...endLabels(model, facet, g));
+    graphic.push(...endLabels(layout.plans[k], g));
     if (!facet.curves.length) {
       const why = facet.excluded.map((x) => `${model.speciesLabels[x.species] ?? x.species}: ${x.reason}`).join(' ');
       graphic.push({
@@ -666,7 +855,13 @@ export class DistillCurvesPanel extends ChartPanel {
   }
 
   notesState() {
-    return { values: this.values ? { ...this.values } : null };
+    const state = { values: this.values ? { ...this.values } : null, unlabelled: [] };
+    if (this.lastPayload) {
+      const model = curvesModel(this.lastPayload, { values: this.values });
+      const width = this.element?.clientWidth || 0;
+      if (model && model.curves.length && width > 0) state.unlabelled = curvesLayout(model, width).plans.flatMap((pl) => pl.fallback);
+    }
+    return state;
   }
 
   /** The slider row's host, created once after the card's plot frame; null outside a card. */
