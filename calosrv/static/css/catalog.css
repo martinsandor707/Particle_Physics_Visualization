@@ -1,0 +1,337 @@
+/* The benchmark catalogue's DOM: the Distillations and Performance subpages of the Models page.
+ *
+ * Written for both subpages (brief section 6): the PySR matrix (js/panels/pysr_matrix.js), the curves'
+ * slider row (js/panels/distill_curves.js), and the classes the Performance cards use for their tables,
+ * badges and diagnostic blocks. Tokens only (css/tokens.css), so the dark and the light screen theme
+ * both apply unchanged; no colour literal, nothing animated (the snap rule: no transition, no
+ * animation). Every mark that carries meaning carries it in text and border style too, never in colour
+ * alone: a tier is written in its chip and drawn as a border style; a badge is its words.
+ *
+ * Contrast: text takes --text or --muted (4.5:1 or more on --card in both themes), flags take --warn
+ * and --accent (both 4.5:1 or more on --card); --border is chrome only.
+ */
+
+/* ------------------------------------------------------------ PySR matrix -- */
+
+.pysr-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  min-width: 0;
+}
+.pysr-caption,
+.pysr-status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.pysr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The matrix: a row-header column and three frame columns. Each `.pysr-row` only groups its cells for
+   the table role; the grid places them. It scrolls inside the card where the card is narrower than
+   three readable columns, never the page (.card-table scrolls). */
+.pysr-grid {
+  display: grid;
+  grid-template-columns: max-content repeat(3, minmax(15em, 1fr));
+  gap: 8px;
+  min-width: 0;
+  align-items: start;
+}
+.pysr-row { display: contents; }
+.pysr-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 0 4px;
+}
+/* A frame's column head carries its hue (perf_bins.js sourceColours, set by the panel as --frame-hue)
+   as a rule under the name: the name says the frame, the hue repeats it. */
+.pysr-head[data-frame] {
+  color: var(--text);
+  border-bottom: 3px solid var(--frame-hue, var(--border));
+}
+.pysr-head[data-task] {
+  color: var(--text);
+  padding-top: 6px;
+}
+.pysr-corner { color: var(--muted); font-weight: 400; }
+.pysr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* One model. The border is the tier: solid for a law and for a high-fidelity formula whose truth R²
+   is not reported, dashed for a partial surrogate, dotted (and muted ink) for "not a law". */
+.pysr-entry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  min-width: 0;
+  background: var(--card);
+}
+.pysr-entry[data-tier="law"] { border: 2px solid var(--text); }
+.pysr-entry[data-tier="unverified"] { border: 1px solid var(--text); }
+.pysr-entry[data-tier="partial"] { border: 1px dashed var(--text); }
+.pysr-entry[data-tier="not-law"] { border: 1px dotted var(--muted); color: var(--muted); }
+/* A feature's cross-highlight: an accent outline outside the tier border, which stays as it is. */
+.pysr-entry.is-match {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pysr-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+}
+.pysr-species { font-weight: 600; }
+.pysr-entry[data-tier="not-law"] .pysr-species { color: var(--muted); }
+
+/* The formula: MathML in the math font stack (as the explainer's), scrolling inside the entry when it
+   is wider than the column, never the page. */
+.pysr-formula {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 2px 0;
+  font-family: math, "STIX Two Math", "Latin Modern Math", "DejaVu Math TeX Gyre", "Noto Sans Math", "Cambria Math", serif;
+  font-size: 14px;
+}
+.pysr-formula math { margin: 0; }
+.pysr-fallback { font-family: var(--mono); font-size: 12px; }
+.pysr-absent { margin: 2px 0; font-style: italic; color: var(--muted); }
+.pysr-tex {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.pysr-source {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.pysr-copy { flex: none; }
+.pysr-copy[data-state="copied"] { border-color: var(--accent); color: var(--accent); }
+.pysr-copy[data-state="failed"] { border-color: var(--warn); color: var(--warn); }
+.pysr-r2 {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.pysr-reason { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.pysr-badges,
+.pysr-features {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.pysr-features-label { font-size: 10px; color: var(--muted); margin-right: 2px; }
+
+/* ------------------------------------------------------------------ chips -- */
+
+/* A tier chip: the tier's words, in the tier's border style. */
+.tier-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+  color: var(--text);
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.tier-chip[data-tier="law"] { border: 2px solid var(--text); font-weight: 600; }
+.tier-chip[data-tier="unverified"] { border: 1px solid var(--text); }
+.tier-chip[data-tier="partial"] { border: 1px dashed var(--text); }
+.tier-chip[data-tier="not-law"] { border: 1px dotted var(--muted); color: var(--muted); }
+
+/* A feature chip is a button: it cross-highlights every model that uses the feature. */
+.feature-chip {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--control-bg);
+  color: var(--control-text);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.feature-chip:hover { border-color: var(--accent); color: var(--accent); }
+.feature-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.feature-chip.is-highlighted {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* A badge is its words; the border style and ink tell the kinds apart, never a fill colour alone. */
+.badge-chip {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--card);
+}
+.badge-chip[data-kind="leak"],
+.badge-chip[data-kind="negative"],
+.badge-chip[data-kind="starvation"],
+.badge-chip[data-kind="training"] {
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.badge-chip[data-kind="leak"]::before,
+.badge-chip[data-kind="training"]::before { content: '⚑ '; }
+.badge-chip[data-kind="standardised"] { border-style: dashed; }
+.badge-chip[data-kind="inferred"] { border-style: dotted; font-style: italic; }
+.badge-chip[data-kind="not-reported"] { border-style: dashed; font-style: italic; }
+.badge-chip[data-kind="one-signed"] { border-color: var(--text); color: var(--text); }
+.badge-chip[data-kind="hit"],
+.badge-chip[data-kind="particle"] { border-color: var(--muted); color: var(--text); font-variant: small-caps; }
+.badge-chip[data-kind="proton-only"] { border-color: var(--accent); color: var(--accent); }
+
+/* ------------------------------------------------------------- tables -- */
+
+/* A catalogue table under a plot or inside a block: the .res-fit-table look, scrolling inside its
+   card where the card is narrower than its values, never the page. */
+.catalog-table {
+  margin-top: 8px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+  min-width: 0;
+}
+.catalog-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.catalog-table th,
+.catalog-table td {
+  padding: 3px 6px;
+  text-align: right;
+  vertical-align: top;
+  overflow-wrap: break-word;
+  border-bottom: none;
+}
+.catalog-table .text,
+.catalog-table th[scope="row"],
+.catalog-table th[scope="rowgroup"] { text-align: left; }
+.catalog-table thead th:first-child,
+.catalog-table tbody th:first-child { padding-left: 0; }
+.catalog-table tbody th { color: var(--text); font-weight: 400; }
+.catalog-table tbody th[scope="rowgroup"] { font-weight: 500; }
+.catalog-table tbody tr + tr > * { border-top: 1px dotted var(--border); }
+.catalog-table tbody + tbody tr:first-child > * { border-top: 1px solid var(--border); }
+.catalog-table caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 0 4px;
+  color: var(--muted);
+  white-space: normal;
+}
+.catalog-table thead th {
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.catalog-table .na { color: var(--muted); font-style: italic; }
+
+/* ----------------------------------------------------- the curves' sliders -- */
+
+/* The slider row under the curves' plot (screen only): one control per secondary variable a drawn
+   curve reads, a Midpoints button and the values in force. It wraps rather than overflow a card. */
+.curve-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 8px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.curve-controls[hidden] { display: none; }
+.curve-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.curve-control-name { color: var(--text); font-family: var(--mono); font-size: 11px; }
+.curve-control input[type="range"] {
+  flex: 0 1 9em;
+  width: 9em;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.curve-control input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.curve-control-value {
+  min-width: 5.5em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.curve-values {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------- the Performance diagnostics -- */
+
+/* A block of the diagnostics card (indecision, throughput, architecture, caveats): a heading, the
+   scope it was measured on, then its table or list. */
+.diag-block {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.diag-block:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.diag-heading {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.diag-scope {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.caveat-list {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.caveat-list li + li { margin-top: 3px; }
