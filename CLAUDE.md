@@ -373,7 +373,7 @@ When working with calorimeter simulation datasets in this repository:
       - Performance: E2, prediction against truth with its residuals, the energy-resolution card, E1 and E3, then the four catalogue cards.
     - **Nothing is created or disposed by a switch.** It sets `hidden` on three wrappers (`#msub-views`, `#msub-distill`, `#msub-perf`), so the 3-D views keep their two WebGL contexts, cameras and slice state. A card on a hidden subpage never loads, and a catalogue card never requests anything. Each subpage keeps its scroll position in memory, not in the link.
     - **Why:** the page was one scroll of six sections. A hidden card cannot intersect, so the split costs no request, and disposing a WebGL context would lose the reader's camera.
-    - **A deep link switches first.** `?panel=<card>` opens the card's own subpage before it scrolls to it and opens its drawer, the card's `msub` written to the hash.
+    - **A deep link switches first.** `?panel=<card>` opens the card's own subpage before it scrolls to it and opens its drawer, the card's `msub` written to the hash. The card is then held in place while the page settles (`models_subpages.js` `pinOnResize`), until the reader scrolls, touches, clicks or types, or 8 s pass: the foot of the card above it shows under the sticky head, loads late and grows, and the browser's scroll anchor would otherwise push the linked card off a short screen.
     - **The sidebar per subpage** (`capabilities.js` `SUBPAGE_SECTIONS`).
       - The filters, Reconstruction Model and Reference Frame show on all three.
       - Longitudinal Channels show on Views only, hidden by CSS on `.app[data-msub]`, so `controls/layer_groups_control.js` keeps the `hidden` attribute to itself.
