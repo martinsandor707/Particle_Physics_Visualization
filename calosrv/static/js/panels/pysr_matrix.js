@@ -443,9 +443,23 @@ export class PysrMatrixPanel {
     return box;
   }
 
-  /** The LaTeX source in a <code>, and a Copy button whose title says what happened. */
+  /**
+   * The LaTeX source behind a toggle, as the Methodology's display equations
+   * carry theirs: hidden until asked for, so the card reads as formulas and the
+   * source keeps the ASCII hyphen LaTeX needs (a minus drawn as U+2212 would not
+   * compile), with a Copy button whose title says what happened.
+   */
   source(entry) {
     const row = this.el('div', 'pysr-tex');
+    const toggle = this.el('button', 'mini pysr-tex-toggle', 'TeX');
+    toggle.type = 'button';
+    toggle.title = 'Show the LaTeX source';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', `Show the LaTeX source of the ${entry.speciesLabel} formula`);
+    const panel = this.el('div', 'pysr-tex-panel');
+    panel.id = `pysr-tex-${String(entry.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+    panel.hidden = true;
+    toggle.setAttribute('aria-controls', panel.id);
     const code = this.el('code', 'pysr-source', entry.tex);
     code.title = 'LaTeX source of the formula (the equation compiler\'s input)';
     const copy = this.el('button', 'mini pysr-copy', 'Copy');
@@ -453,7 +467,15 @@ export class PysrMatrixPanel {
     copy.title = 'Copy the LaTeX source to the clipboard';
     copy.setAttribute('aria-label', `Copy the LaTeX source of the ${entry.speciesLabel} formula`);
     copy.addEventListener('click', () => this.copy(copy, entry.tex));
-    row.append(code, copy);
+    toggle.addEventListener('click', () => {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.title = open ? 'Hide the LaTeX source' : 'Show the LaTeX source';
+      toggle.setAttribute('aria-label', `${open ? 'Hide' : 'Show'} the LaTeX source of the ${entry.speciesLabel} formula`);
+    });
+    panel.append(code, copy);
+    row.append(toggle, panel);
     return row;
   }
 

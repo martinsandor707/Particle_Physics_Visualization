@@ -137,6 +137,18 @@
   gap: 6px;
   min-width: 0;
 }
+/* The source is behind its toggle, as on the Methodology page: the panel takes
+   the row's width when open and nothing when closed. */
+.pysr-tex-toggle { flex: none; }
+.pysr-tex-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.pysr-tex-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pysr-tex-panel[hidden] { display: none; }
 .pysr-source {
   flex: 1 1 auto;
   min-width: 0;

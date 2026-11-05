@@ -261,6 +261,22 @@ Object.assign(THEME, saved);
   const third = host.findAll((el) => el.className.includes('pysr-copy'))[2];
   third.click();
   const copyNone = { title: third.title, state: third.dataset.state };
+  // The LaTeX source sits behind its toggle, hidden until asked for (the Methodology's convention).
+  const texToggles = host.findAll((el) => el.className.split(' ').includes('pysr-tex-toggle'));
+  const texPanels = host.findAll((el) => el.className === 'pysr-tex-panel');
+  const texToggle = {
+    toggles: texToggles.length, panels: texPanels.length,
+    codesInPanels: texPanels.filter((p) => p.find((el) => el.tagName === 'CODE')).length,
+    copiesInPanels: texPanels.filter((p) => p.find((el) => el.className.includes('pysr-copy'))).length,
+    hidden: texPanels.every((p) => p.hidden), collapsed: texToggles.every((t) => t.attrs['aria-expanded'] === 'false'),
+    uniqueIds: new Set(texPanels.map((p) => p.id)).size,
+    idsPlain: texPanels.every((p) => /^pysr-tex-[A-Za-z0-9_-]+$/.test(p.id)),
+    controls: texToggles.every((t, i) => t.attrs['aria-controls'] === texPanels[i].id),
+  };
+  texToggles[0].click();
+  texToggle.open = { hidden: texPanels[0].hidden, expanded: texToggles[0].attrs['aria-expanded'], title: texToggles[0].title };
+  texToggles[0].click();
+  texToggle.closed = { hidden: texPanels[0].hidden, expanded: texToggles[0].attrs['aria-expanded'], title: texToggles[0].title };
   // A TeX the compiler refuses falls back to the explicit text.
   const broken = JSON.parse(JSON.stringify(payload));
   broken.cells[6].entries[0].formula.tex = '\\notacommand{x}';
@@ -298,7 +314,7 @@ Object.assign(THEME, saved);
     entries: entries.length, tiers: entries.map((e) => e.dataset.tier), chips: chips.length, maths: maths.length,
     codes: codes.length, copies: copies.length, absent, tierChips, badges, r2Titles, inferredTitles, plainTitles,
     madeNs: [...new Set(made.map((m) => m[0]))], madeTags: [...new Set(made.map((m) => m[1]))],
-    after, repaint, cleared, copyOk, copyFail, copyNone, fallback, clearedChildren: host2.childNodes.length,
+    after, repaint, cleared, copyOk, copyFail, copyNone, texToggle, fallback, clearedChildren: host2.childNodes.length,
     kind: panel.kind, hasRelayout: typeof panel.relayout === 'function', hasBusy: typeof panel.setBusy === 'function',
   };
 }
@@ -679,6 +695,16 @@ def test_the_copy_button_says_what_happened(out):
     assert d["copyOk"]["state"] == "copied" and d["copyOk"]["text"] == "Copied"
     assert d["copyFail"]["state"] == "failed" and "denied by the browser" in d["copyFail"]["title"]
     assert d["copyNone"]["state"] == "failed" and "clipboard is not available" in d["copyNone"]["title"]
+
+
+def test_the_latex_source_sits_behind_its_toggle(out):
+    """As on the Methodology page: the card reads as formulas; the source (ASCII hyphens, which LaTeX needs)
+    shows on request, with its Copy button inside the panel the toggle controls."""
+    t = out["dom"]["texToggle"]
+    assert t["toggles"] == t["panels"] == t["codesInPanels"] == t["copiesInPanels"] == out["dom"]["codes"] > 0
+    assert t["hidden"] and t["collapsed"] and t["controls"] and t["idsPlain"] and t["uniqueIds"] == t["panels"]
+    assert t["open"] == {"hidden": False, "expanded": "true", "title": "Hide the LaTeX source"}
+    assert t["closed"] == {"hidden": True, "expanded": "false", "title": "Show the LaTeX source"}
 
 
 # ----------------------------------------------------------------- notes --
