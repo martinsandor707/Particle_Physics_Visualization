@@ -3024,8 +3024,10 @@ link, so every older link opens where it always did.
 - **Accessibility.** The bar is a `role="tablist"` with a roving `tabindex`; the
   arrow keys move between tabs (wrapping), Home and End jump to the ends, and a
   tab activates as it takes focus. Each subpage is a `role="tabpanel"` labelled
-  by its tab. The bar is not sticky: a sticky strip would lie over plots the
-  pointer aims at.
+  by its tab. The bar is sticky at the top of the page's scroll area, together
+  with the species bar on Distillations and Performance (Martin, 2026-11-05); a
+  card keeps a scroll margin equal to that block's measured height, so a card
+  scrolled into view or deep-linked is never under it.
 - **A switch creates and disposes nothing.** It sets `hidden` on three wrappers
   (`#msub-views`, `#msub-distill`, `#msub-perf`). The two 3-D views therefore keep
   their WebGL contexts, cameras and slice state while another subpage is on show,
@@ -3072,13 +3074,17 @@ checks the integrity facts the cards rely on:
 - the report prints per-bin counts for the proton only, so the other species show
   "N not reported" and borrow none;
 - the distillation table's angle MAEs are in radians and, in mrad, agree with the
-  summary table to 0.005 mrad;
+  summary table to the triad's rounding (±0.05 mrad at its coarsest);
 - a distillation's segmentation MAE is a voxel-sample MAE and differs from the
   validation E-MAE;
 - the 5/10/15 GeV momentum windows use the whole exported output, training split
   included, so their n can exceed the particles (electron and pion);
-- the muon's |bias| equals its MAE at 5 and 15 GeV, so every error in those
-  windows has one sign.
+- the muon's |bias| equals its MAE at 5 and 15 GeV to the report's rounding, so
+  errors of the other sign average under 0.0005 GeV per particle and (almost)
+  every error in those windows has one sign; this is not an exact implication;
+- the report's definition of the Local frame (z′ along the incidence direction,
+  which needs the true angle) applies to every model, so every task's card
+  carries it.
 
 Every report number is shown with the report's printed decimals, so a reader sees
 how far it was rounded; a derived number (a sum, a ratio, rad converted to mrad)
@@ -3107,10 +3113,10 @@ constants the Methodology article quotes):
 
 | Tier | Rule | Mark |
 |---|---|---|
-| Physical law | R²_PySR ≥ 0.75 and R²_net ≥ 0.70, in physical units, with no leak flag | Solid border, "Law" chip |
+| Law candidate | R²_PySR ≥ 0.75 and R²_net ≥ 0.70, in physical units, with no leak flag | Solid border, "Law candidate" chip |
 | High fidelity, truth R² not reported | R²_PySR ≥ 0.75, R²_net not reported | Solid border and its own chip |
 | Partial surrogate | 0.25 ≤ R²_PySR < 0.75, or a formula at 0.75 or above capped by a leak flag or by standardised features | Dashed border |
-| Not a law | R²_PySR < 0.25, "< 0", "≈ 0", no formula, or R²_net < 0.70 | Dotted border, muted ink, the reason printed |
+| Not a law | R²_PySR < 0.25, "< 0", "≈ 0", no formula, or R²_net < 0.70 | Finely dashed border, muted ink, the reason printed |
 
 **The decisions** (Martin, 2026-11-05):
 
@@ -3126,18 +3132,27 @@ constants the Methodology article quotes):
 
 **Vocabulary and scope.** The report's frame `trans` is the dashboard's
 **Per-shower translated**, never "Translated" alone, which names the D-frame. A
-frame has E2's hue on every card; species are told apart by facets, grouping and
-dash patterns, never by a second colour family. Test-time augmentation, the H200
+frame has E2's hue on every card; species are told apart by facets, grouping, end
+marks and direct labels, never by a second colour family; on the energy curves
+the dash is the tier (law candidate solid, partial dashed, not a law finely
+dashed). The top tier is called a *law candidate* because the report says the
+tree and the formula explain the network's behaviour and "are not an independent
+physical law"; where the report gives the formula's own MAE to the truth (angle),
+it is printed beside the network's. Test-time augmentation, the H200
 throughput, the indecision measures and the per-bin counts exist for the proton
 only: the other species show "not reported", and the report forbids copying the
 proton's throughput onto them. The proton's overlap angle and energy rows are
-per hit and the new species' per particle, so every series carries a unit badge.
+titled hit-level by the report and the new species' per particle, so every series carries a unit badge.
 A *leakage signal* mark belongs to segmentation rows only, where a tree fitted to
-the truth beats the network: in the per-shower frames it matches the report's own
+the truth beats the network (for the proton, which has no tree MAE, a drawing
+choice: the tree's R² to the truth exceeds its R² to the network by more than
+0.1, with the report's finding that the network is undecided as an alternative
+reading): in the per-shower frames it matches the report's own
 caveat (those frames are defined per particle), and in the Absolute frame the
 report gives no reason, so it is a warning and not a finding. On angle and energy
-rows the same comparison carries a neutral "tree beats the network on truth"
-mark and no leakage hazard.
+rows the two printed MAEs stay and nothing else: no badge, no hazard; the tooltip
+and the drawer say the tree's printed MAE to truth is lower by X and that the
+report gives no uncertainty to say whether the difference is real.
 
 ### What each kind of experiment shows
 
