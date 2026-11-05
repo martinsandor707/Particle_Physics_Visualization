@@ -470,6 +470,14 @@ console.log(JSON.stringify({ species: p.meta.species, task: p.meta.task, errs,
     assert out["cards"] == CARDS
 
 
+_NUM_TOKEN = re.compile(r"[\u2212-]?\d+(?:\.\d+)?")
+
+
+def _numbers_as_values(text: str) -> str:
+    """The sentence with every decimal number replaced by its value, so 0.590 and 0.59 compare equal."""
+    return _NUM_TOKEN.sub(lambda m: repr(float(m.group(0).replace("\u2212", "-"))), text)
+
+
 def test_pysr_payload(payloads, tiers):
     p = payloads[("distill-pysr", "all", "energy")]["payload"]
     assert [(c["task"], c["frame"]) for c in p["cells"]] == [(t, f) for t in TASKS for f in FRAMES]
@@ -478,7 +486,9 @@ def test_pysr_payload(payloads, tiers):
         for e in c["entries"]:
             key = (e["species"], c["task"], c["frame"])
             assert e["tier"]["tier"] == EXPECTED_TIERS[key], key
-            assert e["tier"]["reasons"] == tiers[key]["reasons"]
+            # gating.js's reasons, with each R² re-set to the report's printed decimals (select.js printedReasons)
+            assert [_numbers_as_values(r) for r in e["tier"]["reasons"]] == \
+                [_numbers_as_values(r) for r in tiers[key]["reasons"]]
             assert set(e["features"]) | set(e["variables"]) <= set(p["features"])
             if c["task"] == "segmentation" and c["frame"] != "absolute":
                 assert e["leaks"] == ["per-particle-frame"]
@@ -486,6 +496,12 @@ def test_pysr_payload(payloads, tiers):
                 assert e["leaks"] == ["local-true-angle"]
             if e["formula"]["absent"]:
                 assert e["variables"] == [] and e["formula"]["ascii"] is None
+    by = {(e["species"], c["task"], c["frame"]): e for c in p["cells"] for e in c["entries"]}
+    assert by["muon", "segmentation", "absolute"]["tier"]["reasons"][0].startswith("R²_PySR is 0.590, between")
+    assert "R²_PySR is 1.000 (at least 0.75) and the network's R² to truth is 1.0000 (at least 0.7)" \
+        in by["muon", "angle", "absolute"]["tier"]["reasons"][0]
+    assert "network R² to truth 0.0176, below 0.7 (R²_PySR 0.653)" in by["muon", "energy", "absolute"]["tier"]["reasons"][0]
+    assert by["muon", "angle", "trans"]["netR2"] == {"value": 0.984, "qualifier": None, "dp": 4}
     muon_seg = p["cells"][0]["entries"][1]
     assert muon_seg["formula"]["units"] == "standardised"
     assert p["features"]["E_sum"]["definition"] == "total detected energy of the shower"
@@ -504,7 +520,12 @@ def test_triangle_payload(payloads):
     assert rows[("muon", "absolute")]["mae"]["formula"] == 0.87
     assert rows[("pion", "trans")]["mae"]["formula"] == 110.5
     assert rows[("proton", "absolute")]["mae"] == {"netTruth": 1.96, "treeTruth": None, "treeNet": None, "formula": None}
-    assert rows[("proton", "absolute")]["r2"]["treeTruth"] == {"value": 0.99, "qualifier": None}
+    assert rows[("proton", "absolute")]["r2"]["treeTruth"] == {"value": 0.99, "qualifier": None, "dp": 3}
+    # printed decimals in the display unit: mrad keeps the triad's digits x 1000 (dp - 3)
+    assert rows[("muon", "absolute")]["maeDp"] == {"netTruth": 2, "treeTruth": 1, "treeNet": 1, "formula": 2}
+    assert rows[("electron", "trans")]["mae"]["netTruth"] == 21.6 and rows[("electron", "trans")]["maeDp"]["netTruth"] == 1
+    assert rows[("pion", "trans")]["maeDp"]["formula"] == 2  # 110.50 as printed
+    assert rows[("proton", "trans")]["maeDp"]["netTruth"] == 1  # the accuracy table's 63.6
     assert rows[("muon", "local")]["leaks"] == ["local-true-angle"]
     seg = payloads[("distill-triangle", "all", "segmentation")]["payload"]
     srows = {(r["species"], r["frame"]): r for r in seg["rows"]}
@@ -517,13 +538,39 @@ def test_triangle_payload(payloads):
     assert srows[("electron", "trans")]["leakSignal"] is True
     assert srows[("proton", "trans")]["leakSignal"] is True
     assert srows[("proton", "absolute")]["leakSignal"] is False
-    assert srows[("proton", "trans")]["r2"]["pysrNet"] == {"value": None, "qualifier": "lt", "bound": 0}
+    assert srows[("proton", "trans")]["r2"]["pysrNet"] == {"value": None, "qualifier": "lt", "bound": 0, "dp": 0}
     assert srows[("proton", "trans")]["formulaAbsent"] is True
     en = payloads[("distill-triangle", "electron", "energy")]["payload"]
     assert en["unit"] == "GeV" and len(en["rows"]) == 3
     assert all(r["leakSignal"] is False for r in en["rows"])
+    # the leakage signal is a segmentation finding only (brief 12.1): it fires on every new-species
+    # segmentation row and the proton's per-particle frames, and on nothing else
+    fired = sorted(k for k, r in srows.items() if r["leakSignal"])
+    assert fired == sorted([(s, f) for s in ("muon", "electron", "pion") for f in FRAMES] + [("proton", "trans"), ("proton", "local")])
+    assert not any(r["treeBeatsNetwork"] for r in seg["rows"])
+    assert srows[("muon", "absolute")]["leakSignalText"] == (
+        "Tree→Truth MAE 0.1309 is below the network's 0.1955 on the voxel sample: a depth-4 tree beating the network on truth is a leakage signal.")
     for r in ang["rows"] + seg["rows"] + en["rows"]:
         assert r["missing"], (r["species"], r["frame"])
+
+
+def test_angle_and_energy_rows_say_tree_beats_network_never_leakage(payloads):
+    """Muon energy (Absolute, Per-shower translated): a depth-4 tree beats a network that does not predict
+    the truth (R² 0.0176). That is a neutral fact with its own flag, never a leakage signal."""
+    for task in ("angle", "energy"):
+        rows = payloads[("distill-triangle", "all", task)]["payload"]["rows"]
+        assert not any(r["leakSignal"] or r["leakSignalText"] for r in rows), task
+        for r in rows:
+            m = r["mae"]
+            beats = m["treeTruth"] is not None and m["netTruth"] is not None and m["treeTruth"] < m["netTruth"]
+            assert r["treeBeatsNetwork"] is beats, (task, r["species"], r["frame"])
+            assert (r["treeBeatsNetworkText"] is not None) is beats
+    en = {(r["species"], r["frame"]): r for r in payloads[("distill-triangle", "all", "energy")]["payload"]["rows"]}
+    assert sorted(k for k, r in en.items() if r["treeBeatsNetwork"]) == [("muon", "absolute"), ("muon", "trans")]
+    assert en[("muon", "absolute")]["treeBeatsNetworkText"] == (
+        "Tree→Truth MAE 4.5868 is below the network's 4.6214 GeV: a depth-4 tree on the summary features predicts "
+        "the truth better than the network on this sample.")
+    assert "leak" not in en[("muon", "absolute")]["treeBeatsNetworkText"]
 
 
 def test_curves_payload(payloads):
@@ -537,7 +584,7 @@ def test_curves_payload(payloads):
     assert {u["species"] for u in p["variables"]["rms_r"]["usedBy"]} == {"muon"}
     assert p["ceiling"]["value"] == 20 and p["ceiling"]["unit"] == "GeV" and p["ceiling"]["rule"]
     assert "not a marginal prediction" in p["note"]
-    assert p["weakTruth"]["muon"]["text"] == "describe the network: its R² to truth is 0.018–0.339"
+    assert p["weakTruth"]["muon"]["text"] == "describe the network: its R² to truth is 0.0176–0.3390"
     assert set(p["weakTruth"]) == {"muon"}
     d = p["domain"]
     assert math.isfinite(d["xMax"]) and 0 < d["xMax"] <= 10
@@ -655,3 +702,43 @@ def test_perf_diagnostics_payload(payloads):
     assert seg["protonShown"] is True
     every = payloads[("perf-diagnostics", "all", "angle")]["payload"]
     assert set(every["datasets"]) == set(SPECIES)
+
+
+# ── printed decimals (the fix round, brief 12.1) ───────────────────────────────────────────────────────────
+
+def test_printed_reproduces_the_reports_tokens_in_js():
+    """select.js `printed` formats every (value, dp) the catalogue carries exactly as the B1 test's
+    reference formatter does (which tests/test_benchmark_catalog.py pins to the report's tokens), with
+    U+2212 for a minus: the JS the cards run prints the report's own rounding."""
+    out = _node(IMPORTS + """
+const pairs = [];
+const walk = (v, path) => {
+  if (Array.isArray(v)) { v.forEach((x, i) => walk(x, `${path}[${i}]`)); return; }
+  if (!v || typeof v !== 'object') return;
+  if (Number.isInteger(v.dp) && 'qualifier' in v) {
+    const x = v.qualifier === 'lt' ? v.bound : v.value;
+    if (Number.isFinite(x)) pairs.push([path, x, v.dp, S.printed(x, v.dp)]);
+  } else if (v.dp && typeof v.dp === 'object') {
+    for (const [k, d] of Object.entries(v.dp)) {
+      if (Array.isArray(d)) d.forEach((di, i) => pairs.push([`${path}.${k}[${i}]`, v[k][i], di, S.printed(v[k][i], di)]));
+      else if (typeof v[k] === 'number') pairs.push([`${path}.${k}`, v[k], d, S.printed(v[k], d)]);
+    }
+  }
+  for (const [k, x] of Object.entries(v)) if (k !== 'dp') walk(x, `${path}.${k}`);
+};
+for (const [k, v] of Object.entries(B)) walk(v, k);
+console.log(JSON.stringify({ pairs,
+  cases: [S.printed(1, 4), S.printed(1, 3), S.printed(0.984, 4), S.printed(0.59, 3), S.printed(1.13, 3),
+          S.printed(-4.22, 3), S.printed(53, 2), S.printed(16, 1), S.printed(11.9, 1, { sign: true }),
+          S.printed(-0.1, 1, { sign: true }), S.printed(null, 2), S.printed(0.5), S.mradDp(5), S.mradDp(4), S.mradDp(null),
+          S.printedQualified({ value: 0, qualifier: 'approx', dp: 0 }), S.printedQualified({ value: null, qualifier: 'lt', bound: 0, dp: 0 }),
+          S.printedQualified({ value: 1050, qualifier: 'about' }, { thousands: true }), S.printedQualified(null),
+          S.printedQualified({ value: 0.59, qualifier: null, dp: 3 }), S.printedQualified({ range: [20, 40], qualifier: 'about' })] }));
+""")
+    assert len(out["pairs"]) > 400
+    for path, value, dp, text in out["pairs"]:
+        assert text.replace("−", "-") == f"{value:.{dp}f}", (path, value, dp, text)
+        assert "-" not in text, (path, text)  # U+2212, never the hyphen
+    assert out["cases"] == ["1.0000", "1.000", "0.9840", "0.590", "1.130", "−4.220", "53.00", "16.0", "+11.9",
+                            "−0.1", "—", "0.5", 2, 1, None, "≈ 0", "< 0", "~1,050", "not reported",
+                            "0.590", "~20–40"]

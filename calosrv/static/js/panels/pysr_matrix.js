@@ -32,13 +32,26 @@
  * instance (`highlight`, `notesState()`), survives a repaint while the feature is still drawn, and each
  * change dispatches `models:panelstate` so the drawer can say what is highlighted. Nothing is requested.
  *
+ * ## Long formulas
+ *
+ * A formula is set at the math size its length allows (`formulaFit`): 14 px up to 40 characters of its
+ * explicit form, 12 px up to 70, and 11 px beyond, the stated floor (FORMULA_FIT). A formula still wider
+ * than its cell at the floor scrolls sideways inside its own box, never the page: the box keeps a visible
+ * scrollbar (css/catalog.css), is marked `data-scrolls`, and a muted line under it says so. The overflow is
+ * measured on render and on every relayout (a hidden subpage measures nothing), and the ids of the
+ * formulas that scroll travel in `notesState().scrolling`, so the drawer names them.
+ *
+ * ## Printed decimals
+ *
+ * R² values are printed with the report's own decimals (select.js `printedQualified`): 1.000 stays 1.000.
+ *
  * Every label comes from the payload, so the DOM is built with `createElement`, `createElementNS` and
  * `textContent` only, never `innerHTML`; every colour comes from css/catalog.css tokens.
  */
 
 import { formatInt, typographic } from '../scale.js';
 import { mountMath, texToTree } from '../math.js';
-import { r2Text } from '../catalog/gating.js';
+import { printed, printedQualified } from '../catalog/select.js';
 import { N_NOT_REPORTED, POINT_ESTIMATE, frameColours } from './distill_triangle.js';
 
 /** The tier marks, in the payload's order: the border style each takes (css/catalog.css). */
@@ -54,6 +67,32 @@ export const PYSR_BADGES = Object.freeze({
 
 /** What a chip says of a feature the report does not define. */
 export const UNDEFINED_FEATURE = 'The report gives no definition; it lives in the report\'s distill/surrogate.json, which is not shipped.';
+
+/**
+ * The math size of a formula by the length of its explicit form: the first step whose `maxChars` holds
+ * it, else the floor. 11 px is the floor: below it a subscripted feature name stops being legible.
+ */
+export const FORMULA_FIT = Object.freeze({
+  normal: Object.freeze({ maxChars: 40, px: 14 }),
+  compact: Object.freeze({ maxChars: 70, px: 12 }),
+  floor: Object.freeze({ maxChars: Infinity, px: 11 }),
+});
+
+/** What the muted line under a formula that scrolls says. */
+export const SCROLL_HINT = 'Wider than its cell at the smallest math size: scroll sideways inside the box to read it all.';
+
+/** The printed length of a formula: its explicit form without the product stars and spaces. */
+export function formulaLength(ascii) {
+  return String(ascii ?? '').replace(/[*\s]/g, '').replace(/\bsqrt\b/g, '√').length;
+}
+
+/** The size step of a formula: 'normal' | 'compact' | 'floor' (FORMULA_FIT). */
+export function formulaFit(ascii) {
+  const n = formulaLength(ascii);
+  if (n <= FORMULA_FIT.normal.maxChars) return 'normal';
+  if (n <= FORMULA_FIT.compact.maxChars) return 'compact';
+  return 'floor';
+}
 
 /** The sentence every R² line carries in its title. */
 export const R2_TITLE = `${N_NOT_REPORTED}; ${POINT_ESTIMATE}.`;
@@ -97,7 +136,7 @@ export function pysrModel(payload, opts = {}) {
       const badges = [];
       if (e.formula?.units === 'standardised') badges.push({ kind: 'standardised', text: PYSR_BADGES.standardised, title: 'The report: the segmentation formulas use standardised voxel features, so their coefficients have no physical unit.' });
       for (const flag of e.leaks ?? []) badges.push({ kind: 'leak', text: PYSR_BADGES.leak, title: payload.leakText?.[flag] ?? flag, flag });
-      if (negative) badges.push({ kind: 'negative', text: PYSR_BADGES.negative, title: `R²_PySR ${r2.qualifier === 'lt' ? 'is reported only as < 0, with no number' : `is ${text(r2.value)}`}: worse than predicting the mean.` });
+      if (negative) badges.push({ kind: 'negative', text: PYSR_BADGES.negative, title: `R²_PySR ${r2.qualifier === 'lt' ? 'is reported only as < 0, with no number' : `is ${printed(r2.value, r2.dp)}`}: worse than predicting the mean.` });
       if (e.featureMapInferred) badges.push({ kind: 'inferred', text: PYSR_BADGES.inferred, title: 'The proton\'s formula variables are written in Hungarian in the report; their English keys are mapped by inference (the report does not state the mapping).' });
       const featureKeys = [...(e.features ?? [])];
       const extraVariables = (e.variables ?? []).filter((k) => !featureKeys.includes(k));
@@ -118,8 +157,9 @@ export function pysrModel(payload, opts = {}) {
         ascii: e.formula?.ascii ?? null,
         units: e.formula?.units ?? 'physical',
         fallbackText: text(e.formula?.ascii ?? ''),
-        r2Text: r2Text(r2),
-        netR2Text: e.netR2 ? r2Text(e.netR2) : 'not reported',
+        fit: formulaFit(e.formula?.ascii ?? e.formula?.source ?? ''),
+        r2Text: printedQualified(r2),
+        netR2Text: e.netR2 ? printedQualified(e.netR2) : 'not reported',
         netR2Reported: Boolean(e.netR2),
         negative,
         badges,
@@ -189,6 +229,8 @@ export class PysrMatrixPanel {
     this.entryNodes = new Map();
     this.statusNode = null;
     this.model = null;
+    this.formulaBoxes = new Map();
+    this.scrolling = [];
   }
 
   /** The document the card lives in (a test's fake one under Node). */
@@ -205,12 +247,43 @@ export class PysrMatrixPanel {
     this.highlight = this.model?.highlight ?? null;
     this.chips = [];
     this.entryNodes = new Map();
+    this.formulaBoxes = new Map();
     if (!this.model) {
       this.element.replaceChildren();
+      this.scrolling = [];
       return;
     }
     this.element.replaceChildren(this.build(this.model));
     this.applyHighlight();
+    this.measureScroll();
+  }
+
+  /**
+   * Which formulas are wider than their box at their size: marks each box (`data-scrolls`), shows its
+   * hint, and says so to the drawer when the set changes. A hidden card measures zero widths: nothing.
+   */
+  measureScroll() {
+    const next = [];
+    for (const [id, { box, hint }] of this.formulaBoxes) {
+      const sw = Number(box.scrollWidth);
+      const cw = Number(box.clientWidth);
+      const scrolls = Number.isFinite(sw) && Number.isFinite(cw) && cw > 0 && sw > cw + 1;
+      if (scrolls) next.push(id);
+      if (box.dataset) box.dataset.scrolls = scrolls ? 'true' : 'false';
+      if (hint) hint.hidden = !scrolls;
+    }
+    const changed = next.join('|') !== this.scrolling.join('|');
+    this.scrolling = next;
+    if (changed) this.announce();
+    return next;
+  }
+
+  /** Tell the page the drawer's view of this card changed (no request). */
+  announce() {
+    const element = this.element;
+    if (element && typeof element.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      element.dispatchEvent(new CustomEvent('models:panelstate', { bubbles: true, detail: { card: this.card } }));
+    }
   }
 
   el(tag, className = '', content = null) {
@@ -308,7 +381,11 @@ export class PysrMatrixPanel {
       node.append(this.el('p', 'pysr-absent',
         `PySR gives no meaningful formula for this model; the report still prints R²_PySR ${entry.r2Text}.`));
     } else {
-      node.append(this.formula(entry));
+      const box = this.formula(entry);
+      const hint = this.el('p', 'pysr-scroll-hint', SCROLL_HINT);
+      hint.hidden = true;
+      this.formulaBoxes.set(entry.id, { box, hint });
+      node.append(box, hint);
       if (entry.tex) node.append(this.source(entry));
     }
 
@@ -349,6 +426,10 @@ export class PysrMatrixPanel {
   /** The formula: MathML from math.js, its explicit text when the compiler refuses the TeX. */
   formula(entry) {
     const box = this.el('div', 'pysr-formula');
+    box.dataset.fit = entry.fit ?? 'normal';
+    box.tabIndex = 0;
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', `${entry.speciesLabel} formula`);
     if (entry.tex) {
       try {
         box.append(mountMath(texToTree(entry.tex, { display: true }), this.doc()));
@@ -419,10 +500,7 @@ export class PysrMatrixPanel {
     this.highlight = next;
     if (this.model) this.model = { ...this.model, highlight: next, matches: next ? [...this.model.usage[next]] : [] };
     this.applyHighlight();
-    const element = this.element;
-    if (element && typeof element.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-      element.dispatchEvent(new CustomEvent('models:panelstate', { bubbles: true, detail: { card: this.card } }));
-    }
+    this.announce();
   }
 
   applyHighlight() {
@@ -439,10 +517,12 @@ export class PysrMatrixPanel {
 
   /** What the drawer needs of the card's own state. */
   notesState() {
-    return { highlight: this.highlight };
+    return { highlight: this.highlight, scrolling: [...this.scrolling] };
   }
 
-  relayout() {}
+  relayout() {
+    if (this.model) this.measureScroll();
+  }
 
   clear() {
     this.lastPayload = null;
@@ -450,6 +530,8 @@ export class PysrMatrixPanel {
     this.model = null;
     this.chips = [];
     this.entryNodes = new Map();
+    this.formulaBoxes = new Map();
+    this.scrolling = [];
     this.statusNode = null;
     this.element?.replaceChildren();
   }

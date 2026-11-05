@@ -54,6 +54,25 @@ export function levelText(level, task) {
   return LEVEL_TEXT[level] ?? 'level not stated';
 }
 
+/** What a facet title adds to its level badge, said once: the badge names the level, this its scope. */
+export const LEVEL_TITLE_NOTE = Object.freeze({
+  hit: 'energy-weighted',
+  hitTitled: 'as the report titles its overlap table',
+  particle: 'one value per shower',
+});
+
+/**
+ * A facet's title, longest first for fitName: "Proton · per hit (as the report titles its overlap table)",
+ * "Muon · per hit (energy-weighted)", "Muon · per particle (one value per shower)", then the bare
+ * "Species · per hit". The level is named once, never "per hit · hit-level".
+ */
+export function facetTitle(speciesLabel, level, task) {
+  const badge = LEVEL_BADGES[level] ?? '';
+  if (!badge) return [speciesLabel];
+  const note = level === 'hit' ? (task === 'segmentation' ? LEVEL_TITLE_NOTE.hit : LEVEL_TITLE_NOTE.hitTitled) : LEVEL_TITLE_NOTE[level];
+  return [note ? `${speciesLabel} · ${badge} (${note})` : `${speciesLabel} · ${badge}`, `${speciesLabel} · ${badge}`];
+}
+
 /** What the "All" rule is (Stage 1 settled: the overlap table's own total). */
 export const ALL_NOTE = 'All: the overlap table\'s own total ("összes"), not the headline metric of the accuracy table';
 
@@ -73,7 +92,7 @@ function quantityName(task) {
 
 /**
  * Everything the chart and the drawer need, decided once. Pure:
- * {task, unit, bins, facets: [{species, level, events, series: [{frame, values, all, leaks}], axis: {max,
+ * {task, unit, bins, facets: [{species, level, events, series: [{frame, values, all, leaks, dp}], axis: {max,
  * interval}, starvation: [binIndex]}], mixedLevels, notReported: [species], unbinned}.
  */
 export function benchOverlapModel(payload) {
@@ -84,7 +103,10 @@ export function benchOverlapModel(payload) {
   const facets = species.map((s) => {
     const series = CATALOG_FRAMES.map((frame) => payload.series.find((r) => r.species === s && r.frame === frame))
       .filter(Boolean)
-      .map((r) => ({ frame: r.frame, values: r.values, all: r.all, level: r.level, leaks: leakFlags({ task, frame: r.frame }) }));
+      .map((r) => ({
+        frame: r.frame, values: r.values, all: r.all, level: r.level, leaks: leakFlags({ task, frame: r.frame }),
+        dp: { all: r.dp?.all ?? null, values: r.dp?.values ?? r.values.map(() => null) },
+      }));
     const marks = series.flatMap((r) => [...r.values, r.all]).filter((v) => Number.isFinite(v));
     const top = niceTop(Math.max(...marks, 0));
     const events = payload.events?.[s] ?? null;
@@ -199,9 +221,9 @@ export function overlapTip(model, payload, facet, series, i) {
   const bin = model.bins[i]?.label ?? '';
   const lines = [
     `<b>${escapeHtml(sp)} · ${escapeHtml(fr)} · overlap bin ${escapeHtml(bin)}: ${escapeHtml(quantityName(model.task))} `
-      + `${escapeHtml(withUnit(reported(series.values[i]), model.unit))}</b>`,
+      + `${escapeHtml(withUnit(reported(series.values[i], series.dp?.values?.[i]), model.unit))}</b>`,
     escapeHtml(`${LEVEL_BADGES[facet.level] ?? ''}: ${levelText(facet.level, model.task)}`),
-    escapeHtml(`All (the table's own total) ${withUnit(reported(series.all), model.unit)}: the dotted rule`),
+    escapeHtml(`All (the table's own total) ${withUnit(reported(series.all, series.dp?.all), model.unit)}: the dotted rule`),
   ];
   if (facet.starved.includes(i) && facet.starvation) lines.push(escapeHtml(starvationText(facet.starvation)));
   for (const flag of series.leaks) lines.push(mutedLine(`leak: ${LEAK_TEXT[flag]}`));
@@ -213,7 +235,7 @@ export function overlapTip(model, payload, facet, series, i) {
 function allTip(model, payload, facet, series) {
   return [
     `<b>${escapeHtml(labelOf(payload, 'species', facet.species))} · ${escapeHtml(labelOf(payload, 'frame', series.frame))} · All: `
-      + `${escapeHtml(quantityName(model.task))} ${escapeHtml(withUnit(reported(series.all), model.unit))}</b>`,
+      + `${escapeHtml(quantityName(model.task))} ${escapeHtml(withUnit(reported(series.all, series.dp?.all), model.unit))}</b>`,
     escapeHtml(`${ALL_NOTE}; drawn as a dotted rule, never as a bin`),
     escapeHtml(`${LEVEL_BADGES[facet.level] ?? ''}: ${levelText(facet.level, model.task)}`),
     ...tipFooter(binN(facet, null)),
@@ -223,7 +245,7 @@ function allTip(model, payload, facet, series) {
 /** The report's information-starvation sentence (proton energy, high-overlap bins). */
 export function starvationText(st) {
   return `Information starvation (the report): in this bin the particles have a mean momentum of `
-    + `${reported(st.meanMomentum?.value)} ${st.meanMomentum?.unit ?? 'GeV'} and deposit ${qualifiedText(st.deposit)} `
+    + `${reported(st.meanMomentum?.value, st.meanMomentum?.dp)} ${st.meanMomentum?.unit ?? 'GeV'} and deposit ${qualifiedText(st.deposit)} `
     + `${st.deposit?.unit ?? 'MeV'}; the larger error is missing information, not a model failure.`;
 }
 
@@ -261,8 +283,7 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
 
   layout.facets.forEach(({ facet, titleX, titleY, titleW, main, strip }) => {
     const sp = labelOf(payload, 'species', facet.species);
-    const badge = LEVEL_BADGES[facet.level] ?? '';
-    graphic.push(textGraphic(fitName([`${sp} · ${badge} · ${levelText(facet.level, model.task)}`, `${sp} · ${badge}`], titleW),
+    graphic.push(textGraphic(fitName(facetTitle(sp, facet.level, model.task), titleW),
       titleX, titleY, { colour: THEME.text }));
 
     // ---- the main grid

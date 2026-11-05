@@ -97,8 +97,11 @@
 .pysr-species { font-weight: 600; }
 .pysr-entry[data-tier="not-law"] .pysr-species { color: var(--muted); }
 
-/* The formula: MathML in the math font stack (as the explainer's), scrolling inside the entry when it
-   is wider than the column, never the page. */
+/* The formula: MathML in the math font stack (as the explainer's). Its size follows its length
+   (pysr_matrix.js formulaFit): 14 px, 12 px, and 11 px at the floor. Still wider than the column at the
+   floor, it scrolls sideways inside its own box, never the page, with a scrollbar that is always drawn
+   (a thin classic bar in the muted ink, its gutter reserved, so no overlay bar hides the formula's last
+   line) and a muted hint under it (.pysr-scroll-hint, shown by the panel when it measures an overflow). */
 .pysr-formula {
   overflow-x: auto;
   overflow-y: hidden;
@@ -106,8 +109,26 @@
   padding: 2px 0;
   font-family: math, "STIX Two Math", "Latin Modern Math", "DejaVu Math TeX Gyre", "Noto Sans Math", "Cambria Math", serif;
   font-size: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) var(--muted-wash-soft);
+  scrollbar-gutter: stable;
 }
+.pysr-formula[data-fit="compact"] { font-size: 12px; }
+.pysr-formula[data-fit="floor"] { font-size: 11px; }
+.pysr-formula[data-scrolls="true"] {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 4px;
+}
+.pysr-formula:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pysr-formula math { margin: 0; }
+.pysr-scroll-hint {
+  margin: 2px 0 0;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--muted);
+}
+.pysr-scroll-hint::before { content: '⇆ '; font-style: normal; }
+.pysr-scroll-hint[hidden] { display: none; }
 .pysr-fallback { font-family: var(--mono); font-size: 12px; }
 .pysr-absent { margin: 2px 0; font-style: italic; color: var(--muted); }
 .pysr-tex {
@@ -199,6 +220,7 @@
   background: var(--card);
 }
 .badge-chip[data-kind="leak"],
+.badge-chip[data-kind="signal"],
 .badge-chip[data-kind="negative"],
 .badge-chip[data-kind="starvation"],
 .badge-chip[data-kind="training"] {
@@ -207,7 +229,11 @@
   background: var(--warn-bg);
 }
 .badge-chip[data-kind="leak"]::before,
+.badge-chip[data-kind="signal"]::before,
 .badge-chip[data-kind="training"]::before { content: '⚑ '; }
+/* "tree beats the network on truth" (angle and energy rows): a neutral fact, not a hazard. Muted ink, a
+   solid muted border, no flag; the leakage badges above keep the warning ink and the flag. */
+.badge-chip[data-kind="tree-beats"] { border-color: var(--muted); color: var(--muted); }
 .badge-chip[data-kind="standardised"] { border-style: dashed; }
 .badge-chip[data-kind="inferred"] { border-style: dotted; font-style: italic; }
 .badge-chip[data-kind="not-reported"] { border-style: dashed; font-style: italic; }

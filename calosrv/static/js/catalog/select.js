@@ -15,6 +15,13 @@
  * R² unitless (''). A qualified scalar is { value, qualifier, bound? } as benchmarks.js documents.
  * Frame keys stay the report's: absolute | trans | local, drawn as Absolute | Per-shower translated | Local.
  *
+ * Printed decimals. Every reported non-integer travels with the count of decimals the report prints
+ * (benchmarks.js `dp`): a qualified scalar holds its own `dp`, a row its `dp` map keyed by field. Print a
+ * report number with printed(value, dp) or printedQualified(q), never String(value), which drops the
+ * report's trailing zeros (1.0000 → "1"). A derived number keeps the precision it can claim: an angle MAE
+ * converted from the triad's radians keeps the triad's printed digits × 1000 (dp − 3, so 0.0216 rad →
+ * 21.6 mrad, 0.00046 rad → 0.46 mrad); a percentage stored as a share is printed from its own count.
+ *
  * ── Common fields (every card) ────────────────────────────────────────────────────────────────────────
  *   meta: { source: 'catalog', card, species: <requested: 'proton'…|'all'>, task, report: 'models_performance.md' }
  *   filtered: false                         no selection count (models_main.js updateStatus)
@@ -47,7 +54,16 @@
  *                                                 formula's MAE to truth (ANGLE_FORMULA_VS_NET, angle only)
  *            maeSource: { netTruth: 'triad'|'accuracy'|null, formula: 'angle-formula-vs-net'|null },
  *            maeScope: 'voxel-sample' | 'validation'  (segmentation MAEs are voxel-sample, F5: never the E-MAE)
- *            leaks: [flag], leakSignal: boolean, leakSignalText: sentence | null,
+ *            maeDp: { netTruth, treeTruth, treeNet, formula }   printed decimals in the display unit
+ *            leaks: [flag],
+ *            leakSignal: boolean              SEGMENTATION rows only: the tree fitted to truth beats the
+ *                                             network on the voxel sample (MAE), or for the proton the
+ *                                             tree's R² to truth exceeds its R² to the network by > 0.1
+ *            leakSignalText: sentence | null
+ *            treeBeatsNetwork: boolean        angle and energy rows: tree→truth MAE < network→truth MAE, a
+ *                                             neutral fact (a depth-4 tree on the summary features predicts
+ *                                             the truth better than the network on this sample), no hazard
+ *            treeBeatsNetworkText: sentence | null
  *            missing: [sentence]              what the report does not give for this row }]
  *   Rows run species-major (the requested species), then FRAMES.
  *
@@ -74,8 +90,8 @@
  *
  * ── 'perf-overlap' ─────────────────────────────────────────────────────────────────────────────────────
  *   unit: the task's display unit; bins: OVERLAP.bins
- *   series: [{ species, frame, level: 'hit'|'particle', all, values: [5] }]   ("all" is the overlap table's
- *           own total, not the headline metric)
+ *   series: [{ species, frame, level: 'hit'|'particle', all, values: [5], dp: { all, values: [5] } }]
+ *           ("all" is the overlap table's own total, not the headline metric)
  *   events: { <species>: { all, bins: [5], unbinned } | null }   null = "N not reported" (F2)
  *   starvation: [STARVATION] when the proton energy rows are shown, else []
  *   levels: { <species>: 'hit'|'particle' } for this task
@@ -96,6 +112,12 @@
  *
  * curveDomain(formulas, values) → { xMax, unit: 'GeV', ceiling: 20, bracket: [0, 10], frame,
  *   bySpecies: { <species>: { eSum, reached: 'crossed'|'at-origin'|'not-reached' } } }
+ *
+ * printed(value, dp, { sign }) → the report's token in English typography: value.toFixed(dp), U+2212 for a
+ *   minus, '+' before a positive value with `sign` (the report prints "+11,9"); '—' when absent; a value
+ *   with no count prints in its shortest form (an integer, or a drawing value that is not a report number).
+ * printedQualified(q, { thousands }) → "0.590", "≈ 0", "< 0", "~1,050", "20–40", "not reported", "none".
+ * mradDp(dp) → the printed decimals of a radian value shown in mrad (dp − 3, at least 0).
  *   For each species' Absolute energy formula (any frame when a species has none), the E_sum where p̂
  *   reaches the 20 GeV ceiling at `values` (missing values take the defaults), by bisection on [0, 10] GeV;
  *   a formula already at the ceiling at E_sum = 0 gives 0, one that never reaches it gives 10. xMax is the
@@ -155,6 +177,52 @@ const freezeCopy = (value) => deepFreeze(JSON.parse(JSON.stringify(value)));
 
 const num = (v) => typographic(String(v));
 
+/** A report number with the decimals the report prints; see the module header. */
+export function printed(value, dp = null, { sign = false } = {}) {
+  if (value === null || value === undefined || typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const text = Number.isInteger(dp) && dp >= 0 && dp <= 20 ? value.toFixed(dp) : String(value);
+  return typographic(`${sign && value > 0 ? '+' : ''}${text}`);
+}
+
+const withThousands = (text) => text.replace(/^([−-]?)(\d+)/, (m, s, d) => s + d.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+
+/** A qualified scalar as the report printed it, with its own decimals; see the module header. */
+export function printedQualified(q, { thousands = false } = {}) {
+  if (q === null || q === undefined) return 'not reported';
+  const n = (v, dp) => (thousands ? withThousands(printed(v, dp)) : printed(v, dp));
+  if (typeof q === 'number') return n(q, null);
+  if (Array.isArray(q.range)) {
+    const range = `${n(q.range[0], q.dp)}–${n(q.range[1], q.dp)}`;
+    return q.qualifier === 'about' ? `~${range}` : q.qualifier === 'approx' ? `≈ ${range}` : range;
+  }
+  if (q.qualifier === 'none') return 'none';
+  if (q.qualifier === 'lt') return `< ${n(q.bound ?? 0, q.dp)}`;
+  if (!Number.isFinite(q.value)) return 'not reported';
+  if (q.qualifier === 'about') return `~${n(q.value, q.dp)}`;
+  if (q.qualifier === 'approx') return `≈ ${n(q.value, q.dp)}`;
+  return n(q.value, q.dp);
+}
+
+/** The printed decimals of a radian value shown in milliradians: the triad's digits × 1000. */
+export function mradDp(dp) {
+  return Number.isInteger(dp) ? Math.max(0, dp - 3) : null;
+}
+
+/**
+ * gating.js writes its tier reasons with the shortest form of each R² (String(value)); the reasons a card
+ * prints must carry the report's decimals, so the two R² of the formula are re-set here: the number after
+ * "R²_PySR" (optionally "is") is the formula's, the one after "R² to truth" (optionally "is") the network's.
+ */
+export function printedReasons(reasons, r2, netR2) {
+  const NUMBER = '[−-]?\\d+(?:\\.\\d+)?';
+  const reset = (text, lead, q) => {
+    if (!q || !Number.isInteger(q.dp) || !Number.isFinite(q.value)) return text;
+    const re = new RegExp(`(${lead}(?: is)? )(${NUMBER})(?![\\d.])`, 'g');
+    return text.replace(re, (m, head, token) => (Number(token.replace('−', '-')) === q.value ? head + printed(q.value, q.dp) : m));
+  };
+  return reasons.map((text) => reset(reset(text, 'R²_PySR', r2), 'R² to truth', netR2));
+}
+
 /** rad → mrad without binary noise (0.00046 rad → 0.46, not 0.45999999999999996). */
 const toMrad = (rad) => (rad === null || rad === undefined ? null : Number((rad * 1000).toPrecision(12)));
 
@@ -168,8 +236,9 @@ function formulaVars(pysr) {
 }
 
 function tierOf(row) {
-  const t = tier({ pysr: row.pysr, netR2: netR2Of(row.species, row.task, row.frame), task: row.task, frame: row.frame });
-  return { tier: t.tier, label: TIER_LABELS[t.tier], reasons: [...t.reasons] };
+  const netR2 = netR2Of(row.species, row.task, row.frame);
+  const t = tier({ pysr: row.pysr, netR2, task: row.task, frame: row.frame });
+  return { tier: t.tier, label: TIER_LABELS[t.tier], reasons: printedReasons([...t.reasons], row.pysr.r2, netR2) };
 }
 
 function resolveArgs(card, { species, task } = {}) {
@@ -223,8 +292,9 @@ function pysrBody(shown) {
 
 // ── distill-triangle ─────────────────────────────────────────────────────────────────────────────────────
 
-const qualified = (v) => (v === null || v === undefined ? null : { value: v, qualifier: null });
+const qualified = (v, dp = null) => (v === null || v === undefined ? null : { value: v, qualifier: null, dp });
 const inDisplay = (task, v) => (v === null || v === undefined ? null : task === 'angle' ? toMrad(v) : v);
+const dpInDisplay = (task, dp) => (dp === null || dp === undefined ? null : task === 'angle' ? mradDp(dp) : dp);
 
 function triangleRow(species, task, frame) {
   const row = distillRow(species, task, frame);
@@ -233,19 +303,30 @@ function triangleRow(species, task, frame) {
   const missing = [];
   const isProton = species === 'proton';
 
+  const rowDp = row.dp ?? {};
   let netTruth = null;
+  let netTruthDp = null;
   let netSource = null;
   if (!isProton) {
     netTruth = inDisplay(task, row.netMaeTruth);
+    netTruthDp = dpInDisplay(task, rowDp.netMaeTruth);
     netSource = 'triad';
   } else if (task !== 'segmentation') {
     netTruth = acc?.value ?? null; // validation MAE, already mrad / GeV
+    netTruthDp = acc?.dp?.value ?? null;
     netSource = netTruth === null ? null : 'accuracy';
   }
   const treeTruth = isProton ? null : inDisplay(task, row.treeMaeTruth);
   const treeNet = isProton ? null : inDisplay(task, row.treeMaeNet);
   const afn = task === 'angle' ? ANGLE_FORMULA_VS_NET.find((r) => r.species === species && r.frame === frame) : null;
   const formula = afn ? afn.formulaMae : null;
+  const maeDp = {
+    netTruth: netTruth === null ? null : netTruthDp,
+    treeTruth: treeTruth === null ? null : dpInDisplay(task, rowDp.treeMaeTruth),
+    treeNet: treeNet === null ? null : dpInDisplay(task, rowDp.treeMaeNet),
+    formula: afn ? afn.dp?.formulaMae ?? null : null,
+  };
+  const u = unit ? ` ${unit}` : '';
 
   if (isProton) {
     missing.push('The report gives no tree MAEs for the proton (neither to truth nor to the network); only the R² are drawn.');
@@ -261,27 +342,40 @@ function triangleRow(species, task, frame) {
   if (task !== 'angle') missing.push('The report gives a PySR-formula MAE to truth for the angle models only.');
   if (row.pysr.absent) missing.push('PySR gives no meaningful formula for this model; its printed R² is kept.');
 
+  // A leakage signal is a segmentation finding only (the fix round, brief 12.1): a depth-4 tree beating an
+  // angle or energy network on truth (muon energy, whose network does not predict the truth) is no leak.
   let leakSignal = false;
   let leakSignalText = null;
-  if (treeTruth !== null && netTruth !== null && treeTruth < netTruth) {
+  let treeBeatsNetwork = false;
+  let treeBeatsNetworkText = null;
+  const beats = treeTruth !== null && netTruth !== null && treeTruth < netTruth;
+  const treeTruthText = printed(treeTruth, maeDp.treeTruth);
+  const netTruthText = printed(netTruth, maeDp.netTruth);
+  if (task === 'segmentation' && beats) {
     leakSignal = true;
-    leakSignalText = `Tree→Truth MAE ${num(treeTruth)} is below the network's ${num(netTruth)}${unit ? ` ${unit}` : ''}: a depth-4 tree beating the network on truth is a leakage signal.`;
-  } else if (isProton && task === 'segmentation' && row.treeR2Truth !== null && row.treeR2Truth > row.treeR2Net + 0.1) {
+    leakSignalText = `Tree→Truth MAE ${treeTruthText} is below the network's ${netTruthText}${u} on the voxel sample: a depth-4 tree beating the network on truth is a leakage signal.`;
+  } else if (task === 'segmentation' && isProton && row.treeR2Truth !== null && row.treeR2Truth > row.treeR2Net + 0.1) {
     leakSignal = true;
-    leakSignalText = `The tree fitted to truth reaches R² ${num(row.treeR2Truth)} against ${num(row.treeR2Net)} to the network: the truth is easier for a depth-4 tree than the network's decisions, a leakage signal.`;
+    leakSignalText = `The tree fitted to truth reaches R² ${printed(row.treeR2Truth, rowDp.treeR2Truth)} against ${printed(row.treeR2Net, rowDp.treeR2Net)} to the network: the truth is easier for a depth-4 tree than the network's decisions, a leakage signal.`;
+  } else if (task !== 'segmentation' && beats) {
+    treeBeatsNetwork = true;
+    treeBeatsNetworkText = `Tree→Truth MAE ${treeTruthText} is below the network's ${netTruthText}${u}: a depth-4 tree on the summary features predicts the truth better than the network on this sample.`;
   }
 
   return {
     species,
     frame,
-    r2: { treeNet: qualified(row.treeR2Net), pysrNet: row.pysr.r2, treeTruth: qualified(row.treeR2Truth) },
+    r2: { treeNet: qualified(row.treeR2Net, rowDp.treeR2Net ?? null), pysrNet: row.pysr.r2, treeTruth: qualified(row.treeR2Truth, rowDp.treeR2Truth ?? null) },
     formulaAbsent: row.pysr.absent,
     mae: { netTruth, treeTruth, treeNet, formula },
+    maeDp,
     maeSource: { netTruth: netSource, formula: formula === null ? null : 'angle-formula-vs-net' },
     maeScope: row.maeScope,
     leaks: leakFlags({ task, frame }),
     leakSignal,
     leakSignalText,
+    treeBeatsNetwork,
+    treeBeatsNetworkText,
     missing,
   };
 }
@@ -358,12 +452,16 @@ function curvesBody(shown) {
   }
   const weakTruth = {};
   for (const species of shown) {
-    const nets = FRAMES.map((frame) => netR2Of(species, 'energy', frame)?.value).filter(Number.isFinite);
-    if (nets.length && nets.some((v) => v < LAW_MIN_NET_R2)) {
-      const min = Math.min(...nets);
-      const max = Math.max(...nets);
-      const r = (v) => num(Number(v.toFixed(3)));
-      weakTruth[species] = { min, max, text: `describe the network: its R² to truth is ${r(min)}–${r(max)}` };
+    const nets = FRAMES.map((frame) => netR2Of(species, 'energy', frame)).filter((q) => Number.isFinite(q?.value));
+    if (nets.length && nets.some((q) => q.value < LAW_MIN_NET_R2)) {
+      const lo = nets.reduce((a, b) => (b.value < a.value ? b : a));
+      const hi = nets.reduce((a, b) => (b.value > a.value ? b : a));
+      weakTruth[species] = {
+        min: lo.value,
+        max: hi.value,
+        dp: { min: lo.dp ?? null, max: hi.dp ?? null },
+        text: `describe the network: its R² to truth is ${printedQualified(lo)}–${printedQualified(hi)}`,
+      };
     }
   }
   return {
@@ -412,7 +510,7 @@ function overlapBody(shown, task) {
     events[species] = block.events ? { all: block.events.all, bins: block.events.bins, unbinned: block.unbinned } : null;
     for (const frame of FRAMES) {
       const row = block.rows.find((r) => r.task === task && r.frame === frame);
-      series.push({ species, frame, level: block.level[task], all: row.all, values: row.bins });
+      series.push({ species, frame, level: block.level[task], all: row.all, values: row.bins, dp: { all: row.dp.all, values: row.dp.bins } });
     }
   }
   const starvation = shown.includes(STARVATION.species) && task === STARVATION.task ? [STARVATION] : [];

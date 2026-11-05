@@ -19,7 +19,7 @@
 import { Notes, SECTION } from './panel_notes.js';
 import { formatInt, formatNumber, typographic } from './scale.js';
 import { LEAK_TEXT } from './catalog/gating.js';
-import { pysrModel, TIER_BORDERS, highlightStatus } from './panels/pysr_matrix.js';
+import { pysrModel, TIER_BORDERS, highlightStatus, FORMULA_FIT } from './panels/pysr_matrix.js';
 import {
   triangleModel, R2_MEASURES, MAE_MEASURES, N_NOT_REPORTED, POINT_ESTIMATE, protonValidationN, reported,
   reportedWithUnit,
@@ -50,7 +50,7 @@ export const LEAKAGE_SIGNAL = 'leakage signal';
 
 /** The recorded exception, as one disclosure line. */
 export const EXCEPTION_LINE = 'Recorded exception (Martin, 2026-11-05): the training report prints point estimates only, so every '
-  + 'number is drawn as reported, each mark names its N or says it is not reported, no interval is fabricated or '
+  + 'number is drawn as reported and printed with the report\'s own decimals (1.000 stays 1.000), each mark names its N or says it is not reported, no interval is fabricated or '
   + `derived, and differences smaller than the report's rounding are not resolved (${POINT_ESTIMATE}).`;
 
 const t = (v) => typographic(String(v));
@@ -105,6 +105,13 @@ export function pysrNotes({ payload, title = null, panelState = null } = {}) {
   if (inferred.length) disclosures.push(`Feature names mapped from the report's Hungarian by inference: ${inferred.join(', ')}.`);
   const undefinedKeys = Object.entries(model.features).filter(([, f]) => !f?.definition).map(([k]) => k);
   if (undefinedKeys.length) disclosures.push(`Defined only in the report's distill/surrogate.json, which is not shipped: ${undefinedKeys.join(', ')}.`);
+  const fit = FORMULA_FIT;
+  disclosures.push(`Long formulas are set smaller, never cut: ${formatInt(fit.normal.px)} px up to ${formatInt(fit.normal.maxChars)} characters of the explicit form, ${formatInt(fit.compact.px)} px up to ${formatInt(fit.compact.maxChars)}, and ${formatInt(fit.floor.px)} px beyond, the floor. A formula still wider than its cell at the floor scrolls sideways inside its own box (a visible scrollbar and a "scroll sideways" hint under it), never the page.`);
+  const byId = new Map(model.entries.map((e) => [e.id, e]));
+  const scrolling = (panelState?.scrolling ?? []).map((id) => byId.get(id)).filter(Boolean);
+  if (scrolling.length) {
+    disclosures.push(`Scrolling sideways at the card's current width: ${scrolling.map((e) => `${e.speciesLabel} ${payload.taskLabels?.[e.task] ?? e.task} ${payload.frameLabels?.[e.frame] ?? e.frame}`).join('; ')}.`);
+  }
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
     `Border: ${Object.entries(TIER_BORDERS).map(([k, b]) => `${model.tierLabels[k] ?? k} ${b}`).join(', ')}; "Not a law" also in muted ink. The tier is always written in its chip, never carried by colour alone.`,
@@ -137,7 +144,7 @@ export function triangleNotes({ payload, title = null, task = null } = {}) {
     `Right: the MAE dumbbell on an axis from zero${unit} — ${MAE_MEASURES.filter((m) => m.key !== 'formula' || model.hasFormula).map((m) => `${m.name} (${m.mark})`).join(', ')}; the network's and the tree's MAE to truth are joined by a thin line.`,
     model.task === 'segmentation'
       ? 'The segmentation MAEs are voxel-sample MAEs (energy-weighted), not the validation E-MAE of the accuracy table, and are never drawn against it (F5).'
-      : (model.task === 'angle' ? 'The angle MAEs are in mrad: the distillation table gives radians, multiplied by 1000 here (F4); the formula MAEs come from the report\'s angle table, already in mrad.' : 'The energy MAEs are in GeV, as the report prints them.'),
+      : (model.task === 'angle' ? 'The angle MAEs are in mrad: the distillation table gives radians, multiplied by 1000 here (F4) and printed with the triad\'s own digits (0.0216 rad is 21.6 mrad, 0.00046 rad is 0.46 mrad: three decimals fewer, no precision added); the formula MAEs come from the report\'s angle table, already in mrad.' : 'The energy MAEs are in GeV, as the report prints them.'),
   ]);
   const disclosures = [EXCEPTION_LINE];
   const proton = model.rows.filter((r) => r.species === 'proton');
@@ -147,11 +154,12 @@ export function triangleNotes({ payload, title = null, task = null } = {}) {
     const m = R2_MEASURES.find((x) => x.key === c.measure);
     disclosures.push(`${row.label}: ${m.name} ${c.text}; drawn at 0 with the "R² < 0" mark (worse than predicting the mean).`);
   }
-  const approx = model.rows.flatMap((row) => R2_MEASURES.filter((m) => row.r2[m.key]?.approx).map((m) => `${row.label} ${m.name} ≈ ${reported(row.r2[m.key].q.value)}`));
+  const approx = model.rows.flatMap((row) => R2_MEASURES.filter((m) => row.r2[m.key]?.approx).map((m) => `${row.label} ${m.name} ≈ ${reported(row.r2[m.key].q.value, row.r2[m.key].q.dp)}`));
   if (approx.length) disclosures.push(`Reported as approximate (F9), drawn at the value and labelled: ${approx.join('; ')}.`);
   const absent = model.rows.filter((r) => r.formulaAbsent);
   if (absent.length) disclosures.push(`No meaningful formula, the printed R² kept (outline dashed): ${absent.map((r) => r.label).join(', ')}.`);
   for (const row of model.signalRows) disclosures.push(`${row.label}: ${row.leakSignalText} Never read it as a better model.`);
+  for (const row of model.beatsRows) disclosures.push(`${row.label}: ${row.treeBeatsNetworkText} A neutral fact, not label leakage: a leakage signal is judged on the segmentation rows only.`);
   const flags = [...new Set(model.rows.flatMap((r) => r.leaks))];
   for (const flag of flags) disclosures.push(`Label leakage (F8) on ${model.rows.filter((r) => r.leaks.includes(flag)).map((r) => r.label).join(', ')}: ${LEAK_TEXT[flag] ?? flag}`);
   if (model.task !== 'segmentation') disclosures.push(`A caveat on every angle and energy number: ${LEAK_TEXT['oracle-separation']}`);
@@ -160,12 +168,12 @@ export function triangleNotes({ payload, title = null, task = null } = {}) {
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
     'Colour is the frame (E2\'s hues, the same on every catalogue card); the measure is told apart by fill and shape: solid bar, outlined bar, tick; filled circle, hollow circle, hollow square (a little below the line), filled diamond (a little above).',
-    'The column at the right prints each row\'s flags as text: "label leakage" where the report flags its own leakage, "leakage signal" where the tree fitted to truth beats the network on truth.',
+    'The column at the right prints each row\'s flags as text: in the warning ink with ⚑, "label leakage" where the report flags its own leakage and "leakage signal" where, on a segmentation row, the tree fitted to truth beats the network on truth; in the muted ink and without ⚑, "tree beats the network on truth" where the same happens on an angle or energy row, which is no hazard.',
     `Every tooltip names the quantity, its unit, the N ("${N_NOT_REPORTED}" or the accuracy table's sample) and "${POINT_ESTIMATE}".`,
   ]);
   notes.section(DISTILL_HEADINGS.rows, model.rows.map((r) => {
     const r2 = R2_MEASURES.map((m) => `${m.name} ${r.r2[m.key] ? r.r2[m.key].text : 'not reported'}`).join('; ');
-    const mae = MAE_MEASURES.filter((m) => r.mae[m.key] !== null).map((m) => `${m.name} ${reportedWithUnit(r.mae[m.key], model.unit)}`).join('; ');
+    const mae = MAE_MEASURES.filter((m) => r.mae[m.key] !== null).map((m) => `${m.name} ${reportedWithUnit(r.mae[m.key], model.unit, r.maeDp?.[m.key])}`).join('; ');
     return `${r.label}: ${r2}${mae ? `; ${mae}` : '; no MAE in the report'}.`;
   }));
   const hazards = [NO_INTERVAL];

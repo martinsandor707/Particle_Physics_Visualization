@@ -43,7 +43,8 @@ const MIN_SIDE_PX = 200;
 
 /**
  * Everything the chart, the tables and the drawer need. Pure:
- * {panels: [{key, title, unit, scale, max, rows: [{frame, predicted, truth}]}], protonShown, species}.
+ * {panels: [{key, title, unit, scale, max, dp, rows: [{frame, predicted, truth}]}], protonShown, species}.
+ * `dp` is the report's printed decimals (INDECISION.dp: 0.69 with two, the shares as whole percentages).
  */
 export function benchDiagnosticsModel(payload) {
   const ind = payload?.indecision;
@@ -59,10 +60,13 @@ export function benchDiagnosticsModel(payload) {
   const band = amb.band ?? [0.3, 0.7];
   return {
     panels: [
-      { key: 'polarisation', title: 'Energy-weighted ⟨|2f − 1|⟩ [0–1]', short: '⟨|2f − 1|⟩', unit: '', max: 1, interval: 0.2, rows: rows(pol, 1) },
+      {
+        key: 'polarisation', title: 'Energy-weighted ⟨|2f − 1|⟩ [0–1]', short: '⟨|2f − 1|⟩', unit: '', max: 1, interval: 0.2,
+        rows: rows(pol, 1), dp: ind.dp?.polarisation ?? null,
+      },
       {
         key: 'ambiguous', title: `Energy share with ${reported(band[0])} ≤ f ≤ ${reported(band[1])} [%]`, short: 'Undecided energy share',
-        unit: '%', max: 100, interval: 20, rows: rows(amb, 100),
+        unit: '%', max: 100, interval: 20, rows: rows(amb, 100), dp: ind.dp?.ambiguousSharePercent ?? null,
       },
     ],
     band,
@@ -118,9 +122,11 @@ export function plotHeight(payload, opts = {}, width = DEFAULT_WIDTH) {
 
 /* ============================================================ tooltips == */
 
-function valueText(panel, v) {
+/** A dumbbell end as the report prints it, with its decimals (`panel.dp`). */
+export function valueText(panel, v) {
   if (!Number.isFinite(v)) return 'not reported';
-  return panel.unit === '%' ? `${reported(Number(v.toPrecision(12)))} %` : reported(v);
+  const value = Number(v.toPrecision(12));
+  return panel.unit === '%' ? `${reported(value, panel.dp ?? null)} %` : reported(value, panel.dp ?? null);
 }
 
 /** The tooltip of a row's dumbbell. */

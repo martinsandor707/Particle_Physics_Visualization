@@ -617,7 +617,7 @@ def test_the_drawers_carry_the_reports_facts(run):
     mo = cards["perf-momentum-bias"]["all|energy|linear"]["notes"]
     disc = " ".join(mo["sections"]["Disclosures"])
     assert "Training split included (F6)" in disc and "Electron and Pion" in disc
-    assert "(F7)" in disc and "Muon 4–6 GeV (+5.525 GeV)" in disc and "Muon 14–16 GeV (−4.22 GeV)" in disc
+    assert "(F7)" in disc and "Muon 4–6 GeV (+5.525 GeV)" in disc and "Muon 14–16 GeV (−4.220 GeV)" in disc
     assert "≤" in disc and "<=" not in disc
     assert mo["hazards"] == ["no interval reported", "training split included", "n exceeds the particles"]
     assert cards["perf-momentum-bias"]["muon|energy|linear"]["notes"]["hazards"] == ["no interval reported", "training split included"]
@@ -752,3 +752,88 @@ def test_the_diagnostics_blocks_use_the_catalogue_classes(run):
         assert bool(chips) == (species != "muon"), species
         text = p["extra"][0]["text"]
         assert "~1,050 combined events/s" in text and "÷2 (Local)" in text and "~20–40 events/s" in text
+
+
+# ------------------------------------------------- the fix round (brief 12.1) --
+
+_PRINTED_SCRIPT = r"""
+const [jsRoot] = JSON.parse(process.argv[1]);
+const imp = (p) => import(`${jsRoot}/${p}`);
+const sel = await imp('catalog/select.js');
+const cat = await imp('panels/bench_catalog.js');
+const ovl = await imp('panels/bench_overlap.js');
+const diag = await imp('panels/bench_diagnostics.js');
+const notes = await imp('catalog_notes_perf.js');
+const all = sel.catalogPayload('perf-catalog', { species: 'all' });
+const model = cat.benchCatalogModel(all, {});
+const tips = {};
+for (const facet of model.facets) for (const r of facet.rows) tips[`${facet.key}:${r.species}:${r.frame}`] = cat.catalogTip(all, facet, r);
+const ov = sel.catalogPayload('perf-overlap', { species: 'proton', task: 'angle' });
+const om = ovl.benchOverlapModel(ov);
+const f0 = om.facets[0];
+const local = f0.series.find((x) => x.frame === 'local');
+const oe = sel.catalogPayload('perf-overlap', { species: 'electron', task: 'energy' });
+const oem = ovl.benchOverlapModel(oe);
+const etrans = oem.facets[0].series.find((x) => x.frame === 'trans');
+const titles = {};
+for (const [sp, task] of [['proton', 'angle'], ['proton', 'segmentation'], ['muon', 'energy'], ['muon', 'segmentation']]) {
+  const p = sel.catalogPayload('perf-overlap', { species: sp, task });
+  const o = ovl.benchOverlapOption(p, {}, { width: 1100, height: 400 }).option;
+  titles[`${sp}:${task}`] = (o.graphic ?? []).map((g) => g.style?.text).filter((t) => t && t.startsWith(p.speciesLabels[sp]));
+}
+const dg = sel.catalogPayload('perf-diagnostics', { species: 'proton' });
+const dm = diag.benchDiagnosticsModel(dg);
+console.log(JSON.stringify({
+  tips,
+  table: cat.secondaryTableRows(all).rows,
+  overlap: { local: ovl.overlapTip(om, ov, f0, local, 0), all: local.all, dp: local.dp, electron: ovl.overlapTip(oem, oe, oem.facets[0], etrans, 2) },
+  titles,
+  diag: dm.panels.map((p) => p.rows.map((r) => [diag.valueText(p, r.predicted), diag.valueText(p, r.truth)])),
+  momentum: notes.momentumNotes({ payload: sel.catalogPayload('perf-momentum-bias', { species: 'muon' }) }).sections
+    .find((x) => x.heading === 'What is drawn').lines,
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def printed():
+    proc = subprocess.run([NODE, "--input-type=module", "-e", _PRINTED_SCRIPT, json.dumps([JS.as_uri()])],
+                          capture_output=True, text=True, timeout=120, cwd=ROOT)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_report_numbers_print_with_the_reports_decimals(printed):
+    """The report's 1,0000, 0,9840, 1,130 GeV, \u22124,220, 0,2120, 16,0 and 0,590 print with their zeros."""
+    t = printed["tips"]
+    assert "Muon \u00b7 Absolute \u00b7 Angle MAE: 0.458 mrad" in t["angle:muon:absolute"]
+    assert "R\u00b2 to truth 1.0000" in t["angle:muon:absolute"] and "tree R\u00b2 to the network 0.9953" in t["angle:muon:absolute"]
+    assert "R\u00b2 to truth 0.9840" in t["angle:muon:trans"]
+    assert "Energy MAE: 1.130 GeV" in t["energy:proton:trans"]
+    assert "with test-time augmentation (TTA): 0.2120" in t["segmentation:proton:trans"]
+    assert "Energy R\u00b2 to truth: 0.3390" in t["energy-r2:muon:local"]
+    assert "bias \u22120.1 mrad" in t["angle:proton:absolute"] and "bias +11.9 mrad" in t["angle:proton:trans"]
+    assert "RMSE 6.8 mrad" in t["angle:proton:absolute"]
+    rows = {(r[0], r[1], r[2]): r for r in printed["table"]}
+    assert rows["Muon", "Angle", "Absolute"][7] == "1.0000"
+    assert rows["Muon", "Energy", "Local"][9] == "0.2183"
+    assert rows["Electron", "Segmentation", "Per-shower translated"][3] == "E-MAE 0.0855"
+    assert rows["Proton", "Energy", "Per-shower translated"][3] == "MAE 1.130 GeV"
+    o = printed["overlap"]
+    assert o["all"] == 16 and o["dp"]["all"] == 1
+    assert "All (the table&#39;s own total) 16.0 mrad" in o["local"]
+    assert "overlap bin 20 %: MAE 0.590 GeV" in o["electron"]
+    assert printed["diag"] == [[["0.69", "0.86"], ["0.74", "0.95"], ["0.74", "0.94"]],
+                               [["31 %", "11 %"], ["19 %", "4 %"], ["18 %", "4 %"]]]
+    mo = " ".join(printed["momentum"])
+    assert "MAE 4.220 GeV, bias \u22124.220 GeV" in mo and "MAE 5.525 GeV, bias +5.525 GeV" in mo
+
+
+def test_the_overlap_facet_title_names_the_level_once(printed):
+    t = printed["titles"]
+    assert t["proton:angle"] == ["Proton \u00b7 per hit (as the report titles its overlap table)"]
+    assert t["proton:segmentation"] == ["Proton \u00b7 per hit (energy-weighted)"]
+    assert t["muon:energy"] == ["Muon \u00b7 per particle (one value per shower)"]
+    for titles in t.values():
+        for title in titles:
+            assert "hit-level" not in title and title.count("per hit") + title.count("per particle") == 1

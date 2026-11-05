@@ -149,12 +149,12 @@ export function plotHeight(payload, opts = {}, width = DEFAULT_WIDTH) {
 export function momentumTip(model, payload, row, w, which) {
   const sp = labelOf(payload, 'species', row.species);
   const head = which === 'mae'
-    ? `MAE ${withUnit(reported(w.mae), model.unit)}`
-    : `${BIAS_NAME} ${withUnit(signedReported(w.bias), model.unit)}`;
+    ? `MAE ${withUnit(reported(w.mae, w.dp?.mae), model.unit)}`
+    : `${BIAS_NAME} ${withUnit(signedReported(w.bias, w.dp?.bias), model.unit)}`;
   const lines = [`<b>${escapeHtml(sp)} · Absolute · ${escapeHtml(windowLabel(w))}: ${escapeHtml(head)}</b>`];
   lines.push(escapeHtml(which === 'mae'
-    ? `${BIAS_NAME}: ${withUnit(signedReported(w.bias), model.unit)} (the dot beside)`
-    : `MAE ${withUnit(reported(w.mae), model.unit)} (the bar beside)`));
+    ? `${BIAS_NAME}: ${withUnit(signedReported(w.bias, w.dp?.bias), model.unit)} (the dot beside)`
+    : `MAE ${withUnit(reported(w.mae, w.dp?.mae), model.unit)} (the bar beside)`));
   if (w.oneSigned) {
     lines.push(escapeHtml('|bias| = MAE to the reported precision: every error in this window has one sign'));
   }

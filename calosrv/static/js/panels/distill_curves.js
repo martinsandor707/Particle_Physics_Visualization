@@ -43,8 +43,8 @@
 
 import { THEME, axisPadding, formatNumber, typographic } from '../scale.js';
 import { compileFormula } from '../catalog/formula.js';
-import { curveDomain } from '../catalog/select.js';
-import { LEAK_TEXT, r2Text } from '../catalog/gating.js';
+import { curveDomain, printedQualified } from '../catalog/select.js';
+import { LEAK_TEXT } from '../catalog/gating.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import {
@@ -245,8 +245,8 @@ export function curvesModel(payload, opts = {}) {
         tier: f.tier?.tier ?? 'not-law',
         tierLabel: f.tier?.label ?? f.tier?.tier ?? '',
         reasons: [...(f.tier?.reasons ?? [])],
-        r2Text: r2Text(f.r2),
-        netR2Text: f.netR2 ? r2Text(f.netR2) : 'not reported',
+        r2Text: printedQualified(f.r2),
+        netR2Text: f.netR2 ? printedQualified(f.netR2) : 'not reported',
         ascii: f.ascii,
         formulaText: formulaText(f.ascii),
         variables: [...(f.variables ?? [])],
@@ -622,6 +622,18 @@ export class DistillCurvesPanel extends ChartPanel {
   relayout() {
     if (this.syncHeight() && this.chart) this.chart.resize();
     super.relayout();
+  }
+
+  /**
+   * A paint held while the card has no size (its subpage hidden) leaves the old picture in place: forget
+   * when it was laid out, so the relayout that shows it builds the option afresh. Without this, a theme
+   * switch made on another subpage left the dark picture on the light card (ChartPanel.relayout returns
+   * early when the size has not changed).
+   */
+  paint() {
+    const option = super.paint();
+    if (option === null && this.lastPayload) this.laidOut = null;
+    return option;
   }
 
   exportMetrics(width) {

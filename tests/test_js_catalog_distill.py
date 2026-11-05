@@ -216,6 +216,10 @@ Object.assign(THEME, saved);
   const tierChips = host.findAll((el) => el.className === 'tier-chip').map((el) => ({ tier: el.dataset.tier, text: el.textContent }));
   const badges = host.findAll((el) => el.className === 'badge-chip').map((el) => ({ kind: el.dataset.kind, text: el.textContent, title: el.title }));
   const r2Titles = [...new Set(host.findAll((el) => el.className === 'pysr-r2').map((el) => el.title))];
+  const r2Lines = Object.fromEntries(entries.map((e) => [e.dataset.entry, e.find((el) => el.className === 'pysr-r2')?.textContent ?? null]));
+  const fits = Object.fromEntries(entries.map((e) => [e.dataset.entry, e.find((el) => el.className === 'pysr-formula')?.dataset.fit ?? null]));
+  const hintsShown = host.findAll((el) => el.className === 'pysr-scroll-hint' && !el.hidden).length;
+  const hints = host.findAll((el) => el.className === 'pysr-scroll-hint').length;
   // The chips of an entry whose formula names were mapped by inference say so in their titles.
   const inferredTitles = entries.filter((e) => e.find((el) => el.className === 'badge-chip' && el.dataset.kind === 'inferred'))
     .flatMap((e) => e.findAll((el) => el.className.includes('feature-chip')).map((el) => el.title));
@@ -265,7 +269,32 @@ Object.assign(THEME, saved);
   p2.render(broken, {});
   const fallback = host2.findAll((el) => el.className === 'pysr-fallback').map((el) => ({ text: el.textContent, title: el.parent.title, mode: el.parent.dataset.fallback }));
   p2.clear();
+  // A formula wider than its box at the floor: the relayout measures it, marks the box, shows its hint and
+  // tells the drawer (notesState().scrolling) with one models:panelstate.
+  const before = events.length;
+  const boxOf = (id) => host.findAll((el) => el.className === 'pysr-entry' && el.dataset.entry === id)[0].find((el) => el.className === 'pysr-formula');
+  const wide = boxOf('muon:segmentation:absolute');
+  const size = (el, sw, cw) => {
+    Object.defineProperty(el, 'scrollWidth', { value: sw, configurable: true });
+    Object.defineProperty(el, 'clientWidth', { value: cw, configurable: true });
+  };
+  size(wide, 900, 300);
+  const narrow = boxOf('electron:segmentation:absolute');
+  size(narrow, 200, 300);
+  panel.relayout();
+  const entryOf = (id) => host.findAll((el) => el.className === 'pysr-entry' && el.dataset.entry === id)[0];
+  const scroll = {
+    state: panel.notesState(),
+    marked: wide.dataset.scrolls, unmarked: narrow.dataset.scrolls,
+    hintShown: !entryOf('muon:segmentation:absolute').find((el) => el.className === 'pysr-scroll-hint').hidden,
+    otherHintShown: !entryOf('electron:segmentation:absolute').find((el) => el.className === 'pysr-scroll-hint').hidden,
+    events: events.length - before,
+  };
+  panel.relayout();
+  scroll.eventsAgain = events.length - before;
+  const scrollNotes = pack(notes.pysrNotes({ payload, panelState: panel.notesState() }));
   result.dom = {
+    r2Lines, fits, hints, hintsShown, scroll, scrollNotes,
     entries: entries.length, tiers: entries.map((e) => e.dataset.tier), chips: chips.length, maths: maths.length,
     codes: codes.length, copies: copies.length, absent, tierChips, badges, r2Titles, inferredTitles, plainTitles,
     madeNs: [...new Set(made.map((m) => m[0]))], madeTags: [...new Set(made.map((m) => m[1]))],
@@ -553,7 +582,7 @@ def test_below_law_curves_are_dashed_and_faded_at_three_to_one(out):
 def test_the_muon_curves_say_they_describe_the_network(out):
     v = out["dark"]["curves"]["muon"]["defaults"]
     tips = [t for name, t in _tips(v["wide"]) if name.startswith("Muon ·") and not name.endswith("(clipped)")]
-    assert tips and all("describe the network: its R² to truth is 0.018–0.339" in t for t in tips)
+    assert tips and all("describe the network: its R² to truth is 0.0176–0.3390" in t for t in tips)
     assert any("describe the network" in line for line in v["notes"]["sections"]["Disclosures"])
     for t in tips:
         assert "conditional at these values, not a marginal prediction" in t or "Depends on E_sum alone" in t
@@ -632,7 +661,7 @@ def test_the_pysr_dom_card_builds_mathml_and_never_innerhtml(out):
 
 def test_a_feature_chip_cross_highlights_and_tells_the_drawer(out):
     a = out["dom"]["after"]
-    assert a["highlight"] == "centroid_theta" and a["state"] == {"highlight": "centroid_theta"}
+    assert a["highlight"] == "centroid_theta" and a["state"] == {"highlight": "centroid_theta", "scrolling": []}
     assert set(a["pressed"]) == {"centroid_theta"} and a["highlighted"] >= 2
     assert "dark" in out and len(a["matched"]) == len(out["dark"]["pysr"]["all"]["matches"])
     assert all(m.split(":")[0] in {"proton", "muon", "electron", "pion"} for m in a["matched"])
@@ -666,7 +695,11 @@ def test_every_drawer_carries_the_hazard_and_the_four_sections(out):
         assert any("Recorded exception" in line for line in n["sections"]["Disclosures"])
     assert "label leakage" in out["dark"]["notes"]["pysr:all:energy"]["hazards"]
     assert "label leakage" in out["dark"]["notes"]["triangle:all:segmentation"]["hazards"]
-    assert "leakage signal" in out["dark"]["notes"]["triangle:muon:energy"]["hazards"]
+    # a leakage signal is a segmentation finding only (brief 12.1); muon energy's tree beats a network that
+    # does not predict the truth, which is a neutral fact with no hazard
+    assert "leakage signal" in out["dark"]["notes"]["triangle:muon:segmentation"]["hazards"]
+    assert "leakage signal" not in out["dark"]["notes"]["triangle:muon:energy"]["hazards"]
+    assert out["dark"]["notes"]["triangle:muon:energy"]["hazards"] == ["no interval reported"]
     assert out["dark"]["notes"]["triangle:electron:energy"]["hazards"] == ["no interval reported"]
 
 
@@ -795,3 +828,79 @@ def test_catalog_css_is_tokens_only_and_never_animated():
     tokens = (JS.parent / "css" / "tokens.css").read_text(encoding="utf-8")
     for var in set(re.findall(r"var\((--[\w-]+)", css)) - {"--frame-hue"}:
         assert f"{var}:" in tokens, var
+
+
+# ------------------------------------------------- the fix round (brief 12.1) --
+
+
+def test_report_numbers_print_with_the_reports_decimals(out):
+    """1.000, 1.0000, 0.9840, 0.590 and 53.00 print as the report prints them, on the card and in the drawer."""
+    pysr = {e["id"]: e for e in out["dark"]["pysr"]["all"]["entries"]}
+    assert pysr["muon:angle:absolute"]["r2Text"] == "1.000" and pysr["muon:angle:absolute"]["netR2Text"] == "1.0000"
+    assert pysr["muon:angle:trans"]["netR2Text"] == "0.9840"
+    assert pysr["muon:segmentation:absolute"]["r2Text"] == "0.590"
+    assert pysr["proton:segmentation:absolute"]["r2Text"] == "\u2248 0"
+    assert pysr["pion:angle:local"]["r2Text"] == "\u22120.024"
+    d = out["dom"]
+    assert d["r2Lines"]["muon:angle:absolute"] == "R\u00b2_PySR 1.000 \u00b7 network R\u00b2 to truth 1.0000"
+    assert d["r2Lines"]["muon:segmentation:absolute"].startswith("R\u00b2_PySR 0.590 ")
+    tri = out["dark"]["triangle"]["all:angle"]["wide"]["strings"]
+    assert any("Pion \u00b7 Per-shower translated \u2014 PySR formula \u2192 Truth MAE: 110.50 mrad" in t for t in tri)
+    assert any("Network \u2192 Truth MAE: 53.0 mrad" in t for t in tri)   # 0.0530 rad: the triad's digits x 1000
+    assert any("R\u00b2 = 1.000" in t for t in tri)
+    rows = " ".join(out["dark"]["notes"]["triangle:all:angle"]["sections"]["Rows"])
+    assert "Muon \u00b7 Absolute: Tree \u2192 Network R\u00b2 0.995; PySR formula \u2192 Network R\u00b2 1.000" in rows
+    assert "PySR formula \u2192 Truth MAE 113.50 mrad" in rows
+    tips = " ".join(out["dark"]["curves"]["all"]["defaults"]["wide"]["strings"])
+    assert "R\u00b2_PySR to the network 0.770; the network's R\u00b2 to truth 0.8265" in tips
+    pysr_notes = " ".join(out["dark"]["notes"]["pysr:all:energy"]["sections"]["Tiers"])
+    assert "R\u00b2_PySR is 1.000 (at least 0.75) and the network's R\u00b2 to truth is 1.0000" in pysr_notes
+
+
+def test_tree_beats_network_is_a_neutral_badge_never_a_leak(out):
+    rows = {r["key"]: r for r in out["dark"]["triangle"]["all:energy"]["model"]["rows"]}
+    assert rows["muon:absolute"]["badges"] == ["beats"] and rows["muon:trans"]["badges"] == ["beats"]
+    assert not rows["muon:absolute"]["leakSignal"] and rows["muon:absolute"]["leakSignalText"] is None
+    seg = {r["key"]: r for r in out["dark"]["triangle"]["all:segmentation"]["model"]["rows"]}
+    assert "signal" in seg["muon:absolute"]["badges"] and "beats" not in seg["muon:absolute"]["badges"]
+    for theme in ("dark", "light", "print"):
+        texts = out[theme]["triangle"]["all:energy"]["wide"]["texts"]
+        neutral = [t for t in texts if "tree beats the network on truth" in t[1]]
+        assert neutral and all("\u2691" not in t[1] for t in neutral)
+        assert all(t[0] >= 4.5 - 1e-9 for t in neutral), (theme, neutral)
+        warn = [t for t in out[theme]["triangle"]["all:segmentation"]["wide"]["texts"] if "leakage signal" in t[1]]
+        assert warn and all(t[1].startswith("\u2691") for t in warn)
+    n = out["dark"]["notes"]["triangle:muon:energy"]
+    disc = " ".join(n["sections"]["Disclosures"])
+    assert "a depth-4 tree on the summary features predicts the truth better than the network on this sample" in disc
+    assert "A neutral fact, not label leakage" in disc and "leakage signal" not in n["hazards"]
+    legend = " ".join(n["sections"]["Marks and legend"])
+    assert "tree beats the network on truth" in legend and "no hazard" in legend
+
+
+def test_long_formulas_step_down_to_a_floor_then_scroll_in_their_cell(out):
+    d = out["dom"]
+    assert d["fits"]["muon:segmentation:absolute"] == "floor"
+    assert d["fits"]["muon:angle:trans"] == "compact"
+    assert d["fits"]["electron:energy:absolute"] == "normal"
+    assert d["hints"] >= 30 and d["hintsShown"] == 0      # nothing measured overflowing on the fake DOM
+    sc = d["scroll"]
+    assert sc["state"] == {"highlight": None, "scrolling": ["muon:segmentation:absolute"]}
+    assert sc["marked"] == "true" and sc["unmarked"] == "false"
+    assert sc["hintShown"] and not sc["otherHintShown"]
+    assert sc["events"] == 1 and sc["eventsAgain"] == 1    # one event per change, none when nothing changed
+    disc = " ".join(d["scrollNotes"]["sections"]["Disclosures"])
+    assert "14 px up to 40 characters" in disc and "11 px beyond, the floor" in disc and "never the page" in disc
+    assert "Scrolling sideways at the card's current width: Muon Segmentation Absolute." in disc
+
+
+def test_the_css_styles_the_fit_steps_the_scrollbar_and_the_new_badges():
+    css = CSS.read_text(encoding="utf8")
+    assert '.pysr-formula[data-fit="compact"] { font-size: 12px; }' in css
+    assert '.pysr-formula[data-fit="floor"] { font-size: 11px; }' in css
+    block = css[css.index(".pysr-formula {"):]
+    block = block[:block.index("}")]
+    assert "overflow-x: auto" in block and "scrollbar-width: thin" in block and "scrollbar-gutter: stable" in block
+    assert ".pysr-scroll-hint[hidden] { display: none; }" in css
+    assert '.badge-chip[data-kind="tree-beats"]' in css and '.badge-chip[data-kind="signal"]::before' in css
+    assert not re.search(r"\b(transition|animation)\s*:", css)

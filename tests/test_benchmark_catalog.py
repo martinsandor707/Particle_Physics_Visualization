@@ -10,6 +10,9 @@ and ``--`` / en-dash ranges), dumps the module through Node, and asserts
   a float equals the module's literal);
 * every numeric token of every results table is accounted for: a table counts its tokens and the checks
   consume them, so a number left out, or one added to the report later, fails here;
+* every catalogue value, formatted with the decimals it carries (``dp``), reproduces the report's printed
+  token exactly (``1,0000`` is 1.0000, never 1; ``\u22124,220`` is \u22124.220): the cards print a report number
+  with the report's own rounding;
 * every number the report's prose states is present in the catalogue (to the precision the prose prints);
 * the report's own integrity facts (F1, F2, F4, F5, F6, F7, F9 of the brief) and two cross-checks: the
   summary table's tree R-squared (4 decimals) rounds to the triad table's (3 decimals), and the
@@ -142,6 +145,27 @@ def _prose(heading: str) -> str:
     return "\n".join(ln for ln in SECTIONS[heading] if not ln.startswith("|"))
 
 
+def printed_text(value: float, dp: int | None) -> str:
+    """A catalogue value formatted with its carried decimals (JS ``value.toFixed(dp)``); no dp = integer."""
+    return f"{float(value):.{dp or 0}f}"
+
+
+def token_text(tok: Tok) -> str:
+    """The report's token in the same alphabet: no thousands separator, ASCII minus, decimal point."""
+    return re.sub(r"[ \u00a0\u202f]", "", tok.text).replace("\u2212", "-").replace(",", ".")
+
+
+PRINTED = {"checked": 0, "trailing_zero": 0}
+
+
+def dp_of(row: dict, field: str) -> int | None:
+    return (row.get("dp") or {}).get(field)
+
+
+def qdp(q: dict | None) -> int | None:
+    return None if q is None else q.get("dp")
+
+
 class Ledger:
     """Counts the numeric tokens of one table and the ones the checks consume."""
 
@@ -150,11 +174,18 @@ class Ledger:
         self.total = sum(len(tokens(c)) for row in table for c in row)
         self.done = 0
 
-    def take(self, cell: str, expected: list) -> list[Tok]:
+    def take(self, cell: str, expected: list, dps: list | None = None) -> list[Tok]:
+        """Values must equal the report's; formatted with `dps` (None: integers) they must print its tokens."""
         toks = tokens(cell)
         got = [t.value for t in toks]
         want = [float(e) for e in expected]
         assert got == want, f"{cell!r}: report {got} != catalogue {want}"
+        dps = dps if dps is not None else [None] * len(toks)
+        assert len(dps) == len(toks), (cell, dps)
+        for t, v, d in zip(toks, expected, dps):
+            assert printed_text(v, d) == token_text(t), f"{cell!r}: {t.text!r} printed as {printed_text(v, d)!r} (dp {d})"
+            PRINTED["checked"] += 1
+            PRINTED["trailing_zero"] += int(t.decimals > 0 and t.text.endswith("0"))
         self.done += len(toks)
         return toks
 
@@ -168,12 +199,12 @@ class Ledger:
 
 
 def qualified(cell: str) -> dict:
-    """The catalogue's qualified scalar for a one-number cell."""
+    """The catalogue's qualified scalar for a one-number cell, with its printed decimals."""
     (t,) = tokens(cell)
     if t.prefix == "<":
-        return {"value": None, "qualifier": "lt", "bound": t.value}
+        return {"value": None, "qualifier": "lt", "bound": t.value, "dp": t.decimals}
     q = {"\u2248": "approx", "~": "about", "": None}[t.prefix]
-    return {"value": t.value, "qualifier": q}
+    return {"value": t.value, "qualifier": q, "dp": t.decimals}
 
 
 def _key(cell: str) -> tuple[str, str]:
@@ -268,10 +299,13 @@ def test_accuracy_table(cat, acc):
         extra = {"segmentation": [a["coreMae"]],
                  "angle": [a["rmse"], a["bias"]],
                  "energy": [a["rmse"], a["r2"]["value"] if a["r2"] else None]}[task]
+        extra_dp = {"segmentation": [dp_of(a, "coreMae")],
+                    "angle": [dp_of(a, "rmse"), dp_of(a, "bias")],
+                    "energy": [dp_of(a, "rmse"), qdp(a["r2"])]}[task]
         led.take(row[1], [a["params"]])
-        led.take(row[2], [a["value"]])
-        led.take(row[3], [a["tta"]])
-        led.take(row[4], extra)
+        led.take(row[2], [a["value"]], [dp_of(a, "value")])
+        led.take(row[3], [a["tta"]], [dp_of(a, "tta")])
+        led.take(row[4], extra, extra_dp)
         assert a["metric"] == ("e-mae" if task == "segmentation" else "mae")
         assert a["unit"] == {"segmentation": "", "angle": "mrad", "energy": "GeV"}[task]
         assert a["treeR2Net"] is None
@@ -294,7 +328,9 @@ def test_summary_table(cat, acc):
             a = acc[sp, task, frame]
             expected = [a["value"], a["treeR2Net"]] if task == "segmentation" else \
                 [a["value"], a["r2"]["value"], a["treeR2Net"]]
-            led.take(cell, expected)
+            dps = [dp_of(a, "value"), dp_of(a, "treeR2Net")] if task == "segmentation" else \
+                [dp_of(a, "value"), qdp(a["r2"]), dp_of(a, "treeR2Net")]
+            led.take(cell, expected, dps)
             assert a["tta"] is None and a["params"] is None and a["rmse"] is None and a["bias"] is None
             if task != "segmentation":
                 assert a["r2"]["qualifier"] is None
@@ -339,8 +375,8 @@ def test_proton_overlap_table_and_f1(cat):
         task, frame = _key(row[0])
         assert re.search(r"\((.*)\)", row[0]).group(1) == unit[task]
         r = rows[task, frame]
-        for cell, v in zip(row[1:], [r["all"], *r["bins"]]):
-            led.take(cell, [v])
+        for cell, v, d in zip(row[1:], [r["all"], *r["bins"]], [r["dp"]["all"], *r["dp"]["bins"]]):
+            led.take(cell, [v], [d])
     led.finish()
     # F1: 1297 + 1384 + 1002 + 204 + 167 = 4054, not 4065
     ev = proton["events"]
@@ -361,8 +397,8 @@ def test_new_species_overlap_table_f2_f3(cat):
     for row in table[1:]:
         sp_hu, task, frame = row[0].split(" ")
         r = by[HU_SPECIES[sp_hu]][task, frame]
-        for cell, v in zip(row[1:], [r["all"], *r["bins"]]):
-            led.take(cell, [v])
+        for cell, v, d in zip(row[1:], [r["all"], *r["bins"]], [r["dp"]["all"], *r["dp"]["bins"]]):
+            led.take(cell, [v], [d])
     led.finish()
     for sp in NEW:  # F2: the report prints no per-bin event counts for the new species
         o = cat["OVERLAP"][sp]
@@ -380,24 +416,24 @@ def test_proton_distillation_table(cat, dist):
     for row in table[1:]:
         task, frame = _key(row[0])
         d = dist["proton", task, frame]
-        led.take(row[1], [d["treeR2Net"]])
-        led.take(row[2], [d["treeR2Truth"]])
+        led.take(row[1], [d["treeR2Net"]], [dp_of(d, "treeR2Net")])
+        led.take(row[2], [d["treeR2Truth"]], [dp_of(d, "treeR2Truth")])
         names = [f.strip() for f in row[3].split(",")]
         assert [alias.get(n, n) for n in names] == d["features"], row[3]
         assert all(k in feats for k in d["features"])
         p = d["pysr"]
         led.take_text(row[4], p["source"])
         assert p["absent"] == (row[4] in {"\u2014", "(nem ad \u00e9rdemi k\u00e9pletet)"})
-        led.take(row[5], [p["r2"]["bound"] if p["r2"]["qualifier"] == "lt" else p["r2"]["value"]])
+        led.take(row[5], [p["r2"]["bound"] if p["r2"]["qualifier"] == "lt" else p["r2"]["value"]], [qdp(p["r2"])])
         assert p["r2"] == qualified(row[5])
         assert p["units"] == "physical"
         assert d["treeMaeNet"] is None and d["netMaeTruth"] is None and d["treeMaeTruth"] is None
     led.finish()
     # F9: the qualified values are kept as qualified
     q = {(t, f): dist["proton", t, f]["pysr"]["r2"] for t in TASKS for f in FRAMES}
-    assert q["segmentation", "absolute"] == {"value": 0.0, "qualifier": "approx"}
-    assert q["segmentation", "trans"] == {"value": None, "qualifier": "lt", "bound": 0.0}
-    assert q["angle", "local"] == {"value": 0.0, "qualifier": "approx"}
+    assert q["segmentation", "absolute"] == {"value": 0.0, "qualifier": "approx", "dp": 0}
+    assert q["segmentation", "trans"] == {"value": None, "qualifier": "lt", "bound": 0.0, "dp": 0}
+    assert q["angle", "local"] == {"value": 0.0, "qualifier": "approx", "dp": 0}
     absent = sorted(k for k, v in ((k, dist["proton", *k]["pysr"]["absent"]) for k in q) if v)
     assert absent == [("angle", "local"), ("angle", "trans"), ("segmentation", "local"), ("segmentation", "trans")]
 
@@ -433,10 +469,13 @@ def test_interpretation_numbers(cat):
     pct = re.findall(r"(\d+) / (\d+) / (\d+) %", prose)
     assert [[_to_float(x) / 100 for x in t] for t in pct] == [
         [ind["ambiguousShare"][k][f] for f in FRAMES] for k in ("predicted", "truth")]
+    # printed decimals of the prose: |2f - 1| with 2 decimals, the shares as whole percentages
+    assert {len(x.split(",")[1]) for t in trip for x in t} == {ind["dp"]["polarisation"]}
+    assert ind["dp"]["ambiguousSharePercent"] == 0
     assert re.search(r"0,3\u20130,7", prose) and ind["ambiguousShare"]["band"] == [0.3, 0.7]
     assert ind["scope"] == "proton"
     st = cat["STARVATION"]
-    assert re.search(r"\u00e1tlag 3,3 GeV", prose) and st["meanMomentum"] == {"value": 3.3, "unit": "GeV"}
+    assert re.search(r"\u00e1tlag 3,3 GeV", prose) and st["meanMomentum"] == {"value": 3.3, "unit": "GeV", "dp": 1}
     assert re.search(r"~8 MeV", prose) and st["deposit"] == {"value": 8, "qualifier": "about", "unit": "MeV"}
     assert re.search(r"30 %-os \u00e9s a 40\u2013100 %-os", prose) and st["bins"] == ["30", "40-100"]
     assert st["species"] == "proton" and st["task"] == "energy"
@@ -496,7 +535,7 @@ def test_pysr_formula_table(cat, dist):
         d = dist[sp, task, frame]
         p = d["pysr"]
         led.take_text(row[2].strip("`"), p["source"])
-        led.take(row[3], [p["r2"]["value"]])
+        led.take(row[3], [p["r2"]["value"]], [qdp(p["r2"])])
         assert p["r2"] == qualified(row[3]) and p["r2"]["qualifier"] is None
         assert p["units"] == ("standardised" if task == "segmentation" else "physical")
         assert p["absent"] is False
@@ -517,8 +556,8 @@ def test_angle_formula_vs_network_table(cat, acc):
     for row in table[1:]:
         sp, frame = HU_SPECIES[row[0]], HU_FRAME[row[1]]
         r = rows[sp, frame]
-        t_formula = led.take(row[2], [r["formulaMae"]])
-        t_net = led.take(row[3], [r["netMae"]])
+        t_formula = led.take(row[2], [r["formulaMae"]], [dp_of(r, "formulaMae")])
+        t_net = led.take(row[3], [r["netMae"]], [dp_of(r, "netMae")])
         assert "mrad" in row[2] and "mrad" in row[3] and r["unit"] == "mrad"
         # the network MAE equals the summary MAE to its rounding
         t_sum = summary[sp, "angle", frame][0]
@@ -544,7 +583,7 @@ def test_momentum_windows_f6_f7(cat):
         sp = HU_SPECIES[row[0]]
         for centre, cell in zip((5, 10, 15), row[1:4]):
             r = rows[sp, centre]
-            toks = led.take(cell, [r["mae"], r["n"], r["bias"]])
+            toks = led.take(cell, [r["mae"], r["n"], r["bias"]], [dp_of(r, "mae"), None, dp_of(r, "bias")])
             assert "GeV" in cell and re.search(r"n=", cell) and re.search(r"bias", cell)
             assert r["window"] == [centre - 1, centre + 1] and r["windowStated"] == (centre == 5)
             # F7: |bias| equals the MAE exactly <=> one-signed
@@ -584,8 +623,10 @@ def test_triad_table_and_cross_checks(cat, dist, acc):
         task, frame = _key(row[0])
         sp = HU_SPECIES[row[1]]
         d = dist[sp, task, frame]
-        toks = led.take(row[2], [d["treeR2Net"]]) + led.take(row[3], [d["treeMaeNet"]]) \
-            + led.take(row[4], [d["netMaeTruth"]]) + led.take(row[5], [d["treeMaeTruth"]])
+        toks = led.take(row[2], [d["treeR2Net"]], [dp_of(d, "treeR2Net")]) \
+            + led.take(row[3], [d["treeMaeNet"]], [dp_of(d, "treeMaeNet")]) \
+            + led.take(row[4], [d["netMaeTruth"]], [dp_of(d, "netMaeTruth")]) \
+            + led.take(row[5], [d["treeMaeTruth"]], [dp_of(d, "treeMaeTruth")])
         assert [f.strip() for f in row[6].split(",")] == d["features"]
         assert all(k in feats for k in d["features"])  # the new species print English keys: no alias needed
         assert d["treeR2Truth"] is None
@@ -677,6 +718,8 @@ def test_architecture_facts(cat):
     s, a, e = (arch["tasks"][t] for t in TASKS)
     assert millions == [s["paramsMillions"]["trans"], s["paramsMillions"]["absolute"], a["paramsMillions"],
                         e["paramsMillions"]]
+    assert s["paramsMillionsDp"] == a["paramsMillionsDp"] == e["paramsMillionsDp"] == 2
+    assert [f"{v:.2f}".replace(".", ",") for v in millions] == re.findall(r"(\d,\d\d) M", prose)
     for m, params in ((s["paramsMillions"], s["params"]),
                       ({"x": a["paramsMillions"]}, {"x": a["params"]}),
                       ({"x": e["paramsMillions"]}, {"x": e["params"]})):
@@ -780,3 +823,78 @@ def test_every_number_in_a_caveat_is_in_the_report(cat):
                                 for t in report):
                 wrong.append((c["id"], text))
     assert not wrong, wrong
+
+
+# ------------------------------------------------------------------------------------ printed decimals
+
+
+def _all_dp_pairs(cat):
+    """Every (path, value, dp) the catalogue carries, from row `dp` maps and qualified scalars."""
+    out = []
+
+    def walk(v, path):
+        if isinstance(v, dict):
+            if "dp" in v and isinstance(v["dp"], int) and "qualifier" in v:
+                x = v["bound"] if v.get("qualifier") == "lt" else v["value"]
+                out.append((path, x, v["dp"]))
+            elif isinstance(v.get("dp"), dict):
+                for k, d in v["dp"].items():
+                    if isinstance(d, list):
+                        out.extend((f"{path}.{k}[{i}]", v[k][i], di) for i, di in enumerate(d))
+                    elif k in v and not isinstance(v[k], dict):
+                        out.append((f"{path}.{k}", v[k], d))
+            for k, x in v.items():
+                if k != "dp":
+                    walk(x, f"{path}.{k}")
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f"{path}[{i}]")
+
+    walk(cat, "")
+    return out
+
+
+def test_every_reported_non_integer_carries_its_printed_decimals(cat):
+    """A non-integer report value with no `dp` would print in JS's shortest form and lose the report's
+    trailing zeros: every one has a count, and the count is never shorter than the value needs."""
+    pairs = _all_dp_pairs(cat)
+    assert len(pairs) > 400
+    for path, value, dp in pairs:
+        if value is None:
+            continue
+        assert float(printed_text(value, dp)) == float(value), (path, value, dp)
+    covered = {(p.rsplit(".", 1)[0], p.rsplit(".", 1)[1]) for p, _, _ in pairs}
+    for block, fields in (("ACCURACY", ["value", "tta", "rmse", "bias", "coreMae", "treeR2Net"]),
+                          ("DISTILLATION", ["treeR2Net", "treeR2Truth", "treeMaeNet", "netMaeTruth", "treeMaeTruth"]),
+                          ("MOMENTUM_WINDOWS", ["mae", "bias"]),
+                          ("ANGLE_FORMULA_VS_NET", ["formulaMae", "netMae"])):
+        for i, row in enumerate(cat[block]):
+            for f in fields:
+                if row[f] is not None:
+                    assert (f".{block}[{i}]", f) in covered, (block, i, f)
+    for i, row in enumerate(cat["ACCURACY"]):
+        if row["r2"] is not None:
+            assert isinstance(row["r2"].get("dp"), int), ("ACCURACY", i)
+    for i, row in enumerate(cat["DISTILLATION"]):
+        assert isinstance(row["pysr"]["r2"].get("dp"), int), ("DISTILLATION", i)
+
+
+def test_the_trailing_zeros_the_lead_found_are_kept(cat, acc, dist):
+    """The report's 1,0000, 0,9840, 0,590, 1,130 GeV, \u22124,220, 0,2120, 53,00 and 16,0 print as such."""
+    def p(v, d):
+        return printed_text(v, d)
+    a = acc["muon", "angle", "absolute"]
+    assert p(a["r2"]["value"], a["r2"]["dp"]) == "1.0000"
+    a = acc["muon", "angle", "trans"]
+    assert p(a["r2"]["value"], a["r2"]["dp"]) == "0.9840"
+    q = dist["muon", "segmentation", "absolute"]["pysr"]["r2"]
+    assert p(q["value"], q["dp"]) == "0.590"
+    a = acc["proton", "energy", "trans"]
+    assert p(a["value"], a["dp"]["value"]) == "1.130"
+    assert p(acc["proton", "segmentation", "trans"]["tta"], acc["proton", "segmentation", "trans"]["dp"]["tta"]) == "0.2120"
+    w = next(w for w in cat["MOMENTUM_WINDOWS"] if w["species"] == "muon" and w["centre"] == 15)
+    assert p(w["bias"], w["dp"]["bias"]) == "-4.220" and p(w["mae"], w["dp"]["mae"]) == "4.220"
+    r = next(r for r in cat["ANGLE_FORMULA_VS_NET"] if r["species"] == "pion" and r["frame"] == "trans")
+    assert p(r["netMae"], r["dp"]["netMae"]) == "53.00" and p(r["formulaMae"], r["dp"]["formulaMae"]) == "110.50"
+    o = next(r for r in cat["OVERLAP"]["proton"]["rows"] if r["task"] == "angle" and r["frame"] == "local")
+    assert p(o["all"], o["dp"]["all"]) == "16.0"

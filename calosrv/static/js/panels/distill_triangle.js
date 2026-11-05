@@ -36,16 +36,26 @@
  *
  * A reserved column at the right prints the row's flags in the warning ink, as text: "label leakage" for a
  * leak flag of the report (F8), and "leakage signal" where the tree fitted to truth beats the network on
- * truth (`leakSignal`). In the per-shower translated and Local segmentation frames that signal matches the
- * report's own leakage caveat; elsewhere the report gives no reason, so it is a warning, not a finding.
+ * truth on a segmentation row (`leakSignal`). In the per-shower translated and Local segmentation frames
+ * that signal matches the report's own leakage caveat; in the Absolute frame the report gives no reason, so
+ * it is a warning, not a finding. On an angle or energy row a tree beating the network on truth is no leak
+ * (muon energy: the network does not predict the truth); it is a neutral badge "tree beats the network on
+ * truth" in the muted ink, with no ⚑ and no hazard.
+ *
+ * ## Printed decimals
+ *
+ * Every number is printed with the report's own decimals (select.js `printed`, the payload's `dp` and
+ * `maeDp`), so 1.000 stays 1.000; an angle MAE converted from the triad's radians keeps the triad's digits
+ * × 1000.
  *
  * `triangleModel` decides everything (the notes reuse it); `triangleLayout` places it at a width;
  * `distillTriangleOption` draws it; `plotHeight` is what the panel sets on its plot before ECharts measures.
  */
 
-import { THEME, axisPadding, formatInt, typographic } from '../scale.js';
+import { THEME, axisPadding, formatInt } from '../scale.js';
 import { DATASETS } from '../catalog/benchmarks.js';
-import { LEAK_TEXT, r2Text } from '../catalog/gating.js';
+import { LEAK_TEXT } from '../catalog/gating.js';
+import { printed, printedQualified } from '../catalog/select.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import { sourceColours } from './perf_bins.js';
@@ -68,15 +78,15 @@ export function frameColours() {
   return sourceColours([...CATALOG_FRAMES]);
 }
 
-/** A number as the report prints it: its shortest decimal form, U+2212 for a minus. */
-export function reported(value) {
-  return Number.isFinite(value) ? typographic(String(value)) : '—';
+/** A number as the report prints it: with its printed decimals `dp` (select.js `printed`), U+2212 for a minus. */
+export function reported(value, dp = null) {
+  return Number.isFinite(value) ? printed(value, dp) : '—';
 }
 
 /** A reported number with its display unit. */
-export function reportedWithUnit(value, unit) {
+export function reportedWithUnit(value, unit, dp = null) {
   if (!Number.isFinite(value)) return '—';
-  return `${reported(value)}${unit ? ` ${unit}` : ''}`;
+  return `${reported(value, dp)}${unit ? ` ${unit}` : ''}`;
 }
 
 /** The muted closing line of every catalogue tooltip: the N and the absent interval. */
@@ -123,7 +133,11 @@ export const MAE_MEASURES = Object.freeze([
 export const BADGE_TEXT = Object.freeze({
   leak: Object.freeze({ full: 'label leakage', short: 'leak' }),
   signal: Object.freeze({ full: 'leakage signal', short: 'signal' }),
+  beats: Object.freeze({ full: 'tree beats the network on truth', short: 'tree beats net' }),
 });
+
+/** The badges that warn (⚑, warning ink, a drawer hazard); every other badge is neutral (muted ink). */
+export const WARNING_BADGES = Object.freeze(['leak', 'signal']);
 
 /* ---------------------------------------------------------------- model -- */
 
@@ -132,17 +146,17 @@ export function r2Mark(q) {
   if (!q) return null;
   const lt = q.qualifier === 'lt';
   const none = q.qualifier === 'none' || (!lt && !Number.isFinite(q.value));
-  if (none) return { q, reported: false, drawn: null, clamped: false, text: r2Text(q), exact: 'the report gives no value' };
+  if (none) return { q, reported: false, drawn: null, clamped: false, text: printedQualified(q), exact: 'the report gives no value' };
   const negative = lt || q.value < 0;
   const drawn = negative ? 0 : Math.min(1, q.value);
   let exact;
   if (lt) exact = 'reported only as < 0, with no number';
-  else if (q.qualifier === 'approx') exact = `reported as ≈ ${reported(q.value)}`;
-  else if (q.qualifier === 'about') exact = `reported as ~${reported(q.value)}`;
-  else exact = `${reported(q.value)} exactly as reported`;
+  else if (q.qualifier === 'approx') exact = `reported as ≈ ${reported(q.value, q.dp)}`;
+  else if (q.qualifier === 'about') exact = `reported as ~${reported(q.value, q.dp)}`;
+  else exact = `${reported(q.value, q.dp)} exactly as reported`;
   return {
     q, reported: true, drawn, clamped: negative, approx: q.qualifier === 'approx',
-    text: r2Text(q), exact,
+    text: printedQualified(q), exact,
   };
 }
 
@@ -188,6 +202,9 @@ export function triangleModel(payload, opts = {}) {
     const badges = [];
     if ((r.leaks ?? []).length) badges.push('leak');
     if (r.leakSignal) badges.push('signal');
+    if (r.treeBeatsNetwork) badges.push('beats');
+    const maeDp = {};
+    for (const m of MAE_MEASURES) maeDp[m.key] = r.maeDp?.[m.key] ?? null;
     return {
       index,
       key: `${r.species}:${r.frame}`,
@@ -200,12 +217,15 @@ export function triangleModel(payload, opts = {}) {
       colour: colours[r.frame] ?? THEME.text,
       r2,
       mae,
+      maeDp,
       maeSource: r.maeSource ?? {},
       maeScope: r.maeScope ?? 'validation',
       formulaAbsent: Boolean(r.formulaAbsent),
       leaks: [...(r.leaks ?? [])],
       leakSignal: Boolean(r.leakSignal),
       leakSignalText: leakSignalWording(r, frameLabels),
+      treeBeatsNetwork: Boolean(r.treeBeatsNetwork),
+      treeBeatsNetworkText: r.treeBeatsNetwork ? (r.treeBeatsNetworkText ?? null) : null,
       missing: [...(r.missing ?? [])],
       badges,
       noTreeMae: mae.treeTruth === null && mae.treeNet === null,
@@ -240,6 +260,7 @@ export function triangleModel(payload, opts = {}) {
     clamped,
     leakRows: rows.filter((r) => r.leaks.length),
     signalRows: rows.filter((r) => r.leakSignal),
+    beatsRows: rows.filter((r) => r.treeBeatsNetwork),
   };
 }
 
@@ -343,10 +364,18 @@ export function triangleLayout(model, width = 1100) {
   };
 }
 
+/** A row's badges split by kind: { warn: '⚑ label leakage · …' | '', neutral: 'tree beats …' | '' }. */
+export function badgeParts(row, short) {
+  const text = (b) => (short ? BADGE_TEXT[b].short : BADGE_TEXT[b].full);
+  const warn = row.badges.filter((b) => WARNING_BADGES.includes(b));
+  const neutral = row.badges.filter((b) => !WARNING_BADGES.includes(b));
+  return { warn: warn.length ? `⚑ ${warn.map(text).join(' · ')}` : '', neutral: neutral.map(text).join(' · ') };
+}
+
 /** The badge text of a row, full or short; '' for none. */
 function badgeLine(row, short) {
-  if (!row.badges.length) return '';
-  return `⚑ ${row.badges.map((b) => (short ? BADGE_TEXT[b].short : BADGE_TEXT[b].full)).join(' · ')}`;
+  const { warn, neutral } = badgeParts(row, short);
+  return [warn, neutral].filter(Boolean).join(' · ');
 }
 
 /** The plot height the panel sets before ECharts measures: rows × row height, plus the legend and axis. */
@@ -361,6 +390,7 @@ export function plotHeight(payload, opts = {}, width = 1100) {
 function leakLines(row) {
   const out = row.leaks.map((f) => mutedLine(`Label leakage: ${LEAK_TEXT[f] ?? f}`));
   if (row.leakSignalText) out.push(mutedLine(row.leakSignalText));
+  if (row.treeBeatsNetworkText) out.push(mutedLine(row.treeBeatsNetworkText));
   return out;
 }
 
@@ -384,7 +414,7 @@ export function r2Tip(model, row, measure) {
 /** The tooltip of one MAE mark. */
 export function maeTip(model, row, measure) {
   const v = row.mae[measure.key];
-  const lines = [`<b>${escapeHtml(row.speciesLabel)} · ${escapeHtml(row.frameLabel)} — ${escapeHtml(measure.name)}: ${escapeHtml(reportedWithUnit(v, model.unit))}</b>`];
+  const lines = [`<b>${escapeHtml(row.speciesLabel)} · ${escapeHtml(row.frameLabel)} — ${escapeHtml(measure.name)}: ${escapeHtml(reportedWithUnit(v, model.unit, row.maeDp?.[measure.key]))}</b>`];
   lines.push(mutedLine(measure.definition));
   lines.push(mutedLine(maeProvenance(model, row, measure.key)));
   lines.push(...leakLines(row));
@@ -454,7 +484,7 @@ function r2Series(model, layout) {
           const yMid = y + half / 2;
           if (mark.clamped) {
             children.push({ type: 'polygon', shape: { points: caretPoints(c0[0] + 1, yMid, Math.max(5, half * 0.8)) }, style: { fill: THEME.text } });
-            const exact = label && Number.isFinite(mark.q.value) ? ` (${reported(mark.q.value)})` : '';
+            const exact = label && Number.isFinite(mark.q.value) ? ` (${reported(mark.q.value, mark.q.dp)})` : '';
             children.push(textOf(`R² < 0${exact}`, c0[0] + Math.max(5, half * 0.8) + 4, yMid));
           } else if (mark.approx && mark.drawn === 0) {
             children.push(textOf('≈ 0', c0[0] + 4, yMid));
@@ -593,15 +623,17 @@ function decorations(model, layout) {
   }
   for (const block of (layout.stacked ? [layout.r2, layout.mae] : [layout.r2])) {
     for (const row of model.rows) {
-      const text = badgeLine(row, layout.short);
-      if (!text) continue;
-      out.push({
+      const { warn, neutral } = badgeParts(row, layout.short);
+      const y = block.top + (row.index + 0.5) * layout.rowPx;
+      const style = (text, x, fill) => ({
         type: 'text', silent: true,
-        style: {
-          x: layout.badgeX, y: block.top + (row.index + 0.5) * layout.rowPx, text, fill: THEME.warn,
-          fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, textVerticalAlign: 'middle',
-        },
+        style: { x, y, text, fill, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, textVerticalAlign: 'middle' },
       });
+      if (warn) out.push(style(warn, layout.badgeX, THEME.warn));
+      if (neutral) {
+        const x = warn ? layout.badgeX + measureText(`${warn} · `, THEME.fontSmall, THEME.fontFamily) : layout.badgeX;
+        out.push(style(neutral, x, THEME.muted));
+      }
     }
   }
   return out;
@@ -720,6 +752,18 @@ export class DistillTrianglePanel extends ChartPanel {
   relayout() {
     if (this.syncHeight() && this.chart) this.chart.resize();
     super.relayout();
+  }
+
+  /**
+   * A paint held while the card has no size (its subpage hidden) leaves the old picture in place: forget
+   * when it was laid out, so the relayout that shows it builds the option afresh. Without this, a theme
+   * switch made on another subpage left the dark picture on the light card (ChartPanel.relayout returns
+   * early when the size has not changed).
+   */
+  paint() {
+    const option = super.paint();
+    if (option === null && this.lastPayload) this.laidOut = null;
+    return option;
   }
 
   exportMetrics(width) {

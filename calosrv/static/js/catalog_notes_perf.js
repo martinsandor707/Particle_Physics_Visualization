@@ -20,7 +20,7 @@ import {
 } from './panels/bench_catalog.js';
 import { benchOverlapModel, LEVEL_BADGES, levelText, starvationText, ALL_NOTE } from './panels/bench_overlap.js';
 import { benchMomentumModel, windowLabel, windowRule, BIAS_NAME } from './panels/bench_momentum.js';
-import { benchDiagnosticsModel, diagnosticsBlocks, PROTON_ONLY } from './panels/bench_diagnostics.js';
+import { benchDiagnosticsModel, diagnosticsBlocks, PROTON_ONLY, valueText as diagnosticsValueText } from './panels/bench_diagnostics.js';
 
 /** The drawer titles by card id; the shell's card title wins when it passes one. */
 export const CATALOG_PERF_TITLES = Object.freeze({
@@ -32,7 +32,7 @@ export const CATALOG_PERF_TITLES = Object.freeze({
 
 /** The recorded exception, as the drawer states it. */
 export const EXCEPTION_NOTE = 'Recorded exception (Martin, 2026-11-05): the training report gives point estimates only, '
-  + 'so every mark is drawn as reported, names its N or says the N is not reported, and no interval is fabricated or '
+  + 'so every mark is drawn as reported and every number printed with the report\'s own decimals (1.000 stays 1.000), names its N or says the N is not reported, and no interval is fabricated or '
   + 'derived. Differences smaller than the report\'s rounding are not resolved.';
 
 /** The Marks line every catalogue card shares. */
@@ -173,7 +173,7 @@ export function momentumNotes({ payload, title = null } = {}) {
     `${BIAS_NAME}: the report's average signed error, as printed; the report states no sign convention.`,
     `Windows: ${(model.rows[0]?.windows ?? []).map((w) => `${windowLabel(w)}, ${windowRule(w)}`).join('; ')}.`,
     model.all ? 'Each species takes its own row with its own axes.' : '',
-    ...model.rows.flatMap((r) => r.windows.map((w) => `${labelOf(payload, 'species', r.species)} ${windowLabel(w)}: MAE ${withUnit(reported(w.mae), model.unit)}, bias ${withUnit(signedReported(w.bias), model.unit)}, n = ${formatInt(w.n)}.`)),
+    ...model.rows.flatMap((r) => r.windows.map((w) => `${labelOf(payload, 'species', r.species)} ${windowLabel(w)}: MAE ${withUnit(reported(w.mae, w.dp?.mae), model.unit)}, bias ${withUnit(signedReported(w.bias, w.dp?.bias), model.unit)}, n = ${formatInt(w.n)}.`)),
   ]);
   const disclosures = [
     EXCEPTION_NOTE,
@@ -185,7 +185,7 @@ export function momentumNotes({ payload, title = null } = {}) {
     disclosures.push('n is shown as reported; no interval is built from it.');
   }
   if (model.oneSigned.length) {
-    disclosures.push(`|bias| equals the MAE to the reported precision at ${model.oneSigned.map((w) => `${labelOf(payload, 'species', w.species)} ${windowLabel(w)} (${signedReported(w.bias)} ${model.unit})`).join(' and ')}: every error in such a window has one sign (F7). The dot is a diamond labelled "one sign".`);
+    disclosures.push(`|bias| equals the MAE to the reported precision at ${model.oneSigned.map((w) => `${labelOf(payload, 'species', w.species)} ${windowLabel(w)} (${signedReported(w.bias, w.dp?.bias)} ${model.unit})`).join(' and ')}: every error in such a window has one sign (F7). The dot is a diamond labelled "one sign".`);
   }
   if (model.notReported.length) disclosures.push(`${model.notReported.map((s) => labelOf(payload, 'species', s)).join(', ')}: the report gives no momentum windows.`);
   disclosures.push(LEAK_TEXT['oracle-separation']);
@@ -212,7 +212,7 @@ export function diagnosticsNotes({ payload, title = null } = {}) {
     `The proton segmentation's indecision, as dumbbells per frame: the energy-weighted ⟨|2f − 1|⟩ on 0–1 (1 = every voxel decided) and the share of the energy with ${reported(model.band[0])} ≤ f ≤ ${reported(model.band[1])} on 0–100 %, the network's prediction against the truth. Both axes start at zero and span the quantities' whole range.`,
     `Under the plot, screen only: ${blocks.map((b) => b.label).join('; ')}.`,
     ...model.panels.flatMap((p) => p.rows.map((r) => {
-      const v = (x) => (p.unit === '%' ? `${reported(Number(x.toPrecision(12)))} %` : reported(x));
+      const v = (x) => diagnosticsValueText(p, x);
       return `${labelOf(payload, 'frame', r.frame)}, ${p.short}: prediction ${v(r.predicted)}, truth ${v(r.truth)}.`;
     })),
   ]);

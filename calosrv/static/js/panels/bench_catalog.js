@@ -30,11 +30,12 @@
  * No colour literal: every colour is a THEME token or an E2 frame hue.
  */
 
-import { THEME, axisPadding, formatInt, typographic } from '../scale.js';
+import { THEME, axisPadding, formatInt } from '../scale.js';
 import { contrast } from '../palette.js';
 import { measureText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
-import { leakFlags, LEAK_TEXT, r2Text } from '../catalog/gating.js';
+import { leakFlags, LEAK_TEXT } from '../catalog/gating.js';
+import { printed, printedQualified } from '../catalog/select.js';
 import { sourceColours } from './perf_bins.js';
 import {
   ChartPanel, baseOption, wrapTooltip, valueAxis, fitName, mutedLine, escapeHtml, emptyChartOption, withColour,
@@ -73,17 +74,20 @@ export function frameHues() {
   return sourceColours([...CATALOG_FRAMES]);
 }
 
-/** A stored number as the report printed it (never re-rounded), U+2212 for a minus; '—' when absent. */
-export function reported(value) {
+/**
+ * A stored number as the report printed it, with the report's own decimals `dp` (the payload's `dp`;
+ * select.js `printed`), never re-rounded, U+2212 for a minus; '—' when absent. Without a count it prints in
+ * its shortest form, which is only right for an integer.
+ */
+export function reported(value, dp = null) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return typographic(String(value));
+  return printed(value, dp);
 }
 
 /** A signed number as reported, with an explicit + for a positive value (the report prints "+11,9"). */
-export function signedReported(value) {
+export function signedReported(value, dp = null) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  if (value > 0) return `+${typographic(String(value))}`;
-  return typographic(String(value));
+  return printed(value, dp, { sign: true });
 }
 
 /** `text` followed by its unit ('' for a unitless quantity). */
@@ -95,7 +99,7 @@ export function withUnit(text, unit) {
 export function qualifiedText(q, { thousands = false } = {}) {
   if (q === null || q === undefined) return 'not reported';
   if (typeof q === 'number') return thousands ? formatInt(q) : reported(q);
-  const n = (v) => (thousands ? formatInt(v) : reported(v));
+  const n = (v) => (thousands ? formatInt(v) : reported(v, q.dp ?? null));
   if (Array.isArray(q.range)) {
     const range = `${n(q.range[0])}–${n(q.range[1])}`;
     return q.qualifier === 'about' ? `~${range}` : q.qualifier === 'approx' ? `≈ ${range}` : range;
@@ -249,7 +253,12 @@ export class CatalogChartPanel extends ChartPanel {
       const { width } = this.size();
       if (width && this.fitHeight(width)) this.chart.resize();
     }
-    return super.paint();
+    const option = super.paint();
+    // Held while the card has no size (its subpage hidden): forget when it was laid out, so the relayout
+    // that shows it builds the option afresh. Without this, a theme switch made on another subpage left
+    // the dark picture on the light card (ChartPanel.relayout returns early when the size is unchanged).
+    if (option === null && this.lastPayload) this.laidOut = null;
+    return option;
   }
 
   exportMetrics(width) {
@@ -383,9 +392,11 @@ export function benchCatalogModel(payload, opts = {}) {
         if (negative) clamped += 1;
         const leaks = rowLeaks(facet, row);
         leaks.forEach((l) => leaksDrawn.add(l));
+        const dp = row.dp ?? {};
         rows.push({
           key: `${s}:${frame}`, index: keys.indexOf(`${s}:${frame}`), species: s, frame, row, value,
-          q, clamped: Boolean(negative), leaks,
+          q: q && facet.key !== 'energy-r2' ? { ...q, dp: dp.value ?? null } : q, clamped: Boolean(negative), leaks,
+          dp: { value: facet.key === 'energy-r2' ? q?.dp ?? null : dp.value ?? null, tta: dp.tta ?? null, rmse: dp.rmse ?? null },
           tta: facet.key === 'energy-r2' ? null : row.tta, rmse: facet.key === 'energy-r2' ? null : row.rmse,
         });
       }
@@ -519,21 +530,21 @@ export function catalogTip(payload, facet, r) {
   const fr = labelOf(payload, 'frame', r.frame);
   const unit = facet.unit;
   const name = facet.key === 'energy-r2' ? 'Energy R² to truth' : facet.label.replace(/ \[.*$/, '').replace(/, log₁₀ axis$/, '');
-  const shown = facet.key === 'energy-r2' ? r2Text(r.q) : reported(r.value);
+  const shown = facet.key === 'energy-r2' ? printedQualified(r.q) : reported(r.value, r.dp?.value);
   const lines = [`<b>${escapeHtml(sp)} · ${escapeHtml(fr)} · ${escapeHtml(name)}: ${escapeHtml(withUnit(shown, unit))}</b>`];
   if (r.clamped) {
-    lines.push(escapeHtml(`R² < 0: drawn clamped at 0 with an "R² < 0" mark; the report prints ${r2Text(r.q)}`));
+    lines.push(escapeHtml(`R² < 0: drawn clamped at 0 with an "R² < 0" mark; the report prints ${printedQualified(r.q)}`));
   }
   if (facet.key !== 'energy-r2') {
     lines.push(Number.isFinite(r.tta)
-      ? escapeHtml(`with test-time augmentation (TTA): ${withUnit(reported(r.tta), unit)} — the tick across the bar`)
+      ? escapeHtml(`with test-time augmentation (TTA): ${withUnit(reported(r.tta, r.dp?.tta), unit)} — the tick across the bar`)
       : escapeHtml(`TTA not reported for the ${sp.toLowerCase()}`));
     const extra = [];
-    if (Number.isFinite(r.rmse)) extra.push(`RMSE ${withUnit(reported(r.rmse), unit)} (hollow marker)`);
-    if (Number.isFinite(r.row.bias)) extra.push(`bias ${withUnit(signedReported(r.row.bias), unit)} (signed error as reported)`);
-    if (Number.isFinite(r.row.coreMae)) extra.push(`overlap-core MAE ${reported(r.row.coreMae)}`);
-    if (r.row.r2 && facet.key !== 'segmentation') extra.push(`R² to truth ${r2Text(r.row.r2)}`);
-    if (Number.isFinite(r.row.treeR2Net)) extra.push(`tree R² to the network ${reported(r.row.treeR2Net)}`);
+    if (Number.isFinite(r.rmse)) extra.push(`RMSE ${withUnit(reported(r.rmse, r.dp?.rmse), unit)} (hollow marker)`);
+    if (Number.isFinite(r.row.bias)) extra.push(`bias ${withUnit(signedReported(r.row.bias, r.row.dp?.bias), unit)} (signed error as reported)`);
+    if (Number.isFinite(r.row.coreMae)) extra.push(`overlap-core MAE ${reported(r.row.coreMae, r.row.dp?.coreMae)}`);
+    if (r.row.r2 && facet.key !== 'segmentation') extra.push(`R² to truth ${printedQualified(r.row.r2)}`);
+    if (Number.isFinite(r.row.treeR2Net)) extra.push(`tree R² to the network ${reported(r.row.treeR2Net, r.row.dp?.treeR2Net)}`);
     if (extra.length) lines.push(escapeHtml(extra.join(' · ')));
   }
   for (const flag of r.leaks) lines.push(mutedLine(`leak: ${LEAK_TEXT[flag]}`));
@@ -739,13 +750,13 @@ export function secondaryTableRows(payload) {
       labelOf(payload, 'species', r.species),
       labelOf(payload, 'task', r.task),
       labelOf(payload, 'frame', r.frame),
-      `${r.metric === 'e-mae' ? 'E-MAE' : 'MAE'} ${withUnit(reported(r.value), unitOf(r))}`,
-      Number.isFinite(r.tta) ? withUnit(reported(r.tta), unitOf(r)) : '—',
-      Number.isFinite(r.rmse) ? withUnit(reported(r.rmse), unitOf(r)) : '—',
-      Number.isFinite(r.bias) ? withUnit(signedReported(r.bias), unitOf(r)) : '—',
-      r.r2 ? r2Text(r.r2) : '—',
-      reported(r.coreMae),
-      reported(r.treeR2Net),
+      `${r.metric === 'e-mae' ? 'E-MAE' : 'MAE'} ${withUnit(reported(r.value, r.dp?.value), unitOf(r))}`,
+      Number.isFinite(r.tta) ? withUnit(reported(r.tta, r.dp?.tta), unitOf(r)) : '—',
+      Number.isFinite(r.rmse) ? withUnit(reported(r.rmse, r.dp?.rmse), unitOf(r)) : '—',
+      Number.isFinite(r.bias) ? withUnit(signedReported(r.bias, r.dp?.bias), unitOf(r)) : '—',
+      r.r2 ? printedQualified(r.r2) : '—',
+      reported(r.coreMae, r.dp?.coreMae),
+      reported(r.treeR2Net, r.dp?.treeR2Net),
       r.n ? `${formatInt(r.n.events)} events / ${formatInt(r.n.particles)} particles${r.n.nDerived ? ' (derived)' : ''}` : N_NOT_REPORTED,
     ]),
   };
