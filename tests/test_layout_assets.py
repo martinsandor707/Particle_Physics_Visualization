@@ -543,11 +543,27 @@ def test_the_models_page_loads_echarts_gl_and_its_own_entry_in_order():
     assert html.index("css/controls.css") < html.index("css/models.css")
 
 
+#: The Models page's subpages, in tab order, and their sections in page order.
+_SUBPAGES = {
+    "views": ["voxels-grid", "features-grid", "primaries-grid"],
+    "distill": ["distill-grid", "xgb-distill-grid"],
+    "perf": ["perf-grid", "resolution-grid", "xgb-grid", "bench-grid"],
+}
+
+
+def _subpage_block(main: str, msub: str) -> str:
+    start = main.index(f'<div class="models-subpage" id="msub-{msub}"')
+    ends = [main.index(f'<div class="models-subpage" id="msub-{other}"') for other in _SUBPAGES
+            if main.index(f'<div class="models-subpage" id="msub-{other}"') > start]
+    return main[start:min(ends) if ends else len(main)]
+
+
 def test_the_models_page_banners_status_and_sections_are_in_order():
     html = _models_html()
     main = html[html.index('<main class="main">'):html.index("</main>")]
-    order = ['id="banner"', 'id="xgb-notice"', 'id="networks-notice"', 'class="statusbar"', 'id="perf-grid"',
-             'id="resolution-grid"', 'id="xgb-grid"', 'id="features-grid"', 'id="primaries-grid"', 'id="voxels-grid"']
+    # The tab bar first, then the banners and the status bar, then the catalogue's bar, before every subpage.
+    order = ['id="models-subnav"', 'id="banner"', 'id="xgb-notice"', 'id="networks-notice"', 'id="kind-banner"',
+             'class="statusbar"', 'id="bench-bar"', 'id="msub-views"', 'id="msub-distill"', 'id="msub-perf"']
     positions = [main.index(token) for token in order]
     assert positions == sorted(positions)
     assert '<div class="banner is-info" id="xgb-notice"' in main
@@ -556,10 +572,85 @@ def test_the_models_page_banners_status_and_sections_are_in_order():
     status = main[main.index('class="statusbar"'):main.index("</div>", main.index('class="statusbar"'))]
     for token in ('id="stat-events"', 'id="stat-kind"', 'class="spacer"', 'id="stat-latency"'):
         assert token in status, token
-    for section in ("perf-grid", "resolution-grid", "xgb-grid", "features-grid", "primaries-grid"):
+    # Each section in its subpage, in that subpage's order.
+    for msub, sections in _SUBPAGES.items():
+        block = _subpage_block(main, msub)
+        positions = [block.index(f'id="{section}"') for section in sections]
+        assert positions == sorted(positions), msub
+        others = [s for m, ss in _SUBPAGES.items() if m != msub for s in ss]
+        assert not any(f'id="{section}"' in block for section in others), msub
+    for section in ("perf-grid", "resolution-grid", "xgb-grid", "xgb-distill-grid", "distill-grid", "bench-grid",
+                    "features-grid", "primaries-grid"):
         assert f'<section class="grid models-grid" id="{section}" hidden' in main, section
+        assert f'aria-labelledby="{section}-title"' in main and f'id="{section}-title"' in main, section
     # The 3-D host is empty: VoxelSection builds its own cards.
     assert re.search(r'<section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>', main)
+
+
+def test_the_models_subpages_are_a_tablist_of_three_tabpanels():
+    html = _models_html()
+    main = html[html.index('<main class="main">'):html.index("</main>")]
+    nav = re.search(r'<nav class="models-subnav" id="models-subnav" role="tablist" aria-label="Models page views">'
+                    r'(.*?)</nav>', main, re.DOTALL)
+    assert nav
+    tabs = re.findall(r"<button ([^>]*)>([^<]+)</button>", nav.group(1))
+    assert [label for _, label in tabs] == ["Views", "Distillations", "Performance"]
+    titles = {"views": "The 3-D views, the event-feature explorer and the primaries",
+              "distill": "Symbolic formulas, surrogate trees and feature importance",
+              "perf": "Network and XGBoost accuracy, resolution scaling and the benchmark catalogue"}
+    for (attrs, _), msub in zip(tabs, _SUBPAGES):
+        attrs = " ".join(attrs.split())
+        assert 'class="models-subtab"' in attrs and 'role="tab"' in attrs and 'type="button"' in attrs
+        assert f'id="msub-tab-{msub}"' in attrs and f'data-msub="{msub}"' in attrs
+        assert f'aria-controls="msub-{msub}"' in attrs and f'title="{titles[msub]}"' in attrs
+        # Views is the cold-boot subpage: the one tab in the tab order (roving tabindex).
+        selected = msub == "views"
+        assert f'aria-selected="{"true" if selected else "false"}"' in attrs, msub
+        assert f'tabindex="{"0" if selected else "-1"}"' in attrs, msub
+    for msub in _SUBPAGES:
+        hidden = "" if msub == "views" else " hidden"
+        assert (f'<div class="models-subpage" id="msub-{msub}" role="tabpanel" aria-labelledby="msub-tab-{msub}" '
+                f'data-msub="{msub}"{hidden}>') in main, msub
+        assert main.count(f'id="msub-{msub}"') == 1 and main.count(f'id="msub-tab-{msub}"') == 1
+
+
+def test_the_bench_bar_holds_its_two_groups_and_its_caption():
+    html = _models_html()
+    main = html[html.index('<main class="main">'):html.index("</main>")]
+    bar = main[main.index('<div class="bench-bar" id="bench-bar" hidden>'):main.index('id="msub-views"')]
+    assert '<span class="bench-group" id="bench-species" role="group" aria-label="Species">' in bar
+    assert '<span class="bench-group" id="bench-task" role="group" aria-label="Task">' in bar
+    assert '<p class="bench-caption" id="bench-caption"></p>' in bar
+    for element_id in ("bench-bar", "bench-species", "bench-task", "bench-caption"):
+        assert html.count(f'id="{element_id}"') == 1, element_id
+    colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
+    nav = main[main.index('id="models-subnav"'):main.index("</nav>")]
+    for part in (bar, nav):
+        assert not colour.search(part) and "style=" not in part
+    # The catalogue's notes say the selection does not apply, as E4/E5's does.
+    for section in ("distill-grid", "xgb-distill-grid", "bench-grid"):
+        head = main[main.index(f'id="{section}"'):main.index("</section>", main.index(f'id="{section}"'))]
+        assert "the selection does not apply" in head.lower() or "selection and the experiment do not apply" in head
+
+
+def test_the_catalogue_stylesheet_follows_the_models_one():
+    html = _models_html()
+    links = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+    assert links == ["/static/css/tokens.css", "/static/css/layout.css", "/static/css/controls.css",
+                     "/static/css/models.css", "/static/css/catalog.css"]
+
+
+def test_the_subpage_styles_are_tokens_only_and_still():
+    css = _strip_comments((STATIC / "css" / "models.css").read_text(encoding="utf-8"))
+    section = css[css.index(".models-subnav {"):css.index(".models-grid {")]
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", section)
+    assert "transition" not in section and "animation" not in section and "position: sticky" not in section
+    assert ".models-subpage[hidden] { display: none; }" in section and ".bench-bar[hidden] { display: none; }" in section
+    assert ".models-subtab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }" in section
+    assert '.models-subtab[aria-selected="true"]' in section
+    # The Longitudinal Channels leave the sidebar off Views by CSS, never through their hidden attribute.
+    assert ('.app[data-msub="distill"] #group-lgroups,\n.app[data-msub="perf"] #group-lgroups { display: none; }'
+            in section)
 
 
 def _methodology_html() -> str:

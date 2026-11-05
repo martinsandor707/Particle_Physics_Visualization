@@ -21,6 +21,19 @@
  * so a late response never draws the previous experiment's data under the
  * new one's name.
  *
+ * The page is split into three subpages under one tab bar
+ * (models_subpages.js; state key `msub`): Views (the 3-D views, the feature
+ * explorer, the primaries), Distillations (the training report's formulas
+ * and surrogates, and the XGBoost surrogate tree and importance) and
+ * Performance (network and XGBoost accuracy, the resolution scaling and the
+ * training report's benchmark catalogue). A switch only shows and hides the
+ * three wrappers: no card, chart or WebGL context is created or disposed by
+ * it. The sidebar follows the subpage (Longitudinal Channels on Views only,
+ * by CSS on `.app[data-msub]`; the Colour Map wherever a card on show reads
+ * the palette), and the catalogue's bar (`#bench-bar`: species and task) shows
+ * on Distillations and Performance. The catalogue reads the report, not the
+ * experiment, so it shows before any experiment is open.
+ *
  * The 3-D views (js/voxel_views.js `VoxelSection`) and the 2-D panel modules
  * are imported on first use by dynamic import. A module that fails to load
  * (the network, a stale cache) says so where it would have drawn instead of
@@ -34,13 +47,14 @@ import { articleSection } from './article_sections.js';
 import { FilterBlock } from './controls/filter_block.js';
 import { attachExportMenus } from './export/menu.js';
 import { LazyCards } from './lazy_cards.js';
-import { page2Plan, viewFrame } from './capabilities.js';
-import { CHOICE_LABELS, isLegacyFrame } from './labels.js';
+import { page2Plan, viewFrame, effectiveSpecies } from './capabilities.js';
+import { CHOICE_LABELS, MODELS_LABELS, isLegacyFrame } from './labels.js';
 import {
   Banner, describeError, fillComputeBadges, fillExperimentSelect, chooseExperiment, choiceGroup,
   wirePageTabs, tabHref, readDeepLink, returnLink, revealPanel, revealNotice,
 } from './page_common.js';
 import { ModelsSection } from './models_cards.js';
+import { mountSubnav, subpageOfCard, benchCaption, benchSpeciesToStore } from './models_subpages.js';
 import { formatInt, formatNumber, setScreenTheme } from './scale.js';
 import { initTheme } from './theme.js';
 import { setText, setHidden, setVal, missingIds } from './dom.js';
@@ -82,6 +96,9 @@ const models = new ModelsSection({
   perf: document.getElementById('perf-grid'),
   resolution: document.getElementById('resolution-grid'),
   xgb: document.getElementById('xgb-grid'),
+  xgbDistill: document.getElementById('xgb-distill-grid'),
+  distill: document.getElementById('distill-grid'),
+  bench: document.getElementById('bench-grid'),
   features: document.getElementById('features-grid'),
   primaries: document.getElementById('primaries-grid'),
 }, {
@@ -99,6 +116,102 @@ const models = new ModelsSection({
 
 /* The 3-D views, mounted by `mountVoxels` once their module has loaded. */
 let voxels = null;
+
+/* A panel that changes its own picture without a request (the energy-response
+ * curves' sliders, the formula chips' highlight) says so with
+ * `models:panelstate`: its notes are rebuilt, so the drawer describes what the
+ * card shows now. */
+main?.addEventListener('models:panelstate', (event) => {
+  const card = event?.detail?.card;
+  if (card && models.has(card)) buildNotes(card);
+});
+
+/* ----------------------------------------------------------- subpages */
+
+/* The tab bar and the three wrappers (models_subpages.js). The State's `msub`
+ * is applied at once; a switch then brings the sidebar and the catalogue's
+ * bar into line, re-lays the charts out at the sizes they now have and loads
+ * the stale cards that came into view. */
+const subnav = mountSubnav({
+  state,
+  onSwitch: (msub) => {
+    syncSidebar(msub);
+    syncBenchBar(msub);
+    relayoutAll();
+    refreshAll();
+  },
+});
+
+/**
+ * Whether a subpage shows the Colour Map: Views always (the 3-D views and the
+ * 2-D histograms); Distillations while the XGBoost surrogate tree is on show;
+ * Performance while the prediction density is (Martin's decision 3,
+ * 2026-11-05). The catalogue's cards read no palette.
+ */
+function colourMapShown(msub) {
+  if (msub === 'distill') return Boolean(plan.sections.xgbDistill);
+  if (msub === 'perf') return Boolean(plan.cards['pred-truth']?.shown);
+  return true;
+}
+
+/**
+ * The sidebar for a subpage. The filters, the network and the frame stay on
+ * every subpage. The Longitudinal Channels are hidden off Views by CSS on
+ * `.app[data-msub]`, never through their `hidden` attribute, which
+ * controls/layer_groups_control.js alone owns.
+ */
+function syncSidebar(msub = subnav.current()) {
+  setHidden('group-m-colormap', !colourMapShown(msub));
+}
+
+/* The catalogue's bar: species buttons (`bench_species`) and task buttons (the
+ * shared `model` key), built from labels.js. */
+function benchButtons(hostId, choices, attr, onPick) {
+  const host = document.getElementById(hostId);
+  const buttons = new Map();
+  if (!host) return buttons;
+  const group = document.createElement('span');
+  group.className = 'seg';
+  for (const choice of choices) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mini';
+    button.dataset[attr] = choice.value;
+    button.textContent = choice.label;
+    if (choice.title) button.title = choice.title;
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', () => onPick(choice.value));
+    group.append(button);
+    buttons.set(choice.value, button);
+  }
+  host.append(group);
+  return buttons;
+}
+
+/* A species click stores null when it picks what the experiment would show by
+ * itself, so the catalogue follows the experiment again (the theme toggle's
+ * rule). Either change re-reads the catalogue module: no request. */
+const speciesButtons = benchButtons('bench-species', MODELS_LABELS.bench_species, 'benchSpecies', (value) => {
+  state.set({ bench_species: benchSpeciesToStore(value, plan) });
+  syncBenchBar();
+  refreshAll();
+});
+const taskButtons = benchButtons('bench-task', MODELS_LABELS.bench_task, 'benchTask', (value) => setModel(value));
+
+/** The catalogue's bar: shown off Views, its pressed buttons and its caption. */
+function syncBenchBar(msub = subnav.current()) {
+  setHidden('bench-bar', msub === 'views');
+  const species = effectiveSpecies(state.get('bench_species'), plan);
+  for (const [value, button] of speciesButtons) press(button, value === species);
+  const task = state.get('model');
+  for (const [value, button] of taskButtons) press(button, value === task);
+  setText('bench-caption', benchCaption(state.get('bench_species'), plan, { open: Boolean(activeExperiment) }));
+}
+
+function press(button, on) {
+  button.classList.toggle('is-active', on);
+  button.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
 
 /** What the 3-D views' host says when their module failed to load. */
 const VOXELS_FAILED = 'The 3-D views could not be loaded; reload the page (Ctrl+Shift+R) to try again.';
@@ -308,11 +421,14 @@ const modelGroup = choiceGroup(document.getElementById('m-model'), {
   name: 'm-model',
   choices: CHOICE_LABELS.model,
   value: state.get('model'),
-  onChange: (value) => {
-    state.set({ model: value });
-    onSharedChange({ model: value });
-  },
+  onChange: (value) => setModel(value),
 });
+
+/** The network, from the sidebar radio or the catalogue's task buttons: one path. */
+function setModel(value) {
+  state.set({ model: value });
+  onSharedChange({ model: value });
+}
 
 /* The reference frame, flat: one radio per frame the experiment offers. */
 let frameGroup = null;
@@ -397,6 +513,7 @@ function syncModelControl() {
 function onSharedChange() {
   syncModelControl();
   syncFrameControl();
+  syncBenchBar();
   models.sync();
   refreshAll();
 }
@@ -413,19 +530,28 @@ function applyPagePlan(notices = []) {
   setText('networks-notice-text', plan.banner ?? '');
   kindBanner.show([...plan.notices, ...notices]);
 
-  const sections = {
-    perf: 'perf-grid', resolution: 'resolution-grid', xgb: 'xgb-grid', features: 'features-grid',
-    primaries: 'primaries-grid', voxels: 'voxels-grid',
-  };
-  for (const [key, id] of Object.entries(sections)) setHidden(id, !plan.sections[key]);
-  const run = plan.xgb.runs[0];
-  setText('xgb-grid-title', run
-    ? `XGBoost model — ${run.species ?? 'species unknown'}, seed ${run.seed ?? '—'}` : 'XGBoost model');
+  syncSections();
 
   setText('stat-kind', plan.kindLabel);
   syncModelControl();
   syncFrameControl();
   syncLayerControl();
+  syncSidebar();
+  syncBenchBar();
+}
+
+/** Every section shown or hidden by the plan, and the two XGBoost sections titled with the run. */
+function syncSections() {
+  const sections = {
+    perf: 'perf-grid', resolution: 'resolution-grid', xgb: 'xgb-grid', xgbDistill: 'xgb-distill-grid',
+    distill: 'distill-grid', bench: 'bench-grid', features: 'features-grid', primaries: 'primaries-grid',
+    voxels: 'voxels-grid',
+  };
+  for (const [key, id] of Object.entries(sections)) setHidden(id, !plan.sections[key]);
+  const run = plan.xgb.runs[0];
+  const named = run ? ` — ${run.species ?? 'species unknown'}, seed ${run.seed ?? '—'}` : '';
+  setText('xgb-grid-title', `XGBoost model${named}`);
+  setText('xgb-distill-grid-title', `XGBoost surrogate and importance${named}`);
 }
 
 /* --------------------------------------------------------- orchestration */
@@ -586,6 +712,9 @@ const MODELS_REQUIRED_IDS = [
   'xgb-notice', 'xgb-notice-text', 'networks-notice', 'networks-notice-text',
   'stat-events', 'stat-kind', 'stat-latency', 'experiment-select', 'badge-memory', 'badge-threads',
   'perf-grid', 'resolution-grid', 'xgb-grid', 'xgb-grid-title', 'features-grid', 'primaries-grid', 'voxels-grid',
+  'models-subnav', 'msub-tab-views', 'msub-tab-distill', 'msub-tab-perf', 'msub-views', 'msub-distill', 'msub-perf',
+  'bench-bar', 'bench-species', 'bench-task', 'bench-caption', 'distill-grid', 'distill-grid-title',
+  'xgb-distill-grid', 'xgb-distill-grid-title', 'bench-grid', 'bench-grid-title', 'group-m-colormap',
   'group-lgroups', 'info-lgroups', 'lgroups-notice', 'group-m-model', 'm-model', 'm-model-caption', 'group-m-frame', 'm-frame', 'm-frame-caption', 'm-colormap',
   'e1-lo', 'e1-hi', 'e1-fill', 'e1-num-lo', 'e1-num-hi', 'e2-lo', 'e2-hi', 'e2-fill', 'e2-num-lo', 'e2-num-hi',
   'd-lo', 'd-hi', 'd-fill', 'd-num-lo', 'd-num-hi', 'e1-label', 'e1-hint', 'filter-logic', 'ctl-undefined-d',
@@ -603,6 +732,9 @@ function landDeepLink(link) {
   if (!activeExperiment) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
+  // The card's subpage first (idempotent: boot already switched to it).
+  const msub = subpageOfCard(link.panel);
+  if (msub) subnav.show(msub);
   const result = revealPanel(link.panel ?? '', { shell });
   if (result.ok) return;
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
@@ -623,6 +755,17 @@ async function boot() {
       + '(Ctrl+Shift+R). The page will continue with those readouts blank.',
     ], true);
   }
+  // A badge's card is on its subpage before anything loads, so no request is
+  // spent on the subpage the link did not ask for.
+  const linked = deepLink?.panel ? subpageOfCard(deepLink.panel) : null;
+  if (linked) subnav.show(linked);
+  // The catalogue reads the training report, not an experiment: its sections
+  // and cards show, and those in view load, before any experiment is open.
+  syncSections();
+  syncSidebar();
+  syncBenchBar();
+  models.applyPlan(page2Plan(null));
+  refreshAll();
   try {
     restoreControlsFromState();
   } catch (error) {

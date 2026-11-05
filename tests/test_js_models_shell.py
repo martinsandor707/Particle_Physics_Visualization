@@ -21,6 +21,14 @@ Around the plan:
   panel module that fails to load, a response that lands after an experiment
   switch, the notes routed by builder name and the export targets;
 * ``page_common.js``: the page tabs' hrefs carry the hash at click time;
+* ``models_subpages.js``: the three subpages (``msub``) and the catalogue's
+  species (``bench_species``) in the hash, never written at their defaults
+  nor set by the Admin defaults; the subpage of every card; the router on a
+  fake page (hidden wrappers, ``aria-selected``, roving ``tabindex``, the
+  WAI-ARIA keys, each subpage's scroll position, the hash write, ``onSwitch``
+  after it, no card created or removed); the species bar's stored value and
+  caption; and a deep link that switches to its card's subpage before it
+  lands, both on the fake page and in ``models_main.js``'s boot order;
 * ``controls/admin.js``: the model-runs list as the route serves it, and Rescan models:
   a POST to the scan route, then the list read again with GET, which queues
   nothing.
@@ -31,10 +39,12 @@ Skipped when ``node`` is not on the PATH.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 from test_js_physics_shell import _FAKE_DOM, JS, NODE, _path, _run
+from test_layout_assets import _strip_comments
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
@@ -104,7 +114,9 @@ def plan_results() -> dict:
 
 
 PERF = ["perf-bins", "pred-truth", "pred-residuals"]
-XGB = ["xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance"]
+XGB_PERF = ["xgb-cv", "xgb-binary"]
+XGB_DISTILL = ["xgb-surrogate", "xgb-importance"]
+XGB = XGB_PERF + XGB_DISTILL
 FEATURES = ["feat-table", "feat-corr", "feat-hist", "feat-hist2d"]
 
 
@@ -117,8 +129,8 @@ def _reason(kind: str, gate: str) -> str:
 
 def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_results):
     plan = plan_results["plans"]["two_shower_hits"]
-    assert plan["sections"] == {"perf": True, "resolution": True, "xgb": False, "features": True, "primaries": True,
-                                "voxels": True}
+    assert plan["sections"] == {"perf": True, "resolution": True, "xgb": False, "xgbDistill": False, "distill": True,
+                                "bench": True, "features": True, "primaries": True, "voxels": True}
     for card in PERF + FEATURES:
         assert plan["cards"][card] == {"shown": True, "enabled": True, "reason": None}, card
     # The primaries need species: the card is on show, shut with the server's reason.
@@ -145,8 +157,8 @@ def test_the_two_shower_plan_offers_every_network_view_and_no_xgboost(plan_resul
 
 def test_a_single_shower_plan_hides_the_network_cards_and_says_so(plan_results):
     plan = plan_results["plans"]["single_shower_hits"]
-    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "features": True, "primaries": True,
-                                "voxels": True}
+    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "xgbDistill": False, "distill": True,
+                                "bench": True, "features": True, "primaries": True, "voxels": True}
     assert plan["cards"]["prim-rate"] == {"shown": True, "enabled": True, "reason": None}
     assert plan["banner"] == plan_results["texts"]["missing"]
     assert plan["networks"] is False and plan["models"] == []
@@ -163,8 +175,8 @@ def test_a_single_shower_plan_hides_the_network_cards_and_says_so(plan_results):
 
 def test_the_events_only_plan_keeps_the_features_and_hides_the_hit_sections(plan_results):
     plan = plan_results["plans"]["single_shower_events"]
-    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "features": True, "primaries": False,
-                                "voxels": False}
+    assert plan["sections"] == {"perf": False, "resolution": True, "xgb": False, "xgbDistill": False, "distill": True,
+                                "bench": True, "features": True, "primaries": False, "voxels": False}
     for card in FEATURES:
         assert plan["cards"][card]["enabled"] is True
     assert plan["cards"]["vox-event"]["shown"] is False
@@ -181,6 +193,8 @@ def test_a_paired_aggregate_opens_the_xgboost_section_and_hides_its_notice(plan_
     assert [r["status"] for r in experiment["capabilities"]["model_runs"]] == ["done", "done"]
     plan = plan_results["open"]
     assert plan["sections"]["xgb"] is True and plan["sections"]["perf"] is True
+    # E4 and E5 (Distillations) open with E1 and E3 (Performance): one gate, two sections.
+    assert plan["sections"]["xgbDistill"] is True
     assert plan["sections"]["resolution"] is True
     assert plan["cards"]["res-scaling"] == {"shown": True, "enabled": True, "reason": None}
     for card in XGB:
@@ -211,15 +225,19 @@ def test_a_ready_analysis_with_every_split_reproduced_says_so(plan_results):
 
 def test_a_running_analysis_shows_the_xgboost_cards_shut_with_the_servers_sentence(plan_results):
     plan = plan_results["running"]
-    assert plan["sections"]["xgb"] is True and plan["xgbNotice"] is None
+    assert plan["sections"]["xgb"] is True and plan["sections"]["xgbDistill"] is True and plan["xgbNotice"] is None
     for card in XGB:
         assert plan["cards"][card] == {"shown": True, "enabled": False, "reason": "Analysing: 3 of 7 steps."}
     assert plan["xgb"]["status"] == "pending"
 
 
 def test_an_experiment_without_the_block_shows_nothing_it_cannot_vouch_for(plan_results):
+    """Nothing of the experiment's; the training report's catalogue reads no experiment and always shows."""
     for plan in (plan_results["legacy"], plan_results["none"]):
-        assert not any(plan["sections"].values())
+        catalogue = {key: plan["sections"][key] for key in ("distill", "bench")}
+        rest = {key: value for key, value in plan["sections"].items() if key not in catalogue}
+        assert catalogue == {"distill": True, "bench": True}
+        assert rest and not any(rest.values()), rest
 
 
 def test_each_view_falls_back_to_a_frame_it_can_draw_in_and_says_so(plan_results):
@@ -691,8 +709,9 @@ const plan = caps.page2Plan(exps.two_shower_hits);
 state.restrictAxes(plan.axes);
 state.set({ table_name: 'experiment_baseline' }, { silent: true });
 state.adoptSnappedBounds(exps.two_shower_hits.bounds);
-const hosts = Object.fromEntries(['perf', 'xgb', 'features', 'primaries'].map((k) => {
-  const el = document.createElement('section'); el.id = `${k}-grid`; return [k, el];
+const hosts = Object.fromEntries(Object.entries({ perf: 'perf-grid', xgb: 'xgb-grid', xgbDistill: 'xgb-distill-grid',
+  features: 'features-grid', primaries: 'primaries-grid' }).map(([k, id]) => {
+  const el = document.createElement('section'); el.id = id; return [k, el];
 }));
 const rendersSeen = [];
 const errors = [];
@@ -881,7 +900,9 @@ def test_every_card_has_the_page_anatomy(section_results):
         else:
             assert a["lastExport"] == card and "plot area only" in a["exportTitle"], card
     hosts = {card: a["host"] for card, a in anatomy.items()}
-    assert {hosts[c] for c in PERF} == {"perf-grid"} and {hosts[c] for c in XGB} == {"xgb-grid"}
+    assert {hosts[c] for c in PERF} == {"perf-grid"}
+    # E1 and E3 on Performance, E4 and E5 on Distillations (Martin's decision 4).
+    assert {hosts[c] for c in XGB_PERF} == {"xgb-grid"} and {hosts[c] for c in XGB_DISTILL} == {"xgb-distill-grid"}
     assert {hosts[c] for c in FEATURES} == {"features-grid"} and hosts["prim-rate"] == "primaries-grid"
     assert {c for c, a in anatomy.items() if a["wide"]} == {"perf-bins", "xgb-surrogate", "xgb-importance",
                                                             "feat-table", "feat-hist2d"}
@@ -1279,3 +1300,407 @@ def test_reveal_panel_lands_on_a_shown_card_and_says_why_not_otherwise(deep_resu
     assert unknown == "The Methodology linked to a panel this page does not have (zz)."
     assert hostile == "The Methodology linked to a panel this page does not have."
     assert landed == ""
+
+
+# ------------------------------------------------------- the subpages --
+#
+# The Models page's three subpages (models_subpages.js; state key `msub`) and
+# the benchmark catalogue's species (`bench_species`): the two keys in the
+# hash, the card→subpage map, the router on the fake document, the bar's
+# caption and the deep link that switches to its card's subpage first.
+
+_SUBPAGE_STATE_SCRIPT = _FAKE_DOM + r"""
+const [stateUrl] = JSON.parse(process.argv[1]);
+const { State, DEFAULTS, MSUBS, BENCH_SPECIES } = await import(stateUrl);
+const out = {};
+const fresh = (hash) => { window.location.hash = hash; replaced = []; return new State(); };
+let s = fresh('#msub=distill&bench_species=muon');
+out.read = { msub: s.get('msub'), bench: s.get('bench_species'), cold: s.coldBoot };
+s.writeHash();
+out.written = window.location.hash;
+s = fresh('#msub=extra&bench_species=kaon');
+out.invalid = { msub: s.get('msub'), bench: s.get('bench_species'), cold: s.coldBoot };
+s = fresh('#bench_species=all');
+out.all = s.get('bench_species');
+s = fresh('');
+s.set({ msub: 'perf' });
+out.perfHash = window.location.hash;
+s.set({ msub: 'views' });
+out.viewsHash = window.location.hash;
+s.set({ bench_species: 'electron' });
+out.benchHash = window.location.hash;
+s.set({ bench_species: null });
+out.benchBack = window.location.hash;
+// Neither page strips the other's keys: a Physics key and the Models keys survive one another's writes.
+s = fresh('#event=3&compare=true&msub=perf&bench_species=pion');
+s.set({ channel: 'gradcam' });
+out.mixed = window.location.hash;
+// Not defaultable: a cold boot takes the Admin defaults, and never these two.
+s = fresh('');
+out.applied = s.applyDefaults({ table_name: 'alpha', frame: 'trans', msub: 'perf', bench_species: 'muon' });
+out.afterDefaults = { msub: s.get('msub'), bench: s.get('bench_species'), frame: s.get('frame') };
+out.defaults = { msub: DEFAULTS.msub, bench_species: DEFAULTS.bench_species };
+out.enums = { msubs: [...MSUBS], bench: [...BENCH_SPECIES] };
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def subpage_state() -> dict:
+    return _run(_SUBPAGE_STATE_SCRIPT, [(JS / "state.js").as_uri()])
+
+
+def test_the_subpage_and_species_keys_round_trip_through_the_hash(subpage_state):
+    r = subpage_state
+    assert r["read"] == {"msub": "distill", "bench": "muon", "cold": False}
+    assert r["written"] == "#msub=distill&bench_species=muon"
+    assert r["all"] == "all"
+    assert r["enums"] == {"msubs": ["views", "distill", "perf"],
+                          "bench": ["proton", "muon", "electron", "pion", "all"]}
+
+
+def test_the_subpage_and_species_defaults_are_never_written(subpage_state):
+    r = subpage_state
+    assert r["defaults"] == {"msub": "views", "bench_species": None}
+    assert r["perfHash"] == "#msub=perf" and r["viewsHash"] == ""
+    assert r["benchHash"] == "#bench_species=electron" and r["benchBack"] == ""
+
+
+def test_an_invalid_subpage_or_species_keeps_its_default(subpage_state):
+    assert subpage_state["invalid"] == {"msub": "views", "bench": None, "cold": False}
+
+
+def test_neither_page_strips_the_subpage_keys_and_admin_defaults_never_set_them(subpage_state):
+    r = subpage_state
+    written = dict(part.split("=") for part in r["mixed"].lstrip("#").split("&"))
+    assert written == {"event": "3", "compare": "true", "msub": "perf", "bench_species": "pion",
+                       "channel": "gradcam"}
+    assert r["applied"] is True
+    assert r["afterDefaults"] == {"msub": "views", "bench": None, "frame": "trans"}
+
+
+def _voxel_card_ids() -> list:
+    source = (JS / "voxel_views.js").read_text(encoding="utf-8")
+    block = source[source.index("export const VOXEL_CARDS"):]
+    block = block[:block.index("]);")]
+    return re.findall(r"\{ id: '([^']+)'", block)
+
+
+_ROUTER_SCRIPT = _FAKE_DOM + _OPEN_GATE + _XGB_ARG + r"""
+const [stateUrl, subUrl, capsUrl, cardsUrl, commonUrl, voxelIds, cataloguePath] = JSON.parse(process.argv[1]);
+const { State } = await import(stateUrl);
+const sub = await import(subUrl);
+const caps = await import(capsUrl);
+const cards = await import(cardsUrl);
+const common = await import(commonUrl);
+const catalogue = load(cataloguePath);
+const out = {};
+
+// The card -> subpage map, for every card of both sections.
+out.ofCard = Object.fromEntries([...cards.MODELS_CARDS.map((c) => c.id), ...voxelIds]
+  .map((id) => [id, sub.subpageOfCard(id)]));
+out.ofUnknown = [sub.subpageOfCard('xy'), sub.subpageOfCard(''), sub.subpageOfCard(null), sub.subpageOfCard('voxels')];
+out.voxelFamily = voxelIds.map((id) => sub.VOXEL_FAMILY.test(id));
+out.cardsFamily = cards.MODELS_CARDS.filter((c) => sub.VOXEL_FAMILY.test(c.id)).map((c) => c.id);
+out.sections = Object.fromEntries(cards.MODELS_CARDS.map((c) => [c.id, c.section]));
+out.subpageSections = caps.SUBPAGE_SECTIONS;
+
+// The router on a fake page: three tabs, three wrappers, .app and .main.
+let focused = null;
+const page = () => {
+  const ids = new Map();
+  const make = (tag, id) => { const el = document.createElement(tag); if (id) { el.id = id; ids.set(id, el); } return el; };
+  const app = make('div'); app.className = 'app';
+  const main = make('main'); main.className = 'main'; main.scrollTop = 0;
+  app.append(main);
+  const nav = make('nav', 'models-subnav'); main.append(nav);
+  for (const m of ['views', 'distill', 'perf']) {
+    const tab = make('button', `msub-tab-${m}`);
+    tab.focus = () => { focused = tab.id; };
+    nav.append(tab);
+    const panel = make('div', `msub-${m}`);
+    panel.hidden = m !== 'views';
+    main.append(panel);
+  }
+  // A card in each wrapper, as the sections hold them.
+  const card = (id, wrapper) => {
+    const el = make('div'); el.className = 'card'; el.dataset.panel = id;
+    const inspect = make('button'); inspect.dataset.inspect = id; el.append(inspect);
+    el.querySelector = (sel) => (sel === '[data-inspect]' ? inspect : null);
+    el.scrollIntoView = () => {};
+    ids.get(wrapper).append(el);
+    return el;
+  };
+  const cardEls = { 'vox-event': card('vox-event', 'msub-views'), 'distill-pysr': card('distill-pysr', 'msub-distill'),
+    'xgb-surrogate': card('xgb-surrogate', 'msub-distill'), 'perf-catalog': card('perf-catalog', 'msub-perf') };
+  return {
+    app, main, ids, cardEls,
+    root: {
+      getElementById: (id) => ids.get(id) ?? null,
+      querySelector: (sel) => {
+        if (sel === '.app') return app;
+        if (sel === '.main') return main;
+        const m = /^\.card\[data-panel="([^"]+)"\]$/.exec(sel);
+        return m ? cardEls[m[1]] ?? null : null;
+      },
+    },
+  };
+};
+const snapshot = (p) => ({
+  hidden: ['views', 'distill', 'perf'].map((m) => p.ids.get(`msub-${m}`).hidden),
+  selected: ['views', 'distill', 'perf'].map((m) => p.ids.get(`msub-tab-${m}`).getAttribute('aria-selected')),
+  tabindex: ['views', 'distill', 'perf'].map((m) => p.ids.get(`msub-tab-${m}`).getAttribute('tabindex')),
+  app: p.app.dataset.msub,
+  hash: window.location.hash,
+  scroll: p.main.scrollTop,
+});
+
+window.location.hash = '';
+let state = new State();
+let p = page();
+const children = () => ['views', 'distill', 'perf'].map((m) => p.ids.get(`msub-${m}`).children.length);
+const before = children();
+const switched = [];
+let router = sub.mountSubnav({ state, root: p.root, onSwitch: (m) => switched.push([m, window.location.hash]) });
+out.initial = { ...snapshot(p), current: router.current(), switched: [...switched] };
+
+// A click: the wrapper shown, the tab selected, the hash written, onSwitch after the write.
+p.main.scrollTop = 420;
+p.ids.get('msub-tab-perf').click();
+out.click = { ...snapshot(p), current: router.current(), switched: [...switched] };
+// Scroll memory: each subpage keeps its own place, restored on return.
+p.main.scrollTop = 75;
+router.show('views');
+out.backToViews = snapshot(p);
+router.show('perf');
+out.backToPerf = snapshot(p);
+// Showing the subpage on show changes nothing and calls no one.
+const n = switched.length;
+out.same = { changed: router.show('perf'), switched: switched.length - n };
+// An unknown subpage means Views.
+router.show('bogus');
+out.bogus = snapshot(p);
+// The keys (WAI-ARIA tabs): arrows wrap, Home and End jump, focus follows the selection.
+const key = (m, k) => {
+  let prevented = false;
+  for (const fn of p.ids.get(`msub-tab-${m}`).listeners.keydown ?? []) fn({ key: k, preventDefault() { prevented = true; } });
+  return { current: router.current(), focused, prevented };
+};
+out.keys = [key('views', 'ArrowLeft'), key('perf', 'ArrowRight'), key('views', 'ArrowRight'), key('distill', 'End'),
+  key('perf', 'Home'), key('views', 'Tab')];
+out.afterKeys = snapshot(p);
+// Write false: no hash write, the switch still made.
+router.show('distill', { write: false });
+out.noWrite = { ...snapshot(p), state: state.get('msub') };
+// The WebGL rule: no switch created or removed a card.
+out.children = { before, after: children() };
+
+// A link's subpage is applied at mount, silently: no write, no onSwitch.
+window.location.hash = '#msub=distill&frame=local';
+state = new State();
+p = page();
+replaced = [];
+const quiet = [];
+router = sub.mountSubnav({ state, root: p.root, onSwitch: (m) => quiet.push(m) });
+out.linked = { ...snapshot(p), current: router.current(), switched: quiet, writes: replaced.length };
+
+// The deep link: a card on a hidden subpage cannot land; the switch first lets it.
+window.location.hash = '';
+state = new State();
+p = page();
+router = sub.mountSubnav({ state, root: p.root });
+const opened = [];
+const shell = { openInspector: (id) => opened.push(id) };
+out.deep = { before: common.revealPanel('perf-catalog', { root: p.root, shell }).ok };
+router.show(sub.subpageOfCard('perf-catalog'));
+out.deep.after = common.revealPanel('perf-catalog', { root: p.root, shell }).ok;
+out.deep.twice = router.show(sub.subpageOfCard('perf-catalog'));
+out.deep.opened = [...opened];
+out.deep.hash = window.location.hash;
+// The 3-D views' card lands on Views.
+router.show(sub.subpageOfCard('vox-event'));
+out.deep.voxel = common.revealPanel('vox-event', { root: p.root, shell }).ok;
+
+// The catalogue's bar: what a species click stores, and the caption.
+const exps = Object.fromEntries(catalogue.experiments.map((e) => [e.capabilities.kind, e]));
+const two = caps.page2Plan(exps.two_shower_hits);
+const electron = caps.page2Plan(openGate());
+const none = caps.page2Plan(null);
+out.store = {
+  electronFollow: sub.benchSpeciesToStore('electron', electron),
+  electronMuon: sub.benchSpeciesToStore('muon', electron),
+  electronAll: sub.benchSpeciesToStore('all', electron),
+  twoAll: sub.benchSpeciesToStore('all', two),
+  twoProton: sub.benchSpeciesToStore('proton', two),
+};
+out.caption = {
+  following: sub.benchCaption(null, electron),
+  unnamed: sub.benchCaption(null, two),
+  closed: sub.benchCaption(null, none, { open: false }),
+  chosen: sub.benchCaption('muon', electron),
+  chosenUnnamed: sub.benchCaption('muon', two),
+  chosenAll: sub.benchCaption('all', electron),
+  chosenOwn: sub.benchCaption('electron', electron),
+  unknown: sub.benchCaption('kaon', two),
+};
+out.provenance = sub.BENCH_PROVENANCE;
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def router_results() -> dict:
+    return _run(_ROUTER_SCRIPT, _with_xgb([
+        (JS / "state.js").as_uri(), (JS / "models_subpages.js").as_uri(), (JS / "capabilities.js").as_uri(),
+        (JS / "models_cards.js").as_uri(), (JS / "page_common.js").as_uri(), _voxel_card_ids(), _path("experiments"),
+    ]))
+
+
+def test_every_card_has_its_subpage(router_results):
+    r = router_results
+    expected = {"views": ["voxels", "features", "primaries"], "distill": ["distill", "xgbDistill"],
+                "perf": ["perf", "resolution", "xgb", "bench"]}
+    assert r["subpageSections"] == expected
+    of_section = {section: msub for msub, sections in expected.items() for section in sections}
+    for card, section in r["sections"].items():
+        assert r["ofCard"][card] == of_section[section], card
+    voxel_ids = _voxel_card_ids()
+    assert len(voxel_ids) == 8 and all(r["ofCard"][card] == "views" for card in voxel_ids)
+    # E1/E3 on Performance, E4/E5 on Distillations, the catalogue on both (decision 4).
+    assert [r["ofCard"][c] for c in ("xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance")] == \
+        ["perf", "perf", "distill", "distill"]
+    assert [r["ofCard"][c] for c in ("distill-pysr", "distill-triangle", "distill-curves")] == ["distill"] * 3
+    assert [r["ofCard"][c] for c in ("perf-catalog", "perf-overlap", "perf-momentum-bias", "perf-diagnostics")] == \
+        ["perf"] * 4
+    assert r["ofUnknown"] == [None, None, None, None]
+
+
+def test_the_voxel_family_is_the_3d_cards_and_no_other(router_results):
+    assert all(router_results["voxelFamily"])
+    assert router_results["cardsFamily"] == []
+
+
+def test_the_router_starts_on_the_states_subpage_silently(router_results):
+    r = router_results
+    assert r["initial"]["hidden"] == [False, True, True]
+    assert r["initial"]["selected"] == ["true", "false", "false"]
+    assert r["initial"]["tabindex"] == ["0", "-1", "-1"]
+    assert r["initial"]["app"] == "views" and r["initial"]["current"] == "views"
+    assert r["initial"]["switched"] == [] and r["initial"]["hash"] == ""
+    linked = r["linked"]
+    assert linked["hidden"] == [True, False, True] and linked["selected"] == ["false", "true", "false"]
+    assert linked["tabindex"] == ["-1", "0", "-1"] and linked["app"] == "distill"
+    assert linked["switched"] == [] and linked["writes"] == 0 and linked["current"] == "distill"
+
+
+def test_a_click_switches_writes_the_hash_and_then_tells_the_page(router_results):
+    c = router_results["click"]
+    assert c["hidden"] == [True, True, False] and c["selected"] == ["false", "false", "true"]
+    assert c["tabindex"] == ["-1", "-1", "0"] and c["app"] == "perf" and c["current"] == "perf"
+    assert c["hash"] == "#msub=perf"
+    # onSwitch runs after the write: it sees the new hash.
+    assert c["switched"] == [["perf", "#msub=perf"]]
+    # Views is the default: it leaves the hash.
+    assert router_results["backToViews"]["hash"] == ""
+
+
+def test_each_subpage_keeps_its_own_scroll_position(router_results):
+    r = router_results
+    assert r["click"]["scroll"] == 0, "Performance had never been scrolled"
+    assert r["backToViews"]["scroll"] == 420
+    assert r["backToPerf"]["scroll"] == 75
+
+
+def test_showing_the_subpage_on_show_is_a_no_op_and_an_unknown_one_is_views(router_results):
+    r = router_results
+    assert r["same"] == {"changed": False, "switched": 0}
+    assert r["bogus"]["hidden"] == [False, True, True] and r["bogus"]["app"] == "views"
+
+
+def test_the_tab_keys_follow_the_wai_aria_pattern(router_results):
+    keys = router_results["keys"]
+    # Left from the first wraps to the last; right from the last wraps to the first.
+    assert keys[0] == {"current": "perf", "focused": "msub-tab-perf", "prevented": True}
+    assert keys[1] == {"current": "views", "focused": "msub-tab-views", "prevented": True}
+    assert keys[2] == {"current": "distill", "focused": "msub-tab-distill", "prevented": True}
+    assert keys[3] == {"current": "perf", "focused": "msub-tab-perf", "prevented": True}
+    assert keys[4] == {"current": "views", "focused": "msub-tab-views", "prevented": True}
+    # Any other key is the browser's (Tab leaves the tab list).
+    assert keys[5] == {"current": "views", "focused": "msub-tab-views", "prevented": False}
+    assert router_results["afterKeys"]["tabindex"] == ["0", "-1", "-1"]
+
+
+def test_a_switch_without_a_write_leaves_the_link_alone(router_results):
+    r = router_results["noWrite"]
+    assert r["hidden"] == [True, False, True] and r["hash"] == "" and r["state"] == "views"
+
+
+def test_a_switch_creates_and_removes_no_card(router_results):
+    assert router_results["children"]["before"] == router_results["children"]["after"] == [1, 2, 1]
+    source = _strip_comments((JS / "models_subpages.js").read_text(encoding="utf-8"))
+    for forbidden in ("dispose", "createElement", "innerHTML", "replaceChildren", ".remove(", "echarts"):
+        assert forbidden not in source, forbidden
+
+
+def test_a_deep_link_switches_to_its_cards_subpage_before_it_lands(router_results):
+    d = router_results["deep"]
+    assert d["before"] is False, "a card on a hidden subpage cannot land"
+    assert d["after"] is True and d["twice"] is False and d["opened"] == ["perf-catalog"]
+    assert d["hash"] == "#msub=perf" and d["voxel"] is True
+
+
+def test_a_species_click_on_the_experiments_own_species_follows_it_again(router_results):
+    assert router_results["store"] == {"electronFollow": None, "electronMuon": "muon", "electronAll": "all",
+                                       "twoAll": None, "twoProton": "proton"}
+
+
+def test_the_bench_caption_says_whose_species_and_where_it_comes_from(router_results):
+    c, provenance = router_results["caption"], router_results["provenance"]
+    assert provenance == ("From the training report (models_performance.md): documented point estimates, no "
+                          "intervals reported; the selection and the experiment do not apply.")
+    assert all(text.endswith(provenance) for text in c.values())
+    assert c["following"].startswith("Following the experiment: Electron, the species of its paired XGBoost models.")
+    assert c["unnamed"].startswith("This experiment does not name its species, so the catalogue shows all four.")
+    assert c["closed"].startswith("No experiment is open, so the catalogue shows all four.")
+    assert c["chosen"].startswith("Chosen: Muon. Choose Electron to follow the experiment again.")
+    assert c["chosenUnnamed"].startswith("Chosen: Muon. Choose Compare all to follow the experiment again.")
+    assert c["chosenAll"].startswith("Chosen: Compare all. Choose Electron to follow the experiment again.")
+    assert c["chosenOwn"].startswith("Chosen: Electron, which is also what the experiment would show")
+    assert c["unknown"] == c["unnamed"]
+
+
+def _main_source() -> str:
+    return _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+
+
+def test_the_page_switches_to_the_linked_subpage_before_anything_loads():
+    main = _main_source()
+    boot = re.search(r"async function boot\(\) \{(.*?)\n\}", main, re.DOTALL).group(1)
+    order = ["readDeepLink(location.search)", "subpageOfCard(deepLink.panel)", "subnav.show(linked)",
+             "models.applyPlan(page2Plan(null))", "mountVoxels()", "loadCatalogue("]
+    positions = [boot.index(token) for token in order]
+    assert positions == sorted(positions)
+    land = re.search(r"function landDeepLink\(link\) \{(.*?)\n\}", main, re.DOTALL).group(1)
+    assert land.index("setReturnLink(") < land.index("subnav.show(msub)") < land.index("revealPanel(")
+
+
+def test_the_page_wires_the_subpages_the_sidebar_and_the_bench_bar():
+    main = _main_source()
+    for host in ("xgbDistill: document.getElementById('xgb-distill-grid')",
+                 "distill: document.getElementById('distill-grid')", "bench: document.getElementById('bench-grid')"):
+        assert host in main, host
+    switch = re.search(r"onSwitch: \(msub\) => \{(.*?)\n  \},", main, re.DOTALL).group(1)
+    for call in ("syncSidebar(msub)", "syncBenchBar(msub)", "relayoutAll()", "refreshAll()"):
+        assert call in switch, call
+    # The Longitudinal Channels' hidden attribute is the control's alone; the Colour Map is the page's.
+    assert "setHidden('group-lgroups'" not in main and "setHidden('group-m-colormap', " in main
+    assert "plan.sections.xgbDistill" in main and "plan.cards['pred-truth']?.shown" in main
+    # The task buttons take the sidebar radio's path; a species click may store null.
+    assert "onChange: (value) => setModel(value)" in main and "(value) => setModel(value))" in main
+    assert "benchSpeciesToStore(value, plan)" in main
+    assert "addEventListener('models:panelstate'" in main
+    for element_id in ("models-subnav", "msub-tab-views", "msub-tab-distill", "msub-tab-perf", "msub-views",
+                       "msub-distill", "msub-perf", "bench-bar", "bench-species", "bench-task", "bench-caption",
+                       "distill-grid", "distill-grid-title", "xgb-distill-grid", "xgb-distill-grid-title",
+                       "bench-grid", "bench-grid-title", "group-m-colormap"):
+        assert f"'{element_id}'" in main.split("const MODELS_REQUIRED_IDS")[1].split("];")[0], element_id

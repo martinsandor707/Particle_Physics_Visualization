@@ -9,11 +9,15 @@
 <link rel="stylesheet" href="/static/css/layout.css">
 <link rel="stylesheet" href="/static/css/controls.css">
 <link rel="stylesheet" href="/static/css/models.css">
+<link rel="stylesheet" href="/static/css/catalog.css">
 </head>
 <body>
 
 <!-- The Models page: network and XGBoost performance, the event-feature
-     explorer, the primaries and the 3-D views. The shell - header, sidebar,
+     explorer, the primaries, the 3-D views and the training report's
+     benchmark catalogue, on three subpages under one tab bar (Views,
+     Distillations, Performance; js/models_subpages.js, state key msub). A
+     switch only shows and hides the three wrappers. The shell - header, sidebar,
      Details drawer, tooltip layer - is the Physics page's, with the same ids,
      so js/shell.js and js/controls/filter_block.js serve both pages. The cards
      are built by js/models_cards.js and the 3-D views by js/voxel_views.js;
@@ -199,6 +203,21 @@
   <!-- =============================================================== main -->
   <main class="main">
 
+    <!-- The subpages' tab bar (WAI-ARIA tabs: arrows, Home and End move the
+         selection, one tab in the tab order). The selected subpage is the
+         link's msub; Views, the default, is never written. -->
+    <nav class="models-subnav" id="models-subnav" role="tablist" aria-label="Models page views">
+      <button class="models-subtab" id="msub-tab-views" role="tab" type="button" data-msub="views"
+              aria-controls="msub-views" aria-selected="true" tabindex="0"
+              title="The 3-D views, the event-feature explorer and the primaries">Views</button>
+      <button class="models-subtab" id="msub-tab-distill" role="tab" type="button" data-msub="distill"
+              aria-controls="msub-distill" aria-selected="false" tabindex="-1"
+              title="Symbolic formulas, surrogate trees and feature importance">Distillations</button>
+      <button class="models-subtab" id="msub-tab-perf" role="tab" type="button" data-msub="perf"
+              aria-controls="msub-perf" aria-selected="false" tabindex="-1"
+              title="Network and XGBoost accuracy, resolution scaling and the benchmark catalogue">Performance</button>
+    </nav>
+
     <div class="banner" id="banner" hidden>
       <span class="banner-text" id="banner-text"></span>
       <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
@@ -229,47 +248,89 @@
       <span>Query <b id="stat-latency">—</b></span>
     </div>
 
-    <section class="grid models-grid" id="perf-grid" hidden aria-labelledby="perf-grid-title">
-      <div class="section-head">
-        <h2 id="perf-grid-title">Model performance</h2>
-        <span class="section-note">Error by incident-momentum bin, prediction against truth and the residuals. Each card loads when it scrolls into view and follows the selection.</span>
-      </div>
-    </section>
+    <!-- The training report's benchmark catalogue: its species and its task
+         (the shared network key), on Distillations and Performance only. The
+         buttons are built from js/labels.js by js/models_main.js. -->
+    <div class="bench-bar" id="bench-bar" hidden>
+      <span class="bench-group" id="bench-species" role="group" aria-label="Species"><span class="bench-label" aria-hidden="true">Species</span></span>
+      <span class="bench-group" id="bench-task" role="group" aria-label="Task"><span class="bench-label" aria-hidden="true">Task</span></span>
+      <p class="bench-caption" id="bench-caption"></p>
+    </div>
 
-    <!-- The energy-resolution scaling: its own section, because its detector
-         series needs no model and so shows on every kind of experiment. -->
-    <section class="grid models-grid" id="resolution-grid" hidden aria-labelledby="resolution-grid-title">
-      <div class="section-head">
-        <h2 id="resolution-grid-title">Energy resolution</h2>
-        <span class="section-note">σ/E against 1/√E, with Energy (GeV) along the top: the calibrated deposit beside the model's reconstruction where the experiment has one, each with its fits. The card loads when it scrolls into view and follows the selection.</span>
-      </div>
-    </section>
+    <!-- =========================================================== Views -->
+    <div class="models-subpage" id="msub-views" role="tabpanel" aria-labelledby="msub-tab-views" data-msub="views">
 
-    <section class="grid models-grid" id="xgb-grid" hidden aria-labelledby="xgb-grid-title">
-      <div class="section-head">
-        <h2 id="xgb-grid-title">XGBoost model</h2>
-        <span class="section-note">Computed once on the whole experiment, as the reference notebooks do; the selection does not apply.</span>
-      </div>
-    </section>
+      <!-- The 3-D views: an empty host that js/voxel_views.js VoxelSection
+           fills with its cards (the 3-D event and ensemble views and their
+           paired 2-D projections). -->
+      <section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>
 
-    <section class="grid models-grid" id="features-grid" hidden aria-labelledby="features-grid-title">
-      <div class="section-head">
-        <h2 id="features-grid-title">Event features</h2>
-        <span class="section-note">The per-event features by momentum class: summary table, correlations and distributions.</span>
-      </div>
-    </section>
+      <section class="grid models-grid" id="features-grid" hidden aria-labelledby="features-grid-title">
+        <div class="section-head">
+          <h2 id="features-grid-title">Event features</h2>
+          <span class="section-note">The per-event features by momentum class: summary table, correlations and distributions.</span>
+        </div>
+      </section>
 
-    <section class="grid models-grid" id="primaries-grid" hidden aria-labelledby="primaries-grid-title">
-      <div class="section-head">
-        <h2 id="primaries-grid-title">Primaries</h2>
-        <span class="section-note">How often an event carries no primary-particle hit, by incident momentum.</span>
-      </div>
-    </section>
+      <section class="grid models-grid" id="primaries-grid" hidden aria-labelledby="primaries-grid-title">
+        <div class="section-head">
+          <h2 id="primaries-grid-title">Primaries</h2>
+          <span class="section-note">How often an event carries no primary-particle hit, by incident momentum.</span>
+        </div>
+      </section>
+    </div>
 
-    <!-- The 3-D views: an empty host that js/voxel_views.js VoxelSection
-         fills with its cards (the 3-D event and ensemble views and their
-         paired 2-D projections). -->
-    <section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>
+    <!-- =================================================== Distillations -->
+    <div class="models-subpage" id="msub-distill" role="tabpanel" aria-labelledby="msub-tab-distill" data-msub="distill" hidden>
+
+      <section class="grid models-grid" id="distill-grid" hidden aria-labelledby="distill-grid-title">
+        <div class="section-head">
+          <h2 id="distill-grid-title">Distilled formulas and surrogates — training report</h2>
+          <span class="section-note">The symbolic formulas, the surrogate trees' fidelity and the distilled energy response of the 36 trained models, as the training report documents them: point estimates, no intervals. The selection and the experiment do not apply; the bar above chooses the species and the task.</span>
+        </div>
+      </section>
+
+      <section class="grid models-grid" id="xgb-distill-grid" hidden aria-labelledby="xgb-distill-grid-title">
+        <div class="section-head">
+          <h2 id="xgb-distill-grid-title">XGBoost surrogate and importance</h2>
+          <span class="section-note">The depth-3 surrogate tree and the gain importance, computed once on the whole experiment, as the reference notebooks do; the selection does not apply.</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- ===================================================== Performance -->
+    <div class="models-subpage" id="msub-perf" role="tabpanel" aria-labelledby="msub-tab-perf" data-msub="perf" hidden>
+
+      <section class="grid models-grid" id="perf-grid" hidden aria-labelledby="perf-grid-title">
+        <div class="section-head">
+          <h2 id="perf-grid-title">Model performance</h2>
+          <span class="section-note">Error by incident-momentum bin, prediction against truth and the residuals. Each card loads when it scrolls into view and follows the selection.</span>
+        </div>
+      </section>
+
+      <!-- The energy-resolution scaling: its own section, because its detector
+           series needs no model and so shows on every kind of experiment. -->
+      <section class="grid models-grid" id="resolution-grid" hidden aria-labelledby="resolution-grid-title">
+        <div class="section-head">
+          <h2 id="resolution-grid-title">Energy resolution</h2>
+          <span class="section-note">σ/E against 1/√E, with Energy (GeV) along the top: the calibrated deposit beside the model's reconstruction where the experiment has one, each with its fits. The card loads when it scrolls into view and follows the selection.</span>
+        </div>
+      </section>
+
+      <section class="grid models-grid" id="xgb-grid" hidden aria-labelledby="xgb-grid-title">
+        <div class="section-head">
+          <h2 id="xgb-grid-title">XGBoost model</h2>
+          <span class="section-note">Cross-validation and the thresholded classification, computed once on the whole experiment, as the reference notebooks do; the selection does not apply.</span>
+        </div>
+      </section>
+
+      <section class="grid models-grid" id="bench-grid" hidden aria-labelledby="bench-grid-title">
+        <div class="section-head">
+          <h2 id="bench-grid-title">Benchmark catalogue — training report</h2>
+          <span class="section-note">Validation accuracy, error by overlap bin, momentum error and bias, and the segmentation diagnostics of the 36 trained models, as the training report documents them: point estimates, no intervals. The selection and the experiment do not apply; the bar above chooses the species and the task.</span>
+        </div>
+      </section>
+    </div>
   </main>
 
   <!-- ============================================================ drawer -->

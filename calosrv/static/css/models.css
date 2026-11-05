@@ -6,6 +6,72 @@
    Like every track on either page, nothing here is animated: a chart's
    ResizeObserver must measure the final geometry, never a width in flight. */
 
+/* --------------------------------------------------------- subpages */
+
+/* The subpages' tab bar (js/models_subpages.js): one row of buttons at the top
+   of .main, the .mini / .seg look scaled up, the selected tab tinted and
+   underlined in the accent. Not sticky: an overlay would sit over the plots
+   a reader hovers. Nothing here is animated, as nowhere on the page. */
+.models-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 var(--gap);
+}
+.models-subtab {
+  padding: 5px 14px;
+  background: var(--control-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--control-text);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.models-subtab:hover { background: var(--control-hover); border-color: var(--accent); color: var(--accent); }
+.models-subtab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.models-subtab[aria-selected="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* A subpage not on show takes no room and never intersects .main, so its
+   cards neither lay out nor load. The wrapper is a plain block: the sections
+   inside keep their own grids and their own hidden flags. */
+.models-subpage { min-width: 0; }
+.models-subpage[hidden] { display: none; }
+
+/* The benchmark catalogue's bar, under the status bar on Distillations and
+   Performance: the species and the task as two segmented groups, then the
+   caption on a line of its own. It wraps rather than overflow. */
+.bench-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: var(--gap);
+}
+.bench-bar[hidden] { display: none; }
+.bench-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bench-label { font-size: 11px; color: var(--muted); }
+.bench-caption {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* The Longitudinal Channels belong to the 3-D views' depth projections, on
+   Views only. Hidden here by the subpage, never through the group's own
+   hidden attribute, which controls/layer_groups_control.js alone owns. */
+.app[data-msub="distill"] #group-lgroups,
+.app[data-msub="perf"] #group-lgroups { display: none; }
+
 /* --------------------------------------------------------- sections */
 
 /* Each section is the Physics section's two-column grid of cards with its
