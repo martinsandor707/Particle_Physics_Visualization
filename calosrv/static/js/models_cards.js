@@ -44,13 +44,23 @@
  * card says so with a Retry. A notes module that fails to load leaves the
  * drawer with the payload's own notes. Tests inject classes of their own
  * (`panelClasses`) or a module's loader (`panelModules`).
+ *
+ * The benchmark catalogue's seven cards (sections `distill` and `bench`)
+ * draw the training report models_performance.md through catalog/select.js:
+ * documented point estimates, the same for every experiment and every
+ * selection. Their request is the route 'catalog', resolved from that module
+ * (loaded once, by a literal `import()`) and never sent to the server; it
+ * carries the catalogue's species (`bench_species`, else the experiment's,
+ * else Compare all: capabilities.js `effectiveSpecies`) and task (the shared
+ * `model` key), so a change of either re-reads the module and costs no
+ * request. They take no abort key and no filter.
  */
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
 import { describeError } from './page_common.js';
-import { viewFrame } from './capabilities.js';
+import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
@@ -66,13 +76,25 @@ const PANEL_MODULES = {
   XgbBinaryPanel: () => import('./panels/xgb_binary.js'),
   XgbTreePanel: () => import('./panels/xgb_tree.js'),
   XgbImportancePanel: () => import('./panels/xgb_importance.js'),
+  PysrMatrixPanel: () => import('./panels/pysr_matrix.js'),
+  DistillTrianglePanel: () => import('./panels/distill_triangle.js'),
+  DistillCurvesPanel: () => import('./panels/distill_curves.js'),
+  BenchCatalogPanel: () => import('./panels/bench_catalog.js'),
+  BenchOverlapPanel: () => import('./panels/bench_overlap.js'),
+  BenchMomentumPanel: () => import('./panels/bench_momentum.js'),
+  BenchDiagnosticsPanel: () => import('./panels/bench_diagnostics.js'),
 };
 
 /** Where each card's notes builders live (Details drawer). */
 const NOTES_MODULES = {
   models: () => import('./models_notes.js'),
   xgb: () => import('./xgb_notes.js'),
+  catalogDistill: () => import('./catalog_notes_distill.js'),
+  catalogPerf: () => import('./catalog_notes_perf.js'),
 };
+
+/** The benchmark catalogue's payloads (catalog/select.js `catalogPayload`); a literal specifier, so it is stamped. */
+const loadCatalog = () => import('./catalog/select.js');
 
 const EXPORT_TITLE = 'Export this panel\'s plot as a publication figure (white background, 300 DPI, '
   + 'plot area only — see Details for its disclosures)';
@@ -114,11 +136,11 @@ export const MODELS_CARDS = Object.freeze([
     group: 'xgb-binary', notes: ['xgb', 'xgbBinaryNotes'], exportable: true,
   },
   {
-    id: 'xgb-surrogate', section: 'xgb', title: 'Depth-3 Surrogate Tree', panel: 'XgbTreePanel',
+    id: 'xgb-surrogate', section: 'xgbDistill', title: 'Depth-3 Surrogate Tree', panel: 'XgbTreePanel',
     group: 'xgb-surrogate', notes: ['xgb', 'xgbTreeNotes'], exportable: true, wide: true,
   },
   {
-    id: 'xgb-importance', section: 'xgb', title: 'Gain Feature Importance', panel: 'XgbImportancePanel',
+    id: 'xgb-importance', section: 'xgbDistill', title: 'Gain Feature Importance', panel: 'XgbImportancePanel',
     group: 'xgb-importance', notes: ['xgb', 'xgbImportanceNotes'], exportable: true, wide: true,
   },
   {
@@ -141,9 +163,62 @@ export const MODELS_CARDS = Object.freeze([
     id: 'prim-rate', section: 'primaries', title: 'Events Without a Primary vs. Incident Momentum',
     panel: 'RatesPanel', group: 'prim', notes: ['models', 'primariesNotes'], exportable: true,
   },
+  // The benchmark catalogue (catalog/select.js): Distillations, then Performance.
+  {
+    id: 'distill-pysr', section: 'distill', title: 'PySR Formulas and Top Features', panel: 'PysrMatrixPanel',
+    group: 'catalog-pysr', notes: ['catalogDistill', 'pysrNotes'], exportable: false, wide: true, table: true,
+  },
+  {
+    id: 'distill-triangle', section: 'distill', title: 'Distillation Fidelity — Tree, Formula and Network',
+    panel: 'DistillTrianglePanel', group: 'catalog-triangle', notes: ['catalogDistill', 'triangleNotes'],
+    exportable: true, wide: true,
+  },
+  {
+    id: 'distill-curves', section: 'distill', title: 'Distilled Energy Response p̂(E_sum)', panel: 'DistillCurvesPanel',
+    group: 'catalog-curves', notes: ['catalogDistill', 'curvesNotes'], exportable: true, wide: true,
+  },
+  {
+    id: 'perf-catalog', section: 'bench', title: 'Validation Accuracy by Species, Task and Frame',
+    panel: 'BenchCatalogPanel', group: 'catalog-accuracy', notes: ['catalogPerf', 'accuracyNotes'],
+    exportable: true, wide: true,
+  },
+  {
+    id: 'perf-overlap', section: 'bench', title: 'Error by Overlap Bin', panel: 'BenchOverlapPanel',
+    group: 'catalog-overlap', notes: ['catalogPerf', 'overlapNotes'], exportable: true, wide: true,
+  },
+  {
+    id: 'perf-momentum-bias', section: 'bench', title: 'Momentum Error and Bias near 5, 10 and 15 GeV (Absolute)',
+    panel: 'BenchMomentumPanel', group: 'catalog-momentum', notes: ['catalogPerf', 'momentumNotes'],
+    exportable: true, wide: true,
+  },
+  {
+    id: 'perf-diagnostics', section: 'bench', title: 'Segmentation Indecision, Throughput and Caveats',
+    panel: 'BenchDiagnosticsPanel', group: 'catalog-diagnostics', notes: ['catalogPerf', 'diagnosticsNotes'],
+    exportable: true, wide: true,
+  },
 ]);
 
 const SPEC = Object.fromEntries(MODELS_CARDS.map((spec) => [spec.id, spec]));
+
+/** The route of a catalogue card's request: resolved in the page from catalog/select.js, never sent. */
+export const CATALOG_ROUTE = 'catalog';
+
+/** The sections whose cards are the benchmark catalogue's. */
+const CATALOG_SECTIONS = new Set(['distill', 'bench']);
+
+/** The catalogue's card ids, in page order (catalog/select.js CATALOG_CARDS holds the same seven). */
+export const CATALOG_CARD_IDS = Object.freeze(MODELS_CARDS.filter((spec) => CATALOG_SECTIONS.has(spec.section))
+  .map((spec) => spec.id));
+
+/** Whether a card is one of the benchmark catalogue's. Pure. */
+export function isCatalogCard(id) {
+  return CATALOG_SECTIONS.has(SPEC[id]?.section);
+}
+
+/** Whether a section holds XGBoost cards: E1 and E3 (`xgb`) or E4 and E5 (`xgbDistill`). */
+function isXgbSection(section) {
+  return section === 'xgb' || section === 'xgbDistill';
+}
 
 /** One abort key per shared request group: a newer request of a group supersedes the older. */
 export const ABORT_KEYS = Object.freeze({
@@ -181,12 +256,18 @@ export const DEFAULT_CONTROLS = Object.freeze({
   tableStat: 'median',
   corrClass: 'pooled',
   histScale: 'auto',
+  // The validation-accuracy card's angle axis: 'linear' (bars) or 'log10' (dots); repaints only.
+  benchAngleScale: 'linear',
 });
 
-/** The page's share of the State a card reads (`viewOf`), with its built-in values. */
+/**
+ * The page's share of the State a card reads (`viewOf`), with its built-in
+ * values. `bench_species` is the catalogue's stored species, null to follow
+ * the experiment. The subpage (`msub`) is not read by any card.
+ */
 const VIEW_DEFAULTS = Object.freeze({
   frame: 'lab', model: 'segmentation', feature: 'num_hits', fclass: 'windows', fshower: 'a',
-  xgb_task: 'momentum', xgb_label: 'theta',
+  xgb_task: 'momentum', xgb_label: 'theta', bench_species: null,
 });
 
 /** The State keys a card's request or picture reads. */
@@ -407,6 +488,13 @@ const RES_WINDOWS_CONTROL = {
   choices: () => MODELS_LABELS.res_windows,
 };
 
+/* The validation-accuracy card's angle axis: render-only, the section's own
+ * (never in a link). Log10 draws dots, never bars. */
+export const ANGLE_SCALE_CONTROL = Object.freeze({
+  name: 'benchAngleScale', kind: 'seg', attr: 'benchScale', label: 'Angle axis',
+  choices: () => MODELS_LABELS.bench_angle_scale,
+});
+
 const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
@@ -419,6 +507,7 @@ const CARD_CONTROLS = {
   'feat-corr': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, CLASS_CONTROL, CORR_CLASS_CONTROL],
   'feat-hist': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL, SCALE_CONTROL],
   'feat-hist2d': [FEATURE_FRAME_CONTROL, FEATURE_SHOWER_CONTROL, FEATURE_CONTROL, CLASS_CONTROL],
+  'perf-catalog': [ANGLE_SCALE_CONTROL],
 };
 
 /** The control specs of one card. */
@@ -436,10 +525,21 @@ function controlValue(control, ctx) {
 /**
  * The request of one card: `{route, params, abortKey}`, or null when the card
  * does not load in this view. `filters` is `State.filterParams()`, `view` the
- * State's page keys (`viewOf`). Pure.
+ * State's page keys (`viewOf`). A catalogue card's request is
+ * `{route: 'catalog', abortKey: null, params: {card, species, task}}` in any
+ * view, with or without an experiment: it reads neither the filters nor the
+ * experiment. Pure.
  */
 export function cardRequest(id, { filters, view = VIEW_DEFAULTS, controls = DEFAULT_CONTROLS, plan = null }) {
   const spec = SPEC[id];
+  if (spec && isCatalogCard(id)) {
+    const v = { ...VIEW_DEFAULTS, ...view };
+    return {
+      route: CATALOG_ROUTE,
+      abortKey: null,
+      params: { card: id, species: effectiveSpecies(v.bench_species, plan), task: v.model },
+    };
+  }
   if (!spec || !filters?.table_name) return null;
   const c = { ...DEFAULT_CONTROLS, ...controls };
   const v = { ...VIEW_DEFAULTS, ...view };
@@ -523,6 +623,9 @@ export function cardCaption(id, { view = VIEW_DEFAULTS, plan = null } = {}) {
  * `classes`, `frame` (the feature cards' served frame) and `feature`; and the
  * options the panels read beside them: `shower` (A, B or both, on two-shower
  * data), the feature table's `stat` and the correlation card's `fadeNull`.
+ * A catalogue card is rendered with `{palette, card, species, task,
+ * angleScale}`: the effective species (capabilities.js `effectiveSpecies`),
+ * the shared `model` key and the accuracy card's angle axis.
  * Pure.
  */
 export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTROLS, plan = null, palette = 'viridis' } = {}) {
@@ -532,7 +635,11 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   const v = { ...VIEW_DEFAULTS, ...view };
   const c = { ...DEFAULT_CONTROLS, ...controls };
   const two = (plan?.nShowers ?? 2) === 2;
-  if (spec.group === 'perf') {
+  if (isCatalogCard(id)) {
+    opts.species = effectiveSpecies(v.bench_species, plan);
+    opts.task = v.model;
+    opts.angleScale = c.benchAngleScale;
+  } else if (spec.group === 'perf') {
     opts.task = perfTask(plan, v);
     opts.quantity = c.perfStat;
     opts.shower = two ? c.perfShower : 'both';
@@ -550,7 +657,7 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     // D-10: a correlation whose 95% interval contains zero is faded (the Physics page's C8 is not).
     if (id === 'feat-corr') opts.fadeNull = true;
     if (id === 'feat-hist' || id === 'feat-hist2d') opts.feature = featureOf(plan, v);
-  } else if (spec.section === 'xgb') {
+  } else if (isXgbSection(spec.section)) {
     if (id !== 'xgb-binary') opts.task = v.xgb_task;
     if (id === 'xgb-surrogate' && v.xgb_task === 'angle') opts.label = v.xgb_label;
   }
@@ -602,7 +709,8 @@ const CACHE_SIZE = 24;
 
 export class ModelsSection {
   /**
-   * @param {object} hosts  the page sections, by key: `{perf, xgb, features, primaries}`
+   * @param {object} hosts  the page sections, by key: `{perf, resolution, xgb, xgbDistill, distill,
+   *   bench, features, primaries}`; a card whose section has no host is not built
    * @param {object} options
    *   `state` the interface State; `getExperiment()` the active experiment;
    *   `onRendered(id, payload|null)` after a card drew (or failed), so the
@@ -611,11 +719,13 @@ export class ModelsSection {
    *   shared State; `onOpenAdmin()` for a shut card's rebuild offer; `root`
    *   the scroll container; `panelClasses` / `notesModules` override the
    *   panel classes and notes builders, and `panelModules` a panel module's
-   *   loader (tests).
+   *   loader (tests); `catalogLoader` the catalogue module's loader (tests:
+   *   a function returning a promise of `{catalogPayload}`).
    */
   constructor(hosts, {
     state, getExperiment = () => null, onRendered = () => {}, onError = () => {}, onStateChange = () => {},
     onOpenAdmin = null, root = null, panelClasses = null, notesModules = null, panelModules = null,
+    catalogLoader = loadCatalog,
   } = {}) {
     this.hosts = hosts ?? {};
     this.state = state;
@@ -628,6 +738,8 @@ export class ModelsSection {
     this.panelModules = panelModules ? { ...PANEL_MODULES, ...panelModules } : PANEL_MODULES;
     this.notesModules = notesModules ? { ...notesModules } : {};
     this.notesPending = {};
+    this.catalogLoader = catalogLoader;
+    this.catalogModule = null;
     this.plan = null;
     this.controls = { ...DEFAULT_CONTROLS };
     this.cards = new Map();
@@ -1032,7 +1144,23 @@ export class ModelsSection {
     }
   }
 
-  /** One response per key: joined while in flight, kept for a card scrolled to later. */
+  /**
+   * The catalogue module, loaded on first use and kept; a load that fails is
+   * forgotten, so a Retry imports it again.
+   */
+  ensureCatalog() {
+    if (!this.catalogModule) {
+      this.catalogModule = Promise.resolve().then(() => this.catalogLoader());
+      this.catalogModule.catch(() => { this.catalogModule = null; });
+    }
+    return this.catalogModule;
+  }
+
+  /**
+   * One response per key: joined while in flight, kept for a card scrolled to
+   * later. The catalogue's route is answered by catalog/select.js in the page
+   * (`catalogPayload(card, {species, task})`), never by the server.
+   */
   fetchShared({ route, params, abortKey }) {
     const key = requestKey(route, params);
     if (this.cache.has(key)) {
@@ -1043,7 +1171,10 @@ export class ModelsSection {
     }
     const pending = this.inflight.get(key);
     if (pending) return pending;
-    const promise = getJson(route, params, abortKey);
+    const promise = route === CATALOG_ROUTE
+      ? this.ensureCatalog().then((module) => module.catalogPayload(params.card,
+        { species: params.species, task: params.task }))
+      : getJson(route, params, abortKey);
     this.inflight.set(key, promise);
     const generation = this.generation;
     promise.then((payload) => {
@@ -1194,7 +1325,10 @@ export class ModelsSection {
     const builder = this.notesModules[moduleName]?.[builderName];
     if (typeof builder !== 'function') return fallbackNotes(title, record.payload);
     const opts = record.opts ?? {};
-    const notes = builder({ ...opts, payload: record.payload, state, experiment, title, card: id });
+    // A panel that changes its own picture without a request (the curves'
+    // sliders, the formula chips' highlight) says what it shows now.
+    const panelState = record.panel?.notesState?.() ?? null;
+    const notes = builder({ ...opts, payload: record.payload, state, experiment, title, card: id, panelState });
     return notes ?? fallbackNotes(title, record.payload);
   }
 

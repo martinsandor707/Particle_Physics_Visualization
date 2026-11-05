@@ -285,4 +285,50 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'gradcam_energy', label: 'Energy-weighted Grad-CAM', detail: '(Σ E·CAM)' },
     { value: 'shapcam_energy', label: 'Energy-weighted Shap-CAM', detail: '(Σ E·CAM, signed)' },
   ],
+  // The page's three subpages (state key `msub`; 'views' is the default and never written).
+  msub: [
+    { value: 'views', label: 'Views', title: 'The 3-D views, the event-feature explorer and the primaries' },
+    { value: 'distill', label: 'Distillations', title: 'Symbolic formulas, surrogate trees and feature importance' },
+    { value: 'perf', label: 'Performance', title: 'Network and XGBoost accuracy, resolution scaling and the benchmark catalogue' },
+  ],
+  // The benchmark catalogue's species (state key `bench_species`; null follows the experiment).
+  // No charge is named: the training report fixes none.
+  bench_species: [
+    { value: 'proton', label: 'Proton', title: 'The training report’s proton models (the baseline of 2026-09-24)' },
+    { value: 'muon', label: 'Muon', title: 'The training report’s muon models' },
+    { value: 'electron', label: 'Electron', title: 'The training report’s electron models' },
+    { value: 'pion', label: 'Pion', title: 'The training report’s pion models' },
+    { value: 'all', label: 'Compare all', title: 'The four species side by side, each in its own facet or group' },
+  ],
+  // The catalogue's task: the shared `model` key, so the sidebar radio and every card agree.
+  bench_task: [
+    { value: 'segmentation', label: 'Segmentation', title: 'The training report’s segmentation networks (per-hit energy fraction of shower A)' },
+    { value: 'angle', label: 'Angle', title: 'The training report’s incident-angle networks' },
+    { value: 'energy', label: 'Energy', title: 'The training report’s energy (momentum) networks' },
+  ],
+  // The angle facet's axis on the validation-accuracy card: repaints only.
+  bench_angle_scale: [
+    { value: 'linear', label: 'Linear', title: 'A linear angle-error axis from zero, drawn as bars' },
+    { value: 'log10', label: 'Log10', title: 'A base-10 logarithmic angle-error axis, drawn as dots: a bar measured from a log floor encodes nothing' },
+  ],
+});
+
+/*
+ * The benchmark catalogue's frames and tasks by the training report's keys
+ * (catalog/benchmarks.js FRAMES, TASKS). The report's `trans` is the
+ * dashboard's per-shower translated frame (API `trans`), never "Translated"
+ * alone, which names the D-frame; the words are those of the E2 card's
+ * series (panels/perf_bins.js SOURCE_LABELS) without "network". A test holds
+ * these equal to catalog/select.js FRAME_LABELS and TASK_LABELS.
+ */
+export const CATALOG_FRAME_LABELS = Object.freeze({
+  absolute: 'Absolute',
+  trans: 'Per-shower translated',
+  local: 'Local',
+});
+
+export const CATALOG_TASK_LABELS = Object.freeze({
+  segmentation: 'Segmentation',
+  angle: 'Angle',
+  energy: 'Energy',
 });

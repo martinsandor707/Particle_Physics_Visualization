@@ -305,19 +305,80 @@ export function carriedFrame(previousPlan, plan, frame) {
 
 /* ------------------------------------------------------- the Models page */
 
-/** The Models page's sections, in page order, and the cards each holds (card id = the server's gate). */
+/**
+ * The Models page's sections and the cards each holds (card id = the server's
+ * gate, except the catalogue's). The XGBoost analysis is split in two: E1 and
+ * E3 (`xgb`) on the Performance subpage, E4 and E5 (`xgbDistill`) on
+ * Distillations, both behind one gate. `distill` and `bench` are the benchmark
+ * catalogue's cards (catalog/select.js): static documentation from the
+ * training report, served by no gate and shown for every experiment.
+ */
 export const PAGE2_SECTIONS = Object.freeze({
   perf: Object.freeze(['perf-bins', 'pred-truth', 'pred-residuals']),
   resolution: Object.freeze(['res-scaling']),
-  xgb: Object.freeze(['xgb-cv', 'xgb-binary', 'xgb-surrogate', 'xgb-importance']),
+  xgb: Object.freeze(['xgb-cv', 'xgb-binary']),
+  xgbDistill: Object.freeze(['xgb-surrogate', 'xgb-importance']),
+  distill: Object.freeze(['distill-pysr', 'distill-triangle', 'distill-curves']),
+  bench: Object.freeze(['perf-catalog', 'perf-overlap', 'perf-momentum-bias', 'perf-diagnostics']),
   features: Object.freeze(['feat-table', 'feat-corr', 'feat-hist', 'feat-hist2d']),
   primaries: Object.freeze(['prim-rate']),
   voxels: Object.freeze(['vox-event', 'vox-ensemble']),
 });
 
-/* The XGBoost cards share one gate: the experiment's analysis is done and
- * current (calosrv/modelruns, xgboost.md section 2.4). */
-const XGB_CARDS = new Set(PAGE2_SECTIONS.xgb);
+/* The XGBoost cards share one gate, whichever subpage holds them: the
+ * experiment's analysis is done and current (calosrv/modelruns, xgboost.md
+ * section 2.4). */
+const XGB_CARDS = new Set([...PAGE2_SECTIONS.xgb, ...PAGE2_SECTIONS.xgbDistill]);
+
+/* The benchmark catalogue's cards: always shown and enabled, whatever the
+ * experiment (none included), because they read no data of it. */
+const CATALOG_CARDS = new Set([...PAGE2_SECTIONS.distill, ...PAGE2_SECTIONS.bench]);
+
+/** The Models page's subpages (state key `msub`), in tab order; 'views' is the default. */
+export const SUBPAGES = Object.freeze(['views', 'distill', 'perf']);
+
+/** The sections each subpage holds, in page order. Every PAGE2_SECTIONS key is in exactly one. */
+export const SUBPAGE_SECTIONS = Object.freeze({
+  views: Object.freeze(['voxels', 'features', 'primaries']),
+  distill: Object.freeze(['distill', 'xgbDistill']),
+  perf: Object.freeze(['perf', 'resolution', 'xgb', 'bench']),
+});
+
+/** The subpage that holds a PAGE2_SECTIONS key, or null for an unknown one. Pure. */
+export function subpageOfSection(section) {
+  for (const msub of SUBPAGES) {
+    if (SUBPAGE_SECTIONS[msub].includes(section)) return msub;
+  }
+  return null;
+}
+
+/** The species the benchmark catalogue documents (catalog/benchmarks.js SPECIES), in its order. */
+export const CATALOG_SPECIES = Object.freeze(['proton', 'muon', 'electron', 'pion']);
+
+/**
+ * The species an experiment names, for the catalogue: the species of its
+ * first paired XGBoost model run (`plan.xgb.runs`) that the catalogue
+ * documents, else null. A two-shower file names none, and nothing is guessed
+ * from its table name (Martin's decision 2, 2026-11-05). Pure.
+ */
+export function experimentSpecies(plan) {
+  const runs = Array.isArray(plan?.xgb?.runs) ? plan.xgb.runs : [];
+  for (const run of runs) {
+    const species = typeof run?.species === 'string' ? run.species.toLowerCase() : null;
+    if (CATALOG_SPECIES.includes(species)) return species;
+  }
+  return null;
+}
+
+/**
+ * The species the catalogue draws: the stored choice (`bench_species`), else
+ * the experiment's (`experimentSpecies`), else 'all' (Compare all). A stored
+ * value the catalogue does not know counts as no choice. Pure.
+ */
+export function effectiveSpecies(stored, plan) {
+  if (stored === 'all' || CATALOG_SPECIES.includes(stored)) return stored;
+  return experimentSpecies(plan) ?? 'all';
+}
 
 /* CLAUDE.md section 3 on the Models page: an experiment without network
  * predictions shows ground truth and says so prominently. Where an XGBoost
@@ -437,10 +498,12 @@ function xgbBlock(caps, runs, open) {
  *   section shows when a network (or a paired XGBoost regressor, through the
  *   same gates) can serve one of its cards; the resolution section wherever
  *   its card can be served, which is every kind with an event table, since
- *   its detector series needs no model; the XGBoost section when a model
- *   run pairs with the experiment; the features section when its cards can
- *   be served or a rebuild would open them; the primaries and the 3-D views
- *   wherever there are hits (a shut card says why).
+ *   its detector series needs no model; both XGBoost sections (`xgb`: E1,
+ *   E3; `xgbDistill`: E4, E5) when a model run pairs with the experiment;
+ *   the features section when its cards can be served or a rebuild would
+ *   open them; the primaries and the 3-D views wherever there are hits (a
+ *   shut card says why); the catalogue's `distill` and `bench` always, for
+ *   every experiment and for none, their cards enabled.
  * - `cards`: `{shown, enabled, reason}` for every card, the server's sentence
  *   on a shut one.
  * - `models` / `networks`: the reconstruction networks; `frames`: the frames
@@ -463,7 +526,10 @@ export function page2Plan(experiment) {
   const xgbOpen = gate('xgboost') && runs.length > 0;
   const staleNotice = caps.derived?.status === 'stale' ? (caps.derived.notice ?? null) : null;
   const reasonFor = (id) => (XGB_CARDS.has(id) ? reasonOf(caps, 'xgboost') : reasonOf(caps, id));
-  const enabledOf = (id) => (XGB_CARDS.has(id) ? xgbOpen : gate(id));
+  const enabledOf = (id) => {
+    if (CATALOG_CARDS.has(id)) return true;
+    return XGB_CARDS.has(id) ? xgbOpen : gate(id);
+  };
   const anyOpen = (ids) => ids.some(enabledOf);
   const rebuildable = (ids) => Boolean(staleNotice) && ids.some((id) => caps.reasons[id] === staleNotice);
 
@@ -471,6 +537,10 @@ export function page2Plan(experiment) {
     perf: Boolean(caps.panels) && anyOpen(PAGE2_SECTIONS.perf),
     resolution: Boolean(caps.panels) && anyOpen(PAGE2_SECTIONS.resolution),
     xgb: Boolean(caps.panels) && runs.length > 0,
+    xgbDistill: Boolean(caps.panels) && runs.length > 0,
+    // The catalogue reads the training report, not the experiment: always on show.
+    distill: true,
+    bench: true,
     features: Boolean(caps.panels) && (anyOpen(PAGE2_SECTIONS.features) || rebuildable(PAGE2_SECTIONS.features)),
     primaries: Boolean(caps.panels) && caps.hasHits,
     voxels: Boolean(caps.panels) && caps.hasHits,
