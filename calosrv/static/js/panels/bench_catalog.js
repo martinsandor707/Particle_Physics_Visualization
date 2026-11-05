@@ -17,8 +17,9 @@
  *   mark; the exact or qualified value is in its tooltip and the drawer.
  * - The proton's TTA value is a tick across its bar, its RMSE a hollow marker in the same unit; the report
  *   gives neither for the other species, and the card says "TTA not reported" for them.
- * - The angle facet takes `opts.angleScale` 'linear' | 'log'. On Log10 the bars become dots (a Cleveland
- *   dot plot): a bar measured from an arbitrary log floor encodes nothing, so a bar is never drawn on log.
+ * - The angle facet takes `opts.angleScale` 'linear' | 'log10' (the Angle axis control's stored value; 'log'
+ *   is accepted too, `angleScaleOf`). On Log10 the bars become dots (a Cleveland dot plot): a bar measured
+ *   from an arbitrary log floor encodes nothing, so a bar is never drawn on log.
  * - A frame the report flags for label leakage (Local angle: rotated by the true θ; Per-shower translated
  *   and Local segmentation: defined per particle) carries a "leak" label beside its mark.
  *
@@ -26,13 +27,19 @@
  * screen-only table after the card's `.plot-frame`, and into the tooltips; the export is the plot alone.
  *
  * The module also holds the helpers the other three Performance catalogue cards share (frame hues, the
- * "as reported" number text, the tooltip footer, the self-sizing panel class and the DOM table builder).
+ * tooltip footer, the wrapped header lines, the self-sizing panel class and the DOM table builder). Every
+ * report number is printed through `catalog/select.js` `printed` / `printedQualified`, with the report's
+ * own decimals: there is one formatter for a reported value, not one per card.
+ *
+ * Every header line (the note under the legend, a facet title) is wrapped or shortened at the chart's own
+ * width, and the row-label gutter is measured from the widest label (textfit.js), so the 321 px
+ * single-column export keeps every text inside the figure.
  * No colour literal: every colour is a THEME token or an E2 frame hue.
  */
 
 import { THEME, axisPadding, formatInt } from '../scale.js';
 import { contrast } from '../palette.js';
-import { measureText } from '../textfit.js';
+import { measureText, wrapText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import { leakFlags, LEAK_TEXT } from '../catalog/gating.js';
 import { printed, printedQualified } from '../catalog/select.js';
@@ -74,43 +81,48 @@ export function frameHues() {
   return sourceColours([...CATALOG_FRAMES]);
 }
 
-/**
- * A stored number as the report printed it, with the report's own decimals `dp` (the payload's `dp`;
- * select.js `printed`), never re-rounded, U+2212 for a minus; '—' when absent. Without a count it prints in
- * its shortest form, which is only right for an integer.
- */
-export function reported(value, dp = null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return printed(value, dp);
-}
-
-/** A signed number as reported, with an explicit + for a positive value (the report prints "+11,9"). */
-export function signedReported(value, dp = null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
-  return printed(value, dp, { sign: true });
-}
-
 /** `text` followed by its unit ('' for a unitless quantity). */
 export function withUnit(text, unit) {
   return unit ? `${text} ${unit}` : text;
 }
 
-/** A qualified scalar ({value, qualifier}) as the report printed it: "~1,050", "≈ 0", "< 0", "20–40". */
-export function qualifiedText(q, { thousands = false } = {}) {
-  if (q === null || q === undefined) return 'not reported';
-  if (typeof q === 'number') return thousands ? formatInt(q) : reported(q);
-  const n = (v) => (thousands ? formatInt(v) : reported(v, q.dp ?? null));
-  if (Array.isArray(q.range)) {
-    const range = `${n(q.range[0])}–${n(q.range[1])}`;
-    return q.qualifier === 'about' ? `~${range}` : q.qualifier === 'approx' ? `≈ ${range}` : range;
-  }
-  if (q.qualifier === 'none') return 'not reported';
-  if (q.qualifier === 'lt') return `< ${n(q.bound ?? 0)}`;
-  if (!Number.isFinite(q.value)) return 'not reported';
-  if (q.qualifier === 'about') return `~${n(q.value)}`;
-  if (q.qualifier === 'approx') return `≈ ${n(q.value)}`;
-  return n(q.value);
+/**
+ * The angle-axis values that draw the log₁₀ facet. The Angle axis control stores 'log10' (labels.js, the
+ * label's value); 'log' is accepted as well, so a builder fed either spelling draws the same picture.
+ */
+export const LOG_SCALES = Object.freeze(['log', 'log10']);
+
+/** The normalised angle scale of `opts`: 'log' for either stored spelling, else 'linear'. */
+export function angleScaleOf(opts = {}) {
+  return LOG_SCALES.includes(opts?.angleScale) ? 'log' : 'linear';
 }
+
+/**
+ * `text` broken into lines that fit `widthPx` at `fontPx` (textfit.js; an estimate without a DOM): the
+ * header and note lines of the catalogue charts wrap at the chart's own width, so the 321 px single-column
+ * export keeps every line inside the figure.
+ */
+export function wrapLines(text, widthPx, fontPx = THEME.fontLabel) {
+  if (!text) return [];
+  return wrapText(text, Math.max(40, widthPx), fontPx, THEME.fontFamily);
+}
+
+/** The line pitch of the catalogue's stacked header lines. */
+export const LINE_PITCH = 1.6;
+
+/** One text graphic per line, stacked at `LINE_PITCH` font heights from `y`. */
+export function lineGraphics(lines, x, y, options = {}) {
+  const size = options.size ?? THEME.fontLabel;
+  return lines.map((line, i) => textGraphic(line, x, y + i * LINE_PITCH * size, options));
+}
+
+/** Width of the widest of `labels` at the label font (textfit.js). */
+export function widestLabel(labels, fontPx = THEME.fontLabel) {
+  return Math.max(0, ...labels.map((t) => measureText(t, fontPx, THEME.fontFamily)));
+}
+
+/** ECharts' default gap between an axis line and its labels (axisLabel.margin). */
+export const AXIS_LABEL_MARGIN = 8;
 
 /** A label from the payload's own label maps, else the key. */
 export function labelOf(payload, kind, key) {
@@ -161,8 +173,11 @@ export function textGraphic(text, x, y, { colour = THEME.muted, size = THEME.fon
   };
 }
 
-/** A category axis in the shared style; `labels` maps an index to its text ('' to hide it). */
-export function categoryAxis({ gridIndex, data, labels = null, inverse = false, show = true, name = '', nameGap }) {
+/**
+ * A category axis in the shared style; `labels` maps an index to its text ('' to hide it). `lineHeight` sets
+ * the pitch of a multi-line label, so its lines stack apart (the SVG export sets each line as its own text).
+ */
+export function categoryAxis({ gridIndex, data, labels = null, inverse = false, show = true, name = '', nameGap, lineHeight }) {
   return {
     type: 'category',
     gridIndex,
@@ -181,6 +196,7 @@ export function categoryAxis({ gridIndex, data, labels = null, inverse = false, 
       color: THEME.muted,
       fontSize: THEME.fontLabel,
       fontFamily: THEME.fontFamily,
+      ...(lineHeight ? { lineHeight } : {}),
       ...(labels ? { formatter: (value, index) => labels(index, value) } : {}),
     },
     splitLine: { show: false },
@@ -369,7 +385,7 @@ function rowLeaks(facet, row) {
 export function benchCatalogModel(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.rows) || !Array.isArray(payload.facets)) return null;
   const species = payload.species ?? [];
-  const scale = opts.angleScale === 'log' ? 'log' : 'linear';
+  const scale = angleScaleOf(opts);
   const all = species.length > 1;
   // The rows of every facet, in order: species groups (a spacer between them), frames within.
   const keys = [];
@@ -467,7 +483,7 @@ function legendEntries(model, payload) {
 const TTA_NAME = 'TTA value (tick)';
 const RMSE_NAME = 'RMSE (hollow marker)';
 
-/** The note line under the legend: the species without TTA, and the axes rule under Compare all. */
+/** The note under the legend: the species without TTA, and the log rule; wrapped by the layout. */
 function noteText(model, payload) {
   const parts = [];
   const without = model.species.filter((s) => !model.ttaSpecies.includes(s));
@@ -487,14 +503,17 @@ export function benchCatalogLayout(model, payload, width = DEFAULT_WIDTH) {
   const plotWidthPx = Math.max(80, width - pad.left - pad.right);
   const top = legendTop(legend, plotWidthPx, { wrap: true });
   const note = noteText(model, payload);
-  const noteH = note ? 1.6 * f : 0;
+  const noteLines = wrapLines(note, width - 1.2 * f);
+  const noteH = noteLines.length * LINE_PITCH * f;
   const labels = rowLabels(model, payload);
-  const inset = Math.max(...labels.map((t) => measureText(t, THEME.fontLabel, THEME.fontFamily)), 20) + 0.9 * f + 6;
+  // The row-label gutter: the widest label, the axis label margin and a little air (R2-2's rule).
+  const inset = Math.max(widestLabel(labels), 20) + AXIS_LABEL_MARGIN + 0.9 * f;
   const cols = facetColumns(width, inset);
   const gap = 1.2 * f;
   const titleH = 1.9 * f;
   const xLabelH = 2.2 * f;
-  const slot = model.all ? SLOT_ALL_PX : SLOT_ONE_PX;
+  // A row is never shorter than a line of the small type its "leak" / "R² < 0" mark is set in (print's 12 px).
+  const slot = Math.max(model.all ? SLOT_ALL_PX : SLOT_ONE_PX, 1.3 * THEME.fontSmall);
   const gridH = Math.max(60, model.keys.length * slot);
   const facetW = (plotWidthPx + pad.left + pad.right - 2 * (0.6 * f) - (cols - 1) * gap) / cols;
   const placed = [];
@@ -512,7 +531,7 @@ export function benchCatalogLayout(model, payload, width = DEFAULT_WIDTH) {
     });
   });
   const height = Math.ceil(y + titleH + gridH + xLabelH + 0.6 * f);
-  return { top, noteY: top, note, cols, inset, slot, labels, legend, facets: placed, height };
+  return { top, noteY: top, note, noteLines, cols, inset, slot, labels, legend, facets: placed, height };
 }
 
 /** The plot height the card needs (Compare all takes more rows). Pure. */
@@ -530,21 +549,21 @@ export function catalogTip(payload, facet, r) {
   const fr = labelOf(payload, 'frame', r.frame);
   const unit = facet.unit;
   const name = facet.key === 'energy-r2' ? 'Energy R² to truth' : facet.label.replace(/ \[.*$/, '').replace(/, log₁₀ axis$/, '');
-  const shown = facet.key === 'energy-r2' ? printedQualified(r.q) : reported(r.value, r.dp?.value);
+  const shown = facet.key === 'energy-r2' ? printedQualified(r.q) : printed(r.value, r.dp?.value);
   const lines = [`<b>${escapeHtml(sp)} · ${escapeHtml(fr)} · ${escapeHtml(name)}: ${escapeHtml(withUnit(shown, unit))}</b>`];
   if (r.clamped) {
     lines.push(escapeHtml(`R² < 0: drawn clamped at 0 with an "R² < 0" mark; the report prints ${printedQualified(r.q)}`));
   }
   if (facet.key !== 'energy-r2') {
     lines.push(Number.isFinite(r.tta)
-      ? escapeHtml(`with test-time augmentation (TTA): ${withUnit(reported(r.tta, r.dp?.tta), unit)} — the tick across the bar`)
+      ? escapeHtml(`with test-time augmentation (TTA): ${withUnit(printed(r.tta, r.dp?.tta), unit)} — the tick across the bar`)
       : escapeHtml(`TTA not reported for the ${sp.toLowerCase()}`));
     const extra = [];
-    if (Number.isFinite(r.rmse)) extra.push(`RMSE ${withUnit(reported(r.rmse, r.dp?.rmse), unit)} (hollow marker)`);
-    if (Number.isFinite(r.row.bias)) extra.push(`bias ${withUnit(signedReported(r.row.bias, r.row.dp?.bias), unit)} (signed error as reported)`);
-    if (Number.isFinite(r.row.coreMae)) extra.push(`overlap-core MAE ${reported(r.row.coreMae, r.row.dp?.coreMae)}`);
+    if (Number.isFinite(r.rmse)) extra.push(`RMSE ${withUnit(printed(r.rmse, r.dp?.rmse), unit)} (hollow marker)`);
+    if (Number.isFinite(r.row.bias)) extra.push(`bias ${withUnit(printed(r.row.bias, r.row.dp?.bias, { sign: true }), unit)} (signed error as reported)`);
+    if (Number.isFinite(r.row.coreMae)) extra.push(`overlap-core MAE ${printed(r.row.coreMae, r.row.dp?.coreMae)}`);
     if (r.row.r2 && facet.key !== 'segmentation') extra.push(`R² to truth ${printedQualified(r.row.r2)}`);
-    if (Number.isFinite(r.row.treeR2Net)) extra.push(`tree R² to the network ${reported(r.row.treeR2Net, r.row.dp?.treeR2Net)}`);
+    if (Number.isFinite(r.row.treeR2Net)) extra.push(`tree R² to the network ${printed(r.row.treeR2Net, r.row.dp?.treeR2Net)}`);
     if (extra.length) lines.push(escapeHtml(extra.join(' · ')));
   }
   for (const flag of r.leaks) lines.push(mutedLine(`leak: ${LEAK_TEXT[flag]}`));
@@ -556,7 +575,7 @@ export function catalogTip(payload, facet, r) {
 /* ============================================================== option == */
 
 /**
- * The perf-catalog option. Pure: `opts` = {angleScale?: 'linear' | 'log', tooltipPosition?}; `metrics` =
+ * The perf-catalog option. Pure: `opts` = {angleScale?: 'linear' | 'log10' | 'log', tooltipPosition?}; `metrics` =
  * {width, height}. Returns {option, plotGrid}.
  */
 export function benchCatalogOption(payload, opts = {}, metrics = {}) {
@@ -573,7 +592,7 @@ export function benchCatalogOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   const ink = THEME.text;
 
-  if (layout.note) graphic.push(textGraphic(layout.note, 0.6 * THEME.fontLabel, layout.noteY));
+  graphic.push(...lineGraphics(layout.noteLines, 0.6 * THEME.fontLabel, layout.noteY));
 
   layout.facets.forEach(({ facet, grid, titleX, titleY, titleW }, index) => {
     grids.push(grid);
@@ -750,13 +769,13 @@ export function secondaryTableRows(payload) {
       labelOf(payload, 'species', r.species),
       labelOf(payload, 'task', r.task),
       labelOf(payload, 'frame', r.frame),
-      `${r.metric === 'e-mae' ? 'E-MAE' : 'MAE'} ${withUnit(reported(r.value, r.dp?.value), unitOf(r))}`,
-      Number.isFinite(r.tta) ? withUnit(reported(r.tta, r.dp?.tta), unitOf(r)) : '—',
-      Number.isFinite(r.rmse) ? withUnit(reported(r.rmse, r.dp?.rmse), unitOf(r)) : '—',
-      Number.isFinite(r.bias) ? withUnit(signedReported(r.bias, r.dp?.bias), unitOf(r)) : '—',
+      `${r.metric === 'e-mae' ? 'E-MAE' : 'MAE'} ${withUnit(printed(r.value, r.dp?.value), unitOf(r))}`,
+      Number.isFinite(r.tta) ? withUnit(printed(r.tta, r.dp?.tta), unitOf(r)) : '—',
+      Number.isFinite(r.rmse) ? withUnit(printed(r.rmse, r.dp?.rmse), unitOf(r)) : '—',
+      Number.isFinite(r.bias) ? withUnit(printed(r.bias, r.dp?.bias, { sign: true }), unitOf(r)) : '—',
       r.r2 ? printedQualified(r.r2) : '—',
-      reported(r.coreMae, r.dp?.coreMae),
-      reported(r.treeR2Net, r.dp?.treeR2Net),
+      printed(r.coreMae, r.dp?.coreMae),
+      printed(r.treeR2Net, r.dp?.treeR2Net),
       r.n ? `${formatInt(r.n.events)} events / ${formatInt(r.n.particles)} particles${r.n.nDerived ? ' (derived)' : ''}` : N_NOT_REPORTED,
     ]),
   };

@@ -143,7 +143,8 @@ function renderAll() {
     for (const species of SPECIES) {
       for (const task of TASKS) {
         const payload = sel.catalogPayload(card, { species, task });
-        const scales = card === 'perf-catalog' ? ['linear', 'log'] : ['linear'];
+        // 'log10' is what the Angle axis control stores (labels.js); the builders must take it as it is.
+        const scales = card === 'perf-catalog' ? ['linear', 'log10'] : ['linear'];
         for (const angleScale of scales) {
           const opts = { angleScale, species, task, palette: 'viridis', card };
           const key = `${species}|${task}|${angleScale}`;
@@ -240,7 +241,7 @@ const describe = (el) => ({ tag: el.tagName, cls: el.className, kind: el.dataset
 
 out.panels = {};
 const classes = {
-  'perf-catalog': [cat.BenchCatalogPanel, { angleScale: 'log' }],
+  'perf-catalog': [cat.BenchCatalogPanel, { angleScale: 'log10' }],
   'perf-overlap': [ovl.BenchOverlapPanel, {}],
   'perf-momentum-bias': [mom.BenchMomentumPanel, {}],
   'perf-diagnostics': [diag.BenchDiagnosticsPanel, {}],
@@ -359,7 +360,7 @@ def test_every_bar_axis_starts_at_zero_and_the_bias_axis_is_centred(run):
             value_axes = [a for a in chart["xAxis"] + chart["yAxis"] if a["type"] in ("value", "log")]
             for a in value_axes:
                 if a["type"] == "log":
-                    assert card == "perf-catalog" and scale == "log", (card, species)
+                    assert card == "perf-catalog" and scale == "log10", (card, species)
                     continue
                 if card == "perf-momentum-bias" and a["min"] is not None and a["min"] < 0:
                     assert a["min"] == -a["max"], (species, a)
@@ -383,10 +384,10 @@ def test_the_bias_has_an_explicit_zero_rule(run):
 
 def test_log_draws_dots_and_linear_draws_bars(run):
     for species in SPECIES:
-        for scale, shape in (("log", "circle"), ("linear", "rect")):
+        for scale, shape in (("log10", "circle"), ("linear", "rect")):
             chart = run["dark"]["cards"]["perf-catalog"][f"{species}|energy|{scale}"]["wide"]
             angle_axis = 1
-            assert chart["xAxis"][angle_axis]["type"] == ("log" if scale == "log" else "value")
+            assert chart["xAxis"][angle_axis]["type"] == ("log" if scale == "log10" else "value")
             frames = [s for s in chart["series"] if s["name"] in ("Absolute", "Per-shower translated", "Local")]
             angle = [s for s in frames if s["xAxisIndex"] == angle_axis]
             assert angle
@@ -503,13 +504,23 @@ def test_every_overlap_facet_carries_its_unit_badge(run):
 
 
 def test_information_starvation_marks_the_proton_energy_bins_only(run):
+    """R2-7, R1-11: one label over a bracket spanning the 30 % and 40-100 % bins, worded for both bins together."""
     for card, species, task, _, case in _cases(run, "dark", "perf-overlap"):
         starved = [s for s in case["wide"]["series"] if s["name"] == "information starvation"]
         if species in ("proton", "all") and task == "energy":
-            assert len(starved) == 1 and [i["value"][0] for i in starved[0]["items"]] == [3, 4]
-            assert "3.3 GeV" in starved[0]["items"][0]["tip"] and "~8 MeV" in starved[0]["items"][0]["tip"]
+            assert len(starved) == 1 and len(starved[0]["items"]) == 1, species
+            item = starved[0]["items"][0]
+            assert (item["value"][0], item["value"][2]) == (3, 4)
+            texts = [leaf["text"] for leaf in item["leaves"] if leaf["type"] == "text"]
+            assert texts == ["info-starved"]
+            assert [leaf["type"] for leaf in item["leaves"]].count("line") == 3  # the bracket and its two ends
+            tip = item["tip"]
+            assert "in the 30 % and 40–100 % bins together the particles have a mean momentum of 3.3 GeV" in tip
+            assert "3.3 GeV" in tip and "~8 MeV" in tip
         else:
             assert not starved, (species, task)
+        for text in _all_strings(case):
+            assert "in this bin" not in text.replace("events in this bin", ""), (species, task, text)
 
 
 # ------------------------------------------------------------ the windows --
@@ -531,7 +542,12 @@ def test_one_signed_windows_are_diamonds_labelled_one_sign(run):
     assert shapes == ["polygon", "circle", "polygon"]
     labels = [leaf["text"] for i in bias["items"] for leaf in i["leaves"] if leaf["text"]]
     assert labels == ["one sign", "one sign"]
-    assert "every error in this window has one sign" in bias["items"][0]["tip"]
+    # R1-5: a bound from the rounding, never an exact implication.
+    tip = bias["items"][0]["tip"]
+    assert "to the report&#39;s rounding, |bias| = MAE" in tip or "to the report's rounding, |bias| = MAE" in tip
+    assert "errors of the other sign average under 0.0005 GeV per particle of the window" in tip
+    assert "(almost) every error has one sign" in tip
+    assert "every error in this window has one sign" not in tip
     labels_x = chart["xAxis"][0]["labels"]
     assert labels_x == ["4–6 GeV\nn = 11,758", "9–11 GeV\nn = 12,132", "14–16 GeV\nn = 12,458"]
     for species in ("electron", "pion"):
@@ -621,7 +637,7 @@ def test_the_drawers_carry_the_reports_facts(run):
     assert "≤" in disc and "<=" not in disc
     assert mo["hazards"] == ["no interval reported", "training split included", "n exceeds the particles"]
     assert cards["perf-momentum-bias"]["muon|energy|linear"]["notes"]["hazards"] == ["no interval reported", "training split included"]
-    ac = cards["perf-catalog"]["muon|energy|log"]["notes"]
+    ac = cards["perf-catalog"]["muon|energy|log10"]["notes"]
     assert "(F10)" in " ".join(ac["sections"]["Disclosures"])
     assert any("Cleveland dot plot" in line for line in ac["sections"]["What is drawn"])
     assert "label leakage" in ac["hazards"]
@@ -837,3 +853,340 @@ def test_the_overlap_facet_title_names_the_level_once(printed):
     for titles in t.values():
         for title in titles:
             assert "hit-level" not in title and title.count("per hit") + title.count("per particle") == 1
+
+
+# ------------------------------------------------- the fix round (review, Stage 5) --
+
+_FIX_SCRIPT = r"""
+const [jsRoot] = JSON.parse(process.argv[1]);
+const imp = (p) => import(`${jsRoot}/${p}`);
+const scale = await imp('scale.js');
+const { PRINT_TOKENS } = await imp('export/tokens.js');
+const { measureText } = await imp('textfit.js');
+const sel = await imp('catalog/select.js');
+const cards = await imp('models_cards.js');
+const cat = await imp('panels/bench_catalog.js');
+const ovl = await imp('panels/bench_overlap.js');
+const mom = await imp('panels/bench_momentum.js');
+const diag = await imp('panels/bench_diagnostics.js');
+const notes = await imp('catalog_notes_perf.js');
+const out = {};
+const arr = (x) => [].concat(x ?? []);
+function theme(name) {
+  if (name === 'print') { scale.setScreenTheme('dark'); Object.assign(scale.THEME, PRINT_TOKENS); }
+  else scale.setScreenTheme(name);
+}
+
+/* ---- R2-1 / R3-1: the stored 'log10', end to end through the card's own options ---------------------- */
+out.log10 = {};
+for (const [label, controls, view] of [
+  ['log10', { benchAngleScale: 'log10' }, {}],
+  ['log10-all', { benchAngleScale: 'log10' }, { bench_species: 'all' }],
+  ['default', {}, {}],
+]) {
+  const opts = cards.cardOptions('perf-catalog', { controls, view });
+  const payload = sel.catalogPayload('perf-catalog', { species: opts.species, task: opts.task });
+  out.log10[label] = { angleScale: opts.angleScale, themes: {} };
+  for (const name of ['dark', 'light', 'print']) {
+    theme(name);
+    const height = cat.plotHeight(payload, opts, 1100);
+    const { option } = cat.benchCatalogOption(payload, opts, { width: 1100, height });
+    const model = cat.benchCatalogModel(payload, opts);
+    const angle = model.facets.findIndex((f) => f.key === 'angle');
+    const frames = arr(option.series).filter((s) => s.xAxisIndex === angle && ['Absolute', 'Per-shower translated', 'Local'].includes(s.name));
+    const api = { coord: (p) => [Number(p[0]), Number(p[1])] };
+    const leaves = frames.flatMap((s) => (s.data ?? []).map((d, i) => s.renderItem({ dataIndex: i, coordSys: {} }, api).type));
+    const drawn = notes.accuracyNotes({ payload, angleScale: opts.angleScale }).sections.find((x) => x.heading === 'What is drawn').lines;
+    out.log10[label].themes[name] = { axis: arr(option.xAxis)[angle].type, otherAxes: arr(option.xAxis).filter((_, i) => i !== angle).map((a) => a.type),
+      leaves, drawn };
+    scale.restoreScreenTheme();
+  }
+}
+out.logSpellings = ['log', 'log10', 'linear', undefined, 'LOG'].map((v) => cat.angleScaleOf({ angleScale: v }));
+
+/* ---- R2-2: the diagnostics' row labels start inside the figure ------------------------------------- */
+out.rowLabels = [];
+for (const [name, width] of [['dark', 1100], ['light', 1100], ['dark', 600], ['print', 661], ['print', 321]]) {
+  theme(name);
+  for (const species of ['proton', 'all']) {
+    const payload = sel.catalogPayload('perf-diagnostics', { species });
+    const model = diag.benchDiagnosticsModel(payload);
+    const layout = diag.benchDiagnosticsLayout(model, payload, width);
+    const { option } = diag.benchDiagnosticsOption(payload, {}, { width, height: layout.height });
+    const grids = arr(option.grid);
+    arr(option.yAxis).forEach((a, i) => {
+      const grid = grids[a.gridIndex ?? i];
+      const cellX = grid.left - layout.inset;
+      for (const label of a.data) {
+        const start = grid.left - 8 - measureText(label, a.axisLabel.fontSize, scale.THEME.fontFamily);
+        out.rowLabels.push({ name, width, species, label, start, cellX });
+      }
+    });
+  }
+  scale.restoreScreenTheme();
+}
+
+/* ---- R2-3 / R2-7: every text of every option, inside the figure and clear of every other ------------ */
+const LH = 1.25;
+const MARGIN = 8;
+function box(text, x, y, size, align = 'left', valign = 'top', lineHeight = null) {
+  const lines = String(text).split('\n');
+  const w = Math.max(...lines.map((l) => measureText(l, size, scale.THEME.fontFamily)));
+  const h = lines.length * (lineHeight ?? LH * size);
+  const x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  const y0 = valign === 'bottom' ? y - h : valign === 'middle' ? y - h / 2 : y;
+  return { text: String(text), lines: lines.length, x0, y0, x1: x0 + w, y1: y0 + h };
+}
+function axisMap(axis, grid, horizontal) {
+  const len = horizontal ? grid.width : grid.height;
+  if (axis.type === 'category') {
+    const n = (axis.data ?? []).length || 1;
+    return (i) => (horizontal ? grid.left : grid.top) + ((axis.inverse || horizontal ? i : n - 1 - i) + 0.5) * len / n;
+  }
+  const lo = axis.min; const hi = axis.max;
+  const t = axis.type === 'log' ? (v) => (Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) : (v) => (v - lo) / (hi - lo);
+  return horizontal ? (v) => grid.left + t(v) * grid.width : (v) => grid.top + grid.height - t(v) * grid.height;
+}
+function ticks(axis) {
+  if (axis.type === 'log') { const o = []; for (let v = axis.min; v <= axis.max * 1.0000001; v *= 10) o.push(v); return o; }
+  if (!(axis.interval > 0)) return [axis.min, axis.max];
+  const n = Math.round((axis.max - axis.min) / axis.interval);
+  return Array.from({ length: n + 1 }, (_, k) => Number((axis.min + k * axis.interval).toPrecision(12)));
+}
+function texts(option) {
+  const boxes = [];
+  for (const g of arr(option.graphic)) {
+    const s = g.style ?? {};
+    if (s.text) boxes.push({ ...box(s.text, s.x, s.y, s.fontSize, s.textAlign, s.textVerticalAlign, s.lineHeight), kind: 'graphic' });
+  }
+  const grids = arr(option.grid);
+  const xs = arr(option.xAxis);
+  const ys = arr(option.yAxis);
+  const axisBoxes = (a, horizontal) => {
+    const grid = grids[a.gridIndex ?? 0];
+    const map = axisMap(a, grid, horizontal);
+    const lab = a.axisLabel ?? {};
+    if (lab.show !== false) {
+      const values = a.type === 'category' ? (a.data ?? []).map((d, i) => [d, i]) : ticks(a).map((v, i) => [v, i]);
+      for (const [v, i] of values) {
+        const text = typeof lab.formatter === 'function' ? lab.formatter(v, i) : String(v);
+        if (!text) continue;
+        const p = map(a.type === 'category' ? i : v);
+        const pitch = String(text).includes('\n') ? lab.lineHeight : null;
+        if (String(text).includes('\n')) out.text.stacked.push(pitch && pitch >= 1.3 * lab.fontSize ? 'stacked' : `${text}: line pitch ${pitch}`);
+        boxes.push({ ...(horizontal ? box(text, p, grid.top + grid.height + MARGIN, lab.fontSize, 'center', 'top', pitch)
+          : box(text, grid.left - MARGIN, p, lab.fontSize, 'right', 'middle', pitch)), kind: horizontal ? 'x label' : 'y label' });
+      }
+    }
+    if (a.name) {
+      const size = a.nameTextStyle.fontSize;
+      if (horizontal) boxes.push({ ...box(a.name, grid.left + grid.width / 2, grid.top + grid.height + a.nameGap, size, 'center', 'top'), kind: 'x name' });
+      else {
+        const w = measureText(a.name, size, scale.THEME.fontFamily);
+        const cx = grid.left - a.nameGap;
+        const cy = grid.top + grid.height / 2;
+        boxes.push({ text: a.name, lines: 1, x0: cx - LH * size, x1: cx, y0: cy - w / 2, y1: cy + w / 2, kind: 'y name' });
+      }
+    }
+    return map;
+  };
+  const xm = xs.map((a) => axisBoxes(a, true));
+  const ym = ys.map((a) => axisBoxes(a, false));
+  for (const s of arr(option.series)) {
+    if (typeof s.renderItem !== 'function') continue;
+    const xi = s.xAxisIndex ?? 0;
+    const yi = s.yAxisIndex ?? 0;
+    const grid = grids[xs[xi].gridIndex ?? 0];
+    const api = {
+      coord: (p) => [xm[xi](p[0]), ym[yi](p[1])],
+      size: () => [xs[xi].type === 'category' ? grid.width / xs[xi].data.length : 0, ys[yi].type === 'category' ? grid.height / ys[yi].data.length : 0],
+    };
+    const coordSys = { x: grid.left, y: grid.top, width: grid.width, height: grid.height };
+    (s.data ?? []).forEach((d, i) => {
+      const walk = (e) => {
+        if (!e) return;
+        if (e.type === 'group') { e.children.forEach(walk); return; }
+        if (e.type === 'text' && e.style?.text) {
+          const st = e.style;
+          boxes.push({ ...box(st.text, st.x, st.y, st.fontSize, st.textAlign, st.textVerticalAlign), kind: `series ${s.name}` });
+        }
+        // The N strip's bars: a count must not run onto a neighbouring bar.
+        if (e.type === 'rect' && s.name === 'Events per bin (N strip)') {
+          const r = e.shape;
+          boxes.push({ text: `bar ${i}`, lines: 1, x0: r.x, y0: r.y, x1: r.x + r.width, y1: r.y + r.height, kind: 'bar' });
+        }
+      };
+      walk(s.renderItem({ dataIndex: i, coordSys }, api));
+    });
+  }
+  return boxes;
+}
+const BUILD = {
+  'perf-catalog': [cat.benchCatalogOption, cat.plotHeight],
+  'perf-overlap': [ovl.benchOverlapOption, ovl.plotHeight],
+  'perf-momentum-bias': [mom.benchMomentumOption, mom.plotHeight],
+  'perf-diagnostics': [diag.benchDiagnosticsOption, diag.plotHeight],
+};
+out.text = { checked: 0, multiline: 0, problems: [], stacked: [] };
+for (const [name, width] of [['print', 321], ['print', 661], ['dark', 1100], ['light', 1100], ['dark', 1024], ['dark', 600]]) {
+  theme(name);
+  for (const [card, [build, height]] of Object.entries(BUILD)) {
+    for (const species of ['proton', 'muon', 'electron', 'pion', 'all']) {
+      for (const task of ['segmentation', 'angle', 'energy']) {
+        for (const angleScale of card === 'perf-catalog' ? ['linear', 'log10'] : ['linear']) {
+          const payload = sel.catalogPayload(card, { species, task });
+          const opts = { angleScale, species, task, card };
+          const h = height(payload, opts, width);
+          const boxes = texts(build(payload, opts, { width, height: h }).option);
+          out.text.checked += boxes.length;
+          out.text.multiline += boxes.filter((b) => b.lines > 1).length;
+          const where = `${name} ${width} ${card} ${species} ${task} ${angleScale}`;
+          for (const b of boxes) {
+            if (b.kind === 'bar') continue;
+            if (b.x0 < -0.5 || b.x1 > width + 0.5 || b.y0 < -0.5 || b.y1 > h + 0.5) out.text.problems.push(`${where}: "${b.text}" (${b.kind}) leaves the ${width} × ${h} figure`);
+          }
+          for (let i = 0; i < boxes.length; i += 1) {
+            for (let j = i + 1; j < boxes.length; j += 1) {
+              const a = boxes[i];
+              const b = boxes[j];
+              if (a.kind === 'bar' && b.kind === 'bar') continue;
+              if (Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0.5 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 0.5) {
+                out.text.problems.push(`${where}: "${a.text}" (${a.kind}) overlaps "${b.text}" (${b.kind})`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  scale.restoreScreenTheme();
+}
+
+/* ---- the bias axis's ticks --------------------------------------------------------------------------- */
+out.bias = ['muon', 'electron', 'pion'].map((species) => {
+  const m = mom.benchMomentumModel(sel.catalogPayload('perf-momentum-bias', { species }));
+  return { species, bound: m.rows[0].bias.bound, interval: m.rows[0].bias.interval, most: mom.maxBiasIntervals() };
+});
+
+/* ---- R1-2: the diagnostics tables, every cell ------------------------------------------------------- */
+out.blocks = Object.fromEntries(['proton', 'muon', 'all'].map((species) => [species,
+  diag.diagnosticsBlocks(sel.catalogPayload('perf-diagnostics', { species })).filter((b) => b.table).map((b) => ({ key: b.key, rows: b.table.rows }))]));
+{
+  // R3-2: a value the report does not give reads "not reported", through the one formatter.
+  const p = JSON.parse(JSON.stringify(sel.catalogPayload('perf-diagnostics', { species: 'proton' })));
+  p.throughput.explain.segmentation = { value: null, qualifier: 'none' };
+  out.noneCell = diag.diagnosticsBlocks(p).find((b) => b.key === 'throughput').table.rows[0][3];
+}
+
+/* ---- R1-5, R1-11, R1-15: the drawers ----------------------------------------------------------------- */
+const lines = (n) => n.sections.flatMap((x) => x.lines);
+out.notes = {
+  momentum: lines(notes.momentumNotes({ payload: sel.catalogPayload('perf-momentum-bias', { species: 'all' }) })),
+  accuracy: lines(notes.accuracyNotes({ payload: sel.catalogPayload('perf-catalog', { species: 'muon' }) })),
+  overlap: lines(notes.overlapNotes({ payload: sel.catalogPayload('perf-overlap', { species: 'proton', task: 'energy' }) })),
+};
+out.bound = mom.oneSignBound(sel.catalogPayload('perf-momentum-bias', { species: 'muon' }).windows[0]);
+out.starvation = ovl.starvationText(sel.catalogPayload('perf-overlap', { species: 'proton', task: 'energy' }).starvation[0],
+  sel.catalogPayload('perf-overlap', { species: 'proton', task: 'energy' }).bins);
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def fixes():
+    proc = subprocess.run([NODE, "--input-type=module", "-e", _FIX_SCRIPT, json.dumps([JS.as_uri()])],
+                          capture_output=True, text=True, timeout=300, cwd=ROOT)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_the_stored_log10_draws_a_log_angle_axis_with_dots_on_screen_and_in_print(fixes):
+    """R2-1 / R3-1: the Angle axis control stores 'log10'; through cardOptions it must reach a log axis."""
+    for label in ("log10", "log10-all"):
+        case = fixes["log10"][label]
+        assert case["angleScale"] == "log10"
+        for theme in ("dark", "light", "print"):
+            t = case["themes"][theme]
+            assert t["axis"] == "log", (label, theme)
+            assert t["leaves"] and set(t["leaves"]) == {"circle"}, (label, theme, t["leaves"])
+            assert set(t["otherAxes"]) == {"value"}, (label, theme)
+            assert any("log₁₀ axis and draws dots" in line for line in t["drawn"]), (label, theme)
+    default = fixes["log10"]["default"]
+    assert default["angleScale"] == "linear"
+    for theme in ("dark", "light", "print"):
+        t = default["themes"][theme]
+        assert t["axis"] == "value" and set(t["leaves"]) == {"rect"}, theme
+    assert fixes["logSpellings"] == ["log", "log", "linear", "linear", "linear"]
+
+
+def test_the_diagnostics_row_labels_start_inside_the_figure(fixes):
+    """R2-2: the gutter is measured from the widest label, so "Per-shower translated" is never cut."""
+    labels = fixes["rowLabels"]
+    assert {(r["width"]) for r in labels} >= {1100, 321}
+    assert any(r["label"] == "Per-shower translated" for r in labels)
+    for r in labels:
+        assert r["start"] >= 0, r
+        assert r["start"] >= r["cellX"] - 0.01, r  # never into the panel on its left
+
+
+def test_every_text_of_every_option_fits_the_figure_and_overlaps_no_other(fixes):
+    """R2-3 / R2-7: every graphic line, tick label, axis name and series text, with the textfit.js estimate,
+    at the 321 px single-column export, the 661 px double column and the screen widths: inside the figure,
+    and clear of every other text (header lines wrapped, axis names clear of the top tick, the two-line
+    window labels stacked); the N strip's counts clear of its neighbouring bars."""
+    text = fixes["text"]
+    assert text["checked"] > 10000
+    assert text["multiline"] > 0  # the momentum window labels: window, then its n
+    # Each two-line label sets its own line pitch, so its lines stack apart in the SVG export too.
+    assert text["stacked"] and set(text["stacked"]) == {"stacked"}, sorted(set(text["stacked"]))[:5]
+    assert text["problems"] == [], "\n".join(text["problems"][:20])
+
+
+def test_the_bias_axis_keeps_zero_as_a_tick_and_its_labels_apart(fixes):
+    for b in fixes["bias"]:
+        steps = b["bound"] / b["interval"]
+        assert abs(steps - round(steps)) < 1e-9, b  # ±bound and 0 are ticks
+        assert 2 * round(steps) <= b["most"], b
+
+
+def test_the_diagnostics_tables_print_no_decimal_the_report_does_not(fixes):
+    """R1-2: Array.map's index never reaches the formatter as a decimal count."""
+    report = (ROOT / "models_performance.md").read_text(encoding="utf-8")
+    frames = {b["key"]: b["rows"] for b in fixes["blocks"]["all"]}["frames"]
+    assert [r[1] for r in frames] == ["≈ 250 × 250 × 53 mm", "≈ 45 × 45 × 55 mm", "≈ 45 × 45 × 55 mm"]
+    for species, blocks in fixes["blocks"].items():
+        for block in blocks:
+            for row in block["rows"]:
+                for cell in row:
+                    for token in re.findall(r"\d[\d,]*\.\d+", cell):
+                        hungarian = token.replace(",", "").replace(".", ",")
+                        assert hungarian in report, (species, block["key"], cell, token)
+    assert fixes["noneCell"] == "not reported"
+
+
+def test_the_drawers_bound_f7_name_both_starved_bins_and_read_the_bias_sign(fixes):
+    momentum = " ".join(fixes["notes"]["momentum"])
+    # R1-5: the bound the rounding leaves, never an exact implication.
+    assert "errors average under 0.0005 GeV per particle of the window: (almost) every error has one sign" in momentum
+    assert "not an exact implication" in momentum
+    assert "every error in such a window has one sign" not in momentum
+    assert fixes["bound"] == {"dp": 3, "value": 0.0005, "text": "0.0005"}
+    # R1-15: the report's muon reading implies prediction − truth.
+    for key in ("momentum", "accuracy"):
+        joined = " ".join(fixes["notes"][key])
+        assert "states no sign convention" in joined and "implies prediction − truth" in joined, key
+    # R1-11: one statement about the two bins together.
+    assert fixes["starvation"].startswith(
+        "Information starvation (the report): in the 30 % and 40–100 % bins together the particles have a mean momentum of 3.3 GeV")
+    overlap = " ".join(fixes["notes"]["overlap"])
+    assert "in this bin" not in overlap and "30 % and 40–100 % bins together" in overlap
+
+
+def test_one_formatter_prints_every_reported_value():
+    """R3-2: the Performance cards print through catalog/select.js printed / printedQualified only."""
+    for path in MODULES:
+        source = path.read_text(encoding="utf-8")
+        assert "qualifiedText" not in source, path.name
+        assert not re.search(r"function (signed)?[rR]eported\b", source), path.name
+        assert not re.search(r"\b(signedReported|reported)\(", source), path.name
+        assert "catalog/select.js'" in source, path.name

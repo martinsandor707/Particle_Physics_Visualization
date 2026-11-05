@@ -18,18 +18,22 @@
  * (the report states the architecture is identical for the new species) and the caveats that apply to the
  * species and task on show, the report's text with its "translated" frame written Per-shower translated.
  *
+ * The row-label gutter is measured from the widest frame label (textfit.js) plus the axis label margin, so
+ * "Per-shower translated" starts inside the figure at every width, the 321 px export included.
+ *
  * No colour literal: every colour is a THEME token or an E2 frame hue.
  */
 
 import { THEME, axisPadding, formatInt } from '../scale.js';
+import { printed, printedQualified } from '../catalog/select.js';
 import { tooltipOption } from './tooltip.js';
 import {
   baseOption, wrapTooltip, valueAxis, mutedLine, escapeHtml, emptyChartOption, withColour, wrappedLegend,
   legendTop, legibleOpacity, tickLabel, fitName,
 } from './chart_panel.js';
 import {
-  CATALOG_FRAMES, DEFAULT_WIDTH, N_NOT_REPORTED, CatalogChartPanel, buildTable, categoryAxis, frameHues,
-  frameWords, labelOf, qualifiedText, reported, textGraphic, textInk, tipFooter,
+  AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, N_NOT_REPORTED, CatalogChartPanel, buildTable, categoryAxis,
+  frameHues, frameWords, labelOf, textGraphic, textInk, tipFooter, widestLabel,
 } from './bench_catalog.js';
 
 /** The scope heading of every proton-only block, whatever species is on show. */
@@ -65,7 +69,7 @@ export function benchDiagnosticsModel(payload) {
         rows: rows(pol, 1), dp: ind.dp?.polarisation ?? null,
       },
       {
-        key: 'ambiguous', title: `Energy share with ${reported(band[0])} ≤ f ≤ ${reported(band[1])} [%]`, short: 'Undecided energy share',
+        key: 'ambiguous', title: `Energy share with ${printed(band[0])} ≤ f ≤ ${printed(band[1])} [%]`, short: 'Undecided energy share',
         unit: '%', max: 100, interval: 20, rows: rows(amb, 100), dp: ind.dp?.ambiguousSharePercent ?? null,
       },
     ],
@@ -83,7 +87,17 @@ function legendEntries() {
   return [{ name: PREDICTED_NAME, icon: 'circle' }, { name: TRUTH_NAME, icon: 'emptyCircle' }];
 }
 
-/** Where everything goes at `width`: {top, headingY, panels: [{panel, grid, titleX, titleY, titleW}], height}. */
+/**
+ * The row-label gutter of a dumbbell panel: the widest frame label at the label font, ECharts' label margin
+ * and the panel's own left padding. Measured, never a fixed number of font sizes: at 9.5 font sizes the
+ * label "Per-shower translated" started 11-17 px left of the canvas (R2-2).
+ */
+export function rowInset(payload) {
+  const labels = CATALOG_FRAMES.map((fr) => labelOf(payload, 'frame', fr));
+  return widestLabel(labels) + AXIS_LABEL_MARGIN + 0.6 * THEME.fontLabel;
+}
+
+/** Where everything goes at `width`: {top, headingY, inset, panels: [{panel, grid, titleX, titleY, titleW}], height}. */
 export function benchDiagnosticsLayout(model, payload, width = DEFAULT_WIDTH) {
   const pad = axisPadding();
   const f = THEME.fontLabel;
@@ -93,7 +107,7 @@ export function benchDiagnosticsLayout(model, payload, width = DEFAULT_WIDTH) {
   const titleH = 1.8 * f;
   const xLabelH = 2.4 * f;
   const gridH = CATALOG_FRAMES.length * ROW_PX;
-  const inset = 9.5 * f;
+  const inset = rowInset(payload);
   const gap = 2.4 * f;
   const side = (width - gap) / 2 - inset - pad.right >= MIN_SIDE_PX;
   const cellW = side ? (width - gap) / 2 : width;
@@ -110,7 +124,7 @@ export function benchDiagnosticsLayout(model, payload, width = DEFAULT_WIDTH) {
     };
   });
   const blocks = side ? 1 : 2;
-  return { legend, top, headingY: top, panels, height: Math.ceil(y0 + blocks * (titleH + gridH + xLabelH) + 0.6 * f) };
+  return { legend, top, headingY: top, inset, panels, height: Math.ceil(y0 + blocks * (titleH + gridH + xLabelH) + 0.6 * f) };
 }
 
 /** The plot height the card needs. Pure. */
@@ -126,7 +140,7 @@ export function plotHeight(payload, opts = {}, width = DEFAULT_WIDTH) {
 export function valueText(panel, v) {
   if (!Number.isFinite(v)) return 'not reported';
   const value = Number(v.toPrecision(12));
-  return panel.unit === '%' ? `${reported(value, panel.dp ?? null)} %` : reported(value, panel.dp ?? null);
+  return panel.unit === '%' ? `${printed(value, panel.dp ?? null)} %` : printed(value, panel.dp ?? null);
 }
 
 /** The tooltip of a row's dumbbell. */
@@ -137,7 +151,7 @@ export function indecisionTip(model, payload, panel, row) {
     escapeHtml(`network prediction ${valueText(panel, row.predicted)} (filled) · truth ${valueText(panel, row.truth)} (hollow)`),
     mutedLine(panel.key === 'polarisation'
       ? `${model.quantity}: 1 = every voxel decided, 0 = every voxel at f = 0.5`
-      : `the share of the energy in voxels with ${reported(model.band[0])} ≤ f ≤ ${reported(model.band[1])}`),
+      : `the share of the energy in voxels with ${printed(model.band[0])} ≤ f ≤ ${printed(model.band[1])}`),
     escapeHtml(`${PROTON_ONLY}; not reported for the muon, electron and pion`),
     ...tipFooter(N_NOT_REPORTED),
   ].join('<br/>');
@@ -230,6 +244,20 @@ export function drawnColours() {
 
 /* ============================================================== tables == */
 
+/**
+ * A qualified report value through `catalog/select.js` `printedQualified` (the one formatter), with the
+ * tables' wording for a value the report does not give: "not reported" where select.js prints "none".
+ */
+function reportedOrNot(q, options = {}) {
+  if (q && typeof q === 'object' && q.qualifier === 'none') return 'not reported';
+  return printedQualified(q, options);
+}
+
+/** A rate and its unit; a rate the report does not give takes no unit ("not reported", not "not reported events/s"). */
+function withRate(text, unit) {
+  return text === 'not reported' || !unit ? text : `${text} ${unit}`;
+}
+
 const TASK_ORDER = ['segmentation', 'angle', 'energy'];
 
 /** The left-aligned (prose) columns of each table; the rest are numbers. */
@@ -260,14 +288,18 @@ export function diagnosticsBlocks(payload) {
         columns: ['Task', 'Forward pass', 'With TTA', 'Grad-CAM / Shap-CAM', 'Note'],
         rows: TASK_ORDER.filter((k) => t.forward?.[k]).map((k) => {
           const fw = t.forward[k];
-          const note = fw.queryHeadSlowdown
-            ? `the particle-query head (${fl('trans')} and ${fl('local')}) slows it by ${qualifiedText({ ...fw.queryHeadSlowdown, value: Number((fw.queryHeadSlowdown.value * 100).toPrecision(12)) })} %`
+          const slow = fw.queryHeadSlowdown;
+          // A share printed as a percentage: its decimals move two places (0.03 → 3 %).
+          const slowPct = slow ? { ...slow, value: Number((slow.value * 100).toPrecision(12)),
+            dp: Number.isInteger(slow.dp) ? Math.max(0, slow.dp - 2) : null } : null;
+          const note = slowPct
+            ? `the particle-query head (${fl('trans')} and ${fl('local')}) slows it by ${reportedOrNot(slowPct)} %`
             : '—';
           return [
             tl(k),
-            `${qualifiedText(fw, { thousands: true })} ${fw.unit ?? ''}`.trim(),
+            withRate(reportedOrNot(fw, { thousands: true }), fw.unit ?? ''),
             tta,
-            `${qualifiedText(t.explain?.[k])} ${t.explain?.unit ?? 'events/s'}`,
+            withRate(reportedOrNot(t.explain?.[k]), t.explain?.unit ?? 'events/s'),
             note,
           ];
         }),
@@ -301,7 +333,8 @@ export function diagnosticsBlocks(payload) {
     const v = a.voxels ?? {};
     const h = a.hitEncoder ?? {};
     const sym = a.symmetry ?? {};
-    const sizeOf = (k) => (Array.isArray(v[k]) ? `${v.approx ? '≈ ' : ''}${v[k].map(reported).join(' × ')} ${v.unit ?? 'mm'}` : '—');
+    // One argument each: Array.map's index must never reach `printed` as a decimal count (R1-2).
+    const sizeOf = (k) => (Array.isArray(v[k]) ? `${v.approx ? '≈ ' : ''}${v[k].map((x) => printed(x)).join(' × ')} ${v.unit ?? 'mm'}` : '—');
     blocks.push({
       key: 'frames',
       label: 'the voxel grid, hit encoder and TTA table per frame',
@@ -313,9 +346,9 @@ export function diagnosticsBlocks(payload) {
         rows: CATALOG_FRAMES.map((k) => [
           fl(k),
           sizeOf(k),
-          reported(h.slots?.[k]),
-          reported(k === 'absolute' ? h.meanHitsPerVoxel?.absolute : h.meanHitsPerVoxel?.other),
-          reported(k === 'absolute' ? h.p99HitsPerVoxel?.absolute : h.p99HitsPerVoxel?.other),
+          printed(h.slots?.[k]),
+          printed(k === 'absolute' ? h.meanHitsPerVoxel?.absolute : h.meanHitsPerVoxel?.other),
+          printed(k === 'absolute' ? h.p99HitsPerVoxel?.absolute : h.p99HitsPerVoxel?.other),
           sym[k] ? `${sym[k].group}, ${formatInt(sym[k].transforms)} transforms` : '—',
         ]),
       },
@@ -340,7 +373,7 @@ export function diagnosticsBlocks(payload) {
             formatInt(d.combinedEvents),
             formatInt(d.validationEvents),
             `${formatInt(d.validationParticles)}${s === 'proton' ? '' : ' (derived)'}`,
-            d.csvRows ? qualifiedText(d.csvRows, { thousands: true }) : '—',
+            d.csvRows ? reportedOrNot(d.csvRows, { thousands: true }) : '—',
             formatInt(d.checkpoints),
           ];
         }),

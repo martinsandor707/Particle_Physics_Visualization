@@ -19,13 +19,21 @@
  *   angle and energy rows, which the report titles hit-level) or "per particle" (the new species' angle and
  *   energy rows). The two are different estimands; Compare all never puts them on one axis.
  * - Compare all draws one facet per species, each zero-based on its own axis, and says so.
- * - The proton energy rows at the 30 % and 40–100 % bins carry the report's information-starvation badge:
- *   mean momentum 3.3 GeV, about 8 MeV deposited.
+ * - The proton energy rows at the 30 % and 40–100 % bins carry the report's information-starvation note:
+ *   one "info-starved" label over a bracket spanning both bins, in a band of its own between the facet
+ *   title and the plot, so it never sits on a dot. The report's figures (mean momentum 3.3 GeV, about 8 MeV
+ *   deposited) are one statement about the two bins together, and the tooltip says so.
+ *
+ * Every header line wraps at the chart's width, the N strip sits a label height below the plot (so the
+ * plot's 0 and the strip's top tick never meet) under a line of its own for the unbinned count, and the
+ * strip's axis name keeps a gap to the next facet's title: the 321 px single-column export holds every text.
  *
  * No colour literal: every colour is a THEME token or an E2 frame hue.
  */
 
 import { THEME, axisPadding, formatInt } from '../scale.js';
+import { printed, printedQualified } from '../catalog/select.js';
+import { wrapText } from '../textfit.js';
 import { tooltipOption } from './tooltip.js';
 import { LEAK_TEXT, leakFlags } from '../catalog/gating.js';
 import {
@@ -33,8 +41,9 @@ import {
   legendTop, legibleOpacity, tickLabel, noticeGraphic, fitName,
 } from './chart_panel.js';
 import {
-  CATALOG_FRAMES, DEFAULT_WIDTH, N_NOT_REPORTED, CatalogChartPanel, categoryAxis, frameHues, labelOf, niceStep,
-  niceTop, reported, textGraphic, textInk, tipFooter, withUnit, qualifiedText,
+  AXIS_LABEL_MARGIN, CATALOG_FRAMES, DEFAULT_WIDTH, LINE_PITCH, N_NOT_REPORTED, CatalogChartPanel, categoryAxis,
+  frameHues, labelOf, lineGraphics, niceStep, niceTop, textGraphic, textInk, tipFooter, widestLabel, withUnit,
+  wrapLines,
 } from './bench_catalog.js';
 
 /** The unit badges of the two levels (F3). */
@@ -81,6 +90,8 @@ const LINE_PX = 1.2;
 const MAIN_ONE_PX = 220;
 const MAIN_ALL_PX = 150;
 const STRIP_PX = 36;
+/** The information-starvation band over the plot, in label heights (only where a facet is starved). */
+const STARVED_BAND = 1.7;
 /** A facet's plot must be at least this wide for two facets to share a row. */
 const MIN_TWO_COL_PX = 260;
 const ALL_RULE_NAME = 'All (the table\'s total): dotted rule';
@@ -148,7 +159,7 @@ function legendEntries(payload) {
   ];
 }
 
-/** The note line under the legend (Compare all only). */
+/** The note under the legend (Compare all only); wrapped by the layout. */
 function noteText(model) {
   if (!model.all) return '';
   return model.mixedLevels
@@ -167,17 +178,25 @@ export function benchOverlapLayout(model, payload, width = DEFAULT_WIDTH) {
   const plotWidthPx = Math.max(80, width - pad.left - pad.right);
   const top = legendTop(legend, plotWidthPx, { wrap: true });
   const note = noteText(model);
-  const noteH = note ? 1.6 * f : 0;
+  const noteLines = wrapLines(note, width - 1.2 * f);
+  const noteH = noteLines.length * LINE_PITCH * f;
   const n = model.facets.length;
   const gap = 2.4 * f;
   const twoFit = (width - 2 * (pad.left + pad.right) - gap) / 2 >= MIN_TWO_COL_PX;
   const cols = n > 1 && twoFit ? 2 : 1;
   const facetW = (width - (cols - 1) * gap) / cols;
-  const titleH = 1.9 * f;
+  // The title's line, then the top tick label's upper half above the plot's top edge.
+  const titleH = 2.4 * f;
+  // One band height for every facet, so the facets of a row stay aligned.
+  const bandH = model.facets.some((x) => x.starved.length) ? STARVED_BAND * f : 0;
   const mainH = model.all ? MAIN_ALL_PX : MAIN_ONE_PX;
-  const stripGap = 0.6 * f;
-  const xLabelH = 2.4 * f;
-  const blockH = titleH + mainH + stripGap + STRIP_PX + xLabelH;
+  // Between the plot and the N strip: the unbinned count's line, and room for the plot's 0 and the
+  // strip's top tick, each centred on its grid edge.
+  const stripGap = 1.9 * f;
+  // Under the strip: its bin labels, its axis name, and a gap before the next facet's title.
+  const nameGap = AXIS_LABEL_MARGIN + 1.5 * f;
+  const xLabelH = nameGap + 1.4 * f + 0.6 * f;
+  const blockH = titleH + bandH + mainH + stripGap + STRIP_PX + xLabelH;
   const placed = model.facets.map((facet, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
@@ -190,12 +209,15 @@ export function benchOverlapLayout(model, payload, width = DEFAULT_WIDTH) {
       titleX: x + 0.6 * f,
       titleY: y + 0.35 * f,
       titleW: facetW - 1.2 * f,
-      main: { left, top: y + titleH, width: w, height: mainH },
-      strip: { left, top: y + titleH + mainH + stripGap, width: w, height: STRIP_PX },
+      main: { left, top: y + titleH + bandH, width: w, height: mainH },
+      strip: { left, top: y + titleH + bandH + mainH + stripGap, width: w, height: STRIP_PX },
     };
   });
   const rows = Math.ceil(n / cols);
-  return { top, note, noteH, legend, cols, facets: placed, height: Math.ceil(top + noteH + rows * blockH + 0.6 * f) };
+  return {
+    top, note, noteLines, noteH, legend, cols, nameGap, stripGap, facets: placed,
+    height: Math.ceil(top + noteH + rows * blockH + 0.6 * f),
+  };
 }
 
 /** The plot height the card needs (Compare all takes more rows). Pure. */
@@ -221,11 +243,11 @@ export function overlapTip(model, payload, facet, series, i) {
   const bin = model.bins[i]?.label ?? '';
   const lines = [
     `<b>${escapeHtml(sp)} · ${escapeHtml(fr)} · overlap bin ${escapeHtml(bin)}: ${escapeHtml(quantityName(model.task))} `
-      + `${escapeHtml(withUnit(reported(series.values[i], series.dp?.values?.[i]), model.unit))}</b>`,
+      + `${escapeHtml(withUnit(printed(series.values[i], series.dp?.values?.[i]), model.unit))}</b>`,
     escapeHtml(`${LEVEL_BADGES[facet.level] ?? ''}: ${levelText(facet.level, model.task)}`),
-    escapeHtml(`All (the table's own total) ${withUnit(reported(series.all, series.dp?.all), model.unit)}: the dotted rule`),
+    escapeHtml(`All (the table's own total) ${withUnit(printed(series.all, series.dp?.all), model.unit)}: the dotted rule`),
   ];
-  if (facet.starved.includes(i) && facet.starvation) lines.push(escapeHtml(starvationText(facet.starvation)));
+  if (facet.starved.includes(i) && facet.starvation) lines.push(escapeHtml(starvationText(facet.starvation, model.bins)));
   for (const flag of series.leaks) lines.push(mutedLine(`leak: ${LEAK_TEXT[flag]}`));
   lines.push(...tipFooter(binN(facet, i)));
   return lines.join('<br/>');
@@ -235,18 +257,70 @@ export function overlapTip(model, payload, facet, series, i) {
 function allTip(model, payload, facet, series) {
   return [
     `<b>${escapeHtml(labelOf(payload, 'species', facet.species))} · ${escapeHtml(labelOf(payload, 'frame', series.frame))} · All: `
-      + `${escapeHtml(quantityName(model.task))} ${escapeHtml(withUnit(reported(series.all, series.dp?.all), model.unit))}</b>`,
+      + `${escapeHtml(quantityName(model.task))} ${escapeHtml(withUnit(printed(series.all, series.dp?.all), model.unit))}</b>`,
     escapeHtml(`${ALL_NOTE}; drawn as a dotted rule, never as a bin`),
     escapeHtml(`${LEVEL_BADGES[facet.level] ?? ''}: ${levelText(facet.level, model.task)}`),
     ...tipFooter(binN(facet, null)),
   ].join('<br/>');
 }
 
-/** The report's information-starvation sentence (proton energy, high-overlap bins). */
-export function starvationText(st) {
-  return `Information starvation (the report): in this bin the particles have a mean momentum of `
-    + `${reported(st.meanMomentum?.value, st.meanMomentum?.dp)} ${st.meanMomentum?.unit ?? 'GeV'} and deposit ${qualifiedText(st.deposit)} `
-    + `${st.deposit?.unit ?? 'MeV'}; the larger error is missing information, not a model failure.`;
+/** The printed labels of the starved bins: "30 % and 40–100 %". */
+export function starvedBinsText(st, bins = []) {
+  const labels = (st?.bins ?? []).map((key) => bins.find((b) => b.key === key)?.label ?? key);
+  return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}` : (labels[0] ?? '');
+}
+
+/**
+ * The report's information-starvation sentence (proton energy, high-overlap bins). The report gives one
+ * mean over the starved bins together ("in the 30 % and 40–100 % overlap bins the particles have low
+ * momentum (mean 3.3 GeV)"), so the sentence names every bin it covers and never says "in this bin".
+ */
+export function starvationText(st, bins = []) {
+  const where = starvedBinsText(st, bins);
+  const together = (st?.bins ?? []).length > 1 ? ' together' : '';
+  const deposit = st?.deposit?.qualifier === 'none' ? 'not reported' : printedQualified(st?.deposit);
+  return `Information starvation (the report): in the ${where} bins${together} the particles have a mean momentum of `
+    + `${printed(st?.meanMomentum?.value, st?.meanMomentum?.dp)} ${st?.meanMomentum?.unit ?? 'GeV'} and deposit ${deposit} `
+    + `${st?.deposit?.unit ?? 'MeV'}; the larger error is missing information, not a model failure.`;
+}
+
+/**
+ * The starved bins as runs of adjacent bins, [[first, last], …]: one bracket and one label per run, so the
+ * 30 % and 40–100 % bins carry a single "info-starved" label instead of two that run together.
+ */
+export function starvedRuns(indices) {
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  const runs = [];
+  for (const i of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && i === last[1] + 1) last[1] = i;
+    else runs.push([i, i]);
+  }
+  return runs;
+}
+
+/**
+ * The notice of a strip with no reported counts: the longest wording whose wrapped lines fit the strip's
+ * height (noticeGraphic wraps at the strip's width), so a narrow export never spills it onto the bin labels.
+ */
+export function stripNotice(speciesLabel, strip) {
+  const candidates = [
+    `${N_NOT_REPORTED}: the report prints no per-bin events for the ${speciesLabel.toLowerCase()}`,
+    `${N_NOT_REPORTED}: no per-bin events in the report`,
+    N_NOT_REPORTED,
+  ];
+  const fits = (text) => wrapText(text, Math.max(80, strip.width - 8), THEME.fontTip, THEME.fontFamily).length
+    * 1.45 * THEME.fontTip <= strip.height;
+  return candidates.find(fits) ?? N_NOT_REPORTED;
+}
+
+/**
+ * The width of an N-strip bar in a bin `slot` px wide: at most 28 px and 0.4 of the slot, and narrow enough
+ * that its count, printed right of it, ends before the next bar starts (at 321 px "1,297" ran onto the
+ * 10 % bar). Never below 6 px.
+ */
+export function stripBarWidth(slot, countW) {
+  return Math.max(6, Math.min(28, 0.4 * slot, slot - countW - 3 - 3));
 }
 
 /** The tooltip of one strip bar. */
@@ -279,7 +353,7 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
   const binLabels = model.bins.map((b) => b.label);
   const unitText = model.unit ? ` [${model.unit}]` : '';
 
-  if (layout.note) graphic.push(textGraphic(layout.note, 0.6 * f, layout.top));
+  graphic.push(...lineGraphics(layout.noteLines, 0.6 * f, layout.top));
 
   layout.facets.forEach(({ facet, titleX, titleY, titleW, main, strip }) => {
     const sp = labelOf(payload, 'species', facet.species);
@@ -349,7 +423,10 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
     series.push(withColour({ type: 'custom', name: ALL_RULE_NAME, xAxisIndex: gi, yAxisIndex: gi, data: [], renderItem: () => null }, textInk(THEME.muted)));
 
     if (facet.starved.length && facet.starvation) {
-      const tip = `<b>${escapeHtml('Information-starved bins')}</b><br/>${escapeHtml(starvationText(facet.starvation))}`;
+      // One label per run of adjacent starved bins, over a bracket spanning them, in the band between the
+      // title and the plot: never two labels side by side, never on a dot.
+      const tip = `<b>${escapeHtml('Information-starved bins')}</b><br/>${escapeHtml(starvationText(facet.starvation, model.bins))}`;
+      const runs = starvedRuns(facet.starved);
       series.push({
         type: 'custom',
         name: 'information starvation',
@@ -357,16 +434,30 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
         yAxisIndex: gi,
         clip: false,
         z: 8,
-        data: facet.starved.map((i, k) => [i, facet.axis.max, k]),
+        data: runs.map(([first, last], k) => [first, facet.axis.max, last, k]),
         renderItem: (params, api) => {
-          const i = facet.starved[params.dataIndex];
-          const c = api.coord([i, facet.axis.max]);
+          const [first, last] = runs[params.dataIndex];
+          const a = api.coord([first, facet.axis.max]);
+          const b = api.coord([last, facet.axis.max]);
+          const slot = typeof api.size === 'function' ? api.size([1, 0])[0] : main.width / binLabels.length;
+          const half = 0.36 * slot;
+          const y = a[1] - 0.45 * f;
+          const ink = textInk(THEME.muted);
+          const line = (x1, y1, x2, y2) => ({ type: 'line', shape: { x1, y1, x2, y2 }, style: { stroke: ink, lineWidth: THEME.lineAxis } });
           return {
-            type: 'text',
-            style: {
-              x: c[0], y: c[1] + 3, text: 'info-starved', fill: textInk(THEME.muted), fontSize: THEME.fontSmall,
-              fontFamily: THEME.fontFamily, textAlign: 'center', textVerticalAlign: 'top',
-            },
+            type: 'group',
+            children: [
+              line(a[0] - half, y, b[0] + half, y),
+              line(a[0] - half, y, a[0] - half, y + 0.3 * f),
+              line(b[0] + half, y, b[0] + half, y + 0.3 * f),
+              {
+                type: 'text',
+                style: {
+                  x: (a[0] + b[0]) / 2, y: y - 0.15 * f, text: 'info-starved', fill: ink, fontSize: THEME.fontSmall,
+                  fontFamily: THEME.fontFamily, textAlign: 'center', textVerticalAlign: 'bottom',
+                },
+              },
+            ],
           };
         },
         tooltip: { formatter: () => tip },
@@ -376,13 +467,14 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
     // ---- the N strip
     const si = grids.length;
     grids.push(strip);
-    xAxes.push(categoryAxis({ gridIndex: si, data: binLabels, name: fitName(['Overlap bin', ''], strip.width), nameGap: 1.9 * f }));
+    xAxes.push(categoryAxis({ gridIndex: si, data: binLabels, name: fitName(['Overlap bin', ''], strip.width), nameGap: layout.nameGap }));
     if (facet.events) {
       yAxes.push(valueAxis({
         gridIndex: si, min: 0, max: facet.strip.max, interval: facet.strip.max, formatter: tickLabel,
         name: 'N', nameGap: 3.6 * f,
       }));
       const ink = textInk(THEME.muted);
+      const countW = widestLabel(facet.events.bins.map((n) => formatInt(n)), THEME.fontSmall);
       series.push(withColour({
         type: 'custom',
         name: 'Events per bin (N strip)',
@@ -396,7 +488,9 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
           const n = facet.events.bins[i];
           const base = api.coord([i, 0]);
           const top = api.coord([i, n]);
-          const w = Math.min(28, 0.4 * (strip.width / binLabels.length));
+          const w = stripBarWidth(strip.width / binLabels.length, countW);
+          // The count beside its bar's top, but never below the strip's baseline, where the bin labels are.
+          const textY = Math.min(Math.min(base[1], top[1]), base[1] - 1.3 * THEME.fontSmall);
           return {
             type: 'group',
             children: [
@@ -408,7 +502,7 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
               {
                 type: 'text',
                 style: {
-                  x: base[0] + w / 2 + 3, y: Math.min(base[1], top[1]), text: formatInt(n), fill: ink,
+                  x: base[0] + w / 2 + 3, y: textY, text: formatInt(n), fill: ink,
                   fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily, textVerticalAlign: 'top',
                 },
               },
@@ -417,11 +511,12 @@ export function benchOverlapOption(payload, opts = {}, metrics = {}) {
         },
         tooltip: { formatter: (p) => stripTip(model, facet, p.dataIndex) },
       }, ink));
+      // On its own line between the plot and the strip, clear of the strip's counts and both grids' ticks.
       graphic.push(textGraphic(`${formatInt(facet.events.unbinned)} of ${formatInt(facet.events.all)} events in no bin`,
-        strip.left + strip.width, strip.top - 0.2 * f, { align: 'right', size: THEME.fontSmall }));
+        strip.left + strip.width, strip.top - layout.stripGap + 0.65 * f, { align: 'right', size: THEME.fontSmall }));
     } else {
       yAxes.push(valueAxis({ gridIndex: si, min: 0, max: 1, labels: false }));
-      graphic.push(noticeGraphic(`${N_NOT_REPORTED}: the report prints no per-bin events for the ${labelOf(payload, 'species', facet.species).toLowerCase()}`,
+      graphic.push(noticeGraphic(stripNotice(labelOf(payload, 'species', facet.species), strip),
         strip.left + strip.width / 2, strip.top + strip.height / 2, strip.width));
     }
   });

@@ -15,11 +15,12 @@
 import { Notes, SECTION } from './panel_notes.js';
 import { formatInt } from './scale.js';
 import { LEAK_TEXT } from './catalog/gating.js';
+import { printed } from './catalog/select.js';
 import {
-  NO_INTERVAL, POINT_ESTIMATE, benchCatalogModel, labelOf, reported, signedReported, withUnit,
+  NO_INTERVAL, POINT_ESTIMATE, benchCatalogModel, labelOf, withUnit,
 } from './panels/bench_catalog.js';
 import { benchOverlapModel, LEVEL_BADGES, levelText, starvationText, ALL_NOTE } from './panels/bench_overlap.js';
-import { benchMomentumModel, windowLabel, windowRule, BIAS_NAME } from './panels/bench_momentum.js';
+import { benchMomentumModel, windowLabel, windowRule, oneSignBound, BIAS_NAME } from './panels/bench_momentum.js';
 import { benchDiagnosticsModel, diagnosticsBlocks, PROTON_ONLY, valueText as diagnosticsValueText } from './panels/bench_diagnostics.js';
 
 /** The drawer titles by card id; the shell's card title wins when it passes one. */
@@ -39,6 +40,16 @@ export const EXCEPTION_NOTE = 'Recorded exception (Martin, 2026-11-05): the trai
 const FRAME_HUES_NOTE = 'Colour is the frame, in the hues the network-error card E2 gives it (ColorBrewer qualitative, '
   + 'each at least 3:1 against the card): Absolute, Per-shower translated (the report\'s "trans"), Local. A species is '
   + 'never a second hue: it is named by a direct label or takes its own facet.';
+
+/**
+ * What the drawers say about the bias's sign. The report states no sign convention, so the card writes
+ * "signed error as reported"; its own muon reading (the large errors near 5 and 15 GeV show an estimate
+ * pulled toward the middle of the range, with +5.525 GeV at 5 GeV and −4.220 GeV at 15 GeV) only works if
+ * the bias is prediction − truth, and the drawer says that much (R1-15).
+ */
+export const BIAS_SIGN_NOTE = 'The bias is the report\'s signed error as printed. The report states no sign convention; '
+  + 'its muon interpretation (an estimate pulled toward the middle of the range, positive at 5 GeV and negative at 15 GeV) '
+  + 'implies prediction − truth.';
 
 /** The catalogue's ASCII note in the card's typography: ≤ for <=, × for x between numbers or words. */
 function typographicNote(text) {
@@ -93,7 +104,7 @@ export function accuracyNotes({ payload, title = null, angleScale = 'linear' } =
   if (model.clamped) disclosures.push(`${formatInt(model.clamped)} R² below zero clamped at 0 with an "R² < 0" mark; the tooltip gives the value as printed.`);
   for (const flag of model.leaks) disclosures.push(`Marked "leak": ${LEAK_TEXT[flag]}`);
   disclosures.push(LEAK_TEXT['oracle-separation']);
-  disclosures.push('The bias is the report\'s signed error as printed; the report states no sign convention.');
+  disclosures.push(BIAS_SIGN_NOTE);
   if (model.species.some((s) => s !== 'proton')) {
     disclosures.push('For the muon, electron and pion the angle and energy R² and the tree\'s R² come from the report\'s summary table; their particle counts are derived as 2 per combined event.');
   }
@@ -138,13 +149,14 @@ export function overlapNotes({ payload, title = null } = {}) {
   } else if (model.task !== 'segmentation' && model.facets.some((f) => f.species === 'proton')) {
     disclosures.push('The proton\'s angle and energy rows sit under a heading the report titles hit-level; the other species\' angle and energy rows are per particle (F3).');
   }
-  for (const f of model.facets) if (f.starvation && f.starved.length) disclosures.push(`${labelOf(payload, 'species', f.species)}, ${f.starved.map((i) => model.bins[i].label).join(' and ')}: ${starvationText(f.starvation)}`);
+  // The report's figures cover the starved bins together; the sentence names them, so no "in this bin".
+  for (const f of model.facets) if (f.starvation && f.starved.length) disclosures.push(`${labelOf(payload, 'species', f.species)}: ${starvationText(f.starvation, model.bins)}`);
   for (const flag of model.leaks) disclosures.push(LEAK_TEXT[flag]);
   if (model.task !== 'segmentation') disclosures.push(LEAK_TEXT['oracle-separation']);
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
     FRAME_HUES_NOTE,
-    'Dots joined by thin lines: one frame\'s errors over the ordered bins. Dotted rule: that frame\'s All. Under the plot, the N strip: the proton\'s events per bin as bars from zero with their counts; "N not reported" for a species the report gives none for. "info-starved" marks the bins of the report\'s information-starvation note.',
+    'Dots joined by thin lines: one frame\'s errors over the ordered bins. Dotted rule: that frame\'s All. Under the plot, the N strip: the proton\'s events per bin as bars from zero with their counts; "N not reported" for a species the report gives none for. One "info-starved" label over a bracket spans the bins of the report\'s information-starvation note.',
     `The facet heading carries the unit badge, "per hit" or "per particle". Every tooltip names the N or says "N not reported", and says: ${POINT_ESTIMATE}.`,
   ]);
   const hazards = [NO_INTERVAL];
@@ -170,10 +182,10 @@ export function momentumNotes({ payload, title = null } = {}) {
   }
   notes.section(SECTION.drawn, [
     'For each species a pair of plots over three true-momentum windows: the MAE as a bar from zero, and the bias as a dot on an axis symmetric about zero with an explicit zero rule.',
-    `${BIAS_NAME}: the report's average signed error, as printed; the report states no sign convention.`,
+    `${BIAS_NAME}: the report's average signed error, as printed. ${BIAS_SIGN_NOTE.replace(/^The bias is the report's signed error as printed\. /, '')}`,
     `Windows: ${(model.rows[0]?.windows ?? []).map((w) => `${windowLabel(w)}, ${windowRule(w)}`).join('; ')}.`,
     model.all ? 'Each species takes its own row with its own axes.' : '',
-    ...model.rows.flatMap((r) => r.windows.map((w) => `${labelOf(payload, 'species', r.species)} ${windowLabel(w)}: MAE ${withUnit(reported(w.mae, w.dp?.mae), model.unit)}, bias ${withUnit(signedReported(w.bias, w.dp?.bias), model.unit)}, n = ${formatInt(w.n)}.`)),
+    ...model.rows.flatMap((r) => r.windows.map((w) => `${labelOf(payload, 'species', r.species)} ${windowLabel(w)}: MAE ${withUnit(printed(w.mae, w.dp?.mae), model.unit)}, bias ${withUnit(printed(w.bias, w.dp?.bias, { sign: true }), model.unit)}, n = ${formatInt(w.n)}.`)),
   ]);
   const disclosures = [
     EXCEPTION_NOTE,
@@ -185,13 +197,15 @@ export function momentumNotes({ payload, title = null } = {}) {
     disclosures.push('n is shown as reported; no interval is built from it.');
   }
   if (model.oneSigned.length) {
-    disclosures.push(`|bias| equals the MAE to the reported precision at ${model.oneSigned.map((w) => `${labelOf(payload, 'species', w.species)} ${windowLabel(w)} (${signedReported(w.bias, w.dp?.bias)} ${model.unit})`).join(' and ')}: every error in such a window has one sign (F7). The dot is a diamond labelled "one sign".`);
+    const bound = oneSignBound(model.oneSigned[0]);
+    const boundText = bound ? `under ${bound.text} ${model.unit}` : 'within the rounding';
+    disclosures.push(`|bias| equals the MAE to the report's rounding at ${model.oneSigned.map((w) => `${labelOf(payload, 'species', w.species)} ${windowLabel(w)} (${printed(w.bias, w.dp?.bias, { sign: true })} ${model.unit})`).join(' and ')} (F7). MAE − |bias| is (2/n)·Σ|e| over the errors of the other sign, and two values printed alike leave it at most one unit of the last printed decimal, so those errors average ${boundText} per particle of the window: (almost) every error has one sign. This is a bound from the rounding, not an exact implication. The dot is a diamond labelled "one sign".`);
   }
   if (model.notReported.length) disclosures.push(`${model.notReported.map((s) => labelOf(payload, 'species', s)).join(', ')}: the report gives no momentum windows.`);
   disclosures.push(LEAK_TEXT['oracle-separation']);
   notes.section(SECTION.disclosures, disclosures);
   notes.section(SECTION.legend, [
-    'Every mark takes the Absolute frame\'s E2 hue; a species is a row with its own heading, never a hue. Bars: the MAE from zero. Dots: the bias; a diamond labelled "one sign" where every error has one sign. The muted horizontal line is zero. Each window\'s n is printed under its label.',
+    'Every mark takes the Absolute frame\'s E2 hue; a species is a row with its own heading, never a hue. Bars: the MAE from zero. Dots: the bias; a diamond labelled "one sign" where, to the report\'s rounding, (almost) every error has one sign. The muted horizontal line is zero. Each window\'s n is printed under its label.',
     `Every tooltip names the window, its rule and its n as reported, and says: ${POINT_ESTIMATE}.`,
   ]);
   const hazards = [NO_INTERVAL, 'training split included'];
@@ -209,7 +223,7 @@ export function diagnosticsNotes({ payload, title = null } = {}) {
   if (!model) return notes.done([NO_INTERVAL]);
   const blocks = diagnosticsBlocks(payload);
   notes.section(SECTION.drawn, [
-    `The proton segmentation's indecision, as dumbbells per frame: the energy-weighted ⟨|2f − 1|⟩ on 0–1 (1 = every voxel decided) and the share of the energy with ${reported(model.band[0])} ≤ f ≤ ${reported(model.band[1])} on 0–100 %, the network's prediction against the truth. Both axes start at zero and span the quantities' whole range.`,
+    `The proton segmentation's indecision, as dumbbells per frame: the energy-weighted ⟨|2f − 1|⟩ on 0–1 (1 = every voxel decided) and the share of the energy with ${printed(model.band[0])} ≤ f ≤ ${printed(model.band[1])} on 0–100 %, the network's prediction against the truth. Both axes start at zero and span the quantities' whole range.`,
     `Under the plot, screen only: ${blocks.map((b) => b.label).join('; ')}.`,
     ...model.panels.flatMap((p) => p.rows.map((r) => {
       const v = (x) => diagnosticsValueText(p, x);
