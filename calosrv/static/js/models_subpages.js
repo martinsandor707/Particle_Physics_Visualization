@@ -244,3 +244,45 @@ export function mountSubnav({ state = null, root = document, onSwitch = () => {}
 
   return { show, current: () => current };
 }
+
+/** How long a deep-linked card is held in place while the page settles, at most. */
+export const PIN_MS = 8000;
+
+/** What the reader does that ends the hold: they have taken over the scroll. */
+export const PIN_RELEASE_EVENTS = Object.freeze(['wheel', 'touchstart', 'pointerdown', 'keydown']);
+
+/**
+ * Hold a deep-linked card where it landed while the page settles.
+ *
+ * The card lands one head-height below the top of `.main` (its scroll
+ * margin), so the foot of the card above it shows under the sticky head:
+ * the lazy loader counts that card as in view, loads it, and it grows. The
+ * browser anchors its scroll on that growing card, so the linked one slid
+ * down, off a 768 px screen (T1's test at 1024 x 768). Every resize of the
+ * subpage scrolls the card back into view, until the reader scrolls,
+ * touches, clicks or types (`PIN_RELEASE_EVENTS` on `main`, captured), or
+ * `ms` pass. Returns `stop()`. `Observer`, `setTimer` and `clearTimer` are
+ * the platform's, injectable for a test.
+ */
+export function pinOnResize({
+  card, watch, main = null, ms = PIN_MS, Observer = globalThis.ResizeObserver,
+  setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout,
+} = {}) {
+  if (!card || !watch || typeof Observer !== 'function') return () => {};
+  let done = false;
+  let timer = null;
+  const observer = new Observer(() => {
+    if (!done) card.scrollIntoView?.({ block: 'start' });
+  });
+  const stop = () => {
+    if (done) return;
+    done = true;
+    observer.disconnect();
+    for (const type of PIN_RELEASE_EVENTS) main?.removeEventListener?.(type, stop, true);
+    if (timer !== null) clearTimer?.(timer);
+  };
+  observer.observe(watch);
+  for (const type of PIN_RELEASE_EVENTS) main?.addEventListener?.(type, stop, { capture: true, passive: true });
+  timer = setTimer?.(stop, ms) ?? null;
+  return stop;
+}

@@ -58,7 +58,7 @@ import {
 } from './page_common.js';
 import { ModelsSection, isCatalogCard } from './models_cards.js';
 import {
-  mountSubnav, subpageOfCard, onSubpage, colourMapShown, xgbNoticeShown, watchHeadHeight,
+  mountSubnav, subpageOfCard, onSubpage, colourMapShown, xgbNoticeShown, watchHeadHeight, pinOnResize,
   benchCaption, benchSpeciesToStore,
 } from './models_subpages.js';
 import { formatInt, formatNumber, setScreenTheme } from './scale.js';
@@ -779,6 +779,9 @@ function landDeepLink(link) {
     // card (46 px at 1024 px). Measured again and scrolled again, the card
     // lands below the head at its final width.
     if (head.measure() !== measured) result.card.scrollIntoView?.({ block: 'start' });
+    // Cards above it that load late would push it down; it is held in place
+    // until the reader takes over the scroll (models_subpages.js pinOnResize).
+    pinOnResize({ card: result.card, watch: document.getElementById(`msub-${msub ?? subnav.current()}`), main });
     return;
   }
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';

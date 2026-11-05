@@ -2211,3 +2211,70 @@ console.log(JSON.stringify(PROVENANCE));
     assert router_results["provenance"] == select
     source = _strip_comments((JS / "models_subpages.js").read_text(encoding="utf-8"))
     assert "catalog/" not in source
+
+
+# ------------------------------------------------- a deep link's card held --
+
+_PIN_SCRIPT = _FAKE_DOM + r"""
+const [subpagesUrl] = JSON.parse(process.argv[1]);
+const { pinOnResize, PIN_RELEASE_EVENTS, PIN_MS } = await import(subpagesUrl);
+const observers = [];
+class Obs { constructor(cb) { this.cb = cb; this.targets = []; this.off = false; observers.push(this); }
+  observe(t) { this.targets.push(t); } disconnect() { this.off = true; } }
+const scrolled = [];
+const card = { scrollIntoView: (o) => scrolled.push(o) };
+const listeners = {};
+const main = {
+  addEventListener: (t, f, o) => { (listeners[t] ??= []).push([f, o]); },
+  removeEventListener: (t, f, capture) => { listeners[t] = (listeners[t] ?? []).filter(([g]) => g !== f); },
+};
+const timers = [];
+const setTimer = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+const cleared = [];
+const clearTimer = (id) => cleared.push(id);
+const watch = { id: 'msub-perf' };
+pinOnResize({ card, watch, main, Observer: Obs, setTimer, clearTimer });
+const first = observers[0];
+const options = Object.fromEntries(Object.entries(listeners).map(([t, l]) => [t, l[0][1]]));
+first.cb(); first.cb();                 // the subpage grew twice: the card is scrolled back each time
+const afterResizes = scrolled.length;
+listeners.wheel[0][0]();                // the reader scrolls: the hold ends
+first.cb();
+const out = {
+  observed: first.targets[0] === watch, afterResizes, afterWheel: scrolled.length, disconnected: first.off,
+  scrollOptions: scrolled[0], timer: timers[0].ms, cleared: [...cleared], options, released: PIN_RELEASE_EVENTS, max: PIN_MS,
+  remaining: Object.values(listeners).reduce((n, l) => n + l.length, 0),
+};
+// A second hold ends at its deadline, with no interaction.
+pinOnResize({ card, watch, main, Observer: Obs, setTimer, clearTimer });
+timers[1].fn();
+observers[1].cb();
+out.afterDeadline = scrolled.length;
+out.secondDisconnected = observers[1].off;
+// Without a ResizeObserver (or a card) there is nothing to hold, and nothing throws.
+out.noObserver = typeof pinOnResize({ card, watch, main, Observer: undefined }) === 'function';
+out.noCard = typeof pinOnResize({ watch, main, Observer: Obs }) === 'function';
+console.log(JSON.stringify(out));
+"""
+
+
+def test_a_deep_linked_card_is_held_in_place_until_the_reader_takes_over():
+    """T1's 1024 x 768 test: the card above the linked one shows under the sticky head, loads late and grows; the
+    browser anchors on it and the linked card slid off the screen. Each resize of the subpage scrolls it back
+    until the reader scrolls, touches, clicks or types, or 8 s pass."""
+    p = _run(_PIN_SCRIPT, [(JS / "models_subpages.js").as_uri()])
+    assert p["observed"] and p["afterResizes"] == 2 and p["scrollOptions"] == {"block": "start"}
+    assert p["afterWheel"] == 2 and p["disconnected"] and p["remaining"] == 0 and p["cleared"] == [1]
+    assert p["timer"] == p["max"] == 8000
+    assert p["released"] == ["wheel", "touchstart", "pointerdown", "keydown"]
+    assert all(o == {"capture": True, "passive": True} for o in p["options"].values()) and len(p["options"]) == 4
+    assert p["afterDeadline"] == 2 and p["secondDisconnected"]
+    assert p["noObserver"] and p["noCard"]
+
+
+def test_the_page_holds_a_landed_card():
+    """models_main.js landDeepLink holds the card it landed on, watching its own subpage's wrapper."""
+    source = _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+    land = source[source.index("function landDeepLink"):source.index("async function boot")]
+    assert "pinOnResize({ card: result.card, watch: document.getElementById(`msub-${" in land
+    assert land.index("revealPanel(") < land.index("pinOnResize(")
