@@ -1946,11 +1946,10 @@ const shown = (id) => { const el = document.getElementById(id); if (!el) return 
 
 _PAGE_BOOT = r"""
 const head = document.getElementById('models-head');
-// The head: 40 px of tabs, then the bench bar, whose caption wraps a line of 1 px every 10 characters and
-// one more line of 20 px while the Details drawer narrows the column.
+// The head: 40 px of tabs, then the bench bar's 40 px row of buttons, which wraps one more line of 20 px
+// while the Details drawer narrows the column (the caption is not in the head: it scrolls away).
 if (head) head.measuredHeight = () => 40 + (document.getElementById('bench-bar').hidden ? 0
-  : 80 + Math.ceil(document.getElementById('bench-caption').textContent.length / 10)
-    + (document.querySelector('.app').classList.contains('is-inspector-open') ? 20 : 0));
+  : 40 + (document.querySelector('.app').classList.contains('is-inspector-open') ? 20 : 0));
 // An id the markup lost: the element stays, with its children, under no id.
 for (const id of pageArgs.drop ?? []) { const el = document.getElementById(id); if (el) el.id = ''; }
 // When the 3-D views first fill their host, and on which subpage.
@@ -2029,7 +2028,7 @@ def test_a_deep_link_lands_below_the_sticky_head_with_its_drawer_and_the_way_bac
     first, last = (int(m[:-2]) for m in boot["marginAtScroll"])
     assert last == first + 20 and boot["marginAtScroll"][-1] == boot["headH"] == boot["headNow"]
     assert boot["headObserved"]
-    assert int(boot["headNow"][:-2]) > 120, "the bench bar is in the head"
+    assert int(boot["headNow"][:-2]) > 40, "the bench bar is in the head, beyond the 40 px of tabs"
     assert boot["shown"]["inspector"] and boot["inspectorTitle"]
     assert boot["returnLink"], "the return link is set before the drawer opens"
 
@@ -2120,7 +2119,7 @@ def test_a_switch_brings_the_bench_bar_the_sidebar_the_notices_and_the_head_in_l
     # Distillations: the bar, the notice (the two-shower file pairs with no XGBoost run), no Colour Map (no E4);
     # the head measured at once, in the click, with the bar.
     assert distill["shown"]["bench-bar"] and distill["shown"]["xgb-notice"] and not distill["shown"]["group-m-colormap"]
-    assert distill["headH"] == distill["headNow"] and int(distill["headNow"][:-2]) > 120
+    assert distill["headH"] == distill["headNow"] and int(distill["headNow"][:-2]) > 40
     assert distill["hash"].endswith("msub=distill")
     # Performance: the Colour Map with the prediction density.
     assert perf["shown"]["bench-bar"] and perf["shown"]["xgb-notice"] and perf["shown"]["group-m-colormap"]

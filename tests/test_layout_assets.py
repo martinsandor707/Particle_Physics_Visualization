@@ -634,14 +634,17 @@ def test_the_models_subpages_are_a_tablist_of_three_tabpanels():
         assert main.count(f'id="msub-{msub}"') == 1 and main.count(f'id="msub-tab-{msub}"') == 1
 
 
-def test_the_bench_bar_holds_its_two_groups_and_its_caption():
+def test_the_bench_bar_holds_its_two_groups_and_its_caption_follows_the_head():
+    """The sticky head holds the controls alone; the provenance caption follows it and scrolls away."""
     html = _models_html()
     main = html[html.index('<main class="main">'):html.index("</main>")]
     head = _models_head(main)
     bar = head[head.index('<div class="bench-bar" id="bench-bar" hidden>'):]
     assert '<span class="bench-group" id="bench-species" role="group" aria-label="Species">' in bar
     assert '<span class="bench-group" id="bench-task" role="group" aria-label="Task">' in bar
-    assert '<p class="bench-caption" id="bench-caption"></p>' in bar
+    assert 'id="bench-caption"' not in head
+    after = main[main.index(head) + len(head):]
+    assert after.index('<p class="bench-caption" id="bench-caption" hidden></p>') < after.index('id="banner"')
     for element_id in ("bench-bar", "bench-species", "bench-task", "bench-caption"):
         assert html.count(f'id="{element_id}"') == 1, element_id
     colour = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")

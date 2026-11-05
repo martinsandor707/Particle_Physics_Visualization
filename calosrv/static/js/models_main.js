@@ -206,6 +206,7 @@ const taskButtons = benchButtons('bench-task', MODELS_LABELS.bench_task, 'benchT
 /** The catalogue's bar: shown off Views, its pressed buttons and its caption. */
 function syncBenchBar(msub = subnav.current()) {
   setHidden('bench-bar', msub === 'views');
+  setHidden('bench-caption', msub === 'views');
   const species = effectiveSpecies(state.get('bench_species'), plan);
   for (const [value, button] of speciesButtons) press(button, value === species);
   const task = state.get('model');

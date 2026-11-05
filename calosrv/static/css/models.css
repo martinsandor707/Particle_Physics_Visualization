@@ -71,8 +71,7 @@
 
 /* The benchmark catalogue's bar, under the tab bar in the sticky head on
    Distillations and Performance: the species and the task as two segmented
-   groups, then the caption on a line of its own. It wraps rather than
-   overflow, and the head grows with it. */
+   groups. It wraps rather than overflow, and the head grows with it. */
 .bench-bar {
   display: flex;
   flex-wrap: wrap;
@@ -83,13 +82,15 @@
 .bench-bar[hidden] { display: none; }
 .bench-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .bench-label { font-size: 11px; color: var(--muted); }
+/* The caption follows the sticky head and scrolls away with the cards: the
+   head keeps the controls alone. */
 .bench-caption {
-  flex: 1 1 100%;
-  margin: 0;
+  margin: 0 0 var(--gap);
   font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
 }
+.bench-caption[hidden] { display: none; }
 
 /* The Longitudinal Channels belong to the 3-D views' depth projections, on
    Views only. Hidden here by the subpage, never through the group's own
