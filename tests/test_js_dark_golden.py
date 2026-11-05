@@ -42,6 +42,15 @@ and prints a table of SHA-256 digests, one per case:
   Boundaries and Pooled, on the five layer-group fixtures and on the Local
   ensemble, under the screen and the print tokens; and the drawer notes those
   specs produce (`projectionNotes`, `eventNotes`, `voxelProjectionNotes`).
+* **The benchmark catalogue** (added 2026-11-05, new `catalog/*` case ids only).
+  Every catalogue payload (`catalog/select.js` `catalogPayload`) and every
+  catalogue builder on it, for each species and Compare all and each task: the
+  six chart builders at the card's 1100 px and the export's 321 px (the
+  accuracy card on its linear and Log10 angle axes too), their `plotHeight`,
+  under the screen and the print tokens; the PySR card's `pysrModel`; the
+  accuracy table and the diagnostics blocks; the seven drawer-note builders,
+  with and without the panels' own state (a highlighted feature, moved curve
+  values).
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
@@ -95,6 +104,9 @@ FAMILIES = [
     "notes/xgb", "notes/voxels",
     "text/projection", "text/frame_views", "methodology/exhibit",
     "physics/layer_groups", "notes/layer_groups",
+    "catalog/payload", "catalog/distill-pysr", "catalog/distill-triangle", "catalog/distill-curves",
+    "catalog/perf-catalog", "catalog/perf-overlap", "catalog/perf-momentum-bias", "catalog/perf-diagnostics",
+    "catalog/notes",
 ]
 
 _SCRIPT = r"""
@@ -142,6 +154,18 @@ const v = await imp('voxels.js');
 const exhibits = await imp('methodology/exhibits.js');
 const exportMod = await imp('methodology/export.js');
 const lgMod = await imp('layer_groups.js');
+// The benchmark catalogue (added 2026-11-05, new `catalog/*` case ids only).
+const catSelect = await imp('catalog/select.js');
+const catBench = await imp('catalog/benchmarks.js');
+const catPysr = await imp('panels/pysr_matrix.js');
+const catTriangle = await imp('panels/distill_triangle.js');
+const catCurves = await imp('panels/distill_curves.js');
+const catAccuracy = await imp('panels/bench_catalog.js');
+const catOverlap = await imp('panels/bench_overlap.js');
+const catMomentum = await imp('panels/bench_momentum.js');
+const catDiagnostics = await imp('panels/bench_diagnostics.js');
+const catNotesDistill = await imp('catalog_notes_distill.js');
+const catNotesPerf = await imp('catalog_notes_perf.js');
 
 const { THEME } = scale;
 
@@ -1328,6 +1352,94 @@ for (const name of Object.keys(exhibits.EXHIBITS).sort()) {
   put(`methodology/exhibit/${name}/screen_svg`, exportMod.serialiseSvg(build(`fig-${name}`)));
 }
 put('methodology/exhibit/consts', { paperWidth: exhibits.PAPER_WIDTH_MM, minFont: exhibits.PAPER_MIN_FONT });
+
+/* ---- the benchmark catalogue (catalog/*, added 2026-11-05) ------------------------------------------------ */
+// Every catalogue builder on catalog/select.js `catalogPayload` for every species and Compare all ('all') and
+// every task, at the screen card's width and the export's 321 px, under the screen and the print tokens; the
+// DOM card's model (pysrModel) and the screen-only tables as plain data; the seven drawer-note builders with
+// the arguments ModelsSection.notes passes. New case ids only: nothing above reads these modules.
+{
+  const CAT_SPECIES = [...catBench.SPECIES, 'all'];
+  const CAT_TASKS = [...catBench.TASKS];
+  const CAT_WIDTHS = { wide: 1100, export: 321 };
+  const chart = (id, out) => put(id, { option: out.option, plotGrid: out.plotGrid ?? null, calls: exercise(out.option) });
+  const builders = {
+    'distill-triangle': [catTriangle.distillTriangleOption, catTriangle.plotHeight],
+    'distill-curves': [catCurves.distillCurvesOption, catCurves.plotHeight],
+    'perf-catalog': [catAccuracy.benchCatalogOption, catAccuracy.plotHeight],
+    'perf-overlap': [catOverlap.benchOverlapOption, catOverlap.plotHeight],
+    'perf-momentum-bias': [catMomentum.benchMomentumOption, catMomentum.plotHeight],
+    'perf-diagnostics': [catDiagnostics.benchDiagnosticsOption, catDiagnostics.plotHeight],
+  };
+  const notesOf = {
+    'distill-pysr': catNotesDistill.pysrNotes, 'distill-triangle': catNotesDistill.triangleNotes,
+    'distill-curves': catNotesDistill.curvesNotes, 'perf-catalog': catNotesPerf.accuracyNotes,
+    'perf-overlap': catNotesPerf.overlapNotes, 'perf-momentum-bias': catNotesPerf.momentumNotes,
+    'perf-diagnostics': catNotesPerf.diagnosticsNotes,
+  };
+  const stub = { get: () => null, isTouched: () => false };
+  for (const species of CAT_SPECIES) {
+    for (const task of CAT_TASKS) {
+      const at = `${species}/${task}`;
+      const payloadOf = (card) => catSelect.catalogPayload(card, { species, task });
+      for (const card of catSelect.CATALOG_CARDS) put(`catalog/payload/${card}/${at}`, payloadOf(card));
+      const base = { palette: 'viridis', species, task, angleScale: 'linear' };
+      for (const [card, [build, height]] of Object.entries(builders)) {
+        const payload = payloadOf(card);
+        const scales = card === 'perf-catalog' ? ['linear', 'log'] : ['linear'];
+        for (const angleScale of scales) {
+          const opts = { ...base, card, angleScale };
+          const tag = angleScale === 'log' ? '/log' : '';
+          for (const [name, width] of Object.entries(CAT_WIDTHS)) {
+            both(`catalog/${card}/${at}/${name}${tag}`, () => build(payload, opts, { width, height: height(payload, opts, width) }), chart);
+          }
+        }
+        both(`catalog/${card}/${at}/height`, () => Object.fromEntries(Object.entries(CAT_WIDTHS).map(([n, w]) => [n, height(payload, { ...base, card }, w)])),
+          (id, o) => put(id, o));
+      }
+      // The PySR card is a DOM table: its model, plain and with a feature highlighted.
+      const pysr = payloadOf('distill-pysr');
+      both(`catalog/distill-pysr/${at}/model`, () => ({ plain: catPysr.pysrModel(pysr, {}), highlight: catPysr.pysrModel(pysr, { highlight: 'centroid_theta' }) }),
+        (id, o) => put(id, o));
+      // The screen-only tables under the plot: the accuracy table and the diagnostics blocks.
+      put(`catalog/perf-catalog/${at}/table`, catAccuracy.secondaryTableRows(payloadOf('perf-catalog')));
+      put(`catalog/perf-diagnostics/${at}/blocks`, catDiagnostics.diagnosticsBlocks(payloadOf('perf-diagnostics')));
+      // The drawers, as ModelsSection.notes calls them (no panel state, then the panels' own).
+      for (const [card, notes] of Object.entries(notesOf)) {
+        const ctx = { ...base, card, payload: payloadOf(card), state: stub, experiment: null, title: null, panelState: null };
+        put(`catalog/notes/${card}/${at}`, notes(ctx));
+      }
+      put(`catalog/notes/distill-pysr/${at}/highlight`,
+        catNotesDistill.pysrNotes({ ...base, card: 'distill-pysr', payload: pysr, panelState: { highlight: 'centroid_theta' } }));
+      const curves = payloadOf('distill-curves');
+      const moved = Object.fromEntries(Object.entries(curves.variables ?? {}).map(([k, v]) => [k, v.domain[0] + 0.25 * (v.domain[1] - v.domain[0])]));
+      put(`catalog/notes/distill-curves/${at}/values`,
+        catNotesDistill.curvesNotes({ ...base, card: 'distill-curves', payload: curves, panelState: { values: moved } }));
+      both(`catalog/distill-curves/${at}/values`, () => catCurves.distillCurvesOption(curves, { ...base, card: 'distill-curves', values: moved },
+        { width: 1100, height: catCurves.plotHeight(curves, { values: moved }, 1100) }), chart);
+      put(`catalog/notes/perf-catalog/${at}/log`,
+        catNotesPerf.accuracyNotes({ ...base, card: 'perf-catalog', angleScale: 'log', payload: payloadOf('perf-catalog') }));
+    }
+  }
+  // Several cards draw every task whatever the bar's task is (the PySR matrix, the accuracy facets, the energy
+  // curves, the diagnostics): their cases for a later task repeat an earlier one's bytes. Each such case is
+  // recorded as the id it repeats, so the table states the equality and a drift that separates the tasks fails.
+  const recorded = { ...cases };
+  for (const id of Object.keys(recorded).filter((c) => c.startsWith('catalog/'))) {
+    const parts = id.split('/');
+    const i = parts.findIndex((p, k) => k > 0 && CAT_TASKS.includes(p) && CAT_SPECIES.includes(parts[k - 1]));
+    if (i < 0) continue;
+    const earlier = CAT_TASKS.slice(0, CAT_TASKS.indexOf(parts[i]))
+      .map((t) => [...parts.slice(0, i), t, ...parts.slice(i + 1)].join('/'))
+      .find((alt) => recorded[alt] === recorded[id]);
+    if (!earlier) continue;
+    const text = canon({ same_as: earlier });
+    cases[id] = sha(text);
+    if (dumpDir) fs.writeFileSync(`${dumpDir}/${id.replace(/[^A-Za-z0-9_.@-]+/g, '__')}.json`, text);
+  }
+  put('catalog/notes/consts', { distillTitles: catNotesDistill.DISTILL_TITLES, distillHeadings: catNotesDistill.DISTILL_HEADINGS,
+    perfTitles: catNotesPerf.CATALOG_PERF_TITLES, exception: [catNotesDistill.EXCEPTION_LINE, catNotesPerf.EXCEPTION_NOTE] });
+}
 
 /* ---- out ------------------------------------------------------------------------------------------------------ */
 // Sorted, so two runs print the same bytes.

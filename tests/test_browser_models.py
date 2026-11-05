@@ -7,7 +7,17 @@ page is checked as a reader meets it:
 
 * the page tabs carry the view (the hash) across both pages, and the Physics
   page keeps the Models page's keys;
-* no card asks before it scrolls into view, the 3-D pairs included;
+* the three subpages (Views, Distillations, Performance; models_subpages.js,
+  state key ``msub``): the tab bar's roles, click and keyboard, the hash, each
+  subpage's scroll position, the sidebar per subpage (Martin's decision 3), a
+  deep link switching to its card's subpage first, and the 3-D views keeping
+  their canvases, contexts, cameras and slices across switches with no request;
+  every helper below reaches a card through its own tab;
+* no card asks before it scrolls into view, the 3-D pairs included; Views is
+  the cold boot's subpage, and nothing on another subpage asks before its tab;
+* the benchmark catalogue's seven cards (the training report, no request ever)
+  draw in both themes, open their drawers with the hazard "no interval
+  reported", and repaint on a species, task or theme switch with no fetch;
 * every 2-D card renders with no console error, page error or failed
   request, opens its Details drawer with the standard sections, and draws
   every negative number with U+2212;
@@ -67,20 +77,39 @@ PERF = ["perf-bins", "pred-truth", "pred-residuals"]
 #: The energy-resolution section (capabilities.js PAGE2_SECTIONS.resolution): its detector series needs no
 #: model, so it shows on every kind, between the performance and the XGBoost sections.
 RES = ["res-scaling"]
-XGB =["xgb-cv", "xgb-binary", "xgb-surrogate", "xgb-importance"]
+#: The XGBoost analysis, split across two subpages behind one gate: E1 and E3 on Performance (`xgb`), E4 and E5
+#: on Distillations (`xgbDistill`).
+XGB_PERF = ["xgb-cv", "xgb-binary"]
+XGB_DISTILL = ["xgb-surrogate", "xgb-importance"]
+XGB = XGB_PERF + XGB_DISTILL
 FEATURES = ["feat-table", "feat-corr", "feat-hist", "feat-hist2d"]
 EVENT_PAIR = ["vox-event", "vproj-xy", "vproj-xz", "vproj-yz"]
 ENSEMBLE_PAIR = ["vox-ensemble", "eproj-xy", "eproj-yz", "eproj-xz"]
 GL_CARDS = ("vox-event", "vox-ensemble")
+#: The benchmark catalogue (catalog/select.js CATALOG_CARDS): static documentation from the training report,
+#: shown for every experiment. Its Distillations half, then its Performance half.
+DISTILL = ["distill-pysr", "distill-triangle", "distill-curves"]
+BENCH = ["perf-catalog", "perf-overlap", "perf-momentum-bias", "perf-diagnostics"]
+CATALOG = DISTILL + BENCH
+#: The catalogue's chart cards; the PySR matrix is a DOM table, with no export.
+CATALOG_CHARTS = [c for c in CATALOG if c != "distill-pysr"]
+#: The three subpages, in tab order (capabilities.js SUBPAGES); Views is the cold boot's.
+SUBPAGES = ("views", "distill", "perf")
 
-#: The cards each kind shows, in page order. The two-shower page opens on the
-#: energy network, so its performance cards draw rather than state the
+#: The cards each kind shows, by subpage, each in page order (capabilities.js SUBPAGE_SECTIONS). The
+#: two-shower page opens on the energy network, so its performance cards draw rather than state the
 #: segmentation network's notice.
-CARDS = {
-    BASELINE_TABLE: PERF + RES + FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
-    SINGLE_HITS_TABLE: RES + FEATURES + ["prim-rate"] + EVENT_PAIR + ENSEMBLE_PAIR,
-    MODELS_XGB_TABLE: PERF + RES + XGB + FEATURES,
+BY_SUBPAGE = {
+    BASELINE_TABLE: {"views": EVENT_PAIR + ENSEMBLE_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
+                     "perf": PERF + RES + BENCH},
+    SINGLE_HITS_TABLE: {"views": EVENT_PAIR + ENSEMBLE_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
+                        "perf": RES + BENCH},
+    MODELS_XGB_TABLE: {"views": FEATURES, "distill": DISTILL + XGB_DISTILL, "perf": PERF + RES + XGB_PERF + BENCH},
 }
+#: Every card a kind shows, across the subpages, in page order (views, distill, perf).
+CARDS = {table: [c for msub in SUBPAGES for c in by[msub]] for table, by in BY_SUBPAGE.items()}
+#: The subpage of every card on any kind.
+SUBPAGE_OF = {c: msub for by in BY_SUBPAGE.values() for msub, ids in by.items() for c in ids}
 #: The tables whose selection holds momentum windows the resolution card can draw: the baseline's two
 #: events hold none from 4 GeV with two events, so it draws its empty state there.
 RES_DRAWN = (SINGLE_HITS_TABLE, MODELS_XGB_TABLE)
@@ -178,7 +207,8 @@ _CARD = """(id) => {
     message: message && !message.hidden ? message.textContent.trim() : null,
     kind: message && !message.hidden ? message.dataset.kind ?? null : null,
     canvas: Boolean(host && host.querySelector('canvas')),
-    table: Boolean(host && host.querySelector('table')),
+    // A table card: the feature table's <table>, the PySR matrix's role=table grid.
+    table: Boolean(host && host.querySelector('table, [role="table"]')),
     series: option ? (option.series || []).length : 0,
     seriesTypes: option ? (option.series || []).map((s) => s.type) : [],
     graphic: option ? (option.graphic || []).length : 0,
@@ -221,11 +251,12 @@ _CHART_TEXTS = """(plotId) => {
 # ------------------------------------------------------------------ helpers --
 
 
-def _open(p, base, table, *, fragment=None, viewport=(1600, 900), init=(), browser=None, path="/models"):
+def _open(p, base, table, *, fragment=None, viewport=(1600, 900), init=(), browser=None, path="/models",
+          scheme="dark"):
     """The Models page on `table`, with every console error, page error and failed request recorded."""
     browser = browser or p.chromium.launch(args=GL_ARGS)
     page = browser.new_page(
-        color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]}, accept_downloads=True,
+        color_scheme=scheme, viewport={"width": viewport[0], "height": viewport[1]}, accept_downloads=True,
     )
     problems, requests = [], []
     page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
@@ -260,12 +291,50 @@ def _settled(page, card_id, timeout=30_000):
     return page.evaluate(_CARD, card_id)
 
 
+#: The subpage on show (`.app[data-msub]`, models_subpages.js) and the one holding a card (its wrapper).
+_SUBPAGE_OF_CARD = """(id) => document.querySelector(`.main .card[data-panel="${id}"]`)
+  ?.closest('.models-subpage')?.dataset.msub ?? null"""
+
+
+def _subpage(page):
+    return page.evaluate("() => document.querySelector('.app')?.dataset.msub ?? null")
+
+
+def _show_subpage(page, msub):
+    """Click a subpage's tab (unless it is on show); wait for its wrapper to be the one shown."""
+    if _subpage(page) != msub:
+        page.click(f"#msub-tab-{msub}")
+    page.wait_for_function(
+        """(m) => document.querySelector('.app')?.dataset.msub === m
+          && !document.getElementById(`msub-${m}`).hidden
+          && ['views', 'distill', 'perf'].filter((k) => k !== m).every((k) => document.getElementById(`msub-${k}`).hidden)""",
+        arg=msub, timeout=10_000)
+    page.wait_for_timeout(150)
+
+
 def _scroll_to(page, card_id):
+    """Bring a card into view on its own subpage (its tab clicked first when another is on show), then wait
+    until it has drawn or says why not."""
+    msub = page.evaluate(_SUBPAGE_OF_CARD, card_id)
+    if msub:
+        _show_subpage(page, msub)
     page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
     return _settled(page, card_id)
 
 
 def _shown_cards(page):
+    """The cards the plan shows, on every subpage, in page order: a card is shown when neither it nor anything
+    holding it is hidden, its subpage's wrapper aside (a subpage off show hides nothing the plan shows)."""
+    return page.evaluate("""() => [...document.querySelectorAll('.main .card[data-panel]')].filter((c) => {
+      for (let a = c; a && a !== document.body; a = a.parentElement) {
+        if (a.hidden && !a.classList.contains('models-subpage')) return false;
+      }
+      return true;
+    }).map((c) => c.dataset.panel)""")
+
+
+def _visible_cards(page):
+    """The cards laid out now: on the subpage on show, neither hidden nor in a hidden section."""
     return page.evaluate(
         "() => [...document.querySelectorAll('.main .card[data-panel]')]"
         ".filter((c) => !c.hidden && c.offsetParent !== null).map((c) => c.dataset.panel)")
@@ -292,6 +361,46 @@ def _hover_chart(page, plot_id, columns=9, rows=6):
             probe = page.evaluate(_PROBE)
             if probe is not None:
                 found.append(((x, y), probe, boxes))
+    page.mouse.move(2, 2)
+    page.wait_for_timeout(60)
+    return found
+
+
+#: Where a chart draws its data items, in viewport pixels: the centre of every element a series painted, at most
+#: `cap` spread over every series, for a chart whose marks are too sparse for a grid of pointer positions.
+_MARK_POINTS = """([plotId, cap]) => {
+  const host = document.getElementById(plotId);
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((series) => {
+    if (series.get('silent') || series.get('tooltip')?.show === false) return;
+    // Every drawn element of the series (a custom series' marks have no item layout): its painted box's centre.
+    inst.getViewOfSeriesModel(series).group.traverse((el) => {
+      if (el.isGroup || el.silent || el.ignore || el.invisible || typeof el.getPaintRect !== 'function') return;
+      const r = el.getPaintRect();
+      if (r && r.width > 0 && r.height > 0) out.push([c.left + r.x + r.width / 2, c.top + r.y + r.height / 2]);
+    });
+  });
+  const step = Math.max(1, Math.ceil(out.length / cap));
+  return out.filter((_, i) => i % step === 0)
+    .filter(([x, y]) => x > c.left + 1 && x < c.right - 1 && y > c.top + 1 && y < c.bottom - 1);
+}"""
+
+
+def _hover_marks(page, plot_id, cap=30):
+    """Hover a chart's own data items; every tooltip that showed, probed (as `_hover_chart` returns them)."""
+    page.locator(f"#{plot_id}").scroll_into_view_if_needed()
+    page.wait_for_timeout(200)
+    page.evaluate(_WATCH_HOVER, plot_id)
+    boxes = page.evaluate(_BOXES, plot_id)
+    found = []
+    for x, y in page.evaluate(_MARK_POINTS, [plot_id, cap]):
+        page.mouse.move(x, y)
+        page.wait_for_timeout(60)
+        probe = page.evaluate(_PROBE)
+        if probe is not None:
+            found.append(((x, y), probe, boxes))
     page.mouse.move(2, 2)
     page.wait_for_timeout(60)
     return found
@@ -341,7 +450,10 @@ def _projection_readouts(found, where):
 
 
 def _drawer(page, card_id):
-    """Open a card's Details drawer; its title, section headings and text; closed again."""
+    """Open a card's Details drawer (on its own subpage); its title, section headings and text; closed again."""
+    msub = page.evaluate(_SUBPAGE_OF_CARD, card_id)
+    if msub:
+        _show_subpage(page, msub)
     page.click(f'.main button[data-inspect="{card_id}"]')
     page.wait_for_function("() => !document.getElementById('inspector').hidden")
     title = page.inner_text("#inspector-title")
@@ -399,33 +511,51 @@ def test_the_page_tabs_carry_the_view_across_both_pages(models_live_server):
 
 
 def test_no_card_asks_before_it_scrolls_into_view(models_live_server):
+    """Views is the cold boot's subpage: the cards at its top load at open, and nothing on Distillations or
+    Performance asks until its tab is chosen (a card on a hidden subpage never meets `.main`)."""
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, base, MODELS_XGB_TABLE)
         page.wait_for_timeout(800)
+        assert _subpage(page) == "views"
         assert page.evaluate("() => document.querySelector('.main').scrollTop") == 0
-        # The performance cards stand at the top of the page and load; nothing below them asks.
-        assert _requests_of(requests, "/api/model-performance")
-        assert not _requests_of(requests, "/api/xgboost"), _urls(requests)
-        assert not _requests_of(requests, "/api/features"), _urls(requests)
+        # The feature explorer stands at the top of Views (no 3-D views on an aggregate) and loads.
+        assert _requests_of(requests, "/api/features", view="describe"), _urls(requests)
+        # Nothing on the other two subpages has asked.
+        for route in ("/api/model-performance", "/api/prediction-density", "/api/resolution-scaling", "/api/xgboost"):
+            assert not _requests_of(requests, route), (route, _urls(requests))
 
+        # Distillations: E4 / E5 load with their tab; the Performance cards still ask nothing.
         state = _scroll_to(page, "xgb-importance")
         assert state["canvas"] and state["series"], state
         assert _requests_of(requests, "/api/xgboost", view="importance", task="momentum")
-        assert not _requests_of(requests, "/api/features", view="hist2d")
+        assert not _requests_of(requests, "/api/xgboost", view="cv"), _urls(requests)
+        assert not _requests_of(requests, "/api/model-performance"), _urls(requests)
+        # Performance: the cards at its top load once its tab is chosen.
+        _show_subpage(page, "perf")
+        page.wait_for_timeout(800)
+        assert _requests_of(requests, "/api/model-performance"), _urls(requests)
+        state = _scroll_to(page, "xgb-cv")
+        assert state["canvas"] and state["series"], state
+        assert _requests_of(requests, "/api/xgboost", view="cv", task="momentum")
+        # Back on Views, a feature card below the fold loads when scrolled to, once.
         state = _scroll_to(page, "feat-hist2d")
         assert state["canvas"] and (state["series"] or state["graphic"]), state
         assert len(_requests_of(requests, "/api/features", view="hist2d")) == 1
         browser.close()
 
-        # The 3-D pairs load on view too: nothing of either before they are scrolled to.
+        # On hits, the 3-D pairs head Views: the event's pair loads at open; Performance asks nothing yet.
         browser, page, problems2, requests = _open(p, base, SINGLE_HITS_TABLE)
         page.wait_for_timeout(800)
-        for route in ("/api/event", "/api/event/pick", "/api/voxels", "/api/projections"):
-            assert not _requests_of(requests, route), (route, _urls(requests))
+        assert _subpage(page) == "views"
+        assert _requests_of(requests, "/api/projections"), _urls(requests)
+        assert not _requests_of(requests, "/api/resolution-scaling"), _urls(requests)
+        assert not _requests_of(requests, "/api/primaries"), _urls(requests)
         _scroll_to(page, "vox-ensemble")
         assert _requests_of(requests, "/api/voxels", frame="local")
         assert _requests_of(requests, "/api/projections", coord_system="local", display="native")
+        _scroll_to(page, "res-scaling")
+        assert len(_requests_of(requests, "/api/resolution-scaling")) == 1
         browser.close()
     assert problems == [] and problems2 == [], problems + problems2
 
@@ -433,23 +563,36 @@ def test_no_card_asks_before_it_scrolls_into_view(models_live_server):
 # ------------------------------------------------------------ every card --
 
 
+#: The hazard every catalogue card's Details button carries (Martin's decision 1, 2026-11-05).
+NO_INTERVAL = "no interval reported"
+#: The Details button of a card: flagged, and its title naming the hazards.
+_DETAILS = """(id) => { const b = document.querySelector(`.main button[data-inspect="${id}"]`);
+  return b ? { flagged: b.classList.contains('is-flagged'), title: b.title } : null; }"""
+
+
 @pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
 def test_every_2d_card_renders_without_a_console_error(models_live_server, table):
-    """Every card draws (or states the server's reason), opens its drawer, and draws U+2212."""
+    """Every card on every subpage draws (or states the server's reason), opens its drawer, and draws U+2212.
+
+    The cold boot lays out Views alone; every card the plan shows is listed across the three subpages, and
+    each is reached through its own tab. The catalogue's cards carry the hazard "no interval reported"."""
     base = models_live_server["base"]
     drawers = []
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, base, table)
+        assert _subpage(page) == "views" and "msub" not in _hash(page)
         assert _shown_cards(page) == CARDS[table]
+        assert _visible_cards(page) == BY_SUBPAGE[table]["views"]
         for card_id in CARDS[table]:
             state = _scroll_to(page, card_id)
             where = f"{table} {card_id}"
+            assert _subpage(page) == SUBPAGE_OF[card_id], where
             if card_id in SHUT.get(table, ()):
                 assert state["kind"] == "disabled" and state["message"], (where, state)
                 continue
             assert state["message"] is None, f"{where}: {state['message']}"
             assert state["width"] > 200 and state["height"] > 100, (where, state)
-            if card_id == "feat-table":
+            if card_id in ("feat-table", "distill-pysr"):
                 assert state["table"], where
             elif card_id in GL_CARDS:
                 assert state["canvas"] and "bar3D" in state["seriesTypes"], (where, state)
@@ -458,6 +601,10 @@ def test_every_2d_card_renders_without_a_console_error(models_live_server, table
             title, headings, body = _drawer(page, card_id)
             assert title == state["title"], where
             _assert_sections(headings, where)
+            if card_id in CATALOG:
+                details = page.evaluate(_DETAILS, card_id)
+                assert details["flagged"] and NO_INTERVAL in details["title"], (where, details)
+                assert "models_performance.md" in body, where
             drawers.append(body)
         drawn = page.evaluate("() => window.__drawnText")
         dom = page.evaluate("() => document.querySelector('.main').innerText")
@@ -501,12 +648,16 @@ def test_no_card_runs_past_its_edge(models_live_server, table, viewport):
     past its card at 1280 px, and the 3-D event's past its column on two showers."""
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, models_live_server["base"], table, viewport=viewport)
-        for card_id in CARDS[table]:
-            _scroll_to(page, card_id)
-        measured = page.evaluate(_OVERFLOW)
+        measured = {}
+        # A subpage lays out only its own cards: each is measured while it is on show.
+        for msub in SUBPAGES:
+            for card_id in BY_SUBPAGE[table][msub]:
+                _scroll_to(page, card_id)
+            measured[msub] = page.evaluate(_OVERFLOW)
         browser.close()
-    assert measured["cards"] == [], measured
-    assert measured["main"][0] <= measured["main"][1], measured
+    for msub, found in measured.items():
+        assert found["cards"] == [], (msub, found)
+        assert found["main"][0] <= found["main"][1], (msub, found)
     assert problems == [], problems
 
 
@@ -522,11 +673,14 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, base, table)
         for card_id in CARDS[table]:
-            if card_id == "feat-table" or card_id in SHUT.get(table, ()):
+            if card_id in ("feat-table", "distill-pysr") or card_id in SHUT.get(table, ()):
                 continue
             _scroll_to(page, card_id)
             columns, rows = (7, 5) if card_id in GL_CARDS else (9, 6)
             found = _hover_chart(page, f"plot-{card_id}", columns=columns, rows=rows)
+            if card_id in CATALOG_CHARTS:
+                # Its bars, dots and rules too: a grid of pointer positions can miss every mark of a sparse chart.
+                found += _hover_marks(page, f"plot-{card_id}")
             rest, worst = _projection_readouts(found, f"{table} {card_id}")
             shares[card_id] = round(worst, 3)
             readouts, explanations = _check_tips(rest, f"{table} {card_id}")
@@ -545,6 +699,20 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
                     covered.append(_overlap(probe["tip"], plot) / area)
                     assert covered[-1] <= PROJECTION_READOUT_SHARE, (table, (x, y), probe["text"][:60], covered[-1])
                 shares[card_id] = round(max(covered), 3)
+            if card_id in CATALOG_CHARTS:
+                # The catalogue's tooltips explain a documented point estimate: each covers at most the cap of the
+                # plot being read, and they say the value is a point estimate with no interval and name its N.
+                assert found, f"{table} {card_id}: no tooltip over the catalogue chart"
+                covered = []
+                for (x, y), probe, boxes in found:
+                    plot = boxes["plot"]
+                    area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                    covered.append(_overlap(probe["tip"], plot) / area)
+                    assert covered[-1] <= PROJECTION_READOUT_SHARE, (table, card_id, (x, y), probe["text"][:60], covered[-1])
+                shares[card_id] = round(max(covered), 3)
+                texts = [probe["text"] for _, probe, _ in found]
+                assert any("point estimate as reported" in t for t in texts), (table, card_id, texts[:3])
+                assert any(re.search(r"\bN not reported\b|\b[Nn] = \d", t) for t in texts), (table, card_id, texts[:3])
         browser.close()
     assert totals["explanations"], totals
     print(f"largest share of a plot under a projection readout, {table}: {shares}")
@@ -567,7 +735,7 @@ def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(mo
         page.evaluate(_WATCH_EXPORTS)
         for card_id in CARDS[table]:
             state = _scroll_to(page, card_id)
-            if card_id in GL_CARDS or card_id == "feat-table":
+            if card_id in GL_CARDS or card_id in ("feat-table", "distill-pysr"):
                 assert state["exportButtons"] == 0, (card_id, "a 3-D view or a table is not a figure")
                 continue
             assert state["exportButtons"] == 1, card_id
@@ -588,6 +756,10 @@ def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(mo
             # The plot alone: both x axes (the top one's ∞ at the origin) and no row of the screen's fit table.
             assert "∞" in texts and any("1/√E" in t for t in texts), texts
             assert not [t for t in texts if "Windows fitted" in t or "Quadrature" in t or "SE(a" in t], texts
+        if card_id in ("perf-catalog", "perf-diagnostics"):
+            # The plot alone: none of the screen's tables or blocks under the plot frame.
+            assert not [t for t in texts if "Secondary metrics" in t or "Validation N" in t or "Throughput on one" in t
+                        or "Architecture and parameters" in t or "own caveats" in t], (card_id, texts)
     for card_id, (live, printed) in series.items():
         assert printed is not None and printed > 0, (card_id, live, printed)
 
@@ -1209,14 +1381,16 @@ def test_the_xgboost_cards_render_for_both_tasks_with_the_output_switch(models_l
         page.click('.card[data-panel="xgb-cv"] button[data-xgb-task="angle"]')
         assert _hash(page).get("xgb_task") == "angle"
         for card_id in ("xgb-cv", "xgb-surrogate", "xgb-importance"):
+            _show_subpage(page, SUBPAGE_OF[card_id])
             page.locator(f'.card[data-panel="{card_id}"]').scroll_into_view_if_needed()
             page.wait_for_timeout(300)
             state = _settled(page, card_id)
             assert state["message"] is None and state["series"], (card_id, state)
         for view in ("cv", "surrogate", "importance"):
             assert _xgb_view(requests, view, "angle"), view
-        # One recorded angle split is not reproduced: every angle card flags it.
-        flagged = page.evaluate("() => [...document.querySelectorAll('#xgb-grid button[data-inspect].is-flagged')]"
+        # One recorded angle split is not reproduced: every angle card flags it, on either subpage.
+        flagged = page.evaluate("() => [...document.querySelectorAll('#xgb-grid button[data-inspect].is-flagged, "
+                                "#xgb-distill-grid button[data-inspect].is-flagged')]"
                                 ".map((b) => b.dataset.inspect)")
         assert {"xgb-cv", "xgb-surrogate", "xgb-importance"} <= set(flagged), flagged
 
@@ -1417,6 +1591,8 @@ def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_li
         page.goto(f"{base}/models#table_name={BASELINE_TABLE}")
         page.wait_for_function("(t) => document.getElementById('experiment-select')?.value === t",
                                arg=BASELINE_TABLE, timeout=30_000)
+        # E2 is on Performance: its tab first (the cold boot shows Views).
+        _show_subpage(page, "perf")
         page.click('button[data-inspect="perf-bins"]')
         page.wait_for_function("() => !document.getElementById('inspector').hidden", timeout=10_000)
         assert page.locator("#inspector-body .inspector-return").count() == 0
@@ -1440,6 +1616,411 @@ def test_every_models_drawer_links_to_the_section_explaining_its_panel(models_li
         top = page.evaluate("() => document.getElementById('lnk-results-models').getBoundingClientRect().top "
                             "- document.getElementById('main').getBoundingClientRect().top")
         assert -2 <= top <= 40, top
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------------------------- the subpages --
+
+#: The tab bar and the three wrappers as a reader and a screen reader meet them (models_subpages.js).
+_TABS = """() => {
+  const nav = document.getElementById('models-subnav');
+  const tabs = [...nav.querySelectorAll('[role="tab"]')];
+  return {
+    role: nav.getAttribute('role'), label: nav.getAttribute('aria-label'),
+    tabs: tabs.map((t) => ({ id: t.id, msub: t.dataset.msub, text: t.textContent.trim(), controls: t.getAttribute('aria-controls'),
+      selected: t.getAttribute('aria-selected'), tabindex: t.getAttribute('tabindex'), title: t.title })),
+    panels: ['views', 'distill', 'perf'].map((m) => { const w = document.getElementById(`msub-${m}`);
+      return { msub: m, role: w.getAttribute('role'), labelledby: w.getAttribute('aria-labelledby'), hidden: w.hidden }; }),
+    app: document.querySelector('.app')?.dataset.msub ?? null,
+    focus: document.activeElement?.id ?? null,
+    scroll: document.querySelector('.main').scrollTop,
+  };
+}"""
+
+#: The sidebar per subpage (Martin's decision 3): the Longitudinal Channels hidden off Views by CSS alone (their
+#: own `hidden` is the control's), the Colour Map by `hidden`; the catalogue's bar shown off Views.
+_SIDEBAR = """() => {
+  const shown = (id) => { const el = document.getElementById(id); return Boolean(el) && !el.hidden && getComputedStyle(el).display !== 'none'; };
+  return {
+    lgroups: shown('group-lgroups'), lgroupsHidden: document.getElementById('group-lgroups')?.hidden ?? null,
+    colormap: shown('group-m-colormap'), model: shown('group-m-model'), frame: shown('group-m-frame'),
+    bench: shown('bench-bar'),
+  };
+}"""
+
+
+def _tab_state(page, msub):
+    """Assert the tab bar shows `msub` alone, with the roving tabindex; return the probe."""
+    got = page.evaluate(_TABS)
+    assert got["app"] == msub, got
+    for tab in got["tabs"]:
+        on = tab["msub"] == msub
+        assert (tab["selected"], tab["tabindex"]) == (("true", "0") if on else ("false", "-1")), (msub, tab)
+    for panel in got["panels"]:
+        assert panel["hidden"] is (panel["msub"] != msub), (msub, panel)
+    assert _hash(page).get("msub") == (None if msub == "views" else msub), (msub, page.url)
+    return got
+
+
+def test_the_subpage_tabs_switch_by_click_and_keyboard_and_keep_their_scroll(models_live_server):
+    """The tab bar (WAI-ARIA tabs, automatic activation): one tablist, three tabs each controlling its wrapper;
+    a click or Left / Right (wrapping) / Home / End selects, moves the focus and the roving tabindex, writes
+    `msub` (Views, the default, never), and each subpage's scroll position comes back with it. A link's
+    `msub` opens its subpage."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE)
+        got = _tab_state(page, "views")
+        assert (got["role"], got["label"]) == ("tablist", "Models page views"), got
+        assert [(t["id"], t["msub"], t["text"], t["controls"]) for t in got["tabs"]] == [
+            ("msub-tab-views", "views", "Views", "msub-views"),
+            ("msub-tab-distill", "distill", "Distillations", "msub-distill"),
+            ("msub-tab-perf", "perf", "Performance", "msub-perf")], got["tabs"]
+        assert all(t["title"] for t in got["tabs"]), got["tabs"]
+        assert [(w["role"], w["labelledby"]) for w in got["panels"]] == [
+            ("tabpanel", f"msub-tab-{m}") for m in SUBPAGES], got["panels"]
+
+        # A click.
+        page.click("#msub-tab-distill")
+        page.wait_for_timeout(300)
+        _tab_state(page, "distill")
+        assert _visible_cards(page) == BY_SUBPAGE[BASELINE_TABLE]["distill"]
+        # The keyboard, from the focused tab: Right, Right (wraps), Left (wraps), End, Home.
+        page.focus("#msub-tab-distill")
+        for key, msub in (("ArrowRight", "perf"), ("ArrowRight", "views"), ("ArrowLeft", "perf"), ("Home", "views"),
+                          ("End", "perf")):
+            page.keyboard.press(key)
+            page.wait_for_timeout(250)
+            got = _tab_state(page, msub)
+            assert got["focus"] == f"msub-tab-{msub}", (key, got)
+        # Tab leaves the tablist: the one tab in the order is the selected one.
+        page.keyboard.press("Tab")
+        assert not page.evaluate("() => document.activeElement?.matches('[role=\"tab\"]')")
+
+        # Scroll memory: each subpage comes back where it was left; the first visit opens at the top. The tabs
+        # are clicked in place (a DOM click): a pointer click would first scroll the tab bar, at the top of
+        # `.main`, into view, and so record the top.
+        def switch(msub):
+            page.evaluate("(m) => document.getElementById(`msub-tab-${m}`).click()", msub)
+            page.wait_for_timeout(300)
+            assert _subpage(page) == msub
+            return page.evaluate("() => document.querySelector('.main').scrollTop")
+
+        switch("views")
+        page.evaluate("() => { document.querySelector('.main').scrollTop = 700; }")
+        page.wait_for_timeout(300)
+        views_at = page.evaluate("() => document.querySelector('.main').scrollTop")
+        assert views_at > 300, views_at
+        assert switch("perf") == 0
+        page.evaluate("() => { document.querySelector('.main').scrollTop = 400; }")
+        page.wait_for_timeout(300)
+        perf_at = page.evaluate("() => document.querySelector('.main').scrollTop")
+        assert perf_at > 100, perf_at
+        assert switch("distill") == 0
+        assert abs(switch("perf") - perf_at) <= 1
+        # Views has no catalogue bar above its sections: it must come back exactly where it was left too.
+        assert abs(switch("views") - views_at) <= 1, "Views came back shifted (by the catalogue bar's height?)"
+        # The scroll position is not view state.
+        assert set(_hash(page)) & {"scroll", "msub_scroll"} == set()
+        browser.close()
+
+        # A link's msub opens that subpage, and the Physics page's tab carries it there and back.
+        browser, page, problems2, _ = _open(p, base, BASELINE_TABLE, fragment="&model=energy&msub=perf")
+        _tab_state(page, "perf")
+        assert _visible_cards(page) == BY_SUBPAGE[BASELINE_TABLE]["perf"]
+        browser.close()
+    assert problems == [] and problems2 == [], problems + problems2
+
+
+@pytest.mark.parametrize("table", [BASELINE_TABLE, SINGLE_HITS_TABLE, MODELS_XGB_TABLE])
+def test_the_sidebar_follows_the_subpage(models_live_server, table):
+    """Martin's decision 3: the Longitudinal Channels on Views only (hidden by CSS, their own `hidden` untouched);
+    the Colour Map on Views, on Distillations while the XGBoost surrogate shows, on Performance while the
+    prediction density shows; the network and frame on every subpage; the catalogue's bar off Views."""
+    colour = {BASELINE_TABLE: {"views": True, "distill": False, "perf": True},
+              SINGLE_HITS_TABLE: {"views": True, "distill": False, "perf": False},
+              MODELS_XGB_TABLE: {"views": True, "distill": True, "perf": True}}[table]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, _ = _open(p, models_live_server["base"], table)
+        at_boot = page.evaluate(_SIDEBAR)
+        lgroups_views = at_boot["lgroups"]
+        for msub in ("distill", "perf", "views", "perf", "distill"):
+            _show_subpage(page, msub)
+            got = page.evaluate(_SIDEBAR)
+            where = (table, msub, got)
+            assert got["colormap"] is colour[msub], where
+            # The network and the frame stay as they are on Views, on every subpage.
+            assert got["model"] and (got["model"], got["frame"]) == (at_boot["model"], at_boot["frame"]), where
+            assert got["bench"] is (msub != "views"), where
+            if msub == "views":
+                assert got["lgroups"] is lgroups_views, where
+            else:
+                assert got["lgroups"] is False, where
+            # Hidden by the page's CSS, never through the control's own flag.
+            assert got["lgroupsHidden"] is (not lgroups_views), where
+        browser.close()
+    # The two kinds with hits offer the Longitudinal Channels on Views; the aggregate offers none.
+    assert lgroups_views is (table != MODELS_XGB_TABLE), (table, lgroups_views)
+    assert problems == [], problems
+
+
+#: Every canvas inside the 3-D cards' plots, tagged once so a later probe can tell the same node from a new one.
+_TAG_GL_CANVASES = """() => {
+  window.__glTag = window.__glTag ?? 0;
+  return ['vox-event', 'vox-ensemble'].map((id) => [...document.querySelectorAll(`#plot-${id} canvas`)].map((c) => {
+    if (!c.__tag) c.__tag = `${id}-${++window.__glTag}`;
+    return { tag: c.__tag, connected: c.isConnected };
+  }));
+}"""
+
+#: Context losses, recorded from the first script on (the event does not bubble: listen in the capture phase).
+_COUNT_LOST = """(() => {
+  window.__lost = 0;
+  window.addEventListener('webglcontextlost', () => { window.__lost += 1; }, true);
+})();"""
+
+
+def test_the_3d_views_keep_their_contexts_cameras_and_slices_across_subpage_switches(models_live_server):
+    """A switch only hides and shows (models_subpages.js): with the event cut into slices and both 3-D views
+    turned, leaving Views for Distillations and Performance and coming back keeps the same canvas nodes, the
+    same two live WebGL contexts, no context loss, each camera's angles and zoom, the slice count, the slice
+    shown and its cubes, and asks the service nothing."""
+    theme = _theme_module()
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, models_live_server["base"], BASELINE_TABLE, fragment="&model=energy&frame=lab",
+            init=(_COUNT_GL, _COUNT_LOST))
+        # The other subpages once, so what they hold in view has loaded before the measured round trip.
+        for msub in ("perf", "distill", "views"):
+            _show_subpage(page, msub)
+            page.wait_for_timeout(1500)
+        for card_id, (xy, depth) in SLICE_PAIRS.items():
+            for cell in (card_id, xy, *depth):
+                state = _scroll_to(page, cell)
+                assert state["message"] is None, (cell, state)
+            page.wait_for_function(theme._GL_DRAWN, arg=card_id, timeout=30_000)
+        page.wait_for_timeout(800)
+        # The reader turns and zooms the event and cuts it into six slices, at the third; the cloud is turned
+        # through echarts-gl's camera action.
+        _turn_and_zoom(page, "vox-event")
+        _set_slices(page, "vox-event", 6)
+        _step_slice(page, "vox-event", "next")
+        _step_slice(page, "vox-event", "next")
+        page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
+                      ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
+        page.wait_for_timeout(400)
+
+        def view():
+            return {
+                "canvases": page.evaluate(_TAG_GL_CANVASES),
+                "live": sorted(page.evaluate(_LIVE_GL)),
+                "lost": page.evaluate("() => window.__lost"),
+                "cameras": {c: page.evaluate(theme._CAMERA, c)["control"] for c in GL_CARDS},
+                "models": {c: {k: page.evaluate(theme._CAMERA, c)["model"][k] for k in ("alpha", "beta")} for c in GL_CARDS},
+                "row": page.evaluate(_SLICE_ROW, "vox-event"),
+                "cubes": {c: page.evaluate(_CUBES, c) for c in GL_CARDS},
+                "bands": [page.evaluate(_DEPTH_BAND, c) for c in SLICE_PAIRS["vox-event"][1]],
+            }
+
+        before = view()
+        assert before["row"]["readout"].startswith("Slice 3 of 6 — ") and before["row"]["K"] == "6", before["row"]
+        assert before["live"] == ["vox-ensemble", "vox-event"] and before["lost"] == 0, before
+        assert all(len(c) >= 1 for c in before["canvases"]), before["canvases"]
+        assert before["models"]["vox-ensemble"] == {"alpha": 10, "beta": 70}, before["models"]
+        asked = len(requests)
+
+        for msub in ("distill", "perf", "views", "perf", "views"):
+            _show_subpage(page, msub)
+            page.wait_for_timeout(700)
+            if msub != "views":
+                # Off show, the 3-D cards stay in the page with their contexts.
+                assert sorted(page.evaluate(_LIVE_GL)) == ["vox-ensemble", "vox-event"], msub
+        page.locator('.main .card[data-panel="vox-event"]').scroll_into_view_if_needed()
+        page.wait_for_timeout(800)
+        after = view()
+        assert after == before, (before, after)
+        assert requests[asked:] == [], f"a subpage switch asked the service: {requests[asked:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def _catalog_texts(page):
+    """Every text the catalogue cards on show put on the page: the cards' DOM text (tables, blocks, MathML's
+    fallbacks included) and every text their canvases drew."""
+    return page.evaluate("""() => [...document.querySelectorAll('.main .card[data-panel]')]
+      .filter((c) => c.offsetParent !== null && /^(distill|perf)-(pysr|triangle|curves|catalog|overlap|momentum-bias|diagnostics)$/.test(c.dataset.panel))
+      .map((c) => c.innerText)""")
+
+
+#: Every request of any kind, as the page makes it (static modules included).
+def _all_requests(page):
+    seen = []
+    page.on("request", lambda r: seen.append((r.method, r.url)))
+    return seen
+
+
+#: The option JSON of a chart, for a theme or a species switch to change.
+_OPTION = """(id) => { const inst = echarts.getInstanceByDom(document.getElementById(`plot-${id}`));
+  return inst ? JSON.stringify(inst.getOption(), (k, v) => (typeof v === 'function' ? undefined : v)) : null; }"""
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_catalogue_draws_opens_its_drawers_and_switches_species_task_and_theme_without_a_request(
+        models_live_server, scheme):
+    """The seven catalogue cards (training report, catalog/select.js) in either theme: each draws (the PySR matrix
+    as MathML), opens its drawer with the four standard sections and the hazard 'no interval reported', and sets
+    every negative number with U+2212. A two-shower file names no species, so the bar opens on Compare all and
+    says so. Every species and every task button repaints the catalogue from the module in hand: no `/api/`
+    request and no fetch at all once the catalogue has loaded; the species is written to the link and Compare
+    all, the experiment's own choice, leaves it. A theme switch repaints every catalogue chart with no request."""
+    base = models_live_server["base"]
+    texts, drawers = [], []
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE, scheme=scheme)
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        everything = _all_requests(page)
+        for card_id in CATALOG:
+            state = _scroll_to(page, card_id)
+            where = f"{scheme} {card_id}"
+            assert state["message"] is None, (where, state)
+            if card_id == "distill-pysr":
+                assert state["table"] and state["exportButtons"] == 0, (where, state)
+                pysr = page.evaluate("""() => { const c = document.querySelector('.main .card[data-panel="distill-pysr"]');
+                  return { cells: c.querySelectorAll('.pysr-cell[role="cell"]').length, math: c.querySelectorAll('.pysr-formula math').length,
+                           entries: c.querySelectorAll('.pysr-entry[data-tier]').length, copy: c.querySelectorAll('button.pysr-copy').length,
+                           tiers: [...new Set([...c.querySelectorAll('.pysr-entry[data-tier]')].map((e) => e.dataset.tier))].sort() }; }""")
+                assert pysr["cells"] == 9 and pysr["entries"] == 9 * 4 and pysr["math"] > 0 and pysr["copy"] > 0, (where, pysr)
+                assert set(pysr["tiers"]) <= {"law", "unverified", "partial", "not-law"} and len(pysr["tiers"]) >= 3, pysr
+            else:
+                assert state["canvas"] and (state["series"] or state["graphic"]) and state["exportButtons"] == 1, (where, state)
+            title, headings, body = _drawer(page, card_id)
+            assert title == state["title"], where
+            _assert_sections(headings, where)
+            assert [h for h in headings if h in ("Selection", "What is drawn", "Disclosures", "Marks and legend")] == [
+                "Selection", "What is drawn", "Disclosures", "Marks and legend"], (where, headings)
+            details = page.evaluate(_DETAILS, card_id)
+            assert details["flagged"] and NO_INTERVAL in details["title"], (where, details)
+            drawers.append(body)
+        # A two-shower file names no species: Compare all, said on the bar.
+        _show_subpage(page, "distill")
+        bar = page.evaluate("""() => ({ species: [...document.querySelectorAll('#bench-bar [data-bench-species]')].map((b) => [b.dataset.benchSpecies, b.getAttribute('aria-pressed')]),
+          task: [...document.querySelectorAll('#bench-bar [data-bench-task]')].map((b) => [b.dataset.benchTask, b.getAttribute('aria-pressed')]),
+          caption: document.getElementById('bench-caption').textContent })""")
+        assert [v for v, on in bar["species"] if on == "true"] == ["all"], bar
+        assert [v for v, on in bar["task"] if on == "true"] == ["energy"], bar
+        assert "does not name its species" in bar["caption"] and "models_performance.md" in bar["caption"], bar
+
+        # Species and task switches on Distillations, species switches on Performance: nothing is fetched. Every
+        # other card of Performance is brought into view once first, so scrolling past it later asks nothing.
+        for card_id in BY_SUBPAGE[BASELINE_TABLE]["perf"]:
+            _scroll_to(page, card_id)
+        page.wait_for_timeout(500)
+        for msub in ("distill", "perf"):
+            _show_subpage(page, msub)
+            ids = DISTILL if msub == "distill" else BENCH
+            fetched, api = len(everything), len(requests)
+            charts = [c for c in ids if c != "distill-pysr"]
+            seen = {c: page.evaluate(_OPTION, c) for c in charts}
+            for species in ("proton", "muon", "electron", "pion", "all"):
+                page.click(f'#bench-bar button[data-bench-species="{species}"]')
+                page.wait_for_timeout(400)
+                assert page.get_attribute(f'#bench-bar button[data-bench-species="{species}"]', "aria-pressed") == "true"
+                assert _hash(page).get("bench_species") == (None if species == "all" else species), (species, page.url)
+                for c in ids:
+                    # A card out of view repaints when it comes into view.
+                    state = _scroll_to(page, c)
+                    assert state["message"] is None, (msub, species, c, state)
+                if species == "muon":
+                    changed = [c for c in charts if page.evaluate(_OPTION, c) != seen[c]]
+                    assert changed, (msub, "a species switch repaints the catalogue")
+                texts += _catalog_texts(page)
+                texts += page.evaluate("() => window.__drawnText.slice(-400)")
+            if msub == "distill":
+                for task in ("segmentation", "angle", "energy"):
+                    page.click(f'#bench-bar button[data-bench-task="{task}"]')
+                    page.wait_for_timeout(400)
+                    assert page.get_attribute(f'#bench-bar button[data-bench-task="{task}"]', "aria-pressed") == "true"
+                    # The shared `model` key; segmentation is its default, so the link leaves it out.
+                    assert _hash(page).get("model") == (None if task == "segmentation" else task), (task, page.url)
+                    for c in ids:
+                        assert _scroll_to(page, c)["message"] is None, (task, c)
+                    texts += _catalog_texts(page)
+            assert requests[api:] == [], f"{msub}: a catalogue switch asked the service: {requests[api:]}"
+            assert everything[fetched:] == [], f"{msub}: a catalogue switch fetched {everything[fetched:]}"
+
+        # The theme: every catalogue chart repainted in the new ink, with no request. A card on the subpage off
+        # show repaints when its tab brings it back.
+        other = "light" if scheme == "dark" else "dark"
+        theme = _theme_module()
+        before = {c: page.evaluate(_OPTION, c) for c in CATALOG_CHARTS}
+        api = len(requests)
+        page.click("#theme-toggle")
+        page.wait_for_timeout(1200)
+        assert page.evaluate("() => document.documentElement.dataset.theme") == other
+        stale = []
+        for card_id in CATALOG_CHARTS:
+            _scroll_to(page, card_id)
+            page.wait_for_timeout(200)
+            option = page.evaluate(_OPTION, card_id)
+            # The screen ink of the new theme (its text or muted token), none of the old one's.
+            ink = {t: [theme.MUTED[t] in option, theme.TEXT[t] in option] for t in (scheme, other)}
+            if not (option != before[card_id] and any(ink[other]) and not any(ink[scheme])):
+                stale.append((card_id, ink))
+        assert stale == [], f"still in the {scheme} ink after the switch to {other}: {stale}"
+        texts += _catalog_texts(page)
+        assert requests[api:] == [], f"a theme switch asked the service: {requests[api:]}"
+        browser.close()
+    assert problems == [], problems
+    assert _hyphen_negatives(texts) == [], "catalogue text with an ASCII hyphen-minus"
+    assert _hyphen_negatives(drawers) == [], "catalogue drawer text with an ASCII hyphen-minus"
+
+
+#: Where a deep link landed: the subpage, the drawer and its card, whether that card is in view.
+_LANDED = """(id) => {
+  const card = document.querySelector(`.main .card[data-panel="${id}"]`).getBoundingClientRect();
+  const main = document.querySelector('.main').getBoundingClientRect();
+  return { msub: document.querySelector('.app')?.dataset.msub ?? null,
+           open: !document.getElementById('inspector').hidden,
+           title: document.getElementById('inspector-title').textContent,
+           cardTitle: document.querySelector(`.main .card[data-panel="${id}"] .title`)?.textContent ?? null,
+           inView: card.top >= main.top - 2 && card.top < main.bottom,
+           back: document.querySelector('#inspector-body .inspector-return a')?.textContent ?? null };
+}"""
+
+
+@pytest.mark.parametrize("panel,msub,hash_msub", [
+    ("perf-catalog", "perf", None), ("distill-pysr", "distill", None), ("feat-corr", "views", "perf"),
+], ids=["perf-catalog", "distill-pysr", "feat-corr-over-msub-perf"])
+def test_a_deep_link_opens_its_cards_subpage_first(models_live_server, panel, msub, hash_msub):
+    """A badge link (`?panel=…&from=…&from_sec=…`) switches to its card's subpage before anything loads, even
+    over a link whose own `msub` names another; the card comes into view with its drawer open and the way back,
+    and nothing on another subpage asks the service."""
+    base = models_live_server["base"]
+    fragment = f"#table_name={BASELINE_TABLE}" + (f"&msub={hash_msub}" if hash_msub else "")
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch(args=GL_ARGS)
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
+        problems, requests = [], []
+        page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.on("request", lambda r: requests.append((r.method, r.url)) if "/api/" in r.url else None)
+        page.goto(f"{base}/models?panel={panel}&from=lnk-results-models&from_sec=3.6{fragment}")
+        page.wait_for_function("() => !location.search && !document.getElementById('inspector').hidden", timeout=30_000)
+        page.wait_for_function(f"""() => {{ const s = ({_LANDED})({panel!r}); return s.inView && s.title === s.cardTitle; }}""",
+                               timeout=30_000)
+        got = page.evaluate(_LANDED, panel)
+        assert got["msub"] == msub and got["open"] and got["title"] == got["cardTitle"], got
+        assert got["back"] == "↩ Continue reading §3.6 in the Methodology", got
+        assert _hash(page).get("msub") == (None if msub == "views" else msub), page.url
+        page.wait_for_timeout(800)
+        # No request for a card the link did not open a subpage for.
+        others = {"views": ("/api/model-performance", "/api/resolution-scaling", "/api/xgboost"),
+                  "distill": ("/api/features", "/api/projections", "/api/selection-cells", "/api/model-performance",
+                              "/api/resolution-scaling"),
+                  "perf": ("/api/features", "/api/projections", "/api/selection-cells", "/api/primaries")}[msub]
+        for route in others:
+            assert not _requests_of(requests, route), (panel, route, _urls(requests))
         browser.close()
     assert problems == [], problems
 
