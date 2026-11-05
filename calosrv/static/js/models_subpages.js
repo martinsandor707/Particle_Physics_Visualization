@@ -147,9 +147,13 @@ export function mountSubnav({ state = null, root = document, onSwitch = () => {}
     if (main && current) scrollOf.set(current, main.scrollTop);
     apply(next);
     current = next;
-    if (main) main.scrollTop = scrollOf.get(next) ?? 0;
     if (write) state?.set?.({ msub: next });
     onSwitch(next);
+    // Restored last: `onSwitch` shows or hides the species bar above the
+    // subpages, and a scroll restored before it came back shifted by the bar's
+    // height (scroll anchoring moved Views 77 px). Writing scrollTop lays the
+    // page out first, so the bar's change is already absorbed here.
+    if (main) main.scrollTop = scrollOf.get(next) ?? 0;
     return true;
   }
 
