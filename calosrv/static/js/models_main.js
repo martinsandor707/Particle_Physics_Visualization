@@ -31,8 +31,11 @@
  * it. The sidebar follows the subpage (Longitudinal Channels on Views only,
  * by CSS on `.app[data-msub]`; the Colour Map wherever a card on show reads
  * the palette), and the catalogue's bar (`#bench-bar`: species and task) shows
- * on Distillations and Performance. The catalogue reads the report, not the
- * experiment, so it shows before any experiment is open.
+ * on Distillations and Performance, in one sticky head with the tab bar. The
+ * page banner carries the warnings of the subpage's own cards only, and the
+ * XGBoost notice shows where the XGBoost sections live. The catalogue reads
+ * the report, not the experiment, so it shows before any experiment is open,
+ * and a deep link to one of its cards lands without one.
  *
  * The 3-D views (js/voxel_views.js `VoxelSection`) and the 2-D panel modules
  * are imported on first use by dynamic import. A module that fails to load
@@ -53,8 +56,11 @@ import {
   Banner, describeError, fillComputeBadges, fillExperimentSelect, chooseExperiment, choiceGroup,
   wirePageTabs, tabHref, readDeepLink, returnLink, revealPanel, revealNotice,
 } from './page_common.js';
-import { ModelsSection } from './models_cards.js';
-import { mountSubnav, subpageOfCard, benchCaption, benchSpeciesToStore } from './models_subpages.js';
+import { ModelsSection, isCatalogCard } from './models_cards.js';
+import {
+  mountSubnav, subpageOfCard, onSubpage, colourMapShown, xgbNoticeShown, watchHeadHeight,
+  benchCaption, benchSpeciesToStore,
+} from './models_subpages.js';
 import { formatInt, formatNumber, setScreenTheme } from './scale.js';
 import { initTheme } from './theme.js';
 import { setText, setHidden, setVal, missingIds } from './dom.js';
@@ -128,40 +134,39 @@ main?.addEventListener('models:panelstate', (event) => {
 
 /* ----------------------------------------------------------- subpages */
 
+/* The sticky head's height, kept in `.main`'s --models-head-h: every card's
+ * scroll margin, so a card scrolled into view lands below the head. */
+const head = watchHeadHeight({ head: document.getElementById('models-head'), target: main });
+
 /* The tab bar and the three wrappers (models_subpages.js). The State's `msub`
- * is applied at once; a switch then brings the sidebar and the catalogue's
- * bar into line, re-lays the charts out at the sizes they now have and loads
- * the stale cards that came into view. */
+ * is applied at once; a switch then brings the sidebar, the catalogue's bar
+ * and the banners into line, measures the head the bar changed (a card
+ * scrolled to in the same task must clear it), re-lays the charts out at the
+ * sizes they now have and loads the stale cards that came into view. The
+ * router restores the subpage's scroll after all this, on the final layout. */
 const subnav = mountSubnav({
   state,
   onSwitch: (msub) => {
     syncSidebar(msub);
     syncBenchBar(msub);
+    if (!bannerError) showWarnings(msub);
+    head.measure();
     relayoutAll();
     refreshAll();
   },
 });
 
 /**
- * Whether a subpage shows the Colour Map: Views always (the 3-D views and the
- * 2-D histograms); Distillations while the XGBoost surrogate tree is on show;
- * Performance while the prediction density is (Martin's decision 3,
- * 2026-11-05). The catalogue's cards read no palette.
- */
-function colourMapShown(msub) {
-  if (msub === 'distill') return Boolean(plan.sections.xgbDistill);
-  if (msub === 'perf') return Boolean(plan.cards['pred-truth']?.shown);
-  return true;
-}
-
-/**
- * The sidebar for a subpage. The filters, the network and the frame stay on
- * every subpage. The Longitudinal Channels are hidden off Views by CSS on
- * `.app[data-msub]`, never through their `hidden` attribute, which
- * controls/layer_groups_control.js alone owns.
+ * The sidebar and the notices for a subpage. The filters, the network and the
+ * frame stay on every subpage; the Colour Map shows where a card on show reads
+ * the palette (models_subpages.js `colourMapShown`). The Longitudinal Channels
+ * are hidden off Views by CSS on `.app[data-msub]`, never through their
+ * `hidden` attribute, which controls/layer_groups_control.js alone owns. The
+ * XGBoost notice shows on the subpages that hold the XGBoost sections.
  */
 function syncSidebar(msub = subnav.current()) {
-  setHidden('group-m-colormap', !colourMapShown(msub));
+  setHidden('group-m-colormap', !colourMapShown(msub, plan));
+  setHidden('xgb-notice', !xgbNoticeShown(msub, plan));
 }
 
 /* The catalogue's bar: species buttons (`bench_species`) and task buttons (the
@@ -401,16 +406,41 @@ function updateStatus(payload) {
 function reportError(error, context = '') {
   if (isAbort(error)) return;
   console.error('[calosrv]', context || 'error', error);
-  banner.show([context ? `${context}: ${describeError(error)}` : describeError(error)], true);
+  showError([context ? `${context}: ${describeError(error)}` : describeError(error)]);
+}
+
+/* What the page banner holds. An error (a failed request, a failed export,
+ * markup out of step with the script) stays through a subpage switch until a
+ * refresh succeeds; otherwise the banner carries the warnings of the subpage
+ * on show, redrawn by every switch. With no experiment ready, the sentence
+ * saying so stands before them until one is: a refresh of the catalogue's
+ * cards must not erase it. */
+let bannerError = false;
+let noExperiment = null;
+
+function showError(messages) {
+  bannerError = true;
+  banner.show(messages, true);
+}
+
+/** The banner for a subpage: the no-experiment sentence, if any, then the warnings of its cards. */
+function showWarnings(msub = subnav.current()) {
+  bannerError = false;
+  const warnings = mergedWarnings(msub);
+  if (noExperiment) banner.show([noExperiment, ...warnings], true);
+  else banner.show(warnings);
 }
 
 /**
- * The union of every card's warnings, without the text the reader can
- * already see: the notes of the card whose drawer is open.
+ * The warnings of the cards on subpage `msub`, without the text the reader can
+ * already see: the notes of the card whose drawer is open. A warning of a card
+ * on another subpage waits there: it never stands above cards it does not
+ * describe (the 3-D views' warnings show on Views only).
  */
-function mergedWarnings() {
+function mergedWarnings(msub = subnav.current()) {
   const shown = shell.inspected ? notesText(notesStore[shell.inspected]) : '';
-  return warningsNotShown([...models.warnings(), ...(voxels?.warnings?.() ?? [])], shown);
+  const voxelWarnings = msub === 'views' ? (voxels?.warnings?.() ?? []) : [];
+  return warningsNotShown([...models.warnings(onSubpage(msub)), ...voxelWarnings], shown);
 }
 
 /* ------------------------------------------------------------ the sidebar */
@@ -522,8 +552,8 @@ function onSharedChange() {
 
 /** The page around the cards for a plan: banners, sections, sidebar, status. */
 function applyPagePlan(notices = []) {
-  // The XGBoost notice: hidden once a model run pairs with the experiment.
-  setHidden('xgb-notice', !plan.xgbNotice);
+  // The XGBoost notice: hidden once a model run pairs with the experiment, and
+  // on Views (syncSidebar).
   setText('xgb-notice-text', plan.xgbNotice ?? '');
   // The missing-predictions banner (CLAUDE.md section 3).
   setHidden('networks-notice', !plan.banner);
@@ -576,8 +606,8 @@ const refreshAll = debounce(async () => {
     console.error(`[calosrv] ${jobs[index][0]} failed`, result.reason);
     failures.push(`${jobs[index][0]}: ${describeError(result.reason)}`);
   });
-  if (failures.length) banner.show(failures, true);
-  else banner.show(mergedWarnings());
+  if (failures.length) showError(failures);
+  else showWarnings();
 }, DEBOUNCE_MS);
 
 /** Redraw from the payloads in hand, without a request (a palette change). */
@@ -627,16 +657,19 @@ async function loadCatalogue() {
 
   const chosen = chooseExperiment(experiments, state.get('table_name'));
   if (!chosen) {
-    banner.show([
-      'No experiment has finished ingesting yet. Open Admin Settings on the Physics page → Upload dataset, '
-      + 'or run the offline ingest CLI on the server.',
-    ], true);
+    noExperiment = NO_EXPERIMENT;
+    showWarnings();
     return null;
   }
+  noExperiment = null;
   setVal('experiment-select', chosen.table_name);
   activate(chosen);
   return chosen;
 }
+
+/** The banner's sentence while no experiment is ready; it stands through refreshes and switches. */
+const NO_EXPERIMENT = 'No experiment has finished ingesting yet. Open Admin Settings on the Physics page → Upload '
+  + 'dataset, or run the offline ingest CLI on the server.';
 
 /**
  * Open one experiment: its plan, its banners and sidebar, its filters and
@@ -712,7 +745,7 @@ const MODELS_REQUIRED_IDS = [
   'xgb-notice', 'xgb-notice-text', 'networks-notice', 'networks-notice-text',
   'stat-events', 'stat-kind', 'stat-latency', 'experiment-select', 'badge-memory', 'badge-threads',
   'perf-grid', 'resolution-grid', 'xgb-grid', 'xgb-grid-title', 'features-grid', 'primaries-grid', 'voxels-grid',
-  'models-subnav', 'msub-tab-views', 'msub-tab-distill', 'msub-tab-perf', 'msub-views', 'msub-distill', 'msub-perf',
+  'models-head', 'models-subnav', 'msub-tab-views', 'msub-tab-distill', 'msub-tab-perf', 'msub-views', 'msub-distill', 'msub-perf',
   'bench-bar', 'bench-species', 'bench-task', 'bench-caption', 'distill-grid', 'distill-grid-title',
   'xgb-distill-grid', 'xgb-distill-grid-title', 'bench-grid', 'bench-grid-title', 'group-m-colormap',
   'group-lgroups', 'info-lgroups', 'lgroups-notice', 'group-m-model', 'm-model', 'm-model-caption', 'group-m-frame', 'm-frame', 'm-frame-caption', 'm-colormap',
@@ -722,21 +755,31 @@ const MODELS_REQUIRED_IDS = [
 ];
 
 /**
- * Land a Methodology badge's link: the card scrolled into view (which starts
- * its lazy load), its Details drawer open with the way back to the article, or
- * the reason on the kind banner when this experiment does not show the card.
- * Without an open experiment there is nothing to land on, and the banner
- * already says why.
+ * Land a Methodology badge's link: the card scrolled into view below the
+ * sticky head (which starts its lazy load), its Details drawer open with the
+ * way back to the article, or the reason on the kind banner when this
+ * experiment does not show the card. A catalogue card reads the training
+ * report, not the experiment, so it lands with no experiment open; any other
+ * card needs one, and without it the banner already says why.
  */
 function landDeepLink(link) {
-  if (!activeExperiment) return;
+  if (!activeExperiment && !isCatalogCard(link.panel)) return;
   const back = returnLink(link);
   if (link.panel && back) shell.setReturnLink(link.panel, back);
-  // The card's subpage first (idempotent: boot already switched to it).
+  // The card's subpage first (idempotent: boot already switched to it), and
+  // the head measured, so the card's scroll margin is the head's height now.
   const msub = subpageOfCard(link.panel);
   if (msub) subnav.show(msub);
+  const measured = head.measure();
   const result = revealPanel(link.panel ?? '', { shell });
-  if (result.ok) return;
+  if (result.ok) {
+    // The drawer opened after the card was scrolled to, narrowing `.main`: a
+    // head whose bench caption now wraps onto another line grew over the
+    // card (46 px at 1024 px). Measured again and scrolled again, the card
+    // lands below the head at its final width.
+    if (head.measure() !== measured) result.card.scrollIntoView?.({ block: 'start' });
+    return;
+  }
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
   const notice = revealNotice(result, { requested: link.requested, title, kind: plan.kindLabel });
   kindBanner.show([...kindBanner.shown, notice]);
@@ -748,7 +791,7 @@ async function boot() {
   const missing = missingIds(MODELS_REQUIRED_IDS);
   if (missing.length) {
     console.error('[calosrv] missing element ids:', missing);
-    banner.show([
+    showError([
       `The page and its scripts are out of step — ${missing.length} expected `
       + `element(s) are missing (${missing.slice(0, 4).join(', ')}`
       + `${missing.length > 4 ? ', …' : ''}). Reload with cache disabled `
@@ -776,7 +819,7 @@ async function boot() {
   voxels = await mountVoxels();
   attachExportMenus({
     state,
-    onError: (message) => banner.show([message], true),
+    onError: (message) => showError([message]),
     resolve: (panelId) => {
       const target = models.exportTarget(panelId);
       if (target !== undefined) return target;

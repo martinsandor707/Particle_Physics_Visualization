@@ -203,28 +203,48 @@
   <!-- =============================================================== main -->
   <main class="main">
 
-    <!-- The subpages' tab bar (WAI-ARIA tabs: arrows, Home and End move the
-         selection, one tab in the tab order). The selected subpage is the
-         link's msub; Views, the default, is never written. -->
-    <nav class="models-subnav" id="models-subnav" role="tablist" aria-label="Models page views">
-      <button class="models-subtab" id="msub-tab-views" role="tab" type="button" data-msub="views"
-              aria-controls="msub-views" aria-selected="true" tabindex="0"
-              title="The 3-D views, the event-feature explorer and the primaries">Views</button>
-      <button class="models-subtab" id="msub-tab-distill" role="tab" type="button" data-msub="distill"
-              aria-controls="msub-distill" aria-selected="false" tabindex="-1"
-              title="Symbolic formulas, surrogate trees and feature importance">Distillations</button>
-      <button class="models-subtab" id="msub-tab-perf" role="tab" type="button" data-msub="perf"
-              aria-controls="msub-perf" aria-selected="false" tabindex="-1"
-              title="Network and XGBoost accuracy, resolution scaling and the benchmark catalogue">Performance</button>
-    </nav>
+    <!-- The sticky head (Martin's decision 6, 2026-11-05): the tab bar, and
+         under it on Distillations and Performance the catalogue's bar, held
+         at the top of .main while the cards scroll under it. Its height is
+         measured into --models-head-h (js/models_subpages.js
+         watchHeadHeight), every card's scroll margin, so a card scrolled
+         into view or deep-linked lands below it. -->
+    <div class="models-head" id="models-head">
+      <!-- The subpages' tab bar (WAI-ARIA tabs: arrows, Home and End move the
+           selection, one tab in the tab order). The selected subpage is the
+           link's msub; Views, the default, is never written. -->
+      <nav class="models-subnav" id="models-subnav" role="tablist" aria-label="Models page views">
+        <button class="models-subtab" id="msub-tab-views" role="tab" type="button" data-msub="views"
+                aria-controls="msub-views" aria-selected="true" tabindex="0"
+                title="The 3-D views, the event-feature explorer and the primaries">Views</button>
+        <button class="models-subtab" id="msub-tab-distill" role="tab" type="button" data-msub="distill"
+                aria-controls="msub-distill" aria-selected="false" tabindex="-1"
+                title="Symbolic formulas, surrogate trees and feature importance">Distillations</button>
+        <button class="models-subtab" id="msub-tab-perf" role="tab" type="button" data-msub="perf"
+                aria-controls="msub-perf" aria-selected="false" tabindex="-1"
+                title="Network and XGBoost accuracy, resolution scaling and the benchmark catalogue">Performance</button>
+      </nav>
 
+      <!-- The training report's benchmark catalogue: its species and its task
+           (the shared network key), on Distillations and Performance only. The
+           buttons are built from js/labels.js by js/models_main.js. -->
+      <div class="bench-bar" id="bench-bar" hidden>
+        <span class="bench-group" id="bench-species" role="group" aria-label="Species"><span class="bench-label" aria-hidden="true">Species</span></span>
+        <span class="bench-group" id="bench-task" role="group" aria-label="Task"><span class="bench-label" aria-hidden="true">Task</span></span>
+        <p class="bench-caption" id="bench-caption"></p>
+      </div>
+    </div>
+
+    <!-- The cards' warnings, those of the subpage on show only, and the
+         page's errors. -->
     <div class="banner" id="banner" hidden>
       <span class="banner-text" id="banner-text"></span>
       <button class="banner-close" id="banner-close" type="button" aria-label="Dismiss">&times;</button>
     </div>
 
     <!-- Why the XGBoost views are absent: no model run pairs with this
-         experiment. Static (not dismissible); hidden once one pairs. -->
+         experiment. Static (not dismissible); hidden once one pairs, and on
+         Views, which holds no XGBoost card. -->
     <div class="banner is-info" id="xgb-notice" role="status" hidden>
       <span class="banner-text" id="xgb-notice-text"></span>
     </div>
@@ -246,15 +266,6 @@
       <span title="The experiment's kind: two-shower hits, single-shower hits or single-shower event features">Kind <b id="stat-kind">—</b></span>
       <span class="spacer"></span>
       <span>Query <b id="stat-latency">—</b></span>
-    </div>
-
-    <!-- The training report's benchmark catalogue: its species and its task
-         (the shared network key), on Distillations and Performance only. The
-         buttons are built from js/labels.js by js/models_main.js. -->
-    <div class="bench-bar" id="bench-bar" hidden>
-      <span class="bench-group" id="bench-species" role="group" aria-label="Species"><span class="bench-label" aria-hidden="true">Species</span></span>
-      <span class="bench-group" id="bench-task" role="group" aria-label="Task"><span class="bench-label" aria-hidden="true">Task</span></span>
-      <p class="bench-caption" id="bench-caption"></p>
     </div>
 
     <!-- =========================================================== Views -->

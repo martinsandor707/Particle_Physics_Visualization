@@ -16,10 +16,18 @@
  * Each subpage's scroll position in `.main` is kept in memory and restored on
  * return. It is not view state, so it never enters the link.
  *
+ * The tab bar and the catalogue's bar share one sticky head at the top of
+ * `.main` (`#models-head`, Martin's decision 6, 2026-11-05). Its height is
+ * measured into `.main`'s `--models-head-h` (`watchHeadHeight`), which every
+ * card takes as its scroll margin (css/models.css), so a card scrolled into
+ * view or deep-linked lands below the head, never beneath it.
+ *
  * Also here, as pure functions the page and its tests share: the subpage of a
- * card (`subpageOfCard`), and the benchmark catalogue's species bar - the
- * value a species button stores (`benchSpeciesToStore`) and the caption under
- * the bar (`benchCaption`).
+ * card (`subpageOfCard`) and the cards of a subpage (`onSubpage`, which
+ * filters the page banner's warnings); what the sidebar and the notices show
+ * on a subpage (`colourMapShown`, `xgbNoticeShown`); and the benchmark
+ * catalogue's species bar - the value a species button stores
+ * (`benchSpeciesToStore`) and the caption under the bar (`benchCaption`).
  */
 
 import { MODELS_CARDS } from './models_cards.js';
@@ -46,9 +54,45 @@ export function subpageOfCard(id, cards = MODELS_CARDS) {
   return VOXEL_FAMILY.test(key) ? 'views' : null;
 }
 
-/** The provenance sentence the catalogue's bar always ends with. */
-export const BENCH_PROVENANCE = 'From the training report (models_performance.md): documented point estimates, '
-  + 'no intervals reported; the selection and the experiment do not apply.';
+/**
+ * A predicate on card ids: whether a card is on subpage `msub`. The page
+ * banner shows the warnings of these cards only, so a warning never stands
+ * above cards it does not describe. Pure.
+ */
+export function onSubpage(msub) {
+  return (id) => subpageOfCard(id) === msub;
+}
+
+/**
+ * Whether a subpage shows the sidebar's Colour Map (Martin's decision 3,
+ * 2026-11-05): Views always (the 3-D views and the 2-D histograms);
+ * Distillations while the XGBoost surrogate tree is on show; Performance while
+ * the prediction density is. The catalogue's cards read no palette. Pure.
+ */
+export function colourMapShown(msub, plan) {
+  if (msub === 'distill') return Boolean(plan?.sections?.xgbDistill);
+  if (msub === 'perf') return Boolean(plan?.cards?.['pred-truth']?.shown);
+  return true;
+}
+
+/**
+ * Whether the notice saying why the XGBoost views are absent shows: only where
+ * the XGBoost sections live, Distillations (E4, E5) and Performance (E1, E3),
+ * and only while the plan has the notice. Views holds no XGBoost card. Pure.
+ */
+export function xgbNoticeShown(msub, plan) {
+  return Boolean(plan?.xgbNotice) && (msub === 'distill' || msub === 'perf');
+}
+
+/**
+ * The provenance sentence the catalogue's bar always ends with: the same text
+ * as catalog/select.js `PROVENANCE`, which every catalogue payload carries (a
+ * test holds the two equal). Written out here rather than imported: nothing
+ * of the catalogue may load on Views or on the Physics page.
+ */
+export const BENCH_PROVENANCE = 'From the training report (models_performance.md; proton results dated '
+  + '2026-09-24): documented point estimates, no intervals reported; the selection and the experiment do not '
+  + 'apply.';
 
 /** A catalogue species value as its button names it ('all' is Compare all). */
 function speciesName(value) {
@@ -90,6 +134,29 @@ export function benchCaption(stored, plan, { open = true } = {}) {
     lead = `Chosen: ${speciesName(stored)}. Choose ${speciesName(follow)} to follow the experiment again.`;
   }
   return `${lead} ${BENCH_PROVENANCE}`;
+}
+
+/**
+ * Keep the sticky head's height in a CSS custom property: `property` (default
+ * `--models-head-h`) on `target` (`.main`), in whole pixels, rounded up so a
+ * card's scroll margin never falls a fraction of a pixel short. A
+ * ResizeObserver remeasures whenever the head changes size (the catalogue's
+ * bar shown or hidden, its caption rewrapped, the column resized); `measure()`
+ * measures at once, for a page that scrolls a card into view in the same task
+ * as the change, before the observer has run. Returns `{measure, disconnect}`.
+ */
+export function watchHeadHeight({ head, target, property = '--models-head-h',
+  Observer = globalThis.ResizeObserver } = {}) {
+  const measure = () => {
+    if (!head || !target?.style) return null;
+    const height = Math.ceil(head.getBoundingClientRect?.().height ?? 0);
+    target.style.setProperty(property, `${height}px`);
+    return height;
+  };
+  const observer = head && typeof Observer === 'function' ? new Observer(() => measure()) : null;
+  observer?.observe(head);
+  measure();
+  return { measure, disconnect: () => observer?.disconnect() };
 }
 
 /** The keys that move the selection along the tab bar (WAI-ARIA tabs, automatic activation). */
@@ -149,10 +216,11 @@ export function mountSubnav({ state = null, root = document, onSwitch = () => {}
     current = next;
     if (write) state?.set?.({ msub: next });
     onSwitch(next);
-    // Restored last: `onSwitch` shows or hides the species bar above the
-    // subpages, and a scroll restored before it came back shifted by the bar's
-    // height (scroll anchoring moved Views 77 px). Writing scrollTop lays the
-    // page out first, so the bar's change is already absorbed here.
+    // Restored last: `onSwitch` shows or hides the species bar in the sticky
+    // head and the banners above the subpages, and a scroll restored before it
+    // came back shifted by their height (scroll anchoring moved Views 77 px).
+    // Writing scrollTop lays the page out first, so their change is already
+    // absorbed here.
     if (main) main.scrollTop = scrollOf.get(next) ?? 0;
     return true;
   }

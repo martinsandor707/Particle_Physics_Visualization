@@ -8,15 +8,39 @@
 
 /* --------------------------------------------------------- subpages */
 
+/* The sticky head (Martin's decision 6, 2026-11-05): the tab bar, and under it
+   on Distillations and Performance the catalogue's bar, held at the top of
+   .main while the cards scroll under it. It cancels .main's padding
+   (layout.css: 14px 16px) with its own, so its canvas ground covers the
+   gutters as well as the cards, and it sticks at -14px: a sticky box's offset
+   counts from its scroll container's padding edge inwards, so `top: 0` left a
+   14 px strip above it where the cards showed through. A rule along its
+   bottom edge parts it from what scrolls under it. Its z-index lifts it over the cards (ECharts' and WebGL's
+   positioned canvases, the 3-D cards' controls) and keeps it under every
+   overlay: the modal backdrop (100), the tooltip layer (150), the menus and
+   popovers (200). The Details drawer is a grid column of its own beside .main.
+   Its height is measured by a ResizeObserver into .main's --models-head-h
+   (js/models_subpages.js watchHeadHeight), every card's scroll margin below,
+   so a card scrolled into view or deep-linked lands under its bottom edge,
+   never beneath it. Nothing here is animated. */
+.models-head {
+  position: sticky;
+  top: -14px;
+  z-index: 10;
+  margin: -14px -16px var(--gap);
+  padding: 14px 16px 8px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.main .card { scroll-margin-top: var(--models-head-h, 0px); }
+
 /* The subpages' tab bar (js/models_subpages.js): one row of buttons at the top
-   of .main, the .mini / .seg look scaled up, the selected tab tinted and
-   underlined in the accent. Not sticky: an overlay would sit over the plots
-   a reader hovers. Nothing here is animated, as nowhere on the page. */
+   of the sticky head, the .mini / .seg look scaled up, the selected tab tinted
+   and underlined in the accent. */
 .models-subnav {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin: 0 0 var(--gap);
 }
 .models-subtab {
   padding: 5px 14px;
@@ -45,15 +69,16 @@
 .models-subpage { min-width: 0; }
 .models-subpage[hidden] { display: none; }
 
-/* The benchmark catalogue's bar, under the status bar on Distillations and
-   Performance: the species and the task as two segmented groups, then the
-   caption on a line of its own. It wraps rather than overflow. */
+/* The benchmark catalogue's bar, under the tab bar in the sticky head on
+   Distillations and Performance: the species and the task as two segmented
+   groups, then the caption on a line of its own. It wraps rather than
+   overflow, and the head grows with it. */
 .bench-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 16px;
-  margin-top: var(--gap);
+  margin-top: 8px;
 }
 .bench-bar[hidden] { display: none; }
 .bench-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }

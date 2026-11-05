@@ -1344,12 +1344,16 @@ export class ModelsSection {
   /**
    * The warnings of the cards on show that their own drawer does not state,
    * for the page's banner: a disclosure lives in the Details drawer, and the
-   * banner keeps what the reader could not otherwise see.
+   * banner keeps what the reader could not otherwise see. `include`, a
+   * predicate on card ids, keeps the cards it accepts only: the page passes
+   * the cards of the subpage on show (models_subpages.js `onSubpage`), so a
+   * warning never stands above cards it does not describe.
    */
-  warnings() {
+  warnings(include = null) {
     const out = [];
     for (const record of this.cards.values()) {
       if (record.element.hidden || !record.payload) continue;
+      if (typeof include === 'function' && !include(record.spec.id)) continue;
       const said = notesText(this.notes(record.spec.id));
       out.push(...warningsNotShown(record.payload.meta?.warnings ?? [], said));
     }

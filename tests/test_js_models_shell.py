@@ -27,8 +27,15 @@ Around the plan:
   fake page (hidden wrappers, ``aria-selected``, roving ``tabindex``, the
   WAI-ARIA keys, each subpage's scroll position, the hash write, ``onSwitch``
   after it, no card created or removed); the species bar's stored value and
-  caption; and a deep link that switches to its card's subpage before it
-  lands, both on the fake page and in ``models_main.js``'s boot order;
+  caption; the sticky head's measured height; and a deep link that switches
+  to its card's subpage before it lands;
+* ``models_main.js`` itself, run on ``models.html`` parsed into the fake
+  document: the boot order (the linked subpage before any request), a deep
+  link landing below the sticky head with its drawer and the way back, a
+  catalogue card landing with no experiment open, a switch bringing the bench
+  bar, the sidebar, the notices and the head's height in line, the bench bar's
+  writes, the banner carrying the warnings of the subpage on show only, and the
+  page's audit of the ids it writes;
 * ``controls/admin.js``: the model-runs list as the route serves it, and Rescan models:
   a POST to the scan route, then the list read again with GET, which queues
   nothing.
@@ -1544,6 +1551,37 @@ out.caption = {
   unknown: sub.benchCaption('kaon', two),
 };
 out.provenance = sub.BENCH_PROVENANCE;
+
+// The sticky head's height: measured at once, rounded up, again on every resize the observer reports and on demand.
+const observers = [];
+class RO { constructor(cb) { this.cb = cb; observers.push(this); } observe(t) { this.target = t; } disconnect() { this.gone = true; } }
+let height = 57.2;
+const headEl = { getBoundingClientRect: () => ({ height }) };
+const styled = () => ({ props: {}, setProperty(k, v) { this.props[k] = v; } });
+const target = { style: styled() };
+const watcher = sub.watchHeadHeight({ head: headEl, target, Observer: RO });
+out.head = { first: target.style.props['--models-head-h'], observed: observers[0].target === headEl };
+height = 140;
+observers[0].cb();
+out.head.resized = target.style.props['--models-head-h'];
+height = 90.01;
+out.head.measured = [watcher.measure(), target.style.props['--models-head-h']];
+watcher.disconnect();
+out.head.gone = Boolean(observers[0].gone);
+const bare = { style: styled() };
+sub.watchHeadHeight({ head: headEl, target: bare, Observer: undefined });
+out.head.withoutObserver = bare.style.props['--models-head-h'];
+out.head.noHead = sub.watchHeadHeight({ head: null, target: bare }).measure();
+
+// What a subpage shows: its own cards' warnings, the Colour Map, the XGBoost notice.
+const onPerf = sub.onSubpage('perf');
+const onViews = sub.onSubpage('views');
+out.onSubpage = { perf: ['perf-catalog', 'pred-residuals', 'xgb-cv', 'distill-pysr', 'vox-event', 'feat-table'].map(onPerf),
+  views: ['vox-event', 'vproj-xy', 'feat-table', 'prim-rate', 'pred-residuals'].map(onViews) };
+out.colourMap = Object.fromEntries([['two', two], ['electron', electron], ['none', none]].map(([k, plan]) =>
+  [k, ['views', 'distill', 'perf'].map((m) => sub.colourMapShown(m, plan))]));
+out.xgbNotice = Object.fromEntries([['two', two], ['electron', electron], ['none', none]].map(([k, plan]) =>
+  [k, { has: Boolean(plan.xgbNotice), shown: ['views', 'distill', 'perf'].map((m) => sub.xgbNoticeShown(m, plan)) }]));
 console.log(JSON.stringify(out));
 """
 
@@ -1656,8 +1694,9 @@ def test_a_species_click_on_the_experiments_own_species_follows_it_again(router_
 
 def test_the_bench_caption_says_whose_species_and_where_it_comes_from(router_results):
     c, provenance = router_results["caption"], router_results["provenance"]
-    assert provenance == ("From the training report (models_performance.md): documented point estimates, no "
-                          "intervals reported; the selection and the experiment do not apply.")
+    assert provenance == ("From the training report (models_performance.md; proton results dated 2026-09-24): "
+                          "documented point estimates, no intervals reported; the selection and the experiment do "
+                          "not apply.")
     assert all(text.endswith(provenance) for text in c.values())
     assert c["following"].startswith("Following the experiment: Electron, the species of its paired XGBoost models.")
     assert c["unnamed"].startswith("This experiment does not name its species, so the catalogue shows all four.")
@@ -1669,38 +1708,507 @@ def test_the_bench_caption_says_whose_species_and_where_it_comes_from(router_res
     assert c["unknown"] == c["unnamed"]
 
 
-def _main_source() -> str:
-    return _strip_comments((JS / "models_main.js").read_text(encoding="utf-8"))
+def test_the_sticky_heads_height_is_kept_in_a_css_variable(router_results):
+    h = router_results["head"]
+    assert h["first"] == "58px" and h["observed"], "measured at once, rounded up, and observed"
+    assert h["resized"] == "140px" and h["measured"] == [91, "91px"] and h["gone"]
+    assert h["withoutObserver"] == "91px" and h["noHead"] is None
 
 
-def test_the_page_switches_to_the_linked_subpage_before_anything_loads():
-    main = _main_source()
-    boot = re.search(r"async function boot\(\) \{(.*?)\n\}", main, re.DOTALL).group(1)
-    order = ["readDeepLink(location.search)", "subpageOfCard(deepLink.panel)", "subnav.show(linked)",
-             "models.applyPlan(page2Plan(null))", "mountVoxels()", "loadCatalogue("]
-    positions = [boot.index(token) for token in order]
-    assert positions == sorted(positions)
-    land = re.search(r"function landDeepLink\(link\) \{(.*?)\n\}", main, re.DOTALL).group(1)
-    assert land.index("setReturnLink(") < land.index("subnav.show(msub)") < land.index("revealPanel(")
+def test_a_subpage_shows_its_own_cards_warnings_colour_map_and_xgboost_notice(router_results):
+    r = router_results
+    assert r["onSubpage"]["perf"] == [True, True, True, False, False, False]
+    assert r["onSubpage"]["views"] == [True, True, True, True, False]
+    # Decision 3: Views always; Distillations with E4; Performance with the prediction density.
+    assert r["colourMap"]["two"] == [True, False, True]
+    assert r["colourMap"]["electron"] == [True, True, True]
+    assert r["colourMap"]["none"] == [True, False, False]
+    # R2-6: the XGBoost notice only where the XGBoost sections live, and only while the plan has it.
+    assert r["xgbNotice"]["two"] == {"has": True, "shown": [False, True, True]}
+    assert r["xgbNotice"]["electron"] == {"has": False, "shown": [False, False, False]}
 
 
-def test_the_page_wires_the_subpages_the_sidebar_and_the_bench_bar():
-    main = _main_source()
-    for host in ("xgbDistill: document.getElementById('xgb-distill-grid')",
-                 "distill: document.getElementById('distill-grid')", "bench: document.getElementById('bench-grid')"):
-        assert host in main, host
-    switch = re.search(r"onSwitch: \(msub\) => \{(.*?)\n  \},", main, re.DOTALL).group(1)
-    for call in ("syncSidebar(msub)", "syncBenchBar(msub)", "relayoutAll()", "refreshAll()"):
-        assert call in switch, call
-    # The Longitudinal Channels' hidden attribute is the control's alone; the Colour Map is the page's.
-    assert "setHidden('group-lgroups'" not in main and "setHidden('group-m-colormap', " in main
-    assert "plan.sections.xgbDistill" in main and "plan.cards['pred-truth']?.shown" in main
-    # The task buttons take the sidebar radio's path; a species click may store null.
-    assert "onChange: (value) => setModel(value)" in main and "(value) => setModel(value))" in main
-    assert "benchSpeciesToStore(value, plan)" in main
-    assert "addEventListener('models:panelstate'" in main
-    for element_id in ("models-subnav", "msub-tab-views", "msub-tab-distill", "msub-tab-perf", "msub-views",
-                       "msub-distill", "msub-perf", "bench-bar", "bench-species", "bench-task", "bench-caption",
-                       "distill-grid", "distill-grid-title", "xgb-distill-grid", "xgb-distill-grid-title",
-                       "bench-grid", "bench-grid-title", "group-m-colormap"):
-        assert f"'{element_id}'" in main.split("const MODELS_REQUIRED_IDS")[1].split("];")[0], element_id
+# ------------------------------------------------- the page itself, run --
+
+#: models.html parsed into the fake document, so ``models_main.js`` runs as written: its module body, its
+#: boot, the router, the bars and the banners, against a stubbed network. A selector engine (compound,
+#: descendant, groups, ``:not``), the window (URL with its query, a history that drops it, storage, media),
+#: observers that record what they watch, and ``fetch`` from ``routes``/``failures`` by path, each request
+#: logged with the subpage on show when it left. ``#models-head`` measures 40 px, and with the bench bar 80 more
+#: and 1 px per 10 characters of its caption, so a caption rewritten after a switch changes the head.
+_PAGE_DOM = r"""
+// ---- The page harness: models.html parsed into the fake document, so models_main.js runs as written. ----
+const pageArgs = JSON.parse(process.argv[1]).at(-1);
+const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+const attrOf = (el, name) => {
+  if (name === 'id') return el.id || null;
+  if (name === 'class') return el.className || null;
+  if (name === 'hidden') return el.hidden ? '' : null;
+  if (name === 'title') return el.title || el.attrs.title || null;
+  if (name === 'value') return el.value !== '' && el.value !== undefined ? String(el.value) : (el.attrs.value ?? null);
+  if (name.startsWith('data-')) { const v = el.dataset[camel(name.slice(5))]; return v === undefined ? null : String(v); }
+  return name in el.attrs ? el.attrs[name] : null;
+};
+// One compound selector: tag, #id, .class, [attr], [attr="v"], :not(<compound>).
+const compound = (text) => {
+  const parts = [];
+  const re = /:not\(([^)]*)\)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]|^([\w-]+|\*)/g;
+  for (const m of text.matchAll(re)) {
+    if (m[1] !== undefined) { const inner = compound(m[1]); parts.push((el) => !inner(el)); }
+    else if (m[2]) parts.push((el) => el.id === m[2]);
+    else if (m[3]) parts.push((el) => el.classList.contains(m[3]));
+    else if (m[4]) parts.push((el) => (m[5] === undefined ? attrOf(el, m[4]) !== null : attrOf(el, m[4]) === m[5]));
+    else if (m[6] && m[6] !== '*') parts.push((el) => el.tagName === m[6].toUpperCase());
+  }
+  return (el) => parts.every((p) => p(el));
+};
+const selectorFn = (selector) => {
+  const alternatives = selector.split(',').map((s) => s.trim().split(/\s+/).map(compound));
+  return (el) => alternatives.some((chain) => {
+    if (!chain.at(-1)(el)) return false;
+    let node = el.parent; let i = chain.length - 2;
+    while (i >= 0 && node) { if (node instanceof FakeElement && chain[i](node)) i -= 1; node = node.parent; }
+    return i < 0;
+  });
+};
+const P = FakeElement.prototype;
+P.matches = function matches(selector) { return selectorFn(selector)(this); };
+P.querySelectorAll = function querySelectorAll(selector) {
+  const fn = selectorFn(selector); const out = [];
+  for (const c of this.children) c.walk((el) => { if (fn(el)) out.push(el); });
+  return out;
+};
+P.querySelector = function querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; };
+P.getElementById = function getElementById(id) { return this.find((el) => el.id === id); };
+P.remove = function remove() { if (this.parent) this.parent.childNodes = this.parent.childNodes.filter((c) => c !== this); this.parent = null; };
+P.appendChild = function appendChild(node) { this.append(node); return node; };
+P.prepend = function prepend(...nodes) { const old = this.childNodes; this.childNodes = []; this.append(...nodes); for (const c of old) { this.childNodes.push(c); } };
+P.insertBefore = function insertBefore(node, ref) {
+  node.remove?.(); node.parent = this;
+  const at = ref ? this.childNodes.indexOf(ref) : -1;
+  if (at < 0) this.childNodes.push(node); else this.childNodes.splice(at, 0, node);
+  return node;
+};
+P.after = function after(...nodes) { const parent = this.parent; const at = parent.childNodes.indexOf(this);
+  for (const n of nodes) { n.remove?.(); n.parent = parent; } parent.childNodes.splice(at + 1, 0, ...nodes); };
+P.before = function before(...nodes) { const parent = this.parent; const at = parent.childNodes.indexOf(this);
+  for (const n of nodes) { n.remove?.(); n.parent = parent; } parent.childNodes.splice(at, 0, ...nodes); };
+P.contains = function contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false; };
+// A 2-D canvas context as far as the text fitters use it: 6 px per character.
+P.getContext = function getContext() { return { font: '', measureText: (t) => ({ width: String(t).length * 6 }) }; };
+P.focus = function focus() { document.activeElement = this; };
+P.blur = function blur() {};
+P.scrollIntoView = function scrollIntoView(options) { scrolledTo.push([this.dataset.panel ?? this.id, options ?? null]); };
+P.getBoundingClientRect = function getBoundingClientRect() {
+  const height = typeof this.measuredHeight === 'function' ? this.measuredHeight() : 0;
+  return { top: 0, left: 0, right: 600, bottom: height, width: 600, height, x: 0, y: 0 };
+};
+P.removeEventListener = function removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter((f) => f !== fn); };
+P.dispatchEvent = function dispatchEvent(event) {
+  for (let el = this; el; el = el.parent) {
+    for (const fn of el.listeners?.[event.type] ?? []) fn({ ...event, type: event.type, detail: event.detail, target: this,
+      stopPropagation() {}, preventDefault() {} });
+    if (!event.bubbles) break;
+  }
+  return true;
+};
+Object.defineProperty(P, 'offsetWidth', { get() { return 600; } });
+Object.defineProperty(P, 'offsetHeight', { get() { return 0; } });
+Object.defineProperty(P, 'firstChild', { get() { return this.childNodes[0] ?? null; } });
+Object.defineProperty(P, 'firstElementChild', { get() { return this.children[0] ?? null; } });
+Object.defineProperty(P, 'nextElementSibling', { get() { const s = this.parent?.children ?? []; return s[s.indexOf(this) + 1] ?? null; } });
+const styleOf = () => {
+  const values = {};
+  return new Proxy(values, { get(target, key) {
+    if (key === 'setProperty') return (k, v) => { target[k] = String(v); };
+    if (key === 'getPropertyValue') return (k) => target[k] ?? '';
+    if (key === 'removeProperty') return (k) => { delete target[k]; };
+    return target[key] ?? '';
+  } });
+};
+
+// A small HTML parser: the body of models.html as FakeElements.
+const VOID = new Set(['input', 'br', 'img', 'meta', 'link', 'hr', 'source', 'wbr', 'col']);
+const ENTITIES = { '&times;': '×', '&mdash;': '—', '&ndash;': '–', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+  '&#8217;': '’', '&rarr;': '→', '&nbsp;': ' ' };
+const decode = (text) => text.replace(/&[#\w]+;/g, (e) => ENTITIES[e] ?? e);
+function makeElement(tag) {
+  const el = new FakeElement(tag); el.style = styleOf(); return el;
+}
+function parseBody(html) {
+  const body = makeElement('body');
+  const start = html.indexOf('<body>') + 6; const end = html.indexOf('</body>');
+  const src = html.slice(start, end).replace(/<!--[\s\S]*?-->/g, '').replace(/<script[\s\S]*?<\/script>/g, '');
+  const stack = [body];
+  const re = /<\/?([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|([^<]+)/g;
+  let m;
+  while ((m = re.exec(src))) {
+    if (m[3] !== undefined) { const text = decode(m[3]); if (text.trim()) stack.at(-1).append(new FakeText(text)); continue; }
+    const tag = m[1].toLowerCase();
+    if (m[0].startsWith('</')) { while (stack.length > 1 && stack.pop().tagName !== tag.toUpperCase()); continue; }
+    const el = makeElement(tag);
+    const attrRe = /([\w:-]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/g;
+    let a;
+    while ((a = attrRe.exec(m[2] ?? ''))) {
+      const name = a[1].toLowerCase();
+      const value = a[2] === undefined ? '' : decode(a[2].replace(/^["']|["']$/g, ''));
+      if (name === 'id') el.id = value;
+      else if (name === 'class') el.className = value;
+      else if (name === 'hidden') el.hidden = true;
+      else if (name === 'title') el.title = value;
+      else if (name === 'value') el.value = value;
+      else if (name === 'disabled') el.disabled = true;
+      else if (name.startsWith('data-')) el.dataset[camel(name.slice(5))] = value;
+      else el.attrs[name] = value;
+    }
+    if (tag === 'option' && !('value' in el.attrs) && el.value === '') el.valueFromText = true;
+    stack.at(-1).append(el);
+    if (!VOID.has(tag) && !m[0].endsWith('/>')) stack.push(el);
+  }
+  return body;
+}
+const scrolledTo = [];
+const html = readFileSync(pageArgs.html, 'utf8');
+const body = parseBody(html);
+const docEl = makeElement('html');
+docEl.append(body);
+const docListeners = {};
+globalThis.document = {
+  body, documentElement: docEl,
+  createElement: (tag) => makeElement(tag),
+  createElementNS: (_ns, tag) => makeElement(tag),
+  createTextNode: (text) => new FakeText(text),
+  createDocumentFragment: () => makeElement('fragment'),
+  getElementById: (id) => body.getElementById(id),
+  querySelector: (s) => body.querySelector(s),
+  querySelectorAll: (s) => body.querySelectorAll(s),
+  addEventListener: (type, fn) => { (docListeners[type] ??= []).push(fn); },
+  removeEventListener() {},
+  activeElement: null,
+  visibilityState: 'visible',
+};
+// The window: the page's URL, a history that keeps the query until it is replaced, storage, media, timers.
+const storage = new Map();
+const url = new URL(pageArgs.url);
+const windowListeners = {};
+globalThis.window = globalThis;
+globalThis.location = { hash: url.hash, search: url.search, pathname: url.pathname, origin: url.origin,
+  get href() { return `${url.origin}${this.pathname}${this.search}${this.hash}`; }, assign(u) { assigned.push(u); } };
+const assigned = [];
+replaced = [];
+globalThis.history = {
+  replaceState(_s, _t, next) {
+    replaced.push(next);
+    const u = new URL(next, url.origin);
+    location.pathname = u.pathname; location.search = u.search; location.hash = u.hash;
+  },
+};
+globalThis.addEventListener = (type, fn) => { (windowListeners[type] ??= []).push(fn); };
+globalThis.removeEventListener = () => {};
+globalThis.localStorage = { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)),
+  removeItem: (k) => storage.delete(k) };
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {} });
+globalThis.innerWidth = 1600; globalThis.innerHeight = 1000;
+globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
+globalThis.CustomEvent = class CustomEvent { constructor(type, init = {}) { this.type = type; this.detail = init.detail; this.bubbles = Boolean(init.bubbles); } };
+globalThis.Event = class Event { constructor(type, init = {}) { this.type = type; this.bubbles = Boolean(init.bubbles); } };
+const resizeObservers = [];
+globalThis.ResizeObserver = class { constructor(cb) { this.cb = cb; this.targets = []; resizeObservers.push(this); }
+  observe(t) { this.targets.push(t); } unobserve() {} disconnect() { this.targets = []; } };
+const intersections = [];
+globalThis.IntersectionObserver = class extends FakeObserver { constructor(cb, o) { super(cb, o); intersections.push(this); } };
+// Show cards to every observer that watches them, as scrolling them into view does.
+const intersect = (els) => { for (const o of intersections) { const t = els.filter((e) => o.targets.includes(e)); if (t.length) o.show(t); } };
+// The network: a log of every request with the subpage on show when it left.
+const requests = [];
+const routes = pageArgs.routes ?? {};
+globalThis.fetch = async (input, init = {}) => {
+  const u = new URL(String(input), url.origin);
+  requests.push({ path: u.pathname + u.search, msub: document.querySelector('.app')?.dataset.msub ?? null,
+    hash: location.hash });
+  const failure = (pageArgs.failures ?? {})[u.pathname];
+  if (failure) return { ok: false, status: failure, statusText: 'x', json: async () => ({ detail: `refused ${failure}` }) };
+  const body = routes[u.pathname];
+  if (body === undefined) return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({ detail: 'no route' }) };
+  return { ok: true, status: 200, json: async () => structuredClone(body) };
+};
+const consoleErrors = [];
+console.error = (...a) => consoleErrors.push(a.map((x) => (x instanceof Error ? `${x.message}\n${x.stack}` : String(x))).join(' '));
+// ECharts as far as a card's panel touches it: a chart that takes any option and measures 600 x 330.
+const chartStub = (dom) => new Proxy({ getWidth: () => 600, getHeight: () => 330, getDom: () => dom,
+  isDisposed: () => false, getZr: () => ({ on() {}, off() {} }) }, {
+  get: (target, key) => (key === 'then' ? undefined : (target[key] ?? (() => undefined))) });
+globalThis.echarts = { init: (dom) => chartStub(dom), getInstanceByDom: () => null };
+const shown = (id) => { const el = document.getElementById(id); if (!el) return null; for (let n = el; n; n = n.parent) if (n.hidden) return false; return true; };
+"""
+
+_PAGE_BOOT = r"""
+const head = document.getElementById('models-head');
+// The head: 40 px of tabs, then the bench bar, whose caption wraps a line of 1 px every 10 characters and
+// one more line of 20 px while the Details drawer narrows the column.
+if (head) head.measuredHeight = () => 40 + (document.getElementById('bench-bar').hidden ? 0
+  : 80 + Math.ceil(document.getElementById('bench-caption').textContent.length / 10)
+    + (document.querySelector('.app').classList.contains('is-inspector-open') ? 20 : 0));
+// An id the markup lost: the element stays, with its children, under no id.
+for (const id of pageArgs.drop ?? []) { const el = document.getElementById(id); if (el) el.id = ''; }
+// When the 3-D views first fill their host, and on which subpage.
+const voxelHost = document.getElementById('voxels-grid');
+let voxelsMountedOn = null;
+for (const name of ['append', 'appendChild', 'replaceChildren']) {
+  const original = voxelHost[name].bind(voxelHost);
+  voxelHost[name] = (...nodes) => { voxelsMountedOn ??= document.querySelector('.app').dataset.msub; return original(...nodes); };
+}
+// The scroll margin the card had when it was scrolled to.
+const scrollIntoView = P.scrollIntoView;
+const marginAtScroll = [];
+P.scrollIntoView = function marked(options) {
+  marginAtScroll.push(document.querySelector('.main').style['--models-head-h']);
+  return scrollIntoView.call(this, options);
+};
+await import(pageArgs.main);
+const idle = async (ms = 400) => { await settle(); await new Promise((r) => setTimeout(r, ms)); await settle(); };
+await idle();
+const app = document.querySelector('.app');
+const main = document.querySelector('.main');
+const text = (id) => document.getElementById(id)?.textContent ?? null;
+const view = () => ({
+  msub: app.dataset.msub, hash: location.hash,
+  shown: Object.fromEntries(['bench-bar', 'xgb-notice', 'group-m-colormap', 'banner', 'inspector',
+    'msub-views', 'msub-distill', 'msub-perf'].map((id) => [id, !(document.getElementById(id)?.hidden ?? true)])),
+  lgroupsHidden: document.getElementById('group-lgroups').hidden,
+  headH: main.style['--models-head-h'],
+  headNow: `${Math.ceil(head.getBoundingClientRect().height)}px`,
+  banner: JSON.parse(document.getElementById('banner').dataset.messages ?? '[]'),
+  bannerError: document.getElementById('banner').classList.contains('is-error'),
+});
+const tab = (msub) => document.getElementById(`msub-tab-${msub}`).click();
+const out = { boot: { ...view(), requests: [...requests], scrolledTo: [...scrolledTo], marginAtScroll: [...marginAtScroll],
+  voxelsMountedOn, errors: [...consoleErrors], search: location.search,
+  inspectorTitle: text('inspector-title'), returnLink: document.querySelector('.inspector-return')?.textContent ?? null,
+  headObserved: resizeObservers.some((o) => o.targets.includes(head)) } };
+"""
+
+
+def _page(url: str, script: str, *, experiments: bool = True, drop=(), routes=None, failures=None) -> dict:
+    catalogue = json.loads((Path(_path("experiments"))).read_text(encoding="utf-8"))
+    if not experiments:
+        catalogue = {**catalogue, "experiments": []}
+    args = {"html": str(JS.parent / "models.html"), "main": (JS / "models_main.js").as_uri(),
+            "url": f"http://calosrv.test{url}", "drop": list(drop),
+            "routes": {"/api/experiments": catalogue, **(routes or {})}, "failures": failures or {}}
+    return _run(_FAKE_DOM + _PAGE_DOM + _PAGE_BOOT + script + "\nconsole.log(JSON.stringify(out));\n", [args])
+
+
+_DEEP = "&from=lnk-results-catalogue&from_sec=sec-catalogue"
+
+
+@pytest.fixture(scope="module")
+def page_deep() -> dict:
+    return _page(f"/models?panel=perf-catalog{_DEEP}", "")
+
+
+def test_the_page_switches_to_the_linked_subpage_before_anything_loads(page_deep):
+    boot = page_deep["boot"]
+    assert boot["errors"] == []
+    # The first request left on the linked card's subpage, the hash already saying so; the 3-D views were
+    # mounted there too, hidden, so nothing of Views was asked for first.
+    assert boot["requests"][0] == {"path": "/api/experiments", "msub": "perf", "hash": "#msub=perf"}
+    assert boot["voxelsMountedOn"] == "perf"
+    assert boot["msub"] == "perf" and boot["shown"]["msub-perf"] and not boot["shown"]["msub-views"]
+    assert boot["search"] == "" and "msub=perf" in boot["hash"]
+
+
+def test_a_deep_link_lands_below_the_sticky_head_with_its_drawer_and_the_way_back(page_deep):
+    boot = page_deep["boot"]
+    # The head was measured again just before the card was scrolled to - the bench bar shown, its caption
+    # rewritten by the experiment - and again once the drawer had opened and narrowed the column: the head
+    # grew, so the card was scrolled to again, below the head at its final height.
+    assert boot["scrolledTo"] == [["perf-catalog", {"block": "start"}]] * 2
+    first, last = (int(m[:-2]) for m in boot["marginAtScroll"])
+    assert last == first + 20 and boot["marginAtScroll"][-1] == boot["headH"] == boot["headNow"]
+    assert boot["headObserved"]
+    assert int(boot["headNow"][:-2]) > 120, "the bench bar is in the head"
+    assert boot["shown"]["inspector"] and boot["inspectorTitle"]
+    assert boot["returnLink"], "the return link is set before the drawer opens"
+
+
+@pytest.fixture(scope="module")
+def page_empty() -> dict:
+    catalogue_card = _page(f"/models?panel=distill-pysr{_DEEP}", """
+// A switch and the refresh it starts must not erase the no-experiment sentence.
+tab('perf');
+await idle();
+out.afterSwitch = view();
+""", experiments=False)
+    other_card = _page("/models?panel=pred-truth&from=lnk-results-perf", "", experiments=False)
+    return {"catalogue": catalogue_card, "other": other_card}
+
+
+def test_a_catalogue_card_lands_with_no_experiment_open(page_empty):
+    boot = page_empty["catalogue"]["boot"]
+    assert boot["errors"] == []
+    # R3-5: the catalogue reads the report, so its card lands on an empty service.
+    assert boot["msub"] == "distill" and boot["scrolledTo"][-1] == ["distill-pysr", {"block": "start"}]
+    assert boot["shown"]["inspector"] and boot["returnLink"]
+    assert boot["banner"][0].startswith("No experiment has finished ingesting yet.") and boot["bannerError"]
+    after = page_empty["catalogue"]["afterSwitch"]
+    assert after["msub"] == "perf" and after["shown"]["banner"]
+    assert after["banner"][0].startswith("No experiment has finished ingesting yet.")
+    # Any other card needs an experiment: its subpage is shown, nothing is scrolled to, no drawer opens.
+    other = page_empty["other"]["boot"]
+    assert other["msub"] == "perf" and other["scrolledTo"] == [] and not other["shown"]["inspector"]
+    assert other["banner"][0].startswith("No experiment has finished ingesting yet.")
+
+
+_WIRING = r"""
+const states = [];
+const at = (label) => states.push([label, view()]);
+at('boot');
+tab('distill'); at('distill');
+tab('perf'); at('perf');
+tab('views'); at('views');
+tab('perf');
+await idle(200);
+// The task buttons write the shared model through the sidebar radio's path, and the radio follows.
+const pressed = (attr) => [...document.querySelectorAll(`#bench-bar [data-${attr}]`)]
+  .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset[attr === 'bench-task' ? 'benchTask' : 'benchSpecies']);
+const radio = (value) => document.querySelector(`#m-model input[value="${value}"]`);
+document.querySelector('#bench-bar [data-bench-task="angle"]').click();
+await idle(200);
+out.task = { hash: location.hash, pressed: pressed('bench-task'), radio: radio('angle').checked,
+  others: ['segmentation', 'energy'].map((v) => radio(v).checked) };
+radio('energy').checked = true;
+radio('energy').dispatch('change');
+await idle(200);
+out.radio = { hash: location.hash, pressed: pressed('bench-task') };
+// The species buttons: a choice is stored, the experiment's own (Compare all here) stores null.
+const species = (value) => document.querySelector(`#bench-bar [data-bench-species="${value}"]`).click();
+species('electron');
+await idle(200);
+out.electron = { hash: location.hash, pressed: pressed('bench-species'), caption: text('bench-caption') };
+species('all');
+await idle(200);
+out.all = { hash: location.hash, pressed: pressed('bench-species'), caption: text('bench-caption') };
+// A panel that changed its own picture: its notes are rebuilt, the Details button with them.
+const details = document.querySelector('[data-inspect="distill-curves"]');
+details.title = 'stale';
+document.querySelector('.card[data-panel="distill-curves"]').dispatchEvent(
+  new CustomEvent('models:panelstate', { bubbles: true, detail: { card: 'distill-curves' } }));
+out.panelState = details.title;
+// The cards in their sections.
+out.hosts = Object.fromEntries(['distill-pysr', 'distill-curves', 'xgb-surrogate', 'xgb-importance', 'xgb-cv',
+  'perf-catalog', 'perf-diagnostics', 'pred-truth', 'feat-table', 'prim-rate']
+  .map((id) => [id, document.querySelector(`.card[data-panel="${id}"]`)?.parent?.id ?? null]));
+out.states = states;
+"""
+
+
+@pytest.fixture(scope="module")
+def page_wiring() -> dict:
+    return _page("/models", _WIRING)
+
+
+def test_a_switch_brings_the_bench_bar_the_sidebar_the_notices_and_the_head_in_line(page_wiring):
+    states = dict(page_wiring["states"])
+    boot, distill, perf, views = states["boot"], states["distill"], states["perf"], states["views"]
+    assert page_wiring["boot"]["errors"] == []
+    # Views: no bench bar, no XGBoost notice (no XGBoost card there), the Colour Map; the head without the bar.
+    assert boot["msub"] == "views" and not boot["shown"]["bench-bar"] and not boot["shown"]["xgb-notice"]
+    assert boot["shown"]["group-m-colormap"] and boot["headH"] == boot["headNow"] == "40px"
+    # Distillations: the bar, the notice (the two-shower file pairs with no XGBoost run), no Colour Map (no E4);
+    # the head measured at once, in the click, with the bar.
+    assert distill["shown"]["bench-bar"] and distill["shown"]["xgb-notice"] and not distill["shown"]["group-m-colormap"]
+    assert distill["headH"] == distill["headNow"] and int(distill["headNow"][:-2]) > 120
+    assert distill["hash"].endswith("msub=distill")
+    # Performance: the Colour Map with the prediction density.
+    assert perf["shown"]["bench-bar"] and perf["shown"]["xgb-notice"] and perf["shown"]["group-m-colormap"]
+    assert views == {**boot, "hash": views["hash"]} and "msub" not in views["hash"]
+    # The Longitudinal Channels' hidden attribute is the control's alone: no switch touches it.
+    assert len({s["lgroupsHidden"] for s in states.values()}) == 1
+
+
+def test_the_bench_bar_writes_the_shared_model_and_the_species(page_wiring):
+    w = page_wiring
+    assert "model=angle" in w["task"]["hash"] and w["task"]["pressed"] == ["angle"]
+    assert w["task"]["radio"] and w["task"]["others"] == [False, False]
+    assert "model=energy" in w["radio"]["hash"] or "model=" not in w["radio"]["hash"]
+    assert w["radio"]["pressed"] == ["energy"]
+    assert "bench_species=electron" in w["electron"]["hash"] and w["electron"]["pressed"] == ["electron"]
+    assert w["electron"]["caption"].startswith("Chosen: Electron. Choose Compare all to follow the experiment again.")
+    assert "bench_species" not in w["all"]["hash"] and w["all"]["pressed"] == ["all"]
+    assert w["all"]["caption"].startswith("This experiment does not name its species")
+
+
+def test_the_page_rebuilds_the_notes_of_a_panel_that_changed_its_own_picture(page_wiring):
+    assert page_wiring["panelState"] != "stale"
+
+
+def test_the_cards_sit_in_their_subpages_sections(page_wiring):
+    assert page_wiring["hosts"] == {
+        "distill-pysr": "distill-grid", "distill-curves": "distill-grid", "xgb-surrogate": "xgb-distill-grid",
+        "xgb-importance": "xgb-distill-grid", "xgb-cv": "xgb-grid", "perf-catalog": "bench-grid",
+        "perf-diagnostics": "bench-grid", "pred-truth": "perf-grid", "feat-table": "features-grid",
+        "prim-rate": "primaries-grid"}
+
+
+_BANNERS = r"""
+// The residual card loads on Performance with a warning its drawer does not state: the banner carries it there,
+// and on Performance only (R2-6: it stood above the 3-D views).
+tab('perf');
+await idle();
+intersect([document.querySelector('.card[data-panel="pred-residuals"]')]);
+await idle(300);
+for (const msub of ['views', 'distill', 'perf']) {
+  tab(msub);
+  out[`${msub}AtOnce`] = view();
+  await idle();
+  out[msub] = view();
+}
+// An error is not a subpage's: it stays through a switch.
+intersect([document.querySelector('.card[data-panel="perf-bins"]')]);
+await idle(300);
+out.error = view();
+tab('distill');
+out.errorAfterSwitch = view();
+"""
+
+
+@pytest.fixture(scope="module")
+def page_banners() -> dict:
+    pred = json.loads(Path(_path("pred_density_two_energy")).read_text(encoding="utf-8"))
+    return {"warning": pred["meta"]["warnings"][0],
+            **_page("/models#model=energy", _BANNERS, routes={"/api/prediction-density": pred},
+                    failures={"/api/model-performance": 503})}
+
+
+def test_the_page_banner_carries_the_warnings_of_the_subpage_on_show(page_banners):
+    b = page_banners
+    warning = b["warning"]
+    assert warning.startswith("Shower A:")
+    for state in ("viewsAtOnce", "views", "distillAtOnce", "distill"):
+        assert warning not in b[state]["banner"] and not b[state]["shown"]["banner"], state
+    for state in ("perfAtOnce", "perf"):
+        assert b[state]["banner"] == [warning] and b[state]["shown"]["banner"], state
+    assert b["error"]["bannerError"] and b["error"]["shown"]["banner"]
+    assert any("503" in line or "refused" in line for line in b["error"]["banner"]), b["error"]["banner"]
+    assert b["errorAfterSwitch"]["banner"] == b["error"]["banner"] and b["errorAfterSwitch"]["shown"]["banner"]
+
+
+def test_the_page_audits_its_markup_for_every_id_it_writes():
+    dropped = ("models-head", "bench-caption", "xgb-distill-grid-title", "msub-tab-perf")
+    boot = _page("/models", "", drop=dropped)["boot"]
+    assert any("out of step" in line and all(i in line for i in dropped) for line in boot["banner"]), boot["banner"]
+
+
+def test_the_bench_bar_ends_with_the_catalogues_own_provenance_sentence(router_results):
+    # R3-7: one provenance sentence; models_subpages.js may not import the catalogue (nothing of it loads on Views).
+    select = _run(r"""
+const [url] = JSON.parse(process.argv[1]);
+const { PROVENANCE } = await import(url);
+console.log(JSON.stringify(PROVENANCE));
+""", [(JS / "catalog" / "select.js").as_uri()])
+    assert router_results["provenance"] == select
+    source = _strip_comments((JS / "models_subpages.js").read_text(encoding="utf-8"))
+    assert "catalog/" not in source
