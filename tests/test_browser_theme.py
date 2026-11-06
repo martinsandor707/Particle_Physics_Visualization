@@ -489,15 +489,23 @@ def test_a_switch_repaints_the_event_inspector_and_the_compare_grid_without_a_re
 def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_server):
     base = live_server["base"]
     with live_server["playwright"].sync_playwright() as p:
-        # Local, the frame that draws both 3-D pairs (one pair per coordinate system).
+        # Local draws both 3-D pairs, one at a time (the 3-D card's Selection | One event): the cloud first, which
+        # the reader turns (programmatically: echarts-gl writes the angles into the model), then one event, on
+        # show for the switch.
         browser, page, problems, requests = _open(
             p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy&frame=local", gl=True)
         for card_id in MODELS_CARDS:
             _models_card(page, card_id)
-        for card_id in GL_CARDS:
-            page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
-            page.wait_for_function(_GL_DRAWN, arg=card_id, timeout=30_000)
-            page.wait_for_timeout(800)
+        page.locator('.main .card[data-panel="vox-ensemble"]').scroll_into_view_if_needed()
+        page.wait_for_function(_GL_DRAWN, arg="vox-ensemble", timeout=30_000)
+        page.wait_for_timeout(800)
+        page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
+                      ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
+        page.wait_for_timeout(300)
+        page.click('.main .card[data-panel="vox-ensemble"] [data-voxel-scope="event"]')
+        page.locator('.main .card[data-panel="vox-event"]').scroll_into_view_if_needed()
+        page.wait_for_function(_GL_DRAWN, arg="vox-event", timeout=30_000)
+        page.wait_for_timeout(800)
         dark_cards = {c: page.evaluate(_AXIS_INK, f"plot-{c}") for c in MODELS_CARDS}
 
         # The drawer opens first: it narrows the cards, and a narrower card refits the opening zoom.
@@ -521,10 +529,7 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
             page.mouse.wheel(0, -200)
             page.wait_for_timeout(120)
         page.wait_for_timeout(500)
-        # And the cloud is turned programmatically: echarts-gl writes the angles into the model.
-        page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
-                      ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
-        page.wait_for_timeout(300)
+        # The cloud, off show, is repainted with the event: the section repaints every pair it holds.
         before = {c: page.evaluate(_CAMERA, c) for c in GL_CARDS}
         species = page.evaluate("() => [...document.querySelectorAll('.voxel-swatch')]"
                                 ".map((s) => s.style.getPropertyValue('--swatch'))")
@@ -551,9 +556,17 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
             assert page.evaluate("() => [...document.querySelectorAll('.voxel-swatch')]"
                                  ".map((s) => s.style.getPropertyValue('--swatch'))") != species
         assert not _drawer_marked(page)
-        # The paired projections follow.
-        for plot in ("plot-vproj-xy", "plot-eproj-xy"):
-            assert MUTED["light"] in page.evaluate(_AXIS_INK, plot), plot
+        # The paired projections follow: the event's now; the cloud's, off show, once its pair is back on the
+        # event card's Selection (a chart measured at zero size waits for its size), still with no request.
+        assert MUTED["light"] in page.evaluate(_AXIS_INK, "plot-vproj-xy")
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-scope="selection"]')
+        page.locator('.main .card[data-panel="eproj-xy"]').scroll_into_view_if_needed()
+        page.wait_for_function(
+            f"""() => {{ const ink = ({_AXIS_INK})('plot-eproj-xy') ?? [];
+              return ink.includes({json.dumps(MUTED["light"])}) && !ink.includes({json.dumps(MUTED["dark"])}); }}""",
+            timeout=10_000)
+        cloud = page.evaluate(_CAMERA, "vox-ensemble")
+        assert (cloud["model"]["alpha"], cloud["model"]["beta"]) == (10, 70) and cloud["axisLine"] == BORDER["light"], cloud
         # The 2-D cards, each on its own subpage: one on a subpage off show is repainted when its tab brings it
         # back (a chart measured at zero size waits for its size), still with no request.
         for c in MODELS_CARDS:

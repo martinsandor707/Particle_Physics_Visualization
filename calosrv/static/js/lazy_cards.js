@@ -128,7 +128,11 @@ export class LazyCards {
       return entry.pendingKey !== null && entry.pendingKey === key ? entry.promise : null;
     }
     // A load is current while it is the entry's latest: a newer key, or a
-    // `forget()`, supersedes it, and its result then marks nothing.
+    // `forget()`, supersedes it, and its result then marks nothing. Nor does
+    // a load whose card's request changed while it ran with no newer load
+    // started (a 3-D pair hidden mid-load: its key turns null, and its loader
+    // draws nothing): the card is loaded again, from the response in hand,
+    // when that request is its own again.
     const token = {};
     entry.token = token;
     entry.pendingKey = key;
@@ -136,7 +140,7 @@ export class LazyCards {
     const promise = (async () => {
       try {
         await entry.load(key);
-        if (current()) entry.loadedKey = key;
+        if (current() && entry.key() === key) entry.loadedKey = key;
       } catch (error) {
         // A refusal is loaded for its key; a superseded request or a fault
         // that may pass (network, 5xx) is not, so the card is asked again.

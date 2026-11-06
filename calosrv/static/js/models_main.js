@@ -50,7 +50,7 @@ import { articleSection } from './article_sections.js';
 import { FilterBlock } from './controls/filter_block.js';
 import { attachExportMenus } from './export/menu.js';
 import { LazyCards } from './lazy_cards.js';
-import { page2Plan, viewFrame, effectiveSpecies } from './capabilities.js';
+import { page2Plan, effectiveSpecies } from './capabilities.js';
 import { CHOICE_LABELS, MODELS_LABELS, isLegacyFrame } from './labels.js';
 import {
   Banner, describeError, fillComputeBadges, fillExperimentSelect, chooseExperiment, choiceGroup,
@@ -518,10 +518,9 @@ function syncFrameControl() {
     lines.push(`The link's frame is not offered for this experiment (${plan.kindLabel}); the page draws in `
       + `${frameChoices(current).find((c) => c.value === shown)?.label ?? shown}.`);
   }
-  const ensemble = viewFrame('ensemble', shown, plan.frames.offered, plan.nShowers);
-  lines.push('The feature explorer and the 3-D event view draw in this frame where they can; the ensemble '
-    + `cloud draws in a co-registered frame${ensemble.fallback && ensemble.frame ? ' (Local here)' : ''}. A card `
-    + 'drawn in another frame says so under its title.');
+  // The 3-D views never fall back (voxel_views.js, one 3-D pair per coordinate system).
+  lines.push('The feature explorer draws in this frame where it can; a card drawn in another frame says so under '
+    + 'its title. The 3-D views draw in this frame only, and a line above them names a view it cannot draw.');
   setText('m-frame-caption', lines.join(' '));
 }
 
@@ -773,6 +772,9 @@ function landDeepLink(link) {
   // the head measured, so the card's scroll margin is the head's height now.
   const msub = subpageOfCard(link.panel);
   if (msub) subnav.show(msub);
+  // A 3-D card the selected frame draws, behind the other pair (Local draws
+  // one at a time): its scope first, as its subpage.
+  voxels?.revealPair?.(link.panel);
   const measured = head.measure();
   const result = revealPanel(link.panel ?? '', { shell });
   if (result.ok) {
@@ -787,7 +789,7 @@ function landDeepLink(link) {
     return;
   }
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
-  // A 3-D pair hidden by the selected frame says which frames draw it.
+  // A 3-D pair the selected frame does not draw says which frames draw it.
   const notice = (result.reason === 'hidden' ? voxels?.frameNotice?.(link.panel) : null)
     ?? revealNotice(result, { requested: link.requested, title, kind: plan.kindLabel });
   kindBanner.show([...kindBanner.shown, notice]);

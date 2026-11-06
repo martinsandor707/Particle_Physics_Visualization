@@ -2262,7 +2262,10 @@ visible, and again only when its request changes. A filter change therefore
 re-asks the visible cards and leaves the others to load when they scroll in
 (`js/lazy_cards.js`, `js/physics_section.js`). A request the server refuses with
 a 4xx, the 422 of a shut capability above all, counts as answered: the card
-shows the server's reason, since asking again would only repeat it. The section
+shows the server's reason, since asking again would only repeat it. A load whose
+card's request changed while it ran (a 3-D pair hidden mid-load on the Models page
+turns its key to null and draws nothing) counts as nothing, so the card is loaded
+again, from the response in hand, when the request is its own again. The section
 is hidden together with the 2 × 2 while the Event Inspector or the compare view
 replaces it.
 
@@ -3010,7 +3013,7 @@ Its sections, by subpage and in page order:
 
 | Subpage | Sections |
 |---|---|
-| **Views** | the **3-D views** (a pair of a 3-D card and three 2-D projections for the selected frame: the event pair, the ensemble pair, or both in Local), **Event features** (four cards) and **Primaries** (one card) |
+| **Views** | the **3-D views** (a pair of a 3-D card and three 2-D projections for the selected frame: the event pair or the ensemble pair, in Local either, as the card's Selection \| One event chooses), **Event features** (four cards) and **Primaries** (one card) |
 | **Distillations** | **Distilled formulas and surrogates** (three catalogue cards) and **XGBoost surrogate and importance** (E4 and E5) |
 | **Performance** | **Model performance** (three cards), **Energy resolution** (one card), **XGBoost model** (E1 and E3) and the **Benchmark catalogue** (four cards) |
 
@@ -3192,7 +3195,7 @@ has somewhere to be read. Two banners and a caption say what the experiment lack
   written back to the link. The feature cards serve the Absolute, per-shower
   translated and Local frames; the D-frame has no per-event feature sums, so the
   cards fall back to Absolute. The 3-D views never fall back: a pair the
-  selected frame does not draw is not shown, and a line says where it is drawn
+  selected frame cannot draw is not shown, and a line says where it is drawn
   (see [The 3-D views](#the-3-d-views)). A network reads the frame it was trained on, and the
   D-frame uses the absolute-frame networks; that is the definition of the
   D-frame's networks, not a fallback. An aggregate has no sidebar frame, but its
@@ -3612,30 +3615,46 @@ hides whatever lies behind it from the current viewpoint, and the drawer says
 that too. Cubes are placed through the payload's coordinates, never by
 `index × pitch` (the x lattice is irregular).
 
-**One coordinate system at a time** (Martin's directive, 2026-11-06). Views
-draws only the 3-D pair of the frame selected under Reference Frame
-(`voxel_views.js` `PAIR_FRAMES`, `pairDrawn`, `syncPairs`):
+**One coordinate system at a time** (Martin's directives, 2026-11-06). Views
+draws one 3-D pair at a time, in the frame selected under Reference Frame
+(`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`). The
+3-D card's **Selection | One event** buttons say which:
 
-| Selected frame | Drawn on Views |
-|---|---|
-| Absolute | the event pair: the selection, or one event |
-| Per-shower translated | the event pair: one event |
-| Local | both pairs: one event and the ensemble cloud, both in Local |
-| D-frame | the ensemble cloud |
+| Selected frame | Selection | One event |
+|---|---|---|
+| Absolute | the event pair, summed on the detector cells | the event pair |
+| Per-shower translated | not drawn (shut, with its reason) | the event pair |
+| Local | the ensemble cloud | the event pair |
+| D-frame | the ensemble cloud | not drawn (shut, with its reason) |
+
+Local is the one frame that draws both pairs, and the buttons choose between
+them; it opens on the selection, the cloud, as the Absolute frame opens on its
+selection. The choice is the view key `voxel_scope`, so a link keeps it.
 
 - **No fallback.** The event view is drawn in the Absolute, per-shower translated
   and Local frames and the cloud in Local and the D-frame; neither is drawn in
   another frame in place of the selected one. Before, the cloud was drawn in
   Local beside an Absolute event, and the event in the Absolute frame beside a
   D-frame cloud: two coordinate systems on one screen.
-- **Hiding keeps everything.** The other pair only gets `hidden`: its charts and
-  WebGL context are kept, and a hidden pair never loads. A pair the server shut
+- **Hiding keeps everything.** The other pair only gets `hidden`: its charts,
+  camera, slices and WebGL context are kept, and a hidden pair never loads; a
+  switch back in Local draws from the response in hand. A pair the server shut
   for the experiment stays on show in its own frames, with its reason.
 - **Disclosure.** A line above the 3-D views says which pair the selected frame
-  does not draw and which frames to choose to see it, listing only frames with a
-  radio (the legacy per-shower frame has none on two showers). A deep link to a
-  card of that pair (`?panel=vox-ensemble` in the Absolute frame) says so on the
-  banner, and the Methodology's badges to a 3-D card set the frame it is drawn in.
+  cannot draw and which frames to choose to see it, listing only frames with a
+  radio (the legacy per-shower frame has none on two showers); Local has none,
+  since its card's buttons are the choice. A shut scope button's title says why
+  and which frames draw it (`scopeOffer`). Where the scope in hand would show the
+  other view in a listed frame (Local opens on the cloud, the Absolute frame on
+  its selection), the line, the title and a deep link's banner add "then One
+  event (or Selection) on its 3-D card".
+- **Keyboard.** A switch that takes the pressed button's card off the screen
+  moves focus to the same button on the card now shown, and the warnings above
+  the views are the pair on show's.
+- **Deep links.** A link to a card the frame cannot draw (`?panel=vox-ensemble`
+  in the Absolute frame) says so on the banner; one to a card Local's scope hides
+  switches the scope first (`revealPair`), as a subpage tab does. The
+  Methodology's badges to a 3-D card set its frame, and the cloud's its scope.
 
 **Rendering.** The 3-D views draw with the vendored `echarts-gl`, loaded by this
 page only. At most **two WebGL contexts** exist, one for the event chart and one
@@ -3859,9 +3878,11 @@ one-event view's channels averaged over the selection (Martin's decision): energ
 as the mean GeV/mm³ per selected event, Grad-CAM and Shap-CAM as the
 energy-weighted mean over the selection's hits in the cell. Segmentation error and
 species belong to one event and have no selection projection, so the view draws
-energy and says so. The per-shower frames draw one event: they move every shower
-to its own entry point, so their cells share no lattice, and the cloud card draws
-the co-registered selection; the D-frame draws no event card. `voxel_scope`
+energy and says so. In Local and the D-frame the selection is the co-registered
+cloud, the ensemble pair: Local draws it or one event, as the buttons say, and the
+D-frame draws the cloud only. The per-shower translated frame draws one event
+only: every shower sits at its own entry point, so their cells share no lattice
+to sum on, and no cloud is accumulated there. `voxel_scope`
 (`selection` | `event`) is view state, and a link
 that names a `voxel_event` opens that event whatever the scope, so an older
 bookmark keeps its meaning.

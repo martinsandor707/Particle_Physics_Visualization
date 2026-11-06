@@ -364,7 +364,7 @@ const MODELS = {
         String.raw`flat, unlit colour, because lighting modulates the luminance that encodes the value, on the 2-D panels' ramps: on the dark card from their first 3:1 colour, on the light card exactly as the raster bins beside them;`,
         String.raw`per-axis energy-weighted ${C.WINDOW_LOW_PERCENTILE}–${C.WINDOW_HIGH_PERCENTILE} percentile windows, padded by one cell footprint (one layer pitch along depth), at least ${C.EVENT_WINDOW_MIN_HALF_MM} mm and snapped to ${C.EVENT_WINDOW_SNAP_MM} mm, so stray cells cannot stretch the box;`,
         String.raw`three paired 2-D projections beside each card, which carry the numbers and the export; the 3-D card has none, and at most two WebGL contexts per page;`,
-        String.raw`one coordinate system at a time: the event view is drawn in the Absolute, per-shower translated and Local frames and the ensemble cloud in Local and the D-frame, each only in the frame the reader has selected and never as a fallback to another, so the subpage never sets a second coordinate system beside the selected one; Local draws both, and a line names the frames of a view the selected frame does not draw.`,
+        String.raw`one coordinate system at a time: the event view is drawn in the Absolute, per-shower translated and Local frames and the ensemble cloud in Local and the D-frame, each only in the frame the reader has selected and never as a fallback to another, so the subpage never sets a second coordinate system beside the selected one; in Local, which draws both, the card's Selection | One event choice shows the cloud or one event, and a line names the frames of a view the selected frame does not draw.`,
       ],
     },
     {
@@ -393,7 +393,7 @@ const MODELS = {
         { page: 'models', panel: 'prim-rate', label: 'C11' },
         { page: 'models', panel: 'res-scaling', label: 'Resolution scaling' },
         { page: 'models', panel: 'vox-event', set: { frame: 'lab' }, label: 'C5 / C6' },
-        { page: 'models', panel: 'vox-ensemble', set: { frame: 'local' }, label: '3-D cloud' },
+        { page: 'models', panel: 'vox-ensemble', set: { frame: 'local', voxel_scope: 'selection', voxel_event: null }, label: '3-D cloud' },
       ],
     },
   ],
