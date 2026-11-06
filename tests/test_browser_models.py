@@ -99,17 +99,22 @@ SUBPAGES = ("views", "distill", "perf")
 #: The cards each kind shows, by subpage, each in page order (capabilities.js SUBPAGE_SECTIONS). The
 #: two-shower page opens on the energy network, so its performance cards draw rather than state the
 #: segmentation network's notice.
+#: Views draws the 3-D pair of the selected frame only (Martin's directive, 2026-11-06): the cold boot's Absolute
+#: frame draws the event pair alone, and Local adds the ensemble pair (`LOCAL_VIEWS`).
 BY_SUBPAGE = {
-    BASELINE_TABLE: {"views": EVENT_PAIR + ENSEMBLE_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
+    BASELINE_TABLE: {"views": EVENT_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
                      "perf": PERF + RES + BENCH},
-    SINGLE_HITS_TABLE: {"views": EVENT_PAIR + ENSEMBLE_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
+    SINGLE_HITS_TABLE: {"views": EVENT_PAIR + FEATURES + ["prim-rate"], "distill": DISTILL,
                         "perf": RES + BENCH},
     MODELS_XGB_TABLE: {"views": FEATURES, "distill": DISTILL + XGB_DISTILL, "perf": PERF + RES + XGB_PERF + BENCH},
 }
 #: Every card a kind shows, across the subpages, in page order (views, distill, perf).
 CARDS = {table: [c for msub in SUBPAGES for c in by[msub]] for table, by in BY_SUBPAGE.items()}
+#: The cards Views adds in Local, which draws both 3-D pairs: the ensemble cloud and its projections.
+LOCAL_VIEWS = {BASELINE_TABLE: ENSEMBLE_PAIR, SINGLE_HITS_TABLE: ENSEMBLE_PAIR}
 #: The subpage of every card on any kind.
 SUBPAGE_OF = {c: msub for by in BY_SUBPAGE.values() for msub, ids in by.items() for c in ids}
+SUBPAGE_OF.update({c: "views" for c in ENSEMBLE_PAIR})
 #: The tables whose selection holds momentum windows the resolution card can draw: the baseline's two
 #: events hold none from 4 GeV with two events, so it draws its empty state there.
 RES_DRAWN = (SINGLE_HITS_TABLE, MODELS_XGB_TABLE)
@@ -304,6 +309,15 @@ def _frames(page, n=2):
 #: No card laid out on the subpage on show is still waiting for its response.
 _QUIET = """() => [...document.querySelectorAll('.main .card[data-panel]')]
   .filter((c) => !c.hidden && c.offsetParent !== null).every((c) => !c.classList.contains('is-loading'))"""
+
+
+def _choose_frame(page, frame):
+    """Choose a reference frame on the sidebar's radio, as a reader does: Views then draws that frame's 3-D pair."""
+    _show_subpage(page, "views")
+    page.check(f'#m-frame input[value="{frame}"]')
+    page.wait_for_function(
+        "(f) => (new URLSearchParams(location.hash.slice(1)).get('frame') ?? 'lab') === f", arg=frame, timeout=10_000)
+    page.wait_for_timeout(300)
 
 
 def _quiet(page, timeout=30_000):
@@ -644,6 +658,9 @@ def test_no_card_asks_before_it_scrolls_into_view(models_live_server):
         assert _requests_of(requests, "/api/projections"), _urls(requests)
         assert not _requests_of(requests, "/api/resolution-scaling"), _urls(requests)
         assert not _requests_of(requests, "/api/primaries"), _urls(requests)
+        # The Absolute frame draws the event pair alone: the cloud is not asked for. Local draws it, on view.
+        assert not _requests_of(requests, "/api/voxels"), _urls(requests)
+        _choose_frame(page, "local")
         _scroll_to(page, "vox-ensemble")
         assert _requests_of(requests, "/api/voxels", frame="local")
         assert _requests_of(requests, "/api/projections", coord_system="local", display="native")
@@ -676,13 +693,14 @@ def test_every_2d_card_renders_without_a_console_error(models_live_server, table
         assert _subpage(page) == "views" and "msub" not in _hash(page)
         assert _shown_cards(page) == CARDS[table]
         assert _visible_cards(page) == BY_SUBPAGE[table]["views"]
-        for card_id in CARDS[table]:
+
+        def check(card_id):
             state = _scroll_to(page, card_id)
             where = f"{table} {card_id}"
             assert _subpage(page) == SUBPAGE_OF[card_id], where
             if card_id in SHUT.get(table, ()):
                 assert state["kind"] == "disabled" and state["message"], (where, state)
-                continue
+                return
             assert state["message"] is None, f"{where}: {state['message']}"
             assert state["width"] > 200 and state["height"] > 100, (where, state)
             if card_id in ("feat-table", "distill-pysr"):
@@ -699,6 +717,15 @@ def test_every_2d_card_renders_without_a_console_error(models_live_server, table
                 assert details["flagged"] and NO_INTERVAL in details["title"], (where, details)
                 assert "models_performance.md" in body, where
             drawers.append(body)
+
+        for card_id in CARDS[table]:
+            check(card_id)
+        # Local draws both 3-D pairs: the cloud and its projections, checked the same way.
+        if table in LOCAL_VIEWS:
+            _choose_frame(page, "local")
+            assert _visible_cards(page)[:8] == EVENT_PAIR + LOCAL_VIEWS[table], _visible_cards(page)
+            for card_id in LOCAL_VIEWS[table]:
+                check(card_id)
         drawn = page.evaluate("() => window.__drawnText")
         dom = page.evaluate("() => document.querySelector('.main').innerText")
         browser.close()
@@ -747,6 +774,11 @@ def test_no_card_runs_past_its_edge(models_live_server, table, viewport):
             for card_id in BY_SUBPAGE[table][msub]:
                 _scroll_to(page, card_id)
             measured[msub] = page.evaluate(_OVERFLOW)
+        if table in LOCAL_VIEWS:
+            _choose_frame(page, "local")
+            for card_id in LOCAL_VIEWS[table]:
+                _scroll_to(page, card_id)
+            measured["views (Local)"] = page.evaluate(_OVERFLOW)
         browser.close()
     for msub, found in measured.items():
         assert found["cards"] == [], (msub, found)
@@ -765,9 +797,11 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
     shares = {}
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, base, table)
-        for card_id in CARDS[table]:
+
+        def probe(card_id):
+            nonlocal tips
             if card_id in ("feat-table", "distill-pysr") or card_id in SHUT.get(table, ()):
-                continue
+                return
             _scroll_to(page, card_id)
             columns, rows = (7, 5) if card_id in GL_CARDS else (9, 6)
             found = _hover_chart(page, f"plot-{card_id}", columns=columns, rows=rows)
@@ -806,6 +840,13 @@ def test_tooltips_use_the_layer_and_never_cover_the_hovered_plot(models_live_ser
                 texts = [probe["text"] for _, probe, _ in found]
                 assert any("point estimate as reported" in t for t in texts), (table, card_id, texts[:3])
                 assert any(re.search(r"\bN not reported\b|\b[Nn] = \d", t) for t in texts), (table, card_id, texts[:3])
+
+        for card_id in CARDS[table]:
+            probe(card_id)
+        if table in LOCAL_VIEWS:
+            _choose_frame(page, "local")
+            for card_id in LOCAL_VIEWS[table]:
+                probe(card_id)
         browser.close()
     assert totals["explanations"], totals
     print(f"largest share of a plot under a projection readout, {table}: {shares}")
@@ -826,15 +867,23 @@ def test_the_2d_cards_export_their_plot_alone_and_the_3d_cards_have_no_export(mo
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, _ = _open(p, base, table)
         page.evaluate(_WATCH_EXPORTS)
-        for card_id in CARDS[table]:
+
+        def export(card_id):
             state = _scroll_to(page, card_id)
             if card_id in GL_CARDS or card_id in ("feat-table", "distill-pysr"):
                 assert state["exportButtons"] == 0, (card_id, "a 3-D view or a table is not a figure")
-                continue
+                return
             assert state["exportButtons"] == 1, card_id
             live = _live_series(page, f"plot-{card_id}")
             exported[card_id] = _download_svg(page, card_id)
             series[card_id] = (live, page.evaluate("() => window.__exportSeries.at(-1)"))
+
+        for card_id in CARDS[table]:
+            export(card_id)
+        if table in LOCAL_VIEWS:
+            _choose_frame(page, "local")
+            for card_id in LOCAL_VIEWS[table]:
+                export(card_id)
         browser.close()
     assert problems == [], problems
     for card_id, (name, svg) in exported.items():
@@ -1027,6 +1076,27 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
     base = models_live_server["base"]
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, base, SINGLE_HITS_TABLE, init=(_COUNT_GL,))
+        # The Absolute frame draws the event pair alone: one context, and no cloud asked for.
+        for card_id in EVENT_PAIR:
+            state = _scroll_to(page, card_id)
+            assert state["message"] is None, (card_id, state)
+        page.wait_for_timeout(600)
+        assert page.evaluate(_LIVE_GL) == ["vox-event"], page.evaluate(_LIVE_GL)
+        assert not _requests_of(requests, "/api/voxels"), _urls(requests)
+        # The card opens on the selection; one event, and a change of its channel, redraw on the same chart:
+        # still one context. (The selection draws energy only here: species belong to one event.)
+        page.click('.card[data-panel="vox-event"] [data-voxel-scope="event"]')
+        _settled(page, "vox-event")
+        page.wait_for_timeout(800)
+        assert page.evaluate(_LIVE_GL) == ["vox-event"]
+        page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "species")
+        _settled(page, "vox-event")
+        page.wait_for_timeout(800)
+        assert page.evaluate(_LIVE_GL) == ["vox-event"]
+        page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "energy")
+        _settled(page, "vox-event")
+        # Local draws both: the cloud's context is the second.
+        _choose_frame(page, "local")
         for card_id in EVENT_PAIR + ENSEMBLE_PAIR:
             state = _scroll_to(page, card_id)
             assert state["message"] is None, (card_id, state)
@@ -1038,16 +1108,6 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
                                  ".getOption().grid3D[0].viewControl.projection") == "orthographic"
         live = page.evaluate(_LIVE_GL)
         assert sorted(live) == ["vox-ensemble", "vox-event"], live
-        # The card opens on the selection; one event, and a change of its channel, redraw on the same chart:
-        # still two contexts. (The selection draws energy only here: species belong to one event.)
-        page.click('.card[data-panel="vox-event"] [data-voxel-scope="event"]')
-        _settled(page, "vox-event")
-        page.wait_for_timeout(800)
-        assert len(page.evaluate(_LIVE_GL)) <= 2
-        page.select_option('.card[data-panel="vox-event"] select[data-voxel-channel]', "species")
-        _settled(page, "vox-event")
-        page.wait_for_timeout(800)
-        assert len(page.evaluate(_LIVE_GL)) <= 2
         # The ensemble box is the paired projections' window; its drawer gives the grid's extent.
         title, headings, body = _drawer(page, "vox-ensemble")
         assert "cropped to the paired projections' window" in body and "The accumulation grid spans" in body
@@ -1070,8 +1130,10 @@ def test_the_3d_cards_render_in_swiftshader_with_at_most_two_gl_contexts(models_
         assert (zoom["alpha"], zoom["beta"]) == (10, 70), zoom
         browser.close()
 
-        # Without WebGL the 3-D cards say so, ask for no cubes, and their projections still draw.
-        browser, page, problems2, requests = _open(p, base, SINGLE_HITS_TABLE, init=(_NO_WEBGL,))
+        # Without WebGL the 3-D cards say so, ask for no cubes, and their projections still draw. In Local, which
+        # draws both pairs.
+        browser, page, problems2, requests = _open(p, base, SINGLE_HITS_TABLE, fragment="&frame=local",
+                                                   init=(_NO_WEBGL,))
         for card_id in GL_CARDS:
             page.locator(f'.card[data-panel="{card_id}"]').scroll_into_view_if_needed()
             state = _settled(page, card_id)
@@ -1138,6 +1200,8 @@ def test_the_3d_cards_open_fitted_to_their_box(models_live_server, width):
             _, page, found, _ = _open(p, base, table, viewport=(width, 900), browser=browser)
             problems += found
             for card_id in GL_CARDS:
+                if card_id == "vox-ensemble":
+                    _choose_frame(page, "local")  # the cloud is drawn in Local (one 3-D pair per frame)
                 state = _scroll_to(page, card_id)
                 assert state["message"] is None and "bar3D" in state["seriesTypes"], (table, card_id, state)
                 page.wait_for_timeout(600)
@@ -1186,6 +1250,63 @@ _DEPTH_BAND = """(id) => {
   const wash = series.some((s) => s.name === 'Depth slice drawn in 3-D' || (s.name || '').includes('wash'));
   return { lo: Math.min(...at), hi: Math.max(...at), faces: faces.length, wash };
 }"""
+
+#: Which 3-D pairs are laid out: on screen, not merely flagged (a `hidden` that CSS overrides draws an empty pair).
+_PAIRS_SHOWN = """() => Object.fromEntries([...document.querySelectorAll('.voxel-pair')]
+  .map((p) => [p.dataset.voxelPair, p.getClientRects().length > 0]))"""
+#: The line above the 3-D views naming the pair the selected frame does not draw, or None.
+_FRAME_NOTE = """() => { const n = document.querySelector('.voxels-frame-note'); return n && !n.hidden ? n.textContent : null; }"""
+
+
+def test_views_draws_the_3d_pair_of_the_selected_frame_only(models_live_server):
+    """Martin's directive (2026-11-06): one coordinate system at a time. The Absolute frame draws the event pair
+    alone (the cloud would fall back to Local), the D-frame the cloud alone (the event view would fall back to
+    Absolute), Local both; a line names the frames to choose to see the other. Hiding a pair keeps its chart and
+    WebGL context; a Methodology link to a pair the frame hides says which frames draw it."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, BASELINE_TABLE, init=(_COUNT_GL,))
+        _scroll_to(page, "vox-event")
+        assert page.evaluate(_PAIRS_SHOWN) == {"event": True, "ensemble": False}
+        note = page.evaluate(_FRAME_NOTE)
+        assert note and note.startswith("The 3-D ensemble cloud is not drawn in Absolute: choose ") and "Reference Frame" in note, note
+        assert not _requests_of(requests, "/api/voxels"), _urls(requests)
+        assert page.evaluate(_LIVE_GL) == ["vox-event"]
+
+        _choose_frame(page, "canonical")
+        _scroll_to(page, "vox-ensemble")
+        assert page.evaluate(_PAIRS_SHOWN) == {"event": False, "ensemble": True}
+        assert page.evaluate(_FRAME_NOTE).startswith("The 3-D event view is not drawn in ")
+        assert _requests_of(requests, "/api/voxels", frame="canonical")
+        # The event view's chart stays in the page, off show, with its context.
+        assert sorted(page.evaluate(_LIVE_GL)) == ["vox-ensemble", "vox-event"]
+
+        _choose_frame(page, "local")
+        _scroll_to(page, "vox-event")
+        _scroll_to(page, "vox-ensemble")
+        assert page.evaluate(_PAIRS_SHOWN) == {"event": True, "ensemble": True}
+        assert page.evaluate(_FRAME_NOTE) is None
+        assert _requests_of(requests, "/api/voxels", frame="local")
+
+        _choose_frame(page, "lab")
+        _scroll_to(page, "vox-event")
+        assert page.evaluate(_PAIRS_SHOWN) == {"event": True, "ensemble": False}
+        assert sorted(page.evaluate(_LIVE_GL)) == ["vox-ensemble", "vox-event"], "no context made or lost"
+        assert _hyphen_negatives([note, page.evaluate(_FRAME_NOTE) or ""]) == []
+        browser.close()
+
+        browser = p.chromium.launch(args=GL_ARGS)
+        page = browser.new_page(color_scheme="dark", viewport={"width": 1600, "height": 900})
+        page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.goto(f"{base}/models?panel=vox-ensemble&from=lnk-results-models&from_sec=3.6#table_name={BASELINE_TABLE}")
+        page.wait_for_function("() => !location.search && !document.getElementById('kind-banner').hidden",
+                               timeout=30_000)
+        banner = page.locator("#kind-banner-text").inner_text()
+        assert "3-D ensemble cloud" in banner and "Reference Frame" in banner, banner
+        assert "does not show" not in banner, banner
+        browser.close()
+    assert problems == [], problems
+
 
 #: Each 3-D card, its XY projection and its two depth projections (voxel_views.js: `col.name === 'z'`).
 SLICE_PAIRS = {"vox-event": ("vproj-xy", ("vproj-xz", "vproj-yz")),
@@ -1339,6 +1460,12 @@ def test_the_3d_slices_step_with_no_request_and_keep_the_turned_and_zoomed_camer
             p, models_live_server["base"], BASELINE_TABLE, fragment="&model=energy&frame=lab", init=(_COUNT_GL,))
         page.evaluate(_WATCH_EXPORTS)
         for card_id, (xy, depth) in SLICE_PAIRS.items():
+            if card_id == "vox-ensemble":
+                # The cloud is drawn in Local (one 3-D pair per coordinate system); the event pair redraws there
+                # first, so nothing of it lands inside the cloud's no-request window below.
+                _choose_frame(page, "local")
+                _scroll_to(page, "vox-event")
+                _quiet(page)
             for cell in (card_id, xy, *depth):
                 state = _scroll_to(page, cell)
                 assert state["message"] is None, (cell, state)
@@ -1893,8 +2020,9 @@ def test_the_3d_views_keep_their_contexts_cameras_and_slices_across_subpage_swit
     shown and its cubes, and asks the service nothing."""
     theme = _theme_module()
     with models_live_server["playwright"].sync_playwright() as p:
+        # Local, the frame that draws both 3-D pairs (one pair per coordinate system).
         browser, page, problems, requests = _open(
-            p, models_live_server["base"], BASELINE_TABLE, fragment="&model=energy&frame=lab",
+            p, models_live_server["base"], BASELINE_TABLE, fragment="&model=energy&frame=local",
             init=(_COUNT_GL, _COUNT_LOST))
         # The other subpages once, so what they hold in view has loaded before the measured round trip.
         for msub in ("perf", "distill", "views"):

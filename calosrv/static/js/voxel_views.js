@@ -100,7 +100,7 @@ import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import { describeError, writeSparseNote, webglAvailable } from './page_common.js';
 import { apiFrame } from './state.js';
 import { viewFrame } from './capabilities.js';
-import { frameLabel, MODELS_LABELS } from './labels.js';
+import { frameLabel, isLegacyFrame, MODELS_LABELS } from './labels.js';
 import { panelTitle } from './frame_views.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
@@ -369,6 +369,78 @@ export function resolveEnsembleView({ frame, channel } = {}, offer) {
   return { frame: resolved.frame, channel: ch, notes };
 }
 
+/* The frames each pair is drawn in when its view is open: the event pair in the
+ * frames whose cells it can draw as cubes, the ensemble cloud in the
+ * co-registered frames it accumulates. A shut view (a gate the server closed)
+ * is shown, with its reason, in these frames. */
+export const PAIR_FRAMES = Object.freeze({
+  event: PAIRED_EVENT_FRAMES,
+  ensemble: Object.freeze(['local', 'canonical']),
+});
+
+/** What each pair is called in a sentence. */
+const PAIR_NAMES = { event: 'the 3-D event view', ensemble: 'the 3-D ensemble cloud' };
+
+/**
+ * Whether a pair is drawn in the frame the page draws in: one pair per
+ * coordinate system (Martin's directive, 2026-11-06). A pair whose view would
+ * fall back to another frame - the ensemble cloud to Local in the Absolute
+ * frame, the event view to the Absolute frame in the D-frame - is not drawn,
+ * so the subpage never shows a second coordinate system beside the selected
+ * one. `drawn` is the frame the pair's view resolves to (null: none). Pure.
+ */
+export function pairDrawn(name, { frame, offer, drawn = null } = {}) {
+  if (!offer?.shown) return false;
+  const view = offer[name];
+  // A shut view keeps its cards, with the server's reason, in its own frames.
+  if (!view?.enabled) return PAIR_FRAMES[name].includes(frame);
+  return Boolean(drawn) && drawn === frame;
+}
+
+/** The frames a pair can be drawn in for this experiment, in the interface's order. */
+export function pairFrames(name, offer) {
+  const view = offer?.[name];
+  const listed = view?.enabled ? view.frames : PAIR_FRAMES[name];
+  return PAIR_FRAMES[name].filter((f) => listed.includes(f));
+}
+
+/**
+ * The frames a reader can choose under Reference Frame to see a pair from
+ * `frame`: those it is drawn in that have a radio. The legacy per-shower frame
+ * has none on two showers (labels.js `isLegacyFrame`), so it is never offered
+ * as a way to the pair. Pure.
+ */
+export function pairChoices(name, { frame, offer } = {}) {
+  const single = (offer?.nShowers ?? 2) === 1;
+  return pairFrames(name, offer).filter((f) => f !== frame && (single || !isLegacyFrame(f)));
+}
+
+/** Frame names in prose, as alternatives: "A", "A or B", "A, B or C". */
+function frameList(frames, nShowers) {
+  const names = frames.map((f) => frameLabel(f, nShowers));
+  if (names.length < 2) return names.join('');
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
+/**
+ * The note above the 3-D views: for each pair the selected frame does not
+ * draw, that it is not drawn there and which frames to choose to see it; ''
+ * when both are drawn or no frame with a radio draws the other. Pure.
+ */
+export function framePairsNote({ frame, offer, shown = {} } = {}) {
+  if (!offer?.shown) return '';
+  const n = offer.nShowers ?? 2;
+  const lines = [];
+  for (const name of ['event', 'ensemble']) {
+    if (shown[name]) continue;
+    const frames = pairChoices(name, { frame, offer });
+    if (!frames.length) continue;
+    lines.push(`${PAIR_NAMES[name].replace(/^the/, 'The')} is not drawn in ${frameLabel(frame, n)}: choose `
+      + `${frameList(frames, n)} under Reference Frame to see it.`);
+  }
+  return lines.join(' ');
+}
+
 /* ------------------------------------------------------------ requests -- */
 
 /** The densest event of the selection (the High_energy notebook's idxmax), never written to the link. */
@@ -588,7 +660,7 @@ export class VoxelSection {
   constructor(hostEl, {
     state, getExperiment = () => null, onError = () => {}, onRendered = () => {}, lazy = null,
     webgl = null, echarts: lib = null, ProjectionClass = ProjectionPanel,
-    draftCounts = () => null, onDepthContext = () => {},
+    draftCounts = () => null, onDepthContext = () => {}, frameOf = null,
   } = {}) {
     this.host = hostEl;
     this.state = state;
@@ -601,6 +673,9 @@ export class VoxelSection {
     this.ProjectionClass = ProjectionClass;
     this.draftCounts = draftCounts;
     this.onDepthContext = onDepthContext;
+    // The frame the page draws in (models_main.js effectiveFrame): the link's
+    // frame where the experiment offers it, else the page's fallback.
+    this.frameOf = typeof frameOf === 'function' ? frameOf : null;
     this.offer = normaliseOffer(null);
     this.cards = new Map();
     this.pairs = {};
@@ -617,6 +692,10 @@ export class VoxelSection {
         onError: (error) => this.onError(error, '3-D views'),
       });
     if (!hostEl) return;
+    // Which pair the selected frame does not draw, and where it is drawn.
+    this.frameNote = make('p', 'voxels-frame-note');
+    this.frameNote.hidden = true;
+    this.host.append(this.frameNote);
     for (const name of ['event', 'ensemble']) this.buildPair(name);
   }
 
@@ -886,15 +965,65 @@ export class VoxelSection {
     }
   }
 
+  /** The frame the page draws in: the page's own answer where it gave one, else the link's. */
+  selectedFrame() {
+    return this.frameOf?.() ?? this.value('frame');
+  }
+
   eventView() {
     return resolveEventView({
-      frame: this.value('frame'), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
+      frame: this.selectedFrame(), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
       scope: this.eventScope(),
     }, this.offer);
   }
 
   ensembleView() {
-    return resolveEnsembleView({ frame: this.value('frame'), channel: this.value('ens_channel') }, this.offer);
+    return resolveEnsembleView({ frame: this.selectedFrame(), channel: this.value('ens_channel') }, this.offer);
+  }
+
+  /** Whether a pair is drawn in the selected frame (`pairDrawn`). */
+  pairShown(name) {
+    const drawn = name === 'event' ? this.eventView().frame : this.ensembleView().frame;
+    return pairDrawn(name, { frame: this.selectedFrame(), offer: this.offer, drawn });
+  }
+
+  /**
+   * Show the pair (or pairs) drawn in the selected frame and hide the other,
+   * with the note that says where it is drawn. Hiding only sets the pair's
+   * `hidden`: its cards, charts and WebGL context are kept, and a hidden pair
+   * never loads (keyOf). Returns whether anything changed.
+   */
+  syncPairs() {
+    const shown = {};
+    let changed = false;
+    for (const name of ['event', 'ensemble']) {
+      const pair = this.pairs[name];
+      if (!pair) continue;
+      shown[name] = this.pairShown(name);
+      if (pair.element.hidden === shown[name]) changed = true;
+      pair.element.hidden = !shown[name];
+    }
+    if (this.frameNote) {
+      const text = framePairsNote({ frame: this.selectedFrame(), offer: this.offer, shown });
+      this.frameNote.textContent = text;
+      this.frameNote.hidden = !text;
+    }
+    return changed;
+  }
+
+  /**
+   * Why a deep link's card is not on show, when the selected frame hides its
+   * pair: one sentence for the page's banner, or null.
+   */
+  frameNotice(panelId) {
+    const spec = VOXEL_CARDS.find((s) => s.id === panelId);
+    if (!spec || !this.offer.shown || this.pairShown(spec.pair)) return null;
+    const frame = this.selectedFrame();
+    const frames = pairChoices(spec.pair, { frame, offer: this.offer });
+    if (!frames.length) return null;
+    const n = this.offer.nShowers ?? 2;
+    return `The Methodology linked to ${PAIR_NAMES[spec.pair]}, which is not drawn in ${frameLabel(frame, n)}, `
+      + `the frame on screen: choose ${frameList(frames, n)} under Reference Frame to see it.`;
   }
 
   /** Whether the 3-D charts can be drawn: WebGL and the vendored echarts-gl. */
@@ -917,7 +1046,6 @@ export class VoxelSection {
     for (const name of ['event', 'ensemble']) {
       const pair = this.pairs[name];
       if (!pair) continue;
-      pair.element.hidden = !this.offer.shown;
       const view = this.offer[name];
       const reason = view.enabled ? null : (view.reason ?? 'This view is not available for this experiment.');
       for (const record of [pair.gl, ...pair.cells]) {
@@ -930,6 +1058,7 @@ export class VoxelSection {
         }
       }
     }
+    this.syncPairs();
     this.syncControls();
     this.lazy.forget();
   }
@@ -980,6 +1109,7 @@ export class VoxelSection {
    * superseded request is not a failure.
    */
   async refresh() {
+    this.syncPairs();
     if (!this.offer.shown) return [];
     const started = [];
     for (const pair of Object.values(this.pairs)) {

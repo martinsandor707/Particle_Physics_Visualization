@@ -154,11 +154,13 @@ const out = {};
 out.event = await run({ scope: 'event' });
 out.eventPool = await run({ scope: 'event', lgmode: 'pool' });
 out.selection = await run({ scope: 'selection' });
-// LG-G6: a per-shower translated cloud whose frame co-registered one of the selection's two events.
-const transBody = load('projections_base_trans');
-transBody.frame.n_events = 1;
-transBody.selection.n_events = 2;
-out.transCloud = await run({ scope: 'event', frame: 'trans', lgmode: 'bounds', projections: transBody });
+// LG-G6: a co-registered cloud whose frame co-registered one of the selection's two events. It runs in Local,
+// the frame that draws both pairs (one 3-D pair per coordinate system: the cloud is drawn in Local and the
+// D-frame only); the per-shower translated recording stands in for Local's projections, as it always did.
+const cloudBody = load('projections_base_trans');
+cloudBody.frame.n_events = 1;
+cloudBody.selection.n_events = 2;
+out.transCloud = await run({ scope: 'event', frame: 'local', lgmode: 'bounds', projections: cloudBody });
 console.log(JSON.stringify(out));
 """
 

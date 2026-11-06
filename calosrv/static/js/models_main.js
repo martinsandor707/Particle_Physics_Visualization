@@ -256,6 +256,8 @@ async function mountVoxels() {
       // block of the payload in hand for the control's ribbon.
       draftCounts: () => draftCounts,
       onDepthContext: (block) => lgControl.setDepthContext(depthContextFromPayload(block) ?? {}),
+      // The frame the page draws in: the 3-D views draw the pair of this frame only.
+      frameOf: () => effectiveFrame(),
       // The section's own lazy loader over the page's scroll container: in
       // view means in view (decision D3), as for every other card.
       lazy: new LazyCards({
@@ -785,7 +787,9 @@ function landDeepLink(link) {
     return;
   }
   const title = result.card?.querySelector('.title')?.textContent?.trim() ?? '';
-  const notice = revealNotice(result, { requested: link.requested, title, kind: plan.kindLabel });
+  // A 3-D pair hidden by the selected frame says which frames draw it.
+  const notice = (result.reason === 'hidden' ? voxels?.frameNotice?.(link.panel) : null)
+    ?? revealNotice(result, { requested: link.requested, title, kind: plan.kindLabel });
   kindBanner.show([...kindBanner.shown, notice]);
 }
 

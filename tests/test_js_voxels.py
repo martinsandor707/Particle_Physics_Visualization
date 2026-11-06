@@ -533,7 +533,11 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
   const ensembleNotes = section.notes('vox-ensemble');
   const cropDisclosed = (ensembleNotes?.sections ?? []).find((x) => x.heading === 'Disclosures')?.lines
     .filter((l) => /paired projections|accumulation grid spans/.test(l)) ?? [];
+  const pairsHidden = Object.fromEntries(Object.entries(section.pairs).map(([name, p]) => [name, p.element.hidden]));
+  const frameNote = section.frameNote.hidden ? null : section.frameNote.textContent;
+  const frameNotice = { event: section.frameNotice('vproj-xz'), ensemble: section.frameNotice('vox-ensemble') };
   const result = { requests, acted, cards, rendered, errors, refreshError, renders, charts: charts.length, cropDisclosed,
+    pairsHidden, frameNote, frameNotice,
     glOptions: charts.map((c) => c.options.length), foreign: section.exportTarget('xy'), has: section.has('vox-event') };
   // A lost WebGL context says so; a restored one rebuilds the chart from the payload in hand.
   const gl = section.cards.get('vox-event');
@@ -593,8 +597,12 @@ async function runSection({ table, values = {}, webgl = true, refuse3d = false, 
 }
 
 out.section.base = await runSection({ table: 'experiment_baseline' });
-out.section.single = await runSection({ table: 'single_hits', values: { voxel_channel: 'species', ens_channel: 'shapcam_energy' } });
-out.section.noGl = await runSection({ table: 'experiment_baseline', webgl: false });
+// One 3-D pair per coordinate system: the runs that need both pairs draw in Local, which draws both.
+out.section.single = await runSection({ table: 'single_hits', values: { voxel_channel: 'species', ens_channel: 'shapcam_energy', frame: 'local' } });
+out.section.noGl = await runSection({ table: 'experiment_baseline', webgl: false, values: { frame: 'local' } });
+// The D-frame draws the cloud alone; the per-shower translated frame the event alone.
+out.section.canonical = await runSection({ table: 'experiment_baseline', values: { frame: 'canonical' } });
+out.section.trans = await runSection({ table: 'experiment_baseline', values: { frame: 'trans' } });
 out.section.refused = await runSection({ table: 'experiment_baseline', refuse3d: true });
 out.section.events = await runSection({ table: 'single_events' });
 /* The selection scope (the cold-boot default in the Absolute frame): `voxel_scope` left to its fallback. */
@@ -645,6 +653,33 @@ out.section.pinned = await runSection({ table: 'experiment_baseline', values: { 
 // "Both" asked for in the Local frame, as a link or a hash edit can: nothing reloads, and the card says why it draws A.
 out.section.localBoth = await runSection({ table: 'experiment_baseline', values: { frame: 'local' },
   act: async (section) => { section.setValue({ voxel_shower: 'both' }); await section.refresh(); } });
+
+/* One 3-D pair per coordinate system: the pure rule on every frame of the baseline. */
+{
+  const offer = vv.normaliseOffer(caps.page2Plan(experiments.find((e) => e.table_name === 'experiment_baseline')).voxels);
+  const shut = { ...offer, ensemble: { ...offer.ensemble, enabled: false, reason: 'shut' } };
+  out.pairRule = {};
+  for (const frame of ['lab', 'trans', 'local', 'canonical']) {
+    const event = vv.resolveEventView({ frame, channel: 'energy', shower: 'a', scope: 'event' }, offer).frame;
+    const ensemble = vv.resolveEnsembleView({ frame, channel: 'density' }, offer).frame;
+    out.pairRule[frame] = {
+      event: vv.pairDrawn('event', { frame, offer, drawn: event }),
+      ensemble: vv.pairDrawn('ensemble', { frame, offer, drawn: ensemble }),
+      shutEnsemble: vv.pairDrawn('ensemble', { frame, offer: shut, drawn: null }),
+      note: vv.framePairsNote({ frame, offer, shown: {
+        event: vv.pairDrawn('event', { frame, offer, drawn: event }),
+        ensemble: vv.pairDrawn('ensemble', { frame, offer, drawn: ensemble }) } }),
+    };
+  }
+  out.pairRule.hiddenOffer = vv.pairDrawn('event', { frame: 'lab', offer: { ...offer, shown: false }, drawn: 'lab' });
+  // One shower: no D-frame, and its per-shower frame is a radio of its own (Shower-Aligned › Translated).
+  const single = vv.normaliseOffer(caps.page2Plan(experiments.find((e) => e.table_name === 'single_hits')).voxels);
+  out.pairRule.single = {
+    labNote: vv.framePairsNote({ frame: 'lab', offer: single, shown: { event: true, ensemble: false } }),
+    eventChoices: vv.pairChoices('event', { frame: 'canonical', offer: single }),
+    twoShowerEventChoices: vv.pairChoices('event', { frame: 'canonical', offer }),
+  };
+}
 
 /* ---- the slice mode: K runs of whole layers, one drawn at a time ------------ */
 {
@@ -913,7 +948,8 @@ out.section.slices = await runSection({ table: 'experiment_baseline', act: async
   return { ...value, requestsDuringSteps: value.requestsDuringSteps - before };
 } });
 // Stepping alone: not one request, not one State write.
-out.section.sliceSteps = await runSection({ table: 'single_hits', act: async (section, ctx) => {
+// In Local, where both pairs are drawn (one 3-D pair per coordinate system: Local draws both).
+out.section.sliceSteps = await runSection({ table: 'single_hits', values: { frame: 'local' }, act: async (section, ctx) => {
   const sets = [];
   const set = ctx.state.set.bind(ctx.state);
   ctx.state.set = (patch) => { sets.push(patch); return set(patch); };
@@ -1635,7 +1671,7 @@ def test_the_cards_own_count_leaves_out_the_cropped_voxels(out):
     assert "outside the projections' window" not in single
     # The fake server pairs the baseline's Local cloud with its absolute-frame projections, so the
     # window (lab depth, from the front face) leaves cubes out: the count drops and says why.
-    base = out["section"]["base"]["cards"]["vox-ensemble"]["sparse"]
+    base = out["section"]["localBoth"]["cards"]["vox-ensemble"]["sparse"]
     shipped = _load("voxels_base_local")["budget"]
     match = re.search(r"([\d,\u2009\u202f]+) of ([\d,\u2009\u202f]+) populated voxels drawn", base)
     count = lambda text: int(re.sub(r"\D", "", text))
@@ -1926,7 +1962,8 @@ def test_switching_scope_costs_only_what_it_changes(out):
 
 
 def test_the_section_builds_its_cards_with_export_on_the_projections_only(out):
-    cards = out["section"]["base"]["cards"]
+    # In Local, which draws both pairs (one 3-D pair per coordinate system).
+    cards = out["section"]["localBoth"]["cards"]
     assert list(cards) == ["vox-event", "vproj-xy", "vproj-xz", "vproj-yz",
                            "vox-ensemble", "eproj-xy", "eproj-yz", "eproj-xz"]
     for card_id, card in cards.items():
@@ -1937,8 +1974,8 @@ def test_the_section_builds_its_cards_with_export_on_the_projections_only(out):
         assert ("voxel-3d" in card["classes"]) == gl
         assert card["exportTarget"] is None if gl else card["exportTarget"] == ["panel", "meta"]
     # A foreign id is not this section's: undefined, which JSON drops.
-    assert "foreign" not in out["section"]["base"]
-    assert out["section"]["base"]["has"] is True
+    assert "foreign" not in out["section"]["localBoth"]
+    assert out["section"]["localBoth"]["has"] is True
 
 
 def test_the_densest_event_is_asked_for_when_the_link_names_none(out):
@@ -1948,7 +1985,9 @@ def test_the_densest_event_is_asked_for_when_the_link_names_none(out):
     event = [q for path, q in paths if path == "/api/event"]
     assert {q.get("event_number") for q in event} == {"0"}
     assert any(q.get("format") == "voxels" for q in event) and any("format" not in q for q in event)
-    assert {path for path, _ in paths} == {"/api/event/pick", "/api/event", "/api/voxels", "/api/projections"}
+    # The Absolute frame draws the event pair alone: the cloud (a Local fallback) and its projections are
+    # not asked for; one event's projections come with the event itself.
+    assert {path for path, _ in paths} == {"/api/event/pick", "/api/event"}
     cards = base["cards"]
     assert "the densest event of the selection" in cards["vox-event"]["sparse"]
     assert cards["vox-event"]["notes"]["headings"] == ["Selection", "What is drawn", "Disclosures", "Marks and legend"]
@@ -1962,15 +2001,17 @@ def test_the_densest_event_is_asked_for_when_the_link_names_none(out):
 
 def test_at_most_two_webgl_charts_and_a_lost_context_says_so(out):
     base = out["section"]["base"]
-    assert base["charts"] == 2 and all(n >= 1 for n in base["glOptions"])
+    # The Absolute frame draws one 3-D pair, so one chart; Local draws both, two charts, never more.
+    assert base["charts"] == 1 and all(n >= 1 for n in base["glOptions"])
+    assert out["section"]["localBoth"]["charts"] == 2
     assert base["lost"]["kind"] == "notice" and "withdrew this view's WebGL context" in base["lost"]["message"]
     assert "3-D view not drawn" in base["lost"]["hazards"]
     # Restored: the dead chart is disposed and one new chart takes its place.
     assert base["restored"]["message"] is None
-    assert base["restored"]["disposed"] == 1 and base["restored"]["charts"] == 3
+    assert base["restored"]["disposed"] == 1 and base["restored"]["charts"] == 2
     # An experiment change clears the charts and forgets the payloads.
     live = [n for n in base["afterReset"]["cleared"] if n is not None]
-    assert len(live) == 2 and all(n >= 1 for n in live)
+    assert len(live) == 1 and all(n >= 1 for n in live)
     assert base["afterReset"]["notes"] is None
 
 
@@ -2584,3 +2625,57 @@ def test_the_cloud_steps_its_slices_and_bands_its_own_depth_projections(out):
     _no_hyphen_numbers([s["readout"] for s in seen] + [got["eventReadout"]])
     assert "one depth slice drawn" in got["ensembleNotes"]["hazards"]
     _no_hyphen_numbers(_note_lines(got["ensembleNotes"]))
+
+
+# --------------------------------------------- one 3-D pair per coordinate system --
+
+
+def test_the_rule_draws_each_pair_only_in_the_frame_it_draws_in(out):
+    """Martin's directive (2026-11-06): one coordinate system at a time. A pair whose view would fall back to
+    another frame is not drawn: the cloud in the Absolute and per-shower translated frames (it falls back to
+    Local), the event view in the D-frame (it falls back to Absolute). Local draws both."""
+    rule = out["pairRule"]
+    frames = {f: r for f, r in rule.items() if f in ("lab", "trans", "local", "canonical")}
+    assert {f: (r["event"], r["ensemble"]) for f, r in frames.items()} == {
+        "lab": (True, False), "trans": (True, False), "local": (True, True), "canonical": (False, True)}
+    # A shut view keeps its cards, with the server's reason, in its own frames only.
+    assert {f: r["shutEnsemble"] for f, r in frames.items()} == {
+        "lab": False, "trans": False, "local": True, "canonical": True}
+    assert rule["hiddenOffer"] is False
+    assert rule["local"]["note"] == ""
+    assert rule["lab"]["note"] == (
+        "The 3-D ensemble cloud is not drawn in Absolute: choose Separation-Aligned (D-Frame) › Local or "
+        "Separation-Aligned (D-Frame) › Translated under Reference Frame to see it.")
+    assert rule["trans"]["note"].startswith("The 3-D ensemble cloud is not drawn in Per-shower translated: choose ")
+    # The legacy per-shower frame has no radio on two showers, so it is never offered as a way to a pair.
+    assert rule["canonical"]["note"] == (
+        "The 3-D event view is not drawn in Separation-Aligned (D-Frame) › Translated: choose Absolute or "
+        "Separation-Aligned (D-Frame) › Local under Reference Frame to see it.")
+    single = rule["single"]
+    assert single["twoShowerEventChoices"] == ["lab", "local"]
+    # One shower: its per-shower frame is a radio of its own, and the cloud is drawn in Local alone.
+    assert single["eventChoices"] == ["lab", "trans", "local"]
+    assert single["labNote"] == ("The 3-D ensemble cloud is not drawn in Absolute: choose Shower-Aligned › Local "
+                                 "under Reference Frame to see it.")
+
+
+def test_the_section_hides_the_other_pair_and_asks_nothing_for_it(out):
+    base, canonical, trans, local = (out["section"][k] for k in ("base", "canonical", "trans", "localBoth"))
+    assert base["pairsHidden"] == {"event": False, "ensemble": True}
+    assert trans["pairsHidden"] == {"event": False, "ensemble": True}
+    assert canonical["pairsHidden"] == {"event": True, "ensemble": False}
+    assert local["pairsHidden"] == {"event": False, "ensemble": False} and local["frameNote"] is None
+    assert not any(path == "/api/voxels" for path, _ in base["requests"] + trans["requests"])
+    assert not any(path in ("/api/event", "/api/event/pick", "/api/selection-cells") for path, _ in canonical["requests"])
+    assert any(path == "/api/voxels" and q.get("frame") == "canonical" for path, q in canonical["requests"])
+    assert canonical["charts"] == 1 and base["charts"] == 1
+    assert "3-D ensemble cloud" in base["frameNote"] and "3-D event view" in canonical["frameNote"]
+    # A deep link to a card the frame hides says which frames draw it, not that the experiment lacks it.
+    assert base["frameNotice"]["event"] is None
+    assert base["frameNotice"]["ensemble"].startswith(
+        "The Methodology linked to the 3-D ensemble cloud, which is not drawn in Absolute, the frame on screen: choose ")
+    assert base["frameNotice"]["ensemble"].endswith(" under Reference Frame to see it.")
+    assert canonical["frameNotice"]["event"].startswith("The Methodology linked to the 3-D event view")
+    assert canonical["frameNotice"]["ensemble"] is None
+    for run in (base, canonical, trans, local):
+        _no_hyphen_numbers([run["frameNote"] or ""])

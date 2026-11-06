@@ -126,7 +126,7 @@ export default {
         { kind: 'p', text: String.raw`Neither frame draws an ensemble direction. The per-shower translated frame keeps each shower's Absolute azimuth, still near-uniform ([[sec-frames-absolute]]), so it draws the individual incident directions from the origin for $N \le ${C.MAX_TRAJECTORY_EVENTS}$ events and otherwise states $\bar R$. In Local every incident direction is $+w$ by construction ([[eq-local-rotation]]), so an axis or a Rayleigh statistic would carry no information, and the panel says so. What does have a common centre in both frames is the per-event centroid offset from $P_0$: its mean is drawn with its sample SD as a faint uncapped cross and its Student-t 95% interval as capped whiskers, two separate marks, gated by the same low-N table. The A–B offset of the two superimposed ensemble centroids is labelled an *offset*: the separation stays $D$ of [[eq-separation]].` },
         { kind: 'links', id: 'lnk-frames-local', items: [
           { page: 'physics', panel: 'xz', set: { frame: 'local' }, label: 'uw depth panel, Local frame' },
-          { page: 'models', panel: 'vox-ensemble', label: '3-D co-registered ensemble cloud' },
+          { page: 'models', panel: 'vox-ensemble', set: { frame: 'local' }, label: '3-D co-registered ensemble cloud' },
         ] },
       ],
     },

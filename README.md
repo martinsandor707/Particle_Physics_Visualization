@@ -3010,7 +3010,7 @@ Its sections, by subpage and in page order:
 
 | Subpage | Sections |
 |---|---|
-| **Views** | the **3-D views** (two pairs of a 3-D card and three 2-D projections), **Event features** (four cards) and **Primaries** (one card) |
+| **Views** | the **3-D views** (a pair of a 3-D card and three 2-D projections for the selected frame: the event pair, the ensemble pair, or both in Local), **Event features** (four cards) and **Primaries** (one card) |
 | **Distillations** | **Distilled formulas and surrogates** (three catalogue cards) and **XGBoost surrogate and importance** (E4 and E5) |
 | **Performance** | **Model performance** (three cards), **Energy resolution** (one card), **XGBoost model** (E1 and E3) and the **Benchmark catalogue** (four cards) |
 
@@ -3191,10 +3191,9 @@ has somewhere to be read. Two banners and a caption say what the experiment lack
   draws in a fallback and says so under its title, and the fallback is never
   written back to the link. The feature cards serve the Absolute, per-shower
   translated and Local frames; the D-frame has no per-event feature sums, so the
-  cards fall back to Absolute. The ensemble cloud is co-registered only, so
-  Absolute and per-shower translated fall back to Local. The event pair falls
-  back to Absolute when the D-frame is selected (see [The 3-D
-  views](#the-3-d-views)). A network reads the frame it was trained on, and the
+  cards fall back to Absolute. The 3-D views never fall back: a pair the
+  selected frame does not draw is not shown, and a line says where it is drawn
+  (see [The 3-D views](#the-3-d-views)). A network reads the frame it was trained on, and the
   D-frame uses the absolute-frame networks; that is the definition of the
   D-frame's networks, not a fallback. An aggregate has no sidebar frame, but its
   columns hold the Absolute, per-shower translated and Local features (the
@@ -3613,6 +3612,31 @@ hides whatever lies behind it from the current viewpoint, and the drawer says
 that too. Cubes are placed through the payload's coordinates, never by
 `index × pitch` (the x lattice is irregular).
 
+**One coordinate system at a time** (Martin's directive, 2026-11-06). Views
+draws only the 3-D pair of the frame selected under Reference Frame
+(`voxel_views.js` `PAIR_FRAMES`, `pairDrawn`, `syncPairs`):
+
+| Selected frame | Drawn on Views |
+|---|---|
+| Absolute | the event pair: the selection, or one event |
+| Per-shower translated | the event pair: one event |
+| Local | both pairs: one event and the ensemble cloud, both in Local |
+| D-frame | the ensemble cloud |
+
+- **No fallback.** The event view is drawn in the Absolute, per-shower translated
+  and Local frames and the cloud in Local and the D-frame; neither is drawn in
+  another frame in place of the selected one. Before, the cloud was drawn in
+  Local beside an Absolute event, and the event in the Absolute frame beside a
+  D-frame cloud: two coordinate systems on one screen.
+- **Hiding keeps everything.** The other pair only gets `hidden`: its charts and
+  WebGL context are kept, and a hidden pair never loads. A pair the server shut
+  for the experiment stays on show in its own frames, with its reason.
+- **Disclosure.** A line above the 3-D views says which pair the selected frame
+  does not draw and which frames to choose to see it, listing only frames with a
+  radio (the legacy per-shower frame has none on two showers). A deep link to a
+  card of that pair (`?panel=vox-ensemble` in the Absolute frame) says so on the
+  banner, and the Methodology's badges to a 3-D card set the frame it is drawn in.
+
 **Rendering.** The 3-D views draw with the vendored `echarts-gl`, loaded by this
 page only. At most **two WebGL contexts** exist, one for the event chart and one
 for the ensemble chart, created the first time their pair draws and never
@@ -3739,8 +3763,8 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   rule; each click takes the next seed) and states the rule in the drawer.
   Showers: A, B or both, **both only in the Absolute frame** (each per-shower
   frame holds one shower at its own entry point). The API also serves the
-  D-frame's cubes (two showers per event), but the pair draws Absolute there, as
-  below.
+  D-frame's cubes (two showers per event), but the page draws no event pair in
+  the D-frame (see *One coordinate system at a time* above).
 - *The pair.* The three projections are the Event Inspector's rasters
   (`GET /api/event`, Page 1) of the same event in the same frame and shower, so
   the pair shows one picture twice. Both requests carry `window=per_axis`, so the
@@ -3755,8 +3779,8 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   and its pad is one layer pitch, so a first layer whose centre sits exactly on
   the window edge is drawn whole, half a layer past the axis; a channel change asks for new cubes only,
   because the raster is energy density in every channel. The D-frame has no
-  per-event raster, so the pair draws Absolute there and says so under its
-  titles. When the cubes show both showers, the projections show shower A and
+  per-event raster, one more reason the pair is not drawn there. When the cubes
+  show both showers, the projections show shower A and
   say so. *Both* is drawn in the Absolute frame only, the one frame of this pair
   that holds both showers in one coordinate system: in a per-shower frame each
   shower sits at its own entry point, so the button is shut there with that
@@ -3820,8 +3844,9 @@ per event.
   full accumulation grid. If the projections did not load, the box is the whole
   grid and says so.
 - *Controls.* The channel (density, energy-weighted Grad-CAM, energy-weighted
-  Shap-CAM) and a camera reset; the frame is the page's (Absolute and per-shower
-  translated fall back to Local).
+  Shap-CAM) and a camera reset; the frame is the page's, and the cloud is not
+  shown in the Absolute and per-shower translated frames (see *One coordinate
+  system at a time* above).
 
 **The selection in the Absolute frame** (Martin's directive, 2026-10-31). In the
 Absolute frame the 3-D event card opens on the whole selection: every selected
@@ -3836,8 +3861,8 @@ energy-weighted mean over the selection's hits in the cell. Segmentation error a
 species belong to one event and have no selection projection, so the view draws
 energy and says so. The per-shower frames draw one event: they move every shower
 to its own entry point, so their cells share no lattice, and the cloud card draws
-the co-registered selection; the D-frame's event card draws the selection in the
-Absolute frame. `voxel_scope` (`selection` | `event`) is view state, and a link
+the co-registered selection; the D-frame draws no event card. `voxel_scope`
+(`selection` | `event`) is view state, and a link
 that names a `voxel_event` opens that event whatever the scope, so an older
 bookmark keeps its meaning.
 

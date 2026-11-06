@@ -605,6 +605,11 @@ def test_the_models_page_banners_status_and_sections_are_in_order():
         assert f'aria-labelledby="{section}-title"' in main and f'id="{section}-title"' in main, section
     # The 3-D host is empty: VoxelSection builds its own cards.
     assert re.search(r'<section class="voxels-grid" id="voxels-grid" hidden aria-label="3-D views"></section>', main)
+    # A 3-D pair the selected frame does not draw is hidden (voxel_views.js syncPairs); `display: grid` would
+    # otherwise beat the user agent's [hidden] rule and leave it on screen, empty.
+    css = (STATIC / "css" / "models.css").read_text(encoding="utf-8")
+    assert ".voxel-pair[hidden] { display: none; }" in css
+    assert ".voxels-frame-note[hidden] { display: none; }" in css
 
 
 def test_the_models_subpages_are_a_tablist_of_three_tabpanels():

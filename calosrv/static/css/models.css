@@ -160,12 +160,19 @@
 .voxels-grid { margin-top: var(--gap); display: grid; gap: var(--gap); min-width: 0; }
 .voxels-grid[hidden] { display: none; }
 .voxels-pending { margin: 0; font-size: 12px; color: var(--muted); }
+/* One 3-D pair per coordinate system (js/voxel_views.js syncPairs): the pair the
+   selected frame does not draw is hidden, and this line says where it is. */
+.voxels-frame-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted); }
+.voxels-frame-note[hidden] { display: none; }
 .voxel-pair {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--gap);
   min-width: 0;
 }
+/* `display: grid` beats the user agent's `[hidden] { display: none }`: without
+   this rule the pair the selected frame does not draw stayed on screen, empty. */
+.voxel-pair[hidden] { display: none; }
 /* The 3-D card keeps its own height at the top of its three rows: the
    projection column beside it is the taller one, and a stretched 3-D card
    would grow an empty band under its fixed-height plot. */

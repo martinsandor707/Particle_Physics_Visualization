@@ -489,8 +489,9 @@ def test_a_switch_repaints_the_event_inspector_and_the_compare_grid_without_a_re
 def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_server):
     base = live_server["base"]
     with live_server["playwright"].sync_playwright() as p:
+        # Local, the frame that draws both 3-D pairs (one pair per coordinate system).
         browser, page, problems, requests = _open(
-            p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy", gl=True)
+            p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy&frame=local", gl=True)
         for card_id in MODELS_CARDS:
             _models_card(page, card_id)
         for card_id in GL_CARDS:
