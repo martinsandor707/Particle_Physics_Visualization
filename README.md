@@ -190,12 +190,18 @@ Run these in the project folder.
   another terminal.
 - **Update to the newest version:**
 
+  On **macOS and Linux**:
   ```
   git pull
   .venv/bin/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
   docker compose --env-file laptop.env up --build
   ```
-
+    On **Windows**:
+  ```
+  git pull
+  .venv/Scripts/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
+  docker compose --env-file laptop.env up --build
+  ```
   On Windows the middle line starts with `.venv\Scripts\hf` instead, and with
   uv it is the `uv run` command of step 2. The download fetches only files that
   changed. A copy made before the data moved to Hugging Face has no `.venv`
