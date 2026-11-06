@@ -13,9 +13,10 @@
  *
  * The cards sit below the fold and load when scrolled into view, so the
  * ECharts instance is created on the first `render`/`ensureChart`, never at
- * construction. A card hidden with its section (the Event Inspector, compare)
- * has a zero-size plot: `relayout` and `paint` are then no-ops, and the
- * ResizeObserver repaints once the card is shown again. The observer is
+ * construction. A card hidden with its section (the Event Inspector, compare,
+ * a Models subpage off show) has a zero-size plot: `relayout` is then a no-op
+ * and `paint` holds the picture and forgets its layout, so the ResizeObserver
+ * rebuilds it, with the tokens in force, once the card is shown again. The observer is
  * debounced to one animation frame, as in EnergyPanel; the shell also calls
  * `relayout()` synchronously after a width change (main.js `relayoutAll`),
  * and the observer's own tick then finds nothing left to do. No CSS
@@ -875,7 +876,15 @@ export class ChartPanel {
   paint() {
     if (!this.chart || !this.lastPayload) return null;
     const { width, height } = this.size();
-    if (!width || !height) return null;
+    if (!width || !height) {
+      // Held at zero size (a card on a hidden subpage or section): forget the
+      // layout, so the relayout that shows the card again rebuilds the option
+      // with the tokens in force. Without this a theme switched meanwhile left
+      // the old ink: the card came back at its old size, which `relayout`
+      // took for an option already laid out.
+      this.laidOut = null;
+      return null;
+    }
     const opts = {
       ...(this.lastOpts || {}),
       tooltipPosition: this.tooltipPosition,

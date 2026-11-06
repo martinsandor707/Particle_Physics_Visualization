@@ -25,6 +25,10 @@ what a reader sees, on the three pages:
   needs the single-shower hits, is checked in test_browser_models.py: one
   module holds one server); a 3-D event cut into slices keeps its slice, its
   readout and its camera, and its depth projections' band takes the new ink;
+* the Models page's cards are reached through their subpage's tab; a card on a
+  subpage off show at the switch takes the new theme when its tab brings it
+  back, still with no request; the subpage chrome and the catalogue's DOM text
+  clear 4.5:1 in light;
 * exported figures do not depend on the screen theme: the SVG downloads are
   byte-identical, and the Methodology figures are unchanged;
 * each spatial card's Marks button, in either theme, hides every mark over
@@ -485,14 +489,23 @@ def test_a_switch_repaints_the_event_inspector_and_the_compare_grid_without_a_re
 def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_server):
     base = live_server["base"]
     with live_server["playwright"].sync_playwright() as p:
+        # Local draws both 3-D pairs, one at a time (the 3-D card's Selection | One event): the cloud first, which
+        # the reader turns (programmatically: echarts-gl writes the angles into the model), then one event, on
+        # show for the switch.
         browser, page, problems, requests = _open(
-            p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy", gl=True)
+            p, base, "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy&frame=local", gl=True)
         for card_id in MODELS_CARDS:
             _models_card(page, card_id)
-        for card_id in GL_CARDS:
-            page.locator(f'.main .card[data-panel="{card_id}"]').scroll_into_view_if_needed()
-            page.wait_for_function(_GL_DRAWN, arg=card_id, timeout=30_000)
-            page.wait_for_timeout(800)
+        page.locator('.main .card[data-panel="vox-ensemble"]').scroll_into_view_if_needed()
+        page.wait_for_function(_GL_DRAWN, arg="vox-ensemble", timeout=30_000)
+        page.wait_for_timeout(800)
+        page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
+                      ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
+        page.wait_for_timeout(300)
+        page.click('.main .card[data-panel="vox-ensemble"] [data-voxel-scope="event"]')
+        page.locator('.main .card[data-panel="vox-event"]').scroll_into_view_if_needed()
+        page.wait_for_function(_GL_DRAWN, arg="vox-event", timeout=30_000)
+        page.wait_for_timeout(800)
         dark_cards = {c: page.evaluate(_AXIS_INK, f"plot-{c}") for c in MODELS_CARDS}
 
         # The drawer opens first: it narrows the cards, and a narrower card refits the opening zoom.
@@ -516,21 +529,16 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
             page.mouse.wheel(0, -200)
             page.wait_for_timeout(120)
         page.wait_for_timeout(500)
-        # And the cloud is turned programmatically: echarts-gl writes the angles into the model.
-        page.evaluate("() => echarts.getInstanceByDom(document.getElementById('plot-vox-ensemble'))"
-                      ".dispatchAction({ type: 'grid3DChangeCamera', alpha: 10, beta: 70 })")
-        page.wait_for_timeout(300)
+        # The cloud, off show, is repainted with the event: the section repaints every pair it holds.
         before = {c: page.evaluate(_CAMERA, c) for c in GL_CARDS}
         species = page.evaluate("() => [...document.querySelectorAll('.voxel-swatch')]"
                                 ".map((s) => s.style.getPropertyValue('--swatch'))")
         _mark_drawer(page)
 
+        requests_at_toggle = list(requests)
         asked = _toggle(page, requests)
         assert asked == [], f"a theme switch asked the service: {asked}"
         after = {c: page.evaluate(_CAMERA, c) for c in GL_CARDS}
-        for c in MODELS_CARDS:
-            ink = page.evaluate(_AXIS_INK, f"plot-{c}")
-            assert MUTED["dark"] in dark_cards[c] and MUTED["light"] in ink and MUTED["dark"] not in ink, (c, ink)
         for c in GL_CARDS:
             b, a = before[c], after[c]
             assert set(b["labels"] + b["names"]) == {MUTED["dark"]} and b["axisLine"] == BORDER["dark"], b
@@ -548,10 +556,64 @@ def test_a_switch_on_the_models_page_repaints_the_cards_and_the_3d_views(live_se
             assert page.evaluate("() => [...document.querySelectorAll('.voxel-swatch')]"
                                  ".map((s) => s.style.getPropertyValue('--swatch'))") != species
         assert not _drawer_marked(page)
-        # The paired projections follow.
-        for plot in ("plot-vproj-xy", "plot-eproj-xy"):
-            assert MUTED["light"] in page.evaluate(_AXIS_INK, plot), plot
+        # The paired projections follow: the event's now; the cloud's, off show, once its pair is back on the
+        # event card's Selection (a chart measured at zero size waits for its size), still with no request.
+        assert MUTED["light"] in page.evaluate(_AXIS_INK, "plot-vproj-xy")
+        page.click('.main .card[data-panel="vox-event"] [data-voxel-scope="selection"]')
+        page.locator('.main .card[data-panel="eproj-xy"]').scroll_into_view_if_needed()
+        page.wait_for_function(
+            f"""() => {{ const ink = ({_AXIS_INK})('plot-eproj-xy') ?? [];
+              return ink.includes({json.dumps(MUTED["light"])}) && !ink.includes({json.dumps(MUTED["dark"])}); }}""",
+            timeout=10_000)
+        cloud = page.evaluate(_CAMERA, "vox-ensemble")
+        assert (cloud["model"]["alpha"], cloud["model"]["beta"]) == (10, 70) and cloud["axisLine"] == BORDER["light"], cloud
+        # The 2-D cards, each on its own subpage: one on a subpage off show is repainted when its tab brings it
+        # back (a chart measured at zero size waits for its size), still with no request.
+        for c in MODELS_CARDS:
+            _models_card(page, c)
+            # Waited for: the repaint of a card brought back by its tab lands a frame or two after the switch (on a
+            # timeout the assertion below names the ink the chart still holds).
+            try:
+                page.wait_for_function(
+                    f"""() => {{ const ink = ({_AXIS_INK})('plot-{c}') ?? [];
+                      return ink.includes({json.dumps(MUTED["light"])}) && !ink.includes({json.dumps(MUTED["dark"])}); }}""",
+                    timeout=10_000)
+            except Exception:  # noqa: BLE001 - a Playwright timeout; the assertion below says what is wrong
+                pass
+            ink = page.evaluate(_AXIS_INK, f"plot-{c}")
+            assert MUTED["dark"] in dark_cards[c] and MUTED["light"] in ink and MUTED["dark"] not in ink, (c, ink)
+        assert requests == requests_at_toggle, f"a theme switch asked the service: {requests[len(requests_at_toggle):]}"
         browser.close()
+    assert problems == [], problems
+
+
+def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it_back(live_server):
+    """A theme switch on Views, with nothing else moving (no drawer, no resize): the cards already drawn on
+    Performance and Distillations are repainted in the new ink when their tab brings them back, with no request.
+    (A chart measured at zero size skips the repaint; it must not keep the old theme once it has its size again.)"""
+    from test_browser_models import _OPTION, _quiet, _show_subpage, _wait_options
+
+    cards = ("perf-bins", "pred-truth", "res-scaling", "perf-catalog", "distill-triangle")
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, live_server["base"], "/models", fragment=f"#table_name={BASELINE_TABLE}&model=energy")
+        for card_id in cards:
+            _models_card(page, card_id)
+        _show_subpage(page, "views")
+        _quiet(page)
+        before = {c: page.evaluate(_OPTION, c) for c in cards}
+        n = len(requests)
+        assert _toggle(page, requests) == []
+        stale = []
+        for card_id in cards:
+            _models_card(page, card_id)
+            # The repaint is waited for (its new ink in the option), never assumed done after a delay.
+            if not _wait_options(page, [card_id], lambda option, c: option != before[c] and MUTED["dark"] not in option):
+                stale.append(card_id)
+        asked = requests[n:]
+        browser.close()
+    assert stale == [], f"still in the dark theme after the switch, once shown again: {stale}"
+    assert asked == [], f"a theme switch or a tab asked the service: {asked}"
     assert problems == [], problems
 
 
@@ -843,6 +905,46 @@ def test_the_chrome_text_is_legible_in_place(live_server):
     failing = [r for r in measured["light"] if r["ratio"] < TEXT_FLOOR and "banner-close" not in r["cls"]]
     assert not failing, failing
     # Dark is the control: held to what it meets today (DARK_FLOOR), not raised by this change.
+    dark_failing = [r for r in measured["dark"] if r["ratio"] < DARK_FLOOR]
+    assert not dark_failing, dark_failing
+    assert problems == [], problems
+
+
+#: The Models page's subpage chrome and the catalogue's DOM: the tab bar, the catalogue's bar, the PySR matrix,
+#: the accuracy table and the diagnostics blocks (css/models.css, css/catalog.css).
+CATALOG_CHROME = ("#models-subnav", "#bench-bar", '.card[data-panel="distill-pysr"] .card-table',
+                  '.card[data-panel="perf-catalog"] .catalog-table', '[data-catalog-extra="perf-diagnostics"]')
+
+
+def test_the_models_subpage_chrome_and_catalogue_text_are_legible_in_place(live_server):
+    """The tab bar, the catalogue's bar and caption, the PySR matrix (formulas' TeX source, tier chips, badges,
+    feature chips) and the catalogue's tables: every text clears 4.5:1 on its own ground in light, and holds
+    the dark chrome's floor in dark. Each is measured on the subpage that shows it."""
+    from test_browser_models import _scroll_to as models_card, _show_subpage
+
+    measured = {}
+    with live_server["playwright"].sync_playwright() as p:
+        browser = p.chromium.launch()
+        problems = []
+        for scheme in ("dark", "light"):
+            _, page, found, _ = _open(p, live_server["base"], "/models", scheme=scheme, browser=browser,
+                                      fragment=f"#table_name={BASELINE_TABLE}&model=energy")
+            rows = []
+            for msub, cards in (("distill", ("distill-pysr",)), ("perf", ("perf-catalog", "perf-diagnostics"))):
+                _show_subpage(page, msub)
+                for card in cards:
+                    models_card(page, card)
+                rows += page.evaluate(_LEGIBILITY, list(CATALOG_CHROME))
+            measured[scheme] = rows
+            problems += found
+            page.close()
+        browser.close()
+    for scheme, rows in measured.items():
+        worst = min(rows, key=lambda r: r["ratio"])
+        print(f"{scheme}: {len(rows)} texts, worst {worst['ratio']}:1 ({worst['tag']}.{worst['cls']} {worst['text']!r})")
+    assert {r["selector"] for r in measured["light"]} == set(CATALOG_CHROME), {r["selector"] for r in measured["light"]}
+    failing = [r for r in measured["light"] if r["ratio"] < TEXT_FLOOR]
+    assert not failing, failing
     dark_failing = [r for r in measured["dark"] if r["ratio"] < DARK_FLOOR]
     assert not dark_failing, dark_failing
     assert problems == [], problems

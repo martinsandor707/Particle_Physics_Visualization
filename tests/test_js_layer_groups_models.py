@@ -60,7 +60,7 @@ class FakeProjection {
   setOverlay() {} clear() {} relayout() {} setBusy() {} currentView() { return null; }
 }
 
-async function run({ scope, lgmode = 'off', counts = null, frame = 'lab', projections = null }) {
+async function run({ scope, lgmode = 'off', counts = null, frame = 'lab', projections = null, thenCloud = false }) {
   const requests = [];
   globalThis.fetch = async (url) => {
     const u = new URL(String(url));
@@ -101,6 +101,11 @@ async function run({ scope, lgmode = 'off', counts = null, frame = 'lab', projec
   });
   section.applyPlan(caps.page2Plan(exp).voxels);
   await section.refresh();
+  // Local shows one pair at a time, the scope choosing: the cloud after the event, so both are in hand.
+  if (thenCloud) {
+    section.setScope('selection');
+    await section.refresh();
+  }
   const panels = Object.fromEntries([['xy', 'm-event-xy'], ['yz', 'm-event-yz'], ['xz', 'm-event-xz']].map(([col]) => [col, null]));
   const depth = (pair) => Object.fromEntries(pair.cells.map((r) => [r.spec.col, r.panel]));
   const describe = (panel) => {
@@ -154,11 +159,13 @@ const out = {};
 out.event = await run({ scope: 'event' });
 out.eventPool = await run({ scope: 'event', lgmode: 'pool' });
 out.selection = await run({ scope: 'selection' });
-// LG-G6: a per-shower translated cloud whose frame co-registered one of the selection's two events.
-const transBody = load('projections_base_trans');
-transBody.frame.n_events = 1;
-transBody.selection.n_events = 2;
-out.transCloud = await run({ scope: 'event', frame: 'trans', lgmode: 'bounds', projections: transBody });
+// LG-G6: a co-registered cloud whose frame co-registered one of the selection's two events. It runs in Local,
+// the frame that draws both pairs, one at a time (the event, then the cloud: the scope chooses there); the
+// per-shower translated recording stands in for Local's projections, as it always did.
+const cloudBody = load('projections_base_trans');
+cloudBody.frame.n_events = 1;
+cloudBody.selection.n_events = 2;
+out.transCloud = await run({ scope: 'event', frame: 'local', lgmode: 'bounds', projections: cloudBody, thenCloud: true });
 console.log(JSON.stringify(out));
 """
 

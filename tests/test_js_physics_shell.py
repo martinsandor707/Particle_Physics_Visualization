@@ -688,6 +688,19 @@ await first; await second;
 out.overtaken = { loads: loads.slice(-2), current: lazy.isCurrent(a) };
 keyA = 'a3';
 out.a3Stale = (await lazy.refresh()).length;
+// A load whose card left while it ran (its key turned null, as a hidden 3-D pair's does) marks nothing either:
+// the card is loaded again, for the same request, when it is back.
+let releaseLeft;
+gate = new Promise((resolve) => { releaseLeft = resolve; });
+keyA = 'a5';
+const leaving = lazy.refresh();
+keyA = null;
+releaseLeft();
+await leaving;
+gate = null;
+keyA = 'a5';
+out.leftMidLoad = (await lazy.refresh()).length;
+out.leftLoads = loads.filter(([card, k]) => card === 'a' && k === 'a5').length;
 console.log(JSON.stringify(out));
 """
 
@@ -739,6 +752,13 @@ def test_a_superseded_load_is_neither_reported_nor_counted_as_loaded(lazy_result
     assert lazy_results["overtaken"]["loads"] == [["a", "a3"], ["a", "a4"]]
     assert lazy_results["overtaken"]["current"] is True
     assert lazy_results["a3Stale"] == 1
+
+
+def test_a_load_whose_card_left_while_it_ran_is_loaded_again_when_it_is_back(lazy_results):
+    """Review finding 1 (2026-11-06): a 3-D pair hidden mid-load (Local's Selection | One event) was marked loaded
+    and stayed blank, or kept the previous selection's picture, when shown again for the same request."""
+    assert lazy_results["leftMidLoad"] == 1
+    assert lazy_results["leftLoads"] == 2
 
 
 # ----------------------------------------------------- the physics section --

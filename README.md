@@ -2262,7 +2262,10 @@ visible, and again only when its request changes. A filter change therefore
 re-asks the visible cards and leaves the others to load when they scroll in
 (`js/lazy_cards.js`, `js/physics_section.js`). A request the server refuses with
 a 4xx, the 422 of a shut capability above all, counts as answered: the card
-shows the server's reason, since asking again would only repeat it. The section
+shows the server's reason, since asking again would only repeat it. A load whose
+card's request changed while it ran (a 3-D pair hidden mid-load on the Models page
+turns its key to null and draws nothing) counts as nothing, so the card is loaded
+again, from the response in hand, when the request is its own again. The section
 is hidden together with the 2 × 2 while the Event Inspector or the compare view
 replaces it.
 
@@ -2989,7 +2992,7 @@ experiment, the filters, the reference frame and the reconstruction model with
 Page 1 through the URL hash, so a tab switch carries the view across (see [The
 interface](#the-interface)). Its own state keys are `feature`, `fclass`,
 `fshower`, `voxel_event`, `voxel_shower`, `voxel_channel`, `ens_channel`,
-`xgb_task` and `xgb_label`; like every key they are written only when they
+`xgb_task`, `xgb_label`, `msub` and `bench_species`; like every key they are written only when they
 differ from the built-in value, and none reuses a Page 1 key (`event` and
 `shower` pin Page 1's Event Inspector and are never read here).
 
@@ -3005,9 +3008,154 @@ cached response and blanks every card before anything is drawn, and each card
 checks its request key after its response lands, so a late response never draws
 the previous experiment's data under the new one's name.
 
-The sections, in page order: **Model performance** (three cards), **Energy
-resolution** (one card), **XGBoost model** (four cards), **Event features** (four cards), **Primaries** (one card)
-and the **3-D views** (two pairs of a 3-D card and three 2-D projections).
+The page is split into three subpages (see [The three subpages](#the-three-subpages)).
+Its sections, by subpage and in page order:
+
+| Subpage | Sections |
+|---|---|
+| **Views** | the **3-D views** (a pair of a 3-D card and three 2-D projections for the selected frame: the event pair or the ensemble pair, in Local either, as the card's Selection \| One event chooses), **Event features** (four cards) and **Primaries** (one card) |
+| **Distillations** | **Distilled formulas and surrogates** (three catalogue cards) and **XGBoost surrogate and importance** (E4 and E5) |
+| **Performance** | **Model performance** (three cards), **Energy resolution** (one card), **XGBoost model** (E1 and E3) and the **Benchmark catalogue** (four cards) |
+
+### The three subpages
+
+A second-tier tab bar, `#models-subnav`, sits first in the page. Its tabs are
+**Views**, **Distillations** and **Performance**; the choice is the hash key
+`msub` (`views | distill | perf`). Views is the default and is written to no
+link, so every older link opens where it always did.
+
+- **Accessibility.** The bar is a `role="tablist"` with a roving `tabindex`; the
+  arrow keys move between tabs (wrapping), Home and End jump to the ends, and a
+  tab activates as it takes focus. Each subpage is a `role="tabpanel"` labelled
+  by its tab. The bar is sticky at the top of the page's scroll area, together
+  with the species bar on Distillations and Performance (Martin, 2026-11-05); a
+  card keeps a scroll margin equal to that block's measured height, so a card
+  scrolled into view or deep-linked is never under it.
+- **A switch creates and disposes nothing.** It sets `hidden` on three wrappers
+  (`#msub-views`, `#msub-distill`, `#msub-perf`). The two 3-D views therefore keep
+  their WebGL contexts, cameras and slice state while another subpage is on show,
+  and a chart on a hidden subpage returns early at zero size. A card on a hidden
+  subpage never scrolls into view, so it never loads; a switch requests only the
+  stale cards that come into view, and a catalogue card requests nothing. Each
+  subpage's scroll position is kept in memory and is not view state.
+- **A deep link switches first.** `/models?panel=<card>` (the Methodology badges
+  use it) opens the card's own subpage, writes its `msub`, scrolls to the card and
+  opens its drawer.
+- **The sidebar follows the subpage.** The filters, the reconstruction model and
+  the reference frame show everywhere. Longitudinal Channels show on Views only.
+  The Colour Map shows wherever a card on show reads the palette: on Views
+  always, on Distillations when E4 is on show, on Performance when prediction
+  against truth is.
+- **The bench bar** (`#bench-bar`, Distillations and Performance) holds the
+  catalogue's species (Proton, Muon, Electron, Pion, Compare all) and task
+  (Segmentation, Angle, Energy). The task writes the shared `model` key, so the
+  sidebar's radio and E2's own control stay in step. A species left unchosen
+  follows the experiment: the species of its paired XGBoost run, and **Compare all**
+  where the experiment names none (a two-shower experiment never does; the bar
+  says why, and nothing is guessed). Neither key can be an Admin default.
+
+### The benchmark catalogue
+
+**Where the numbers come from.** `models_performance.md`, the training report of
+the 36 models (four species by three tasks by three frames: the proton baseline
+of 2026-09-24, then muon, electron and pion), is committed at the repository root
+as the source of record. It is written in Hungarian with decimal commas. The
+catalogue is its English, frozen transcription,
+`calosrv/static/js/catalog/benchmarks.js`: pure data with no imports, each value
+in the report's own unit with a `unit` field and, where the report qualifies it
+("< 0", "≈ 0", "~1 050", "no meaningful formula"), a qualifier that is never
+coerced into a number. There is no server call: the module is loaded once by a
+literal dynamic `import()`, and a species or task switch answers from it.
+
+**How it is pinned.** `tests/test_benchmark_catalog.py` parses every results table
+of the report, dumps the module with Node, and asserts that every number equals the
+report's and that every numeric token of every table is accounted for. It also
+checks the integrity facts the cards rely on:
+
+- the proton's overlap bins sum to 4,054 events, not the 4,065 the report states,
+  so 11 events lie in no bin (recorded as `unbinned: 11`);
+- the report prints per-bin counts for the proton only, so the other species show
+  "N not reported" and borrow none;
+- the distillation table's angle MAEs are in radians and, in mrad, agree with the
+  summary table to the triad's rounding (±0.05 mrad at its coarsest);
+- a distillation's segmentation MAE is a voxel-sample MAE and differs from the
+  validation E-MAE;
+- the 5/10/15 GeV momentum windows use the whole exported output, training split
+  included, so their n can exceed the particles (electron and pion);
+- the muon's |bias| equals its MAE at 5 and 15 GeV to the report's rounding, so
+  errors of the other sign average under 0.0005 GeV per particle and (almost)
+  every error in those windows has one sign; this is not an exact implication;
+- the report's definition of the Local frame (z′ along the incidence direction,
+  which needs the true angle) applies to every model, so every task's card
+  carries it.
+
+Every report number is shown with the report's printed decimals, so a reader sees
+how far it was rounded; a derived number (a sum, a ratio, rad converted to mrad)
+keeps the precision it can claim. `tests/test_js_catalog_logic.py` holds the
+tier, formula and payload logic, and one test file per panel family
+(`tests/test_js_catalog_distill.py`, `tests/test_js_catalog_perf.py`) holds the
+marks.
+
+**The seven cards.** Each is a `.card[data-panel]` of the usual anatomy, reads a
+static payload from `catalog/select.js` (the selection and the experiment do not
+apply, and the card says so), and is exportable as a plot-only figure except the
+DOM matrix.
+
+| Card | Subpage | What it draws |
+|---|---|---|
+| `distill-pysr` | Distillations | The 3 × 3 matrix (tasks by frames) of PySR formulas as MathML with a copyable LaTeX source, R² with its qualifier, a tier chip and the tree's top features; a click on a feature highlights every cell that uses it. A DOM card, with no export |
+| `distill-triangle` | Distillations | R² fidelity bars from 0 (tree to network, formula to network, tree to truth for the proton) and an MAE dumbbell from 0, in the task's unit (angle in mrad) |
+| `distill-curves` | Distillations | The energy formulas in physical units, p̂ against E_sum, one facet per frame; sliders set the secondary variables, repaint only, and are printed under the plot |
+| `perf-catalog` | Performance | Segmentation E-MAE, angle MAE, energy MAE and energy R², one zero-based facet each and never a dual axis; the angle axis is linear or log10 (dots, never bars, on log) |
+| `perf-overlap` | Performance | Error against the five overlap bins, dots and thin lines per frame, "All" as a dotted rule, and the N strip |
+| `perf-momentum-bias` | Performance | MAE bars from 0 and signed bias dots on a zero-centred axis, in the 4–6, 9–11 and 14–16 GeV windows, for muon, electron and pion |
+| `perf-diagnostics` | Performance | The proton's segmentation indecision as dumbbells, and its H200 throughput, architecture and dataset tables |
+
+**The tiers of a formula** (`catalog/gating.js` `tier()`; the thresholds are module
+constants the Methodology article quotes):
+
+| Tier | Rule | Mark |
+|---|---|---|
+| Law candidate | R²_PySR ≥ 0.75 and R²_net ≥ 0.70, in physical units, with no leak flag | Solid border, "Law candidate" chip |
+| High fidelity, truth R² not reported | R²_PySR ≥ 0.75, R²_net not reported | Solid border and its own chip |
+| Partial surrogate | 0.25 ≤ R²_PySR < 0.75, or a formula at 0.75 or above capped by a leak flag or by standardised features | Dashed border |
+| Not a law | R²_PySR < 0.25, "< 0", "≈ 0", no formula, or R²_net < 0.70 | Finely dashed border, muted ink, the reason printed |
+
+**The decisions** (Martin, 2026-11-05):
+
+1. **Point estimates, as reported.** The report gives no dispersion, so no interval
+   is fabricated or derived. Every mark names its N or says it is not reported, and
+   every catalogue card's Details button carries the hazard "no interval reported".
+   This is a recorded exception in `CLAUDE.md`.
+2. **An unnamed species opens on Compare all**, with a sentence saying why.
+3. **Colour Map shows wherever a card on show reads the palette**; Longitudinal
+   Channels stay on Views.
+4. **E1 and E3 go to Performance, E4 and E5 to Distillations**, so the XGBoost
+   section splits in two and each half carries the run's title.
+
+**Vocabulary and scope.** The report's frame `trans` is the dashboard's
+**Per-shower translated**, never "Translated" alone, which names the D-frame. A
+frame has E2's hue on every card; species are told apart by facets, grouping, end
+marks and direct labels, never by a second colour family; on the energy curves
+the dash is the tier (law candidate solid, partial dashed, not a law finely
+dashed). The top tier is called a *law candidate* because the report says the
+tree and the formula explain the network's behaviour and "are not an independent
+physical law"; where the report gives the formula's own MAE to the truth (angle),
+it is printed beside the network's. Test-time augmentation, the H200
+throughput, the indecision measures and the per-bin counts exist for the proton
+only: the other species show "not reported", and the report forbids copying the
+proton's throughput onto them. The proton's overlap angle and energy rows are
+titled hit-level by the report and the new species' per particle, so every series carries a unit badge.
+A *leakage signal* mark belongs to segmentation rows only, where a tree fitted to
+the truth beats the network (for the proton, which has no tree MAE, a drawing
+choice: the tree's R² to the truth exceeds its R² to the network by more than
+0.1, with the report's finding that the network is undecided as an alternative
+reading): in the per-shower frames it matches the report's own
+caveat (those frames are defined per particle), and in the Absolute frame the
+report gives no reason, so it is a warning and not a finding. On angle and energy
+rows the two printed MAEs stay and nothing else: no badge, no hazard; the tooltip
+and the drawer say the tree's printed MAE to truth is lower by X and that the
+report gives no uncertainty to say whether the difference is real.
 
 ### What each kind of experiment shows
 
@@ -3046,10 +3194,9 @@ has somewhere to be read. Two banners and a caption say what the experiment lack
   draws in a fallback and says so under its title, and the fallback is never
   written back to the link. The feature cards serve the Absolute, per-shower
   translated and Local frames; the D-frame has no per-event feature sums, so the
-  cards fall back to Absolute. The ensemble cloud is co-registered only, so
-  Absolute and per-shower translated fall back to Local. The event pair falls
-  back to Absolute when the D-frame is selected (see [The 3-D
-  views](#the-3-d-views)). A network reads the frame it was trained on, and the
+  cards fall back to Absolute. The 3-D views never fall back: a pair the
+  selected frame cannot draw is not shown, and a line says where it is drawn
+  (see [The 3-D views](#the-3-d-views)). A network reads the frame it was trained on, and the
   D-frame uses the absolute-frame networks; that is the definition of the
   D-frame's networks, not a fallback. An aggregate has no sidebar frame, but its
   columns hold the Absolute, per-shower translated and Local features (the
@@ -3468,6 +3615,47 @@ hides whatever lies behind it from the current viewpoint, and the drawer says
 that too. Cubes are placed through the payload's coordinates, never by
 `index × pitch` (the x lattice is irregular).
 
+**One coordinate system at a time** (Martin's directives, 2026-11-06). Views
+draws one 3-D pair at a time, in the frame selected under Reference Frame
+(`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`). The
+3-D card's **Selection | One event** buttons say which:
+
+| Selected frame | Selection | One event |
+|---|---|---|
+| Absolute | the event pair, summed on the detector cells | the event pair |
+| Per-shower translated | not drawn (shut, with its reason) | the event pair |
+| Local | the ensemble cloud | the event pair |
+| D-frame | the ensemble cloud | not drawn (shut, with its reason) |
+
+Local is the one frame that draws both pairs, and the buttons choose between
+them; it opens on the selection, the cloud, as the Absolute frame opens on its
+selection. The choice is the view key `voxel_scope`, so a link keeps it.
+
+- **No fallback.** The event view is drawn in the Absolute, per-shower translated
+  and Local frames and the cloud in Local and the D-frame; neither is drawn in
+  another frame in place of the selected one. Before, the cloud was drawn in
+  Local beside an Absolute event, and the event in the Absolute frame beside a
+  D-frame cloud: two coordinate systems on one screen.
+- **Hiding keeps everything.** The other pair only gets `hidden`: its charts,
+  camera, slices and WebGL context are kept, and a hidden pair never loads; a
+  switch back in Local draws from the response in hand. A pair the server shut
+  for the experiment stays on show in its own frames, with its reason.
+- **Disclosure.** A line above the 3-D views says which pair the selected frame
+  cannot draw and which frames to choose to see it, listing only frames with a
+  radio (the legacy per-shower frame has none on two showers); Local has none,
+  since its card's buttons are the choice. A shut scope button's title says why
+  and which frames draw it (`scopeOffer`). Where the scope in hand would show the
+  other view in a listed frame (Local opens on the cloud, the Absolute frame on
+  its selection), the line, the title and a deep link's banner add "then One
+  event (or Selection) on its 3-D card".
+- **Keyboard.** A switch that takes the pressed button's card off the screen
+  moves focus to the same button on the card now shown, and the warnings above
+  the views are the pair on show's.
+- **Deep links.** A link to a card the frame cannot draw (`?panel=vox-ensemble`
+  in the Absolute frame) says so on the banner; one to a card Local's scope hides
+  switches the scope first (`revealPair`), as a subpage tab does. The
+  Methodology's badges to a 3-D card set its frame, and the cloud's its scope.
+
 **Rendering.** The 3-D views draw with the vendored `echarts-gl`, loaded by this
 page only. At most **two WebGL contexts** exist, one for the event chart and one
 for the ensemble chart, created the first time their pair draws and never
@@ -3594,8 +3782,8 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   rule; each click takes the next seed) and states the rule in the drawer.
   Showers: A, B or both, **both only in the Absolute frame** (each per-shower
   frame holds one shower at its own entry point). The API also serves the
-  D-frame's cubes (two showers per event), but the pair draws Absolute there, as
-  below.
+  D-frame's cubes (two showers per event), but the page draws no event pair in
+  the D-frame (see *One coordinate system at a time* above).
 - *The pair.* The three projections are the Event Inspector's rasters
   (`GET /api/event`, Page 1) of the same event in the same frame and shower, so
   the pair shows one picture twice. Both requests carry `window=per_axis`, so the
@@ -3610,8 +3798,8 @@ refuse a `cap` outside 100 to 15,000 (default 6,000).
   and its pad is one layer pitch, so a first layer whose centre sits exactly on
   the window edge is drawn whole, half a layer past the axis; a channel change asks for new cubes only,
   because the raster is energy density in every channel. The D-frame has no
-  per-event raster, so the pair draws Absolute there and says so under its
-  titles. When the cubes show both showers, the projections show shower A and
+  per-event raster, one more reason the pair is not drawn there. When the cubes
+  show both showers, the projections show shower A and
   say so. *Both* is drawn in the Absolute frame only, the one frame of this pair
   that holds both showers in one coordinate system: in a per-shower frame each
   shower sits at its own entry point, so the button is shut there with that
@@ -3675,8 +3863,9 @@ per event.
   full accumulation grid. If the projections did not load, the box is the whole
   grid and says so.
 - *Controls.* The channel (density, energy-weighted Grad-CAM, energy-weighted
-  Shap-CAM) and a camera reset; the frame is the page's (Absolute and per-shower
-  translated fall back to Local).
+  Shap-CAM) and a camera reset; the frame is the page's, and the cloud is not
+  shown in the Absolute and per-shower translated frames (see *One coordinate
+  system at a time* above).
 
 **The selection in the Absolute frame** (Martin's directive, 2026-10-31). In the
 Absolute frame the 3-D event card opens on the whole selection: every selected
@@ -3689,10 +3878,12 @@ one-event view's channels averaged over the selection (Martin's decision): energ
 as the mean GeV/mm³ per selected event, Grad-CAM and Shap-CAM as the
 energy-weighted mean over the selection's hits in the cell. Segmentation error and
 species belong to one event and have no selection projection, so the view draws
-energy and says so. The per-shower frames draw one event: they move every shower
-to its own entry point, so their cells share no lattice, and the cloud card draws
-the co-registered selection; the D-frame's event card draws the selection in the
-Absolute frame. `voxel_scope` (`selection` | `event`) is view state, and a link
+energy and says so. In Local and the D-frame the selection is the co-registered
+cloud, the ensemble pair: Local draws it or one event, as the buttons say, and the
+D-frame draws the cloud only. The per-shower translated frame draws one event
+only: every shower sits at its own entry point, so their cells share no lattice
+to sum on, and no cloud is accumulated there. `voxel_scope`
+(`selection` | `event`) is view state, and a link
 that names a `voxel_event` opens that event whatever the scope, so an older
 bookmark keeps its meaning.
 
@@ -3733,7 +3924,8 @@ draws one slice of the volume at a time, in place of the reference notebook's
 
 ### The XGBoost cards
 
-Four cards read `GET /api/xgboost?view=cv|binary|surrogate|importance` (with
+Four cards read `GET /api/xgboost?view=cv|binary|surrogate|importance` (E1 and
+E3 on the Performance subpage, E4 and E5 on Distillations; with
 `task=momentum|angle`; `binary` is the momentum task only and a 422 for angle).
 Each reproduces what the `XGBoost-Reg-*` notebooks compute, on the experiment's
 own event table, from the stored [analysis](#the-xgboost-analysis). **They are

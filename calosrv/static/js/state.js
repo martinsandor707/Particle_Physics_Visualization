@@ -83,7 +83,16 @@ export const SHOWERS = ['a', 'b'];
  * card draws the whole selection (the default in the Absolute frame, Martin's
  * directive of 2026-10-31) or one event; a link that names a `voxel_event`
  * opens that event whatever the scope, so an older bookmark keeps its
- * meaning. */
+ * meaning.
+ *
+ * `msub` is the subpage on show (`views | distill | perf`: Views,
+ * Distillations, Performance; models_subpages.js). Views is the default, so a
+ * link to it carries no `msub`. `bench_species` is the benchmark catalogue's
+ * species (`proton | muon | electron | pion | all`, the last "Compare all");
+ * null, the default, follows the experiment's own species, else Compare all
+ * (capabilities.js `effectiveSpecies`). The catalogue's task is the shared
+ * `model` key, not a key of its own. Neither may be saved as an Admin
+ * default, and the Physics page keeps both and reads neither. */
 
 /* The per-event features the explorer offers (GET /api/features?view=catalog):
  * the 19 features of the aggregate, plus the two circular companions a hit
@@ -111,6 +120,10 @@ export const ENSEMBLE_CHANNELS = Object.freeze(['density', 'gradcam_energy', 'sh
  * outputs a per-label view draws. */
 export const XGB_TASKS = Object.freeze(['momentum', 'angle']);
 export const XGB_LABELS = Object.freeze(['phi', 'theta']);
+/* The Models page's subpages, in tab order (models_subpages.js); 'views' is the default. */
+export const MSUBS = Object.freeze(['views', 'distill', 'perf']);
+/* The benchmark catalogue's species, and 'all' for Compare all (capabilities.js CATALOG_SPECIES). */
+export const BENCH_SPECIES = Object.freeze(['proton', 'muon', 'electron', 'pion', 'all']);
 /* Longitudinal Channels (see the header): none drawn, their seams drawn, or
  * the Physics page's ensemble depth panels pooled into them. */
 export const LG_MODES = Object.freeze(['off', 'bounds', 'pool']);
@@ -141,6 +154,8 @@ const ENUMS = {
   xgb_task: XGB_TASKS,
   xgb_label: XGB_LABELS,
   lgmode: LG_MODES,
+  msub: MSUBS,
+  bench_species: BENCH_SPECIES,
 };
 const NUMERIC_RANGE = { resolution: [50, 400] };
 
@@ -246,6 +261,11 @@ export const DEFAULTS = Object.freeze({
   // partition null, meaning Uniform for the experiment's layer count.
   lgmode: 'off',
   lgroups: null,
+  // The Models page's subpage (Views: never written) and the benchmark
+  // catalogue's species (null follows the experiment); see "The Models
+  // page's keys" above.
+  msub: 'views',
+  bench_species: null,
 });
 
 const NUMERIC = new Set([

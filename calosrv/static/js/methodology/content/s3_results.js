@@ -58,6 +58,13 @@ const TAXONOMY = {
     [k('feat-hist2d'), 'D5', 'Models', '2-D count raster per class against deposited energy', 'None (counts); events drawn below the floor', `Raster from ${C.MIN_HISTOGRAM_SAMPLES}`, 'Sequential log count, shared scale'],
     [k('res-scaling'), 'Resolution scaling', 'Models', `σ/E in percent from zero against $1/\\sqrt E$, reversed to end at the origin; fitted lines`, 'χ² whisker of the window’s σ/μ; 95% confidence band of each fitted line', `Whisker from ${C.RES_WHISKER_MIN_N}; fit and range from ${C.RES_FIT_MIN_N}; provisional below two anchors`, 'Ink for the deposit; E2’s hues for models; filled A, hollow B'],
     [k('prim-rate'), 'C11', 'Models', 'Point per momentum bin; overall dotted rule', 'Capped asymmetric Wilson whisker', 'From one event', 'Accent'],
+    [k('distill-pysr'), 'Symbolic formulas', 'Models', 'Grid of PySR formulas as MathML, tasks by frames, each with its tier chip, $R^2$, feature chips', 'None: a reported point estimate, N or “N not reported”', `Tier from $R^2$ thresholds ${C.CAT_PARTIAL_MIN_PYSR_R2} / ${C.CAT_LAW_MIN_PYSR_R2} / ${C.CAT_LAW_MIN_NET_R2}`, 'Border style and ink, never hue alone'],
+    [k('distill-triangle'), 'Distillation fidelity', 'Models', '$R^2$ bars from zero beside an MAE dumbbell, one row per frame', 'None: point estimates as reported', '$R^2 < 0$ clamped to zero and badged; leak flags', 'E2’s hues by frame; species by grouping'],
+    [k('distill-curves'), 'Distilled energy response', 'Models', 'Curves $\\hat p(E_{\\mathrm{sum}})$ of the energy formulas, one facet per frame', 'None: a formula is a function, not an estimate', 'Dash is the tier, faded below the law-candidate tier; sliders for secondary variables', 'E2’s hues by frame; dash by tier; species by end mark and label'],
+    [k('perf-catalog'), 'Validation accuracy', 'Models', 'Four facets of bars from zero, one per frame; dots on a log angle axis', 'None: point estimates as reported', 'Proton-only marks scoped; “not reported” elsewhere', 'E2’s hues by frame'],
+    [k('perf-overlap'), 'Error by overlap bin', 'Models', 'Dots joined by lines over five ordered bins; “All” a dotted rule; an N strip', 'None: point estimates as reported', 'N per bin where reported; unbinned events disclosed', 'E2’s hues by frame'],
+    [k('perf-momentum-bias'), 'Momentum error and bias', 'Models', 'MAE bars from zero beside signed bias dots on a zero-centred axis', 'None: point estimates as reported', 'Training split included; N not a count of particles', 'E2’s hues by frame'],
+    [k('perf-diagnostics'), 'Indecision, throughput, caveats', 'Models', 'Dumbbells on 0–1 and 0–100%, with tables for throughput, architecture and caveats', 'None: point estimates as reported', 'Proton-only blocks keep their scope', 'Ink; E2’s hues by frame'],
     [k('vox-event'), 'C5, C6', 'Models', 'Orthographic cubes of the selection\u2019s detector cells (Absolute frame, the default) or of one event, beside three 2-D projections', 'None in 3-D; numbers on the projections', `Event window ≥ ${C.EVENT_WINDOW_MIN_HALF_MM} mm per axis`, 'Sequential, folded PuOr, or qualitative species'],
     [k('vox-ensemble'), '3-D ensemble', 'Models', 'Orthographic voxel cloud, beside three 2-D projections', 'None in 3-D; numbers on the projections', 'As the 2 × 2', 'The relative ramp of the 2-D panels'],
   ],
@@ -154,7 +161,7 @@ const SPATIAL = {
         { page: 'physics', panel: 'xy', set: { frame: 'canonical' }, label: 'D–Y′ entry panel' },
         { page: 'physics', panel: 'yz', set: { frame: 'canonical' }, label: 'D-frame ensemble axes' },
         { page: 'physics', panel: 'compare-lab-xy', set: { compare: true }, label: 'Compare frames' },
-        { page: 'models', panel: 'vox-event', label: 'One event, projected' },
+        { page: 'models', panel: 'vox-event', set: { frame: 'lab', voxel_scope: 'event' }, label: 'One event, projected' },
       ],
     },
   ],
@@ -356,7 +363,8 @@ const MODELS = {
         String.raw`measured cells of ${C.CELL_X_MM} × ${C.CELL_Y_MM} × ${C.Z_PITCH_MM} mm in the Absolute and per-shower translated frames; in Local and the D-frame, axis-aligned splat voxels of ${C.CANONICAL_PITCH_MM} mm for one event (coarser only where ${C.MAX_VOXELS_PER_AXIS} per axis cannot cover it) and ${C.CLOUD_VOXEL_MERGE * C.CANONICAL_PITCH_MM} mm for the cloud;`,
         String.raw`flat, unlit colour, because lighting modulates the luminance that encodes the value, on the 2-D panels' ramps: on the dark card from their first 3:1 colour, on the light card exactly as the raster bins beside them;`,
         String.raw`per-axis energy-weighted ${C.WINDOW_LOW_PERCENTILE}–${C.WINDOW_HIGH_PERCENTILE} percentile windows, padded by one cell footprint (one layer pitch along depth), at least ${C.EVENT_WINDOW_MIN_HALF_MM} mm and snapped to ${C.EVENT_WINDOW_SNAP_MM} mm, so stray cells cannot stretch the box;`,
-        String.raw`three paired 2-D projections beside each card, which carry the numbers and the export; the 3-D card has none, and at most two WebGL contexts per page.`,
+        String.raw`three paired 2-D projections beside each card, which carry the numbers and the export; the 3-D card has none, and at most two WebGL contexts per page;`,
+        String.raw`one coordinate system at a time: the event view is drawn in the Absolute, per-shower translated and Local frames and the ensemble cloud in Local and the D-frame, each only in the frame the reader has selected and never as a fallback to another, so the subpage never sets a second coordinate system beside the selected one; in Local, which draws both, the card's Selection | One event choice shows the cloud or one event, and a line names the frames of a view the selected frame does not draw.`,
       ],
     },
     {
@@ -384,8 +392,64 @@ const MODELS = {
         { page: 'models', panel: 'xgb-importance', label: 'E5' },
         { page: 'models', panel: 'prim-rate', label: 'C11' },
         { page: 'models', panel: 'res-scaling', label: 'Resolution scaling' },
-        { page: 'models', panel: 'vox-event', label: 'C5 / C6' },
-        { page: 'models', panel: 'vox-ensemble', label: '3-D cloud' },
+        { page: 'models', panel: 'vox-event', set: { frame: 'lab' }, label: 'C5 / C6' },
+        { page: 'models', panel: 'vox-ensemble', set: { frame: 'local', voxel_scope: 'selection', voxel_event: null }, label: '3-D cloud' },
+      ],
+    },
+  ],
+};
+
+/* ------------------------------------------------------------ §3.7 -- */
+
+const CATALOGUE = {
+  id: 'sec-catalogue',
+  title: 'The benchmark catalogue and its distillations',
+  blocks: [
+    {
+      kind: 'p',
+      text: String.raw`**The three subpages.** The Models page is three subpages under one tab bar: *Views* (the 3-D cards with their paired projections, the feature explorer and the primaries), *Distillations* (the symbolic formulas, the distillation fidelity, the distilled energy curves, E4 and E5) and *Performance* (E2, prediction against truth, the residuals, resolution scaling, E1, E3 and the four benchmark cards). The tab is the view key ${k('msub')}, omitted for Views, so a link names the subpage it means and a deep link to a card switches to it first. A switch only hides and shows: no card is created or disposed, the two WebGL contexts and each 3-D card's camera and slice survive it, each subpage keeps its scroll position, and a catalogue card sends no request at all.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**What the catalogue is.** Seven cards draw a static, documented record of a training report: the frozen module ${k('catalog/benchmarks.js')}, pinned to the report's tables by tests and loaded once. A bench bar over the Distillations and Performance subpages chooses the species and the task; the filters and the experiment do not apply to these cards, and each says so in its Selection section. An experiment that names no species opens the catalogue on Compare all and says why, since nothing is guessed. Species are never a second hue family: a frame takes E2's qualitative hue on every card, and a species is told apart by facet, grouping, end mark or direct label. The Local frame is defined in the report by a rotation along the true incidence direction, so every card says, for every model, that Local inputs need the true angle. Frames carry the dashboard's names, Absolute, Per-shower translated and Local, never plain "Translated", which names the D-frame ([[sec-frames]]). This section states what each card encodes and when its marks are withheld; it quotes none of the report's numbers.`,
+    },
+    {
+      kind: 'callout',
+      tone: 'rule',
+      title: 'Recorded exception: documented point estimates',
+      text: String.raw`A report that gives no dispersion supports no interval, and the dashboard derives none. Each catalogue value is drawn as reported, at the decimals the report prints, since a reader must see the rounding to know which differences are not resolved. Every mark names its sample size or says "N not reported", the Details button of every catalogue card carries the hazard "no interval reported", and nothing is computed from a count the report does not describe: a window whose count includes the training split, or exceeds the number of particles, yields no standard error. This is the one place where a documented aggregate is drawn with no uncertainty by design, and it is disclosed on the card, not hidden.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**The symbolic-formula grid.** A formula is text first: each is typeset as MathML through the article's own compiler, with its LaTeX source beside it and a copy button, and a formula too long for its cell scrolls inside the cell, never the page. Its tier is a pure function of the reported $R^2$ values, never of colour: a *law candidate* needs the formula's $R^2$ to the network of at least ${C.CAT_LAW_MIN_PYSR_R2} and the network's own $R^2$ to the truth of at least ${C.CAT_LAW_MIN_NET_R2} in physical units with no leak flag; at the first threshold with no reported truth $R^2$ it is *high fidelity, unverified*; between ${C.CAT_PARTIAL_MIN_PYSR_R2} and ${C.CAT_LAW_MIN_PYSR_R2}, or capped by a leak flag or by standardised features, it is a *partial surrogate*; below ${C.CAT_PARTIAL_MIN_PYSR_R2}, with a qualified "$\approx 0$" or "$< 0$", with no formula, or with a network $R^2$ to the truth under ${C.CAT_LAW_MIN_NET_R2}, it is *not a law* and its reason is printed. The top tier is a candidate and never a law, because the report's own sentence says that the tree and the formula explain the network's behaviour and are not an independent physical law; where the report gives the formula's own mean absolute error to the truth, it is printed beside the network's. A formula's $R^2$ is written $R^2$ (PySR) in plain text. The tiers are told apart by border (solid, dashed, finely dashed) and ink, so colour is never alone. Feature chips cross-highlight the cells that use one feature; a definition appears only where the report gives one, and a name mapped from the report's own language by inference says so in its title. A qualified value ("$< 0$", "$\approx 0$", an approximate count) is stored with its qualifier and never coerced to a number.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**The distillation triangle.** The left panel draws $R^2$ fidelity as horizontal bars from zero for tree to network, formula to network and, where reported, tree to truth, told apart by fill, outline and a tick, not by hue. A negative $R^2$ is clamped to zero and badged "$R^2 < 0$", with the exact or qualified value in the tooltip, because a bar below zero would read as a magnitude. The right panel is a dumbbell on a zero-based axis of the task's unit between the mean absolute errors; an angle error is stored in radians as the report prints it and drawn in milliradians. A segmentation error comes from the report's distillation table, whose sample and weighting the report does not state (voxel-level by inference); it is labelled so and never drawn against the validation error. Where a tree fitted to the truth beats the network on the truth, a segmentation row is marked "leakage signal". The proton has no tree error to the truth, so its rule is a drawing choice of the dashboard: the tree's $R^2$ to the truth exceeds its $R^2$ to the network by more than ${C.CAT_PROTON_SIGNAL_MIN_R2_GAP}. The report's own competing reading, that the network is undecided on a near-binary truth, is an alternative explanation of the same gap. In the per-shower translated and Local frames the report's own caveat explains the mark, since those frames are defined per particle with the label, and in the Absolute frame the report gives no reason, so the mark is a warning and not a finding. An angle or energy row carries the two printed errors and no badge: the dashboard says only that the tree's printed error to the truth is lower or higher, and that the report gives no uncertainty to say whether the difference is real. No leakage claim is made.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**The distilled energy curves.** Only energy formulas in physical units are drawn, as $\hat p$ in GeV against $E_{\mathrm{sum}}$ in GeV, one facet per frame. A formula is evaluated by a small parser of the report's ASCII form, never by ${k('eval')}. Its secondary variables are set by sliders inside the card, each over a stated domain; moving one repaints with no request, and the values in force are printed under the plot and in the drawer, which says that the curve is conditional at those values and not a marginal prediction, since the report gives no feature distribution. The horizontal axis is stated by its own rule on the card; the vertical axis starts at zero and a curve beyond it is clipped with a caret and counted. The dash is the tier: a law candidate is solid, a partial surrogate dashed and a not-a-law curve finely dashed and faded, with its reason; a species takes an end mark and a direct label.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**Accuracy, overlap, momentum windows and diagnostics.** *Validation accuracy* has one facet per metric (an event-energy-weighted segmentation error, an angle error, an energy error, the energy $R^2$ from zero to one), never a second axis; bars start at zero, and an angle axis switched to Log10 draws dots, since a bar from an arbitrary logarithmic floor encodes nothing. Test-time augmentation and the root-mean-square error exist for one species only and are scoped to it; elsewhere the card says "not reported". *Error by overlap bin* joins dots over five ordered bins, one line per frame; the "All" value is its own computation and is drawn as a dotted rule, as C11 draws an overall share, not as a category, and an N strip shows the count per bin only where the report gives one. The events that fall in no bin are disclosed, and each series carries a badge for the level at which it is counted, per hit or per particle, because the two are different quantities. *Momentum error and bias* pairs bars of the absolute error from zero with the signed error as dots on a zero-centred axis with an explicit zero rule; the report states no sign convention, so the sign is "signed error as reported". A window whose absolute bias equals its error to the report's rounding is marked as one-signed: errors of the other sign average under half a unit of the last printed decimal per particle, so almost every error has one sign, which is not an exact implication. Each window states that it was computed on the full exported output, the training split included, so its count is not a count of particles and no interval is ever built from it. *Diagnostics* draws the segmentation indecision as dumbbells on zero to one and zero to 100%, and tabulates throughput, the architecture and the pipeline caveats; the throughput and timing blocks are of one species and are never relabelled for another.`,
+    },
+    {
+      kind: 'p',
+      text: String.raw`**Gates and reading.** Every catalogue tooltip names its quantity, its unit, its N or "N not reported", and "point estimate as reported; no interval". Marks stand at 3:1 or more and text at 4.5:1 or more on the card, on both screen themes and in print. A species with no data for a card draws an explicit empty state with the reason, and the exported figure is the plot alone like every other. The symbolic-formula grid is a table card and has no export. The card colour-map group of the sidebar appears on a subpage only when a card on show there reads the palette, and the Longitudinal Channels on Views alone.`,
+    },
+    {
+      kind: 'links',
+      id: 'lnk-results-catalogue',
+      items: [
+        { page: 'models', panel: 'distill-pysr', label: 'Symbolic formulas' },
+        { page: 'models', panel: 'distill-triangle', label: 'Distillation fidelity' },
+        { page: 'models', panel: 'distill-curves', label: 'Distilled energy response' },
+        { page: 'models', panel: 'perf-catalog', label: 'Validation accuracy' },
+        { page: 'models', panel: 'perf-overlap', label: 'Error by overlap bin' },
+        { page: 'models', panel: 'perf-momentum-bias', label: 'Momentum error and bias' },
+        { page: 'models', panel: 'perf-diagnostics', label: 'Indecision and throughput' },
       ],
     },
   ],
@@ -395,5 +459,5 @@ export default {
   id: 'sec-results',
   title: 'Results: an audit of the visual encodings',
   blocks: LEAD,
-  sections: [SPATIAL, COLOUR, PROFILES, RESPONSE, DISTRIBUTIONS, MODELS],
+  sections: [SPATIAL, COLOUR, PROFILES, RESPONSE, DISTRIBUTIONS, MODELS, CATALOGUE],
 };

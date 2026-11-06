@@ -271,10 +271,19 @@ _LANDED = """() => !location.search && (!document.getElementById('inspector').hi
   || (document.getElementById('kind-banner-text')?.textContent ?? '').includes('The Methodology linked'))"""
 
 
+#: The benchmark catalogue's seven cards (catalog/select.js CATALOG_CARDS): the training report's numbers, shown
+#: for every experiment (capabilities.js page2Plan), so a badge to one must always land, on its own subpage.
+CATALOG_CARDS = ("distill-pysr", "distill-triangle", "distill-curves", "perf-catalog", "perf-overlap",
+                 "perf-momentum-bias", "perf-diagnostics")
+#: The Models subpage each catalogue card stands on (capabilities.js SUBPAGE_SECTIONS).
+CATALOG_SUBPAGE = {c: "distill" if c.startswith("distill-") else "perf" for c in CATALOG_CARDS}
+
+
 def test_every_badge_lands_on_its_card_or_says_why(live_server):
     """Each distinct badge target opens its card with the drawer and the way back, or the banner says the
     experiment does not show that card. None names a card its page lacks, and none is hidden by a view mode
-    the reader brought: the page arrives with an event pinned, which every Physics badge leaves."""
+    the reader brought: the page arrives with an event pinned, which every Physics badge leaves. A badge to a
+    catalogue card (§3.7) must land, on the card's own subpage: the catalogue shows for every experiment."""
     with live_server["playwright"].sync_playwright() as p:
         browser, page, problems = _open(p, live_server["base"], fragment=f"{VIEW}&event=0")
         targets = page.evaluate(_BADGE_TARGETS)
@@ -287,6 +296,7 @@ def test_every_badge_lands_on_its_card_or_says_why(live_server):
               drawer: !document.getElementById('inspector').hidden,
               inspected: document.querySelector('.card.is-inspected')?.dataset.panel ?? null,
               back: Boolean(document.querySelector('#inspector-body .inspector-return a')),
+              msub: document.querySelector('.app')?.dataset.msub ?? null,
               banner: document.getElementById('kind-banner-text')?.textContent ?? '' })""")))
         browser.close()
     assert problems == [], problems
@@ -301,6 +311,12 @@ def test_every_badge_lands_on_its_card_or_says_why(live_server):
         if target["page"] == "physics" and (target["panel"] in ("xy", "yz", "xz", "energy")
                                             or target["panel"].startswith("compare-")):
             assert target["key"] in landed, target["key"]
+    # Every catalogue card has its badge, and each lands with its drawer on its own subpage, never on the banner.
+    catalogue = {t["panel"]: (t, o) for t, o in outcomes if t["page"] == "models" and t["panel"] in CATALOG_CARDS}
+    assert set(catalogue) == set(CATALOG_CARDS), sorted(set(CATALOG_CARDS) - set(catalogue))
+    for panel, (target, outcome) in catalogue.items():
+        assert target["key"] in landed, (panel, "a catalogue badge did not land", outcome["banner"])
+        assert outcome["msub"] == CATALOG_SUBPAGE[panel], (panel, outcome)
 
 
 def test_a_phone_width_reads_without_sideways_scroll(live_server):

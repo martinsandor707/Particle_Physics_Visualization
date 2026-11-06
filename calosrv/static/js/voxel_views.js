@@ -100,7 +100,7 @@ import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
 import { describeError, writeSparseNote, webglAvailable } from './page_common.js';
 import { apiFrame } from './state.js';
 import { viewFrame } from './capabilities.js';
-import { frameLabel, MODELS_LABELS } from './labels.js';
+import { CHOICE_LABELS, frameLabel, isLegacyFrame, MODELS_LABELS } from './labels.js';
 import { panelTitle } from './frame_views.js';
 import { ProjectionPanel } from './panels/projection.js';
 import { tooltipPosition, hideTooltipOnScroll } from './panels/tooltip.js';
@@ -171,7 +171,7 @@ export const GL_LOST = 'The browser withdrew this view\'s WebGL context (the gra
   + '3-D views are open), so the 3-D view is not drawn until it is restored. The three 2-D projections beside '
   + 'it carry the same cells quantitatively.';
 
-/** Why the event pair draws Absolute when the D-frame is selected. */
+/** The Absolute fallback the event view resolves to in the D-frame; the section never draws it there (one 3-D pair per coordinate system). */
 export const EVENT_CANONICAL_NOTE = 'Drawn in the Absolute frame: the 3-D event view stands beside the Event '
   + 'Inspector\'s rasters of the same event, which are served in the Absolute, per-shower translated and Local '
   + 'frames; no D-frame raster exists for one event, so the pair is drawn where both halves exist. The selected '
@@ -190,36 +190,48 @@ export const BOTH_SHOWERS_SHUT = 'Both showers are drawn together in the Absolut
 export const PROJECTIONS_ONE_SHOWER = 'These projections show shower A: the Event Inspector\'s rasters hold '
   + 'one shower each, while the 3-D view beside them draws both.';
 
-/* ## The selection scope (Martin's directive of 2026-10-31)
+/* ## The selection scope (Martin's directives of 2026-10-31 and 2026-11-06)
  *
- * In the Absolute frame the 3-D event card draws the whole selection by
- * default: every selected event's hits summed per detector cell, both
- * showers, from `GET /api/selection-cells`, beside the Physics page's
- * Absolute projections of the same selection and channel
- * (`/api/projections`). One event is a click away. The selection is coloured
- * by the one-event view's channels, averaged (Martin's decision): energy as
- * the mean GeV/mm³ per selected event in each cell, Grad-CAM and Shap-CAM as
- * the energy-weighted mean over the selection's hits in it. Segmentation
- * error and species are per-event quantities with no selection projection:
- * the view draws energy and says so. Outside the Absolute frame the card draws
- * one event: the per-shower frames move every shower to its own entry point,
- * so their cells share no lattice to sum on, and the cloud card beside shows
- * the co-registered selection. A link that names an event opens it whatever
- * the scope (state.js), so an older bookmark keeps its meaning. */
+ * The 3-D card draws the whole selection or one event (`voxel_scope`), in the
+ * selected frame only ("One 3-D pair per coordinate system" below). In the
+ * Absolute frame the event card draws the selection by default: every
+ * selected event's hits summed per detector cell, both showers, from
+ * `GET /api/selection-cells`, beside the Physics page's Absolute projections
+ * of the same selection and channel (`/api/projections`). It is coloured by
+ * the one-event view's channels, averaged (Martin's decision): energy as the
+ * mean GeV/mm³ per selected event in each cell, Grad-CAM and Shap-CAM as the
+ * energy-weighted mean over the selection's hits in it. Segmentation error
+ * and species are per-event quantities with no selection projection: the view
+ * draws energy and says so. In Local and the D-frame the selection is the
+ * co-registered cloud, the ensemble pair. Local draws both pairs and shows
+ * the one the scope chooses (Martin, 2026-11-06), the cloud by default, as the
+ * Absolute frame opens on the selection. The per-shower translated frame
+ * draws one event only: every shower sits at its own entry point, so their
+ * cells share no lattice to sum on, and no cloud is accumulated there. The
+ * D-frame draws the cloud only: no raster of one event exists there for the
+ * event's projections. A link that names an event opens it whatever the scope
+ * (state.js), so an older bookmark keeps its meaning. */
 
-/** The scope buttons of the 3-D event card. */
+/** The scope buttons of the 3-D cards: the selection (on the detector cells, or as the cloud) and one event. */
 export const SCOPE_LABELS = Object.freeze({ selection: 'Selection', event: 'One event' });
 export const SCOPE_TITLES = Object.freeze({
   selection: 'The whole selection: every selected event\'s hits summed per detector cell, both showers (Absolute frame)',
+  cloud: 'The whole selection as a voxel cloud: every selected shower co-registered in the selected frame',
   event: 'One event of the selection: the densest, or the one you pick',
 });
-/** Why the selection is not drawn outside the Absolute frame. */
-export const SELECTION_SHUT = 'The selection is drawn on the detector cells, in the Absolute frame only: the '
-  + 'per-shower frames move every shower to its own entry point, so their cells share no lattice to sum on, and '
-  + 'the cloud card beside shows the co-registered selection. Choose the Absolute frame to draw it.';
-/** Why the D-frame's event card draws the selection in the Absolute frame. */
+/** Why a scope is not drawn in a frame, where the reason is the frame's own. */
+const SCOPE_SHUT_WHY = Object.freeze({
+  selection: {
+    trans: 'every shower sits at its own entry point there, so their cells share no lattice to sum on, and no '
+      + 'co-registered cloud is accumulated',
+  },
+  event: {
+    canonical: 'its projections are the Event Inspector\'s rasters, and no raster of one event exists in this frame',
+  },
+});
+/** Why the D-frame's event card would draw the selection in the Absolute frame (resolveEventView); never drawn. */
 export const SELECTION_CANONICAL_NOTE = 'Drawn in the Absolute frame: the selection is summed on the detector '
-  + 'cells, which the D-frame turns event by event; the cloud card beside draws the selection in the D-frame. The '
+  + 'cells, which the D-frame turns event by event; the cloud card draws the selection in the D-frame. The '
   + 'selected frame is kept for the other views.';
 /** The selection view's channels, each with the Physics page channel its paired projections draw. */
 export const SELECTION_CHANNELS = Object.freeze({ energy: 'density', gradcam: 'gradcam', shapcam: 'shapcam' });
@@ -367,6 +379,147 @@ export function resolveEnsembleView({ frame, channel } = {}, offer) {
     notes.push(channelNote(channel, ch, ENSEMBLE_CHANNEL_LABELS, offer.ensemble.disabledChannels[channel]));
   }
   return { frame: resolved.frame, channel: ch, notes };
+}
+
+/* ## One 3-D pair per coordinate system (Martin's directives of 2026-11-06)
+ *
+ * Views draws the 3-D pair of the selected frame only, never a pair resolved
+ * to another frame beside it: the event pair in the Absolute and per-shower
+ * translated frames, the cloud in the D-frame, and in Local, which draws
+ * both, the one the scope chooses ("The selection scope" above). */
+
+/* The frames each pair is drawn in when its view is open: the event pair in the
+ * frames whose cells it can draw as cubes, the ensemble cloud in the
+ * co-registered frames it accumulates. A shut view (a gate the server closed)
+ * is shown, with its reason, in these frames. */
+export const PAIR_FRAMES = Object.freeze({
+  event: PAIRED_EVENT_FRAMES,
+  ensemble: Object.freeze(['local', 'canonical']),
+});
+
+/** What each pair is called in a sentence. */
+const PAIR_NAMES = { event: 'the 3-D event view', ensemble: 'the 3-D ensemble cloud' };
+
+/** The frames in the order the Reference Frame radios list them (labels.js). */
+const RADIO_ORDER = CHOICE_LABELS.frame.map((choice) => choice.value);
+
+/** The scope that shows each pair: in Local, where both are drawn, the cloud is the selection. */
+const PAIR_SCOPE = Object.freeze({ event: 'event', ensemble: 'selection' });
+
+/**
+ * What a reader must also press once in a listed frame: the card's button for
+ * `wanted`, where the scope in hand (`scope`, null: unknown) would show the
+ * other view there (Local's other pair, or the Absolute frame's selection). '' otherwise.
+ */
+function scopeClause(wanted, scope) {
+  return scope && scope !== wanted ? `, then ${SCOPE_LABELS[wanted]} on its 3-D card,` : '';
+}
+
+/**
+ * Whether a pair can be drawn in the frame the page draws in: its view
+ * resolves to that frame, never to a fallback (`drawn` is the frame it
+ * resolves to; null: none), so the subpage never shows a second coordinate
+ * system beside the selected one. A shut view can, in its own frames, where
+ * its cards give the server's reason. Pure.
+ */
+export function pairDrawable(name, { frame, offer, drawn = null } = {}) {
+  if (!offer?.shown) return false;
+  const view = offer[name];
+  // A shut view keeps its cards, with the server's reason, in its own frames.
+  if (!view?.enabled) return PAIR_FRAMES[name].includes(frame);
+  return Boolean(drawn) && drawn === frame;
+}
+
+/**
+ * The pair on show, given which pairs the selected frame can draw: the one
+ * it draws, and in Local, where both are drawn, the one the scope chooses -
+ * the selection is the cloud there. 'event', 'ensemble' or null. Pure.
+ */
+export function pairOnShow({ drawable = {}, scope = 'selection' } = {}) {
+  if (drawable.event && drawable.ensemble) return scope === 'event' ? 'event' : 'ensemble';
+  if (drawable.event) return 'event';
+  return drawable.ensemble ? 'ensemble' : null;
+}
+
+/** The frames a pair can be drawn in for this experiment, in the radios' order. */
+export function pairFrames(name, offer) {
+  const view = offer?.[name];
+  const listed = view?.enabled ? view.frames : PAIR_FRAMES[name];
+  return RADIO_ORDER.filter((f) => PAIR_FRAMES[name].includes(f) && listed.includes(f));
+}
+
+/**
+ * The frames a reader can choose under Reference Frame to see a pair from
+ * `frame`: those it is drawn in that have a radio. The legacy per-shower frame
+ * has none on two showers (labels.js `isLegacyFrame`), so it is never offered
+ * as a way to the pair. Pure.
+ */
+export function pairChoices(name, { frame, offer } = {}) {
+  const single = (offer?.nShowers ?? 2) === 1;
+  return pairFrames(name, offer).filter((f) => f !== frame && (single || !isLegacyFrame(f)));
+}
+
+/** Frame names in prose, as alternatives: "A", "A or B", "A, B or C". */
+function frameList(frames, nShowers) {
+  const names = frames.map((f) => frameLabel(f, nShowers));
+  if (names.length < 2) return names.join('');
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
+/**
+ * The scope buttons of the 3-D cards in the selected frame: whether each
+ * scope is drawn there, and its title - what it draws, or why it is not drawn
+ * and which frames to choose. The selection is drawn on the detector cells by
+ * the event pair in the Absolute frame (`selectionOnCells`) and as the cloud
+ * wherever the cloud is drawn; one event wherever the event pair is. `scope`
+ * is the scope in hand: a shut button whose frames would show the other one
+ * names its own button too (`scopeClause`). Pure.
+ */
+export function scopeOffer({ frame, offer, drawable = {}, selectionOnCells = false, scope = null } = {}) {
+  const n = offer?.nShowers ?? 2;
+  const shut = (wanted, frames) => {
+    const why = SCOPE_SHUT_WHY[wanted][frame] ?? 'this experiment does not offer it in this frame';
+    const what = wanted === 'selection' ? 'The selection' : 'One event';
+    return `${what} is not drawn in ${frameLabel(frame, n)}: ${why}. `
+      + (frames.length ? `Choose ${frameList(frames, n)} under Reference Frame${scopeClause(wanted, scope)} to draw it.`
+        : 'No frame draws it here.');
+  };
+  // The selection's frames: the Absolute frame's cells (the event pair's), then the cloud's.
+  const selectionFrames = RADIO_ORDER.filter((f) => (f === 'lab' && pairChoices('event', { frame, offer }).includes('lab'))
+    || pairChoices('ensemble', { frame, offer }).includes(f));
+  const selection = Boolean(selectionOnCells || drawable.ensemble);
+  const event = Boolean(drawable.event);
+  return {
+    selection: {
+      enabled: selection,
+      title: selection ? (selectionOnCells ? SCOPE_TITLES.selection : SCOPE_TITLES.cloud) : shut('selection', selectionFrames),
+    },
+    event: {
+      enabled: event,
+      title: event ? SCOPE_TITLES.event : shut('event', pairChoices('event', { frame, offer })),
+    },
+  };
+}
+
+/**
+ * The note above the 3-D views: for each pair the selected frame cannot draw,
+ * that it is not drawn there and which frames to choose to see it; '' when the
+ * frame draws both (Local, where the card's scope chooses) or no frame with a
+ * radio draws the other. `scope` is the scope in hand: where it would show
+ * the other view in a listed frame, the line names the card's button too. Pure.
+ */
+export function framePairsNote({ frame, offer, drawable = {}, scope = null } = {}) {
+  if (!offer?.shown) return '';
+  const n = offer.nShowers ?? 2;
+  const lines = [];
+  for (const name of ['event', 'ensemble']) {
+    if (drawable[name]) continue;
+    const frames = pairChoices(name, { frame, offer });
+    if (!frames.length) continue;
+    lines.push(`${PAIR_NAMES[name].replace(/^the/, 'The')} is not drawn in ${frameLabel(frame, n)}: choose `
+      + `${frameList(frames, n)} under Reference Frame${scopeClause(PAIR_SCOPE[name], scope)} to see it.`);
+  }
+  return lines.join(' ');
 }
 
 /* ------------------------------------------------------------ requests -- */
@@ -588,7 +741,7 @@ export class VoxelSection {
   constructor(hostEl, {
     state, getExperiment = () => null, onError = () => {}, onRendered = () => {}, lazy = null,
     webgl = null, echarts: lib = null, ProjectionClass = ProjectionPanel,
-    draftCounts = () => null, onDepthContext = () => {},
+    draftCounts = () => null, onDepthContext = () => {}, frameOf = null,
   } = {}) {
     this.host = hostEl;
     this.state = state;
@@ -601,6 +754,9 @@ export class VoxelSection {
     this.ProjectionClass = ProjectionClass;
     this.draftCounts = draftCounts;
     this.onDepthContext = onDepthContext;
+    // The frame the page draws in (models_main.js effectiveFrame): the link's
+    // frame where the experiment offers it, else the page's fallback.
+    this.frameOf = typeof frameOf === 'function' ? frameOf : null;
     this.offer = normaliseOffer(null);
     this.cards = new Map();
     this.pairs = {};
@@ -617,6 +773,10 @@ export class VoxelSection {
         onError: (error) => this.onError(error, '3-D views'),
       });
     if (!hostEl) return;
+    // Which pair the selected frame does not draw, and where it is drawn.
+    this.frameNote = make('p', 'voxels-frame-note');
+    this.frameNote.hidden = true;
+    this.host.append(this.frameNote);
     for (const name of ['event', 'ensemble']) this.buildPair(name);
   }
 
@@ -711,17 +871,20 @@ export class VoxelSection {
   /** The 3-D cards' own controls: the scope, the event picker, the shower, the channel, the camera. */
   buildGlControls(record, actions) {
     const c = record.controls;
+    // The scope, on both 3-D cards: in Local, which draws both pairs, it chooses
+    // between the cloud (the selection) and one event (syncControls).
+    const scope = make('span', 'seg');
+    scope.setAttribute('role', 'group');
+    scope.setAttribute('aria-label', 'What the 3-D view draws');
+    const scopeButtons = new Map();
+    for (const value of ['selection', 'event']) {
+      const button = miniButton(SCOPE_LABELS[value], SCOPE_TITLES[value], { voxelScope: value });
+      button.addEventListener('click', () => this.setScope(value));
+      scopeButtons.set(value, button);
+      scope.append(button);
+    }
+    Object.assign(c, { scope, scopeButtons });
     if (record.spec.pair === 'event') {
-      const scope = make('span', 'seg');
-      scope.setAttribute('role', 'group');
-      scope.setAttribute('aria-label', 'What the 3-D view draws');
-      const scopeButtons = new Map();
-      for (const value of ['selection', 'event']) {
-        const button = miniButton(SCOPE_LABELS[value], SCOPE_TITLES[value], { voxelScope: value });
-        button.addEventListener('click', () => this.setScope(value));
-        scopeButtons.set(value, button);
-        scope.append(button);
-      }
       const number = make('input', 'mini-select');
       number.type = 'number';
       number.min = '0';
@@ -760,12 +923,12 @@ export class VoxelSection {
       }
       const channel = this.channelSelect('voxelChannel', 'Colour the cubes by', EVENT_CHANNEL_LABELS,
         (value) => this.setValue({ voxel_channel: value }));
-      Object.assign(c, { scope, scopeButtons, number, prev, next, densest, pick, showers, showerButtons, channel });
+      Object.assign(c, { number, prev, next, densest, pick, showers, showerButtons, channel });
       actions.append(scope, number, prev, next, densest, pick, showers, channel);
     } else {
       c.channel = this.channelSelect('ensChannel', 'Colour the voxels by', ENSEMBLE_CHANNEL_LABELS,
         (value) => this.setValue({ ens_channel: value }));
-      actions.append(c.channel);
+      actions.append(scope, c.channel);
     }
     c.reset = miniButton('Reset view', 'Back to the opening camera: orthographic, 1:1:1', { voxelReset: record.spec.id });
     c.reset.addEventListener('click', () => this.resetCamera(record.spec.pair));
@@ -851,10 +1014,19 @@ export class VoxelSection {
     this.setValue({ voxel_event: eventNumber, voxel_scope: 'event' });
   }
 
-  /** Draw the selection, or one event. The selection forgets a pinned event, so the link means it. */
+  /**
+   * Draw the selection, or one event. The selection forgets a pinned event, so
+   * the link means it. In Local the pressed button's card can leave the screen
+   * with its pair: a keyboard reader's focus moves to the same button on the
+   * card now shown, as the slice row keeps its place (syncSlices).
+   */
   setScope(scope) {
     this.pickRule = null;
+    const focused = globalThis.document?.activeElement ?? null;
+    const pressed = Object.values(this.pairs).some((p) => [...(p.gl?.controls.scopeButtons?.values() ?? [])]
+      .includes(focused));
     this.setValue(scope === 'selection' ? { voxel_scope: 'selection', voxel_event: null } : { voxel_scope: 'event' });
+    if (pressed) this.pairs[this.onShow().pair]?.gl?.controls.scopeButtons?.get(scope)?.focus?.();
   }
 
   /**
@@ -886,15 +1058,101 @@ export class VoxelSection {
     }
   }
 
+  /** The frame the page draws in: the page's own answer where it gave one, else the link's. */
+  selectedFrame() {
+    return this.frameOf?.() ?? this.value('frame');
+  }
+
   eventView() {
     return resolveEventView({
-      frame: this.value('frame'), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
+      frame: this.selectedFrame(), channel: this.value('voxel_channel'), shower: this.value('voxel_shower'),
       scope: this.eventScope(),
     }, this.offer);
   }
 
   ensembleView() {
-    return resolveEnsembleView({ frame: this.value('frame'), channel: this.value('ens_channel') }, this.offer);
+    return resolveEnsembleView({ frame: this.selectedFrame(), channel: this.value('ens_channel') }, this.offer);
+  }
+
+  /**
+   * What the selected frame draws: which pairs it can draw (`pairDrawable`)
+   * and the one on show (`pairOnShow`, the scope choosing in Local).
+   */
+  onShow() {
+    const frame = this.selectedFrame();
+    const drawable = {
+      event: pairDrawable('event', { frame, offer: this.offer, drawn: this.eventView().frame }),
+      ensemble: pairDrawable('ensemble', { frame, offer: this.offer, drawn: this.ensembleView().frame }),
+    };
+    return { frame, drawable, pair: pairOnShow({ drawable, scope: this.eventScope() }) };
+  }
+
+  /** Whether a pair is on show. */
+  pairShown(name) {
+    return this.onShow().pair === name;
+  }
+
+  /** The scope the 3-D card on show draws: the cloud is the selection; the event pair says its own. */
+  shownScope() {
+    return this.onShow().pair === 'ensemble' ? 'selection' : this.eventView().scope;
+  }
+
+  /**
+   * Show the pair the selected frame draws (in Local, the one the scope
+   * chooses) and hide the other, with the note that says where a pair the
+   * frame cannot draw is drawn. Hiding only sets the pair's `hidden`: its
+   * cards, charts and WebGL context are kept, and a hidden pair never loads
+   * (keyOf). Returns whether anything changed.
+   */
+  syncPairs() {
+    const { frame, drawable, pair: onShow } = this.onShow();
+    let changed = false;
+    for (const name of ['event', 'ensemble']) {
+      const pair = this.pairs[name];
+      if (!pair) continue;
+      const shown = onShow === name;
+      if (pair.element.hidden === shown) changed = true;
+      pair.element.hidden = !shown;
+    }
+    if (this.frameNote) {
+      const text = framePairsNote({ frame, offer: this.offer, drawable, scope: this.eventScope() });
+      this.frameNote.textContent = text;
+      this.frameNote.hidden = !text;
+    }
+    return changed;
+  }
+
+  /**
+   * Why a deep link's card is not on show, when the selected frame cannot
+   * draw its pair: one sentence for the page's banner, or null (the frame
+   * draws it; `revealPair` brings it on show).
+   */
+  frameNotice(panelId) {
+    const spec = VOXEL_CARDS.find((s) => s.id === panelId);
+    if (!spec || !this.offer.shown) return null;
+    const { frame, drawable } = this.onShow();
+    if (drawable[spec.pair]) return null;
+    const frames = pairChoices(spec.pair, { frame, offer: this.offer });
+    if (!frames.length) return null;
+    const n = this.offer.nShowers ?? 2;
+    return `The Methodology linked to ${PAIR_NAMES[spec.pair]}, which is not drawn in ${frameLabel(frame, n)}, `
+      + `the frame on screen: choose ${frameList(frames, n)} under Reference Frame`
+      + `${scopeClause(PAIR_SCOPE[spec.pair], this.eventScope())} to see it.`;
+  }
+
+  /**
+   * Bring a deep link's 3-D card on show where the selected frame draws its
+   * pair: in Local, which draws both, the scope that shows it (the cloud is
+   * the selection), as a subpage tab switches first. The frame is never
+   * changed. Returns whether the scope changed.
+   */
+  revealPair(panelId) {
+    const spec = VOXEL_CARDS.find((s) => s.id === panelId);
+    if (!spec || !this.offer.shown) return false;
+    const { drawable, pair } = this.onShow();
+    if (!drawable[spec.pair] || pair === spec.pair) return false;
+    this.setScope(spec.pair === 'ensemble' ? 'selection' : 'event');
+    return true;
   }
 
   /** Whether the 3-D charts can be drawn: WebGL and the vendored echarts-gl. */
@@ -917,7 +1175,6 @@ export class VoxelSection {
     for (const name of ['event', 'ensemble']) {
       const pair = this.pairs[name];
       if (!pair) continue;
-      pair.element.hidden = !this.offer.shown;
       const view = this.offer[name];
       const reason = view.enabled ? null : (view.reason ?? 'This view is not available for this experiment.');
       for (const record of [pair.gl, ...pair.cells]) {
@@ -930,6 +1187,7 @@ export class VoxelSection {
         }
       }
     }
+    this.syncPairs();
     this.syncControls();
     this.lazy.forget();
   }
@@ -980,6 +1238,9 @@ export class VoxelSection {
    * superseded request is not a failure.
    */
   async refresh() {
+    this.syncPairs();
+    // A pair shown again with its response in hand loads nothing: its controls follow the frame here.
+    this.syncControls();
     if (!this.offer.shown) return [];
     const started = [];
     for (const pair of Object.values(this.pairs)) {
@@ -1692,15 +1953,6 @@ export class VoxelSection {
       if (c.densest) c.densest.classList.toggle('is-active', !Number.isInteger(n));
       const view = this.eventView();
       const selection = view.scope === 'selection';
-      if (c.scopeButtons) {
-        for (const [value, button] of c.scopeButtons) {
-          button.classList.toggle('is-active', value === view.scope);
-          button.setAttribute('aria-pressed', String(value === view.scope));
-        }
-        const whole = c.scopeButtons.get('selection');
-        whole.disabled = !view.selectionOffered;
-        whole.title = view.selectionOffered ? SCOPE_TITLES.selection : SELECTION_SHUT;
-      }
       // The event picker belongs to one event; the selection has none to step through.
       for (const control of [c.number, c.prev, c.next, c.densest, c.pick]) if (control) control.hidden = selection;
       if (c.showers) {
@@ -1743,7 +1995,31 @@ export class VoxelSection {
       this.syncChannel(c.channel, this.offer.ensemble, this.ensembleView().channel);
       c.reset.disabled = !ensemble.model;
     }
+    this.syncScope();
     for (const pair of Object.values(this.pairs)) this.syncSlices(pair);
+  }
+
+  /**
+   * The scope buttons of both 3-D cards: the scope on show pressed, and each
+   * scope the selected frame does not draw shut with why (`scopeOffer`).
+   */
+  syncScope() {
+    const { frame, drawable } = this.onShow();
+    const offered = scopeOffer({
+      frame, offer: this.offer, drawable, selectionOnCells: drawable.event && this.eventView().selectionOffered,
+      scope: this.eventScope(),
+    });
+    const active = this.shownScope();
+    for (const pair of Object.values(this.pairs)) {
+      const buttons = pair.gl?.controls.scopeButtons;
+      if (!buttons) continue;
+      for (const [value, button] of buttons) {
+        button.classList.toggle('is-active', value === active);
+        button.setAttribute('aria-pressed', String(value === active));
+        button.disabled = !offered[value].enabled;
+        button.title = offered[value].title;
+      }
+    }
   }
 
   /** A channel select: the drawn channel selected, the ones the experiment cannot serve disabled with why. */
@@ -2139,7 +2415,8 @@ export class VoxelSection {
       const pair = this.pairs[record.spec.pair];
       const payload = record.spec.gl ? pair.payloads.voxels
         : (pair.name === 'event' && pair.view?.scope !== 'selection' ? pair.payloads.raster : pair.payloads.projections);
-      if (!payload || record.disabled) continue;
+      // A pair off show (the frame's other, or Local's other choice) puts no warning above the one on show.
+      if (!payload || record.disabled || pair.element.hidden) continue;
       out.push(...warningsNotShown(payload.meta?.warnings ?? [], notesText(this.notes(record.spec.id))));
     }
     return warningsNotShown(out);
