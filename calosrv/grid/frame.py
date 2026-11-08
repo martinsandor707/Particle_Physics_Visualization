@@ -85,6 +85,13 @@ PREVIEW_MAX_SUBSAMPLE = 2
 #: Harmless to the ensemble density (it only averages azimuthally) but counted.
 ILL_CONDITIONED_D_MM = 80.0
 
+#: Above this share of a selection's events below ILL_CONDITIONED_D_MM the
+#: ill-conditioned events are the majority: the D-frame cannot separate the
+#: showers and draws them superimposed about the origin, and the notice says so
+#: instead of reading as a minority caveat. On the electron and muon two-shower
+#: datasets 96.6% / 97.5% of the events enter closer than 80 mm apart.
+ILL_CONDITIONED_MAJORITY = 0.5
+
 #: Dynamic range of the relative colour ramp, in decades below the reference
 #: peak: 10^-3 .. 1.0 by the directive's explicit bounds.
 RAMP_DECADES = 3.0
@@ -134,6 +141,15 @@ SHOWER_RADIUS_MIN_MM = 200.0
 #: above for no statistical reason: 1.25x at E1, E2 < 2 GeV, 2x at < 1.5 GeV
 #: and 2.5x at < 1 GeV, whose +-80 mm is held at this 100 mm floor instead.
 WINDOW_FLOOR_FOOTPRINTS = 2
+
+#: The D-frame's x' window is capped at the extent of the drawn field
+#: (``query/window.py: cap_axis``): components of drawn x' bins, where a run of
+#: undrawn bins no wider than this many cell footprints (48.6 mm on production)
+#: is bridged and a wider one splits them. On the electron and muon two-shower
+#: datasets the ~3% of well-separated pairs push the 0.1-99.9 percentile
+#: half-width to +-1,740 / +-1,820 mm, but averaged over the selection they sit
+#: below the 10^-3 display floor, so the drawn field ends near +-186 mm.
+WINDOW_CAP_GAP_FOOTPRINTS = 1
 
 #: A consecutive-gap below this fraction of the 90th-percentile gap is a "twin"
 #: (the same column seen in an adjacent row block, offset 4.4 mm).

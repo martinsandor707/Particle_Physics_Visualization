@@ -493,7 +493,18 @@ def test_canonical_continuous_mode_reconstructs_the_symmetric_window(client):
     assert native["meta"]["resolution"]["kernel"]["type"] == "none"
     # Both modes crop the same symmetric window.
     assert body["panels"]["xy"]["axes"]["col"]["lo"] == pytest.approx(-body["panels"]["xy"]["axes"]["col"]["hi"])
-    assert body["frame"]["fit"] == native["frame"]["fit"]
+    # The x′ cap adds the display kernel's reach (Gaussian here, none in Native
+    # Grid), so its reach and limit differ; on the two demo events it tightens
+    # neither window, so everything else - the windows themselves - agrees.
+    def without_reach(fit):
+        fit = json.loads(json.dumps(fit))
+        for panel, axis in (("xy", "col"), ("xz", "row")):
+            cap = fit[panel][axis]["cap"]
+            assert cap is not None and cap["applied"] is False
+            del cap["reach_mm"], cap["limit"]
+        return fit
+
+    assert without_reach(body["frame"]["fit"]) == without_reach(native["frame"]["fit"])
     for payload in body["panels"].values():
         assert payload["kernel"] == "gaussian"
         # The in-window energy after reconstruction and the disclosed outside share agree.
@@ -609,8 +620,8 @@ def _narrow_entrance_window(real_fit):
 
     from calosrv.query import window
 
-    def fit(bundle):
-        base = real_fit(bundle)
+    def fit(bundle, **kwargs):
+        base = real_fit(bundle, **kwargs)
         grid = bundle.grid
         plane = bundle.xy.planes["e"]
         row = _centred_axis(plane.sum(axis=1), grid.y_edges, 100.0)

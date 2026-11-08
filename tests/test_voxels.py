@@ -634,14 +634,25 @@ def test_the_d_frame_cloud_states_the_2d_frame_disclosures(synthetic_client, mon
     assert cloud["frame"]["n_ill_conditioned"] == n_ill
     assert cloud["frame"]["ill_conditioned_threshold_mm"] == panels["frame"]["ill_conditioned_threshold_mm"]
     assert cloud["frame"]["anchor_residual"] == panels["frame"]["anchor_residual"]
+    # The share and the majority flag travel with the count, identically.
+    n_events = panels["frame"]["n_events"]
+    for key in ("ill_conditioned_share", "ill_conditioned_majority"):
+        assert cloud["frame"][key] == panels["frame"][key], key
+    assert panels["frame"]["ill_conditioned_share"] == pytest.approx(n_ill / n_events, abs=1e-6)
     two_d = [notice["text"] for notice in panels["meta"]["notices"]]
     three_d = cloud["meta"]["notices"]
     said = [t for t in three_d if "enter closer than" in t]
     assert any("enter closer than" in t for t in two_d) == bool(n_ill) == bool(said)
     if n_ill:
         # The 2-D sentence without its axis-statistics clause: the cloud draws no axis.
-        assert said == [typographic(frame_canonical.ill_conditioned_notice(n_ill, axis_statistics=False))]
-        assert said[0].startswith(f"{n_ill:,} event(s) enter closer than {threshold:.0f} mm")
+        assert said == [typographic(frame_canonical.ill_conditioned_notice(
+            n_ill, n_events, axis_statistics=False))]
+        assert said[0].startswith(
+            f"{n_ill:,} of {n_events:,} events ({100.0 * n_ill / n_events:.1f}%) enter closer "
+            f"than {threshold:.0f} mm")
+        majority = n_ill / n_events > frame_mod.ILL_CONDITIONED_MAJORITY
+        assert ("Most of this selection is ill-conditioned" in said[0]) is majority
+        assert panels["frame"]["ill_conditioned_majority"] is majority
         assert "R̄′" not in said[0]
     assert [t for t in three_d if t.startswith("Anchor:")] == [
         typographic(t) for t in two_d if t.startswith("Anchor:")]

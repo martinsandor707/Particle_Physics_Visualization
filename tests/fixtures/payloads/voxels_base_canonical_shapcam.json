@@ -49,6 +49,8 @@
   "anchor": "entry_backprojection",
   "n_ill_conditioned": 0,
   "ill_conditioned_threshold_mm": 80.0,
+  "ill_conditioned_share": 0.0,
+  "ill_conditioned_majority": false,
   "anchor_residual": {
    "a": {
     "median": 177.9957881489043,
