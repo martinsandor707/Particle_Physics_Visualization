@@ -360,9 +360,11 @@ def build_response(
     # actually draw (plus the kernel's reach), so a selection whose few
     # well-separated pairs sit below the display floor is not framed in a
     # panel that is nine-tenths empty. The y' axes and depth are unchanged.
+    # The cap adds the Continuous Field kernel's reach in both display modes, so
+    # the Native Grid audit view crops exactly as Continuous Field does.
     fit = window.fit_window(
-        bundle, cap_x=True, kernel=kernel, channel=channel, weighting=weighting,
-        display=display, reference=reference, depth_pool=pool,
+        bundle, cap_x=True, kernel=reconstruct.choose_kernel(MODE_CONTINUOUS, stats.n_events),
+        channel=channel, weighting=weighting, display=display, reference=reference, depth_pool=pool,
     )
     depth_block = layer_profile.depth_layers(
         FRAME_CANONICAL, record, edges=depth_edges,
@@ -624,6 +626,16 @@ def ill_conditioned_fields(n_ill: int | None, n_events: int) -> dict[str, Any]:
     }
 
 
+def _share_percent(share: float) -> str:
+    """A share to one decimal, never "100.0%" short of 1 nor "0.0%" above 0 (as the drawers write it)."""
+    text = f"{100.0 * share:.1f}"
+    if share < 1.0 and text == "100.0":
+        text = "99.9"
+    elif share > 0.0 and text == "0.0":
+        text = "0.1"
+    return f"{text}%"
+
+
 def ill_conditioned_notice(n_ill: int, n_events: int, *,
                            axis_statistics: bool = True) -> str | None:
     """The D-frame's sentence for events whose entry anchors are too close to fix a rotation.
@@ -637,7 +649,7 @@ def ill_conditioned_notice(n_ill: int, n_events: int, *,
     if not n_ill:
         return None
     share = ill_conditioned_share(n_ill, n_events)
-    of = f" of {n_events:,} events ({100.0 * share:.1f}%)" if share is not None else " event(s)"
+    of = f" of {n_events:,} events ({_share_percent(share)})" if share is not None else " event(s)"
     text = (
         f"{n_ill:,}{of} enter closer than {frame_mod.ILL_CONDITIONED_D_MM:.0f} mm apart, "
         "so their rotation angle is dominated by the anchor uncertainty and effectively "

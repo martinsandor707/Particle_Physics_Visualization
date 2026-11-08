@@ -11,6 +11,8 @@ every number is known; the API checks at the end use the synthetic fixtures.
 
 from __future__ import annotations
 
+import base64
+import itertools
 import math
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -47,6 +49,8 @@ class FakeBundle:
     n: int
     footprint: tuple[float, float] = FOOTPRINT
     extra: dict[str, Any] = field(default_factory=dict)
+    #: Read by the renderer (``density.render_canonical``) for its notes.
+    subsample_k: int = 3
 
     @property
     def n_events(self) -> int:
@@ -299,9 +303,9 @@ def test_the_limit_adds_the_display_kernels_reach(kernel, display, reach):
     assert cap["limit"] == _snap(cap["drawn_half_width"] + reach)
     assert cap["applied"] and fit.xy.col.half_width == cap["limit"]
     if reach:
-        assert f"plus the display kernel's {reach:.0f} mm reach" in fit.note
+        assert f"plus the {reach:.0f} mm reach of the Continuous Field kernel" in fit.note
     else:
-        assert "no kernel reach in Native Grid" in fit.note
+        assert "(no kernel reach)" in fit.note
 
 
 def test_the_gaussian_reach_is_six_bins_and_the_tent_one():
@@ -369,15 +373,163 @@ def test_a_slice_brighter_than_the_dataset_reference_widens_to_what_it_draws():
     assert bright.as_dict() == own.as_dict()
 
 
-def test_a_pooled_depth_axis_adds_its_own_mask():
+def test_a_pooled_depth_axis_counts_what_its_pooled_raster_draws():
+    """With layer groups on, X′Z′ draws the pooled raster, whose own peak is lower.
+
+    The core deposits in one layer; a far island spreads evenly over five. Below
+    10⁻³ of the core in every native layer, it clears the floor once five layers
+    are averaged: the pooled view draws it, so its bins are counted outside the
+    window there and nowhere else.
+    """
     from calosrv.grid import layer_groups
 
-    bundle = _bundle(_core_and_tail())
-    pool = layer_groups.pooled_operator(bundle.grid.axis("z").edges, (5, 5) + (0,) * 11)
-    plain = _capped(bundle)
-    pooled = _capped(bundle, depth_pool=pool)
-    # Flat in depth, so pooling changes nothing here; the call path is exercised.
-    assert pooled.xz.row.half_width == plain.xz.row.half_width
+    grid = _grid()
+    xe = grid.x_edges
+    core = 1000.0 * _gauss(xe, 0.0, 40.0)
+    gy = _gauss(grid.y_edges, 0.0, 40.0)
+    xz = np.zeros((xe.size - 1, N_Z))
+    xz[:, 0] = core
+    ix = int(np.searchsorted(xe, 1500.0))
+    xz[ix, :5] = 3e-4 * core.max()
+    yz = np.outer(gy, xz.sum(axis=0))
+    xy = np.outer(gy, xz[:, :3].sum(axis=1))
+    bundle = FakeBundle(grid, {"xy": {"e": xy}, "yz": {"e": yz}, "xz": {"e": xz}}, 100)
+    pool = layer_groups.pooled_operator(grid.axis("z").edges, (5, 5) + (0,) * 11)
+
+    def island_counted(cap) -> bool:
+        return any(side["side"] == 1 and side["range"][1] >= 1520.0 for side in cap["outside"]["sides"])
+
+    plain = _capped(bundle).xz.row.cap
+    pooled = _capped(bundle, depth_pool=pool).xz.row.cap
+    # (Both also count the core's own drawn tail at 140-160 mm, which the
+    # 0.1-99.9 rule has always cut: the cap is not applied here.)
+    assert not island_counted(plain), "below the floor in every native layer"
+    assert island_counted(pooled), "drawn once five layers are averaged"
+    (far,) = [side for side in pooled["outside"]["sides"] if side["side"] == 1]
+    assert far["range"] == [140.0, 1520.0] and far["bins"] == plain["outside"]["sides"][-1]["bins"] + 1
+
+
+# ------------------------------------------- judged by the real renderer ---
+
+#: Every display channel and weighting the D-frame serves.
+CHANNELS = (
+    ("density", "energy"), ("gradcam", "energy"), ("gradcam", "count"),
+    ("gradcam_energy", "energy"), ("shapcam", "energy"), ("shapcam", "count"),
+    ("shapcam_energy", "energy"),
+)
+
+
+def _full_fit(bundle: FakeBundle) -> window.WindowFit:
+    """The whole accumulation grid as the window, so a render shows every drawn bin."""
+    grid = bundle.grid
+    z = grid.axis("z").edges
+
+    def panel(name: str, row_edges, col_edges) -> window.PanelFit:
+        energy = float(np.asarray(bundle.planes[name]["e"]).sum())
+        return window.PanelFit(name, window._full(row_edges), window._full(col_edges), energy, energy)
+
+    return window.WindowFit(xy=panel("xy", grid.y_edges, grid.x_edges),
+                            yz=panel("yz", grid.y_edges, z), xz=panel("xz", grid.x_edges, z),
+                            n_events=bundle.n_events, floor_mm=100.0)
+
+
+def _random_bundle(rng: np.random.Generator) -> FakeBundle:
+    """Clusters at random places and strengths with sparse holes and stray hits, and CAM
+    planes (energy- and count-weighted, signed) consistent with the energy."""
+    grid = _grid()
+    xc = 0.5 * (grid.x_edges[:-1] + grid.x_edges[1:])
+    yc = 0.5 * (grid.y_edges[:-1] + grid.y_edges[1:])
+    zc = np.arange(N_Z)
+    shape = (xc.size, yc.size, N_Z)
+    E, G, SP, SN, N = (np.zeros(shape) for _ in range(5))
+    for i in range(int(rng.integers(1, 6))):
+        mx, my = rng.normal(0.0, rng.choice([30.0, 300.0, 1000.0])), rng.normal(0.0, 40.0)
+        sx, sy = rng.uniform(15.0, 80.0, size=2)
+        amp = 1.0 if i == 0 else 10.0 ** rng.uniform(-3.5, 0.0)
+        e = (amp * np.exp(-0.5 * ((xc[:, None] - mx) / sx) ** 2 - 0.5 * ((yc[None, :] - my) / sy) ** 2)[:, :, None]
+             * np.exp(-zc / rng.uniform(2.0, 8.0))[None, None, :])
+        e = e * (rng.random(shape) < rng.uniform(0.3, 1.0))
+        cam = rng.uniform(-1.0, 1.0, shape)
+        E += e
+        G += e * np.abs(cam)
+        SP += e * np.clip(cam, 0.0, None)
+        SN += e * np.clip(cam, None, 0.0)
+        N += e > 0
+    for _ in range(int(rng.integers(0, 20))):
+        ix, iy, iz = int(rng.integers(xc.size)), int(rng.integers(yc.size)), int(rng.integers(N_Z))
+        v, c = 10.0 ** rng.uniform(-6.0, -1.0), rng.uniform(-1.0, 1.0)
+        E[ix, iy, iz] += v
+        G[ix, iy, iz] += v * abs(c)
+        SP[ix, iy, iz] += v * max(c, 0.0)
+        SN[ix, iy, iz] += v * min(c, 0.0)
+        N[ix, iy, iz] += 1
+    safe = np.maximum(E, 1e-300)
+    volumes = {"e": E, "eg": G, "esp": SP, "esn": SN, "n": N,
+               "g": np.where(N > 0, G / safe, 0.0) * N, "s": (SP + SN) / safe * N}
+    planes: dict[str, dict[str, np.ndarray]] = {"xy": {}, "yz": {}, "xz": {}}
+    for key, volume in volumes.items():
+        planes["xy"][key] = volume[:, :, :3].sum(axis=2).T
+        planes["yz"][key] = volume.sum(axis=0)
+        planes["xz"][key] = volume.sum(axis=1)
+    return FakeBundle(grid, planes, int(rng.choice([3, 10, 30, 100, 5000])))
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_every_drawn_bin_beyond_a_capped_window_is_counted_as_the_renderer_draws_it(seed):
+    """Judged by ``density.render_canonical`` itself, never by ``drawn_masks``.
+
+    The whole grid is rendered for every channel and both display modes. Every
+    x′ display bin it draws beyond the capped window (X′Y′ within the window's
+    own y′ rows) must lie on a side ``cap.outside`` counts, within the kernel's
+    reach of the counted range; in Native Grid, where a display bin is a raw
+    bin, the counts must agree exactly, so nothing undrawn is counted either.
+    """
+    from calosrv.query import density, reconstruct
+
+    rng = np.random.default_rng(seed)
+    bundle = _random_bundle(rng)
+    full = _full_fit(bundle)
+    for (channel, weighting), mode in itertools.product(CHANNELS, (MODE_CONTINUOUS, MODE_NATIVE)):
+        capped = window.fit_window(
+            bundle, cap_x=True, kernel=reconstruct.choose_kernel(MODE_CONTINUOUS, bundle.n_events),
+            channel=channel, weighting=weighting, display=mode)
+        rendered = density.render_canonical(
+            bundle, full, mode, 150, channel, weighting, limit=10 ** 9,
+            kernel=reconstruct.choose_kernel(mode, bundle.n_events))
+        for name, key, axis in (("xy", "col", capped.xy.col), ("xz", "row", capped.xz.row)):
+            panel = rendered["panels"][name]
+            drawn = (np.frombuffer(base64.b64decode(panel["data"]), dtype=np.uint8)
+                     .reshape(panel["shape"]) >= panel["min_code"])
+            ax = panel["axes"][key]
+            edges = np.linspace(ax["lo"], ax["hi"], ax["n"] + 1)
+            centres = 0.5 * (edges[:-1] + edges[1:])
+            if name == "xy":
+                other = panel["axes"]["row"]
+                rows = np.linspace(other["lo"], other["hi"], other["n"] + 1)
+                row_c = 0.5 * (rows[:-1] + rows[1:])
+                inside_rows = (row_c > capped.xy.row.lo) & (row_c < capped.xy.row.hi)
+                profile = drawn[inside_rows].any(axis=0)
+            else:
+                profile = drawn.any(axis=1)
+            cap = axis.cap
+            pitch = float(edges[1] - edges[0])
+            tol = cap["reach_mm"] + pitch
+            counted = {side["side"]: side for side in cap["outside"]["sides"]}
+            case = (seed, channel, weighting, mode, name)
+            for side, beyond in ((-1, centres < axis.lo), (1, centres > axis.hi)):
+                shown = centres[profile & beyond]
+                if mode == MODE_NATIVE:
+                    # A display bin is a raw bin: the counts agree exactly.
+                    assert len(shown) == (counted[side]["bins"] if side in counted else 0), (case, side)
+                    continue
+                # Continuous Field: a bin straddling the edge, or holding the
+                # kernel's smear of a drawn bin inside the window, is within the
+                # reach of the edge; any drawn bin further out is a counted island.
+                edge = axis.hi if side == 1 else axis.lo
+                for c in shown[np.abs(shown - edge) > tol]:
+                    entry = counted.get(side)
+                    assert entry is not None, (case, "uncounted drawn bin at", float(c))
+                    assert entry["range"][0] - tol <= c <= entry["range"][1] + tol, (case, float(c), entry)
 
 
 # ---------------------------------------------------------------- (g) ---
@@ -419,7 +571,7 @@ def test_the_canonical_response_carries_the_cap_and_the_ill_conditioned_share(sy
         cap = fit[panel][axis]["cap"]
         assert cap["rule"] == "drawn_extent"
         assert set(cap) == {"rule", "applied", "percentile_half_width", "drawn_half_width",
-                            "reach_mm", "limit", "gap_mm", "floor_ratio", "rho_ref", "outside"}
+                            "reach_mm", "limit", "gap_mm", "floor_ratio", "rho_ref", "mask", "outside"}
         assert set(cap["outside"]) == {"bins", "energy_fraction", "sides"}
         assert fit[panel][axis]["half_width"] <= cap["percentile_half_width"]
     for panel, axis in (("xy", "row"), ("yz", "row"), ("yz", "col"), ("xz", "col")):

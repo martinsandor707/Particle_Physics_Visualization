@@ -98,6 +98,15 @@ CAP_RULE = "drawn_extent"
 #: percentile rule already leaves outside.
 CAP_ISLAND_SHARE = WINDOW_LOW_PERCENTILE / 100.0
 
+#: What the displayed channel draws, so a bin left outside is counted as it is
+#: drawn and the text words its floor (``cap.mask``): ``density``, a bin's
+#: <rho> at or above 10^-3 rho_ref (density, and a mean CAM in Continuous
+#: Field); ``channel``, an energy-weighted CAM's own |value| at or above 10^-3
+#: of its own peak; ``hits``, every bin with hits (a mean CAM in Native Grid).
+MASK_DENSITY = "density"
+MASK_CHANNEL = "channel"
+MASK_HITS = "hits"
+
 
 @dataclass(frozen=True)
 class AxisFit:
@@ -355,6 +364,10 @@ def cap_axis(
     rho_ref: float,
     floor_ratio: float,
     snap_mm: float = SNAP_MM,
+    outside_drawn: np.ndarray | None = None,
+    outside_energy: np.ndarray | None = None,
+    outside_moment: np.ndarray | None = None,
+    mask_rule: str = MASK_DENSITY,
 ) -> AxisFit:
     """Cap a centred x' window at the extent of the drawn field.
 
@@ -367,7 +380,10 @@ def cap_axis(
     :data:`CAP_ISLAND_SHARE` of the drawn energy is an island and does not set
     the cap. The limit - the kept components' outer edge plus ``reach_mm``,
     snapped outward and never below ``floor_mm`` - can only tighten ``fit``.
-    Every drawn bin outside the final window is counted in ``cap.outside``.
+    Every drawn bin outside the final window is counted in ``cap.outside``,
+    by ``outside_drawn`` / ``outside_energy`` / ``outside_moment`` when given:
+    what the displayed channel itself draws (``mask_rule``), which for an
+    energy-weighted CAM channel is narrower than the union that sets the extent.
     """
     e = np.asarray(edges, dtype=np.float64)
     n = int(e.size - 1)
@@ -412,24 +428,30 @@ def cap_axis(
     else:
         final = fit
 
+    # What is counted outside is what the channel draws, not the union.
+    shown = drawn if outside_drawn is None else np.asarray(outside_drawn, dtype=bool)
+    shown_energy = drawn_energy if outside_energy is None else np.where(
+        shown, np.asarray(outside_energy, dtype=np.float64), 0.0)
+    shown_moment = drawn_moment if outside_moment is None else np.where(
+        shown, np.asarray(outside_moment, dtype=np.float64), 0.0)
     index = np.arange(n)
     sides = []
     for side, beyond in ((-1, index < final.lo_index), (1, index >= final.hi_index)):
-        sel = drawn & beyond
+        sel = shown & beyond
         if not sel.any():
             continue
         where = np.flatnonzero(sel)
-        energy = float(drawn_energy[sel].sum())
+        energy = float(shown_energy[sel].sum())
         sides.append({
             "side": side,
             "bins": int(sel.sum()),
             "energy_fraction": round(energy / panel_energy, 8) if panel_energy > 0 else 0.0,
             "range": [float(e[where[0]]), float(e[where[-1] + 1])],
-            "at": round(float(drawn_moment[sel].sum()) / energy, 3) if energy > 0 else None,
+            "at": round(float(shown_moment[sel].sum()) / energy, 3) if energy > 0 else None,
         })
     outside_bins = sum(side["bins"] for side in sides)
     outside_energy = float(sum(
-        drawn_energy[drawn & ((index < final.lo_index) | (index >= final.hi_index))]))
+        shown_energy[shown & ((index < final.lo_index) | (index >= final.hi_index))]))
 
     cap = {
         "rule": CAP_RULE,
@@ -441,6 +463,7 @@ def cap_axis(
         "gap_mm": round(float(gap_mm), 3),
         "floor_ratio": float(floor_ratio),
         "rho_ref": float(rho_ref),
+        "mask": mask_rule,
         "outside": {
             "bins": int(outside_bins),
             "energy_fraction": (round(outside_energy / panel_energy, 8)
@@ -486,11 +509,15 @@ def drawn_masks(
     if depth_pool is not None:
         variants.append(_variant_masks(bundle, view, native, reference, depth_pool, floor_ratio))
     masks = dict(variants[0]["masks"])
+    render = dict(variants[0]["render"])
     if len(variants) == 2:
         layers = (np.asarray(depth_pool.op) > 0).astype(np.float64)
         pooled = variants[1]["masks"]["xz"].astype(np.float64) @ layers
         masks["xz"] = masks["xz"] | (pooled > 0)
-    return {"masks": masks, "rho_ref": variants[0]["rho_ref"], "floor_ratio": floor_ratio}
+        # With layer groups on, X'Z' draws the pooled raster and nothing else.
+        render["xz"] = (variants[1]["render"]["xz"].astype(np.float64) @ layers) > 0
+    return {"masks": masks, "render": render, "rule": variants[0]["rule"],
+            "rho_ref": variants[0]["rho_ref"], "floor_ratio": floor_ratio}
 
 
 def _peak(values: np.ndarray, signed: bool = False) -> float:
@@ -536,51 +563,79 @@ def _variant_masks(bundle, view, native, reference, pool, floor_ratio) -> dict[s
             cam = (values, peaks, signed)
 
     masks = {}
+    render = {}
+    rule = MASK_DENSITY
     for name, group in (("xy", "xy"), ("xz", "depth")):
         peak = ref[group]
         r = rho[name]
         density_drawn = (r > 0) & (r >= floor_ratio * peak) if peak > 0 else np.zeros(r.shape, bool)
+        # ``mask`` sets the window's extent; ``render[name]`` is what the channel
+        # itself draws, which is what a bin left outside is counted against.
         if view.kind == planes_mod.KIND_RATIO:
             den = plane(name, view.denominator)
             if native or peak <= 0:
                 mask = (den if den is not None else energy[name]) > 0
+                rule = MASK_HITS
             else:
                 mask = density_drawn
+                rule = MASK_DENSITY
+            render[name] = mask
         elif cam is not None:
             values, peaks, signed = cam
             v = np.abs(values[name]) if signed else values[name]
             own = (energy[name] > 0) & (v >= floor_ratio * peaks[group]) if peaks[group] > 0 \
                 else np.zeros(r.shape, bool)
+            # The extent takes the union, so switching channel never shrinks the
+            # window below the density view's; the channel draws only its own.
             mask = density_drawn | own
+            render[name] = own
+            rule = MASK_CHANNEL
         else:
             mask = density_drawn
+            render[name] = mask
+            rule = MASK_DENSITY
         masks[name] = mask
-    return {"masks": masks, "rho_ref": ref}
+    return {"masks": masks, "render": render, "rule": rule, "rho_ref": ref}
 
 
 def _cap_panel(panel: PanelFit, matrix: np.ndarray, mask: np.ndarray, x_on_cols: bool,
                other_centres: np.ndarray, x_edges: np.ndarray, pitch: float, floor_mm: float,
-               **kwargs: Any) -> PanelFit:
-    """Cap a panel's x' axis: X'Y' columns within its y' rows, or X'Z' rows over all depth."""
+               render: np.ndarray | None = None, **kwargs: Any) -> PanelFit:
+    """Cap a panel's x' axis: X'Y' columns within its y' rows, or X'Z' rows over all depth.
+
+    ``mask`` sets the extent; ``render`` (default ``mask``) is what the channel
+    draws, against which the bins left outside are counted.
+    """
     m = np.asarray(matrix, dtype=np.float64)
+    shown = np.asarray(mask if render is None else render, dtype=bool)
     if x_on_cols:
         rows = slice(panel.row.lo_index, panel.row.hi_index)
-        sub, mk = m[rows], np.asarray(mask, dtype=bool)[rows]
-        weighted = np.where(mk, sub, 0.0)
-        drawn, drawn_energy = mk.any(axis=0), weighted.sum(axis=0)
-        moment = (weighted * np.asarray(other_centres)[rows][:, None]).sum(axis=0)
+        centres = np.asarray(other_centres)[rows][:, None]
+
+        def profile(bins: np.ndarray):
+            sub = np.where(bins[rows], m[rows], 0.0)
+            return bins[rows].any(axis=0), sub.sum(axis=0), (sub * centres).sum(axis=0)
+
+        drawn, drawn_energy, moment = profile(np.asarray(mask, dtype=bool))
+        out_drawn, out_energy, out_moment = profile(shown)
         axis = cap_axis(panel.col, m.sum(axis=0), x_edges, pitch, floor_mm, drawn=drawn,
                         drawn_energy=drawn_energy, drawn_moment=moment,
-                        panel_energy=float(m.sum()), **kwargs)
+                        panel_energy=float(m.sum()), outside_drawn=out_drawn,
+                        outside_energy=out_energy, outside_moment=out_moment, **kwargs)
         row, col = panel.row, axis
     else:
-        mk = np.asarray(mask, dtype=bool)
-        weighted = np.where(mk, m, 0.0)
-        drawn, drawn_energy = mk.any(axis=1), weighted.sum(axis=1)
-        moment = (weighted * np.asarray(other_centres)[None, :]).sum(axis=1)
+        centres = np.asarray(other_centres)[None, :]
+
+        def profile(bins: np.ndarray):
+            sub = np.where(bins, m, 0.0)
+            return bins.any(axis=1), sub.sum(axis=1), (sub * centres).sum(axis=1)
+
+        drawn, drawn_energy, moment = profile(np.asarray(mask, dtype=bool))
+        out_drawn, out_energy, out_moment = profile(shown)
         axis = cap_axis(panel.row, m.sum(axis=1), x_edges, pitch, floor_mm, drawn=drawn,
                         drawn_energy=drawn_energy, drawn_moment=moment,
-                        panel_energy=float(m.sum()), **kwargs)
+                        panel_energy=float(m.sum()), outside_drawn=out_drawn,
+                        outside_energy=out_energy, outside_moment=out_moment, **kwargs)
         row, col = axis, panel.col
     kept = float(m[row.lo_index:row.hi_index, col.lo_index:col.hi_index].sum())
     return PanelFit(panel.name, row, col, float(m.sum()), kept)
@@ -629,16 +684,23 @@ class WindowFit:
                 f"±{_mm(axis.cap['percentile_half_width'])} mm"
                 for name, axis in applied
             )
-            reach_words = (f" plus the display kernel's {_mm(reach)} mm reach" if reach > 0
-                           else " (no kernel reach in Native Grid)")
+            # The caller passes the Continuous Field kernel in both display modes,
+            # so the Native Grid audit view crops as Continuous Field does.
+            reach_words = (f" plus the {_mm(reach)} mm reach of the Continuous Field kernel "
+                           "(in both display modes, so the two crop alike)" if reach > 0
+                           else " (no kernel reach)")
             # Islands left beyond a capped window are drawn bins: the claim that
             # nothing beyond it is drawn holds only apart from them.
             islands = any(axis.cap["outside"]["bins"] for _, axis in applied)
             except_words = ", apart from the isolated bins counted below," if islands else ""
+            # What "drawn" means for the channel on show (``cap.mask``).
+            rule = applied[0][1].cap.get("mask", MASK_DENSITY)
+            drawn_words = ("holds a hit, which Native Grid draws" if rule == MASK_HITS
+                           else f"reaches the {_floor_label()} display floor")
             text += (
                 f" The {x} half-width is capped at the extent of the drawn field{reach_words}, "
                 f"below the percentile rule's ({parts}): beyond it{except_words} no bin of this "
-                f"selection reaches the {_floor_label()} display floor, so nothing would be drawn there."
+                f"selection {drawn_words}, so nothing would be drawn there."
             )
         beyond = []
         for name, axis in axes:
@@ -745,12 +807,13 @@ def fit_window(
             "gap_mm": frame_mod.WINDOW_CAP_GAP_FOOTPRINTS * cell,
             "floor_ratio": drawn["floor_ratio"],
         }
+        common["mask_rule"] = drawn["rule"]
         xy = _cap_panel(xy, bundle.xy.planes["e"], drawn["masks"]["xy"], True,
                         _centres(grid.y_edges), grid.x_edges, grid.pitch, floor_mm,
-                        rho_ref=drawn["rho_ref"]["xy"], **common)
+                        render=drawn["render"]["xy"], rho_ref=drawn["rho_ref"]["xy"], **common)
         xz = _cap_panel(xz, bundle.xz.planes["e"], drawn["masks"]["xz"], False,
                         _centres(z_edges), grid.x_edges, grid.pitch, floor_mm,
-                        rho_ref=drawn["rho_ref"]["depth"], **common)
+                        render=drawn["render"]["xz"], rho_ref=drawn["rho_ref"]["depth"], **common)
     return WindowFit(
         axis_words=f"{symbols['x']} and {symbols['y']}",
         xy=xy, yz=yz, xz=xz,

@@ -493,18 +493,11 @@ def test_canonical_continuous_mode_reconstructs_the_symmetric_window(client):
     assert native["meta"]["resolution"]["kernel"]["type"] == "none"
     # Both modes crop the same symmetric window.
     assert body["panels"]["xy"]["axes"]["col"]["lo"] == pytest.approx(-body["panels"]["xy"]["axes"]["col"]["hi"])
-    # The x′ cap adds the display kernel's reach (Gaussian here, none in Native
-    # Grid), so its reach and limit differ; on the two demo events it tightens
-    # neither window, so everything else - the windows themselves - agrees.
-    def without_reach(fit):
-        fit = json.loads(json.dumps(fit))
-        for panel, axis in (("xy", "col"), ("xz", "row")):
-            cap = fit[panel][axis]["cap"]
-            assert cap is not None and cap["applied"] is False
-            del cap["reach_mm"], cap["limit"]
-        return fit
-
-    assert without_reach(body["frame"]["fit"]) == without_reach(native["frame"]["fit"])
+    # The x′ cap adds the Continuous Field kernel's reach in both modes, so the
+    # Native Grid audit view crops exactly as Continuous Field does, cap included.
+    assert body["frame"]["fit"] == native["frame"]["fit"]
+    for panel, axis in (("xy", "col"), ("xz", "row")):
+        assert body["frame"]["fit"][panel][axis]["cap"]["reach_mm"] > 0
     for payload in body["panels"].values():
         assert payload["kernel"] == "gaussian"
         # The in-window energy after reconstruction and the disclosed outside share agree.
