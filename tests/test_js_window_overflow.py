@@ -146,6 +146,15 @@ out.none = { xy: Boolean(caretOf(build(empty, 'xy').option)), xz: Boolean(caretO
   // The recorded base fixture: its X′Z′ cap is not applied but one drawn row lies beyond.
   out.fixtureXz = Boolean(caretOf(build(base, 'xz').option));
 }
+// The drawing rule per channel (cap.mask) words the tooltip's floor.
+out.maskTips = {};
+for (const mask of ['density', 'channel', 'hits']) {
+  const p = withCaps(XY_SIDES, []);
+  p.frame.fit.xy.col.cap.mask = mask;
+  const { option } = build(p, 'xy');
+  const ext = proj.extentOf(p.panels.xy, cells.ensembleCellOptions(p, 'xy', 'viridis'));
+  out.maskTips[mask] = rendered(option, ext)[0].tip;
+}
 // The Marks toggle leaves the caret: it is a disclosure, not an overlay.
 out.marksHidden = Boolean(caretOf(build(capped, 'xy', { marksShown: false }).option));
 // Zoomed so the +x′ edge is out of view and the −x′ edge in view.
@@ -299,3 +308,12 @@ def test_a_zoom_hides_the_caret_whose_edge_is_out_of_view(out):
 def test_the_caret_ink_clears_three_to_one_on_every_card(out):
     for theme, ink in out["ink"].items():
         assert _contrast(ink["fill"], ink["card"]) >= 3.0, (theme, ink)
+
+
+
+def test_the_tooltip_words_the_floor_by_what_the_channel_draws(out):
+    tips = out["maskTips"]
+    assert "(at or above 10⁻³ of ρ<sub>ref</sub>)" in tips["density"]
+    assert "(at or above 10⁻³ of the channel’s own peak)" in tips["channel"]
+    assert "(bins with hits, which Native Grid always draws)" in tips["hits"]
+    assert "ρ<sub>ref</sub>" not in tips["hits"] and "own peak" not in tips["density"]

@@ -349,8 +349,11 @@ function illChip(frame) {
     + 'cannot separate their showers and draws them superimposed about the origin. Ill-conditioning is '
     + 'judged on the entry separation D_entry; raising D’s lower bound (the 3-D centroid distance) '
     + 'selects better-separated pairs.';
+  // A majority whose whole percent rounds to 50 would read as none: say so.
+  const share = illShare(frame);
+  const shown = Math.round(100 * share) <= 50 ? 'over 50%' : illPercent(share);
   return ` · <span class="tag-warn" title="${escapeHtml(title)}">`
-    + `${escapeHtml(illPercent(illShare(frame)))} enter &lt; ${escapeHtml(threshold)} mm apart</span>`;
+    + `${escapeHtml(shown)} enter &lt; ${escapeHtml(threshold)} mm apart</span>`;
 }
 
 /** ⟨D_entry⟩ with its interval, as HTML for the X′Y′ tag, plus the ill-conditioning chip; '' without events. */
@@ -482,12 +485,21 @@ export function windowPhrase(fit, id, sides) {
       if (cap.applied) {
         const half = Number.isFinite(axis.half_width)
           ? axis.half_width : Math.max(Math.abs(axis.range[0]), Math.abs(axis.range[1]));
-        limits.push(`${symbol} capped at the drawn field’s extent (±${formatInt(cap.drawn_half_width)} mm drawn `
-          + `plus the ${formatInt(cap.reach_mm)} mm kernel reach, snapped to ±${formatInt(half)} mm) below the `
-          + `±${formatInt(cap.percentile_half_width)} mm the percentile rule gives, because beyond it nothing `
-          + `is drawn at ${floorLabel({ floor_ratio: cap.floor_ratio ?? 1e-3 })} of ρ_ref`);
+        // The Continuous Field kernel's reach is added in both display modes.
+        const reach = cap.reach_mm > 0
+          ? ` plus the ${formatInt(cap.reach_mm)} mm reach of the Continuous Field kernel` : '';
+        const settle = axis.floored
+          ? `raised to the ±${formatInt(half)} mm floor` : `snapped to ±${formatInt(half)} mm`;
+        // What "drawn" means for the channel on show (the server's cap.mask).
+        const floor = floorLabel({ floor_ratio: cap.floor_ratio ?? 1e-3 });
+        const rule = cap.mask === 'hits' ? 'holds a hit'
+          : `reaches ${floor} of ${cap.mask === 'channel' ? 'the channel’s own peak' : 'ρ_ref'}`;
+        const except = cap.outside?.bins > 0 ? ', apart from the isolated bins counted next,' : '';
+        limits.push(`${symbol} capped at the drawn field’s extent (±${formatInt(cap.drawn_half_width)} mm drawn`
+          + `${reach}, ${settle}) below the ±${formatInt(cap.percentile_half_width)} mm the percentile rule `
+          + `gives, because beyond it${except} no bin ${rule}`);
       }
-      if (cap.outside?.bins > 0) beyond.push(cap.outside);
+      if (cap.outside?.bins > 0) beyond.push({ symbol, outside: cap.outside });
     }
   }
   const [p0, p1] = Array.isArray(fit.percentiles) && fit.percentiles.length >= 2
@@ -501,13 +513,17 @@ export function windowPhrase(fit, id, sides) {
  * energy and where they lie: islands far from the main field, marked at the
  * window edge. '' when there are none.
  */
-function beyondCapSentence(outsides) {
-  if (!outsides.length) return '';
-  const bins = outsides.reduce((total, o) => total + o.bins, 0);
-  const energy = outsides.reduce((total, o) => total + (o.energy_fraction || 0), 0);
-  const where = outsides.flatMap((o) => (o.sides || []).filter((side) => Array.isArray(side.range)))
-    .map((side) => `${formatInt(side.range[0])} to ${formatInt(side.range[1])} mm`);
-  const place = where.length ? ` at x′ ${where.join(' and ')}` : '';
+function beyondCapSentence(entries) {
+  if (!entries.length) return '';
+  const bins = entries.reduce((total, e) => total + e.outside.bins, 0);
+  const energy = entries.reduce((total, e) => total + (e.outside.energy_fraction || 0), 0);
+  // Each axis in the panel's own symbol: D on the entry panel, x′ on X′Z′.
+  const where = entries.map((e) => {
+    const ranges = (e.outside.sides || []).filter((side) => Array.isArray(side.range))
+      .map((side) => `${formatInt(side.range[0])} to ${formatInt(side.range[1])} mm`);
+    return ranges.length ? `${e.symbol} ${ranges.join(' and ')}` : null;
+  }).filter(Boolean);
+  const place = where.length ? ` at ${where.join('; ')}` : '';
   return `, with ${formatInt(bins)} drawn bin${bins === 1 ? '' : 's'} (${pct(energy, energy < 0.01 ? 3 : 2)} of the panel’s `
     + `energy) beyond it${place}, marked at the window edge`;
 }

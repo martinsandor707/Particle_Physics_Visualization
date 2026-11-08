@@ -529,8 +529,10 @@ function symmetricWindow(windowFit, fit, panel, symbols) {
     if (axis.clamped) limits.push(`${symbol} clamped to the accumulation window`);
     const cap = axis.cap;
     if (cap?.applied && Number.isFinite(cap.percentile_half_width)) {
+      // Islands left beyond the window are drawn: the claim concedes them.
+      const except = cap.outside?.bins > 0 ? ' but the isolated bins counted below' : '';
       limits.push(`${symbol} capped at the drawn field's extent, below the `
-        + `±${formatInt(cap.percentile_half_width)} mm the percentile rule gives, because nothing beyond it is drawn`);
+        + `±${formatInt(cap.percentile_half_width)} mm the percentile rule gives, because nothing beyond it${except} is drawn`);
     }
     if (cap?.outside?.bins > 0) {
       beyondBins += cap.outside.bins;
@@ -538,8 +540,10 @@ function symmetricWindow(windowFit, fit, panel, symbols) {
     }
   }
   if (!parts.length) return null;
+  // Three decimals below 1%, as the drawer's prose writes the same share.
+  const beyondShare = `${(100 * beyondEnergy).toFixed(beyondEnergy < 0.01 ? 3 : 2)}%`;
   const beyond = beyondBins > 0
-    ? ` ${formatInt(beyondBins)} drawn ${plural(beyondBins, 'bin')} holding ${percent(beyondEnergy)} of the `
+    ? ` ${formatInt(beyondBins)} drawn ${plural(beyondBins, 'bin')} holding ${beyondShare} of the `
       + "panel's energy lie beyond the window, marked at its edge."
     : '';
 

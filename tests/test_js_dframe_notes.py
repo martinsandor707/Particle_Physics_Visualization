@@ -119,6 +119,18 @@ for (const [name, p] of Object.entries({
   out.notes[name] = Object.fromEntries(['xy', 'yz', 'xz'].map((id) => [id, notesOf(p, id)]));
 }
 out.detailsHazard = pn.projectionNotes({ payload: electron, panelId: 'yz', isometric: {} }).hazards;
+// The drawing rule per channel (cap.mask), a cap raised to the floor, and a bare majority.
+out.rules = {
+  channel: phrase(capped({ bins: 0, energy_fraction: 0, sides: [] }, { mask: 'channel' }), 'xy', XY),
+  hits: phrase(capped({ bins: 0, energy_fraction: 0, sides: [] }, { mask: 'hits' }), 'xy', XY),
+  floored: phrase(withFrame({}, (p) => {
+    const fit = p.frame.fit;
+    fit.xy.col.range = [-100, 100]; fit.xy.col.half_width = 100; fit.xy.col.floored = true;
+    fit.xy.col.cap = { ...CAP_XY, drawn_half_width: 40, limit: 100, outside: { bins: 0, energy_fraction: 0, sides: [] } };
+  }), 'xy', XY),
+};
+out.tag.bare = fv.entryTag({ ...entryOf(electron), n_events: 2000, n_ill_conditioned: 1001,
+  ill_conditioned_share: 1001 / 2000, ill_conditioned_majority: true });
 console.log(JSON.stringify(out));
 """
 
@@ -228,24 +240,30 @@ def test_a_window_without_a_cap_reads_as_before(results):
 
 def test_an_applied_cap_names_the_drawn_extent_the_reach_and_the_percentile_rule(results):
     applied = results["phrase"]["applied"]
-    assert "D capped at the drawn field’s extent (±186 mm drawn plus the 20 mm kernel reach, snapped to ±200 mm)" in applied
+    assert ("D capped at the drawn field’s extent (±186 mm drawn plus the 20 mm reach of the Continuous "
+            "Field kernel, snapped to ±200 mm)") in applied
     assert "below the ±1,740 mm the percentile rule gives" in applied
-    assert "because beyond it nothing is drawn at 10⁻³ of ρ_ref" in applied
+    # Nothing is left outside here, so the claim is unqualified.
+    assert "because beyond it no bin reaches 10⁻³ of ρ_ref" in applied
     assert applied.startswith("Window D ±200 mm, y′ ±")
     assert "drawn bin" not in applied
 
 
 def test_islands_beyond_the_window_are_counted_placed_and_marked(results):
     islands = results["phrase"]["islands"]
-    assert islands.endswith(", with 2 drawn bins (0.012% of the panel’s energy) beyond it at x′ 1,260 to 1,300 mm, "
+    # The islands are drawn bins, so "nothing beyond it is drawn" concedes them (review finding 1),
+    # and they are placed in the panel's own symbol: D on the entry panel.
+    assert "because beyond it, apart from the isolated bins counted next, no bin reaches 10⁻³ of ρ_ref" in islands
+    assert islands.endswith(", with 2 drawn bins (0.012% of the panel’s energy) beyond it at D 1,260 to 1,300 mm, "
                             "marked at the window edge")
+    assert results["phrase"]["xz"].endswith("beyond it at x′ 1,260 to 1,300 mm, marked at the window edge")
     assert results["phrase"]["xz"].startswith("Window x′ ±200 mm")
 
 
 def test_negative_islands_use_the_true_minus_sign_and_both_sides(results):
     text = results["phrase"]["negIslands"]
     assert "3 drawn bins (0.310% of the panel’s energy)" in text
-    assert "at x′ −1,300 to −1,260 mm and 1,260 to 1,300 mm" in text
+    assert "at D −1,300 to −1,260 mm and 1,260 to 1,300 mm" in text
     assert not HYPHEN_NUMBER.search(text)
 
 
@@ -312,10 +330,26 @@ def test_the_disclosures_section_states_the_share_the_cap_and_the_islands(result
     islands = results["notes"]["islands"]
     for panel in ("xy", "xz"):
         assert ("capped at the drawn field's extent, below the ±1,740 mm the percentile rule gives, "
-                "because nothing beyond it is drawn") in islands[panel], panel
-        assert ("2 drawn bins holding 0.01% of the panel's energy lie beyond the window, "
+                "because nothing beyond it but the isolated bins counted below is drawn") in islands[panel], panel
+        assert ("2 drawn bins holding 0.012% of the panel's energy lie beyond the window, "
                 "marked at its edge.") in islands[panel], panel
+        assert "because nothing beyond it is drawn" not in islands[panel], panel
     assert "capped at the drawn field's extent" not in islands["yz"]
     for name in ("base", "minority", "legacy"):
         assert "capped at the drawn field" not in results["notes"][name]["xy"], name
         assert "beyond the window, marked" not in results["notes"][name]["xy"], name
+
+
+
+def test_the_drawing_rule_follows_the_channel_and_the_floor_is_named(results):
+    rules = results["rules"]
+    assert "because beyond it no bin reaches 10⁻³ of the channel’s own peak" in rules["channel"]
+    assert "because beyond it no bin holds a hit" in rules["hits"]
+    assert "ρ_ref" not in rules["hits"].split("capped")[1]
+    assert "raised to the ±100 mm floor" in rules["floored"] and "snapped" not in rules["floored"]
+
+
+def test_a_bare_majority_never_reads_fifty_percent(results):
+    bare = results["tag"]["bare"]
+    assert ">over 50% enter &lt; 80 mm apart<" in bare
+    assert "(50.0%)" in bare or "(50.1%)" in bare   # the title keeps the exact share

@@ -508,7 +508,10 @@ export function windowOverflowText(item, { symbol = 'x′', other = '', edge = n
   const { cap } = item;
   const n = item.bins;
   const bins = `${formatInt(n)} drawn bin${n === 1 ? '' : 's'}`;
-  const floor = Number.isFinite(cap?.floor_ratio) ? ` (above ${floorLabel({ floor_ratio: cap.floor_ratio })} of ρ<sub>ref</sub>)` : '';
+  // What "drawn" means for the channel on show (the server's cap.mask).
+  const ratio = Number.isFinite(cap?.floor_ratio) ? floorLabel({ floor_ratio: cap.floor_ratio }) : null;
+  const floor = cap?.mask === 'hits' ? ' (bins with hits, which Native Grid always draws)'
+    : ratio ? ` (at or above ${ratio} of ${cap?.mask === 'channel' ? 'the channel’s own peak' : 'ρ<sub>ref</sub>'})` : '';
   const edgeText = Number.isFinite(edge) ? ` at ${symbol} = ${formatInt(edge)} mm` : '';
   const at = Number.isFinite(item.at) && other ? `; energy-weighted ${other} = ${formatSigned(item.at, 1)} mm` : '';
   const why = [];
