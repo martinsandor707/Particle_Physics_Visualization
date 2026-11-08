@@ -83,6 +83,7 @@ out.hazards = {};
 for (const [name, p] of Object.entries({
   base, electron, minority, legacy,
   islandsXy: capped(ISLANDS), islandsNone: capped({ bins: 0, energy_fraction: 0, sides: [] }),
+  percentileCut: capped(ISLANDS, { applied: false }),
   both: withFrame(ELECTRON, (q) => {
     q.frame.fit.xy.col.cap = { ...CAP_XY, outside: ISLANDS };
     q.frame.fit.xz = { row: { applied: true, range: [-200, 200], half_width: 200, cap: { ...CAP_XY, outside: ISLANDS } } };
@@ -194,6 +195,19 @@ def test_the_beyond_window_hazard_is_per_axis_and_needs_drawn_bins(results):
     assert h["both"]["xy"] == [*h["base"]["xy"], "mostly ill-conditioned frame", "drawn bins beyond the window"]
     assert "drawn bins beyond the window" not in h["both"]["yz"]
     assert results["hazards"]["transCap"] == h["base"]["xy"]
+
+
+def test_drawn_bins_the_percentile_rule_always_cut_are_marked_but_not_a_hazard(results):
+    """Only an applied cap's islands raise the hazard.
+
+    The 0.1-99.9 rule has always cut a sliver of drawn halo (production: 15 x′
+    bins, 0.068% of the entry energy); the payload now counts them for the edge
+    mark and the drawer, but they are not a new warning on every production view.
+    """
+    h = results["hazards"]
+    assert all("drawn bins beyond the window" not in v for v in h["percentileCut"].values())
+    # The base recording itself has one such X′Z′ row (cap not applied, outside 1).
+    assert "drawn bins beyond the window" not in h["base"]["xz"]
 
 
 def test_the_drawer_carries_the_hazard(results):

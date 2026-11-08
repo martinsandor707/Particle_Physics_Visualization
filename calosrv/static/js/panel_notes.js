@@ -712,7 +712,10 @@ export function hazards(payload, panelId) {
     }
     const cap = panelId === 'xy' ? frame?.fit?.xy?.col?.cap
       : panelId === 'xz' ? frame?.fit?.xz?.row?.cap : null;
-    if (cap?.outside?.bins > 0) out.push('drawn bins beyond the window');
+    // Only where the cap itself left drawn islands out. The percentile rule has
+    // always cut a sliver of drawn halo (production: 15 x′ bins, 0.068% of the
+    // entry energy); those keep their edge mark and drawer count, not a hazard.
+    if (cap?.applied && cap.outside?.bins > 0) out.push('drawn bins beyond the window');
   }
   return out;
 }
