@@ -244,6 +244,16 @@
    reads as ⟨D_ENTRY⟩ and "mm" as "MM", which are different quantities. A direct
    rule beats the inherited transform without raising specificity. */
 .tag .sym { text-transform: none; letter-spacing: 0; }
+/* The D-frame's warning chip: most of the selection enters closer than the
+   ill-conditioning threshold. --warn is 4.5:1 or more on --card in both themes
+   (#d29922 on #1c2128, #8a5a00 on #ffffff); the dotted rule says it has a title. */
+.tag-warn {
+  color: var(--warn);
+  font-weight: 600;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
 
 .card .plot { width: 100%; height: 330px; }
 .card .plot.tall { height: 380px; }

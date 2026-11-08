@@ -704,6 +704,19 @@ export function hazards(payload, panelId) {
   if (frame?.comb?.staggered) out.push('measured comb');
   if (frame?.fit?.provisional) out.push('provisional fitted range');
   if (frame && frame.n_events === 0) out.push('empty frame');
+  if (kindOf(payload) === 'canonical') {
+    // The D-frame: a selection mostly inside the ill-conditioning threshold, and
+    // drawn bins left beyond a capped x′ window (D–Y′ columns, X′Z′ rows).
+    if (['xy', 'yz', 'xz'].includes(panelId) && frame?.ill_conditioned_majority) {
+      out.push('mostly ill-conditioned frame');
+    }
+    const cap = panelId === 'xy' ? frame?.fit?.xy?.col?.cap
+      : panelId === 'xz' ? frame?.fit?.xz?.row?.cap : null;
+    // Only where the cap itself left drawn islands out. The percentile rule has
+    // always cut a sliver of drawn halo (production: 15 x′ bins, 0.068% of the
+    // entry energy); those keep their edge mark and drawer count, not a hazard.
+    if (cap?.applied && cap.outside?.bins > 0) out.push('drawn bins beyond the window');
+  }
   return out;
 }
 

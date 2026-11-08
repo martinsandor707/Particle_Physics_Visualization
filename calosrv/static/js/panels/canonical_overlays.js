@@ -44,9 +44,20 @@
  * the two anchors can sit within 40 px of each other. On the light screen its
  * marks are drawn small there (`stripMarks`), so the rings, centroids and bars
  * of the two showers never meet across that gap and the cores stay in view.
+ *
+ * ## Drawn bins beyond the window
+ *
+ * The D-frame's x′ window may be capped at the drawn field's connected extent
+ * rather than its 0.1st–99.9th percentile half-width (the server's
+ * `frame.fit.<panel>.<axis>.cap`). Drawn bins it leaves outside are a clipping,
+ * and CLAUDE.md section 2 says to clip it and say so: `addWindowOverflow`
+ * draws an out-of-bounds caret on the window edge they lie beyond, at their
+ * energy-weighted position along the other axis, its tooltip naming how many,
+ * where and what share of the panel's energy. It is a disclosure, not an
+ * overlay: the Marks toggle leaves it, and the export draws it.
  */
 
-import { THEME } from '../scale.js';
+import { THEME, floorLabel, formatInt } from '../scale.js';
 import { customCaret, customLine, customWhisker, symbolOf } from './marks.js';
 import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
@@ -437,4 +448,154 @@ export function centroidLegend(centroids) {
   }
   if (!items.length) return '';
   return `Centroids (magenta A, blue B): ${items.join('; ')}.`;
+}
+
+/* ------------------------------------------------ drawn bins beyond the window -- */
+
+/** Caret length (px) of a window-overflow indicator, tip to base. */
+export const OVERFLOW_CARET_PX = 9;
+
+/** The series id of the window-overflow carets. */
+export const OVERFLOW_ID = 'window-overflow';
+
+/**
+ * The clipped sides of a panel's x′ window axes, from the response's
+ * `frame.fit[panelId]`: one entry per side of an axis whose `cap.outside.sides`
+ * is non-empty, `axisKey` 'col' or 'row' naming the payload axis the cap is on
+ * (x′: the entry panel's columns, the X′Z′ panel's rows). Whether the cap
+ * tightened the window or the percentile rule already cut those bins (the
+ * cap not applied: production's 15 x′ bins, 0.068% of the entry energy), a
+ * drawn bin beyond the window is marked, as the notes that count it say.
+ * Empty when nothing drawn lies outside.
+ */
+export function windowOverflow(frame, panelId) {
+  const fit = frame?.fit?.[panelId];
+  const out = [];
+  if (!fit) return out;
+  for (const axisKey of ['col', 'row']) {
+    const cap = fit[axisKey]?.cap;
+    const sides = cap?.outside?.sides;
+    if (!cap || !Array.isArray(sides)) continue;
+    for (const side of sides) {
+      if (!(side?.bins > 0) || !(side.side === 1 || side.side === -1)) continue;
+      out.push({ axisKey, cap, ...side });
+    }
+  }
+  return out;
+}
+
+/** A share of the panel's energy as a percentage with two significant figures. */
+function sharePercent(fraction) {
+  if (!Number.isFinite(fraction)) return '—';
+  const percent = 100 * fraction;
+  if (percent > 0 && percent < 0.001) return '< 0.001%';
+  return `${Number(percent.toPrecision(2))}%`;
+}
+
+/** A millimetre range, with a typographic minus and "to" when either end is signed. */
+function mmRange([lo, hi]) {
+  if (!(Number.isFinite(lo) && Number.isFinite(hi))) return '—';
+  return lo < 0 || hi < 0 ? `${formatInt(lo)} to ${formatInt(hi)} mm` : `${formatInt(lo)}–${formatInt(hi)} mm`;
+}
+
+/**
+ * The tooltip of one clipped side: how many drawn bins lie beyond which edge,
+ * where, what share of the panel's energy they hold, and why the window stops
+ * there. `symbol` is the capped axis as the panel writes it (D on the entry
+ * panel, x′ on X′Z′), `other` the other axis's, `edge` the window edge (mm).
+ */
+export function windowOverflowText(item, { symbol = 'x′', other = '', edge = null } = {}) {
+  const { cap } = item;
+  const n = item.bins;
+  const bins = `${formatInt(n)} drawn bin${n === 1 ? '' : 's'}`;
+  // What "drawn" means for the channel on show (the server's cap.mask).
+  const ratio = Number.isFinite(cap?.floor_ratio) ? floorLabel({ floor_ratio: cap.floor_ratio }) : null;
+  const floor = cap?.mask === 'hits' ? ' (bins with hits, which Native Grid always draws)'
+    : ratio ? ` (at or above ${ratio} of ${cap?.mask === 'channel' ? 'the channel’s own peak' : 'ρ<sub>ref</sub>'})` : '';
+  const edgeText = Number.isFinite(edge) ? ` at ${symbol} = ${formatInt(edge)} mm` : '';
+  const at = Number.isFinite(item.at) && other ? `; energy-weighted ${other} = ${formatSigned(item.at, 1)} mm` : '';
+  const why = [];
+  if (Number.isFinite(cap?.drawn_half_width)) why.push(`drawn field ± ${formatInt(cap.drawn_half_width)} mm`);
+  if (Number.isFinite(cap?.percentile_half_width)) {
+    why.push(`0.1st–99.9th percentile half-width ± ${formatInt(cap.percentile_half_width)} mm`);
+  }
+  // Why the window stops short of these bins: the cap (islands too small to
+  // set it), or - the cap not applied - the percentile rule's own tail.
+  const reason = cap?.applied === false
+    ? 'the 0.1st–99.9th percentile window ends inside the drawn field here'
+    : 'the window is capped at the drawn field’s connected extent';
+  return `Drawn bins beyond the window edge${edgeText}<br/>`
+    + `${bins}${floor} ${n === 1 ? 'lies' : 'lie'} beyond the window at ${symbol} = ${mmRange(item.range)}, `
+    + `holding ${sharePercent(item.energy_fraction)} of this panel’s energy${at}<br/>`
+    + reason
+    + (why.length ? ` (${why.join('; ')})` : '')
+    + ': clipped and counted, see Details';
+}
+
+/**
+ * Out-of-bounds carets for drawn bins a capped D-frame window leaves outside
+ * (`windowOverflow`): on the window edge each side lies beyond, pointing out,
+ * at the bins' energy-weighted position along the other axis. Placed in pixel
+ * space at every render, so a zoom or a pan moves them: a caret whose window
+ * edge is out of view is not drawn, and its cross position is kept inside the
+ * plot. In the theme's warn ink (3:1 or more on both screen cards and on
+ * paper). `extent` is the panel's {col, row} window in mm, `symbols` the axes
+ * as the panel writes them.
+ */
+export function addWindowOverflow(series, frame, panelId, col, row, extent, symbols = null) {
+  const sides = windowOverflow(frame, panelId);
+  if (!sides.length || !extent) return;
+  const names = { col: symbols?.col ?? symbolOf(col), row: symbols?.row ?? symbolOf(row) };
+  const items = sides.map((item) => {
+    const horizontal = item.axisKey === 'col';
+    const range = extent[item.axisKey];
+    const edge = item.side < 0 ? range[0] : range[1];
+    const otherKey = horizontal ? 'row' : 'col';
+    const otherRange = extent[otherKey];
+    const cross = Number.isFinite(item.at) ? item.at : (otherRange[0] + otherRange[1]) / 2;
+    return {
+      horizontal,
+      side: item.side,
+      at: horizontal ? [edge, cross] : [cross, edge],
+      tooltip: windowOverflowText(item, { symbol: names[item.axisKey], other: names[otherKey], edge }),
+    };
+  });
+  const size = OVERFLOW_CARET_PX;
+  const wing = 0.6 * size;
+  series.push({
+    type: 'custom',
+    id: OVERFLOW_ID,
+    name: 'Drawn bins beyond the window',
+    clip: true,
+    z: 13,
+    silent: false,
+    data: items.map((item, index) => [item.at[0], item.at[1], index]),
+    renderItem: (params, api) => {
+      const item = items[params.dataIndex];
+      const box = params.coordSys;
+      const p = api.coord(item.at);
+      const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+      let tip;
+      let dir;
+      if (item.horizontal) {
+        // The window edge must be on show; a zoom that leaves it out hides the caret.
+        if (!(p[0] >= box.x - 0.5 && p[0] <= box.x + box.width + 0.5)) return null;
+        tip = [p[0], clamp(p[1], box.y + wing, box.y + box.height - wing)];
+        dir = [item.side, 0];
+      } else {
+        if (!(p[1] >= box.y - 0.5 && p[1] <= box.y + box.height + 0.5)) return null;
+        tip = [clamp(p[0], box.x + wing, box.x + box.width - wing), p[1]];
+        // Screen y grows downward: the upper edge (+side) points up.
+        dir = [0, -item.side];
+      }
+      const [ux, uy] = dir;
+      const base = [tip[0] - ux * size, tip[1] - uy * size];
+      return {
+        type: 'polygon',
+        shape: { points: [tip, [base[0] - uy * wing, base[1] + ux * wing], [base[0] + uy * wing, base[1] - ux * wing]] },
+        style: { fill: THEME.warn, opacity: 1 },
+      };
+    },
+    tooltip: { formatter: (p) => items[p?.dataIndex]?.tooltip ?? 'Drawn bins beyond the window' },
+  });
 }

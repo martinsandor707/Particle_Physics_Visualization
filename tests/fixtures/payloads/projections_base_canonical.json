@@ -1762,7 +1762,8 @@
      "symmetric": true,
      "half_width": 520.0,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": null
     },
     "col": {
      "range": [
@@ -1782,7 +1783,24 @@
      "symmetric": true,
      "half_width": 2080.0,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": {
+      "rule": "drawn_extent",
+      "applied": false,
+      "percentile_half_width": 2080.0,
+      "drawn_half_width": 2080.0,
+      "reach_mm": 120.0,
+      "limit": 2200.0,
+      "gap_mm": 48.6,
+      "floor_ratio": 0.001,
+      "rho_ref": 2.2144342074170625e-06,
+      "mask": "density",
+      "outside": {
+       "bins": 0,
+       "energy_fraction": 0.0,
+       "sides": []
+      }
+     }
     },
     "energy_fraction_outside": 0.00021215
    },
@@ -1805,7 +1823,8 @@
      "symmetric": true,
      "half_width": 980.0,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": null
     },
     "col": {
      "range": [
@@ -1822,7 +1841,8 @@
      "symmetric": false,
      "half_width": null,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": null
     },
     "energy_fraction_outside": 5.689e-05
    },
@@ -1845,7 +1865,35 @@
      "symmetric": true,
      "half_width": 2100.0,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": {
+      "rule": "drawn_extent",
+      "applied": false,
+      "percentile_half_width": 2100.0,
+      "drawn_half_width": 2120.0,
+      "reach_mm": 120.0,
+      "limit": 2240.0,
+      "gap_mm": 48.6,
+      "floor_ratio": 0.001,
+      "rho_ref": 1.4766532276528674e-05,
+      "mask": "density",
+      "outside": {
+       "bins": 1,
+       "energy_fraction": 8.656e-05,
+       "sides": [
+        {
+         "side": -1,
+         "bins": 1,
+         "energy_fraction": 8.656e-05,
+         "range": [
+          -2120.0,
+          -2100.0
+         ],
+         "at": 738.0
+        }
+       ]
+      }
+     }
     },
     "col": {
      "range": [
@@ -1862,11 +1910,12 @@
      "symmetric": false,
      "half_width": null,
      "floored": false,
-     "clamped": false
+     "clamped": false,
+     "cap": null
     },
     "energy_fraction_outside": 0.00010965
    },
-   "note": "Display windows are symmetric about the origin along x′ and y′, each half-width covering the 0.1st to 99.9th energy percentile, never below 200 mm (a provisional one-shower floor), and snapped outward to whole 20 mm bins. Up to 0.021% of a panel's energy lies outside its window on the raw accumulation grid; it is excluded from the view but not from the statistics. Depth is never cropped. With 2 co-registered event(s) the fitted ranges are provisional."
+   "note": "Display windows are symmetric about the origin along x′ and y′, each half-width covering the 0.1st to 99.9th energy percentile, never below 200 mm (a provisional one-shower floor), and snapped outward to whole 20 mm bins. Drawn x′ bins beyond the window are counted and marked at its edge, not drawn (X′Z′ 1 bin(s), −2,120 to −2,100 mm, 0.009% of the panel's energy): islands too small to set the window, or bins the percentile rule already cut. Up to 0.021% of a panel's energy lies outside its window on the raw accumulation grid; it is excluded from the view but not from the statistics. Depth is never cropped. With 2 co-registered event(s) the fitted ranges are provisional."
   },
   "n_events": 2,
   "n_selected": 2,
@@ -1943,6 +1992,8 @@
     }
    }
   },
+  "ill_conditioned_share": 0.0,
+  "ill_conditioned_majority": false,
   "comb": {
    "staggered": false,
    "lag1": 0.5100185502396879,

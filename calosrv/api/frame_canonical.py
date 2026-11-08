@@ -349,13 +349,23 @@ def build_response(
         k, stats.n_events,
     )
 
-    fit = window.fit_window(bundle)
     reference = None
     if rho_norm == density.NORM_DATASET:
         reference = dataset_reference(con, record, settings, footprint, anchor=anchor)
 
     depth_edges = grid.axis("z").edges
     pool = None if depth_groups is None else layer_groups.pooled_operator(depth_edges, depth_groups)
+
+    # The x' axis is capped at the extent of what this channel and display
+    # actually draw (plus the kernel's reach), so a selection whose few
+    # well-separated pairs sit below the display floor is not framed in a
+    # panel that is nine-tenths empty. The y' axes and depth are unchanged.
+    # The cap adds the Continuous Field kernel's reach in both display modes, so
+    # the Native Grid audit view crops exactly as Continuous Field does.
+    fit = window.fit_window(
+        bundle, cap_x=True, kernel=reconstruct.choose_kernel(MODE_CONTINUOUS, stats.n_events),
+        channel=channel, weighting=weighting, display=display, reference=reference, depth_pool=pool,
+    )
     depth_block = layer_profile.depth_layers(
         FRAME_CANONICAL, record, edges=depth_edges,
         profile=layer_profile.bundle_profile(
@@ -433,7 +443,7 @@ def build_response(
                     "them changes nothing in the D-frame panels."
                 ),
             })
-        ill = ill_conditioned_notice(stats.n_ill_conditioned)
+        ill = ill_conditioned_notice(stats.n_ill_conditioned, stats.n_events)
         if ill:
             notices.append({"scope": "frame", "text": ill})
         if rho_norm == density.NORM_DATASET:
@@ -512,6 +522,7 @@ def build_response(
             },
             "fit": fit.as_dict(),
             **stats.as_dict(),
+            **ill_conditioned_fields(stats.n_ill_conditioned, stats.n_events),
             "comb": comb,
             "rho": rendered["rho"],
             "reconstruction": rendered["reconstruction"],
@@ -598,26 +609,67 @@ def pooled_notice(pool: layer_groups.PooledAxis) -> str:
     return text
 
 
-def ill_conditioned_notice(n_ill: int, *, axis_statistics: bool = True) -> str | None:
+def ill_conditioned_share(n_ill: int, n_events: int) -> float | None:
+    """The share of co-registered events whose entry anchors are too close; None without events."""
+    if not n_events:
+        return None
+    return float(n_ill) / float(n_events)
+
+
+def ill_conditioned_fields(n_ill: int | None, n_events: int) -> dict[str, Any]:
+    """``ill_conditioned_share`` and ``ill_conditioned_majority`` for a D-frame ``frame`` block."""
+    share = None if n_ill is None else ill_conditioned_share(n_ill, n_events)
+    return {
+        "ill_conditioned_share": None if share is None else round(share, 6),
+        "ill_conditioned_majority": bool(share is not None
+                                         and share > frame_mod.ILL_CONDITIONED_MAJORITY),
+    }
+
+
+def _share_percent(share: float) -> str:
+    """A share to one decimal, never "100.0%" short of 1 nor "0.0%" above 0 (as the drawers write it)."""
+    text = f"{100.0 * share:.1f}"
+    if share < 1.0 and text == "100.0":
+        text = "99.9"
+    elif share > 0.0 and text == "0.0":
+        text = "0.1"
+    return f"{text}%"
+
+
+def ill_conditioned_notice(n_ill: int, n_events: int, *,
+                           axis_statistics: bool = True) -> str | None:
     """The D-frame's sentence for events whose entry anchors are too close to fix a rotation.
 
     One owner for every D-frame view: the 2-D panels (with the ensemble axis
     they draw) and the 3-D ensemble cloud (``axis_statistics=False``: it draws
-    no axis).
+    no axis). It states the share of the selection; when that share is above
+    :data:`~calosrv.grid.frame.ILL_CONDITIONED_MAJORITY` it adds that the frame
+    cannot separate these showers, and how to select better-separated pairs.
     """
     if not n_ill:
         return None
+    share = ill_conditioned_share(n_ill, n_events)
+    of = f" of {n_events:,} events ({_share_percent(share)})" if share is not None else " event(s)"
     text = (
-        f"{n_ill:,} event(s) enter closer than {frame_mod.ILL_CONDITIONED_D_MM:.0f} mm apart, "
+        f"{n_ill:,}{of} enter closer than {frame_mod.ILL_CONDITIONED_D_MM:.0f} mm apart, "
         "so their rotation angle is dominated by the anchor uncertainty and effectively "
         "random. Their energy enters ⟨ρ⟩ averaged over azimuth"
     )
     if axis_statistics:
-        return text + (
+        text += (
             ", and their randomly oriented directions enter the ensemble-axis statistics "
             "(R̄′, Rayleigh p, dispersion band) as noise that pushes R̄′ down and p up."
         )
-    return text + "."
+    else:
+        text += "."
+    if share is not None and share > frame_mod.ILL_CONDITIONED_MAJORITY:
+        text += (
+            " Most of this selection is ill-conditioned, so the frame cannot separate these "
+            "showers and draws them superimposed about the origin. Ill-conditioning is judged "
+            "on the entry separation D_entry; raising the lower bound of D (the slider, the "
+            "absolute-frame 3-D centroid distance) selects better-separated pairs."
+        )
+    return text
 
 
 def ill_conditioned_event_notice(d_entry_mm: float | None) -> str | None:

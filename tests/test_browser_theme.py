@@ -774,7 +774,11 @@ def test_the_marks_toggle_clears_the_core_without_a_request(live_server, scheme)
             assert requests[before:] == [], f"the Marks toggle asked the service: {requests[before:]}"
             hidden = page.evaluate(_SERIES, plot)
             faces = [] if panel == "xy" else ["Calorimeter front face", "Calorimeter back face"]
-            assert hidden == ["raster", *faces], (panel, hidden)
+            # The caret for drawn bins beyond the window is a clipping disclosure,
+            # not a mark: it stays (on the demonstration file, X′Z′'s one drawn row
+            # the percentile window cuts).
+            carets = ["window-overflow"] if "window-overflow" in shown else []
+            assert hidden == ["raster", *faces, *carets], (panel, hidden)
             assert len(shown) > len(hidden), (panel, shown)
             assert page.evaluate(_RASTER, plot) == raster, f"{panel}: hiding the marks redrew the raster"
             assert button.get_attribute("aria-pressed") == "false"

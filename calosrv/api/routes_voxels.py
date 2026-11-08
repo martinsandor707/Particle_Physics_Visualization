@@ -267,7 +267,7 @@ class VoxelResponse:
         if frame == KIND_CANONICAL:
             # The 2-D D-frame's own sentences, from the same frame statistics:
             # the cloud draws no axis, so the axis-statistics clause is left out.
-            ill = frame_canonical.ill_conditioned_notice(stats.n_ill_conditioned,
+            ill = frame_canonical.ill_conditioned_notice(stats.n_ill_conditioned, stats.n_events,
                                                          axis_statistics=False)
             if ill:
                 out.append(ill)
@@ -360,6 +360,10 @@ class VoxelResponse:
             "n_ill_conditioned": stats.n_ill_conditioned if canonical_frame else None,
             "ill_conditioned_threshold_mm": (frame_mod.ILL_CONDITIONED_D_MM if canonical_frame
                                              else None),
+            # The share and the majority flag, as the 2-D D-frame carries them
+            # (D-frame only: Local has no rotation to condition, and no key).
+            **(frame_canonical.ill_conditioned_fields(stats.n_ill_conditioned, stats.n_events)
+               if canonical_frame else {}),
             "anchor_residual": dict(stats.anchor_residual) if canonical_frame else None,
             "splat": {
                 "regime": "subdeposit3d" if frame == KIND_LOCAL else "subdeposit2d",

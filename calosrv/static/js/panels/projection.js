@@ -11,17 +11,26 @@
  *
  * ## Aspect ratio under zoom
  *
- * One `inside` dataZoom naming both axes applies the same zoom ratio to each.
- * The initial window is isometric, and scaling both spans by an equal factor
- * over a fixed pixel rectangle preserves their ratio, so 1:1 metric aspect
- * survives zooming without any per-frame correction. CLAUDE.md section 2
- * requires that for detector geometry.
+ * An isometric panel (the XY panel, and a co-registered depth panel whose
+ * card allows it) letterboxes its grid so a millimetre along x and a
+ * millimetre along y are the same number of pixels, and the separation vector
+ * D can be measured off the picture (CLAUDE.md section 2). The letterbox is
+ * taken from the *displayed* window - the full extent at rest, `this.view`
+ * when zoomed - so 1:1 holds at every zoom whatever the window's shape.
  *
- * The XY panel additionally letterboxes its grid so a millimetre along x and a
- * millimetre along y are the same number of pixels, and the separation vector D
- * can be measured off the picture. The depth panels span 5200 mm transverse
- * against 1210 mm of depth, where forcing 1:1 would leave an unusable sliver,
- * so they fill the card and carry their true extents on the axes instead.
+ * A zoomed window is then shaped to the card (`shapeToCard`): its narrow span
+ * is widened until the window's span ratio is the card's own plot aspect,
+ * each span capped at the extent's. Zooming into a strip - the D-frame entry
+ * panel of a widely separated pair is 12:1 to 18:1 at rest - therefore grows
+ * the plot into the card's height until the full y′ extent is on show, where
+ * the plot letterboxes on that axis; zooming out returns to the strip. A pan
+ * keeps both spans and so the rectangle; a change of rectangle rebuilds the
+ * option (`setView`), since the grid, the strip marks and the compact titles
+ * all depend on it.
+ *
+ * The depth panels of the absolute frame span 5200 mm transverse against
+ * 1210 mm of depth, where forcing 1:1 would leave an unusable sliver, so they
+ * fill the card and carry their true extents on the axes instead.
  *
  * The letterbox is a function of the container, so it is recomputed whenever
  * the *container* resizes - the sidebar collapsing, the Details drawer
@@ -72,7 +81,7 @@ import {
   customLine, customPolyline, customMarker, customBand, insideWedge, symbolOf, onInk, projectMarks,
 } from './marks.js';
 import {
-  addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread, stripMarks,
+  addCanonicalAnchors, addCanonicalCentroids, addFrameMeanSpread, addWindowOverflow, stripMarks,
 } from './canonical_overlays.js';
 import { isPrintTheme, onLightCard } from './chart_panel.js';
 import { formatSigned } from '../format.js';
@@ -387,9 +396,13 @@ export class ProjectionPanel {
 
     const wasIsometric = this.isometric;
     if (typeof this.onRelayout === 'function') this.onRelayout(this);
-    if (this.view && this.isometric !== wasIsometric) {
-      this.view = clampView(this.view, this.extent ?? extentOf(this.payload, this.lastOpts), this.isometric);
-      this.viewChanged();
+    // A zoomed isometric window is re-shaped to the card's new aspect; a
+    // window whose panel stops being isometric is only clamped.
+    if (this.view && (this.isometric || this.isometric !== wasIsometric)) {
+      const before = this.view;
+      this.view = clampView(this.view, this.extent ?? extentOf(this.payload, this.lastOpts),
+        this.isometric ? this.cardAspect({ width, height }) : null);
+      if (this.isometric !== wasIsometric || !sameView(before, this.view)) this.viewChanged();
     }
     this.setLiveOption(this.buildOption({
       payload: this.payload,
@@ -413,15 +426,7 @@ export class ProjectionPanel {
    * `reservedTop` is the Longitudinal Channels' band above the plot.
    */
   gridRect(colSpan, rowSpan, metrics, wideRamp = false, reservedTop = 0) {
-    const pad = axisPadding({ ramp: true, wideRamp });
-    // `reservedTop`: the band above the plot the Longitudinal Channels strip
-    // is drawn in (depth_groups.js `stripReserve`), so it never covers the raster.
-    const padding = {
-      left: pad.left, right: pad.right, top: pad.top + (reservedTop || 0), bottom: pad.bottom,
-    };
-    const width = metrics.width - padding.left - padding.right;
-    const height = metrics.height - (metrics.reservedBottom || 0)
-      - padding.top - padding.bottom;
+    const { padding, width, height } = plotArea(metrics, wideRamp, reservedTop);
     if (!this.isometric || width <= 0 || height <= 0) {
       return { ...padding, width, height };
     }
@@ -438,6 +443,41 @@ export class ProjectionPanel {
     };
   }
 
+  /**
+   * The width / height (px) of the plot area the card offers before the
+   * isometric letterbox: what `gridRect` fills on a panel that is not
+   * isometric, net of the axis padding, the Longitudinal Channels' band and
+   * any reserved bottom. `shapeToCard` widens a zoomed window to it. Null
+   * when the host has no size (hidden) or nothing is retained.
+   */
+  cardAspect(metrics = null, payload = this.payload, opts = this.lastOpts) {
+    if (!payload) return null;
+    const size = metrics ?? { width: this.element?.clientWidth ?? 0, height: this.element?.clientHeight ?? 0 };
+    if (!(size.width > 0 && size.height > 0)) return null;
+    const { width, height } = plotArea(size, wideRampOf(payload), topReserve(payload, opts));
+    return width > 0 && height > 0 ? width / height : null;
+  }
+
+  /**
+   * Whether drawing `view` (null = full extent) would move the live plot
+   * rectangle: an isometric panel letterboxes from the displayed window, so a
+   * window of another shape needs a rebuilt option, while a pan or an
+   * equal-ratio zoom keeps the rectangle and needs only its axes patched.
+   */
+  rectChangesFor(view) {
+    if (!this.isometric || !this.payload || !this.lastOpts) return false;
+    const width = this.element?.clientWidth ?? 0;
+    const height = this.element?.clientHeight ?? 0;
+    if (!(width > 0 && height > 0)) return false;
+    const live = this.liveGrid;
+    if (!live) return true;
+    const extent = this.extent ?? extentOf(this.payload, this.lastOpts);
+    const shown = view ?? extent;
+    const rect = this.gridRect(shown.col[1] - shown.col[0], shown.row[1] - shown.row[0], { width, height },
+      wideRampOf(this.payload), topReserve(this.payload, this.lastOpts));
+    return ['left', 'top', 'width', 'height'].some((key) => !(Math.abs(rect[key] - live[key]) < RECT_TOLERANCE_PX));
+  }
+
   render(payload, opts) {
     // The displayed window survives a change of *selection* - in the canonical
     // frame the fitted extents move with every slider tick, and discarding the
@@ -450,8 +490,11 @@ export class ProjectionPanel {
     if (this.viewKey !== viewKey) {
       this.view = null;
       this.viewKey = viewKey;
-    } else if (this.view && this.extent && !sameExtent(this.extent, extent)) {
-      this.view = clampView(this.view, extent, this.isometric);
+    } else if (this.view && this.extent && (this.isometric || !sameExtent(this.extent, extent))) {
+      // An isometric window is also re-shaped to the card (the card or the
+      // Channels' band may have changed); on an unchanged card and extent
+      // that is the identity.
+      this.view = clampView(this.view, extent, this.isometric ? this.cardAspect(null, payload, opts) : null);
     }
 
     this.payload = payload;
@@ -521,15 +564,17 @@ export class ProjectionPanel {
     // The extent the axes span: the caller's window (the inspector's equal
     // half-width window, wider than the raster) or the raster's own edges.
     const extent = extentOf(payload, opts);
-    // The displayed window. The grid is letterboxed from the *full* extent so
-    // the plot area does not jump around as the view changes.
+    // The displayed window. An isometric grid is letterboxed from it, so 1 mm
+    // is the same number of pixels on both axes at every zoom; a zoomed window
+    // is shaped to the card (`shapeToCard`), so a zoom into a strip grows the
+    // plot into the card.
     const view = this.view || { col: [...extent.col], row: [...extent.row] };
     // The vertical a.u. ramp carries its title as a second label line, which
     // needs a wider right inset than the GeV ramp's exponent labels.
-    const wideRamp = payload.scale?.unit === 'a.u.' && THEME.rampOrient !== 'horizontal';
+    const wideRamp = wideRampOf(payload);
     // The Longitudinal Channels: a spec of layer_groups.panelGroupSpec, or none.
     const groups = groupSpecOf(payload, opts);
-    const rect = this.gridRect(extent.col[1] - extent.col[0], extent.row[1] - extent.row[0], metrics, wideRamp,
+    const rect = this.gridRect(view.col[1] - view.col[0], view.row[1] - view.row[0], metrics, wideRamp,
       topReserve(payload, opts));
     const canvas = raster.canvas;
     const title = rampTitle(payload.scale, metrics);
@@ -595,6 +640,10 @@ export class ProjectionPanel {
         this.addCentroids(series, centroids, col, row, showVector, strip);
       }
     }
+    // Drawn bins a capped D-frame window leaves outside: a clipping
+    // disclosure, not an overlay, so the Marks toggle leaves it and the
+    // export draws it.
+    if (canonical) addWindowOverflow(series, frame, panelOf(payload.axes), col, row, extent, symbols);
 
     const provisional = frame?.fit?.provisional
       ? ' (provisional range)' : '';
@@ -684,6 +733,8 @@ export class ProjectionPanel {
     if (!this.lastOpts) return;
     this.lastOpts = { ...this.lastOpts, layerGroups: spec ?? null };
     if (reserveTop !== undefined) this.lastOpts.reserveTop = reserveTop;
+    // The Channels' band changes the card's plot aspect.
+    this.reshapeView();
     this.redraw();
   }
 
@@ -695,7 +746,21 @@ export class ProjectionPanel {
   setReserveTop(reserveTop) {
     if (!this.lastOpts || (this.lastOpts.reserveTop ?? null) === (reserveTop ?? null)) return;
     this.lastOpts = { ...this.lastOpts, reserveTop: reserveTop ?? null };
+    this.reshapeView();
     this.redraw();
+  }
+
+  /**
+   * Re-shape a zoomed isometric window to the card's current plot aspect
+   * (`shapeToCard`), after something other than the container changed it -
+   * the Longitudinal Channels' band above the plot. Tells the owner when the
+   * window moved.
+   */
+  reshapeView() {
+    if (!this.view || !this.isometric || !this.payload) return;
+    const before = this.view;
+    this.view = clampView(this.view, this.extent ?? extentOf(this.payload, this.lastOpts ?? {}), this.cardAspect());
+    if (!sameView(before, this.view)) this.viewChanged();
   }
 
   /**
@@ -1146,11 +1211,12 @@ export class ProjectionPanel {
    * Zoom to where the energy actually is: the box holding 99% of it.
    *
    * Weighted by dequantised energy, not by colour code (see `occupiedBounds`).
-   * For an isometric panel the narrower span is widened so both axes keep the
-   * same millimetre-per-pixel factor, and a window that then pokes past the
-   * extent is slid back inside at its full size. Truncating it instead - as a
-   * non-isometric panel still does - would shorten one axis and not the other,
-   * and the "1:1" guarantee would hold only at full zoom-out.
+   * For an isometric panel the box is shaped to the card (`shapeToCard`): the
+   * narrower span is widened to the card's plot aspect, each span is capped
+   * at the extent's, and the window is slid back inside at its full size, so
+   * the fit fills the card at 1:1 (the plot is letterboxed from the window).
+   * Truncating it instead - as a non-isometric panel still does - would
+   * shorten one axis and not the other.
    *
    * Returns 'fitted', 'full' when the hits already fill the detector and there
    * is nothing to tighten, or 'empty'. The caller reports the last two, because
@@ -1169,21 +1235,16 @@ export class ProjectionPanel {
     let [r0, r1] = pad(bounds.row, ROI_PADDING);
 
     if (this.isometric) {
-      // Widen the narrower axis so both keep one millimetre-per-pixel factor;
-      // otherwise the 1:1 guarantee would hold only at full zoom-out. The plot
-      // rectangle is letterboxed from the full extent, so the window must take
-      // the full extent's span ratio - which is 1 for the detector face but
-      // about 9 for the canonical entrance window of a widely separated pair.
-      const target = (col.hi - col.lo) / (row.hi - row.lo);
-      const ratio = (c1 - c0) / (r1 - r0);
-      if (ratio < target) {
-        [c0, c1] = centreOn(c0, c1, (r1 - r0) * target);
-      } else {
-        [r0, r1] = centreOn(r0, r1, (c1 - c0) / target);
+      const shaped = shapeToCard({ col: [c0, c1], row: [r0, r1] }, extent, this.cardAspect());
+      if (!shaped) {
+        this.resetView();
+        return 'full';
       }
+      [c0, c1] = shaped.col;
+      [r0, r1] = shaped.row;
     }
 
-    // Padding and squaring can push the window past the detector. Showing
+    // Padding and shaping can push the window past the detector. Showing
     // empty space beyond the instrumented volume is worse than showing all of
     // it, so a fit that no longer tightens anything falls back to the full
     // extent - which is the honest answer when the selected showers are spread
@@ -1196,7 +1257,7 @@ export class ProjectionPanel {
     }
 
     this.setView(this.isometric
-      ? { col: slideInside([c0, c1], col), row: slideInside([r0, r1], row) }
+      ? { col: [c0, c1], row: [r0, r1] }
       : {
         col: [Math.max(col.lo, c0), Math.min(col.hi, c1)],
         row: [Math.max(row.lo, r0), Math.min(row.hi, r1)],
@@ -1205,31 +1266,44 @@ export class ProjectionPanel {
   }
 
   /**
-   * Set the displayed window and repaint the axes.
+   * Set the displayed window and repaint.
    *
    * The window is applied as the axis min/max rather than through a `dataZoom`
    * component. A `dataZoom` cannot move an axis that carries explicit bounds,
    * and these axes must carry them: they are drawn from the payload's physical
    * millimetre extents, not inferred from series data, which is what keeps the
    * raster aligned with the detector coordinates.
+   *
+   * On an isometric panel a window of another shape moves the letterboxed
+   * plot rectangle, so the option is rebuilt (the grid, the strip marks, the
+   * compact titles, the Channels' band and badge follow it); a pan or an
+   * equal-ratio zoom keeps the rectangle and patches the axes alone.
    */
   setView(view) {
     this.view = view;
-    this.chart.setOption({
-      xAxis: this.columnAxisPatch(view.col),
-      yAxis: { min: view.row[0], max: view.row[1] },
-    });
+    if (this.rectChangesFor(view)) this.redraw();
+    else {
+      this.chart.setOption({
+        xAxis: this.columnAxisPatch(view.col),
+        yAxis: { min: view.row[0], max: view.row[1] },
+      });
+    }
     this.viewChanged();
   }
 
+  /** Back to the full extent, and on an isometric panel to its letterbox. */
   resetView() {
+    const rebuild = this.rectChangesFor(null);
     this.view = null;
     if (!this.payload) return;
-    const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
-    this.chart.setOption({
-      xAxis: this.columnAxisPatch(extent.col),
-      yAxis: { min: extent.row[0], max: extent.row[1] },
-    });
+    if (rebuild) this.redraw();
+    else {
+      const extent = this.extent ?? extentOf(this.payload, this.lastOpts ?? {});
+      this.chart.setOption({
+        xAxis: this.columnAxisPatch(extent.col),
+        yAxis: { min: extent.row[0], max: extent.row[1] },
+      });
+    }
     this.viewChanged();
   }
 
@@ -1257,9 +1331,12 @@ export class ProjectionPanel {
   /**
    * Wheel to zoom, drag to pan.
    *
-   * Both axes are scaled by the *same* factor, so the isometric ratio survives
-   * zooming exactly as it does the letterboxed grid. Zoom is anchored at the
-   * cursor, so the feature under the pointer stays put.
+   * Both axes are scaled by the *same* factor about the cursor, so the
+   * feature under the pointer stays put. On an isometric panel the scaled
+   * window is then shaped to the card (`shapeToCard`) and the plot is
+   * letterboxed from it, so 1:1 holds at every zoom; a strip's plot grows
+   * into the card as it is zoomed. A drag pans: both spans, and so the
+   * plot rectangle, are kept.
    */
   attachNavigation() {
     const zr = this.chart.getZr();
@@ -1283,10 +1360,21 @@ export class ProjectionPanel {
 
       const factor = event.wheelDelta > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
       const view = current();
-      this.setView({
+      let next = {
         col: scaleAbout(view.col, anchor[0], factor),
         row: scaleAbout(view.row, anchor[1], factor),
-      });
+      };
+      if (this.isometric) {
+        // Shaped to the card and kept inside the extent: a zoom into a strip
+        // grows the plot into the card, and a zoom out ends at the full
+        // extent, its letterbox restored.
+        next = shapeToCard(next, this.extent ?? extentOf(this.payload, this.lastOpts ?? {}), this.cardAspect());
+        if (!next) {
+          if (this.view) this.resetView();
+          return;
+        }
+      }
+      this.setView(next);
     };
 
     this.downHandler = (event) => {
@@ -1653,24 +1741,17 @@ function sameExtent(a, b) {
  * Keep a zoom window inside new extents, or drop it when nothing survives.
  *
  * The window keeps its size where it can (so a zoom level survives a slider
- * tick) and slides inward where the new extent is smaller; a window wider
- * than the whole new extent simply becomes the full extent (null).
+ * tick) and slides inward where the new extent is smaller; a span wider than
+ * the whole new extent becomes that axis's full extent, and a window full on
+ * both axes the full view (null).
  *
- * On an isometric panel the plot rectangle is letterboxed from the *full*
- * extent, so a window is drawn 1:1 only if its span ratio equals the full
- * extent's. The canonical fit window changes shape with every selection, so
- * the kept window is re-proportioned about its centre to the new ratio before
- * it is slid inside.
+ * `aspect` (the card's plot aspect, `cardAspect`) marks an isometric panel:
+ * the kept window is then shaped to the card (`shapeToCard`), since the plot
+ * is letterboxed from the window and the canonical fit window changes shape
+ * with every selection.
  */
-function clampView(view, extent, isometric = false) {
+function clampView(view, extent, aspect = null) {
   const axes = { col: { lo: extent.col[0], hi: extent.col[1] }, row: { lo: extent.row[0], hi: extent.row[1] } };
-  let colSpan = view.col[1] - view.col[0];
-  let rowSpan = view.row[1] - view.row[0];
-  const fullCol = axes.col.hi - axes.col.lo;
-  const fullRow = axes.row.hi - axes.row.lo;
-  if (isometric && fullCol > 0 && fullRow > 0 && colSpan > 0) {
-    rowSpan = colSpan * (fullRow / fullCol);
-  }
   const centre = (r) => (r[0] + r[1]) / 2;
   const fit = (mid, span, axis) => {
     const full = axis.hi - axis.lo;
@@ -1681,22 +1762,87 @@ function clampView(view, extent, isometric = false) {
     if (a + width > axis.hi) a = axis.hi - width;
     return [a, a + width];
   };
-  const col = fit(centre(view.col), colSpan, axes.col);
-  const row = fit(centre(view.row), rowSpan, axes.row);
+  const col = fit(centre(view.col), view.col[1] - view.col[0], axes.col);
+  const row = fit(centre(view.row), view.row[1] - view.row[0], axes.row);
   if (!col && !row) return null;
-  // Both axes must shrink together on an isometric panel, or neither.
-  if (isometric && (!col || !row)) return null;
-  return {
+  const kept = {
     col: col || [axes.col.lo, axes.col.hi],
     row: row || [axes.row.lo, axes.row.hi],
   };
+  return aspect === null ? kept : shapeToCard(kept, extent, aspect);
+}
+
+/** A span at least this fraction of its extent is the full extent. */
+const FULL_SPAN = 0.999;
+
+/**
+ * Shape a zoomed window of an isometric panel to the card.
+ *
+ * `aspect` is the width / height (px) of the plot area the card offers before
+ * letterboxing (`cardAspect`). The span that is narrow relative to it is
+ * widened about the window's centre until the window's span ratio equals
+ * `aspect`, so the letterboxed plot fills the card; each span is then capped
+ * at the extent's span (a capped axis is shown in full and the plot
+ * letterboxes on it) and slid inside the extent. Returns null - the full
+ * view - when the window covers the extent on both axes. Without an aspect
+ * (a hidden host) the window is only capped and slid inside.
+ */
+export function shapeToCard(view, extent, aspect) {
+  if (!view) return null;
+  const fullCol = extent.col[1] - extent.col[0];
+  const fullRow = extent.row[1] - extent.row[0];
+  let colSpan = view.col[1] - view.col[0];
+  let rowSpan = view.row[1] - view.row[0];
+  if (!(fullCol > 0 && fullRow > 0 && colSpan > 0 && rowSpan > 0)) return null;
+  if (Number.isFinite(aspect) && aspect > 0) {
+    if (colSpan / rowSpan < aspect) colSpan = rowSpan * aspect;
+    else rowSpan = colSpan / aspect;
+  }
+  colSpan = Math.min(colSpan, fullCol);
+  rowSpan = Math.min(rowSpan, fullRow);
+  if (colSpan >= fullCol * FULL_SPAN && rowSpan >= fullRow * FULL_SPAN) return null;
+  const mid = (r) => (r[0] + r[1]) / 2;
+  return {
+    col: slideInside(centreOn(mid(view.col), mid(view.col), colSpan), { lo: extent.col[0], hi: extent.col[1] }),
+    row: slideInside(centreOn(mid(view.row), mid(view.row), rowSpan), { lo: extent.row[0], hi: extent.row[1] }),
+  };
+}
+
+function sameView(a, b) {
+  if (!a || !b) return a === b;
+  return a.col[0] === b.col[0] && a.col[1] === b.col[1] && a.row[0] === b.row[0] && a.row[1] === b.row[1];
+}
+
+/** Two rectangles closer than this (px) on every side are the same plot. */
+const RECT_TOLERANCE_PX = 0.5;
+
+/** Whether a payload's vertical a.u. ramp needs the wider right inset (its title is a second label line). */
+function wideRampOf(payload) {
+  return payload?.scale?.unit === 'a.u.' && THEME.rampOrient !== 'horizontal';
+}
+
+/**
+ * The plot area a host of `metrics` offers before any letterbox: the axis
+ * padding, the Longitudinal Channels' band above (`reservedTop`) and any
+ * reserved bottom taken off.
+ */
+function plotArea(metrics, wideRamp = false, reservedTop = 0) {
+  const pad = axisPadding({ ramp: true, wideRamp });
+  // `reservedTop`: the band above the plot the Longitudinal Channels strip
+  // is drawn in (depth_groups.js `stripReserve`), so it never covers the raster.
+  const padding = {
+    left: pad.left, right: pad.right, top: pad.top + (reservedTop || 0), bottom: pad.bottom,
+  };
+  const width = metrics.width - padding.left - padding.right;
+  const height = metrics.height - (metrics.reservedBottom || 0) - padding.top - padding.bottom;
+  return { padding, width, height };
 }
 
 /**
  * Move a window inside an axis extent without changing its width.
  *
- * A window at least as wide as the extent becomes the extent. On an isometric
- * panel both axes share one span ratio, so they reach that case together.
+ * A window at least as wide as the extent becomes the extent (`shapeToCard`
+ * caps a span there and lets the plot letterbox on that axis).
  */
 function slideInside([lo, hi], axis) {
   const width = hi - lo;

@@ -1171,10 +1171,28 @@ generates; see
 All three spatial panels **scroll to zoom and drag to pan**, with an *Auto-fit
 RoI* button that frames the box holding 99% of the selected energy (bounded by
 energy percentile, not by the outermost hit, so one stray cell cannot define the
-view) and a *Reset*. Both axes always scale by the same factor, so the 1:1
-metric aspect survives zooming — verified at 4.974 mm/px on both axes after four
-wheel notches. When the selected showers already span the detector, as most
-multi-event selections do, the fit says so rather than appearing inert.
+view) and a *Reset*. A wheel notch scales both spans by the same factor about
+the cursor, and the 1:1 metric aspect holds at every zoom — verified at
+4.974 mm/px on both axes after four wheel notches. When the selected showers
+already span the detector, as most multi-event selections do, the fit says so
+rather than appearing inert.
+
+**Zoom on an isometric panel** (`panels/projection.js`: `shapeToCard`,
+`cardAspect`, `clampView`, `buildOption`). The plot is letterboxed from the
+*displayed* window — the full extent at rest, the zoomed window when zoomed —
+not from the full extent, so 1:1 holds whatever the window's shape. A zoomed
+window (wheel, *Auto-fit RoI*, a zoom kept across a selection, a relayout or a
+Longitudinal Channels band change) is shaped to the card's own plot aspect
+within the extent: the narrow span is widened about the window's centre until
+the span ratio is the card's, each span capped at the extent's. Zooming into a
+strip therefore grows the plot into the card until the full y′ extent is on
+show, and a zoom out ends at the full extent with the letterbox restored. A
+pan keeps both spans. On the Absolute XY panel, a square face in a wide card,
+the first notches zoom y while x stays full and the plot widens to the card.
+Measured on the electron file with D ≥ 80 mm (N = 889): the D-frame entry
+strip, ±2,380 × ±140 mm, is 439 × 26 px at rest and 439 × 70 px after six
+wheel notches, showing x′ ±880 mm with the full y′, at 0.249 px/mm on both
+axes.
 
 ### Overlay and layout behaviour shared by every frame
 
@@ -1464,7 +1482,25 @@ all events — the rotation angle is dominated by the ~80 mm anchor residual and
 is effectively random: those events' energy enters ⟨ρ⟩ averaged over azimuth,
 and their randomly oriented directions enter the ensemble-axis statistics (R̄′,
 the Rayleigh p, the dispersion band) as noise that lowers R̄′ and raises p. The
-count is disclosed in the panel's Details drawer.
+count is disclosed in the panel's Details drawer, as a share: "N of M events
+(p%) enter closer than 80 mm apart". The share is not the same everywhere. It is
+32.3% on production, and on the single-species files, measured on 2026-11-08
+over full selections: electron 96.6% (19,998 events), muon 97.5% (19,971), pion
+35.2% (19,996).
+
+**A majority of ill-conditioned events.** The `frame` block carries
+`ill_conditioned_share` (the fraction, null when no event has a frame) and
+`ill_conditioned_majority` (true above `ILL_CONDITIONED_MAJORITY` = 0.5,
+`grid/frame.py`). For a majority the notice and the drawers add that the frame
+cannot separate these showers and draws them superimposed about the origin, and
+that raising the lower bound of D selects better-separated pairs, without
+promising to remove every ill-conditioned event: the judgement is on the entry
+separation D_entry, the slider's D is the absolute-frame centroid distance. The
+entry card's tag shows an amber chip ("97% enter < 80 mm apart", its title the
+full sentence), and the three D-frame Details buttons carry the hazard *mostly
+ill-conditioned frame* (`js/panel_notes.js: hazards`). The 3-D cloud's notice
+(`axis_statistics=False`) states the same share without the axis sentence.
+(`api/frame_canonical.py: ill_conditioned_notice`, `ill_conditioned_fields`.)
 
 **A hit is a cell, and rotation does not smooth the lattice.** The physical
 footprint is measured from the populated `(ix, iy)` occupancy of the projection
@@ -1618,11 +1654,14 @@ X′Y′ uses the slab energy; the depth panels use their own full-depth energy.
    200 mm floor would widen them 1.25–2.5× for no statistical reason.
 3. It is snapped outward to whole 20 mm bins.
 4. It is clamped to the accumulation window.
+5. On the D-frame's x′ axes only, it is capped at the extent of the drawn field
+   (*The x′ cap*, below).
 
 The origin is the midpoint of the two anchors, so a centred window keeps it in
 the middle of the panel. The X′Y′ panel's 1:1 aspect comes from the letterbox,
 not from forcing a square. `frame.fit.<panel>.<row|col>` carries the
-`percentile_range` before centring, `half_width`, `floored` and `clamped`; the
+`percentile_range` before centring, `half_width`, `floored`, `clamped` and, on
+the D-frame, `cap` (null except on x′; see below); the
 Details drawer prints the window as `D ±480 mm` on the entry panel and
 `x′ ±480 mm` on X′Z′, and names a floor or a clamp where one applied. Measured on production v37:
 
@@ -1648,6 +1687,76 @@ the two differ by at most 0.007 percentage points.
 Depth is never cropped: the longitudinal profile, leakage into the back layers
 included, is what the depth panels exist to show. Below 20 co-registered events
 the fitted range is labelled **provisional** on the axis itself.
+
+**The x′ cap** (`query/window.py`: `cap_axis`, `drawn_masks`, `fit_window(…,
+cap_x=True)`; D-frame only). The percentile rule weighs energy, but the display
+draws only bins with ⟨ρ⟩ ≥ 10⁻³ ρ_ref. On the electron and muon files most
+events overlap near the origin (96.6% / 97.5% enter closer than 80 mm) and a
+few per cent of well-separated pairs spread thinly along x′. The 0.1–99.9
+half-width follows them, but averaged over 20,000 events nothing beyond a few
+hundred millimetres clears the floor: before the cap the electron file's drawn
+field ended at ±186 mm of a ±1,740 mm window, and 99.8% of its drawn entry
+energy lay within ±150 mm, so about 89% of the panel's width was transparent.
+So the **x′ axis of X′Y′ (its columns, drawn as D–Y′) and of X′Z′ (its rows)**
+is also capped at the extent of the drawn field:
+
+1. *Drawn bins.* Raw 20 mm bins with ⟨ρ⟩ ≥ 10⁻³ ρ_ref, ρ_ref the selection's
+   raw-grid peak of the panel group (under `rho_norm=dataset`, the smaller of the
+   selection's and the dataset's peaks). An energy-weighted CAM channel uses the
+   union of the density mask and its own; a mean CAM channel in Native Grid draws
+   every bin with hits; a pooled depth axis adds its own mask.
+2. *Components.* Runs of drawn x′ bins, bridging undrawn runs of up to
+   `WINDOW_CAP_GAP_FOOTPRINTS` = 1 cell footprint (48.6 mm on production,
+   `grid/frame.py`).
+3. *Islands.* A component holding under `CAP_ISLAND_SHARE` of the drawn energy
+   (0.1%, = WINDOW_LOW_PERCENTILE / 100) does not set the cap.
+4. *The limit.* The kept components' outer edge plus the Continuous Field
+   kernel's reach (tent 20 mm, Gaussian `reach_bins` × 20 mm = 120 mm), added in
+   both display modes so the Native Grid audit view crops exactly as Continuous
+   Field does, snapped outward to 20 mm and never below the window floor.
+5. *The final half-width* is min(percentile half-width, limit). **The cap only
+   tightens**: a selection whose drawn field fills the percentile window is
+   unchanged.
+
+The y′ axes and depth are not capped, and the per-shower frames (Local,
+per-shower translated) never cap: their showers are superimposed at their own
+entry points, with no separated minority. Measured on 2026-11-08 with the
+integrated code, `GET /api/projections?frame=canonical&display=continuous&channel=density`,
+full selections:
+
+| File | Events | Ill-conditioned | X′Y′ x′ half-width | Entry aspect | X′Z′ x′ | Drawn x′ bins beyond |
+|---|---|---|---|---|---|---|
+| electron (`electron_hits_with_model_outputs`) | 19,998 | 96.6% | ±1,740 → ±220 mm (drawn ±200 + 20 reach) | 12.4:1 → 1.6:1 | ±1,720 → ±240 | none |
+| muon (`muon_hits_with_model_outputs`) | 19,971 | 97.5% | ±1,820 → ±160 mm | 18.2:1 → 1.6:1 | ±1,980 → ±720 | 8 (0.076%), marked |
+| production (`hits_all_models`) | 20,268 | 32.3% | ±2,420, cap not applied (drawn ±2,580) | 4.7:1 | ±2,540, unchanged | 15 (0.068%), marked |
+| pion (`pion_hits_with_model_outputs`) | 19,996 | 35.2% | ±2,360 before the change; the drawn field fills it | 4.9:1 | — | — |
+
+The X′Y′ energy outside the window rises from 0.35% to 1.24% (electron) and from
+0.43% to 2.16% (muon), all of it below the display floor except the muon
+file's 8 drawn island columns (0.076%), which are marked.
+
+**Disclosure.** Every `AxisFit` of a D-frame response carries `cap`
+(`frame.fit.<panel>.<row|col>.cap`), null except on those two axes: `rule`
+(`drawn_extent`), `applied`, `percentile_half_width`, `drawn_half_width`,
+`reach_mm`, `limit`, `gap_mm`, `floor_ratio`, `rho_ref`, `mask` and `outside`,
+the drawn x′ bins left beyond the final window per side (`bins`,
+`energy_fraction`, the mm `range` and `at`, the energy-weighted position along
+the other axis), counted as the channel on show draws them: `mask` is `density`
+(⟨ρ⟩ at or above 10⁻³ ρ_ref), `channel` (an energy-weighted CAM channel's own
+|value| at or above 10⁻³ of its own peak; its window extent still takes the
+union with the density mask) or `hits` (a mean CAM channel in Native Grid, which
+draws every bin with hits). Those
+bins get an amber out-of-bounds caret at the window edge
+(`panels/canonical_overlays.js: windowOverflow`, `addWindowOverflow`), kept
+when the Marks toggle hides the marks and drawn in the export, a count in the
+Details drawer and a sentence in the frame notice (`WindowFit.cap_note`). The
+hazard *drawn bins beyond the window* is raised only when an applied cap left
+bins out: production's percentile rule has always cut a sliver, which is now
+marked and counted without a hazard.
+
+**What does not change.** The 0.1–99.9 percentile rule, the floors, the 20 mm
+snapping, the y′ and depth windows, the per-shower frames, the energy-outside
+disclosure and the 1st–99th default everywhere else.
 
 **The 100 KB budget covers the whole response.**
 
@@ -1886,9 +1995,10 @@ the production energy falls outside it, counted. A hit whose footprint is not
 wholly inside the per-shower translated grid is counted outside in every panel
 alike.
 
-**Everything else is the D-frame's rules:** symmetric display windows at
-the energy-weighted 0.1st–99.9th percentile with the same floors and 20 mm
-snapping; the Continuous Field kernel on the transverse axes only, Gaussian
+**Everything else is the D-frame's rules, except its x′ cap:** symmetric display
+windows at the energy-weighted 0.1st–99.9th percentile with the same floors and
+20 mm snapping, never capped at the drawn field (their showers are superimposed
+at their own entry points, so no separated minority stretches an axis); the Continuous Field kernel on the transverse axes only, Gaussian
 below N = 50 and tent above; ⟨ρ⟩ = ΣE / (N·ΔA), which here sums both showers of
 an event; and the comb measured on every response on the raw uncropped raster —
 along both transverse axes, and along w in *Local*.
@@ -3862,7 +3972,8 @@ per event.
   bins are the cloud's raw accumulation bins. The 3-D box is cropped to the union
   of the three projections' axis ranges (`pairedWindow`: each transverse axis
   symmetric about the origin at the energy-weighted 0.1st to 99.9th percentile, the
-  recorded window of the co-registered frames), so the cloud and its projections
+  recorded window of the co-registered frames, with the D-frame's x′ capped at
+  the drawn field as the projections' own windows are), so the cloud and its projections
   show one region. A voxel is placed by its centre; those outside are counted with
   their share of the shipped cloud's value (read back from the colour codes, and
   the drawer says so) and are not drawn, the box extent in the drawer being the
@@ -4442,8 +4553,9 @@ modules; nothing goes to the service:
 | `references.bib` | the cited references, in order of first citation, written from the structured `bib` fields of `content/references.js` (held to the printed text by `tests/test_methodology_references.py`) |
 | `figures/<id>.svg`, `figures/<id>.png` | every figure drawn for paper (`exhibits.js` medium `'paper'`), as SVG and as a 300 dpi PNG with its density recorded |
 
-Build it with `latexmk -pdf methodology` (or pdflatex, bibtex, pdflatex
-twice); it needs only standard TeX Live packages. The paper figures are not
+Build it with `latexmk -pdf methodology` (or pdflatex, bibtex, then pdflatex
+until the log stops asking to rerun: three times for the current article, whose
+page references settle on the third); it needs only standard TeX Live packages. The paper figures are not
 the page's: they are drawn for the 160 mm LaTeX text width and included there
 at 100%, so no type is below 9 pt, in the print ink of `export/tokens.js`, and
 nothing has a dark ground. Figures 1 and 2 show contrast against the screen
@@ -4488,7 +4600,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/upload/{job_id}`, `GET /api/upload` | Ingest progress and result of one job, and the recent jobs. |
 | `GET /api/upload-info` | Upload limits and the disk headroom per format, and the accepted schemas: `schemas` (each with `name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns`, `note`) and `accepted`, the one-sentence list. `schema` still describes `hits_all_models` alone. |
 | `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
-| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Unknown values return 422 naming the field. `depth_groups=<13 positive counts joined by '.'>`, summing to the lattice's layer count, pools the YZ and XZ depth axes into the Longitudinal Channels in the Absolute frame, the D-frame and `coord_system=trans` (a 422 naming `depth_groups` otherwise, and always with `coord_system=local`; [Longitudinal Channels](#longitudinal-channels-and-the-z-depth-label)). Every response carries `depth_layers`: the depth axis's numbering (`detector`, `relative` or `none`), its layer count and stored edges, `display_offset_mm` (3649, the Absolute frame only), the selection's per-layer energy and attention, summed over every selected hit (`profile`; marked inexact under the drag-preview sample), the `reach` of relative layers, and, when pooled, the partition's echo (`groups`). The per-layer arrays (`profile.energy_gev`, `profile.attention.*`) travel at 4 significant figures and the edges at 0.001 mm; the scalar totals keep full precision. When the body would pass the 100 KB contract the block is trimmed first: it keeps every scalar, `edges_mm` and `groups`, and becomes `profile: null, reach: null, trimmed: true` with a `trim_note` the drawers quote. **Payload compaction** (so the 900-view matrix stays under the guard, see [Performance](#performance)): `topk[].value` travels at 7 significant figures, rounded toward zero (the float32 source's precision, so a shipped value never exceeds the cell's own and the brightest value never passes the panel's peak); `meta.stagger` is sent **in the Absolute frame only**, the co-registered frames' comb being `frame.comb` (`measured_on` unchanged); and the per-shower frames' `frame.coordinates.note` is no longer copied into `meta.notices`, the client putting it back in the same position (`frame_views.js` `frameNotices`). Together they save 1.6–3.05 KB a response. |
+| `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Its `frame` block carries `ill_conditioned_share` and `ill_conditioned_majority` (share above 0.5), and every `frame.fit.<panel>.<row\|col>` carries `cap`: null except on the entry panel's x′ columns and the X′Z′ panel's x′ rows, where it states the x′ window cap at the drawn field and the drawn bins left beyond it ([The x′ cap](#separation-aligned-d-frame-the-translated-view-api-canonical)). Unknown values return 422 naming the field. `depth_groups=<13 positive counts joined by '.'>`, summing to the lattice's layer count, pools the YZ and XZ depth axes into the Longitudinal Channels in the Absolute frame, the D-frame and `coord_system=trans` (a 422 naming `depth_groups` otherwise, and always with `coord_system=local`; [Longitudinal Channels](#longitudinal-channels-and-the-z-depth-label)). Every response carries `depth_layers`: the depth axis's numbering (`detector`, `relative` or `none`), its layer count and stored edges, `display_offset_mm` (3649, the Absolute frame only), the selection's per-layer energy and attention, summed over every selected hit (`profile`; marked inexact under the drag-preview sample), the `reach` of relative layers, and, when pooled, the partition's echo (`groups`). The per-layer arrays (`profile.energy_gev`, `profile.attention.*`) travel at 4 significant figures and the edges at 0.001 mm; the scalar totals keep full precision. When the body would pass the 100 KB contract the block is trimmed first: it keeps every scalar, `edges_mm` and `groups`, and becomes `profile: null, reach: null, trimmed: true` with a `trim_note` the drawers quote. **Payload compaction** (so the 900-view matrix stays under the guard, see [Performance](#performance)): `topk[].value` travels at 7 significant figures, rounded toward zero (the float32 source's precision, so a shipped value never exceeds the cell's own and the brightest value never passes the panel's peak); `meta.stagger` is sent **in the Absolute frame only**, the co-registered frames' comb being `frame.comb` (`measured_on` unchanged); and the per-shower frames' `frame.coordinates.note` is no longer copied into `meta.notices`, the client putting it back in the same position (`frame_views.js` `frameNotices`). Together they save 1.6–3.05 KB a response. |
 | `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. Each raster frame carries `layer_planes`: the detector layer planes' unit normal in that frame's axes (tilted by the shower's R(θ, φ) in Local), their seams, the shower's energy per layer, the panels where a plane has a line image (u–w only in Local), the tilt, the start layer and the reach. The per-layer energies (`layer_planes.energy_gev`) travel at 4 significant figures and the edges at 0.001 mm; when the body would pass the 100 KB contract a frame's block is trimmed first, to `energy_gev: null, trimmed: true` with a `trim_note` the drawers quote. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). The voxel body carries `voxels.depth_profile`: per bin of its own depth axis, the energy of every cell or voxel in the window before the cap, the channel's energy-weighted attention (Shap-CAM split by sign), the energy off the axis and the total, the exact sums the slice mode quotes. `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. |
 | `GET /api/event/pick` | The reference notebook's event selection rule on the current filters: events with more hits than the selection's mean, the `pool_size` (20) with the largest incident angle, one drawn with `seed` (42). Returns the event, the pool and the rule in words. `rule=tilted` (the default, and the only one a request naming none gets, byte for byte as before) or `densest`: the event with the most cells, ties to the lowest event number, which the 3-D event view opens on. |
 | `GET /api/window-axis` | The windowed ensemble axis of an absolute-frame depth panel: `panel=yz\|xz`, `t_min`, `t_max` (the displayed transverse window, mm) under the same filters. Per shower the mean trajectory of the events whose entry point lies in the window, the exact dispersion band and the 95 % t-envelope at nine depth stations, the lean / fan gate, the azimuth resultant and its Rayleigh p, and the notes the drawer prints. |
@@ -4868,7 +4980,20 @@ passed. `tests/test_kernel.py` needs no database at all: it pins every operator
 property the display relies on (columns telescope, W ≥ 0, energy conserved,
 σ → 0 is the box, the tent is `np.interp`, no displayed bin above the raw peak
 over 100 random matrices, flat fields stay flat, float32 input gives the
-float64 result) and the symmetric window on hand-computed cases. `tests/test_golden_lab.py`
+float64 result) and the symmetric window on hand-computed cases. The D-frame's
+x′ cap and the zoom rule have their own files. `tests/test_window_cap.py` builds
+the accumulation planes by hand: components and the bridged gap, islands, the
+kernel reach, the floor, "only tightens", the per-side `outside` counts, and the
+API payload on the synthetic fixtures. `tests/test_js_dframe_notes.py` runs the
+entry tag's chip, the hazards and the drawers' ill-conditioned and cap sentences
+under Node on the recorded canonical fixture with the `ill_conditioned_*` and
+`cap` fields injected. `tests/test_js_window_overflow.py` pins the edge carets
+(only when `outside.sides` is non-empty, on the clipped edge, hidden when a zoom
+leaves the edge out, kept by the Marks toggle, drawn in the export, 3:1 ink).
+`tests/test_js_zoom_shape.py` pins `shapeToCard` and the letterbox from the
+displayed window (1:1 at every zoom, a strip growing into the card, a pan
+keeping the rectangle), and `tests/test_browser_zoom.py` (opt-in) checks the same
+in Chromium. `tests/test_golden_lab.py`
 asserts that the Absolute-frame (`frame=lab`) output on the demonstration dataset is
 **byte-identical** to `tests/golden/lab_demo.json`, so the shared code the
 D-frame touches (`NativeBundle.axis`, `centroids`, `panels.shower_axes`)
