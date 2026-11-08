@@ -135,6 +135,17 @@ for (const panelId of ['xy', 'xz', 'yz']) {
 }
 out.none = { xy: Boolean(caretOf(build(empty, 'xy').option)), xz: Boolean(caretOf(build(empty, 'xz').option)),
   fixture: Boolean(caretOf(build(base, 'xy').option)) };
+// The cap not applied: the percentile rule itself cut drawn bins (production's
+// 15 x′ bins). They are still marked, with the percentile rule as the reason.
+{
+  const cut = withCaps(XY_SIDES, []);
+  cut.frame.fit.xy.col.cap.applied = false;
+  const { option } = build(cut, 'xy');
+  const ext = proj.extentOf(cut.panels.xy, cells.ensembleCellOptions(cut, 'xy', 'viridis'));
+  out.percentileCut = { present: Boolean(caretOf(option)), items: rendered(option, ext) };
+  // The recorded base fixture: its X′Z′ cap is not applied but one drawn row lies beyond.
+  out.fixtureXz = Boolean(caretOf(build(base, 'xz').option));
+}
 // The Marks toggle leaves the caret: it is a disclosure, not an overlay.
 out.marksHidden = Boolean(caretOf(build(capped, 'xy', { marksShown: false }).option));
 // Zoomed so the +x′ edge is out of view and the −x′ edge in view.
@@ -243,6 +254,16 @@ def test_the_x_prime_z_prime_caret_sits_on_the_vertical_x_prime_axis(out):
     tip, *wings = item["el"]["points"]
     assert tip[1] == pytest.approx(item["box"]["y"])
     assert all(w[1] > tip[1] for w in wings)
+
+
+def test_drawn_bins_the_percentile_rule_cut_are_marked_with_that_reason(out):
+    """Every drawn bin the notes count beyond the window is marked, whoever cut it."""
+    cut = out["percentileCut"]
+    assert cut["present"] is True and len(cut["items"]) == 2
+    for item in cut["items"]:
+        assert "the 0.1st–99.9th percentile window ends inside the drawn field here" in item["tip"]
+        assert "capped at the drawn field" not in item["tip"]
+    assert out["fixtureXz"] is True
 
 
 def test_the_tooltip_names_the_count_range_and_share(out):

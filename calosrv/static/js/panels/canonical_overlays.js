@@ -459,11 +459,14 @@ export const OVERFLOW_CARET_PX = 9;
 export const OVERFLOW_ID = 'window-overflow';
 
 /**
- * The clipped sides of a panel's capped window axes, from the response's
+ * The clipped sides of a panel's x′ window axes, from the response's
  * `frame.fit[panelId]`: one entry per side of an axis whose `cap.outside.sides`
  * is non-empty, `axisKey` 'col' or 'row' naming the payload axis the cap is on
- * (x′: the entry panel's columns, the X′Z′ panel's rows). Empty when nothing
- * is capped or nothing lies outside.
+ * (x′: the entry panel's columns, the X′Z′ panel's rows). Whether the cap
+ * tightened the window or the percentile rule already cut those bins (the
+ * cap not applied: production's 15 x′ bins, 0.068% of the entry energy), a
+ * drawn bin beyond the window is marked, as the notes that count it say.
+ * Empty when nothing drawn lies outside.
  */
 export function windowOverflow(frame, panelId) {
   const fit = frame?.fit?.[panelId];
@@ -472,7 +475,7 @@ export function windowOverflow(frame, panelId) {
   for (const axisKey of ['col', 'row']) {
     const cap = fit[axisKey]?.cap;
     const sides = cap?.outside?.sides;
-    if (!cap || cap.applied === false || !Array.isArray(sides)) continue;
+    if (!cap || !Array.isArray(sides)) continue;
     for (const side of sides) {
       if (!(side?.bins > 0) || !(side.side === 1 || side.side === -1)) continue;
       out.push({ axisKey, cap, ...side });
@@ -513,10 +516,15 @@ export function windowOverflowText(item, { symbol = 'x′', other = '', edge = n
   if (Number.isFinite(cap?.percentile_half_width)) {
     why.push(`0.1st–99.9th percentile half-width ± ${formatInt(cap.percentile_half_width)} mm`);
   }
+  // Why the window stops short of these bins: the cap (islands too small to
+  // set it), or - the cap not applied - the percentile rule's own tail.
+  const reason = cap?.applied === false
+    ? 'the 0.1st–99.9th percentile window ends inside the drawn field here'
+    : 'the window is capped at the drawn field’s connected extent';
   return `Drawn bins beyond the window edge${edgeText}<br/>`
     + `${bins}${floor} ${n === 1 ? 'lies' : 'lie'} beyond the window at ${symbol} = ${mmRange(item.range)}, `
     + `holding ${sharePercent(item.energy_fraction)} of this panel’s energy${at}<br/>`
-    + 'the window is capped at the drawn field’s connected extent'
+    + reason
     + (why.length ? ` (${why.join('; ')})` : '')
     + ': clipped and counted, see Details';
 }
