@@ -302,15 +302,67 @@ function splatPhrase(frame, recon = frame?.reconstruction) {
   return `${k} × ${k} footprint splat`;
 }
 
-/** ⟨D_entry⟩ with its interval, as HTML for the X′Y′ tag; '' without events. */
+/** Escape text for the HTML of a tag (the chip's text and its title attribute). */
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+/** The share of events entering inside the ill-conditioning threshold: the payload's, else computed. */
+function illShare(frame) {
+  if (Number.isFinite(frame?.ill_conditioned_share)) return frame.ill_conditioned_share;
+  return frame?.n_events > 0 && Number.isFinite(frame.n_ill_conditioned)
+    ? frame.n_ill_conditioned / frame.n_events : null;
+}
+
+/**
+ * The share as a percentage: a whole percent, or one decimal where a whole
+ * percent would round to 0 or 100 and so say "none" or "all".
+ */
+function illPercent(share, { exact = false } = {}) {
+  if (!Number.isFinite(share)) return '—';
+  const whole = Math.round(100 * share);
+  if (!exact && whole > 0 && whole < 100) return `${whole}%`;
+  // One decimal, but never "100.0%" for a share short of 1 nor "0.0%" for one above 0.
+  const tenths = (100 * share).toFixed(1);
+  if (share < 1 && tenths === '100.0') return '99.9%';
+  if (share > 0 && tenths === '0.0') return '0.1%';
+  return `${tenths}%`;
+}
+
+/** The ill-conditioned count with its share: "19,326 of 19,998 events (96.6%) enter closer than 80 mm apart". */
+function illCount(frame) {
+  return `${formatInt(frame.n_ill_conditioned)} of ${formatInt(frame.n_events)} events `
+    + `(${illPercent(illShare(frame), { exact: true })}) enter closer than ${num(frame.ill_conditioned_threshold_mm)} mm apart`;
+}
+
+/**
+ * The warning chip for a D-frame whose selection is mostly ill-conditioned, as
+ * HTML (`' · <span class="tag-warn" title="…">97% enter < 80 mm apart</span>'`),
+ * or '' when the payload does not carry the majority flag.
+ */
+function illChip(frame) {
+  if (!frame?.ill_conditioned_majority) return '';
+  const threshold = num(frame.ill_conditioned_threshold_mm);
+  const title = `${illCount(frame)}: their A→B direction is set by the anchor uncertainty, so this frame `
+    + 'cannot separate their showers and draws them superimposed about the origin. Ill-conditioning is '
+    + 'judged on the entry separation D_entry; raising D’s lower bound (the 3-D centroid distance) '
+    + 'selects better-separated pairs.';
+  return ` · <span class="tag-warn" title="${escapeHtml(title)}">`
+    + `${escapeHtml(illPercent(illShare(frame)))} enter &lt; ${escapeHtml(threshold)} mm apart</span>`;
+}
+
+/** ⟨D_entry⟩ with its interval, as HTML for the X′Y′ tag, plus the ill-conditioning chip; '' without events. */
 export function entryTag(frame) {
   const entry = frame?.d_entry ?? {};
   if (!(frame?.n_events > 0) || !Number.isFinite(entry.mean)) return '';
   const symbol = '⟨D<sub>entry</sub>⟩';
   const n = Number.isFinite(entry.n) ? entry.n : frame.n_events;
-  if (n === 1) return `${symbol} ${num(entry.mean)} mm (single event)`;
-  if (!Number.isFinite(entry.ci95_half)) return `${symbol} ${num(entry.mean)} mm (N = ${formatInt(n)})`;
-  return `${symbol} ${num(entry.mean)} ± ${num(entry.ci95_half)} mm (95% t, N = ${formatInt(n)})`;
+  const chip = illChip(frame);
+  if (n === 1) return `${symbol} ${num(entry.mean)} mm (single event)${chip}`;
+  if (!Number.isFinite(entry.ci95_half)) return `${symbol} ${num(entry.mean)} mm (N = ${formatInt(n)})${chip}`;
+  return `${symbol} ${num(entry.mean)} ± ${num(entry.ci95_half)} mm (95% t, N = ${formatInt(n)})${chip}`;
 }
 
 /** The XY tag of a per-shower frame: N events and 2N superimposed showers (N showers for one per event). */
@@ -405,6 +457,7 @@ export function windowPhrase(fit, id, sides) {
   const panelFit = fit[id] || {};
   const parts = [];
   const limits = [];
+  const beyond = [];
   for (const [side, symbol] of sides) {
     const axis = panelFit[side];
     if (!axis?.applied || !Array.isArray(axis.range)) {
@@ -424,11 +477,39 @@ export function windowPhrase(fit, id, sides) {
         + `${fit.provisional ? 'provisional' : 'two-footprint'} floor`);
     }
     if (axis.clamped) limits.push(`${symbol} clamped to the accumulation window`);
+    const cap = axis.cap;
+    if (cap && typeof cap === 'object') {
+      if (cap.applied) {
+        const half = Number.isFinite(axis.half_width)
+          ? axis.half_width : Math.max(Math.abs(axis.range[0]), Math.abs(axis.range[1]));
+        limits.push(`${symbol} capped at the drawn field’s extent (±${formatInt(cap.drawn_half_width)} mm drawn `
+          + `plus the ${formatInt(cap.reach_mm)} mm kernel reach, snapped to ±${formatInt(half)} mm) below the `
+          + `±${formatInt(cap.percentile_half_width)} mm the percentile rule gives, because beyond it nothing `
+          + `is drawn at ${floorLabel({ floor_ratio: cap.floor_ratio ?? 1e-3 })} of ρ_ref`);
+      }
+      if (cap.outside?.bins > 0) beyond.push(cap.outside);
+    }
   }
   const [p0, p1] = Array.isArray(fit.percentiles) && fit.percentiles.length >= 2
     ? fit.percentiles : [1, 99];
   const rule = `${fit.rule === 'symmetric' ? 'symmetric ' : ''}${ordinal(p0)}–${ordinal(p1)} energy percentile`;
-  return `Window ${parts.join(', ')} (${[rule, ...limits].join('; ')})`;
+  return `Window ${parts.join(', ')} (${[rule, ...limits].join('; ')})${beyondCapSentence(beyond)}`;
+}
+
+/**
+ * Drawn bins left beyond a capped window, with their share of the panel's
+ * energy and where they lie: islands far from the main field, marked at the
+ * window edge. '' when there are none.
+ */
+function beyondCapSentence(outsides) {
+  if (!outsides.length) return '';
+  const bins = outsides.reduce((total, o) => total + o.bins, 0);
+  const energy = outsides.reduce((total, o) => total + (o.energy_fraction || 0), 0);
+  const where = outsides.flatMap((o) => (o.sides || []).filter((side) => Array.isArray(side.range)))
+    .map((side) => `${formatInt(side.range[0])} to ${formatInt(side.range[1])} mm`);
+  const place = where.length ? ` at x′ ${where.join(' and ')}` : '';
+  return `, with ${formatInt(bins)} drawn bin${bins === 1 ? '' : 's'} (${pct(energy, energy < 0.01 ? 3 : 2)} of the panel’s `
+    + `energy) beyond it${place}, marked at the window edge`;
 }
 
 /**
@@ -678,7 +759,13 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
   const splat = ` Cells (${num(f.footprint_mm?.[0], 1)} × ${num(f.footprint_mm?.[1], 1)} mm) are splatted as ${k} × ${k} sub-deposits on a ${f.pitch_mm} mm grid.`;
   const anchor = anchorSentence(f);
   const ill = f.n_ill_conditioned
-    ? ` ${formatInt(f.n_ill_conditioned)} event(s) enter closer than ${f.ill_conditioned_threshold_mm} mm apart, so their orientation is effectively random: their energy enters ⟨ρ⟩ averaged over azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.`
+    ? ` ${illCount(f)}, so their orientation is effectively random: their energy enters ⟨ρ⟩ averaged over azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.`
+      + (f.ill_conditioned_majority
+        ? ' Most of the selection is ill-conditioned (judged on D_entry), so the panels show the showers superimposed about the origin rather than separated; a higher lower bound on D selects better-separated pairs but need not remove every ill-conditioned event.'
+        : '')
+    : '';
+  const illDepth = f.n_ill_conditioned && f.ill_conditioned_majority
+    ? ` Most of the selection (${illPercent(illShare(f), { exact: true })}) is ill-conditioned (D_entry < ${num(f.ill_conditioned_threshold_mm)} mm): the two ensemble axes and their wedges are then dominated by randomly oriented directions.`
     : '';
   const centroids = centroidLegend(payload.centroids);
 
@@ -713,11 +800,11 @@ export function canonicalFootnotes(payload, { isometric = {} } = {}) {
     yz: `Transverse spread normal to the shower plane against depth. ${depthRef('yz')} `
       + `${windowPhrase(fit, 'yz', [['row', 'y′']])}; ${outside('yz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.yz, continuous, floor)}${kernel('yz')}`
-      + `${anchorsText.yz}${marks}${geometry} ${axesText}${aspect('yz')}`,
+      + `${anchorsText.yz}${marks}${illDepth}${geometry} ${axesText}${aspect('yz')}`,
     xz: `Lateral profile along the separation against depth. ${depthRef('xz')} `
       + `${windowPhrase(fit, 'xz', [['row', 'x′']])}; ${outside('xz')}.${beyondGrid}${provisional}`
       + `${floorSentence(panels.xz, continuous, floor)}${kernel('xz')}`
-      + `${anchorsText.xz}${marks}${geometry} ${axesText}${aspect('xz')}`,
+      + `${anchorsText.xz}${marks}${illDepth}${geometry} ${axesText}${aspect('xz')}`,
   };
 }
 
