@@ -23,7 +23,8 @@ outputs together:
   bibliography, and sections, equations, tables and figures counted against
   render.js ``layout``;
 * a compile test (skipped without ``pdflatex`` and ``bibtex``): pdflatex,
-  bibtex and pdflatex twice on the real article with a tiny PNG per figure.
+  bibtex, then pdflatex until the log stops asking to rerun (as latexmk does;
+  at most four passes) on the real article with a tiny PNG per figure.
   The log must hold no error, undefined reference or citation and no
   "Missing character"; every label LaTeX numbers must carry the number the
   page prints, and the bibliography must come out in the order ``bib`` lists
@@ -250,7 +251,9 @@ def test_problems_are_reported_and_the_document_still_written(synthetic):
 def test_header_preamble_and_front_matter(synthetic):
     tex = synthetic["doc"]["tex"]
     assert tex.startswith("% A test article\n%\n% Exported from the Methodology page of calosrv 1.2.3 (static build s\\_1) on 2026-10-29.\n")
-    assert "% Build: pdflatex methodology && bibtex methodology && pdflatex methodology && pdflatex methodology" in tex
+    assert "% Build: latexmk -pdf methodology" in tex
+    assert ("% or: pdflatex methodology && bibtex methodology, then pdflatex methodology until the log "
+            "stops asking to rerun (three times)") in tex
     assert "latexmk -pdf methodology" in tex
     assert "% The figures are PNG at 300 dpi, drawn for a 160 mm text width; their SVG sources sit beside them." in tex
     packages = re.findall(r"\\usepackage(?:\[([^]]*)\])?\{([^}]*)\}", tex)
@@ -634,10 +637,20 @@ def test_the_real_article_compiles_with_pdflatex_and_bibtex(real, tmp_path):
     for figure in doc["figures"]:
         (tmp_path / "figures" / f"{figure['id']}.png").write_bytes(_tiny_png())
     pdflatex = [_PDFLATEX, "-interaction=nonstopmode", "-halt-on-error", "methodology"]
-    for command in (pdflatex, [_BIBTEX, "methodology"], pdflatex, pdflatex):
+    def run(command):
         done = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=300, check=False)
         log = (tmp_path / "methodology.log").read_text(encoding="latin-1")
         assert done.returncode == 0, f"{command[0]} failed:\n{done.stdout[-3000:]}\n{log[-3000:]}"
+        return log
+
+    run(pdflatex)
+    run([_BIBTEX, "methodology"])
+    # Then pdflatex until the cross-references settle, as latexmk does: an edit
+    # that moves a page break needs one pass more than one that does not.
+    for _ in range(4):
+        log = run(pdflatex)
+        if "Rerun to get" not in log:
+            break
     assert (tmp_path / "methodology.pdf").stat().st_size > 0
 
     blg = (tmp_path / "methodology.blg").read_text(encoding="latin-1")

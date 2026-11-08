@@ -4546,8 +4546,9 @@ modules; nothing goes to the service:
 | `references.bib` | the cited references, in order of first citation, written from the structured `bib` fields of `content/references.js` (held to the printed text by `tests/test_methodology_references.py`) |
 | `figures/<id>.svg`, `figures/<id>.png` | every figure drawn for paper (`exhibits.js` medium `'paper'`), as SVG and as a 300 dpi PNG with its density recorded |
 
-Build it with `latexmk -pdf methodology` (or pdflatex, bibtex, pdflatex
-twice); it needs only standard TeX Live packages. The paper figures are not
+Build it with `latexmk -pdf methodology` (or pdflatex, bibtex, then pdflatex
+until the log stops asking to rerun: three times for the current article, whose
+page references settle on the third); it needs only standard TeX Live packages. The paper figures are not
 the page's: they are drawn for the 160 mm LaTeX text width and included there
 at 100%, so no type is below 9 pt, in the print ink of `export/tokens.js`, and
 nothing has a dark ground. Figures 1 and 2 show contrast against the screen
