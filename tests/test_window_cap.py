@@ -170,6 +170,9 @@ def test_an_overlap_core_with_a_faint_far_tail_is_capped_and_nothing_drawn_is_cu
     # The note says so; the payload carries the block on the x′ axes only.
     assert "half-width is capped at the extent of the drawn field" in fit.note
     assert "below the percentile rule's (X′Y′ ±" in fit.note
+    # With no drawn bin left outside, the claim is unqualified.
+    assert "beyond it no bin of this selection reaches the 10⁻³ display floor" in fit.note
+    assert "apart from the isolated bins" not in fit.note
     data = fit.as_dict()
     assert data["xy"]["col"]["cap"]["applied"] and data["xz"]["row"]["cap"]["applied"]
     assert data["xy"]["row"]["cap"] is None and data["yz"]["row"]["cap"] is None
@@ -246,6 +249,9 @@ def test_a_far_island_under_a_tenth_of_a_percent_is_excluded_and_disclosed():
     assert xz_side["at"] == pytest.approx(grid.axis("z").edges[4:6].mean(), abs=1e-6)
     assert "Drawn x′ bins beyond the window are counted" in fit.note
     assert "X′Y′ 1 bin(s), +1,280 to +1,300 mm, 0.051% of the panel's energy" in fit.note
+    # The island is drawn, so "nothing beyond the window is drawn" must concede it.
+    assert ("beyond it, apart from the isolated bins counted below, no bin of this selection "
+            "reaches the 10⁻³ display floor") in fit.note
     assert signed_hyphens(fit.cap_note) == [], "negative numbers are written with U+2212"
 
 

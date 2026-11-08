@@ -631,10 +631,14 @@ class WindowFit:
             )
             reach_words = (f" plus the display kernel's {_mm(reach)} mm reach" if reach > 0
                            else " (no kernel reach in Native Grid)")
+            # Islands left beyond a capped window are drawn bins: the claim that
+            # nothing beyond it is drawn holds only apart from them.
+            islands = any(axis.cap["outside"]["bins"] for _, axis in applied)
+            except_words = ", apart from the isolated bins counted below," if islands else ""
             text += (
                 f" The {x} half-width is capped at the extent of the drawn field{reach_words}, "
-                f"below the percentile rule's ({parts}): beyond it no bin of this selection "
-                f"reaches the {_floor_label()} display floor, so nothing would be drawn there."
+                f"below the percentile rule's ({parts}): beyond it{except_words} no bin of this "
+                f"selection reaches the {_floor_label()} display floor, so nothing would be drawn there."
             )
         beyond = []
         for name, axis in axes:
