@@ -1710,9 +1710,10 @@ is also capped at the extent of the drawn field:
    `grid/frame.py`).
 3. *Islands.* A component holding under `CAP_ISLAND_SHARE` of the drawn energy
    (0.1%, = WINDOW_LOW_PERCENTILE / 100) does not set the cap.
-4. *The limit.* The kept components' outer edge plus the display kernel's reach
-   (tent 20 mm, Gaussian `reach_bins` × 20 mm = 120 mm, Native Grid 0), snapped
-   outward to 20 mm and never below the window floor.
+4. *The limit.* The kept components' outer edge plus the Continuous Field
+   kernel's reach (tent 20 mm, Gaussian `reach_bins` × 20 mm = 120 mm), added in
+   both display modes so the Native Grid audit view crops exactly as Continuous
+   Field does, snapped outward to 20 mm and never below the window floor.
 5. *The final half-width* is min(percentile half-width, limit). **The cap only
    tightens**: a selection whose drawn field fills the percentile window is
    unchanged.
@@ -1731,14 +1732,20 @@ full selections:
 | pion (`pion_hits_with_model_outputs`) | 19,996 | 35.2% | ±2,360 before the change; the drawn field fills it | 4.9:1 | — | — |
 
 The X′Y′ energy outside the window rises from 0.35% to 1.24% (electron) and from
-0.43% to 2.16% (muon), all of it below the display floor.
+0.43% to 2.16% (muon), all of it below the display floor except the muon
+file's 8 drawn island columns (0.076%), which are marked.
 
 **Disclosure.** Every `AxisFit` of a D-frame response carries `cap`
 (`frame.fit.<panel>.<row|col>.cap`), null except on those two axes: `rule`
 (`drawn_extent`), `applied`, `percentile_half_width`, `drawn_half_width`,
-`reach_mm`, `limit`, `gap_mm`, `floor_ratio`, `rho_ref` and `outside`, the drawn
-x′ bins left beyond the final window per side (`bins`, `energy_fraction`, the
-mm `range` and `at`, the energy-weighted position along the other axis). Those
+`reach_mm`, `limit`, `gap_mm`, `floor_ratio`, `rho_ref`, `mask` and `outside`,
+the drawn x′ bins left beyond the final window per side (`bins`,
+`energy_fraction`, the mm `range` and `at`, the energy-weighted position along
+the other axis), counted as the channel on show draws them: `mask` is `density`
+(⟨ρ⟩ at or above 10⁻³ ρ_ref), `channel` (an energy-weighted CAM channel's own
+|value| at or above 10⁻³ of its own peak; its window extent still takes the
+union with the density mask) or `hits` (a mean CAM channel in Native Grid, which
+draws every bin with hits). Those
 bins get an amber out-of-bounds caret at the window edge
 (`panels/canonical_overlays.js: windowOverflow`, `addWindowOverflow`), kept
 when the Marks toggle hides the marks and drawn in the export, a count in the
