@@ -279,3 +279,29 @@ def test_no_new_sentence_carries_a_hyphen_minus(results):
     for panels in results["notes"].values():
         for text in panels.values():
             assert not HYPHEN_NUMBER.search(text)
+
+
+# ------------------------------------------- the Disclosures section agrees
+
+
+def test_the_disclosures_section_states_the_share_the_cap_and_the_islands(results):
+    """`export/disclosure.js` (the drawer's Disclosures and the caption text) says what the prose says.
+
+    The drawer joins `frame_views.js`'s prose with `figureDisclosure`'s lines, so a
+    count-only ill-conditioned sentence there would contradict the share beside it.
+    """
+    electron = results["notes"]["electron"]["xy"]
+    assert "19,326 events enter closer" not in electron
+    assert electron.count("19,326 of 19,998 events (96.6%) enter closer than 80 mm apart") == 2
+    assert ("Most of the selection is ill-conditioned (judged on D_entry), so the panels show the showers "
+            "superimposed about the origin rather than separated.") in electron
+    islands = results["notes"]["islands"]
+    for panel in ("xy", "xz"):
+        assert ("capped at the drawn field's extent, below the ±1,740 mm the percentile rule gives, "
+                "because nothing beyond it is drawn") in islands[panel], panel
+        assert ("2 drawn bins holding 0.01% of the panel's energy lie beyond the window, "
+                "marked at its edge.") in islands[panel], panel
+    assert "capped at the drawn field's extent" not in islands["yz"]
+    for name in ("base", "minority", "legacy"):
+        assert "capped at the drawn field" not in results["notes"][name]["xy"], name
+        assert "beyond the window, marked" not in results["notes"][name]["xy"], name

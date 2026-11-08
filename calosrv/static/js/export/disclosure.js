@@ -509,6 +509,10 @@ function displayWindow(frame, panel, panelId, kind = 'canonical') {
 function symmetricWindow(windowFit, fit, panel, symbols) {
   const parts = [];
   const limits = [];
+  // The D-frame's x′ cap (query/window.py): drawn bins it leaves outside are
+  // counted here, as CLAUDE.md's "clip it and say so" asks.
+  let beyondBins = 0;
+  let beyondEnergy = 0;
   for (const side of ['col', 'row']) {
     const axis = fit[side];
     if (!axis?.applied || !Array.isArray(axis.range) || axis.range.length < 2) continue;
@@ -523,8 +527,21 @@ function symmetricWindow(windowFit, fit, panel, symbols) {
       limits.push(`${symbol} held at the ${Math.round(windowFit.floor_mm)} mm floor`);
     }
     if (axis.clamped) limits.push(`${symbol} clamped to the accumulation window`);
+    const cap = axis.cap;
+    if (cap?.applied && Number.isFinite(cap.percentile_half_width)) {
+      limits.push(`${symbol} capped at the drawn field's extent, below the `
+        + `±${formatInt(cap.percentile_half_width)} mm the percentile rule gives, because nothing beyond it is drawn`);
+    }
+    if (cap?.outside?.bins > 0) {
+      beyondBins += cap.outside.bins;
+      beyondEnergy += Number.isFinite(cap.outside.energy_fraction) ? cap.outside.energy_fraction : 0;
+    }
   }
   if (!parts.length) return null;
+  const beyond = beyondBins > 0
+    ? ` ${formatInt(beyondBins)} drawn ${plural(beyondBins, 'bin')} holding ${percent(beyondEnergy)} of the `
+      + "panel's energy lie beyond the window, marked at its edge."
+    : '';
 
   const [p0, p1] = Array.isArray(windowFit.percentiles) && windowFit.percentiles.length >= 2
     ? windowFit.percentiles
@@ -535,7 +552,8 @@ function symmetricWindow(windowFit, fit, panel, symbols) {
   return `Display window: ${parts.join(', ')}, symmetric about the origin at the `
     + `${ordinal(p0)}–${ordinal(p1)} energy percentile`
     + `${limits.length ? `; ${limits.join('; ')}` : ''}; `
-    + `${Number.isFinite(outside) ? percent(outside) : '—'} of the panel's energy lies outside it${tail}.`;
+    + `${Number.isFinite(outside) ? percent(outside) : '—'} of the panel's energy lies outside it${tail}.`
+    + beyond;
 }
 
 function splatting(frame) {
@@ -570,9 +588,29 @@ function illConditioned(frame) {
   const threshold = Number.isFinite(frame.ill_conditioned_threshold_mm)
     ? frame.ill_conditioned_threshold_mm
     : 80;
-  return `${formatInt(n)} ${plural(n, 'event')} enter closer than ${threshold} mm apart, so `
+  // The count with its share of the selection, as the drawer's prose states it
+  // (frame_views.js); a payload without the share field has it computed.
+  const total = frame.n_events;
+  const share = Number.isFinite(frame.ill_conditioned_share) ? frame.ill_conditioned_share
+    : (total > 0 ? n / total : null);
+  const count = total > 0 && Number.isFinite(share)
+    ? `${formatInt(n)} of ${formatInt(total)} ${plural(total, 'event')} (${sharePercent(share)})`
+    : `${formatInt(n)} ${plural(n, 'event')}`;
+  const majority = frame.ill_conditioned_majority
+    ? ' Most of the selection is ill-conditioned (judged on D_entry), so the panels show the showers '
+      + 'superimposed about the origin rather than separated.'
+    : '';
+  return `${count} enter closer than ${threshold} mm apart, so `
     + 'their orientation is effectively random: their energy enters ⟨ρ⟩ averaged over '
-    + 'azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.';
+    + `azimuth and their directions enter R̄′, the Rayleigh p and the dispersion band as noise.${majority}`;
+}
+
+/** A share in percent to one decimal, never "100.0%" short of 1 nor "0.0%" above 0. */
+function sharePercent(share) {
+  const tenths = (100 * share).toFixed(1);
+  if (share < 1 && tenths === '100.0') return '99.9%';
+  if (share > 0 && tenths === '0.0') return '0.1%';
+  return `${tenths}%`;
 }
 
 function ensembleAxes(frame) {
