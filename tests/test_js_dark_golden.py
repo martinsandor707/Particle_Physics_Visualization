@@ -42,6 +42,12 @@ and prints a table of SHA-256 digests, one per case:
   Boundaries and Pooled, on the five layer-group fixtures and on the Local
   ensemble, under the screen and the print tokens; and the drawer notes those
   specs produce (`projectionNotes`, `eventNotes`, `voxelProjectionNotes`).
+* **The resolution card's E view** (added 2026-11-10, new case ids only:
+  `models/resolution/*/energy/*` and `notes/models_resolution/*/energy/*`). The
+  option of σ/E against E with its ratio panel, on the four resolution fixtures,
+  both window modes and the three ratio references (the deposit fit, the π± and
+  e± literature curves), under the screen and the print tokens; its fit table;
+  its drawer; one shower; a narrow card. The 1/√E view's cases are untouched.
 * **The benchmark catalogue** (added 2026-11-05, new `catalog/*` case ids only).
   Every catalogue payload (`catalog/select.js` `catalogPayload`) and every
   catalogue builder on it, for each species and Compare all and each task: the
@@ -854,6 +860,23 @@ for (const name of ['res_scaling_two', 'res_scaling_xgb', 'res_scaling_single_hi
   }
   optionCase(`models/resolution/${name}/showerA`, rs.resolutionScalingOption(payload, { windows: 'anchors', shower: 'a' }, MW));
   optionCase(`models/resolution/${name}/narrow`, rs.resolutionScalingOption(payload, { windows: 'all', shower: 'both' }, { width: 360, height: 420 }));
+}
+
+/* ---- Models: the resolution card's E view (added 2026-11-10, new case ids only) -------------- */
+const EW = { width: 760, height: rs.ENERGY_VIEW_PX };
+for (const name of ['res_scaling_two', 'res_scaling_xgb', 'res_scaling_single_hits', 'res_scaling_single_events']) {
+  const payload = load(name);
+  for (const windows of ['anchors', 'all']) {
+    for (const reference of ['deposit', 'pi', 'e']) {
+      const opts = { view: 'energy', windows, shower: 'both', reference };
+      both(`models/resolution/${name}/energy/${windows}/${reference}`, () => rs.energyViewOption(payload, opts, EW).option);
+      put(`notes/models_resolution/${name}/energy/${windows}/${reference}`, mn.resolutionScalingNotes({ payload, ...opts }));
+    }
+    put(`models/resolution/${name}/energy/${windows}/table`, rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both' }));
+  }
+  const allDeposit = { view: 'energy', windows: 'all', reference: 'deposit' };
+  optionCase(`models/resolution/${name}/energy/showerA`, rs.energyViewOption(payload, { ...allDeposit, shower: 'a' }, EW).option);
+  optionCase(`models/resolution/${name}/energy/narrow`, rs.energyViewOption(payload, { ...allDeposit, shower: 'both' }, { width: 360, height: rs.ENERGY_VIEW_PX }).option);
 }
 
 for (const name of ['pred_density_two_energy', 'pred_density_two_angle', 'pred_density_xgb_energy', 'pred_density_xgb_phi', 'pred_density_xgb_theta']) {
