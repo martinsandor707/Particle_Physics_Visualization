@@ -72,6 +72,16 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - every catalogue card's Details button carries the hazard "no interval reported";
       - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
       - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
+  - **Recorded exception: transcribed literature reference curves** (`calosrv/static/js/catalog/resolution_refs.js`, pinned to `resolution_references.md` by `tests/test_resolution_refs.py`; Martin's decision, 2026-11-10).
+    - **What.** The energy-resolution card's E view (§5) can draw two curves and divide its ratio panel by either: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
+    - **Why:** the figure prints no uncertainty for either curve and names no source publication. A number that carries no uncertainty cannot be given one by the dashboard.
+    - **The rules:**
+      - no interval is fabricated or derived;
+      - every curve, and every ratio taken against one, says "no interval reported" (tooltip, drawer, hazard);
+      - the legend's printed decimals are kept;
+      - a curve never sets a range;
+      - the drawer says the curves describe that simulation's particles in its η range, never this dataset's detector.
+    - **Left out on purpose:** the figure's Yellow Report requirement bands, whose parameters it does not print, and its digitized points.
 * **Display Ranges Follow Robust Evidence**:
   - An axis range, a colour-scale bound or a histogram range is computed **only from the series that carry real statistical weight**. A fitted curve peaks at $1/(\sigma\sqrt{2\pi})$, so letting an under-powered slice set the scale flattens every well-measured series in service of the least reliable one. Measured on this panel: two 10-event slices peaked at 2.52 and 2.09 GeV⁻¹ against a robust maximum of 0.38, which would have compressed four well-measured slices into the bottom 15% of the canvas.
   - Under-powered estimates adapt to the established range. Where one overflows it, **clip it and say so**: an out-of-bounds indicator at the overflow, the true value in its tooltip, and a count in the panel's Details drawer (the former footnote) — the same disclosure discipline the percentile-clipping rule below demands.
@@ -380,7 +390,7 @@ When working with calorimeter simulation datasets in this repository:
     - prediction against truth and its residuals;
     - the feature explorer (table, correlations, histogram, 2-D histogram), which draws one shower at a time on two-shower data and never pools A and B;
     - the primary-tag rate;
-    - the energy-resolution scaling, σ/E against 1/√E, in a section of its own;
+    - the energy-resolution scaling, in a section of its own: σ/E against 1/√E, or against E in GeV with a ratio panel;
     - the two 3-D views of the recorded exception above, each with a slice mode;
     - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
   - **Three subpages** (`static/js/models_subpages.js`, `models_main.js`; hash key `msub`; Martin's decisions, 2026-11-05).
@@ -449,9 +459,36 @@ When working with calorimeter simulation datasets in this repository:
     - **Its series.** The detector's calibrated deposit, labelled "Calibrated deposit c·E_dep — linear-sum benchmark" and never called a limit, since a shape-aware model can beat a plain sum; the energy network of the selected frame on two-shower data; the XGBoost momentum hold-out on a paired aggregate.
     - **Its axes.** A reversed axis linear in 1/√E whose right border is the origin (E → ∞); the top axis is the exact relabelling E = 1/x², carrying no data; y from zero.
     - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV; a window below 4 GeV is off the axis, counted and listed.
-    - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. The quadrature form is tabled, never drawn.
+    - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. On this view the quadrature form is tabled, never drawn; the E view below draws it.
     - **Its band** is ±1.96 √(gᵀΣg) while the windows' errors stand and ±t₀.₉₇₅,ν √(gᵀΣg) once S > 1 scales Σ: S is then estimated from the fit's own ν, and the normal quantile would understate the interval 6.5× at ν = 1.
     - **Its disclosures.** A line or band that leaves the top is clipped with a caret, its true values and a drawer count, as a weak window is; a fit whose weights did not settle says so.
+    - **Its second view: E (GeV) + ratio** (`panels/resolution_scaling.js` `energyModel` / `energyViewOption`; the payload's `axis.energy`, `span_gev`, `rho_a2b2`; Martin's decisions, 2026-11-10).
+      - **The toggle.** "1/√E linear | E (GeV) + ratio" repaints the one response, so it sends no request. The 1/√E view is untouched, and the dark golden holds it. The view and the ratio reference are card controls, never in the hash or an Admin default.
+      - **What it plots.**
+        - Each window sits at E = 1/⟨1/√p⟩², the image of the 1/√E view's own abscissa, never at ⟨p⟩. So a window on its fitted line there sits on its fitted curve here.
+        - The x axis is linear from 0 to 80 GeV, or to the dataset's top edge when higher. σ/E starts at zero.
+        - "All windows" also draws the windows below 4 GeV, as points no fit uses.
+      - **Its fits.** Each is drawn with its 95% band:
+        - the quadrature a/√E ⊕ b, only where both terms are defined (A > 0, B > 0). Its band is the root of the band in z = (σ/E)², exact because z is linear in (A, B);
+        - the origin-pinned a₀/√E (= a₀/√E ⊕ 0), always.
+
+        The affine fit stays on the 1/√E view. Measured on the eight stored experiments, the quadrature fit has a term undefined on 6 of 8 network series. The affine b < 0 on 5 of them, so an affine curve would extrapolate to 3.9% down to −2.0% at 80 GeV.
+      - **Solid and dashed.**
+        - A curve is solid over the windows it was fitted to (`span_gev`) and dashed beyond, down to 4 GeV and up to the axis end.
+        - Nothing is drawn below 4 GeV, which no fit uses.
+        - The band continues at a third of its strength. It holds the parameters' uncertainty only and assumes the form holds.
+      - **Its range** (`axis.energy.y`). It is set by the windows of N ≥ 20 from 2 GeV, whiskers included, and by the drawn fits over their fitted spans (the line only). A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
+      - **Off scale.** A clipped window takes a caret, its value in the tooltip and a drawer count. It is also named in a note band reserved above the plot, which also says where the curves extrapolate.
+      - **The ratio panel.**
+        - Every mark is divided by the reference: each shower's deposit fit (⊕ where defined, else pinned; its own band is a wash about 1), or a literature curve (§2's recorded exception).
+        - A ratio whisker is conditional on its reference.
+        - The axis is logarithmic and symmetric about 1, [1/k, k]. Measured ratios run 0.14–5.5, which no linear axis centred on 1 can hold.
+      - **Encoding.**
+        - The dash is extrapolation and the width is the form.
+        - Marker fill and line strength (shower B's lines at 70%) are the shower.
+        - The literature curves are dotted, in the muted ink.
+        - There is no zoom, only a crosshair linked across the two grids.
+      - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out.
   - **One coordinate system at a time on Views** (`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`; Martin's directives, 2026-11-06).
     - **The rule.** Views draws one 3-D pair (a 3-D card and its three paired projections) at a time, in the frame selected under Reference Frame.
       - The event view is drawn in the Absolute, per-shower translated and Local frames, the ensemble cloud in Local and the D-frame.
