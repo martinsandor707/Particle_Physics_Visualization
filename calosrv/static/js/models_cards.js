@@ -62,6 +62,7 @@ import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
+import { RESOLUTION_REFERENCES, referenceEquation, referenceLabel } from './catalog/resolution_refs.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -251,6 +252,8 @@ export const DEFAULT_CONTROLS = Object.freeze({
   perfShower: 'both',
   predShower: 'both',
   resShower: 'both',
+  resView: 'linear',
+  resReference: 'deposit',
   resWindows: 'anchors',
   resScalingShower: 'both',
   tableStat: 'median',
@@ -485,8 +488,41 @@ const TABLE_STAT_CONTROL = {
  * repaints. */
 const RES_WINDOWS_CONTROL = {
   name: 'resWindows', kind: 'seg', attr: 'resWindows', label: 'Windows',
-  choices: () => MODELS_LABELS.res_windows,
+  choices: ({ controls } = {}) => (controls?.resView === 'energy'
+    ? MODELS_LABELS.res_windows_energy : MODELS_LABELS.res_windows),
 };
+
+/* The resolution card's view: the reversed 1/sqrt(E) axis, or the energy in
+ * GeV with extrapolated fits and a ratio panel. Render-only: one response
+ * serves both, and it is never in a link or an Admin default. */
+const RES_VIEW_CONTROL = {
+  name: 'resView', kind: 'seg', attr: 'resView', label: 'View',
+  choices: () => MODELS_LABELS.res_view,
+};
+
+/* What the E view's ratio panel divides by: the deposit fit, or one of the
+ * literature curves of the catalogue. Visible in the E view only. */
+const RES_REFERENCE_CONTROL = {
+  name: 'resReference', kind: 'seg', attr: 'resReference', label: 'Ratio to',
+  choices: () => [
+    { value: 'deposit', label: 'Deposit fit', title: 'The ratio panel divides by the calibrated-deposit fit' },
+    ...RESOLUTION_REFERENCES.map((entry) => ({
+      value: entry.key,
+      label: referenceLabel(entry),
+      title: `${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported`,
+    })),
+  ],
+  visible: ({ controls }) => controls?.resView === 'energy',
+};
+
+const RES_ENERGY_TITLE = 'Energy Resolution vs. E';
+
+/** A card's title under the controls in hand: the resolution card's names its view. */
+export function cardTitle(id, controls = DEFAULT_CONTROLS) {
+  const spec = SPEC[id];
+  if (!spec) return '';
+  return id === 'res-scaling' && controls?.resView === 'energy' ? RES_ENERGY_TITLE : spec.title;
+}
 
 /* The validation-accuracy card's angle axis: render-only, the section's own
  * (never in a link). Log10 draws dots, never bars. */
@@ -499,7 +535,7 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_WINDOWS_CONTROL, showerControl('resScalingShower')],
+  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_REFERENCE_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -648,6 +684,8 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     if (predLabelApplies(plan, v)) opts.label = v.xgb_label;
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
   } else if (spec.group === 'res-scaling') {
+    opts.view = c.resView;
+    opts.reference = c.resReference;
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
   } else if (spec.section === 'features') {
@@ -918,6 +956,8 @@ export class ModelsSection {
           }
         }
       }
+      const heading = cardTitle(record.spec.id, this.controls);
+      if (record.title.textContent !== heading) record.title.textContent = heading;
       if (record.exporter) record.exporter.disabled = Boolean(record.disabled);
       this.syncCaption(record);
     }
@@ -1317,7 +1357,7 @@ export class ModelsSection {
   notes(id, { state = this.state, experiment = this.getExperiment() } = {}) {
     const record = this.cards.get(id);
     if (!record) return null;
-    const title = record.spec.title;
+    const title = cardTitle(id, this.controls);
     if (record.disabled) return shutNotes(title, record.disabled);
     if (record.notice) return shutNotes(title, record.notice);
     if (!record.payload) return record.error ? shutNotes(title, record.error) : null;

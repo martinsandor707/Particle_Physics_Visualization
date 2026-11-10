@@ -496,6 +496,27 @@ out.resScaling = {
     controls: { resScalingShower: 'b' } }),
   notice: cards.cardNotice('res-scaling', { plan: plans.two_shower_hits, view: view() }),
   controls: cards.cardControls('res-scaling').map((c) => c.name),
+  views: (() => {
+    const ctl = Object.fromEntries(cards.cardControls('res-scaling').map((c) => [c.name, c]));
+    const lin = { ...cards.DEFAULT_CONTROLS, resView: 'linear' };
+    const en = { ...cards.DEFAULT_CONTROLS, resView: 'energy' };
+    const req = (controls) => cards.cardRequest('res-scaling', { filters: filters.two, plan: plans.two_shower_hits,
+      view: view({ frame: 'canonical' }), controls });
+    return {
+      titles: [cards.cardTitle('res-scaling', lin), cards.cardTitle('res-scaling', en),
+               cards.cardTitle('res-scaling'), cards.cardTitle('perf-bins', en)],
+      refVisible: [ctl.resReference.visible({ controls: lin }), ctl.resReference.visible({ controls: en })],
+      refChoices: ctl.resReference.choices({ controls: en }).map((c) => c.value),
+      refTitle: ctl.resReference.choices({ controls: en })[1].title,
+      windows: [ctl.resWindows.choices({ controls: lin }).map((c) => c.label),
+                ctl.resWindows.choices({ controls: en }).map((c) => c.label)],
+      viewChoices: ctl.resView.choices({}).map((c) => c.value),
+      sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resReference: 'pi' })),
+      opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
+        controls: { resView: 'energy', resReference: 'e' } }),
+      inState: ['resView', 'resReference'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
+    };
+  })(),
 };
 out.abortKeys = cards.ABORT_KEYS;
 out.segmentationNotice = cards.SEGMENTATION_NOTICE;
@@ -642,10 +663,27 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resWindows", "resScalingShower"]
-    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "windows": "all", "shower": "b"}
+    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resReference"]
+    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+                                "reference": "deposit", "windows": "all", "shower": "b"}
     # One shower: no shower choice reaches the panel.
-    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "windows": "anchors", "shower": "both"}
+    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+                                 "reference": "deposit", "windows": "anchors", "shower": "both"}
+
+
+def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
+    v = request_results["resScaling"]["views"]
+    assert v["viewChoices"] == ["linear", "energy"]
+    assert v["titles"][0] == v["titles"][2] == "Energy Resolution vs. 1/\u221aE"
+    assert v["titles"][1] == "Energy Resolution vs. E"
+    assert v["titles"][3] == "Model Error vs. Incident Momentum"
+    assert v["refVisible"] == [False, True]
+    assert v["refChoices"] == ["deposit", "pi", "e"]
+    assert "no interval reported" in v["refTitle"]
+    assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
+    assert v["windows"][1] == ["3 anchors", "All windows"]
+    assert v["sameRequest"] is True
+    assert v["opts"]["view"] == "energy" and v["opts"]["reference"] == "e"
 
 
 _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, "e2_min": 1, "e2_max": 20,
