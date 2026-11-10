@@ -884,25 +884,29 @@ for (const name of %(corrs)s) {
       k: m.ratio.k, yhi: m.y.hi, colour: s.colour, edgeOpacity: cp.legibleOpacity(s.colour, 0.5), lineAxis: scale.THEME.lineAxis,
       edges: edgesOf(built), chart: walk(built), notes: notesOf(t12, t12opts),
       hazards: mn.modelsHazards(t12, 'res-scaling', t12opts), hazardsBase: mn.modelsHazards(two, 'res-scaling', t12opts),
-      // Every fixture fit judged by the rule itself, from its rows: [key, form, panel, outlined, any in-span row floor-to-top].
+      // Every fixture fit judged by the rule itself, re-derived here from its rows: [key, form, panel, outlined,
+      // some in-span row whose part inside the axis covers half of it or more, on the panel's own scale].
       fixtures: %(res)s.flatMap((name) => ['anchors', 'all'].flatMap((windows) => ['deposit', 'pi', 'e'].flatMap((reference) => {
         const mm = rs.energyModel(load(name), { windows, reference });
         const inSpan = (rows, span) => rows.filter((r) => r[0] >= span[0] - 1e-9 && r[0] <= span[1] + 1e-9);
+        const halfLin = (r) => Math.min(r[3], mm.y.hi) - Math.max(r[2], 0) >= 0.5 * mm.y.hi;
+        const lk = Math.log(mm.ratio.k);
+        const halfLog = (r) => Math.min(Math.log(r[3]), lk) - Math.max(r[2] > 0 ? Math.log(r[2]) : -Infinity, -lk) >= 0.5 * 2 * lk;
         const out = [];
         for (const x of mm.series) {
           for (const form of rs.ENERGY_FORMS) {
             const ff = x.fits[form];
             if (!ff.drawable) continue;
-            out.push([name, windows, reference, x.key, form, 'main', ff.outlined, inSpan(ff.curve, ff.span).some((r) => r[2] <= 0 && r[3] >= mm.y.hi)]);
+            out.push([name, windows, reference, x.key, form, 'main', ff.outlined, inSpan(ff.curve, ff.span).some(halfLin)]);
             if (ff.ratio) out.push([name, windows, reference, x.key, form, 'ratio', ff.ratio.outlined,
-              inSpan(ff.ratio.rows, ff.span).some((r) => r[2] <= 1 / mm.ratio.k && r[3] >= mm.ratio.k)]);
+              inSpan(ff.ratio.rows, ff.span).some(halfLog)]);
           }
         }
         for (const r of Object.values(mm.reference.byShower)) {
           if (!r.band) continue;
           const rows = [...r.band.below, ...r.band.inside, ...r.band.above];
           out.push([name, windows, reference, r.series, r.form, 'reference', r.outlined,
-            inSpan(rows, r.span).some((row) => row[2] <= 1 / mm.ratio.k && row[3] >= mm.ratio.k)]);
+            inSpan(rows, r.span).some(halfLog)]);
         }
         return out;
       }))),
@@ -1065,6 +1069,17 @@ for (const name of %(corrs)s) {
     for (const s of bare.series) for (const w of s.windows) { w.value = null; w.n = 1; }
     fix.provisional.nothing = notesOf(bare, { windows: 'all', reference: 'deposit' });
   }
+  // The outline threshold itself: half the axis, on the drawn scale, at one E of the span.
+  fix.share = {
+    value: rs.OUTLINE_SHARE,
+    half: rs.bandSpansShare([[5, 10, 60], [10, 20, 30]], [5, 20], 0, 100),
+    under: rs.bandSpansShare([[5, 10, 55], [10, 20, 30]], [5, 20], 0, 100),
+    beyondSpan: rs.bandSpansShare([[30, 0, 100]], [5, 20], 0, 100),
+    clampedTop: rs.bandSpansShare([[5, 40, 400]], [5, 20], 0, 100),
+    clampedShort: rs.bandSpansShare([[5, 60, 400]], [5, 20], 0, 100),
+    logHalf: rs.bandSpansShare([[5, 0.45, 2.2]], [5, 20], 0.25, 4, true),
+    logUnder: rs.bandSpansShare([[5, 0.6, 1.6]], [5, 20], 0.25, 4, true),
+  };
   out.resFix = fix;
 }
 
@@ -2871,7 +2886,7 @@ def test_res_notes_e_view_counts_equal_the_models(out):
         listed = [line for line in dis if "never as a wash: " in line]
         assert len(listed) == (1 if outlined else 0), where
         if outlined:
-            assert listed[0].startswith(f"{_n(outlined, 'band')} {'is' if outlined == 1 else 'are'} wider than ")
+            assert listed[0].startswith(f"{_n(outlined, 'band')} {'spans' if outlined == 1 else 'span'} half ")
         # P9: a cap is said, with its count.
         assert any(line.startswith("The ratio axis is capped at ×50") for line in dis) == bool(f["capped"]), where
         gone = [line for line in dis if "not drawn on the ratio panel" in line]
@@ -3063,6 +3078,16 @@ def _plain(tip: str) -> str:
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", tip)).split())
 
 
+def test_res_fix_p1_the_outline_threshold_is_half_the_axis_within_the_span(out):
+    """A band is drawn as its edges once it spans half its axis or more at one E of its fitted span."""
+    s = out["resFix"]["share"]
+    assert s["value"] == 0.5
+    assert s["half"] is True and s["under"] is False, "50 of 100 at 5 GeV is half; 45 is not"
+    assert s["beyondSpan"] is False, "only the fitted span counts"
+    assert s["clampedTop"] is True and s["clampedShort"] is False, "only the part inside the axis counts: 40-100 is 60%, 60-100 is 40%"
+    assert s["logHalf"] is True and s["logUnder"] is False, "on the ratio panel the share is taken on the log scale"
+
+
 def test_res_fix_p1_a_band_wider_than_the_axis_is_drawn_as_its_edges(out):
     o = out["resFix"]["outlined"]
     span, yhi, k = o["span"], o["yhi"], o["k"]
@@ -3085,7 +3110,7 @@ def test_res_fix_p1_a_band_wider_than_the_axis_is_drawn_as_its_edges(out):
             assert (1 / k - 1e-9 <= y <= k + 1e-9) if ratio else (0 < y <= yhi + 1e-9)
             if part == "solid":
                 assert span[0] - 1e-9 <= x <= span[1] + 1e-9
-        assert ("Its 95% band is wider than the axis over its fitted windows (S = 1.5, ν = 1, q = 12.71), "
+        assert ("Its 95% band spans half its axis or more over its fitted windows (S = 1.5, ν = 1, q = 12.71), "
                 "so it is drawn as its edges, not as a wash.") in e["tip"]
     curves = [s["items"][0]["tip"] for s in o["chart"]["series"]
               if s["id"].startswith(("network:a|quadrature|solid|", "network:a|ratio|quadrature|solid|"))]
@@ -3094,7 +3119,7 @@ def test_res_fix_p1_a_band_wider_than_the_axis_is_drawn_as_its_edges(out):
     assert len(listed) == 1 and "main panel: A network a/√E ⊕ b (S = 1.5, ν = 1, q = 12.71)" in listed[0]
     assert "ratio panel: A network a/√E ⊕ b (S = 1.5, ν = 1, q = 12.71)" in listed[0]
     assert set(o["hazards"]) <= set(o["hazardsBase"]) | {"marks clipped at the axis"}, "no hazard of its own"
-    # Every fixture, mode and reference: outlined exactly where the band runs from the floor to the top in its span.
+    # Every fixture, mode and reference: outlined exactly where the band spans half its axis or more in its span.
     assert o["fixtures"]
     for name, windows, ref, key, form, panel, outlined, full in o["fixtures"]:
         assert outlined == full, (name, windows, ref, key, form, panel)
@@ -3104,7 +3129,7 @@ def test_res_fix_p1_a_band_wider_than_the_axis_is_drawn_as_its_edges(out):
     assert r["outlined"] is True and r["cut"] is None and r["washes"] == 0
     assert {"panel": "ratio", "key": "detector:b", "reference": True} in r["entries"] and r["form"] == "quadrature"
     assert r["edges"] and all(e["stroke"] == r["muted"] and e["opacity"] == pytest.approx(r["edgeOpacity"]) for e in r["edges"])
-    assert all("Its own 95% band is wider than the axis over its fitted windows (S = 3, ν = 1, q = 12.71)" in e["tip"] for e in r["edges"])
+    assert all("Its own 95% band spans half its axis or more over its fitted windows (S = 3, ν = 1, q = 12.71)" in e["tip"] for e in r["edges"])
     assert any("the reference band about 1 of B deposit a/√E ⊕ b (S = 3, ν = 1, q = 12.71)" in line for line in _dis(r["notes"], out))
 
 
@@ -3300,20 +3325,16 @@ def test_res_fix_p12_a_curve_is_solid_over_the_span_of_its_windows(out, name):
                 assert f"Solid over the span of the windows it was fitted to ({_span(f['span'])}); dashed beyond" in tip
 
 
-def test_res_fix_p13_a_clamped_reference_band_takes_one_muted_caret(out):
+def test_res_fix_p13_a_reference_band_reaching_the_ratio_axis_is_outlined(out):
+    """A deposit reference's band about 1 contains 1, the centre of the log-symmetric ratio axis, so once it
+    reaches either end it covers half the axis or more, and OUTLINE_SHARE = 0.5 draws it as its edges: a
+    clamped reference wash, and so its muted caret (kept for a share above one half), cannot occur."""
     r = out["resFix"]["refCaret"]
-    clipped = [x for x in r["refs"] if x["clipped"]]
-    assert clipped and all(x["outlined"] is False and x["cut"] for x in clipped)
-    assert r["bands"] == len(clipped) == len(r["carets"])
+    reaching = [x for x in r["refs"] if x["clipped"] or x["outlined"]]
+    assert reaching, "the anchors-mode fixture's reference bands reach the ratio axis"
+    assert all(x["outlined"] is True and not x["cut"] for x in reaching)
+    assert r["carets"] == [] and r["bands"] == 0
     assert r["ratio"] == r["clipped"]["markers"] + r["clipped"]["whiskers"] + r["clipped"]["fits"] + r["clipped"]["bands"]
-    for c, ref in zip(r["carets"], clipped):
-        assert c["id"] == f"{ref['series']}|ratio|reference|caret" and c["xAxisIndex"] == 1 and c["fill"] == r["muted"]
-        assert c["at"][1] == pytest.approx(r["k"] if ref["cut"]["dir"] == "up" else 1 / r["k"])
-        assert "leaves the ratio axis" in c["tip"] and "True values where it deviates most" in c["tip"]
-        assert "Clamped at the axis, not rescaled: a reference band never sets the ratio range." in c["tip"]
-    dis = _dis(r["notes"], out)
-    assert any(line.startswith(f"{_n(len(clipped), 'reference band')} about 1 ") and "one muted caret" in line for line in dis)
-    assert "marks clipped at the axis" in r["hazards"]
 
 
 def test_res_fix_p14_a_provisional_sigma_axis_names_the_two_gev_floor(out):

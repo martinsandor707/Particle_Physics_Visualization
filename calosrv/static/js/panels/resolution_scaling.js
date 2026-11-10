@@ -140,7 +140,7 @@
  * that is undefined, evaluated only where curves are drawn; or a literature
  * curve over the whole axis. A ratio's interval is conditional on the
  * reference, which is held exact; the deposit reference's own band is a
- * neutral wash about 1 (its edges where it is wider than the axis, a muted
+ * neutral wash about 1 (its edges where it spans half the axis or more, a muted
  * caret where it is clamped), and a literature curve has none: every ratio
  * mark against it says so. The axis is logarithmic and symmetric about 1 over
  * [1/k, k], so ×2 and ÷2 lie at equal distances and a linear axis's impossible
@@ -949,7 +949,7 @@ const OUT_ALPHA = 1 / 3;
 /** Shower B's line and band strength on this view, where the dash means extrapolation. */
 const B_STRENGTH = 0.7;
 /**
- * A band wider than the axis is drawn as its two edges: this width (× `lineAxis`)
+ * A band that spans half its axis or more is drawn as its two edges: this width (× `lineAxis`)
  * and this asked opacity, raised to 3:1 where the card needs it.
  */
 const EDGE_WIDTH = 0.8;
@@ -1108,20 +1108,23 @@ export function ratioRange(marks) {
 
 /**
  * The share of its axis a band must cover, at one E of its fitted span, to be
- * drawn as its edges. 1 is the rule decided for the fix round: the band's
- * lower edge at or below the floor and its upper edge at or above the top.
+ * drawn as its edges. Half: measured on the stored experiments (2026-11-10),
+ * the three-anchor quadrature bands (ν = 1, Student's t₀.₉₇₅,₁ = 12.71 once S
+ * scales them) covered up to 96% of the σ/E axis without reaching both ends,
+ * and as washes they fogged every mark under them. A band that spans half the
+ * axis says the fit is barely constrained there; its two edges say as much,
+ * and leave the windows legible.
  */
-const OUTLINE_SHARE = 1;
+export const OUTLINE_SHARE = 0.5;
 
 /**
- * Whether a band `[[E, lo, hi], …]` is wider than its axis [floor, top] over
- * its fitted span: at some E in the span it covers `OUTLINE_SHARE` of the axis
- * on the scale the panel draws (`log` for the ratio panel), so with a share of
- * 1 its lower edge is at or below the floor and its upper edge at or above the
- * top. Such a band is drawn as its two edges, never as a wash that floods the
- * panel.
+ * Whether a band `[[E, lo, hi], …]` spans `OUTLINE_SHARE` of its axis
+ * [floor, top] or more over its fitted span: at some E in the span, the part
+ * of it inside the axis covers that share of the axis, on the scale the panel
+ * draws (`log` for the ratio panel). Such a band is drawn as its two edges,
+ * never as a wash that floods the panel.
  */
-function widerThanAxis(rows, span, floor, top, log = false) {
+export function bandSpansShare(rows, span, floor, top, log = false) {
   if (!span) return false;
   const scale = log ? (v) => (v > 0 ? Math.log(v) : -Infinity) : (v) => v;
   const [f, t] = [scale(floor), scale(top)];
@@ -1316,7 +1319,7 @@ function belowRoles(w, gates, curveMin) {
  *   'pinned' | 'literature' | null), fit, series (the deposit series' key),
  *   seriesLabel, span, provisional, why (which fit and why), reason (null, or
  *   why that shower has no ratio marks), band ({below, inside, above} rows
- *   [E, 1, lo/ŷ, hi/ŷ], deposit only), outlined (that band is wider than the
+ *   [E, 1, lo/ŷ, hi/ŷ], deposit only), outlined (that band spans half the
  *   ratio axis over its span, so drawn as its two edges), edges ({solid,
  *   dashed} runs, when outlined), bandCut (a band not outlined but clamped at
  *   the axis: where it first leaves it, `ratioCut`'s {at, dir, peak}),
@@ -1336,7 +1339,7 @@ function belowRoles(w, gates, curveMin) {
  *   domain [curveMinGev, x.max], curve [[E, y, lo, hi]], solid (the runs over
  *   the span, clipped to [0, y.hi]), dashed (the runs beyond it), band
  *   {below, inside, above} (rows [E, lo, hi], clamped), outlined (its band is
- *   wider than the axis over its span: lo ≤ 0 and hi ≥ y.hi at some E there,
+ *   spans OUTLINE_SHARE of the axis or more at some E of its span,
  *   so it is drawn as its edges), edges ({solid, dashed} runs of both edges,
  *   when outlined), cut (where its curve or band leaves the top, scanning up
  *   in E: {at, lineAt, bandAt, peak}), floorCut, provisional, converged,
@@ -1478,7 +1481,7 @@ export function energyModel(payload, opts = {}) {
       const cut = cutAbove(curve, hi);
       if (cut) clipped.fits += 1;
       // A band from the floor to the top over its fitted windows would flood the panel: drawn as its two edges.
-      const outlined = widerThanAxis(curve.map(([e, , lo, up]) => [e, lo, up]), span, 0, hi);
+      const outlined = bandSpansShare(curve.map(([e, , lo, up]) => [e, lo, up]), span, 0, hi);
       const isReference = Boolean(ref && !ref.reason && ref.series === s.key && ref.form === form);
       let ratio = null;
       if (ref && !ref.reason && !isReference) {
@@ -1546,20 +1549,22 @@ export function energyModel(payload, opts = {}) {
       f.ratio.solid = line(parts.inside);
       f.ratio.dashed = [...line(parts.below), ...line(parts.above)];
       f.ratio.band = { below: band(parts.below), inside: band(parts.inside), above: band(parts.above) };
-      f.ratio.outlined = widerThanAxis(f.ratio.rows.map(([e, , lo, up]) => [e, lo, up]), f.span, 1 / k, k, true);
+      f.ratio.outlined = bandSpansShare(f.ratio.rows.map(([e, , lo, up]) => [e, lo, up]), f.span, 1 / k, k, true);
       f.ratio.edges = f.ratio.outlined ? edgeRuns(parts, (pts) => clipLog(pts, k)) : null;
       if (f.ratio.outlined) outlinedBands.push({ panel: 'ratio', key: s.key, label: s.label, short: s.short, form: f.form, reference: false, fit: f.fit });
       f.ratio.cut = ratioCut(f.ratio.rows, k);
       if (f.ratio.cut) ratioClipped.fits += 1;
     }
   }
-  // A deposit reference's own band about 1: drawn as its edges where it is wider than the axis over its span
+  // A deposit reference's own band about 1: drawn as its edges where it spans half the axis or more over its span
+  // The band contains 1, the centre of the log-symmetric axis, so with OUTLINE_SHARE ≤ 0.5 every band that reaches
+  // either end of the axis is outlined; the clamped wash with its muted caret serves only a share above one half.
   // (as a fit's band is), else a wash, clamped at the axis with one muted caret at its first exit.
   for (const ref of Object.values(byShower)) {
     if (!ref.band) continue;
     const rows = [...ref.band.below, ...ref.band.inside, ...ref.band.above].sort((a, b) => a[0] - b[0])
       .filter((r, i, all) => i === 0 || r[0] !== all[i - 1][0]);
-    ref.outlined = widerThanAxis(rows.map(([e, , lo, up]) => [e, lo, up]), ref.span, 1 / k, k, true);
+    ref.outlined = bandSpansShare(rows.map(([e, , lo, up]) => [e, lo, up]), ref.span, 1 / k, k, true);
     ref.edges = ref.outlined ? edgeRuns(ref.band, (pts) => clipLog(pts, k)) : null;
     ref.bandCut = ref.outlined ? null : ratioCut(rows, k);
     ref.bandClipped = Boolean(ref.bandCut);
@@ -1731,7 +1736,7 @@ function extrapolatedLine(f) {
 }
 
 /**
- * Why a fit's band is drawn as its edges: wider than the axis over its fitted
+ * Why a fit's band is drawn as its edges: it spans half its axis or more over its fitted
  * windows, with the quantile that made it so (Student's t at a small ν once S
  * scales the covariance). `own` words the deposit reference's band about 1.
  */
@@ -1743,7 +1748,7 @@ function outlinedLine(fit, own = false) {
     Number.isFinite(fit?.ndf) ? `ν = ${formatInt(fit.ndf)}` : null,
     `q = ${sigFigs(q, 4)}`,
   ].filter(Boolean).join(', ');
-  return `${own ? 'Its own' : 'Its'} 95% band is wider than the axis over its fitted windows (${why}), so it is drawn as its edges, not as a wash.`;
+  return `${own ? 'Its own' : 'Its'} 95% band spans half its axis or more over its fitted windows (${why}), so it is drawn as its edges, not as a wash.`;
 }
 
 /** What a literature reference adds to every ratio mark's tooltip: none of it carries an interval. */
@@ -2111,7 +2116,7 @@ function energySeriesMarks(model, s) {
     }
   }
   // The deposit reference's own band about 1, drawn with its deposit series (and hidden with it): its edges where
-  // it is wider than the axis over its span, else a muted wash clamped at the axis with one muted caret where it leaves.
+  // it spans half the axis or more over its span, else a muted wash clamped at the axis with one muted caret where it leaves.
   const ref = s.reference;
   if (ref && !ref.reason && ref.band && ref.series === s.key) {
     const legendStyle = { ...style };
@@ -2150,7 +2155,7 @@ function energySeriesMarks(model, s) {
 }
 
 /**
- * A band wider than its axis, drawn as its two edges: thin lines in `colour`
+ * A band that spans half its axis or more, drawn as its two edges: thin lines in `colour`
  * at `EDGE_OPACITY` (raised to 3:1), solid over the fitted span and dashed
  * beyond it, as its curve is; `edges` {solid, dashed} runs, already clipped
  * to the plot. Each run is a series `${id}|edges|<solid|dashed>|<i>` whose
