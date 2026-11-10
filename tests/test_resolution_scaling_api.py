@@ -124,7 +124,7 @@ def _check_energy_axis(body):
     assert energy["curve_min_gev"] == rs.E_MIN_GEV == 4.0
     assert len(energy["notes"]) == 3 and energy["rule"].startswith("E = 1/x²")
     assert ("provisional" in energy["notes"][0]) == y["provisional"]
-    assert f"{y['n_clipped']} mark" in energy["notes"][0]
+    assert "clipped" not in energy["notes"][0]
     assert f"to {x['max']:g} GeV" in energy["notes"][1]
 
 
@@ -456,16 +456,41 @@ def test_a_robust_window_from_2_gev_sets_the_e_range_though_off_the_linear_axis(
     assert y["n_clipped"] == 0
 
 
-def test_a_weak_window_below_2_gev_never_sets_a_provisional_range():
+def test_a_weak_window_below_2_gev_never_sets_a_range_that_has_a_robust_extent():
+    below = {0: (12, 0.8), 1: (12, 0.8)}
+    base = rs.energy_y_axis([_series(ROBUST)])
+    joined = rs.energy_y_axis([_series({**below, **ROBUST})])
+    assert (joined["hi"], joined["provisional"]) == (base["hi"], False)
+    assert joined["n_clipped"] == base["n_clipped"] + 2
+
+
+def test_a_selection_with_no_robust_extent_from_2_gev_follows_every_marker_provisionally():
+    """S1: weak windows from 2 GeV, and weak ones below it, whose markers the range covers."""
     weak = {k: (12, 0.1) for k in (5, 10, 15)}
     alone = rs.energy_y_axis([_series(weak)])
     assert alone["provisional"]
     below = {0: (12, 0.8), 1: (12, 0.8)}
-    joined = rs.energy_y_axis([_series({**below, **weak})])
-    assert (joined["hi"], joined["provisional"]) == (alone["hi"], True)
-    assert joined["n_clipped"] == alone["n_clipped"] + 2
-    _, tops = rs.energy_extents([_series({**below, **weak})])
-    assert len(tops) == 2 and min(tops) > alone["hi"]
+    series = _series({**below, **weak})
+    joined = rs.energy_y_axis([series])
+    assert joined["provisional"] and joined["hi"] > alone["hi"]
+    markers = [100 * w.r for w in series.windows if w.r is not None and w.n >= rs.REPORT_MIN_N]
+    assert joined["hi"] >= max(markers)
+    # Whisker tops beyond the resulting top are counted; nothing else is.
+    _, tops = rs.energy_extents([series])
+    assert joined["n_clipped"] == sum(1 for t in tops if t > joined["hi"]) + sum(
+        1 for w in series.windows
+        if w.r is not None and w.n >= rs.REPORT_MIN_N and w.p_lo >= rs.E_VIEW_Y_MIN_GEV
+        and 100 * (max(w.ci[1], w.r) if w.whisker else w.r) > joined["hi"])
+
+
+def test_a_selection_wholly_below_2_gev_covers_its_markers_and_clips_nothing_robust():
+    below = {0: (30, 0.5), 1: (12, 0.4)}
+    series = _series(below)
+    y = rs.energy_y_axis([series])
+    markers = [100 * w.r for w in series.windows if w.r is not None and w.n >= rs.REPORT_MIN_N]
+    assert markers and y["provisional"] and y["hi"] >= max(markers)
+    extents, _ = rs.energy_extents([series])
+    assert not any(e.robust for e in extents)
 
 
 def test_the_e_range_takes_the_drawn_fits_over_their_span_only():

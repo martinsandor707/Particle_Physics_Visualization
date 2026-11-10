@@ -552,6 +552,14 @@ def energy_extents(series: Sequence[Series]) -> tuple[list[response.Extent], lis
 def energy_y_axis(series: Sequence[Series]) -> dict[str, Any]:
     """The E view's zero-based σ/E range, with the windows below 2 GeV counted when clipped."""
     extents, below = energy_extents(series)
+    if not any(e.robust for e in extents):
+        # Nothing robust from the floor: the provisional range follows every
+        # reported marker, those below the floor included.
+        for s in series:
+            for w in s.windows:
+                if w.r is not None and w.n >= REPORT_MIN_N and w.p_lo < E_VIEW_Y_MIN_GEV:
+                    m = 100.0 * w.r
+                    extents.append(response.Extent(m, m, m, False))
     y = response._y_axis(extents)
     y["n_clipped"] += sum(1 for top in below if top > y["hi"])
     return y
@@ -860,14 +868,13 @@ class ResolutionScaling:
         y = self.energy_y
         floor = f"{E_VIEW_Y_MIN_GEV:g} GeV"
         basis = (f"The E view's y range is provisional: no window from {floor} reaches "
-                 f"N = {FIT_MIN_N}." if y["provisional"] else
+                 f"N = {FIT_MIN_N}, so it follows the windows' markers, those below {floor} "
+                 "included." if y["provisional"] else
                  f"The E view's y range follows the windows with N ≥ {FIT_MIN_N} from {floor} "
                  "(whiskers included) and the a/√E ⊕ b and a₀/√E fits over the windows each was "
                  f"fitted to, from zero; a window below {floor} never sets it.")
-        clipped = y["n_clipped"]
         notes = [
-            f"{basis} {clipped} mark{'s' if clipped != 1 else ''} beyond it "
-            f"{'are' if clipped != 1 else 'is'} clipped, not rescaled.",
+            basis,
             f"Fitted curves are drawn from {E_MIN_GEV:g} GeV, the lowest window edge any fit can "
             f"use, to {x_max:g} GeV: solid over the windows each fit ran through, dashed beyond, "
             "where the curve extrapolates its form.",
