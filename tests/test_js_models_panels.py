@@ -136,7 +136,7 @@ function walk(option) {
       items.push({ el: summary, tip, value, decal: datum?.itemStyle?.decal ?? null, label });
     }
     return {
-      name: s.name, id: s.id ?? null, type: s.type, silent: Boolean(s.silent), xAxisIndex: s.xAxisIndex ?? 0,
+      name: s.name, id: s.id ?? null, type: s.type, silent: Boolean(s.silent), xAxisIndex: s.xAxisIndex ?? 0, yAxisIndex: s.yAxisIndex ?? 0,
       colour: s.itemStyle?.color ?? null, labelShow: s.label?.show ?? null, items,
     };
   });
@@ -537,6 +537,208 @@ for (const name of %(corrs)s) {
   out.res.panel.payloadCleared = panel.lastPayload === null;
 }
 
+/* ---- res-scaling: the E view (sigma/E against E in GeV, with the ratio panel) -------- */
+{
+  const RE = { width: 760, height: 600 };
+  const fnText = (k, v) => (typeof v === 'function' ? `fn:${v.toString()}` : v);
+  const canonical = (o) => JSON.stringify(o, fnText);
+  const refs = rs.RATIO_REFERENCES;
+  const packRef = (r) => ({ key: r.key, shower: r.shower, form: r.form, series: r.series, label: r.label, reason: r.reason,
+    span: r.span, interval: r.interval, hasBand: Boolean(r.band), bandClipped: r.bandClipped, literature: r.literature?.key ?? null });
+  const packModel = (m, full) => ({
+    x: m.x, y: m.y, curveMinGev: m.curveMinGev, yMinGev: m.yMinGev, nPoints: m.nPoints, nLines: m.nLines,
+    reference: { key: m.reference.key, label: m.reference.label, interval: m.reference.interval, flag: m.reference.flag,
+      byShower: Object.fromEntries(Object.entries(m.reference.byShower).map(([k, r]) => [k, packRef(r)])) },
+    ratio: m.ratio, clipped: m.clipped, offScale: m.offScale, spans: m.spans, noteText: m.noteText,
+    literature: m.literature.map((l) => ({ key: l.key, label: l.label, legend: l.legend, inForce: l.inForce, cut: l.cut,
+      curve: full ? l.curve : null, runs: full ? l.runs : null })),
+    series: m.series.map((s) => ({
+      key: s.key, shower: s.raw.shower ?? null, source: s.raw.source, isB: s.isB, colour: s.colour, span: s.span,
+      lineOpacity: s.lineOpacity(false), reference: s.reference ? packRef(s.reference) : null,
+      unreported: s.unreported.map((w) => w.bin),
+      points: s.points.map((p) => ({ bin: p.w.bin, label: p.w.label, x: p.x, E: p.E, value: p.value, lo: p.lo, hi: p.hi, n: p.n,
+        pLo: p.w.p_lo, whisker: p.whisker, weak: p.weak, subFloor: p.subFloor, below4: p.below4, fitted: p.fitted, robust: p.robust,
+        over: p.over, roles: p.roles, clip: p.clip,
+        ratio: { drawn: p.ratio.drawn, reason: p.ratio.reason, ref: p.ratio.ref, value: p.ratio.value, lo: p.ratio.lo, hi: p.ratio.hi,
+          over: p.ratio.over ?? null, clip: p.ratio.clip ?? null, robust: p.ratio.robust } })),
+      fits: Object.fromEntries(rs.ENERGY_FORMS.map((form) => {
+        const f = s.fits[form];
+        if (!f.drawable) return [form, { drawable: false, reason: f.reason, span: f.span }];
+        return [form, { drawable: true, reason: f.reason, span: f.span, domain: f.domain, provisional: f.provisional,
+          converged: f.converged, isReference: f.isReference, cut: f.cut, floorCut: f.floorCut,
+          curve: full ? f.curve : null, solid: full ? f.solid : null, dashed: full ? f.dashed : null, band: full ? f.band : null,
+          ratio: f.ratio ? { solid: full ? f.ratio.solid : null, dashed: full ? f.ratio.dashed : null, cut: f.ratio.cut,
+            rows: full ? f.ratio.rows : null, band: full ? f.ratio.band : null } : null }];
+      })),
+    })),
+  });
+  const optionOf = (payload, opts, metrics = RE) => {
+    const built = rs.energyViewOption(payload, opts, metrics);
+    const o = built.option;
+    const ax = (a) => ({ type: a.type ?? 'value', gridIndex: a.gridIndex ?? 0, min: a.min ?? null, max: a.max ?? null,
+      interval: a.interval ?? null, name: a.name ?? '', labelShow: a.axisLabel?.show !== false, tickShow: a.axisTick?.show !== false,
+      tickValues: a.axisTick?.customValues ?? null, labelValues: a.axisLabel?.customValues ?? null,
+      labels: (a.axisLabel?.customValues ?? []).map((v) => String(a.axisLabel.formatter(v))),
+      pointer: a.axisPointer ? { show: a.axisPointer.show, type: a.axisPointer.type, snap: a.axisPointer.snap,
+        triggerTooltip: a.axisPointer.triggerTooltip, label: a.axisPointer.label?.show ?? null,
+        labelText: typeof a.axisPointer.label?.formatter === 'function' ? [a.axisPointer.label.formatter({ value: 12.5 }), a.axisPointer.label.formatter(-3.5)] : null } : null });
+    return {
+      chart: walk(o), plotGrid: built.plotGrid ?? null, grid: [].concat(o.grid ?? []), axisPointer: o.axisPointer ?? null,
+      tooltipTrigger: o.tooltip?.trigger ?? null,
+      xAxes: [].concat(o.xAxis).map(ax), yAxes: [].concat(o.yAxis).map(ax),
+      graphicTexts: (o.graphic ?? []).map((g) => ({ text: g.style?.text ?? null, x: g.style?.x ?? null, y: g.style?.y ?? null, align: g.style?.textAlign ?? null })),
+    };
+  };
+  out.resE = { fixtures: {}, linear: {}, evaluators: {}, catalogue: {}, tables: {} };
+  out.resE.exports = { views: rs.RES_VIEWS, refs, steps: rs.RATIO_STEPS, grid: rs.E_GRID_STEP_GEV, linearPx: rs.LINEAR_VIEW_PX,
+    energyPx: rs.ENERGY_VIEW_PX, forms: rs.ENERGY_FORMS,
+    resolutionView: ['energy', 'linear', undefined, 'bogus', null].map((v) => rs.resolutionView(v)) };
+  const cat = await imp('catalog/resolution_refs.js');
+  out.resE.catalogue = cat.RESOLUTION_REFERENCES.map((e) => ({ key: e.key, a: e.a, b: e.b, label: cat.referenceLabel(e), equation: cat.referenceEquation(e) }));
+
+  for (const name of %(res)s) {
+    const payload = load(name);
+    const entry = { models: {}, charts: {}, tables: {} };
+    for (const windows of ['anchors', 'all']) {
+      for (const reference of refs) {
+        const opts = { view: 'energy', windows, shower: 'both', reference, palette: 'viridis', card: 'res-scaling' };
+        const key = `${windows}:${reference}`;
+        entry.models[key] = packModel(rs.energyModel(payload, opts), reference !== 'e');
+        entry.charts[key] = optionOf(payload, opts);
+        // The dispatcher hands the E view to energyViewOption.
+        entry.charts[key].dispatched = canonical(rs.resolutionScalingOption(payload, opts, RE)) === canonical(rs.energyViewOption(payload, opts, RE).option);
+      }
+      entry.tables[windows] = rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both' });
+      for (const shower of ['a', 'b']) {
+        const opts = { view: 'energy', windows, shower, reference: 'deposit' };
+        entry.models[`${windows}:deposit:${shower}`] = packModel(rs.energyModel(payload, opts), false);
+        entry.charts[`${windows}:deposit:${shower}`] = optionOf(payload, opts);
+      }
+      // The 1/√E view is untouched: no view, view 'linear' and any other view give one option and one table.
+      for (const shower of ['both', 'a', 'b']) {
+        const base = { windows, shower, palette: 'viridis', card: 'res-scaling' };
+        const variants = [base, { ...base, view: 'linear' }, { ...base, view: 'bogus' }, { ...base, reference: 'pi' }];
+        const opts = variants.map((o) => canonical(rs.resolutionScalingOption(payload, o, { width: 760, height: 420 })));
+        const walks = variants.map((o) => JSON.stringify(walk(rs.resolutionScalingOption(payload, o, { width: 760, height: 420 }))));
+        const tables = variants.map((o) => JSON.stringify(rs.fitTableRows(payload, o)));
+        out.resE.linear[`${name}:${windows}:${shower}`] = {
+          option: opts.every((t) => t === opts[0]), walk: walks.every((t) => t === walks[0]), table: tables.every((t) => t === tables[0]),
+          modelOf: JSON.stringify(rs.resolutionModel(payload, base)?.y) === JSON.stringify(rs.resolutionModel(payload, variants[1])?.y),
+        };
+      }
+      // The evaluators, from the fit blocks alone: pinned and affine at E = 1/x² of the server's own curve rows;
+      // quadrature at fixed energies (the Python side holds it to rfit.band on a Fit rebuilt from the block).
+      for (const s of payload.series) {
+        for (const form of ['affine', 'pinned', 'quadrature']) {
+          const fit = s.fits[windows][form];
+          if (!fit) continue;
+          const key = `${name}:${windows}:${s.key}:${form}`;
+          if (form === 'quadrature') {
+            const energies = [0.5, 1, 2, 3.5, 4, 5, 7.5, 10, 16, 20, 40, 80];
+            out.resE.evaluators[key] = { energies, js: rs.fitCurveE(fit, energies), drawable: rs.quadratureDrawable(fit) };
+          } else {
+            const rows = (fit.curve ?? []).filter((c) => c[0] > 0);
+            out.resE.evaluators[key] = { server: rows, js: rs.fitCurveE(fit, rows.map((c) => 1 / (c[0] * c[0]))) };
+          }
+        }
+      }
+    }
+    out.resE.fixtures[name] = entry;
+  }
+
+  // Variants of the two-shower payload, changed only where the server would change them.
+  const two = load('res_scaling_two');
+  const undefinedB = clone(two);
+  undefinedB.series.find((x) => x.key === 'network:b').fits.all.quadrature.params.b_defined = false;
+  const undefinedA = clone(two);
+  undefinedA.series.find((x) => x.key === 'detector:b').fits.all.quadrature.params.a_defined = false;
+  const undef = (p) => {
+    const m = rs.energyModel(p, { windows: 'all', reference: 'deposit' });
+    return { model: packModel(m, false), chart: optionOf(p, { windows: 'all', reference: 'deposit' }),
+      table: rs.fitTableRows(p, { view: 'energy', windows: 'all' }) };
+  };
+  out.resE.undefinedB = undef(undefinedB);
+  out.resE.undefinedA = undef(undefinedA);
+  // A lower E-view top: windows above it are off scale, each with a caret and the canvas note.
+  const off = clone(two);
+  off.axis.energy.y.hi = 90; off.axis.energy.y.interval = 10;
+  out.resE.offScale = { model: packModel(rs.energyModel(off, { windows: 'all', reference: 'deposit' }), false),
+    chart: optionOf(off, { windows: 'all', reference: 'deposit' }),
+    narrow: optionOf(off, { windows: 'all', reference: 'deposit' }, { width: 420, height: 600 }) };
+  const prov = clone(two);
+  prov.axis.energy.y.provisional = true;
+  out.resE.provisional = optionOf(prov, { windows: 'anchors' });
+  // Empty states: no response, no E axis, no window on the axis.
+  const noAxis = clone(two);
+  delete noAxis.axis.energy;
+  const none = clone(two);
+  for (const s of none.series) for (const w of s.windows) { w.value = null; w.n = 1; }
+  for (const s of none.series) for (const mode of ['anchors', 'all']) { s.fits[mode] = { points: [], substitutions: [], fallback: false, provisional: false, span_gev: null, affine: null, pinned: null, quadrature: null }; }
+  out.resE.empty = {
+    nothing: optionOf(null, { view: 'energy' }), noAxis: optionOf(noAxis, { view: 'energy' }), none: optionOf(none, { view: 'energy', windows: 'all' }),
+    noAxisModel: rs.energyModel(noAxis, {}), linearNone: walk(rs.resolutionScalingOption(none, { windows: 'all' }, RE)).graphics,
+  };
+  // Pure helpers.
+  out.resE.helpers = {
+    grid: rs.energyGrid(4, 6, [5.1, 7, 3]),
+    gridEnds: (() => { const g = rs.energyGrid(4, 80, [7, 16]); return [g[0], g[g.length - 1], g.length, g.includes(7), g.includes(16)]; })(),
+    ranges: [
+      rs.ratioRange([{ value: 1.3, lo: 0.9, hi: 1.6, robust: true }, { value: 9, marker: true }]),
+      rs.ratioRange([{ value: 0.5, marker: true }, { value: 1.2, marker: true }]),
+      rs.ratioRange([]),
+      rs.ratioRange([{ value: 40, robust: true }]),
+      rs.ratioRange([{ value: 1.05, robust: true }]),
+      rs.ratioRange([{ value: 0.3, robust: true }]),
+    ],
+    ticks: [[1.5, 120], [2, 120], [4, 120], [10, 120], [1.1, 120], [10, 45]].map(([k, h]) => rs.ratioTicks(k, h)),
+    drawable: [
+      rs.quadratureDrawable({ params: { a_defined: true, b_defined: true, rho_a2b2: -0.9, a2: 1, b2: 1 } }),
+      rs.quadratureDrawable({ params: { a_defined: true, b_defined: true, rho_a2b2: null, a2: 1, b2: 1 } }),
+      rs.quadratureDrawable({ params: { a_defined: false, b_defined: true, rho_a2b2: -0.9, a2: -1, b2: 1 } }),
+      rs.quadratureDrawable(null),
+    ],
+  };
+  // B's lines at 70%% strength never fall below 3:1, on the dark card and on the light one.
+  const inkOf = () => {
+    const card = cp.rgbOf(scale.THEME.card);
+    const m = rs.energyModel(two, { windows: 'all', reference: 'deposit' });
+    return m.series.map((s) => ({ key: s.key, isB: s.isB, opacity: s.lineOpacity(false), provisional: s.lineOpacity(true),
+      contrast: palette.contrast(cp.blendOver(s.colour, s.lineOpacity(false)), card),
+      contrastProvisional: palette.contrast(cp.blendOver(s.colour, s.lineOpacity(true)), card),
+      wanted: cp.legibleOpacity(s.colour, 0.7) }));
+  };
+  out.resE.ink = { dark: inkOf() };
+  scale.setScreenTheme('light');
+  out.resE.ink.light = inkOf();
+  out.resE.lightChart = optionOf(two, { windows: 'all', reference: 'pi' });
+  scale.setScreenTheme('dark');
+
+  // The class: the plot is ENERGY_VIEW_PX tall in the E view, the CSS height in the 1/√E view; the E export is two panels tall.
+  const el = { clientWidth: 760, clientHeight: 420, style: {}, classList: { toggle: () => {} }, closest: () => null };
+  let resized = 0;
+  let lastOption = null;
+  const fake = { getWidth: () => el.clientWidth, getHeight: () => el.clientHeight, setOption: (o) => { lastOption = o; },
+    resize: () => { resized += 1; }, clear: () => {}, getDom: () => el, dispatchAction: () => {} };
+  const savedEcharts = globalThis.echarts;
+  globalThis.echarts = { init: () => fake };
+  const panel = new rs.ResolutionScalingPanel(el, { card: 'res-scaling' });
+  const cls = {};
+  panel.render(two, { windows: 'all', shower: 'both' });
+  cls.linearFirst = { height: el.style.height ?? null, resized };
+  const linearExport = panel.exportMetrics(321);
+  panel.render(two, { view: 'energy', windows: 'all', shower: 'both', reference: 'deposit' });
+  cls.energy = { height: el.style.height, resized, grids: [].concat(lastOption.grid).length, liveGrid: Array.isArray(panel.liveGrid) ? panel.liveGrid.length : 1,
+    export: panel.exportMetrics(321), exportWide: panel.exportMetrics(661),
+    built: Object.keys(panel.buildOption({ payload: two, opts: { view: 'energy' }, metrics: RE })) };
+  panel.relayout();
+  cls.relayoutResized = resized;
+  panel.render(two, { view: 'linear', windows: 'all', shower: 'both' });
+  cls.linear = { height: el.style.height, resized, grids: [].concat(lastOption.grid).length, export: panel.exportMetrics(321), exportBefore: linearExport,
+    built: Object.keys(panel.buildOption({ payload: two, opts: { view: 'linear' }, metrics: { width: 760, height: 420 } })) };
+  out.resE.cls = cls;
+  globalThis.echarts = savedEcharts;
+}
+
 /* ---- colours a reader must see, against the card on screen and in print ----- */
 function measureInk(theme) {
   const card = cp.rgbOf(scale.THEME.card);
@@ -564,6 +766,14 @@ out.contrast.print = measureInk('print');
 out.printPerf = walk(perf.perfBinsOption(load('perf_two_energy'), { quantity: 'bias' }, { width: 321, height: 300 }));
 out.printRes = { chart: walk(rs.resolutionScalingOption(load('res_scaling_two'), { windows: 'all' }, { width: 321, height: 300 })),
   ink: scale.THEME.text, card: scale.THEME.card, hues: perf.sourceColours(['absolute', 'trans', 'local', 'xgb']) };
+{
+  const opts = { view: 'energy', windows: 'all', reference: 'pi' };
+  const height = rs.energyExportMetrics(load('res_scaling_two'), opts, 321, 0.62).height;
+  const built = rs.energyViewOption(load('res_scaling_two'), opts, { width: 321, height });
+  out.printResE = { chart: walk(built.option), grid: built.option.grid, height, muted: scale.THEME.muted, legendType: built.option.legend.type,
+    ink: scale.THEME.text, hues: perf.sourceColours(['absolute', 'trans', 'local', 'xgb']), fontTip: scale.THEME.fontTip,
+    noteFont: (built.option.graphic ?? []).map((g) => g.style?.fontSize) };
+}
 scale.restoreScreenTheme();
 
 console.log(JSON.stringify(out));
@@ -1608,3 +1818,523 @@ def test_res_no_rendered_number_uses_an_ascii_hyphen(out):
         for n in entry["notes"].values():
             _no_hyphen_numbers(line for lines in n["sections"].values() for line in lines)
     _no_hyphen_numbers(out["res"]["clipped"]["chart"]["strings"])
+
+
+# ------------------------------------------------------- res-scaling: E view --
+#
+# The card's second view (brief section 4): σ/E against E in GeV on 0 to
+# axis.energy.x.max, the origin-pinned a₀/√E ⊕ 0 and, where both terms are
+# defined, the quadrature a/√E ⊕ b, solid over the windows each was fitted to
+# and dashed beyond, never below 4 GeV; a ratio panel underneath on a log axis
+# symmetric about 1. The 1/√E view above is held byte for byte by
+# test_js_dark_golden.py; here it is held to one output whatever `view` is
+# when it is not 'energy'.
+
+RES_E_REFS = ["deposit", "pi", "e"]
+RES_E_KEYS = [f"{w}:{r}" for w in ("anchors", "all") for r in RES_E_REFS]
+
+
+def _e_axis(name: str) -> dict:
+    return _load(name)["axis"]["energy"]
+
+
+def _e_drawn_fits(model: dict):
+    for s in model["series"]:
+        for form, f in s["fits"].items():
+            if f["drawable"]:
+                yield s, form, f
+
+
+def test_res_e_exports_and_the_view_switch(out):
+    e = out["resE"]["exports"]
+    assert e["views"] == ["linear", "energy"]
+    assert e["refs"] == ["deposit", "pi", "e"] and e["refs"][1:] == [c["key"] for c in out["resE"]["catalogue"]]
+    assert e["steps"] == [1.1, 1.25, 1.5, 2, 3, 4, 5, 8, 10]
+    assert (e["grid"], e["linearPx"], e["energyPx"]) == (0.25, 420, 600)
+    assert e["forms"] == ["quadrature", "pinned"]
+    assert e["resolutionView"] == ["energy", "linear", "linear", "linear", "linear"]
+
+
+def test_res_e_the_linear_view_is_untouched_by_view_and_reference(out):
+    """No view, view 'linear', any other view and a reference give the 1/√E view's one option and one table."""
+    linear = out["resE"]["linear"]
+    assert len(linear) == len(RES) * 2 * 3
+    for key, same in linear.items():
+        assert same == {"option": True, "walk": True, "table": True, "modelOf": True}, key
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_the_dispatcher_draws_the_e_view(out, name):
+    for key in RES_E_KEYS:
+        assert out["resE"]["fixtures"][name]["charts"][key]["dispatched"], key
+
+
+#: The wire's six significant figures: the largest relative rounding of any number in a payload.
+WIRE_EPS = 5e-6
+
+
+def _wire_bounds(fit: dict, x: float) -> tuple[float, float]:
+    """How far the wire's rounding of a fit block's params can move y and an edge y ± h at x, propagated.
+
+    An affine edge with ρ(a, b) near −1 is a difference of nearly equal terms under the root, so rounding ρ by
+    half a unit in its sixth figure moves h by far more than 10⁻⁴ of h (xgb:a: ρ = −0.999695, h moves ±2.3×10⁻⁴).
+    """
+    p, q = fit["params"], fit["band_quantile"]
+    if fit["form"] == "pinned":
+        return 2 * WIRE_EPS * abs(p["a0"] * x), 3 * WIRE_EPS * q * p["se_a0"] * x
+    t1, t3 = (x * p["se_a"]) ** 2, p["se_b"] ** 2
+    t2 = 2 * p["rho_ab"] * x * p["se_a"] * p["se_b"]
+    root = max(t1 + t2 + t3, 1e-300) ** 0.5
+    dy = WIRE_EPS * (abs(p["a"] * x) + abs(p["b"]))
+    dh = q * WIRE_EPS * (2 * t1 + 3 * abs(t2) + 2 * t3) / (2 * root) + WIRE_EPS * q * root
+    return dy, dh
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_pinned_and_affine_evaluators_reproduce_the_servers_curve(out, name):
+    """fitCurveE at E = 1/x² equals the payload's own [x, y, lo, hi] rows for x > 0, from the params alone:
+    to 10⁻⁴, or to the wire's rounding of the params and the rows where that is larger (`_wire_bounds`)."""
+    blocks = {(m, s["key"], f): s["fits"][m][f] for s in _load(name)["series"] for m in ("anchors", "all") for f in ("affine", "pinned")}
+    checked = 0
+    for key, got in out["resE"]["evaluators"].items():
+        if not key.startswith(f"{name}:") or key.endswith(":quadrature"):
+            continue
+        _, mode, source, shower, form = key.split(":")  # name:mode:series key (source:shower):form
+        fit = blocks[(mode, f"{source}:{shower}", form)]
+        assert len(got["js"]) == len(got["server"]) > 0, key
+        for (x, y, lo, hi), (e, jy, jlo, jhi) in zip(got["server"], got["js"]):
+            assert e == pytest.approx(1 / (x * x), rel=1e-12)
+            dy, dh = _wire_bounds(fit, x)
+            for js, server, bound in ((jy, y, dy), (jlo, lo, dy + dh), (jhi, hi, dy + dh)):
+                tol = max(1e-4 * abs(server), 2 * (bound + WIRE_EPS * abs(server))) + 1e-9
+                assert abs(js - server) <= tol, (key, x, js, server, tol)
+            checked += 1
+    assert checked > 0
+
+
+def _quadrature_fit(block: dict):
+    """The server's Fit, rebuilt from a wire block: θ = (A, B) as fractions, cov_stat from the unscaled SEs and ρ."""
+    import numpy as np
+    from calosrv.stats import resolution_fit as rfit
+
+    p = block["params"]
+    sa, sb, rho = p["se_a2_stat"] / 1e4, p["se_b2_stat"] / 1e4, p["rho_a2b2"]
+    cov = np.array([[sa * sa, rho * sa * sb], [rho * sa * sb, sb * sb]])
+    return rfit.Fit("quadrature", block["n_points"], (p["a2"] / 1e4, p["b2"] / 1e4), cov, block["chi2"], block["ndf"],
+                    block["p_value"], block["scale_factor"], block["iterations"], block["converged"])
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_the_quadrature_evaluator_equals_rfit_band(out, name):
+    """√ of the z = A/E + B band, from a2, b2, their SEs, ρ(A, B) and band_quantile, is the server's band() exactly."""
+    import numpy as np
+    from calosrv.stats import resolution_fit as rfit
+
+    payload = _load(name)
+    checked = 0
+    for s in payload["series"]:
+        for mode in ("anchors", "all"):
+            block = s["fits"][mode]["quadrature"]
+            if not block or block["params"].get("rho_a2b2") is None:
+                continue
+            got = out["resE"]["evaluators"][f"{name}:{mode}:{s['key']}:quadrature"]
+            energies = np.array(got["energies"])
+            y, lo, hi = (100 * v for v in rfit.band(_quadrature_fit(block), 1 / np.sqrt(energies)))
+            assert [r[0] for r in got["js"]] == got["energies"]
+            for (e, jy, jlo, jhi), want in zip(got["js"], zip(y, lo, hi)):
+                scale = max(abs(v) for v in want) or 1e-9
+                assert [jy, jlo, jhi] == pytest.approx(list(want), rel=1e-4, abs=1e-4 * scale), (s["key"], mode, e)
+            assert got["drawable"] == (block["params"]["a_defined"] and block["params"]["b_defined"])
+            checked += 1
+    assert checked > 0
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_windows_sit_at_e_equals_one_over_x_squared(out, name):
+    payload = _load(name)
+    ax = _e_axis(name)
+    for key in RES_E_KEYS:
+        windows = key.split(":")[0]
+        model = out["resE"]["fixtures"][name]["models"][key]
+        for s, m in zip(payload["series"], model["series"]):
+            for p in m["points"]:
+                assert p["E"] == pytest.approx(1 / (p["x"] * p["x"]), rel=1e-12)
+                assert 0 <= p["E"] <= ax["x"]["max"]
+            eligible = [w for w in s["windows"] if w["value"] is not None and w["x"] and w["n"] >= 2
+                        and 1 / w["x"] ** 2 <= ax["x"]["max"]]
+            if windows == "anchors":
+                eligible = [w for w in eligible if w["bin"] in s["fits"]["anchors"]["points"]]
+            # The all mode draws every window with a value, those below 4 GeV included, as points only.
+            assert [p["bin"] for p in m["points"]] == [w["bin"] for w in eligible], (key, s["key"])
+            for p in m["points"]:
+                assert p["below4"] == (p["pLo"] < ax["curve_min_gev"])
+                if p["below4"]:
+                    assert p["roles"][0] == "below 4 GeV: no fit uses it; drawn as a point only" and not p["fitted"]
+    # Every fixture has windows below 4 GeV; the all mode draws them on this axis.
+    assert any(p["below4"] for s in out["resE"]["fixtures"][name]["models"]["all:deposit"]["series"] for p in s["points"])
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_solid_over_the_fitted_span_dashed_beyond_never_below_four_gev(out, name):
+    ax = _e_axis(name)
+    x_max, floor, top = ax["x"]["max"], ax["curve_min_gev"], ax["y"]["hi"]
+    payload = {s["key"]: s for s in _load(name)["series"]}
+    seen = 0
+    for key in ("anchors:deposit", "all:deposit", "anchors:pi", "all:pi"):
+        windows = key.split(":")[0]
+        for s, form, f in _e_drawn_fits(out["resE"]["fixtures"][name]["models"][key]):
+            span = payload[s["key"]]["fits"][windows]["span_gev"]
+            assert f["span"] == span and f["domain"] == [floor, x_max]
+            es = [c[0] for c in f["curve"]]
+            assert min(es) == floor and max(es) == x_max, "no curve point below 4 GeV; the curve runs to the axis end"
+            for run in f["solid"]:
+                assert all(span[0] - 1e-9 <= pt[0] <= span[1] + 1e-9 for pt in run)
+            for run in f["solid"] + f["dashed"]:
+                assert all(pt[0] >= floor - 1e-9 and -1e-9 <= pt[1] <= top + 1e-9 for pt in run)
+            by_e = {c[0]: c[1] for c in f["curve"]}
+            ends = [pt for run in f["dashed"] for pt in (run[0], run[-1])]
+            starts = [run[0] for run in f["solid"]] + [run[-1] for run in f["solid"]]
+            for edge in span:
+                if span[0] > floor or edge == span[1]:
+                    if 0 <= by_e[edge] <= top:
+                        # The solid and the dashed part share the edge row exactly.
+                        assert [edge, by_e[edge]] in ends and [edge, by_e[edge]] in starts, (s["key"], form, edge)
+            if 0 <= by_e[x_max] <= top:
+                assert [x_max, by_e[x_max]] in ends, "the dashed part runs to x.max"
+            seen += 1
+    assert seen > 0
+
+
+def test_res_e_an_undefined_quadrature_term_is_not_drawn_and_says_why(out):
+    for case, key, word in (("undefinedB", "network:b", "B ≤ 0"), ("undefinedA", "detector:b", "A ≤ 0")):
+        got = out["resE"][case]
+        s = next(x for x in got["model"]["series"] if x["key"] == key)
+        quad = s["fits"]["quadrature"]
+        assert quad["drawable"] is False and quad["reason"].startswith(word)
+        assert s["fits"]["pinned"]["drawable"] is True
+        ids = [x["id"] for x in got["chart"]["chart"]["series"]]
+        assert not [i for i in ids if i.startswith(f"{key}|quadrature|")]
+        assert [i for i in ids if i.startswith(f"{key}|pinned|solid|")]
+        row = next(r for r in got["table"]["rows"] if r["key"] == key)
+        assert row["fits"][2]["cells"][0] == f"Quadrature a/√E ⊕ b — not drawn: {quad['reason']}"
+    # A deposit whose ⊕ fit is not drawable hands the ratio its pinned fit, named so.
+    ref = out["resE"]["undefinedA"]["model"]["reference"]["byShower"]["b"]
+    assert ref["form"] == "pinned" and ref["series"] == "detector:b" and "a₀/√E" in ref["label"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_axes_and_two_grids_on_one_energy_axis(out, name):
+    ax = _e_axis(name)
+    for key in RES_E_KEYS:
+        chart = out["resE"]["fixtures"][name]["charts"][key]
+        top, bottom = chart["xAxes"]
+        assert (top["gridIndex"], bottom["gridIndex"]) == (0, 1)
+        assert (top["min"], top["max"], top["interval"]) == (bottom["min"], bottom["max"], bottom["interval"]) \
+            == (0, ax["x"]["max"], ax["x"]["interval"])
+        assert not top["labelShow"] and top["name"] == "" and bottom["labelShow"] and bottom["name"] == ax["x"]["name"]
+        main, ratio = chart["yAxes"]
+        assert (main["gridIndex"], main["min"], main["max"]) == (0, 0, ax["y"]["hi"])
+        assert main["interval"] == ax["y"]["interval"], "the screen height never crowds the server's ticks"
+        assert ("provisional" in main["name"]) == ax["y"]["provisional"]
+        assert ratio["gridIndex"] == 1 and ratio["type"] == "log"
+        assert ratio["min"] * ratio["max"] == pytest.approx(1), "1 is the ratio axis's geometric centre"
+        assert ratio["tickValues"] == ratio["labelValues"] and 1 in ratio["tickValues"]
+        assert all(any(abs(t * u - 1) < 1e-9 for u in ratio["tickValues"]) for t in ratio["tickValues"]), "symmetric ticks"
+        assert ratio["tickValues"][0] == pytest.approx(ratio["min"]) and ratio["tickValues"][-1] == pytest.approx(ratio["max"])
+        # Two grids with one left and right, about 10 px apart; the tips stay off their union.
+        g0, g1 = chart["grid"]
+        assert (g0["left"], g0["right"]) == (g1["left"], g1["right"])
+        assert g1["top"] - (g0["top"] + g0["height"]) == 10
+        assert chart["plotGrid"] == chart["grid"]
+        # A linked crosshair, never an axis tooltip, labelled with E on the bottom axis only.
+        assert chart["axisPointer"] == {"link": [{"xAxisIndex": "all"}]}
+        for a in (top, bottom):
+            assert a["pointer"]["show"] and a["pointer"]["type"] == "line"
+            assert a["pointer"]["triggerTooltip"] is False and a["pointer"]["snap"] is False
+        assert top["pointer"]["label"] is False and bottom["pointer"]["label"] is True
+        assert bottom["pointer"]["labelText"] == ["E = 12.5 GeV", "E = −3.5 GeV"]
+        assert chart["tooltipTrigger"] == "item"
+        # Every series of the ratio panel is on the second grid.
+        for s in chart["chart"]["series"]:
+            on_ratio = "|ratio|" in (s["id"] or "") or (s["id"] or "").startswith("ratio|")
+            assert (s["xAxisIndex"], s["yAxisIndex"]) == ((1, 1) if on_ratio else (0, 0)), s["id"]
+    assert "provisional" in out["resE"]["provisional"]["yAxes"][0]["name"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_the_ratio_axis_covers_the_robust_marks(out, name):
+    steps = out["resE"]["exports"]["steps"]
+    for key in RES_E_KEYS:
+        model = out["resE"]["fixtures"][name]["models"][key]
+        k = model["ratio"]["k"]
+        assert k in steps
+        robust = [v for s in model["series"] for p in s["points"] if p["ratio"]["drawn"] and p["ratio"]["robust"]
+                  for v in (p["ratio"]["value"], p["ratio"]["lo"], p["ratio"]["hi"]) if v]
+        if robust and max(max(v, 1 / v) for v in robust) <= steps[-1]:
+            need = max(max(v, 1 / v) for v in robust)
+            assert k >= need * (1 - 1e-9)
+        clipped = model["ratio"]["clipped"]
+        over = sum(1 for s in model["series"] for p in s["points"] if p["ratio"]["drawn"] and p["ratio"]["over"])
+        assert clipped["markers"] == over
+        assert model["clipped"]["ratio"] == clipped["markers"] + clipped["whiskers"] + clipped["fits"]
+        carets = [i for s in out["resE"]["fixtures"][name]["charts"][key]["chart"]["series"] if (s["id"] or "").endswith("|ratio|carets")
+                  for i in s["items"]]
+        assert len(carets) >= over
+        assert all("clipped at the ratio axis" in c["tip"] or "leaves the ratio axis" in c["tip"] for c in carets)
+    helpers = out["resE"]["helpers"]
+    assert helpers["ranges"] == [{"k": 2, "provisional": False}, {"k": 2, "provisional": True}, {"k": 2, "provisional": True},
+                                 {"k": 10, "provisional": False}, {"k": 1.1, "provisional": False}, {"k": 4, "provisional": False}]
+    for ticks in helpers["ticks"]:
+        assert all(any(abs(t * u - 1) < 1e-9 for u in ticks) for t in ticks) and 1 in ticks
+    assert helpers["grid"] == [4, 4.25, 4.5, 4.75, 5, 5.1, 5.25, 5.5, 5.75, 6]
+    assert helpers["gridEnds"] == [4, 80, 305, True, True]
+    assert helpers["drawable"] == [True, False, False, False]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_the_deposit_reference_is_each_showers_own(out, name):
+    payload = _load(name)
+    for windows in ("anchors", "all"):
+        model = out["resE"]["fixtures"][name]["models"][f"{windows}:deposit"]
+        chart = out["resE"]["fixtures"][name]["charts"][f"{windows}:deposit"]
+        assert model["reference"]["key"] == "deposit" and model["reference"]["interval"] == "band" and model["reference"]["flag"] is None
+        for shower, ref in model["reference"]["byShower"].items():
+            det = next(s for s in payload["series"] if s["source"] == "detector" and s["shower"] == shower)
+            q, pinned = det["fits"][windows]["quadrature"], det["fits"][windows]["pinned"]
+            drawable = bool(q and q["params"]["a_defined"] and q["params"]["b_defined"] and q["params"].get("rho_a2b2") is not None)
+            assert ref["series"] == det["key"] and ref["form"] == ("quadrature" if drawable else "pinned") and ref["hasBand"]
+            fit = q if drawable else pinned
+            p = fit["params"]
+            value = (lambda e: (p["a2"] / e + p["b2"]) ** 0.5) if drawable else (lambda e: p["a0"] / e ** 0.5)
+            below = 0
+            for s in (x for x in model["series"] if x["shower"] == shower):
+                for pt in s["points"]:
+                    r = pt["ratio"]
+                    if pt["E"] < model["curveMinGev"]:
+                        assert not r["drawn"], "no ratio below 4 GeV under the deposit reference"
+                        below += 1
+                        continue
+                    assert r["drawn"] and r["ref"] == pytest.approx(value(pt["E"]), rel=1e-9)
+                    assert r["value"] == pytest.approx(pt["value"] / r["ref"], rel=1e-12)
+                    if pt["whisker"]:
+                        assert [r["lo"], r["hi"]] == pytest.approx([pt["lo"] / r["ref"], pt["hi"] / r["ref"]], rel=1e-12)
+                    else:
+                        assert r["lo"] is None and r["hi"] is None
+                # The fit that is the reference is not divided by itself.
+                for form, f in s["fits"].items():
+                    if f["drawable"]:
+                        assert f["isReference"] == (s["key"] == det["key"] and form == ref["form"])
+                        assert (f["ratio"] is None) == f["isReference"]
+            assert below == sum(1 for s in model["series"] if s["shower"] == shower for pt in s["points"] if pt["E"] < model["curveMinGev"])
+        assert model["ratio"]["belowNotDrawn"] == sum(1 for s in model["series"] for pt in s["points"] if pt["E"] < model["curveMinGev"])
+        bands = [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")]
+        assert bands and all(s["name"] in {x["label"] for x in payload["series"] if x["source"] == "detector"} for s in bands)
+        assert all(not s["silent"] and "own 95% confidence band" in s["items"][0]["tip"] for s in bands)
+        ids = {s["id"] for s in chart["chart"]["series"]}
+        for shower, ref in model["reference"]["byShower"].items():
+            assert not [i for i in ids if i.startswith(f"{ref['series']}|ratio|{ref['form']}|")]
+    # One shower of two-shower data: its own reference only.
+    one = out["resE"]["fixtures"]["res_scaling_two"]["models"]["all:deposit:b"]
+    assert list(one["reference"]["byShower"]) == ["b"] and one["reference"]["byShower"]["b"]["series"] == "detector:b"
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_a_literature_reference_is_the_catalogues_curve(out, name):
+    cat = {c["key"]: c for c in out["resE"]["catalogue"]}
+    for windows in ("anchors", "all"):
+        for ref in ("pi", "e"):
+            model = out["resE"]["fixtures"][name]["models"][f"{windows}:{ref}"]
+            chart = out["resE"]["fixtures"][name]["charts"][f"{windows}:{ref}"]
+            c = cat[ref]
+            value = lambda e: (c["a"] ** 2 / e + c["b"] ** 2) ** 0.5  # noqa: E731
+            assert model["reference"]["key"] == ref and model["reference"]["label"] == c["label"]
+            assert model["reference"]["interval"] is None and model["reference"]["flag"] == "no interval reported"
+            assert all(r["form"] == "literature" and r["literature"] == ref and not r["hasBand"] for r in model["reference"]["byShower"].values())
+            for s in model["series"]:
+                for pt in s["points"]:
+                    assert pt["ratio"]["drawn"], "a literature curve is defined over the whole axis"
+                    assert pt["ratio"]["ref"] == pytest.approx(value(pt["E"]), rel=1e-12)
+                for f in s["fits"].values():
+                    if f["drawable"]:
+                        assert f["isReference"] is False and f["ratio"] is not None
+            assert model["ratio"]["belowNotDrawn"] == 0
+            # Both catalogue curves on the main panel, dotted and muted, named in the legend; the one in force flagged.
+            assert [l["key"] for l in model["literature"]] == ["pi", "e"]
+            assert [l["inForce"] for l in model["literature"]] == [ref == "pi", ref == "e"]
+            lits = [s for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|") and "|caret" not in s["id"]]
+            assert len(lits) == 2
+            for s, lit in zip(lits, model["literature"]):
+                assert s["name"] == lit["legend"] and lit["legend"] in chart["chart"]["legend"]
+                group = s["items"][0]["el"]
+                lines = [ch for ch in group["children"] if ch["type"] == "polyline"]
+                assert lines and all(ch["dash"] == [1.5, 3] for ch in lines)
+                assert [ch["text"] for ch in group["children"] if ch["type"] == "text"] == [lit["label"]]
+                tip = s["items"][0]["tip"]
+                assert cat[lit["key"]]["equation"] in tip and "no interval reported" in tip and "not this detector" in tip
+                if ref != "e":
+                    assert all(v == pytest.approx((cat[lit["key"]]["a"] ** 2 / e + cat[lit["key"]]["b"] ** 2) ** 0.5, rel=1e-12)
+                               for e, v in lit["curve"])
+                    assert lit["curve"][0][0] == 0.25 and lit["curve"][-1][0] == _e_axis(name)["x"]["max"]
+            assert not [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")], "no band for a literature reference"
+            assert ("÷" in chart["yAxes"][1]["name"] or "ratio to" in chart["yAxes"][1]["name"])
+        assert not out["resE"]["fixtures"][name]["models"][f"{windows}:deposit"]["literature"]
+
+
+def test_res_e_off_scale_windows_get_carets_and_the_canvas_note(out):
+    got = out["resE"]["offScale"]
+    model, chart = got["model"], got["chart"]
+    top = 90
+    over = [(s, p) for s in model["series"] for p in s["points"] if p["value"] > top]
+    assert over and model["clipped"]["markers"] == len(over)
+    assert sum(len(g["entries"]) for g in model["offScale"]) == len(over)
+    assert [g["E"] for g in model["offScale"]] == sorted(g["E"] for g in model["offScale"])
+    first = model["offScale"][0]
+    assert model["noteText"]["offScale"].startswith(f"↑ off scale: {first['label']} — ")
+    assert all(short in {"A deposit", "B deposit", "A network", "B network"} for g in model["offScale"] for short in (e["short"] for e in g["entries"]))
+    carets = [i for s in chart["chart"]["series"] if (s["id"] or "").endswith("|carets") and "|ratio|" not in s["id"] for i in s["items"]]
+    assert sum("clipped at the axis (0 to 90%)" in c["tip"] for c in carets) >= len(over)
+    texts = [g["text"] for g in chart["graphicTexts"]]
+    assert any(t.startswith("↑ off scale: ") for t in texts) and any(t.startswith("dashed: ") for t in texts)
+    left = next(g for g in chart["graphicTexts"] if g["text"].startswith("↑"))
+    right = next(g for g in chart["graphicTexts"] if g["text"].startswith("dashed"))
+    assert left["align"] is None and right["align"] == "right" and left["y"] == right["y"]
+    # Between the legend and the main panel, at most two lines, the rest counted.
+    assert left["y"] < chart["grid"][0]["top"] and len(left["text"].split("\n")) <= 2
+    narrow = next(g["text"] for g in got["narrow"]["graphicTexts"] if g["text"].startswith("↑"))
+    assert len(narrow.split("\n")) <= 2 and re.search(r"\+\d+ more in Details$", narrow)
+    # No window is ever split across a line: every line break falls after a ',' or ';'.
+    for text in (left["text"], narrow):
+        for line in text.split("\n")[:-1]:
+            assert line.endswith((",", ";")), line
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_fit_marks_carry_their_form_and_extrapolation_in_their_tips(out, name):
+    for key in ("anchors:deposit", "all:pi"):
+        chart = out["resE"]["fixtures"][name]["charts"][key]
+        model = out["resE"]["fixtures"][name]["models"][key]
+        for s, form, f in _e_drawn_fits(model):
+            solid = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|solid|")]
+            dashed = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|dashed|")]
+            assert len(solid) == len(f["solid"]) and len(dashed) == len(f["dashed"])
+            for x in solid + dashed:
+                el = x["items"][0]["el"]
+                assert el["dash"] == ([6, 4] if x in dashed else None)
+                tip = x["items"][0]["tip"]
+                assert ("σ/E = (" in tip and ("%/√E ⊕ (" in tip if form == "quadrature" else "⊕ 0 (b ≡ 0, through the origin)" in tip))
+                assert ("Extrapolated: beyond the windows this fit used" in tip) == (x in dashed)
+                assert "assumes the form holds" in tip if x in dashed else True
+            bands = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|band|")]
+            assert bands and all(not b["silent"] for b in bands)
+            alphas = {b["id"].split("|")[-1]: b["items"][0]["el"]["opacity"] for b in bands}
+            if "inside" in alphas:
+                for part in ("below", "above"):
+                    if part in alphas:
+                        assert alphas[part] == pytest.approx(alphas["inside"] / 3), "the band beyond its windows at a third"
+            # Shower B: hollow markers, its lines at 70% strength and never below 3:1; no shower dash on this view.
+            for x in solid:
+                assert x["items"][0]["el"]["opacity"] == pytest.approx(s["lineOpacity"]) or f["provisional"]
+        for s in model["series"]:
+            if s["isB"]:
+                assert s["lineOpacity"] < 1
+    if name == "res_scaling_two":
+        ink = out["resE"]["ink"]
+        for theme in ("dark", "light"):
+            for s in ink[theme]:
+                assert s["contrast"] >= 3 and s["contrastProvisional"] >= 3, (theme, s)
+                if s["isB"]:
+                    assert s["opacity"] == s["wanted"]
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_fits_leaving_the_top_get_one_caret_with_true_values(out, name):
+    for key in RES_E_KEYS:
+        model = out["resE"]["fixtures"][name]["models"][key]
+        chart = out["resE"]["fixtures"][name]["charts"][key]
+        cut = [(s, f) for s, _, f in _e_drawn_fits(model) if f["cut"]]
+        assert model["clipped"]["fits"] == len(cut)
+        tips = [i["tip"] for x in chart["chart"]["series"] if (x["id"] or "").endswith("|carets") and "|ratio|" not in x["id"] for i in x["items"]]
+        assert sum("leaves the top of the" in t and "True values" in t for t in tips) == len(cut)
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_e_fit_table_names_what_this_view_draws(out, name):
+    payload = _load(name)
+    linear = out["res"][name]["tables"]
+    for windows in ("anchors", "all"):
+        table = out["resE"]["fixtures"][name]["tables"][windows]
+        base = linear[f"{windows}:both"]
+        assert table["view"] == "energy" and table["columns"] == base["columns"]
+        assert [r["key"] for r in table["rows"]] == [r["key"] for r in base["rows"]]
+        assert "this view draws the origin-pinned a₀/√E ⊕ 0" in table["caption"].replace("This", "this")
+        assert "affine a/√E + b is drawn in the 1/√E view" in table["caption"]
+        for row, lrow, s in zip(table["rows"], base["rows"], _res_shown(payload, "both")):
+            assert [f["form"] for f in row["fits"]] == ["affine", "pinned", "quadrature"]
+            for f, lf in zip(row["fits"], lrow["fits"]):
+                assert f["cells"][1:] == lf["cells"][1:], "only the Fit column names the view"
+            names = [f["cells"][0] for f in row["fits"]]
+            assert names[0] == "Affine a/√E + b — drawn in the 1/√E view"
+            assert names[1] == "Origin-pinned a₀/√E ⊕ 0 — drawn"
+            q = s["fits"][windows]["quadrature"]["params"]
+            if q["a_defined"] and q["b_defined"]:
+                assert names[2] == "Quadrature a/√E ⊕ b — drawn"
+            else:
+                assert names[2].startswith("Quadrature a/√E ⊕ b — not drawn: ")
+                assert ("A ≤ 0" in names[2]) == (not q["a_defined"]) and ("B ≤ 0" in names[2]) == (not q["b_defined"])
+
+
+def test_res_e_empty_states_say_so(out):
+    empty = out["resE"]["empty"]
+    for key in ("nothing", "noAxis", "none"):
+        chart = empty[key]
+        assert not chart["chart"]["series"] and chart["graphicTexts"], key
+    assert "no energy-resolution series" in empty["nothing"]["graphicTexts"][0]["text"]
+    assert "No momentum window holds two events" in empty["none"]["graphicTexts"][0]["text"]
+    assert empty["noAxisModel"] is None
+
+
+def test_res_e_print_tokens_build(out):
+    printed = out["printResE"]
+    chart = printed["chart"]
+    assert chart["series"] and chart["legend"] and len(printed["grid"]) == 2 and printed["legendType"] == "plain"
+    for s in chart["series"]:
+        if s["id"] == "detector:a|markers":
+            assert all(i["el"]["fill"] == printed["ink"] for i in s["items"])
+        if s["id"] == "network:a|markers":
+            assert all(i["el"]["fill"] == printed["hues"]["absolute"] for i in s["items"])
+        if (s["id"] or "").startswith("literature|") and "|caret" not in s["id"]:
+            assert all(ch["stroke"] == printed["muted"] for ch in s["items"][0]["el"]["children"] if ch["type"] == "polyline")
+    assert printed["noteFont"] and all(f == printed["fontTip"] for f in printed["noteFont"])
+    g0, g1 = printed["grid"]
+    assert g1["top"] + g1["height"] < printed["height"]
+    _no_hyphen_numbers(chart["strings"])
+
+
+def test_res_e_the_panel_sets_its_height_and_exports_two_panels(out):
+    cls = out["resE"]["cls"]
+    assert cls["linearFirst"] == {"height": None, "resized": 0}, "the 1/√E view leaves the CSS height alone"
+    assert cls["energy"]["height"] == "600px" and cls["energy"]["resized"] == 1, "resized in the same call"
+    assert cls["energy"]["grids"] == 2 and cls["energy"]["liveGrid"] == 2 and cls["energy"]["built"] == ["option", "plotGrid"]
+    assert cls["relayoutResized"] == 1, "a relayout at an unchanged view does not resize again"
+    assert cls["linear"]["height"] == "" and cls["linear"]["resized"] == 2 and cls["linear"]["grids"] == 1
+    assert cls["linear"]["built"] == ["option"]
+    assert cls["linear"]["export"] == cls["linear"]["exportBefore"]
+    assert cls["energy"]["export"]["width"] == 321 and cls["energy"]["export"]["height"] > cls["linear"]["export"]["height"]
+    assert cls["energy"]["exportWide"]["height"] > cls["energy"]["export"]["height"]
+
+
+def test_res_e_no_rendered_number_uses_an_ascii_hyphen(out):
+    for name in RES:
+        entry = out["resE"]["fixtures"][name]
+        for chart in entry["charts"].values():
+            _no_hyphen_numbers(chart["chart"]["strings"])
+            _no_hyphen_numbers(t for a in chart["yAxes"] + chart["xAxes"] for t in a["labels"])
+            _no_hyphen_numbers(g["text"] for g in chart["graphicTexts"])
+        for table in entry["tables"].values():
+            _no_hyphen_numbers([table["caption"], *(c for r in table["rows"] for f in r["fits"] for c in f["cells"])])
+        for model in entry["models"].values():
+            _no_hyphen_numbers([model["noteText"]["offScale"], model["noteText"]["extrapolation"], model["reference"]["label"]])
+            _no_hyphen_numbers(role for s in model["series"] for p in s["points"] for role in p["roles"])
+    for key in ("undefinedA", "undefinedB", "offScale"):
+        _no_hyphen_numbers(out["resE"][key]["chart"]["chart"]["strings"])
+    _no_hyphen_numbers(out["resE"]["lightChart"]["chart"]["strings"])
