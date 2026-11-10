@@ -29,6 +29,7 @@ the panel classes' delegation are checked too. Skipped without `node`.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import shutil
@@ -544,16 +545,18 @@ for (const name of %(corrs)s) {
   const canonical = (o) => JSON.stringify(o, fnText);
   const refs = rs.RATIO_REFERENCES;
   const packRef = (r) => ({ key: r.key, shower: r.shower, form: r.form, series: r.series, label: r.label, reason: r.reason,
-    span: r.span, interval: r.interval, hasBand: Boolean(r.band), bandClipped: r.bandClipped, literature: r.literature?.key ?? null });
+    span: r.span, interval: r.interval, hasBand: Boolean(r.band), bandClipped: r.bandClipped, literature: r.literature?.key ?? null,
+    outlined: r.outlined ?? null, bandCut: r.bandCut ?? null, provisional: r.provisional });
   const packModel = (m, full) => ({
     x: m.x, y: m.y, curveMinGev: m.curveMinGev, yMinGev: m.yMinGev, nPoints: m.nPoints, nLines: m.nLines,
     reference: { key: m.reference.key, label: m.reference.label, interval: m.reference.interval, flag: m.reference.flag,
       byShower: Object.fromEntries(Object.entries(m.reference.byShower).map(([k, r]) => [k, packRef(r)])) },
     ratio: m.ratio, clipped: m.clipped, offScale: m.offScale, spans: m.spans, noteText: m.noteText,
+    bandsOutlined: { main: m.bandsOutlined.main, ratio: m.bandsOutlined.ratio }, twoOnShow: m.twoOnShow, endLabels: m.endLabels,
     literature: m.literature.map((l) => ({ key: l.key, label: l.label, legend: l.legend, inForce: l.inForce, cut: l.cut,
       curve: full ? l.curve : null, runs: full ? l.runs : null })),
     series: m.series.map((s) => ({
-      key: s.key, shower: s.raw.shower ?? null, source: s.raw.source, isB: s.isB, colour: s.colour, span: s.span,
+      key: s.key, shower: s.raw.shower ?? null, source: s.raw.source, isB: s.isB, colour: s.colour, span: s.span, offsetPx: s.offsetPx,
       lineOpacity: s.lineOpacity(false), reference: s.reference ? packRef(s.reference) : null,
       unreported: s.unreported.map((w) => w.bin),
       points: s.points.map((p) => ({ bin: p.w.bin, label: p.w.label, x: p.x, E: p.E, value: p.value, lo: p.lo, hi: p.hi, n: p.n,
@@ -565,9 +568,9 @@ for (const name of %(corrs)s) {
         const f = s.fits[form];
         if (!f.drawable) return [form, { drawable: false, reason: f.reason, span: f.span }];
         return [form, { drawable: true, reason: f.reason, span: f.span, domain: f.domain, provisional: f.provisional,
-          converged: f.converged, isReference: f.isReference, cut: f.cut, floorCut: f.floorCut,
+          converged: f.converged, isReference: f.isReference, cut: f.cut, floorCut: f.floorCut, outlined: f.outlined,
           curve: full ? f.curve : null, solid: full ? f.solid : null, dashed: full ? f.dashed : null, band: full ? f.band : null,
-          ratio: f.ratio ? { solid: full ? f.ratio.solid : null, dashed: full ? f.ratio.dashed : null, cut: f.ratio.cut,
+          ratio: f.ratio ? { solid: full ? f.ratio.solid : null, dashed: full ? f.ratio.dashed : null, cut: f.ratio.cut, outlined: f.ratio.outlined,
             rows: full ? f.ratio.rows : null, band: full ? f.ratio.band : null } : null }];
       })),
     })),
@@ -762,7 +765,8 @@ for (const name of %(corrs)s) {
       ratioWhiskers: m.series.flatMap((s) => s.points).filter((p) => p.ratio.drawn && Number.isFinite(p.ratio.lo)).length },
     noReference: m.ratio.noReference, anyB: m.series.some((s) => s.isB),
     deposit: Object.values(m.reference.byShower).map((r) => ({ shower: r.shower, reason: r.reason, why: r.why, provisional: r.provisional })),
-    notes: m.notes, rule: m.rule, noteText: m.noteText,
+    notes: m.notes, rule: m.rule, noteText: m.noteText, nShowers: m.nShowers, mode: m.mode,
+    bandsOutlined: { main: m.bandsOutlined.main, ratio: m.bandsOutlined.ratio }, capped: m.ratio.capped,
   });
   const run = (payload, opts) => {
     const model = rs.energyModel(payload, opts);
@@ -832,6 +836,236 @@ for (const name of %(corrs)s) {
   const titled = (view, title) => mn.resolutionScalingNotes({ payload: two, view, title }).title;
   out.resNotes.titles = { linear: titled('linear'), energy: titled('energy'), given: titled('energy', 'Card title'),
     constants: [mn.RES_SCALING_TITLE, mn.RES_SCALING_ENERGY_TITLE] };
+}
+
+/* ---- res-scaling: the E view's review fix round (fixes.md part A, P1-P15 and N1-N4) ---- */
+{
+  const RE = { width: 760, height: 600 };
+  const stubState = { isTouched: () => false, get: () => null };
+  const notesOf = (payload, opts) => {
+    const n = mn.resolutionScalingNotes({ payload, state: stubState, experiment: { display_name: 'Demo' }, ...opts, view: 'energy' });
+    return n ? { title: n.title, hazards: n.hazards, sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null;
+  };
+  const graphicsOf = (o) => (o.graphic ?? []).map((g) => ({ text: g.style?.text ?? null, x: g.style?.x ?? null, y: g.style?.y ?? null,
+    align: g.style?.textAlign ?? null, font: g.style?.fontSize ?? null, lineHeight: g.style?.lineHeight ?? null }));
+  // The drawn style of every band edge (a series '<id>|edges|<solid|dashed>|<i>'), with its tooltip.
+  const edgesOf = (o) => o.series.filter((s) => (s.id ?? '').includes('|edges|')).map((s) => {
+    const el = s.renderItem({ dataIndex: 0, coordSys }, api);
+    return { id: s.id, name: s.name, xAxisIndex: s.xAxisIndex ?? 0, stroke: el.style.stroke, width: el.style.lineWidth,
+      opacity: el.style.opacity, dash: el.style.lineDash ?? null, points: el.shape.points, tip: s.tooltip.formatter({ dataIndex: 0 }) };
+  });
+  const labelsOf = (o) => o.series.filter((s) => (s.id ?? '').endsWith('|endlabels')).map((s) => {
+    const el = s.renderItem({ dataIndex: 0, coordSys }, api);
+    return { id: s.id, name: s.name, clip: s.clip, silent: s.silent, xAxisIndex: s.xAxisIndex ?? 0,
+      texts: el.children.map((c) => ({ text: c.style.text, fill: c.style.fill, x: c.style.x, y: c.style.y, align: c.style.textAlign })) };
+  });
+  const two = load('res_scaling_two');
+  const fix = {};
+
+  // P1: a ν = 1 quadrature fit whose errors S = 1.5 scales, so its band takes Student's t₀.₉₇₅,₁ = 12.71, on a top
+  // of 300%% where its edges cross the plot (at S = 3.6 both edges lie beyond it, and nothing of the band is drawn).
+  const t12 = clone(two);
+  t12.axis.energy.y.hi = 300; t12.axis.energy.y.interval = 50;
+  {
+    const q = t12.series.find((x) => x.key === 'network:a').fits.anchors.quadrature;
+    q.scale_factor = 1.5; q.band_quantile = 12.7062;
+    for (const key of ['se_a2', 'se_b2', 'se_a', 'se_b']) q.params[key] *= 1.5;
+  }
+  const t12opts = { view: 'energy', windows: 'anchors', shower: 'both', reference: 'deposit' };
+  {
+    const m = rs.energyModel(t12, t12opts);
+    const s = m.series.find((x) => x.key === 'network:a');
+    const f = s.fits.quadrature;
+    const built = rs.energyViewOption(t12, t12opts, RE).option;
+    fix.outlined = {
+      main: m.bandsOutlined.main, ratio: m.bandsOutlined.ratio,
+      entries: m.bandsOutlined.entries.map((b) => ({ panel: b.panel, key: b.key, form: b.form, reference: b.reference })),
+      outlined: f.outlined, ratioOutlined: f.ratio?.outlined ?? null, span: f.span, curve: f.curve, ratioRows: f.ratio?.rows ?? null,
+      k: m.ratio.k, yhi: m.y.hi, colour: s.colour, edgeOpacity: cp.legibleOpacity(s.colour, 0.5), lineAxis: scale.THEME.lineAxis,
+      edges: edgesOf(built), chart: walk(built), notes: notesOf(t12, t12opts),
+      hazards: mn.modelsHazards(t12, 'res-scaling', t12opts), hazardsBase: mn.modelsHazards(two, 'res-scaling', t12opts),
+      // Every fixture fit judged by the rule itself, from its rows: [key, form, panel, outlined, any in-span row floor-to-top].
+      fixtures: %(res)s.flatMap((name) => ['anchors', 'all'].flatMap((windows) => ['deposit', 'pi', 'e'].flatMap((reference) => {
+        const mm = rs.energyModel(load(name), { windows, reference });
+        const inSpan = (rows, span) => rows.filter((r) => r[0] >= span[0] - 1e-9 && r[0] <= span[1] + 1e-9);
+        const out = [];
+        for (const x of mm.series) {
+          for (const form of rs.ENERGY_FORMS) {
+            const ff = x.fits[form];
+            if (!ff.drawable) continue;
+            out.push([name, windows, reference, x.key, form, 'main', ff.outlined, inSpan(ff.curve, ff.span).some((r) => r[2] <= 0 && r[3] >= mm.y.hi)]);
+            if (ff.ratio) out.push([name, windows, reference, x.key, form, 'ratio', ff.ratio.outlined,
+              inSpan(ff.ratio.rows, ff.span).some((r) => r[2] <= 1 / mm.ratio.k && r[3] >= mm.ratio.k)]);
+          }
+        }
+        for (const r of Object.values(mm.reference.byShower)) {
+          if (!r.band) continue;
+          const rows = [...r.band.below, ...r.band.inside, ...r.band.above];
+          out.push([name, windows, reference, r.series, r.form, 'reference', r.outlined,
+            inSpan(rows, r.span).some((row) => row[2] <= 1 / mm.ratio.k && row[3] >= mm.ratio.k)]);
+        }
+        return out;
+      }))),
+    };
+  }
+
+  // P1 on the deposit reference's own band about 1: shower B's quadrature reference, ν = 1 and S = 3. (A pinned
+  // reference's band about 1 is 1 ± q·SE(a₀)/a₀ at every E, so once wider than the axis no edge of it is on the plot.)
+  const refWide = clone(two);
+  {
+    const q = refWide.series.find((x) => x.key === 'detector:b').fits.anchors.quadrature;
+    q.scale_factor = 3; q.band_quantile = 12.7062;
+    for (const key of ['se_a2', 'se_b2', 'se_a', 'se_b']) q.params[key] *= 3;
+  }
+  {
+    const mm = rs.energyModel(refWide, t12opts);
+    const ref = mm.reference.byShower.b;
+    const built = rs.energyViewOption(refWide, t12opts, RE).option;
+    fix.refOutlined = { outlined: ref.outlined, cut: ref.bandCut, form: ref.form, series: ref.series, muted: scale.THEME.muted,
+      edgeOpacity: cp.legibleOpacity(scale.THEME.muted, 0.5), entries: mm.bandsOutlined.entries.map((b) => ({ panel: b.panel, key: b.key, reference: b.reference })),
+      ratio: mm.bandsOutlined.ratio, edges: edgesOf(built).filter((e) => e.id.startsWith('detector:b|ratio|reference|edges|')),
+      washes: built.series.filter((x) => (x.id ?? '').startsWith('detector:b|ratio|reference|band|')).length,
+      notes: notesOf(refWide, t12opts) };
+  }
+  fix.tickLabels = [0.5, 1 / 3, 1 / 1.5, 0.8, 1, 1.25, 2, 50, 1 / 50, 1 / 1.1].map((v) => rs.ratioTickLabel(v));
+
+  // P2: end labels in a column beside the plot; shower B's strength as drawn.
+  fix.labels = {};
+  for (const [key, payload, opts] of [
+    ['two:anchors:deposit:both', two, { windows: 'anchors', reference: 'deposit', shower: 'both' }],
+    ['two:all:pi:both', two, { windows: 'all', reference: 'pi', shower: 'both' }],
+    ['two:all:deposit:a', two, { windows: 'all', reference: 'deposit', shower: 'a' }],
+    ['two:all:e:b', two, { windows: 'all', reference: 'e', shower: 'b' }],
+    ['low:all:deposit:both', (() => { const low = clone(two); low.axis.energy.y.hi = 30; low.axis.energy.y.interval = 10; return low; })(),
+      { windows: 'all', reference: 'deposit', shower: 'both' }],
+    ['xgb:all:deposit:both', load('res_scaling_xgb'), { windows: 'all', reference: 'deposit', shower: 'both' }],
+    ['xgb:all:e:both', load('res_scaling_xgb'), { windows: 'all', reference: 'e', shower: 'both' }],
+  ]) {
+    const o = { view: 'energy', ...opts };
+    const mm = rs.energyModel(payload, o);
+    const built = rs.energyViewOption(payload, o, RE).option;
+    fix.labels[key] = {
+      twoOnShow: mm.twoOnShow, endLabels: mm.endLabels, k: mm.ratio.k, yhi: mm.y.hi, xmax: mm.x.max,
+      fits: mm.series.flatMap((s) => rs.ENERGY_FORMS.filter((form) => s.fits[form].drawable).map((form) => ({
+        key: s.key, shower: s.raw.shower ?? null, colour: s.colour, form, end: s.fits[form].curve.at(-1),
+        ratioEnd: s.fits[form].ratio ? s.fits[form].ratio.rows.at(-1) : null }))),
+      literature: mm.literature.map((l) => ({ key: l.key, label: l.label, legend: l.legend })),
+      series: labelsOf(built), grid: built.grid, pad: scale.axisPadding(), muted: scale.THEME.muted, fontTip: scale.THEME.fontTip,
+      bTips: walk(built).series.filter((s) => /^(detector|network):b\|(quadrature|pinned)\|(solid|dashed)\|/.test(s.id ?? '')).map((s) => s.items[0].tip),
+      bOpacity: Object.fromEntries(mm.series.filter((s) => s.isB).map((s) => [s.key, s.lineOpacity(false)])),
+      notes: notesOf(payload, o),
+    };
+  }
+  scale.setScreenTheme('light');
+  fix.lightB = {
+    notes: notesOf(two, { windows: 'all', reference: 'deposit', shower: 'both' }),
+    strengths: rs.energyModel(two, { windows: 'all', reference: 'deposit' }).series.filter((s) => s.isB).map((s) => ({ short: s.short, op: s.lineOpacity(false) })),
+  };
+  scale.setScreenTheme('dark');
+  fix.spread = [
+    rs.spreadLabels([100, 101, 102, 300], 12, 0, 400),
+    rs.spreadLabels([5, 6], 12, 0, 400),
+    rs.spreadLabels([395, 396, 398], 12, 0, 400),
+    rs.spreadLabels([50, 10, 30], 12, 0, 400),
+    rs.spreadLabels([], 12, 0, 400),
+  ];
+
+  // P3: the canvas note at five widths, on screen and in print; an off-scale list whose first token is wider than its room.
+  const off = clone(two);
+  off.axis.energy.y.hi = 90; off.axis.energy.y.interval = 10;
+  const offOpts = { view: 'energy', windows: 'all', reference: 'deposit', shower: 'both' };
+  const noteCase = (width, height) => {
+    const built = rs.energyViewOption(off, offOpts, { width, height }).option;
+    const mm = rs.energyModel(off, offOpts);
+    return { width, height, graphics: graphicsOf(built), grid: built.grid, extrapolation: mm.noteText.extrapolation, offScale: mm.noteText.offScale,
+      fontTip: scale.THEME.fontTip, padLeft: scale.axisPadding().left };
+  };
+  fix.note = { screen: [321, 360, 440, 760, 1100].map((w) => noteCase(w, 600)) };
+  fix.gap = { screen: scale.THEME.fontLabel };
+  Object.assign(scale.THEME, PRINT_TOKENS);
+  fix.note.print = [321, 360, 440, 760, 1100].map((w) => noteCase(w, rs.energyExportMetrics(off, offOpts, w, 0.62).height));
+  fix.note.export = { off: rs.energyExportMetrics(off, offOpts, 321, 0.62).height, two: rs.energyExportMetrics(two, offOpts, 321, 0.62).height,
+    offTop: [].concat(rs.energyViewOption(off, offOpts, { width: 321, height: 600 }).option.grid)[0].top,
+    twoTop: [].concat(rs.energyViewOption(two, offOpts, { width: 321, height: 600 }).option.grid)[0].top };
+  fix.gap.print = scale.THEME.fontLabel;
+  fix.gap.printGrid = rs.energyViewOption(two, offOpts, { width: 321, height: 600 }).option.grid;
+  scale.restoreScreenTheme();
+
+  // P6, P7: the class keeps 420 px for the E view's empty state, and clear() drops the 600 px.
+  {
+    const el = { clientWidth: 760, clientHeight: 420, style: {}, classList: { toggle: () => {} }, closest: () => null };
+    const fake = { getWidth: () => el.clientWidth, getHeight: () => el.clientHeight, setOption: () => {},
+      resize: () => {}, clear: () => {}, getDom: () => el, dispatchAction: () => {} };
+    const saved = globalThis.echarts;
+    globalThis.echarts = { init: () => fake };
+    const none = clone(two);
+    for (const s of none.series) for (const w of s.windows) { w.value = null; w.n = 1; }
+    for (const s of none.series) for (const mode of ['anchors', 'all']) { s.fits[mode] = { points: [], substitutions: [], fallback: false, provisional: false, span_gev: null, affine: null, pinned: null, quadrature: null }; }
+    const panel = new rs.ResolutionScalingPanel(el, { card: 'res-scaling' });
+    const eo = { view: 'energy', windows: 'all', shower: 'both', reference: 'deposit' };
+    panel.render(none, eo);
+    fix.cls = { empty: el.style.height ?? null, emptyDraws: rs.energyDrawsPanels(none, eo), drawsTwo: rs.energyDrawsPanels(two, eo) };
+    panel.render(two, eo);
+    fix.cls.drawn = el.style.height;
+    panel.clear();
+    fix.cls.cleared = el.style.height;
+    panel.render(two, eo);
+    fix.cls.again = el.style.height;
+    panel.render(none, eo);
+    fix.cls.emptyAfter = el.style.height;
+    globalThis.echarts = saved;
+  }
+
+  // P8: under a literature reference every ratio mark says the curve carries no interval; a clone that clips a
+  // ratio fit (t12) and a literature curve (a low top).
+  const t12low = clone(t12);
+  t12low.axis.energy.y.hi = 30; t12low.axis.energy.y.interval = 10;
+  fix.literatureTips = {
+    pi: walk(rs.energyViewOption(t12low, { ...t12opts, reference: 'pi' }, RE).option),
+    deposit: walk(rs.energyViewOption(t12low, t12opts, RE).option),
+  };
+
+  // P9: a robust ratio mark beyond the last step (×50): capped, said on the axis and in the drawer.
+  const big = clone(two);
+  {
+    const w = big.series.find((x) => x.key === 'network:a').windows.find((x) => x.n >= 20 && x.p_lo >= 4 && Number.isFinite(x.value));
+    w.value *= 100; w.ci95 = w.ci95.map((v) => v * 100);
+  }
+  const bigOpts = { view: 'energy', windows: 'all', reference: 'deposit', shower: 'both' };
+  {
+    const mb = rs.energyModel(big, bigOpts);
+    const built = rs.energyViewOption(big, bigOpts, RE).option;
+    fix.capped = { k: mb.ratio.k, capped: mb.ratio.capped, provisional: mb.ratio.provisional, axisName: built.yAxis[1].name,
+      notes: notesOf(big, bigOpts), clipped: mb.ratio.clipped,
+      ranges: [rs.ratioRange([{ value: 80, robust: true }]), rs.ratioRange([{ value: 1.2, lo: 0.01, hi: 1.5, robust: true }, { value: 2, robust: true }]),
+        rs.ratioRange([{ value: 60, marker: true }]), rs.ratioRange([{ value: 30, robust: true }])],
+      uncapped: rs.energyModel(two, bigOpts).ratio.capped };
+  }
+
+  // P13: a deposit reference band clamped at the ratio axis but not wider than it: one muted caret each.
+  {
+    const o = { view: 'energy', windows: 'anchors', reference: 'deposit', shower: 'both' };
+    const mm = rs.energyModel(two, o);
+    const built = rs.energyViewOption(two, o, RE).option;
+    const carets = built.series.filter((s) => (s.id ?? '').endsWith('|ratio|reference|caret')).map((s) => ({
+      id: s.id, name: s.name, xAxisIndex: s.xAxisIndex ?? 0, fill: s.renderItem({ dataIndex: 0, coordSys }, api).style.fill,
+      at: s.data[0], tip: s.tooltip.formatter({ dataIndex: 0 }) }));
+    fix.refCaret = { carets, muted: scale.THEME.muted, k: mm.ratio.k, bands: mm.ratio.clipped.bands, ratio: mm.clipped.ratio, clipped: mm.ratio.clipped,
+      refs: Object.values(mm.reference.byShower).map((r) => ({ shower: r.shower, series: r.series, outlined: r.outlined ?? null, clipped: r.bandClipped, cut: r.bandCut })),
+      notes: notesOf(two, o), hazards: mn.modelsHazards(two, 'res-scaling', o) };
+  }
+
+  // N4: a provisional y range set by weaker windows, and one with no window reporting σ/E.
+  {
+    const prov = clone(two);
+    prov.axis.energy.y.provisional = true;
+    fix.provisional = { weaker: notesOf(prov, { windows: 'all', reference: 'deposit' }),
+      axisName: rs.energyViewOption(prov, { windows: 'all', reference: 'deposit' }, RE).option.yAxis[0].name };
+    const bare = clone(prov);
+    for (const s of bare.series) for (const w of s.windows) { w.value = null; w.n = 1; }
+    fix.provisional.nothing = notesOf(bare, { windows: 'all', reference: 'deposit' });
+  }
+  out.resFix = fix;
 }
 
 /* ---- colours a reader must see, against the card on screen and in print ----- */
@@ -1944,7 +2178,7 @@ def test_res_e_exports_and_the_view_switch(out):
     e = out["resE"]["exports"]
     assert e["views"] == ["linear", "energy"]
     assert e["refs"] == ["deposit", "pi", "e"] and e["refs"][1:] == [c["key"] for c in out["resE"]["catalogue"]]
-    assert e["steps"] == [1.1, 1.25, 1.5, 2, 3, 4, 5, 8, 10]
+    assert e["steps"] == [1.1, 1.25, 1.5, 2, 3, 4, 5, 8, 10, 20, 50], "P9: the ladder ends at 50"
     assert (e["grid"], e["linearPx"], e["energyPx"]) == (0.25, 420, 600)
     assert e["forms"] == ["quadrature", "pinned"]
     assert e["resolutionView"] == ["energy", "linear", "linear", "linear", "linear"]
@@ -2136,10 +2370,16 @@ def test_res_e_axes_and_two_grids_on_one_energy_axis(out, name):
         assert ratio["tickValues"] == ratio["labelValues"] and 1 in ratio["tickValues"]
         assert all(any(abs(t * u - 1) < 1e-9 for u in ratio["tickValues"]) for t in ratio["tickValues"]), "symmetric ticks"
         assert ratio["tickValues"][0] == pytest.approx(ratio["min"]) and ratio["tickValues"][-1] == pytest.approx(ratio["max"])
-        # Two grids with one left and right, about 10 px apart; the tips stay off their union.
+        # P4: a tick below 1 reads 1/x, with x = sigFigs(1/v, 3); from 1 up it stays decimal.
+        for v, label in zip(ratio["labelValues"], ratio["labels"]):
+            if v < 1 - 1e-9:
+                assert label.startswith("1/") and float(label[2:]) == pytest.approx(1 / v, rel=5e-3), (v, label)
+            else:
+                assert "/" not in label and float(label) == pytest.approx(v, rel=5e-3), (v, label)
+        # Two grids with one left and right, 1.4 label heights apart (P5); the tips stay off their union.
         g0, g1 = chart["grid"]
         assert (g0["left"], g0["right"]) == (g1["left"], g1["right"])
-        assert g1["top"] - (g0["top"] + g0["height"]) == 10
+        assert g1["top"] - (g0["top"] + g0["height"]) == 14, "round(1.4 × fontLabel), fontLabel 10 on screen"
         assert chart["plotGrid"] == chart["grid"]
         # A linked crosshair, never an axis tooltip, labelled with E on the bottom axis only.
         assert chart["axisPointer"] == {"link": [{"xAxisIndex": "all"}]}
@@ -2171,14 +2411,15 @@ def test_res_e_the_ratio_axis_covers_the_robust_marks(out, name):
         clipped = model["ratio"]["clipped"]
         over = sum(1 for s in model["series"] for p in s["points"] if p["ratio"]["drawn"] and p["ratio"]["over"])
         assert clipped["markers"] == over
-        assert model["clipped"]["ratio"] == clipped["markers"] + clipped["whiskers"] + clipped["fits"]
+        assert model["clipped"]["ratio"] == clipped["markers"] + clipped["whiskers"] + clipped["fits"] + clipped["bands"]
         carets = [i for s in out["resE"]["fixtures"][name]["charts"][key]["chart"]["series"] if (s["id"] or "").endswith("|ratio|carets")
                   for i in s["items"]]
         assert len(carets) >= over
         assert all("clipped at the ratio axis" in c["tip"] or "leaves the ratio axis" in c["tip"] for c in carets)
     helpers = out["resE"]["helpers"]
-    assert helpers["ranges"] == [{"k": 2, "provisional": False}, {"k": 2, "provisional": True}, {"k": 2, "provisional": True},
-                                 {"k": 10, "provisional": False}, {"k": 1.1, "provisional": False}, {"k": 4, "provisional": False}]
+    assert helpers["ranges"] == [{"k": 2, "provisional": False, "capped": 0}, {"k": 2, "provisional": True, "capped": 0},
+                                 {"k": 2, "provisional": True, "capped": 0}, {"k": 50, "provisional": False, "capped": 0},
+                                 {"k": 1.1, "provisional": False, "capped": 0}, {"k": 4, "provisional": False, "capped": 0}]
     for ticks in helpers["ticks"]:
         assert all(any(abs(t * u - 1) < 1e-9 for u in ticks) for t in ticks) and 1 in ticks
     assert helpers["grid"] == [4, 4.25, 4.5, 4.75, 5, 5.1, 5.25, 5.5, 5.75, 6]
@@ -2222,9 +2463,19 @@ def test_res_e_the_deposit_reference_is_each_showers_own(out, name):
                         assert (f["ratio"] is None) == f["isReference"]
             assert below == sum(1 for s in model["series"] if s["shower"] == shower for pt in s["points"] if pt["E"] < model["curveMinGev"])
         assert model["ratio"]["belowNotDrawn"] == sum(1 for s in model["series"] for pt in s["points"] if pt["E"] < model["curveMinGev"])
-        bands = [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")]
+        bands = [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")
+                 or "|ratio|reference|edges|" in (s["id"] or "")]
         assert bands and all(s["name"] in {x["label"] for x in payload["series"] if x["source"] == "detector"} for s in bands)
         assert all(not s["silent"] and "own 95% confidence band" in s["items"][0]["tip"] for s in bands)
+        for shower, ref in model["reference"]["byShower"].items():
+            washed = [s for s in bands if s["id"].startswith(f"{ref['series']}|ratio|reference|band|")]
+            outlined = [s for s in bands if s["id"].startswith(f"{ref['series']}|ratio|reference|edges|")]
+            assert bool(outlined) == bool(ref["outlined"]) and bool(washed) == (not ref["outlined"])
+            # P13: a band not outlined but clamped at the axis takes one muted caret.
+            caret = [s for s in chart["chart"]["series"] if s["id"] == f"{ref['series']}|ratio|reference|caret"]
+            assert len(caret) == (1 if ref["bandCut"] else 0) and ref["bandClipped"] == bool(ref["bandCut"])
+            assert not (ref["outlined"] and ref["bandCut"])
+        assert model["ratio"]["clipped"]["bands"] == sum(1 for r in model["reference"]["byShower"].values() if r["bandCut"])
         ids = {s["id"] for s in chart["chart"]["series"]}
         for shower, ref in model["reference"]["byShower"].items():
             assert not [i for i in ids if i.startswith(f"{ref['series']}|ratio|{ref['form']}|")]
@@ -2256,19 +2507,26 @@ def test_res_e_a_literature_reference_is_the_catalogues_curve(out, name):
             # Both catalogue curves on the main panel, dotted and muted, named in the legend; the one in force flagged.
             assert [l["key"] for l in model["literature"]] == ["pi", "e"]
             assert [l["inForce"] for l in model["literature"]] == [ref == "pi", ref == "e"]
-            lits = [s for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|") and "|caret" not in s["id"]]
+            lits = [s for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|")
+                    and not s["id"].endswith(("|caret", "|endlabels"))]
             assert len(lits) == 2
             for s, lit in zip(lits, model["literature"]):
                 assert s["name"] == lit["legend"] and lit["legend"] in chart["chart"]["legend"]
                 group = s["items"][0]["el"]
                 lines = [ch for ch in group["children"] if ch["type"] == "polyline"]
                 assert lines and all(ch["dash"] == [1.5, 3] for ch in lines)
-                assert [ch["text"] for ch in group["children"] if ch["type"] == "text"] == [lit["label"]]
+                # P2: the particle is its label, in the end column (an end-label series), never inside the plot.
+                assert lit["label"] == {"pi": "π±", "e": "e±"}[lit["key"]]
+                assert not [ch for ch in group["children"] if ch["type"] == "text"]
                 tip = s["items"][0]["tip"]
                 assert cat[lit["key"]]["equation"] in tip and "no interval reported" in tip and "not this detector" in tip
                 if ref != "e":
                     assert all(v == pytest.approx((cat[lit["key"]]["a"] ** 2 / e + cat[lit["key"]]["b"] ** 2) ** 0.5, rel=1e-12)
                                for e, v in lit["curve"])
+                    end = lit["curve"][-1][1]
+                    labelled = [x for x in model["endLabels"]["main"] if x["key"] == f"literature|{lit['key']}"]
+                    assert len(labelled) == (1 if 0 <= end <= model["y"]["hi"] else 0)
+                    assert all(x["text"] == lit["label"] and x["literature"] for x in labelled)
                     assert lit["curve"][0][0] == 0.25 and lit["curve"][-1][0] == _e_axis(name)["x"]["max"]
             assert not [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")], "no band for a literature reference"
             assert ("÷" in chart["yAxes"][1]["name"] or "ratio to" in chart["yAxes"][1]["name"])
@@ -2320,7 +2578,10 @@ def test_res_e_fit_marks_carry_their_form_and_extrapolation_in_their_tips(out, n
                 assert ("Extrapolated: beyond the windows this fit used" in tip) == (x in dashed)
                 assert "assumes the form holds" in tip if x in dashed else True
             bands = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|band|")]
-            assert bands and all(not b["silent"] for b in bands)
+            edges = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|edges|")]
+            # P1: a band wider than the axis over its span is its two edges, never a wash; any other band is a wash.
+            assert (not bands and edges) if f["outlined"] else (bands and not edges)
+            assert all(not b["silent"] for b in bands + edges)
             alphas = {b["id"].split("|")[-1]: b["items"][0]["el"]["opacity"] for b in bands}
             if "inside" in alphas:
                 for part in ("below", "above"):
@@ -2477,6 +2738,20 @@ def _starts(lines: list[str], prefix: str) -> list[str]:
     return [line for line in lines if line.startswith(prefix)]
 
 
+def _range_basis(note: str) -> str:
+    """The server's E-view range sentence without its trailing clipped count, as the drawer restates it (N1)."""
+    return re.sub(r"\s*\S+ marks? beyond it (?:is|are) clipped, not rescaled\.\s*$", "", note)
+
+
+def _in_force(facts: dict, key: str) -> str:
+    """How the drawer names the mode and shower choice its counts belong to: "in the 3-anchor mode, both showers"."""
+    mode = "the 3-anchor mode" if facts["mode"] == "anchors" else "the all-windows mode"
+    if facts["nShowers"] < 2:
+        return f"in {mode}"
+    shower = key.split(":")[2]
+    return f"in {mode}, {'both showers' if shower == 'both' else f'shower {shower.upper()} only'}"
+
+
 def test_res_notes_e_view_has_the_four_sections_in_order(out):
     section = out["notes"]["section"]
     standard = [section["selection"], section["drawn"], section["disclosures"], section["legend"]]
@@ -2492,10 +2767,18 @@ def test_res_notes_e_view_has_the_four_sections_in_order(out):
         assert len(ratio_to) == 1 and facts["label"] in ratio_to[0], (name, key)
         assert ("the literature curve" in ratio_to[0]) == (facts["literature"] is not None)
         drawn = _lines(n, out, "drawn")
-        # The conversion and the server's own notes are said as the server wrote them.
+        # The conversion and the server's own notes are said as the server wrote them, the range basis without the
+        # server's clipped count (N1): the drawer states the model's own counts instead.
         assert drawn[0].startswith("E = 1/x²") and facts["rule"].rstrip(".") in drawn[0]
-        for note in facts["notes"]:
-            assert note in drawn, (name, key, note)
+        for i, note in enumerate(facts["notes"]):
+            assert (_range_basis(note) if i == 0 else note) in drawn, (name, key, note)
+        assert not [line for line in drawn if "clipped, not rescaled" in line]
+        assert "the server's count" not in _text(n)
+        # P15: the drawer names the section that derives the view; P11: no dodge.
+        assert drawn[1] == ('Methodology §2.4.11, "Resolution scaling against E", derives this view, from E = 1/x² to the '
+                            "ratio panel's axis; §3.6 audits its marks.")
+        assert ("Windows of different series at one energy are drawn at that energy, not set apart: a window sits on its own "
+                "curve, which no offset could follow.") in drawn
 
 
 def test_res_notes_e_view_counts_equal_the_models(out):
@@ -2509,7 +2792,9 @@ def test_res_notes_e_view_counts_equal_the_models(out):
         parts = [_n(c[k], word) for k, word in (("markers", "marker"), ("whiskers", "whisker"), ("fits", "fit"), ("literature", "literature curve")) if c[k]]
         top = _starts(dis, "Clipped at the top of the main panel")
         if parts:
-            assert len(top) == 1 and f": {', '.join(parts)} (the server's count over every window it reports, both modes: {f['nClippedServer']})." in top[0], where
+            # N1: the model's own counts, for the mode and shower in force, named; never the server's count.
+            assert len(top) == 1 and top[0].endswith(f": {', '.join(parts)}."), where
+            assert f" {_in_force(f, key)}, each with a caret" in top[0], where
         else:
             assert not top, where
         # Windows above the top, listed by window with their N.
@@ -2530,10 +2815,14 @@ def test_res_notes_e_view_counts_equal_the_models(out):
         if c["fits"]:
             assert leave[0].startswith(f"{_n(c['fits'], 'fit')} {'leaves' if c['fits'] == 1 else 'leave'} ")
         floor = sum(d["floorCut"] for d in f["drawn"])
-        cut0 = [line for line in dis if "cut at σ/E = 0 where it would be negative" in line]
+        cut0 = [line for line in dis if " cut at 0: " in line]
         assert len(cut0) == (1 if floor else 0), where
         if floor:
             assert cut0[0].startswith(_n(floor, "fit") + " ")
+            # N3: the quadrature band is cut where (σ/E)², not σ/E, would be negative.
+            quad = any(d["floorCut"] and d["form"] == "quadrature" for d in f["drawn"])
+            assert ("where the band of (σ/E)² falls below zero, its lower edge is cut at 0" in cut0[0]) == quad, where
+            assert "cut at σ/E = 0 where it would be negative" not in cut0[0]
         for d in f["notDrawn"]:
             matching = [line for line in dis if line.startswith(f"{d['label']}: the ") and "is not drawn, " in line and d["reason"] in line]
             assert len(matching) == 1, (where, d)
@@ -2564,22 +2853,32 @@ def test_res_notes_e_view_counts_equal_the_models(out):
             assert ring[0].startswith(_n(p["subFloor"], "window") + " of N < 8")
         # The ratio panel.
         rc = f["ratioClipped"]
-        ratio_parts = [_n(rc[k], word) for k, word in (("markers", "marker"), ("whiskers", "whisker"), ("fits", "fit")) if rc[k]]
+        ratio_parts = [_n(rc[k], word) for k, word in (("markers", "marker"), ("whiskers", "whisker"), ("fits", "fit"),
+                                                       ("bands", "reference band")) if rc[k]]
         clipped_ratio = _starts(dis, "Clipped at the ratio axis")
         if ratio_parts:
             assert len(clipped_ratio) == 1 and clipped_ratio[0].endswith(f": {', '.join(ratio_parts)}."), where
+            assert f" {_in_force(f, key)}, each with a caret" in clipped_ratio[0], where
         else:
             assert not clipped_ratio
-        assert c["ratio"] == rc["markers"] + rc["whiskers"] + rc["fits"]
-        bands = [line for line in dis if "wider than the ratio axis and clamped at it" in line]
+        assert c["ratio"] == rc["markers"] + rc["whiskers"] + rc["fits"] + rc["bands"]
+        bands = [line for line in dis if "clamped at the ratio axis, a muted wash with one muted caret" in line]
         assert len(bands) == (1 if rc["bands"] else 0)
         if rc["bands"]:
             assert bands[0].startswith(_n(rc["bands"], "reference band") + " ")
+        # P1: the bands drawn as their edges are counted per panel and listed.
+        outlined = f["bandsOutlined"]["main"] + f["bandsOutlined"]["ratio"]
+        listed = [line for line in dis if "never as a wash: " in line]
+        assert len(listed) == (1 if outlined else 0), where
+        if outlined:
+            assert listed[0].startswith(f"{_n(outlined, 'band')} {'is' if outlined == 1 else 'are'} wider than ")
+        # P9: a cap is said, with its count.
+        assert any(line.startswith("The ratio axis is capped at ×50") for line in dis) == bool(f["capped"]), where
         gone = [line for line in dis if "not drawn on the ratio panel" in line]
         assert len(gone) == (1 if f["belowNotDrawn"] else 0), where
         if f["belowNotDrawn"]:
             assert gone[0].startswith(f"{_n(f['belowNotDrawn'], 'window')} below 4 GeV ")
-        k = f"{1 / f['k']:.3g} to {f['k']:.3g}"
+        k = f"1/{f['k']:.3g} to {f['k']:.3g}"
         prefix = f"The ratio range, {k}, "
         range_line = _starts(dis, prefix)
         assert len(range_line) == 1 and ("is provisional" in range_line[0]) == f["ratioProvisional"], where
@@ -2738,3 +3037,332 @@ def test_res_notes_e_view_uses_the_unicode_minus(out):
     assert re.search(r"B = −\d", _text(xgb)) and re.search(r"A = −\d", _text(two))
     for name, key, rec in _e_notes(out):
         _no_hyphen_numbers(line for lines in rec["notes"]["sections"].values() for line in lines)
+
+
+# ------------------------------------------- res-scaling: the E view's review fix round --
+#
+# fixes.md part A: one test per item (P1-P15, N1-N4; P15 and N1 sit in the drawer tests above), on the fixtures and
+# on clones changed only where the server would change them (`out["resFix"]`): a ν = 1 quadrature fit with
+# t = 12.71, an off-scale list wider than its room at 321 px, a provisional reference, a robust ratio beyond 50.
+
+LIT_NO_INTERVAL = "The literature curve has no interval reported; none is derived."
+NO_RANGE = "the figure does not state the energy range the curve was fitted over; it is drawn over the whole axis"
+
+
+def _width(text: str, font: float) -> float:
+    """Node's text width without a DOM (`textfit.js` measureText): 0.55 em per UTF-16 code unit."""
+    return len(text.encode("utf-16-le")) // 2 * font * 0.55
+
+
+def _dis(n: dict, out: dict) -> list[str]:
+    return n["sections"].get(out["notes"]["section"]["disclosures"], [])
+
+
+def _plain(tip: str) -> str:
+    """A tooltip's text as read: tags dropped, entities decoded, spaces collapsed."""
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", tip)).split())
+
+
+def test_res_fix_p1_a_band_wider_than_the_axis_is_drawn_as_its_edges(out):
+    o = out["resFix"]["outlined"]
+    span, yhi, k = o["span"], o["yhi"], o["k"]
+    assert any(r[2] <= 0 and r[3] >= yhi for r in o["curve"] if span[0] <= r[0] <= span[1]), "the clone runs floor to top in span"
+    assert o["outlined"] is True and o["ratioOutlined"] is True
+    for panel in ("main", "ratio"):
+        assert {"panel": panel, "key": "network:a", "form": "quadrature", "reference": False} in o["entries"]
+        assert o[panel] == sum(1 for e in o["entries"] if e["panel"] == panel)
+    ids = [s["id"] for s in o["chart"]["series"]]
+    assert not [i for i in ids if i.startswith(("network:a|quadrature|band|", "network:a|ratio|quadrature|band|"))], "no wash"
+    edges = [e for e in o["edges"] if e["id"].startswith(("network:a|quadrature|edges|", "network:a|ratio|quadrature|edges|"))]
+    assert {e["id"].split("|")[-2] for e in edges} == {"solid", "dashed"}
+    assert {"|ratio|" in e["id"] for e in edges} == {True, False}, "edges on both panels"
+    for e in edges:
+        part, ratio = e["id"].split("|")[-2], "|ratio|" in e["id"]
+        assert e["stroke"] == o["colour"] and e["width"] == pytest.approx(0.8 * o["lineAxis"])
+        assert e["opacity"] == pytest.approx(o["edgeOpacity"]) and e["xAxisIndex"] == (1 if ratio else 0)
+        assert e["dash"] == ([6, 4] if part == "dashed" else None), "solid in span, dashed beyond, as the curve"
+        for x, y in e["points"]:  # identity coordinates: clipped to the plot, the solid part inside the span
+            assert (1 / k - 1e-9 <= y <= k + 1e-9) if ratio else (0 < y <= yhi + 1e-9)
+            if part == "solid":
+                assert span[0] - 1e-9 <= x <= span[1] + 1e-9
+        assert ("Its 95% band is wider than the axis over its fitted windows (S = 1.5, ν = 1, q = 12.71), "
+                "so it is drawn as its edges, not as a wash.") in e["tip"]
+    curves = [s["items"][0]["tip"] for s in o["chart"]["series"]
+              if s["id"].startswith(("network:a|quadrature|solid|", "network:a|ratio|quadrature|solid|"))]
+    assert len(curves) >= 2 and all("so it is drawn as its edges, not as a wash" in t for t in curves)
+    listed = [line for line in _dis(o["notes"], out) if "never as a wash: " in line]
+    assert len(listed) == 1 and "main panel: A network a/√E ⊕ b (S = 1.5, ν = 1, q = 12.71)" in listed[0]
+    assert "ratio panel: A network a/√E ⊕ b (S = 1.5, ν = 1, q = 12.71)" in listed[0]
+    assert set(o["hazards"]) <= set(o["hazardsBase"]) | {"marks clipped at the axis"}, "no hazard of its own"
+    # Every fixture, mode and reference: outlined exactly where the band runs from the floor to the top in its span.
+    assert o["fixtures"]
+    for name, windows, ref, key, form, panel, outlined, full in o["fixtures"]:
+        assert outlined == full, (name, windows, ref, key, form, panel)
+    assert any(row[6] for row in o["fixtures"]), "the fixtures hold an outlined band (res_scaling_two, anchors, π±)"
+    # The deposit reference's own band about 1 follows the same rule: muted edges, no wash, no caret, listed.
+    r = out["resFix"]["refOutlined"]
+    assert r["outlined"] is True and r["cut"] is None and r["washes"] == 0
+    assert {"panel": "ratio", "key": "detector:b", "reference": True} in r["entries"] and r["form"] == "quadrature"
+    assert r["edges"] and all(e["stroke"] == r["muted"] and e["opacity"] == pytest.approx(r["edgeOpacity"]) for e in r["edges"])
+    assert all("Its own 95% band is wider than the axis over its fitted windows (S = 3, ν = 1, q = 12.71)" in e["tip"] for e in r["edges"])
+    assert any("the reference band about 1 of B deposit a/√E ⊕ b (S = 3, ν = 1, q = 12.71)" in line for line in _dis(r["notes"], out))
+
+
+def test_res_fix_p2_end_labels_name_the_shower_in_a_column_beside_the_plot(out):
+    seen = {"ab": 0, "lit": 0}
+    for key, rec in out["resFix"]["labels"].items():
+        k, yhi, font = rec["k"], rec["yhi"], rec["fontTip"]
+        want_main, want_ratio = [], []
+        for f in rec["fits"] if rec["twoOnShow"] else []:
+            assert f["end"][0] == pytest.approx(rec["xmax"])
+            tag = (f["key"], f["form"], f["shower"].upper(), f["colour"])
+            if 0 <= f["end"][1] <= yhi:
+                want_main.append(tag)
+            if f["ratioEnd"] and 1 / k * (1 - 1e-9) <= f["ratioEnd"][1] <= k * (1 + 1e-9):
+                want_ratio.append(tag)
+        got = lambda panel: [(x["key"], x["form"], x["text"], x["colour"]) for x in rec["endLabels"][panel] if not x["literature"]]  # noqa: E731
+        assert got("main") == want_main and got("ratio") == want_ratio, key
+        seen["ab"] += len(want_main)
+        # The literature curves' particles, muted, on the main panel only.
+        lits = [x for x in rec["endLabels"]["main"] if x["literature"]]
+        assert [x["text"] for x in lits] == [l["label"] for l in rec["literature"]] and all(x["colour"] == rec["muted"] for x in lits)
+        assert not [x for x in rec["endLabels"]["ratio"] if x["literature"]]
+        seen["lit"] += len(lits)
+        # The column: both grids' right widened by the widest label and its gap; untouched without a label.
+        g0, g1 = rec["grid"]
+        labels = rec["endLabels"]["main"] + rec["endLabels"]["ratio"]
+        column = -(-(0.5 * font + max(_width(x["text"], font) for x in labels)) // 1) if labels else 0
+        assert g0["right"] == g1["right"] == pytest.approx(rec["pad"]["right"] + column), key
+        # One series per legend entry and panel, drawn outside the plot, the text left-aligned past x.max.
+        texts = [t for s in rec["series"] for t in s["texts"]]
+        assert sorted(t["text"] for t in texts) == sorted(x["text"] for x in labels)
+        for s in rec["series"]:
+            assert s["clip"] is False and s["silent"] is True and s["xAxisIndex"] == (1 if s["id"].endswith("|ratio|endlabels") else 0)
+            assert all(t["align"] == "left" and t["x"] == pytest.approx(rec["xmax"] + 0.5 * font) for t in s["texts"])
+        # Shower B's strength, worded as drawn; the end labels named only where both showers are drawn.
+        assert rec["bTips"] or not rec["bOpacity"], key
+        for tip in map(_plain, rec["bTips"]):
+            assert "Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (this one at " in tip
+            assert ("so the end labels name the shower" in tip) == rec["twoOnShow"]
+            strength = int(re.search(r"\(this one at (\d+)%\)", tip).group(1))
+            assert strength >= 70 or "Provisional" in tip
+    assert seen["ab"] and seen["lit"]
+    assert not out["resFix"]["labels"]["two:all:deposit:a"]["endLabels"]["main"], "one shower, no literature: no label"
+    assert not out["resFix"]["labels"]["two:all:deposit:a"]["twoOnShow"] and not out["resFix"]["labels"]["xgb:all:deposit:both"]["twoOnShow"]
+    # A curve that leaves the plot before x.max has its caret and no label (a top of 30%: the deposit curves leave it).
+    low = out["resFix"]["labels"]["low:all:deposit:both"]
+    gone = [f for f in low["fits"] if f["end"][1] > low["yhi"]]
+    assert gone and low["endLabels"]["main"]
+    assert not {(f["key"], f["form"]) for f in gone} & {(x["key"], x["form"]) for x in low["endLabels"]["main"]}
+    # The drawer, on the dark card (nothing raised) and on the light one (E2's network hue raised to 3:1).
+    dark = [x for x in _dis(out["resFix"]["labels"]["two:anchors:deposit:both"]["notes"], out) if x.startswith("Shower B's lines")]
+    assert dark == ["Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (no hue needs it on this "
+                    "card), so the end labels \"A\" and \"B\" name the shower; on this view the dash means extrapolation, so shower B gives "
+                    "up the long dash the 1/√E view gives it."]
+    light = out["resFix"]["lightB"]
+    raised = [s for s in light["strengths"] if s["op"] > 0.7 + 1e-6]
+    assert raised, "the network hue needs more than 70% on the light card"
+    line = next(x for x in _dis(light["notes"], out) if x.startswith("Shower B's lines"))
+    named = ", ".join(f"{s['short']} at {round(100 * s['op'])}%" for s in raised)
+    assert f"({named} on this card)" in line
+    # The spread keeps order and the pitch, with the least displacement, inside the panel.
+    assert out["resFix"]["spread"] == [[89, 101, 113, 300], [0, 12], [376, 388, 400], [50, 10, 30], []]
+
+
+@pytest.mark.parametrize("medium", ["screen", "print"])
+def test_res_fix_p3_the_note_band_never_overprints_and_never_cuts(out, medium):
+    cases = out["resFix"]["note"][medium]
+    assert [c["width"] for c in cases] == [321, 360, 440, 760, 1100]
+    layouts = []
+    for c in cases:
+        left = next(g for g in c["graphics"] if g["text"].startswith("↑ off scale: "))
+        right = next(g for g in c["graphics"] if g["text"].startswith("dashed: "))
+        font, lh = c["fontTip"], left["lineHeight"]
+        ls, rs_ = left["text"].split("\n"), right["text"].split("\n")
+        # Never cut: the rule's lines are its whole sentence, the span "(4–20 GeV)" or "(Details)" included and on one line.
+        assert " ".join(rs_) == c["extrapolation"], c["width"]
+        span = re.search(r"\([^)]*\)", c["extrapolation"]).group(0)
+        assert any(span in line for line in rs_), (c["width"], rs_)
+        assert len(ls) <= 2 and left["x"] == c["padLeft"] and right["align"] == "right"
+        if right["y"] == left["y"]:
+            layouts.append("side")
+            assert left["x"] + max(_width(t, font) for t in ls) <= right["x"] - max(_width(t, font) for t in rs_), c["width"]
+        else:
+            layouts.append("stacked")
+            assert right["y"] == pytest.approx(left["y"] + len(ls) * lh), "the rule right-aligned beneath the list"
+            assert left["x"] + max(_width(t, font) for t in ls) <= c["width"], "the list stays on the canvas"
+        # The reserved height holds the layout: the main panel starts below the note's last line.
+        assert max(left["y"] + len(ls) * lh, right["y"] + len(rs_) * lh) <= c["grid"][0]["top"] + 1e-9, c["width"]
+    # 321 px (the 85 mm export under print) stacks: the first token alone is wider than the room beside the rule.
+    assert layouts[0] == "stacked" and layouts[-1] == "side", layouts
+    first = cases[0]["offScale"].split("; ")[0].split(", ")[0]
+    assert _width(first, cases[0]["fontTip"]) > 0.5 * (cases[0]["width"] - cases[0]["padLeft"])
+    if medium == "print":
+        ex = out["resFix"]["note"]["export"]
+        assert ex["off"] - ex["two"] == round(ex["offTop"] - ex["twoTop"]) > 0, "the export reserves the stacked note"
+
+
+def test_res_fix_p4_ratio_ticks_below_one_read_one_over_x(out):
+    assert out["resFix"]["tickLabels"] == ["1/2", "1/3", "1/1.5", "1/1.25", "1", "1.25", "2", "50", "1/50", "1/1.1"]
+
+
+def test_res_fix_p5_the_grid_gap_is_one_point_four_label_heights_in_either_medium(out):
+    gap = out["resFix"]["gap"]
+    g0, g1 = gap["printGrid"]
+    assert g1["top"] - (g0["top"] + g0["height"]) == round(1.4 * gap["print"]) and round(1.4 * gap["print"]) > 14
+    assert round(1.4 * gap["screen"]) == 14
+
+
+def test_res_fix_p6_p7_the_empty_state_and_a_cleared_card_keep_the_css_height(out):
+    c = out["resFix"]["cls"]
+    assert c["emptyDraws"] is False and c["drawsTwo"] is True
+    assert c["empty"] in (None, ""), "the E view's one-sentence empty state stays 420 px"
+    assert c["drawn"] == "600px" and c["cleared"] == "" and c["again"] == "600px" and c["emptyAfter"] == ""
+
+
+def test_res_fix_p8_every_ratio_against_a_literature_curve_says_no_interval(out):
+    pi, deposit = out["resFix"]["literatureTips"]["pi"], out["resFix"]["literatureTips"]["deposit"]
+
+    def tips(chart, pattern):
+        return [i["tip"] for s in chart["series"] if re.search(pattern, s["id"] or "") for i in s["items"] if i["tip"]]
+
+    fits = tips(pi, r"\|ratio\|(quadrature|pinned)\|(solid|dashed|band|edges)\|")
+    carets = [t for t in tips(pi, r"\|ratio\|carets$") if "leaves the ratio axis" in t]
+    unity, lit = tips(pi, r"^ratio\|unity$"), tips(pi, r"^literature\|\w+\|caret$")
+    assert fits and carets and unity and lit, "the clone draws every kind of mark the rule names"
+    for t in fits + carets + unity + lit:
+        assert _plain(t).endswith(LIT_NO_INTERVAL), _plain(t)[-160:]
+    assert all("the reference is held exact." in t for t in fits)
+    assert all("its own uncertainty is not included" not in t for t in fits)
+    # Under the deposit reference no tooltip says it; its band is drawn beside the ratio, not folded in.
+    assert not [t for s in deposit["series"] for i in s["items"] if (t := i["tip"]) and LIT_NO_INTERVAL in t]
+    dep = tips(deposit, r"\|ratio\|(quadrature|pinned)\|(solid|dashed|band|edges)\|")
+    assert dep and all("the reference is held exact (its own band about 1 is drawn beside it, not folded in)." in t for t in dep)
+
+
+def test_res_fix_p9_a_robust_ratio_beyond_fifty_is_capped_and_said(out):
+    c = out["resFix"]["capped"]
+    assert (c["k"], c["capped"], c["provisional"], c["uncapped"]) == (50, 1, False, 0)
+    assert c["axisName"].endswith("— capped at ×50")
+    assert c["clipped"]["markers"] >= 1
+    assert ("The ratio axis is capped at ×50, the last step of its ladder: 1 robust ratio mark reaches beyond it (whiskers "
+            "included), clipped there with carets whose tooltips give the true values.") in _dis(c["notes"], out)
+    assert c["ranges"] == [{"k": 50, "provisional": False, "capped": 1}, {"k": 50, "provisional": False, "capped": 1},
+                           {"k": 50, "provisional": True, "capped": 0}, {"k": 50, "provisional": False, "capped": 0}]
+
+
+def test_res_fix_p10_a_ratio_mark_against_a_provisional_reference_is_not_robust(out):
+    seen = 0
+    for name in RES:
+        for windows in ("anchors", "all"):
+            model = out["resE"]["fixtures"][name]["models"][f"{windows}:deposit"]
+            for shower, ref in model["reference"]["byShower"].items():
+                if not ref["provisional"]:
+                    continue
+                seen += 1
+                for s in (x for x in model["series"] if (x["shower"] or "a") == shower):
+                    assert not [p for p in s["points"] if p["ratio"]["robust"]], (name, windows, s["key"])
+            if all(r["provisional"] for r in model["reference"]["byShower"].values()):
+                assert model["ratio"]["provisional"] is True, (name, windows)
+                chart = out["resE"]["fixtures"][name]["charts"][f"{windows}:deposit"]
+                assert chart["yAxes"][1]["name"].endswith("— provisional")
+            # The same windows against a literature curve, which is not provisional, are robust again.
+            lit = out["resE"]["fixtures"][name]["models"][f"{windows}:pi"]
+            assert any(p["ratio"]["robust"] for s in lit["series"] for p in s["points"]) == any(
+                p["robust"] for s in lit["series"] for p in s["points"])
+    assert seen, "the single-shower fixtures' deposit reference is provisional"
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_fix_p11_no_series_dodge_on_the_e_view(out, name):
+    for key in RES_E_KEYS:
+        model = out["resE"]["fixtures"][name]["models"][key]
+        chart = out["resE"]["fixtures"][name]["charts"][key]
+        assert all(s["offsetPx"] == 0 for s in model["series"])
+        for s in model["series"]:
+            markers = next((x for x in chart["chart"]["series"] if x["id"] == f"{s['key']}|markers"), None)
+            shown = [p for p in s["points"] if not p["over"]]
+            if not markers:
+                continue
+            for item, p in zip(markers["items"], shown):
+                el = item["el"] if item["el"]["type"] == "circle" else item["el"]["children"][0]
+                assert el["circle"]["cx"] == pytest.approx(p["E"]), "a window sits at its exact E"
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_fix_p12_a_curve_is_solid_over_the_span_of_its_windows(out, name):
+    chart = out["resE"]["fixtures"][name]["charts"]["all:deposit"]
+    model = out["resE"]["fixtures"][name]["models"]["all:deposit"]
+    for s, form, f in _e_drawn_fits(model):
+        for x in chart["chart"]["series"]:
+            if (x["id"] or "").startswith(f"{s['key']}|{form}|solid|"):
+                tip = x["items"][0]["tip"]
+                assert f"Solid over the span of the windows it was fitted to ({_span(f['span'])}); dashed beyond" in tip
+
+
+def test_res_fix_p13_a_clamped_reference_band_takes_one_muted_caret(out):
+    r = out["resFix"]["refCaret"]
+    clipped = [x for x in r["refs"] if x["clipped"]]
+    assert clipped and all(x["outlined"] is False and x["cut"] for x in clipped)
+    assert r["bands"] == len(clipped) == len(r["carets"])
+    assert r["ratio"] == r["clipped"]["markers"] + r["clipped"]["whiskers"] + r["clipped"]["fits"] + r["clipped"]["bands"]
+    for c, ref in zip(r["carets"], clipped):
+        assert c["id"] == f"{ref['series']}|ratio|reference|caret" and c["xAxisIndex"] == 1 and c["fill"] == r["muted"]
+        assert c["at"][1] == pytest.approx(r["k"] if ref["cut"]["dir"] == "up" else 1 / r["k"])
+        assert "leaves the ratio axis" in c["tip"] and "True values where it deviates most" in c["tip"]
+        assert "Clamped at the axis, not rescaled: a reference band never sets the ratio range." in c["tip"]
+    dis = _dis(r["notes"], out)
+    assert any(line.startswith(f"{_n(len(clipped), 'reference band')} about 1 ") and "one muted caret" in line for line in dis)
+    assert "marks clipped at the axis" in r["hazards"]
+
+
+def test_res_fix_p14_a_provisional_sigma_axis_names_the_two_gev_floor(out):
+    assert out["resFix"]["provisional"]["axisName"] == "σ/E [%] — provisional, no window from 2 GeV reaches N = 20"
+    assert out["resE"]["provisional"]["yAxes"][0]["name"] == "σ/E [%] — provisional, no window from 2 GeV reaches N = 20"
+
+
+def test_res_fix_n2_the_literature_provenance_says_its_range_is_unknown(out):
+    chart = out["resE"]["fixtures"]["res_scaling_two"]["charts"]["all:pi"]
+    lits = [s for s in chart["chart"]["series"] if re.fullmatch(r"literature\|\w+", s["id"] or "")]
+    assert len(lits) == 2 and all(NO_RANGE in s["items"][0]["tip"] for s in lits)
+    for name, key, rec in _e_notes(out):
+        dis = _dis(rec["notes"], out)
+        said = [line for line in dis if line.startswith("The figure does not state the energy range the curve was fitted over")]
+        assert len(said) == (0 if key.split(":")[1] == "deposit" else 1), (name, key)
+
+
+def test_res_fix_n3_the_quadrature_band_is_cut_where_its_square_falls_below_zero(out):
+    lines = [line for _, _, rec in _e_notes(out) for line in _dis(rec["notes"], out) if " cut at 0: " in line]
+    assert any("where the band of (σ/E)² falls below zero, its lower edge is cut at 0" in line for line in lines)
+    assert not [line for line in lines if "cut at σ/E = 0 where it would be negative" in line]
+
+
+def test_res_fix_n4_a_provisional_range_names_what_sets_it(out):
+    p = out["resFix"]["provisional"]
+    weaker = [x for x in _dis(p["weaker"], out) if x.startswith("The y range is provisional")]
+    # What sets it, counted over every series of the response (the range is the response's, not the mode's).
+    windows = [w for s in _load("res_scaling_two")["series"] for w in s["windows"] if w["value"] is not None and w["n"] >= 2]
+    weak = sum(1 for w in windows if w["p_lo"] >= 2 and w["n"] < 20)
+    below = sum(1 for w in windows if w["p_lo"] < 2)
+    by = [f"the {_n(weak, 'window')} of N < 20 from 2 GeV"] * bool(weak) + [f"the markers of the {_n(below, 'window')} below 2 GeV"] * bool(below)
+    assert weak and weaker == [f"The y range is provisional: no window from 2 GeV reaches N = 20, so it is set by weaker windows "
+                               f"of the response, {' and '.join(by)}."]
+    nothing = [x for x in _dis(p["nothing"], out) if x.startswith("The y range is provisional")]
+    assert nothing == ["The y range is provisional: no window from 2 GeV reaches N = 20, and no window of the response reports σ/E, "
+                       "so nothing on the plot sets it."]
+    assert not [x for _, _, rec in _e_notes(out) for x in _dis(rec["notes"], out) if x.endswith("so it is set by weaker windows.")]
+
+
+def test_res_fix_no_rendered_number_uses_an_ascii_hyphen(out):
+    fix = out["resFix"]
+    _no_hyphen_numbers(fix["outlined"]["chart"]["strings"])
+    _no_hyphen_numbers(e["tip"] for e in fix["outlined"]["edges"] + fix["refOutlined"]["edges"])
+    _no_hyphen_numbers(c["tip"] for c in fix["refCaret"]["carets"])
+    _no_hyphen_numbers(fix["literatureTips"]["pi"]["strings"] + fix["literatureTips"]["deposit"]["strings"])
+    _no_hyphen_numbers([fix["capped"]["axisName"], fix["provisional"]["axisName"], *fix["tickLabels"]])
+    for medium in ("screen", "print"):
+        _no_hyphen_numbers(g["text"] for c in fix["note"][medium] for g in c["graphics"])
+    notes = [fix["outlined"]["notes"], fix["refOutlined"]["notes"], fix["capped"]["notes"], fix["refCaret"]["notes"],
+             fix["provisional"]["weaker"], fix["provisional"]["nothing"], fix["lightB"]["notes"],
+             *(rec["notes"] for rec in fix["labels"].values())]
+    _no_hyphen_numbers(line for n in notes for lines in n["sections"].values() for line in lines)

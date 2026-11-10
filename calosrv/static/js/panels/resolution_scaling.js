@@ -105,34 +105,57 @@
  * over its mode's `span_gev`, the edges of the windows it was fitted to,
  * dashed [6, 4] beyond, from 4 GeV to the axis end, with its band at a third
  * of its strength there, and never drawn below 4 GeV. So shower B, hollow as
- * ever, gives up its long dash here and draws its lines at 70% strength
- * (never below 3:1). A curve or band leaving the top gets one caret at its
- * first exit scanning up in E, its true values in the caret's tooltip.
+ * ever, gives up its long dash here and draws its lines at 70% strength,
+ * raised to 3:1 where the card needs it (E2's network hue reaches 91% on the
+ * light card, where A and B would read alike); with both showers drawn, a
+ * letter "A" or "B" at each curve's right end, in a column beside the plot,
+ * names the shower instead. A curve or band leaving the top gets one caret at
+ * its first exit scanning up in E, its true values in the caret's tooltip,
+ * and a curve that leaves before the axis end gets no end label.
+ *
+ * A band is the fit's parameter uncertainty, and with three anchors a
+ * quadrature fit has ν = 1, so once S > 1 its band takes t₀.₉₇₅,₁ = 12.7: it
+ * can run from the floor to the top of the axis over the very windows it was
+ * fitted to. Such a band (`widerThanAxis`, on either panel) is drawn as its
+ * two edges, thin lines solid over the span and dashed beyond, not as a wash
+ * that would flood the panel and answer every hover; the model counts them
+ * (`bandsOutlined`) and the drawer lists them.
+ *
+ * Windows are not dodged on this view: a curve is steep at low E, so a few
+ * pixels of offset would move a window visibly off its own curve, and flip a
+ * small residual's sign. Every window sits at its exact E.
  *
  * Under a literature reference both catalogue curves (catalog/resolution_refs.js,
- * "no interval reported") are drawn dotted in the muted ink with direct
- * labels at the right end: a reference, not a series, so never in a series
+ * "no interval reported") are drawn dotted in the muted ink, labelled by their
+ * particle in the end column: a reference, not a series, so never in a series
  * hue, and never setting a range. A note band between the legend and the
  * plot, part of the canvas and the export, lists the windows above the top
- * and states the extrapolation rule.
+ * and states the extrapolation rule; where the two would not fit side by side
+ * they are stacked, so neither overprints the other and the rule's span is
+ * never cut.
  *
  * The ratio panel underneath shares the E axis and a linked crosshair (no
  * zoom, no axis tooltip). It divides every window and drawn fit by the
  * reference in force: each shower's deposit a/√E ⊕ b fit, or its a₀/√E where
  * that is undefined, evaluated only where curves are drawn; or a literature
  * curve over the whole axis. A ratio's interval is conditional on the
- * reference; the deposit reference's own band is a neutral wash about 1. The
- * axis is logarithmic and symmetric about 1 over [1/k, k], so ×2 and ÷2 lie at
- * equal distances and a linear axis's impossible negative ratios never arise;
- * k is the first `RATIO_STEPS` value covering the robust ratio marks
- * (`ratioRange`), provisional without them, and marks beyond it get carets.
- * The panel's plot is `ENERGY_VIEW_PX` tall in this view (`syncHeight`), and
- * its export keeps the two panels' proportions (`energyExportMetrics`).
+ * reference, which is held exact; the deposit reference's own band is a
+ * neutral wash about 1 (its edges where it is wider than the axis, a muted
+ * caret where it is clamped), and a literature curve has none: every ratio
+ * mark against it says so. The axis is logarithmic and symmetric about 1 over
+ * [1/k, k], so ×2 and ÷2 lie at equal distances and a linear axis's impossible
+ * negative ratios never arise; its ticks below 1 read 1/x. k is the first
+ * `RATIO_STEPS` value covering the robust ratio marks (`ratioRange`: windows
+ * of N ≥ 20 from 2 GeV and non-provisional fits, each against a reference that
+ * is not provisional), provisional without them, capped at the ladder's end
+ * and said so, and marks beyond it get carets. The panel's plot is
+ * `ENERGY_VIEW_PX` tall where the view draws its two panels (`syncHeight`),
+ * and its export keeps the two panels' proportions (`energyExportMetrics`).
  * `energyModel` decides all of it once, for the chart and the drawer.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../scale.js';
-import { measureText, wrapText } from '../textfit.js';
+import { measureText } from '../textfit.js';
 import {
   REFERENCE_KEYS, RESOLUTION_REFERENCES, referenceOf, referenceValue, referenceEquation, referenceLabel,
 } from '../catalog/resolution_refs.js';
@@ -894,8 +917,12 @@ export function resolutionView(view) {
 /** What the ratio panel divides by: each shower's deposit fit (the default), or a literature curve of the catalogue. */
 export const RATIO_REFERENCES = Object.freeze(['deposit', ...REFERENCE_KEYS]);
 
-/** The half-ranges k of the log-symmetric ratio axis [1/k, k]: the first that covers the robust marks. */
-export const RATIO_STEPS = Object.freeze([1.1, 1.25, 1.5, 2, 3, 4, 5, 8, 10]);
+/**
+ * The half-ranges k of the log-symmetric ratio axis [1/k, k]: the first that
+ * covers the robust marks. The ladder ends at 50: a robust mark beyond it is
+ * clipped with a caret, and the axis name and the drawer say the axis is capped.
+ */
+export const RATIO_STEPS = Object.freeze([1.1, 1.25, 1.5, 2, 3, 4, 5, 8, 10, 20, 50]);
 
 /** The step of the energies a curve is evaluated at (GeV). */
 export const E_GRID_STEP_GEV = 0.25;
@@ -907,13 +934,29 @@ export const ENERGY_VIEW_PX = 600;
 /** The fits the E view draws, the wider line first; the affine fit stays on the 1/√E view. */
 export const ENERGY_FORMS = Object.freeze(['quadrature', 'pinned']);
 
-/** The ratio panel's share of the two grids' height, and the gap between the grids (px). */
+/** The ratio panel's share of the two grids' height. */
 const RATIO_SHARE = 0.26;
-const GRID_GAP_PX = 10;
+/**
+ * The gap between the two grids (px): 1.4 label heights, so the main panel's
+ * "0" and the ratio panel's top tick label never touch. Read where the layout
+ * is built, so the print tokens apply in an export.
+ */
+function gridGapPx() {
+  return Math.round(1.4 * THEME.fontLabel);
+}
 /** A band's alpha beyond its fitted windows, as a share of its alpha over them. */
 const OUT_ALPHA = 1 / 3;
 /** Shower B's line and band strength on this view, where the dash means extrapolation. */
 const B_STRENGTH = 0.7;
+/**
+ * A band wider than the axis is drawn as its two edges: this width (× `lineAxis`)
+ * and this asked opacity, raised to 3:1 where the card needs it.
+ */
+const EDGE_WIDTH = 0.8;
+const EDGE_OPACITY = 0.5;
+/** The end labels' gap from the plot's right border, and their least vertical pitch, as shares of `fontTip`. */
+const END_LABEL_GAP = 0.5;
+const END_LABEL_PITCH = 1.1;
 /** An extrapolated part, and a literature curve. */
 const DASH_EXTRAPOLATED = [6, 4];
 const DASH_LITERATURE = [1.5, 3];
@@ -927,7 +970,8 @@ const REFERENCE_BAND_SHARE = 0.7;
 const LITERATURE_ICON = 'path://M0,4h2.4v2.4h-2.4zM5,4h2.4v2.4h-2.4zM10,4h2.4v2.4h-2.4z';
 /** What the literature curves' tooltips and the drawer say of their provenance. */
 export const LITERATURE_PROVENANCE = 'as printed in the legend of the supplied figure (ECCE G4 simulation, dual-readout '
-  + 'inlay, 2.55 < η < 3.98); no interval reported; it describes that simulation\'s particles, not this detector';
+  + 'inlay, 2.55 < η < 3.98); no interval reported; the figure does not state the energy range the curve was fitted over; '
+  + 'it is drawn over the whole axis; it describes that simulation\'s particles, not this detector';
 
 /* --------------------------------------------------------- evaluators -- */
 
@@ -1032,31 +1076,92 @@ export function energyGrid(min, max, extra = []) {
 }
 
 /**
- * The ratio axis's half-range: `{k, provisional}` with k the first of
+ * The ratio axis's half-range: `{k, provisional, capped}` with k the first of
  * `RATIO_STEPS` that covers the robust marks (1/k ≤ every value ≤ k, whiskers
- * included), the last step where none does (the rest get carets). A mark is
+ * included), the last step where none does: `capped` then counts the robust
+ * marks that reach beyond it (0 otherwise), and they get carets. A mark is
  * `{value, lo?, hi?, robust?, marker?}`. Without a robust mark the range is
  * provisional and k covers the markers' values alone (`marker: true`); without
  * those, k = 2.
  */
 export function ratioRange(marks) {
   const dev = (v) => (Number.isFinite(v) && v > 0 ? Math.max(v, 1 / v) : null);
-  const reach = (list, ends) => {
+  const reachOf = (mark, ends) => {
     let m = 1;
-    for (const mark of list) {
-      for (const v of ends ? [mark.value, mark.lo, mark.hi] : [mark.value]) {
-        const d = dev(v);
-        if (d !== null) m = Math.max(m, d);
-      }
+    for (const v of ends ? [mark.value, mark.lo, mark.hi] : [mark.value]) {
+      const d = dev(v);
+      if (d !== null) m = Math.max(m, d);
     }
     return m;
   };
-  const step = (m) => RATIO_STEPS.find((s) => s >= m * (1 - 1e-9)) ?? RATIO_STEPS[RATIO_STEPS.length - 1];
+  const reach = (list, ends) => list.reduce((m, mark) => Math.max(m, reachOf(mark, ends)), 1);
+  const cap = RATIO_STEPS[RATIO_STEPS.length - 1];
+  const step = (m) => RATIO_STEPS.find((s) => s >= m * (1 - 1e-9)) ?? cap;
   const robust = (marks ?? []).filter((m) => m?.robust && dev(m.value) !== null);
-  if (robust.length) return { k: step(reach(robust, true)), provisional: false };
+  if (robust.length) {
+    return { k: step(reach(robust, true)), provisional: false, capped: robust.filter((m) => reachOf(m, true) > cap * (1 + 1e-9)).length };
+  }
   const markers = (marks ?? []).filter((m) => m?.marker && dev(m.value) !== null);
-  if (markers.length) return { k: step(reach(markers, false)), provisional: true };
-  return { k: 2, provisional: true };
+  if (markers.length) return { k: step(reach(markers, false)), provisional: true, capped: 0 };
+  return { k: 2, provisional: true, capped: 0 };
+}
+
+/**
+ * The share of its axis a band must cover, at one E of its fitted span, to be
+ * drawn as its edges. 1 is the rule decided for the fix round: the band's
+ * lower edge at or below the floor and its upper edge at or above the top.
+ */
+const OUTLINE_SHARE = 1;
+
+/**
+ * Whether a band `[[E, lo, hi], …]` is wider than its axis [floor, top] over
+ * its fitted span: at some E in the span it covers `OUTLINE_SHARE` of the axis
+ * on the scale the panel draws (`log` for the ratio panel), so with a share of
+ * 1 its lower edge is at or below the floor and its upper edge at or above the
+ * top. Such a band is drawn as its two edges, never as a wash that floods the
+ * panel.
+ */
+function widerThanAxis(rows, span, floor, top, log = false) {
+  if (!span) return false;
+  const scale = log ? (v) => (v > 0 ? Math.log(v) : -Infinity) : (v) => v;
+  const [f, t] = [scale(floor), scale(top)];
+  const need = OUTLINE_SHARE * (t - f);
+  return rows.some(([e, lo, up]) => e >= span[0] - 1e-9 && e <= span[1] + 1e-9
+    && Math.min(scale(up), t) - Math.max(scale(lo), f) >= need);
+}
+
+/**
+ * Labels at `ys` (px, any order) spread to a least pitch `gap` within [lo, hi]
+ * with the least displacement, their order kept: labels that would overlap are
+ * merged into a block centred on the mean of their wanted places (less their
+ * offsets in the block), blocks that then overlap are merged in turn, and a
+ * block is held inside [lo, hi]. Returns the new positions, in the order given.
+ */
+export function spreadLabels(ys, gap, lo = -Infinity, hi = Infinity) {
+  const order = ys.map((y, i) => [y, i]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const blocks = [];
+  const place = (b) => {
+    const n = b.want.length;
+    const mean = b.want.reduce((a, w, i) => a + (w - i * gap), 0) / n;
+    b.top = Math.min(Math.max(mean, lo), Math.max(lo, hi - (n - 1) * gap));
+  };
+  for (const [y] of order) {
+    const block = { want: [y], top: y };
+    place(block);
+    blocks.push(block);
+    while (blocks.length > 1) {
+      const last = blocks[blocks.length - 1];
+      const prev = blocks[blocks.length - 2];
+      if (prev.top + prev.want.length * gap <= last.top + 1e-9) break;
+      prev.want.push(...last.want);
+      blocks.pop();
+      place(prev);
+    }
+  }
+  const out = blocks.flatMap((b) => b.want.map((_, i) => b.top + i * gap));
+  const placed = new Array(ys.length);
+  order.forEach(([, index], k) => { placed[index] = out[k]; });
+  return placed;
 }
 
 /* ------------------------------------------------------------- model -- */
@@ -1084,6 +1189,16 @@ function splitAtSpan(rows, span) {
     inside: rows.filter((r) => r[0] >= lo && r[0] <= hi),
     above: rows.filter((r) => r[0] >= hi),
   };
+}
+
+/**
+ * A band's two edges as polyline runs, `parts` its {below, inside, above}
+ * rows `[E, y, lo, hi]`: {solid (over the span), dashed (beyond it)}, each
+ * edge cut to the plot by `clip` (points `[E, v]` to runs).
+ */
+function edgeRuns(parts, clip) {
+  const both = (rows) => [...clip(rows.map((r) => [r[0], r[2]])), ...clip(rows.map((r) => [r[0], r[3]]))];
+  return { solid: both(parts.inside), dashed: [...both(parts.below), ...both(parts.above)] };
 }
 
 /** Ratio points `[E, r]` cut to [1/k, k] in log r, the scale the panel draws them on. */
@@ -1201,38 +1316,53 @@ function belowRoles(w, gates, curveMin) {
  *   'pinned' | 'literature' | null), fit, series (the deposit series' key),
  *   seriesLabel, span, provisional, why (which fit and why), reason (null, or
  *   why that shower has no ratio marks), band ({below, inside, above} rows
- *   [E, 1, lo/ŷ, hi/ŷ], deposit only), bandClipped (that band is wider than
- *   the ratio axis and clamped at it), valueAt(E) (the reference in %, null
+ *   [E, 1, lo/ŷ, hi/ŷ], deposit only), outlined (that band is wider than the
+ *   ratio axis over its span, so drawn as its two edges), edges ({solid,
+ *   dashed} runs, when outlined), bandCut (a band not outlined but clamped at
+ *   the axis: where it first leaves it, `ratioCut`'s {at, dir, peak}),
+ *   bandClipped (`bandCut` is set), valueAt(E) (the reference in %, null
  *   outside its domain); a literature entry adds `equation`};
  * - `series`: [{key, label, short (the canvas note's name), raw, colour, isB,
- *   offsetPx, lineOpacity (the strength its lines take: shower B 70%), mf,
+ *   offsetPx (0: no dodge on this view), lineOpacity (the strength its lines
+ *   take: shower B 70%, raised to 3:1 where the card needs it), mf,
  *   provisional, span, points, fits: {quadrature, pinned}, unreported,
  *   reference (its shower's entry)}];
  * - a point: {w, E (= 1/x², x = ⟨1/√p⟩), x, value, ci, lo, hi, n, whisker,
  *   weak, subFloor, below4, anchor, fitted, robust, opacity, clip, over,
  *   roles, ratio}; `ratio` {drawn, reason, ref (the reference in % at E),
- *   value, lo, hi (the whisker divided, null without one), robust, clip,
- *   over};
+ *   value, lo, hi (the whisker divided, null without one), robust (the
+ *   window's, and its reference not provisional), clip, over};
  * - a fit: {form, fit, drawable, reason (why not drawn, else null), span,
  *   domain [curveMinGev, x.max], curve [[E, y, lo, hi]], solid (the runs over
  *   the span, clipped to [0, y.hi]), dashed (the runs beyond it), band
- *   {below, inside, above} (rows [E, lo, hi], clamped), cut (where its curve
- *   or band leaves the top, scanning up in E: {at, lineAt, bandAt, peak}),
- *   floorCut, provisional, converged, isReference (the deposit reference
- *   itself: its ratio ≡ 1 is not drawn), ratio {rows, solid, dashed, band,
- *   cut} (null for the reference or without one)};
+ *   {below, inside, above} (rows [E, lo, hi], clamped), outlined (its band is
+ *   wider than the axis over its span: lo ≤ 0 and hi ≥ y.hi at some E there,
+ *   so it is drawn as its edges), edges ({solid, dashed} runs of both edges,
+ *   when outlined), cut (where its curve or band leaves the top, scanning up
+ *   in E: {at, lineAt, bandAt, peak}), floorCut, provisional, converged,
+ *   isReference (the deposit reference itself: its ratio ≡ 1 is not drawn),
+ *   ratio {rows, solid, dashed, band, outlined (lo ≤ 1/k and hi ≥ k at some
+ *   E of the span), edges, cut} (null for the reference or without one)};
  * - `literature`: [] under the deposit reference, else both catalogue curves
- *   [{key, entry, label ("π± lit."), legend, inForce, curve [[E, %]], runs,
- *   cut {at, peak} | null}];
- * - `ratio` {k, provisional, reference (key), clipped {markers, whiskers,
- *   fits (each with a caret), bands (deposit reference bands clamped at the
- *   axis, a wash with no caret)}, belowNotDrawn (windows below the curve
+ *   [{key, entry, label ("π±", its end label), legend, inForce, curve
+ *   [[E, %]], runs, cut {at, peak} | null}];
+ * - `ratio` {k, provisional, capped (the robust marks beyond the last
+ *   `RATIO_STEPS` value, 0 when none), reference (key), clipped {markers,
+ *   whiskers, fits, bands (deposit reference bands clamped at the axis but
+ *   not outlined), each with a caret}, belowNotDrawn (windows below the curve
  *   floor left off the ratio panel under the deposit reference), noReference
  *   ([{shower, reason}])};
+ * - `bandsOutlined` {main, ratio (counts per panel, the deposit reference's
+ *   band included), entries [{panel, key, label, short, form, reference,
+ *   fit}]}: the bands drawn as their edges;
+ * - `twoOnShow` (two showers drawn) and `endLabels` {main, ratio}: [{key,
+ *   form, name (the legend entry that hides it), text ("A", "B", "π±"),
+ *   colour, literature, value (at x.max)}], the curves whose right end lies
+ *   on the panel;
  * - `clipped` {markers, whiskers, fits, literature, ratio}: the marks
  *   clipped at the main axis, each with a caret (`literature`: the curves
  *   crossing its top), and the ratio panel's carets in total (markers +
- *   whiskers + fits);
+ *   whiskers + fits + bands);
  * - `offScale`: [{label, E, entries: [{key, short, value, n}]}], the drawn
  *   windows above y.hi grouped by window, in E order;
  * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: the drawn
@@ -1275,7 +1405,7 @@ export function energyModel(payload, opts = {}) {
   }
   let belowNotDrawn = 0;
 
-  const series = shown.map((s, k) => {
+  const series = shown.map((s) => {
     const colour = colours[s.key];
     const isB = s.shower === 'b' && nShowers > 1;
     const mf = s.fits?.[mode] ?? null;
@@ -1300,21 +1430,23 @@ export function energyModel(payload, opts = {}) {
       const pLo = Number.isFinite(w.p_lo) ? w.p_lo : E;
       const below4 = pLo < curveMin;
       const robust = (w.n ?? 0) >= gates.fit_n && pLo >= yMinGev;
+      // A ratio is robust only against a reference that is itself robust: a provisional deposit fit never sets k.
+      const ratioRobust = robust && !ref?.provisional;
       let ratio;
       if (!ref || ref.reason) {
-        ratio = { drawn: false, reason: ref?.reason ?? 'no reference for this shower', ref: null, value: null, lo: null, hi: null, robust };
+        ratio = { drawn: false, reason: ref?.reason ?? 'no reference for this shower', ref: null, value: null, lo: null, hi: null, robust: ratioRobust };
       } else {
         const r = ref.valueAt(E);
         if (!(r > 0)) {
           belowNotDrawn += 1;
           ratio = {
-            drawn: false, ref: null, value: null, lo: null, hi: null, robust,
+            drawn: false, ref: null, value: null, lo: null, hi: null, robust: ratioRobust,
             reason: `below ${formatNumber(curveMin)} GeV, where no fit is drawn, so ${ref.label} has no value there`,
           };
         } else {
           ratio = {
             drawn: true, reason: null, ref: r, value: w.value / r,
-            lo: whisker ? ci[0] / r : null, hi: whisker ? ci[1] / r : null, robust,
+            lo: whisker ? ci[0] / r : null, hi: whisker ? ci[1] / r : null, robust: ratioRobust,
           };
         }
       }
@@ -1345,6 +1477,8 @@ export function energyModel(payload, opts = {}) {
       const parts = splitAtSpan(curve, span);
       const cut = cutAbove(curve, hi);
       if (cut) clipped.fits += 1;
+      // A band from the floor to the top over its fitted windows would flood the panel: drawn as its two edges.
+      const outlined = widerThanAxis(curve.map(([e, , lo, up]) => [e, lo, up]), span, 0, hi);
       const isReference = Boolean(ref && !ref.reason && ref.series === s.key && ref.form === form);
       let ratio = null;
       if (ref && !ref.reason && !isReference) {
@@ -1358,20 +1492,23 @@ export function energyModel(payload, opts = {}) {
         form, fit, drawable: true, reason: null, span, domain: [curveMin, x.max], curve,
         solid: lineRuns(parts.inside), dashed: [...lineRuns(parts.below), ...lineRuns(parts.above)],
         band: { below: bandRows(parts.below), inside: bandRows(parts.inside), above: bandRows(parts.above) },
+        outlined, edges: outlined ? edgeRuns(parts, (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
         cut, floorCut: grid.some((e) => evalFitAt(fit, e)?.cutLo), provisional: Boolean(fit.provisional ?? mf?.provisional),
         converged: fit.converged !== false, isReference, ratio,
       };
     }
     return {
       key: s.key, label: s.label ?? s.key, short: shortName(s, nShowers), raw: s, colour, isB,
-      offsetPx: (k - (shown.length - 1) / 2) * SERIES_OFFSET_PX,
+      // No dodge on this view: a window sits at its exact E, on its own curve (the curves cannot be dodged with it).
+      offsetPx: 0,
       lineOpacity: (provisional) => legibleOpacity(colour, (isB ? B_STRENGTH : 1) * (provisional ? PROVISIONAL_OPACITY : 1)),
       mf, provisional: Boolean(mf?.provisional), span, points, fits, unreported, reference: ref,
     };
   });
 
   // The ratio axis: k from the robust ratio marks (windows of N ≥ fit_n from y_min_gev, whiskers included,
-  // and the drawn non-provisional fits over their spans), then every ratio mark clipped to [1/k, k].
+  // and the drawn non-provisional fits over their spans, each against a non-provisional reference), then every
+  // ratio mark clipped to [1/k, k].
   const marks = [];
   for (const s of series) {
     for (const p of s.points) {
@@ -1381,13 +1518,14 @@ export function energyModel(payload, opts = {}) {
         : { value: p.ratio.value, marker: true });
     }
     for (const f of ENERGY_FORMS.map((form) => s.fits[form])) {
-      if (!f?.drawable || f.provisional || !f.ratio) continue;
+      if (!f?.drawable || f.provisional || !f.ratio || s.reference?.provisional) continue;
       const inside = splitAtSpan(f.ratio.rows, f.span).inside.map((r) => r[1]).filter((v) => v > 0);
       if (inside.length) marks.push({ value: Math.max(...inside), lo: Math.min(...inside), robust: true });
     }
   }
-  const { k, provisional: ratioProvisional } = ratioRange(marks);
-  const ratioClipped = { markers: 0, whiskers: 0, fits: 0 };
+  const { k, provisional: ratioProvisional, capped: ratioCapped } = ratioRange(marks);
+  const ratioClipped = { markers: 0, whiskers: 0, fits: 0, bands: 0 };
+  const outlinedBands = [];
   for (const s of series) {
     for (const p of s.points) {
       const r = p.ratio;
@@ -1398,7 +1536,9 @@ export function energyModel(payload, opts = {}) {
       if (r.clip && (r.clip.cutLo || r.clip.cutHi)) ratioClipped.whiskers += 1;
     }
     for (const f of ENERGY_FORMS.map((form) => s.fits[form])) {
-      if (!f?.drawable || !f.ratio) continue;
+      if (!f?.drawable) continue;
+      if (f.outlined) outlinedBands.push({ panel: 'main', key: s.key, label: s.label, short: s.short, form: f.form, reference: false, fit: f.fit });
+      if (!f.ratio) continue;
       const parts = splitAtSpan(f.ratio.rows, f.span);
       const clampR = (v) => (Number.isFinite(v) && v > 0 ? Math.min(Math.max(v, 1 / k), k) : 1 / k);
       const band = (rows) => rows.map(([e, , lo, up]) => [e, clampR(lo), clampR(up)]);
@@ -1406,18 +1546,30 @@ export function energyModel(payload, opts = {}) {
       f.ratio.solid = line(parts.inside);
       f.ratio.dashed = [...line(parts.below), ...line(parts.above)];
       f.ratio.band = { below: band(parts.below), inside: band(parts.inside), above: band(parts.above) };
+      f.ratio.outlined = widerThanAxis(f.ratio.rows.map(([e, , lo, up]) => [e, lo, up]), f.span, 1 / k, k, true);
+      f.ratio.edges = f.ratio.outlined ? edgeRuns(parts, (pts) => clipLog(pts, k)) : null;
+      if (f.ratio.outlined) outlinedBands.push({ panel: 'ratio', key: s.key, label: s.label, short: s.short, form: f.form, reference: false, fit: f.fit });
       f.ratio.cut = ratioCut(f.ratio.rows, k);
       if (f.ratio.cut) ratioClipped.fits += 1;
     }
   }
-  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits;
-  // A deposit reference's own band wider than the ratio axis is clamped at it: a wash, so no caret, but counted.
-  ratioClipped.bands = 0;
+  // A deposit reference's own band about 1: drawn as its edges where it is wider than the axis over its span
+  // (as a fit's band is), else a wash, clamped at the axis with one muted caret at its first exit.
   for (const ref of Object.values(byShower)) {
     if (!ref.band) continue;
-    ref.bandClipped = [...ref.band.below, ...ref.band.inside, ...ref.band.above].some(([, , lo, up]) => !(lo >= 1 / k) || up > k);
+    const rows = [...ref.band.below, ...ref.band.inside, ...ref.band.above].sort((a, b) => a[0] - b[0])
+      .filter((r, i, all) => i === 0 || r[0] !== all[i - 1][0]);
+    ref.outlined = widerThanAxis(rows.map(([e, , lo, up]) => [e, lo, up]), ref.span, 1 / k, k, true);
+    ref.edges = ref.outlined ? edgeRuns(ref.band, (pts) => clipLog(pts, k)) : null;
+    ref.bandCut = ref.outlined ? null : ratioCut(rows, k);
+    ref.bandClipped = Boolean(ref.bandCut);
     if (ref.bandClipped) ratioClipped.bands += 1;
+    if (ref.outlined) {
+      const s = series.find((x) => x.key === ref.series);
+      outlinedBands.push({ panel: 'ratio', key: ref.series, label: ref.seriesLabel, short: s?.short ?? ref.seriesLabel, form: ref.form, reference: true, fit: ref.fit });
+    }
   }
+  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.bands;
 
   // The literature curves, both, when one of them is the reference; they never set a range.
   const literature = [];
@@ -1434,9 +1586,38 @@ export function energyModel(payload, opts = {}) {
       if (!cut && curve.length && curve[0][1] > hi) cut = { at: curve[0][0], peak: curve[0] };
       if (cut) clipped.literature += 1;
       literature.push({
-        key: lit.key, entry: lit, label: `${lit.particle} lit.`, legend: `${lit.particle} lit. — ${referenceEquation(lit)}`,
+        key: lit.key, entry: lit, label: lit.particle, legend: `${lit.particle} lit. — ${referenceEquation(lit)}`,
         inForce: lit.key === referenceKey, curve, runs: clipPolyline(curve, 0, hi), cut,
       });
+    }
+  }
+
+  // Direct labels at the curves' right ends, in a column beside the plot: with two showers on show, the shower
+  // letter of every drawn curve whose value at x.max lies on its panel (B's lines are at 70% strength or more, so
+  // the letter names the shower where the strength cannot); and the literature curves' particles, main panel only.
+  // A curve that leaves the plot before x.max has its caret and no label.
+  const twoOnShow = nShowers > 1 && new Set(series.map((s) => s.raw.shower).filter(Boolean)).size > 1;
+  const endLabels = { main: [], ratio: [] };
+  const atEnd = (rows) => {
+    const last = rows?.[rows.length - 1];
+    return last && Math.abs(last[0] - x.max) < 1e-9 && Number.isFinite(last[1]) ? last[1] : null;
+  };
+  for (const s of twoOnShow ? series : []) {
+    const text = String(s.raw.shower).toUpperCase();
+    for (const form of ENERGY_FORMS) {
+      const f = s.fits[form];
+      if (!f?.drawable) continue;
+      const label = { key: s.key, form, name: s.label, text, colour: s.colour, literature: false };
+      const v = atEnd(f.curve);
+      if (v !== null && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v });
+      const r = f.ratio ? atEnd(f.ratio.rows) : null;
+      if (r !== null && r >= (1 / k) * (1 - 1e-9) && r <= k * (1 + 1e-9)) endLabels.ratio.push({ ...label, value: r });
+    }
+  }
+  for (const lit of literature) {
+    const v = referenceValue(lit.entry, x.max);
+    if (Number.isFinite(v) && v >= 0 && v <= hi) {
+      endLabels.main.push({ key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: THEME.muted, literature: true, value: v });
     }
   }
 
@@ -1476,9 +1657,15 @@ export function energyModel(payload, opts = {}) {
     },
     series, literature,
     ratio: {
-      k, provisional: ratioProvisional, reference: referenceKey, clipped: ratioClipped, belowNotDrawn,
+      k, provisional: ratioProvisional, capped: ratioCapped, reference: referenceKey, clipped: ratioClipped, belowNotDrawn,
       noReference: Object.values(byShower).filter((r) => r.reason).map((r) => ({ shower: r.shower, reason: r.reason })),
     },
+    bandsOutlined: {
+      main: outlinedBands.filter((b) => b.panel === 'main').length,
+      ratio: outlinedBands.filter((b) => b.panel === 'ratio').length,
+      entries: outlinedBands,
+    },
+    twoOnShow, endLabels,
     clipped, offScale,
     spans: { shared, span: shared ? bySeries[0].span : null, bySeries },
     noteText,
@@ -1507,9 +1694,9 @@ export function energyPointTip(model, s, p) {
   return lines.join('<br/>');
 }
 
-/** The ratio axis's range as written: "0.5 to 2". */
+/** The ratio axis's range as its ticks write it: "1/2 to 2". */
 function ratioRangeText(model) {
-  return `${sigFigs(1 / model.ratio.k, 3)} to ${sigFigs(model.ratio.k, 3)}${model.ratio.provisional ? ', provisional' : ''}`;
+  return `${ratioTickLabel(1 / model.ratio.k)} to ${ratioTickLabel(model.ratio.k)}${model.ratio.provisional ? ', provisional' : ''}`;
 }
 
 /** The tooltip of one window on the ratio panel: its ratio, named against its reference and said to be conditional. */
@@ -1543,6 +1730,32 @@ function extrapolatedLine(f) {
   return `Extrapolated: beyond the windows this fit used (${spanText(f.span)}). The band is its parameters' 95% uncertainty only and assumes the form holds.`;
 }
 
+/**
+ * Why a fit's band is drawn as its edges: wider than the axis over its fitted
+ * windows, with the quantile that made it so (Student's t at a small ν once S
+ * scales the covariance). `own` words the deposit reference's band about 1.
+ */
+function outlinedLine(fit, own = false) {
+  const q = Number.isFinite(fit?.band_quantile) ? fit.band_quantile : DEFAULT_QUANTILE;
+  const scaled = Number.isFinite(fit?.scale_factor) && fit.scale_factor > 1;
+  const why = [
+    scaled ? `S = ${sig(fit.scale_factor)}` : null,
+    Number.isFinite(fit?.ndf) ? `ν = ${formatInt(fit.ndf)}` : null,
+    `q = ${sigFigs(q, 4)}`,
+  ].filter(Boolean).join(', ');
+  return `${own ? 'Its own' : 'Its'} 95% band is wider than the axis over its fitted windows (${why}), so it is drawn as its edges, not as a wash.`;
+}
+
+/** What a literature reference adds to every ratio mark's tooltip: none of it carries an interval. */
+const LITERATURE_NO_INTERVAL = 'The literature curve has no interval reported; none is derived.';
+
+/** Shower B's strength as drawn: 70% asked, raised to 3:1 where the card needs it; the end labels name the shower. */
+function showerBLine(model, s, provisional) {
+  const strength = Math.round(100 * s.lineOpacity(provisional));
+  return `Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (this one at ${strength}%)`
+    + `${model.twoOnShow ? ', so the end labels name the shower' : ''}: on this view the dash means extrapolation, not the shower.`;
+}
+
 /** The tooltip of one drawn fit on the main panel; `part` 'solid' (over its windows) or 'dashed'. */
 export function energyFitTip(model, s, f, part = 'solid') {
   const { fit, form } = f;
@@ -1559,7 +1772,7 @@ export function energyFitTip(model, s, f, part = 'solid') {
     ? chi2Text(fit)
     : `${chi2Text(fit)}: the curve passes through its ${formatInt(fit.n_points)} point${fit.n_points === 1 ? '' : 's'} exactly`);
   lines.push(`Windows fitted (${formatInt(fit.n_points)}): ${escapeHtml(windowsText(model.payload, s.raw, s.mf))}`);
-  lines.push(mutedLine(`Solid over ${spanText(f.span)}, the windows it was fitted to; dashed beyond, from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
+  lines.push(mutedLine(`Solid over the span of the windows it was fitted to (${spanText(f.span)}); dashed beyond, from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
   if (f.provisional) {
     lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
@@ -1567,9 +1780,9 @@ export function energyFitTip(model, s, f, part = 'solid') {
   if (!f.converged) {
     lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's curve, not a fixed point.`));
   }
-  if (s.isB) lines.push(mutedLine('Shower B\'s lines are drawn at 70% strength: on this view the dash means extrapolation, not the shower.'));
+  if (s.isB) lines.push(mutedLine(showerBLine(model, s, f.provisional)));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
-  lines.push(mutedLine('The shaded band beside it is the fit\'s 95% confidence band.'));
+  lines.push(mutedLine(f.outlined ? outlinedLine(fit) : 'The shaded band beside it is the fit\'s 95% confidence band.'));
   return lines.join('<br/>');
 }
 
@@ -1586,7 +1799,8 @@ export function energyBandTip(model, s, f, outside = false) {
     lines.push(mutedLine(`The covariance is scaled by S = ${sig(fit.scale_factor)}; S is estimated from the fit's own ν = ${formatInt(fit.ndf)}, so Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(q, 4)} replaces 1.96.`));
   }
   lines.push(mutedLine('The uncertainty of the fitted curve, not the spread of the events.'));
-  if (outside) lines.push(escapeHtml(`${extrapolatedLine(f)} Drawn at a third of its strength.`));
+  if (f.outlined) lines.push(escapeHtml(outlinedLine(fit)));
+  if (outside) lines.push(escapeHtml(f.outlined ? extrapolatedLine(f) : `${extrapolatedLine(f)} Drawn at a third of its strength.`));
   if (f.floorCut) {
     lines.push(mutedLine(f.form === 'quadrature'
       ? 'Its lower edge is cut at 0 where ẑ − h < 0: a resolution cannot be negative.'
@@ -1613,17 +1827,19 @@ export function energyFitCutTip(model, s, f) {
   ].join('<br/>');
 }
 
-/** The tooltip of one drawn fit on the ratio panel. */
+/** The tooltip of one drawn fit on the ratio panel (its line, its band and, where outlined, its band's edges). */
 export function ratioFitTip(model, s, f, part = 'solid') {
   const ref = s.reference;
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
     escapeHtml(`${energyEquation(f)} ÷ ${ref.label}`),
-    mutedLine('The fitted curve divided by the reference at each E. Its faint band is the fit\'s 95% band divided the same way, '
-      + 'conditional on the reference: the reference\'s own uncertainty is not included.'),
+    mutedLine(`The fitted curve divided by the reference at each E. Its ${f.ratio?.outlined ? '' : 'faint '}band is the fit's 95% band divided the same way, `
+      + `conditional on the reference: the reference is held exact${ref.literature ? '' : ' (its own band about 1 is drawn beside it, not folded in)'}.`),
   ];
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
+  if (f.ratio?.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
   if (f.ratio?.cut) lines.push(mutedLine('It leaves the ratio axis: the caret there gives its true values.'));
+  if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
   return lines.join('<br/>');
 }
 
@@ -1632,33 +1848,54 @@ function ratioFitCutTip(model, s, f) {
   const cut = f.ratio.cut;
   const [pe, pr, plo, pup] = cut.peak;
   const name = f.form === 'quadrature' ? 'quadrature fit a/√E ⊕ b' : 'origin-pinned fit a₀/√E ⊕ 0';
-  return [
+  const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
     escapeHtml(`The ratio of the ${name} to ${s.reference.label} leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, scanning up in E.`),
     escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the ratio ${sig(pr)}, its band [${sig(plo)}, ${sig(pup)}].`),
     mutedLine('Clipped, not rescaled: the ratio range follows the windows of N ≥ 20 from 2 GeV and the fits over their windows.'),
-  ].join('<br/>');
+  ];
+  if (s.reference.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  return lines.join('<br/>');
 }
 
-/** The tooltip of a deposit reference's own band about 1 on the ratio panel. */
+/** The tooltip of a deposit reference's own band about 1 on the ratio panel (its wash, or its edges where outlined). */
 function referenceBandTip(model, ref, outside) {
   const lines = [
     `<b>${escapeHtml(ref.seriesLabel ?? ref.label)}</b>`,
     escapeHtml(`The reference, ${ref.label}: its own 95% confidence band relative to itself, [lo/ŷ, hi/ŷ] about 1.`),
     mutedLine('The ratio marks\' intervals are conditional on the reference and do not include this band.'),
   ];
-  if (outside) lines.push(mutedLine(`Beyond its fitted windows (${spanText(ref.span)}), where the reference extrapolates its form: drawn fainter.`));
+  if (outside) {
+    lines.push(mutedLine(`Beyond its fitted windows (${spanText(ref.span)}), where the reference extrapolates its form: drawn ${ref.outlined ? 'dashed' : 'fainter'}.`));
+  }
+  if (ref.outlined) lines.push(mutedLine(outlinedLine(ref.fit, true)));
+  if (ref.bandCut) lines.push(mutedLine('It leaves the ratio axis: the muted caret there gives its true values.'));
   return lines.join('<br/>');
+}
+
+/** The tooltip of the muted caret where a deposit reference's band about 1, a wash, first leaves the ratio axis. */
+function referenceBandCutTip(model, ref) {
+  const cut = ref.bandCut;
+  const [pe, , plo, pup] = cut.peak;
+  return [
+    `<b>${escapeHtml(ref.seriesLabel ?? ref.label)}</b>`,
+    escapeHtml(`The reference's own 95% band about 1 (${ref.label}) leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, `
+      + `${cut.dir === 'up' ? 'above' : 'below'} it, scanning up in E.`),
+    escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the band [${sig(plo)}, ${sig(pup)}].`),
+    mutedLine('Clamped at the axis, not rescaled: a reference band never sets the ratio range.'),
+  ].join('<br/>');
 }
 
 /** The tooltip of the ratio panel's 1.0 rule. */
 function unityTip(model) {
   const ref = model.reference;
-  return [
+  const lines = [
     `<b>ratio = 1</b>`,
     escapeHtml(`σ/E equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
-  ].join('<br/>');
+  ];
+  if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  return lines.join('<br/>');
 }
 
 /** The tooltip of one literature curve. */
@@ -1680,6 +1917,7 @@ function literatureCutTip(model, lit) {
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
     escapeHtml(`${referenceEquation(lit.entry)} lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
     mutedLine('Clipped, not rescaled: a literature curve never sets the range.'),
+    mutedLine(LITERATURE_NO_INTERVAL),
   ].join('<br/>');
 }
 
@@ -1784,6 +2022,10 @@ function energySeriesMarks(model, s) {
         }));
       });
     }
+    if (f.outlined) {
+      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, (part) => energyBandTip(model, s, f, part === 'dashed')).map(named));
+      continue;
+    }
     const alpha = (wide ? 1 : 0.5) * THEME.bandAlpha * (f.provisional ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
     for (const part of ['below', 'inside', 'above']) {
       const points = f.band[part];
@@ -1852,6 +2094,10 @@ function energySeriesMarks(model, s) {
         })));
       });
     }
+    if (f.ratio.outlined) {
+      out.push(...bandEdges(f.ratio.edges, s.colour, `${s.key}|ratio|${form}`, (part) => ratioFitTip(model, s, f, part)).map((x) => named(onRatio(x))));
+      continue;
+    }
     const alpha = RATIO_BAND_SHARE * (wide ? 1 : 0.5) * THEME.bandAlpha * (f.provisional ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
     for (const part of ['below', 'inside', 'above']) {
       const points = f.ratio.band[part];
@@ -1864,42 +2110,70 @@ function energySeriesMarks(model, s) {
       }));
     }
   }
-  // The deposit reference's own band about 1, drawn with its deposit series (and hidden with it).
+  // The deposit reference's own band about 1, drawn with its deposit series (and hidden with it): its edges where
+  // it is wider than the axis over its span, else a muted wash clamped at the axis with one muted caret where it leaves.
   const ref = s.reference;
   if (ref && !ref.reason && ref.band && ref.series === s.key) {
-    for (const part of ['below', 'inside', 'above']) {
-      const points = ref.band[part].map(([e, , lo, up]) => [e, Math.min(Math.max(lo, 1 / k), k), Math.min(Math.max(up, 1 / k), k)]);
-      if (points.length < 2) continue;
+    const legendStyle = { ...style };
+    if (ref.outlined) {
+      out.push(...bandEdges(ref.edges, THEME.muted, `${s.key}|ratio|reference`, (part) => referenceBandTip(model, ref, part === 'dashed'))
+        .map((x) => ({ ...onRatio(x), name: s.label, itemStyle: legendStyle })));
+    } else {
+      for (const part of ['below', 'inside', 'above']) {
+        const points = ref.band[part].map(([e, , lo, up]) => [e, Math.min(Math.max(lo, 1 / k), k), Math.min(Math.max(up, 1 / k), k)]);
+        if (points.length < 2) continue;
+        out.push({
+          ...ratioBand({
+            name: s.label, points, color: THEME.muted, z: 1,
+            opacity: REFERENCE_BAND_SHARE * THEME.bandAlpha * (part === 'inside' ? 1 : OUT_ALPHA),
+          }),
+          id: `${s.key}|ratio|reference|band|${part}`,
+          itemStyle: legendStyle,
+          silent: false,
+          tooltip: { formatter: () => referenceBandTip(model, ref, part !== 'inside') },
+        });
+      }
+    }
+    if (ref.bandCut) {
+      const cut = ref.bandCut;
       out.push({
-        ...ratioBand({
-          name: s.label, points, color: THEME.muted, z: 1,
-          opacity: REFERENCE_BAND_SHARE * THEME.bandAlpha * (part === 'inside' ? 1 : OUT_ALPHA),
-        }),
-        id: `${s.key}|ratio|reference|band|${part}`,
-        itemStyle: { ...style },
-        silent: false,
-        tooltip: { formatter: () => referenceBandTip(model, ref, part !== 'inside') },
+        ...onRatio(caretSeries({
+          name: s.label, carets: [{ at: [cut.at, cut.dir === 'up' ? k : 1 / k], dir: cut.dir, tooltip: referenceBandCutTip(model, ref) }],
+          color: THEME.muted,
+        })),
+        id: `${s.key}|ratio|reference|caret`,
+        itemStyle: legendStyle,
       });
     }
   }
   return out;
 }
 
-/** Where each literature curve's direct label sits at the right end, kept apart when the curves run close. */
-function literatureLabelPlaces(model, api) {
-  const h = THEME.fontSmall + 2;
-  const places = model.literature.map((lit) => {
-    const v = Math.min(Math.max(referenceValue(lit.entry, model.x.max), 0), model.y.hi);
-    const c = api.coord([model.x.max, v]);
-    return { key: lit.key, x: c[0] - 4, y: c[1] - 3 };
-  });
-  // Lowest on the canvas first; each label above it moves up until the two clear.
-  places.sort((a, b) => b.y - a.y);
-  for (let i = 1; i < places.length; i += 1) places[i].y = Math.min(places[i].y, places[i - 1].y - h);
-  return Object.fromEntries(places.map((pl) => [pl.key, pl]));
+/**
+ * A band wider than its axis, drawn as its two edges: thin lines in `colour`
+ * at `EDGE_OPACITY` (raised to 3:1), solid over the fitted span and dashed
+ * beyond it, as its curve is; `edges` {solid, dashed} runs, already clipped
+ * to the plot. Each run is a series `${id}|edges|<solid|dashed>|<i>` whose
+ * tooltip is `tip(part)`.
+ */
+function bandEdges(edges, colour, id, tip) {
+  const opacity = legibleOpacity(colour, EDGE_OPACITY);
+  const out = [];
+  for (const [part, runs] of [['solid', edges?.solid ?? []], ['dashed', edges?.dashed ?? []]]) {
+    runs.forEach((run, i) => {
+      out.push({
+        ...customPolyline({
+          name: id, points: run, color: colour, opacity, z: 4, width: EDGE_WIDTH * THEME.lineAxis,
+          dash: part === 'dashed' ? DASH_EXTRAPOLATED : null, tooltip: () => tip(part),
+        }),
+        id: `${id}|edges|${part}|${i}`,
+      });
+    });
+  }
+  return out;
 }
 
-/** One literature curve on the main panel: dotted muted runs with its direct label, and its legend entry. */
+/** One literature curve on the main panel: dotted muted runs, and its legend entry; its label is in the end column. */
 function literatureSeries(model, lit) {
   const width = 1.2 * THEME.lineAxis;
   return {
@@ -1911,25 +2185,80 @@ function literatureSeries(model, lit) {
     silent: false,
     itemStyle: { color: THEME.muted },
     data: [lit.curve[0] ?? [model.x.max, 0]],
-    renderItem: (params, api) => {
-      const children = lit.runs.map((run) => ({
+    renderItem: (params, api) => ({
+      type: 'group',
+      children: lit.runs.map((run) => ({
         type: 'polyline',
         shape: { points: run.map((pt) => api.coord(pt)) },
         style: { fill: 'none', stroke: THEME.muted, lineWidth: width, lineDash: DASH_LITERATURE },
-      }));
-      const place = literatureLabelPlaces(model, api)[lit.key];
-      if (place) {
-        children.push({
-          type: 'text', silent: true,
-          style: {
-            x: place.x, y: place.y, text: lit.label, fill: THEME.muted, fontSize: THEME.fontSmall, fontFamily: THEME.fontFamily,
-            textAlign: 'right', textVerticalAlign: 'bottom',
-          },
-        });
-      }
-      return { type: 'group', children };
-    },
+      })),
+    }),
     tooltip: { formatter: () => literatureTip(model, lit) },
+  };
+}
+
+/** The width of the end-label column beside the plot (px): the widest label and its gap; 0 without a label. */
+function endColumnPx(model) {
+  const labels = [...model.endLabels.main, ...model.endLabels.ratio];
+  if (!labels.length) return 0;
+  const font = THEME.fontTip;
+  const widest = Math.max(...labels.map((l) => measureText(l.text, font, THEME.fontFamily)));
+  return Math.ceil(END_LABEL_GAP * font + widest);
+}
+
+/**
+ * Where a panel's end labels sit: at the curves' right ends in the column
+ * beside the plot, spread to a pitch of `END_LABEL_PITCH` × `fontTip` within
+ * the panel, their order kept. `ends` [y at x.max of the panel's top, of its
+ * floor]. Returns {x, ys} in px, `ys` in the order of `labels`.
+ */
+function endLabelPlaces(labels, model, api, ends) {
+  const font = THEME.fontTip;
+  const at = labels.map((l) => api.coord([model.x.max, l.value]));
+  const [a, b] = ends.map((v) => api.coord([model.x.max, v])[1]);
+  const half = font / 2;
+  const ys = spreadLabels(at.map((c) => c[1]), END_LABEL_PITCH * font, Math.min(a, b) + half, Math.max(a, b) - half);
+  const right = api.coord([model.x.max, ends[0]])[0];
+  return { x: right + END_LABEL_GAP * font, ys };
+}
+
+/**
+ * The end labels of one legend entry on one panel, as a series named after it
+ * (so the legend hides them with it), drawn outside the plot (`clip: false`)
+ * in the column `endColumnPx` reserves. Each renderer places every label of
+ * its panel (`endLabelPlaces`) and draws its own, so labels of different
+ * series clear each other. Null when the entry has no label there.
+ */
+function endLabelSeries(model, panel, name) {
+  const labels = model.endLabels[panel];
+  const own = labels.map((l, i) => [l, i]).filter(([l]) => l.name === name);
+  if (!own.length) return null;
+  const ratio = panel === 'ratio';
+  const ends = ratio ? [model.ratio.k, 1 / model.ratio.k] : [model.y.hi, 0];
+  const key = own[0][0].literature ? own[0][0].key : `${own[0][0].key}${ratio ? '|ratio' : ''}`;
+  return {
+    type: 'custom',
+    id: `${key}|endlabels`,
+    name,
+    clip: false,
+    silent: true,
+    z: 9,
+    ...(ratio ? { xAxisIndex: 1, yAxisIndex: 1 } : {}),
+    data: [[model.x.max, own[0][0].value]],
+    renderItem: (params, api) => {
+      const place = endLabelPlaces(labels, model, api, ends);
+      return {
+        type: 'group',
+        children: own.map(([l, i]) => ({
+          type: 'text',
+          silent: true,
+          style: {
+            x: place.x, y: place.ys[i], text: l.text, fill: l.colour, fontSize: THEME.fontTip, fontFamily: THEME.fontFamily,
+            textAlign: 'left', textVerticalAlign: 'middle',
+          },
+        })),
+      };
+    },
   };
 }
 
@@ -1949,7 +2278,11 @@ export function ratioTicks(k, heightPx) {
   return [...up.map((t) => 1 / t).reverse(), 1, ...up];
 }
 
-/** The ratio axis's name at its height: "ratio to …", shortened to fit, "— provisional" when it is. */
+/**
+ * The ratio axis's name at its height: "ratio to …", shortened to fit, "—
+ * provisional" when it is, "— capped at ×50" when a robust mark lies beyond the
+ * last step of `RATIO_STEPS`.
+ */
 function ratioAxisName(model, px) {
   const ref = model.reference;
   const lit = ref.literature;
@@ -1958,31 +2291,52 @@ function ratioAxisName(model, px) {
   const names = lit
     ? [`ratio to ${referenceLabel(lit)}`, `÷ ${referenceLabel(lit)}`, `÷ ${lit.particle} lit.`]
     : [`ratio to ${owner} deposit fit`, `÷ ${owner} deposit fit`, '÷ deposit fit'];
-  return fitName(model.ratio.provisional ? names.map((n) => `${n} — provisional`) : names, px);
+  let suffix = '';
+  if (model.ratio.provisional) suffix = ' — provisional';
+  else if (model.ratio.capped) suffix = ` — capped at ×${sigFigs(model.ratio.k, 3)}`;
+  return fitName(names.map((n) => `${n}${suffix}`), px);
 }
 
-/** The canvas note's lines at a width: the off-scale list (two lines at most, then "+n more in Details"), and the extrapolation rule. */
-function noteLayout(model, plotWidthPx) {
+/** A ratio tick's label: decimal from 1 up, its reciprocal written 1/x below 1, so ÷3 reads "1/3" beside "3". */
+export function ratioTickLabel(v) {
+  const value = Number(v);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return value < 1 - 1e-9 ? `1/${sigFigs(1 / value, 3)}` : sigFigs(value, 3);
+}
+
+/**
+ * The canvas note's lines at a width: the off-scale list (two lines at most,
+ * then "+n more in Details") on the left, and the extrapolation rule on the
+ * right, wrapped whole (its span "(4–20 GeV)" is never cut).
+ *
+ * Side by side, the rule keeps under half of `plotWidthPx` and the list the
+ * rest. Where the list's widest token (one window and series, never broken)
+ * would not fit beside the rule, or the rule needs more than two lines there,
+ * the two blocks are stacked instead (`stacked`): the list first, over all of
+ * `fullPx` (the canvas right of the y axis), then the rule right-aligned
+ * beneath it, so the two never overprint. `height` reserves either layout.
+ */
+function noteLayout(model, plotWidthPx, fullPx = plotWidthPx) {
   const font = THEME.fontTip;
   const family = THEME.fontFamily;
   const lineH = Math.ceil(1.35 * font);
   const width = (t) => measureText(t, font, family);
   const extrapolation = model.noteText.extrapolation;
-  let right = [];
-  if (extrapolation) {
-    // Beside an off-scale list it keeps under half the width; alone it may take all of it.
-    const room = Math.max(80, (model.offScale.length ? 0.45 : 1) * plotWidthPx);
-    right = width(extrapolation) <= room ? [extrapolation] : wrapText(extrapolation, room, font, family).slice(0, 2);
+  // Wrapped at its spaces, a parenthesised span "(4–20 GeV)" kept whole on one line.
+  const wrapped = (room) => (!extrapolation ? []
+    : (width(extrapolation) <= room ? [extrapolation] : packTokens(extrapolation.match(/\([^)]*\)|\S+/gu), room, font, family)));
+  const heightOf = (lines) => (lines ? lines * lineH + Math.round(1.1 * font) : 0);
+  if (!model.offScale.length) {
+    const right = wrapped(Math.max(80, plotWidthPx));
+    return { left: [], right, stacked: false, lineH, height: heightOf(right.length) };
   }
-  const rightW = right.length ? Math.max(...right.map(width)) : 0;
-  const room = Math.max(80, plotWidthPx - rightW - (rightW ? 1.5 * font : 0));
-  let left = [];
-  if (model.offScale.length) {
-    // One token per window and series, so a line never breaks inside "7–8 GeV — A network 91.1%".
-    const entries = model.offScale.flatMap((g) => g.entries.map((e, i) => ({
-      text: i === 0 ? `${g.label} — ${e.short} ${pct(e.value)}` : `${e.short} ${pct(e.value)}`,
-      end: i === g.entries.length - 1,
-    })));
+  // One token per window and series, so a line never breaks inside "7–8 GeV — A network 91.1%".
+  const entries = model.offScale.flatMap((g) => g.entries.map((e, i) => ({
+    text: i === 0 ? `${g.label} — ${e.short} ${pct(e.value)}` : `${e.short} ${pct(e.value)}`,
+    end: i === g.entries.length - 1,
+  })));
+  const listIn = (room) => {
+    let left = [];
     for (let keep = entries.length; keep >= 0; keep -= 1) {
       const more = entries.length - keep;
       const tokens = entries.slice(0, keep).map((x, i) => `${x.text}${i < keep - 1 || more ? (x.end ? ';' : ',') : ''}`);
@@ -1991,9 +2345,23 @@ function noteLayout(model, plotWidthPx) {
       left = packTokens(tokens, room, font, family);
       if (left.length <= 2) break;
     }
+    return left;
+  };
+  const widestToken = Math.max(
+    width(`↑ off scale: ${entries[0].text};`),
+    ...entries.map((x) => width(`${x.text};`)),
+    width(`+${formatInt(entries.length)} more in Details`),
+  );
+  const right = wrapped(Math.max(80, 0.45 * plotWidthPx));
+  const rightW = right.length ? Math.max(...right.map(width)) : 0;
+  const room = Math.max(80, plotWidthPx - rightW - (rightW ? 1.5 * font : 0));
+  if (right.length <= 2 && widestToken <= room) {
+    const left = listIn(room);
+    return { left, right, stacked: false, lineH, height: heightOf(Math.max(left.length, right.length)) };
   }
-  const lines = Math.max(left.length, right.length);
-  return { left, right, lineH, height: lines ? lines * lineH + Math.round(1.1 * font) : 0 };
+  const left = listIn(Math.max(80, fullPx));
+  const under = wrapped(Math.max(80, plotWidthPx));
+  return { left, right: under, stacked: true, lineH, height: heightOf(left.length + under.length) };
 }
 
 /** `tokens` joined by spaces into lines no wider than `room`, never breaking inside a token. */
@@ -2064,22 +2432,41 @@ function energyEmptyText(model) {
 }
 
 /**
+ * Why the E view draws nothing for `model` (the empty state's sentence), or
+ * null where it draws its two panels.
+ */
+function energyEmptyReason(model) {
+  if (!model) return 'This response carries no energy-resolution series for the E view.';
+  if (!model.series.length) return 'No series of the chosen shower in this response.';
+  if ((!model.nPoints && !model.nLines) || !(model.y.hi > 0)) return energyEmptyText(model);
+  return null;
+}
+
+/** Whether the E view draws its two panels for this payload and these options (else its empty state). */
+export function energyDrawsPanels(payload, opts = {}) {
+  return energyEmptyReason(energyModel(payload, opts)) === null;
+}
+
+/**
  * The E view's option. Pure: `opts` = {windows, shower, reference, palette,
  * card, tooltipPosition?}; `metrics` = {width, height}. Returns {option,
  * plotGrid}: two grids, the main panel over the ratio panel, on one E axis
- * (`plotGrid` their union for the tooltip placement), and the canvas note
- * between the legend and the main panel.
+ * (`plotGrid` their union for the tooltip placement), the canvas note
+ * between the legend and the main panel, and the end-label column beside
+ * both panels, which widens the grids' `right` where any curve is labelled.
  */
 export function energyViewOption(payload, opts = {}, metrics = {}) {
   const model = energyModel(payload, opts);
-  if (!model) return { option: emptyChartOption(opts, metrics, 'This response carries no energy-resolution series for the E view.') };
-  if (!model.series.length) return { option: emptyChartOption(opts, metrics, 'No series of the chosen shower in this response.') };
-  if ((!model.nPoints && !model.nLines) || !(model.y.hi > 0)) return { option: emptyChartOption(opts, metrics, energyEmptyText(model)) };
+  const empty = energyEmptyReason(model);
+  if (empty) return { option: emptyChartOption(opts, metrics, empty) };
   const pad = axisPadding();
   const f = THEME.fontLabel;
   const width = metrics.width || 760;
   const height = metrics.height || ENERGY_VIEW_PX;
-  const plotWidthPx = Math.max(80, width - pad.left - pad.right);
+  const gap = gridGapPx();
+  const right = pad.right + endColumnPx(model);
+  const legendWidthPx = Math.max(80, width - pad.left - pad.right);
+  const plotWidthPx = Math.max(80, width - pad.left - right);
 
   const series = [];
   const legend = [];
@@ -2099,16 +2486,23 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     }
     legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: THEME.muted } });
   }
+  // The end labels, one series per legend entry and panel, so the legend hides them with their curves.
+  for (const panel of ['main', 'ratio']) {
+    for (const name of new Set(model.endLabels[panel].map((l) => l.name))) {
+      const labels = endLabelSeries(model, panel, name);
+      if (labels) series.push(labels);
+    }
+  }
 
-  const legendBottom = legendTop(legend, plotWidthPx, { wrap: true });
-  const note = noteLayout(model, plotWidthPx);
+  const legendBottom = legendTop(legend, legendWidthPx, { wrap: true });
+  const note = noteLayout(model, plotWidthPx, Math.max(80, width - pad.left - 2));
   const mainTop = legendBottom + note.height;
-  const avail = Math.max(140, height - mainTop - pad.bottom - GRID_GAP_PX);
+  const avail = Math.max(140, height - mainTop - pad.bottom - gap);
   const ratioH = Math.max(40, Math.round(RATIO_SHARE * avail));
   const mainH = Math.max(60, avail - ratioH);
   const grid = [
-    { left: pad.left, right: pad.right, top: mainTop, height: mainH },
-    { left: pad.left, right: pad.right, top: mainTop + mainH + GRID_GAP_PX, height: ratioH },
+    { left: pad.left, right, top: mainTop, height: mainH },
+    { left: pad.left, right, top: mainTop + mainH + gap, height: ratioH },
   ];
   const { k } = model.ratio;
   series.push({
@@ -2134,12 +2528,12 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const bottom = valueAxis({ ...xRange, gridIndex: 1, name: model.x.name });
   const yBase = model.y.name;
   const yName = fitName(model.y.provisional
-    ? [`${yBase} — provisional, no window reaches N = ${formatInt(model.gates.fit_n)}`, `${yBase} — provisional`]
+    ? [`${yBase} — provisional, no window from ${formatNumber(model.yMinGev)} GeV reaches N = ${formatInt(model.gates.fit_n)}`, `${yBase} — provisional`]
     : [yBase], mainH);
   const ticks = ratioTicks(k, ratioH);
   const ratio = valueAxis({
     type: 'log', gridIndex: 1, name: ratioAxisName(model, ratioH), min: 1 / k, max: k, nameGap: 3.6 * f,
-    formatter: (v) => sigFigs(Number(v), 3),
+    formatter: ratioTickLabel,
   });
   const noteTop = legendBottom + Math.round(0.2 * THEME.fontTip);
   const noteStyle = {
@@ -2148,7 +2542,9 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
   const graphic = [];
   if (note.left.length) graphic.push({ type: 'text', silent: true, style: { ...noteStyle, x: pad.left, y: noteTop, text: note.left.join('\n') } });
   if (note.right.length) {
-    graphic.push({ type: 'text', silent: true, style: { ...noteStyle, x: width - pad.right, y: noteTop, text: note.right.join('\n'), textAlign: 'right' } });
+    // Beside the list at its top, or (stacked) beneath it; right-aligned at the plot's right border either way.
+    const y = noteTop + (note.stacked ? note.left.length * note.lineH : 0);
+    graphic.push({ type: 'text', silent: true, style: { ...noteStyle, x: width - right, y, text: note.right.join('\n'), textAlign: 'right' } });
   }
   return {
     option: {
@@ -2189,7 +2585,7 @@ export function energyExportMetrics(payload, opts, width, aspect) {
   const mainH = plotWidth * aspect;
   if (grids.length < 2) return { width, height: Math.round(top + pad.bottom + mainH) };
   const ratioH = (mainH * RATIO_SHARE) / (1 - RATIO_SHARE);
-  return { width, height: Math.round(top + mainH + GRID_GAP_PX + ratioH + pad.bottom) };
+  return { width, height: Math.round(top + mainH + gridGapPx() + ratioH + pad.bottom) };
 }
 
 /* --------------------------------------------------------------- class -- */
@@ -2210,13 +2606,15 @@ export class ResolutionScalingPanel extends ChartPanel {
 
   /**
    * The plot's height for the view in force, set before ECharts measures:
-   * `ENERGY_VIEW_PX` in the E view, cleared in the 1/√E view so the CSS 420 px
-   * holds. True when it changed. It snaps, never animates (the chart's
+   * `ENERGY_VIEW_PX` where the E view draws its two panels, cleared otherwise
+   * (the 1/√E view, and the E view's one-sentence empty state) so the CSS
+   * 420 px holds. True when it changed. It snaps, never animates (the chart's
    * ResizeObserver must see one size).
    */
   syncHeight() {
     if (!this.element?.style) return false;
-    const want = resolutionView(this.lastOpts?.view) === 'energy' ? `${ENERGY_VIEW_PX}px` : '';
+    const twoPanels = resolutionView(this.lastOpts?.view) === 'energy' && energyDrawsPanels(this.lastPayload, this.lastOpts ?? {});
+    const want = twoPanels ? `${ENERGY_VIEW_PX}px` : '';
     if ((this.element.style.height || '') === want) return false;
     this.element.style.height = want;
     return true;
@@ -2319,8 +2717,10 @@ export class ResolutionScalingPanel extends ChartPanel {
     host.replaceChildren(table);
   }
 
+  /** Forget the picture, the table and the E view's height, so a card shut or failed in that view is not left 600 px tall. */
   clear() {
     super.clear();
+    if (this.element?.style) this.element.style.height = '';
     this.tableHost?.replaceChildren();
   }
 }
