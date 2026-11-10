@@ -103,7 +103,7 @@
    "data_max_gev": 18.0,
    "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
    "notes": [
-    "The E view's y range follows the windows with N ≥ 20 from 2 GeV (whiskers included) and the a/√E ⊕ b and a₀/√E fits over the windows each was fitted to, from zero; a window below 2 GeV never sets it. 2 marks beyond it are clipped, not rescaled.",
+    "The E view's y range follows the windows with N ≥ 20 from 2 GeV (whiskers included) and the a/√E ⊕ b and a₀/√E fits over the windows each was fitted to, from zero; a window below 2 GeV never sets it.",
     "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
     "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
    ]
