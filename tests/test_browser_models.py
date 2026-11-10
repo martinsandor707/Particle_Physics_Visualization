@@ -1312,7 +1312,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         assert chrome["title"] == "Energy Resolution vs. E", chrome
         assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
         assert [w for w, _ in chrome["windows"]] == ["3 anchors", "All windows"], chrome
-        assert [r for r, _ in chrome["references"]] == ["Deposit fit", "π± 27.2/√E ⊕ 1.0", "e± 14.0/√E ⊕ 0.4"], chrome
+        assert [r for r, _ in chrome["references"]] == ["Deposit fit", "π±", "e±"], chrome
         assert chrome["references"][0][1] == "true", chrome
         title, headings, _ = _drawer(page, "res-scaling")
         assert title == "Energy Resolution vs. E", title

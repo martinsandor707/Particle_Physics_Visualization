@@ -12,8 +12,10 @@ Both curves are transcribed from the legend of the figure "ECCE G4 simulation �
 
 - **Form.** The legend prints each curve as σ/E = a/√E ⊕ b, with σ/E in percent, so a is in %·√GeV and
   b in %. Here ⊕ is the sum in quadrature, √((a/√E)² + b²).
-- **What the figure does not say.** It names no source publication for the curves and prints no
-  uncertainty for either parameter.
+- **What the figure does not say.** It names no source publication for the curves, prints no
+  uncertainty for either parameter, and does not state the energy range each curve was fitted over.
+  The card therefore draws each curve over its whole energy axis and says that this range is not
+  known.
 - **What the curves describe.** They are fits to that simulation's charged pions and electrons in its η
   range. They do not describe this dataset's detector.
 - **How the dashboard draws them.** As documented point estimates. No interval is reported, and none is

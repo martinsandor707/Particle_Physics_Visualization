@@ -62,7 +62,7 @@ import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
-import { RESOLUTION_REFERENCES, referenceEquation, referenceLabel } from './catalog/resolution_refs.js';
+import { RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -508,7 +508,9 @@ const RES_REFERENCE_CONTROL = {
     { value: 'deposit', label: 'Deposit fit', title: 'The ratio panel divides by the calibrated-deposit fit' },
     ...RESOLUTION_REFERENCES.map((entry) => ({
       value: entry.key,
-      label: referenceLabel(entry),
+      // The particle alone, so the E view's toolbar keeps to one row at 1024 px; the title and the
+      // ratio axis's name carry the equation.
+      label: entry.particle,
       title: `${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported`,
     })),
   ],
@@ -702,11 +704,17 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   return opts;
 }
 
-/** What an exported figure is named by: its response's meta and frame. */
-export function exportMeta(payload) {
+/** What an exported figure is named by: its response's meta and frame, and the resolution card's view. */
+export function exportMeta(payload, opts = null) {
   const meta = { ...(payload?.meta ?? {}) };
   const coord = meta.coord_system ?? payload?.coord_system;
   if (coord) meta.coord_system = coord;
+  // The resolution card's E view is another figure of the same response, so its file names the
+  // view and what its ratio divides by (export/filename.js).
+  if (opts?.view === 'energy') {
+    meta.view = 'energy';
+    meta.reference = opts.reference ?? 'deposit';
+  }
   return meta;
 }
 
@@ -1070,7 +1078,7 @@ export class ModelsSection {
   /** The title of the card an element belongs to, for an error's context. */
   titleOf(element) {
     const record = [...this.cards.values()].find((r) => r.element === element);
-    return record ? record.spec.title : 'models card';
+    return record ? cardTitle(record.spec.id, this.controls) : 'models card';
   }
 
   /** Load the visible stale cards after a control changed, reporting failures one by one. */
@@ -1378,7 +1386,7 @@ export class ModelsSection {
     if (!record) return undefined;
     if (!record.spec.exportable || record.element.hidden || record.disabled || record.notice) return null;
     if (!record.panel || !record.payload) return null;
-    return { panel: record.panel, meta: exportMeta(record.payload) };
+    return { panel: record.panel, meta: exportMeta(record.payload, record.opts) };
   }
 
   /**

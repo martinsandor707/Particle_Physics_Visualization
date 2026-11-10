@@ -141,6 +141,11 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
     // A profile under the notebook's convention (hits behind the entry plane
     // dropped) is a different figure from the default one.
     if (meta?.notebook === true) tokens.push('notebook');
+    // The resolution card's E view (sigma/E against E with a ratio panel) and what its ratio divides by.
+    if (meta?.view === 'energy') {
+      tokens.push('energy');
+      if (typeof meta.reference === 'string') tokens.push(`ratio-${meta.reference}`);
+    }
   }
   for (const item of extra) if (item) tokens.push(item);
 
