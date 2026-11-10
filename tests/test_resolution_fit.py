@@ -5,8 +5,11 @@ system, their covariance to ``(XᵀWX)⁻¹`` and to a finite-difference
 propagation, ``chi2_sf`` to the textbook table and to the two closed forms
 (ν = 1, 2). The fits are then run on simulated windows: recovery of the
 generating a and b within 3 standard errors, and the coverage of the reported
-95% intervals over 400 seeded replicas. Nothing here is a measurement of the
-detector.
+95% intervals over 400 seeded replicas. The quadrature band, drawn in the
+card's E view, is held to √ of a z-band built independently from ``lstsq``, to
+its cut at zero and its value at x = 0, to Student's t once S scales it, and to
+its coverage of the generating σ/E over 400 replicas. Nothing here is a
+measurement of the detector.
 """
 
 from __future__ import annotations
@@ -203,6 +206,9 @@ def test_quadrature_reports_b_undefined_when_b_squared_is_negative():
     assert block["params"]["b"] is None and block["params"]["b_defined"] is False
     assert block["params"]["b2"] == approx(-5.0, rel=1e-6)     # %²
     assert block["curve"] is None and "B ≤ 0" in block["note"]
+    # The E view rebuilds the band from the params: ρ(A, B) and the quantile travel with it.
+    assert block["params"]["rho_a2b2"] == approx(fit.rho) and -1.0 <= fit.rho <= 1.0
+    assert block["band_quantile"] == fit.band_quantile
 
 
 def test_reported_intervals_cover_the_truth_over_400_replicas():
@@ -220,6 +226,124 @@ def test_reported_intervals_cover_the_truth_over_400_replicas():
         hits["a0"] += abs(pinned.theta[0] - A_TRUE) <= rf.Z95 * pinned.se[0]
     for name, count in hits.items():
         assert 0.92 <= count / replicas <= 0.98, (name, count / replicas)
+
+
+# ------------------------------------------------------ quadrature band --
+
+
+def _quadrature_fit(theta, cov_stat, ndf=3, scale=1.0) -> rf.Fit:
+    """A quadrature fit with chosen parameters, for the band's arithmetic alone."""
+    return rf.Fit(rf.FORM_QUADRATURE, ndf + 2, tuple(theta), np.asarray(cov_stat, dtype=float),
+                  chi2=float(ndf) * scale ** 2, ndf=ndf, p_value=None, scale_factor=scale,
+                  iterations=1, converged=True)
+
+
+def _final_weights(fit: rf.Fit, x, r, n) -> np.ndarray:
+    """The quadrature fit's weights at its fixed point: 1/se_z² at the fitted ŷ."""
+    x, r, n = (np.asarray(v, dtype=float) for v in (x, r, n))
+    zhat = fit.theta[0] * x * x + fit.theta[1]
+    se_meas = 2.0 * r * rf.resolution_se(r, n)
+    yhat = np.sqrt(np.where(zhat > 0, zhat, 1.0))
+    return 1.0 / np.where(zhat > 0, 2.0 * yhat * rf.resolution_se(yhat, n), se_meas) ** 2
+
+
+@pytest.mark.parametrize("seed, spread", [(11, 0.0), (12, 0.25)])
+def test_the_quadrature_band_is_the_root_of_the_z_band_from_lstsq(seed, spread):
+    """√ of ẑ ± q·√(gᵀVg), V the lstsq covariance on the √w-scaled (u, 1) system times S²."""
+    rng = np.random.default_rng(seed)
+    x = 1 / np.sqrt(np.array([4.5, 6.5, 9.5, 13.5, 18.5]))
+    r = np.sqrt(0.04 * x * x + 0.0025) * (1 + spread * rng.standard_normal(x.size))
+    n = np.array([300, 250, 400, 150, 220])
+    fit = rf.fit_quadrature(x, r, n)
+    assert fit.converged
+    w = _final_weights(fit, x, r, n)
+    design = np.stack([x * x, np.ones_like(x)], axis=1)
+    root = np.sqrt(w)
+    scaled = design * root[:, None]
+    theta, *_ = np.linalg.lstsq(scaled, r * r * root, rcond=None)
+    assert theta == approx(np.array(fit.theta), rel=1e-6)
+    chi2 = float((w * (r * r - design @ theta) ** 2).sum())
+    ndf = x.size - 2
+    s = math.sqrt(chi2 / ndf) if chi2 / ndf > 1 else 1.0
+    assert s == approx(fit.scale_factor, rel=1e-6)
+    cov = np.linalg.inv(scaled.T @ scaled) * s * s
+    q = gaussian.t_quantile_975(ndf) if s > 1 else rf.Z95
+    xs = np.linspace(0.0, 0.5, 11)
+    g = np.stack([xs * xs, np.ones_like(xs)], axis=1)
+    zhat = g @ theta
+    half = q * np.sqrt(np.einsum("ij,jk,ik->i", g, cov, g))
+    y, lo, hi = rf.band(fit, xs)
+    assert y == approx(np.sqrt(zhat), rel=1e-6)
+    assert y == approx(fit.predict(xs), rel=1e-12)
+    assert lo == approx(np.sqrt(np.maximum(zhat - half, 0.0)), rel=1e-5, abs=1e-12)
+    assert hi == approx(np.sqrt(zhat + half), rel=1e-5)
+    assert (lo <= y).all() and (y <= hi).all()
+
+
+def test_the_quadrature_band_is_cut_at_zero_below():
+    """Where ẑ − half < 0 the lower edge is 0, never the root of a negative number; elsewhere it is not."""
+    fit = _quadrature_fit((0.04, 0.0004), [[1e-4, 0.0], [0.0, 1e-6]])
+    xs = np.array([0.0, 0.05, 0.5])
+    y, lo, hi = rf.band(fit, xs)
+    zhat = 0.04 * xs * xs + 0.0004
+    half = rf.Z95 * np.sqrt(1e-4 * xs ** 4 + 1e-6)
+    assert (zhat - half)[:2].max() < 0 < (zhat - half)[2]
+    assert lo[:2].tolist() == [0.0, 0.0]
+    assert lo[2] == approx(math.sqrt(zhat[2] - half[2]))
+    assert np.isfinite(lo).all() and (hi > y).all()
+    # A model that is not positive draws zero, not NaN.
+    flat = _quadrature_fit((-0.04, 0.001), [[1e-6, 0.0], [0.0, 1e-8]])
+    y, lo, hi = rf.band(flat, [0.5])
+    assert y[0] == 0.0 and lo[0] == 0.0 and np.isfinite(hi[0])
+
+
+def test_the_quadrature_band_at_infinite_energy_is_the_interval_of_root_b():
+    fit = _quadrature_fit((0.05, 0.0025), [[4e-5, -3e-7], [-3e-7, 1e-8]])
+    y, lo, hi = rf.band(fit, [0.0])
+    half = rf.Z95 * 1e-4
+    assert y[0] == approx(0.05)
+    assert lo[0] == approx(math.sqrt(0.0025 - half)) and hi[0] == approx(math.sqrt(0.0025 + half))
+
+
+def test_the_quadrature_band_takes_student_t_once_s_scales_it():
+    """Four windows far from the form at N = 400: S > 1, ν = 2, and the band takes t₀.₉₇₅,₂."""
+    x = 1 / np.sqrt(np.array([5.5, 8.5, 12.5, 19.5]))
+    r = np.array([0.14, 0.07, 0.10, 0.05])
+    fit = rf.fit_quadrature(x, r, [400] * 4)
+    assert fit.scale_factor > 1.0 and fit.ndf == 2
+    assert fit.band_quantile == gaussian.t_quantile_975(2) == 4.303
+    big_a, big_b = fit.theta
+    _, _, hi = rf.band(fit, [0.0, 0.3])
+    u = 0.09
+    gvg = u * u * fit.cov[0, 0] + 2 * u * fit.cov[0, 1] + fit.cov[1, 1]
+    # hi² − ẑ is the z-band's half-width (ẑ itself may be negative at x = 0: B < 0 here).
+    assert hi[1] ** 2 - (big_a * u + big_b) == approx(4.303 * math.sqrt(gvg), rel=1e-9)
+    assert hi[0] ** 2 - big_b == approx(4.303 * math.sqrt(fit.cov[1, 1]), rel=1e-9)
+    # The scaled covariance, not the WLS one.
+    assert fit.cov[1, 1] == approx(fit.cov_stat[1, 1] * fit.scale_factor ** 2)
+    # Unscaled, the normal quantile.
+    calm = rf.fit_quadrature(x, np.sqrt(0.04 * x * x + 0.0025), [400] * 4)
+    assert calm.scale_factor == 1.0 and calm.band_quantile == rf.Z95
+
+
+B_QUAD = 0.05
+COVERAGE_ENERGIES = (5.0, 10.0, 18.0)
+
+
+def test_the_quadrature_band_covers_the_truth_over_400_replicas():
+    """At 5, 10 and 18 GeV the served band covers the generating √(a²/E + b²) about 95% of the time."""
+    rng = np.random.default_rng(1110)
+    xs = 1 / np.sqrt(np.array(COVERAGE_ENERGIES))
+    truth = np.sqrt(A_TRUE ** 2 * xs * xs + B_QUAD ** 2)
+    hits = np.zeros(len(COVERAGE_ENERGIES), dtype=int)
+    replicas = 400
+    for _ in range(replicas):
+        x, r, n = _windows(rng, lambda p: np.sqrt(A_TRUE ** 2 / p + B_QUAD ** 2), 200)
+        fit = rf.fit_quadrature(x, r, n)
+        _, lo, hi = rf.band(fit, xs)
+        hits += (lo <= truth) & (truth <= hi)
+    for energy, count in zip(COVERAGE_ENERGIES, hits):
+        assert 0.92 <= count / replicas <= 0.98, (energy, count / replicas)
 
 
 # --------------------------------------------------------------- anchors --

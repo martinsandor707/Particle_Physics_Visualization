@@ -31,6 +31,26 @@ is drawn with its whisker from N = 8, and it enters the fits and sets the y
 range from N = 20 *and* p ≥ 4 GeV. Below 4 GeV, x > 0.5 and the window lies off
 the axis; it is counted and listed, never drawn.
 
+**The E view.** The same response serves the card's second view, σ/E against
+the energy E in GeV on a linear axis (``axis.energy``), so switching views
+sends no request. A window is drawn there at ``E = 1/x²`` of the very
+``x = ⟨1/√p⟩`` the fits used: one exact bijection, so a window on its fitted
+line in the 1/√E view sits on its fitted curve in E, and its ⟨p⟩, slightly
+larger (Jensen's inequality), travels in ``p_mean``. The E view draws the
+origin-pinned a₀/√E and, where both terms are defined, the quadrature
+a/√E ⊕ b, each from the band ``stats/resolution_fit.band`` gives; the affine
+fit stays on the 1/√E view. A curve is solid over its mode's ``span_gev``, the
+edges of the windows it was fitted to, dashed beyond and never drawn below
+:data:`E_MIN_GEV`. The windows below 4 GeV, off the 1/√E axis, are on this
+one, so its σ/E range is its own (``ResolutionScaling.energy_y``): set by the
+windows of N ≥ 20 from :data:`E_VIEW_Y_MIN_GEV` (whiskers included) and by the
+non-provisional drawn fits over their fitted spans, line only, never the band
+or the extrapolation. A window below 2 GeV never sets it, provisional or not:
+measured on eight stored experiments (2026-11-10), the windows of N ≥ 20 top
+out at 23–101% from 1 GeV and at 20–66% from 2 GeV, so a 1–2 GeV window would
+spend the axis on itself. It is counted in ``n_clipped`` when it leaves the top.
+The 1/√E view's axis, notes and fits are untouched by any of this.
+
 **Anchors that do not move with the selection.** The default fit runs through
 three nominal windows chosen on the whole table's bin axis
 (``performance_bins.dataset_axis``): the lowest bin from 5 GeV (below it the
@@ -91,6 +111,15 @@ FIT_MIN_N = gaussian.MIN_ROBUST_SAMPLES
 ENERGY_TICKS_GEV: tuple[int, ...] = (5, 10, 15, 20, 30, 50, 100)
 #: Points of a fit's line and 95% band over [0, X_MAX].
 BAND_POINTS = 21
+#: The E view's axis ends here (GeV), or at the dataset's highest window edge rounded up to
+#: E_VIEW_INTERVAL_GEV when that is higher.
+E_VIEW_MAX_GEV = 80.0
+#: Tick interval of the E view's energy axis (GeV).
+E_VIEW_INTERVAL_GEV = 10.0
+#: A window sets the E view's σ/E range only from this lower edge (GeV): below it never.
+E_VIEW_Y_MIN_GEV = 2.0
+#: Points in E at which a fit's line is evaluated over its fitted span for the E view's range.
+SPAN_POINTS = 41
 
 UNIT = "%"
 SOURCE_DETECTOR, SOURCE_NETWORK, SOURCE_XGB = "detector", "network", "xgb"
@@ -457,6 +486,77 @@ def _dominant_species(con: duckdb.DuckDBPyConnection, record: ExperimentRecord,
 # ------------------------------------------------------------- the lot --
 
 
+def fitted_span(points: Sequence[int], windows: Sequence[Window]) -> list[float] | None:
+    """``[lo, hi]`` in GeV: the smallest ``p_lo`` and the largest ``p_hi`` of the fitted windows.
+
+    The E view draws a fit solid over this span and dashed beyond it. ``None``
+    when the mode fits no window.
+    """
+    chosen = set(points)
+    fitted = [w for w in windows if w.bin in chosen]
+    if not fitted:
+        return None
+    return [min(w.p_lo for w in fitted), max(w.p_hi for w in fitted)]
+
+
+def _span_line(fit: rfit.Fit, span: Sequence[float]) -> np.ndarray:
+    """The fit's σ/E in percent at :data:`SPAN_POINTS` energies over ``span``, line only."""
+    energies = np.linspace(span[0], span[1], SPAN_POINTS)
+    return 100.0 * rfit.band(fit, 1.0 / np.sqrt(energies))[0]
+
+
+def energy_extents(series: Sequence[Series]) -> tuple[list[response.Extent], list[float]]:
+    """The E view's range extents, and the tops of the windows below the 2 GeV floor.
+
+    Extents: every window with a σ/E, N ≥ :data:`REPORT_MIN_N` and
+    ``p_lo ≥ E_VIEW_Y_MIN_GEV`` (off the 1/√E axis or not), its whisker
+    included where it has one, robust from N ≥ :data:`FIT_MIN_N` with a
+    positive SE; and every non-provisional mode's drawn fits, the quadrature
+    one where both terms are defined and the pinned one, as lines over their
+    fitted span. The tops (marker, or whisker top where it has one) of the
+    windows below the floor are returned apart: they never enter
+    ``response._y_axis``, and are only counted against the top it sets.
+    """
+    out: list[response.Extent] = []
+    below: list[float] = []
+    for s in series:
+        for w in s.windows:
+            r = w.r
+            if r is None or w.n < REPORT_MIN_N:
+                continue
+            lo, hi = 100.0 * r, 100.0 * r
+            if w.whisker:
+                lo, hi = 100.0 * min(r, w.ci[0]), 100.0 * max(r, w.ci[1])
+            if w.p_lo < E_VIEW_Y_MIN_GEV:
+                below.append(hi)
+                continue
+            out.append(response.Extent(lo, hi, 100.0 * r, w.n >= FIT_MIN_N and w.usable))
+        for mode in s.modes.values():
+            span = fitted_span(mode.points, s.windows)
+            if mode.provisional or span is None:
+                continue
+            drawn = []
+            quad = mode.fits.get(rfit.FORM_QUADRATURE)
+            if quad is not None and quad.theta[0] > 0 and quad.theta[1] > 0:
+                drawn.append(quad)
+            pinned = mode.fits.get(rfit.FORM_PINNED)
+            if pinned is not None:
+                drawn.append(pinned)
+            for fit in drawn:
+                line = _span_line(fit, span)
+                top = float(line.max())
+                out.append(response.Extent(max(0.0, float(line.min())), top, top, True))
+    return out, below
+
+
+def energy_y_axis(series: Sequence[Series]) -> dict[str, Any]:
+    """The E view's zero-based σ/E range, with the windows below 2 GeV counted when clipped."""
+    extents, below = energy_extents(series)
+    y = response._y_axis(extents)
+    y["n_clipped"] += sum(1 for top in below if top > y["hi"])
+    return y
+
+
 def _curve(fit: rfit.Fit, points: int) -> list[list[float]]:
     xs = np.linspace(0.0, X_MAX, points)
     y, lo, hi = rfit.band(fit, xs)
@@ -500,7 +600,13 @@ def _fit_note(fit: rfit.Fit, provisional: bool) -> str:
 
 def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_POINTS
               ) -> dict[str, Any] | None:
-    """One fit for the wire: parameters in percent (a in %·√GeV, b in %), its curve and note."""
+    """One fit for the wire: parameters in percent (a in %·√GeV, b in %), its curve and note.
+
+    Every form carries its ``band_quantile``. The quadrature fit's ``curve`` is
+    ``None`` (the 1/√E view tables it); its params carry ``rho_a2b2``, the
+    correlation of A and B, so the E view can rebuild its band from
+    ``a2``, ``b2``, their SEs and ``band_quantile`` alone.
+    """
     if fit is None:
         return None
     se, se_stat = fit.se, fit.se_stat
@@ -527,6 +633,8 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
             "a2": 1e4 * t.a2, "se_a2": 1e4 * t.se_a2, "a_defined": t.a_defined,
             "se_a_stat": pct(t.se_a_stat), "se_b_stat": pct(t.se_b_stat),
             "se_a2_stat": 1e4 * t.se_a2_stat, "se_b2_stat": 1e4 * t.se_b2_stat,
+            # The correlation of A and B (S cancels in it): the E view's band needs it.
+            "rho_a2b2": fit.rho,
         }
     out.update({
         "chi2": fit.chi2, "p_value": fit.p_value, "scale_factor": fit.scale_factor,
@@ -534,8 +642,7 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
     })
     if fit.form == rfit.FORM_AFFINE:
         out["negative_intercept"] = fit.theta[1] < 0
-    if fit.form != rfit.FORM_QUADRATURE:
-        out["band_quantile"] = fit.band_quantile
+    out["band_quantile"] = fit.band_quantile
     out["curve"] = None if fit.form == rfit.FORM_QUADRATURE else _curve(fit, band_points)
     out["provisional"] = provisional
     out["note"] = _fit_note(fit, provisional)
@@ -561,6 +668,7 @@ class ResolutionScaling:
 
     def __post_init__(self) -> None:
         self.y = response._y_axis(self._extents())
+        self.energy_y = energy_y_axis(self.series)
 
     # ------------------------------------------------------------- y axis --
 
@@ -739,6 +847,45 @@ class ResolutionScaling:
                     "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are "
                             "plotted against it."},
             "y": {**self.y, "unit": UNIT, "name": "σ/E [%]"},
+            "energy": self._energy_axis(),
+        }
+
+    def _energy_axis(self) -> dict[str, Any]:
+        """The E view's axes: E in GeV from zero, its own σ/E range, and the sentences that say why."""
+        data_max = float(self.axis.p_hi[-1]) if self.axis.p_hi else None
+        x_max = E_VIEW_MAX_GEV
+        if data_max is not None:
+            x_max = max(E_VIEW_MAX_GEV,
+                        math.ceil(data_max / E_VIEW_INTERVAL_GEV) * E_VIEW_INTERVAL_GEV)
+        y = self.energy_y
+        floor = f"{E_VIEW_Y_MIN_GEV:g} GeV"
+        basis = (f"The E view's y range is provisional: no window from {floor} reaches "
+                 f"N = {FIT_MIN_N}." if y["provisional"] else
+                 f"The E view's y range follows the windows with N ≥ {FIT_MIN_N} from {floor} "
+                 "(whiskers included) and the a/√E ⊕ b and a₀/√E fits over the windows each was "
+                 f"fitted to, from zero; a window below {floor} never sets it.")
+        clipped = y["n_clipped"]
+        notes = [
+            f"{basis} {clipped} mark{'s' if clipped != 1 else ''} beyond it "
+            f"{'are' if clipped != 1 else 'is'} clipped, not rescaled.",
+            f"Fitted curves are drawn from {E_MIN_GEV:g} GeV, the lowest window edge any fit can "
+            f"use, to {x_max:g} GeV: solid over the windows each fit ran through, dashed beyond, "
+            "where the curve extrapolates its form.",
+            "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a "
+            "window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, "
+            "slightly larger (Jensen's inequality), is in its tooltip.",
+        ]
+        return {
+            "x": {"min": 0.0, "max": float(x_max), "interval": E_VIEW_INTERVAL_GEV,
+                  "unit": "GeV", "name": "Energy E [GeV]"},
+            "y": {**y, "unit": UNIT, "name": "σ/E [%]"},
+            "curve_min_gev": E_MIN_GEV,
+            "y_min_gev": E_VIEW_Y_MIN_GEV,
+            "data_max_gev": data_max,
+            "rule": typographic(
+                "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw "
+                "the same measurements."),
+            "notes": [typographic(n) for n in notes],
         }
 
     def _anchors(self) -> dict[str, Any]:
@@ -768,6 +915,7 @@ class ResolutionScaling:
                     "fallback": mode.fallback, "provisional": mode.provisional,
                     **{form: fit_block(mode.fits.get(form), mode.provisional, band_points)
                        for form in (rfit.FORM_AFFINE, rfit.FORM_PINNED, rfit.FORM_QUADRATURE)},
+                    "span_gev": fitted_span(mode.points, s.windows),
                 }
                 for name, mode in s.modes.items()
             },

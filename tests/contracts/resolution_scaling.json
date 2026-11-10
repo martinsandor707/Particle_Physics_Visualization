@@ -57,7 +57,8 @@
    "required": [
     "x",
     "top",
-    "y"
+    "y",
+    "energy"
    ],
    "properties": {
     "x": {
@@ -173,6 +174,119 @@
       },
       "name": {
        "type": "string"
+      }
+     },
+     "additionalProperties": false
+    },
+    "energy": {
+     "type": "object",
+     "description": "The E view: σ/E against the energy E in GeV, drawn from the same windows and fits at E = 1/x².",
+     "required": [
+      "x",
+      "y",
+      "curve_min_gev",
+      "y_min_gev",
+      "data_max_gev",
+      "rule",
+      "notes"
+     ],
+     "properties": {
+      "x": {
+       "type": "object",
+       "required": [
+        "min",
+        "max",
+        "interval",
+        "unit",
+        "name"
+       ],
+       "properties": {
+        "min": {
+         "const": 0.0
+        },
+        "max": {
+         "type": "number",
+         "minimum": 80.0,
+         "description": "E_VIEW_MAX_GEV, or the dataset's top window edge rounded up to the interval when higher."
+        },
+        "interval": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "unit": {
+         "const": "GeV"
+        },
+        "name": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      },
+      "y": {
+       "type": "object",
+       "required": [
+        "lo",
+        "hi",
+        "interval",
+        "zero_based",
+        "provisional",
+        "n_clipped",
+        "unit",
+        "name"
+       ],
+       "properties": {
+        "lo": {
+         "const": 0.0
+        },
+        "hi": {
+         "type": "number"
+        },
+        "interval": {
+         "type": "number"
+        },
+        "zero_based": {
+         "const": true
+        },
+        "provisional": {
+         "type": "boolean"
+        },
+        "n_clipped": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "unit": {
+         "const": "%"
+        },
+        "name": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false,
+       "description": "The E view's own σ/E range: windows of N ≥ 20 from y_min_gev (whiskers included) and the non-provisional drawn fits over their fitted spans; windows below y_min_gev only counted in n_clipped."
+      },
+      "curve_min_gev": {
+       "type": "number",
+       "description": "No fitted curve is drawn below this energy (E_MIN_GEV)."
+      },
+      "y_min_gev": {
+       "type": "number",
+       "description": "A window sets the y range only from this lower edge (E_VIEW_Y_MIN_GEV)."
+      },
+      "data_max_gev": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "description": "The bin axis's top edge; null for an empty axis."
+      },
+      "rule": {
+       "type": "string"
+      },
+      "notes": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
       }
      },
      "additionalProperties": false
@@ -631,7 +745,7 @@
        "null"
       ]
      },
-     "description": "affine: a (%·√GeV), se_a, b (%), se_b, rho_ab, se_a_stat, se_b_stat; pinned: a0, se_a0, se_a0_stat; quadrature: a, se_a, b (null when B ≤ 0), se_b, b2 (%²), se_b2, b_defined, a2, se_a2, a_defined, se_a_stat, se_b_stat, se_a2_stat, se_b2_stat. SEs are scaled by scale_factor; *_stat are not."
+     "description": "affine: a (%·√GeV), se_a, b (%), se_b, rho_ab, se_a_stat, se_b_stat; pinned: a0, se_a0, se_a0_stat; quadrature: a, se_a, b (null when B ≤ 0), se_b, b2 (%²), se_b2, b_defined, a2, se_a2, a_defined, se_a_stat, se_b_stat, se_a2_stat, se_b2_stat, rho_a2b2 (the correlation of A and B, null when undefined). SEs are scaled by scale_factor; *_stat are not."
     },
     "chi2": {
      "type": "number"
@@ -661,7 +775,7 @@
     "band_quantile": {
      "type": "number",
      "exclusiveMinimum": 0,
-     "description": "The band's multiplier on √(gᵀΣg): Student's t₀.₉₇₅,ndf when scale_factor > 1, else z₀.₉₇₅ = 1.96; affine and pinned only (the quadrature fit has no band)."
+     "description": "The band's multiplier on √(gᵀΣg): Student's t₀.₉₇₅,ndf when scale_factor > 1, else z₀.₉₇₅ = 1.96; every form (the quadrature band is taken in z = (σ/E)² and drawn in the E view only)."
     },
     "curve": {
      "anyOf": [
@@ -684,7 +798,7 @@
        "type": "null"
       }
      ],
-     "description": "[x, y, lo, hi] in percent from x = 0 to 0.5: the line and its 95% confidence band; null for quadrature."
+     "description": "[x, y, lo, hi] in percent from x = 0 to 0.5: the line and its 95% confidence band; null for quadrature (the E view evaluates it from params)."
     },
     "provisional": {
      "type": "boolean"
@@ -704,7 +818,8 @@
     "provisional",
     "affine",
     "pinned",
-    "quadrature"
+    "quadrature",
+    "span_gev"
    ],
    "properties": {
     "points": {
@@ -774,6 +889,22 @@
        "type": "null"
       }
      ]
+    },
+    "span_gev": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "number"
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "[smallest p_lo, largest p_hi] in GeV of the windows in points: the E view draws the mode's fits solid over it and dashed beyond; null without points."
     }
    },
    "additionalProperties": false
