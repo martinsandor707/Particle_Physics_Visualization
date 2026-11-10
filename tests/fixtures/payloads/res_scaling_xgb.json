@@ -79,6 +79,34 @@
    "n_clipped": 1,
    "unit": "%",
    "name": "σ/E [%]"
+  },
+  "energy": {
+   "x": {
+    "min": 0.0,
+    "max": 80.0,
+    "interval": 10.0,
+    "unit": "GeV",
+    "name": "Energy E [GeV]"
+   },
+   "y": {
+    "zero_based": true,
+    "lo": 0.0,
+    "hi": 140.0,
+    "interval": 20.0,
+    "provisional": false,
+    "n_clipped": 3,
+    "unit": "%",
+    "name": "σ/E [%]"
+   },
+   "curve_min_gev": 4.0,
+   "y_min_gev": 2.0,
+   "data_max_gev": 20.0,
+   "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
+   "notes": [
+    "The E view's y range follows the windows with N ≥ 20 from 2 GeV (whiskers included) and the a/√E ⊕ b and a₀/√E fits over the windows each was fitted to, from zero; a window below 2 GeV never sets it. 3 marks beyond it are clipped, not rescaled.",
+    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
+   ]
   }
  },
  "gates": {
@@ -713,17 +741,23 @@
        "se_a_stat": 605.136,
        "se_b_stat": 69.1779,
        "se_a2_stat": 112311.0,
-       "se_b2_stat": 11312.1
+       "se_b2_stat": 11312.1,
+       "rho_a2b2": -0.991944
       },
       "chi2": 2.79382e-28,
       "p_value": null,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": false,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
-     }
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
     },
     "all": {
      "points": [
@@ -1048,17 +1082,23 @@
        "se_a_stat": 605.136,
        "se_b_stat": 69.1779,
        "se_a2_stat": 112311.0,
-       "se_b2_stat": 11312.1
+       "se_b2_stat": 11312.1,
+       "rho_a2b2": -0.991944
       },
       "chi2": 2.79382e-28,
       "p_value": null,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": false,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
-     }
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
     }
    }
   },
@@ -1586,17 +1626,23 @@
        "se_a_stat": 8.51596,
        "se_b_stat": null,
        "se_a2_stat": 513.42,
-       "se_b2_stat": 48.4837
+       "se_b2_stat": 48.4837,
+       "rho_a2b2": -0.999923
       },
       "chi2": 8.76647e-24,
       "p_value": null,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
-     }
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
     },
     "all": {
      "points": [
@@ -1921,17 +1967,23 @@
        "se_a_stat": 8.51596,
        "se_b_stat": null,
        "se_a2_stat": 513.42,
-       "se_b2_stat": 48.4837
+       "se_b2_stat": 48.4837,
+       "rho_a2b2": -0.999923
       },
       "chi2": 8.76647e-24,
       "p_value": null,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
-     }
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
     }
    }
   }
