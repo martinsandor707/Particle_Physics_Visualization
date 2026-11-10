@@ -1310,7 +1310,11 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         assert _res_press(page, "res-view", "energy")
         chrome = page.evaluate(_RES_CHROME)
         assert chrome["title"] == "Energy Resolution vs. E", chrome
-        assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
+        # 600 px for the two panels; an empty state keeps the card's 420 px (the review's U-F11).
+        if drawn:
+            assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
+        else:
+            assert chrome["height"] == 420 and chrome["styleHeight"] == "", chrome
         assert [w for w, _ in chrome["windows"]] == ["3 anchors", "All windows"], chrome
         assert [r for r, _ in chrome["references"]] == ["Deposit fit", "π±", "e±"], chrome
         assert chrome["references"][0][1] == "true", chrome
