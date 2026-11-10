@@ -3520,7 +3520,8 @@ by name, its reconstruction being Page 1's energy panel.
 
 ### The energy-resolution card
 
-`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, in
+`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, or
+**vs. E** in its second view (below), in
 a section of its own: its detector series needs no model, so it shows on every
 kind of experiment, where the performance section does not
 (`query/resolution_scaling.py`, `stats/resolution_fit.py`,
@@ -3576,13 +3577,53 @@ kind of experiment, where the performance section does not
   oscillate, for at most 200 refits; a fit that does not settle says so in its
   tooltip, the table and the drawer. χ²/ν, its p-value and the PDG scale factor
   S, applied when χ²/ν > 1, are quoted. The quadrature form √(a²/E + b²) is
-  fitted as a line in (σ/E)² against 1/E and tabled, never drawn: its constant
-  term is not the linear sum's b.
+  fitted as a line in (σ/E)² against 1/E and, on this view, tabled, never drawn:
+  its constant term is not the linear sum's b. The E view draws it.
 - **The fit table** under the plot (screen only; the export is the plot) has a
   row group per series and a row per fit (affine, origin-pinned, quadrature):
   its a and b with their SEs, χ²/ν with p, S and its status, with the windows
   used spanning the group. Its text columns wrap, so it keeps to the card. The
   windows and the showers repaint without a request.
+- **The E view** (Martin's decisions, 2026-11-10; CLAUDE.md §5 "Its second
+  view").
+  - **The switch.** The card's **View** control, *1/√E linear* or *E (GeV) +
+    ratio*, repaints the response in hand without a request. The same response
+    carries `axis.energy`, each mode's `span_gev` and the quadrature fit's
+    `rho_a2b2` and `band_quantile`.
+  - **The axes.**
+    - A window sits at E = 1/⟨1/√p⟩², the 1/√E view's own abscissa mapped
+      back, so a window on its line there sits on its curve here.
+    - The x axis runs from 0 to 80 GeV (or to the dataset's top edge when
+      higher); σ/E runs from zero.
+    - **All windows** also draws the windows below 4 GeV, as points no fit
+      uses.
+  - **The vertical range.** It follows the windows of N ≥ 20 from 2 GeV and
+    the drawn fits over their windows. A window below 2 GeV never sets it, and
+    one that overflows gets a caret, a drawer count and a line in the note
+    band above the plot.
+  - **The fits.**
+    - The quadrature a/√E ⊕ b is drawn where both its terms are defined; its
+      band is the root of its band in (σ/E)², exact because that is linear in
+      the parameters.
+    - The origin-pinned a₀/√E is always drawn.
+    - Each curve is solid over the windows it was fitted to and dashed beyond,
+      from 4 GeV to the axis end; its band continues fainter, the parameters'
+      uncertainty only.
+    - The affine fit stays on the 1/√E view.
+  - **The ratio panel.**
+    - It sits under the plot on the same E axis, with a crosshair linked
+      across both panels.
+    - It divides every mark by the **Ratio to** reference: each shower's
+      deposit fit, whose own band is a wash about 1, or one of the two
+      literature curves transcribed from the legend of Martin's ECCE G4 figure
+      (π± 27.2%/√E ⊕ 1.0%, e± 14.0%/√E ⊕ 0.4%; `resolution_references.md`;
+      "no interval reported").
+    - Its axis is logarithmic and symmetric about 1.
+  - **Shower and form.** Shower B is told by hollow markers and lines at 70 %
+    strength, because the dash means extrapolation here. The ⊕ fit is the
+    thicker line.
+  - **MAE/E** is described in the drawer and the Methodology, never converted:
+    √(2/π)·σ/E holds only for unbiased Gaussian errors.
 
 ### The feature explorer
 
@@ -4607,7 +4648,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
-| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: σ/E of the per-event ratio E_est/p in percent, its χ² interval, the delta-method SE and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: σ/E of the per-event ratio E_est/p in percent, its χ² interval, the delta-method SE and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based σ/E range from the windows of N ≥ 20 from 2 GeV and the drawn fits over their spans, and its sentences), each mode's `span_gev`, and the quadrature fit's `rho_a2b2` and `band_quantile`, from which the browser draws its band. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
