@@ -477,17 +477,30 @@ When working with calorimeter simulation datasets in this repository:
         - A curve is solid over the windows it was fitted to (`span_gev`) and dashed beyond, down to 4 GeV and up to the axis end.
         - Nothing is drawn below 4 GeV, which no fit uses.
         - The band continues at a third of its strength. It holds the parameters' uncertainty only and assumes the form holds.
-      - **Its range** (`axis.energy.y`). It is set by the windows of N ≥ 20 from 2 GeV, whiskers included, and by the drawn fits over their fitted spans (the line only). A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
+        - **A band that spans half its axis or more is drawn as its two edges, never as a wash** (`OUTLINE_SHARE` = 0.5): the test is the part inside the axis, at one energy of the fitted span, on the panel's own scale.
+          - **Why:** measured on the stored experiments, the three-anchor quadrature bands (ν = 1, t₀.₉₇₅,₁ = 12.71 once S scales them) covered up to 96% of the σ/E axis and fogged every window under them.
+          - **Disclosure:** the band is listed in the drawer and named in its curve's tooltip.
+          - **The reference band:** it contains the ratio axis's centre, 1, so it is outlined as soon as it reaches either end.
+      - **Its range** (`axis.energy.y`). It is set by the windows of N ≥ 20 from 2 GeV, whiskers included, and by the non-provisional drawn fits over their fitted spans (the line only). A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
+        - **The fallback:** with no robust window from 2 GeV, the range is provisional, set by the windows' markers, those below 2 GeV included. It is never the empty 0–1% default.
+        - **The axis name** reads "provisional, no window from 2 GeV reaches N = 20".
       - **Off scale.** A clipped window takes a caret, its value in the tooltip and a drawer count. It is also named in a note band reserved above the plot, which also says where the curves extrapolate.
       - **The ratio panel.**
         - Every mark is divided by the reference: each shower's deposit fit (⊕ where defined, else pinned; its own band is a wash about 1), or a literature curve (§2's recorded exception).
         - A ratio whisker is conditional on its reference.
         - The axis is logarithmic and symmetric about 1, [1/k, k]. Measured ratios run 0.14–5.5, which no linear axis centred on 1 can hold.
+          - k is the first of 1.1 … 10, 20, 50 that covers the robust ratio marks. A ratio mark is robust only against a non-provisional reference.
+          - Robust marks beyond ×50 are counted, and the axis says "capped at ×50".
+          - The ticks below 1 read 1/x, so 1/3 sits opposite 3.
       - **Encoding.**
         - The dash is extrapolation and the width is the form.
-        - Marker fill and line strength (shower B's lines at 70%) are the shower.
-        - The literature curves are dotted, in the muted ink.
+        - Marker fill and line strength are the shower. Shower B's lines are at 70% strength, raised to keep 3:1, so the network hue reaches 91% on the light card.
+        - Because of that, a right-margin column labels every drawn curve end "A" or "B" whenever two showers are on show. The literature curves are labelled "π±" and "e±" there too.
+        - The literature curves are dotted, in the muted ink. The figure does not state the energy range they were fitted over, so they are drawn over the whole axis, and the tooltip and drawer say so.
+        - There is no series dodge on this view: every window sits at its exact E.
         - There is no zoom, only a crosshair linked across the two grids.
+        - The Ratio-to buttons read "Deposit fit | π± | e±". The equations are in their titles and on the ratio axis.
+        - An export's file name carries `energy` and `ratio-<reference>`.
       - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out.
   - **One coordinate system at a time on Views** (`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`; Martin's directives, 2026-11-06).
     - **The rule.** Views draws one 3-D pair (a 3-D card and its three paired projections) at a time, in the frame selected under Reference Frame.
