@@ -739,6 +739,101 @@ for (const name of %(corrs)s) {
   globalThis.echarts = savedEcharts;
 }
 
+/* ---- res-scaling: the E view's drawer (models_notes.js) --------------------------- */
+{
+  const packN = (n) => (n ? { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
+    sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null);
+  const stubState = { isTouched: () => false, get: () => null };
+  // What the drawer must agree with: the panel's own model, read through nothing but its fields.
+  const facts = (m) => ({
+    nPoints: m.nPoints, nLines: m.nLines, clipped: m.clipped, ratioClipped: m.ratio.clipped, belowNotDrawn: m.ratio.belowNotDrawn,
+    offScale: m.offScale.map((g) => ({ label: g.label, entries: g.entries.map((e) => ({ short: e.short, n: e.n })) })),
+    k: m.ratio.k, ratioProvisional: m.ratio.provisional, yProvisional: m.y.provisional, nClippedServer: m.y.n_clipped,
+    flag: m.reference.flag, label: m.reference.label, literature: m.reference.literature?.key ?? null,
+    spansShared: m.spans.shared, span: m.spans.span, spanList: m.spans.bySeries.map((b) => ({ form: b.form, span: b.span })),
+    notDrawn: m.series.flatMap((s) => rs.ENERGY_FORMS.filter((f) => !s.fits[f].drawable)
+      .map((f) => ({ label: s.label, form: f, reason: s.fits[f].reason }))),
+    drawn: m.series.flatMap((s) => rs.ENERGY_FORMS.filter((f) => s.fits[f].drawable).map((f) => ({
+      label: s.label, form: f, provisional: s.fits[f].provisional, converged: s.fits[f].converged,
+      cut: Boolean(s.fits[f].cut), floorCut: Boolean(s.fits[f].floorCut) }))),
+    anyUnconverged: m.series.some((s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature].some((f) => f && f.converged === false)),
+    points: { weak: m.series.flatMap((s) => s.points).filter((p) => p.weak).length, weakAlone: m.series.flatMap((s) => s.points).filter((p) => p.weak && !p.subFloor && !p.fitted).length,
+      subFloor: m.series.flatMap((s) => s.points).filter((p) => p.subFloor).length, below4: m.series.flatMap((s) => s.points).filter((p) => p.below4).length,
+      ratioWhiskers: m.series.flatMap((s) => s.points).filter((p) => p.ratio.drawn && Number.isFinite(p.ratio.lo)).length },
+    noReference: m.ratio.noReference, anyB: m.series.some((s) => s.isB),
+    deposit: Object.values(m.reference.byShower).map((r) => ({ shower: r.shower, reason: r.reason, why: r.why, provisional: r.provisional })),
+    notes: m.notes, rule: m.rule, noteText: m.noteText,
+  });
+  const run = (payload, opts) => {
+    const model = rs.energyModel(payload, opts);
+    const notes = mn.resolutionScalingNotes({ payload, state: stubState, experiment: { display_name: 'Demo' }, ...opts, view: 'energy' });
+    return { notes: packN(notes), hazards: mn.modelsHazards(payload, 'res-scaling', { ...opts, view: 'energy' }), facts: model ? facts(model) : null };
+  };
+  out.resNotes = { fixtures: {}, linear: {}, variants: {}, titles: {} };
+  for (const name of %(res)s) {
+    const payload = load(name);
+    const entry = {};
+    for (const windows of ['anchors', 'all']) {
+      for (const reference of rs.RATIO_REFERENCES) {
+        for (const shower of ['both', 'a', 'b']) entry[`${windows}:${reference}:${shower}`] = run(payload, { windows, shower, reference });
+      }
+      // The 1/√E drawer and hazards are one output whatever the view or the reference.
+      for (const shower of ['both', 'a', 'b']) {
+        const base = { payload, state: stubState, experiment: { display_name: 'Demo' }, windows, shower };
+        const variants = [base, { ...base, view: 'linear' }, { ...base, view: 'bogus', reference: 'pi' }, { ...base, reference: 'e' }];
+        const texts = variants.map((o) => JSON.stringify(mn.resolutionScalingNotes(o)));
+        const hz = [{ windows, shower }, { windows, shower, view: 'linear' }, { windows, shower, view: 'bogus', reference: 'pi' }]
+          .map((o) => JSON.stringify(mn.modelsHazards(payload, 'res-scaling', o)));
+        out.resNotes.linear[`${name}:${windows}:${shower}`] = {
+          notes: texts.every((t) => t === texts[0]), hazards: hz.every((t) => t === hz[0]),
+          title: JSON.parse(texts[0]).title, text: JSON.parse(texts[0]).sections.map((x) => x.lines.join(' ')).join(' '),
+        };
+      }
+    }
+    out.resNotes.fixtures[name] = entry;
+  }
+  // Variants of the two-shower payload, changed only where the server would change them.
+  const two = load('res_scaling_two');
+  const off = clone(two);
+  off.axis.energy.y.hi = 90; off.axis.energy.y.interval = 10;
+  out.resNotes.variants.offScale = run(off, { windows: 'all', reference: 'deposit' });
+  const lowTop = clone(two);
+  lowTop.axis.energy.y.hi = 30; lowTop.axis.energy.y.interval = 10;
+  out.resNotes.variants.literatureClipped = run(lowTop, { windows: 'all', reference: 'pi' });
+  const prov = clone(two);
+  prov.axis.energy.y.provisional = true;
+  out.resNotes.variants.yProvisional = run(prov, { windows: 'anchors', reference: 'deposit' });
+  const thin = clone(two);
+  for (const s of thin.series) for (const w of s.windows) w.n = Math.min(w.n ?? 0, 10);
+  for (const s of thin.series) for (const mode of ['anchors', 'all']) {
+    s.fits[mode].provisional = true;
+    for (const f of [s.fits[mode].affine, s.fits[mode].pinned, s.fits[mode].quadrature]) if (f) f.provisional = true;
+  }
+  out.resNotes.variants.ratioProvisional = run(thin, { windows: 'all', reference: 'deposit' });
+  const unsettled = clone(two);
+  const uf = unsettled.series.find((x) => x.key === 'network:b').fits.anchors.pinned;
+  uf.converged = false; uf.iterations = 200;
+  out.resNotes.variants.unsettled = run(unsettled, { windows: 'anchors', reference: 'deposit' });
+  const undefinedB = clone(two);
+  undefinedB.series.find((x) => x.key === 'network:b').fits.all.quadrature.params.b_defined = false;
+  out.resNotes.variants.undefinedB = run(undefinedB, { windows: 'all', reference: 'deposit' });
+  const noAxis = clone(two);
+  delete noAxis.axis.energy;
+  out.resNotes.variants.noAxis = run(noAxis, { windows: 'all', reference: 'deposit' });
+  out.resNotes.variants.nothing = [mn.resolutionScalingNotes({ payload: null, view: 'energy' }), mn.modelsHazards(null, 'res-scaling', { view: 'energy' })];
+  const none = clone(two);
+  for (const s of none.series) for (const w of s.windows) { w.value = null; w.n = 1; }
+  for (const s of none.series) for (const mode of ['anchors', 'all']) { s.fits[mode] = { points: [], substitutions: [], fallback: false, provisional: false, span_gev: null, affine: null, pinned: null, quadrature: null }; }
+  out.resNotes.variants.empty = run(none, { windows: 'all', reference: 'deposit' });
+  const sampled = clone(two);
+  sampled.meta = { ...(sampled.meta ?? {}), exact: false };
+  out.resNotes.variants.sampled = run(sampled, { windows: 'all', reference: 'deposit' });
+  // Titles: the shell's wins; the E view has its own default.
+  const titled = (view, title) => mn.resolutionScalingNotes({ payload: two, view, title }).title;
+  out.resNotes.titles = { linear: titled('linear'), energy: titled('energy'), given: titled('energy', 'Card title'),
+    constants: [mn.RES_SCALING_TITLE, mn.RES_SCALING_ENERGY_TITLE] };
+}
+
 /* ---- colours a reader must see, against the card on screen and in print ----- */
 function measureInk(theme) {
   const card = cp.rgbOf(scale.THEME.card);
@@ -2338,3 +2433,308 @@ def test_res_e_no_rendered_number_uses_an_ascii_hyphen(out):
     for key in ("undefinedA", "undefinedB", "offScale"):
         _no_hyphen_numbers(out["resE"][key]["chart"]["chart"]["strings"])
     _no_hyphen_numbers(out["resE"]["lightChart"]["chart"]["strings"])
+
+
+# ------------------------------------------------- res-scaling: E view drawer --
+#
+# The drawer of the E view (models_notes.js `resolutionScalingNotes` with
+# view 'energy', `modelsHazards`). Every sentence is built from the panel's
+# `energyModel`, so each test reads the model's own counts from the harness and
+# holds the drawer to them; the 1/√E drawer and its hazards are held to one
+# output whatever `view` or `reference` is passed (the dark golden holds that
+# output to the recorded one).
+
+RES_NOTE_KEYS = [f"{w}:{r}:{s}" for w in ("anchors", "all") for r in RES_E_REFS for s in ("both", "a", "b")]
+MAE_SENTENCE = ("MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias "
+                "that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.")
+LIT_EQUATIONS = {"pi": "σ/E = 27.2%/√E ⊕ 1.0%", "e": "σ/E = 14.0%/√E ⊕ 0.4%"}
+
+
+def _n(count: int, word: str, many: str | None = None) -> str:
+    return f"{count:,} {word if count == 1 else (many or word + 's')}"
+
+
+def _span(span) -> str:
+    return f"{span[0]:g}–{span[1]:g} GeV" if span else "no window"
+
+
+def _e_notes(out: dict):
+    """Every (name, key, record) of the E-view drawer on the four fixtures."""
+    for name in RES:
+        for key in RES_NOTE_KEYS:
+            yield name, key, out["resNotes"]["fixtures"][name][key]
+
+
+def _lines(n: dict, out: dict, which: str) -> list[str]:
+    return n["sections"].get(out["notes"]["section"][which], [])
+
+
+def _text(n: dict) -> str:
+    return " ".join(line for lines in n["sections"].values() for line in lines)
+
+
+def _starts(lines: list[str], prefix: str) -> list[str]:
+    return [line for line in lines if line.startswith(prefix)]
+
+
+def test_res_notes_e_view_has_the_four_sections_in_order(out):
+    section = out["notes"]["section"]
+    standard = [section["selection"], section["drawn"], section["disclosures"], section["legend"]]
+    for name, key, rec in _e_notes(out):
+        n = rec["notes"]
+        _check_notes(n, section)
+        assert n["headings"] == standard, (name, key)
+        assert n["title"] == "Energy Resolution vs. E"
+        selection = _lines(n, out, "selection")
+        assert any(line.startswith("View: σ/E against the energy E in GeV, 0 to 80 GeV") for line in selection)
+        facts = rec["facts"]
+        ratio_to = _starts(selection, "Ratio to: ")
+        assert len(ratio_to) == 1 and facts["label"] in ratio_to[0], (name, key)
+        assert ("the literature curve" in ratio_to[0]) == (facts["literature"] is not None)
+        drawn = _lines(n, out, "drawn")
+        # The conversion and the server's own notes are said as the server wrote them.
+        assert drawn[0].startswith("E = 1/x²") and facts["rule"].rstrip(".") in drawn[0]
+        for note in facts["notes"]:
+            assert note in drawn, (name, key, note)
+
+
+def test_res_notes_e_view_counts_equal_the_models(out):
+    for name, key, rec in _e_notes(out):
+        n, f = rec["notes"], rec["facts"]
+        drawn, dis = _lines(n, out, "drawn"), _lines(n, out, "disclosures")
+        where = (name, key)
+        assert f"{_n(f['nPoints'], 'window')} and {_n(f['nLines'], 'fit curve')} are drawn in this view." in drawn, where
+        # Clipped at the top of the main panel: markers, whiskers, fits and literature curves, with the server's count.
+        c = f["clipped"]
+        parts = [_n(c[k], word) for k, word in (("markers", "marker"), ("whiskers", "whisker"), ("fits", "fit"), ("literature", "literature curve")) if c[k]]
+        top = _starts(dis, "Clipped at the top of the main panel")
+        if parts:
+            assert len(top) == 1 and f": {', '.join(parts)} (the server's count over every window it reports, both modes: {f['nClippedServer']})." in top[0], where
+        else:
+            assert not top, where
+        # Windows above the top, listed by window with their N.
+        total = sum(len(g["entries"]) for g in f["offScale"])
+        above = [line for line in dis if "above the top of the axis" in line]
+        if total:
+            assert len(above) == 1 and above[0].startswith(f"{_n(total, 'window')} ") and above[0].count("(N = ") == total, where
+            for g in f["offScale"]:
+                assert g["label"] in above[0]
+                for e in g["entries"]:
+                    assert e["short"] in above[0]
+        else:
+            assert not above, where
+        # Fits that leave the top, bands cut at zero, fits not drawn.
+        assert sum(d["cut"] for d in f["drawn"]) == c["fits"]
+        leave = [line for line in dis if "the top of the main panel, line or band" in line]
+        assert len(leave) == (1 if c["fits"] else 0), where
+        if c["fits"]:
+            assert leave[0].startswith(f"{_n(c['fits'], 'fit')} {'leaves' if c['fits'] == 1 else 'leave'} ")
+        floor = sum(d["floorCut"] for d in f["drawn"])
+        cut0 = [line for line in dis if "cut at σ/E = 0 where it would be negative" in line]
+        assert len(cut0) == (1 if floor else 0), where
+        if floor:
+            assert cut0[0].startswith(_n(floor, "fit") + " ")
+        for d in f["notDrawn"]:
+            matching = [line for line in dis if line.startswith(f"{d['label']}: the ") and "is not drawn, " in line and d["reason"] in line]
+            assert len(matching) == 1, (where, d)
+            assert "stays in the fit table" in matching[0]
+        # Spans: said once in What is drawn when shared, per span under Disclosures when they differ.
+        differ = [line for line in dis if line.startswith("The fits were not all fitted over the same windows")]
+        if f["drawn"] and f["spansShared"]:
+            assert not differ and any(f"here {_span(f['span'])}" in line for line in drawn), where
+        elif f["drawn"]:
+            assert len(differ) == 1
+            for d in f["spanList"]:
+                assert _span(d["span"]) in differ[0]
+        else:
+            assert any(line.startswith("No fit is drawn for this selection") for line in dis)
+        # Windows.
+        p = f["points"]
+        below = [line for line in dis if re.search(r" below 4 GeV (is|are) drawn as ", line)]
+        assert len(below) == (1 if p["below4"] else 0), where
+        if p["below4"]:
+            assert below[0].startswith(f"{_n(p['below4'], 'window')} below 4 GeV ")
+        alone = [line for line in dis if line.endswith("χ² whisker, not fitted.")]
+        assert len(alone) == (1 if p["weakAlone"] else 0)
+        if p["weakAlone"]:
+            assert alone[0].startswith(_n(p["weakAlone"], "window") + " of N < 20")
+        ring = [line for line in dis if "faded dashed ring with no whisker" in line]
+        assert len(ring) == (1 if p["subFloor"] else 0)
+        if p["subFloor"]:
+            assert ring[0].startswith(_n(p["subFloor"], "window") + " of N < 8")
+        # The ratio panel.
+        rc = f["ratioClipped"]
+        ratio_parts = [_n(rc[k], word) for k, word in (("markers", "marker"), ("whiskers", "whisker"), ("fits", "fit")) if rc[k]]
+        clipped_ratio = _starts(dis, "Clipped at the ratio axis")
+        if ratio_parts:
+            assert len(clipped_ratio) == 1 and clipped_ratio[0].endswith(f": {', '.join(ratio_parts)}."), where
+        else:
+            assert not clipped_ratio
+        assert c["ratio"] == rc["markers"] + rc["whiskers"] + rc["fits"]
+        bands = [line for line in dis if "wider than the ratio axis and clamped at it" in line]
+        assert len(bands) == (1 if rc["bands"] else 0)
+        if rc["bands"]:
+            assert bands[0].startswith(_n(rc["bands"], "reference band") + " ")
+        gone = [line for line in dis if "not drawn on the ratio panel" in line]
+        assert len(gone) == (1 if f["belowNotDrawn"] else 0), where
+        if f["belowNotDrawn"]:
+            assert gone[0].startswith(f"{_n(f['belowNotDrawn'], 'window')} below 4 GeV ")
+        k = f"{1 / f['k']:.3g} to {f['k']:.3g}"
+        prefix = f"The ratio range, {k}, "
+        range_line = _starts(dis, prefix)
+        assert len(range_line) == 1 and ("is provisional" in range_line[0]) == f["ratioProvisional"], where
+        assert (f["yProvisional"]) == any(line.startswith("The y range is provisional") for line in dis)
+        for r in f["noReference"]:
+            assert any("has no ratio marks" in line for line in dis), where
+        # Shower B's 70% strength.
+        assert any(line.startswith("Shower B's lines are drawn at 70% strength") for line in dis) == f["anyB"], where
+
+
+def test_res_notes_e_view_names_the_reference_and_says_its_whiskers_are_conditional(out):
+    for name, key, rec in _e_notes(out):
+        n, f = rec["notes"], rec["facts"]
+        dis = _lines(n, out, "disclosures")
+        whisker = [line for line in dis if line.startswith("A ratio whisker is the window's 95% χ² interval divided by ")]
+        if f["points"]["ratioWhiskers"]:
+            assert len(whisker) == 1, (name, key)
+            assert f"it is conditional on the reference, {f['label']}, " in whisker[0]
+            assert ("the literature curve" in whisker[0]) == (f["literature"] is not None)
+            assert "does not include the reference's own uncertainty" in whisker[0]
+        else:
+            assert not whisker, (name, key)
+        drawn = " ".join(_lines(n, out, "drawn"))
+        if f["literature"] is None:
+            # One line per shower, which fit divides its windows or why none does, and the reference's own band.
+            for d in f["deposit"]:
+                line = [x for x in _lines(n, out, "drawn") if x.endswith("evaluated from 4 to 80 GeV only.") or "no ratio marks" in x]
+                assert line, (name, key)
+                if d["reason"]:
+                    assert any(d["reason"] in x for x in _lines(n, out, "drawn"))
+                else:
+                    assert any(d["why"] in x for x in _lines(n, out, "drawn")), (name, key, d)
+            assert "own 95% band relative to itself" in drawn
+        else:
+            assert LIT_EQUATIONS[f["literature"]] in drawn and "no interval reported" in drawn
+
+
+def test_res_notes_e_view_literature_sentences_only_under_a_literature_reference(out):
+    for name, key, rec in _e_notes(out):
+        n, f = rec["notes"], rec["facts"]
+        text = _text(n)
+        dis = " ".join(_lines(n, out, "disclosures"))
+        literature = f["literature"] is not None
+        assert key.split(":")[1] == (f["literature"] or "deposit")
+        for needle in ("ECCE G4 simulation", "none derived", "resolution_references.md", "supplied by Martin on 2026-11-10",
+                       "not this dataset's detector", "transcribed as the legend prints them"):
+            assert (needle in dis) == literature, (name, key, needle)
+        if literature:
+            assert LIT_EQUATIONS["pi"] in dis and LIT_EQUATIONS["e"] in dis, "both legend curves are named"
+            assert "Each is a documented point estimate with no interval reported and none derived" in dis
+            assert "Dotted muted lines labelled" in " ".join(_lines(n, out, "legend"))
+            assert f"{_n(f['clipped']['literature'], 'curve')} " in dis or f["clipped"]["literature"] == 0
+        else:
+            assert "ECCE" not in text and "none derived" not in text
+            assert "none is drawn while the ratio reference is the deposit fit" in " ".join(_lines(n, out, "legend"))
+        # The MAE/E sentence, exactly, in every E-view drawer.
+        assert MAE_SENTENCE in _lines(n, out, "disclosures")
+
+
+def test_res_notes_e_view_hazards(out):
+    for name, key, rec in _e_notes(out):
+        f = rec["facts"]
+        c = f["clipped"]
+        expected = []
+        if any(d["provisional"] for d in f["drawn"]):
+            expected.append("provisional fit")
+        if f["points"]["weak"]:
+            expected.append("weak windows drawn")
+        if f["yProvisional"]:
+            expected.append("provisional range")
+        if f["ratioProvisional"]:
+            expected.append("provisional ratio range")
+        if c["markers"] or c["whiskers"] or c["fits"] or c["literature"] or c["ratio"]:
+            expected.append("marks clipped at the axis")
+        if f["anyUnconverged"]:
+            expected.append("fit not converged")
+        if f["literature"]:
+            expected.append("no interval reported")
+        assert rec["hazards"] == expected, (name, key)
+        assert rec["notes"]["hazards"] == expected
+        assert ("no interval reported" in rec["hazards"]) == (key.split(":")[1] != "deposit")
+    # The two-shower payload draws weak windows and clips fits and ratio marks: the chip would show.
+    two = out["resNotes"]["fixtures"]["res_scaling_two"]["all:pi:both"]["hazards"]
+    assert two == ["weak windows drawn", "marks clipped at the axis", "no interval reported"]
+
+
+def test_res_notes_e_view_variants(out):
+    v = out["resNotes"]["variants"]
+    # A lower top: windows above it are listed by window, with a caret, and the clip hazard stands.
+    off = v["offScale"]
+    assert sum(len(g["entries"]) for g in off["facts"]["offScale"]) > 0
+    assert "marks clipped at the axis" in off["hazards"]
+    above = [line for line in _lines(off["notes"], out, "disclosures") if "above the top of the axis (90%)" in line]
+    assert len(above) == 1
+    # A literature curve crossing the top is counted and said.
+    lit = v["literatureClipped"]
+    assert lit["facts"]["clipped"]["literature"] > 0 and "marks clipped at the axis" in lit["hazards"]
+    crosses = [line for line in _lines(lit["notes"], out, "disclosures") if " the top, clipped there with a caret" in line]
+    assert len(crosses) == 1 and f"{_n(lit['facts']['clipped']['literature'], 'curve')} " in crosses[0]
+    # A provisional y range, a provisional ratio range.
+    assert "provisional range" in v["yProvisional"]["hazards"]
+    assert any(line.startswith("The y range is provisional") for line in _lines(v["yProvisional"]["notes"], out, "disclosures"))
+    rp = v["ratioProvisional"]
+    assert rp["facts"]["ratioProvisional"] and "provisional ratio range" in rp["hazards"]
+    assert any("is provisional: no window of N ≥ 20" in line for line in _lines(rp["notes"], out, "disclosures"))
+    assert "provisional fit" in rp["hazards"]
+    # A fit whose weights did not settle.
+    un = v["unsettled"]
+    assert "fit not converged" in un["hazards"] and "fit not converged" not in out["resNotes"]["fixtures"]["res_scaling_two"]["anchors:deposit:both"]["hazards"]
+    assert any("did not settle within 200 refits" in line for line in _lines(un["notes"], out, "disclosures"))
+    # A quadrature fit not drawn names its reason and its numbers.
+    ub = v["undefinedB"]
+    assert {"label": "Shower B · Energy network · absolute frame", "form": "quadrature",
+            "reason": "B ≤ 0: σ/E falls faster than 1/√E, so there is no real constant term"} in ub["facts"]["notDrawn"]
+    line = [x for x in _lines(ub["notes"], out, "disclosures") if x.startswith("Shower B · Energy network · absolute frame: the quadrature fit a/√E ⊕ b is not drawn")]
+    assert len(line) == 1 and "B ≤ 0" in line[0] and "(A = " in line[0] and "%²·GeV, B = " in line[0]
+    # No E-view axis, no response, nothing drawable.
+    na = v["noAxis"]
+    assert na["facts"] is None and na["hazards"] == []
+    assert na["notes"]["headings"] == [out["notes"]["section"]["disclosures"]]
+    assert "no energy-resolution series with an E-view axis" in _text(na["notes"])
+    assert v["nothing"] == [None, []]
+    empty = v["empty"]
+    _check_notes(empty["notes"], out["notes"]["section"])
+    assert empty["facts"]["nPoints"] == 0 and empty["facts"]["nLines"] == 0
+    assert any(line.startswith("No fit is drawn for this selection") for line in _lines(empty["notes"], out, "disclosures"))
+    assert "provisional fit" not in empty["hazards"] and "weak windows drawn" not in empty["hazards"]
+    # A sampled response keeps its flag first and says so.
+    assert v["sampled"]["hazards"][0] == "sampled"
+    assert "Sampled preview: the exact numbers follow." in _lines(v["sampled"]["notes"], out, "disclosures")
+
+
+def test_res_notes_e_view_titles(out):
+    t = out["resNotes"]["titles"]
+    assert t["constants"] == ["Energy Resolution vs. 1/√E", "Energy Resolution vs. E"]
+    assert t["linear"] == t["constants"][0] and t["energy"] == t["constants"][1] and t["given"] == "Card title"
+
+
+def test_res_notes_the_linear_drawer_and_hazards_ignore_view_and_reference(out):
+    """No view, view 'linear', any other view and a reference give the 1/√E drawer's one output, with none of the E view's text."""
+    for key, rec in out["resNotes"]["linear"].items():
+        assert rec["notes"] and rec["hazards"], key
+        assert rec["title"] == "Energy Resolution vs. 1/√E"
+        assert MAE_SENTENCE not in rec["text"] and "Ratio to:" not in rec["text"] and "ECCE" not in rec["text"]
+        assert "tabled and not drawn" not in rec["text"]
+        assert "not drawn." in rec["text"] and "The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled under the plot, not drawn." in rec["text"]
+
+
+def test_res_notes_e_view_uses_the_unicode_minus(out):
+    two = out["resNotes"]["fixtures"]["res_scaling_two"]["all:deposit:both"]["notes"]
+    xgb = out["resNotes"]["fixtures"]["res_scaling_xgb"]["anchors:deposit:both"]["notes"]
+    for n in (two, xgb):
+        text = _text(n)
+        assert "−" in text, "a negative A or B is set with U+2212"
+        _no_hyphen_numbers(line for lines in n["sections"].values() for line in lines)
+    assert re.search(r"B = −\d", _text(xgb)) and re.search(r"A = −\d", _text(two))
+    for name, key, rec in _e_notes(out):
+        _no_hyphen_numbers(line for lines in rec["notes"]["sections"].values() for line in lines)
