@@ -53,6 +53,7 @@ const MATH_SYMBOLS = Object.freeze({
   '≠': '\\neq', '∞': '\\infty', '∈': '\\in', '∝': '\\propto', '∼': '\\sim', '→': '\\rightarrow',
   '←': '\\leftarrow', '↔': '\\leftrightarrow', '⇒': '\\Rightarrow', '⊗': '\\otimes', '√': '\\surd',
   '⟨': '\\langle', '⟩': '\\rangle', '·': '\\cdot', '°': '^{\\circ}', '′': "'", '″': "''", '÷': '\\div',
+  '⊕': '\\oplus', '≡': '\\equiv',
 });
 
 /* Text-mode punctuation and spaces. The quotes become TeX's ligature quotes,
