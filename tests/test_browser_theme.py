@@ -25,6 +25,9 @@ what a reader sees, on the three pages:
   needs the single-shower hits, is checked in test_browser_models.py: one
   module holds one server); a 3-D event cut into slices keeps its slice, its
   readout and its camera, and its depth projections' band takes the new ink;
+* the energy-resolution card's E view (two grids, a literature reference in
+  force) takes the new axis, literature and note ink with every curve where it
+  was, and a switch back returns its option exactly, with no request;
 * the Models page's cards are reached through their subpage's tab; a card on a
   subpage off show at the switch takes the new theme when its tab brings it
   back, still with no request; the subpage chrome and the catalogue's DOM text
@@ -614,6 +617,93 @@ def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it
         browser.close()
     assert stale == [], f"still in the dark theme after the switch, once shown again: {stale}"
     assert asked == [], f"a theme switch or a tab asked the service: {asked}"
+    assert problems == [], problems
+
+
+#: The resolution card's E view as painted: every axis label's ink, the strokes of the literature curves, the
+#: 1.0 rule and the canvas note's fill, and the drawn geometry (each polyline's pixel points, by series), which a
+#: theme switch must leave where it was.
+_RES_E_INK = """() => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const o = inst.getOption();
+  const model = inst.getModel();
+  const strokes = (pattern) => {
+    const out = new Set();
+    model.eachSeries((s) => {
+      if (!pattern.test(s.get('id') || '')) return;
+      inst.getViewOfSeriesModel(s).group.traverse((el) => {
+        if ((el.type === 'polyline' || el.type === 'line') && el.style?.stroke) out.add(String(el.style.stroke).toLowerCase());
+      });
+    });
+    return [...out].sort();
+  };
+  const geometry = {};
+  model.eachSeries((s) => {
+    const pts = [];
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.type === 'polyline' && el.shape?.points) pts.push(...el.shape.points.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]));
+    });
+    if (pts.length) geometry[s.get('id')] = pts;
+  });
+  return {
+    grids: (o.grid || []).length,
+    axes: [...(o.xAxis || []), ...(o.yAxis || [])].map((a) => [a.gridIndex ?? 0, a.type ?? 'value', a.min, a.max]),
+    ink: [...(o.xAxis || []), ...(o.yAxis || [])].map((a) => a.axisLabel?.color ?? null),
+    literature: strokes(/^literature\\|(pi|e)$/),
+    unity: strokes(/^ratio\\|unity$/),
+    note: (o.graphic || []).flatMap((g) => g.elements || [g]).map((g) => [g.style?.text ?? null, g.style?.fill ?? null]),
+    ids: (o.series || []).map((s) => s.id),
+    height: document.getElementById('plot-res-scaling').getBoundingClientRect().height,
+    geometry,
+  };
+}"""
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_server, scheme):
+    """The res-scaling card's E view (σ/E against E with its ratio panel, a literature reference in force) under a
+    theme switch from either theme: no request; the axis labels, the dotted literature curves and the canvas note
+    take the new theme's muted ink and the 1.0 rule its text ink; the picture is redrawn (its pixels change) with
+    every curve where it was, the two grids, the axes and the 600 px plot kept; a switch back returns the option
+    exactly. The baseline's two events draw no window, so the page is served the recorded two-shower response
+    (test_browser_models.py RES_TWO_FIXTURE), still asked for and counted."""
+    from test_browser_models import RES_TWO_FIXTURE, _OPTION, _res_press, _serve_res_fixture
+
+    other = OTHER[scheme]
+    with live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(
+            p, live_server["base"], "/models", scheme=scheme, fragment=f"#table_name={BASELINE_TABLE}&model=energy")
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        _models_card(page, "res-scaling")
+        assert len([u for u in requests if "/api/resolution-scaling" in u]) == 1, requests
+        n = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        assert _res_press(page, "res-reference", "pi")
+        before = page.evaluate(_RES_E_INK)
+        option = page.evaluate(_OPTION, "res-scaling")
+        picture = page.locator("#plot-res-scaling").screenshot()
+        assert before["grids"] == 2 and before["height"] == 600, before
+        assert {"literature|pi", "literature|e", "ratio|unity"} <= set(before["ids"]), before["ids"]
+        assert MUTED[scheme] in before["ink"] and MUTED[other] not in before["ink"], before["ink"]
+        assert before["literature"] == [MUTED[scheme]] and before["unity"] == [TEXT[scheme]], before
+        assert before["note"] and {fill for _, fill in before["note"]} == {MUTED[scheme]}, before["note"]
+
+        assert _toggle(page, requests) == [], "a theme switch asked the service"
+        assert _state(page)["theme"] == other
+        after = page.evaluate(_RES_E_INK)
+        assert MUTED[other] in after["ink"] and MUTED[scheme] not in after["ink"], after["ink"]
+        assert after["literature"] == [MUTED[other]] and after["unity"] == [TEXT[other]], after
+        assert [t for t, _ in after["note"]] == [t for t, _ in before["note"]], (before["note"], after["note"])
+        assert {fill for _, fill in after["note"]} == {MUTED[other]}, after["note"]
+        # The same picture in the new ink: grids, axes, series and every curve's pixels kept, the canvas repainted.
+        for key in ("grids", "axes", "ids", "height", "geometry"):
+            assert after[key] == before[key], key
+        assert page.locator("#plot-res-scaling").screenshot() != picture
+
+        assert _toggle(page, requests) == [], "a theme switch back asked the service"
+        assert page.evaluate(_OPTION, "res-scaling") == option
+        assert requests[n:] == [], f"the E view's controls or a theme switch asked the service: {requests[n:]}"
+        browser.close()
     assert problems == [], problems
 
 
