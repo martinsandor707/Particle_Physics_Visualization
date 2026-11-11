@@ -30,6 +30,7 @@ from ..ingest import formats, load
 from ..ingest.source_check import SourceCheck
 from ..ingest import jobs as jobs_mod
 from ..ingest import local as local_ingest
+from ..ingest import source_state
 from ..ingest import stream
 from ..ingest.stream import StagedFile, check_free_space
 from ..models.upload import UploadMode
@@ -173,6 +174,7 @@ async def upload(
         force_reingest=force_reingest,
         kind=check.schema.kind,
         schema=check.schema.label,
+        origin=source_state.ORIGIN_UPLOAD,
     )
 
     return {
@@ -246,6 +248,7 @@ def ingest_local(
         force_reingest=force_reingest,
         kind=check.schema.kind,
         schema=check.schema.label,
+        origin=source_state.ORIGIN_LOCAL,
     )
     return {"job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}
 

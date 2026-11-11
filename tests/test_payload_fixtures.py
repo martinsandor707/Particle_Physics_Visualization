@@ -24,7 +24,9 @@ from pathlib import Path
 import pytest
 
 import contract_check
-from conftest import BASELINE_TABLE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, XGB_SOURCE, xgb_table
+from conftest import (
+    BASELINE_TABLE, SEED_FILE, SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, XGB_SOURCE, xgb_table,
+)
 
 OUT = Path(__file__).resolve().parent / "fixtures" / "payloads"
 WRITE = os.environ.get("CALOSRV_WRITE_PAYLOAD_FIXTURES") == "1"
@@ -212,6 +214,9 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
     "pred_density_xgb_phi": ("xgb_client", "/api/prediction-density",
                              {**XGB, "model": "angle", "label": "phi"}, "prediction_density"),
     "res_scaling_xgb": ("xgb_client", "/api/resolution-scaling", XGB, "resolution_scaling"),
+    # Admin Settings: each experiment against the file it was ingested from. The XGBoost
+    # server holds the seed and five drop-folder aggregates, all unchanged.
+    "admin_experiments": ("xgb_client", "/api/admin/experiments", {}, "admin_experiments"),
 }
 
 
@@ -232,6 +237,8 @@ VOLATILE: dict[str, tuple[tuple[str, ...], ...]] = {
 VOLATILE_KEYS: dict[str, frozenset[str]] = {
     "/api/admin/model-runs": frozenset({"queued_at", "started_at", "finished_at", "duration_s",
                                         "timings"}),
+    # The byte counts of the temporary aggregates depend on the Parquet writer's version.
+    "/api/admin/experiments": frozenset({"bytes"}),
 }
 
 #: Per recording, blocks that describe the serving process rather than the data:
@@ -240,7 +247,44 @@ VOLATILE_KEYS: dict[str, frozenset[str]] = {
 VOLATILE_BY_NAME: dict[str, tuple[tuple[str, ...], ...]] = {
     "experiments": (("compute",),),
     "experiments_xgb": (("compute",),),
+    # The local ingest root is a path of the machine running the suite (/app/ingest inside Docker).
+    "admin_experiments": (("roots", "local"),),
 }
+
+#: Stand-ins for the values of a Source files listing that belong to one run of the suite.
+_ADMIN_MODIFIED = "2026-11-11T12:00:00+00:00"
+
+
+def _mask_admin_experiments(body: dict) -> dict:
+    """The Source files listing with this run's temporary paths, times and job ids replaced.
+
+    Applied to what is served and to what is stored, so it is idempotent: the folders become
+    ``<drop folder>`` and ``<seed>``, every file time one fixed instant, the job ids and finish
+    times fixed strings. The states, reasons and details are what the recording is for.
+    """
+    body = json.loads(json.dumps(body))
+    drop = body["roots"].get("drop_folder")
+    if drop and drop != "<drop folder>":
+        body["roots"]["drop_folder"] = "<drop folder>"
+    for entry in body["experiments"]:
+        source = entry["source"]
+        if drop and source.get("path") and source["path"].startswith(drop):
+            source["path"] = "<drop folder>" + source["path"][len(drop):]
+        source["detail"] = source["detail"].replace(str(SEED_FILE), "<seed>")
+        if drop:
+            source["detail"] = source["detail"].replace(drop, "<drop folder>")
+        for key in ("recorded", "current"):
+            if source.get(key) and source[key].get("modified"):
+                source[key]["modified"] = _ADMIN_MODIFIED
+        for action in entry["actions"].values():
+            if drop and action.get("reason"):
+                action["reason"] = action["reason"].replace(drop, "<drop folder>")
+        job = entry.get("job")
+        if job:
+            job["job_id"] = "0123456789abcdef"
+            if job.get("finished_at"):
+                job["finished_at"] = "2026-11-11T12:00:05+00:00"
+    return body
 
 
 def _masked(value):
@@ -291,6 +335,8 @@ def _check(client, name: str) -> None:
     body = reply.json()
     if contract is not None:
         contract_check.check(body, contract)
+    if path == "/api/admin/experiments":
+        body = _mask_admin_experiments(body)
     stored = OUT / f"{name}.json"
     if WRITE:
         OUT.mkdir(parents=True, exist_ok=True)

@@ -24,8 +24,8 @@ from typing import Any
 
 from ..db.connection import Database
 from ..db import registry
-from ..errors import ApiError
-from . import pipeline
+from ..errors import ApiError, ConflictError
+from . import pipeline, source_state
 from .pipeline import STAGES
 from .recipes import stages as stages_of
 from .stream import StagedFile
@@ -41,6 +41,10 @@ __all__ = ["STAGES", "IngestJob", "JobStore", "get_job_store", "reset_job_store"
 
 #: A job that re-derives an experiment from its archive.
 MODE_REBUILD = "rebuild"
+#: A job that replaces a ready experiment's data from its changed source file,
+#: atomically, and one that ingests a failed experiment's file again.
+MODE_REINGEST = source_state.ACTION_REINGEST
+MODE_RETRY = source_state.ACTION_RETRY
 
 
 @dataclass
@@ -69,6 +73,9 @@ class IngestJob:
     #: The experiment kind and input schema, once the source is recognised.
     kind: str | None = None
     schema: str | None = None
+    #: Where the source file came from (``source_state.ORIGINS``): what the
+    #: registry row's source record says. Not in the payload.
+    origin: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -120,6 +127,12 @@ class JobStore:
         jobs.sort(key=lambda j: j.submitted_at, reverse=True)
         return jobs[:limit]
 
+    def latest_for(self, table_name: str) -> IngestJob | None:
+        """The newest job, by submission, that names ``table_name``; None when there is none."""
+        with self._lock:
+            found = [j for j in self._jobs.values() if j.table_name == table_name]
+        return max(found, key=lambda j: j.submitted_at, default=None)
+
     def active_names(self) -> set[str]:
         """Experiments with a job queued or running.
 
@@ -144,6 +157,7 @@ class JobStore:
         force_reingest: bool = False,
         kind: str | None = None,
         schema: str | None = None,
+        origin: str | None = None,
     ) -> IngestJob:
         job = IngestJob(
             job_id=uuid.uuid4().hex[:16],
@@ -154,12 +168,57 @@ class JobStore:
             force_reingest=force_reingest,
             kind=kind,
             schema=schema,
+            origin=origin,
         )
         with self._lock:
             self._jobs[job.job_id] = job
         self._executor.submit(
             self._run, job, staged, display_name, event_offset, delete_source
         )
+        return job
+
+    def submit_reingest(
+        self,
+        table_name: str,
+        staged: StagedFile,
+        action: str,
+        display_name: str,
+        event_offset: int,
+        provenance: dict[str, Any],
+        kind: str | None = None,
+        schema: str | None = None,
+    ) -> IngestJob:
+        """Re-ingest ``table_name`` from its source file on the ingest worker.
+
+        ``action`` is ``reingest`` (a ready experiment: replaced atomically, the
+        old data served until the new verify) or ``retry`` (a failed one: ingested
+        again as ``create_new`` with replacement). ``staged.path`` is the source
+        file in place, which the job never deletes. Raises ``ConflictError`` when
+        a job for the name is queued or running: the check and the registration
+        are one step, so two requests cannot both pass it.
+        """
+        if action not in (MODE_REINGEST, MODE_RETRY):
+            raise ValueError(f"unknown re-ingest action {action!r}")
+        job = IngestJob(
+            job_id=uuid.uuid4().hex[:16],
+            table_name=table_name,
+            mode=action,
+            source_name=staged.original_name,
+            size_bytes=staged.size_bytes,
+            force_reingest=action == MODE_RETRY,
+            kind=kind,
+            schema=schema,
+            origin=provenance.get("origin"),
+        )
+        with self._lock:
+            if any(j.table_name == table_name and j.status in (JOB_QUEUED, JOB_RUNNING)
+                   for j in self._jobs.values()):
+                raise ConflictError(
+                    f"A job for {table_name!r} is already queued or running.",
+                    table_name=table_name)
+            self._jobs[job.job_id] = job
+        self._executor.submit(self._run_reingest, job, staged, display_name, event_offset,
+                              provenance)
         return job
 
     def submit_rebuild(self, table_name: str, size_bytes: int = 0) -> IngestJob:
@@ -216,28 +275,10 @@ class JobStore:
                     created_at=job.started_at.replace(tzinfo=None),
                     progress=lambda stage, kind: self._advance(job, stage, kind),
                     force_reingest=job.force_reingest,
+                    provenance=self._provenance(job, staged),
                 )
 
-            # The tables were rebuilt under the write lock: anything cached (or
-            # being computed) against the old ones must go before the warmers
-            # run. The upload routes also invalidate at submit time.
-            from ..query import cache as cache_mod
-
-            cache_mod.invalidate_all(name)
-            job.warnings = result.warnings
-            job.result = result.as_job_result()
-            job.status = JOB_DONE if result.ok else JOB_FAILED
-            job.error = None if result.ok else "; ".join(result.warnings)
-            job.progress = 1.0
-            job.stage_label = "Ingestion complete" if result.ok else "Verification failed"
-            if result.ok:
-                job.kind = result.record.kind
-                # The co-registered frames' full-range scans are the queries
-                # that take seconds; pay them now, off the request path.
-                from ..query import warming
-
-                warming.warm(self._db, self._db.settings, [result.record])
-                self._queue_model_analysis(name)
+            self._complete(job, name, result)
 
         except ApiError as exc:
             self._fail(job, name, exc.detail)
@@ -252,6 +293,92 @@ class JobStore:
             # is 24 GB that nothing needs once the archive and derived tables exist.
             if delete_source:
                 staged.unlink()
+
+    def _complete(self, job: IngestJob, name: str, result) -> None:
+        """What follows an ingest that returned: caches, the job's record, warming, the analysis."""
+        # The tables were rebuilt under the write lock: anything cached (or
+        # being computed) against the old ones must go before the warmers
+        # run. The upload routes also invalidate at submit time.
+        from ..query import cache as cache_mod
+
+        cache_mod.invalidate_all(name)
+        job.warnings = result.warnings
+        job.result = result.as_job_result()
+        job.status = JOB_DONE if result.ok else JOB_FAILED
+        job.error = None if result.ok else "; ".join(result.warnings)
+        job.progress = 1.0
+        job.stage_label = "Ingestion complete" if result.ok else "Verification failed"
+        if result.ok:
+            job.kind = result.record.kind
+            # The co-registered frames' full-range scans are the queries
+            # that take seconds; pay them now, off the request path.
+            from ..query import warming
+
+            warming.warm(self._db, self._db.settings, [result.record])
+            self._queue_model_analysis(name)
+
+    def _provenance(self, job: IngestJob, staged: StagedFile) -> dict[str, Any] | None:
+        """The origin spec the pipeline records, or None for a caller that named no origin."""
+        if job.origin is None:
+            return None
+        return source_state.origin_spec(
+            self._db.settings, job.origin, staged.path, staged.original_name, job.job_id)
+
+    def _run_reingest(
+        self,
+        job: IngestJob,
+        staged: StagedFile,
+        display_name: str,
+        event_offset: int,
+        provenance: dict[str, Any],
+    ) -> None:
+        """A re-ingest or a retry, on the ingest worker. The source file is never deleted."""
+        job.status = JOB_RUNNING
+        job.started_at = dt.datetime.now(dt.timezone.utc)
+        name = job.table_name
+        reingest = job.mode == MODE_REINGEST
+        try:
+            with self._db.write_lock() as con:
+                if reingest:
+                    result = pipeline.reingest_atomic(
+                        con, self._db.settings, name, staged.path,
+                        source_name=staged.original_name, provenance=provenance,
+                        job_id=job.job_id,
+                        progress=lambda stage, kind: self._advance(job, stage, kind),
+                    )
+                else:
+                    result = pipeline.run_ingest(
+                        con, self._db.settings, name, staged.path,
+                        source_name=staged.original_name,
+                        mode="create_new",
+                        event_offset=event_offset,
+                        display_name=display_name,
+                        check_space=False,
+                        created_at=job.started_at.replace(tzinfo=None),
+                        progress=lambda stage, kind: self._advance(job, stage, kind),
+                        force_reingest=True,
+                        provenance={**provenance, "job_id": job.job_id},
+                    )
+            self._complete(job, name, result)
+            if reingest:
+                job.stage_label = "Re-ingest complete" if result.ok else "Re-ingest rolled back"
+        except ApiError as exc:
+            self._fail_reingest(job, name, exc.detail, reingest)
+        except Exception as exc:  # noqa: BLE001 - the worker must never die silently
+            log.error("%s of %r failed: %s\n%s", job.mode, name, exc, traceback.format_exc())
+            self._fail_reingest(job, name, str(exc), reingest)
+        finally:
+            job.finished_at = dt.datetime.now(dt.timezone.utc)
+
+    def _fail_reingest(self, job: IngestJob, name: str, message: str, reingest: bool) -> None:
+        """A failed re-ingest left the experiment as it was; a failed retry fails it again."""
+        if reingest:
+            # Rolled back: the registry row is untouched and is not written here.
+            job.status, job.error = JOB_FAILED, message
+            job.stage_label = "Re-ingest rolled back"
+        else:
+            self._fail(job, name, message)
+        self._invalidate(name)
 
     def _run_rebuild(self, job: IngestJob) -> None:
         job.status = JOB_RUNNING

@@ -2,12 +2,15 @@
 
 At every start - and on the Admin Settings panel's Scan now - the server looks
 in ``CALOSRV_AUTO_INGEST_DIR`` (compose: the repository's ./ingest, mounted
-read-only) and turns each new CSV or Parquet file into an experiment named
+read-only at /app/ingest) and turns each new CSV or Parquet file into an experiment named
 after it. It is idempotent by construction. A file is skipped when its
 experiment already exists in any form - a registry row in any status, a table,
 an archive - or when the same file is already archived under another name.
 Nothing is ever forced; replacing an experiment is the upload dialog's Replace,
-asked for explicitly.
+asked for explicitly. A file that has *changed* since its experiment was
+ingested from it - the hf-sync service refreshes ./ingest at every start - is
+reported as such (action ``changed``) and left alone: the Source files section
+of Admin Settings offers Re-ingest for it, and the scan never does.
 
 The scan only decides and queues. The ingests run on the single worker every
 upload uses, one at a time, so the server answers at once and memory holds one
@@ -28,9 +31,9 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
-from ..db import catalog, naming, registry
+from ..db import archive, catalog, naming, registry
 from ..errors import IngestError, InsufficientStorageError, ValidationError
-from . import formats, stream
+from . import formats, source_state, stream
 from .load import MODE_CREATE_NEW
 from .stream import StagedFile
 
@@ -49,7 +52,11 @@ _SCAN_LOCK = threading.Lock()
 
 @dataclass
 class ScanEntry:
-    """What the scan did with one file. ``action`` is one of the documented outcomes."""
+    """What the scan did with one file. ``action`` is one of the documented outcomes.
+
+    ``changed`` is the one added for source tracking: the experiment exists and
+    this file differs from what it was ingested from. It is a report, never a job.
+    """
 
     file: str
     table_name: str | None
@@ -224,6 +231,25 @@ class SettleWatch:
             self._running.release()
 
 
+def _changed_detail(settings: Settings, record: registry.ExperimentRecord, path: Path) -> str | None:
+    """The source-state sentence when ``path`` is the file the experiment came from and differs.
+
+    None when the experiment's recorded source is another file (an upload, or a
+    file of the same derived name elsewhere), or when this file matches it: the
+    experiment simply exists then.
+    """
+    try:
+        manifest = archive.read_manifest(settings, record.table_name)
+    except (OSError, ValueError, TypeError, KeyError):
+        manifest = None
+    source = source_state.inspect(record, settings, manifest=manifest)
+    if source.state != source_state.CHANGED or source.resolved is None:
+        return None
+    if source.resolved != path.resolve():
+        return None
+    return source.detail
+
+
 def _consider(database, settings: Settings, store, path: Path,
               claimed: dict[str, str], active: set[str]) -> ScanEntry:
     """Decide what to do with one file, in order: name, collisions, existence, checks."""
@@ -240,14 +266,23 @@ def _consider(database, settings: Settings, store, path: Path,
 
     with database.read_cursor() as con:
         present = catalog.presence(con, settings, name)
+        record = registry.get_experiment(con, name) if present.status is not None else None
     if present.exists:
         # The wording the operations directive specifies, for grepping the log.
         log.info("Table '%s' already exists in database catalog. Skipping automatic ingestion.",
                  name)
         detail = f"Experiment {name!r} already exists ({present.describe()})."
         if present.status == registry.STATUS_FAILED:
-            detail += (" It failed earlier: re-ingest it from the Upload dataset section of "
-                       "Admin Settings with Replace ticked.")
+            detail += (" It failed earlier: use Retry ingest under Source files in Admin "
+                       "Settings.")
+        elif present.status == registry.STATUS_READY and record is not None:
+            changed = _changed_detail(settings, record, path)
+            if changed is not None:
+                return ScanEntry(
+                    path.name, name, "changed",
+                    f"Experiment {name!r} exists, and this file has changed since it was "
+                    f"ingested. {changed} It is never re-ingested by itself: use Re-ingest "
+                    "under Source files in Admin Settings.")
         return ScanEntry(path.name, name, "exists", detail)
     if name in active:
         return ScanEntry(path.name, name, "queued",
@@ -279,6 +314,7 @@ def _consider(database, settings: Settings, store, path: Path,
         delete_source=False,
         kind=check.schema.kind,
         schema=check.schema.label,
+        origin=source_state.ORIGIN_DROP_FOLDER,
     )
     rows = f", {check.rows:,} rows" if check.rows is not None else ""
     return ScanEntry(path.name, name, "submitted",
