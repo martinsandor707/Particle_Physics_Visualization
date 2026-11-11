@@ -18,31 +18,41 @@ Both honour the same scientific-integrity rules — see [CLAUDE.md](CLAUDE.md).
 ## Quick start
 
 This section is for physicists who want to run the dashboard on their own
-computer and have not used Git or Docker before. You need three programs and
-six commands, and no account anywhere. After that the dashboard runs in your web
-browser.
+computer and have not used Git or Docker before. You need two programs and
+three commands, and no account anywhere. The dashboard downloads its own data
+the first time it starts, and then runs in your web browser.
 
 ### What you need
 
-**Three programs.** Install them, then open a new terminal window so that it
+**Two programs.** Install them, then open a new terminal window so that it
 finds them.
 
 | Program | Used for | Download |
 |---|---|---|
 | Git | downloading the code | <https://git-scm.com/downloads> |
-| Python 3.10 or newer | downloading the data | <https://www.python.org/downloads/> |
-| Docker Desktop on Windows and macOS, or Docker Engine with the Compose plugin on Linux | running the dashboard | <https://docs.docker.com/get-started/get-docker/> |
+| Docker Desktop on Windows and macOS, or Docker Engine with the Compose plugin on Linux | downloading the data and running the dashboard | <https://docs.docker.com/get-started/get-docker/> |
 
-To see which Python you have, run `python3 --version` (`py --version` on
-Windows). Many Linux systems already have a new enough one; the one macOS
-provides is too old, so install Python from python.org there. If you use
-[uv](https://docs.astral.sh/uv/), it can take Python's place: see the end of
-step 2.
+Python is not needed. It is only used by the [manual download](#download-the-data-by-hand-optional),
+an alternative for a computer without internet access at the start.
 
-**Room on your computer.** About 11 GB of free disk space: the code takes
-0.6 GB, the data download 3.1 GB, the dashboard's Docker image 0.6 GB, and the
-loaded database another 6.0 GB. Docker must also be allowed at least 8 GB of
-memory:
+**Room on your computer.** About 30 GB of free disk space. These figures were
+measured on the development computer with every file of `ingest` loaded:
+
+| What | Size |
+|---|---|
+| the code | 0.6 GB |
+| the data download: nine Parquet files in `ingest` (11,068,011,204 bytes) and the sixteen models in `xgboost_models` (16,286,071 bytes) | 11.1 GB |
+| the loaded data in the project's `data` folder: `calorimeter.duckdb` (7,134,261,248 bytes) and `archive` (10,489,229,818 bytes) | 17.6 GB |
+| the dashboard's Docker image | 0.6 GB |
+| **together** | **about 30 GB** |
+
+The space the load itself uses while it runs, and the new copy of a file that
+an update downloads beside the old one before it swaps them, are not included:
+the figures are the sizes at rest.
+If the disk is smaller, the [environment variable `HF_SYNC_INCLUDE`](#configuration)
+narrows the download to the files you want, for example
+`ingest/hits_all_models.parquet,xgboost_models/*.json`. Docker must also be
+allowed at least 8 GB of memory:
 
 - **Windows:** Docker Desktop may use half of the computer's memory by default,
   so a computer with 16 GB is enough.
@@ -66,14 +76,162 @@ cd Particle_Physics_Visualization
 2. `cd Particle_Physics_Visualization` moves into that folder. Run every later
    command from inside it.
 
-### Step 2: download the data
+### Step 2: start the dashboard
 
-The data are kept in a public Hugging Face dataset,
-<https://huggingface.co/datasets/martinsandor707/particles_combined_all_models>,
-which anyone may download without an account. Hugging Face's download program,
-`hf`, puts each file into the folder the dashboard reads it from. The commands
-below install `hf` into a separate Python environment inside the project
-folder, so it changes nothing else on your computer, and then run it.
+On Windows and macOS, start Docker Desktop first and wait until it says that it
+is running. Then, in the same terminal:
+
+```
+docker compose --env-file laptop.env up --build
+```
+
+This builds two small programs and runs them one after the other.
+
+1. **The data download.** A service named `hf-sync` downloads the data from
+   the project's public Hugging Face dataset,
+   <https://huggingface.co/datasets/martinsandor707/particles_combined_all_models>,
+   which anyone may download without an account. It puts the nine Parquet files
+   into the folder `ingest` and the sixteen XGBoost models into
+   `xgboost_models`, and its lines in the terminal begin with `hf-sync:`. It
+   downloads 11.1 GB the first time, so this step takes as long as your
+   connection needs for that. It then stops, and the dashboard starts. If the
+   download fails, the dashboard does not start: see [If something goes
+   wrong](#if-something-goes-wrong).
+2. **The dashboard.** When the terminal shows `Uvicorn running on
+   http://0.0.0.0:8000`, open <http://localhost:8000> in your web browser.
+   Leave the terminal open while you use the dashboard, because it runs for as
+   long as that command does. Press Ctrl+C in the terminal to stop it.
+
+Every later start runs the same command. The download service then only asks
+Hugging Face whether anything changed, which takes seconds, and fetches nothing
+that is already on your computer and unchanged.
+
+The file `laptop.env` sets how much memory the dashboard may use, sized for a
+computer that can give Docker 8 GB:
+
+```
+DUCKDB_MEMORY_GB=4
+CONTAINER_MEMORY_LIMIT=7g
+```
+
+If Docker may use 24 GB or more, you can leave out `--env-file laptop.env`. The
+dashboard then gives its database 16 GB and loads the data faster. Whichever you
+choose, use the same command every time you start it.
+
+**If port 8000 is taken.** Set `HOST_PORT` to another port, and open that port
+instead of 8000. The variable is read from the environment. `--env-file
+laptop.env` replaces the file `.env`, so with it, put `HOST_PORT` in the shell:
+
+```
+HOST_PORT=8123 docker compose --env-file laptop.env up --build
+```
+
+then open <http://localhost:8123>. On Windows PowerShell, set it first with
+`$env:HOST_PORT = "8123"`. Alternatively, write `HOST_PORT=8123` in a file
+named `.env` and pass both files, `--env-file .env --env-file laptop.env`.
+[`.env.example`](.env.example) lists this and the other settings you can change,
+each with one line of explanation. Port 8000 stays the dashboard's port inside
+its container.
+
+### Step 3: wait for the first data load
+
+The first start takes a while, and the page opens before it has finished.
+
+1. Docker builds the two programs. This happens once, and again after an
+   update; it takes about a minute on a fast connection, longer on a slow one.
+2. The data download runs, as above.
+3. The dashboard loads a built-in demonstration dataset of two events within
+   seconds, and the page opens on it.
+4. It then loads the nine files in the `ingest` folder, one after the other:
+   `hits_all_models.parquet`, the full dataset of 20,325 events; the four
+   aggregates `electron_…`, `muon_…`, `pion_…` and `proton_…`, about 100,000
+   single-particle events each, which the **Models** page analyses with the
+   XGBoost models; and the three single-particle hit files
+   `electron_…`, `muon_…` and `pion_…` `_hits_with_model_outputs.parquet`. It
+   recognises `hits_all_models_dummy.parquet` as the demonstration dataset it
+   already has, and skips it.
+
+Until the full dataset is ready, a banner at the top of the page says that the
+default experiment `'hits_all_models'` is queued or ingesting, and the
+**Experiment** menu at the top lists it greyed out. When the terminal prints
+
+```
+Verification for 'hits_all_models': PASSED
+```
+
+reload the page and choose `hits_all_models — 20,325 events` in the
+**Experiment** menu. From then on, opening <http://localhost:8000> starts on it.
+On a desktop computer with `laptop.env`, the full dataset on its own was ready
+94 s after the start, and the dashboard used at most 4.6 GB of memory while
+loading it. The four aggregates take seconds each, and on a desktop computer the
+**Models** page's analyses of them were done within a minute after that. Those
+times were measured on the first five files; the three hit files of the
+electron, muon and pion (8.02 GB together, the pion's 5.69 GB of them) were not
+part of that measurement, and neither was the download, so allow longer than a
+few minutes, and more on a laptop.
+
+The loaded data is kept in the project's `data` folder, so later starts load
+nothing again. The files in `ingest` are not ingested a second time and are
+changed only by the download service when the dataset has changed. After each
+start, the first view of each reference frame can take several seconds while it
+is computed; later views are fast.
+
+### Every day
+
+Run these in the project folder.
+
+- **Start the dashboard:** `docker compose --env-file laptop.env up`
+- **Stop it:** press Ctrl+C in its terminal, or run `docker compose down` in
+  another terminal.
+- **Update to the newest version:**
+
+  ```
+  git pull
+  docker compose --env-file laptop.env up --build
+  ```
+
+  `git pull` brings the code up to date, and `up --build` rebuilds the programs
+  and starts them; the download service brings the data up to date first. A
+  file that changed in the dataset is fetched again, and a file that did not is
+  left alone. An experiment the dashboard has already loaded keeps showing its
+  old data until you re-ingest it: see **Source files** in [Admin
+  Settings](#admin-settings-the-default-view), where **Re-ingest** loads the
+  new file without taking the experiment offline. Nothing is re-ingested by
+  itself.
+- **Start without a connection:** if the last start finished its download,
+  the same command works offline. The download service says that Hugging Face
+  could not be reached and starts the dashboard with the files it has.
+- **Start again while it runs:** a second `docker compose up` runs the download
+  service again before it looks at the dashboard. A file it updates is swapped
+  into place whole, and the dashboard keeps serving what it has loaded. To
+  restart the dashboard alone, without the download, use
+  `docker compose --env-file laptop.env up --no-deps calorimeter-dashboard`.
+
+A copy made before the data moved to Hugging Face has no `ingest/.hf-sync`
+folder yet, and its `git pull` removes the two `hits_all_models` files from
+`ingest`. Run the start command once: the download service checks each file
+that is already there against the dataset (`Checking … against the dataset…`,
+which reads every file once, 11.1 GB in all) and adopts it when it matches,
+fetches the rest, and the dashboard loads the experiments it lacks. A file that
+does not match is kept and named in the terminal (see below). Data the
+dashboard has already loaded stays in its `data` folder.
+
+### Download the data by hand (optional)
+
+Use this on a computer that has no internet access when the dashboard starts,
+or whose connection is slow or often interrupted: download the files first,
+somewhere with a good connection, then start the dashboard with the download
+service turned off. It needs Python 3.10 or newer, from
+<https://www.python.org/downloads/>. To see which Python you have, run
+`python3 --version` (`py --version` on Windows). Many Linux systems already
+have a new enough one; the one macOS provides is too old, so install Python
+from python.org there. If you use [uv](https://docs.astral.sh/uv/), it can take
+Python's place: see the end of this section.
+
+Hugging Face's download program, `hf`, puts each file into the folder the
+dashboard reads it from. The commands below install `hf` into a separate Python
+environment inside the project folder, so it changes nothing else on your
+computer, and then run it. Run them in the project folder.
 
 On **macOS and Linux**:
 
@@ -95,7 +253,7 @@ py -m venv .venv
    `.venv`.
 2. The second installs `hf` into it, in the version these instructions were
    tested with.
-3. The third downloads the data, 3.1 GB in all: the six data files into the
+3. The third downloads the data, 11.1 GB in all: the nine data files into the
    folder `ingest`, and the sixteen XGBoost models into `xgboost_models`. It
    warns that you are sending unauthenticated requests, which is expected
    because no account is needed, and the first time it may suggest an `hf-cli`
@@ -119,109 +277,34 @@ whose XGBoost package has no ready-made build for macOS. Keep both `--include`
 patterns too: without them, the download also writes the dataset's own
 `.gitattributes` and `ingest/README.md` over the project's.
 
-### Step 3: start the dashboard
-
-On Windows and macOS, start Docker Desktop first and wait until it says that it
-is running. Then, in the same terminal:
+Then start the dashboard with the download service off, so that it does not
+look for the internet:
 
 ```
-docker compose --env-file laptop.env up --build
+HF_SYNC=0 docker compose --env-file laptop.env up --build
 ```
 
-When the terminal shows `Uvicorn running on http://0.0.0.0:8000`, open
-<http://localhost:8000> in your web browser. Leave the terminal open while you
-use the dashboard, because it runs for as long as that command does. Press
-Ctrl+C in the terminal to stop it.
-
-The file `laptop.env` sets how much memory the dashboard may use, sized for a
-computer that can give Docker 8 GB:
-
-```
-DUCKDB_MEMORY_GB=4
-CONTAINER_MEMORY_LIMIT=7g
-```
-
-If Docker may use 24 GB or more, you can leave out `--env-file laptop.env`. The
-dashboard then gives its database 16 GB and loads the data faster. Whichever you
-choose, use the same command every time you start it.
-
-### Step 4: wait for the first data load
-
-The first start takes a few minutes, and the page opens before it has finished.
-
-1. Docker builds the dashboard. This happens once, and again after an update;
-   it takes about a minute on a fast connection, longer on a slow one.
-2. The dashboard loads a built-in demonstration dataset of two events within
-   seconds, and the page opens on it.
-3. It then loads the files in the `ingest` folder, one after the other:
-   `hits_all_models.parquet`, the full dataset of 20,325 events, and the four
-   aggregates `electron_…`, `muon_…`, `pion_…` and `proton_…`, about 100,000
-   single-particle events each, which the **Models** page analyses with the
-   XGBoost models. It recognises `hits_all_models_dummy.parquet` as the
-   demonstration dataset it already has, and skips it.
-
-Until the full dataset is ready, a banner at the top of the page says that the
-default experiment `'hits_all_models'` is queued or ingesting, and the
-**Experiment** menu at the top lists it greyed out. When the terminal prints
-
-```
-Verification for 'hits_all_models': PASSED
-```
-
-reload the page and choose `hits_all_models — 20,325 events` in the
-**Experiment** menu. From then on, opening <http://localhost:8000> starts on it.
-On a desktop computer with `laptop.env`, the full dataset on its own was ready
-94 s after the start, and the dashboard used at most 4.6 GB of memory while
-loading it. The four aggregates take seconds each, and on a desktop computer the
-**Models** page's analyses of them were done within a minute after that. Allow a
-few minutes on a laptop.
-
-The loaded data is kept in the project's `data` folder, so later starts take a
-few seconds and load nothing again. The files in `ingest` are never changed.
-After each start, the first view of each reference frame can take several
-seconds while it is computed; later views are fast.
-
-### Every day
-
-Run these in the project folder.
-
-- **Start the dashboard:** `docker compose --env-file laptop.env up`
-- **Stop it:** press Ctrl+C in its terminal, or run `docker compose down` in
-  another terminal.
-- **Update to the newest version:**
-
-  On **macOS and Linux**:
-  ```
-  git pull
-  .venv/bin/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
-  docker compose --env-file laptop.env up --build
-  ```
-    On **Windows**:
-  ```
-  git pull
-  .venv/Scripts/hf download martinsandor707/particles_combined_all_models --repo-type dataset --include "ingest/*.parquet" --include "xgboost_models/*.json" --local-dir .
-  docker compose --env-file laptop.env up --build
-  ```
-  On Windows the middle line starts with `.venv\Scripts\hf` instead, and with
-  uv it is the `uv run` command of step 2. The download fetches only files that
-  changed. A copy made before the data moved to Hugging Face has no `.venv`
-  folder yet, and its `git pull` removes the two `hits_all_models` files from
-  `ingest`: run all of step 2 once in place of the middle line. Data the
-  dashboard has already loaded stays in its `data` folder.
+On Windows PowerShell, run `$env:HF_SYNC = "0"` first. With `HF_SYNC=0` the
+service prints one line saying that it was skipped and stops, and the dashboard
+starts at once. Leave `HF_SYNC` out again later to have the data kept up to
+date automatically. A file placed by hand is verified once at the next such
+start, and not downloaded again if it is the dataset's.
 
 ### If something goes wrong
 
 | What you see | What to do |
 |---|---|
-| `python3: command not found`, `'py' is not recognized`, or `Python was not found` | Python is not installed, or the terminal was opened before it was. Install it, open a new terminal, run `cd Particle_Physics_Visualization`, and start step 2 again. With Anaconda on Windows, type `python` where step 2 says `py`. |
-| `ensurepip is not available` | On Debian and Ubuntu, Python's environments come in a separate package. Install it with `sudo apt install python3-venv`, then start step 2 again. |
-| `Could not find a version that satisfies the requirement huggingface_hub==2.3.0` | This Python is older than 3.10; on macOS it is probably the one Apple provides. Install a newer one from python.org, open a new terminal, and start step 2 again with `python3 -m venv --clear .venv` (`py -m venv --clear .venv` on Windows) as its first command. |
-| The download stops with an error such as `ConnectError`, `ReadTimeout` or `Connection reset` | The connection was interrupted. Run the `hf download` command again: it keeps what it already has and fetches the rest. |
-| `git pull` stops with `Your local changes to the following files would be overwritten by merge`, naming the two `hits_all_models` files | Your copy holds data files that Git still counts as its own, for example ones copied in by hand. Move those two files out of `ingest`, run `git pull`, then move them back. The download of step 2 checks them and does not fetch them again. |
+| `python3: command not found`, `'py' is not recognized`, or `Python was not found` | Python is not installed, or the terminal was opened before it was. Install it, open a new terminal, run `cd Particle_Physics_Visualization`, and start the manual download again. With Anaconda on Windows, type `python` where step 2 says `py`. |
+| `ensurepip is not available` | On Debian and Ubuntu, Python's environments come in a separate package. Install it with `sudo apt install python3-venv`, then start the manual download again. |
+| `Could not find a version that satisfies the requirement huggingface_hub==2.3.0` | This Python is older than 3.10; on macOS it is probably the one Apple provides. Install a newer one from python.org, open a new terminal, and start the manual download again with `python3 -m venv --clear .venv` (`py -m venv --clear .venv` on Windows) as its first command. |
+| The manual download stops with an error such as `ConnectError`, `ReadTimeout` or `Connection reset` | The connection was interrupted. Run the `hf download` command again: it keeps what it already has and fetches the rest. |
+| `hf-sync:` lines ending in `error:`, and then a message that a dependency failed to start naming the `hf-sync` container, which exited with code 1 | The download service failed, so Docker did not start the dashboard (Compose words this as "dependency failed to start" with the container's name and its exit code). Scroll up to the last `hf-sync:` lines. With no connection and no earlier download they read `error: Hugging Face could not be reached (…) and nothing was ever synced to …`: connect and run the command again, or download by hand as above and start with `HF_SYNC=0`. With a download that failed they end with `error: N file(s) are missing or unfinished: …`, followed by `The previous copy of each is untouched`: run the command again to continue. Files already finished are not downloaded again; a file cut off midway starts again from its beginning, because Hugging Face's downloader does not resume. A download never writes over a dataset file: each file is downloaded into the hidden `ingest/.hf-sync/stage` folder and swapped into place only once whole, so Ctrl-C or `docker compose stop` leaves every file in place as it was. An offline start succeeds only when the last download finished and every one of its files is still on the disk at its size; `HF_SYNC=0` skips the service altogether. |
+| `hf-sync: warning: ingest/… changed on this computer since the last sync; kept.`, or `… differs from the dataset; kept.` | The service never overwrites a file you changed, or one it did not put there whose content differs from the dataset's: it compares contents by hashing the file (`Checking … against the dataset…`), and adopts a file whose content matches, whatever its date. To replace a kept file with the dataset's copy, start once with `HF_SYNC_OVERWRITE=1` (`HF_SYNC_OVERWRITE=1 docker compose --env-file laptop.env up --build`). Nothing is ever deleted. |
+| `git pull` stops with `Your local changes to the following files would be overwritten by merge`, naming the two `hits_all_models` files | Your copy holds data files that Git still counts as its own, for example ones copied in by hand or by the older download. Move those two files out of `ingest`, run `git pull`, then move them back. The sync at the next start checks them once and does not fetch them again. |
 | `Cannot connect to the Docker daemon`, `error during connect`, or `docker` is not found | Docker is not running or not installed. Start Docker Desktop and wait until it is running. On Linux, if you see `permission denied`, put `sudo` in front of the `docker` command. |
-| `port is already allocated` | Another program already uses port 8000, possibly an earlier copy of the dashboard. Run `docker compose down`, or close the other program, then start again. |
-| Several minutes after the start, the **Experiment** menu still has no `hits_all_models`, even after a reload | The full dataset was not loaded. Open **Admin Settings** at the top right and look under **Automatic ingest**: the line for `hits_all_models.parquet` gives the reason. If no line names it, the file is not in the `ingest` folder: stop the dashboard, run the download of step 2 again, and start it again. |
-| The **Experiment** menu shows `hits_all_models — failed`, and a banner gives the reason; the terminal may also have shown `exited with code 137` | Loading usually fails because it ran out of memory. Give Docker more memory, or start with `--env-file laptop.env`, then load the dataset again: in **Admin Settings → Upload dataset**, choose **Already on the server**, pick `ingest/hits_all_models.parquet`, enter `hits_all_models` as the experiment name, tick **Replace the existing experiment**, and select **Upload & Ingest**. |
+| `port is already allocated` | Another program already uses port 8000, possibly an earlier copy of the dashboard. Run `docker compose down`, or close the other program, then start again; or keep the other program and set `HOST_PORT` to a free port, as in step 2. |
+| Several minutes after the start, the **Experiment** menu still has no `hits_all_models`, even after a reload | The full dataset was not loaded. Open **Admin Settings** at the top right and look under **Automatic ingest**: the line for `hits_all_models.parquet` gives the reason. If no line names it, the file is not in the `ingest` folder: stop the dashboard and start it again, so that the download service fetches it. |
+| The **Experiment** menu shows `hits_all_models — failed`, and a banner gives the reason; the terminal may also have shown `exited with code 137` | Loading usually fails because it ran out of memory. Give Docker more memory, or start with `--env-file laptop.env`, then load the dataset again: open **Admin Settings → Source files**, find `hits_all_models` and select **Retry ingest**. It reads the file in `ingest` again; no upload is needed. |
 
 The rest of this README is for developers and operators: configuration, data
 loading, the interface in detail, the API and the code layout. With the data
@@ -232,16 +315,27 @@ with the default memory settings.
 
 ## Configuration
 
-Set in `docker-compose.yml`. The two memory values are read from the
-environment, so they change without editing the file: from an env file
-(`docker compose --env-file laptop.env up`, as the [Quick start](#quick-start)
-does) or from the shell.
+Set in `docker-compose.yml`. The host port, the two memory values and the
+`HF_SYNC_*` variables are read from the environment, so they change without
+editing the file: from an env file (`docker compose --env-file laptop.env up`,
+as the [Quick start](#quick-start) does) or from the shell. `--env-file`
+replaces the file `.env`, which compose otherwise reads from this folder by
+itself, so a setting that is in `.env` needs `--env-file .env --env-file
+laptop.env`, or the shell. [`.env.example`](.env.example) lists them.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `DUCKDB_MEMORY_GB` | `16` | Integer memory ceiling for DuckDB. `laptop.env` sets `4`; the production server sets `100`. |
 | `CONTAINER_MEMORY_LIMIT` | `20g` | Compose only: the container's `mem_limit` and `memswap_limit`, kept at least 3 GB above `DUCKDB_MEMORY_GB` (a test holds every profile to that). `laptop.env` sets `7g`. |
-| `PORT` | `8000` | HTTP listen port. |
+| `HOST_PORT` | `8000` | Compose only: the host port that the container's port 8000 is published on (`"${HOST_PORT:-8000}:8000"`). Change it when 8000 is taken, and open that port. |
+| `HF_SYNC` | `1` | Compose only, a variable of the `hf-sync` service. `0`, `false`, `no` or `off` (any case) skips the download: the service prints one line saying so and the dashboard starts at once. |
+| `HF_SYNC_REPO` | `martinsandor707/particles_combined_all_models` | The Hugging Face dataset repository that `hf-sync` mirrors. |
+| `HF_SYNC_REVISION` | `main` | The branch, tag or commit of that repository. The sync resolves it to one commit and fetches every file at that commit. |
+| `HF_SYNC_INCLUDE` | `ingest/*.parquet,xgboost_models/*.json` | Comma-separated patterns, matched as `hf` matches them (`*` also crosses `/`). Only paths that match and begin with `ingest/` or `xgboost_models/` are fetched, and `ingest/README.md` never. Narrow it on a small machine. |
+| `HF_SYNC_OVERWRITE` | `0` | `1` lets the sync replace a local file that changed since the last sync, or that differs from the dataset's on a first sync. At `0` such a file is kept and reported. |
+| `HF_SYNC_ROOT` | `/sync` | Inside the `hf-sync` container, where the two folders are mounted. Compose does not set it; the tests do. |
+| `HF_TOKEN` | empty | Compose only, passed to `hf-sync`: a Hugging Face token for a private copy of the dataset. The public dataset needs none, and an empty value is read as none. |
+| `PORT` | `8000` | HTTP listen port, inside the container; `HOST_PORT` publishes it. |
 | `CALOSRV_DATA_DIR` | `/app/data` | Database, upload staging and DuckDB temp spill. |
 | `CALOSRV_SEED_CSV` | — | Override the baseline seed file. The seed is Parquet now (`hits_all_models_dummy.parquet`), and the variable takes a CSV or a Parquet file, as every ingest does; the name is kept for existing deployments. Unset, the first of `/app/seed/hits_all_models_dummy.parquet`, `<data dir>/hits_all_models_dummy.parquet` and the repository root's copy that exists. |
 | `CALOSRV_DB_PATH` | `<data dir>/calorimeter.duckdb` | The DuckDB database file. |
@@ -249,16 +343,34 @@ does) or from the shell.
 | `CALOSRV_CORS_ORIGINS` | unset | Comma-separated origins allowed to call the API from another site. Unset, no cross-origin middleware is installed. |
 | `CALOSRV_DEBOUNCE_MS` | `150` | The debounce the server advertises to the frontend (`compute.debounce_ms` in `GET /api/experiments`). |
 | `CALOSRV_SERVER_URL` | `http://127.0.0.1:<PORT>` | Where `python -m calosrv.ingest` looks for a running server to delegate to. |
-| `CALOSRV_LOCAL_INGEST_DIR` | `/app/host` | The one root that server-side ingest (**Already on the server**, `POST /api/ingest-local`) may read. Empty, or a directory that does not exist, turns it off. |
-| `CALOSRV_MODEL_DIR` | `xgboost_models/` beside `calosrv` when it exists (or when the container's mount does not); otherwise `/app/host/xgboost_models`, where compose mounts the repository read-only | The folder scanned for shipped XGBoost models (see [The XGBoost analysis](#the-xgboost-analysis)). One directory per species, `xgboost_<species>/` (lowercase letters and digits, starting with a letter), holding `standalone_<task>_s<seed>_model.json` with `<task>` `momentum` or `angle` and `<seed>` an integer. Any other `.json` in a species directory, a symbolic link, a file over 256 MB, or a file that is not an XGBoost `reg:squarederror` gbtree model with named features (one target for momentum, two for angle) is listed in Admin Settings with its reason and left out. A folder that does not exist is reported there and is not fatal. |
+| `CALOSRV_LOCAL_INGEST_DIR` | `/app/ingest` | The one root that server-side ingest (**Already on the server**, `POST /api/ingest-local`) may read. Empty, or a directory that does not exist, turns it off. |
+| `CALOSRV_MODEL_DIR` | `xgboost_models/` beside `calosrv` when it exists (or when the container's mount does not); otherwise `/app/xgboost_models`, where compose mounts the repository's `./xgboost_models` read-only | The folder scanned for shipped XGBoost models (see [The XGBoost analysis](#the-xgboost-analysis)). One directory per species, `xgboost_<species>/` (lowercase letters and digits, starting with a letter), holding `standalone_<task>_s<seed>_model.json` with `<task>` `momentum` or `angle` and `<seed>` an integer. Any other `.json` in a species directory, a symbolic link, a file over 256 MB, or a file that is not an XGBoost `reg:squarederror` gbtree model with named features (one target for momentum, two for angle) is listed in Admin Settings with its reason and left out. A folder that does not exist is reported there and is not fatal. |
 | `CALOSRV_CACHE_ENTRIES` | `128` | Native-resolution matrix bundles held in the LRU. |
 | `CALOSRV_CANONICAL_CACHE_ENTRIES` | `32` | Entries of each co-registered bundle LRU (canonical, translated, local) and of the ensemble voxel-cloud LRU. |
-| `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/host/ingest`, the repository's `./ingest`, read-only. |
+| `CALOSRV_AUTO_INGEST_DIR` | unset (off) | The [drop folder](#drop-folder-automatic-ingest) scanned at every start. Compose: `/app/ingest`, the repository's `./ingest`, read-only. |
 | `CALOSRV_AUTO_INGEST_SETTLE_S` | `30` | A dropped file modified more recently is taken to be still copying; the scan runs again by itself one second after the window closes. |
 | `CALOSRV_CONFIG_PATH` | `<data dir>/config.json` | Where the [Admin Settings](#admin-settings-the-default-view) panel saves the default view. |
 | `CALOSRV_DEFAULT_DATASET`, `…_COORD_SYSTEM`, `…_MODEL`, `…_CHANNEL`, `…_DISPLAY_MODE`, `…_RHO_NORM` | unset | The default view's environment layer, beneath what the panel saves. Compose sets `CALOSRV_DEFAULT_DATASET=hits_all_models`, the experiment the drop folder creates from the tracked `ingest/hits_all_models.parquet`. An invalid value is ignored with a warning. |
 | `CALOSRV_ALLOW_RAM_STORAGE` | unset | `1` lets the database, temp and archive directories sit on tmpfs/ramfs/zram. The test suite sets it for its throw-away databases; nothing else should. |
 | `TMPDIR` | `/app/data/staging` | Where Starlette spools uploads before they are staged; kept on the data volume, never in a tmpfs `/tmp`. |
+
+**What compose mounts.** The dashboard's container has three mounts, and nothing
+else of the repository is mounted: `./data` at `/app/data` (read-write: the
+database, the archive, staging and `config.json`), `./ingest` at `/app/ingest`
+and `./xgboost_models` at `/app/xgboost_models`, both read-only. The `hf-sync`
+service mounts the two folders read-write, at `/sync/ingest` and
+`/sync/xgboost_models`, and is the only thing that writes to them. It runs
+before the dashboard (`depends_on` with `condition:
+service_completed_successfully`, so a failed download stops the start),
+never restarts (`restart: "no"`), and runs under a small init process
+(`init: true`): a Python process alone as PID 1 would ignore the stop signal
+that Ctrl-C and `docker compose stop` send. Its consequence for ingest: **server-side
+ingest reaches only `./ingest`.** The **Already on the server** source of
+**Upload dataset** and `python -m calosrv.ingest` read files under
+`/app/ingest` and nowhere else on the host (the paths are confined to that one
+root); a file elsewhere is uploaded from the browser, or put in `ingest` first. Both settings that name folders
+(`CALOSRV_LOCAL_INGEST_DIR` and `CALOSRV_AUTO_INGEST_DIR`) point there in
+compose, so the drop folder and the server-side root are one folder.
 
 > **Give the container more memory than DuckDB's ceiling, and no more swap.**
 > `DUCKDB_MEMORY_GB` bounds DuckDB's buffer manager only — not the Python heap,
@@ -304,11 +416,12 @@ hits). [Expected schema](#expected-schema) lists them, and the
 
 ```bash
 docker compose exec calorimeter-dashboard \
-    python -m calosrv.ingest --input /app/host/ingest/hits_all_models.parquet --table all_models
+    python -m calosrv.ingest --input /app/ingest/hits_all_models.parquet --table all_models
 ```
 
-The repository is mounted read-only at `/app/host`, so a multi-gigabyte file is
-read in place and never traverses HTTP. Measured on the 24 GB / 24,161,893-row
+The repository's `./ingest` folder is mounted read-only at `/app/ingest` (and
+nothing else of the repository is mounted), so a multi-gigabyte file is read in
+place and never traverses HTTP. Measured on the 24 GB / 24,161,893-row
 production **CSV** with `DUCKDB_MEMORY_GB=10` inside a 14 GB cgroup, by the
 pipeline of that time: **61 s**, peak RSS 5.9 GB (DuckDB's own buffers 2.8 GB,
 nothing spilled), producing a 2.5 GB database beside a 2.7 GB Parquet archive.
@@ -368,9 +481,11 @@ endpoint cannot be used to read arbitrary server files.
 Put a CSV or Parquet file in `./ingest/` and it becomes an experiment the next
 time the server starts, or at once with **Scan now** in the
 [Admin Settings](#admin-settings-the-default-view) panel. The container reads
-the folder through the read-only repository mount
-(`CALOSRV_AUTO_INGEST_DIR=/app/host/ingest`), so a dropped file is never
-modified or deleted, and the folder stays yours on the host.
+the folder through a read-only mount of `./ingest`
+(`CALOSRV_AUTO_INGEST_DIR=/app/ingest`), so the dashboard never modifies or
+deletes a file in it, and the folder stays yours on the host. The one thing that
+writes there is the `hf-sync` service, which brings the dataset's files up to
+date at every start (see the hidden `.hf-sync` folder below).
 
 ```bash
 ln ~/datasets/run_2026_10.parquet ingest/run_2026_10.parquet   # a hard link costs no disk (same filesystem only)
@@ -402,8 +517,18 @@ ln ~/datasets/run_2026_10.parquet ingest/run_2026_10.parquet   # a hard link cos
   - the same file (name and size) is already archived as another experiment;
   - a second file claims the same name.
 
-  Nothing is ever replaced: that is the upload form's **Replace** in Admin
-  Settings.
+  Nothing is ever replaced by the scan, and a file is never re-ingested by
+  itself:
+  - A file whose experiment is **ready** and whose content has changed since it
+    was ingested (the dataset moved on, and `hf-sync` fetched the new file) is
+    reported as **`changed`**, with the sentence "It is never re-ingested by
+    itself: use Re-ingest under Source files in Admin Settings." It is
+    **Re-ingest** there that loads it, atomically, with the experiment served
+    from its old data until the new data verify.
+  - A file whose experiment **failed** is reported with a pointer to **Retry
+    ingest** in the same section.
+  - **Replace** on the upload form stays the destructive route: it drops the
+    experiment first.
 - **Reported, not failed.** A file that fails its schema check is listed in the
   panel with the reason and left alone, instead of adding a failed experiment
   at every boot. A file modified within the settle window is taken to be still
@@ -417,6 +542,31 @@ ln ~/datasets/run_2026_10.parquet ingest/run_2026_10.parquet   # a hard link cos
 
 Only the folder's top level is scanned. Hidden files, temporary names (`.part`,
 `.tmp`, …) and anything that is not `.csv` or `.parquet` are passed over.
+
+**The hidden `ingest/.hf-sync/` folder** holds the sync's own state, and the
+scan never reads it.
+
+- `stage/` is where Hugging Face's downloader writes, with its metadata and
+  partial files. A file is checked against the dataset's size there, then
+  swapped into place: a dataset file with one rename on the same disk, a model
+  through a temporary name in `xgboost_models` and a rename. A file in
+  `ingest` or `xgboost_models` is therefore never deleted, truncated or
+  half-written, whatever stops the sync; partial files an interrupted run left
+  behind are removed at the next start.
+- `last-sync.json` records the commit and the date, every file the sync expects
+  (`expected`), whether the last run finished with all of them in place
+  (`complete`), the files it kept on purpose (`kept`), and per file its size,
+  modification time and etag. An offline start needs `complete` and every
+  expected file at its recorded size.
+
+A file is judged by its content when its record does not settle it. A file the
+sync did not write, or one whose date moved, is hashed (SHA-256 for the Parquet
+files, git's blob SHA-1 for the models) and compared with the dataset: equal, it
+is adopted without a download; equal to the version the last sync wrote, it is
+updated; different, it is kept and named in the log, unless
+`HF_SYNC_OVERWRITE=1`. The folder is git-ignored with the rest of `ingest/`.
+Deleting it is safe: the next start hashes every file once and adopts those
+that match, and nothing is ever deleted from `ingest` itself.
 `ingest/README.md` repeats these rules beside the files.
 
 **The whole folder, measured.** The six files of the repository's `ingest/`
@@ -479,6 +629,12 @@ file.
   would have replaced. A failure later in the load still does, and the form
   says so.
 - **A queued name is refused even when forced.**
+- **Replace stays destructive.** It drops the experiment before the new file is
+  read, so a failure later in the load leaves nothing. When the file on the server has **changed** and the
+  experiment should stay served meanwhile, use **Re-ingest** in Admin Settings →
+  Source files instead: it keeps the old data until the new ones verify.
+  Re-ingest needs room for both copies and, when there is not, answers 507 and
+  points back here.
 - **The form asks first.** Each of these, the file type and the naming rules
   are checked before a byte is sent.
 
@@ -801,6 +957,22 @@ tables from it:
   writer overshoots it by up to 2% (241 row groups of 11,448–102,040 rows on the
   production file, 2.7 GB). An append adds a part; `DELETE /api/experiments/{name}`
   removes the directory. Notebooks can read the archive while the server runs.
+  A part is named by the largest index in the committed manifest plus one (0
+  when there is none), so a re-ingest's new part never collides with the one it
+  replaces.
+  - **`manifest.json.next`.** A re-ingest writes its new part, then the manifest
+    it will commit as `manifest.json.next` (atomically, with the `job_id` of the
+    job), commits the database, renames the `.next` over `manifest.json` and
+    deletes the old part. At every boot, before the experiments load, the
+    archive is reconciled: a `.next` whose `job_id` equals the registry row's
+    `source_info.job_id` was committed, so it is **rolled forward** (renamed into
+    place); any other `.next` is **rolled back** (removed); and every
+    `part-*.parquet` the committed manifest does not list is removed as an
+    orphan. A folder whose manifest cannot be read is left alone. Each action is
+    logged at WARNING. While the server runs with a `.next` waiting (the rename
+    failed after the commit), a rebuild, an append or another re-ingest of that
+    experiment is refused with 409 until a restart rolls it forward: each would
+    otherwise read the old part, which no longer matches the tables.
 - **The hot tables** live in `calorimeter.duckdb`, per kind (the
   [kind table](#what-each-kind-serves)). There is no `hit_` table any more. The
   production database measured 2.5 GB before Group-1, `layers_` and `profiles_`
@@ -850,14 +1022,26 @@ tables from it:
   `xgbimp_`, `xgbbin_`, `xgbtree_`), written by the background analysis in one
   transaction and dropped with the experiment ([What it
   stores](#what-it-stores)).
-- **The registry** (`experiment`) gained two columns, appended, so an older
+- **The registry** (`experiment`) gained three columns, appended, so an older
   database migrates by `ALTER TABLE` alone. `derived_version` is the layout
   generation of the derived tables (a NULL reads as 1; the current ones are 2
   for `two_shower_hits` and 1 for the others, `db/schemas.py`
   `DERIVED_VERSION`). `capabilities` is JSON: what ingest measured that the API
   advertises, namely the cell footprint, the profile splat and its comb, the
   momentum-bin range and the rule it follows, the species facts and the
-  aggregate's label rule.
+  aggregate's label rule. `source_info` is JSON (NULL on a row from before it
+  existed): the provenance of the experiment's current data, which Source files
+  compares with the file on disk. Its keys are `origin` (`drop_folder`, `local`,
+  `upload`, `seed` or `cli`), `name`, `relpath` (to the origin's root, or null),
+  `path` (as the server saw it, for display), `bytes`, `mtime_ns`, `digest`,
+  `recorded_at` (UTC, seconds) and `job_id` (the job that produced the data). The
+  **sampled digest** is a blake2b with a 16-byte digest over the size, the first
+  1 MiB and the last 1 MiB of the file (the whole file when it is 1 MiB or less),
+  taken by the ingest worker immediately before it reads the file, so a failed
+  load still has it. It is a sample: a change confined to the middle of a file
+  that keeps its size is caught only through its modification time, which is why
+  a time that moved with an equal digest is reported as `touched` and not as
+  unchanged. An append keeps the first file's record.
 - **A stale derived version stays READY.** A two-shower experiment ingested
   before Group-1, `layers_` and `profiles_` existed has `derived_version` 1: it
   is served exactly as before, and bootstrap logs that a rebuild would enable
@@ -920,7 +1104,9 @@ result. The panel also holds the **Upload dataset** form (see
 [Through the browser](#through-the-browser)) and shows the
 [drop folder](#drop-folder-automatic-ingest)'s last scan, with live job status
 and **Scan now**; its Derived tables section lists each experiment's
-derived-table version and runs a [rebuild](#rebuilding-derived-tables); its
+derived-table version and runs a [rebuild](#rebuilding-derived-tables); a
+**Source files** section, between the two, compares each experiment with the
+file it came from and re-ingests the ones that changed (below); its
 **XGBoost model runs** section, after it, lists the [XGBoost
 analysis](#the-xgboost-analysis) of every event-level aggregate and holds the
 **Rescan models** action; its **Close** button closes the whole panel, and a
@@ -977,6 +1163,75 @@ Each setting resolves through four layers, highest first:
 call is still a function of its parameters: the defaults govern the interface's
 cold boot, plus one API case, where a request naming no experiment opens the
 default one.
+
+**Source files.** The section after Automatic ingest lists every experiment
+against the file it was ingested from. The `hf-sync` service updates `./ingest`
+at every start, while an experiment keeps serving the data it was ingested from;
+this section says which files moved on, and loads them when asked
+(`GET /api/admin/experiments`, read-only; **Check again** reads it again). Each
+row shows the experiment, its source file (hover: the full path, and the
+recorded and current size and time), a state chip with one sentence of detail,
+the newest ingest job's line, and a button.
+
+- **The state is told from a record kept at ingest.** The registry's
+  `source_info` holds the file's size, modification time and a sampled digest
+  (see [Storage](#storage-duckdb-tables-and-the-parquet-archive)); the file on
+  disk now is compared with it. The file is `changed` when its size differs, or
+  when the size is equal, the time moved and the sampled digest differs. A file
+  whose time moved and whose size and sampled content did not is `touched`.
+  The server hashes nothing but the first and last mebibyte, and only for that
+  case. Experiments ingested before the record existed are compared by **size
+  only**, and say so ("Recorded before source tracking: compared by size only.",
+  `basis: legacy`). A later file date is no evidence of a change without a
+  recorded fingerprint: the production files were rewritten as Parquet after
+  their experiments were archived, at exactly the size they had. **Re-ingest**
+  is offered for such a row only through the API's `force`; one re-ingest
+  records the full fingerprint.
+- **The five states, with the chip text the panel shows:**
+
+  | State | Chip | Meaning |
+  |---|---|---|
+  | `changed` | **Source updated on disk** | size or sampled content differs from what was ingested |
+  | `unchanged` | **Current** | size and modification time equal the record |
+  | `touched` | **Timestamp changed; sampled content the same** | time moved; size and sampled content did not |
+  | `missing` | **Source file not found** | no file of that name under the folder |
+  | `untracked` | **Uploaded: no file on the server to compare**, **Demonstration dataset: ships in the image**, or **No source recorded** | an upload, the seed, or a row with no record and no matching file |
+
+  A running job replaces the chip with **Re-ingesting**, **Retrying** or
+  **Ingesting**, and a failed experiment shows **Ingestion failed**, whatever
+  its file's state.
+- **Re-ingest** (a ready experiment whose state is `changed`) is atomic. The new
+  Parquet part is written beside the old one, the old tables are dropped and the
+  new ones built inside one transaction, and the transaction commits only when
+  the new data verify. Until then the experiment is **served from its previous
+  data**; a failed verification or an error rolls back and leaves the registry
+  row, tables, archive and `config.json` exactly as they were. It is refused,
+  before a job is queued, when a job for the experiment is active, the file is
+  still being copied (modified less than `CALOSRV_AUTO_INGEST_SETTLE_S`, 30 s, ago),
+  the experiment was assembled from several files by append, or the file is not
+  an accepted schema or not the experiment's own schema. It needs free disk for
+  both copies: when there is not enough, the answer is **507** and points to
+  Upload → Replace, which drops the old copy first. The worker checks again that
+  the experiment is still the one the request saw: if another job (an upload
+  with Replace) rewrote it meanwhile, the job fails with "changed since the
+  re-ingest was requested; nothing was done." In the one window after the
+  commit, if the archive's manifest cannot be switched, the job says the new
+  data **are committed** and the next start completes it; until that restart a
+  rebuild, an append or another re-ingest of it is refused with **409**
+  ("half-finished").
+- **Retry ingest** (a failed experiment) drops the partial tables and archive
+  and ingests the file again, from the same folder, with no upload.
+- **What is kept** through either: the experiment's name, its display name, its
+  `created_at` and the Admin defaults that name it.
+- **When a job finishes**, the panel and the page refresh: the experiment menu,
+  the Derived tables and XGBoost model runs sections, and the experiment's
+  analyses are queued again. The server's caches for the experiment are emptied.
+  This holds for a re-ingest or retry started in another tab or before a reload:
+  the panel follows every such job it sees running. A row whose file is still
+  being written is read again once the settle time has passed, so its
+  **Re-ingest** button enables itself.
+- **Nothing is re-ingested automatically**: not at a boot, not by **Scan now**,
+  and not by the sync. A button here, or the API route below, is the only way.
 
 **XGBoost model runs.** Below the Derived tables, a section lists the models
 folder and, per event-level aggregate experiment, its pairing with the shipped
@@ -4686,6 +4941,8 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/local-files` | The CSV and Parquet files under that root. |
 | `GET /api/upload/{job_id}`, `GET /api/upload` | Ingest progress and result of one job, and the recent jobs. |
 | `GET /api/upload-info` | Upload limits and the disk headroom per format, and the accepted schemas: `schemas` (each with `name`, `version`, `kind`, `label`, `summary`, `n_columns`, `columns`, `note`) and `accepted`, the one-sentence list. `schema` still describes `hits_all_models` alone. |
+| `GET /api/admin/experiments` | **Read-only.** Source files: `roots` (`drop_folder`, `local`, `settle_s`), `experiments[]` in the order of `GET /api/experiments` (each with `status`, `error`, `source` (its `state`, `origin`, `basis`, `detail`, recorded and current size and time, `settling`), `actions` (`reingest` and `retry`, each `{available, reason}`) and `job`, its newest ingest job or null), `states` and `origins`. Queues nothing. |
+| `POST /api/admin/experiments/{table_name}/reingest` | Re-ingest a changed source file atomically, or retry a failed experiment, on the ingest worker. Optional body `{"force": false}`; `true` lifts only the "unchanged" reason. **202** `{action: "reingest"\|"retry", job, poll}`; **404** unknown experiment; **409** a job is active, or the experiment is still ingesting; **422** the action is unavailable (`reason`); **400** the file is not an accepted schema, or not the experiment's; **507** too little disk for both copies (it points to Upload → Replace). Every check runs before a job is queued. |
 | `POST /api/admin/experiments/{table_name}/rebuild` | Rebuild an experiment's derived tables from its archive, atomically, on the ingest worker ([Rebuilding derived tables](#rebuilding-derived-tables)). 202 with `{job, poll}`; 404, 409 or 400 as described there. |
 | `GET /api/projections` | The three spatial panels as quantised rasters, every response budgeted whole under 100 KB. `coord_system=lab\|trans\|local`, `frame=lab\|canonical` (canonical needs `coord_system=lab`), `model=segmentation\|energy\|angle`, `channel=density\|gradcam\|gradcam_energy\|shapcam\|shapcam_energy` (`mode` is a deprecated alias), `display=native\|continuous`, `rho_norm=selection\|dataset` in the co-registered frames, `anchor=backprojected\|p0` with `frame=canonical` (the D-frame's entry anchor), `coordinates=file\|computed` with `coord_system=trans\|local` (the file's own per-shower columns, or the SE(3) motions applied to the lattice inside the scan; the residual between the two is reported either way). The `local` frame's response carries `frame.negative_w`, the negative-depth block of the statistics card (`available`, `splits`, `affected`, `summary`); the lab payload is unchanged and has no `frame` key. The D-frame (`frame=canonical`) is a 422 on a single-shower experiment, and the whole route on the events-only kind. Its `frame` block carries `ill_conditioned_share` and `ill_conditioned_majority` (share above 0.5), and every `frame.fit.<panel>.<row\|col>` carries `cap`: null except on the entry panel's x′ columns and the X′Z′ panel's x′ rows, where it states the x′ window cap at the drawn field and the drawn bins left beyond it ([The x′ cap](#separation-aligned-d-frame-the-translated-view-api-canonical)). Unknown values return 422 naming the field. `depth_groups=<13 positive counts joined by '.'>`, summing to the lattice's layer count, pools the YZ and XZ depth axes into the Longitudinal Channels in the Absolute frame, the D-frame and `coord_system=trans` (a 422 naming `depth_groups` otherwise, and always with `coord_system=local`; [Longitudinal Channels](#longitudinal-channels-and-the-z-depth-label)). Every response carries `depth_layers`: the depth axis's numbering (`detector`, `relative` or `none`), its layer count and stored edges, `display_offset_mm` (3649, the Absolute frame only), the selection's per-layer energy and attention, summed over every selected hit (`profile`; marked inexact under the drag-preview sample), the `reach` of relative layers, and, when pooled, the partition's echo (`groups`). The per-layer arrays (`profile.energy_gev`, `profile.attention.*`) travel at 4 significant figures and the edges at 0.001 mm; the scalar totals keep full precision. When the body would pass the 100 KB contract the block is trimmed first: it keeps every scalar, `edges_mm` and `groups`, and becomes `profile: null, reach: null, trimmed: true` with a `trim_note` the drawers quote. **Payload compaction** (so the 900-view matrix stays under the guard, see [Performance](#performance)): `topk[].value` travels at 7 significant figures, rounded toward zero (the float32 source's precision, so a shipped value never exceeds the cell's own and the brightest value never passes the panel's peak); `meta.stagger` is sent **in the Absolute frame only**, the co-registered frames' comb being `frame.comb` (`measured_on` unchanged); and the per-shower frames' `frame.coordinates.note` is no longer copied into `meta.notices`, the client putting it back in the same position (`frame_views.js` `frameNotices`). Together they save 1.6–3.05 KB a response. |
 | `GET /api/event` | The Event Inspector: one shower (`shower=a\|b`) of one event (`event_number`) as nine quantised rasters — original, translated-only and local frames by X–Y, X–Z, Y–Z — with the marks (incident direction, first-layer plane, origin) as 3-D lines and points, the principal-axis tilt, one shared ramp, one window, under the same filters and the 100 KB contract. Each raster frame carries `layer_planes`: the detector layer planes' unit normal in that frame's axes (tilted by the shower's R(θ, φ) in Local), their seams, the shower's energy per layer, the panels where a plane has a line image (u–w only in Local), the tilt, the start layer and the reach. The per-layer energies (`layer_planes.energy_gev`) travel at 4 significant figures and the edges at 0.001 mm; when the body would pass the 100 KB contract a frame's block is trimmed first, to `energy_gev: null, trimmed: true` with a `trim_note` the drawers quote. `coordinates=file\|computed` as above. A 404 names an event the experiment does not hold or a shower with no cell. `format=voxels` is the Models page's 3-D event view instead: the event as cubes in one frame, gate `vox-event`, a body under the same 100 KB contract measured as served. `frame=lab\|trans\|local\|canonical` (default `local`; `canonical` needs two showers), `channel=energy\|gradcam\|shapcam\|segerr\|species` (`gradcam`, `shapcam` and `segerr` need the networks' columns, `species` the single-shower species columns), `model`, `cap` (an integer 100–15,000, default 6,000, read only for the cubes), and `shower=a\|b\|both` (`both` only in the Absolute frame and the D-frame; a single-shower experiment has only `a`). A raster request is never refused over any of these ([The 3-D views](#the-3-d-views)). The voxel body carries `voxels.depth_profile`: per bin of its own depth axis, the energy of every cell or voxel in the window before the cap, the channel's energy-weighted attention (Shap-CAM split by sign), the energy off the axis and the total, the exact sums the slice mode quotes. `window=shared\|per_axis` is the window rule, read by both formats and a 422 naming `window` for any other value: `shared` (the raster's default, and the only rule of the Event Inspector) is one half-width for every axis of every panel, so the body is byte for byte what it was; `per_axis` (the cubes' default, and what the Models page asks for on both its requests) is one half-width per axis of each frame and adds `window.mode`, `window.half_mm_axes` (`lab\|trans\|local`, each `{x, y, z}`) and `frames.<f>.half_mm_axes`, `window.half_mm` then being the largest. Either way the body carries `window.percentiles` (0.1 and 99.9, energy-weighted), `window.rule` naming every half-width and the cells left outside, and each frame's `outside_window` (cells and energy not drawn). The voxel response echoes the rule in `meta.notes.window`. |
@@ -4717,7 +4974,7 @@ rule of `/api/event/pick`, `/api/xgboost` and the model-run admin routes; each
 row above links to the card it serves, and [The Models page](#the-models-page)
 documents what they draw and the rule behind every mark.
 
-Interactive documentation at <http://localhost:8000/docs>.
+Interactive documentation at <http://localhost:8000/docs> (the port is `HOST_PORT`).
 
 #### The capability block
 
@@ -5048,6 +5305,26 @@ others in `tests/`):
   ratio, prevalence, ▲/▼ marks, ddof and weak nodes, φ's unit, per-output
   fidelity, E5 on both recordings and the wrapped legends. `test_js_admin_model_runs.py`
   reads the model-runs list against the recording.
+- **The sync and the re-ingest.**
+  - `test_hf_sync.py` runs `deploy/hf_sync.py` against a fake Hub, with no
+    network: the skip, a first sync, the unchanged fast path (no download call),
+    an upstream update, a local edit kept, the overwrite opt-in, an offline start
+    with a complete and with an incomplete last sync, a 404, a failed download
+    that leaves the old bytes, `ingest/README.md` untouched, the privilege
+    decision and the default patterns equal to the Quick start's.
+  - `test_source_state.py` holds every origin's record, the five states, the
+    legacy rule, settling and the action reasons; `test_reingest.py` the route's
+    status codes, that a reader still sees the old data until `COMMIT`, that a
+    failed verification or an exception leaves the registry, tables, manifest,
+    archive and `config.json` as they were, both crash windows recovering at
+    boot, part names, the refused schema change and appended experiment, retry,
+    cache invalidation and that neither a boot nor **Scan now** re-ingests.
+  - `test_js_admin_sources.py` runs the Source files rows, chips, job lines and
+    buttons under Node; `test_browser_admin.py` re-ingests a changed file and
+    retries a failed experiment from the panel, in both themes, and measures the
+    chips against the modal's ground; `test_deployment.py` pins compose (the
+    three mounts and the two of `hf-sync`, `depends_on`, the `HOST_PORT` line),
+    the Dockerfile's stages and the Quick start's commands and their order.
 - **No source pinned.** The test that `main.js` takes `depthIsometric` and
   `ensembleCellOptions` from `event_cells.js` reads the module structurally,
   comments stripped, rather than matching its text.

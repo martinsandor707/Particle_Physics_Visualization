@@ -1180,7 +1180,7 @@ const group = common.choiceGroup(document.createElement('fieldset'), {
 out.group = [...group.inputs].map(([v, input]) => [v, input.checked, input.disabled, input.parent.title]);
 
 // The route as built (calosrv/api/routes_admin.py): pairing and analysis flat on each run.
-out.served = admin.modelRunRows({ models: { dir: '/app/host/xgboost_models' }, runs: [
+out.served = admin.modelRunRows({ models: { dir: '/app/xgboost_models' }, runs: [
   { table_name: 'electron_s1_aggr', display_name: 'electron', paired: true, species: 'electron', seed: 1,
     models: [{ path: 'xgboost_electron/standalone_momentum_s1_model.json' },
       { path: 'xgboost_electron/standalone_angle_s1_model.json' }],

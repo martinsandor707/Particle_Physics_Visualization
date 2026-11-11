@@ -57,11 +57,14 @@ def bootstrap(
     schema and are marked failed, never queried.
     """
     registry.ensure_registry(con)
+    records = registry.list_experiments(con)
     if settings is not None:
         archive.sweep_tmp(settings)
+        # An interrupted re-ingest is finished or abandoned before any row is
+        # judged: which of the two depends on the registry's job_id.
+        archive.reconcile(settings, records)
 
     present = physical_tables(con)
-    records = registry.list_experiments(con)
 
     for record in records:
         name = record.table_name

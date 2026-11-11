@@ -878,6 +878,8 @@ REGISTRY_SCHEMA: tuple[tuple[str, str], ...] = (
     # --- appended for the three-schema extension ---------------------------
     ("derived_version", "INTEGER"),   # layout generation of the derived tables; NULL = 1
     ("capabilities", "VARCHAR"),      # JSON: what ingest measured that the API advertises
+    # --- appended for source tracking ---------------------------------------
+    ("source_info", "VARCHAR"),       # JSON: the file the current data came from, as it was then
 )
 
 REGISTRY_COLUMNS: tuple[str, ...] = tuple(name for name, _ in REGISTRY_SCHEMA)

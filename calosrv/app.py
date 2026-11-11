@@ -28,6 +28,7 @@ from .db.connection import get_database, reset_database
 from .errors import ApiError, NotFoundError, ValidationError
 from .text import typographic
 from .ingest import jobs as jobs_mod
+from .ingest import source_state
 from .logging_setup import configure_logging, log_boot_banner
 from .api import (
     routes_admin,
@@ -163,7 +164,7 @@ class VersionedStaticFiles(StaticFiles):
         return response
 
 #: Experiment name used for the automatically seeded demonstration dataset.
-BASELINE_TABLE = "experiment_baseline"
+BASELINE_TABLE = source_state.BASELINE_TABLE
 
 
 def seed_baseline(database, settings: Settings) -> None:
@@ -206,6 +207,7 @@ def seed_baseline(database, settings: Settings) -> None:
         # The seed file is either baked into the image or lives in the user's
         # repository. Deleting it after reading would be destructive.
         delete_source=False,
+        origin=source_state.ORIGIN_SEED,
     )
 
 

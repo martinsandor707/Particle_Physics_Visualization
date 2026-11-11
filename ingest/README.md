@@ -2,9 +2,13 @@
 
 Every CSV or Parquet file placed directly in this folder becomes an experiment
 the next time the server starts, or when **Scan now** is pressed in the
-**Admin Settings** panel. The container reads it through the repository's
-read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
-`docker-compose.yml`), so nothing here is ever modified or deleted.
+**Admin Settings** panel. The dashboard's container reads it through a
+read-only mount at `/app/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
+`docker-compose.yml`), so the dashboard never modifies or deletes anything
+here. The one writer is the `hf-sync` service, which `docker compose up`
+runs before the dashboard: at every start it downloads this folder's files from
+the Hugging Face dataset, and later it fetches only what changed there. It never
+deletes a file and never touches this note.
 
 - **Name.** The experiment is named after the file: `Production-20k (v2).parquet`
   becomes `production_20k_v2`, and a name starting with a digit gets `exp_` in
@@ -33,15 +37,28 @@ read-only mount at `/app/host/ingest` (`CALOSRV_AUTO_INGEST_DIR` in
 - **Parquet.** Every dataset in the repository is ZSTD-3 Parquet. CSV is still
   accepted, and its columns must then come in the schema's exact order; a Parquet
   file may carry them in any order.
-- **Downloaded, not in git.** The six Parquet files are kept in the public
+- **Downloaded, not in git.** The nine Parquet files are kept in the public
   Hugging Face dataset
   <https://huggingface.co/datasets/martinsandor707/particles_combined_all_models>,
-  and step 2 of the README's Quick start downloads them into this folder. Any
-  file you add stays on your computer: git ignores it, and nothing uploads it.
-- **Nothing is replaced.** A file whose experiment already exists, in any state,
-  is skipped, and so is a file already ingested under another name (same file
-  name and size). To replace an experiment, use the Upload dataset section of Admin
-  Settings and tick Replace.
+  and the `hf-sync` service downloads them into this folder at every start (the
+  README's Quick start; `HF_SYNC=0` turns it off, and downloads by hand still
+  work). Any file you add stays on your computer: git ignores it, and nothing
+  uploads it.
+- **`.hf-sync/`.** A hidden folder the sync keeps here: `stage/`, where every
+  download is written and checked before it is swapped into place with one
+  rename (so a file in this folder is never half-written, whatever stops the
+  sync), and `last-sync.json`, its record of the last sync. The scan ignores
+  it. Deleting it is safe: the next start checks every file once against the
+  dataset, by its content, and adopts those that match.
+- **Nothing is replaced by itself.** A file whose experiment already exists, in
+  any state, is skipped, and so is a file already ingested under another name
+  (same file name and size). A file whose experiment is ready and whose content
+  has changed since (the dataset was updated) is reported as changed, and is
+  re-ingested only when you press **Re-ingest** in Admin Settings → Source
+  files, which keeps the experiment served from its old data until the new data
+  verify. A failed experiment is retried there with **Retry ingest**. To replace
+  an experiment from scratch, use the Upload dataset section of Admin Settings
+  and tick Replace.
 - **Large files.** Hard-link rather than copy: `ln ~/datasets/run_2026_10.parquet
   run_2026_10.parquet` costs no disk (the two paths must be on one filesystem).
   A file modified in the last

@@ -5,7 +5,7 @@ is slow, unresumable and easy to interrupt. For datasets already on the host -
 the normal in-house case - this reads the file in place.
 
     docker compose exec calorimeter-dashboard \\
-        python -m calosrv.ingest --input /app/host/hits_all_models.csv \\
+        python -m calosrv.ingest --input /app/ingest/hits_all_models.parquet \\
                                  --table all_models
 
 **How it reaches the database.** DuckDB holds its lock on the database file
@@ -46,7 +46,7 @@ from ..db.bootstrap import bootstrap
 from ..db.connection import get_database
 from ..errors import ApiError
 from ..logging_setup import configure_logging
-from . import load, pipeline
+from . import load, pipeline, source_state
 
 log = logging.getLogger("calosrv.ingest.cli")
 
@@ -311,6 +311,10 @@ def run(args: argparse.Namespace) -> int:
             display_name=args.display_name,
             build_sample=not args.no_sample,
             force_reingest=args.force_reingest,
+            # Direct mode: the server is not running, so nothing says which folder
+            # the file belongs to. Recorded as it was given, and tracked only if it
+            # lies in a folder the server reads.
+            provenance=source_state.origin_spec(settings, source_state.ORIGIN_CLI, source),
         )
 
     # The source file is left in place. It belongs to the host, not to the

@@ -119,6 +119,27 @@ def test_the_derived_version_and_capabilities_round_trip():
     assert back.derived_status == "current"
 
 
+def test_the_source_info_column_is_appended_last_and_round_trips():
+    assert REGISTRY_SCHEMA[-1] == ("source_info", "VARCHAR")
+    con = _legacy_database()
+    registry.ensure_registry(con)
+    assert "source_info" in {r[0] for r in con.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'experiment'"
+    ).fetchall()}
+    assert registry.get_experiment(con, "v37").source_info == {}, "a legacy row reads {}"
+    info = {"origin": "drop_folder", "name": "run.parquet", "relpath": "run.parquet",
+            "path": "/app/ingest/run.parquet", "bytes": 12, "mtime_ns": 34, "digest": "ab" * 16,
+            "recorded_at": "2026-11-11T12:00:00+00:00", "job_id": "j1"}
+    record = registry.ExperimentRecord(table_name="tracked", status=registry.STATUS_READY,
+                                       source_info=info)
+    registry.upsert(con, record)
+    assert registry.get_experiment(con, "tracked").source_info == info
+    registry.upsert(con, registry.ExperimentRecord(table_name="plain"))
+    assert registry.get_experiment(con, "plain").source_info == {}
+    assert con.execute("SELECT source_info FROM experiment WHERE table_name = 'plain'"
+                       ).fetchone()[0] is None
+
+
 def _ready_row(con, name: str, schema_name: str | None, version: int | None,
                derived_version: int | None = None) -> None:
     registry.upsert(con, registry.ExperimentRecord(

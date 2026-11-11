@@ -83,6 +83,89 @@ def check_append_schema(name: str, manifest: archive.Manifest, schema: schemas.I
     )
 
 
+def _write_part(con, path: Path, part: Path, fmt: str, check: SourceCheck | None,
+                event_offset: int, schema: schemas.InputSchema) -> tuple[int, tuple[int, int] | None]:
+    """Write the source into ``part``'s temporary file; return its row count and event range.
+
+    The part is left as ``<part>.tmp``: :func:`_publish_part` renames it once the
+    caller has made its last check. The event range is read inside the try, so a
+    part whose range cannot be read is removed too.
+    """
+    tmp = part.with_name(part.name + archive.TMP_SUFFIX)
+    key = naming.quote(schema.event_key)
+    try:
+        written = con.execute(
+            archive.copy_to_part_sql(formats.select_sql(path, fmt, event_offset, check), tmp)
+        ).fetchone()
+        rows = int(written[0]) if written and written[0] is not None else int(
+            con.execute(f"SELECT count(*) FROM {archive.relation_sql([tmp])}").fetchone()[0]
+        )
+        bounds = con.execute(
+            f"SELECT min({key}), max({key}) FROM {archive.relation_sql([tmp])}"
+        ).fetchone()
+    except duckdb.Error as exc:
+        tmp.unlink(missing_ok=True)
+        raise IngestError(f"DuckDB rejected {path.name}: {exc}") from exc
+    incoming = (int(bounds[0]), int(bounds[1])) if bounds and bounds[0] is not None else None
+    return rows, incoming
+
+
+def _publish_part(part: Path, source: Path) -> None:
+    os.replace(part.with_name(part.name + archive.TMP_SUFFIX), part)
+
+
+def _part_entry(part: Path, source: Path, rows: int, incoming, source_name: str | None,
+                event_offset: int, fmt: str) -> archive.ArchivePart:
+    return archive.new_part(
+        file=part.name, rows=rows, size=part.stat().st_size,
+        source_name=source_name or source.name, source_bytes=source.stat().st_size,
+        event_offset=event_offset, event_range=incoming,
+        duckdb_version=duckdb.__version__, source_format=fmt,
+    )
+
+
+def stage_replacement(
+    con: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    name: str,
+    path: Path,
+    *,
+    fmt: str,
+    check: SourceCheck,
+    job_id: str,
+    event_offset: int = 0,
+    source_name: str | None = None,
+) -> LoadResult:
+    """Write ``path`` as a new part beside the committed one, to replace the archive atomically.
+
+    Nothing is dropped and nothing is committed: the committed ``manifest.json``
+    still lists the old part, which stays on disk, and readers never see the
+    new one. The returned in-memory manifest lists **only** the new part and
+    carries ``job_id``; :func:`calosrv.ingest.pipeline.reingest_atomic` derives
+    over it inside a transaction and writes it as ``manifest.json.next`` just
+    before the commit. The part's index is one past the committed manifest's
+    largest (``archive.next_part_path``), so it never overwrites the old file.
+    """
+    if event_offset < 0:
+        raise IngestError(f"event_offset must be zero or positive; got {event_offset}.")
+    schema = check.schema
+    archive.archive_path(settings, name).mkdir(parents=True, exist_ok=True)
+    part = archive.next_part_path(settings, name)
+    log.info("Archiving %s into %s (replacement, job %s)", path.name, part, job_id)
+    rows, incoming = _write_part(con, path, part, fmt, check, event_offset, schema)
+    _publish_part(part, path)
+    manifest = archive.Manifest(schema.name, schema.version, job_id=job_id)
+    try:
+        manifest.parts.append(
+            _part_entry(part, path, rows, incoming, source_name, event_offset, fmt))
+    except BaseException:
+        # The part is published but no manifest will ever list it: do not leave it
+        # for the next boot to find.
+        part.unlink(missing_ok=True)
+        raise
+    return LoadResult(rows=rows, part=part, event_range=incoming, manifest=manifest)
+
+
 def load_source(
     con: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -128,6 +211,7 @@ def load_source(
         archive.remove(settings, name)
         manifest = archive.Manifest(schema.name, schema.version)
     else:
+        archive.refuse_if_half_finished(settings, name)
         manifest = archive.read_manifest(settings, name)
         if manifest is None or not manifest.parts:
             raise IngestError(
@@ -138,38 +222,17 @@ def load_source(
 
     root.mkdir(parents=True, exist_ok=True)
     part = archive.next_part_path(settings, name)
-    tmp = part.with_name(part.name + archive.TMP_SUFFIX)
     log.info("Archiving %s into %s (mode=%s)", path.name, part, mode)
-    key = naming.quote(schema.event_key)
-    try:
-        written = con.execute(
-            archive.copy_to_part_sql(formats.select_sql(path, fmt, event_offset, check), tmp)
-        ).fetchone()
-        rows = int(written[0]) if written and written[0] is not None else int(
-            con.execute(f"SELECT count(*) FROM {archive.relation_sql([tmp])}").fetchone()[0]
-        )
-        # Read inside the try: a part whose range cannot be read is removed too.
-        bounds = con.execute(
-            f"SELECT min({key}), max({key}) FROM {archive.relation_sql([tmp])}"
-        ).fetchone()
-    except duckdb.Error as exc:
-        tmp.unlink(missing_ok=True)
-        raise IngestError(f"DuckDB rejected {path.name}: {exc}") from exc
-    incoming = (int(bounds[0]), int(bounds[1])) if bounds and bounds[0] is not None else None
+    rows, incoming = _write_part(con, path, part, fmt, check, event_offset, schema)
     if mode == MODE_APPEND:
         try:
             check_append_collision(manifest.event_range(), incoming, event_offset)
         except EventRangeCollisionError:
-            tmp.unlink(missing_ok=True)
+            part.with_name(part.name + archive.TMP_SUFFIX).unlink(missing_ok=True)
             raise
 
-    os.replace(tmp, part)
-    manifest.parts.append(archive.new_part(
-        file=part.name, rows=rows, size=part.stat().st_size,
-        source_name=source_name or path.name, source_bytes=path.stat().st_size,
-        event_offset=event_offset, event_range=incoming,
-        duckdb_version=duckdb.__version__, source_format=fmt,
-    ))
+    _publish_part(part, path)
+    manifest.parts.append(_part_entry(part, path, rows, incoming, source_name, event_offset, fmt))
     if commit:
         archive.write_manifest(settings, name, manifest)
     log.info(

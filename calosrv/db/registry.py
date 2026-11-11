@@ -79,6 +79,10 @@ class ExperimentRecord:
     ingest_report: dict[str, Any] = field(default_factory=dict)
     derived_version: int | None = None
     capabilities: dict[str, Any] = field(default_factory=dict)
+    #: The source file the current data came from, as it was when it was read
+    #: (``ingest/source_state.py`` lists the keys). Empty for a row written
+    #: before source tracking, whose file is looked for by name instead.
+    source_info: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_ready(self) -> bool:
@@ -154,6 +158,14 @@ def _row_to_record(row: tuple) -> ExperimentRecord:
         except (TypeError, ValueError):
             log.warning("Unreadable capabilities for %r", data["table_name"])
 
+    source_info: dict[str, Any] = {}
+    if data.get("source_info"):
+        try:
+            parsed = json.loads(data["source_info"])
+            source_info = parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            log.warning("Unreadable source_info for %r", data["table_name"])
+
     return ExperimentRecord(
         table_name=data["table_name"],
         display_name=data["display_name"] or data["table_name"],
@@ -186,6 +198,7 @@ def _row_to_record(row: tuple) -> ExperimentRecord:
         ingest_report=report,
         derived_version=int(data["derived_version"]) if data["derived_version"] is not None else None,
         capabilities=capabilities,
+        source_info=source_info,
     )
 
 
@@ -288,6 +301,8 @@ def upsert(con: duckdb.DuckDBPyConnection, record: ExperimentRecord) -> None:
         "derived_version": record.derived_version,
         "capabilities": json.dumps(record.capabilities, sort_keys=True, default=str)
         if record.capabilities else None,
+        "source_info": json.dumps(record.source_info, sort_keys=True, default=str)
+        if record.source_info else None,
     }
     missing = [c for c in REGISTRY_COLUMNS if c not in values]
     assert not missing, f"registry upsert does not set {missing}"

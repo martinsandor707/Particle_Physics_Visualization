@@ -619,8 +619,9 @@
   <div class="modal modal-wide" aria-labelledby="admin-title">
     <h2 id="admin-title">Admin Settings</h2>
     <div class="modal-sub">The default view a new session opens on when its link carries no view, a dataset
-      upload, and the drop-folder ingest. Open links and bookmarks keep their own view, and saving
-      defaults does not change this session's.</div>
+      upload, the drop-folder ingest, and re-ingesting the experiments whose file changed or whose
+      ingest failed. Open links and bookmarks keep their own view, and saving defaults does not
+      change this session's.</div>
 
     <div class="banner" id="admin-notice" hidden></div>
 
@@ -780,6 +781,24 @@
       <table class="table" id="admin-ingest-table" hidden>
         <thead><tr><th>File</th><th>Experiment</th><th>Result</th></tr></thead>
         <tbody id="admin-ingest-rows"></tbody>
+      </table>
+    </section>
+
+    <!-- Each experiment against its source file: whether the file changed on disk since it was
+         ingested (the hf-sync service updates ./ingest at every start), with Re-ingest and Retry
+         ingest (POST /api/admin/experiments/{name}/reingest; controls/admin.js). Nothing is
+         re-ingested until a button here is pressed. -->
+    <section class="admin-sources" aria-labelledby="admin-sources-title">
+      <div class="admin-head">
+        <h3 id="admin-sources-title">Source files</h3>
+        <span class="spacer"></span>
+        <button class="mini" id="admin-sources-refresh" type="button"
+                title="Compare every experiment with its file on disk again">Check again</button>
+      </div>
+      <div class="hint" id="admin-sources-where">&mdash;</div>
+      <table class="table" id="admin-sources-table" hidden>
+        <thead><tr><th>Experiment</th><th>Source file</th><th>State</th><th></th></tr></thead>
+        <tbody id="admin-sources-rows"></tbody>
       </table>
     </section>
 

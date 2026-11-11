@@ -41,6 +41,16 @@ _SKIP_DIRECTORIES = frozenset(
 )
 
 
+def is_inside(root_resolved: Path, resolved: Path) -> bool:
+    """Whether ``resolved`` is ``root_resolved`` or lies below it; both already resolved.
+
+    The one containment rule: the local ingest, and the source-file check that
+    decides whether a recorded file can be found again, both apply it after
+    ``resolve()`` has collapsed ``..`` and followed symlinks.
+    """
+    return resolved == root_resolved or root_resolved in resolved.parents
+
+
 def resolve_local_path(settings: Settings, raw: str) -> Path:
     """Resolve ``raw`` inside the allowed ingest directory, or raise."""
     root = settings.local_ingest_dir
@@ -60,7 +70,7 @@ def resolve_local_path(settings: Settings, raw: str) -> Path:
     resolved = candidate.resolve()
     root_resolved = root.resolve()
 
-    if resolved != root_resolved and root_resolved not in resolved.parents:
+    if not is_inside(root_resolved, resolved):
         raise ValidationError(
             f"Path must be inside {root_resolved}; {resolved} is not.",
             field="path",

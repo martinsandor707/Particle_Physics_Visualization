@@ -128,6 +128,7 @@ def test_a_new_file_is_queued_as_a_new_experiment(ingested, drop):
     assert (submitted["table_name"], submitted["mode"], submitted["display_name"]) == (
         "run7", "create_new", "run7")
     assert submitted["delete_source"] is False, "the file belongs to whoever dropped it"
+    assert submitted["origin"] == "drop_folder", "the registry row records where the file came from"
     assert submitted["staged"].path == drop / "run7.csv"
 
 
@@ -139,6 +140,14 @@ def test_an_existing_experiment_is_skipped_and_logged_as_specified(ingested, dro
     assert store.submitted == []
     assert (f"Table '{TABLE}' already exists in database catalog. "
             "Skipping automatic ingestion.") in caplog.messages
+
+
+def test_an_experiment_of_another_origin_is_never_called_changed_by_a_file_of_its_name(
+        ingested, drop):
+    """The fixture experiment has no source record and no archive part named for it: just existing."""
+    _put(drop, f"{TABLE}.csv", mtime=time.time() - 7200)
+    _, store, entries = _scan(ingested, drop)
+    assert entries[f"{TABLE}.csv"].action == "exists" and store.submitted == []
 
 
 def test_tables_without_a_registry_row_also_count_as_existing(ingested, drop):

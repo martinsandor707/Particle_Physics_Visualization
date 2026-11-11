@@ -376,12 +376,43 @@ def test_the_filter_block_and_the_kind_markup_carry_their_ids():
     upload = html[html.index('<section class="admin-upload"'):html.index('<section class="admin-ingest"')]
     for schema in ("hits_all_models", "standalone_hits", "standalone_events"):
         assert schema in upload, schema
-    # The rebuild section lives in the admin panel, after the automatic ingest.
-    assert html.index('<section class="admin-ingest"') < html.index('<section class="admin-rebuild"') \
-        < html.index('id="tooltip-layer"')
+    # The Source files section sits after the automatic ingest and before the rebuild section, which
+    # stays in the admin panel, ahead of the tooltip layer.
+    assert html.index('<section class="admin-ingest"') < html.index('<section class="admin-sources"') \
+        < html.index('<section class="admin-rebuild"') < html.index('id="tooltip-layer"')
     admin = _strip_comments((JS / "controls" / "admin.js").read_text(encoding="utf-8"))
     assert "/api/admin/experiments/${encodeURIComponent(name)}/rebuild" in admin
     assert "innerHTML" not in admin
+
+
+def test_the_admin_panel_lists_each_experiment_against_its_source_file():
+    """Source files: the section's markup, in its place, and the routes `admin.js` calls for it."""
+    html = _html()
+    start, end = html.index('id="admin-modal"'), html.index('id="tooltip-layer"')
+    order = ["admin-upload", "admin-ingest", "admin-sources", "admin-rebuild"]
+    places = [html.index(f'<section class="{name}"') for name in order]
+    assert places == sorted(places) and start < places[0] and places[-1] < end
+    section = html[places[2]:html.index("</section>", places[2])]
+    assert 'aria-labelledby="admin-sources-title"' in section
+    for element_id in ("admin-sources-title", "admin-sources-refresh", "admin-sources-where",
+                       "admin-sources-table", "admin-sources-rows"):
+        assert html.count(f'id="{element_id}"') == 1, element_id
+        assert f'id="{element_id}"' in section, element_id
+    assert "Check again" in section and "Source files" in section
+    raw = (JS / "controls" / "admin.js").read_text(encoding="utf-8")
+    admin = _strip_comments(raw)
+    # The one read, and the one write: the route template carries the encoded name.
+    assert "'/api/admin/experiments'" in admin
+    assert "/api/admin/experiments/${encodeURIComponent(name)}/reingest" in admin
+    assert "'admin-sources'" in admin
+    for element_id in ("admin-sources-where", "admin-sources-table", "admin-sources-rows",
+                       "admin-sources-refresh"):
+        assert f"getElementById('{element_id}')" in admin, element_id
+    # Rows are built with the DOM's own text nodes, never parsed from a string.
+    assert "innerHTML" not in admin and "insertAdjacentHTML" not in admin
+    # The drop-folder sentence names the folder the compose file mounts now.
+    assert "/app/host" not in raw
+    assert "file uses /app/ingest, which is ./ingest on the host" in raw
 
 
 def _function_body(source: str, name: str) -> str:

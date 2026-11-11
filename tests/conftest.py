@@ -39,6 +39,7 @@ TABLE = "test_experiment"
 #: folder or a default set for one booted module would reach the next.
 _BOOT_ENV = (
     "CALOSRV_AUTO_INGEST_DIR", "CALOSRV_AUTO_INGEST_SETTLE_S", "CALOSRV_CONFIG_PATH",
+    "CALOSRV_LOCAL_INGEST_DIR",
     "CALOSRV_DEFAULT_DATASET", "CALOSRV_DEFAULT_COORD_SYSTEM", "CALOSRV_DEFAULT_MODEL",
     "CALOSRV_DEFAULT_CHANNEL", "CALOSRV_DEFAULT_DISPLAY_MODE", "CALOSRV_DEFAULT_RHO_NORM",
     "CALOSRV_MODEL_DIR",
@@ -65,11 +66,42 @@ def pytest_collection_modifyitems(session, config, items):
     booted = [
         item for item in items
         if {"client", "live_server", "synthetic_client", "auto_client", "single_client",
-            "physics_live_server", "xgb_client", "xgb_boot", "models_live_server"}
+            "physics_live_server", "xgb_client", "xgb_boot", "models_live_server",
+            "source_client"}
         & set(getattr(item, "fixturenames", ()))
     ]
     booted_ids = {id(item) for item in booted}
     items[:] = booted + [item for item in items if id(item) not in booted_ids]
+
+
+def rewrite_parquet(source: Path, destination: Path, event_shift: int = 0,
+                    compression: str = "snappy") -> Path:
+    """The same rows as ``source``, written again: a "changed but valid" source file.
+
+    Another codec gives another size with identical content, which is what a
+    refreshed download looks like to the source-file check. ``event_shift`` adds
+    to every ``event_number``, so the swapped data can be told from the old.
+    """
+    import duckdb
+
+    select = "*" if not event_shift else f"* REPLACE (event_number + {int(event_shift)} AS event_number)"
+    con = duckdb.connect()
+    try:
+        con.execute(
+            f"COPY (SELECT {select} FROM read_parquet('{source}')) TO '{destination}' "
+            f"(FORMAT parquet, COMPRESSION {compression})")
+    finally:
+        con.close()
+    return destination
+
+
+def settled(path: Path, age_s: float = 3600.0) -> Path:
+    """Backdate ``path`` so the scan and the source check take it as long since written."""
+    import time
+
+    when = time.time() - age_s
+    os.utime(path, (when, when))
+    return path
 
 
 @pytest.fixture(scope="session")
@@ -750,3 +782,22 @@ def models_live_server(tmp_path_factory, xgb_sources):
                                  tmp_path_factory.mktemp("models-browser-drop"), xgb_sources)
     yield {"base": handle["base"], "playwright": playwright}
     stop_models_server(handle)
+
+
+@pytest.fixture(scope="module")
+def source_client(tmp_path_factory):
+    """A server with a drop folder, a local folder and the demonstration seed, each its own.
+
+    ``dropped_run`` arrives through the drop folder at boot. The Source files
+    tests (``test_source_state.py``, ``test_reingest.py``) add and change files
+    in ``drop`` and ``local`` and read what the server says about them.
+    """
+    drop, local = tmp_path_factory.mktemp("src-drop"), tmp_path_factory.mktemp("src-local")
+    data = tmp_path_factory.mktemp("src-data")
+    settled(rewrite_parquet(SEED_FILE, drop / "dropped_run.parquet"))
+    settled(rewrite_parquet(SEED_FILE, local / "local_run.parquet", event_shift=10))
+    env = {"CALOSRV_DATA_DIR": str(data), "CALOSRV_AUTO_INGEST_DIR": str(drop),
+           "CALOSRV_LOCAL_INGEST_DIR": str(local)}
+    with booted_app(env, wait_ready=2) as client:
+        yield {"client": client, "drop": drop, "local": local,
+               "database": client.app.state.database}

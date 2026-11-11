@@ -136,3 +136,35 @@ def test_disabled_when_no_root_is_configured(tmp_path, monkeypatch):
     assert local.list_local_files(settings) == []
     with pytest.raises(ValidationError):
         local.resolve_local_path(settings, "anything.csv")
+
+
+def test_the_containment_rule_is_one_function(tmp_path):
+    root = (tmp_path / "root").resolve()
+    (root / "a").mkdir(parents=True)
+    assert local.is_inside(root, root) and local.is_inside(root, root / "a" / "f.csv")
+    assert not local.is_inside(root, tmp_path.resolve())
+    assert not local.is_inside(root, (tmp_path / "root2" / "f.csv").resolve())
+
+
+def test_the_container_defaults_are_the_scoped_mounts(monkeypatch, tmp_path):
+    """compose mounts ./ingest at /app/ingest and ./xgboost_models at /app/xgboost_models."""
+    from pathlib import Path
+
+    from calosrv import config
+
+    assert config.CONTAINER_MODEL_DIR == Path("/app/xgboost_models")
+    assert config.Settings.__dataclass_fields__["model_dir"].default == Path("/app/xgboost_models")
+    monkeypatch.setenv("CALOSRV_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("CALOSRV_LOCAL_INGEST_DIR", raising=False)
+    seen = []
+    real_is_dir = Path.is_dir
+
+    def is_dir(self):
+        seen.append(str(self))
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    config.load_settings()
+    assert "/app/ingest" in seen and "/app/host" not in seen
+    monkeypatch.setenv("CALOSRV_LOCAL_INGEST_DIR", str(tmp_path))
+    assert config.load_settings().local_ingest_dir == tmp_path.resolve()

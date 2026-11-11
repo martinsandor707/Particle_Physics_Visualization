@@ -1,0 +1,287 @@
+{
+ "roots": {
+  "drop_folder": "<drop folder>",
+  "local": null,
+  "settle_s": 0
+ },
+ "experiments": [
+  {
+   "table_name": "experiment_baseline",
+   "display_name": "Baseline (demonstration dataset)",
+   "kind": "two_shower_hits",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "seed",
+    "file": "hits_all_models_dummy.parquet",
+    "path": null,
+    "state": "untracked",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": null,
+    "current": null,
+    "detail": "The demonstration dataset ships in the image (<seed>)."
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "The demonstration dataset ships in the image and is never re-ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  },
+  {
+   "table_name": "aggregate_events",
+   "display_name": "aggregate_events",
+   "kind": "single_shower_events",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "drop_folder",
+    "file": "aggregate_events.csv",
+    "path": "<drop folder>/aggregate_events.csv",
+    "state": "unchanged",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "current": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "detail": ""
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "Its source file is unchanged since it was ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  },
+  {
+   "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+   "display_name": "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3",
+   "kind": "single_shower_events",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "drop_folder",
+    "file": "electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "path": "<drop folder>/electron_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "state": "unchanged",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "current": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "detail": ""
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "Its source file is unchanged since it was ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  },
+  {
+   "table_name": "muon_m0_20gev_reg_balanced_aggr_s1_v3_0df210",
+   "display_name": "muon_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3",
+   "kind": "single_shower_events",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "drop_folder",
+    "file": "muon_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "path": "<drop folder>/muon_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "state": "unchanged",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "current": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "detail": ""
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "Its source file is unchanged since it was ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  },
+  {
+   "table_name": "pion_m0_20gev_reg_balanced_aggr_s1_v3_3f0dfc",
+   "display_name": "pion_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3",
+   "kind": "single_shower_events",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "drop_folder",
+    "file": "pion_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "path": "<drop folder>/pion_standalone_N100000_M0_20GeV_reg_balanced_aggr_s1_v3.csv",
+    "state": "unchanged",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": {
+     "bytes": 6850,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "current": {
+     "bytes": 6850,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "detail": ""
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "Its source file is unchanged since it was ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  },
+  {
+   "table_name": "proton_m0_20gev_reg_balanced_aggr_s2_v3_97ced3",
+   "display_name": "proton_standalone_N100000_M0_20GeV_reg_balanced_aggr_s2_v3",
+   "kind": "single_shower_events",
+   "status": "ready",
+   "error": null,
+   "source_changed": false,
+   "archive_parts": 1,
+   "source": {
+    "origin": "drop_folder",
+    "file": "proton_standalone_N100000_M0_20GeV_reg_balanced_aggr_s2_v3.csv",
+    "path": "<drop folder>/proton_standalone_N100000_M0_20GeV_reg_balanced_aggr_s2_v3.csv",
+    "state": "unchanged",
+    "basis": "recorded",
+    "settling": false,
+    "recorded": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "current": {
+     "bytes": 308149,
+     "modified": "2026-11-11T12:00:00+00:00"
+    },
+    "detail": ""
+   },
+   "actions": {
+    "reingest": {
+     "available": false,
+     "reason": "Its source file is unchanged since it was ingested."
+    },
+    "retry": {
+     "available": false,
+     "reason": "Only a failed experiment is retried."
+    }
+   },
+   "job": {
+    "job_id": "0123456789abcdef",
+    "mode": "create_new",
+    "status": "done",
+    "progress": 1.0,
+    "stage_label": "Ingestion complete",
+    "error": null,
+    "finished_at": "2026-11-11T12:00:05+00:00"
+   }
+  }
+ ],
+ "states": [
+  "unchanged",
+  "touched",
+  "changed",
+  "missing",
+  "untracked"
+ ],
+ "origins": [
+  "drop_folder",
+  "local",
+  "upload",
+  "seed",
+  "cli"
+ ]
+}

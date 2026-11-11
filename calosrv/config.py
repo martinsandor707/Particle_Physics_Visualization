@@ -115,7 +115,8 @@ class Settings:
     #: the file is read in place instead of being pushed through HTTP. It is
     #: confined to one configured root, and every requested path is resolved and
     #: checked against it, so the endpoint cannot be used to read arbitrary
-    #: files the server process happens to have access to.
+    #: files the server process happens to have access to. The container's
+    #: default is /app/ingest, the same read-only mount the drop folder scans.
     local_ingest_dir: Path | None
 
     #: Base URL the ingest CLI uses to reach a running server.
@@ -153,8 +154,8 @@ class Settings:
 
     #: The drop folder scanned at every start (``calosrv/ingest/autoingest.py``).
     #: Unset by default, so nothing is ingested unless a deployment asks: compose
-    #: points it at the repository's ./ingest, mounted read-only. A path that
-    #: does not exist is kept, so the Admin Settings panel can say so.
+    #: points it at the repository's ./ingest, mounted read-only at /app/ingest.
+    #: A path that does not exist is kept, so the Admin Settings panel can say so.
     auto_ingest_dir: Path | None = None
 
     #: A file modified more recently than this many seconds is skipped as still
@@ -170,7 +171,7 @@ class Settings:
     #: The folder of shipped XGBoost models, scanned for
     #: ``xgboost_<species>/standalone_<task>_s<seed>_model.json``
     #: (``calosrv/modelruns/discovery.py``). See :func:`resolve_model_dir`.
-    model_dir: Path = Path("/app/host/xgboost_models")
+    model_dir: Path = Path("/app/xgboost_models")
 
     #: Threads the model analysis gives XGBoost: half the cores, so the server
     #: keeps answering while a cross-validation refit runs.
@@ -200,9 +201,10 @@ def _seed_candidates(data_dir: Path) -> list[Path]:
     ]
 
 
-#: The models folder inside the container: compose mounts the repository
-#: read-only at /app/host, and the image does not copy the models.
-CONTAINER_MODEL_DIR = Path("/app/host/xgboost_models")
+#: The models folder inside the container: compose mounts the repository's
+#: ./xgboost_models read-only at /app/xgboost_models, and the image does not
+#: copy the models.
+CONTAINER_MODEL_DIR = Path("/app/xgboost_models")
 
 
 def resolve_model_dir(repo_root: Path | None = None) -> Path:
@@ -210,8 +212,8 @@ def resolve_model_dir(repo_root: Path | None = None) -> Path:
 
     Outside Docker the server runs from a checkout, whose ``xgboost_models`` sits
     beside ``calosrv``; inside the image ``calosrv`` lives at /app with no models
-    beside it, and the repository is mounted at /app/host. A folder that does
-    not exist is still returned, so the Admin Settings panel can say so.
+    beside it, and the models folder is mounted at /app/xgboost_models. A folder
+    that does not exist is still returned, so the Admin Settings panel can say so.
     """
     override = os.getenv("CALOSRV_MODEL_DIR", "").strip()
     if override:
@@ -248,7 +250,7 @@ def load_settings() -> Settings:
     raw_origins = os.getenv("CALOSRV_CORS_ORIGINS", "").strip()
     origins = tuple(o.strip() for o in raw_origins.split(",") if o.strip())
 
-    raw_local = os.getenv("CALOSRV_LOCAL_INGEST_DIR", "/app/host").strip()
+    raw_local = os.getenv("CALOSRV_LOCAL_INGEST_DIR", "/app/ingest").strip()
     local_dir = Path(raw_local).resolve() if raw_local else None
     if local_dir is not None and not local_dir.is_dir():
         local_dir = None

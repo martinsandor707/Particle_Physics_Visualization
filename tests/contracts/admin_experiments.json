@@ -1,0 +1,397 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "GET /api/admin/experiments (and POST /api/admin/experiments/{table_name}/reingest: $defs.reingest_reply)",
+ "type": "object",
+ "required": [
+  "roots",
+  "experiments",
+  "states",
+  "origins"
+ ],
+ "properties": {
+  "roots": {
+   "type": "object",
+   "required": [
+    "drop_folder",
+    "local",
+    "settle_s"
+   ],
+   "properties": {
+    "drop_folder": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "local": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "settle_s": {
+     "type": "number",
+     "minimum": 0
+    }
+   }
+  },
+  "experiments": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/experiment"
+   }
+  },
+  "states": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/state"
+   }
+  },
+  "origins": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/origin"
+   }
+  }
+ },
+ "$defs": {
+  "filter": {
+   "type": "object",
+   "required": [
+    "e1",
+    "e2",
+    "d",
+    "include_undefined_d"
+   ],
+   "properties": {
+    "e1": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "e2": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "d": {
+     "type": "array",
+     "items": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "minItems": 2,
+     "maxItems": 2
+    },
+    "include_undefined_d": {
+     "type": "boolean"
+    }
+   }
+  },
+  "state": {
+   "enum": [
+    "unchanged",
+    "touched",
+    "changed",
+    "missing",
+    "untracked"
+   ]
+  },
+  "origin": {
+   "enum": [
+    "drop_folder",
+    "local",
+    "upload",
+    "seed",
+    "cli"
+   ]
+  },
+  "status": {
+   "enum": [
+    "pending",
+    "ingesting",
+    "ready",
+    "failed"
+   ]
+  },
+  "file_stat": {
+   "type": "object",
+   "required": [
+    "bytes",
+    "modified"
+   ],
+   "properties": {
+    "bytes": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "modified": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "source": {
+   "type": "object",
+   "required": [
+    "origin",
+    "file",
+    "path",
+    "state",
+    "basis",
+    "settling",
+    "recorded",
+    "current",
+    "detail"
+   ],
+   "properties": {
+    "origin": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/origin"
+      }
+     ]
+    },
+    "file": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "path": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "state": {
+     "$ref": "#/$defs/state"
+    },
+    "basis": {
+     "enum": [
+      "recorded",
+      "legacy",
+      "none"
+     ]
+    },
+    "settling": {
+     "type": "boolean"
+    },
+    "recorded": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/file_stat"
+      }
+     ]
+    },
+    "current": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/file_stat"
+      }
+     ]
+    },
+    "detail": {
+     "type": "string"
+    }
+   }
+  },
+  "action": {
+   "type": "object",
+   "required": [
+    "available",
+    "reason"
+   ],
+   "properties": {
+    "available": {
+     "type": "boolean"
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "job": {
+   "type": "object",
+   "required": [
+    "job_id",
+    "mode",
+    "status",
+    "progress",
+    "stage_label",
+    "error",
+    "finished_at"
+   ],
+   "properties": {
+    "job_id": {
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "create_new",
+      "append",
+      "rebuild",
+      "reingest",
+      "retry"
+     ]
+    },
+    "status": {
+     "enum": [
+      "queued",
+      "running",
+      "done",
+      "failed"
+     ]
+    },
+    "progress": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "stage_label": {
+     "type": "string"
+    },
+    "error": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "finished_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "experiment": {
+   "type": "object",
+   "required": [
+    "table_name",
+    "display_name",
+    "kind",
+    "status",
+    "error",
+    "source_changed",
+    "archive_parts",
+    "source",
+    "actions",
+    "job"
+   ],
+   "properties": {
+    "table_name": {
+     "type": "string"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "kind": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "status": {
+     "$ref": "#/$defs/status"
+    },
+    "error": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "source_changed": {
+     "type": "boolean"
+    },
+    "archive_parts": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "source": {
+     "$ref": "#/$defs/source"
+    },
+    "actions": {
+     "type": "object",
+     "required": [
+      "reingest",
+      "retry"
+     ],
+     "properties": {
+      "reingest": {
+       "$ref": "#/$defs/action"
+      },
+      "retry": {
+       "$ref": "#/$defs/action"
+      }
+     }
+    },
+    "job": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "$ref": "#/$defs/job"
+      }
+     ]
+    }
+   }
+  },
+  "reingest_reply": {
+   "type": "object",
+   "required": [
+    "action",
+    "job",
+    "poll"
+   ],
+   "properties": {
+    "action": {
+     "enum": [
+      "reingest",
+      "retry"
+     ]
+    },
+    "job": {
+     "type": "object",
+     "required": [
+      "job_id",
+      "mode",
+      "status"
+     ]
+    },
+    "poll": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}
