@@ -5,23 +5,35 @@ dashboard starts, so that ``docker compose up`` is the only command a user needs
 every ``git pull``. The dashboard waits for it (``service_completed_successfully``), which is why the
 exit code carries the meaning:
 
-* 0: the folders hold what the dataset lists, or the Hub could not be reached and the files of the
-  last sync are complete;
-* 1: something that the dashboard needs is missing or unfinished, named in the log.
+* 0: the folders hold what the dataset lists, or the Hub could not be reached and the last sync had
+  finished and its files are all here;
+* 1: something that the dashboard needs is missing or unfinished, named in the log;
+* 130 / 143: interrupted by Ctrl-C / by ``docker compose stop`` (SIGTERM). Every file in place is whole.
 
 Rules the code keeps, each one a decision of the design, not an accident:
 
 * Nothing is ever deleted. A local file the dataset does not list is never touched, and neither is
   ``ingest/README.md``.
-* A file edited on this computer since the last sync is kept, not overwritten, unless
-  ``HF_SYNC_OVERWRITE=1``. Whether it was edited is told from what the previous run recorded in
-  ``ingest/.hf-sync/last-sync.json`` (size and modification time), so the answer costs no hashing.
-* A file already in step with the dataset costs no network call at all.
-* A finished file appears by an atomic rename: ``<root>/.cache`` is a symlink to ``ingest/.hf-sync``,
-  so ``huggingface_hub`` keeps its metadata and ``.incomplete`` files on the ingest mount itself,
-  where the rename cannot cross a filesystem.
-* An update never loses the old copy: ``huggingface_hub`` unlinks the outdated file before it
-  downloads, so a hard link to it is held until the new file is verified, and put back on failure.
+* ``huggingface_hub`` never writes, unlinks or truncates a file at its final place. It downloads only
+  into ``ingest/.hf-sync/stage/`` (its own ``.cache`` lives there too), and the sync swaps a whole,
+  size-checked file into place: ``os.replace`` for ``ingest/``, which is one atomic rename on one
+  mount, and for ``xgboost_models/`` a copy to ``<name>.hf-sync-tmp`` beside the destination, fsynced
+  and then renamed, because that folder is another mount. The old file therefore stays whole until
+  the swap, whatever kills the process, and no spare copy is needed.
+* A file's fate is decided by its content, not by ``huggingface_hub``'s metadata and not by
+  timestamps alone. The sync records what it wrote (size, modification time, the dataset's etag).
+  A file whose size and time still match the record is the sync's own and costs no hashing and no
+  network call. Any other file is hashed (SHA-256 for a Git LFS etag, Git's blob SHA-1 for the
+  others) and compared with the dataset's etag: equal means *adopted* (recorded, nothing downloaded);
+  equal to the recorded etag means an untouched older copy, so *updated*; anything else was changed
+  on this computer or is a different file, so it is *kept* unless ``HF_SYNC_OVERWRITE=1``.
+* The record, ``ingest/.hf-sync/last-sync.json``, is written right after the listing, before any
+  download, and after every file. It lists the ``expected`` paths and a ``complete`` flag that is
+  true only when a run ended with every one of them present, recorded and of its listed size (a file
+  kept on purpose counts as present). A start without the Hub requires both, so an interrupted first
+  sync never passes for a finished one.
+
+The ``.hf-sync/`` folder holds exactly two things: ``stage/`` and ``last-sync.json``.
 
 The hub calls are injectable (``main(api=...)``), so the tests run without a network.
 """
@@ -32,10 +44,14 @@ import argparse
 import dataclasses
 import errno
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
+import signal
+import stat as stat_module
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,7 +77,8 @@ PROTECTED = frozenset({"ingest/README.md"})
 
 STATE_FOLDER = ".hf-sync"
 STATE_FILE = "last-sync.json"
-BACKUP_FOLDER = "previous"
+STAGE_FOLDER = "stage"
+MODEL_TMP_SUFFIX = ".hf-sync-tmp"
 
 OFF_WORDS = frozenset({"0", "false", "no", "off"})
 ON_WORDS = frozenset({"1", "true", "yes", "on"})
@@ -69,9 +86,18 @@ ON_WORDS = frozenset({"1", "true", "yes", "on"})
 ATTEMPTS = 3
 BACKOFF_S = 2.0
 LIST_TIMEOUT_S = 30.0
+HASH_CHUNK = 8 * 1024 * 1024
 
 # Replaced in the tests, so a retry does not sleep.
 sleep = time.sleep
+
+
+class Terminated(KeyboardInterrupt):
+    """SIGTERM, raised as an interrupt so the ``finally`` blocks run.
+
+    Python as PID 1 ignores SIGTERM unless a handler is installed, and Docker then kills the
+    container after ten seconds. Raising here lets a swap in progress finish or unwind.
+    """
 
 
 # --------------------------------------------------------------------------------------------
@@ -140,7 +166,7 @@ def read_config(env) -> Config:
 
 
 # --------------------------------------------------------------------------------------------
-# Privileges and folders
+# Privileges, mounts and signals
 # --------------------------------------------------------------------------------------------
 
 def plan_privilege_drop(euid: int, owner_uid: int, owner_gid: int) -> tuple[int, int] | None:
@@ -167,18 +193,41 @@ def drop_privileges(uid: int, gid: int) -> None:
     os.environ.setdefault("HF_HOME", "/tmp/hf-home")
 
 
-def link_cache(root: Path, state: Path) -> None:
-    """Make ``<root>/.cache`` a symlink to the state folder, so ``hf`` keeps its files on the mount."""
-    link = root / ".cache"
-    if link.is_symlink():
-        if os.readlink(link) == str(state):
-            return
-        link.unlink()
-    elif link.exists():
-        say(f"warning: {link} is a real folder, not a link to {state}; left alone, so the Hugging Face "
-            "metadata and partial downloads stay there.")
-        return
-    link.symlink_to(state, target_is_directory=True)
+def current_uid() -> int | str:
+    return os.geteuid() if hasattr(os, "geteuid") else "?"
+
+
+def mount_problem(folder: Path) -> str | None:
+    """Why this process cannot write into ``folder``, or None when it can.
+
+    Checked after the privilege drop: the drop follows ``ingest/``'s owner, so a ``xgboost_models/``
+    that belongs to someone else (a checkout made with sudo) is only found out here.
+    """
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # reported just below, with the owner
+    if os.access(folder, os.W_OK | os.X_OK):
+        return None
+    try:
+        owner = f"uid {folder.stat().st_uid}"
+    except OSError:
+        owner = "an unknown owner"
+    return (f"{folder} is not writable: it belongs to {owner} and this process runs as uid {current_uid()}. "
+            f"Give it to the user who runs Docker (for example sudo chown -R $USER {folder.name}) and start again")
+
+
+def install_sigterm_handler():
+    """Turn SIGTERM into an interrupt; returns the previous handler, or None where none could be set."""
+    def handler(signum, frame):
+        raise Terminated()
+
+    try:
+        if threading.current_thread() is not threading.main_thread():
+            return None
+        return signal.signal(signal.SIGTERM, handler)
+    except (ValueError, OSError):
+        return None
 
 
 # --------------------------------------------------------------------------------------------
@@ -201,6 +250,10 @@ def safe_path(path: str) -> bool:
             and not path.startswith("/"))
 
 
+def matches(path: str, patterns) -> bool:
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+
+
 def select_files(files, patterns) -> list[Entry]:
     """Keep what the patterns match, inside the two mounts, never the protected note.
 
@@ -210,14 +263,26 @@ def select_files(files, patterns) -> list[Entry]:
     chosen = []
     for f in files:
         path = f.path
-        if path in PROTECTED or not safe_path(path):
-            continue
-        if not any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+        if path in PROTECTED or not safe_path(path) or not matches(path, patterns):
             continue
         lfs = getattr(f, "lfs", None)
         etag = (getattr(lfs, "sha256", None) if lfs is not None else None) or f.blob_id
         chosen.append(Entry(path=path, size=int(f.size), etag=str(etag)))
     return sorted(chosen, key=lambda e: e.path)
+
+
+def local_matches(cfg: Config) -> list[str]:
+    """Paths under the two mounts that the patterns match, ignoring hidden folders (``.hf-sync/``)."""
+    found = []
+    for top in ("ingest", "xgboost_models"):
+        base = cfg.root / top
+        for folder, dirs, names in os.walk(base):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for name in names:
+                path = (Path(folder) / name).relative_to(cfg.root).as_posix()
+                if path not in PROTECTED and safe_path(path) and matches(path, cfg.patterns):
+                    found.append(path)
+    return sorted(found)
 
 
 def read_last_sync(state: Path) -> dict | None:
@@ -236,6 +301,14 @@ def read_last_sync(state: Path) -> dict | None:
     return data
 
 
+def valid_entry(rec) -> dict | None:
+    """One file's record, or None when it is not a record (a hand-edited or damaged entry)."""
+    if (isinstance(rec, dict) and isinstance(rec.get("bytes"), int) and isinstance(rec.get("mtime_ns"), int)
+            and isinstance(rec.get("etag"), str)):
+        return rec
+    return None
+
+
 def write_last_sync(state: Path, record: dict) -> None:
     """Atomically: a temporary file in the same folder, flushed, then renamed over the record."""
     target = state / STATE_FILE
@@ -249,40 +322,79 @@ def write_last_sync(state: Path, record: dict) -> None:
 
 
 # --------------------------------------------------------------------------------------------
-# The per-file decision
+# The per-file decision, by content
 # --------------------------------------------------------------------------------------------
 
-DOWNLOAD, UPDATE, VERIFY, UNCHANGED, KEPT = "download", "update", "verify", "unchanged", "kept"
+DOWNLOAD, UPDATE, ADOPT, UNCHANGED, KEPT = "download", "update", "adopt", "unchanged", "kept"
+
+SHA256, GIT_SHA1 = "sha256", "git-sha1"
 
 
-def decide(entry: Entry, local: os.stat_result | None, record: dict | None,
-           overwrite: bool) -> tuple[str, str]:
-    """(action, reason) for one file, in the order of the design's table.
+def etag_kind(etag: str) -> str | None:
+    """How to hash a file to compare it with ``etag``: 64 hex digits are an LFS SHA-256, 40 a Git blob id."""
+    if len(etag) == 64 and all(c in "0123456789abcdef" for c in etag):
+        return SHA256
+    if len(etag) == 40 and all(c in "0123456789abcdef" for c in etag):
+        return GIT_SHA1
+    return None
 
-    ``record`` is this file's entry of ``last-sync.json``. A ``kept`` file is one the sync leaves
-    alone; with ``overwrite`` the same two cases become an ``update``.
+
+def file_digest(path: Path, kind: str, size: int) -> str:
+    """The hex digest ``etag_kind`` names, read in 8 MiB chunks. Git's blob id hashes a header first."""
+    digest = hashlib.sha256() if kind == SHA256 else hashlib.sha1()
+    if kind == GIT_SHA1:
+        digest.update(b"blob %d\0" % size)
+    with open(path, "rb") as handle:
+        while chunk := handle.read(HASH_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def decide(entry: Entry, local: os.stat_result | None, record, overwrite: bool, digest) -> tuple[str, str]:
+    """(action, reason) for one file.
+
+    ``record`` is this file's entry of ``last-sync.json``; ``digest(kind)`` hashes the local file (it
+    is called only when a comparison is possible, and the caller may cache and announce it).
+
+    1. missing: download;
+    2. the record exists and the file's size and mtime equal it: the sync's own copy, so unchanged
+       when the dataset's etag is the recorded one, else an update;
+    3. otherwise hash it: equal to the dataset's etag is adopted; equal to the recorded etag is an
+       untouched older copy, so an update; anything else is kept (or replaced with the opt-in).
     """
     if local is None:
         return DOWNLOAD, "not on this computer"
-    if record is not None:
-        unchanged_here = (local.st_size == record.get("bytes") and local.st_mtime_ns == record.get("mtime_ns"))
-        if unchanged_here:
-            if record.get("etag") == entry.etag:
-                return UNCHANGED, "in step with the dataset"
-            return UPDATE, "the dataset has a newer version"
+    if not stat_module.S_ISREG(local.st_mode):
+        if overwrite:
+            return UPDATE, "is a link or a folder, not a file; replaced (HF_SYNC_OVERWRITE=1)"
+        return KEPT, "is a link or a folder, not a file; kept"
+    rec = valid_entry(record)
+    if rec is not None and local.st_size == rec["bytes"] and local.st_mtime_ns == rec["mtime_ns"]:
+        if rec["etag"] == entry.etag:
+            return UNCHANGED, "in step with the dataset"
+        return UPDATE, "the dataset has a newer version"
+
+    upstream = etag_kind(entry.etag)
+    if upstream is not None and local.st_size == entry.size and digest(upstream) == entry.etag:
+        return ADOPT, "already the dataset's content; recorded without a download"
+    if rec is not None and rec["etag"] != entry.etag and local.st_size == rec["bytes"]:
+        older = etag_kind(rec["etag"])
+        if older is not None and digest(older) == rec["etag"]:
+            return UPDATE, "an untouched copy of the last sync's older version; the dataset has a newer one"
+
+    if rec is not None:
         if overwrite:
             return UPDATE, "changed on this computer since the last sync; replaced (HF_SYNC_OVERWRITE=1)"
         return KEPT, "changed on this computer since the last sync; kept"
-    if local.st_size == entry.size:
-        return VERIFY, "first sync: same size as the dataset, checking its content once"
     if overwrite:
         return UPDATE, "differs from the dataset; replaced (HF_SYNC_OVERWRITE=1)"
     return KEPT, "differs from the dataset; kept"
 
 
 def lstat_or_none(path: Path) -> os.stat_result | None:
+    """``lstat``: a dangling link is not "missing", and a link is not followed."""
     try:
-        return path.stat()
+        return path.lstat()
     except FileNotFoundError:
         return None
 
@@ -338,8 +450,8 @@ def denied_reason(exc: BaseException, cfg: Config) -> str:
         return (f"{where} was not found (HTTP 404). Check HF_SYNC_REPO and HF_SYNC_REVISION; a private "
                 "repository also answers 404 without a token.")
     return (f"Hugging Face refused access to {where} (HTTP {status}). "
-            "A private or gated dataset needs a token in HF_TOKEN; a repository that does not exist is also "
-            "answered with 401.")
+            "A private or gated dataset needs a token in HF_TOKEN (compose passes it on); a repository that "
+            "does not exist is also answered with 401.")
 
 
 # --------------------------------------------------------------------------------------------
@@ -389,25 +501,40 @@ def with_retries(call, label: str):
 # --------------------------------------------------------------------------------------------
 
 def offline_outcome(cfg: Config, state: Path, exc: BaseException) -> int:
-    """The Hub cannot be reached: 0 if the last sync's files are all here and whole, else 1."""
+    """The Hub cannot be reached: 0 only if the last sync finished and its files are all here and whole.
+
+    "Finished" is the record's ``complete`` flag; "all here" is every ``expected`` path, at its
+    recorded size (a file kept on purpose only has to exist). A record without both, such as one left
+    by an interrupted first sync, is refused: the dashboard would start without its datasets.
+    """
     record = read_last_sync(state)
-    if not record or not record["files"]:
+    if not record or not record["files"] and not record.get("expected"):
         say(f"error: Hugging Face could not be reached ({describe(exc)}) and nothing was ever synced to "
             f"{cfg.root / 'ingest'}. Connect to the internet and start again, or download the files "
             "by hand (see the README's Quick start).")
         return 1
+    expected = record.get("expected")
+    expected = sorted(p for p in expected if isinstance(p, str)) if isinstance(expected, list) else []
+    kept = set(record["kept"]) if isinstance(record.get("kept"), list) else set()
+    finished = record.get("complete") is True and bool(expected)
+
     problems = []
-    for path, rec in sorted(record["files"].items()):
+    for path in expected:
         stat = lstat_or_none(cfg.root / path)
+        rec = valid_entry(record["files"].get(path))
         if stat is None:
             problems.append(f"{path} is missing")
-        elif stat.st_size != rec.get("bytes"):
-            problems.append(f"{path} has {stat.st_size:,} bytes, the last sync recorded {rec.get('bytes'):,}"
-                            if isinstance(rec.get("bytes"), int) else f"{path} has no recorded size")
+        elif path in kept:
+            continue
+        elif rec is None:
+            problems.append(f"{path} was never recorded as complete")
+        elif stat.st_size != rec["bytes"]:
+            problems.append(f"{path} has {stat.st_size:,} bytes, the last sync recorded {rec['bytes']:,}")
     when = fmt_utc(record.get("synced_at", ""))
-    if problems:
-        say(f"error: Hugging Face could not be reached ({describe(exc)}), and the files of the last sync "
-            f"({when}) are not complete:")
+    if not finished or problems:
+        reason = ("the last sync did not finish" if not finished else "the files of the last sync are not complete")
+        say(f"error: Hugging Face could not be reached ({describe(exc)}), and {reason} ({when})"
+            + (":" if problems else "; start again with a connection to finish it."))
         for problem in problems:
             say(f"  {problem}")
         return 1
@@ -417,61 +544,96 @@ def offline_outcome(cfg: Config, state: Path, exc: BaseException) -> int:
 
 
 # --------------------------------------------------------------------------------------------
-# Fetching one file
+# Fetching one file: download into the stage, then swap into place
 # --------------------------------------------------------------------------------------------
 
-def keep_old_copy(dest: Path, state: Path, path: str) -> Path | None:
-    """A hard link to the file about to be replaced, in the state folder; None if there is no file.
+def clear_partials(stage: Path) -> None:
+    """Delete ``.incomplete`` files left by a killed download.
 
-    ``huggingface_hub`` unlinks the outdated file before it downloads. The link keeps the old bytes
-    reachable until the new file is whole, at the cost of its disk space for that long.
+    ``huggingface_hub`` 2.3.0 names each partial file uniquely and never reopens one, so a leftover
+    cannot resume; it only holds disk space.
     """
-    if not dest.exists():
-        return None
-    backup = state / BACKUP_FOLDER / path
+    freed = 0
+    for partial in (stage / ".cache" / "huggingface" / "download").rglob("*.incomplete"):
+        try:
+            size = partial.stat().st_size
+            partial.unlink()
+            freed += size
+        except OSError:
+            pass
+    if freed:
+        say(f"removed {fmt_bytes(freed)} of partial downloads left by an interrupted run.")
+
+
+def forget_stage_metadata(stage: Path, path: str) -> None:
+    """Drop ``hf``'s metadata for a file that has left the stage, so it can never vouch for a later one."""
     try:
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.unlink(missing_ok=True)
-        os.link(dest, backup)
-    except OSError as exc:
-        say(f"warning: cannot keep a spare copy of {path} ({exc}); a download that fails would leave it missing.")
-        return None
-    return backup
+        (stage / ".cache" / "huggingface" / "download" / (path + ".metadata")).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
-def fetch(client, cfg: Config, state: Path, commit: str, entry: Entry, action: str) -> os.stat_result:
-    """Download, update or verify one file; return its stat, or raise.
+def swap_into_place(cfg: Config, stage: Path, entry: Entry) -> os.stat_result:
+    """Move the whole staged file to its final place and return its stat.
 
-    A failure puts the old file back. The new file is checked against the dataset's size before it is
-    accepted.
+    ``ingest/``: one ``os.replace`` on the same mount. ``xgboost_models/``: a copy to a sibling
+    ``.hf-sync-tmp`` name on its own mount, fsynced, then ``os.replace``; the staged copy goes last.
+    The old file is whole until the rename, and the rename is atomic.
     """
+    staged = stage / entry.path
     dest = cfg.root / entry.path
-    backup = keep_old_copy(dest, state, entry.path) if action in (UPDATE, VERIFY) else None
-    force = action == UPDATE  # the local file is known to be wrong: no hashing, no "already up to date"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if entry.path.startswith("ingest/"):
+            os.replace(staged, dest)
+        else:
+            tmp = dest.with_name(dest.name + MODEL_TMP_SUFFIX)
+            try:
+                shutil.copyfile(staged, tmp)
+                with open(tmp, "rb+") as handle:
+                    os.fsync(handle.fileno())
+                os.replace(tmp, dest)
+            finally:
+                tmp.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
+    except PermissionError as exc:
+        owner = None
+        try:
+            owner = dest.parent.stat().st_uid
+        except OSError:
+            pass
+        raise PermissionError(
+            errno.EACCES, f"cannot write into {dest.parent}: it belongs to uid {owner} and the sync runs as uid "
+            f"{current_uid()}") from exc
+    forget_stage_metadata(stage, entry.path)
+    stat = lstat_or_none(dest)
+    if stat is None:  # pragma: no cover - the rename just succeeded
+        raise OSError(f"{entry.path} is not on disk after the swap")
+    return stat
+
+
+def fetch(client, cfg: Config, stage: Path, commit: str, entry: Entry) -> os.stat_result:
+    """Download one file into the stage, check it, swap it into place; return its stat, or raise.
+
+    ``force_download`` is always off: the stage never holds an outdated file (a finished one is moved
+    away), so ``hf`` downloads, and a staged file that is already whole and matches the listing, left
+    by a run killed before its swap, is simply swapped.
+    """
+    staged = stage / entry.path
 
     def attempt():
-        client.download(cfg.repo, entry.path, commit, str(cfg.root), force)
-        stat = lstat_or_none(dest)
+        client.download(cfg.repo, entry.path, commit, str(stage), False)
+        stat = lstat_or_none(staged)
         if stat is None:
             raise OSError(f"{entry.path} is not on disk after the download")
         if stat.st_size != entry.size:
-            raise OSError(f"{entry.path} has {stat.st_size:,} bytes, the dataset lists {entry.size:,}")
-        return stat
+            size = stat.st_size
+            staged.unlink(missing_ok=True)  # never let a short file be reused or swapped
+            forget_stage_metadata(stage, entry.path)
+            raise OSError(f"{entry.path} has {size:,} bytes, the dataset lists {entry.size:,}")
 
-    try:
-        stat = with_retries(attempt, entry.path)
-    except BaseException:
-        if backup is not None:
-            try:
-                os.replace(backup, dest)
-            except OSError as exc:
-                say(f"error: could not put the previous {entry.path} back ({exc}); it is kept at {backup}.")
-                backup = None
-        raise
-    finally:
-        if backup is not None:
-            backup.unlink(missing_ok=True)
-    return stat
+    with_retries(attempt, entry.path)
+    return swap_into_place(cfg, stage, entry)
 
 
 # --------------------------------------------------------------------------------------------
@@ -479,11 +641,22 @@ def fetch(client, cfg: Config, state: Path, commit: str, entry: Entry, action: s
 # --------------------------------------------------------------------------------------------
 
 def plan(entries, cfg: Config, record: dict | None):
-    """[(entry, action, reason)] in path order."""
+    """[(entry, action, reason)] in path order. Hashing announces itself, one line per file."""
     known = (record or {}).get("files", {})
     rows = []
     for entry in entries:
-        action, reason = decide(entry, lstat_or_none(cfg.root / entry.path), known.get(entry.path), cfg.overwrite)
+        dest = cfg.root / entry.path
+        local = lstat_or_none(dest)
+        cache: dict[str, str] = {}
+
+        def digest(kind: str, dest=dest, entry=entry, local=local) -> str:
+            if not cache:
+                say(f"Checking {entry.path} ({fmt_bytes(local.st_size)}) against the dataset…")
+            if kind not in cache:
+                cache[kind] = file_digest(dest, kind, local.st_size)
+            return cache[kind]
+
+        action, reason = decide(entry, local, known.get(entry.path), cfg.overwrite, digest)
         rows.append((entry, action, reason))
     return rows
 
@@ -492,25 +665,37 @@ def print_plan(rows, commit: str, cfg: Config) -> None:
     say(f"plan for {cfg.repo} at {cfg.revision} (commit {commit[:10]}):")
     for entry, action, reason in rows:
         say(f"  {action:<9} {entry.path} ({fmt_bytes(entry.size)}): {reason}")
-    todo = [(e, a) for e, a, _ in rows if a in (DOWNLOAD, UPDATE, VERIFY)]
+    todo = [e for e, a, _ in rows if a in (DOWNLOAD, UPDATE)]
     by_folder = {}
-    for entry, _ in todo:
+    for entry in todo:
         folder = entry.path.split("/", 1)[0] + "/"
         by_folder[folder] = by_folder.get(folder, 0) + 1
     detail = ", ".join(f"{n} in {folder}" for folder, n in sorted(by_folder.items()))
-    say(f"plan: {len(todo)} of {len(rows)} files to fetch ({fmt_bytes(sum(e.size for e, _ in todo))})"
-        + (f": {detail}" if detail else "") + ". Dry run: nothing was downloaded.")
+    adopted = sum(1 for _, a, _ in rows if a == ADOPT)
+    say(f"plan: {len(todo)} of {len(rows)} files to fetch ({fmt_bytes(sum(e.size for e in todo))})"
+        + (f": {detail}" if detail else "") + (f"; {adopted} already here and to be adopted" if adopted else "")
+        + ". Dry run: nothing was downloaded.")
 
 
 def run(cfg: Config, client, dry_run: bool) -> int:
     ingest = cfg.root / "ingest"
     state = ingest / STATE_FOLDER
+    stage = state / STAGE_FOLDER
 
-    # 1. The state folder, and the link that puts hf's metadata and partial files on the ingest mount.
+    # 1. The state folder, once the ingest mount is known to be writable.
+    unwritable: dict[str, str] = {}
     if not dry_run:
-        ingest.mkdir(parents=True, exist_ok=True)
+        problem = mount_problem(ingest)
+        if problem:
+            say(f"error: {problem}. Nothing can be downloaded; start with HF_SYNC=0 to use the files as they are.")
+            return 1
         state.mkdir(parents=True, exist_ok=True)
-        link_cache(cfg.root, state)
+        stage.mkdir(parents=True, exist_ok=True)
+        clear_partials(stage)
+        problem = mount_problem(cfg.root / "xgboost_models")
+        if problem:
+            unwritable["xgboost_models/"] = problem
+            say(f"warning: {problem}. The datasets are still synced; the models are not.")
 
     # 2. What the dataset holds at one commit.
     try:
@@ -530,8 +715,13 @@ def run(cfg: Config, client, dry_run: bool) -> int:
     say(f"{cfg.repo} at {cfg.revision}: commit {commit[:10]}, {len(entries)} files match "
         f"{', '.join(cfg.patterns)} ({fmt_bytes(sum(e.size for e in entries))}).")
     if not entries:
+        here = local_matches(cfg)
+        if not here:
+            say("error: no file of the dataset matches HF_SYNC_INCLUDE and no local file does either; check the "
+                "patterns and the revision, or start with HF_SYNC=0.")
+            return 1
         say("warning: no file of the dataset matches HF_SYNC_INCLUDE; check the patterns and the revision. "
-            "The files already here are used as they are.")
+            f"The {len(here)} matching file(s) already here are used as they are.")
         return 0
 
     record = read_last_sync(state)
@@ -540,12 +730,20 @@ def run(cfg: Config, client, dry_run: bool) -> int:
         print_plan(rows, commit, cfg)
         return 0
 
-    # 3. Work through the files, saving the record after each success.
-    synced = dict((record or {}).get("files", {}))
+    # 3. Record the intent before any download, then work through the files, saving after each.
+    synced = {p: r for p, r in (record or {}).get("files", {}).items() if valid_entry(r) is not None}
     header = {"repo": cfg.repo, "revision": cfg.revision, "commit": commit}
-    counts = {DOWNLOAD: 0, UPDATE: 0, VERIFY: 0, UNCHANGED: 0, KEPT: 0}
-    fetched_bytes = {DOWNLOAD: 0, UPDATE: 0, VERIFY: 0}
+    expected = [e.path for e in entries]
+    kept = sorted(e.path for e, a, _ in rows if a == KEPT)
+    counts = {DOWNLOAD: 0, UPDATE: 0, ADOPT: 0, UNCHANGED: 0, KEPT: 0}
+    fetched_bytes = {DOWNLOAD: 0, UPDATE: 0}
     failed = []
+
+    def save(complete: bool = False):
+        write_last_sync(state, {**header, "synced_at": now_iso(), "expected": expected, "complete": complete,
+                                "kept": kept, "files": synced})
+
+    save()
 
     needed = sum(e.size for e, a, _ in rows if a in (DOWNLOAD, UPDATE))
     try:
@@ -555,9 +753,6 @@ def run(cfg: Config, client, dry_run: bool) -> int:
     except OSError:
         pass
 
-    def save():
-        write_last_sync(state, {**header, "synced_at": now_iso(), "files": synced})
-
     for entry, action, reason in rows:
         if action == UNCHANGED:
             counts[UNCHANGED] += 1
@@ -566,40 +761,60 @@ def run(cfg: Config, client, dry_run: bool) -> int:
             counts[KEPT] += 1
             say(f"warning: {entry.path} {reason}.")
             continue
-        verb = {DOWNLOAD: "Downloading", UPDATE: "Updating", VERIFY: "Checking"}[action]
+        dest = cfg.root / entry.path
+        before = lstat_or_none(dest)
+        if action == ADOPT:
+            stat = lstat_or_none(dest)
+            counts[ADOPT] += 1
+            synced[entry.path] = {"bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns, "etag": entry.etag}
+            save()
+            say(f"{entry.path} is already the dataset's content; adopted.")
+            continue
+        folder = entry.path.split("/", 1)[0] + "/"
+        if folder in unwritable:
+            failed.append(entry.path)
+            say(f"error: {entry.path} was not fetched: {folder} is not writable by this process. "
+                + ("The previous copy is untouched." if before is not None else "It is not on this computer."))
+            continue
+        verb = {DOWNLOAD: "Downloading", UPDATE: "Updating"}[action]
         say(f"{verb} {entry.path} ({fmt_bytes(entry.size)})… [{reason}]")
-        before = lstat_or_none(cfg.root / entry.path)
         started = time.monotonic()
         try:
-            stat = fetch(client, cfg, state, commit, entry, action)
+            stat = fetch(client, cfg, stage, commit, entry)
         except Exception as exc:  # noqa: BLE001
             failed.append(entry.path)
             say(f"error: {entry.path} failed ({describe(exc)}); "
                 + ("the previous copy is untouched." if before is not None else "it is not on this computer."))
             continue
-        # A "verify" that found the content wrong was downloaded by the hub: the file is a new one.
-        outcome = action
-        if action == VERIFY and (before is None or (stat.st_ino, stat.st_mtime_ns) != (before.st_ino, before.st_mtime_ns)):
-            outcome = UPDATE
-        counts[outcome] += 1
-        fetched_bytes[outcome] += entry.size
+        counts[action] += 1
+        fetched_bytes[action] += entry.size
         synced[entry.path] = {"bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns, "etag": entry.etag}
         save()
-        elapsed = time.monotonic() - started
-        say(f"… {entry.path} " + ("matches the dataset" if outcome == VERIFY else "done")
-            + f" in {elapsed:.1f} s.")
+        say(f"… {entry.path} done in {time.monotonic() - started:.1f} s.")
 
-    # 4. The summary, and the verdict.
+    # 4. Is every expected file here, whole, and either recorded or kept on purpose?
+    def satisfied(entry: Entry) -> bool:
+        stat = lstat_or_none(cfg.root / entry.path)
+        if stat is None or entry.path in failed:
+            return False
+        if entry.path in kept:
+            return True
+        rec = valid_entry(synced.get(entry.path))
+        return rec is not None and rec["bytes"] == entry.size == stat.st_size
+
+    complete = all(satisfied(e) for e in entries)
+    save(complete)
+
     def tally(key: str, word: str) -> str:
         return f"{counts[key]} {word}" + (f" ({fmt_bytes(fetched_bytes[key])})" if counts[key] else "")
 
-    parts = [tally(DOWNLOAD, "downloaded"), tally(UPDATE, "updated"),
+    parts = [tally(DOWNLOAD, "downloaded"), tally(UPDATE, "updated"), f"{counts[ADOPT]} adopted",
              f"{counts[UNCHANGED]} unchanged", f"{counts[KEPT]} kept"]
-    if counts[VERIFY]:
-        parts.insert(2, f"{counts[VERIFY]} verified in place")
     say(f"{len(rows)} files examined: " + ", ".join(parts) + ".")
     if failed:
-        say(f"error: {len(failed)} file(s) are missing or unfinished: " + ", ".join(failed) + ".")
+        say(f"error: {len(failed)} file(s) are missing or unfinished: " + ", ".join(failed)
+            + ". The previous copy of each is untouched. Run docker compose up again to continue (finished files "
+              "are not downloaded again), or start with HF_SYNC=0 to use the files as they are.")
         return 1
     return 0
 
@@ -617,25 +832,31 @@ def main(argv=None, env=None, api=None) -> int:
         say(f"skipped: HF_SYNC={env.get('HF_SYNC')}; the files in ingest/ and xgboost_models/ are used as they are.")
         return 0
 
-    root_ingest = cfg.root / "ingest"
-    if not args.dry_run and os.name == "posix" and root_ingest.is_dir():
-        # The one write before the privilege drop: /sync belongs to root in the image, so the link to
-        # the state folder must be made while we still are root. It touches neither mount.
-        if os.geteuid() == 0:
-            link_cache(cfg.root, root_ingest / STATE_FOLDER)
-        stat = root_ingest.stat()
-        target = plan_privilege_drop(os.geteuid(), stat.st_uid, stat.st_gid)
-        if target is not None:
-            drop_privileges(*target)
-            say(f"running as uid {target[0]}, gid {target[1]}, the owner of {root_ingest}, so the files "
-                "belong to you.")
-
+    previous = install_sigterm_handler()
     try:
-        client = api if api is not None else HubClient()
-    except ImportError as exc:
-        say(f"error: huggingface_hub is not installed ({exc}).")
-        return 1
-    return run(cfg, client, args.dry_run)
+        root_ingest = cfg.root / "ingest"
+        if not args.dry_run and os.name == "posix" and root_ingest.is_dir():
+            stat = root_ingest.stat()
+            target = plan_privilege_drop(os.geteuid(), stat.st_uid, stat.st_gid)
+            if target is not None:
+                drop_privileges(*target)
+                say(f"running as uid {target[0]}, gid {target[1]}, the owner of {root_ingest}, so the files "
+                    "belong to you.")
+
+        try:
+            client = api if api is not None else HubClient()
+        except ImportError as exc:
+            say(f"error: huggingface_hub is not installed ({exc}).")
+            return 1
+        return run(cfg, client, args.dry_run)
+    except KeyboardInterrupt as exc:
+        code = 143 if isinstance(exc, Terminated) else 130
+        say("interrupted. Every file already in place is whole and the download that was running was not "
+            "swapped in. Run docker compose up again to continue.")
+        return code
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":
