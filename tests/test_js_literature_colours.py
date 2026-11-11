@@ -96,7 +96,9 @@ function card() {
       strokes: [...new Set(lit.filter((s) => !/\|(endlabels|caret)$/.test(s.id))
         .flatMap((s) => s.renderItem({ dataIndex: 0 }, api).children.map((c) => c.style.stroke)))],
       labels: lit.filter((s) => s.id.endsWith('|endlabels')).flatMap((s) => s.renderItem({ dataIndex: 0 }, api).children
-        .map((c) => [c.style.text, c.style.fill])),
+        .filter((c) => c.type === 'text').map((c) => [c.style.text, c.style.fill])),
+      keys: lit.filter((s) => s.id.endsWith('|endlabels')).flatMap((s) => s.renderItem({ dataIndex: 0 }, api).children
+        .filter((c) => c.type === 'line').map((c) => c.style.stroke)),
       swatches: [].concat(option.legend ?? []).flatMap((l) => l.data ?? []).filter((d) => / lit\. — /.test(d?.name ?? ''))
         .map((d) => d.itemStyle?.color ?? null),
     };
@@ -168,13 +170,14 @@ def test_each_medium_draws_its_cards_pair_and_only_the_curve_in_force(out, name)
     medium = out["media"][name]
     assert (medium["card"].lower(), medium["palette"]) == (card, palette)
     pair = out["colours"][palette]
-    assert medium["drawn"]["deposit"] == {"model": [], "ids": [], "strokes": [], "labels": [], "swatches": []}
+    assert medium["drawn"]["deposit"] == {"model": [], "ids": [], "strokes": [], "labels": [], "keys": [], "swatches": []}
     for ref, particle in (("pi", "π±"), ("e", "e±")):
         got = medium["drawn"][ref]
         assert got["model"] == [{"key": ref, "colour": pair[ref]}]
         assert {i.split("|")[1] for i in got["ids"]} == {ref} and f"literature|{ref}" in got["ids"]
         assert got["strokes"] == [pair[ref]] and got["swatches"] == [pair[ref]]
-        assert got["labels"] == [[particle, pair[ref]]]
+        # The end label is ink text (4.5:1); its key stroke carries the identity colour (the dark pair sits near 3:1).
+        assert got["labels"] == [[particle, medium["text"]]] and got["keys"] == [pair[ref]]
     assert medium["drawn"]["pi"]["strokes"] != medium["drawn"]["e"]["strokes"]
 
 

@@ -964,6 +964,17 @@ const EDGE_OPACITY = 0.5;
 /** The end labels' gap from the plot's right border, and their least vertical pitch, as shares of `fontTip`. */
 const END_LABEL_GAP = 0.5;
 const END_LABEL_PITCH = 1.1;
+/**
+ * An end label is ink text (THEME.text: 4.5:1 or more on every card, CLAUDE.md
+ * section 2), led by a key stroke in its curve's own colour, dash, width and
+ * strength: a curve colour may sit near 3:1 (the literature hues on the dark
+ * card, the network teal on white), which a mark may and text may not. The
+ * stroke's length and its gap before the text, as shares of `fontTip`.
+ */
+const END_KEY_LENGTH = 1.2;
+const END_KEY_GAP = 0.35;
+/** A literature curve's dotted line width (× `lineAxis`): its hues sit near 3:1 on the dark card. */
+const LITERATURE_WIDTH = 1.6;
 /** An extrapolated part, and a literature curve. */
 const DASH_EXTRAPOLATED = [6, 4];
 const DASH_LITERATURE = [1.5, 3];
@@ -1607,8 +1618,9 @@ export function energyModel(payload, opts = {}) {
 
   // Direct labels at the curves' right ends, in a column beside the plot: with two showers on show, the shower
   // letter of every drawn curve whose value at x.max lies on its panel (B's lines are at 70% strength or more, so
-  // the letter names the shower where the strength cannot); and the literature curve's particle, in its identity
-  // colour, main panel only. A curve that leaves the plot before x.max has its caret and no label.
+  // the letter names the shower where the strength cannot); and the literature curve's particle, main panel only.
+  // Each label is ink text led by a key stroke in its curve's colour, dash, width and strength (`endLabelSeries`).
+  // A curve that leaves the plot before x.max has its caret and no label.
   const twoOnShow = nShowers > 1 && new Set(series.map((s) => s.raw.shower).filter(Boolean)).size > 1;
   const endLabels = { main: [], ratio: [] };
   const atEnd = (rows) => {
@@ -1620,7 +1632,12 @@ export function energyModel(payload, opts = {}) {
     for (const form of ENERGY_FORMS) {
       const f = s.fits[form];
       if (!f?.drawable) continue;
-      const label = { key: s.key, form, name: s.label, text, colour: s.colour, literature: false };
+      // The key stroke draws the curve as it ends at x.max: dashed unless its fitted span reaches the axis end.
+      const solidAtEnd = Array.isArray(f.span) && f.span[1] >= x.max - 1e-9;
+      const label = {
+        key: s.key, form, name: s.label, text, colour: s.colour, literature: false,
+        stroke: { colour: s.colour, width: form === 'quadrature' ? 1.6 : 1, dash: solidAtEnd ? null : DASH_EXTRAPOLATED, opacity: s.lineOpacity(f.provisional) },
+      };
       const v = atEnd(f.curve);
       if (v !== null && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v });
       const r = f.ratio ? atEnd(f.ratio.rows) : null;
@@ -1630,7 +1647,10 @@ export function energyModel(payload, opts = {}) {
   for (const lit of literature) {
     const v = referenceValue(lit.entry, x.max);
     if (Number.isFinite(v) && v >= 0 && v <= hi) {
-      endLabels.main.push({ key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: lit.colour, literature: true, value: v });
+      endLabels.main.push({
+        key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: lit.colour, literature: true, value: v,
+        stroke: { colour: lit.colour, width: LITERATURE_WIDTH, dash: DASH_LITERATURE, opacity: 1 },
+      });
     }
   }
 
@@ -2192,7 +2212,7 @@ function bandEdges(edges, colour, id, tip) {
  * its label is in the end column.
  */
 function literatureSeries(model, lit) {
-  const width = 1.2 * THEME.lineAxis;
+  const width = LITERATURE_WIDTH * THEME.lineAxis;
   return {
     type: 'custom',
     id: `literature|${lit.key}`,
@@ -2220,7 +2240,7 @@ function endColumnPx(model) {
   if (!labels.length) return 0;
   const font = THEME.fontTip;
   const widest = Math.max(...labels.map((l) => measureText(l.text, font, THEME.fontFamily)));
-  return Math.ceil(END_LABEL_GAP * font + widest);
+  return Math.ceil((END_LABEL_GAP + END_KEY_LENGTH + END_KEY_GAP) * font + widest);
 }
 
 /**
@@ -2266,14 +2286,27 @@ function endLabelSeries(model, panel, name) {
       const place = endLabelPlaces(labels, model, api, ends);
       return {
         type: 'group',
-        children: own.map(([l, i]) => ({
-          type: 'text',
-          silent: true,
-          style: {
-            x: place.x, y: place.ys[i], text: l.text, fill: l.colour, fontSize: THEME.fontTip, fontFamily: THEME.fontFamily,
-            textAlign: 'left', textVerticalAlign: 'middle',
-          },
-        })),
+        children: own.flatMap(([l, i]) => {
+          const font = THEME.fontTip;
+          const y = place.ys[i];
+          const k = l.stroke ?? { colour: l.colour, width: 1, dash: null, opacity: 1 };
+          return [
+            {
+              type: 'line',
+              silent: true,
+              shape: { x1: place.x, y1: y, x2: place.x + END_KEY_LENGTH * font, y2: y },
+              style: { stroke: k.colour, lineWidth: k.width * THEME.lineAxis, lineDash: k.dash, opacity: k.opacity },
+            },
+            {
+              type: 'text',
+              silent: true,
+              style: {
+                x: place.x + (END_KEY_LENGTH + END_KEY_GAP) * font, y, text: l.text, fill: THEME.text, fontSize: font,
+                fontFamily: THEME.fontFamily, textAlign: 'left', textVerticalAlign: 'middle',
+              },
+            },
+          ];
+        }),
       };
     },
   };

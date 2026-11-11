@@ -872,7 +872,9 @@ for (const name of %(corrs)s) {
   const labelsOf = (o) => o.series.filter((s) => (s.id ?? '').endsWith('|endlabels')).map((s) => {
     const el = s.renderItem({ dataIndex: 0, coordSys }, api);
     return { id: s.id, name: s.name, clip: s.clip, silent: s.silent, xAxisIndex: s.xAxisIndex ?? 0,
-      texts: el.children.map((c) => ({ text: c.style.text, fill: c.style.fill, x: c.style.x, y: c.style.y, align: c.style.textAlign })) };
+      texts: el.children.filter((c) => c.type === 'text').map((c) => ({ text: c.style.text, fill: c.style.fill, x: c.style.x, y: c.style.y, align: c.style.textAlign })),
+      keys: el.children.filter((c) => c.type === 'line').map((c) => ({ stroke: c.style.stroke, width: c.style.lineWidth, dash: c.style.lineDash ?? null,
+        opacity: c.style.opacity, x1: c.shape.x1, x2: c.shape.x2, y: c.shape.y1 })), ink: scale.THEME.text };
   });
   const two = load('res_scaling_two');
   const fix = {};
@@ -2733,7 +2735,8 @@ def test_res_e_print_tokens_build(out):
             colour = out["resE"]["litColours"]["table"][printed["palette"]]["pi"]
             assert printed["palette"] == "dark2" and colour == "#a65628"
             assert all(ch["stroke"] == colour for ch in s["items"][0]["el"]["children"] if ch["type"] == "polyline")
-            assert all(ch["fill"] == colour for ch in s["items"][0]["el"]["children"] if ch["type"] == "text")
+            assert all(ch["fill"] == printed["ink"] for ch in s["items"][0]["el"]["children"] if ch["type"] == "text")
+            assert all(ch["stroke"] == colour for ch in s["items"][0]["el"]["children"] if ch["type"] == "line")
     assert [x["colour"] for x in printed["legendItems"] if " lit. — " in str(x["name"])] == ["#a65628"]
     assert printed["noteFont"] and all(f == printed["fontTip"] for f in printed["noteFont"])
     g0, g1 = printed["grid"]
@@ -3233,14 +3236,22 @@ def test_res_fix_p2_end_labels_name_the_shower_in_a_column_beside_the_plot(out):
         # The column: both grids' right widened by the widest label and its gap; untouched without a label.
         g0, g1 = rec["grid"]
         labels = rec["endLabels"]["main"] + rec["endLabels"]["ratio"]
-        column = -(-(0.5 * font + max(_width(x["text"], font) for x in labels)) // 1) if labels else 0
+        # The column holds the gap, the key stroke and its gap, then the widest text.
+        column = -(-((0.5 + 1.2 + 0.35) * font + max(_width(x["text"], font) for x in labels)) // 1) if labels else 0
         assert g0["right"] == g1["right"] == pytest.approx(rec["pad"]["right"] + column), key
         # One series per legend entry and panel, drawn outside the plot, the text left-aligned past x.max.
         texts = [t for s in rec["series"] for t in s["texts"]]
         assert sorted(t["text"] for t in texts) == sorted(x["text"] for x in labels)
         for s in rec["series"]:
             assert s["clip"] is False and s["silent"] is True and s["xAxisIndex"] == (1 if s["id"].endswith("|ratio|endlabels") else 0)
-            assert all(t["align"] == "left" and t["x"] == pytest.approx(rec["xmax"] + 0.5 * font) for t in s["texts"])
+            assert all(t["align"] == "left" and t["x"] == pytest.approx(rec["xmax"] + (0.5 + 1.2 + 0.35) * font) for t in s["texts"])
+            # Ink text (4.5:1 on every card); the curve's colour is carried by the key stroke before it.
+            assert all(t["fill"] == s["ink"] for t in s["texts"]), s["id"]
+            assert len(s["keys"]) == len(s["texts"])
+            for key_stroke in s["keys"]:
+                assert key_stroke["x1"] == pytest.approx(rec["xmax"] + 0.5 * font) and key_stroke["x2"] == pytest.approx(rec["xmax"] + 1.7 * font)
+            colours = {x["colour"] for x in labels if x["name"] == s["name"]}
+            assert {k["stroke"] for k in s["keys"]} <= colours, s["id"]
         # Shower B's strength, worded as drawn; the end labels named only where both showers are drawn.
         assert rec["bTips"] or not rec["bOpacity"], key
         for tip in map(_plain, rec["bTips"]):
