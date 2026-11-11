@@ -647,7 +647,8 @@ def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it
 
 
 #: The resolution card's E view as painted: every axis label's ink, the strokes of the literature curve, its end
-#: label's fill and its legend swatch, the 1.0 rule and the canvas note's fill, and the drawn geometry (each
+#: label's fill (ink) and key stroke (the curve's colour), its legend swatch, the 1.0 rule and the canvas note's
+#: fill, and the drawn geometry (each
 #: polyline's pixel points, by series), which a theme switch must leave where it was.
 _RES_E_INK = """() => {
   const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
@@ -687,6 +688,7 @@ _RES_E_INK = """() => {
     ink: [...(o.xAxis || []), ...(o.yAxis || [])].map((a) => a.axisLabel?.color ?? null),
     literature: strokes(/^literature\\|(pi|e)$/),
     literatureLabels: texts(/^literature\\|(pi|e)\\|endlabels$/),
+    literatureKeys: strokes(/^literature\\|(pi|e)\\|endlabels$/),
     swatches: [].concat(o.legend || []).flatMap((l) => l.data || []).filter((d) => / lit\\. — /.test(d?.name || ''))
       .map((d) => [d.name, String(d.itemStyle?.color ?? '').toLowerCase()]),
     unity: strokes(/^ratio\\|unity$/),
@@ -732,7 +734,9 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         assert {i.split("|")[1] for i in before["ids"] if i.startswith("literature|")} == {"pi"}, before["ids"]
         assert MUTED[scheme] in before["ink"] and MUTED[other] not in before["ink"], before["ink"]
         assert before["literature"] == [LITERATURE_PI[scheme]] and before["unity"] == [TEXT[scheme]], before
-        assert before["literatureLabels"] == [["π±", LITERATURE_PI[scheme]]], before["literatureLabels"]
+        # The end label is ink text (4.5:1); its key stroke carries the identity colour.
+        assert before["literatureLabels"] == [["π±", TEXT[scheme]]], before["literatureLabels"]
+        assert before["literatureKeys"] == [LITERATURE_PI[scheme]], before["literatureKeys"]
         assert [c for _, c in before["swatches"]] == [LITERATURE_PI[scheme]], before["swatches"]
         assert before["note"] and {fill for _, fill in before["note"]} == {MUTED[scheme]}, before["note"]
 
@@ -741,7 +745,8 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         after = page.evaluate(_RES_E_INK)
         assert MUTED[other] in after["ink"] and MUTED[scheme] not in after["ink"], after["ink"]
         assert after["literature"] == [LITERATURE_PI[other]] and after["unity"] == [TEXT[other]], after
-        assert after["literatureLabels"] == [["π±", LITERATURE_PI[other]]], after["literatureLabels"]
+        assert after["literatureLabels"] == [["π±", TEXT[other]]], after["literatureLabels"]
+        assert after["literatureKeys"] == [LITERATURE_PI[other]], after["literatureKeys"]
         assert [c for _, c in after["swatches"]] == [LITERATURE_PI[other]], after["swatches"]
         assert [t for t, _ in after["note"]] == [t for t, _ in before["note"]], (before["note"], after["note"])
         assert {fill for _, fill in after["note"]} == {MUTED[other]}, after["note"]
