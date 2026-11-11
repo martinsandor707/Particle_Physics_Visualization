@@ -553,8 +553,9 @@ for (const name of %(corrs)s) {
       byShower: Object.fromEntries(Object.entries(m.reference.byShower).map(([k, r]) => [k, packRef(r)])) },
     ratio: m.ratio, clipped: m.clipped, offScale: m.offScale, spans: m.spans, noteText: m.noteText,
     bandsOutlined: { main: m.bandsOutlined.main, ratio: m.bandsOutlined.ratio }, twoOnShow: m.twoOnShow, endLabels: m.endLabels,
-    literature: m.literature.map((l) => ({ key: l.key, label: l.label, legend: l.legend, inForce: l.inForce, cut: l.cut,
-      curve: full ? l.curve : null, runs: full ? l.runs : null })),
+    // The literature curve in force is always packed whole: under 'e' it is the only record of the e± curve.
+    literature: m.literature.map((l) => ({ key: l.key, label: l.label, legend: l.legend, colour: l.colour, cut: l.cut,
+      curve: l.curve, runs: l.runs })),
     series: m.series.map((s) => ({
       key: s.key, shower: s.raw.shower ?? null, source: s.raw.source, isB: s.isB, colour: s.colour, span: s.span, offsetPx: s.offsetPx,
       lineOpacity: s.lineOpacity(false), reference: s.reference ? packRef(s.reference) : null,
@@ -588,6 +589,8 @@ for (const name of %(corrs)s) {
     return {
       chart: walk(o), plotGrid: built.plotGrid ?? null, grid: [].concat(o.grid ?? []), axisPointer: o.axisPointer ?? null,
       tooltipTrigger: o.tooltip?.trigger ?? null,
+      legendItems: [].concat(o.legend ?? []).flatMap((l) => (l.data ?? []).map((d) => ({ name: d?.name ?? d, icon: d?.icon ?? null,
+        colour: d?.itemStyle?.color ?? null }))),
       xAxes: [].concat(o.xAxis).map(ax), yAxes: [].concat(o.yAxis).map(ax),
       graphicTexts: (o.graphic ?? []).map((g) => ({ text: g.style?.text ?? null, x: g.style?.x ?? null, y: g.style?.y ?? null, align: g.style?.textAlign ?? null })),
     };
@@ -711,9 +714,21 @@ for (const name of %(corrs)s) {
       wanted: cp.legibleOpacity(s.colour, 0.7) }));
   };
   out.resE.ink = { dark: inkOf() };
+  // The literature curves' identity colours (palette.js), and the palette each card picks them by.
+  const litOf = (reference) => {
+    const m = rs.energyModel(two, { windows: 'all', reference });
+    return { palette: scale.THEME.qualitativePalette, card: scale.THEME.card, literature: m.literature.map((l) => ({ key: l.key, colour: l.colour })),
+      endLabels: m.endLabels.main.filter((l) => l.literature) };
+  };
+  out.resE.litColours = { table: palette.LITERATURE_COLOURS, hues: palette.LITERATURE_HUES, dark: { pi: litOf('pi'), e: litOf('e') },
+    refusals: [['pi', 'viridis'], ['mu', 'set2'], ['e', undefined]].map(([key, pal]) => {
+      try { return palette.literatureColour(key, pal); } catch (err) { return `threw: ${err.message}`; }
+    }) };
   scale.setScreenTheme('light');
   out.resE.ink.light = inkOf();
   out.resE.lightChart = optionOf(two, { windows: 'all', reference: 'pi' });
+  out.resE.lightChartE = optionOf(two, { windows: 'all', reference: 'e' });
+  out.resE.litColours.light = { pi: litOf('pi'), e: litOf('e') };
   scale.setScreenTheme('dark');
 
   // The class: the plot is ENERGY_VIEW_PX tall in the E view, the CSS height in the 1/√E view; the E export is two panels tall.
@@ -1116,7 +1131,8 @@ out.printRes = { chart: walk(rs.resolutionScalingOption(load('res_scaling_two'),
   const built = rs.energyViewOption(load('res_scaling_two'), opts, { width: 321, height });
   out.printResE = { chart: walk(built.option), grid: built.option.grid, height, muted: scale.THEME.muted, legendType: built.option.legend.type,
     ink: scale.THEME.text, hues: perf.sourceColours(['absolute', 'trans', 'local', 'xgb']), fontTip: scale.THEME.fontTip,
-    noteFont: (built.option.graphic ?? []).map((g) => g.style?.fontSize) };
+    noteFont: (built.option.graphic ?? []).map((g) => g.style?.fontSize), palette: scale.THEME.qualitativePalette,
+    legendItems: [].concat(built.option.legend ?? []).flatMap((l) => (l.data ?? []).map((d) => ({ name: d?.name ?? d, colour: d?.itemStyle?.color ?? null }))) };
 }
 scale.restoreScreenTheme();
 
@@ -2519,33 +2535,71 @@ def test_res_e_a_literature_reference_is_the_catalogues_curve(out, name):
                     if f["drawable"]:
                         assert f["isReference"] is False and f["ratio"] is not None
             assert model["ratio"]["belowNotDrawn"] == 0
-            # Both catalogue curves on the main panel, dotted and muted, named in the legend; the one in force flagged.
-            assert [l["key"] for l in model["literature"]] == ["pi", "e"]
-            assert [l["inForce"] for l in model["literature"]] == [ref == "pi", ref == "e"]
+            # Only the curve in force on the main panel (Martin, 2026-11-11), dotted, in its identity colour, named in
+            # the legend; the other catalogue curve is not drawn at all.
+            colour = out["resE"]["litColours"]["table"]["set2"][ref]
+            assert [(l["key"], l["colour"]) for l in model["literature"]] == [(ref, colour)]
             lits = [s for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|")
                     and not s["id"].endswith(("|caret", "|endlabels"))]
-            assert len(lits) == 2
-            for s, lit in zip(lits, model["literature"]):
-                assert s["name"] == lit["legend"] and lit["legend"] in chart["chart"]["legend"]
-                group = s["items"][0]["el"]
-                lines = [ch for ch in group["children"] if ch["type"] == "polyline"]
-                assert lines and all(ch["dash"] == [1.5, 3] for ch in lines)
-                # P2: the particle is its label, in the end column (an end-label series), never inside the plot.
-                assert lit["label"] == {"pi": "π±", "e": "e±"}[lit["key"]]
-                assert not [ch for ch in group["children"] if ch["type"] == "text"]
-                tip = s["items"][0]["tip"]
-                assert cat[lit["key"]]["equation"] in tip and "no interval reported" in tip and "not this detector" in tip
-                if ref != "e":
-                    assert all(v == pytest.approx((cat[lit["key"]]["a"] ** 2 / e + cat[lit["key"]]["b"] ** 2) ** 0.5, rel=1e-12)
-                               for e, v in lit["curve"])
-                    end = lit["curve"][-1][1]
-                    labelled = [x for x in model["endLabels"]["main"] if x["key"] == f"literature|{lit['key']}"]
-                    assert len(labelled) == (1 if 0 <= end <= model["y"]["hi"] else 0)
-                    assert all(x["text"] == lit["label"] and x["literature"] for x in labelled)
-                    assert lit["curve"][0][0] == 0.25 and lit["curve"][-1][0] == _e_axis(name)["x"]["max"]
+            assert [s["id"] for s in lits] == [f"literature|{ref}"]
+            assert {s["id"].split("|")[1] for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|")} == {ref}
+            lit = model["literature"][0]
+            s = lits[0]
+            assert s["name"] == lit["legend"] and lit["legend"] in chart["chart"]["legend"] and s["colour"] == colour
+            swatch = [x for x in chart["legendItems"] if x["name"] == lit["legend"]]
+            assert len(swatch) == 1 and swatch[0]["colour"] == colour and swatch[0]["icon"].startswith("path://"), swatch
+            group = s["items"][0]["el"]
+            lines = [ch for ch in group["children"] if ch["type"] == "polyline"]
+            assert lines and all(ch["dash"] == [1.5, 3] and ch["stroke"] == colour for ch in lines)
+            # P2: the particle is its label, in the end column (an end-label series), never inside the plot.
+            assert lit["label"] == {"pi": "π±", "e": "e±"}[lit["key"]]
+            assert not [ch for ch in group["children"] if ch["type"] == "text"]
+            tip = s["items"][0]["tip"]
+            assert cat[ref]["equation"] in tip and "no interval reported" in tip and "not this detector" in tip
+            assert "the only literature curve drawn" in tip
+            assert all(v == pytest.approx((c["a"] ** 2 / e + c["b"] ** 2) ** 0.5, rel=1e-12) for e, v in lit["curve"])
+            end = lit["curve"][-1][1]
+            labelled = [x for x in model["endLabels"]["main"] if x["literature"]]
+            assert len(labelled) == (1 if 0 <= end <= model["y"]["hi"] else 0)
+            assert all(x["key"] == f"literature|{ref}" and x["text"] == lit["label"] and x["colour"] == colour for x in labelled)
+            assert lit["curve"][0][0] == 0.25 and lit["curve"][-1][0] == _e_axis(name)["x"]["max"]
             assert not [s for s in chart["chart"]["series"] if "|ratio|reference|band|" in (s["id"] or "")], "no band for a literature reference"
             assert ("÷" in chart["yAxes"][1]["name"] or "ratio to" in chart["yAxes"][1]["name"])
-        assert not out["resE"]["fixtures"][name]["models"][f"{windows}:deposit"]["literature"]
+        # The deposit reference draws no literature curve: no series, no end label, no legend entry.
+        deposit = out["resE"]["fixtures"][name]["models"][f"{windows}:deposit"]
+        dchart = out["resE"]["fixtures"][name]["charts"][f"{windows}:deposit"]
+        assert not deposit["literature"] and not [x for x in deposit["endLabels"]["main"] if x["literature"]]
+        assert not [s for s in dchart["chart"]["series"] if (s["id"] or "").startswith("literature|")]
+        assert not [x for x in dchart["legendItems"] if " lit. — " in str(x["name"])]
+
+
+#: palette.js LITERATURE_COLOURS, keyed by the series palette that names the card (tests/test_js_literature_colours.py
+#: measures them): Set2 on the dark screen, Dark2 on white.
+LIT_COLOURS = {"set2": {"pi": "#b15928", "e": "#984ea3"}, "dark2": {"pi": "#a65628", "e": "#6a3d9a"}}
+
+
+def test_res_e_the_literature_curve_in_force_takes_its_identity_colour_on_each_card(out):
+    """Martin (2026-11-11): only the chosen curve, in a colour of its own. π± and e± differ on every card; the dark
+    screen picks Set2's pair and the light screen Dark2's (print, which is white too, in test_res_e_print_tokens_build);
+    the line, the end label and the legend swatch take it; a card or a curve nobody measured is refused."""
+    lc = out["resE"]["litColours"]
+    assert lc["table"] == LIT_COLOURS and lc["hues"] == {"pi": "brown", "e": "purple"}
+    for theme, palette in (("dark", "set2"), ("light", "dark2")):
+        got = lc[theme]
+        for ref in ("pi", "e"):
+            assert got[ref]["palette"] == palette, (theme, ref)
+            assert got[ref]["literature"] == [{"key": ref, "colour": LIT_COLOURS[palette][ref]}], (theme, ref)
+            assert [(x["key"], x["colour"]) for x in got[ref]["endLabels"]] == [(f"literature|{ref}", LIT_COLOURS[palette][ref])]
+        assert got["pi"]["literature"][0]["colour"] != got["e"]["literature"][0]["colour"], theme
+    for ref, chart in (("pi", out["resE"]["lightChart"]), ("e", out["resE"]["lightChartE"])):
+        ids = [s["id"] for s in chart["chart"]["series"] if (s["id"] or "").startswith("literature|")]
+        assert ids and {i.split("|")[1] for i in ids} == {ref}, ids
+        line = next(s for s in chart["chart"]["series"] if s["id"] == f"literature|{ref}")
+        strokes = {ch["stroke"] for ch in line["items"][0]["el"]["children"] if ch["type"] == "polyline"}
+        assert strokes == {LIT_COLOURS["dark2"][ref]} and line["colour"] == LIT_COLOURS["dark2"][ref]
+        assert [x["colour"] for x in chart["legendItems"] if " lit. — " in str(x["name"])] == [LIT_COLOURS["dark2"][ref]]
+        _no_hyphen_numbers(chart["chart"]["strings"])
+    assert len(lc["refusals"]) == 3 and all(r.startswith("threw: ") for r in lc["refusals"]), lc["refusals"]
 
 
 def test_res_e_off_scale_windows_get_carets_and_the_canvas_note(out):
@@ -2674,7 +2728,13 @@ def test_res_e_print_tokens_build(out):
         if s["id"] == "network:a|markers":
             assert all(i["el"]["fill"] == printed["hues"]["absolute"] for i in s["items"])
         if (s["id"] or "").startswith("literature|") and "|caret" not in s["id"]:
-            assert all(ch["stroke"] == printed["muted"] for ch in s["items"][0]["el"]["children"] if ch["type"] == "polyline")
+            # Print is white paper: the π± curve takes the white card's identity colour, picked by Dark2.
+            assert s["id"] in ("literature|pi", "literature|pi|endlabels"), s["id"]
+            colour = out["resE"]["litColours"]["table"][printed["palette"]]["pi"]
+            assert printed["palette"] == "dark2" and colour == "#a65628"
+            assert all(ch["stroke"] == colour for ch in s["items"][0]["el"]["children"] if ch["type"] == "polyline")
+            assert all(ch["fill"] == colour for ch in s["items"][0]["el"]["children"] if ch["type"] == "text")
+    assert [x["colour"] for x in printed["legendItems"] if " lit. — " in str(x["name"])] == ["#a65628"]
     assert printed["noteFont"] and all(f == printed["fontTip"] for f in printed["noteFont"])
     g0, g1 = printed["grid"]
     assert g1["top"] + g1["height"] < printed["height"]
@@ -2941,14 +3001,26 @@ def test_res_notes_e_view_literature_sentences_only_under_a_literature_reference
         for needle in ("ECCE G4 simulation", "none derived", "resolution_references.md", "supplied by Martin on 2026-11-10",
                        "not this dataset's detector", "transcribed as the legend prints them"):
             assert (needle in dis) == literature, (name, key, needle)
+        legend = " ".join(_lines(n, out, "legend"))
+        hues = "π± a brown and e± a purple"
         if literature:
-            assert LIT_EQUATIONS["pi"] in dis and LIT_EQUATIONS["e"] in dis, "both legend curves are named"
+            # The provenance names the figure's two legend curves; only the one in force is drawn, in its own colour.
+            particle = {"pi": "π±", "e": "e±"}[f["literature"]]
+            assert LIT_EQUATIONS["pi"] in dis and LIT_EQUATIONS["e"] in dis, "the provenance names both legend curves"
             assert "Each is a documented point estimate with no interval reported and none derived" in dis
-            assert "Dotted muted lines labelled" in " ".join(_lines(n, out, "legend"))
-            assert f"{_n(f['clipped']['literature'], 'curve')} " in dis or f["clipped"]["literature"] == 0
+            assert f'The dotted line labelled "{particle}" in the end column is the {particle} literature curve, the ratio\'s reference' in legend
+            assert f"Each literature curve has a colour of its own on every card, {hues}" in legend
+            assert f"The {particle} curve never sets a range" in dis
+            assert "The other literature curve is not drawn while this one is the reference" in dis
+            assert "it is the one literature curve drawn on the main panel, dotted in its own colour" in " ".join(_lines(n, out, "drawn"))
+            assert ("it crosses the top of the main panel, clipped there with a caret" in dis) == bool(f["clipped"]["literature"])
         else:
             assert "ECCE" not in text and "none derived" not in text
-            assert "none is drawn while the ratio reference is the deposit fit" in " ".join(_lines(n, out, "legend"))
+            assert "none is drawn while the ratio reference is the deposit fit" in legend
+            assert f'Choosing π± or e± under "Ratio to" draws that curve alone, π± in a brown and e± in a purple.' in legend
+        # Never the old wording: both curves drawn, or the muted ink for a literature curve.
+        for stale in ("Both curves are drawn", "both literature curves", "Dotted muted", "draws both", "muted lines"):
+            assert stale not in text, (name, key, stale)
         # The MAE/E sentence, exactly, in every E-view drawer.
         assert MAE_SENTENCE in _lines(n, out, "disclosures")
 
@@ -2988,11 +3060,13 @@ def test_res_notes_e_view_variants(out):
     assert "marks clipped at the axis" in off["hazards"]
     above = [line for line in _lines(off["notes"], out, "disclosures") if "above the top of the axis (90%)" in line]
     assert len(above) == 1
-    # A literature curve crossing the top is counted and said.
+    # The literature curve in force crossing the top is counted and said; it is the only one drawn, so the count is 1.
     lit = v["literatureClipped"]
-    assert lit["facts"]["clipped"]["literature"] > 0 and "marks clipped at the axis" in lit["hazards"]
-    crosses = [line for line in _lines(lit["notes"], out, "disclosures") if " the top, clipped there with a caret" in line]
-    assert len(crosses) == 1 and f"{_n(lit['facts']['clipped']['literature'], 'curve')} " in crosses[0]
+    assert lit["facts"]["clipped"]["literature"] == 1 and "marks clipped at the axis" in lit["hazards"]
+    crosses = [line for line in _lines(lit["notes"], out, "disclosures") if "it crosses the top of the main panel, clipped there with a caret" in line]
+    assert len(crosses) == 1 and crosses[0].startswith("The π± curve never sets a range")
+    top = [line for line in _lines(lit["notes"], out, "disclosures") if line.startswith("Clipped at the top of the main panel")]
+    assert len(top) == 1 and top[0].endswith("1 literature curve.")
     # A provisional y range, a provisional ratio range.
     assert "provisional range" in v["yProvisional"]["hazards"]
     assert any(line.startswith("The y range is provisional") for line in _lines(v["yProvisional"]["notes"], out, "disclosures"))
@@ -3148,9 +3222,12 @@ def test_res_fix_p2_end_labels_name_the_shower_in_a_column_beside_the_plot(out):
         got = lambda panel: [(x["key"], x["form"], x["text"], x["colour"]) for x in rec["endLabels"][panel] if not x["literature"]]  # noqa: E731
         assert got("main") == want_main and got("ratio") == want_ratio, key
         seen["ab"] += len(want_main)
-        # The literature curves' particles, muted, on the main panel only.
+        # The literature curve's particle, in its identity colour (the dark card's, picked by Set2), main panel only;
+        # only the curve in force has one.
         lits = [x for x in rec["endLabels"]["main"] if x["literature"]]
-        assert [x["text"] for x in lits] == [l["label"] for l in rec["literature"]] and all(x["colour"] == rec["muted"] for x in lits)
+        assert [x["text"] for x in lits] == [l["label"] for l in rec["literature"]]
+        assert all(x["colour"] == out["resE"]["litColours"]["table"]["set2"][x["key"].split("|")[1]] for x in lits)
+        assert [x["key"] for x in lits] == [f"literature|{k}" for k in key.split(":")[2:3] if k in ("pi", "e")]
         assert not [x for x in rec["endLabels"]["ratio"] if x["literature"]]
         seen["lit"] += len(lits)
         # The column: both grids' right widened by the widest label and its gap; untouched without a label.
@@ -3255,6 +3332,11 @@ def test_res_fix_p8_every_ratio_against_a_literature_curve_says_no_interval(out)
     carets = [t for t in tips(pi, r"\|ratio\|carets$") if "leaves the ratio axis" in t]
     unity, lit = tips(pi, r"^ratio\|unity$"), tips(pi, r"^literature\|\w+\|caret$")
     assert fits and carets and unity and lit, "the clone draws every kind of mark the rule names"
+    # The π± curve's caret is the curve's only caret, in its identity colour; e± is not drawn, so it has none.
+    caret = [s for s in pi["series"] if re.fullmatch(r"literature\|\w+\|caret", s["id"] or "")]
+    pi_colour = out["resE"]["litColours"]["table"]["set2"]["pi"]
+    assert [s["id"] for s in caret] == ["literature|pi|caret"] and caret[0]["colour"] == pi_colour
+    assert all(i["el"]["fill"] == pi_colour for i in caret[0]["items"])
     for t in fits + carets + unity + lit:
         assert _plain(t).endswith(LIT_NO_INTERVAL), _plain(t)[-160:]
     assert all("the reference is held exact." in t for t in fits)
@@ -3343,9 +3425,10 @@ def test_res_fix_p14_a_provisional_sigma_axis_names_the_two_gev_floor(out):
 
 
 def test_res_fix_n2_the_literature_provenance_says_its_range_is_unknown(out):
-    chart = out["resE"]["fixtures"]["res_scaling_two"]["charts"]["all:pi"]
-    lits = [s for s in chart["chart"]["series"] if re.fullmatch(r"literature\|\w+", s["id"] or "")]
-    assert len(lits) == 2 and all(NO_RANGE in s["items"][0]["tip"] for s in lits)
+    for ref in ("pi", "e"):
+        chart = out["resE"]["fixtures"]["res_scaling_two"]["charts"][f"all:{ref}"]
+        lits = [s for s in chart["chart"]["series"] if re.fullmatch(r"literature\|\w+", s["id"] or "")]
+        assert [s["id"] for s in lits] == [f"literature|{ref}"] and NO_RANGE in lits[0]["items"][0]["tip"]
     for name, key, rec in _e_notes(out):
         dis = _dis(rec["notes"], out)
         said = [line for line in dis if line.startswith("The figure does not state the energy range the curve was fitted over")]

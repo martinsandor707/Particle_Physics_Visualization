@@ -26,8 +26,10 @@ what a reader sees, on the three pages:
   module holds one server); a 3-D event cut into slices keeps its slice, its
   readout and its camera, and its depth projections' band takes the new ink;
 * the energy-resolution card's E view (two grids, a literature reference in
-  force) takes the new axis, literature and note ink with every curve where it
-  was, and a switch back returns its option exactly, with no request;
+  force) takes the new axis and note ink, and the literature curve in force,
+  the only one drawn, takes its identity colour for the new card (line, end
+  label and legend swatch), with every curve where it was; a switch back
+  returns its option exactly, with no request;
 * the Models page's cards are reached through their subpage's tab; a card on a
   subpage off show at the switch takes the new theme when its tab brings it
   back, still with no request; the subpage chrome and the catalogue's DOM text
@@ -620,9 +622,9 @@ def test_a_card_on_a_subpage_off_show_takes_the_new_theme_when_its_tab_brings_it
     assert problems == [], problems
 
 
-#: The resolution card's E view as painted: every axis label's ink, the strokes of the literature curves, the
-#: 1.0 rule and the canvas note's fill, and the drawn geometry (each polyline's pixel points, by series), which a
-#: theme switch must leave where it was.
+#: The resolution card's E view as painted: every axis label's ink, the strokes of the literature curve, its end
+#: label's fill and its legend swatch, the 1.0 rule and the canvas note's fill, and the drawn geometry (each
+#: polyline's pixel points, by series), which a theme switch must leave where it was.
 _RES_E_INK = """() => {
   const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
   const o = inst.getOption();
@@ -637,6 +639,16 @@ _RES_E_INK = """() => {
     });
     return [...out].sort();
   };
+  const texts = (pattern) => {
+    const out = [];
+    model.eachSeries((s) => {
+      if (!pattern.test(s.get('id') || '')) return;
+      inst.getViewOfSeriesModel(s).group.traverse((el) => {
+        if (el.type === 'text' && el.style?.text) out.push([el.style.text, String(el.style.fill).toLowerCase()]);
+      });
+    });
+    return out;
+  };
   const geometry = {};
   model.eachSeries((s) => {
     const pts = [];
@@ -650,6 +662,9 @@ _RES_E_INK = """() => {
     axes: [...(o.xAxis || []), ...(o.yAxis || [])].map((a) => [a.gridIndex ?? 0, a.type ?? 'value', a.min, a.max]),
     ink: [...(o.xAxis || []), ...(o.yAxis || [])].map((a) => a.axisLabel?.color ?? null),
     literature: strokes(/^literature\\|(pi|e)$/),
+    literatureLabels: texts(/^literature\\|(pi|e)\\|endlabels$/),
+    swatches: [].concat(o.legend || []).flatMap((l) => l.data || []).filter((d) => / lit\\. — /.test(d?.name || ''))
+      .map((d) => [d.name, String(d.itemStyle?.color ?? '').toLowerCase()]),
     unity: strokes(/^ratio\\|unity$/),
     note: (o.graphic || []).flatMap((g) => g.elements || [g]).map((g) => [g.style?.text ?? null, g.style?.fill ?? null]),
     ids: (o.series || []).map((s) => s.id),
@@ -659,14 +674,20 @@ _RES_E_INK = """() => {
 }"""
 
 
+#: palette.js `LITERATURE_COLOURS`: the π± curve's identity colour on each card (Set2's pair on the dark screen,
+#: Dark2's on white), measured in tests/test_js_literature_colours.py.
+LITERATURE_PI = {"dark": "#b15928", "light": "#a65628"}
+
+
 @pytest.mark.parametrize("scheme", ["dark", "light"])
 def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_server, scheme):
-    """The res-scaling card's E view (σ/E against E with its ratio panel, a literature reference in force) under a
-    theme switch from either theme: no request; the axis labels, the dotted literature curves and the canvas note
-    take the new theme's muted ink and the 1.0 rule its text ink; the picture is redrawn (its pixels change) with
-    every curve where it was, the two grids, the axes and the 600 px plot kept; a switch back returns the option
-    exactly. The baseline's two events draw no window, so the page is served the recorded two-shower response
-    (test_browser_models.py RES_TWO_FIXTURE), still asked for and counted."""
+    """The res-scaling card's E view (σ/E against E with its ratio panel, the π± literature reference in force) under
+    a theme switch from either theme: no request; the axis labels and the canvas note take the new theme's muted ink
+    and the 1.0 rule its text ink; the π± curve, the only literature curve drawn (Martin, 2026-11-11), takes its
+    identity colour for the new card on its dotted line, its end label and its legend swatch; the picture is redrawn
+    (its pixels change) with every curve where it was, the two grids, the axes and the 600 px plot kept; a switch
+    back returns the option exactly. The baseline's two events draw no window, so the page is served the recorded
+    two-shower response (test_browser_models.py RES_TWO_FIXTURE), still asked for and counted."""
     from test_browser_models import RES_TWO_FIXTURE, _OPTION, _res_press, _serve_res_fixture
 
     other = OTHER[scheme]
@@ -683,16 +704,21 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         option = page.evaluate(_OPTION, "res-scaling")
         picture = page.locator("#plot-res-scaling").screenshot()
         assert before["grids"] == 2 and before["height"] == 600, before
-        assert {"literature|pi", "literature|e", "ratio|unity"} <= set(before["ids"]), before["ids"]
+        assert {"literature|pi", "ratio|unity"} <= set(before["ids"]), before["ids"]
+        assert {i.split("|")[1] for i in before["ids"] if i.startswith("literature|")} == {"pi"}, before["ids"]
         assert MUTED[scheme] in before["ink"] and MUTED[other] not in before["ink"], before["ink"]
-        assert before["literature"] == [MUTED[scheme]] and before["unity"] == [TEXT[scheme]], before
+        assert before["literature"] == [LITERATURE_PI[scheme]] and before["unity"] == [TEXT[scheme]], before
+        assert before["literatureLabels"] == [["π±", LITERATURE_PI[scheme]]], before["literatureLabels"]
+        assert [c for _, c in before["swatches"]] == [LITERATURE_PI[scheme]], before["swatches"]
         assert before["note"] and {fill for _, fill in before["note"]} == {MUTED[scheme]}, before["note"]
 
         assert _toggle(page, requests) == [], "a theme switch asked the service"
         assert _state(page)["theme"] == other
         after = page.evaluate(_RES_E_INK)
         assert MUTED[other] in after["ink"] and MUTED[scheme] not in after["ink"], after["ink"]
-        assert after["literature"] == [MUTED[other]] and after["unity"] == [TEXT[other]], after
+        assert after["literature"] == [LITERATURE_PI[other]] and after["unity"] == [TEXT[other]], after
+        assert after["literatureLabels"] == [["π±", LITERATURE_PI[other]]], after["literatureLabels"]
+        assert [c for _, c in after["swatches"]] == [LITERATURE_PI[other]], after["swatches"]
         assert [t for t, _ in after["note"]] == [t for t, _ in before["note"]], (before["note"], after["note"])
         assert {fill for _, fill in after["note"]} == {MUTED[other]}, after["note"]
         # The same picture in the new ink: grids, axes, series and every curve's pixels kept, the canvas repainted.

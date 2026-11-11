@@ -125,10 +125,16 @@
  * pixels of offset would move a window visibly off its own curve, and flip a
  * small residual's sign. Every window sits at its exact E.
  *
- * Under a literature reference both catalogue curves (catalog/resolution_refs.js,
- * "no interval reported") are drawn dotted in the muted ink, labelled by their
- * particle in the end column: a reference, not a series, so never in a series
- * hue, and never setting a range. A note band between the legend and the
+ * Under a literature reference the curve in force (catalog/resolution_refs.js,
+ * "no interval reported") is drawn on the main panel, and only it: the panel
+ * never carries a curve the ratio panel does not divide by (Martin's decision
+ * of 2026-11-11). It is dotted, in its identity colour (palette.js
+ * `LITERATURE_COLOURS`, picked by the card's `THEME.qualitativePalette`): a
+ * ColorBrewer qualitative hue of its own, π± a brown and e± a purple on every
+ * card, measured apart from the deposit ink and E2's four hues, so it is never
+ * a series hue and reads as the particle's without a hover. Its legend swatch,
+ * its end label (its particle, in the end column) and its caret take the same
+ * colour, and it never sets a range. A note band between the legend and the
  * plot, part of the canvas and the export, lists the windows above the top
  * and states the extrapolation rule; where the two would not fit side by side
  * they are stacked, so neither overprints the other and the rule's span is
@@ -155,9 +161,10 @@
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../scale.js';
+import { literatureColour } from '../palette.js';
 import { measureText } from '../textfit.js';
 import {
-  REFERENCE_KEYS, RESOLUTION_REFERENCES, referenceOf, referenceValue, referenceEquation, referenceLabel,
+  REFERENCE_KEYS, referenceOf, referenceValue, referenceEquation, referenceLabel,
 } from '../catalog/resolution_refs.js';
 import { customWhiskers, customPolyline, customBand } from './marks.js';
 import { tooltipOption } from './tooltip.js';
@@ -1346,9 +1353,10 @@ function belowRoles(w, gates, curveMin) {
  *   isReference (the deposit reference itself: its ratio ≡ 1 is not drawn),
  *   ratio {rows, solid, dashed, band, outlined (lo ≤ 1/k and hi ≥ k at some
  *   E of the span), edges, cut} (null for the reference or without one)};
- * - `literature`: [] under the deposit reference, else both catalogue curves
- *   [{key, entry, label ("π±", its end label), legend, inForce, curve
- *   [[E, %]], runs, cut {at, peak} | null}];
+ * - `literature`: [] under the deposit reference, else the curve in force
+ *   alone, [{key, entry, label ("π±", its end label), legend, colour (its
+ *   identity colour on the card in force, `literatureColour`), curve [[E, %]],
+ *   runs, cut {at, peak} | null}];
  * - `ratio` {k, provisional, capped (the robust marks beyond the last
  *   `RATIO_STEPS` value, 0 when none), reference (key), clipped {markers,
  *   whiskers, fits, bands (deposit reference bands clamped at the axis but
@@ -1360,12 +1368,13 @@ function belowRoles(w, gates, curveMin) {
  *   fit}]}: the bands drawn as their edges;
  * - `twoOnShow` (two showers drawn) and `endLabels` {main, ratio}: [{key,
  *   form, name (the legend entry that hides it), text ("A", "B", "π±"),
- *   colour, literature, value (at x.max)}], the curves whose right end lies
- *   on the panel;
+ *   colour (the series', or the literature curve's identity colour),
+ *   literature, value (at x.max)}], the curves whose right end lies on the
+ *   panel;
  * - `clipped` {markers, whiskers, fits, literature, ratio}: the marks
- *   clipped at the main axis, each with a caret (`literature`: the curves
- *   crossing its top), and the ratio panel's carets in total (markers +
- *   whiskers + fits + bands);
+ *   clipped at the main axis, each with a caret (`literature`: 1 where the
+ *   curve in force crosses its top, else 0), and the ratio panel's carets in
+ *   total (markers + whiskers + fits + bands);
  * - `offScale`: [{label, E, entries: [{key, short, value, n}]}], the drawn
  *   windows above y.hi grouped by window, in E order;
  * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: the drawn
@@ -1576,31 +1585,30 @@ export function energyModel(payload, opts = {}) {
   }
   clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.bands;
 
-  // The literature curves, both, when one of them is the reference; they never set a range.
+  // The literature curve in force, alone (Martin, 2026-11-11): the main panel never carries a curve the ratio panel
+  // does not divide by. It is drawn in its identity colour on this card, and it never sets a range.
   const literature = [];
   if (entry) {
     const grid = energyGrid(E_GRID_STEP_GEV, x.max);
-    for (const lit of RESOLUTION_REFERENCES) {
-      const curve = grid.map((e) => [e, referenceValue(lit, e)]).filter((c) => Number.isFinite(c[1]));
-      let cut = null;
-      for (let i = 0; i + 1 < curve.length && !cut; i += 1) {
-        const [e0, v0] = curve[i];
-        const [e1, v1] = curve[i + 1];
-        if ((v0 > hi) !== (v1 > hi)) cut = { at: e0 + ((hi - v0) / (v1 - v0)) * (e1 - e0), peak: curve[0] };
-      }
-      if (!cut && curve.length && curve[0][1] > hi) cut = { at: curve[0][0], peak: curve[0] };
-      if (cut) clipped.literature += 1;
-      literature.push({
-        key: lit.key, entry: lit, label: lit.particle, legend: `${lit.particle} lit. — ${referenceEquation(lit)}`,
-        inForce: lit.key === referenceKey, curve, runs: clipPolyline(curve, 0, hi), cut,
-      });
+    const curve = grid.map((e) => [e, referenceValue(entry, e)]).filter((c) => Number.isFinite(c[1]));
+    let cut = null;
+    for (let i = 0; i + 1 < curve.length && !cut; i += 1) {
+      const [e0, v0] = curve[i];
+      const [e1, v1] = curve[i + 1];
+      if ((v0 > hi) !== (v1 > hi)) cut = { at: e0 + ((hi - v0) / (v1 - v0)) * (e1 - e0), peak: curve[0] };
     }
+    if (!cut && curve.length && curve[0][1] > hi) cut = { at: curve[0][0], peak: curve[0] };
+    if (cut) clipped.literature += 1;
+    literature.push({
+      key: entry.key, entry, label: entry.particle, legend: `${entry.particle} lit. — ${referenceEquation(entry)}`,
+      colour: literatureColour(entry.key, THEME.qualitativePalette), curve, runs: clipPolyline(curve, 0, hi), cut,
+    });
   }
 
   // Direct labels at the curves' right ends, in a column beside the plot: with two showers on show, the shower
   // letter of every drawn curve whose value at x.max lies on its panel (B's lines are at 70% strength or more, so
-  // the letter names the shower where the strength cannot); and the literature curves' particles, main panel only.
-  // A curve that leaves the plot before x.max has its caret and no label.
+  // the letter names the shower where the strength cannot); and the literature curve's particle, in its identity
+  // colour, main panel only. A curve that leaves the plot before x.max has its caret and no label.
   const twoOnShow = nShowers > 1 && new Set(series.map((s) => s.raw.shower).filter(Boolean)).size > 1;
   const endLabels = { main: [], ratio: [] };
   const atEnd = (rows) => {
@@ -1622,7 +1630,7 @@ export function energyModel(payload, opts = {}) {
   for (const lit of literature) {
     const v = referenceValue(lit.entry, x.max);
     if (Number.isFinite(v) && v >= 0 && v <= hi) {
-      endLabels.main.push({ key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: THEME.muted, literature: true, value: v });
+      endLabels.main.push({ key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: lit.colour, literature: true, value: v });
     }
   }
 
@@ -1903,16 +1911,17 @@ function unityTip(model) {
   return lines.join('<br/>');
 }
 
-/** The tooltip of one literature curve. */
+/** The tooltip of the literature curve in force, the only one drawn. */
 export function literatureTip(model, lit) {
-  const lines = [
+  const others = REFERENCE_KEYS.filter((key) => key !== lit.key).map((key) => referenceOf(key)?.particle).filter(Boolean);
+  return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
     escapeHtml(referenceEquation(lit.entry)),
     mutedLine(LITERATURE_PROVENANCE),
-  ];
-  if (lit.inForce) lines.push(mutedLine('The ratio panel divides by this curve.'));
-  lines.push(mutedLine('A reference, not a measurement: it never sets the range.'));
-  return lines.join('<br/>');
+    mutedLine(`The ratio panel divides by this curve, the only literature curve drawn${others.length
+      ? `; choosing ${others.join(' or ')} under "Ratio to" draws that curve instead, in its own colour` : ''}.`),
+    mutedLine('A reference, not a measurement: it never sets the range.'),
+  ].join('<br/>');
 }
 
 /** The tooltip of the caret where a literature curve crosses the top of the main panel. */
@@ -2178,7 +2187,10 @@ function bandEdges(edges, colour, id, tip) {
   return out;
 }
 
-/** One literature curve on the main panel: dotted muted runs, and its legend entry; its label is in the end column. */
+/**
+ * The literature curve in force on the main panel: dotted runs in its identity colour, and its legend entry;
+ * its label is in the end column.
+ */
 function literatureSeries(model, lit) {
   const width = 1.2 * THEME.lineAxis;
   return {
@@ -2188,14 +2200,14 @@ function literatureSeries(model, lit) {
     clip: true,
     z: 4,
     silent: false,
-    itemStyle: { color: THEME.muted },
+    itemStyle: { color: lit.colour },
     data: [lit.curve[0] ?? [model.x.max, 0]],
     renderItem: (params, api) => ({
       type: 'group',
       children: lit.runs.map((run) => ({
         type: 'polyline',
         shape: { points: run.map((pt) => api.coord(pt)) },
-        style: { fill: 'none', stroke: THEME.muted, lineWidth: width, lineDash: DASH_LITERATURE },
+        style: { fill: 'none', stroke: lit.colour, lineWidth: width, lineDash: DASH_LITERATURE },
       })),
     }),
     tooltip: { formatter: () => literatureTip(model, lit) },
@@ -2480,16 +2492,17 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     series.push(...energySeriesMarks(model, s));
     legend.push({ name: s.label, icon: 'circle' });
   }
+  // The literature curve in force, if any: its line, caret, legend swatch and end label in its identity colour.
   for (const lit of model.literature) {
     series.push(literatureSeries(model, lit));
     if (lit.cut) {
       series.push({
-        ...caretSeries({ name: lit.legend, carets: [{ at: [lit.cut.at, model.y.hi], dir: 'up', tooltip: literatureCutTip(model, lit) }], color: THEME.muted }),
+        ...caretSeries({ name: lit.legend, carets: [{ at: [lit.cut.at, model.y.hi], dir: 'up', tooltip: literatureCutTip(model, lit) }], color: lit.colour }),
         id: `literature|${lit.key}|caret`,
-        itemStyle: { color: THEME.muted },
+        itemStyle: { color: lit.colour },
       });
     }
-    legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: THEME.muted } });
+    legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: lit.colour } });
   }
   // The end labels, one series per legend entry and panel, so the legend hides them with their curves.
   for (const panel of ['main', 'ratio']) {

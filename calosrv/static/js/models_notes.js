@@ -27,6 +27,7 @@ import {
   resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel,
 } from './panels/resolution_scaling.js';
 import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
+import { LITERATURE_HUES } from './palette.js';
 import { perfModel, perfQuantities, SOURCE_LABELS } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
@@ -628,6 +629,14 @@ function outlinedBandName(b, sig) {
   return `${b.reference ? `the reference band about 1 of ${b.short} ${form}` : `${b.short} ${form}`}${why ? ` (${why})` : ''}`;
 }
 
+/**
+ * Each literature curve's hue on every card, as the drawer names it (palette.js `LITERATURE_HUES`):
+ * "π± a brown and e± a purple", or with `preposition` 'in ' "π± in a brown and e± in a purple".
+ */
+function literatureHueList(preposition = '') {
+  return RESOLUTION_REFERENCES.map((e) => `${e.particle} ${preposition}a ${LITERATURE_HUES[e.key]}`).join(' and ');
+}
+
 /** One ratio reference's line for a shower: which fit divides its windows, or why nothing does. */
 function depositReferenceLine(model, r) {
   const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit';
@@ -681,8 +690,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     ? `here ${spanGeV(model.spans.span)}`
     : (drawn.length ? 'each its own, listed under Disclosures' : 'no fit is drawn for this selection');
   const refLines = lit
-    ? [`The ratio's reference is the literature curve ${referenceEquation(lit)}, evaluated at every E on the axis; both literature curves are drawn on the main panel, `
-      + `${lit.particle}'s the one in force. The ratio panel draws no band about 1 for it: no interval reported.`]
+    ? [`The ratio's reference is the literature curve ${referenceEquation(lit)}, evaluated at every E on the axis; it is the one literature curve drawn on the main panel, `
+      + `dotted in its own colour, since the panel never carries a curve the ratio panel does not divide by. The ratio panel draws no band about 1 for it: no interval reported.`]
     : [...Object.values(ref.byShower).map((r) => depositReferenceLine(model, r)),
       'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.'];
   const method = RES_ENERGY_METHOD_SECTION;
@@ -885,9 +894,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     dis.push('Each is a documented point estimate with no interval reported and none derived, so the ratio panel draws no band about 1 for it.');
     dis.push(`They are ${REFERENCE_SOURCE.scope}: a reference to compare with, never a statement about this detector.`);
     dis.push('The figure does not state the energy range the curve was fitted over; it is drawn over the whole axis, and no part of it can be marked as extrapolated.');
-    dis.push(`Both curves are drawn dotted on the main panel whichever is the reference, and neither sets a range${clipped.literature
-      ? `; ${plural(clipped.literature, 'curve')} ${clipped.literature === 1 ? 'crosses' : 'cross'} the top, clipped there with a caret`
-      : ''}.`);
+    dis.push(`The ${lit.particle} curve never sets a range${clipped.literature ? '; it crosses the top of the main panel, clipped there with a caret' : ''}. `
+      + 'The other literature curve is not drawn while this one is the reference; choosing it under "Ratio to" draws it in this one\'s place, in its own colour.');
   }
   dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
   dis.push('MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.');
@@ -910,8 +918,10 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
     'The shaded bands are the fits\' 95% confidence bands: the quadrature band is the square root of the band of z = (σ/E)² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band\'s strength; q is 1.96, or Student\'s t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters\' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series\' colour, solid over the span and dashed beyond, never as a wash.',
     lit
-      ? `Dotted muted lines labelled ${model.literature.map((l) => `"${l.label}"`).join(' and ')} in the end column are the literature curves: references, not measurements, drawn on the main panel and never setting a range; the one in force is the ratio's reference.`
-      : 'Dotted muted lines would be the literature curves; none is drawn while the ratio reference is the deposit fit. Choosing π± or e± under "Ratio to" draws both.',
+      ? `The dotted line${model.endLabels.main.some((l) => l.literature) ? ` labelled "${lit.particle}" in the end column` : ''} is the ${lit.particle} literature curve, the ratio's reference: `
+        + 'a reference, not a measurement, drawn on the main panel and never setting a range. '
+        + `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`
+      : `A literature curve would be a dotted line in its own colour; none is drawn while the ratio reference is the deposit fit. Choosing π± or e± under "Ratio to" draws that curve alone, ${literatureHueList('in ')}.`,
     `The ratio panel: the 1.0 rule in ink marks σ/E equal to the reference; ${lit
       ? 'no band about 1 is drawn, since the literature curve has no interval reported'
       : 'a muted wash is the reference fit\'s own 95% band about 1, fainter beyond its fitted span (two thin muted edges where it spans half the axis or more within that span)'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
