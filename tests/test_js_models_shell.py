@@ -827,6 +827,32 @@ out.notes = {
   prim: section.notes('prim-rate'),
 };
 out.built = built;
+
+// A series the reader switched off on a card's legend: the drawer names it first in Marks and legend, with no
+// hazard; the panel's legend callback re-runs the section's onRendered (which rebuilds the drawer), with no request.
+{
+  const panel = section.cards.get('perf-bins').panel;
+  const callsBefore = calls.length;
+  const rendersBefore = rendersSeen.length;
+  panel.legendSelected = { 'Shower A · network': false, 'An entry of another view': false };
+  panel.liveLegend = { data: ['Shower A · network', 'Shower B · network'] };
+  out.legendLine = { callback: typeof panel.onLegendChange, notes: section.notes('perf-bins') };
+  panel.onLegendChange(panel);
+  out.legendLine.renders = rendersSeen.slice(rendersBefore);
+  out.legendLine.calls = calls.length - callsBefore;
+  panel.legendSelected = { 'Shower A · network': true };
+  out.legendLine.back = section.notes('perf-bins');
+  // A card with no builder takes the line too (its fallback notes); one whose panel keeps no memory never does.
+  const corr = section.cards.get('feat-corr').panel;
+  corr.legendSelected = { r: false };
+  corr.liveLegend = { data: ['r'] };
+  out.legendLine.fallback = section.notes('feat-corr');
+  delete corr.legendSelected;
+  delete corr.liveLegend;
+  out.legendLine.noMemory = section.notes('feat-corr');
+  delete panel.legendSelected;
+  delete panel.liveLegend;
+}
 out.exportTargets = {
   perf: Boolean(section.exportTarget('perf-bins')?.panel),
   table: section.exportTarget('feat-table'),
@@ -1001,6 +1027,27 @@ def test_notes_come_from_the_named_builder_or_the_payloads_own_lines(section_res
     assert notes["corrFallback"]["sections"][0]["heading"] == "What is drawn"
     assert notes["corrFallback"]["sections"][0]["lines"]
     assert "particle_type" in notes["prim"]["sections"][0]["lines"][0]
+
+
+def test_the_drawer_names_what_the_legend_hides_and_a_legend_click_rebuilds_it(section_results):
+    """A series switched off on a card's legend is named in the card's drawer (Martin's approval, 2026-11-11): one
+    line, first in Marks and legend, naming only what the legend on show lists, and no hazard; the panel's legend
+    callback re-runs the section's onRendered, which rebuilds the drawer, and asks the service nothing."""
+    got = section_results["legendLine"]
+    line = ("Hidden on the legend by the reader: Shower A · network. Click its entry to show it again; "
+            "an export leaves it out.")
+    assert got["callback"] == "function"
+    notes = got["notes"]
+    assert [s["heading"] for s in notes["sections"]] == ["What is drawn", "Marks and legend"], notes
+    assert notes["sections"][1]["lines"] == [line], notes
+    assert notes["hazards"] == section_results["notes"]["perf"]["hazards"] == [], notes
+    assert got["renders"] == [["perf-bins", True]] and got["calls"] == 0, got
+    # Switched back on: the builder's notes, as before.
+    assert got["back"] == section_results["notes"]["perf"], got["back"]
+    # The fallback notes take the line too; a panel without a memory never does.
+    assert got["fallback"]["sections"][-1] == {"heading": "Marks and legend", "lines": [
+        "Hidden on the legend by the reader: r. Click its entry to show it again; an export leaves it out."]}
+    assert "Marks and legend" not in [s["heading"] for s in got["noMemory"]["sections"]], got["noMemory"]
 
 
 def test_export_targets_are_the_drawn_charts_only(section_results):

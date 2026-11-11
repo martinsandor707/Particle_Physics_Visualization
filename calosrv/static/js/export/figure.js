@@ -44,24 +44,26 @@
  *
  * ## What the legend hides stays hidden
  *
- * A series the reader switched off on a chart panel's legend is left out of
- * its figure: `buildPrintOption` lays the panel's legend memory
- * (`ChartPanel.legendSelected`) over the print option with the screen's own
- * helper, `withLegendMemory` (panels/chart_panel.js). The figure is then the
- * plot the reader is looking at, and its legend greys the hidden entries,
- * which says on the figure that they are off. The grey is set here: ECharts
- * draws a hidden entry, text and swatch, in the legend's `inactiveColor`,
- * which `chartLegend` takes from `THEME.border`, and the print border is the
- * near-black #111827, darker than the #374151 of the entries on show. A
- * legend that hides an entry therefore takes `printInactiveInk()`, the
- * lightest tint of the print muted ink that still clears 4.5:1 on the print
- * card, so the hidden entry reads lighter and stays legible. A panel without
- * a memory (the 2 × 2's spatial panels, the energy panel), and a legend that
- * hides nothing, export their option unchanged.
+ * A series the reader switched off on a chart panel's legend, or on the
+ * energy panel's, is left out of its figure: `buildPrintOption` lays the
+ * panel's legend memory (`legendSelected`) over the print option with the
+ * screen's own helper, `withLegendMemory` (panels/chart_panel.js). The figure
+ * is then the plot the reader is looking at, and its legend greys the hidden
+ * entries, which says on the figure that they are off. The grey is the
+ * print's own: ECharts draws a hidden entry, text and swatch, in the legend's
+ * `inactiveColor`, which `chartLegend` takes from `THEME.border`, and the
+ * print border is the near-black #111827, darker than the #374151 of the
+ * entries on show. A legend that hides an entry therefore takes
+ * `printInactiveInk()`, the lightest tint of the print muted ink that still
+ * clears 4.5:1 on the print card, so the hidden entry reads lighter and stays
+ * legible, laid by the screen's `withInactiveInk` (text, swatch and a line
+ * series' swatch line, as on screen in the screen's own ink). A panel without
+ * a memory (the 2 × 2's spatial panels), and a legend that hides nothing,
+ * export their option unchanged.
  */
 
 import { THEME, restoreScreenTheme } from '../scale.js';
-import { blendOver, legibleOpacity, withLegendMemory } from '../panels/chart_panel.js';
+import { legendInactiveInk, withInactiveInk, withLegendMemory } from '../panels/chart_panel.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
 import { displayOf } from './caption.js';
@@ -178,31 +180,27 @@ function buildPrintOption(panel, { width, height }) {
 
 /**
  * `option` with the panel's legend memory laid over it, and each legend that
- * then hides an entry given the print's inactive ink for that entry's text
- * and swatch. Called inside the synchronous window, under the print tokens.
+ * then hides an entry given the print's inactive ink for that entry's text,
+ * swatch and swatch line. Called inside the synchronous window, under the
+ * print tokens.
  */
 function withPrintLegend(option, memory) {
   const remembered = withLegendMemory(option, memory);
   if (remembered === option) return option;
-  const grey = (legend) => (Object.values(legend?.selected ?? {}).includes(false)
-    ? { ...legend, inactiveColor: printInactiveInk(), inactiveBorderColor: printInactiveInk() }
-    : legend);
-  const legends = remembered.legend;
-  return { ...remembered, legend: Array.isArray(legends) ? legends.map(grey) : grey(legends) };
+  return withInactiveInk(remembered, printInactiveInk());
 }
 
 /**
  * The ink of a legend entry the reader switched off, on the print card: the
- * lightest tint of `THEME.muted` that clears 4.5:1 against `THEME.card`
- * (`legibleOpacity`), each channel rounded down, which only darkens it. Under
- * the print tokens (muted #374151, card #FFFFFF) it is #6f7681, 4.58:1:
- * lighter than the entries on show, at 10.3:1, and held to the print text
- * floor.
+ * screen's rule (chart_panel.js `legendInactiveInk`), taken under the print
+ * tokens: the lightest tint of `THEME.muted` that clears 4.5:1 against
+ * `THEME.card`, each channel rounded towards the muted ink, which on white
+ * only darkens it. Under the print tokens (muted #374151, card #FFFFFF) it is
+ * #6f7681, 4.58:1: lighter than the entries on show, at 10.3:1, and held to
+ * the print text floor.
  */
 export function printInactiveInk() {
-  const alpha = legibleOpacity(THEME.muted, 0, 4.5);
-  const rgb = blendOver(THEME.muted, alpha, THEME.card);
-  return `#${rgb.map((v) => Math.max(0, Math.min(255, Math.floor(v))).toString(16).padStart(2, '0')).join('')}`;
+  return legendInactiveInk();
 }
 
 /**

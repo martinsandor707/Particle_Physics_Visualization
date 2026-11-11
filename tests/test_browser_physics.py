@@ -29,15 +29,21 @@ two-shower copy whose registry claims derived tables v1
 * every tooltip is mounted on ``#tooltip-layer``, unclipped, inside the
   viewport and on top; a bin readout sits beside the pointer, and an
   explanation leaves the hovered plot wherever there is room;
-* every negative number drawn on a canvas or set as text uses U+2212.
+* every negative number drawn on a canvas or set as text uses U+2212;
+* a series switched off on a legend (plot 4's energy card, and a physics card)
+  stays off across a theme switch and a control that draws fewer series, is
+  drawn in a legible ink, is named in the open drawer and left out of the
+  export, and comes back whole (Martin's approval of 2026-11-11).
 
 Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 """
 
 from __future__ import annotations
 
+import html
 import os
 import re
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -198,11 +204,12 @@ READOUT_SHARE = 0.2
 # ------------------------------------------------------------------ helpers --
 
 
-def _open(p, base, table, *, viewport=(1600, 900), fragment="", init=(), browser=None):
+def _open(p, base, table, *, viewport=(1600, 900), fragment="", init=(), browser=None, routes=()):
     """The page on `table`, with every console error, page error and failed request recorded.
 
     `init` are scripts run before the page's own; `browser` opens the page in
-    a browser already launched (a second page of one test)."""
+    a browser already launched (a second page of one test); `routes` are
+    `(pattern, handler)` pairs routed before the page loads."""
     browser = browser or p.chromium.launch()
     page = browser.new_page(color_scheme="dark", viewport={"width": viewport[0], "height": viewport[1]})
     problems, requests = [], []
@@ -213,6 +220,8 @@ def _open(p, base, table, *, viewport=(1600, 900), fragment="", init=(), browser
     page.add_init_script(_RECORD_CANVAS_TEXT)
     for script in init:
         page.add_init_script(script)
+    for pattern, handler in routes:
+        page.route(pattern, handler)
     page.goto(f"{base}/#table_name={table}{fragment}")
     page.wait_for_function(
         "(table) => document.getElementById('experiment-select')?.value === table && ("
@@ -1247,5 +1256,268 @@ def test_a_card_the_view_hides_is_the_views_doing(physics_live_server):
         text = page.inner_text("#kind-banner-text")
         assert "which the view on screen hides" in text and "does not show" not in text, text
         assert not _drawer_open(page)
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------------------------------ the legend --
+
+#: The recorded two-shower energy response (tests/test_payload_fixtures.py), served to the baseline's page in place of
+#: its own two events: every draw mode (histogram and fit, a de-weighted fit over its events, events alone) and both
+#: isolated references, 29 series in "Both" and 15 in "A".
+ENERGY_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "payloads" / "energy_d_two.json"
+#: Its legend's first entry: shower A's de-weighted fit of a thin slice (a smooth line series).
+ENERGY_ENTRY = "E_A · 150 ≤ D < 200 mm fit (N=8)"
+#: The first entry of its second legend, the isolated references' (a line series drawing a mark line and area).
+ENERGY_REFERENCE = "[Ref] Isolated Reference E₁ (no overlap)"
+#: The ink of a hidden legend entry on each screen card (chart_panel.js `legendInactiveInk`, the faintest tint of the
+#: muted ink at 4.5:1; tests/test_js_chart_legend.py derives them), and in an exported figure (`printInactiveInk`).
+INACTIVE = {"dark": "#808993", "light": "#6e7780"}
+PRINT_INACTIVE = "#6f7681"
+
+
+def _hidden_line(*names):
+    """The drawer's line for the entries the reader switched off (chart_panel.js `legendHiddenLine`)."""
+    tail = ("Click its entry to show it again; an export leaves it out." if len(names) == 1
+            else "Click an entry to show it again; an export leaves them out.")
+    return f"Hidden on the legend by the reader: {'; '.join(names)}. {tail}"
+
+
+def _serve_energy(route):
+    """Answer plot 4's energy request with the recorded response; a momentum-sliced one (B3) goes to the server."""
+    if "slice_by=momentum" in route.request.url:
+        route.continue_()
+        return
+    route.fulfill(status=200, content_type="application/json", body=ENERGY_FIXTURE.read_text(encoding="utf-8"))
+
+
+def _frames(page, n=2):
+    """Let the page run `n` animation frames: what a click or a switch schedules for the next frame has run."""
+    page.evaluate("""(n) => new Promise((done) => {
+      const step = (k) => (k > 0 ? requestAnimationFrame(() => step(k - 1)) : done());
+      step(n);
+    })""", n)
+
+
+#: A chart as ECharts drew it: per series in order, its name, whether the legend filters it, its data items and the
+#: elements its view holds now; each legend's entries and selected state.
+_DRAWN = """(plotId) => {
+  const inst = echarts.getInstanceByDom(document.getElementById(plotId));
+  const model = inst.getModel();
+  const series = model.getSeries().map((s) => {
+    let drawn = 0;
+    inst.getViewOfSeriesModel(s)?.group?.traverse((el) => { if (!el.isGroup) drawn += 1; });
+    return [s.name, model.isSeriesFiltered(s), s.getData().count(), drawn];
+  });
+  const legends = model.findComponents({ mainType: 'legend' }).map((l) => ({
+    names: l.getData().map((d) => d.get('name')), selected: { ...(l.option.selected || {}) } }));
+  return { series, legends };
+}"""
+
+#: Where a chart's legend draws an entry's name, in viewport pixels (the centre of its text); null when it does not.
+_LEGEND_AT = """([plotId, name]) => {
+  const host = document.getElementById(plotId);
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  let at = null;
+  for (const legend of inst.getModel().findComponents({ mainType: 'legend' })) {
+    inst.getViewOfComponentModel(legend)?.group.traverse((el) => {
+      if (at || el.type !== 'text' || el.style?.text !== name) return;
+      const r = el.getPaintRect();
+      at = [c.left + r.x + r.width / 2, c.top + r.y + r.height / 2];
+    });
+  }
+  return at;
+}"""
+
+#: How a chart's legends draw a hidden entry: each legend's inks (text and swatch, swatch border, a line series'
+#: swatch line), which legend draws the entry, and the colours its text and swatch are painted in now. A line paints
+#: its stroke only (the fill zrender leaves on it, #000, covers no area), and so does a hollow symbol, whose interior
+#: ECharts fills with a fixed #fff in either state (the references' line series keep the default emptyCircle).
+_LEGEND_INK = """([plotId, name]) => {
+  const inst = echarts.getInstanceByDom(document.getElementById(plotId));
+  const out = { legends: [], at: null, text: null, swatch: [] };
+  for (const legend of inst.getModel().findComponents({ mainType: 'legend' })) {
+    out.legends.push([legend.get('inactiveColor'), legend.get('inactiveBorderColor'),
+      legend.get(['lineStyle', 'inactiveColor'])]);
+    inst.getViewOfComponentModel(legend)?.group.traverse((el) => {
+      if (out.text !== null || el.type !== 'text' || el.style?.text !== name) return;
+      out.at = out.legends.length - 1;
+      out.text = el.style.fill;
+      el.parent?.traverse((part) => {
+        if (part === el || part.isGroup || part.invisible || part.type === 'text') return;
+        const symbol = String(part.shape?.symbolType ?? '');
+        const line = part.type === 'line' || symbol === 'line' || part.__isEmptyBrush === true;
+        for (const paint of line ? [part.style?.stroke] : [part.style?.fill, part.style?.stroke]) {
+          if (paint && paint !== 'none' && paint !== 'transparent') out.swatch.push(paint);
+        }
+      });
+    });
+  }
+  return out;
+}"""
+
+#: The open drawer's sections, as [heading, [lines]]; null when it is closed.
+_DRAWER_SECTIONS = """() => document.getElementById('inspector').hidden ? null
+  : [...document.querySelectorAll('#inspector-body .inspector-section')].map((s) =>
+    [s.querySelector('h3').textContent, [...s.querySelectorAll('p')].map((p) => p.textContent)])"""
+
+
+def _click_legend(page, plot_id, name):
+    """Click a chart's legend entry, as a reader does (ECharts dispatches `legendToggleSelect`)."""
+    at = page.evaluate(_LEGEND_AT, [plot_id, name])
+    assert at is not None, f"no legend entry {name!r} on {plot_id}"
+    page.mouse.click(*at)
+    page.mouse.move(2, 2)
+    _frames(page)
+
+
+def _assert_hidden(drawn, fresh, name, where):
+    """The entry's series are filtered and draw nothing; every other series draws as a fresh render did."""
+    series = drawn["series"]
+    assert [s[0] for s in series] == [s[0] for s in fresh], (where, "another set of series")
+    own = [i for i, s in enumerate(series) if s[0] == name]
+    assert own, (where, "no series of the entry")
+    for i, (got, was) in enumerate(zip(series, fresh)):
+        if i in own:
+            assert got[1] is True and got[3] == 0, (where, got)
+        else:
+            assert got == was, (where, got, was)
+    assert any(legend["selected"].get(name) is False for legend in drawn["legends"] if name in legend["names"]), \
+        (where, drawn["legends"])
+
+
+def _assert_inked(page, plot_id, name, theme, where):
+    """The hidden entry's text and swatch in the legible ink of `theme`'s card, and its legend's inks set to it."""
+    ink = INACTIVE[theme]
+    got = page.evaluate(_LEGEND_INK, [plot_id, name])
+    assert got["text"] == ink, (where, got)
+    assert got["swatch"] and set(got["swatch"]) == {ink}, (where, got)
+    assert got["at"] is not None and got["legends"][got["at"]] == [ink, ink, ink], (where, got)
+
+
+def _sections(page):
+    return dict(page.evaluate(_DRAWER_SECTIONS) or [])
+
+
+def test_the_energy_card_keeps_its_legend_and_names_what_it_hides(physics_live_server):
+    """Page 1's energy card (EnergyPanel, not a ChartPanel) forgot the legend on every repaint (Martin's approval of
+    2026-11-11: the same memory, clear and events as every chart card).
+
+    On the recorded two-shower response, with the drawer open: the first entry, switched off with a click, is filtered
+    and draws nothing while every other series draws as a fresh render did; it is drawn in the legible inactive ink,
+    never the 1.33:1 border; the drawer gains a Marks and legend section naming it, before Reading the density axis.
+    It stays off across a theme switch and back (in each card's ink) and across shower A alone, which draws fewer
+    series, and Both, with no page error and no request. A reference switched off on the second legend takes the ink
+    there too, and the drawer names both until it is back on. The SVG export leaves the entry out and prints it in
+    the print's grey. Switched back on, every series draws as the fresh render did and the drawer's section is gone."""
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, physics_live_server["base"], BASELINE_TABLE,
+                                                  routes=(("**/api/energy-distribution?*", _serve_energy),))
+        page.locator('.card[data-panel="energy"]').scroll_into_view_if_needed()
+        page.wait_for_function(
+            "(name) => { const i = echarts.getInstanceByDom(document.getElementById('plot-energy'));"
+            " return Boolean(i && (i.getOption().legend || [])[0]?.data?.includes(name)); }",
+            arg=ENERGY_ENTRY, timeout=30_000)
+        page.click('button[data-inspect="energy"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden")
+        _frames(page)
+        opened = _sections(page)
+        assert "Marks and legend" not in opened and "Reading the density axis" in opened, list(opened)
+        before = len(requests)
+
+        # Fresh renders of shower A alone and of Both, nothing switched off: what each draws, series by series.
+        fresh = {}
+        for shower in ("a", "both"):
+            page.click(f'[data-shower="{shower}"]')
+            _frames(page)
+            fresh[shower] = page.evaluate(_DRAWN, "plot-energy")["series"]
+        assert len(fresh["a"]) < len(fresh["both"]), {k: len(v) for k, v in fresh.items()}
+        assert any(s[0] == ENERGY_ENTRY and s[3] for s in fresh["both"]), fresh["both"]
+
+        _click_legend(page, "plot-energy", ENERGY_ENTRY)
+        _assert_hidden(page.evaluate(_DRAWN, "plot-energy"), fresh["both"], ENERGY_ENTRY, "switched off")
+        _assert_inked(page, "plot-energy", ENERGY_ENTRY, "dark", "switched off")
+        # The open drawer names it, in a Marks and legend section of its own before Reading the density axis.
+        headings = [heading for heading, _ in page.evaluate(_DRAWER_SECTIONS)]
+        assert headings.index("Marks and legend") == headings.index("Reading the density axis") - 1, headings
+        assert _sections(page)["Marks and legend"] == [_hidden_line(ENERGY_ENTRY)]
+
+        for theme in ("light", "dark"):
+            page.click("#theme-toggle")
+            page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=theme, timeout=10_000)
+            _frames(page)
+            _assert_hidden(page.evaluate(_DRAWN, "plot-energy"), fresh["both"], ENERGY_ENTRY, f"then {theme}")
+            _assert_inked(page, "plot-energy", ENERGY_ENTRY, theme, f"then {theme}")
+            assert _sections(page)["Marks and legend"] == [_hidden_line(ENERGY_ENTRY)], theme
+        # Fewer series, then all of them again: still off, nothing thrown.
+        for shower in ("a", "both"):
+            page.click(f'[data-shower="{shower}"]')
+            _frames(page)
+            assert problems == [], (shower, problems)
+            _assert_hidden(page.evaluate(_DRAWN, "plot-energy"), fresh[shower], ENERGY_ENTRY, f"shower {shower}")
+            _assert_inked(page, "plot-energy", ENERGY_ENTRY, "dark", f"shower {shower}")
+
+        # A reference, on the second legend: that legend takes the ink too (merged by index), the drawer names both;
+        # switched back on, the drawer names the first alone.
+        _click_legend(page, "plot-energy", ENERGY_REFERENCE)
+        _assert_inked(page, "plot-energy", ENERGY_REFERENCE, "dark", "a reference switched off")
+        _assert_inked(page, "plot-energy", ENERGY_ENTRY, "dark", "a reference switched off")
+        assert _sections(page)["Marks and legend"] == [_hidden_line(ENERGY_ENTRY, ENERGY_REFERENCE)]
+        _click_legend(page, "plot-energy", ENERGY_REFERENCE)
+        assert _sections(page)["Marks and legend"] == [_hidden_line(ENERGY_ENTRY)]
+        _assert_hidden(page.evaluate(_DRAWN, "plot-energy"), fresh["both"], ENERGY_ENTRY, "the reference back on")
+
+        # The export leaves it out: its legend prints the entry in the print's grey, lighter than the entries on show.
+        name, svg = _download_svg(page, "energy")
+        assert name.startswith("energy_") and name.endswith(".svg"), name
+        # The SVG escapes the "<" of "D < 200 mm".
+        inks = {html.unescape(text): fill.lower()
+                for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
+        on_show = "E_B · 150 ≤ D < 200 mm fit (N=8)"
+        assert ENERGY_ENTRY in inks and on_show in inks, sorted(inks)
+        assert inks[ENERGY_ENTRY] == PRINT_INACTIVE != inks[on_show], (inks[ENERGY_ENTRY], inks[on_show])
+
+        # Back on: every series draws as the fresh render did, and the drawer no longer names it.
+        _click_legend(page, "plot-energy", ENERGY_ENTRY)
+        assert problems == [], ("switched back on", problems)
+        drawn = page.evaluate(_DRAWN, "plot-energy")
+        assert drawn["series"] == fresh["both"], [(got, was) for got, was in zip(drawn["series"], fresh["both"])
+                                                  if got != was]
+        assert "Marks and legend" not in _sections(page), _sections(page)
+        assert requests[before:] == [], f"the legend, the theme or the shower asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+def test_a_physics_cards_open_drawer_names_what_its_legend_hides(physics_live_server):
+    """A physics card's drawer, open while the reader switches a legend entry off, names it first in Marks and legend
+    (no hazard, the builder's lines unchanged after it); the entry is drawn in the legible ink; switched back on, the
+    drawer is as it was. No request."""
+    with physics_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, physics_live_server["base"], BASELINE_TABLE)
+        state = _scroll_to(page, "profile-w")
+        assert state["canvas"] and state["series"], state
+        page.click('#physics-grid button[data-inspect="profile-w"]')
+        page.wait_for_function("() => !document.getElementById('inspector').hidden")
+        _frames(page)
+        _scroll_to(page, "profile-w")
+        entry = page.evaluate(_DRAWN, "plot-profile-w")["legends"][0]["names"][0]
+        opened = _sections(page)
+        flagged = page.get_attribute('#physics-grid button[data-inspect="profile-w"]', "class")
+        before = len(requests)
+
+        _click_legend(page, "plot-profile-w", entry)
+        hidden = _sections(page)
+        assert hidden["Marks and legend"] == [_hidden_line(entry), *opened["Marks and legend"]], hidden
+        assert {k: v for k, v in hidden.items() if k != "Marks and legend"} == \
+            {k: v for k, v in opened.items() if k != "Marks and legend"}
+        # The reader's own choice: no hazard flag on the Details button.
+        assert page.get_attribute('#physics-grid button[data-inspect="profile-w"]', "class") == flagged
+        _assert_inked(page, "plot-profile-w", entry, "dark", "profile-w")
+
+        _click_legend(page, "plot-profile-w", entry)
+        assert _sections(page) == opened
+        assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems

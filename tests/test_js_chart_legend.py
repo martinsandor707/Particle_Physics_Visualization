@@ -22,13 +22,28 @@ Pinned here:
 * the paint decision, on a fake chart: the listeners are on every legend event,
   once; ``clear()`` precedes ``setOption`` exactly when the memory holds a
   false; the memory survives repaints, a relayout, ``clear()`` and a card held
-  at zero size;
+  at zero size; every legend event tells ``onLegendChange``, with the panel;
+* the ink of a hidden entry (Martin's approval, 2026-11-11): ECharts drew it in
+  ``THEME.border``, 1.33:1 on the dark card and 1.45:1 on the light one. It is
+  now ``legendInactiveInk()``, the faintest tint of the muted ink that clears
+  4.5:1 (#808993 on #1c2128, #6e7780 on #ffffff), for the text, the swatch and
+  a line series' swatch line; laid at paint time only while the legend hides
+  an entry, and merged into the legend on show by the click that hides one;
+* the drawer: ``legendHiddenNames`` names only what the legend on show lists,
+  ``legendHiddenLine`` says so, and panel_notes.js ``withHiddenLegend`` puts the
+  line first in Marks and legend (making the section, before Reading the
+  density axis, where a drawer has none), with no hazard;
 * the export (``export/figure.js``): the print option carries the memory; a
   legend that hides an entry greys it in the lightest tint of the print muted
   ink that clears 4.5:1 on white (#6f7681), where ECharts would have drawn it
   in the print border, the near-black #111827, darker than the entries on show;
   a panel without a memory, or with one that hides nothing, keeps the legend's
-  own inks; the screen theme is back after.
+  own inks; the screen theme is back after;
+* Page 1's energy panel (``panels/energy.js``), on the recorded two-shower
+  response: the same listeners, memory, clear and ink through the shared
+  helpers, on its two legends (the series and the references) each taking the
+  names it lists; across shower A alone (fewer series) and back; its drawer
+  line; its export.
 
 Skipped when ``node`` is not on the PATH.
 """
@@ -52,7 +67,8 @@ const load = (name) => JSON.parse(fs.readFileSync(`${fixtureDir}/${name}.json`, 
 const json = (o) => JSON.stringify(o);
 
 /* ---- a fake DOM and a fake ECharts: every chart records its calls ------------ */
-const element = { clientWidth: 600, clientHeight: 400, style: {}, classList: { toggle() {} }, closest: () => null };
+const element = { clientWidth: 600, clientHeight: 400, style: {}, classList: { toggle() {} }, closest: () => null,
+  replaceChildren() {} };
 const charts = [];
 function makeChart(renderer) {
   const chart = {
@@ -166,16 +182,26 @@ class TinyPanel extends cp.ChartPanel {
   }
 }
 const panel = new TinyPanel(element);
+// Who the panel tells of a legend event (the page's drawer), and with what.
+const told = [];
+panel.onLegendChange = (p) => told.push(p === panel);
 const steps = [];
 let live = null;
+// A legend's inks for a hidden entry: text, swatch border and a line series' swatch line, and the keys it carries.
+const inkOf = (legend) => (legend && !Array.isArray(legend) ? { inactive: legend.inactiveColor ?? null,
+  border: legend.inactiveBorderColor ?? null, line: legend.lineStyle?.inactiveColor ?? null,
+  keys: Object.keys(legend).sort() } : null);
 const step = (what, fn) => {
   const from = live ? live.calls.length : 0;
+  const toldFrom = told.length;
   fn();
   live = live ?? charts.find((c) => c.renderer === 'canvas') ?? null;
   const calls = live ? live.calls.slice(from) : [];
   steps.push({ what, memory: { ...panel.legendSelected },
     calls: calls.map(([kind, option, flags]) => (kind === 'setOption'
-      ? [kind, option.legend?.selected ?? null, Boolean(flags?.notMerge)] : [kind])) });
+      ? [kind, option.legend?.selected ?? null, Boolean(flags?.notMerge)] : [kind])),
+    inks: calls.filter(([kind]) => kind === 'setOption').map(([, option]) => inkOf(option.legend)),
+    told: told.slice(toldFrom), liveLegend: inkOf(panel.liveLegend) });
 };
 const fire = (type, event) => (live.handlers[type] ?? []).forEach((fn) => fn({ type, ...event }));
 step('first render', () => panel.render({ n: 1 }, {}));
@@ -198,6 +224,84 @@ out.steps = steps;
 out.handlers = Object.fromEntries(Object.entries(live.handlers).map(([k, v]) => [k, v.length]));
 out.canvasCharts = charts.filter((c) => c.renderer === 'canvas').length;
 
+/* ---- the legible ink of a hidden entry, on each card --------------------- */
+const scale = await imp('scale.js');
+const { contrast } = await imp('palette.js');
+const measureInk = () => {
+  const card = cp.rgbOf(THEME.card);
+  const muted = cp.rgbOf(THEME.muted);
+  const ink = cp.legendInactiveInk();
+  const rgb = cp.rgbOf(ink);
+  return { ink, card: THEME.card, muted: THEME.muted, border: THEME.border,
+    inkOnCard: contrast(rgb, card), mutedOnCard: contrast(muted, card), borderOnCard: contrast(cp.rgbOf(THEME.border), card),
+    // A tint of the muted ink towards the card: every channel between the two.
+    tint: rgb.every((v, i) => (v - card[i]) * (muted[i] - v) >= 0) };
+};
+out.inks = { dark: measureInk(), textContrast: cp.TEXT_CONTRAST };
+scale.setScreenTheme('light');
+out.inks.light = measureInk();
+// A repaint on the light card while A and B are hidden (the memory the paint steps left): the light card's ink.
+{
+  const from = live.calls.length;
+  panel.render({ n: 4 }, {});
+  out.lightPaint = live.calls.slice(from).filter(([kind]) => kind === 'setOption').map(([, option]) => inkOf(option.legend));
+}
+scale.setScreenTheme('dark');
+
+// withInactiveInk, pure: only a legend that hides an entry is inked, and the option is otherwise itself.
+{
+  const legendAB = cp.chartLegend([{ name: 'A' }, { name: 'B' }]);
+  const shown = { legend: { ...legendAB, selected: { A: true } }, series };
+  const hiding = { legend: { ...legendAB, selected: { A: false, B: true }, lineStyle: { width: 3 } }, series };
+  const arrayed = { legend: [{ data: ['A'], selected: { A: false } }, { data: ['B'] }, { data: ['C'], show: false, selected: { C: false } }], series };
+  const plain = { legend: legendAB, series };
+  const inked = cp.withInactiveInk(hiding);
+  const inkedArray = cp.withInactiveInk(arrayed);
+  out.inkRules = {
+    same: [cp.withInactiveInk(plain) === plain, cp.withInactiveInk(shown) === shown],
+    noLegend: (() => { const o = { series }; return cp.withInactiveInk(o) === o; })(),
+    inked: inkOf(inked.legend), lineKept: inked.legend.lineStyle?.width ?? null, selectedKept: inked.legend.selected,
+    seriesShared: inked.series === series, untouched: JSON.stringify(hiding.legend),
+    array: inkedArray.legend.map(inkOf), arraySame: [1, 2].map((i) => inkedArray.legend[i] === arrayed.legend[i]),
+    given: inkOf(cp.withInactiveInk(hiding, '#123456').legend),
+  };
+}
+
+/* ---- what the drawer names: legendHiddenNames, legendHiddenLine, withHiddenLegend ---- */
+{
+  const pn = await imp('panel_notes.js');
+  out.hiddenNames = {
+    listed: cp.legendHiddenNames({ legendSelected: { B: false, Z: false, A: false, C: true },
+      liveLegend: { data: ['A', { name: 'B' }, 'C'] } }),
+    array: cp.legendHiddenNames({ legendSelected: { R: false, A: false },
+      liveLegend: [{ data: ['A'] }, { data: ['R', 'A'] }, { data: ['Q'], show: false }] }),
+    derived: cp.legendHiddenNames({ legendSelected: { A: false }, liveLegend: { selected: { A: false, B: true } } }),
+    none: [cp.legendHiddenNames(null), cp.legendHiddenNames({}), cp.legendHiddenNames({ legendSelected: { A: false } }),
+      cp.legendHiddenNames({ legendSelected: { A: false }, liveLegend: { data: ['A'], show: false } })],
+    panel: cp.legendHiddenNames(panel),
+  };
+  out.hiddenLine = { none: [cp.legendHiddenLine([]), cp.legendHiddenLine(null), cp.legendHiddenLine([''])],
+    one: cp.legendHiddenLine(['A']), two: cp.legendHiddenLine(['A', 'B · fit']) };
+  const legendNotes = { title: 't', hazards: [], sections: [{ heading: pn.SECTION.selection, lines: ['s'] },
+    { heading: pn.SECTION.legend, lines: ['m'] }] };
+  const densityNotes = { title: 'e', hazards: ['h'], sections: [{ heading: pn.SECTION.selection, lines: ['s'] },
+    { heading: pn.SECTION.disclosures, lines: ['d'] }, { heading: pn.SECTION.density, lines: ['r'] }] };
+  const plainNotes = { title: 'p', hazards: [], sections: [{ heading: pn.SECTION.drawn, lines: ['w'] }] };
+  const hiding = { legendSelected: { A: false }, liveLegend: { data: ['A', 'B'] } };
+  const before = JSON.stringify([legendNotes, densityNotes, plainNotes]);
+  const shape = (n) => ({ title: n.title, hazards: n.hazards, sections: n.sections.map((s) => [s.heading, s.lines]) });
+  out.withHidden = {
+    legend: shape(pn.withHiddenLegend(legendNotes, hiding)),
+    density: shape(pn.withHiddenLegend(densityNotes, hiding)),
+    plain: shape(pn.withHiddenLegend(plainNotes, hiding)),
+    same: [pn.withHiddenLegend(legendNotes, { legendSelected: { A: true }, liveLegend: { data: ['A'] } }) === legendNotes,
+      pn.withHiddenLegend(legendNotes, { legendSelected: { Z: false }, liveLegend: { data: ['A'] } }) === legendNotes,
+      pn.withHiddenLegend(legendNotes, null) === legendNotes, pn.withHiddenLegend(null, hiding) === null],
+    unchanged: JSON.stringify([legendNotes, densityNotes, plainNotes]) === before,
+    line: cp.legendHiddenLine(['A']),
+  };
+}
+
 /* ---- the export ------------------------------------------------------------ */
 const exportOf = (p) => {
   const n = charts.length;
@@ -206,6 +310,7 @@ const exportOf = (p) => {
   const set = made.flatMap((c) => c.calls.filter(([kind]) => kind === 'setOption'));
   return { charts: made.length, selected: set.map(([, option]) => option.legend?.selected ?? null),
     inks: set.map(([, option]) => [option.legend?.inactiveColor ?? null, option.legend?.inactiveBorderColor ?? null]),
+    lines: set.map(([, option]) => option.legend?.lineStyle?.inactiveColor ?? null),
     screenBack: THEME.medium !== 'print' };
 };
 out.export = { hidden: exportOf(panel) };
@@ -234,8 +339,78 @@ out.export.allShown = exportWith({ A: true });
   const white = cp.rgbOf(THEME.card);
   const ink = fig.printInactiveInk();
   out.printInk = { ink, inkOnCard: contrast(cp.rgbOf(ink), white), mutedOnCard: contrast(cp.rgbOf(THEME.muted), white),
-    border: THEME.border };
+    border: THEME.border, screenRule: cp.legendInactiveInk() };
   Object.assign(THEME, saved);
+}
+
+/* ---- Page 1's energy panel: the same memory, events, clear, ink, drawer and export ---- */
+{
+  const energyMod = await imp('panels/energy.js');
+  const pn = await imp('panel_notes.js');
+  const payload = load('energy_d_two');
+  element.clientWidth = 760;
+  element.clientHeight = 380;
+  const first = charts.length;
+  const ep = new energyMod.EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
+  const chart = charts[first];
+  const eTold = [];
+  ep.onLegendChange = (p) => eTold.push(p === ep);
+  const opts = (shower) => ({ palette: 'viridis', kind: 'pred', shower });
+  const legendsOf = (option) => (option.legend ?? []).map((l) => ({ data: (l.data ?? []).map((d) => d?.name ?? d),
+    selected: l.selected ?? null, ...inkOf(l) }));
+  const sets = (from) => chart.calls.slice(from).map(([kind, option, flags]) => (kind === 'setOption'
+    ? { kind, notMerge: Boolean(flags?.notMerge), legends: Array.isArray(option.legend) ? legendsOf(option)
+      : option.legend ?? null, series: (option.series ?? []).length } : { kind }));
+  const fireOn = (type, event) => (chart.handlers[type] ?? []).forEach((fn) => fn({ type, ...event }));
+  const record = {};
+  let from = chart.calls.length;
+  ep.render(payload, opts('both'));
+  record.fresh = sets(from);
+  const [main, bench] = ep.liveLegend;
+  const entry = main.data[0];
+  const reference = bench.data[0];
+  record.entry = entry;
+  record.reference = reference;
+  record.handlers = Object.fromEntries(Object.entries(chart.handlers).map(([k, v]) => [k, v.length]));
+  from = chart.calls.length;
+  fireOn('legendselectchanged', { name: entry, selected: { [entry]: false } });
+  record.click = sets(from);
+  record.memory = { ...ep.legendSelected };
+  from = chart.calls.length;
+  ep.render(payload, opts('both'));
+  record.repaint = sets(from);
+  // Fewer series: shower A alone (main.js's A / B / Both buttons repaint the payload in hand).
+  from = chart.calls.length;
+  ep.render(payload, opts('a'));
+  record.showerA = sets(from);
+  from = chart.calls.length;
+  ep.render(payload, opts('both'));
+  record.both = sets(from);
+  // An entry of the references' own legend (the second): its legend alone takes the ink.
+  from = chart.calls.length;
+  fireOn('legendselectchanged', { name: reference, selected: { [entry]: false, [reference]: false } });
+  record.referenceClick = sets(from);
+  record.hiddenNames = cp.legendHiddenNames(ep);
+  const notes = pn.withHiddenLegend(pn.energyNotes({ payload, notices: ep.lastNotices }), ep);
+  record.notes = notes.sections.map((s) => [s.heading, s.lines]);
+  record.builderNotes = pn.energyNotes({ payload, notices: ep.lastNotices }).sections.map((s) => s.heading);
+  // The export: the figure leaves both out, its legends grey them in the print's ink.
+  const n = charts.length;
+  fig.exportPanel(ep, { panelId: 'energy', format: 'svg', widthMm: 85, state: null });
+  const printed = charts.slice(n).filter((c) => c.renderer === 'svg')
+    .flatMap((c) => c.calls.filter(([kind]) => kind === 'setOption')).map(([, option]) => legendsOf(option));
+  record.export = { printed, screenBack: THEME.medium !== 'print' };
+  record.told = [...eTold];
+  // Both back on: nothing is named, the inks stay until the next paint and that paint lays none.
+  fireOn('legendselectall', { selected: Object.fromEntries([...main.data, ...bench.data].map((name) => [name, true])) });
+  const fresh = pn.energyNotes({ payload, notices: ep.lastNotices });
+  record.allBack = { names: cp.legendHiddenNames(ep), same: pn.withHiddenLegend(fresh, ep) === fresh };
+  from = chart.calls.length;
+  ep.render(payload, opts('both'));
+  record.afterAll = sets(from);
+  ep.clear();
+  record.cleared = { memory: { ...ep.legendSelected }, live: ep.liveLegend, names: cp.legendHiddenNames(ep) };
+  out.energy = record;
 }
 
 console.log(JSON.stringify(out));
@@ -338,8 +513,11 @@ def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_se
     steps = _steps(result)
     set_only = lambda selected: [["setOption", selected, True]]  # noqa: E731
     cleared = lambda selected: [["clear"], ["setOption", selected, True]]  # noqa: E731
+    # The ink merged into the legend on show: no notMerge, no `selected`, no clear (see the ink tests below).
+    merged = [["setOption", None, False]]
     assert steps["first render"]["calls"] == set_only(None)
-    assert steps["a click switches A off"] == {"what": "a click switches A off", "memory": {"A": False}, "calls": []}
+    assert steps["a click switches A off"]["memory"] == {"A": False}
+    assert steps["a click switches A off"]["calls"] == merged
     assert steps["a repaint (theme, control)"]["calls"] == cleared({"A": False})
     assert steps["a relayout at a new width"]["calls"] == cleared({"A": False})
     assert steps["a new payload"]["calls"] == cleared({"A": False})
@@ -348,12 +526,17 @@ def test_the_chart_is_cleared_before_the_option_only_while_the_legend_hides_a_se
     assert steps["shown again"]["calls"] == cleared({"A": False})
     # Switched back on: nothing hidden, no clear; the remembered `true` is laid over the option.
     assert steps["a click switches A on"]["memory"] == {"A": True}
+    # Nothing is drawn as off any more: no merge (the legend keeps the ink until the next paint, which lays none).
+    assert steps["a click switches A on"]["calls"] == []
     assert steps["a repaint with nothing hidden"]["calls"] == set_only({"A": True})
     assert steps["a scripted unselect of B"]["memory"] == {"A": True, "B": False}
+    assert steps["a scripted unselect of B"]["calls"] == merged
     assert steps["a repaint with B hidden"]["calls"] == cleared({"A": True, "B": False})
     assert steps["select all"]["memory"] == {"A": True, "B": True}
+    assert steps["select all"]["calls"] == []
     assert steps["a repaint after select all"]["calls"] == set_only({"A": True, "B": True})
     assert steps["inverse"]["memory"] == {"A": False, "B": False}
+    assert steps["inverse"]["calls"] == merged
     assert steps["a repaint after inverse"]["calls"] == cleared({"A": False, "B": False})
 
 
@@ -361,6 +544,115 @@ def test_the_memory_survives_the_panels_clear(result):
     step = _steps(result)["the panel's clear"]
     assert step["calls"] == [["clear"]], step
     assert step["memory"] == {"A": False}, step
+    # The legend on show goes with the picture; the memory does not.
+    assert step["liveLegend"] is None, step
+
+
+def test_every_legend_event_tells_the_page_once_with_the_panel(result):
+    """A legend click redraws nothing of the page, but the drawer names what is hidden: `onLegendChange` is told."""
+    for step in result["steps"]:
+        expected = [True] if step["what"].startswith(("a click", "a scripted", "select all", "inverse")) else []
+        assert step["told"] == expected, step
+
+
+# --------------------------------------------------- the ink of a hidden entry --
+
+#: The inactive inks: the faintest tint of each card's muted ink at 4.5:1 (chart_panel.js `legendInactiveInk`).
+DARK_INACTIVE, LIGHT_INACTIVE, PRINT_INACTIVE = "#808993", "#6e7780", "#6f7681"
+
+
+@pytest.mark.parametrize(("theme", "ink", "card"), [("dark", DARK_INACTIVE, "#1c2128"),
+                                                     ("light", LIGHT_INACTIVE, "#ffffff")])
+def test_a_hidden_entry_is_drawn_legible_on_each_screen_card(result, theme, ink, card):
+    """ECharts drew a hidden entry, text and swatch, in `THEME.border`: 1.33:1 on the dark card, 1.45:1 on the light
+    one, so the reader could not find it again. Its ink is now the faintest tint of the muted ink of the entries on
+    show that clears the 4.5:1 text floor (CLAUDE.md section 2): dimmer than the muted ink, by as much as the card
+    allows."""
+    got = result["inks"][theme]
+    assert result["inks"]["textContrast"] == 4.5
+    assert got["card"] == card and got["ink"] == ink, got
+    assert got["inkOnCard"] >= 4.5, got
+    assert got["inkOnCard"] < got["mutedOnCard"], "dimmer than the entries on show"
+    assert got["inkOnCard"] < 4.6, "the faintest legible tint"
+    assert got["tint"], "a tint of the muted ink towards the card"
+    assert got["borderOnCard"] < 1.5, "the ink it replaces"
+
+
+def test_the_ink_is_laid_only_while_the_legend_hides_an_entry(result):
+    steps = _steps(result)
+    builders = {"inactive": "#30363d", "border": None, "line": None}
+    hidden = {"inactive": DARK_INACTIVE, "border": DARK_INACTIVE, "line": DARK_INACTIVE}
+    pick = lambda ink: {k: ink[k] for k in ("inactive", "border", "line")}  # noqa: E731
+    # Nothing hidden: the builder's own ink (THEME.border), nothing added.
+    for what in ("first render", "a repaint with nothing hidden", "a repaint after select all"):
+        assert [pick(i) for i in steps[what]["inks"]] == [builders], (what, steps[what]["inks"])
+    # Hidden: the text, the swatch and a line series' swatch line, on every paint.
+    for what in ("a repaint (theme, control)", "a relayout at a new width", "a new payload", "shown again",
+                 "a repaint with B hidden", "a repaint after inverse"):
+        assert [pick(i) for i in steps[what]["inks"]] == [hidden], (what, steps[what]["inks"])
+    # A click that hides an entry merges the inks alone into the legend on show: it keeps its state and its page.
+    for what in ("a click switches A off", "a scripted unselect of B", "inverse"):
+        ink = steps[what]["inks"]
+        assert ink == [{**hidden, "keys": ["inactiveBorderColor", "inactiveColor", "lineStyle"]}], (what, ink)
+        assert steps[what]["liveLegend"]["inactive"] == DARK_INACTIVE, steps[what]
+    # On the light card, the light card's ink.
+    assert [pick(i) for i in result["lightPaint"]] == [{k: LIGHT_INACTIVE for k in ("inactive", "border", "line")}]
+
+
+def test_with_inactive_ink_is_pure_and_inks_only_a_legend_that_hides(result):
+    got = result["inkRules"]
+    # A legend that hides nothing, and an option without a legend: the option itself.
+    assert got["same"] == [True, True] and got["noLegend"], got
+    assert {k: got["inked"][k] for k in ("inactive", "border", "line")} == {
+        "inactive": DARK_INACTIVE, "border": DARK_INACTIVE, "line": DARK_INACTIVE}
+    # The legend's own line style and selected state are kept; the series are shared; the input is not mutated.
+    assert got["lineKept"] == 3 and got["selectedKept"] == {"A": False, "B": True} and got["seriesShared"], got
+    assert '"inactiveBorderColor"' not in got["untouched"] and '"inactiveColor":"#30363d"' in got["untouched"]
+    # An array legend: the one that hides is inked, the others are the same objects (a hidden legend included).
+    assert [a["inactive"] for a in got["array"]] == [DARK_INACTIVE, None, None], got["array"]
+    assert got["arraySame"] == [True, True], got
+    # An ink handed in (the export's print ink) is the one laid.
+    assert {k: got["given"][k] for k in ("inactive", "border", "line")} == {
+        "inactive": "#123456", "border": "#123456", "line": "#123456"}
+
+
+# ------------------------------------------------------------ the drawer line --
+
+
+def test_the_drawer_names_only_what_the_legend_on_show_lists(result):
+    got = result["hiddenNames"]
+    # In the legend's order; a remembered name the legend does not list (Z) and a name shown (C) are not named.
+    assert got["listed"] == ["A", "B"], got
+    # Across an array legend, once each; a hidden legend names nothing.
+    assert got["array"] == ["A", "R"], got
+    # A legend without `data`: the names its painted `selected` hides.
+    assert got["derived"] == ["A"], got
+    assert got["none"] == [[], [], [], []], got
+    # The paint steps' panel: A and B switched off by the inverse.
+    assert got["panel"] == ["A", "B"], got
+
+
+def test_the_drawer_line_says_the_reader_hid_them_and_how_to_bring_them_back(result):
+    got = result["hiddenLine"]
+    assert got["none"] == [None, None, None]
+    assert got["one"] == ("Hidden on the legend by the reader: A. Click its entry to show it again; "
+                          "an export leaves it out.")
+    assert got["two"] == ("Hidden on the legend by the reader: A; B · fit. Click an entry to show it again; "
+                          "an export leaves them out.")
+
+
+def test_with_hidden_legend_puts_the_line_first_in_marks_and_legend_and_adds_no_hazard(result):
+    got = result["withHidden"]
+    line = got["line"]
+    assert got["legend"]["sections"] == [["Selection", ["s"]], ["Marks and legend", [line, "m"]]], got["legend"]
+    # A drawer without the section gains it in its standard place: before Reading the density axis.
+    assert got["density"]["sections"] == [["Selection", ["s"]], ["Disclosures", ["d"]], ["Marks and legend", [line]],
+                                          ["Reading the density axis", ["r"]]], got["density"]
+    assert got["plain"]["sections"] == [["What is drawn", ["w"]], ["Marks and legend", [line]]], got["plain"]
+    # The reader's own choice: never a hazard.
+    assert got["legend"]["hazards"] == [] and got["density"]["hazards"] == ["h"]
+    # Nothing hidden (or hidden but not listed), no panel, no notes: the notes themselves; the input never changes.
+    assert got["same"] == [True, True, True, True] and got["unchanged"], got
 
 
 # ------------------------------------------------------------------ the export --
@@ -372,14 +664,16 @@ def test_the_export_leaves_out_what_the_legend_hides(result):
     # The panel's memory at the end of the paint steps: A and B both switched off by the inverse.
     assert got["hidden"]["charts"] == 1 and got["hidden"]["selected"] == [{"A": False, "B": False}], got
     assert got["hidden"]["screenBack"], got
-    # Its legend greys the hidden entries, text and swatch, in the print's inactive ink.
+    # Its legend greys the hidden entries, text, swatch and swatch line, in the print's inactive ink.
     assert got["hidden"]["inks"] == [[ink["ink"], ink["ink"]]], (got["hidden"], ink)
+    assert got["hidden"]["lines"] == [ink["ink"]], got["hidden"]
     # A panel without a memory, and one whose memory is empty, export the option as built; one whose memory hides
     # nothing keeps the legend's own inks.
     assert got["noMemory"]["selected"] == [None] and got["noMemory"]["inks"] == [[None, None]], got
     assert got["nothingHidden"]["selected"] == [None], got
     assert got["allShown"]["selected"] == [{"A": True}], got
     assert got["allShown"]["inks"] == [[ink["border"], None]], (got["allShown"], ink)
+    assert got["allShown"]["lines"] == [None], got["allShown"]
 
 
 def test_a_hidden_entry_is_printed_lighter_than_the_entries_on_show_and_still_legible(result):
@@ -390,4 +684,90 @@ def test_a_hidden_entry_is_printed_lighter_than_the_entries_on_show_and_still_le
     assert ink["inkOnCard"] >= 4.5, ink
     assert ink["inkOnCard"] < 5, "the faintest legible tint, so it reads as off"
     assert ink["inkOnCard"] < ink["mutedOnCard"], ink
-    assert ink["ink"].lower() == "#6f7681", ink
+    assert ink["ink"].lower() == PRINT_INACTIVE, ink
+    # The screen's rule, taken under the print tokens: one derivation for the three cards.
+    assert ink["screenRule"] == ink["ink"], ink
+
+
+# ------------------------------------------------------- Page 1's energy panel --
+
+
+def _sets(record, key):
+    """The energy chart's calls of one step: 'clear', or (notMerge, series count, [legend: entries, selected, inks])."""
+    out = []
+    for s in record[key]:
+        if s["kind"] != "setOption":
+            out.append(s["kind"])
+            continue
+        out.append((s["notMerge"], s["series"], [(len(lg["data"]), lg["selected"], lg["inactive"], lg["border"], lg["line"])
+                                                  for lg in s["legends"]]))
+    return out
+
+
+def test_the_energy_panel_listens_to_every_legend_event_once(result):
+    got = result["energy"]
+    assert got["handlers"] == {event: 1 for event in result["events"]}, got["handlers"]
+    # The page is told of each event, with the panel.
+    assert got["told"] == [True, True], got["told"]
+    # The first entry of the recorded two-shower response: a thin slice's fit, of shower A.
+    assert got["entry"].startswith("E_A · ") and got["entry"].endswith("fit (N=8)"), got["entry"]
+    assert got["reference"].startswith("[Ref] "), got["reference"]
+
+
+def test_the_energy_panel_keeps_the_legend_clears_while_hiding_and_inks_the_hidden_entry(result):
+    """Page 1's energy card was not a ChartPanel and forgot the legend on every repaint (bug 2). It now keeps the
+    memory, clears the chart while anything is hidden (bug 3's guard) and draws a hidden entry in the legible ink;
+    its two legends (the series, the references) each take only the names they list."""
+    got = result["energy"]
+    entry = got["entry"]
+    assert got["memory"] == {entry: False}, got["memory"]
+    border = "#30363d"
+    # The first paint: nothing hidden, no clear, the builder's inks on both legends.
+    assert _sets(got, "fresh") == [(True, 29, [(14, None, border, None, None), (2, None, border, None, None)])]
+    # The click merges the ink into the series legend alone (index 0), not a repaint.
+    assert _sets(got, "click") == [(False, 0, [(0, None, DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE),
+                                              (0, None, None, None, None)])]
+    hidden = (DARK_INACTIVE, DARK_INACTIVE, DARK_INACTIVE)
+    # Every repaint after it clears first and lays the memory and the ink over the series legend.
+    assert _sets(got, "repaint") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
+    # Shower A alone draws fewer series and fewer entries; the entry is still listed, and still off.
+    assert _sets(got, "showerA") == ["clear", (True, 15, [(7, {entry: False}, *hidden), (1, None, border, None, None)])]
+    assert _sets(got, "both") == ["clear", (True, 29, [(14, {entry: False}, *hidden), (2, None, border, None, None)])]
+    # A reference switched off: its own legend (index 1) takes the ink; the series legend has it already.
+    assert _sets(got, "referenceClick") == [(False, 0, [(0, None, None, None, None), (0, None, *hidden)])]
+    # Everything back on: the next paint lays no ink and no clear.
+    after = _sets(got, "afterAll")
+    assert len(after) == 1 and after[0][0] is True and after[0][1] == 29, after
+    assert [lg[2:] for lg in after[0][2]] == [(border, None, None), (border, None, None)], after
+    assert all(set(lg[1].values()) == {True} for lg in after[0][2]), after
+    # The panel's clear keeps the memory and forgets the legend on show.
+    assert got["cleared"]["live"] is None and got["cleared"]["names"] == [], got["cleared"]
+    assert got["cleared"]["memory"][entry] is True, got["cleared"]
+
+
+def test_the_energy_drawer_names_the_hidden_series_in_a_marks_and_legend_section(result):
+    got = result["energy"]
+    names = [got["entry"], got["reference"]]
+    assert got["hiddenNames"] == names, got["hiddenNames"]
+    # energyNotes has no Marks and legend section; the line makes one, before Reading the density axis.
+    assert got["builderNotes"] == ["What is drawn", "Disclosures", "Reading the density axis"], got["builderNotes"]
+    headings = [heading for heading, _ in got["notes"]]
+    assert headings == ["What is drawn", "Disclosures", "Marks and legend", "Reading the density axis"], headings
+    assert dict(got["notes"])["Marks and legend"] == [
+        f"Hidden on the legend by the reader: {names[0]}; {names[1]}. Click an entry to show it again; "
+        "an export leaves them out."]
+    # All back on: nothing named, the notes are the builder's.
+    assert got["allBack"] == {"names": [], "same": True}, got["allBack"]
+
+
+def test_the_energy_export_leaves_out_what_the_legend_hides(result):
+    """figure.js's energy branch reads `legendSelected` too: each printed legend marks its own hidden entry off, in
+    the print's inactive ink (text, swatch, swatch line), and the screen theme is back after."""
+    got = result["energy"]["export"]
+    entry, reference = result["energy"]["entry"], result["energy"]["reference"]
+    assert got["screenBack"], got
+    assert len(got["printed"]) == 1, got
+    series, references = got["printed"][0]
+    assert series["selected"] == {entry: False} and references["selected"] == {reference: False}, got
+    for legend in (series, references):
+        assert (legend["inactive"], legend["border"], legend["line"]) == (PRINT_INACTIVE,) * 3, legend

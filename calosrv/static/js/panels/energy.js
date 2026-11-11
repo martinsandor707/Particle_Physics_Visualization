@@ -49,13 +49,25 @@
  * and, where they overflow it, are clipped with a caret and named in the
  * footnote. The axis starts strictly at zero, as CLAUDE.md section 2 requires
  * of a probability density.
+ *
+ * ## The legend remembers what the reader switched off
+ *
+ * As on every ChartPanel (chart_panel.js has the reasons): the panel records
+ * the reader's legend choices (`listenToLegend`) and every paint lays them
+ * over the option, draws a hidden entry in a legible ink and, while anything
+ * is hidden, clears the chart first (`setOptionWithLegend`). The memory lives
+ * as long as the panel, `clear()` keeps it, and it never enters the hash. The
+ * exporter reads `legendSelected` too, so a figure leaves the hidden series
+ * out; `onLegendChange` tells main.js, which names them in the drawer.
  */
 
 import {
   THEME, formatNumber, formatInt, formatPercent, axisPadding, typographic,
 } from '../scale.js';
 import { categoricalStops } from '../palette.js';
-import { isPrintTheme, onLightCard, seriesStops } from './chart_panel.js';
+import {
+  isPrintTheme, listenToLegend, onLightCard, seriesStops, setOptionWithLegend,
+} from './chart_panel.js';
 import { fitsWidth, legendRows, wrapText } from '../textfit.js';
 import { hideTooltipOnScroll, plotBoxFromGrid, tooltipOption, tooltipPosition } from './tooltip.js';
 import { curveAreaLine } from './distribution.js';
@@ -114,6 +126,13 @@ export class EnergyPanel {
     // The low-statistics sentences last written to the card, kept for the
     // Details drawer (panel_notes.js), which never reads the page.
     this.lastNotices = [];
+    // What the reader switched on and off on the legend, {name: shown}, for as
+    // long as the panel lives (see the header); `clear()` keeps it. The legend
+    // last set, and who is told of a legend event (main.js: the drawer).
+    this.legendSelected = {};
+    this.liveLegend = null;
+    this.onLegendChange = null;
+    listenToLegend(this);
     window.addEventListener('resize', () => this.chart.resize());
     this.observeResize();
   }
@@ -169,7 +188,9 @@ export class EnergyPanel {
     });
     this.laidOut = { width, height };
     this.liveGrid = option.grid ?? null;
-    this.chart.setOption(option, { notMerge: true });
+    // The reader's legend laid over the option, a hidden entry in a legible
+    // ink, and the clear while anything is hidden (see the header).
+    setOptionWithLegend(this, option);
     return { notices, table };
   }
 
@@ -1038,13 +1059,15 @@ export class EnergyPanel {
   /**
    * Take the picture, the fitted-parameter table and the card's notices down
    * and let go of the payload, so a relayout cannot repaint it: the page's
-   * experiment changed, and its data must not stay on screen.
+   * experiment changed, and its data must not stay on screen. The legend
+   * memory stays with the panel.
    */
   clear() {
     this.chart.clear();
     this.lastPayload = null;
     this.lastOpts = null;
     this.liveGrid = null;
+    this.liveLegend = null;
     this.laidOut = null;
     this.lastNotices = [];
     this.tableElement?.replaceChildren();

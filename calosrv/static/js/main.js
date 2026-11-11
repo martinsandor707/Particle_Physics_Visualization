@@ -46,7 +46,7 @@ import {
 } from './frame_views.js';
 import { frameLabel, viewOf, enteringSub, offeredFrames as offeredFramesOf } from './labels.js';
 import {
-  projectionNotes, energyNotes, eventNotes, notesText, warningsNotShown, DENSITY_EXPLAINER,
+  projectionNotes, energyNotes, eventNotes, notesText, warningsNotShown, withHiddenLegend, DENSITY_EXPLAINER,
 } from './panel_notes.js';
 import { Shell } from './shell.js';
 import { articleSection } from './article_sections.js';
@@ -150,6 +150,8 @@ const compareGrid = new FrameGrid(document.getElementById('compare-grid-rows'), 
   },
 });
 const energyPanel = new EnergyPanel('plot-energy', 'fit-table', 'energy-sparse');
+// A legend click redraws nothing of the page, but the drawer names what the legend hides: rebuild it.
+energyPanel.onLegendChange = () => buildNotes('energy');
 const metricsPanel = new MetricsPanel('metrics', 'model-caption');
 
 /* The page's two banners: transient messages (dismissal keyed by content),
@@ -826,21 +828,22 @@ for (const id of physics.ids()) panelNotes[id] = null;
 function buildNotes(panelId) {
   let notes = null;
   if (panelId === 'energy' && pagePlan.plot4 === 'response-b3') {
-    // Plot 4 of a single shower is the response grid: its notes are B3's.
-    notes = lastPlot4 ? physicsNotes('response-b3', lastPlot4, {
+    // Plot 4 of a single shower is the response grid: its notes are B3's,
+    // and the series switched off on its legend are named.
+    notes = lastPlot4 ? withHiddenLegend(physicsNotes('response-b3', lastPlot4, {
       state,
       experiment: activeExperiment,
       opts: plot4Grid?.lastOpts ?? {},
       title: pagePlan.plot4Title,
-    }) : null;
+    }), plot4Grid) : null;
   } else if (panelId === 'energy') {
-    notes = lastEnergy ? energyNotes({
+    notes = lastEnergy ? withHiddenLegend(energyNotes({
       payload: lastEnergy,
       notices: energyPanel.lastNotices,
       selection: lastProjections?.selection ?? null,
       state,
       experiment: activeExperiment,
-    }) : null;
+    }), energyPanel) : null;
   } else if (panelId.startsWith('event-')) {
     // One cell of the Event Inspector: `event-<frame>-<panel>`.
     const [, kind, col] = panelId.split('-');
@@ -1335,6 +1338,8 @@ async function loadPlot4Grid() {
         if (pagePlan.plot4 === 'response-b3' && lastPlot4) writeSparseNote(dom.energySparse, plot4Sparse());
       },
     });
+    // As the energy panel's: a legend click rebuilds the drawer, which names what the legend hides.
+    plot4Grid.onLegendChange = () => buildNotes('energy');
   }
   // Plot 4 is one request at a time, whichever panel draws it.
   const payload = await getJson(request.route, request.params, 'energy');

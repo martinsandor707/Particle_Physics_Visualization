@@ -58,7 +58,7 @@
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
-import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
+import { SECTION, notesText, warningsNotShown, withHiddenLegend } from './panel_notes.js';
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
@@ -1124,6 +1124,11 @@ export class ModelsSection {
       record.panelPromise = (async () => {
         const Class = await loadPanelClass(record.spec.panel, this.panelClasses, this.panelModules);
         const panel = new Class(record.plot, { card: record.spec.id });
+        // A legend click redraws nothing of the page, but the drawer names
+        // what the legend hides (`notes`): the page rebuilds it.
+        panel.onLegendChange = () => {
+          if (record.payload) this.onRendered(record.spec.id, record.payload);
+        };
         record.panel = panel;
         return panel;
       })();
@@ -1360,7 +1365,8 @@ export class ModelsSection {
   /**
    * The drawer's notes of one card: its builder's, by name from its notes
    * module (models_notes.js, xgb_notes.js), else the payload's own lines; a
-   * card that draws nothing states why.
+   * card that draws nothing states why. A card whose legend hides series the
+   * reader switched off names them in its Marks and legend section.
    */
   notes(id, { state = this.state, experiment = this.getExperiment() } = {}) {
     const record = this.cards.get(id);
@@ -1371,13 +1377,13 @@ export class ModelsSection {
     if (!record.payload) return record.error ? shutNotes(title, record.error) : null;
     const [moduleName, builderName] = record.spec.notes;
     const builder = this.notesModules[moduleName]?.[builderName];
-    if (typeof builder !== 'function') return fallbackNotes(title, record.payload);
+    if (typeof builder !== 'function') return withHiddenLegend(fallbackNotes(title, record.payload), record.panel);
     const opts = record.opts ?? {};
     // A panel that changes its own picture without a request (the curves'
     // sliders, the formula chips' highlight) says what it shows now.
     const panelState = record.panel?.notesState?.() ?? null;
     const notes = builder({ ...opts, payload: record.payload, state, experiment, title, card: id, panelState });
-    return notes ?? fallbackNotes(title, record.payload);
+    return withHiddenLegend(notes ?? fallbackNotes(title, record.payload), record.panel);
   }
 
   /** `{panel, meta}` for the exporter; null when nothing is drawn; undefined for a foreign id. */

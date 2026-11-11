@@ -52,6 +52,8 @@ page is checked as a reader meets it:
   across the window switch with no page error, and switched back on draws
   every one of its marks as a fresh render does; it stays off across a theme
   switch with no request, and the export leaves it out and greys its entry;
+  on screen its entry is drawn in the card's legible inactive ink, and the
+  open drawer names it in Marks and legend until it is switched back on;
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
   the whole volume's, the paired depth projections bracketing the slice drawn,
@@ -1701,6 +1703,91 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
         _click_legend(page, LEGEND_ENTRY)
         _assert_hidden(_drawn(page), fresh, f"{view}: switched off again")
         assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+#: The ink of a hidden legend entry on each screen card (chart_panel.js `legendInactiveInk`, the faintest tint of the
+#: muted ink at 4.5:1; tests/test_js_chart_legend.py derives them).
+SCREEN_INACTIVE = {"dark": "#808993", "light": "#6e7780"}
+
+#: How the resolution card's legend draws an entry: the legend's inks (text and swatch, swatch border, a line series'
+#: swatch line) and the colours the entry's text and swatch are painted in now. A line paints its stroke only, and so
+#: does a hollow symbol, whose interior ECharts fills with a fixed #fff in either state.
+_RES_LEGEND_INK = """(name) => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const legend = inst.getModel().getComponent('legend');
+  const out = { inks: [legend.get('inactiveColor'), legend.get('inactiveBorderColor'),
+    legend.get(['lineStyle', 'inactiveColor'])], text: null, swatch: [] };
+  inst.getViewOfComponentModel(legend)?.group.traverse((el) => {
+    if (out.text !== null || el.type !== 'text' || el.style?.text !== name) return;
+    out.text = el.style.fill;
+    el.parent?.traverse((part) => {
+      if (part === el || part.isGroup || part.invisible || part.type === 'text') return;
+      const symbol = String(part.shape?.symbolType ?? '');
+      const line = part.type === 'line' || symbol === 'line' || part.__isEmptyBrush === true;
+      for (const paint of line ? [part.style?.stroke] : [part.style?.fill, part.style?.stroke]) {
+        if (paint && paint !== 'none' && paint !== 'transparent') out.swatch.push(paint);
+      }
+    });
+  });
+  return out;
+}"""
+
+#: The open drawer's sections, as [heading, [lines]].
+_DRAWER_SECTIONS = """() => [...document.querySelectorAll('#inspector-body .inspector-section')].map((s) =>
+  [s.querySelector('h3').textContent, [...s.querySelectorAll('p')].map((p) => p.textContent)])"""
+
+
+def test_the_open_drawer_names_the_series_the_legend_hides_and_the_entry_stays_legible(models_live_server):
+    """Martin's approval (2026-11-11), on the resolution card's recorded two-shower response, with its drawer open.
+
+    Switched off with a click, the entry is drawn, text and swatch, in the legible inactive ink of the card (4.5:1 on
+    #1c2128 and on white), never the 1.33:1 border; the drawer's Marks and legend section gains one line naming it,
+    first, the rest of the drawer unchanged and no hazard raised. A switch to the light theme repaints it in the
+    light card's ink and keeps the line. Switched back on, the drawer is as it was. No request."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        details = '.main button[data-inspect="res-scaling"]'
+        page.click(details)
+        page.wait_for_function("() => !document.getElementById('inspector').hidden")
+        _frames(page)
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        opened = dict(page.evaluate(_DRAWER_SECTIONS))
+        assert opened.get("Marks and legend"), list(opened)
+        flagged = page.get_attribute(details, "class")
+        line = (f"Hidden on the legend by the reader: {LEGEND_ENTRY}. Click its entry to show it again; "
+                "an export leaves it out.")
+        before = len(requests)
+
+        _click_legend(page, LEGEND_ENTRY)
+        hidden = dict(page.evaluate(_DRAWER_SECTIONS))
+        assert hidden["Marks and legend"] == [line, *opened["Marks and legend"]], hidden["Marks and legend"]
+        assert {k: v for k, v in hidden.items() if k != "Marks and legend"} == \
+            {k: v for k, v in opened.items() if k != "Marks and legend"}
+        assert page.get_attribute(details, "class") == flagged, "the reader's own choice raised a hazard"
+        for theme in ("dark", "light"):
+            if theme == "light":
+                page.click("#theme-toggle")
+                page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=theme,
+                                       timeout=10_000)
+                _frames(page)
+                assert dict(page.evaluate(_DRAWER_SECTIONS))["Marks and legend"][0] == line, theme
+            ink = SCREEN_INACTIVE[theme]
+            got = page.evaluate(_RES_LEGEND_INK, LEGEND_ENTRY)
+            assert got["inks"] == [ink, ink, ink], (theme, got)
+            assert got["text"] == ink and got["swatch"] and set(got["swatch"]) == {ink}, (theme, got)
+        page.click("#theme-toggle")
+        page.wait_for_function("() => document.documentElement.dataset.theme === 'dark'", timeout=10_000)
+        _frames(page)
+
+        _click_legend(page, LEGEND_ENTRY)
+        assert dict(page.evaluate(_DRAWER_SECTIONS)) == opened
+        assert requests[before:] == [], f"the legend or the theme asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 

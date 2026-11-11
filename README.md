@@ -1098,17 +1098,29 @@ across a reload, and it never enters the view state or the hash. An export
 follows it, and the drawer's *Marks and legend* section says when the marks are
 hidden.
 
-**A chart remembers its legend** (Martin's reports of 2026-11-11). A series
-switched off on a chart card's legend stays off across every repaint: a theme
-switch, a card control, a new payload, a relayout. It is the panel's own
-(`ChartPanel.legendSelected`), never in the view state or the hash.
+**A chart remembers its legend** (Martin's reports and approval of
+2026-11-11). A series switched off on a chart card's legend stays off across
+every repaint: a theme switch, a card control, a new payload, a relayout. It is
+the panel's own (`legendSelected`), never in the view state or the hash. Every
+`ChartPanel` keeps it, and so does Page 1's energy card (`EnergyPanel`), through
+the same helpers (`chart_panel.js` `listenToLegend`, `setOptionWithLegend`).
 - Every repaint is `setOption(…, {notMerge: true})`, which used to drop it.
 - While anything is off, the panel clears the chart before the new option.
   ECharts 5.5.1 otherwise diffs a hidden custom series against elements the
   legend detached and throws halfway through the render, drawing a hidden
   series' points without its lines when the next option has fewer windows.
-- An export leaves the hidden series out and greys their legend entries.
-- Page 1's energy card is not a `ChartPanel` and does not yet do this.
+- A hidden entry is drawn in a legible grey, where ECharts drew it in the
+  border ink (1.33:1 on the dark card): the faintest tint of the muted ink that
+  clears 4.5:1 on the card, `#808993` on the dark card and `#6e7780` on the
+  light one, for its text, its swatch and a line series' swatch line. The ink
+  is laid only while something is hidden; the click that hides an entry merges
+  it into the legend on show at once.
+- The card's Details drawer names the hidden series, first in *Marks and
+  legend* (on the energy card, in a section of that name before *Reading the
+  density axis*), and a legend click rebuilds an open drawer. It is the
+  reader's own choice, so it raises no hazard.
+- An export leaves the hidden series out and greys their legend entries
+  (`#6f7681` on white).
 
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand

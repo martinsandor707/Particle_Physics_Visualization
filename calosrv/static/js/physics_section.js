@@ -930,6 +930,11 @@ export class PhysicsSection {
           mode: record.spec.mode,
           axis: record.spec.id === 'profile-r' ? 'r' : undefined,
         });
+        // A legend click redraws nothing of the page, but the drawer names
+        // what the legend hides (`notes`): the page rebuilds it.
+        panel.onLegendChange = () => {
+          if (record.payload) this.onRendered(record.spec.id, record.payload);
+        };
         record.panel = panel;
         return panel;
       })();
@@ -1169,14 +1174,19 @@ export class PhysicsSection {
 
   /* ------------------------------------------------------ drawer, export */
 
-  /** The drawer's notes of one card. */
+  /**
+   * The drawer's notes of one card; a card whose legend hides series the
+   * reader switched off names them in its Marks and legend section.
+   */
   notes(id, { state = this.state, experiment = this.getExperiment() } = {}) {
     const record = this.cards.get(id);
     if (!record) return null;
     const title = cardTitle(id, this.controls);
     if (record.disabled) return shutNotes(title, record.disabled);
     if (!record.payload) return record.error ? shutNotes(title, record.error) : null;
-    return physicsNotes(id, record.payload, { state, experiment, opts: record.opts ?? {}, title });
+    const notes = physicsNotes(id, record.payload, { state, experiment, opts: record.opts ?? {}, title });
+    if (typeof notesModule.withHiddenLegend !== 'function') return notes;
+    return notesModule.withHiddenLegend(notes, record.panel);
   }
 
   /** `{panel, meta}` for the exporter; null when nothing is drawn; undefined for a foreign id. */
