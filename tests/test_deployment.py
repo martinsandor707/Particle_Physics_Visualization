@@ -183,6 +183,9 @@ def test_the_sync_service_hears_a_stop_and_can_reach_a_private_copy():
     sync = _service(_read("docker-compose.yml"), "hf-sync")
     assert re.search(r"^    init: true$", sync, re.MULTILINE)
     assert "- HF_TOKEN=${HF_TOKEN:-}" in sync
+    # A measured cap (558 MiB peak unconfined on a 708 MB file), with no swap on top.
+    assert re.search(r"^    mem_limit: 2g$", sync, re.MULTILINE)
+    assert re.search(r"^    memswap_limit: 2g$", sync, re.MULTILINE)
 
 
 def test_the_dockerfile_has_the_sync_stage_then_the_app_stage_last():

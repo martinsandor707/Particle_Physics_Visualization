@@ -31,6 +31,12 @@ services:
     # the download (a Python PID 1 would ignore SIGTERM) and a half-finished
     # file is left in the staging folder, never in place of a dataset.
     init: true
+    # Measured (2026-11-11) downloading the 708 MB muon hit file: a peak of
+    # 558 MiB with no cap, about 243 MiB inside a 2 GiB cap (the downloader
+    # sizes its buffers to the memory it sees). Every file streams to disk, so
+    # 2 GiB leaves room, and no swap on top, as for the dashboard.
+    mem_limit: 2g
+    memswap_limit: 2g
     restart: "no"
 
   calorimeter-dashboard:
