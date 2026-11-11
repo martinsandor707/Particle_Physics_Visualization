@@ -118,6 +118,9 @@ def rebuild(table_name: str, request: Request, con: CursorDep, settings: Setting
     store = jobs_mod.get_job_store(database)
     if name in store.active_names():
         raise ConflictError(f"A job for {name!r} is already queued or running.", table_name=name)
+    # A re-ingest whose manifest rename failed after its commit: the archive still lists the
+    # old part, so a rebuild would put the old data back over the new.
+    archive.refuse_if_half_finished(settings, name)
     manifest = archive.read_manifest(settings, name)
     if manifest is None or not manifest.parts:
         raise IngestError(f"Experiment {name!r} has no archive to rebuild from.", table_name=name)
@@ -214,9 +217,9 @@ def reingest(
     have verified, and a failure leaves it exactly as it was. A failed experiment
     is retried: its partial tables and archive are dropped and the file is
     ingested again. Everything that can be refused is refused here, before a job
-    is queued: the action unavailable (422, with ``reason``), a job active or the
-    experiment still ingesting (409), a file that is not an accepted schema, or
-    not the experiment's (400), too little disk for both copies (507).
+    is queued: the action unavailable (422, with ``reason``), a job active, the
+    experiment still ingesting or a re-ingest of it half-finished (409), a file
+    that is not an accepted schema, or not the experiment's (400), too little disk for both copies (507).
     """
     force = (body or {}).get("force", False)
     if not isinstance(force, bool):
@@ -237,6 +240,8 @@ def reingest(
 
     action = (source_state.ACTION_RETRY if record.status == registry.STATUS_FAILED
               else source_state.ACTION_REINGEST)
+    if action == source_state.ACTION_REINGEST:
+        archive.refuse_if_half_finished(settings, name)
     manifest = _manifest(settings, name)
     parts = len(manifest.parts) if manifest is not None else 0
     source = source_state.inspect(record, settings, manifest=manifest)
@@ -288,6 +293,8 @@ def reingest(
         name, StagedFile(path=path, original_name=path.name, size_bytes=size), action,
         record.display_name, event_offset, provenance,
         kind=check.schema.kind, schema=check.schema.label,
+        # What the row's source record says now; the worker refuses if it has changed by then.
+        expected_job_id=(record.source_info or {}).get("job_id"),
     )
     return {"action": action, "job": job.as_dict(), "poll": f"/api/upload/{job.job_id}"}
 

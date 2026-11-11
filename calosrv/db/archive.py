@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..errors import ConflictError
 from ..fsutil import TMP_SUFFIX, atomic_write_text
 from . import naming
 
@@ -188,6 +189,25 @@ def write_next(settings: Settings, name: str, manifest: Manifest) -> None:
 def commit_next(settings: Settings, name: str) -> None:
     """Make the written ``manifest.json.next`` the manifest: one atomic rename."""
     os.replace(_next_path(settings, name), _manifest_path(settings, name))
+
+
+def next_pending(settings: Settings, name: str) -> bool:
+    """Whether a re-ingest of ``name`` has committed its tables but not yet its manifest.
+
+    A ``manifest.json.next`` on disk while the server runs means the database
+    holds the new data and ``manifest.json`` still lists the old part: the
+    rename failed after COMMIT, and :func:`reconcile` finishes it at the next
+    start. Until then nothing may derive from, or add to, that archive.
+    """
+    return _next_path(settings, name).exists()
+
+
+def refuse_if_half_finished(settings: Settings, name: str) -> None:
+    """Raise a ``ConflictError`` (409) while a re-ingest of ``name`` is half-finished."""
+    if next_pending(settings, name):
+        raise ConflictError(
+            f"A re-ingest of {name!r} is half-finished; restart the server to complete it.",
+            table_name=name)
 
 
 def discard_next(settings: Settings, name: str) -> bool:

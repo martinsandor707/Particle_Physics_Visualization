@@ -367,11 +367,12 @@ def test_a_legacy_row_is_judged_by_its_archive_part_and_the_drop_folder(folders)
     source = _state(settings, _record("legacy_run", None), manifest=manifest)
     assert (source.state, source.basis, source.origin) == ("unchanged", "legacy", "drop_folder")
     assert source.recorded == {"bytes": 4000, "modified": None}
-    assert source.current["bytes"] == 4000 and source.detail == ""
+    assert source.current["bytes"] == 4000
+    assert source.detail == "Recorded before source tracking: compared by size only."
     assert source.path == str(path.resolve())
 
 
-def test_a_legacy_row_is_changed_when_the_size_differs_or_the_file_is_newer_than_the_part(folders):
+def test_a_legacy_row_is_changed_only_when_the_size_differs(folders):
     settings, drop, _ = folders
     path = _file(drop, "legacy_run.parquet", b"z" * 5000, age=3600)
     manifest = _manifest(_part("legacy_run.parquet", 4000))
@@ -379,13 +380,29 @@ def test_a_legacy_row_is_changed_when_the_size_differs_or_the_file_is_newer_than
     assert by_size.state == "changed" and by_size.basis == "legacy"
     assert by_size.detail.startswith("Size 4,000 → 5,000 bytes; modified ")
     assert by_size.detail.endswith("UTC; recorded before source tracking.")
-    manifest = _manifest(_part("legacy_run.parquet", 5000, written_at="2020-01-01T00:00:00+00:00"))
-    by_time = _state(settings, _record("legacy_run", None), manifest=manifest)
-    assert by_time.state == "changed"
-    assert by_time.detail.startswith("Modified ")
-    assert ", after it was archived (2020-01-01 00:00) UTC; recorded before source tracking." \
-        in by_time.detail
     assert path.exists()
+
+
+def test_a_legacy_row_with_the_recorded_size_is_unchanged_however_new_the_file_is(folders):
+    """Martin's ``hits_all_models``: archived 2026-09-29 from a CSV, the same rows written as
+    Parquet of the very size the manifest recorded on 2026-10-28. A later mtime at an equal
+    size is no evidence of a change: the part keeps no mtime and no digest to compare."""
+    settings, drop, _ = folders
+    path = _file(drop, "hits_all_models.parquet", b"p" * 6000, age=3600)
+    stamp = time.mktime(time.strptime("2026-10-28 15:47", "%Y-%m-%d %H:%M"))
+    os.utime(path, (stamp, stamp))
+    manifest = _manifest(_part("hits_all_models.parquet", 6000,
+                               written_at="2026-09-29T17:15:42+00:00"))
+    source = _state(settings, _record("hits_all_models", None), manifest=manifest, now=stamp + 86400)
+    assert (source.state, source.basis) == ("unchanged", "legacy")
+    assert source.detail == "Recorded before source tracking: compared by size only."
+    assert source.as_dict()["state"] == "unchanged"
+    record = _record("hits_all_models", None)
+    # Re-ingest is offered only with force, and the reason is the unchanged one.
+    refused = ss.reingest_reason(record, source, settings, parts=1, job_active=False, force=False)
+    assert refused == "Its source file is unchanged since it was ingested."
+    assert ss.reingest_reason(record, source, settings, parts=1, job_active=False,
+                              force=True) is None
 
 
 def test_a_legacy_row_whose_file_is_gone_is_missing_and_one_with_no_match_is_untracked(folders):

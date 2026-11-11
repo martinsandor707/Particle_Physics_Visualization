@@ -39,8 +39,12 @@ time moved, and never over a whole file.
 A row written before source tracking has no record. For it the archive
 manifest is the evidence (``basis`` ``legacy``): when exactly one part's file
 name derives this experiment's name, the file of that name in the drop folder
-is compared with the part's recorded size, and its modification time with the
-moment the part was written. That finds a change, never a ``touched``.
+is compared with the part's recorded size, and with nothing else. The part
+keeps no modification time and no digest, so a file that is newer than the
+archive but has the same size is not evidence of a change (a CSV converted to
+Parquet after the ingest is exactly that): it is ``unchanged``, and a
+Re-ingest of it is offered only with ``force``. That finds a change by size,
+never a ``touched``.
 
 :func:`actions` says which of Re-ingest and Retry ingest are offered, with the
 reason in a sentence when they are not.
@@ -99,6 +103,8 @@ REASON_UPLOAD = ("It was uploaded through the browser: there is no file on the s
 REASON_SEED = "The demonstration dataset ships in the image and is never re-ingested."
 REASON_UNCHANGED = "Its source file is unchanged since it was ingested."
 REASON_NOT_FAILED = "Only a failed experiment is retried."
+#: The detail of a legacy row whose file has the recorded size: all that can be said.
+LEGACY_SIZE_ONLY = "Recorded before source tracking: compared by size only."
 REASON_NO_RECORD = ("No source file is recorded for this experiment: it was ingested before "
                     "source tracking, and no file in the drop folder carries its name.")
 REASON_NO_ARCHIVE = "It has no Parquet archive; replace it from Upload dataset instead."
@@ -413,23 +419,12 @@ def _legacy(record: registry.ExperimentRecord, settings: Settings, manifest: Any
     status = resolved.stat()
     size = int(status.st_size)
     current = _stat_block(size, int(status.st_mtime_ns))
-    try:
-        written = dt.datetime.fromisoformat(part.written_at)
-        if written.tzinfo is None:
-            written = written.replace(tzinfo=dt.timezone.utc)
-        written_s: float | None = written.timestamp()
-    except (TypeError, ValueError):
-        written_s = None
     if size != part.source_bytes:
         state = CHANGED
         detail = (f"Size {part.source_bytes:,} → {size:,} bytes; modified {_when(status.st_mtime)} "
                   "UTC; recorded before source tracking.")
-    elif written_s is not None and status.st_mtime > written_s:
-        state = CHANGED
-        detail = (f"Modified {_when(status.st_mtime)} UTC, after it was archived "
-                  f"({_when(written_s)}) UTC; recorded before source tracking.")
     else:
-        state, detail = UNCHANGED, ""
+        state, detail = UNCHANGED, LEGACY_SIZE_ONLY
     age = now - status.st_mtime
     return Source(
         origin=origin, file=file, path=str(resolved), state=state, basis=BASIS_LEGACY,

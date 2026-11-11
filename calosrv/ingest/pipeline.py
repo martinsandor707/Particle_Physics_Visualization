@@ -42,8 +42,54 @@ log = logging.getLogger(__name__)
 #: callers; ``recipes.stages(kind)`` gives every kind's.
 STAGES: tuple[tuple[str, str, float], ...] = recipes.STAGES_BY_KIND[KIND_TWO_SHOWER]
 
-__all__ = ["STAGES", "IngestResult", "run_ingest", "rebuild", "rebuild_atomic",
-           "reingest_atomic"]
+__all__ = ["STAGES", "IngestResult", "ReingestCommittedError", "run_ingest", "rebuild",
+           "rebuild_atomic", "reingest_atomic", "ensure_unchanged_since"]
+
+
+class ReingestCommittedError(IngestError):
+    """A re-ingest whose database transaction committed, but whose manifest rename did not.
+
+    Not a rollback: the tables, the registry row and the cache hold the new
+    data. ``manifest.json.next`` is on disk and ``archive.reconcile`` rolls it
+    forward at the next start, because the registry row carries its ``job_id``.
+    Until then nothing may be rebuilt from the archive, which still lists the
+    old part.
+    """
+
+    def __init__(self, name: str, cause: BaseException) -> None:
+        super().__init__(
+            f"The new data of {name!r} are committed, but its archive manifest could not be "
+            f"switched ({cause}): the server completes it at its next start. Do not rebuild or "
+            "append to it before then.",
+            table_name=name)
+
+
+#: What ``reingest_atomic`` takes when its caller names no source job: the check is skipped.
+UNCHECKED: object = object()
+
+CHANGED_SINCE = ("Experiment {name!r} changed since the re-ingest was requested; "
+                 "nothing was done.")
+
+
+def ensure_unchanged_since(
+    existing: registry.ExperimentRecord | None, name: str, expected_job_id: object,
+    *, status: str | None = None,
+) -> None:
+    """Refuse, before touching anything, a row that is not the one the request was made against.
+
+    The route judged the experiment (its status, its source file) when it queued
+    the job, and the worker runs later; an upload with Replace, or another job,
+    can have rewritten the row in between. ``expected_job_id`` is the ``job_id``
+    of the row's source record then (None for a row recorded before source
+    tracking); ``status``, when given, is the status it must still have (a retry
+    needs ``failed``). ``UNCHECKED`` skips the test.
+    """
+    if expected_job_id is UNCHECKED:
+        return
+    current = (existing.source_info or {}).get("job_id") if existing is not None else None
+    if (existing is None or (status is not None and existing.status != status)
+            or current != expected_job_id):
+        raise IngestError(CHANGED_SINCE.format(name=name), table_name=name)
 
 
 def _no_progress(_stage: str, _kind: str) -> None:
@@ -129,6 +175,8 @@ def run_ingest(
         )
 
     appending = mode == load.MODE_APPEND
+    if appending:
+        archive.refuse_if_half_finished(settings, name)
     if not appending and not force_reingest:
         present = catalog.presence(con, settings, name)
         if present.exists:
@@ -219,6 +267,7 @@ def rebuild(
 ) -> IngestResult:
     """Re-derive every table of ``name`` from its archive, reading no source file."""
     progress = progress or _no_progress
+    archive.refuse_if_half_finished(settings, name)
     manifest = archive.read_manifest(settings, name)
     if manifest is None or not manifest.parts:
         raise IngestError(f"Experiment {name!r} has no archive to rebuild from.")
@@ -246,6 +295,7 @@ def rebuild_atomic(
     was there; the disk holds the old and the new tables side by side until
     then.
     """
+    archive.refuse_if_half_finished(settings, name)
     con.execute("BEGIN TRANSACTION")
     try:
         result = rebuild(con, settings, name, build_sample=build_sample, progress=progress)
@@ -280,6 +330,7 @@ def reingest_atomic(
     job_id: str,
     progress: Callable[[str, str], None] | None = None,
     build_sample: bool = True,
+    expected_job_id: object = UNCHECKED,
 ) -> IngestResult:
     """Replace a ready experiment's data from its changed source file, in one transaction.
 
@@ -289,6 +340,9 @@ def reingest_atomic(
     and the committed ``manifest.json`` keeps listing the old part until the
     rename after it. Steps:
 
+    0. refuse when a re-ingest of the experiment is half-finished, or when its
+       row no longer names ``expected_job_id`` as the job that produced its
+       data (an upload with Replace ran since the request was made);
     1. detect the format and validate; the file's schema must equal the
        experiment's, and the experiment must be ready with exactly one part;
     2. write the file as a new part beside the committed one
@@ -302,11 +356,18 @@ def reingest_atomic(
        new part, and say so in the warnings. An exception: the same, raised as
        an ``IngestError`` that says the experiment is served as it was.
 
+    Once ``COMMIT`` has happened nothing is rolled back and nothing says so. A
+    rename that fails is tried once more; if it fails again the error is a
+    :class:`ReingestCommittedError`, which says the data are committed and the
+    next boot completes the manifest. An old part that cannot be deleted is a
+    warning: boot sweeps it.
+
     A crash between the steps is settled at the next boot
     (``archive.reconcile``).
     """
     progress = progress or _no_progress
     watch = _Stopwatch(con)
+    archive.refuse_if_half_finished(settings, name)
     fmt = formats.detect_format(source)
     check = formats.validate(con, source, fmt)
     schema = check.schema
@@ -314,6 +375,7 @@ def reingest_atomic(
     existing = registry.get_experiment(con, name)
     if existing is None:
         raise IngestError(f"Experiment {name!r} does not exist, so there is nothing to re-ingest.")
+    ensure_unchanged_since(existing, name, expected_job_id)
     if existing.status != registry.STATUS_READY:
         raise IngestError(
             f"Experiment {name!r} is {existing.status}; only a ready experiment is re-ingested.")
@@ -382,18 +444,37 @@ def reingest_atomic(
         raise
 
     if not result.ok:
-        con.execute("ROLLBACK")
-        _cleanup_replacement(settings, name, loaded)
+        try:
+            con.execute("ROLLBACK")
+        finally:
+            _cleanup_replacement(settings, name, loaded)
         message = (f"The re-ingest failed verification and was rolled back; {name!r} is served "
                    "as it was.")
         log.warning("%s %s", message, "; ".join(result.warnings))
         result.verification.warnings.append(message)
         return result
 
-    archive.commit_next(settings, name)
+    # The database has committed: from here on nothing is rolled back, and no
+    # message may say so. The manifest rename is retried once; if it still
+    # fails, boot finishes it (the row carries the job id the .next names).
+    try:
+        archive.commit_next(settings, name)
+    except Exception as first:
+        log.warning("Re-ingest of %r: switching manifest.json failed (%s); trying once more",
+                    name, first)
+        try:
+            archive.commit_next(settings, name)
+        except Exception as exc:
+            log.error("Re-ingest of %r committed, but manifest.json could not be switched: %s",
+                      name, exc)
+            raise ReingestCommittedError(name, exc) from exc
     for old in old_files:
         if Path(old) != loaded.part:
-            Path(old).unlink(missing_ok=True)
+            try:
+                Path(old).unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning("Re-ingest of %r: could not delete the old part %s (%s); the next "
+                            "start removes it", name, old, exc)
     log.info("Re-ingest of %r committed: %s replaced by %s", name,
              ", ".join(Path(o).name for o in old_files), loaded.part.name)
     return result

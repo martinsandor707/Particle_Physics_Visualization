@@ -155,7 +155,14 @@ def stage_replacement(
     rows, incoming = _write_part(con, path, part, fmt, check, event_offset, schema)
     _publish_part(part, path)
     manifest = archive.Manifest(schema.name, schema.version, job_id=job_id)
-    manifest.parts.append(_part_entry(part, path, rows, incoming, source_name, event_offset, fmt))
+    try:
+        manifest.parts.append(
+            _part_entry(part, path, rows, incoming, source_name, event_offset, fmt))
+    except BaseException:
+        # The part is published but no manifest will ever list it: do not leave it
+        # for the next boot to find.
+        part.unlink(missing_ok=True)
+        raise
     return LoadResult(rows=rows, part=part, event_range=incoming, manifest=manifest)
 
 
@@ -204,6 +211,7 @@ def load_source(
         archive.remove(settings, name)
         manifest = archive.Manifest(schema.name, schema.version)
     else:
+        archive.refuse_if_half_finished(settings, name)
         manifest = archive.read_manifest(settings, name)
         if manifest is None or not manifest.parts:
             raise IngestError(

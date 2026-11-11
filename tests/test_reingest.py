@@ -866,3 +866,335 @@ def test_scan_now_reports_a_changed_file_and_queues_nothing(source_client):
     assert len(client.get("/api/upload").json()["jobs"]) == jobs_before
     assert _events(database, name) == [0, 1]
     assert _entry(source_client, name)["source"]["state"] == "changed"
+
+
+# ------------------------------------------- a failure after COMMIT (E4) --
+
+
+def _fail_the_rename(monkeypatch, *, times: int = 99) -> list:
+    """Make ``archive.commit_next`` raise ``OSError`` the first ``times`` calls; returns the call log."""
+    calls: list[int] = []
+    real = archive.commit_next
+
+    def failing(settings, name):
+        calls.append(1)
+        if len(calls) <= times:
+            raise OSError(28, "No space left on device")
+        return real(settings, name)
+
+    monkeypatch.setattr(archive, "commit_next", failing)
+    return calls
+
+
+def test_a_rename_that_fails_after_the_commit_is_never_reported_as_a_rollback(swap, monkeypatch):
+    swap.change(shift=1000)
+    calls = _fail_the_rename(monkeypatch)
+    with pytest.raises(pipeline.ReingestCommittedError) as info:
+        swap.reingest("job-committed")
+    text = info.value.detail
+    assert text == (
+        "The new data of 'swap_run' are committed, but its archive manifest could not be switched "
+        "([Errno 28] No space left on device): the server completes it at its next start. Do not "
+        "rebuild or append to it before then.")
+    assert "rolled back" not in text and isinstance(info.value, IngestError)
+    assert len(calls) == 2, "the rename is tried once more"
+    # The database holds the new data and the new record; nothing was undone or cleaned up.
+    directory = swap.archive_dir()
+    assert _events(swap.database, NAME) == [1000, 1001]
+    assert swap.record().source_info["job_id"] == "job-committed" and swap.record().is_ready
+    assert (directory / "manifest.json.next").exists() and archive.next_pending(swap.settings, NAME)
+    assert sorted(p.name for p in directory.glob("part-*")) == [
+        "part-00000.parquet", "part-00001.parquet"]
+    assert [p.file for p in archive.read_manifest(swap.settings, NAME).parts] == ["part-00000.parquet"]
+
+
+def test_a_rename_that_works_the_second_time_is_a_success(swap, monkeypatch):
+    swap.change(shift=1000)
+    calls = _fail_the_rename(monkeypatch, times=1)
+    assert swap.reingest("job-1").ok
+    assert len(calls) == 2
+    assert [p.file for p in archive.read_manifest(swap.settings, NAME).parts] == ["part-00001.parquet"]
+    assert not archive.next_pending(swap.settings, NAME)
+    assert sorted(p.name for p in swap.archive_dir().glob("part-*")) == ["part-00001.parquet"]
+
+
+def test_an_old_part_that_cannot_be_deleted_is_a_warning_and_boot_sweeps_it(
+        swap, monkeypatch, caplog):
+    swap.change(shift=1000)
+    real_unlink = Path.unlink
+
+    def stubborn(self, *args, **kwargs):
+        if self.name == "part-00000.parquet":
+            raise PermissionError(13, "Permission denied")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", stubborn)
+    with caplog.at_level("WARNING"):
+        assert swap.reingest("job-1").ok
+    monkeypatch.undo()
+    assert "could not delete the old part" in caplog.text
+    directory = swap.archive_dir()
+    assert (directory / "part-00000.parquet").exists()
+    assert [p.file for p in archive.read_manifest(swap.settings, NAME).parts] == ["part-00001.parquet"]
+    with swap.database.write_lock() as con:
+        bootstrap(con, swap.settings)
+    assert not (directory / "part-00000.parquet").exists()
+
+
+def test_a_failing_rollback_does_not_skip_the_cleanup_of_the_new_part(swap, monkeypatch):
+    class Failing(Spy):
+        def execute(self, sql, *args, **kwargs):
+            if isinstance(sql, str) and sql.strip().upper() == "ROLLBACK":
+                self._con.execute(sql)
+                raise duckdb.Error("the rollback itself failed")
+            return self._con.execute(sql, *args, **kwargs)
+
+    swap.change(shift=1000)
+    _fail_verification(monkeypatch)
+    with swap.database.write_lock() as con:
+        with pytest.raises(duckdb.Error):
+            swap.reingest("job-new", con=Failing(con, lambda: None))
+    directory = swap.archive_dir()
+    assert sorted(p.name for p in directory.glob("*")) == ["manifest.json", "part-00000.parquet"]
+    assert _events(swap.database, NAME) == [0, 1]
+
+
+def _half_finished(swap, monkeypatch) -> None:
+    swap.change(shift=1000)
+    _fail_the_rename(monkeypatch)
+    with pytest.raises(pipeline.ReingestCommittedError):
+        swap.reingest("job-committed")
+    monkeypatch.undo()
+
+
+def test_while_a_re_ingest_is_half_finished_nothing_rebuilds_appends_or_re_ingests_it(
+        swap, monkeypatch):
+    from calosrv.errors import ConflictError
+
+    _half_finished(swap, monkeypatch)
+    message = "A re-ingest of 'swap_run' is half-finished; restart the server to complete it."
+    before = swap.snapshot()
+    with swap.database.write_lock() as con:
+        for attempt in (
+            lambda: pipeline.rebuild(con, swap.settings, NAME, build_sample=False),
+            lambda: pipeline.rebuild_atomic(con, swap.settings, NAME, build_sample=False),
+            lambda: pipeline.run_ingest(con, swap.settings, NAME, swap.source,
+                                        mode=load.MODE_APPEND, event_offset=5000,
+                                        build_sample=False),
+            lambda: load.load_source(con, swap.settings, NAME, swap.source, fmt="parquet",
+                                     check=pipeline.formats.validate(con, swap.source, "parquet"),
+                                     mode=load.MODE_APPEND),
+        ):
+            with pytest.raises(ConflictError) as info:
+                attempt()
+            assert info.value.detail == message
+    with pytest.raises(ConflictError):
+        swap.reingest("job-again")
+    assert swap.snapshot() == before, "a refusal touches nothing"
+    assert _events(swap.database, NAME) == [1000, 1001]
+
+
+def test_boot_rolls_a_half_finished_re_ingest_forward_and_lifts_the_guard(swap, monkeypatch):
+    _half_finished(swap, monkeypatch)
+    directory = swap.archive_dir()
+    with swap.database.write_lock() as con:
+        bootstrap(con, swap.settings)
+    manifest = archive.read_manifest(swap.settings, NAME)
+    assert [p.file for p in manifest.parts] == ["part-00001.parquet"]
+    assert manifest.job_id == "job-committed" and not archive.next_pending(swap.settings, NAME)
+    assert sorted(p.name for p in directory.glob("part-*")) == ["part-00001.parquet"]
+    assert _events(swap.database, NAME) == [1000, 1001]
+    with swap.database.write_lock() as con:           # and a rebuild works again, on the new part
+        assert pipeline.rebuild_atomic(con, swap.settings, NAME, build_sample=False).ok
+    assert _events(swap.database, NAME) == [1000, 1001]
+
+
+def test_a_job_whose_rename_failed_says_so_invalidates_the_caches_and_queues_nothing(
+        swap, worker, monkeypatch):
+    from calosrv.query import cache
+
+    store, calls = worker
+    swap.change(shift=1000)
+    _fail_the_rename(monkeypatch)
+    cache.get_cache(name=cache.LAB_CACHE).get_or_compute((NAME, "key"), _Blob)
+    job = _submit(store, swap, "reingest")
+    _await(job)
+    assert job.status == jobs_mod.JOB_FAILED
+    assert job.error.startswith("The new data of 'swap_run' are committed, but its archive "
+                                "manifest could not be switched")
+    assert "rolled back" not in job.error and "served as it was" not in job.error
+    assert job.stage_label == "Re-ingest committed; manifest pending"
+    _, was_cached = cache.get_cache(name=cache.LAB_CACHE).get_or_compute((NAME, "key"), _Blob)
+    assert was_cached is False, "the database changed, so the caches go"
+    assert calls == {"warm": [], "after_ready": []}, "no analysis may read the stale manifest"
+    assert store.active_names() == set()
+    assert _events(swap.database, NAME) == [1000, 1001] and swap.record().is_ready
+
+
+def test_the_route_refuses_a_rebuild_and_a_re_ingest_of_a_half_finished_experiment(
+        source_client, monkeypatch):
+    client, database = source_client["client"], source_client["database"]
+    name = _dropped(source_client, "rt_half")
+    _change(source_client, name, shift=1000)
+    _fail_the_rename(monkeypatch)
+    reply = _post(source_client, name)
+    assert reply.status_code == 202
+    job = _wait(client, reply.json()["job"]["job_id"])
+    monkeypatch.undo()
+    assert job["status"] == "failed" and "are committed" in job["error"]
+    assert _events(database, name) == [1000, 1001]
+    message = "A re-ingest of 'rt_half' is half-finished; restart the server to complete it."
+    rebuild = client.post(f"/api/admin/experiments/{name}/rebuild")
+    assert rebuild.status_code == 409 and rebuild.json()["detail"] == message
+    again = _post(source_client, name, {"force": True})
+    assert again.status_code == 409 and again.json()["detail"] == message
+    # What the next start does: roll the manifest forward. The guard is gone.
+    settings = database.settings
+    with database.read_cursor() as con:
+        rows = registry.list_experiments(con)
+    archive.reconcile(settings, rows)
+    assert not archive.next_pending(settings, name)
+    assert [p.file for p in archive.read_manifest(settings, name).parts] == ["part-00001.parquet"]
+    assert client.post(f"/api/admin/experiments/{name}/rebuild").status_code == 202
+    end = time.time() + 120
+    while jobs_mod.get_job_store(database).active_names() and time.time() < end:
+        time.sleep(0.1)
+
+
+def test_a_keyboard_interrupt_in_the_worker_leaves_no_active_job(swap, worker, monkeypatch):
+    store, _ = worker
+    swap.change(shift=1000)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt("the worker was interrupted")
+
+    monkeypatch.setattr(pipeline, "reingest_atomic", interrupted)
+    job = _submit(store, swap, "reingest")
+    _await(job)
+    assert job.status == jobs_mod.JOB_FAILED
+    assert job.error == "The ingest worker was interrupted before the job finished."
+    assert store.active_names() == set()
+    monkeypatch.undo()
+    assert _submit(store, swap, "reingest") is not None, "the name is free again"
+
+
+@pytest.mark.parametrize("which", ["warm", "after_ready"])
+def test_an_optional_step_that_fails_after_the_commit_leaves_the_job_done(
+        swap, worker, monkeypatch, which, caplog):
+    from calosrv.modelruns import jobs as modelruns_jobs
+    from calosrv.query import warming
+
+    store, _ = worker
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("an optional step failed")
+
+    if which == "warm":
+        monkeypatch.setattr(warming, "warm", boom)
+    else:
+        monkeypatch.setattr(modelruns_jobs, "after_ready", boom)
+    swap.change(shift=1000)
+    with caplog.at_level("ERROR"):
+        job = _submit(store, swap, "reingest")
+        _await(job)
+    assert job.status == jobs_mod.JOB_DONE and job.error is None
+    assert job.stage_label == "Re-ingest complete"
+    assert "an optional step failed" in caplog.text
+    assert _events(swap.database, NAME) == [1000, 1001]
+
+
+# ------------------------------------ the worker re-checks its source (E12) --
+
+
+def test_the_worker_refuses_a_row_that_another_job_has_rewritten_since_the_request(swap):
+    """An upload with Replace ran between the request and the worker: nothing is done."""
+    swap.change(shift=1000)
+    before = swap.snapshot()
+    with pytest.raises(IngestError) as info:
+        swap.reingest("job-new", expected_job_id="some-earlier-job")
+    assert info.value.detail == ("Experiment 'swap_run' changed since the re-ingest was requested; "
+                                 "nothing was done.")
+    assert swap.snapshot() == before
+    assert not (swap.archive_dir() / "part-00001.parquet").exists()
+    assert swap.reingest("job-new", expected_job_id="first-job").ok
+
+
+def test_a_row_recorded_before_source_tracking_expects_none(swap):
+    with swap.database.write_lock() as con:
+        row = registry.get_experiment(con, NAME)
+        row.source_info = {}
+        registry.upsert(con, row)
+    swap.change(shift=1000)
+    with pytest.raises(IngestError):
+        swap.reingest("job-new", expected_job_id="first-job")
+    assert swap.reingest("job-new", expected_job_id=None).ok
+
+
+def test_an_interleaved_replace_makes_the_queued_reingest_do_nothing(swap, worker):
+    store, calls = worker
+    from calosrv.ingest.stream import StagedFile
+
+    swap.change(shift=1000)
+    replacement = settled(rewrite_parquet(SEED_FILE, swap.drop / "uploaded.parquet",
+                                          event_shift=5000, compression="zstd"))
+    with swap.database.write_lock() as con:
+        # Queued while the row still names "first-job"; the worker waits for this lock.
+        job = store.submit_reingest(
+            NAME, StagedFile(path=swap.source, original_name=swap.source.name,
+                             size_bytes=swap.source.stat().st_size),
+            "reingest", "My swap run", 0, ss.origin_spec(swap.settings, "drop_folder", swap.source),
+            expected_job_id="first-job")
+        # An upload with Replace gets in first.
+        result = pipeline.run_ingest(
+            con, swap.settings, NAME, replacement, source_name="uploaded.parquet",
+            force_reingest=True, build_sample=False, display_name="My swap run",
+            provenance={**ss.origin_spec(swap.settings, "upload", replacement), "job_id": "replacer"})
+        assert result.ok
+    _await(job)
+    assert job.status == jobs_mod.JOB_FAILED
+    assert job.error == ("Experiment 'swap_run' changed since the re-ingest was requested; "
+                         "nothing was done.")
+    assert _events(swap.database, NAME) == [5000, 5001], "the uploaded data stay"
+    assert swap.record().source_info["job_id"] == "replacer"
+    assert calls == {"warm": [], "after_ready": []}
+    assert store.active_names() == set()
+
+
+def test_a_queued_retry_refuses_a_row_that_is_no_longer_failed(swap, worker):
+    store, _ = worker
+    from calosrv.ingest.stream import StagedFile
+
+    swap.change(shift=1000)
+    with swap.database.write_lock() as con:
+        registry.set_status(con, NAME, registry.STATUS_FAILED, "Ingestion was interrupted.")
+    with swap.database.write_lock() as con:
+        job = store.submit_reingest(
+            NAME, StagedFile(path=swap.source, original_name=swap.source.name,
+                             size_bytes=swap.source.stat().st_size),
+            "retry", "My swap run", 0, ss.origin_spec(swap.settings, "drop_folder", swap.source),
+            expected_job_id="first-job")
+        registry.set_status(con, NAME, registry.STATUS_READY)    # something else repaired it
+    _await(job)
+    assert job.status == jobs_mod.JOB_FAILED
+    assert "changed since the re-ingest was requested; nothing was done." in job.error
+    assert _events(swap.database, NAME) == [0, 1] and swap.record().is_ready
+
+
+def test_the_route_passes_the_rows_source_job_to_the_worker(source_client, monkeypatch):
+    database = source_client["database"]
+    name = _dropped(source_client, "rt_expect")
+    _change(source_client, name, shift=1000)
+    with database.read_cursor() as con:
+        wanted = registry.get_experiment(con, name).source_info["job_id"]
+    seen = []
+    real = jobs_mod.JobStore.submit_reingest
+
+    def spy(self, *args, **kwargs):
+        seen.append(kwargs.get("expected_job_id", "missing"))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(jobs_mod.JobStore, "submit_reingest", spy)
+    reply = _post(source_client, name)
+    assert reply.status_code == 202
+    assert _wait(source_client["client"], reply.json()["job"]["job_id"])["status"] == "done"
+    assert seen == [wanted] and wanted

@@ -187,6 +187,7 @@ class JobStore:
         provenance: dict[str, Any],
         kind: str | None = None,
         schema: str | None = None,
+        expected_job_id: Any = pipeline.UNCHECKED,
     ) -> IngestJob:
         """Re-ingest ``table_name`` from its source file on the ingest worker.
 
@@ -196,6 +197,11 @@ class JobStore:
         file in place, which the job never deletes. Raises ``ConflictError`` when
         a job for the name is queued or running: the check and the registration
         are one step, so two requests cannot both pass it.
+
+        ``expected_job_id`` is the ``job_id`` of the row's source record when the
+        request was judged (None for a row recorded before source tracking). The
+        worker reads the row again and refuses when it names another job, which
+        means an upload or another job rewrote the experiment since.
         """
         if action not in (MODE_REINGEST, MODE_RETRY):
             raise ValueError(f"unknown re-ingest action {action!r}")
@@ -218,7 +224,7 @@ class JobStore:
                     table_name=table_name)
             self._jobs[job.job_id] = job
         self._executor.submit(self._run_reingest, job, staged, display_name, event_offset,
-                              provenance)
+                              provenance, expected_job_id)
         return job
 
     def submit_rebuild(self, table_name: str, size_bytes: int = 0) -> IngestJob:
@@ -288,7 +294,7 @@ class JobStore:
             self._fail(job, name, str(exc))
             self._invalidate(name)
         finally:
-            job.finished_at = dt.datetime.now(dt.timezone.utc)
+            self._finish(job)
             # Reclaim the staging space immediately: on the production file this
             # is 24 GB that nothing needs once the archive and derived tables exist.
             if delete_source:
@@ -310,12 +316,39 @@ class JobStore:
         job.stage_label = "Ingestion complete" if result.ok else "Verification failed"
         if result.ok:
             job.kind = result.record.kind
+            self._after_commit(name, result.record)
+
+    def _after_commit(self, name: str, record) -> None:
+        """The optional steps after a data change that is already committed.
+
+        The data are served whether or not these succeed, so a failure is logged
+        and the job stays what it is: ``done``, not ``failed``.
+        """
+        try:
             # The co-registered frames' full-range scans are the queries
             # that take seconds; pay them now, off the request path.
             from ..query import warming
 
-            warming.warm(self._db, self._db.settings, [result.record])
+            warming.warm(self._db, self._db.settings, [record])
+        except Exception:  # noqa: BLE001 - warming is an optimisation
+            log.exception("Warming %r after its ingest failed; the data are served", name)
+        try:
             self._queue_model_analysis(name)
+        except Exception:  # noqa: BLE001 - the analysis can be queued again by a rescan
+            log.exception("Queueing the model analysis of %r failed; Rescan models queues it", name)
+
+    @staticmethod
+    def _finish(job: IngestJob) -> None:
+        """Close a job whatever escaped the worker, so ``active_names`` never keeps a dead one.
+
+        ``except Exception`` does not catch ``KeyboardInterrupt`` or ``SystemExit``;
+        a job they leave ``running`` would block every later job for its name.
+        """
+        job.finished_at = dt.datetime.now(dt.timezone.utc)
+        if job.status in (JOB_QUEUED, JOB_RUNNING):
+            job.status = JOB_FAILED
+            job.error = job.error or "The ingest worker was interrupted before the job finished."
+            job.stage_label = "Interrupted"
 
     def _provenance(self, job: IngestJob, staged: StagedFile) -> dict[str, Any] | None:
         """The origin spec the pipeline records, or None for a caller that named no origin."""
@@ -331,8 +364,14 @@ class JobStore:
         display_name: str,
         event_offset: int,
         provenance: dict[str, Any],
+        expected_job_id: Any = pipeline.UNCHECKED,
     ) -> None:
-        """A re-ingest or a retry, on the ingest worker. The source file is never deleted."""
+        """A re-ingest or a retry, on the ingest worker. The source file is never deleted.
+
+        The worker reads the experiment's row again before it touches anything
+        (``expected_job_id``): a re-ingest that finds another job's data, or a
+        retry whose row is no longer ``failed``, refuses with nothing done.
+        """
         job.status = JOB_RUNNING
         job.started_at = dt.datetime.now(dt.timezone.utc)
         name = job.table_name
@@ -343,10 +382,13 @@ class JobStore:
                     result = pipeline.reingest_atomic(
                         con, self._db.settings, name, staged.path,
                         source_name=staged.original_name, provenance=provenance,
-                        job_id=job.job_id,
+                        job_id=job.job_id, expected_job_id=expected_job_id,
                         progress=lambda stage, kind: self._advance(job, stage, kind),
                     )
                 else:
+                    pipeline.ensure_unchanged_since(
+                        registry.get_experiment(con, name), name, expected_job_id,
+                        status=registry.STATUS_FAILED)
                     result = pipeline.run_ingest(
                         con, self._db.settings, name, staged.path,
                         source_name=staged.original_name,
@@ -362,13 +404,18 @@ class JobStore:
             self._complete(job, name, result)
             if reingest:
                 job.stage_label = "Re-ingest complete" if result.ok else "Re-ingest rolled back"
+        except pipeline.ReingestCommittedError as exc:
+            # The database changed: the job failed, but the caches are stale all the same.
+            job.status, job.error = JOB_FAILED, exc.detail
+            job.stage_label = "Re-ingest committed; manifest pending"
+            self._invalidate(name)
         except ApiError as exc:
             self._fail_reingest(job, name, exc.detail, reingest)
         except Exception as exc:  # noqa: BLE001 - the worker must never die silently
             log.error("%s of %r failed: %s\n%s", job.mode, name, exc, traceback.format_exc())
             self._fail_reingest(job, name, str(exc), reingest)
         finally:
-            job.finished_at = dt.datetime.now(dt.timezone.utc)
+            self._finish(job)
 
     def _fail_reingest(self, job: IngestJob, name: str, message: str, reingest: bool) -> None:
         """A failed re-ingest left the experiment as it was; a failed retry fails it again."""
@@ -402,17 +449,14 @@ class JobStore:
             job.progress = 1.0
             job.stage_label = "Rebuild complete" if result.ok else "Rebuild rolled back"
             if result.ok:
-                from ..query import warming
-
-                warming.warm(self._db, self._db.settings, [result.record])
-                self._queue_model_analysis(name)
+                self._after_commit(name, result.record)
         except ApiError as exc:
             job.status, job.error, job.stage_label = JOB_FAILED, exc.detail, "Rebuild failed"
         except Exception as exc:  # noqa: BLE001 - the worker must never die silently
             log.error("Rebuild of %r failed: %s\n%s", name, exc, traceback.format_exc())
             job.status, job.error, job.stage_label = JOB_FAILED, str(exc), "Rebuild failed"
         finally:
-            job.finished_at = dt.datetime.now(dt.timezone.utc)
+            self._finish(job)
 
     @staticmethod
     def _queue_model_analysis(name: str) -> None:
