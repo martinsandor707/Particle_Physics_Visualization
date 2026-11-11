@@ -1,13 +1,17 @@
 """The files a fresh clone runs on: the README's Quick start, pinned at the source.
 
-A physicist following the Quick start clones the repository, downloads the data
-from the project's Hugging Face dataset and starts ``docker compose``. Every
-property that path depends on is checked here without Docker or a network: that
-the image builds from tracked files only, that the memory settings the README
-names exist with the values it quotes, that the default experiment is the one
-the drop folder creates from the downloaded dataset, that the download fetches
-the data and the models into the folders they are read from, and that the line
-endings Windows would otherwise convert are pinned.
+A physicist following the Quick start clones the repository and starts
+``docker compose``, whose ``hf-sync`` service downloads the data from the
+project's Hugging Face dataset before the dashboard starts. Every property that
+path depends on is checked here without Docker or a network: that the image
+builds from tracked files only, that the memory settings the README names exist
+with the values it quotes, that the default experiment is the one the drop
+folder creates from the downloaded dataset, that the sync and the manual
+download fetch the data and the models into the folders they are read from, that
+the compose file mounts only the three folders the service needs, and that the
+line endings Windows would otherwise convert are pinned. The Quick start's
+commands are pinned in the order they are run, the manual download (kept for a
+computer without internet at the start) in its own subsection.
 """
 
 from __future__ import annotations
@@ -110,8 +114,7 @@ def test_the_laptop_profile_is_what_the_readme_quotes():
     values = _env(_read("laptop.env"))
     assert set(values) == {"DUCKDB_MEMORY_GB", "CONTAINER_MEMORY_LIMIT"}
     assert _gigabytes(values["CONTAINER_MEMORY_LIMIT"]) <= 8.0, "fits a Docker allowance of 8 GB"
-    readme = _read("README.md")
-    quick = readme[readme.index("## Quick start"):readme.index("## Configuration")]
+    quick = _quick_start()
     assert "docker compose --env-file laptop.env up --build" in quick
     assert f"DUCKDB_MEMORY_GB={values['DUCKDB_MEMORY_GB']}" in quick
     assert f"CONTAINER_MEMORY_LIMIT={values['CONTAINER_MEMORY_LIMIT']}" in quick
@@ -212,14 +215,45 @@ def test_files_docker_reads_keep_their_line_endings_on_windows():
 # ------------------------------------------------- the README's commands --
 
 
-def test_the_quick_start_gives_the_commands_in_order():
+def _quick_start() -> str:
     readme = _read("README.md")
-    quick = readme[readme.index("## Quick start"):readme.index("## Configuration")]
-    # Python and pip on macOS and Linux, then on Windows, then uv on any system:
-    # the same download each time, with the version of `hf` it was tested with.
+    return readme[readme.index("## Quick start"):readme.index("## Configuration")]
+
+
+def _subsection(quick: str, heading: str) -> str:
+    """The text of the Quick start's ``### <heading>…`` subsection, up to the next ``###``."""
+    start = quick.index(f"### {heading}")
+    end = quick.find("\n### ", start + 1)
+    return quick[start:end if end != -1 else len(quick)]
+
+
+def test_the_quick_start_gives_the_commands_in_order():
+    quick = _quick_start()
+    up = "docker compose --env-file laptop.env up --build"
+    # Two programs and three commands: clone, move in, start. The sync downloads the data.
+    first = ["git clone https://github.com/martinsandor707/Particle_Physics_Visualization.git",
+             "cd Particle_Physics_Visualization", up]
+    positions = [quick.index(command) for command in first]
+    assert positions == sorted(positions), "the commands appear in the order they are run"
+    start = _subsection(quick, "Step 2: start the dashboard")
+    assert up in start and "http://localhost:8000" in start
+    assert "HOST_PORT" in quick and ".env.example" in quick, "the port can be changed"
+    assert "HOST_PORT=8123 docker compose --env-file laptop.env up --build" in quick
+
+    update = _subsection(quick, "Every day")
+    assert update.index("git pull") < update.index(up), "pull the code, then start: the sync updates the data"
+    assert DOWNLOAD not in update, "a daily update no longer runs the download by hand"
+
+    assert "hf auth" not in quick, "the dataset is public: the download needs no sign-in"
+    assert "http://localhost:8000" in quick
+    assert "−" not in "".join(first), "commands keep ASCII hyphens"
+
+
+def test_the_manual_download_is_pinned_in_its_own_subsection():
+    manual = _subsection(_quick_start(), "Download the data by hand (optional)")
+    # Python and pip on macOS and Linux, then on Windows, then uv on any system, then the start
+    # with the sync off: the same download each time, with the version of `hf` it was tested with.
     commands = [
-        "git clone https://github.com/martinsandor707/Particle_Physics_Visualization.git",
-        "cd Particle_Physics_Visualization",
         "python3 -m venv .venv",
         ".venv/bin/python -m pip install huggingface_hub==2.3.0",
         ".venv/bin/" + DOWNLOAD,
@@ -227,15 +261,19 @@ def test_the_quick_start_gives_the_commands_in_order():
         ".venv\\Scripts\\python -m pip install huggingface_hub==2.3.0",
         ".venv\\Scripts\\" + DOWNLOAD,
         "uv run --only-group dev " + DOWNLOAD,
-        "docker compose --env-file laptop.env up --build",
+        "HF_SYNC=0 docker compose --env-file laptop.env up --build",
     ]
-    positions = [quick.index(command) for command in commands]
+    positions = [manual.index(command) for command in commands]
     assert positions == sorted(positions), "the commands appear in the order they are run"
-    update = quick[quick.index("### Every day"):quick.index("### If something goes wrong")]
-    assert update.index("git pull") < update.index(DOWNLOAD) < update.index("up --build")
-    assert "hf auth" not in quick, "the dataset is public: the download needs no sign-in"
-    assert "http://localhost:8000" in quick
     assert "−" not in "".join(commands), "commands keep ASCII hyphens"
+    # The patterns it downloads are the ones the sync downloads by default.
+    compose = _service(_read("docker-compose.yml"), "hf-sync")
+    default = re.search(r"HF_SYNC_INCLUDE=\$\{HF_SYNC_INCLUDE:-([^}]*)\}", compose)
+    assert default, "compose gives HF_SYNC_INCLUDE a default"
+    patterns = tuple(default.group(1).split(","))
+    assert patterns == INCLUDE
+    for command in re.findall(r"^\S*hf download .*$", manual, re.MULTILINE):
+        assert tuple(re.findall(r'--include "([^"]*)"', command)) == patterns, command
 
 
 def test_pip_and_uv_install_the_same_hf():
@@ -248,6 +286,4 @@ def test_pip_and_uv_install_the_same_hf():
     lock = tomllib.loads(_read("uv.lock"))
     locked = next(package["version"] for package in lock["package"]
                   if package["name"] == "huggingface-hub")
-    readme = _read("README.md")
-    quick = readme[readme.index("## Quick start"):readme.index("## Configuration")]
-    assert set(re.findall(r"huggingface_hub==([\w.]+)", quick)) == {locked}
+    assert set(re.findall(r"huggingface_hub==([\w.]+)", _quick_start())) == {locked}
