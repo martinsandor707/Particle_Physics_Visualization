@@ -37,7 +37,10 @@
  * ingest (a failed one) post to /api/admin/experiments/{name}/reingest and
  * the row follows the job. The section is skipped when the page has no markup
  * for it. The row models are pure functions of the payload (`sourceRows`,
- * `sourceBadge`, `sourceJobText`, `sourceAction`, `sourcesSummary`).
+ * `sourceBadge`, `sourceJobText`, `sourceAction`, `sourcesSummary`), and so
+ * are the two rules that follow the jobs: `finishedJobs` (a re-ingest or retry
+ * seen active on one read and over on a later one, whoever started it, is
+ * reported once) and `nextSourceRead` (when to read again).
  * The Models page has no Admin Settings of its own: its header link opens
  * this panel on the Physics page (`/?admin=1`, main.js).
  */
@@ -244,7 +247,7 @@ export function sourceBadge(row) {
   switch (row?.state) {
     case 'changed': return { text: 'Source updated on disk', kind: 'changed' };
     case 'unchanged': return { text: 'Current', kind: 'current' };
-    case 'touched': return { text: 'Timestamp changed, content the same', kind: 'muted' };
+    case 'touched': return { text: 'Timestamp changed; sampled content the same', kind: 'muted' };
     case 'missing': return { text: 'Source file not found', kind: 'muted' };
     default:
       if (row?.origin === 'upload') return { text: 'Uploaded: no file on the server to compare', kind: 'muted' };
@@ -271,8 +274,12 @@ export function sourceJobText(row) {
       if (job.mode === 'reingest') {
         return `Re-ingesting (${percent}) — served from its previous data until the new tables verify`;
       }
+      if (job.mode === 'rebuild') return `Rebuilding (${percent})`;
+      if (job.mode === 'append') return `Appending (${percent})`;
       return job.mode === 'retry' ? `Retrying (${percent})` : `Ingesting (${percent})`;
     case 'done':
+      if (job.mode === 'rebuild') return 'Rebuilt — ready';
+      if (job.mode === 'append') return 'Appended — ready';
       return job.mode === 'reingest' ? 'Re-ingested — ready' : 'Ingested — ready';
     case 'failed':
       if (job.mode === 'reingest') {
@@ -281,6 +288,8 @@ export function sourceJobText(row) {
         if (/served as it was/i.test(job.error || '')) return sentence(job.error);
         return `Re-ingest failed: ${sentence(job.error)} It is served as it was.`;
       }
+      if (job.mode === 'rebuild') return `Rebuild failed: ${job.error || 'see the server log'}`;
+      if (job.mode === 'append') return `Append failed: ${job.error || 'see the server log'}`;
       return job.mode === 'retry' ? `Retry failed: ${job.error || 'see the server log'}`
         : `Failed: ${job.error || 'see the server log'}`;
     default:
@@ -334,6 +343,61 @@ export function sourcesSummary(rows, roots) {
   if (failed) parts.push(`${formatInt(failed)} failed`);
   return `${parts.join(' · ')}. Nothing is re-ingested until its button is pressed; a re-ingest runs on the `
     + 'ingest worker, and the experiment stays served from its previous data until the new tables have verified.';
+}
+
+/** The modes whose end the page reports: a re-ingest and a retry change an experiment under the panels. */
+const REPORTED_MODES = new Set(['reingest', 'retry']);
+
+/**
+ * Which re-ingest or retry jobs ended since the last read. `previouslyActive` is
+ * a Map (table name -> job id) of the jobs seen queued or running, `rows` the
+ * rows of the read just made. Returns `{finished, active}`: `finished` lists
+ * `{row, job}` for each tracked job that is now done or failed, and `active` is
+ * the Map to keep (the tracked jobs still running, plus every such job this read
+ * sees queued or running, however it was started). A job leaves the Map when it
+ * is reported, so it is reported once; a job that is no longer the experiment's
+ * newest is forgotten, since its outcome cannot be read any more. Pure; the
+ * Map passed in is not changed.
+ */
+export function finishedJobs(previouslyActive, rows) {
+  const active = new Map(previouslyActive ?? []);
+  const finished = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = row?.table_name;
+    const job = row?.job;
+    if (!name) continue;
+    const tracked = active.get(name);
+    if (!job) {
+      active.delete(name);
+      continue;
+    }
+    if (jobActive(job)) {
+      if (REPORTED_MODES.has(job.mode)) active.set(name, job.job_id);
+      else active.delete(name);
+    } else if (tracked !== undefined) {
+      active.delete(name);
+      if (tracked === job.job_id && (job.status === 'done' || job.status === 'failed')) finished.push({ row, job });
+    }
+  }
+  return { finished, active };
+}
+
+/**
+ * Milliseconds until the next read of the source files, or `null` for none.
+ * A queued or running job is followed every `JOB_POLL_MS`. A file that hf-sync
+ * just wrote is `settling`, and its Re-ingest stays refused until it has been
+ * unchanged for `roots.settle_s`: one more read, a second after that, lets the
+ * button enable itself. A closed panel reads nothing. Pure.
+ */
+export function nextSourceRead(rows, roots, open = true) {
+  if (!open) return null;
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.some((row) => jobActive(row?.job))) return JOB_POLL_MS;
+  if (list.some((row) => row?.settling)) {
+    const settle = Number.isFinite(roots?.settle_s) ? Math.max(0, roots.settle_s) : 0;
+    return Math.round((settle + 1) * 1000);
+  }
+  return null;
 }
 
 /** What a row's file cell says on hover: the full path, and the file as recorded and as found. */
@@ -780,9 +844,9 @@ export class AdminModal {
     this.sources.rows = sourceRows(payload);
     await this.reportSourceJobs();
     this.renderSources();
-    if (this.sources.loop === loop && this.shell.isOpen && this.sources.rows.some((row) => jobActive(row.job))) {
-      this.sources.timer = setTimeout(() => this.loadSources(), JOB_POLL_MS);
-    }
+    if (this.sources.loop !== loop) return;
+    const wait = nextSourceRead(this.sources.rows, payload?.roots, this.shell.isOpen);
+    if (wait !== null) this.sources.timer = setTimeout(() => this.loadSources(), wait);
   }
 
   stopSourcePolling() {
@@ -791,22 +855,24 @@ export class AdminModal {
     this.sources.loop = null;
   }
 
-  /** A re-ingest or retry job seen active that is now done or failed: tell the page, once. */
+  /**
+   * A re-ingest or retry job seen active on any read, whoever started it (this
+   * page, another tab, a page reloaded during the job), that is now done or
+   * failed: tell the page, once.
+   */
   async reportSourceJobs() {
-    const { rows, active } = this.sources;
-    for (const row of rows) {
-      const job = row.job;
-      if (!job || active.get(row.table_name) !== job.job_id) continue;
+    const { finished, active } = finishedJobs(this.sources.active, this.sources.rows);
+    // Swapped before the first await, so an overlapping read cannot report the same job again.
+    this.sources.active = active;
+    for (const { row, job } of finished) {
       if (job.status === 'done') {
-        active.delete(row.table_name);
         await this.onIngested(job);
         this.refreshDatasets();
         this.renderRebuild();
         this.loadModelRuns();
         this.setStatus(job.mode === 'retry' ? `${row.name} was ingested again from ${row.file}.`
           : `${row.name} was re-ingested from ${row.file}.`);
-      } else if (job.status === 'failed') {
-        active.delete(row.table_name);
+      } else {
         this.setStatus(sourceJobText(row), true);
       }
     }

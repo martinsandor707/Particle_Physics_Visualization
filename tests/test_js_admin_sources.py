@@ -118,6 +118,74 @@ out.jobText = {
   failedRetry: text(job('retry', 'failed', { error: 'No space left.' })),
   failedOther: text(job('create_new', 'failed', { error: 'Bad schema.' })),
   failedOtherNoError: text(job('create_new', 'failed')),
+  queuedRebuild: text(job('rebuild', 'queued', { progress: 0 })),
+  runningRebuild: text(job('rebuild', 'running')),
+  doneRebuild: text(job('rebuild', 'done', { progress: 1 })),
+  failedRebuild: text(job('rebuild', 'failed', { error: 'No space left.' })),
+  failedRebuildNoError: text(job('rebuild', 'failed')),
+  runningAppend: text(job('append', 'running')),
+  doneAppend: text(job('append', 'done', { progress: 1 })),
+  failedAppend: text(job('append', 'failed', { error: 'Bad schema.' })),
+};
+
+// finishedJobs: which re-ingest or retry jobs ended between two reads.
+const withJob = (table, j, over = {}) => ({ ...one(variant({ table, name: table, job: j, ...over })) });
+const entries = (map) => [...map.entries()];
+const fin = (previous, ...rs) => {
+  const before = previous === null ? null : new Map(previous);
+  const r = admin.finishedJobs(before, rs);
+  return { finished: r.finished.map((f) => [f.row.table_name, f.job.job_id, f.job.status]), active: entries(r.active),
+    inputKept: before === null ? null : entries(before) };
+};
+const run = (mode, status, id) => job(mode, status, { job_id: id });
+out.finished = {
+  // Seen running on one read and done on the next, though nobody here started it (another tab, a reload).
+  seenThenDone: [fin(null, withJob('a', run('reingest', 'running', 'j1'))),
+    fin([['a', 'j1']], withJob('a', run('reingest', 'done', 'j1')))],
+  seenQueuedRetryThenFailed: [fin(null, withJob('a', run('retry', 'queued', 'j2'))),
+    fin([['a', 'j2']], withJob('a', run('retry', 'failed', 'j2')))],
+  // Seeded by the POST reply alone (the Map is filled before the first read).
+  seededByThePost: fin([['a', 'j3']], withJob('a', run('reingest', 'done', 'j3'))),
+  // Once per job id: the same finished job on the next read is not reported again.
+  once: (() => {
+    const first = fin([['a', 'j1']], withJob('a', run('reingest', 'done', 'j1')));
+    return [first.finished.length, fin(first.active, withJob('a', run('reingest', 'done', 'j1'))).finished.length];
+  })(),
+  // A job that was already over when the page first read it was never seen active.
+  alreadyDone: fin(null, withJob('a', run('reingest', 'done', 'j1'))),
+  // Still running: kept, not reported.
+  stillRunning: fin([['a', 'j1']], withJob('a', run('reingest', 'running', 'j1'))),
+  // Other modes are not this section's to report.
+  rebuildIgnored: fin(null, withJob('a', run('rebuild', 'running', 'j4'))),
+  rebuildThenDone: fin([['a', 'j1']], withJob('a', run('rebuild', 'done', 'j4'))),
+  createNewIgnored: fin(null, withJob('a', run('create_new', 'queued', 'j5'))),
+  // The tracked job was replaced by another one, whose outcome is not the tracked job's.
+  superseded: fin([['a', 'j1']], withJob('a', run('reingest', 'done', 'j9'))),
+  // The experiment's job is gone (the registry was cleared): forgotten.
+  noJob: fin([['a', 'j1']], withJob('a', null)),
+  // Two experiments, one finished and one running; a third unseen row changes nothing.
+  mixed: fin([['a', 'j1'], ['b', 'j2'], ['gone', 'j7']], withJob('a', run('reingest', 'done', 'j1')),
+    withJob('b', run('retry', 'running', 'j2')), withJob('c', null)),
+  nullRows: [admin.finishedJobs(null, null), admin.finishedJobs(undefined, undefined)]
+    .map((r) => [r.finished, entries(r.active)]),
+};
+
+// nextSourceRead: when to read the files again.
+const next = (rs, roots, open) => admin.nextSourceRead(rs, roots, open);
+const settlingRow = (extra) => one(variant({ settling: true, reingest: refuse('Just written.'), ...extra }));
+out.next = {
+  idle: next(rows(variant({ state: 'unchanged' })), { settle_s: 30 }, true),
+  job: next(rows(variant({ job: job('reingest', 'running') })), { settle_s: 30 }, true),
+  queued: next(rows(variant({ job: job('retry', 'queued') })), { settle_s: 30 }, true),
+  settling: next([settlingRow()], { settle_s: 30 }, true),
+  settlingDefault: next([settlingRow()], { settle_s: 30 }),
+  settlingNoRoots: next([settlingRow()], null, true),
+  settlingZero: next([settlingRow()], { settle_s: 0 }, true),
+  settlingFraction: next([settlingRow()], { settle_s: 2.5 }, true),
+  jobOutranksSettling: next([settlingRow({ job: job('reingest', 'running') })], { settle_s: 30 }, true),
+  closed: next([settlingRow()], { settle_s: 30 }, false),
+  closedJob: next(rows(variant({ job: job('reingest', 'running') })), { settle_s: 30 }, false),
+  none: [next([], null, true), next(null, null, true)],
 };
 
 // Actions.
@@ -205,7 +273,7 @@ def test_every_badge(out):
     b = out["badges"]
     assert b["changed"] == {"text": "Source updated on disk", "kind": "changed"}
     assert b["unchanged"] == {"text": "Current", "kind": "current"}
-    assert b["touched"] == {"text": "Timestamp changed, content the same", "kind": "muted"}
+    assert b["touched"] == {"text": "Timestamp changed; sampled content the same", "kind": "muted"}
     assert b["missing"] == {"text": "Source file not found", "kind": "muted"}
     assert b["upload"] == {"text": "Uploaded: no file on the server to compare", "kind": "muted"}
     assert b["seed"] == {"text": "Demonstration dataset: ships in the image", "kind": "muted"}
@@ -253,6 +321,73 @@ def test_every_job_line(out):
     assert t["failedRetry"] == "Retry failed: No space left."
     assert t["failedOther"] == "Failed: Bad schema."
     assert t["failedOtherNoError"] == "Failed: see the server log"
+
+
+def test_a_rebuild_or_append_job_is_not_called_an_ingest(out):
+    t = out["jobText"]
+    assert t["queuedRebuild"] == "Waiting for the ingest worker"
+    assert t["runningRebuild"] == "Rebuilding (42%)"
+    assert t["doneRebuild"] == "Rebuilt — ready"
+    assert t["failedRebuild"] == "Rebuild failed: No space left."
+    assert t["failedRebuildNoError"] == "Rebuild failed: see the server log"
+    assert t["runningAppend"] == "Appending (42%)"
+    assert t["doneAppend"] == "Appended — ready"
+    assert t["failedAppend"] == "Append failed: Bad schema."
+    for key in ("runningRebuild", "doneRebuild", "failedRebuild", "runningAppend", "doneAppend", "failedAppend"):
+        assert "ngest" not in t[key], key
+
+
+def test_a_job_seen_active_on_any_read_is_reported_when_it_ends(out):
+    f = out["finished"]
+    # Another tab started it, or the page was reloaded during it: nothing was posted here.
+    seen, ended = f["seenThenDone"]
+    assert seen == {"finished": [], "active": [["a", "j1"]], "inputKept": None}
+    assert ended["finished"] == [["a", "j1", "done"]] and ended["active"] == []
+    seen, ended = f["seenQueuedRetryThenFailed"]
+    assert seen["active"] == [["a", "j2"]]
+    assert ended["finished"] == [["a", "j2", "failed"]] and ended["active"] == []
+    # The POST reply seeds the Map, so a job that ends before the first read is still reported.
+    assert f["seededByThePost"]["finished"] == [["a", "j3", "done"]]
+
+
+def test_a_finished_job_is_reported_once_and_only_if_it_was_seen_active(out):
+    f = out["finished"]
+    assert f["once"] == [1, 0]
+    assert f["alreadyDone"]["finished"] == [] and f["alreadyDone"]["active"] == []
+    assert f["stillRunning"]["finished"] == [] and f["stillRunning"]["active"] == [["a", "j1"]]
+
+
+def test_only_a_reingest_or_a_retry_is_followed(out):
+    f = out["finished"]
+    for key in ("rebuildIgnored", "createNewIgnored"):
+        assert f[key]["finished"] == [] and f[key]["active"] == [], key
+    # A rebuild that replaced the tracked job ends the tracking without reporting a re-ingest.
+    assert f["rebuildThenDone"]["finished"] == [] and f["rebuildThenDone"]["active"] == []
+    assert f["superseded"]["finished"] == [] and f["superseded"]["active"] == []
+    assert f["noJob"]["finished"] == [] and f["noJob"]["active"] == []
+
+
+def test_finished_jobs_leaves_its_input_alone_and_tolerates_nothing(out):
+    f = out["finished"]
+    mixed = f["mixed"]
+    assert mixed["finished"] == [["a", "j1", "done"]]
+    # A name this read did not carry is left as it was.
+    assert mixed["active"] == [["b", "j2"], ["gone", "j7"]]
+    assert mixed["inputKept"] == [["a", "j1"], ["b", "j2"], ["gone", "j7"]]
+    assert f["nullRows"] == [[[], []], [[], []]]
+
+
+def test_the_next_read_follows_a_job_and_a_settling_file(out):
+    n = out["next"]
+    assert n["idle"] is None
+    assert n["job"] == n["queued"] == 1500
+    # settle_s + 1 s, so the file has just become re-ingestable when it is read.
+    assert n["settling"] == n["settlingDefault"] == 31_000
+    assert n["settlingNoRoots"] == n["settlingZero"] == 1_000
+    assert n["settlingFraction"] == 3_500
+    assert n["jobOutranksSettling"] == 1500
+    assert n["closed"] is None and n["closedJob"] is None
+    assert n["none"] == [None, None]
 
 
 def test_a_changed_experiment_gets_re_ingest_enabled_by_the_server(out):

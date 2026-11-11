@@ -14,13 +14,18 @@ in both themes: a file dropped in the folder and ingested, changed on disk,
 compared again, then re-ingested - or failed in the registry, then retried.
 ``GET /api/admin/experiments`` and the POST route are the backend's
 (``tests/test_reingest.py``); the pure row models are ``test_js_admin_sources.py``.
+The chip test serves a payload with one row per chip kind through ``page.route`` and
+lets ``admin.js`` build the rows, so the classes it emits are what is measured.
 """
 
 from __future__ import annotations
 
+import copy
+import json
 import os
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +33,8 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("CALOSRV_BROWSER_TESTS") != "1",
     reason="set CALOSRV_BROWSER_TESTS=1 to run the Chromium admin-panel check",
 )
+
+RECORDING = Path(__file__).resolve().parent / "fixtures" / "payloads" / "admin_experiments.json"
 
 FIELDS = ("default_dataset", "default_coord_system", "default_model", "default_channel",
           "default_display_mode", "default_rho_norm")
@@ -325,21 +332,65 @@ def _contrast(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
+def _chip_rows():
+    """One experiment per chip kind, derived from the recording's first, as `GET /api/admin/experiments` would send them."""
+    base = json.loads(RECORDING.read_text())
+    first = base["experiments"][0]
+    offer = {"available": True, "reason": None}
+    refused = {"available": False, "reason": "Nothing to do."}
+
+    def variant(table, status, state, job=None, reingest=refused, retry=refused):
+        e = copy.deepcopy(first)
+        e["table_name"], e["display_name"] = table, f"Chip {table}"
+        e["status"] = status
+        e["error"] = "Ingestion was interrupted before it completed." if status == "failed" else None
+        e["source_changed"] = state == "changed"
+        e["source"] = {"origin": "drop_folder", "file": f"{table}.parquet", "path": f"/app/ingest/{table}.parquet",
+                       "state": state, "basis": "recorded", "settling": False, "recorded": None, "current": None,
+                       "detail": f"The detail of {table}."}
+        e["actions"] = {"reingest": reingest, "retry": retry}
+        e["job"] = job
+        return e
+
+    def job(mode, status, error=None):
+        return {"job_id": f"job-{mode}-{status}", "mode": mode, "status": status, "progress": 0.42,
+                "stage_label": "", "error": error, "finished_at": None}
+
+    experiments = [
+        variant("chip_changed", "ready", "changed", reingest=offer),
+        variant("chip_failed", "failed", "unchanged", job("retry", "failed", "No space left on the device."),
+                retry=offer),
+        variant("chip_busy", "ready", "changed", job("reingest", "running")),
+        variant("chip_current", "ready", "unchanged"),
+        variant("chip_muted", "ready", "touched"),
+    ]
+    return {"roots": {**base["roots"], "settle_s": 30}, "experiments": experiments}
+
+
+#: The five chip kinds, the row each is served on, the badge `admin.js` words for it and its token.
+CHIPS = {
+    "changed": ("chip_changed", "Source updated on disk", "--warn"),
+    "failed": ("chip_failed", "Ingestion failed", "--danger"),
+    "busy": ("chip_busy", "Re-ingesting", "--accent"),
+    "current": ("chip_current", "Current", None),
+    "muted": ("chip_muted", "Timestamp changed; sampled content the same", None),
+}
+
+
 @pytest.mark.parametrize("scheme", THEMES)
 def test_the_state_chips_use_their_tokens_and_read_on_the_modal_ground(clean, scheme):
-    """Each chip's colour is its token's in the theme on show, and every text colour clears 4.5:1 on the modal."""
-    tokens = {"changed": "--warn", "failed": "--danger", "busy": "--accent"}
+    """`admin.js` builds one row of each kind from the served payload; its classes carry the tokens, 4.5:1 on the modal."""
+    served = _chip_rows()
     with clean["playwright"].sync_playwright() as p:
         browser, page = _page(p, clean["base"], scheme=scheme)
+        # The panel's own read is answered with one row per chip kind: the rows are built by controls/admin.js.
+        page.route(re.compile(r"/api/admin/experiments(\?.*)?$"),
+                   lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(served)))
         _open_panel(page)
-        page.wait_for_function(
-            "() => !document.getElementById('admin-sources-where').textContent.startsWith('\u2014')",
-            timeout=30_000)
-        # One row of each kind, built as controls/admin.js builds its rows, so the section's own selectors apply.
-        measured = page.evaluate(
-            """(tokens) => {
-                const body = document.getElementById('admin-sources-rows');
-                document.getElementById('admin-sources-table').hidden = false;
+        page.wait_for_selector("#admin-sources-rows tr[data-table=\"chip_muted\"]", timeout=30_000)
+        assert page.is_visible("#admin-sources-table")
+        rendered = page.evaluate(
+            """(chips) => {
                 const colourOf = (value) => {
                   const probe = document.createElement('span');
                   probe.style.color = value;
@@ -348,47 +399,44 @@ def test_the_state_chips_use_their_tokens_and_read_on_the_modal_ground(clean, sc
                   probe.remove();
                   return colour;
                 };
-                const rows = [];
-                for (const kind of ['changed', 'failed', 'busy', 'current', 'muted']) {
-                  const tr = document.createElement('tr');
-                  const state = document.createElement('td');
-                  state.className = 'source-state';
-                  const chip = document.createElement('span');
-                  chip.className = 'chip';
-                  chip.dataset.state = kind;
-                  chip.textContent = kind;
-                  const detail = document.createElement('div');
-                  detail.className = 'source-detail';
-                  detail.textContent = 'detail';
-                  const job = document.createElement('div');
-                  job.className = 'source-job';
-                  job.textContent = 'job';
-                  const failed = document.createElement('div');
-                  failed.className = 'source-job admin-error';
-                  failed.textContent = 'failed job';
-                  state.append(chip, detail, job, failed);
-                  tr.append(state);
-                  rows.push([kind, tr, chip, detail, job, failed]);
+                const colour = (el) => (el ? getComputedStyle(el).color : null);
+                const row = (table) => document.querySelector(`#admin-sources-rows tr[data-table="${table}"]`);
+                const found = {};
+                for (const [kind, [table]] of Object.entries(chips)) {
+                  const chip = row(table)?.querySelector('.chip');
+                  found[kind] = chip && { text: chip.textContent.trim(), state: chip.dataset.state,
+                    colour: colour(chip) };
                 }
-                body.replaceChildren(...rows.map((r) => r[1]));
-                const colour = (el) => getComputedStyle(el).color;
+                const state = (table) => row(table).querySelector('.source-state');
                 return {
                   ground: getComputedStyle(document.querySelector('#admin-modal .modal')).backgroundColor,
                   groundToken: colourOf('var(--canvas-alt)'),
-                  chips: Object.fromEntries(rows.map((r) => [r[0], colour(r[2])])),
-                  tokens: Object.fromEntries(Object.entries(tokens).map(([k, v]) => [k, colourOf(`var(${v})`)])),
-                  detail: colour(rows[0][3]),
-                  job: colour(rows[0][4]),
-                  failedJob: colour(rows[0][5]),
+                  chips: found,
+                  tokens: Object.fromEntries(['--warn', '--danger', '--accent'].map((t) => [t, colourOf(`var(${t})`)])),
+                  detail: colour(state('chip_changed').querySelector('.source-detail')),
+                  job: colour(state('chip_busy').querySelector('.source-job')),
+                  jobText: state('chip_busy').querySelector('.source-job')?.textContent,
+                  failedJob: colour(state('chip_failed').querySelector('.source-job.admin-error')),
+                  failedJobText: state('chip_failed').querySelector('.source-job.admin-error')?.textContent,
                   danger: colourOf('var(--danger)'),
+                  rowStates: Object.fromEntries(Object.values(chips).map(([table]) => [table, row(table).dataset.state])),
                 };
-            }""", tokens)
-        assert measured["ground"] == measured["groundToken"], "the modal ground is --canvas-alt"
-        for kind in tokens:
-            assert measured["chips"][kind] == measured["tokens"][kind], f"{kind} chip is not {tokens[kind]}"
-        for kind, colour in measured["chips"].items():
-            assert _contrast(colour, measured["ground"]) >= 4.5, f"{kind} chip {colour} on {measured['ground']}"
+            }""", {kind: [table] for kind, (table, _text, _token) in CHIPS.items()})
+        assert rendered["ground"] == rendered["groundToken"], "the modal ground is --canvas-alt"
+        for kind, (_table, text, token) in CHIPS.items():
+            chip = rendered["chips"][kind]
+            assert chip is not None, f"admin.js built no row for the {kind} chip"
+            assert (chip["state"], chip["text"]) == (kind, text), kind
+            if token:
+                assert chip["colour"] == rendered["tokens"][token], f"{kind} chip is not {token}"
+            assert _contrast(chip["colour"], rendered["ground"]) >= 4.5, f"{kind} chip {chip['colour']}"
+        assert rendered["jobText"].startswith("Re-ingesting (42%)")
+        assert rendered["failedJobText"] == "Retry failed: No space left on the device."
         for key in ("detail", "job", "failedJob"):
-            assert _contrast(measured[key], measured["ground"]) >= 4.5, key
-        assert measured["failedJob"] == measured["danger"]
+            assert _contrast(rendered[key], rendered["ground"]) >= 4.5, key
+        assert rendered["failedJob"] == rendered["danger"]
+        # Each row carries the state it was served with.
+        assert rendered["rowStates"] == {"chip_changed": "changed", "chip_failed": "unchanged", "chip_busy": "changed",
+                                         "chip_current": "unchanged", "chip_muted": "touched"}
         browser.close()
+
