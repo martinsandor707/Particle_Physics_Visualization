@@ -113,6 +113,8 @@ out.jobText = {
   failedReingest: text(job('reingest', 'failed', { error: 'The schema changed.' })),
   failedReingestNoStop: text(job('reingest', 'failed', { error: 'boom' })),
   failedReingestNoError: text(job('reingest', 'failed')),
+  failedReingestServer: text(job('reingest', 'failed', { error: "The re-ingest of 'x' from x.parquet failed "
+    + "(boom) and was rolled back; the experiment is served as it was." })),
   failedRetry: text(job('retry', 'failed', { error: 'No space left.' })),
   failedOther: text(job('create_new', 'failed', { error: 'Bad schema.' })),
   failedOtherNoError: text(job('create_new', 'failed')),
@@ -242,10 +244,12 @@ def test_every_job_line(out):
     assert t["runningOther"] == "Ingesting (42%)"
     assert t["doneReingest"] == "Re-ingested — ready"
     assert t["doneRetry"] == t["doneOther"] == "Ingested — ready"
-    assert t["failedReingest"] == "Re-ingest failed and was rolled back: The schema changed. It is served as it was."
-    assert t["failedReingestNoStop"] == "Re-ingest failed and was rolled back: boom. It is served as it was."
-    assert t["failedReingestNoError"] == ("Re-ingest failed and was rolled back: see the server log. "
-                                          "It is served as it was.")
+    assert t["failedReingest"] == "Re-ingest failed: The schema changed. It is served as it was."
+    assert t["failedReingestNoStop"] == "Re-ingest failed: boom. It is served as it was."
+    assert t["failedReingestNoError"] == "Re-ingest failed: see the server log. It is served as it was."
+    # The worker's message already says it was rolled back: shown once, not repeated.
+    assert t["failedReingestServer"] == ("The re-ingest of 'x' from x.parquet failed (boom) and was rolled "
+                                         "back; the experiment is served as it was.")
     assert t["failedRetry"] == "Retry failed: No space left."
     assert t["failedOther"] == "Failed: Bad schema."
     assert t["failedOtherNoError"] == "Failed: see the server log"

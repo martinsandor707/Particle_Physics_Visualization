@@ -20,7 +20,9 @@ services:
       # Comma-separated globs, matched against the dataset's paths with `*`
       # crossing `/`: the same patterns as the README's `hf download`.
       - HF_SYNC_INCLUDE=${HF_SYNC_INCLUDE:-ingest/*.parquet,xgboost_models/*.json}
-      # 1 replaces a file that exists with a different content; 0 leaves it.
+      # A file the last sync wrote is always brought up to date. One changed on
+      # this computer since then (or, at a first sync, one of another size) is
+      # kept and named in the log; 1 replaces it with the dataset's version.
       - HF_SYNC_OVERWRITE=${HF_SYNC_OVERWRITE:-0}
     restart: "no"
 
@@ -38,9 +40,9 @@ services:
       - "${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
-      # Read-only mounts of the two folders the service reads. Nothing else of
-      # the repository is mounted, so multi-gigabyte files reach the offline
-      # ingest CLI without traversing HTTP:
+      # Read-only mounts of the two folders the service reads; nothing else of
+      # the repository is mounted. A multi-gigabyte file in ./ingest reaches
+      # the ingest CLI in place, without traversing HTTP:
       #   docker compose exec calorimeter-dashboard \
       #     python -m calosrv.ingest --input /app/ingest/hits_all_models.parquet --table all_models
       - ./ingest:/app/ingest:ro
@@ -58,10 +60,11 @@ services:
       # becomes an experiment at the next start, or on Scan now in the Admin
       # Settings panel. Read-only in here, through the /app/ingest mount above.
       - CALOSRV_AUTO_INGEST_DIR=/app/ingest
-      # The folder the Admin Settings panel lists its source files from: the
-      # same mount, so what the download put there can be re-ingested.
+      # The one folder server-side ingest may read (Upload dataset → Already
+      # on the server, and the ingest CLI above): the drop folder's mount,
+      # since nothing else of the repository is mounted.
       - CALOSRV_LOCAL_INGEST_DIR=/app/ingest
-      # The notebooks' XGBoost regressors, one folder scan finds them all.
+      # The notebooks' XGBoost regressors: one folder scan finds them all.
       - CALOSRV_MODEL_DIR=/app/xgboost_models
       # The default experiment a new session opens on, as a fallback beneath
       # whatever the Admin Settings panel saves: the production dataset the

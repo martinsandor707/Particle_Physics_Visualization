@@ -276,7 +276,10 @@ export function sourceJobText(row) {
       return job.mode === 'reingest' ? 'Re-ingested — ready' : 'Ingested — ready';
     case 'failed':
       if (job.mode === 'reingest') {
-        return `Re-ingest failed and was rolled back: ${sentence(job.error)} It is served as it was.`;
+        // The worker's own message already says the re-ingest was rolled back and the
+        // experiment is served as it was; repeating it would say so twice.
+        if (/served as it was/i.test(job.error || '')) return sentence(job.error);
+        return `Re-ingest failed: ${sentence(job.error)} It is served as it was.`;
       }
       return job.mode === 'retry' ? `Retry failed: ${job.error || 'see the server log'}`
         : `Failed: ${job.error || 'see the server log'}`;
