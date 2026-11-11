@@ -479,3 +479,74 @@ export function qualitativeStops(name, count) {
   }
   return colours.slice(0, n);
 }
+
+/* ## The literature curves' identity colours
+ *
+ * The energy-resolution card's E view draws one literature curve at a time,
+ * the one its ratio panel divides by (catalog/resolution_refs.js; Martin's
+ * decision of 2026-11-11), dotted and in a colour of its own: its line, its
+ * legend swatch, its end label and its caret. A curve is a nominal category,
+ * so each colour is a ColorBrewer qualitative colour, and it is the same in
+ * every state of the card. It was chosen against what can share its card: the
+ * deposit ink (THEME.text) and the four hues E2 gives the model series
+ * (`qualitativeStops(THEME.qualitativePalette, 4)`). The pairs are keyed by
+ * that palette, which names the card: `set2` on the dark screen's #1c2128,
+ * `dark2` on white (the light screen and print, whose ink is #111827 on both).
+ * Kept apart from `QUALITATIVE`, whose names and checked counts the dark
+ * golden records.
+ *
+ * Chosen as the species were, from the union of the qualitative schemes and
+ * measured the same way (tests/test_js_literature_colours.py measures them
+ * again): WCAG contrast of at least 3:1 against the card; then the CIEDE2000
+ * distance, under normal vision, deuteranopia and protanopia (Machado,
+ * Oliveira & Fernandes 2009, severity 1, in linear RGB), of the pair and of
+ * each colour against the five series colours, its worst over those eleven
+ * pairs and three visions as large as it can be; within 0.1 ΔE00 a tie, which
+ * the higher contrast takes. White binds: against Dark2's four and the ink
+ * only two purples (#6a3d9a, worst 13.1; #bc80bd, 8.9 at 3.02:1) and two
+ * browns (#a65628 8.8, #b15928 7.2) keep more than 7, every other qualitative
+ * colour at 3:1 on white falling to 6.0 or below, and the two purples are only
+ * 25.0 apart under protanopia. So e± is a purple and π± a brown on both
+ * cards, and a theme switch or a print keeps each curve's hue.
+ *
+ * - Dark card (`set2`): π± #b15928 (Paired, 3.34:1), e± #984ea3 (Set1,
+ *   3.05:1). Worst pair ΔE00 17.2, e± against Set2's #8da0cb under
+ *   deuteranopia (20.1 under normal vision and 20.9 under protanopia, π±
+ *   against #fc8d62); the two curves 39.4 apart, 45.3 and 45.9 under
+ *   deuteranopia and protanopia. #a65628 ties #b15928 at 17.2 and loses on
+ *   contrast (3.07:1). The union's largest worst pair on this card, 18.6,
+ *   takes the blue #386cb0 for e±, which white cannot follow (#386cb0 keeps 3.4
+ *   there, from #7570b3), so it is given up for one hue per curve. Set2's four
+ *   and the ink fill the light half of the dark card, so only dark colours keep
+ *   their distance; a tint at 4.5:1 or more (#ffffcc, #e6f5c9) differs from the
+ *   near-white ink mostly in yellowness, which a 1.2 px dotted line does not
+ *   carry. The end label is text at 3.34:1 and 3.05:1 there, below body
+ *   text's 4.5:1, as the letters "A" and "B" are in E2's hues on white
+ *   (#1b9e77, 3.39:1).
+ * - White (`dark2`): π± #a65628 (Set1, 5.27:1), e± #6a3d9a (Paired, 7.65:1).
+ *   Worst pair ΔE00 8.8, π± against Dark2's #d95f02 under protanopia (11.9
+ *   under normal vision and deuteranopia); e± keeps 13.1 from #7570b3; the two
+ *   curves 42.3 apart, 50.5 and 48.4 under deuteranopia and protanopia. The
+ *   union's largest worst pair on white, 8.86, is the two purples: a tie
+ *   within 0.1 with this pair's 8.8, which this pair's contrast takes (its
+ *   lower colour at 5.27:1, against #bc80bd's 3.02:1).
+ */
+export const LITERATURE_COLOURS = Object.freeze({
+  set2: Object.freeze({ pi: '#b15928', e: '#984ea3' }),
+  dark2: Object.freeze({ pi: '#a65628', e: '#6a3d9a' }),
+});
+
+/** The hue each literature curve keeps on both cards, as the drawers name it. */
+export const LITERATURE_HUES = Object.freeze({ pi: 'brown', e: 'purple' });
+
+/**
+ * The identity colour of literature curve `key` ('pi' | 'e') on the card whose
+ * series take the qualitative palette `seriesPalette` (THEME.qualitativePalette).
+ * Throws for a card or a curve nobody measured, as `qualitativeStops` does.
+ */
+export function literatureColour(key, seriesPalette) {
+  const pair = LITERATURE_COLOURS[seriesPalette];
+  if (!pair) throw new Error(`No literature colours are measured against the ${seriesPalette} series palette.`);
+  if (!Object.prototype.hasOwnProperty.call(pair, key)) throw new Error(`No identity colour for the literature curve ${key}.`);
+  return pair[key];
+}

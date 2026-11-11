@@ -23,7 +23,11 @@ import { Notes, SECTION, PHYSICS_HEADINGS, CURVE_AREA_NOTE, onLightScreen, puorS
 import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText, sigFigs } from './panels/chart_panel.js';
-import { resolutionModel, modeLabel, DRAWN_FORMS } from './panels/resolution_scaling.js';
+import {
+  resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel, referenceChoiceText,
+} from './panels/resolution_scaling.js';
+import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
+import { LITERATURE_HUES } from './palette.js';
 import { perfModel, perfQuantities, SOURCE_LABELS } from './panels/perf_bins.js';
 import { residualModel, featureHistModel, HISTOGRAM_FLOOR } from './panels/distribution.js';
 import { hist2dModel, countRamp, DENSITY2D_FLOOR } from './panels/hist2d.js';
@@ -546,6 +550,9 @@ export function primariesNotes({ payload, state = null, experiment = null, title
  */
 export const RES_SCALING_TITLE = 'Energy Resolution vs. 1/√E';
 
+/** The same for the E (GeV) view: the shell's `cardTitle` names it so when it passes a title. */
+export const RES_SCALING_ENERGY_TITLE = 'Energy Resolution vs. E';
+
 /** The payload notes the builder states itself, from structure, in the section they belong to. */
 function restatedNote(line, labels) {
   return labels.some((label) => line.startsWith(`${label} (`))
@@ -553,27 +560,12 @@ function restatedNote(line, labels) {
 }
 
 /**
- * The notes of the resolution card: σ/E against 1/√E with its fits. `windows`
- * ('anchors' | 'all') and `shower` are the card's render options; the drawer
- * describes the mode in force and the series the shower choice draws, through
- * the panel's own pure model, so it never states what the plot does not show.
+ * The Selection lines both views share: the filters, the events and series,
+ * the model series, its validation split and the frame note. `model` is
+ * either view's (both carry `series` and `nShowers`).
  */
-export function resolutionScalingNotes({
-  payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
-} = {}) {
-  if (!payload) return null;
-  const notes = new Notes(title ?? RES_SCALING_TITLE);
-  const model = resolutionModel(payload, { windows, shower });
-  if (!model) {
-    notes.section(SECTION.disclosures, ['This response carries no energy-resolution series.', ...metaDisclosures(payload)]);
-    return notes.done([]);
-  }
-  const { gates, mode } = model;
-  const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
-  const sig = (v) => sigFigs(v, 3);
+function resSelectionLines(payload, state, experiment, model, shower) {
   const m = payload.model ?? {};
-
-  // ---- Selection
   const selection = [
     selectionLine(state, experiment),
     `${plural(payload.n_events ?? 0, 'event')}; ${model.series.length ? model.series.map((s) => `${s.label} (N = ${formatInt(s.raw.n)})`).join('; ') : 'no series'}`
@@ -592,7 +584,454 @@ export function resolutionScalingNotes({
       + `${m.split.reproduced === false ? ', and the notebook\'s training split is not reproduced' : ''}.`);
   }
   if (payload.meta?.coord_system_note) selection.push(sentence(payload.meta.coord_system_note));
+  return selection;
+}
+
+/* ---- the E view's drawer ---- */
+
+/** A fitted span as the panel words it: "5–20 GeV". */
+const spanGeV = (span) => (span ? `${formatNumber(span[0])}–${formatNumber(span[1])} GeV` : 'no window');
+
+/** The two forms the E view draws, as the drawer names them. */
+const ENERGY_FORM_NAMES = Object.freeze({
+  quadrature: 'quadrature fit a/√E ⊕ b',
+  pinned: 'origin-pinned fit a₀/√E ⊕ 0',
+});
+
+/** Where the article derives the E view: its section, by number and title, which the drawer names. */
+export const RES_ENERGY_METHOD_SECTION = Object.freeze({ number: '2.4.11', title: 'Resolution scaling against E' });
+
+/**
+ * The server's E-view range sentence as its basis only: a trailing "n marks
+ * beyond it are clipped, not rescaled." counts windows of every series and both
+ * modes, which the drawer never reprints; it states the model's own counts.
+ */
+function rangeBasis(note) {
+  return String(note ?? '').replace(/\s*\S+ marks? beyond it (?:is|are) clipped, not rescaled\.\s*$/u, '');
+}
+
+/** "in the 3-anchor mode, both showers": the mode and the shower choice a count belongs to. */
+function inForce(model, shower) {
+  const mode = model.mode === 'anchors' ? 'the 3-anchor mode' : 'the all-windows mode';
+  if (model.nShowers < 2) return `in ${mode}`;
+  return `in ${mode}, ${shower && shower !== 'both' ? `shower ${String(shower).toUpperCase()} only` : 'both showers'}`;
+}
+
+/** What made a band wide, as the drawer writes it after an outlined band: " (S = 3.62, ν = 1, q = 12.71)", or ''. */
+function bandWhy(fit = {}, sig) {
+  const why = [
+    Number.isFinite(fit.scale_factor) && fit.scale_factor > 1 ? `S = ${sig(fit.scale_factor)}` : null,
+    Number.isFinite(fit.ndf) ? `ν = ${formatInt(fit.ndf)}` : null,
+    Number.isFinite(fit.band_quantile) ? `q = ${sigFigs(fit.band_quantile, 4)}` : null,
+  ].filter(Boolean).join(', ');
+  return why ? ` (${why})` : '';
+}
+
+/** The fit a band belongs to, as the drawer lists an outlined band: "A deposit a/√E ⊕ b (S = 3.62, ν = 1, q = 12.71)". */
+function outlinedBandName(b, sig) {
+  const form = b.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E ⊕ 0';
+  return `${b.reference ? `the reference band about 1 of ${b.short} ${form}` : `${b.short} ${form}`}${bandWhy(b.fit ?? {}, sig)}`;
+}
+
+/**
+ * Each literature curve's hue on every card, as the drawer names it (palette.js `LITERATURE_HUES`):
+ * "π± a brown and e± a purple", or with `preposition` 'in ' "π± in a brown and e± in a purple".
+ */
+function literatureHueList(preposition = '') {
+  return RESOLUTION_REFERENCES.map((e) => `${e.particle} ${preposition}a ${LITERATURE_HUES[e.key]}`).join(' and ');
+}
+
+/**
+ * The E view's legend line on the literature curves: which are drawn and what
+ * each is to the ratio panel, the buttons that choose them, and their colours.
+ */
+function literatureLegendLine(model) {
+  const hues = `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`;
+  const buttons = `The ${RESOLUTION_REFERENCES.map((e) => e.particle).join(' and ')} buttons draw either curve, both (the default) or neither. `
+    + 'The ratio panel divides by the curve drawn; with both drawn, by the one the windows lie farther from; with neither, by each shower\'s deposit fit.';
+  if (!model.literature.length) return `A literature curve is a dotted line in its own colour; none is drawn now. ${buttons} ${hues}`;
+  const refLit = model.literature.find((l) => l.isReference);
+  const others = model.literature.filter((l) => !l.isReference);
+  const parts = [];
+  if (refLit) parts.push(`the ${refLit.entry.particle} curve is the ratio's reference`);
+  if (others.length) {
+    parts.push(`the ${others.map((l) => l.entry.particle).join(' and ')} curve${others.length > 1 ? 's are' : ' is'} drawn beside it, `
+      + 'and on the ratio panel divided by it');
+  }
+  const labelled = model.endLabels.main.some((l) => l.literature) ? ', labelled with their particles in the end column' : '';
+  return `Literature curves are dotted lines in their own colours${labelled}; they are references, not measurements, and never set a range. `
+    + `Here ${parts.join('; ')}. ${buttons} ${hues}`;
+}
+
+/** One ratio reference's line for a shower: which fit divides its windows, or why nothing does. */
+function depositReferenceLine(model, r) {
+  const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit';
+  if (r.reason) return `${owner}: no ratio marks, ${r.reason}.`;
+  const misfit = r.misfit
+    ? `, a form that does not describe the deposit's windows (S = ${sigFigs(r.fit.scale_factor, 3)} > ${formatNumber(model.gates.misfit_scale)})`
+    : '';
+  return `${owner}: the ratio divides by ${r.why} (${r.seriesLabel}), fitted over ${spanGeV(r.span)}${r.provisional ? ', provisional' : ''}${misfit}; `
+    + `it is evaluated from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV only.`;
+}
+
+/**
+ * The Disclosures line naming the fits drawn faded because their form does not
+ * describe their windows (the server's `misfit`): series, form, S and χ²/ν,
+ * or '' when none is drawn. `items` [{s, f}] are the drawn fits of the mode in
+ * force; `formName(form)` names a form as its view does.
+ */
+function misfitLine(items, gates, formName) {
+  const listed = items.filter(({ f }) => f.misfit);
+  if (!listed.length) return '';
+  const n = listed.length;
+  const scale = formatNumber(gates.misfit_scale);
+  return `${plural(n, 'fit')} ${n === 1 ? 'is' : 'are'} drawn faded because ${n === 1 ? 'its form does' : 'their forms do'} not describe `
+    + `${n === 1 ? 'its' : 'their'} windows: ν ≥ 1 and S = √(χ²/ν) > ${scale}, the residuals averaging more than ${scale} of the windows' own `
+    + `standard errors, so ${n === 1 ? 'it never sets' : 'none sets'} a range: `
+    + `${listed.map(({ s, f }) => `${s.label}, ${formName(f.form)} (S = ${sigFigs(f.fit.scale_factor, 3)}, χ²/ν = ${sigFigs(f.fit.chi2 / f.fit.ndf, 3)})`).join('; ')}. `
+    + 'The size of the misfit decides, not the χ² p-value: where windows hold hundreds of events, the test rejects a form for misfits no reader could see.';
+}
+
+/**
+ * The notes of the resolution card's E view: σ/E against the energy in GeV,
+ * the a/√E ⊕ b and a₀/√E ⊕ 0 fits solid over the windows each was fitted to
+ * and dashed beyond, and the ratio panel. Every sentence is built from the
+ * panel's `energyModel` and the payload's `axis.energy`, never from matching
+ * text, so each count is the model's and the drawer never states what the
+ * plot does not show.
+ */
+function resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature }) {
+  const notes = new Notes(title ?? RES_SCALING_ENERGY_TITLE);
+  const model = energyModel(payload, { windows, shower, reference, literature });
+  if (!model) {
+    notes.section(SECTION.disclosures, [
+      'This response carries no energy-resolution series with an E-view axis (axis.energy), so the E view draws nothing.',
+      ...metaDisclosures(payload),
+    ]);
+    return notes.done([]);
+  }
+  const { gates, mode, x, y, ratio, clipped } = model;
+  const ref = model.reference;
+  const lit = ref.literature;
+  const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
+  const sig = (v) => sigFigs(v, 3);
+  const m = payload.model ?? {};
+  const curveMin = formatNumber(model.curveMinGev);
+  const yMin = formatNumber(model.yMinGev);
+  const drawn = model.series.flatMap((s) => ENERGY_FORMS.map((form) => ({ s, f: s.fits[form] })).filter(({ f }) => f?.drawable));
+  const points = model.series.flatMap((s) => s.points);
+  // As the axis writes it: "1/8 to 8".
+  const kText = `${ratioTickLabel(1 / ratio.k)} to ${ratioTickLabel(ratio.k)}`;
+  const is = (n) => (n === 1 ? 'is' : 'are');
+
+  // ---- Selection
+  const selection = resSelectionLines(payload, state, experiment, model, shower);
+  selection.push(`View: σ/E against the energy E in GeV, 0 to ${formatNumber(x.max)} GeV, with a ratio panel underneath on the same energy axis.`);
+  selection.push(lit
+    ? `Ratio to: ${ref.label}, the literature curve ${referenceEquation(lit)}, the same curve for every shower.`
+    : `Ratio to: ${ref.label}.`);
+  selection.push(model.literature.length
+    ? `Literature curves drawn: ${model.literature.map((l) => `${l.entry.particle}${l.isReference ? ' (the ratio\'s reference)' : ''}`).join(' and ')}.`
+    : 'Literature curves drawn: none.');
   notes.section(SECTION.selection, selection);
+
+  // ---- What is drawn
+  const spanRule = model.spans.shared && model.spans.span
+    ? `here ${spanGeV(model.spans.span)}`
+    : (drawn.length ? 'each its own, listed under Disclosures' : 'no fit is drawn for this selection');
+  // The literature curves the reader drew beside the reference (the reference itself is always drawn).
+  const beside = model.literature.filter((l) => !l.isReference);
+  const refLines = lit
+    ? [`The ratio's reference is the literature curve ${referenceEquation(lit)}, evaluated at every E on the axis and drawn dotted on the main panel in its own colour. `
+      + 'The ratio panel draws no band about 1 for it: no interval reported.',
+      ...beside.filter((l) => l.ratio?.rows?.length).map((l) => {
+        const rows = l.ratio.rows;
+        return `The ${l.entry.particle} curve, drawn beside it, is drawn on the ratio panel too, divided by it, one line for every shower: `
+          + `${referenceEquation(l.entry)} over ${referenceEquation(lit)} reads ${sig(rows[0][1])} at ${formatNumber(rows[0][0])} GeV and ${sig(rows[rows.length - 1][1])} at ${formatNumber(rows[rows.length - 1][0])} GeV.`;
+      })]
+    : [...Object.values(ref.byShower).map((r) => depositReferenceLine(model, r)),
+      'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.',
+      'With no literature curve drawn, the ratio divides each shower by its own deposit fit.'];
+  // With both curves drawn, why the ratio divides by the one it does.
+  const choiceLine = referenceChoiceText(model);
+  if (choiceLine) refLines.splice(1, 0, choiceLine);
+  const method = RES_ENERGY_METHOD_SECTION;
+  notes.section(SECTION.drawn, [
+    model.rule ? sentence(model.rule) : 'Each window is drawn at E = 1/x², x = ⟨1/√p⟩ being the 1/√E view\'s own abscissa.',
+    `Methodology §${method.number}, "${method.title}", derives this view, from E = 1/x² to the ratio panel's axis; §3.6 audits its marks.`,
+    'Windows of different series at one energy are drawn at that energy, not set apart: a window sits on its own curve, which no offset could follow.',
+    `Mode drawn: ${modeLabel(mode, gates)}. ${mode === 'anchors'
+      ? 'The windows control reads "3 anchors": only the windows the 3-anchor fit used are drawn.'
+      : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a σ/E is drawn, those below ${curveMin} GeV as points only, since no fit uses them.`}`,
+    `${plural(model.nPoints, 'window')} and ${plural(model.nLines, 'fit curve')} are drawn in this view.`,
+    'Two fits per series can be drawn, each by weighted least squares with the 1/√E view\'s iterated weights: the quadrature a/√E ⊕ b = √(a²/E + b²), fitted as (σ/E)² = A/E + B and drawn only where both terms are defined (A > 0 and B > 0), '
+      + 'and the origin-pinned a₀/√E ⊕ 0, always. The affine a/√E + b is drawn in the 1/√E view and stays in the fit table; on that view the quadrature fit is tabled, never drawn.',
+    `Each curve is solid over the span of the windows it was fitted to (the lowest window edge to the highest: ${spanRule}) and dashed beyond it, up to ${formatNumber(x.max)} GeV and down to ${curveMin} GeV; `
+      + `no curve is drawn below ${curveMin} GeV, the lowest window edge any fit can use. Its 95% band continues over the dashed parts at one third of its strength.`,
+    `The energy axis is linear from 0 to ${formatNumber(x.max)} GeV in steps of ${formatNumber(x.interval)} GeV${Number.isFinite(model.dataMaxGev) ? `; the highest window edge is ${formatNumber(model.dataMaxGev)} GeV` : ''}. `
+      + `σ/E starts at zero and ends at ${pct(y.hi)}${y.provisional ? ' (provisional)' : ''}.`,
+    ...model.notes.map((note, i) => (i === 0 ? rangeBasis(note) : note)).filter(Boolean).map(sentence),
+    'The ratio panel shares the energy axis. A window is drawn as its σ/E divided by the reference at its E and its whisker, where it has one, as the two ends of its interval divided the same way; each drawn fit is divided by the reference too, with its band divided the same way; the fit that is the reference is not drawn, being 1 by construction.',
+    ...refLines,
+    `The ratio axis is logarithmic and symmetric about 1, from ${kText}, so a factor k above 1 and a factor k below lie at equal distances from the 1.0 rule; `
+      + `k is the first of ${RATIO_STEPS.map(String).join(', ')} that covers the robust ratio marks, the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), `
+      + 'each against a reference that is neither provisional nor of a form that does not describe its windows. No fit sets it: a fit\'s ratio that leaves the axis is clipped there with a caret. '
+      + `The ladder ends at ${RATIO_STEPS[RATIO_STEPS.length - 1]}, and a robust mark beyond it is clipped with a caret.`,
+    'The fit table under the plot keeps the three rows per series in the 1/√E view\'s order, affine, origin-pinned and quadrature, named for this view: the affine fit "drawn in the 1/√E view", the origin-pinned fit "drawn", the quadrature fit "drawn" or "not drawn" with its reason.',
+  ]);
+
+  // ---- Disclosures
+  const dis = [];
+  if (y.provisional) {
+    // What sets a provisional range: the response's weaker windows, counted over every series (the range is the response's).
+    const reported = (payload.series ?? []).flatMap((s) => s.windows ?? [])
+      .filter((w) => Number.isFinite(w.value) && (w.n ?? 0) >= gates.report_n);
+    const weakFrom = reported.filter((w) => (w.p_lo ?? 0) >= model.yMinGev && w.n < gates.fit_n).length;
+    const belowFloor = reported.filter((w) => (w.p_lo ?? 0) < model.yMinGev).length;
+    const by = [
+      weakFrom && `the ${plural(weakFrom, 'window')} of N < ${formatInt(gates.fit_n)} from ${yMin} GeV`,
+      belowFloor && `the markers of the ${plural(belowFloor, 'window')} below ${yMin} GeV`,
+    ].filter(Boolean);
+    dis.push(`The y range is provisional: no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}${by.length
+      ? `, so it is set by weaker windows of the response, ${by.join(' and ')}`
+      : ', and no window of the response reports σ/E, so nothing on the plot sets it'}.`);
+  } else {
+    dis.push(`The y range follows the windows alone, from zero: those with N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV, whiskers included. A fit summarises its windows and is not more evidence, `
+      + `so no fitted curve, band or extrapolation sets it; a window below ${yMin} GeV never sets it, whatever its N.`);
+  }
+  const parts = [
+    clipped.markers && plural(clipped.markers, 'marker'),
+    clipped.whiskers && plural(clipped.whiskers, 'whisker'),
+    clipped.fits && plural(clipped.fits, 'fit'),
+    clipped.literature && plural(clipped.literature, 'literature curve'),
+  ].filter(Boolean);
+  if (parts.length) {
+    dis.push(`Clipped at the top of the main panel (${pct(y.hi)}) ${inForce(model, shower)}, each with a caret and its true values in its tooltip: ${parts.join(', ')}.`);
+  }
+  const offEntries = model.offScale.reduce((a, g) => a + g.entries.length, 0);
+  if (offEntries) {
+    dis.push(`${plural(offEntries, 'window')} ${offEntries === 1 ? 'lies' : 'lie'} above the top of the axis (${pct(y.hi)}), drawn clipped with a caret and listed by window: `
+      + `${model.offScale.map((g) => `${g.label} — ${g.entries.map((e) => `${e.short} ${pct(e.value)} (N = ${formatInt(e.n)})`).join(', ')}`).join('; ')}.`);
+  }
+  const cutFits = drawn.filter(({ f }) => f.cut);
+  if (cutFits.length) {
+    dis.push(`${plural(cutFits.length, 'fit')} ${cutFits.length === 1 ? 'leaves' : 'leave'} the top of the main panel, line or band, each clipped there with a caret whose tooltip gives its true values: `
+      + `${cutFits.map(({ s, f }) => `${s.label}, ${ENERGY_FORM_NAMES[f.form]}${f.provisional ? ' (provisional)' : ''} `
+        + `${f.cut.lineAt !== null ? 'line and band' : 'band'}, highest ${pct(f.cut.peak[3])} at E = ${sig(f.cut.peak[0])} GeV`).join('; ')}. `
+      + 'The range follows the windows alone, so no curve, band or extrapolation sets it.');
+  }
+  const misfits = misfitLine(drawn, gates, (form) => ENERGY_FORM_NAMES[form]);
+  if (misfits) dis.push(misfits);
+  const floorCut = drawn.filter(({ f }) => f.floorCut);
+  if (floorCut.length) {
+    const why = [
+      floorCut.some(({ f }) => f.form === 'quadrature') && 'for the quadrature fit, where the band of (σ/E)² falls below zero, its lower edge is cut at 0',
+      floorCut.some(({ f }) => f.form === 'pinned') && 'for the origin-pinned fit, where a₀/√E − q·SE(a₀)/√E would be negative, its lower edge is cut at σ/E = 0',
+    ].filter(Boolean);
+    dis.push(`${plural(floorCut.length, 'fit')} ${floorCut.length === 1 ? 'has the lower edge of its band' : 'have the lower edges of their bands'} cut at 0: `
+      + `${floorCut.map(({ s, f }) => `${s.label}, ${ENERGY_FORM_NAMES[f.form]}`).join('; ')}; ${why.join('; ')}.`);
+  }
+  const outlined = model.bandsOutlined;
+  if (outlined.main || outlined.ratio) {
+    const listed = ['main', 'ratio'].map((panel) => [panel, outlined.entries.filter((b) => b.panel === panel)])
+      .filter(([, list]) => list.length)
+      .map(([panel, list]) => `${panel === 'main' ? 'main panel' : 'ratio panel'}: ${list.map((b) => outlinedBandName(b, sig)).join('; ')}`);
+    const n = outlined.main + outlined.ratio;
+    dis.push(`${plural(n, 'band')} ${n === 1 ? 'spans' : 'span'} half ${n === 1 ? 'its' : 'their'} axis or more at some energy over the fitted windows, `
+      + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash: ${listed.join('; ')}. `
+      + 'A small ν makes such a band wide: once S > 1 scales the covariance, q is Student\'s t of the fit\'s own ν, 12.7 at ν = 1.');
+  }
+  if (!drawn.length) {
+    dis.push('No fit is drawn for this selection, so the main panel shows windows only and the ratio panel marks only.');
+  } else if (!model.spans.shared) {
+    // One clause per span, the fits that share it named by shower, estimator and form.
+    const bySpan = new Map();
+    for (const b of model.spans.bySeries) {
+      const key = spanGeV(b.span);
+      const short = model.series.find((x) => x.key === b.key)?.short ?? b.label;
+      bySpan.set(key, [...(bySpan.get(key) ?? []), `${short} ${b.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E ⊕ 0'}`]);
+    }
+    dis.push(`The fits were not all fitted over the same windows, so their solid parts differ: ${[...bySpan].map(([span, names]) => `${span} for ${names.join(', ')}`).join('; ')}; each is dashed beyond its own span.`);
+  }
+  for (const s of model.series) {
+    for (const form of ENERGY_FORMS) {
+      const f = s.fits[form];
+      if (!f || f.drawable) continue;
+      const q = f.fit?.params;
+      const numbers = form === 'quadrature' && q && Number.isFinite(q.a2) && Number.isFinite(q.b2)
+        ? ` (A = ${sig(q.a2)} ± ${sig(q.se_a2)} %²·GeV, B = ${sig(q.b2)} ± ${sig(q.se_b2)} %²)` : '';
+      dis.push(`${s.label}: the ${ENERGY_FORM_NAMES[form]} is not drawn, ${f.reason}${numbers}; it stays in the fit table.`);
+    }
+  }
+  for (const s of model.series) {
+    const mf = s.mf;
+    if (!mf) continue;
+    if (mf.provisional) dis.push(`${s.label}: the fits are provisional, through windows of N ≥ ${formatInt(gates.whisker_n)}, because fewer than two windows reach N = ${formatInt(gates.fit_n)}; drawn faded.`);
+    if (mode === 'anchors') for (const sub of mf.substitutions ?? []) dis.push(`${s.label}: ${sentence(sub.reason)}`);
+    for (const [form, fit] of [['affine', mf.affine], ['pinned', mf.pinned], ['quadrature', mf.quadrature]]) {
+      if (!fit) continue;
+      const name = form === 'affine' ? 'affine fit (tabled in this view)' : ENERGY_FORM_NAMES[form];
+      const bandDrawn = form !== 'affine' && s.fits[form]?.drawable;
+      if (!(fit.ndf > 0)) dis.push(`${s.label}, ${name}: ν = 0, the fit passes through its points exactly and has no χ² test.`);
+      if (fit.scale_factor > 1) {
+        dis.push(`${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so its standard errors are scaled by S = ${sig(fit.scale_factor)} (PDG)`
+          + `${bandDrawn ? `, and its band takes Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(fit.band_quantile, 4)} rather than 1.96, since S is estimated from the fit's own ν = ${formatInt(fit.ndf)}` : ''}.`);
+      }
+      if (fit.converged === false) {
+        dis.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${form === 'quadrature' ? 'fit' : 'line'}, not a fixed point.`);
+      }
+    }
+  }
+  const weak = points.filter((p) => p.weak && !p.subFloor);
+  const weakFitted = weak.filter((p) => p.fitted).length;
+  const weakAlone = weak.length - weakFitted;
+  if (weakFitted) dis.push(`${plural(weakFitted, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakFitted === 1 ? 'its' : 'their'} χ² whisker and fitted, in a provisional fit.`);
+  if (weakAlone) dis.push(`${plural(weakAlone, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakAlone === 1 ? 'its' : 'their'} χ² whisker, not fitted.`);
+  const sub = points.filter((p) => p.subFloor).length;
+  if (sub) dis.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: σ/E is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
+  const below = points.filter((p) => p.below4);
+  if (below.length) {
+    dis.push(`${plural(below.length, 'window')} below ${curveMin} GeV ${is(below.length)} drawn as ${below.length === 1 ? 'a point' : 'points'} only: no fit uses ${below.length === 1 ? 'it' : 'them'}, and no curve is drawn there.`);
+  }
+  const lowRange = points.filter((p) => (p.w.p_lo ?? Infinity) < model.yMinGev);
+  if (lowRange.length) {
+    const they = lowRange.length === 1 ? 'it' : 'they';
+    dis.push(`${plural(lowRange.length, 'drawn window')} start${lowRange.length === 1 ? 's' : ''} below ${yMin} GeV: ${y.provisional
+      ? `${they} set the y range only provisionally, by ${lowRange.length === 1 ? 'its marker' : 'their markers'}, while no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}, and never the ratio range`
+      : `${they} never set the y range or the ratio range`}.`);
+  }
+  const belowAnchors = model.series.filter((s) => s.points.some((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev));
+  if (mode === 'all' && belowAnchors.length) {
+    const names = [...new Set(belowAnchors.flatMap((s) => s.points
+      .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
+    dis.push(`This mode fits every window from ${curveMin} GeV, ${names.join(', ')} included (${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, `
+      + 'the anchors\' floor, the sampling fraction is still rising and a/√E ⊕ b may not describe σ/E.');
+  }
+  for (const s of model.series) {
+    if (!s.unreported.length) continue;
+    dis.push(`${s.label}: on the axis but not drawn, σ/E not estimable: `
+      + `${s.unreported.map((w) => `${w.label} (${(w.n ?? 0) < gates.report_n ? `N = ${formatInt(w.n ?? 0)}` : 'R̄ ≤ 0'})`).join(', ')}; σ/E is reported from N = ${formatInt(gates.report_n)}.`);
+  }
+
+  // The ratio panel.
+  dis.push(ratio.provisional
+    ? `The ratio range, ${kText}, is provisional: no window of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV gives a ratio mark against a reference that is neither provisional nor of a form that does not describe its windows, so k is set by the markers alone, or is 2 without any; no fit sets it.`
+    : `The ratio range, ${kText}, follows the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), each against a reference that is neither provisional nor of a form that does not describe its windows; no fit sets it.`);
+  if (ratio.capped) {
+    const cap = RATIO_STEPS[RATIO_STEPS.length - 1];
+    dis.push(`The ratio axis is capped at ×${cap}, the last step of its ladder: ${plural(ratio.capped, 'robust ratio mark')} ${ratio.capped === 1 ? 'reaches' : 'reach'} beyond it (whiskers included), `
+      + 'clipped there with carets whose tooltips give the true values.');
+  }
+  const ratioParts = [
+    ratio.clipped.markers && plural(ratio.clipped.markers, 'marker'),
+    ratio.clipped.whiskers && plural(ratio.clipped.whiskers, 'whisker'),
+    ratio.clipped.fits && plural(ratio.clipped.fits, 'fit'),
+    ratio.clipped.bands && plural(ratio.clipped.bands, 'reference band'),
+    ratio.clipped.literature && plural(ratio.clipped.literature, 'literature ratio line'),
+  ].filter(Boolean);
+  if (ratioParts.length) {
+    dis.push(`Clipped at the ratio axis (${kText}) ${inForce(model, shower)}, each with a caret and its true values in its tooltip: ${ratioParts.join(', ')}.`);
+  }
+  if (ratio.clipped.bands) {
+    dis.push(`${plural(ratio.clipped.bands, 'reference band')} about 1 ${is(ratio.clipped.bands)} clamped at the ratio axis, a muted wash with one muted caret where it first leaves the axis, scanning up in E.`);
+  }
+  if (points.some((p) => p.ratio.drawn && Number.isFinite(p.ratio.lo))) {
+    dis.push(`A ratio whisker is the window's 95% χ² interval divided by ${lit ? 'the literature curve' : 'the reference fit'} at its E: it is conditional on the reference, ${ref.label}, `
+      + `and does not include the reference's own uncertainty. ${lit
+        ? 'The literature curve has no interval reported, so none is carried.'
+        : 'The reference fit\'s own band about 1 is drawn beside it, not folded in.'}`);
+  }
+  if (ratio.belowNotDrawn) {
+    dis.push(`${plural(ratio.belowNotDrawn, 'window')} below ${curveMin} GeV ${is(ratio.belowNotDrawn)} not drawn on the ratio panel: the deposit fit is drawn from ${curveMin} GeV, so the reference has no value there.`);
+  }
+  for (const r of ratio.noReference) {
+    dis.push(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${sentence(r.reason)}`);
+  }
+  if (!lit) {
+    for (const r of Object.values(ref.byShower)) {
+      const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s` : 'The deposit';
+      if (r.provisional) dis.push(`${owner} reference fit is provisional: its ratio marks are conditional on a fit through windows of N < ${formatInt(gates.fit_n)}, so none of them sets the ratio range.`);
+      if (r.misfit) {
+        const which = `${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s reference, its deposit's` : 'The reference, the deposit\'s'} `
+          + `${r.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E'} fit,`;
+        dis.push(`${which} does not describe its windows (S = ${sig(r.fit.scale_factor)} > ${formatNumber(gates.misfit_scale)}, χ²/ν = ${sig(r.fit.chi2 / r.fit.ndf)}): `
+          + 'its ratio marks are conditional on a form its own windows reject, so none of them sets the ratio range.');
+      }
+    }
+  }
+
+  // The literature curves drawn.
+  if (model.literature.length) {
+    dis.push(`The literature curves are the two legend curves of one figure, ${REFERENCE_SOURCE.figure}, supplied by ${REFERENCE_SOURCE.by} on ${REFERENCE_SOURCE.supplied} `
+      + `(record ${REFERENCE_SOURCE.record}): ${RESOLUTION_REFERENCES.map((e) => referenceEquation(e)).join(' and ')}, transcribed as the legend prints them.`);
+    dis.push('Each is a documented point estimate with no interval reported and none derived: no band is drawn for it, and a ratio taken against it carries none of its uncertainty.');
+    dis.push(`They are ${REFERENCE_SOURCE.scope}: a reference to compare with, never a statement about this detector.`);
+    dis.push('The figure does not state the energy range either curve was fitted over; each is drawn over the whole axis, and no part of it can be marked as extrapolated.');
+    const crossing = model.literature.filter((l) => l.cut).map((l) => l.entry.particle);
+    const ratioOut = model.literature.filter((l) => l.ratio?.cut).map((l) => l.entry.particle);
+    dis.push(`No literature curve sets a range on either panel${crossing.length
+      ? `; the ${crossing.join(' and ')} curve${crossing.length > 1 ? 's cross' : ' crosses'} the top of the main panel, clipped there with a caret` : ''}${ratioOut.length
+      ? `; the ${ratioOut.join(' and ')} curve's ratio leaves the ratio axis, clipped there with a caret` : ''}.`);
+  }
+  dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
+  dis.push('MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.');
+  if (m.source === 'xgb') dis.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
+  dis.push('E is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
+  if (model.series.some((s) => s.isB)) {
+    const raised = model.series.filter((s) => s.isB && s.lineOpacity(false) > 0.7 + 1e-6)
+      .map((s) => `${s.short} at ${Math.round(100 * s.lineOpacity(false))}%`);
+    dis.push(`Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (${raised.length ? `${raised.join(', ')} on this card` : 'no hue needs it on this card'})`
+      + `${model.twoOnShow ? ', so the end labels "A" and "B" name the shower' : ''}; on this view the dash means extrapolation, so shower B gives up the long dash the 1/√E view gives it.`);
+  }
+  dis.push(...metaDisclosures(payload));
+  notes.section(SECTION.disclosures, dis);
+
+  // ---- Marks and legend
+  const extrapolation = model.noteText.extrapolation;
+  notes.section(SECTION.legend, [
+    'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in the series\' colour at each curve\'s right end, in a column beside the plot, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
+    'The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is the quadrature a/√E ⊕ b, the thinner the origin-pinned a₀/√E ⊕ 0. '
+      + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is provisional or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
+    `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
+    'The shaded bands are the fits\' 95% confidence bands: the quadrature band is the square root of the band of z = (σ/E)² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band\'s strength; q is 1.96, or Student\'s t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters\' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series\' colour, solid over the span and dashed beyond, never as a wash.',
+    literatureLegendLine(model),
+    `The ratio panel: the 1.0 rule in ink marks σ/E equal to the reference; ${lit
+      ? 'no band about 1 is drawn, since the literature curve has no interval reported'
+      : 'a muted wash is the reference fit\'s own 95% band about 1, fainter beyond its fitted span (two thin muted edges where it spans half the axis or more within that span)'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
+    `A linked crosshair crosses both panels at one E and reads it on the bottom axis, an exact coordinate readout and no data mark; the item tooltips carry the values. A caret at an axis edge marks a mark clipped there, its true values in its tooltip; a muted caret on the ratio panel marks where the reference's band about 1 leaves it. The note above the plot lists the windows above the top${extrapolation ? ` and states the extrapolation rule ("${extrapolation}")` : ''}. A legend entry shows or hides every mark of its series.`,
+  ]);
+  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, view: 'energy', reference, literature }));
+}
+
+/**
+ * The notes of the resolution card: σ/E against 1/√E with its fits. `windows`
+ * ('anchors' | 'all') and `shower` are the card's render options; the drawer
+ * describes the mode in force and the series the shower choice draws, through
+ * the panel's own pure model, so it never states what the plot does not show.
+ * `view` 'energy' hands over to the E view's drawer (`reference` is its ratio
+ * panel's `literature`, the curves drawn, which decide its ratio's reference;
+ * the older single `reference` where it is absent); any other view is this
+ * one, unchanged.
+ */
+export function resolutionScalingNotes({
+  payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
+  view = 'linear', reference = 'deposit', literature = undefined,
+} = {}) {
+  if (!payload) return null;
+  if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature });
+  const notes = new Notes(title ?? RES_SCALING_TITLE);
+  const model = resolutionModel(payload, { windows, shower });
+  if (!model) {
+    notes.section(SECTION.disclosures, ['This response carries no energy-resolution series.', ...metaDisclosures(payload)]);
+    return notes.done([]);
+  }
+  const { gates, mode } = model;
+  const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
+  const sig = (v) => sigFigs(v, 3);
+  const m = payload.model ?? {};
+
+  // ---- Selection
+  notes.section(SECTION.selection, resSelectionLines(payload, state, experiment, model, shower));
 
   // ---- What is drawn
   const labels = (payload.series ?? []).map((s) => s.label).filter(Boolean);
@@ -618,18 +1057,34 @@ export function resolutionScalingNotes({
 
   // ---- Disclosures
   const disclosures = [];
-  if (model.y.provisional) disclosures.push(`The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows.`);
-  else disclosures.push(`The y range follows the windows with N ≥ ${formatInt(gates.fit_n)} (whiskers included) and the non-provisional fits, from zero.`);
+  if (model.y.provisional) disclosures.push(`The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows; no fit sets it.`);
+  else {
+    disclosures.push(`The y range follows the windows with N ≥ ${formatInt(gates.fit_n)} (whiskers included) alone, from zero: a fit summarises its windows and is not more evidence, `
+      + 'so no fitted line or band sets it.');
+  }
   const clipped = model.clipped.markers + model.clipped.whiskers;
   if (clipped) {
-    disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window and fit, both modes: ${formatInt(model.y.n_clipped)}).`);
+    disclosures.push(`Clipped at the axis in this view, each with a caret and its true values in its tooltip: ${plural(model.clipped.markers, 'marker')}, ${plural(model.clipped.whiskers, 'whisker')} (the server's count over every on-axis window of every series, both modes: ${formatInt(model.y.n_clipped)}).`);
   }
   const cutFits = model.series.flatMap((s) => DRAWN_FORMS.map((f) => s.fits[f]).filter((f) => f?.cut).map((f) => [s, f]));
   if (cutFits.length) {
     disclosures.push(`${plural(cutFits.length, 'fit')} ${cutFits.length === 1 ? 'leaves' : 'leave'} the top of the plot, line or band, each clipped there with a caret whose tooltip gives its true values: `
       + `${cutFits.map(([s, f]) => `${s.label}, ${f.form === 'affine' ? 'affine' : 'origin-pinned'}${f.provisional ? ' (provisional)' : ''} `
         + `${f.cut.lineAt !== null ? 'line and band' : 'band'}, highest ${pct(f.cut.peak[3])} at x = ${formatNumber(f.cut.peak[0], 3)}`).join('; ')}. `
-      + `The range follows the windows of N ≥ ${formatInt(gates.fit_n)} and the lines fitted through them; a provisional fit and a band never set it.`);
+      + 'The range follows the windows alone, so no line or band sets it.');
+  }
+  const lineName = (form) => (form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E');
+  const drawnFits = model.series.flatMap((s) => DRAWN_FORMS.map((form) => ({ s, f: s.fits[form] })).filter(({ f }) => f));
+  const misfits = misfitLine(drawnFits, gates, lineName);
+  if (misfits) disclosures.push(misfits);
+  // The bands drawn as their edges, as the E view lists them: a band that spans half its axis or more over its fitted windows.
+  const outlined = drawnFits.filter(({ f }) => f.outlined);
+  if (outlined.length) {
+    const n = outlined.length;
+    disclosures.push(`${plural(n, 'band')} ${n === 1 ? 'spans' : 'span'} half ${n === 1 ? 'its' : 'their'} axis or more at some x over the fitted windows, `
+      + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin solid edges in the series' colour, never as a wash: `
+      + `${outlined.map(({ s, f }) => `${s.label}, ${lineName(f.form)}${bandWhy(f.fit, sig)}`).join('; ')}. `
+      + 'A small ν makes such a band wide: once S > 1 scales the covariance, q is Student\'s t of the fit\'s own ν, 12.7 at ν = 1.');
   }
   for (const s of model.series) {
     const off = (s.raw.windows ?? []).filter((w) => w.off_axis);
@@ -708,7 +1163,10 @@ export function resolutionScalingNotes({
   notes.section(SECTION.legend, [
     'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
     `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
-    'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it.',
+    'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it. '
+      + 'A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is drawn as two thin solid edges in the series\' colour, never as a wash; this view marks no extrapolation, so the edges are not dashed beyond those windows.',
+    `A fit drawn faded, its line and its band alike, is provisional (fewer than two windows of N ≥ ${formatInt(gates.fit_n)}) or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); `
+      + 'no fit, faded or not, sets the range.',
     'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker, whisker, fitted line or band clipped there, its true values in its tooltip. A legend entry shows or hides every mark of its series.',
   ]);
   return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower }));
@@ -781,6 +1239,23 @@ export function modelsHazards(payload, card, opts = {}) {
   }
   if (card === 'prim-rate') {
     if (rateBins(payload).some((b) => b.n < WIDE_BELOW_N)) out.push('small bins');
+    return out;
+  }
+  if (card === 'res-scaling' && opts.view === 'energy') {
+    const model = energyModel(payload, opts);
+    if (!model) return out;
+    const drawn = model.series.flatMap((s) => ENERGY_FORMS.map((form) => s.fits[form]).filter((f) => f?.drawable));
+    if (drawn.some((f) => f.provisional)) out.push('provisional fit');
+    if (model.series.some((s) => s.points.some((p) => p.weak))) out.push('weak windows drawn');
+    if (model.y.provisional) out.push('provisional range');
+    if (model.ratio.provisional) out.push('provisional ratio range');
+    if (model.clipped.markers || model.clipped.whiskers || model.clipped.fits || model.clipped.literature || model.clipped.ratio) {
+      out.push('marks clipped at the axis');
+    }
+    const fitsOf = (s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature].filter(Boolean);
+    if (model.series.some((s) => fitsOf(s).some((fit) => fit.converged === false))) out.push('fit not converged');
+    // A drawn literature curve is a documented point estimate, reference or not (CLAUDE.md §2's recorded exception).
+    if (model.literature.length) out.push('no interval reported');
     return out;
   }
   if (card === 'res-scaling') {

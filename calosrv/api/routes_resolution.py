@@ -7,6 +7,12 @@ anchors and every eligible window) and each mode's three fits. The shower and
 the window mode are switched in the browser, with no request
 (``query/resolution_scaling.py``).
 
+The same response serves both of the card's views: the 1/√E view and the E
+view, σ/E against E in GeV with its ratio panel. The E view draws the same
+windows at E = 1/x², its curves from the fits' parameters, and reads its own
+axes from ``axis.energy`` and each mode's fitted ``span_gev``, so the view
+toggle sends no request either.
+
 ``coord_system`` picks the energy network's input frame on two-shower data
 (the D-frame's view asks for ``lab``, whose networks it uses); on the other
 kinds it is validated and stated in ``meta`` as not applying.
@@ -75,8 +81,9 @@ def get_resolution_scaling(
         at = steps.index(step)
         return steps[at + 1] if at + 1 < len(steps) else None
 
-    # About 53 KB for two showers with a network (the recorded fixture: four series over
-    # 16 windows, each series' fits about 6 KB, the notes about 5 KB) and about 60 KB at
+    # 56,388 bytes for two showers with a network (the recorded fixture, measured on
+    # 2026-11-10: four series over 16 windows, each series' fits about 6 KB, the notes about
+    # 5 KB, the E view's axis, spans and quadrature ρ and quantiles 1.6 KB) and about 62 KB at
     # 20 windows; the ladder guards a dataset with many more windows than the producers write.
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

@@ -58,10 +58,11 @@
 
 import { getJson, abortRequest, isAbort } from './api.js';
 import { LazyCards, requestKey, isRefusal } from './lazy_cards.js';
-import { SECTION, notesText, warningsNotShown } from './panel_notes.js';
+import { SECTION, notesText, warningsNotShown, withHiddenLegend } from './panel_notes.js';
 import { describeError } from './page_common.js';
 import { viewFrame, effectiveSpecies } from './capabilities.js';
 import { MODELS_LABELS, featureChoices } from './labels.js';
+import { RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
 
 /** Where each panel class lives; fetched on first use. Literal specifiers, so the server stamps them. */
 const PANEL_MODULES = {
@@ -251,6 +252,9 @@ export const DEFAULT_CONTROLS = Object.freeze({
   perfShower: 'both',
   predShower: 'both',
   resShower: 'both',
+  resView: 'linear',
+  // The literature curves drawn, both by default: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
+  resLiterature: 'pi,e',
   resWindows: 'anchors',
   resScalingShower: 'both',
   tableStat: 'median',
@@ -485,8 +489,56 @@ const TABLE_STAT_CONTROL = {
  * repaints. */
 const RES_WINDOWS_CONTROL = {
   name: 'resWindows', kind: 'seg', attr: 'resWindows', label: 'Windows',
-  choices: () => MODELS_LABELS.res_windows,
+  choices: ({ controls } = {}) => (controls?.resView === 'energy'
+    ? MODELS_LABELS.res_windows_energy : MODELS_LABELS.res_windows),
 };
+
+/* The resolution card's view: the reversed 1/sqrt(E) axis, or the energy in
+ * GeV with extrapolated fits and a ratio panel. Render-only: one response
+ * serves both, and it is never in a link or an Admin default. */
+const RES_VIEW_CONTROL = {
+  name: 'resView', kind: 'seg', attr: 'resView', label: 'View',
+  choices: () => MODELS_LABELS.res_view,
+};
+
+/** The literature toggles' keys from their stored value ('' | 'pi' | 'e' | 'pi,e'), in the catalogue's order. */
+export function literatureKeys(value) {
+  const asked = typeof value === 'string' ? value.split(',') : [];
+  return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => asked.includes(key));
+}
+
+/* The E view's literature curves, one toggle each, both on by default
+ * (Martin's requests of 2026-11-11). They are also the ratio panel's
+ * reference: the curve on, the one the windows lie farther from with both on
+ * (panels/resolution_scaling.js `ratioReferenceChoice`), and each shower's
+ * deposit fit with neither. Render-only, never in a link; E view only. */
+const RES_LITERATURE_CONTROL = {
+  name: 'resLiterature', kind: 'toggles', attr: 'resLiterature', label: 'Literature curves',
+  choices: () => RESOLUTION_REFERENCES.map((entry) => ({
+    value: entry.key,
+    label: entry.particle,
+    title: `Draw or hide ${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported. `
+      + 'The ratio panel divides by the curve drawn, by the one the windows lie farther from when both are, '
+      + 'and by each shower\'s deposit fit when neither is.',
+  })),
+  pressed: ({ controls }, choice) => literatureKeys(controls?.resLiterature).includes(choice),
+  toggle: ({ controls }, choice) => {
+    const on = new Set(literatureKeys(controls?.resLiterature));
+    if (on.has(choice)) on.delete(choice);
+    else on.add(choice);
+    return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => on.has(key)).join(',');
+  },
+  visible: ({ controls }) => controls?.resView === 'energy',
+};
+
+const RES_ENERGY_TITLE = 'Energy Resolution vs. E';
+
+/** A card's title under the controls in hand: the resolution card's names its view. */
+export function cardTitle(id, controls = DEFAULT_CONTROLS) {
+  const spec = SPEC[id];
+  if (!spec) return '';
+  return id === 'res-scaling' && controls?.resView === 'energy' ? RES_ENERGY_TITLE : spec.title;
+}
 
 /* The validation-accuracy card's angle axis: render-only, the section's own
  * (never in a link). Log10 draws dots, never bars. */
@@ -499,7 +551,7 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_WINDOWS_CONTROL, showerControl('resScalingShower')],
+  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -648,6 +700,8 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     if (predLabelApplies(plan, v)) opts.label = v.xgb_label;
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
   } else if (spec.group === 'res-scaling') {
+    opts.view = c.resView;
+    opts.literature = literatureKeys(c.resLiterature);
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
   } else if (spec.section === 'features') {
@@ -664,11 +718,21 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   return opts;
 }
 
-/** What an exported figure is named by: its response's meta and frame. */
-export function exportMeta(payload) {
+/** What an exported figure is named by: its response's meta and frame, and the resolution card's view. */
+export function exportMeta(payload, opts = null) {
   const meta = { ...(payload?.meta ?? {}) };
   const coord = meta.coord_system ?? payload?.coord_system;
   if (coord) meta.coord_system = coord;
+  // The resolution card's E view is another figure of the same response, so its file names the
+  // view and what its ratio divides by (export/filename.js).
+  if (opts?.view === 'energy') {
+    meta.view = 'energy';
+    // The curves drawn name the figure: the deposit fit is the ratio's reference with none, the curve with one;
+    // with both, the reference follows from the windows and is named on the ratio axis.
+    const drawn = Array.isArray(opts.literature) ? opts.literature : [];
+    if (drawn.length > 1) meta.literature = drawn;
+    else meta.reference = drawn[0] ?? 'deposit';
+  }
   return meta;
 }
 
@@ -839,7 +903,7 @@ export class ModelsSection {
     return record;
   }
 
-  /** One toolbar control: a segmented group of buttons, or a select. */
+  /** One toolbar control: a segmented group of buttons (one pressed, or any number for `toggles`), or a select. */
   buildControl(id, control) {
     if (control.kind === 'select') {
       const select = document.createElement('select');
@@ -862,7 +926,9 @@ export class ModelsSection {
       button.dataset[control.attr] = choice.value;
       button.textContent = choice.label;
       if (choice.title) button.title = choice.title;
-      button.addEventListener('click', () => this.setControl(control, choice.value));
+      // A toggle adds its choice to the control's value or takes it out; a segment button is the value.
+      button.addEventListener('click', () => this.setControl(control, control.kind === 'toggles'
+        ? control.toggle(this.ctx(null), choice.value) : choice.value));
       buttons.set(choice.value, { button, title: choice.title ?? '' });
       group.append(button);
     }
@@ -911,13 +977,16 @@ export class ModelsSection {
             }
             const { button, title } = entry;
             const reason = control.choiceDisabled ? control.choiceDisabled(ctx, choice) : null;
-            button.classList.toggle('is-active', choice === value);
-            button.setAttribute('aria-pressed', String(choice === value));
+            const pressed = control.kind === 'toggles' ? Boolean(control.pressed(ctx, choice)) : choice === value;
+            button.classList.toggle('is-active', pressed);
+            button.setAttribute('aria-pressed', String(pressed));
             button.disabled = Boolean(reason);
             button.title = reason ?? title;
           }
         }
       }
+      const heading = cardTitle(record.spec.id, this.controls);
+      if (record.title.textContent !== heading) record.title.textContent = heading;
       if (record.exporter) record.exporter.disabled = Boolean(record.disabled);
       this.syncCaption(record);
     }
@@ -1008,7 +1077,8 @@ export class ModelsSection {
   setControl(control, value) {
     const ctx = this.ctx(null);
     if (controlValue(control, ctx) === value) return;
-    if (control.choiceDisabled && control.choiceDisabled(ctx, value)) return;
+    // A toggle's value is a set, not a choice: its shut buttons cannot be clicked.
+    if (control.kind !== 'toggles' && control.choiceDisabled && control.choiceDisabled(ctx, value)) return;
     if (control.write || control.stateKey) {
       const patch = control.write ? control.write(ctx, value) : { [control.stateKey]: value };
       // A new classing has other classes: the correlation card goes back to the pool.
@@ -1030,7 +1100,7 @@ export class ModelsSection {
   /** The title of the card an element belongs to, for an error's context. */
   titleOf(element) {
     const record = [...this.cards.values()].find((r) => r.element === element);
-    return record ? record.spec.title : 'models card';
+    return record ? cardTitle(record.spec.id, this.controls) : 'models card';
   }
 
   /** Load the visible stale cards after a control changed, reporting failures one by one. */
@@ -1076,6 +1146,11 @@ export class ModelsSection {
       record.panelPromise = (async () => {
         const Class = await loadPanelClass(record.spec.panel, this.panelClasses, this.panelModules);
         const panel = new Class(record.plot, { card: record.spec.id });
+        // A legend click redraws nothing of the page, but the drawer names
+        // what the legend hides (`notes`): the page rebuilds it.
+        panel.onLegendChange = () => {
+          if (record.payload) this.onRendered(record.spec.id, record.payload);
+        };
         record.panel = panel;
         return panel;
       })();
@@ -1312,24 +1387,25 @@ export class ModelsSection {
   /**
    * The drawer's notes of one card: its builder's, by name from its notes
    * module (models_notes.js, xgb_notes.js), else the payload's own lines; a
-   * card that draws nothing states why.
+   * card that draws nothing states why. A card whose legend hides series the
+   * reader switched off names them in its Marks and legend section.
    */
   notes(id, { state = this.state, experiment = this.getExperiment() } = {}) {
     const record = this.cards.get(id);
     if (!record) return null;
-    const title = record.spec.title;
+    const title = cardTitle(id, this.controls);
     if (record.disabled) return shutNotes(title, record.disabled);
     if (record.notice) return shutNotes(title, record.notice);
     if (!record.payload) return record.error ? shutNotes(title, record.error) : null;
     const [moduleName, builderName] = record.spec.notes;
     const builder = this.notesModules[moduleName]?.[builderName];
-    if (typeof builder !== 'function') return fallbackNotes(title, record.payload);
+    if (typeof builder !== 'function') return withHiddenLegend(fallbackNotes(title, record.payload), record.panel);
     const opts = record.opts ?? {};
     // A panel that changes its own picture without a request (the curves'
     // sliders, the formula chips' highlight) says what it shows now.
     const panelState = record.panel?.notesState?.() ?? null;
     const notes = builder({ ...opts, payload: record.payload, state, experiment, title, card: id, panelState });
-    return notes ?? fallbackNotes(title, record.payload);
+    return withHiddenLegend(notes ?? fallbackNotes(title, record.payload), record.panel);
   }
 
   /** `{panel, meta}` for the exporter; null when nothing is drawn; undefined for a foreign id. */
@@ -1338,7 +1414,7 @@ export class ModelsSection {
     if (!record) return undefined;
     if (!record.spec.exportable || record.element.hidden || record.disabled || record.notice) return null;
     if (!record.panel || !record.payload) return null;
-    return { panel: record.panel, meta: exportMeta(record.payload) };
+    return { panel: record.panel, meta: exportMeta(record.payload, record.opts) };
   }
 
   /**

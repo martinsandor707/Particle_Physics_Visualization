@@ -72,6 +72,16 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - every catalogue card's Details button carries the hazard "no interval reported";
       - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
       - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
+  - **Recorded exception: transcribed literature reference curves** (`calosrv/static/js/catalog/resolution_refs.js`, pinned to `resolution_references.md` by `tests/test_resolution_refs.py`; Martin's decision, 2026-11-10).
+    - **What.** The energy-resolution card's E view (§5) draws either of two curves or both (both by default) and divides its ratio panel by one of them: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
+    - **Why:** the figure prints no uncertainty for either curve and names no source publication. A number that carries no uncertainty cannot be given one by the dashboard.
+    - **The rules:**
+      - no interval is fabricated or derived;
+      - every curve, and every ratio taken against one, says "no interval reported" (tooltip, drawer, hazard);
+      - the legend's printed decimals are kept;
+      - a curve never sets a range;
+      - the drawer says the curves describe that simulation's particles in its η range, never this dataset's detector.
+    - **Left out on purpose:** the figure's Yellow Report requirement bands, whose parameters it does not print, and its digitized points.
 * **Display Ranges Follow Robust Evidence**:
   - An axis range, a colour-scale bound or a histogram range is computed **only from the series that carry real statistical weight**. A fitted curve peaks at $1/(\sigma\sqrt{2\pi})$, so letting an under-powered slice set the scale flattens every well-measured series in service of the least reliable one. Measured on this panel: two 10-event slices peaked at 2.52 and 2.09 GeV⁻¹ against a robust maximum of 0.38, which would have compressed four well-measured slices into the bottom 15% of the canvas.
   - Under-powered estimates adapt to the established range. Where one overflows it, **clip it and say so**: an out-of-bounds indicator at the overflow, the true value in its tooltip, and a count in the panel's Details drawer (the former footnote) — the same disclosure discipline the percentile-clipping rule below demands.
@@ -330,6 +340,24 @@ When working with calorimeter simulation datasets in this repository:
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.
   - **The Marks toggle** (`data-toggle-marks`, on the XY, YZ and XZ cards; `ProjectionPanel.setMarksShown`): one click hides every mark drawn over the raster (anchors, centroids, the ensemble and windowed axes with their wedges, the centre of deposited energy, trajectories, the D vector, the Longitudinal Channels' seams and spotlight) so the shower core reads unobstructed; a second brings them back. It redraws from the payload in hand, with no request, in either theme. The raster, axes, colour bar and calorimeter faces stay. The choice stays with the card across selections, frames and themes but not across a reload, and never enters the view state or the hash. The export follows it, and the drawer says when the marks are hidden.
+  - **A chart remembers its legend** (`panels/chart_panel.js` `withLegendMemory`, `legendHides`, `setOptionWithLegend`, `listenToLegend`; `export/figure.js`; Martin's reports and approval, 2026-11-11).
+    - **The memory:** a series the reader switches off on a chart's legend stays off across every repaint: theme switches, card controls, palettes, relayouts and new payloads. It is the panel's own, never in the view state, the hash or the Admin defaults, like the Marks toggle.
+    - **Where:** every `ChartPanel`, and Page 1's energy card (`panels/energy.js`), which is not one and takes the same memory, events, clear and ink through the shared helpers.
+    - **Why it is needed:** every repaint calls `setOption(…, {notMerge: true})`, which builds a new ECharts model and drops the legend.
+    - **The clear:** while anything is switched off, `paint()` clears the chart before the new option.
+      - **Why:** ECharts 5.5.1 reuses a custom series' view across setOption, and a legend-filtered series keeps elements the filter detached.
+      - Its next diff with fewer items then throws (`el.parent.remove` on null) halfway through the render. That is how the energy-resolution card drew a hidden series' points without its lines and bands after a switch from all windows to the three anchors.
+    - **A hidden entry stays legible** (`legendInactiveInk`, `withInactiveInk`).
+      - **Why:** ECharts draws it, text and swatch, in the legend's `inactiveColor`, which `chartLegend` sets to `THEME.border`: 1.33:1 on the dark card and 1.45:1 on the light one, too faint to find and switch back on.
+      - **The ink:** the faintest tint of `THEME.muted`, the ink of the entries on show, that clears 4.5:1 on the card: `#808993` at 4.56:1 on `#1c2128` (muted 5.26:1), `#6e7780` at 4.55:1 on white (muted 6.11:1). The text, the swatch and a line series' swatch line (ECharts' own `#ccc` otherwise) take it, so the swatch turns grey.
+      - **When:** laid at paint time, only while the memory hides an entry the legend lists, so the builders and the dark golden keep `THEME.border`. The click that hides an entry merges the ink into the legend on show at once, without a repaint, so the legend keeps its page.
+    - **The export follows it:** the hidden series are left out, and their legend entries print greyed at 4.58:1 on white (`#6f7681`, the same rule under the print tokens).
+    - **The drawer names them** (`legendHiddenNames`, `legendHiddenLine`; `panel_notes.js` `withHiddenLegend`).
+      - While any is hidden, the card's Marks and legend section opens with one line: "Hidden on the legend by the reader: X; Y. Click an entry to show it again; an export leaves them out." It names only what the legend on show lists.
+      - It is the reader's own choice, like the Marks toggle, so it raises no hazard.
+      - The energy card's drawer has no Marks and legend section of its own: the line makes one, before Reading the density axis.
+      - It is added where a section assembles a drawer (`models_cards.js`, `physics_section.js`, `main.js`), so no notes builder moves.
+      - A legend event calls the panel's `onLegendChange`: each section re-runs its `onRendered`, and main.js rebuilds the energy card's notes, so an open drawer follows the click.
   - **Longitudinal Channels** (layer groups; Martin's directive and decisions, 2026-11-04).
     - **Where it lives:** `grid/layer_groups.py`, `query/layer_profile.py`, `static/js/layer_groups.js`, `panels/depth_groups.js`, `controls/layer_groups_control.js`.
     - **What.** Thirteen contiguous groups of the lattice's depth layers, numbered by lattice ordinal (60 on production, 56 on the demonstration file).
@@ -380,7 +408,7 @@ When working with calorimeter simulation datasets in this repository:
     - prediction against truth and its residuals;
     - the feature explorer (table, correlations, histogram, 2-D histogram), which draws one shower at a time on two-shower data and never pools A and B;
     - the primary-tag rate;
-    - the energy-resolution scaling, σ/E against 1/√E, in a section of its own;
+    - the energy-resolution scaling, in a section of its own: σ/E against 1/√E, or against E in GeV with a ratio panel;
     - the two 3-D views of the recorded exception above, each with a slice mode;
     - on an aggregate experiment paired with its XGBoost models, the cards E1 (cross-validation), E3 (thresholded classification), E4 (surrogate tree) and E5 (gain importance), plus the XGBoost series of E2 and of the prediction density.
   - **Three subpages** (`static/js/models_subpages.js`, `models_main.js`; hash key `msub`; Martin's decisions, 2026-11-05).
@@ -448,10 +476,76 @@ When working with calorimeter simulation datasets in this repository:
     - **What it plots.** Per 1 GeV momentum window, σ/E = s(R)/R̄ of the per-event ratio R = E_est/p, at x = ⟨1/√p⟩, so the window's momentum spread and the estimator's bias are divided out and the calibration cancels.
     - **Its series.** The detector's calibrated deposit, labelled "Calibrated deposit c·E_dep — linear-sum benchmark" and never called a limit, since a shape-aware model can beat a plain sum; the energy network of the selected frame on two-shower data; the XGBoost momentum hold-out on a paired aggregate.
     - **Its axes.** A reversed axis linear in 1/√E whose right border is the origin (E → ∞); the top axis is the exact relabelling E = 1/x², carrying no data; y from zero.
-    - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV; a window below 4 GeV is off the axis, counted and listed.
-    - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. The quadrature form is tabled, never drawn.
+    - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV, the range set by the windows alone (below); a window below 4 GeV is off the axis, counted and listed.
+    - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. On this view the quadrature form is tabled, never drawn; the E view below draws it.
     - **Its band** is ±1.96 √(gᵀΣg) while the windows' errors stand and ±t₀.₉₇₅,ν √(gᵀΣg) once S > 1 scales Σ: S is then estimated from the fit's own ν, and the normal quantile would understate the interval 6.5× at ν = 1.
+    - **Its wide bands are drawn as their edges**, by the E view's rule below (`OUTLINE_SHARE`), judged over the fitted windows' momentum span mapped by x = 1/√E (`xSpanOf`).
+      - **Why:** once the windows alone set the range (below), the three anchors' ν = 1 affine bands (t₀.₉₇₅,₁ = 12.71) washed over the whole plot.
+      - **Solid along their whole length:** this view marks no extrapolation on its lines, and its dash is shower B's affine line, so a dash beyond the span would give the dash a third meaning.
     - **Its disclosures.** A line or band that leaves the top is clipped with a caret, its true values and a drawer count, as a weak window is; a fit whose weights did not settle says so.
+    - **The windows alone set the σ/E range, in both views** (`query/resolution_scaling.py` `linear_y_axis`, `energy_y_axis`; Martin's decision, 2026-11-11).
+      - **The rule:** no fitted line, curve, band or extrapolation enters either range, provisional or not. One that leaves the top is clipped there, as above.
+      - **Why:** a fit summarises its windows; it is not more evidence. Measured on the five stored experiments (2026-11-11), the deposit's origin-pinned line at 4 GeV (58–72%) set the 1/√E view's top at 70–80% on the three hadron files, whose windows peak at 37–44%, whiskers included.
+    - **A fit that does not describe its windows is drawn faded** (`stats/resolution_fit.py` `MISFIT_SCALE` = 5, `Fit.misfit`; the payload's `misfit` and `gates.misfit_scale`; Martin's decision, 2026-11-11).
+      - **The rule:** ν ≥ 1 and S = √(χ²/ν) > 5, so its residuals average more than five of the windows' own standard errors (RMS). It is drawn faded, as a provisional fit is, in both views, never sets a range, and says so in its tooltip, the fit table and the drawer. It raises no hazard. ν = 0 has no test and is never a misfit.
+      - **Why the size of the misfit, not the χ² p-value:** a window holds hundreds to thousands of events, so its standard error is small and the test rejects a form for misfits no reader could see. On the five stored experiments 71 of the 84 fits with ν ≥ 1 have p < 0.05.
+      - **Why 5:** the calibrated deposit's pinned fits have S = 5.5–28.6, because a deposit's σ/E is mostly a constant term, which a₀/√E cannot hold. The quadrature and affine fits through the same windows have S = 1.1–4.7. At S > 5 the gate flags 21 of the 28 pinned fits and 4 of the 56 quadrature and affine ones; at S > 3 it would flag 23 of those 56.
+    - **Its second view: E (GeV) + ratio** (`panels/resolution_scaling.js` `energyModel` / `energyViewOption`; the payload's `axis.energy`, `span_gev`, `rho_a2b2`; Martin's decisions, 2026-11-10).
+      - **The toggle.** "1/√E linear | E (GeV) + ratio" repaints the one response, so it sends no request. The 1/√E view is untouched, and the dark golden holds it. The view and the literature toggles are card controls, never in the hash or an Admin default.
+      - **What it plots.**
+        - Each window sits at E = 1/⟨1/√p⟩², the image of the 1/√E view's own abscissa, never at ⟨p⟩. So a window on its fitted line there sits on its fitted curve here.
+        - The x axis is linear from 0 to 80 GeV, or to the dataset's top edge when higher. σ/E starts at zero.
+        - "All windows" also draws the windows below 4 GeV, as points no fit uses.
+      - **Its fits.** Each is drawn with its 95% band:
+        - the quadrature a/√E ⊕ b, only where both terms are defined (A > 0, B > 0). Its band is the root of the band in z = (σ/E)², exact because z is linear in (A, B);
+        - the origin-pinned a₀/√E (= a₀/√E ⊕ 0), always.
+
+        The affine fit stays on the 1/√E view. Measured on the eight stored experiments, the quadrature fit has a term undefined on 6 of 8 network series. The affine b < 0 on 5 of them, so an affine curve would extrapolate to 3.9% down to −2.0% at 80 GeV.
+      - **Solid and dashed.**
+        - A curve is solid over the windows it was fitted to (`span_gev`) and dashed beyond, down to 4 GeV and up to the axis end.
+        - Nothing is drawn below 4 GeV, which no fit uses.
+        - The band continues at a third of its strength. It holds the parameters' uncertainty only and assumes the form holds.
+        - **A band that spans half its axis or more is drawn as its two edges, never as a wash** (`OUTLINE_SHARE` = 0.5): the test is the part inside the axis, at one energy of the fitted span, on the panel's own scale.
+          - **Why:** measured on the stored experiments, the three-anchor quadrature bands (ν = 1, t₀.₉₇₅,₁ = 12.71 once S scales them) covered up to 96% of the σ/E axis and fogged every window under them.
+          - **Disclosure:** the band is listed in the drawer and named in its curve's tooltip.
+          - **The reference band:** it contains the ratio axis's centre, 1, so it is outlined as soon as it reaches either end.
+      - **Its range** (`axis.energy.y`). It is set by the windows alone, as on the 1/√E view: those of N ≥ 20 from 2 GeV, whiskers included. A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
+        - **The fallback:** with no robust window from 2 GeV, the range is provisional, set by the windows' markers, those below 2 GeV included. It is never the empty 0–1% default.
+        - **The axis name** reads "provisional, no window from 2 GeV reaches N = 20".
+      - **Off scale.** A clipped window takes a caret, its value in the tooltip and a drawer count. It is also named in a note band reserved above the plot, which also says where the curves extrapolate.
+      - **The ratio panel.**
+        - Every mark is divided by the reference: each shower's deposit fit (⊕ where defined, else pinned; its own band is a wash about 1), or a literature curve (§2's recorded exception).
+        - A ratio whisker is conditional on its reference.
+        - The axis is logarithmic and symmetric about 1, [1/k, k]. Measured ratios run 0.14–5.5, which no linear axis centred on 1 can hold.
+          - k is the first of 1.1 … 10, 20, 50 that covers the robust ratio marks: the windows alone, those of N ≥ 20 from 2 GeV, whiskers included, each against a reference that is neither provisional nor a misfit. No fit ratio sets it; one that leaves [1/k, k] takes a caret. With no robust mark, k follows the markers and the axis says provisional.
+          - Robust marks beyond ×50 are counted, and the axis says "capped at ×50".
+          - The ticks below 1 read 1/x, so 1/3 sits opposite 3.
+      - **Encoding.**
+        - The dash is extrapolation and the width is the form.
+        - Marker fill and line strength are the shower. Shower B's lines are at 70% strength, raised to keep 3:1, so the network hue reaches 91% on the light card.
+        - Because of that, a right-margin column labels every drawn curve end "A" or "B" whenever two showers are on show; each literature curve on show is labelled "π±" or "e±" there too, on either panel.
+          - **Each label is ink text, led by a key stroke** in its curve's own colour, dash, width and strength. Text must clear 4.5:1, which a curve colour need not: the literature hues sit near 3:1 on the dark card, the network teal at 3.39:1 on white.
+        - **One pair of literature toggles, both on by default** (`models_cards.js` `RES_LITERATURE_CONTROL`, a `toggles` control; `resLiterature` 'pi,e', never in a link; Martin's requests, 2026-11-11, superseding the same day's "only the chosen curve" and its separate "÷" reference buttons).
+          - **The buttons:** "π± | e±", each drawing its curve, in any combination, none included.
+          - **The ratio's reference follows them** (`panels/resolution_scaling.js` `ratioReferenceChoice`):
+            - one curve on: that curve;
+            - both on: the one the windows lie farther from, "the one which needs scaling the most". It is the larger median |ln(σ/E ÷ curve)| over the robust windows on show (N ≥ 20 from 2 GeV, the marks that set k), or over every window on show where none is robust; π± on a tie or with no window;
+            - neither on: each shower's deposit fit.
+          - **Measured** (the five stored experiments, 2026-11-11): with both on, e± is the reference on every one. The windows sit a median ×4.2–5.8 from e± and ×2.1–3.0 from π±, since they all lie above both curves.
+          - **On the ratio panel:** the other curve is drawn divided by the reference, one line for every shower (π±/e± ≈ 1.95), with its own end label and caret. It never sets k.
+          - **Why one reference, not the windows against both:** π±/e± is 1.94–2.0 from 4 to 80 GeV, so a second set of ratio marks would repeat every window about a factor 2 apart.
+          - **Disclosure:** each curve on show raises the hazard "no interval reported".
+            - The drawer's Selection lists the curves drawn, and What is drawn says why the reference is the one it is, with both factors. The reference curve's tooltip and the 1.0 rule's say so too.
+            - An export's file name carries `lit-pi-e` with both, `ratio-<curve>` with one, `ratio-deposit` with neither.
+          - **Each has one identity colour in every state** (`palette.js` `LITERATURE_COLOURS`, picked by `THEME.qualitativePalette`, no THEME key): π± a brown, e± a purple. On the dark card they are #b15928 (3.34:1) and #984ea3 (3.05:1); on white, light and print, #a65628 (5.27:1) and #6a3d9a (7.65:1).
+          - **Why these:** ColorBrewer colours, chosen by the largest worst-pair CIEDE2000 against the ink, E2's four hues and each other, under normal vision, deuteranopia and protanopia. The worst pair is 17.2 on the dark card and 8.8 on white. `tests/test_js_literature_colours.py` measures them.
+          - The curve is dotted at 1.6 px, so a hue near 3:1 reads.
+          - The figure does not state the energy range the curves were fitted over, so a curve is drawn over the whole axis, and the tooltip and drawer say so.
+        - There is no series dodge on this view: every window sits at its exact E.
+        - There is no zoom, only a crosshair linked across the two grids.
+        - The literature buttons read "π± | e±". The equations are in their titles and on the ratio axis.
+        - An export's file name carries `energy` and the curves drawn, as above.
+      - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out.
   - **One coordinate system at a time on Views** (`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`; Martin's directives, 2026-11-06).
     - **The rule.** Views draws one 3-D pair (a 3-D card and its three paired projections) at a time, in the frame selected under Reference Frame.
       - The event view is drawn in the Absolute, per-shower translated and Local frames, the ensemble cloud in Local and the D-frame.

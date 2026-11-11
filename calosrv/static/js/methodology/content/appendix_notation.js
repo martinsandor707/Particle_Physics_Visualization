@@ -66,6 +66,8 @@ export default {
         [tx`$\lambda$, $\omega$, $\lambda_0$; $\lambda_\oplus$, $\omega_\oplus$`, tx`stochastic and constant terms of the affine resolution fit; the pinned stochastic term; the quadrature fit's terms`],
         [tx`$\varpi_k$, $T_0, T_\upsilon, T_{\upsilon\upsilon}, T_\varepsilon, T_{\upsilon\varepsilon}$, $\Delta_T$`, tx`fit weight $1/\varsigma_k^2$; its weighted sums and their determinant ([[eq-res-affine]])`],
         [tx`$\chi^2_{\mathrm{fit}}$, $\nu_{\mathrm f}$, $P_\chi$, $\Omega$, $Q$`, tx`a resolution fit's $\chi^2$, degrees of freedom, p-value and PDG scale factor; the regularised upper incomplete gamma ([[eq-res-chi2]])`],
+        [tx`$E_k$; $\varepsilon_{\mathrm{aff}}$, $\varepsilon_0$, $\varepsilon_\oplus$`, tx`a momentum window's place on the E view, $1/\upsilon_k^2$ ([[eq-res-bijection]]); the affine, pinned and quadrature fits written in the energy ([[eq-res-curves-e]])`],
+        [tx`$X$, $\beta$ (local to [[eq-mae-sigma]])`, tx`an error $X \sim \mathcal N(\beta, \sigma^2)$ and its bias, in the mapping from $\sigma$ to the mean absolute error; not the slope $\beta_i$ above`],
         [tx`$n_{\mathrm w}$, $n_{\mathrm{par}}$, $\mathbf g$, $\mathbf V$`, tx`windows fitted, parameters fitted; a line's gradient vector and parameter covariance ([[eq-res-band]])`],
         [tx`$B$, $b_0$, $b_1$, $K$, $\iota$, $\varrho_\iota$`, tx`depth bins of a 3-D view's drawn volume, its first and last, the number of slices, a slice's index and its edge offsets ([[eq-slice-edges]])`],
         [tx`$\mathrm{Ch}_m$, $\bar k_m$, $n_m$, $n_{\mathrm{lay}}$`, tx`Longitudinal Channel $m$, its last layer and its layer count; the lattice's layer count ([[eq-lg-partition]])`],

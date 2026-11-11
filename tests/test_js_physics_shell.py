@@ -907,6 +907,25 @@ out.notes = Object.fromEntries(physics.ids().map((id) => {
   return [id, n ? { title: n.title, headings: n.sections.map((s) => s.heading), lines: n.sections.flatMap((s) => s.lines),
     hazards: n.hazards } : null];
 }));
+// A series the reader switched off on a card's legend: the drawer names it first in Marks and legend, with no
+// hazard; the panel's legend callback re-runs the section's onRendered (which rebuilds the drawer), with no request.
+{
+  const panel = physics.cards.get('profile-w').panel;
+  const callsBefore = calls.length;
+  const rendersBefore = renderedIds.length;
+  panel.legendSelected = { 'SD band': false, 'An entry of another card': false };
+  panel.liveLegend = { data: ['Mean profile', 'SD band'] };
+  const shape = (n) => ({ hazards: n.hazards, sections: n.sections.map((s) => [s.heading, s.lines]) });
+  out.legendLine = { callback: typeof panel.onLegendChange, notes: shape(physics.notes('profile-w')) };
+  panel.onLegendChange(panel);
+  out.legendLine.renders = renderedIds.slice(rendersBefore);
+  out.legendLine.calls = calls.length - callsBefore;
+  panel.legendSelected = { 'SD band': true };
+  out.legendLine.back = shape(physics.notes('profile-w'));
+  delete panel.legendSelected;
+  delete panel.liveLegend;
+  out.legendLine.noMemory = shape(physics.notes('profile-w'));
+}
 const b3Card = cards.find((c) => c.dataset.panel === 'response-b3');
 const b3Table = b3Card.find((el) => el.id === 'fit-table-response-b3');
 const b3Sparse = b3Card.find((el) => el.id === 'energy-sparse-response-b3');
@@ -1120,6 +1139,26 @@ def test_every_drawn_card_has_notes_and_an_export_target(section_results):
     said = " ".join(line for card in notes.values() if card for line in card["lines"])
     for warning in section_results["warnings"]:
         assert " ".join(warning.split()) not in said, warning
+
+
+def test_the_drawer_names_what_the_legend_hides_and_a_legend_click_rebuilds_it(section_results):
+    """A series switched off on a physics card's legend is named in its drawer (Martin's approval, 2026-11-11): one
+    line, first in Marks and legend, naming only what the legend on show lists, and no hazard; the panel's legend
+    callback re-runs the section's onRendered, which rebuilds the drawer, and asks the service nothing."""
+    got = section_results["legendLine"]
+    assert got["callback"] == "function"
+    sections = dict((heading, lines) for heading, lines in got["notes"]["sections"])
+    assert sections["Marks and legend"][0] == ("Hidden on the legend by the reader: SD band. Click its entry to show "
+                                               "it again; an export leaves it out."), sections["Marks and legend"]
+    # The builder's own Marks and legend lines follow, unchanged; nothing else moves, and no hazard is added.
+    assert got["notes"]["hazards"] == got["back"]["hazards"] == got["noMemory"]["hazards"], got
+    back = dict((heading, lines) for heading, lines in got["back"]["sections"])
+    assert sections["Marks and legend"][1:] == back["Marks and legend"], (sections, back)
+    assert {h: ls for h, ls in sections.items() if h != "Marks and legend"} == \
+        {h: ls for h, ls in back.items() if h != "Marks and legend"}
+    assert got["renders"] == [["profile-w", True]] and got["calls"] == 0, got
+    # Switched back on, or a panel without a memory: the builder's notes.
+    assert got["back"] == got["noMemory"], got
 
 
 def test_card_controls_reload_or_repaint(section_results):

@@ -10,7 +10,9 @@ resolution_scaling.py`` chooses which windows):
 * **origin-pinned**, ``r = a₀·x``: a purely stochastic resolution, the line
   through the origin (E → ∞) of the reversed axis;
 * **quadrature**, ``r² = A·x² + B``: the textbook ``a/√E ⊕ b``, fitted as a
-  straight line in ``z = r²`` against ``u = x²`` and tabled, never drawn.
+  straight line in ``z = r²`` against ``u = x²``. On the 1/√E axis it is
+  tabled, never drawn; the card's E view (σ/E against E in GeV) draws it where
+  both terms are defined, ``A > 0`` and ``B > 0``.
 
 **Closed forms, not a solver.** Each is a one- or two-parameter linear WLS
 problem with weights ``w = 1/se²``. With ``S = Σw``, ``Sx = Σwx``,
@@ -46,6 +48,25 @@ Particle Data Group does for inconsistent measurements; the unscaled ones
 travel beside them. ``ν = 0`` (two points, two parameters) is a line through
 both points, with no test of fit and ``p = None``.
 
+**A form that does not describe its windows** (:attr:`Fit.misfit`,
+:data:`MISFIT_SCALE`). ``S = √(χ²/ν)`` is the RMS of the residuals in units of
+the windows' own standard errors. Where ``ν ≥ 1`` and ``S > 5`` they average
+more than five of those errors: the form does not describe the windows,
+whatever its parameters' errors say, and the card draws the fit faded and
+never lets it set a range. The p-value cannot make that call. A window holds
+hundreds to thousands of events, so its standard error is small and the χ²
+test rejects a form for a misfit no reader could see: measured on the five
+stored experiments (2026-11-11), 71 of the 84 fits with ``ν ≥ 1`` have
+``p < 0.05``, every fit of the all-windows mode among them. What separates a
+form that does not describe its windows is how large its misfit is. The
+calibrated deposit's origin-pinned fits have S = 5.5–28.6
+(χ²/ν 31–818): a deposit's σ/E is mostly a constant term, which ``a₀·x``
+cannot hold. The quadrature and affine fits through the same windows have
+S = 1.1–4.7. At ``S > 5`` the gate flags 21 of the 28 pinned fits with
+``ν ≥ 1`` and 4 of the 56 quadrature and affine ones; at ``S > 3`` it would
+flag 23 of those 56, which is why the threshold is 5. ``ν = 0`` has no test,
+and is never a misfit.
+
 **The band** is the 95% confidence band of the fitted line,
 ``ŷ ± q·√(gᵀΣg)`` with ``g = (x, 1)`` (affine) or ``(x)`` (pinned) and ``Σ``
 the scaled covariance: the uncertainty of the aggregate, never the spread of
@@ -55,6 +76,14 @@ estimated from the fit's own ν residual degrees of freedom, and the normal
 quantile would understate the interval (12.71 against 1.96 at ν = 1, the
 affine fit through three anchors). The quantile travels with the fit
 (:attr:`Fit.band_quantile`).
+
+**The quadrature band** is built in ``z``, where the fit is linear: with
+``u = x²``, ``ẑ = A·u + B`` and ``g = (u, 1)`` the 95% band of ``z`` is
+``ẑ ± q·√(gᵀΣg)``, and it is returned as ``(√max(ẑ, 0), √max(ẑ − h, 0),
+√max(ẑ + h, 0))``. The interval of ``z`` is pointwise and ``√`` is monotone on
+``z ≥ 0``, so this is the exact 95% band of ``√(A/E + B)``, with no delta
+method; where ``ẑ − h < 0`` the lower edge is cut at zero, because a
+resolution cannot be negative. At ``x = 0`` (E → ∞) it is ``√B``'s interval.
 
 Pure NumPy. Every input and output here is a fraction (``r`` = 0.12, not
 12 %); the query module converts to percent for the wire.
@@ -81,6 +110,13 @@ TOLERANCE = 1e-10
 
 #: Two-sided 95% normal quantile of the band while the windows' standard errors stand.
 Z95 = _Z_975
+
+#: A fit with ν ≥ 1 whose scale factor S = √(χ²/ν) exceeds this does not describe its windows:
+#: its residuals average more than this many of the windows' own standard errors (RMS), so it is
+#: drawn faded and never sets a range. The size of the misfit, not the χ² p-value, which rejects
+#: almost every fit at the stored experiments' hundreds to thousands of events per window (the
+#: module docstring has the measurement behind the 5).
+MISFIT_SCALE = 5.0
 
 FORM_AFFINE, FORM_PINNED, FORM_QUADRATURE = "affine", "pinned", "quadrature"
 
@@ -224,6 +260,16 @@ class Fit:
     def band_quantile(self) -> float:
         """The band's multiplier: ``t₀.₉₇₅,ν`` once S scales the covariance, else ``z₀.₉₇₅``."""
         return t_quantile_975(self.ndf) if self.scale_factor > 1.0 else Z95
+
+    @property
+    def misfit(self) -> bool:
+        """The form does not describe its windows: ``ν ≥ 1`` and ``S > MISFIT_SCALE``.
+
+        S is the RMS of the residuals in units of the windows' own standard
+        errors. ``ν = 0`` passes through its points and has no test, so it is
+        never a misfit.
+        """
+        return self.ndf >= 1 and self.scale_factor > MISFIT_SCALE
 
     def predict(self, x) -> np.ndarray:
         """The fitted resolution ``r(x)`` (for quadrature, √ of a non-negative ``r²``)."""
@@ -383,18 +429,30 @@ def quadrature_terms(fit: Fit) -> QuadratureTerms:
 
 
 def band(fit: Fit, xs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(ŷ, lo, hi)`` on ``xs``: the line and its 95% confidence band.
+    """``(ŷ, lo, hi)`` on ``xs``: the fitted resolution and its 95% confidence band.
 
     The scaled covariance, at :attr:`Fit.band_quantile`: Student's t of the
-    fit's ν once S scales it, the normal quantile otherwise.
+    fit's ν once S scales it, the normal quantile otherwise. Affine and pinned
+    are bands of a line in ``x``. Quadrature is the band of the line in
+    ``z = r²`` against ``u = x²``, taken through ``√`` (the module docstring):
+    ``(√max(ẑ, 0), √max(ẑ − h, 0), √max(ẑ + h, 0))``, the lower edge cut at 0
+    where ``ẑ − h < 0``.
     """
     xs = np.asarray(xs, dtype=np.float64)
+    q = fit.band_quantile
+    if fit.form == FORM_QUADRATURE:
+        u = xs * xs
+        g = np.stack([u, np.ones_like(u)], axis=1)
+        zhat = fit.theta[0] * u + fit.theta[1]
+        half = q * np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", g, fit.cov, g), 0.0))
+        return (np.sqrt(np.maximum(zhat, 0.0)), np.sqrt(np.maximum(zhat - half, 0.0)),
+                np.sqrt(np.maximum(zhat + half, 0.0)))
     if fit.form == FORM_AFFINE:
         g = np.stack([xs, np.ones_like(xs)], axis=1)
     elif fit.form == FORM_PINNED:
         g = xs[:, None]
     else:
-        raise ValueError("the quadrature fit is tabled, not drawn: it has no band")
+        raise ValueError(f"unknown fit form {fit.form!r}")
     yhat = fit.predict(xs)
-    half = fit.band_quantile * np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", g, fit.cov, g), 0.0))
+    half = q * np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", g, fit.cov, g), 0.0))
     return yhat, yhat - half, yhat + half

@@ -79,6 +79,34 @@
    "n_clipped": 3,
    "unit": "%",
    "name": "σ/E [%]"
+  },
+  "energy": {
+   "x": {
+    "min": 0.0,
+    "max": 80.0,
+    "interval": 10.0,
+    "unit": "GeV",
+    "name": "Energy E [GeV]"
+   },
+   "y": {
+    "zero_based": true,
+    "lo": 0.0,
+    "hi": 140.0,
+    "interval": 20.0,
+    "provisional": false,
+    "n_clipped": 2,
+    "unit": "%",
+    "name": "σ/E [%]"
+   },
+   "curve_min_gev": 4.0,
+   "y_min_gev": 2.0,
+   "data_max_gev": 20.0,
+   "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
+   "notes": [
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
+   ]
   }
  },
  "gates": {
@@ -87,7 +115,8 @@
   "fit_n": 20,
   "e_min_gev": 4.0,
   "anchor_low_gev": 5.0,
-  "n_anchors": 3
+  "n_anchors": 3,
+  "misfit_scale": 5.0
  },
  "anchors": {
   "nominal_bins": [
@@ -506,6 +535,7 @@
        ]
       ],
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = a/√E + b: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 0.0104/1, p = 0.919. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "pinned": {
@@ -652,6 +682,7 @@
        ]
       ],
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = a₀/√E, through the origin: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (6 refits). χ²/ν = 2.92/2, p = 0.233. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.21 (PDG), and the band takes Student's t₀.₉₇₅,2 = 4.303 for the variance scale S² estimated from ν = 2; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
@@ -672,17 +703,24 @@
        "se_a_stat": null,
        "se_b_stat": 24.0229,
        "se_a2_stat": 42112.2,
-       "se_b2_stat": 4279.1
+       "se_b2_stat": 4279.1,
+       "rho_a2b2": -0.967291
       },
       "chi2": 0.00736372,
       "p_value": 0.931616,
       "scale_factor": 1.0,
       "iterations": 8,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 3 windows, weights 1/se² with se recomputed at the fitted value (8 refits). χ²/ν = 0.00736/1, p = 0.932. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
-     }
+     },
+     "span_gev": [
+      5.0,
+      20.0
+     ]
     },
     "all": {
      "points": [
@@ -843,6 +881,7 @@
        ]
       ],
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = a/√E + b: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (26 refits). χ²/ν = 0.217/2, p = 0.897. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "pinned": {
@@ -989,6 +1028,7 @@
        ]
       ],
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = a₀/√E, through the origin: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (7 refits). χ²/ν = 4.35/3, p = 0.226. χ²/ν > 1, so the standard errors and the band are scaled by S = 1.2 (PDG), and the band takes Student's t₀.₉₇₅,3 = 3.182 for the variance scale S² estimated from ν = 3; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
@@ -1009,17 +1049,24 @@
        "se_a_stat": null,
        "se_b_stat": 21.4144,
        "se_a2_stat": 39067.5,
-       "se_b2_stat": 3979.12
+       "se_b2_stat": 3979.12,
+       "rho_a2b2": -0.962459
       },
       "chi2": 0.248287,
       "p_value": 0.883253,
       "scale_factor": 1.0,
       "iterations": 27,
       "converged": true,
+      "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
+      "misfit": false,
       "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 4 windows, weights 1/se² with se recomputed at the fitted value (27 refits). χ²/ν = 0.248/2, p = 0.883. A ≤ 0, so a = √A is undefined; A is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
-     }
+     },
+     "span_gev": [
+      5.0,
+      20.0
+     ]
     }
    }
   }
@@ -1042,6 +1089,7 @@
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
   "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, not drawn; its b and the affine b are different constant terms.",
+  "A fit whose residuals average more than 5 of the windows' own standard errors (ν ≥ 1 and S = √(χ²/ν) > 5) has a form that does not describe its windows: it is drawn faded, as a provisional fit is, and said so in its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² p-value: a window of hundreds of events has so small a standard error that the test rejects a form for misfits no reader could see.",
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower: c = Σ p / Σ E_dep = 105.8 over N = 286 events, fitted once over the whole selection.",
@@ -1049,7 +1097,7 @@
   "Off the axis: 3 windows below 4 GeV (29 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
   "Shower · Calibrated deposit c·E_dep — linear-sum benchmark (anchors, pinned): χ²/ν = 1.46, so its errors are scaled by S = 1.21.",
   "Shower · Calibrated deposit c·E_dep — linear-sum benchmark (all, pinned): χ²/ν = 1.45, so its errors are scaled by S = 1.2.",
-  "The y range follows the windows with N ≥ 20 (whiskers included) and the fits through them, from zero. 3 marks beyond it are clipped, not rescaled."
+  "The y range follows the windows with N ≥ 20 (whiskers included) alone, from zero. No fit sets it: a fit summarises its windows and is not more evidence, so a fitted line or band that leaves the top is clipped there with a caret. 3 windows beyond it are clipped, not rescaled."
  ],
  "filter": {
   "e1": [

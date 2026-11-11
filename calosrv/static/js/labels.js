@@ -267,6 +267,18 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'theta', label: 'θ', title: 'The polar angle θ output of the angle regressor' },
     { value: 'phi', label: 'φ', title: 'The azimuth φ output of the angle regressor; its residual is wrapped to (−π, π]' },
   ],
+  // The resolution card's two views of one response: the reversed 1/√E axis, or the energy
+  // in GeV with the fits extrapolated dashed and a ratio panel. The choice repaints.
+  res_view: [
+    { value: 'linear', label: '1/√E linear', title: 'σ/E against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin' },
+    { value: 'energy', label: 'E (GeV) + ratio', title: 'σ/E against the energy in GeV, the a/√E ⊕ b and a₀/√E fits solid over their windows and dashed beyond, and a ratio panel' },
+  ],
+  // The windows control's words in the E view, where "all" also draws the windows below
+  // 4 GeV, as points no fit uses.
+  res_windows_energy: [
+    { value: 'anchors', label: '3 anchors', title: 'Draw and fit the three anchor windows: the lowest from 5 GeV, the highest, and the one nearest their geometric-mean energy' },
+    { value: 'all', label: 'All windows', title: 'Draw every window, those below 4 GeV as points only; fit every window from 4 GeV with N ≥ 20' },
+  ],
   // The resolution card's windows: the three anchors its fits are defined on, or every
   // 1 GeV window from 4 GeV. Both are fitted in one response, so the choice repaints.
   res_windows: [

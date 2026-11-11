@@ -1098,6 +1098,30 @@ across a reload, and it never enters the view state or the hash. An export
 follows it, and the drawer's *Marks and legend* section says when the marks are
 hidden.
 
+**A chart remembers its legend** (Martin's reports and approval of
+2026-11-11). A series switched off on a chart card's legend stays off across
+every repaint: a theme switch, a card control, a new payload, a relayout. It is
+the panel's own (`legendSelected`), never in the view state or the hash. Every
+`ChartPanel` keeps it, and so does Page 1's energy card (`EnergyPanel`), through
+the same helpers (`chart_panel.js` `listenToLegend`, `setOptionWithLegend`).
+- Every repaint is `setOption(…, {notMerge: true})`, which used to drop it.
+- While anything is off, the panel clears the chart before the new option.
+  ECharts 5.5.1 otherwise diffs a hidden custom series against elements the
+  legend detached and throws halfway through the render, drawing a hidden
+  series' points without its lines when the next option has fewer windows.
+- A hidden entry is drawn in a legible grey, where ECharts drew it in the
+  border ink (1.33:1 on the dark card): the faintest tint of the muted ink that
+  clears 4.5:1 on the card, `#808993` on the dark card and `#6e7780` on the
+  light one, for its text, its swatch and a line series' swatch line. The ink
+  is laid only while something is hidden; the click that hides an entry merges
+  it into the legend on show at once.
+- The card's Details drawer names the hidden series, first in *Marks and
+  legend* (on the energy card, in a section of that name before *Reading the
+  density axis*), and a legend click rebuilds an open drawer. It is the
+  reader's own choice, so it raises no hazard.
+- An export leaves the hidden series out and greys their legend entries
+  (`#6f7681` on white).
+
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand
 drawer (`<aside id="inspector">`, `js/shell.js`) with that panel's methodology
@@ -3520,7 +3544,8 @@ by name, its reconstruction being Page 1's energy panel.
 
 ### The energy-resolution card
 
-`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, in
+`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, or
+**vs. E** in its second view (below), in
 a section of its own: its detector series needs no model, so it shows on every
 kind of experiment, where the performance section does not
 (`query/resolution_scaling.py`, `stats/resolution_fit.py`,
@@ -3550,8 +3575,9 @@ kind of experiment, where the performance section does not
   vanishes. The top axis relabels the same positions in GeV (5, 10, 15, 20, 30,
   50, 100 and ∞), E = 1/x²: an exact unit conversion, the one kind of second axis
   CLAUDE.md allows, with no data plotted against it. The y range follows the
-  windows with N ≥ 20 and the lines fitted through them; a weaker mark beyond
-  it, a provisional fit's line or a band that leaves the top, is clipped with a
+  windows with N ≥ 20 alone, whiskers included: a fit summarises its windows
+  and is not more evidence (Martin's decision, 2026-11-11). A weaker window
+  beyond it, or a fitted line or band that leaves the top, is clipped with a
   caret carrying its true values and counted in the drawer, and with no window
   at N ≥ 20 the range is labelled provisional.
 - **The marks.** A window's σ/E is reported from N = 2, drawn with its capped
@@ -3571,18 +3597,79 @@ kind of experiment, where the performance section does not
   dashed for B) and the origin-pinned a₀/√E (dotted, into the corner) each draw
   their 95 % confidence band, ±1.96 √(gᵀΣg) while the windows' own errors stand
   and ±t₀.₉₇₅,ν √(gᵀΣg) once S scales Σ, since S is then estimated from the
-  fit's own ν (12.71 at ν = 1). The weights are 1/se², with the delta-method se
-  recomputed at the fitted value and iterated, half-stepped once the refits
-  oscillate, for at most 200 refits; a fit that does not settle says so in its
-  tooltip, the table and the drawer. χ²/ν, its p-value and the PDG scale factor
-  S, applied when χ²/ν > 1, are quoted. The quadrature form √(a²/E + b²) is
-  fitted as a line in (σ/E)² against 1/E and tabled, never drawn: its constant
-  term is not the linear sum's b.
+  fit's own ν (12.71 at ν = 1). A band that spans half the axis or more over
+  its fitted windows is drawn as two thin solid edges, never as a wash. The
+  weights are 1/se², with the delta-method se recomputed at the fitted value
+  and iterated, half-stepped once the refits oscillate, for at most 200
+  refits; a fit that does not settle says so in its tooltip, the table and the
+  drawer. χ²/ν, its p-value and the PDG scale factor
+  S, applied when χ²/ν > 1, are quoted. A fit with ν ≥ 1 and S > 5, whose
+  residuals average more than five of the windows' own standard errors, has a
+  form that does not describe them: it is drawn faded and never sets a range,
+  and its tooltip, the table and the drawer say so. The size of the misfit
+  decides, not the p-value, which rejects nearly every fit at hundreds of
+  events a window (`stats/resolution_fit.py` `MISFIT_SCALE`). The quadrature
+  form √(a²/E + b²) is fitted as a line in (σ/E)² against 1/E and, on this
+  view, tabled, never drawn: its constant term is not the linear sum's b. The
+  E view draws it.
 - **The fit table** under the plot (screen only; the export is the plot) has a
   row group per series and a row per fit (affine, origin-pinned, quadrature):
   its a and b with their SEs, χ²/ν with p, S and its status, with the windows
   used spanning the group. Its text columns wrap, so it keeps to the card. The
   windows and the showers repaint without a request.
+- **The E view** (Martin's decisions, 2026-11-10; CLAUDE.md §5 "Its second
+  view").
+  - **The switch.** The card's **View** control, *1/√E linear* or *E (GeV) +
+    ratio*, repaints the response in hand without a request. The same response
+    carries `axis.energy`, each mode's `span_gev` and the quadrature fit's
+    `rho_a2b2` and `band_quantile`.
+  - **The axes.**
+    - A window sits at E = 1/⟨1/√p⟩², the 1/√E view's own abscissa mapped
+      back, so a window on its line there sits on its curve here.
+    - The x axis runs from 0 to 80 GeV (or to the dataset's top edge when
+      higher); σ/E runs from zero.
+    - **All windows** also draws the windows below 4 GeV, as points no fit
+      uses.
+  - **The vertical range.** It follows the windows of N ≥ 20 from 2 GeV alone;
+    no fit sets it. A window below 2 GeV never sets it, and one that overflows
+    gets a caret, a drawer count and a line in the note band above the plot.
+  - **The fits.**
+    - The quadrature a/√E ⊕ b is drawn where both its terms are defined; its
+      band is the root of its band in (σ/E)², exact because that is linear in
+      the parameters.
+    - The origin-pinned a₀/√E is always drawn.
+    - Each curve is solid over the windows it was fitted to and dashed beyond,
+      from 4 GeV to the axis end; its band continues fainter, the parameters'
+      uncertainty only.
+    - The affine fit stays on the 1/√E view.
+  - **The ratio panel.**
+    - It sits under the plot on the same E axis, with a crosshair linked
+      across both panels.
+    - It divides every mark by a reference: each shower's deposit fit, whose
+      own band is a wash about 1, or one of the two
+      literature curves transcribed from the legend of Martin's ECCE G4 figure
+      (π± 27.2%/√E ⊕ 1.0%, e± 14.0%/√E ⊕ 0.4%; `resolution_references.md`;
+      "no interval reported").
+    - The **π± | e±** toggles draw either curve, both (the default) or
+      neither, and choose the reference with it: the curve drawn; with both,
+      the one the windows lie farther from (the larger median |ln(σ/E ÷
+      curve)| over the robust windows, the one that needs the most scaling);
+      with neither, the deposit fit. The other curve is drawn on the ratio
+      panel too, divided by the reference.
+    - Each curve is dotted at 1.6 px, in a colour of its own in every theme:
+      π± a brown and e± a purple, measured against the card and the series
+      hues under three visions (`palette.js` `LITERATURE_COLOURS`).
+    - Its axis is logarithmic and symmetric about 1, over [1/k, k]. k follows
+      the windows alone, and a ratio against a misfit reference never sets it.
+  - **Shower and form.** Shower B is told by hollow markers and lines at 70 %
+    strength, because the dash means extrapolation here. The ⊕ fit is the
+    thicker line.
+    - With both showers on show, a column beside the plot labels each curve
+      end A or B, and each literature curve π± or e±.
+    - A label is ink text led by a key stroke in its curve's colour and dash,
+      since a curve colour may sit near 3:1 and text must clear 4.5:1.
+  - **MAE/E** is described in the drawer and the Methodology, never converted:
+    √(2/π)·σ/E holds only for unbiased Gaussian errors.
 
 ### The feature explorer
 
@@ -4607,7 +4694,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
-| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: σ/E of the per-event ratio E_est/p in percent, its χ² interval, the delta-method SE and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: σ/E of the per-event ratio E_est/p in percent, its χ² interval, the delta-method SE and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based σ/E range from the windows of N ≥ 20 from 2 GeV and the drawn fits over their spans, and its sentences), each mode's `span_gev`, and the quadrature fit's `rho_a2b2` and `band_quantile`, from which the browser draws its band. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |

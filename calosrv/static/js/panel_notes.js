@@ -42,7 +42,9 @@ import {
 } from './scale.js';
 import { profileAxisKey, ensembleLabel } from './panels/profile.js';
 import { gridSlices, subplotScale, seriesMessage, estimatorNote } from './panels/response_grid.js';
-import { sigmaText, clampInterval, onLightCard, isPrintTheme } from './panels/chart_panel.js';
+import {
+  sigmaText, clampInterval, onLightCard, isPrintTheme, legendHiddenNames, legendHiddenLine,
+} from './panels/chart_panel.js';
 import { SHAPE_FLOOR_SHOWERS } from './panels/distribution.js';
 
 export const SECTION = Object.freeze({
@@ -229,6 +231,37 @@ export class Notes {
   done(hazards) {
     return { title: this.title, hazards, sections: this.sections };
   }
+}
+
+/**
+ * `notes` with the series the reader switched off on `panel`'s legend named
+ * first in its Marks and legend section (chart_panel.js `legendHiddenNames`,
+ * `legendHiddenLine`), while any are. The section is made where the notes
+ * have none, in its standard place: after Disclosures, before Reading the
+ * density axis. The reader's own choice, like the Marks toggle, so no hazard
+ * is added. `notes` itself is returned when nothing is hidden, and it is
+ * never changed. Called where a section assembles a card's drawer
+ * (models_cards.js, physics_section.js, main.js), so no notes builder moves.
+ */
+export function withHiddenLegend(notes, panel) {
+  const line = legendHiddenLine(legendHiddenNames(panel));
+  if (!notes || !line) return notes;
+  const sections = notes.sections ?? [];
+  const at = sections.findIndex((section) => section.heading === SECTION.legend);
+  if (at >= 0) {
+    return {
+      ...notes,
+      sections: sections.map((section, i) => (i === at ? { ...section, lines: [line, ...section.lines] } : section)),
+    };
+  }
+  const density = sections.findIndex((section) => section.heading === SECTION.density);
+  const legend = { heading: SECTION.legend, lines: [line] };
+  return {
+    ...notes,
+    sections: density >= 0
+      ? [...sections.slice(0, density), legend, ...sections.slice(density)]
+      : [...sections, legend],
+  };
 }
 
 /**

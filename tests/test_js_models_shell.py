@@ -496,6 +496,48 @@ out.resScaling = {
     controls: { resScalingShower: 'b' } }),
   notice: cards.cardNotice('res-scaling', { plan: plans.two_shower_hits, view: view() }),
   controls: cards.cardControls('res-scaling').map((c) => c.name),
+  views: (() => {
+    const ctl = Object.fromEntries(cards.cardControls('res-scaling').map((c) => [c.name, c]));
+    const lin = { ...cards.DEFAULT_CONTROLS, resView: 'linear' };
+    const en = { ...cards.DEFAULT_CONTROLS, resView: 'energy' };
+    const req = (controls) => cards.cardRequest('res-scaling', { filters: filters.two, plan: plans.two_shower_hits,
+      view: view({ frame: 'canonical' }), controls });
+    return {
+      titles: [cards.cardTitle('res-scaling', lin), cards.cardTitle('res-scaling', en),
+               cards.cardTitle('res-scaling'), cards.cardTitle('perf-bins', en)],
+      refControl: 'resReference' in ctl,
+      windows: [ctl.resWindows.choices({ controls: lin }).map((c) => c.label),
+                ctl.resWindows.choices({ controls: en }).map((c) => c.label)],
+      viewChoices: ctl.resView.choices({}).map((c) => c.value),
+      sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'e' })),
+      opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
+        controls: { resView: 'energy', resLiterature: 'e' } }),
+      inState: ['resView', 'resLiterature'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
+      // The literature toggles (Martin's requests of 2026-11-11): one pair, both on by default, also the ratio's reference.
+      lit: (() => {
+        const at = (resLiterature) => ({ controls: { ...en, resLiterature } });
+        return {
+          kind: ctl.resLiterature.kind,
+          choices: ctl.resLiterature.choices({ controls: en }).map((c) => [c.value, c.label]),
+          titles: ctl.resLiterature.choices({ controls: en }).map((c) => c.title),
+          visible: [ctl.resLiterature.visible({ controls: lin }), ctl.resLiterature.visible({ controls: en })],
+          pressed: ['pi,e', 'e', 'pi', ''].map((l) => ['pi', 'e'].map((c) => ctl.resLiterature.pressed(at(l), c))),
+          shut: 'choiceDisabled' in ctl.resLiterature,
+          toggle: [['pi,e', 'e'], ['e', 'pi'], ['pi', 'pi'], ['', 'e'], ['', 'pi']].map(([l, c]) => ctl.resLiterature.toggle(at(l), c)),
+          keys: [cards.literatureKeys('e,pi'), cards.literatureKeys(''), cards.literatureKeys(undefined), cards.literatureKeys('pi,mu')],
+          opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(), controls: { resView: 'energy' } }),
+          defaults: cards.DEFAULT_CONTROLS.resLiterature,
+          metas: [
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: ['pi', 'e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: ['e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: [] }),
+            cards.exportMeta({ meta: {} }, { view: 'linear', literature: ['pi', 'e'] }),
+          ],
+          sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: '' })),
+        };
+      })(),
+    };
+  })(),
 };
 out.abortKeys = cards.ABORT_KEYS;
 out.segmentationNotice = cards.SEGMENTATION_NOTICE;
@@ -642,11 +684,50 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resWindows", "resScalingShower"]
-    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "windows": "all", "shower": "b"}
+    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resLiterature"]
+    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+                                "literature": ["pi", "e"], "windows": "all", "shower": "b"}
     # One shower: no shower choice reaches the panel.
-    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "windows": "anchors", "shower": "both"}
+    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+                                 "literature": ["pi", "e"], "windows": "anchors", "shower": "both"}
 
+
+def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
+    v = request_results["resScaling"]["views"]
+    assert v["viewChoices"] == ["linear", "energy"]
+    assert v["titles"][0] == v["titles"][2] == "Energy Resolution vs. 1/\u221aE"
+    assert v["titles"][1] == "Energy Resolution vs. E"
+    assert v["titles"][3] == "Model Error vs. Incident Momentum"
+    assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
+    assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
+    assert v["windows"][1] == ["3 anchors", "All windows"]
+    assert v["sameRequest"] is True
+    assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
+    assert v["inState"] == [False, False], "the view and the toggles are never in a link"
+
+
+def test_the_literature_curves_are_one_pair_of_toggles_both_on_by_default(request_results):
+    """Martin's requests of 2026-11-11: one pair of buttons, π± and e±, each a toggle, both on by default. They are
+    also the ratio's reference (the curve on; the farther of two; the deposit fit with neither), so nothing is shut
+    and no "÷" group remains. No request."""
+    lit = request_results["resScaling"]["views"]["lit"]
+    assert lit["kind"] == "toggles" and lit["visible"] == [False, True]
+    assert lit["choices"] == [["pi", "π±"], ["e", "e±"]]
+    for t in lit["titles"]:
+        assert t.startswith("Draw or hide σ/E = ") and "no interval reported" in t
+        assert "by the one the windows lie farther from when both are, and by each shower's deposit fit when neither is" in t
+    assert lit["defaults"] == "pi,e" and lit["opts"]["literature"] == ["pi", "e"]
+    assert lit["pressed"] == [[True, True], [False, True], [True, False], [False, False]]
+    assert lit["shut"] is False
+    # A click adds or takes out one key; the value stays in the catalogue's order; neither may be on.
+    assert lit["toggle"] == ["pi", "pi,e", "", "e", "pi"]
+    assert lit["keys"] == [["pi", "e"], [], [], ["pi"]]
+    # The export names the figure by its curves: both, or the ratio's reference with one or none.
+    assert lit["metas"][0] == {"view": "energy", "literature": ["pi", "e"]}
+    assert lit["metas"][1] == {"view": "energy", "reference": "e"}
+    assert lit["metas"][2] == {"view": "energy", "reference": "deposit"}
+    assert lit["metas"][3] == {}
+    assert lit["sameRequest"] is True
 
 _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, "e2_min": 1, "e2_max": 20,
                 "d_min": 0, "d_max": 900, "include_undefined_d": False}
@@ -789,6 +870,32 @@ out.notes = {
   prim: section.notes('prim-rate'),
 };
 out.built = built;
+
+// A series the reader switched off on a card's legend: the drawer names it first in Marks and legend, with no
+// hazard; the panel's legend callback re-runs the section's onRendered (which rebuilds the drawer), with no request.
+{
+  const panel = section.cards.get('perf-bins').panel;
+  const callsBefore = calls.length;
+  const rendersBefore = rendersSeen.length;
+  panel.legendSelected = { 'Shower A · network': false, 'An entry of another view': false };
+  panel.liveLegend = { data: ['Shower A · network', 'Shower B · network'] };
+  out.legendLine = { callback: typeof panel.onLegendChange, notes: section.notes('perf-bins') };
+  panel.onLegendChange(panel);
+  out.legendLine.renders = rendersSeen.slice(rendersBefore);
+  out.legendLine.calls = calls.length - callsBefore;
+  panel.legendSelected = { 'Shower A · network': true };
+  out.legendLine.back = section.notes('perf-bins');
+  // A card with no builder takes the line too (its fallback notes); one whose panel keeps no memory never does.
+  const corr = section.cards.get('feat-corr').panel;
+  corr.legendSelected = { r: false };
+  corr.liveLegend = { data: ['r'] };
+  out.legendLine.fallback = section.notes('feat-corr');
+  delete corr.legendSelected;
+  delete corr.liveLegend;
+  out.legendLine.noMemory = section.notes('feat-corr');
+  delete panel.legendSelected;
+  delete panel.liveLegend;
+}
 out.exportTargets = {
   perf: Boolean(section.exportTarget('perf-bins')?.panel),
   table: section.exportTarget('feat-table'),
@@ -963,6 +1070,27 @@ def test_notes_come_from_the_named_builder_or_the_payloads_own_lines(section_res
     assert notes["corrFallback"]["sections"][0]["heading"] == "What is drawn"
     assert notes["corrFallback"]["sections"][0]["lines"]
     assert "particle_type" in notes["prim"]["sections"][0]["lines"][0]
+
+
+def test_the_drawer_names_what_the_legend_hides_and_a_legend_click_rebuilds_it(section_results):
+    """A series switched off on a card's legend is named in the card's drawer (Martin's approval, 2026-11-11): one
+    line, first in Marks and legend, naming only what the legend on show lists, and no hazard; the panel's legend
+    callback re-runs the section's onRendered, which rebuilds the drawer, and asks the service nothing."""
+    got = section_results["legendLine"]
+    line = ("Hidden on the legend by the reader: Shower A · network. Click its entry to show it again; "
+            "an export leaves it out.")
+    assert got["callback"] == "function"
+    notes = got["notes"]
+    assert [s["heading"] for s in notes["sections"]] == ["What is drawn", "Marks and legend"], notes
+    assert notes["sections"][1]["lines"] == [line], notes
+    assert notes["hazards"] == section_results["notes"]["perf"]["hazards"] == [], notes
+    assert got["renders"] == [["perf-bins", True]] and got["calls"] == 0, got
+    # Switched back on: the builder's notes, as before.
+    assert got["back"] == section_results["notes"]["perf"], got["back"]
+    # The fallback notes take the line too; a panel without a memory never does.
+    assert got["fallback"]["sections"][-1] == {"heading": "Marks and legend", "lines": [
+        "Hidden on the legend by the reader: r. Click its entry to show it again; an export leaves it out."]}
+    assert "Marks and legend" not in [s["heading"] for s in got["noMemory"]["sections"]], got["noMemory"]
 
 
 def test_export_targets_are_the_drawn_charts_only(section_results):

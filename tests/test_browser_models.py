@@ -41,6 +41,19 @@ page is checked as a reader meets it:
   range with ∞ at 0, a y axis from 0 and its fit table under the plot; its
   window, shower and theme switches repaint with no request (the two-shower
   baseline's two events draw its empty state, with the table still there);
+  its "E (GeV) + ratio" view, from the same response and with no request,
+  stacks two grids on one 0-80 GeV axis, σ/E from 0 over a log ratio axis
+  symmetric about 1, fitted curves solid over their windows and dashed beyond
+  with none below 4 GeV, a 600 px plot, a title naming the view, an export of
+  both grids and tooltips under the 20% rule on either grid; "Ratio to" and
+  the shower buttons repaint it, and the 1/√E view comes back identical;
+* a series switched off on the resolution card's legend (Martin's bugs of
+  2026-11-11, both views, on the recorded two-shower response) stays off
+  across the window switch with no page error, and switched back on draws
+  every one of its marks as a fresh render does; it stays off across a theme
+  switch with no request, and the export leaves it out and greys its entry;
+  on screen its entry is drawn in the card's legible inactive ink, and the
+  open drawer names it in Marks and legend until it is switched back on;
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
   the whole volume's, the paired depth projections bracketing the slice drawn,
@@ -53,8 +66,10 @@ Opt-in (``CALOSRV_BROWSER_TESTS=1``): it needs Playwright's Chromium.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -960,6 +975,118 @@ _RES_SERIES = """() => JSON.stringify((echarts.getInstanceByDom(document.getElem
   .getOption().series || []).map((s) => [s.id ?? s.name, s.data]))"""
 
 
+#: The E view (panels/resolution_scaling.js energyViewOption) as the chart holds it and as it drew it: its grids
+#: and axes, the crosshair, and every fitted curve's drawn geometry read back from the polylines ECharts painted
+#: (a custom series keeps its geometry in a closure, so `getOption()` holds one datum), each point converted to
+#: data on its own grid. Keyed by series id: `<series key>|[ratio|]<form>|<solid|dashed>|<run>`.
+_RES_ENERGY = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const o = inst.getOption();
+  const model = inst.getModel();
+  const rects = (o.grid || []).map((_, i) => {
+    const r = model.getComponent('grid', i)?.coordinateSystem?.getRect();
+    return r ? { left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height } : null;
+  });
+  const curves = {};
+  model.eachSeries((s) => {
+    const id = s.get('id') || '';
+    if (!/\\|(quadrature|pinned)\\|(solid|dashed)\\|\\d+$/.test(id)) return;
+    const grid = s.get('yAxisIndex') ?? 0;
+    const pts = [];
+    let dash = null;
+    let opacity = null;
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.type !== 'polyline' || !el.shape?.points) return;
+      dash = el.style?.lineDash ? Array.from(el.style.lineDash) : null;
+      opacity = el.style?.opacity ?? 1;
+      for (const [px, py] of el.shape.points) pts.push(inst.convertFromPixel({ gridIndex: grid }, [px, py]));
+    });
+    curves[id] = { grid, dash, opacity, points: pts };
+  });
+  // Each window marker series' paint: the fills and strokes of its drawn circles (a hollow marker is filled with
+  // the card's ground and stroked in its series' colour).
+  const markers = {};
+  model.eachSeries((s) => {
+    const id = s.get('id') || '';
+    if (!/\\|markers$/.test(id)) return;
+    const fills = new Set();
+    const strokes = new Set();
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.type !== 'circle') return;
+      fills.add(String(el.style?.fill ?? 'none').toLowerCase());
+      strokes.add(String(el.style?.stroke ?? 'none').toLowerCase());
+    });
+    markers[id] = { fills: [...fills].sort(), strokes: [...strokes].sort() };
+  });
+  const pointer = [].concat(o.axisPointer || []);
+  return {
+    grids: (o.grid || []).length, rects,
+    x: (o.xAxis || []).map((a) => ({ gridIndex: a.gridIndex ?? 0, min: a.min, max: a.max, interval: a.interval ?? null,
+      name: a.name ?? '', labels: a.axisLabel?.show !== false,
+      pointer: a.axisPointer ? { show: a.axisPointer.show, type: a.axisPointer.type,
+        triggerTooltip: a.axisPointer.triggerTooltip, snap: a.axisPointer.snap,
+        label: Boolean(a.axisPointer.label?.show) } : null })),
+    y: (o.yAxis || []).map((a) => ({ gridIndex: a.gridIndex ?? 0, type: a.type ?? 'value', min: a.min, max: a.max,
+      name: a.name ?? '', ticks: a.axisLabel?.customValues ?? null })),
+    link: pointer.map((p) => p.link ?? null),
+    ids: (o.series || []).map((s) => s.id ?? s.name),
+    curves, markers,
+  };
+}"""
+
+#: The resolution card's title and plot height, and the toolbar's buttons that are on show.
+_RES_CHROME = """() => {
+  const card = document.querySelector('.main .card[data-panel="res-scaling"]');
+  const plot = document.getElementById('plot-res-scaling');
+  const shown = (sel) => [...card.querySelectorAll(sel)].filter((b) => !b.closest('[hidden]'))
+    .map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  return {
+    title: card.querySelector('.title')?.textContent ?? '',
+    height: plot.getBoundingClientRect().height, styleHeight: plot.style.height,
+    views: shown('button[data-res-view]'), windows: shown('button[data-res-windows]'),
+    references: shown('button[data-res-reference]'), literature: shown('button[data-res-literature]'),
+  };
+}"""
+
+#: The literature toggles' state: [particle, aria-pressed, disabled, title] per button.
+_RES_LIT_TOGGLES = """() => [...document.querySelectorAll('.main .card[data-panel="res-scaling"] button[data-res-literature]')]
+  .map((b) => [b.textContent, b.getAttribute('aria-pressed'), b.disabled, b.title])"""
+
+#: Every chart the SVG export builds (echarts.init with the svg renderer), its option's shape when exported.
+_WATCH_EXPORT_GRIDS = """() => {
+  if (window.__exportShapes) return;
+  window.__exportShapes = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {
+        const o = chart.getOption();
+        window.__exportShapes.push({
+          grids: (o.grid || []).length, x: (o.xAxis || []).map((a) => [a.gridIndex ?? 0, a.min, a.max]),
+          y: (o.yAxis || []).map((a) => [a.gridIndex ?? 0, a.type ?? 'value', a.min, a.max]),
+          series: (o.series || []).length, height: chart.getHeight(), width: chart.getWidth(),
+        });
+        return render(...args);
+      };
+    }
+    return chart;
+  };
+}"""
+
+#: The view's E axis: where a fitted curve may start (`axis.energy.curve_min_gev`).
+CURVE_MIN_GEV = 4.0
+
+
+def _res_payload(base, asked):
+    """The response the card drew, asked again from the Python side (not the page, whose requests are counted)."""
+    import httpx
+
+    return httpx.get(f"{base}/api/resolution-scaling", params=asked, timeout=60).json()
+
+
 def _res_press(page, attr, value):
     """Click one of the resolution card's segmented buttons; whether it is then the pressed one."""
     button = page.locator(f'.main .card[data-panel="res-scaling"] button[data-{attr}="{value}"]')
@@ -1068,6 +1195,626 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
             # The picture is the same one: the same axes and the same series, in the new ink.
             assert page.evaluate(_RES_AXES)["x"] == axes["x"]
         assert page.evaluate(_RES_TABLE)["rows"] == fit["rows"]
+        browser.close()
+    assert problems == [], problems
+
+
+#: A curve point read back from its pixel lands within this of where it was drawn, in GeV (float round trip).
+E_TOL = 1e-6
+
+
+def _assert_e_view_curves(view, payload, mode):
+    """The E view's fitted curves as drawn (brief §1 decision 3, §4.3): no point below `curve_min_gev`; each solid
+    run inside its series' fitted span and meeting it at both edges; each dashed run [6, 4] and wholly outside the
+    span; on the main panel the dashed part beyond the span runs to the axis end; the quadrature fit drawn only
+    where both its terms are defined. Returns the forms drawn per series."""
+    energy = payload["axis"]["energy"]
+    x_max, curve_min = energy["x"]["max"], energy["curve_min_gev"]
+    assert curve_min == CURVE_MIN_GEV, energy
+    by_key = {s["key"]: s for s in payload["series"]}
+    drawn = {}
+    for cid, curve in view["curves"].items():
+        parts = cid.split("|")
+        key, run_part, form = parts[0], parts[-2], parts[-3]
+        on_ratio = parts[1] == "ratio"
+        es = [pt[0] for pt in curve["points"]]
+        assert es, (cid, curve)
+        assert curve["grid"] == (1 if on_ratio else 0), (cid, curve["grid"])
+        # Nothing below 4 GeV, which no fit uses; nothing past the axis end.
+        assert min(es) >= curve_min - E_TOL, (cid, min(es))
+        assert max(es) <= x_max + E_TOL, (cid, max(es))
+        lo, hi = by_key[key]["fits"][mode]["span_gev"]
+        if run_part == "solid":
+            assert curve["dash"] is None, (cid, curve["dash"])
+            assert lo - E_TOL <= min(es) and max(es) <= hi + E_TOL, (cid, (min(es), max(es)), (lo, hi))
+        else:
+            assert curve["dash"] == [6, 4], (cid, curve["dash"])
+            assert max(es) <= lo + E_TOL or min(es) >= hi - E_TOL, (cid, (min(es), max(es)), (lo, hi))
+        if not on_ratio:
+            drawn.setdefault(key, {}).setdefault(form, []).append((run_part, min(es), max(es)))
+    for key, forms in drawn.items():
+        s = by_key[key]
+        lo, hi = s["fits"][mode]["span_gev"]
+        params = s["fits"][mode]["quadrature"]["params"]
+        # Martin's decision 2: the quadrature fit where both terms are defined; the pinned fit always.
+        assert ("quadrature" in forms) is bool(params.get("a_defined") and params.get("b_defined")), (key, forms, params)
+        assert "pinned" in forms, (key, forms)
+        for form, runs in forms.items():
+            solid = [r for r in runs if r[0] == "solid"]
+            assert len(solid) == 1, (key, form, runs)
+            # Solid over the fitted windows, meeting the dashed parts exactly at the span's edges.
+            assert solid[0][1] == pytest.approx(lo, abs=E_TOL) and solid[0][2] == pytest.approx(hi, abs=E_TOL), (key, form, runs)
+            beyond = [r for r in runs if r[0] == "dashed" and r[1] >= hi - E_TOL]
+            if hi < x_max:
+                assert len(beyond) == 1 and beyond[0][1] == pytest.approx(hi, abs=E_TOL), (key, form, runs)
+                assert beyond[0][2] == pytest.approx(x_max, abs=E_TOL), (key, form, runs)
+            below = [r for r in runs if r[0] == "dashed" and r[2] <= lo + E_TOL]
+            if lo > curve_min:
+                # Down to 4 GeV, or to where the curve leaves the top of the axis on its way there.
+                assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
+    return {key: sorted(forms) for key, forms in drawn.items()}
+
+
+def _main_curves(view):
+    """The main panel's curves as data, flattened for an approximate comparison (each point is read back through
+    its pixel, so a grid moved by the legend shifts the last digits)."""
+    return {cid: [c["opacity"], *(v for pt in c["points"] for v in pt)]
+            for cid, c in view["curves"].items() if "|ratio|" not in cid}
+
+
+def _within(point, rect):
+    return rect["left"] <= point[0] <= rect["right"] and rect["top"] <= point[1] <= rect["bottom"]
+
+
+#: The recorded two-shower response (tests/test_payload_fixtures.py), served to the baseline's page in place of its
+#: own: the live two-shower baseline holds two events, too few for any window, and the E view's two-shower
+#: grammar (shower B hollow, its lines at 70%, the A / B / Both buttons) needs one drawn.
+RES_TWO_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "payloads" / "res_scaling_two.json"
+#: The E view's cases: each live kind, and the baseline's page drawing the recorded two-shower response.
+E_VIEW_CASES = [pytest.param(BASELINE_TABLE, None, id="baseline"), pytest.param(SINGLE_HITS_TABLE, None, id="single"),
+                pytest.param(MODELS_XGB_TABLE, None, id="xgb"),
+                pytest.param(BASELINE_TABLE, RES_TWO_FIXTURE, id="two-shower-fixture")]
+
+
+def _serve_res_fixture(page, fixture):
+    """Answer the page's /api/resolution-scaling with a recorded response; the request is still made and counted."""
+    body = fixture.read_text(encoding="utf-8")
+    page.route("**/api/resolution-scaling?*",
+               lambda route: route.fulfill(status=200, content_type="application/json", body=body))
+
+
+@pytest.mark.parametrize(("table", "fixture"), E_VIEW_CASES)
+def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a_request(models_live_server, table,
+                                                                                         fixture):
+    """The res-scaling card's second view (brief §8; CLAUDE.md §5 "Its second view: E (GeV) + ratio").
+
+    "1/√E linear | E (GeV) + ratio" repaints the one response: no request on the view, the windows or the "Ratio
+    to" switch. The E view stacks two grids on one E axis 0 → `axis.energy.x.max` (the top one's labels hidden, a
+    crosshair linked across both, no axis-trigger tooltip); σ/E from 0 to `axis.energy.y.hi`; fitted curves solid
+    over their fitted windows and dashed beyond, none below 4 GeV; a log ratio axis symmetric about 1 (min · max =
+    1). The title names the view, the plot is 600 px tall (420 px in the 1/√E view), its export holds both grids,
+    and every tooltip over either grid keeps to the 20% rule. Back in the 1/√E view the axes, the series and the
+    fit table are exactly what they were. The baseline's two events draw the E view's empty state; the recorded
+    two-shower response draws both showers, and A / B / Both repaint the E view with no request."""
+    base = models_live_server["base"]
+    drawn = fixture is not None or table in RES_DRAWN
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, table)
+        if fixture is not None:
+            _serve_res_fixture(page, fixture)
+        page.evaluate(_WATCH_EXPORT_GRIDS)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        asked = _requests_of(requests, "/api/resolution-scaling")
+        assert len(asked) == 1, _urls(requests)
+        payload = json.loads(fixture.read_text(encoding="utf-8")) if fixture else _res_payload(base, asked[0])
+        energy = payload["axis"]["energy"]
+        axes, fit, series = page.evaluate(_RES_AXES), page.evaluate(_RES_TABLE), page.evaluate(_RES_SERIES)
+        linear = page.evaluate(_RES_CHROME)
+        assert linear["title"] == "Energy Resolution vs. 1/√E", linear
+        assert linear["height"] == 420 and linear["styleHeight"] == "", linear
+        assert [v for v, _ in linear["views"]] == ["1/√E linear", "E (GeV) + ratio"], linear
+        assert linear["views"][0][1] == "true" and linear["references"] == [] and linear["literature"] == [], linear
+        before = len(requests)
+
+        # The toggle: the E view from the response in hand.
+        assert _res_press(page, "res-view", "energy")
+        chrome = page.evaluate(_RES_CHROME)
+        assert chrome["title"] == "Energy Resolution vs. E", chrome
+        # 600 px for the two panels; an empty state keeps the card's 420 px (the review's U-F11).
+        if drawn:
+            assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
+        else:
+            assert chrome["height"] == 420 and chrome["styleHeight"] == "", chrome
+        assert [w for w, _ in chrome["windows"]] == ["3 anchors", "All windows"], chrome
+        # One pair of literature toggles (Martin, 2026-11-11), both on by default; no separate reference buttons.
+        assert chrome["references"] == [] and chrome["literature"] == [["π±", "true"], ["e±", "true"]], chrome
+        title, headings, _ = _drawer(page, "res-scaling")
+        assert title == "Energy Resolution vs. E", title
+        _assert_sections(headings, f"{table} res-scaling (E view)")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+
+        if not drawn:
+            # Two events hold no window of two events: the E view's empty state, said on the chart.
+            assert page.evaluate(_CARD, "res-scaling")["series"] == 0
+            texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
+            assert any("no σ/E can be drawn" in t for t in texts), texts
+        else:
+            # The default draws both curves; the ratio divides by the farther one (e± on every stored response, whose
+            # windows all lie above both curves), and the other is drawn on the ratio panel divided by it.
+            lit_ids = lambda got: sorted(i for i in got["ids"] if i.startswith("literature|")
+                                         and not i.endswith("endlabels") and not i.endswith("caret"))
+            both = page.evaluate(_RES_ENERGY)
+            ref = "e" if "e±" in both["y"][1]["name"] else "pi"
+            other = "pi" if ref == "e" else "e"
+            assert lit_ids(both) == sorted(["literature|pi", "literature|e", f"literature|{other}|ratio"]), both["ids"]
+            assert ({"pi": "π±", "e": "e±"}[ref] in both["y"][1]["name"]
+                    and {"pi": "π±", "e": "e±"}[other] not in both["y"][1]["name"]), both["y"][1]
+            flagged = page.evaluate(_DETAILS, "res-scaling")
+            assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
+            name, _ = _download_svg(page, "res-scaling")
+            assert "_energy_lit-pi-e_" in name, name
+            # Both off: each shower's deposit fit is the reference, as the checks below take it.
+            assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+            assert [t[:3] for t in page.evaluate(_RES_LIT_TOGGLES)] == [["π±", "false", False], ["e±", "false", False]]
+            view = page.evaluate(_RES_ENERGY)
+            # Two grids, the main panel over the ratio panel, on one E axis.
+            assert view["grids"] == 2 and len(view["rects"]) == 2, view["rects"]
+            main, ratio = view["rects"]
+            assert (main["left"], main["right"]) == (ratio["left"], ratio["right"]), view["rects"]
+            assert ratio["top"] >= main["bottom"], view["rects"]
+            assert [a["gridIndex"] for a in view["x"]] == [0, 1], view["x"]
+            assert {(a["min"], a["max"], a["interval"]) for a in view["x"]} == \
+                {(0, energy["x"]["max"], energy["x"]["interval"])}, (view["x"], energy["x"])
+            assert energy["x"]["max"] >= 80, energy["x"]
+            top, bottom = view["x"]
+            assert not top["labels"] and top["name"] == "", top
+            assert bottom["labels"] and bottom["name"] == energy["x"]["name"] == "Energy E [GeV]", bottom
+            # The crosshair: linked across both grids, never a tooltip trigger, its E label on the bottom axis.
+            assert view["link"] == [[{"xAxisIndex": "all"}]], view["link"]
+            for a in view["x"]:
+                assert a["pointer"]["type"] == "line" and a["pointer"]["triggerTooltip"] is False, a
+            assert (top["pointer"]["label"], bottom["pointer"]["label"]) == (False, True), view["x"]
+            # σ/E from zero to the server's E-view range.
+            y_main, y_ratio = view["y"]
+            assert y_main["gridIndex"] == 0 and y_main["type"] == "value", y_main
+            assert y_main["min"] == 0 and y_main["max"] == energy["y"]["hi"], (y_main, energy["y"])
+            # The ratio axis: log, [1/k, k], so 1 is its geometric centre; its ticks symmetric about 1.
+            assert y_ratio["gridIndex"] == 1 and y_ratio["type"] == "log", y_ratio
+            assert y_ratio["min"] * y_ratio["max"] == pytest.approx(1, abs=1e-12) and y_ratio["max"] > 1, y_ratio
+            assert 1 in y_ratio["ticks"], y_ratio
+            assert sorted(y_ratio["ticks"]) == pytest.approx(sorted(1 / t for t in y_ratio["ticks"])), y_ratio
+            assert "deposit fit" in y_ratio["name"], y_ratio
+            forms = _assert_e_view_curves(view, payload, "anchors")
+            assert forms, view["curves"].keys()
+            assert any("|dashed|" in c for c in view["curves"]), "no extrapolated part drawn"
+            # The fit table names what this view draws (panels/resolution_scaling.js energyTableName).
+            table_e = page.evaluate(_RES_TABLE)
+            assert any(f.startswith("Affine a/√E + b — drawn in the 1/√E view") for f in table_e["fits"]), table_e
+            assert any(f.startswith("Origin-pinned a₀/√E ⊕ 0 — drawn") for f in table_e["fits"]), table_e
+            e_series = page.evaluate(_RES_SERIES)
+
+            # Every window, then the anchors again: a repaint, and the curves keep the rules.
+            assert _res_press(page, "res-windows", "all")
+            assert page.evaluate(_RES_SERIES) != e_series
+            _assert_e_view_curves(page.evaluate(_RES_ENERGY), payload, "all")
+            assert _res_press(page, "res-windows", "anchors")
+            assert page.evaluate(_RES_SERIES) == e_series
+
+            # One curve on: it is drawn and the ratio divides by it; off again, back to the deposit fit, which draws none.
+            assert not [i for i in view["ids"] if i.startswith("literature|")], view["ids"]
+            details = page.evaluate(_DETAILS, "res-scaling")
+            for key, particle in (("pi", "π±"), ("e", "e±")):
+                assert _res_press(page, "res-literature", key)
+                got = page.evaluate(_RES_ENERGY)
+                # Only the chosen curve is drawn: its line, and any end label or caret, are its own.
+                assert f"literature|{key}" in got["ids"], got["ids"]
+                assert {i.split("|")[1] for i in got["ids"] if i.startswith("literature|")} == {key}, got["ids"]
+                assert particle in got["y"][1]["name"], got["y"][1]
+                assert got["y"][1]["min"] * got["y"][1]["max"] == pytest.approx(1, abs=1e-12), got["y"][1]
+                # The main panel and its curves do not move: only the ratio panel and the literature curve do.
+                assert got["y"][0] == y_main and got["x"] == view["x"], (got["y"][0], y_main)
+                now, then = _main_curves(got), _main_curves(view)
+                assert now.keys() == then.keys(), (key, now.keys() ^ then.keys())
+                assert all(now[c] == pytest.approx(then[c], abs=E_TOL) for c in now), key
+                _assert_e_view_curves(got, payload, "anchors")
+                # A literature reference is a documented point estimate: the Details button carries the hazard.
+                flagged = page.evaluate(_DETAILS, "res-scaling")
+                assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
+                assert not _res_press(page, "res-literature", key)
+            assert page.evaluate(_RES_SERIES) == e_series
+            assert page.evaluate(_DETAILS, "res-scaling") == details, details
+
+            # Both on again: exactly the default picture, the farther curve the reference; then both off for the rest.
+            assert _res_press(page, "res-literature", "pi") and _res_press(page, "res-literature", "e")
+            again = page.evaluate(_RES_ENERGY)
+            assert lit_ids(again) == lit_ids(both) and again["y"][1]["name"] == both["y"][1]["name"], again["ids"]
+            assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+            assert page.evaluate(_RES_SERIES) == e_series
+
+            showers = sorted({s["shower"] for s in payload["series"]})
+            if len(showers) > 1:
+                # Two showers (brief §1): A filled, B hollow (filled with the card's ground, stroked in its colour);
+                # B's lines at 70% strength and never dashed for the shower (the dash means extrapolation here).
+                card = {f for k, m in view["markers"].items() if ":b|" in k and "|ratio|" not in k for f in m["fills"]}
+                assert len(card) == 1, view["markers"]
+                for k, m in view["markers"].items():
+                    if ":a|" in k:
+                        assert card.isdisjoint(m["fills"]) and card <= set(m["strokes"]), (k, m, card)
+                    else:
+                        assert card.isdisjoint(m["strokes"]), (k, m, card)
+                for cid, curve in view["curves"].items():
+                    key, form = cid.split("|")[0], cid.split("|")[-3]
+                    fitted = next(s for s in payload["series"] if s["key"] == key)["fits"]["anchors"][form]
+                    if key.endswith(":b"):
+                        assert curve["opacity"] < 1, (cid, curve["opacity"])
+                    elif not fitted["provisional"]:
+                        assert curve["opacity"] == 1, (cid, curve["opacity"])
+                # A / B / Both repaint the E view from the response in hand.
+                for shower in ("a", "b"):
+                    assert _res_press(page, "models-shower", shower), shower
+                    got = page.evaluate(_RES_ENERGY)
+                    keys = {i.split("|")[0] for i in got["ids"] if ":" in i.split("|")[0]}
+                    assert keys and {k.split(":")[1] for k in keys} == {shower}, (shower, keys)
+                    assert got["x"] == view["x"] and got["y"][0] == y_main, shower
+                    _assert_e_view_curves(got, payload, "anchors")
+                assert _res_press(page, "models-shower", "both")
+                assert page.evaluate(_RES_SERIES) == e_series
+
+            # Tooltips over both grids: on the layer, beside or off the plot, none over more than the cap.
+            found = _hover_chart(page, "plot-res-scaling", columns=12, rows=10)
+            found += _hover_marks(page, "plot-res-scaling", cap=60)
+            _check_tips(found, f"{table} res-scaling (E view)")
+            chart = page.evaluate(_BOXES, "plot-res-scaling")["chart"]
+            grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"]) for k, v in r.items()}
+                     for r in view["rects"]]
+            on_grid, worst = [0, 0], [0.0, 0.0]
+            for (x, y), probe, boxes in found:
+                plot = boxes["plot"]
+                area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                assert _overlap(probe["tip"], plot) / area <= PROJECTION_READOUT_SHARE, (table, (x, y), probe["text"][:60])
+                for i, g in enumerate(grids):
+                    if _within((x, y), g):
+                        on_grid[i] += 1
+                        # The grid being read, alone: the ratio panel is a quarter of the plot, so a tip the
+                        # union's cap allows could still hide it.
+                        share = _overlap(probe["tip"], g) / ((g["right"] - g["left"]) * (g["bottom"] - g["top"]))
+                        worst[i] = max(worst[i], share)
+                        assert share <= PROJECTION_READOUT_SHARE, (table, i, (x, y), probe["text"][:60], share)
+            assert all(on_grid), f"{table}: tooltips on the main and ratio grids: {on_grid}"
+            print(f"res-scaling E view, {table}: tooltips on the main / ratio grid {on_grid}, "
+                  f"largest share of the grid read {[round(w, 3) for w in worst]}")
+            texts = [probe["text"] for _, probe, _ in found]
+            assert any("plotted at E = 1/⟨1/√p⟩²" in t for t in texts), texts[:5]
+            assert any("conditional on" in t for t in texts), texts[:5]
+            assert _hyphen_negatives(texts) == [], _hyphen_negatives(texts)
+
+            # The export: the plot alone, both grids, on one E axis, taller than the 1/√E view's figure.
+            name, svg = _download_svg(page, "res-scaling")
+            shape = page.evaluate("() => window.__exportShapes.at(-1)")
+            assert name.startswith("res-scaling_") and name.endswith(".svg"), name
+            assert shape["grids"] == 2, shape
+            assert [x[0] for x in shape["x"]] == [0, 1] and {tuple(x[1:]) for x in shape["x"]} == {(0, energy["x"]["max"])}, shape
+            assert shape["y"][1][1] == "log" and shape["y"][1][2] * shape["y"][1][3] == pytest.approx(1, abs=1e-12), shape
+            svg_texts = re.findall(r"<text[^>]*>([^<]*)</text>", svg)
+            assert "Energy E [GeV]" in svg_texts, svg_texts
+            assert not [t for t in svg_texts if "1/√E" in t and "/√E ⊕" not in t], svg_texts
+            assert not [t for t in svg_texts if "Windows fitted" in t or "SE(a" in t], svg_texts
+            assert re.search(r'<rect[^>]*fill="#FFFFFF"', svg) and "figure-disclosure" not in svg
+            assert _hyphen_negatives(svg_texts) == [], _hyphen_negatives(svg_texts)
+
+        # Back to the 1/√E view: exactly the picture and the table it was.
+        assert _res_press(page, "res-view", "linear")
+        back = page.evaluate(_RES_CHROME)
+        assert back["title"] == linear["title"] and back["height"] == 420 and back["styleHeight"] == "", back
+        assert back["references"] == [] and back["windows"] == linear["windows"], back
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        assert page.evaluate(_RES_AXES) == axes
+        assert page.evaluate(_RES_SERIES) == series
+        assert page.evaluate(_RES_TABLE) == fit
+        if drawn:
+            _download_svg(page, "res-scaling")
+            linear_shape = page.evaluate("() => window.__exportShapes.at(-1)")
+            assert linear_shape["width"] == shape["width"] and linear_shape["height"] < shape["height"], (linear_shape, shape)
+            assert linear_shape["grids"] == 1, linear_shape
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------------- the resolution card's legend --
+
+#: The legend entry Martin switched off (2026-11-11), in the recorded two-shower response: every mark of shower A's
+#: calibrated deposit (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it.
+LEGEND_ENTRY = "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark"
+#: The ink an exported figure's legend draws a hidden entry in (export/figure.js `printInactiveInk`, 4.58:1 on
+#: white; tests/test_js_chart_legend.py derives it).
+PRINT_INACTIVE = "#6f7681"
+
+#: The resolution card as ECharts drew it: per series, its id, its name, whether the legend filters it, its data
+#: items and the elements its view holds now; the legend's selected state.
+_RES_DRAWN = """() => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const model = inst.getModel();
+  const series = model.getSeries().map((s) => {
+    let drawn = 0;
+    inst.getViewOfSeriesModel(s)?.group?.traverse((el) => { if (!el.isGroup) drawn += 1; });
+    return [s.id, s.name, model.isSeriesFiltered(s), s.getData().count(), drawn];
+  });
+  const legend = model.getComponent('legend');
+  return { series, selected: legend ? { ...(legend.option.selected || {}) } : null };
+}"""
+
+#: Where the resolution card's legend draws an entry's name, in viewport pixels: the centre of its text.
+_LEGEND_ITEM = """(name) => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const legend = inst.getModel().getComponent('legend');
+  const view = legend && inst.getViewOfComponentModel(legend);
+  if (!view) return null;
+  const c = host.getBoundingClientRect();
+  let at = null;
+  view.group.traverse((el) => {
+    if (at || el.type !== 'text' || el.style?.text !== name) return;
+    const r = el.getPaintRect();
+    at = [c.left + r.x + r.width / 2, c.top + r.y + r.height / 2];
+  });
+  return at;
+}"""
+
+#: Every chart the SVG export builds, its legend state and which of its series the legend filters when serialised.
+_WATCH_EXPORT_LEGEND = """() => {
+  if (window.__exportLegend) return;
+  window.__exportLegend = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {
+        const model = chart.getModel();
+        window.__exportLegend.push({
+          selected: { ...((chart.getOption().legend || [])[0]?.selected || {}) },
+          series: model.getSeries().map((s) => [s.id, s.name, model.isSeriesFiltered(s)]),
+        });
+        return render(...args);
+      };
+    }
+    return chart;
+  };
+}"""
+
+
+def _click_legend(page, name):
+    """Click a legend entry of the resolution card, as a reader does (ECharts dispatches `legendToggleSelect`)."""
+    at = page.evaluate(_LEGEND_ITEM, name)
+    assert at is not None, f"no legend entry {name!r} on the resolution card"
+    page.mouse.click(*at)
+    page.mouse.move(2, 2)
+    _frames(page)
+
+
+def _drawn(page):
+    """The resolution card as drawn: {series id: (name, filtered, items, elements)} and the legend's selected map."""
+    got = page.evaluate(_RES_DRAWN)
+    return {sid: (name, filtered, items, drawn) for sid, name, filtered, items, drawn in got["series"]}, got["selected"]
+
+
+def _assert_hidden(drawn, fresh, where):
+    """The entry's series are all filtered and draw nothing; every other series draws as a fresh render did."""
+    series, selected = drawn
+    assert selected.get(LEGEND_ENTRY) is False, (where, selected)
+    own = {sid for sid, (name, *_) in series.items() if name == LEGEND_ENTRY}
+    assert own, (where, "no series of the entry", sorted(series))
+    for sid, (name, filtered, items, elements) in series.items():
+        if sid in own:
+            assert filtered and elements == 0, (where, sid, filtered, elements)
+        else:
+            assert not filtered and (name, False, items, elements) == fresh[sid], (where, sid, fresh.get(sid),
+                                                                                (name, filtered, items, elements))
+
+
+@pytest.mark.parametrize("view", ["linear", "energy"])
+def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_and_comes_back_whole(
+        models_live_server, view):
+    """Martin's bug 3 (2026-11-11), in both views of the resolution card on the recorded two-shower response.
+
+    A series switched off on the legend, then "All" → "3 anchors": its markers came back, its lines and bands did
+    not. The window switch is a repaint with notMerge, which forgot the legend, and ECharts 5.5.1 threw inside the
+    render (a custom series view the legend had emptied removing a detached element), so every series after the
+    throw stayed undrawn. Now the entry stays off across All → anchors → All → anchors, with no page error; switched
+    back on, every one of its series (markers, whiskers, carets, lines, bands) draws exactly what a fresh render of
+    that window mode draws, and so does every other series; no request is made. The last anchors switch is what
+    catches a memory without the clear: the entry's views then hold the more numerous items of the "All" render."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        if view == "energy":
+            assert _res_press(page, "res-view", "energy")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        before = len(requests)
+
+        # Fresh renders of both window modes, nothing switched off: what each draws, series by series.
+        assert _res_press(page, "res-windows", "anchors")
+        fresh = {"anchors": _drawn(page)[0]}
+        assert _res_press(page, "res-windows", "all")
+        fresh["all"] = _drawn(page)[0]
+        own = sorted(sid for sid, (name, *_) in fresh["all"].items() if name == LEGEND_ENTRY)
+        assert any(fresh["all"][sid][3] for sid in own), own
+        # The switch removes items from a series of the entry: the path ECharts threw on.
+        assert any(sid in fresh["anchors"] and fresh["anchors"][sid][2] < fresh["all"][sid][2] for sid in own), \
+            {sid: (fresh["anchors"].get(sid), fresh["all"][sid]) for sid in own}
+
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh["all"], f"{view}: switched off")
+        # Off and on again with no repaint between: ECharts redraws the entry from its own views, all of it.
+        _click_legend(page, LEGEND_ENTRY)
+        assert _drawn(page) == (fresh["all"], {LEGEND_ENTRY: True}), view
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh["all"], f"{view}: switched off again")
+        for mode in ("anchors", "all", "anchors"):
+            assert _res_press(page, "res-windows", mode)
+            _assert_hidden(_drawn(page), fresh[mode], f"{view}: switched off, then {mode}")
+            assert problems == [], (view, mode, problems)
+
+        # Back on, in the anchors mode: every series draws as the fresh render did, the entry's lines and bands too.
+        # Without the clear, this is where ECharts threw (a view holding the "All" render's detached elements).
+        _click_legend(page, LEGEND_ENTRY)
+        assert problems == [], (view, "switched back on", problems)
+        series, selected = _drawn(page)
+        assert selected.get(LEGEND_ENTRY) is True, selected
+        assert series == fresh["anchors"], {s: (series.get(s), fresh["anchors"].get(s))
+                                           for s in set(series) | set(fresh["anchors"])
+                                           if series.get(s) != fresh["anchors"].get(s)}
+        assert _res_press(page, "res-windows", "all")
+        assert _drawn(page)[0] == fresh["all"]
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+@pytest.mark.parametrize("view", ["linear", "energy"])
+def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and_out_of_the_export(
+        models_live_server, view):
+    """Martin's bug 2 (2026-11-11): a series switched off on the legend came back on a theme switch, whose repaint
+    (setOption with notMerge) forgot the legend. Now it stays off in the light theme and again in the dark one, with
+    no request; switched on again it draws whole, and off again it keeps the reader's last choice. The export
+    follows the screen: the figure's legend marks the entry off, the export chart filters its every series and no
+    other, and its legend draws the entry in the print's inactive grey, lighter than the entries on show."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        page.evaluate(_WATCH_EXPORT_LEGEND)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        if view == "energy":
+            assert _res_press(page, "res-view", "energy")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        fresh, selected = _drawn(page)
+        assert LEGEND_ENTRY not in selected, selected
+        before = len(requests)
+
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh, f"{view}: switched off")
+        for theme in ("light", "dark"):
+            page.click("#theme-toggle")
+            page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=theme, timeout=10_000)
+            _frames(page)
+            # Still off, in the new ink; every other series draws as before the switch.
+            _assert_hidden(_drawn(page), fresh, f"{view}: switched off, then the {theme} theme")
+        assert requests[before:] == [], f"a theme switch asked the service: {requests[before:]}"
+
+        # The export: the figure leaves the entry out, and its legend says so.
+        name, svg = _download_svg(page, "res-scaling")
+        assert name.startswith("res-scaling_") and name.endswith(".svg"), name
+        exported = page.evaluate("() => window.__exportLegend.at(-1)")
+        assert exported["selected"].get(LEGEND_ENTRY) is False, exported["selected"]
+        hidden = {sid for sid, name, filtered in exported["series"] if filtered}
+        assert hidden and hidden == {sid for sid, name, _ in exported["series"] if name == LEGEND_ENTRY}, exported
+        inks = {text: fill.lower() for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
+        on_show = [t for t in inks if t.startswith("Shower B · Calibrated deposit")]
+        assert LEGEND_ENTRY in inks and on_show, sorted(inks)
+        # The hidden entry in the print's inactive grey (export/figure.js printInactiveInk), lighter than the
+        # entries on show, never the near-black print border ECharts would have used.
+        assert inks[LEGEND_ENTRY] == PRINT_INACTIVE != inks[on_show[0]], (inks[LEGEND_ENTRY], inks[on_show[0]])
+
+        # Back on, then off again: the memory holds the last click.
+        _click_legend(page, LEGEND_ENTRY)
+        assert _drawn(page) == (fresh, {LEGEND_ENTRY: True}), view
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh, f"{view}: switched off again")
+        assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+#: The ink of a hidden legend entry on each screen card (chart_panel.js `legendInactiveInk`, the faintest tint of the
+#: muted ink at 4.5:1; tests/test_js_chart_legend.py derives them).
+SCREEN_INACTIVE = {"dark": "#808993", "light": "#6e7780"}
+
+#: How the resolution card's legend draws an entry: the legend's inks (text and swatch, swatch border, a line series'
+#: swatch line) and the colours the entry's text and swatch are painted in now. A line paints its stroke only, and so
+#: does a hollow symbol, whose interior ECharts fills with a fixed #fff in either state.
+_RES_LEGEND_INK = """(name) => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const legend = inst.getModel().getComponent('legend');
+  const out = { inks: [legend.get('inactiveColor'), legend.get('inactiveBorderColor'),
+    legend.get(['lineStyle', 'inactiveColor'])], text: null, swatch: [] };
+  inst.getViewOfComponentModel(legend)?.group.traverse((el) => {
+    if (out.text !== null || el.type !== 'text' || el.style?.text !== name) return;
+    out.text = el.style.fill;
+    el.parent?.traverse((part) => {
+      if (part === el || part.isGroup || part.invisible || part.type === 'text') return;
+      const symbol = String(part.shape?.symbolType ?? '');
+      const line = part.type === 'line' || symbol === 'line' || part.__isEmptyBrush === true;
+      for (const paint of line ? [part.style?.stroke] : [part.style?.fill, part.style?.stroke]) {
+        if (paint && paint !== 'none' && paint !== 'transparent') out.swatch.push(paint);
+      }
+    });
+  });
+  return out;
+}"""
+
+#: The open drawer's sections, as [heading, [lines]].
+_DRAWER_SECTIONS = """() => [...document.querySelectorAll('#inspector-body .inspector-section')].map((s) =>
+  [s.querySelector('h3').textContent, [...s.querySelectorAll('p')].map((p) => p.textContent)])"""
+
+
+def test_the_open_drawer_names_the_series_the_legend_hides_and_the_entry_stays_legible(models_live_server):
+    """Martin's approval (2026-11-11), on the resolution card's recorded two-shower response, with its drawer open.
+
+    Switched off with a click, the entry is drawn, text and swatch, in the legible inactive ink of the card (4.5:1 on
+    #1c2128 and on white), never the 1.33:1 border; the drawer's Marks and legend section gains one line naming it,
+    first, the rest of the drawer unchanged and no hazard raised. A switch to the light theme repaints it in the
+    light card's ink and keeps the line. Switched back on, the drawer is as it was. No request."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        details = '.main button[data-inspect="res-scaling"]'
+        page.click(details)
+        page.wait_for_function("() => !document.getElementById('inspector').hidden")
+        _frames(page)
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        opened = dict(page.evaluate(_DRAWER_SECTIONS))
+        assert opened.get("Marks and legend"), list(opened)
+        flagged = page.get_attribute(details, "class")
+        line = (f"Hidden on the legend by the reader: {LEGEND_ENTRY}. Click its entry to show it again; "
+                "an export leaves it out.")
+        before = len(requests)
+
+        _click_legend(page, LEGEND_ENTRY)
+        hidden = dict(page.evaluate(_DRAWER_SECTIONS))
+        assert hidden["Marks and legend"] == [line, *opened["Marks and legend"]], hidden["Marks and legend"]
+        assert {k: v for k, v in hidden.items() if k != "Marks and legend"} == \
+            {k: v for k, v in opened.items() if k != "Marks and legend"}
+        assert page.get_attribute(details, "class") == flagged, "the reader's own choice raised a hazard"
+        for theme in ("dark", "light"):
+            if theme == "light":
+                page.click("#theme-toggle")
+                page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=theme,
+                                       timeout=10_000)
+                _frames(page)
+                assert dict(page.evaluate(_DRAWER_SECTIONS))["Marks and legend"][0] == line, theme
+            ink = SCREEN_INACTIVE[theme]
+            got = page.evaluate(_RES_LEGEND_INK, LEGEND_ENTRY)
+            assert got["inks"] == [ink, ink, ink], (theme, got)
+            assert got["text"] == ink and got["swatch"] and set(got["swatch"]) == {ink}, (theme, got)
+        page.click("#theme-toggle")
+        page.wait_for_function("() => document.documentElement.dataset.theme === 'dark'", timeout=10_000)
+        _frames(page)
+
+        _click_legend(page, LEGEND_ENTRY)
+        assert dict(page.evaluate(_DRAWER_SECTIONS)) == opened
+        assert requests[before:] == [], f"the legend or the theme asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 
