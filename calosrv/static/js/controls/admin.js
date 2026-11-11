@@ -28,6 +28,16 @@
  * /api/admin/model-runs/{table_name}/analyse) that queues one again.
  * The section is built here rather than in the markup, so the page needs no
  * ids for it.
+ *
+ * Between the automatic ingest and the derived tables sits Source files (GET
+ * /api/admin/experiments, read-only): each experiment against the file it was
+ * ingested from - whether that file changed on disk since, which the hf-sync
+ * service makes possible by updating ./ingest at every start. Nothing is
+ * re-ingested by itself: Re-ingest (a changed, ready experiment) and Retry
+ * ingest (a failed one) post to /api/admin/experiments/{name}/reingest and
+ * the row follows the job. The section is skipped when the page has no markup
+ * for it. The row models are pure functions of the payload (`sourceRows`,
+ * `sourceBadge`, `sourceJobText`, `sourceAction`, `sourcesSummary`).
  * The Models page has no Admin Settings of its own: its header link opens
  * this panel on the Physics page (`/?admin=1`, main.js).
  */
@@ -73,6 +83,7 @@ const SOURCE = {
 const RESULT = {
   submitted: 'queued for ingest',
   exists: 'already an experiment',
+  changed: 'already an experiment; its file has changed',
   queued: 'already queued',
   same_source: 'already ingested',
   name_collision: 'skipped: name taken by another file',
@@ -169,6 +180,170 @@ export function runStatusText(row) {
   return text;
 }
 
+/* ------------------------------------------------------------ source files */
+
+/** A job still on the ingest worker's books. */
+function jobActive(job) {
+  return job?.status === 'queued' || job?.status === 'running';
+}
+
+/** An ISO timestamp as the server writes its dates in sentences: `2026-11-11 19:40 UTC`. */
+function utcText(iso) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/** Bytes with thousands separators, as the server's sentences print them. */
+const bytesText = (value) => (Number.isFinite(value) ? `${formatInt(value)} bytes` : '');
+
+/**
+ * The experiments against their source files, from GET /api/admin/experiments
+ * (`payload.experiments`, tests/contracts/admin_experiments.json): one entry
+ * per experiment with its `source` block, the two `actions` the server offers
+ * and the newest `job` of that name. Each row: `{table_name, name, file, path,
+ * origin, status, state, source_changed, settling, detail, recorded, current,
+ * badge: {text, kind}, actions, job, error}`. A missing `source` reads as an
+ * untracked experiment. Pure; `null` or `{}` gives no rows.
+ */
+export function sourceRows(payload) {
+  const { experiments } = payload ?? {};
+  const list = Array.isArray(experiments) ? experiments : [];
+  return list.map((experiment) => {
+    const source = experiment.source && typeof experiment.source === 'object' ? experiment.source : {};
+    const row = {
+      table_name: experiment.table_name ?? null,
+      name: experiment.display_name || experiment.table_name || '—',
+      file: source.file ?? null,
+      path: source.path ?? null,
+      origin: source.origin ?? null,
+      status: experiment.status ?? null,
+      state: source.state ?? 'untracked',
+      source_changed: Boolean(experiment.source_changed),
+      settling: Boolean(source.settling),
+      detail: source.detail || '',
+      recorded: source.recorded ?? null,
+      current: source.current ?? null,
+      actions: experiment.actions ?? {},
+      job: experiment.job ?? null,
+      error: experiment.error ?? null,
+    };
+    row.badge = sourceBadge(row);
+    return row;
+  });
+}
+
+/** The state chip, by the first rule that matches (`kind` picks its colour: changed, failed, busy, current, muted). */
+export function sourceBadge(row) {
+  const job = row?.job;
+  if (jobActive(job)) {
+    const text = job.mode === 'reingest' ? 'Re-ingesting' : job.mode === 'retry' ? 'Retrying' : 'Ingesting';
+    return { text, kind: 'busy' };
+  }
+  if (row?.status === 'failed') return { text: 'Ingestion failed', kind: 'failed' };
+  switch (row?.state) {
+    case 'changed': return { text: 'Source updated on disk', kind: 'changed' };
+    case 'unchanged': return { text: 'Current', kind: 'current' };
+    case 'touched': return { text: 'Timestamp changed, content the same', kind: 'muted' };
+    case 'missing': return { text: 'Source file not found', kind: 'muted' };
+    default:
+      if (row?.origin === 'upload') return { text: 'Uploaded: no file on the server to compare', kind: 'muted' };
+      if (row?.origin === 'seed') return { text: 'Demonstration dataset: ships in the image', kind: 'muted' };
+      return { text: 'No source recorded', kind: 'muted' };
+  }
+}
+
+/** A job's error as a sentence: the server's own text, ended with a full stop. */
+function sentence(text) {
+  const clean = String(text || 'see the server log').trim();
+  return /[.!?]$/.test(clean) ? clean : `${clean}.`;
+}
+
+/** The line under a row's state: what its newest job is doing or did ('' without a job). */
+export function sourceJobText(row) {
+  const job = row?.job;
+  if (!job) return '';
+  const percent = `${Math.round((job.progress || 0) * 100)}%`;
+  switch (job.status) {
+    case 'queued':
+      return 'Waiting for the ingest worker';
+    case 'running':
+      if (job.mode === 'reingest') {
+        return `Re-ingesting (${percent}) — served from its previous data until the new tables verify`;
+      }
+      return job.mode === 'retry' ? `Retrying (${percent})` : `Ingesting (${percent})`;
+    case 'done':
+      return job.mode === 'reingest' ? 'Re-ingested — ready' : 'Ingested — ready';
+    case 'failed':
+      if (job.mode === 'reingest') {
+        return `Re-ingest failed and was rolled back: ${sentence(job.error)} It is served as it was.`;
+      }
+      return job.mode === 'retry' ? `Retry failed: ${job.error || 'see the server log'}`
+        : `Failed: ${job.error || 'see the server log'}`;
+    default:
+      return '';
+  }
+}
+
+/**
+ * The button a row offers: `{kind: 'reingest' | 'retry' | null, label, disabled, title}`.
+ * A failed experiment is retried, a changed one re-ingested, every other row
+ * has no button. `starting` holds the names whose request is in flight (a Set
+ * or an array); the button is disabled while the name is starting or busy, or
+ * the server says the action is not available, and its title then says why.
+ */
+export function sourceAction(row, starting = null) {
+  const name = row?.table_name;
+  const isStarting = Boolean(starting?.has?.(name) ?? starting?.includes?.(name));
+  const busy = jobActive(row?.job);
+  let kind = null;
+  if (row?.status === 'failed') kind = 'retry';
+  else if (row?.state === 'changed') kind = 'reingest';
+  if (!kind) return { kind: null, label: '', disabled: true, title: '' };
+  const verdict = row.actions?.[kind] ?? {};
+  const label = kind === 'retry' ? 'Retry ingest' : 'Re-ingest';
+  const file = row.file ?? 'its source file';
+  let title;
+  if (!verdict.available) {
+    title = verdict.reason || 'The server does not offer this action for this experiment.';
+  } else if (isStarting || busy) {
+    title = 'A job for this experiment is queued or running.';
+  } else if (kind === 'retry') {
+    title = `Ingest it again from ${file}; the tables and archive files of the failed attempt are dropped first.`;
+  } else {
+    title = `Rebuild this experiment from ${file} in one transaction: it stays served from its previous `
+      + 'data until the new tables verify, and a failure leaves it as it was.';
+  }
+  return { kind, label, disabled: !verdict.available || isStarting || busy, title };
+}
+
+/** The section's hint line: where the files are, what changed, and the rule that nothing is automatic. */
+export function sourcesSummary(rows, roots) {
+  const where = roots?.drop_folder ? `Drop folder ${roots.drop_folder}`
+    : roots?.local ? `Local folder ${roots.local}` : 'No drop folder is set';
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return `${where} · No experiment to compare with its source file.`;
+  const changed = list.filter((row) => row.state === 'changed').length;
+  const failed = list.filter((row) => row.status === 'failed').length;
+  if (!changed && !failed) return `${where} · Every experiment with a tracked source matches its file on disk.`;
+  const parts = [where];
+  if (changed) parts.push(`${formatInt(changed)} experiment${changed === 1 ? ' has' : 's have'} a newer file on disk`);
+  if (failed) parts.push(`${formatInt(failed)} failed`);
+  return `${parts.join(' · ')}. Nothing is re-ingested until its button is pressed; a re-ingest runs on the `
+    + 'ingest worker, and the experiment stays served from its previous data until the new tables have verified.';
+}
+
+/** What a row's file cell says on hover: the full path, and the file as recorded and as found. */
+function sourceFileTitle(row) {
+  const lines = [row.path || row.file || ''];
+  for (const [label, entry] of [['Recorded', row.recorded], ['On disk now', row.current]]) {
+    if (!entry) continue;
+    const when = utcText(entry.modified);
+    lines.push(`${label}: ${bytesText(entry.bytes)}${when ? `, modified ${when}` : ''}`);
+  }
+  return lines.filter(Boolean).join('\n');
+}
+
 /** Timestamps in English whatever the browser's locale (CLAUDE.md: English only). */
 const WHEN = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -197,6 +372,17 @@ export class AdminModal {
     this.rebuildWhere = document.getElementById('admin-rebuild-where');
     this.rebuildTable = document.getElementById('admin-rebuild-table');
     this.rebuildRows = document.getElementById('admin-rebuild-rows');
+    this.sourcesWhere = document.getElementById('admin-sources-where');
+    this.sourcesTable = document.getElementById('admin-sources-table');
+    this.sourcesRows = document.getElementById('admin-sources-rows');
+    this.sourcesRefresh = document.getElementById('admin-sources-refresh');
+    // Source files: the rows, the names whose request is in flight, the message
+    // under a row, the re-ingest / retry jobs seen active (name -> job_id) so
+    // their end is reported once, and the polling loop.
+    this.sources = {
+      rows: [], payload: null, error: null, starting: new Set(), errors: new Map(),
+      active: new Map(), timer: null, loop: null,
+    };
     this.rebuilds = new Map(); // table_name -> {job, error}
     this.rebuildTimer = null;
     this.rebuildLoop = null; // the polling loop that may schedule the next tick
@@ -209,7 +395,9 @@ export class AdminModal {
     this.pollTimer = null;
 
     this.shell = new ModalShell(this.backdrop, {
-      onClose: () => { this.stopPolling(); this.stopRebuildPolling(); this.stopRunPolling(); },
+      onClose: () => {
+        this.stopPolling(); this.stopRebuildPolling(); this.stopRunPolling(); this.stopSourcePolling();
+      },
       initialFocus: () => this.datasetSelect,
     });
 
@@ -235,6 +423,7 @@ export class AdminModal {
     document.getElementById('admin-use-current')
       .addEventListener('click', () => this.useCurrentView());
     this.scanButton.addEventListener('click', () => this.scan());
+    this.sourcesRefresh?.addEventListener('click', () => this.loadSources());
 
     // The XGBoost model runs, after the derived tables.
     this.runs = { rows: [], error: null, timer: null, starting: new Set() };
@@ -270,6 +459,8 @@ export class AdminModal {
     this.shell.open();
     // Not awaited: the form reports through its own rows.
     this.upload?.prepare();
+    // Not awaited: the section reports through its own line.
+    this.loadSources();
     this.renderRebuild();
     this.pollRebuilds();
     // Not awaited: the section reports through its own line.
@@ -466,7 +657,7 @@ export class AdminModal {
       this.ingestWhere.textContent = ingest?.dir
         ? `Automatic ingest is off: ${ingest.reason || 'the drop folder is unavailable.'}`
         : 'Automatic ingest is off. Set CALOSRV_AUTO_INGEST_DIR to a folder (the compose '
-          + 'file uses /app/host/ingest, which is ./ingest on the host) and every CSV or '
+          + 'file uses /app/ingest, which is ./ingest on the host) and every CSV or '
           + 'Parquet file dropped there becomes an experiment at the next start.';
       this.ingestTable.hidden = true;
       this.scanButton.disabled = true;
@@ -543,6 +734,8 @@ export class AdminModal {
       this.config.auto_ingest = await sendJson('POST', '/api/admin/auto-ingest/scan');
       this.renderIngest();
       this.pollJobs();
+      // The scan may have noticed a changed file: the section compares again.
+      this.loadSources();
       this.setStatus('Scan complete.');
     } catch (error) {
       this.setStatus(error instanceof ApiError ? error.message : String(error), true);
@@ -554,6 +747,166 @@ export class AdminModal {
   setStatus(text, isError = false) {
     this.status.textContent = text;
     this.status.classList.toggle('is-error', isError);
+  }
+
+  /* ---------------------------------------------------------- source files */
+
+  /**
+   * Read the experiments against their source files, report the re-ingest and
+   * retry jobs that finished since the last read, and keep polling while a job
+   * is queued or running. A newer read supersedes an older one.
+   */
+  async loadSources() {
+    if (!this.sourcesRows || !this.sourcesWhere) return;
+    this.stopSourcePolling();
+    const loop = {};
+    this.sources.loop = loop;
+    let payload;
+    try {
+      payload = await getJson('/api/admin/experiments', {}, 'admin-sources');
+    } catch (error) {
+      if (error?.name === 'AbortError' || this.sources.loop !== loop) return;
+      this.sources.rows = [];
+      this.sources.error = error instanceof ApiError ? error.message : String(error?.message ?? error);
+      this.renderSources();
+      return;
+    }
+    if (this.sources.loop !== loop) return;
+    this.sources.error = null;
+    this.sources.payload = payload;
+    this.sources.rows = sourceRows(payload);
+    await this.reportSourceJobs();
+    this.renderSources();
+    if (this.sources.loop === loop && this.shell.isOpen && this.sources.rows.some((row) => jobActive(row.job))) {
+      this.sources.timer = setTimeout(() => this.loadSources(), JOB_POLL_MS);
+    }
+  }
+
+  stopSourcePolling() {
+    if (this.sources.timer) clearTimeout(this.sources.timer);
+    this.sources.timer = null;
+    this.sources.loop = null;
+  }
+
+  /** A re-ingest or retry job seen active that is now done or failed: tell the page, once. */
+  async reportSourceJobs() {
+    const { rows, active } = this.sources;
+    for (const row of rows) {
+      const job = row.job;
+      if (!job || active.get(row.table_name) !== job.job_id) continue;
+      if (job.status === 'done') {
+        active.delete(row.table_name);
+        await this.onIngested(job);
+        this.refreshDatasets();
+        this.renderRebuild();
+        this.loadModelRuns();
+        this.setStatus(job.mode === 'retry' ? `${row.name} was ingested again from ${row.file}.`
+          : `${row.name} was re-ingested from ${row.file}.`);
+      } else if (job.status === 'failed') {
+        active.delete(row.table_name);
+        this.setStatus(sourceJobText(row), true);
+      }
+    }
+  }
+
+  renderSources() {
+    const { rows, error } = this.sources;
+    if (error) {
+      this.sourcesWhere.textContent = `The source files could not be read: ${error}`;
+      if (this.sourcesTable) this.sourcesTable.hidden = true;
+      this.sourcesRows.replaceChildren();
+      return;
+    }
+    this.sourcesWhere.textContent = sourcesSummary(rows, this.sources.payload?.roots);
+    if (this.sourcesTable) this.sourcesTable.hidden = rows.length === 0;
+    this.sourcesRows.replaceChildren(...rows.map((row) => this.sourceRow(row)));
+  }
+
+  sourceRow(row) {
+    const tr = document.createElement('tr');
+    tr.dataset.table = row.table_name ?? '';
+    tr.dataset.state = row.state;
+
+    const name = document.createElement('td');
+    name.textContent = row.name;
+    if (row.table_name) name.title = row.table_name;
+
+    const file = document.createElement('td');
+    file.className = 'source-file';
+    file.textContent = row.file ?? '—';
+    file.title = sourceFileTitle(row);
+
+    const state = document.createElement('td');
+    state.className = 'source-state';
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.dataset.state = row.badge.kind;
+    chip.textContent = row.badge.text;
+    state.append(chip);
+    if (row.detail) {
+      const detail = document.createElement('div');
+      detail.className = 'source-detail';
+      detail.textContent = row.detail;
+      state.append(detail);
+    }
+    const jobText = sourceJobText(row);
+    if (jobText) {
+      const line = document.createElement('div');
+      line.className = 'source-job';
+      if (row.job.status === 'failed') line.classList.add('admin-error');
+      line.textContent = jobText;
+      state.append(line);
+    }
+    const message = this.sources.errors.get(row.table_name);
+    if (message) {
+      const line = document.createElement('div');
+      line.className = 'source-job admin-error';
+      line.textContent = message;
+      state.append(line);
+    }
+
+    const cell = document.createElement('td');
+    cell.className = 'source-action';
+    const action = sourceAction(row, this.sources.starting);
+    if (action.kind) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mini';
+      if (action.kind === 'retry') button.dataset.retry = row.table_name;
+      else button.dataset.reingest = row.table_name;
+      button.textContent = action.label;
+      button.disabled = action.disabled;
+      button.title = action.title;
+      button.addEventListener('click', () => this.reingest(row.table_name));
+      cell.append(button);
+    }
+    tr.append(name, file, state, cell);
+    return tr;
+  }
+
+  /** Re-ingest a changed experiment, or retry a failed one, and follow its job. */
+  async reingest(name) {
+    const row = this.sources.rows.find((r) => r.table_name === name);
+    if (!row || this.sources.starting.has(name)) return;
+    const retry = row.status === 'failed';
+    // Disabled at once, before the request is answered.
+    this.sources.starting.add(name);
+    this.sources.errors.delete(name);
+    this.renderSources();
+    this.setStatus(retry ? `Retrying the ingest of ${row.name}…` : `Re-ingesting ${row.name} from ${row.file}…`);
+    try {
+      const reply = await sendJson('POST', `/api/admin/experiments/${encodeURIComponent(name)}/reingest`, {});
+      // Seen from the start, so a job that ends before the first read is still reported.
+      if (reply?.job?.job_id) this.sources.active.set(name, reply.job.job_id);
+      await this.loadSources();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : String(error?.message ?? error);
+      this.sources.errors.set(name, message);
+      this.setStatus(message, true);
+    } finally {
+      this.sources.starting.delete(name);
+      this.renderSources();
+    }
   }
 
   /* ---------------------------------------------------- derived tables */
