@@ -24,6 +24,13 @@ services:
       # this computer since then (or, at a first sync, one of another size) is
       # kept and named in the log; 1 replaces it with the dataset's version.
       - HF_SYNC_OVERWRITE=${HF_SYNC_OVERWRITE:-0}
+      # Only for a private copy of the dataset; the public one needs no token,
+      # and an empty value is read as none.
+      - HF_TOKEN=${HF_TOKEN:-}
+    # A small init process as PID 1, so Ctrl-C or `docker compose stop` reaches
+    # the download (a Python PID 1 would ignore SIGTERM) and a half-finished
+    # file is left in the staging folder, never in place of a dataset.
+    init: true
     restart: "no"
 
   calorimeter-dashboard:

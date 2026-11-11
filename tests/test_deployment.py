@@ -177,6 +177,14 @@ def test_the_sync_service_downloads_what_the_readme_downloads():
     assert "- HF_SYNC=${HF_SYNC:-1}" in sync and "- HF_SYNC_OVERWRITE=${HF_SYNC_OVERWRITE:-0}" in sync
 
 
+def test_the_sync_service_hears_a_stop_and_can_reach_a_private_copy():
+    """Ctrl-C or `docker compose stop` must reach the download: a Python PID 1 ignores SIGTERM,
+    so the service runs under an init process. A token is forwarded only if one is set."""
+    sync = _service(_read("docker-compose.yml"), "hf-sync")
+    assert re.search(r"^    init: true$", sync, re.MULTILINE)
+    assert "- HF_TOKEN=${HF_TOKEN:-}" in sync
+
+
 def test_the_dockerfile_has_the_sync_stage_then_the_app_stage_last():
     stages = re.findall(r"^FROM \S+ AS (\S+)$", _read("Dockerfile"), re.MULTILINE)
     assert stages == ["hf-sync", "app"], "app is last, so a plain `docker build .` builds the dashboard"
