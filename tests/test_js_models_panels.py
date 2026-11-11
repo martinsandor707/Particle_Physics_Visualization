@@ -400,7 +400,8 @@ for (const name of %(corrs)s) {
         tip: rs.pointTip(m, s, p) })),
       fits: Object.fromEntries(rs.DRAWN_FORMS.map((f) => [f, s.fits[f] ? { runs: s.fits[f].runs.length,
         line: rs.lineTip(m, s, s.fits[f], payload), band: rs.bandTip(s, s.fits[f]), cut: s.fits[f].cut,
-        cutTip: s.fits[f].cut ? rs.fitCutTip(m, s, s.fits[f]) : null } : null])),
+        cutTip: s.fits[f].cut ? rs.fitCutTip(m, s, s.fits[f]) : null,
+        outlined: s.fits[f].outlined, span: s.fits[f].span, xSpan: s.fits[f].xSpan } : null])),
       unreported: s.unreported.map((w) => w.bin) })), y: m.y };
   };
   for (const name of %(res)s) {
@@ -569,6 +570,7 @@ for (const name of %(corrs)s) {
         const f = s.fits[form];
         if (!f.drawable) return [form, { drawable: false, reason: f.reason, span: f.span }];
         return [form, { drawable: true, reason: f.reason, span: f.span, domain: f.domain, provisional: f.provisional,
+          misfit: f.misfit, faded: f.faded,
           converged: f.converged, isReference: f.isReference, cut: f.cut, floorCut: f.floorCut, outlined: f.outlined,
           curve: full ? f.curve : null, solid: full ? f.solid : null, dashed: full ? f.dashed : null, band: full ? f.band : null,
           ratio: f.ratio ? { solid: full ? f.ratio.solid : null, dashed: full ? f.ratio.dashed : null, cut: f.ratio.cut, outlined: f.ratio.outlined,
@@ -1098,6 +1100,185 @@ for (const name of %(corrs)s) {
     logUnder: rs.bandSpansShare([[5, 0.6, 1.6]], [5, 20], 0.25, 4, true),
   };
   out.resFix = fix;
+}
+
+/* ---- res-scaling: the windows alone set the range; a misfit is faded (Martin, 2026-11-11) ---- */
+{
+  const stubState = { isTouched: () => false, get: () => null };
+  const packN = (n) => (n ? { title: n.title, hazards: n.hazards, sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null);
+  const RW = { width: 760, height: 420 };
+  const RE = { width: 760, height: 600 };
+  const two = load('res_scaling_two');
+  // A fit whose form does not describe its windows, as the server writes one: ν ≥ 1 and S > 5, its χ² and p with it.
+  const misfitted = (payload, picks, S = 8) => {
+    const p = clone(payload);
+    for (const [key, mode, form] of picks) {
+      const f = p.series.find((x) => x.key === key).fits[mode][form];
+      f.misfit = true; f.scale_factor = S; f.chi2 = S * S * f.ndf; f.p_value = 1e-12;
+    }
+    return p;
+  };
+  // The deposit A's pinned fit (drawn in both views) and the network B's quadrature fit (drawn in the E view).
+  const picks = [['detector:a', 'all', 'pinned'], ['network:b', 'all', 'quadrature']];
+  const mis = misfitted(two, picks);
+  const lin = { windows: 'all', shower: 'both' };
+  const eo = { view: 'energy', windows: 'all', shower: 'both', reference: 'deposit' };
+  const seriesOf = (built, prefix) => walk(built).series.filter((s) => (s.id ?? '').startsWith(prefix))
+    .map((s) => ({ id: s.id, opacity: s.items[0]?.el?.opacity ?? null, tip: s.items[0]?.tip ?? null }));
+  const m = {};
+  for (const [name, payload] of [['base', two], ['mis', mis]]) {
+    const lm = rs.resolutionModel(payload, lin);
+    const ls = lm.series.find((x) => x.key === 'detector:a');
+    const linear = rs.resolutionScalingOption(payload, { ...lin, palette: 'viridis', card: 'res-scaling' }, RW);
+    const em = rs.energyModel(payload, eo);
+    const energy = rs.energyViewOption(payload, eo, RE).option;
+    const eFits = (key, form) => {
+      const f = em.series.find((x) => x.key === key).fits[form];
+      return { drawable: f.drawable, provisional: f.provisional, misfit: f.misfit, faded: f.faded, cut: Boolean(f.cut) };
+    };
+    m[name] = {
+      linearFit: { misfit: ls.fits.pinned.misfit, faded: ls.fits.pinned.faded, provisional: ls.fits.pinned.provisional,
+        line: rs.lineTip(lm, ls, ls.fits.pinned, payload), colour: ls.colour, wanted: cp.legibleOpacity(ls.colour, 0.55) },
+      linearLines: seriesOf(linear, 'detector:a|pinned|line|'), linearBand: seriesOf(linear, 'detector:a|pinned|band'),
+      linearAffine: seriesOf(linear, 'detector:a|affine|line|'),
+      table: rs.fitTableRows(payload, lin), tableE: rs.fitTableRows(payload, { ...lin, view: 'energy' }),
+      eFits: { aPinned: eFits('detector:a', 'pinned'), bQuad: eFits('network:b', 'quadrature'), aQuad: eFits('detector:a', 'quadrature') },
+      eLineOpacity: Object.fromEntries(em.series.map((s) => [s.key, [s.lineOpacity(false), s.lineOpacity(true)]])),
+      eA: [...seriesOf(energy, 'detector:a|pinned|solid|'), ...seriesOf(energy, 'detector:a|pinned|dashed|')],
+      eABand: seriesOf(energy, 'detector:a|pinned|band|'),
+      eB: [...seriesOf(energy, 'network:b|quadrature|solid|'), ...seriesOf(energy, 'network:b|quadrature|dashed|')],
+      eBBand: seriesOf(energy, 'network:b|quadrature|band|'), eBEdges: seriesOf(energy, 'network:b|quadrature|edges|'),
+      eARatio: [...seriesOf(energy, 'detector:a|ratio|pinned|solid|'), ...seriesOf(energy, 'detector:a|ratio|pinned|dashed|')],
+      eARatioBand: seriesOf(energy, 'detector:a|ratio|pinned|band|'),
+      endLabels: em.endLabels, k: em.ratio.k, bandAlpha: scale.THEME.bandAlpha,
+      notes: packN(mn.resolutionScalingNotes({ payload, state: stubState, experiment: { display_name: 'Demo' }, ...lin })),
+      notesE: packN(mn.resolutionScalingNotes({ payload, state: stubState, experiment: { display_name: 'Demo' }, ...eo })),
+      hazards: mn.modelsHazards(payload, 'res-scaling', lin), hazardsE: mn.modelsHazards(payload, 'res-scaling', eo),
+    };
+  }
+  // The ratio panel's k follows the windows alone: the deposit A pinned fit made extreme (a₀ × 4), flagged a misfit or
+  // not, leaves k the base's; its ratio leaves the axis and is clipped with a caret, true values and a count.
+  const wild = (flag) => {
+    const p = flag ? misfitted(two, [['detector:a', 'all', 'pinned']]) : clone(two);
+    const f = p.series.find((x) => x.key === 'detector:a').fits.all.pinned;
+    f.params.a0 *= 4; f.params.se_a0 *= 4; f.params.se_a0_stat *= 4;
+    const mm = rs.energyModel(p, eo);
+    const ff = mm.series.find((x) => x.key === 'detector:a').fits.pinned;
+    const built = rs.energyViewOption(p, eo, RE).option;
+    const carets = walk(built).series.filter((x) => x.id === 'detector:a|ratio|carets').flatMap((x) => x.items.map((i) => i.tip));
+    const notes = packN(mn.resolutionScalingNotes({ payload: p, ...eo }));
+    return { k: mm.ratio.k, provisional: mm.ratio.provisional, cut: ff.ratio?.cut ?? null, fits: mm.ratio.clipped.fits,
+      carets: carets.filter((t) => t.includes('leaves the ratio axis')), notes };
+  };
+  m.ratioK = { base: rs.energyModel(two, eo).ratio.k, misfit: wild(true), unflagged: wild(false) };
+  // A fit line or band above the top: a clone whose tops are the windows' alone (the server's rule since 2026-11-11),
+  // so the non-provisional fits leave them, each with a caret, its true values and a count.
+  const windowsTop = (payload, energy) => {
+    let top = 0;
+    for (const s of payload.series) {
+      for (const w of s.windows) {
+        if (!Number.isFinite(w.value)) continue;
+        const robust = energy ? (w.n >= 20 && w.p_lo >= 2 && w.se_delta > 0) : w.eligible;
+        if (robust) top = Math.max(top, w.value, w.whisker && w.ci95 ? w.ci95[1] : w.value);
+      }
+    }
+    return top;
+  };
+  const low = clone(two);
+  low.axis.y.hi = Math.ceil(windowsTop(two, false) * 1.05); low.axis.y.interval = low.axis.y.hi / 5;
+  low.axis.energy.y.hi = Math.ceil(windowsTop(two, true) * 1.05); low.axis.energy.y.interval = low.axis.energy.y.hi / 5;
+  const cutOf = (model, forms) => model.series.flatMap((s) => forms.map((form) => [s, form, s.fits[form]])
+    .filter(([, , f]) => f && (f.drawable ?? true)).map(([s, form, f]) => ({
+      key: s.key, form, provisional: f.provisional, misfit: f.misfit, cut: f.cut ? { at: f.cut.at, peak: f.cut.peak } : null,
+      peak: Math.max(...(f.curve ?? s.raw.fits.all[form].curve).map((c) => c[3])),
+    })));
+  const lowLinear = rs.resolutionModel(low, lin);
+  const lowEnergy = rs.energyModel(low, eo);
+  const caretTips = (built, ratio = false) => walk(built).series.filter((s) => (s.id ?? '').endsWith('|carets') && ((s.id ?? '').includes('|ratio|') === ratio))
+    .flatMap((s) => s.items.map((i) => i.tip));
+  m.lowTop = {
+    yhi: low.axis.y.hi, ehi: low.axis.energy.y.hi,
+    linear: { fits: cutOf(lowLinear, rs.DRAWN_FORMS), clipped: lowLinear.clipped,
+      tips: caretTips(rs.resolutionScalingOption(low, lin, RW)) },
+    energy: { fits: cutOf(lowEnergy, rs.ENERGY_FORMS), clipped: lowEnergy.clipped,
+      tips: caretTips(rs.energyViewOption(low, eo, RE).option) },
+    notes: packN(mn.resolutionScalingNotes({ payload: low, ...lin })), notesE: packN(mn.resolutionScalingNotes({ payload: low, ...eo })),
+  };
+  // The drawer's range sentences on every fixture, both views and modes.
+  m.fixtures = {};
+  for (const name of %(res)s) {
+    const payload = load(name);
+    for (const windows of ['anchors', 'all']) {
+      m.fixtures[`${name}:${windows}`] = {
+        provisional: payload.axis.y.provisional, provisionalE: payload.axis.energy.y.provisional,
+        linear: packN(mn.resolutionScalingNotes({ payload, windows })),
+        energy: packN(mn.resolutionScalingNotes({ payload, windows, view: 'energy' })),
+        misfits: rs.resolutionModel(payload, { windows }).series.flatMap((s) => rs.DRAWN_FORMS.filter((f) => s.fits[f]?.misfit)).length,
+        misfitsE: rs.energyModel(payload, { windows }).series.flatMap((s) => rs.ENERGY_FORMS.filter((f) => s.fits[f]?.drawable && s.fits[f].misfit)).length,
+      };
+    }
+  }
+  // A ratio against a misfit reference is not robust (as against a provisional one): each shower's deposit quadrature fit
+  // undefined (A ≤ 0), so the reference falls back to its pinned fit, a misfit. Beside it the same clone with the pinned
+  // fit not a misfit.
+  const fallback = (flag) => {
+    const p = clone(two);
+    for (const key of ['detector:a', 'detector:b']) p.series.find((x) => x.key === key).fits.all.quadrature.params.a_defined = false;
+    return flag ? misfitted(p, [['detector:a', 'all', 'pinned'], ['detector:b', 'all', 'pinned']]) : p;
+  };
+  const refCase = (p) => {
+    const mm = rs.energyModel(p, eo);
+    const built = rs.energyViewOption(p, eo, RE).option;
+    const w = walk(built);
+    const tipsOf = (pred) => w.series.filter((x) => pred(x.id ?? '')).flatMap((x) => x.items.map((i) => i.tip)).filter(Boolean);
+    return {
+      refs: Object.values(mm.reference.byShower).map((r) => ({ shower: r.shower, form: r.form, misfit: r.misfit, provisional: r.provisional,
+        label: r.label })),
+      robust: mm.series.flatMap((s) => s.points.filter((pt) => pt.ratio.drawn).map((pt) => pt.ratio.robust)),
+      windowsRobust: mm.series.flatMap((s) => s.points.filter((pt) => pt.ratio.drawn).map((pt) => pt.robust)),
+      k: mm.ratio.k, provisional: mm.ratio.provisional, axisName: built.yAxis[1].name,
+      pointTips: tipsOf((id) => /\|ratio\|markers$/.test(id)), referenceTips: tipsOf((id) => id.includes('|ratio|reference|')),
+      unityTip: tipsOf((id) => id === 'ratio|unity'),
+      notes: packN(mn.resolutionScalingNotes({ payload: p, ...eo })), hazards: mn.modelsHazards(p, 'res-scaling', eo),
+    };
+  };
+  m.misfitRef = { misfit: refCase(fallback(true)), calm: refCase(fallback(false)) };
+  // The 1/√E view's outline rule: the network B affine fit of the anchors mode with ν = 1, its errors scaled by S = 1.5,
+  // so its band takes t₀.₉₇₅,₁ = 12.71 (its curve rows widened by the same factor, as the server would write them).
+  const wide = clone(two);
+  {
+    const f = wide.series.find((x) => x.key === 'network:b').fits.anchors.affine;
+    const factor = (12.7062 * 1.5) / f.band_quantile;
+    f.scale_factor = 1.5; f.band_quantile = 12.7062;
+    f.params.se_a *= 1.5; f.params.se_b *= 1.5;
+    f.curve = f.curve.map(([cx, cy, lo, up]) => [cx, cy, cy - factor * (cy - lo), cy + factor * (up - cy)]);
+  }
+  const anc = { windows: 'anchors', shower: 'both' };
+  {
+    const lm = rs.resolutionModel(wide, anc);
+    const ls = lm.series.find((x) => x.key === 'network:b');
+    const f = ls.fits.affine;
+    const built = rs.resolutionScalingOption(wide, { ...anc, palette: 'viridis', card: 'res-scaling' }, RW);
+    const edges = built.series.filter((x) => (x.id ?? '').startsWith('network:b|affine|edges|')).map((x) => {
+      const el = x.renderItem({ dataIndex: 0, coordSys }, api);
+      return { id: x.id, name: x.name, stroke: el.style.stroke, width: el.style.lineWidth, opacity: el.style.opacity,
+        dash: el.style.lineDash ?? null, points: el.shape.points, tip: x.tooltip.formatter({ dataIndex: 0 }) };
+    });
+    m.outline = {
+      outlined: f.outlined, span: f.span, xSpan: f.xSpan, yhi: lm.y.hi, colour: ls.colour, label: ls.label,
+      edgeOpacity: cp.legibleOpacity(ls.colour, 0.5), lineAxis: scale.THEME.lineAxis,
+      bands: built.series.filter((x) => (x.id ?? '').startsWith('network:b|affine|band')).length, edges,
+      lineTip: rs.lineTip(lm, ls, f, wide),
+      notes: packN(mn.resolutionScalingNotes({ payload: wide, ...anc })),
+      hazards: mn.modelsHazards(wide, 'res-scaling', anc), hazardsBase: mn.modelsHazards(two, 'res-scaling', anc),
+      baseOutlined: rs.resolutionModel(two, anc).series.find((x) => x.key === 'network:b').fits.affine.outlined,
+      outlinedCount: lm.series.reduce((a, x) => a + rs.DRAWN_FORMS.filter((form) => x.fits[form]?.outlined).length, 0),
+    };
+  }
+  m.xSpans = [rs.xSpanOf([5, 20]), rs.xSpanOf([4, 5]), rs.xSpanOf(null), rs.xSpanOf([0, 5])];
+  m.misfitText = rs.misfitText({ chi2: 64 * 3, ndf: 3, scale_factor: 8 });
+  m.isMisfit = [rs.isMisfit({ misfit: true }), rs.isMisfit({ misfit: false }), rs.isMisfit({ scale_factor: 9, ndf: 3 }), rs.isMisfit(null)];
+  out.resMisfit = m;
 }
 
 /* ---- colours a reader must see, against the card on screen and in print ----- */
@@ -1920,23 +2101,34 @@ def test_res_a_window_below_eight_is_a_faded_ring_without_a_whisker(out):
 
 @pytest.mark.parametrize("name", RES)
 def test_res_a_line_and_a_band_per_drawn_fit_and_none_for_the_quadrature(out, name):
+    """One line and one band per drawn fit: the band a wash, or, where it spans half the axis or more over its fitted
+    windows (Martin, 2026-11-11), its two edges and no wash."""
     payload = _load(name)
     for key in RES_KEYS:
         windows, shower = key.split(":")
         chart = out["res"][name]["charts"][key]
+        model = {s["key"]: s for s in out["res"][name]["models"][key]["series"]}
         assert not [s for s in chart["series"] if "quadrature" in (s["id"] or "")]
         for s in _res_shown(payload, shower):
             mf = s["fits"][windows]
             for form in ("affine", "pinned"):
                 lines = [x for x in chart["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|line|")]
                 bands = _ids(chart, f"|{form}|band", s["key"])
+                edges = [x for x in chart["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|edges|")]
                 if mf[form] is None:
-                    assert not lines and not bands
+                    assert not lines and not bands and not edges
                     continue
-                assert len(lines) >= 1 and len(bands) == 1, (key, s["key"], form)
-                tip = bands[0]["items"][0]["tip"]
-                assert "95% confidence band" in tip and "not the spread of the events" in tip
-                assert not bands[0]["silent"]
+                outlined = model[s["key"]]["fits"][form]["outlined"]
+                assert len(lines) >= 1, (key, s["key"], form)
+                if outlined:
+                    assert not bands and edges, (key, s["key"], form)
+                    assert all("so it is drawn as its edges, not as a wash" in _plain(e["items"][0]["tip"]) for e in edges)
+                else:
+                    assert len(bands) == 1 and not edges, (key, s["key"], form)
+                for b in bands + edges:
+                    tip = b["items"][0]["tip"]
+                    assert "95% confidence band" in tip and "not the spread of the events" in tip
+                    assert not b["silent"]
                 assert "σ/E" in lines[0]["items"][0]["tip"]
                 # Clipped to the plot: nothing is drawn below zero or above the range.
                 y_hi = payload["axis"]["y"]["hi"]
@@ -2659,8 +2851,9 @@ def test_res_e_fit_marks_carry_their_form_and_extrapolation_in_their_tips(out, n
                     if part in alphas:
                         assert alphas[part] == pytest.approx(alphas["inside"] / 3), "the band beyond its windows at a third"
             # Shower B: hollow markers, its lines at 70% strength and never below 3:1; no shower dash on this view.
+            # A faded fit (provisional, or a form that does not describe its windows) is drawn fainter.
             for x in solid:
-                assert x["items"][0]["el"]["opacity"] == pytest.approx(s["lineOpacity"]) or f["provisional"]
+                assert x["items"][0]["el"]["opacity"] == pytest.approx(s["lineOpacity"]) or f["faded"]
         for s in model["series"]:
             if s["isB"]:
                 assert s["lineOpacity"] < 1
@@ -3258,7 +3451,7 @@ def test_res_fix_p2_end_labels_name_the_shower_in_a_column_beside_the_plot(out):
             assert "Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (this one at " in tip
             assert ("so the end labels name the shower" in tip) == rec["twoOnShow"]
             strength = int(re.search(r"\(this one at (\d+)%\)", tip).group(1))
-            assert strength >= 70 or "Provisional" in tip
+            assert strength >= 70 or "Provisional" in tip or "does not describe these windows" in tip
     assert seen["ab"] and seen["lit"]
     assert not out["resFix"]["labels"]["two:all:deposit:a"]["endLabels"]["main"], "one shower, no literature: no label"
     assert not out["resFix"]["labels"]["two:all:deposit:a"]["twoOnShow"] and not out["resFix"]["labels"]["xgb:all:deposit:both"]["twoOnShow"]
@@ -3481,3 +3674,282 @@ def test_res_fix_no_rendered_number_uses_an_ascii_hyphen(out):
              fix["provisional"]["weaker"], fix["provisional"]["nothing"], fix["lightB"]["notes"],
              *(rec["notes"] for rec in fix["labels"].values())]
     _no_hyphen_numbers(line for n in notes for lines in n["sections"].values() for line in lines)
+
+
+# ------------------------- res-scaling: the windows alone set the range; a misfit is faded --
+#
+# Martin's decision of 2026-11-11 (`out["resMisfit"]`): no fit sets either view's σ/E range, so a fitted line,
+# curve or band above the windows' top is clipped with a caret, its true values and a count; and a fit whose form
+# does not describe its windows (the server's `misfit`: ν ≥ 1 and S = √(χ²/ν) > 5) is drawn faded, as a
+# provisional fit is, says so in its tooltips and the fit table's Status, is named in the drawer, never sets the
+# ratio range either, and raises no hazard. The clones change only what the server would: the misfit's flag, S,
+# χ² and p; the axes' tops to the windows' alone.
+
+MISFIT_TEXT = ("Its form does not describe these windows: χ²/ν = 64, so its residuals average S = 8 times the windows' "
+               "own errors (above 5); drawn faded, it never sets the range.")
+MISFIT_STATUS = "form does not describe its windows (S = 8 > 5)"
+
+
+def test_res_misfit_flag_is_the_servers_and_its_sentence(out):
+    m = out["resMisfit"]
+    assert m["misfitText"] == MISFIT_TEXT
+    assert m["isMisfit"] == [True, False, False, False], "the server's flag alone decides; S without it is not a misfit"
+
+
+def test_res_misfit_is_faded_in_the_linear_view_with_its_tooltip_and_status(out):
+    base, mis = out["resMisfit"]["base"], out["resMisfit"]["mis"]
+    assert (base["linearFit"]["misfit"], base["linearFit"]["faded"]) == (False, False)
+    assert (mis["linearFit"]["misfit"], mis["linearFit"]["faded"], mis["linearFit"]["provisional"]) == (True, True, False)
+    # Faded exactly as a provisional fit is: its line at the provisional opacity (never below 3:1), its band at 0.6.
+    wanted = mis["linearFit"]["wanted"]
+    assert base["linearLines"] and all(x["opacity"] == 1 for x in base["linearLines"])
+    assert mis["linearLines"] and wanted < 1 and all(x["opacity"] == pytest.approx(wanted) for x in mis["linearLines"])
+    (b_band,), (m_band,) = base["linearBand"], mis["linearBand"]
+    assert m_band["opacity"] == pytest.approx(0.6 * b_band["opacity"])
+    assert [x["opacity"] for x in mis["linearAffine"]] == [x["opacity"] for x in base["linearAffine"]], "only the misfit fades"
+    assert MISFIT_TEXT in _plain(mis["linearFit"]["line"]) and MISFIT_TEXT in _plain(mis["linearLines"][0]["tip"])
+    assert "does not describe" not in base["linearFit"]["line"]
+    # The Status cell says so in both views; the caption states the rule.
+    for table in ("table", "tableE"):
+        rows = _fit_rows(mis[table])
+        assert rows["detector:a"]["pinned"][5] == MISFIT_STATUS and rows["network:b"]["quadrature"][5] == MISFIT_STATUS
+        assert "does not describe" not in rows["detector:a"]["affine"][5]
+        assert "Above S = 5 a fit's form does not describe its windows, and a drawn one is faded." in mis[table]["caption"]
+        assert not [c for r in _fit_rows(base[table]).values() for c in r.values() if "does not describe" in c[5]]
+    # No new hazard: the deposit's pinned fit is a misfit on every real dataset, and an always-on dot says nothing.
+    assert mis["hazards"] == base["hazards"] and mis["hazardsE"] == base["hazardsE"]
+
+
+def test_res_misfit_is_faded_in_the_e_view_on_both_panels_extrapolation_included(out):
+    base, mis = out["resMisfit"]["base"], out["resMisfit"]["mis"]
+    for key, want in (("aPinned", True), ("bQuad", True), ("aQuad", False)):
+        f = mis["eFits"][key]
+        assert f["drawable"] and (f["misfit"], f["faded"], f["provisional"]) == (want, want, False), key
+        assert base["eFits"][key]["faded"] is False
+    a_full, a_faded = mis["eLineOpacity"]["detector:a"]
+    b_full, b_faded = mis["eLineOpacity"]["network:b"]
+    assert a_faded < a_full and b_faded < b_full
+    # The main panel: the solid part and its dashed extrapolation fade together; the base draws them at full strength.
+    for faded, full, parts, base_parts in ((a_faded, a_full, mis["eA"], base["eA"]), (b_faded, b_full, mis["eB"], base["eB"])):
+        assert {p["id"].split("|")[2] for p in parts} == {"solid", "dashed"}
+        assert all(p["opacity"] == pytest.approx(faded) for p in parts)
+        assert all(p["opacity"] == pytest.approx(full) for p in base_parts)
+        assert all(MISFIT_TEXT in _plain(p["tip"]) for p in parts)
+        assert not [p for p in base_parts if "does not describe" in (p["tip"] or "")]
+    # Its band at 0.6 of its strength, over the span and beyond it.
+    for parts, base_parts in ((mis["eABand"], base["eABand"]), (mis["eBBand"], base["eBBand"])):
+        assert parts and {p["id"]: p["opacity"] for p in parts} == pytest.approx({p["id"]: 0.6 * p["opacity"] for p in base_parts})
+    # The ratio panel: the deposit A's pinned fit divided by its quadrature reference, faded, its tip saying why.
+    assert mis["eARatio"] and all(p["opacity"] == pytest.approx(a_faded) and MISFIT_TEXT in _plain(p["tip"]) for p in mis["eARatio"])
+    assert mis["eARatioBand"] and {p["id"]: p["opacity"] for p in mis["eARatioBand"]} == pytest.approx(
+        {p["id"]: 0.6 * p["opacity"] for p in base["eARatioBand"]})
+    # The end labels' key strokes draw the curve as it is drawn, faded.
+    faded_keys = {("detector:a", "pinned"): a_faded, ("network:b", "quadrature"): b_faded}
+    keyed = [x for panel in ("main", "ratio") for x in mis["endLabels"][panel] if (x["key"], x["form"]) in faded_keys]
+    assert keyed and all(x["stroke"]["opacity"] == pytest.approx(faded_keys[(x["key"], x["form"])]) for x in keyed)
+
+
+def test_res_no_fit_sets_the_ratio_range(out):
+    """The ratio panel's k follows the windows alone (Martin, 2026-11-11). The deposit A's pinned fit with a₀ × 4, a misfit
+    or not, leaves k the base's; its ratio leaves [1/k, k] and is clipped with a caret, its true values and a count."""
+    k = out["resMisfit"]["ratioK"]
+    for case in ("misfit", "unflagged"):
+        got = k[case]
+        assert got["k"] == k["base"] and got["provisional"] is False, case
+        assert got["cut"] and got["fits"] >= 1, case
+        assert len(got["carets"]) >= 1 and all("True values where it deviates most" in t for t in got["carets"]), case
+        assert all("the ratio range follows the windows of N ≥ 20 from 2 GeV alone; a fit summarises its windows, so no fit ratio "
+                   "sets it." in _plain(t) for t in got["carets"]), case
+        clipped = [x for x in _lines(got["notes"], out, "disclosures") if x.startswith("Clipped at the ratio axis")]
+        assert len(clipped) == 1 and re.search(r"\b\d+ fits?\b", clipped[0]), (case, clipped)
+
+
+def test_res_the_drawer_names_each_misfit_with_s_and_chi2(out):
+    base, mis = out["resMisfit"]["base"], out["resMisfit"]["mis"]
+    dis = _lines(mis["notes"], out, "disclosures")
+    (line,) = [x for x in dis if "drawn faded because" in x]
+    assert line.startswith("1 fit is drawn faded because its form does not describe its windows: ν ≥ 1 and S = √(χ²/ν) > 5, "
+                           "the residuals averaging more than 5 of the windows' own standard errors, so it never sets a range: ")
+    assert "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark, origin-pinned fit a₀/√E (S = 8, χ²/ν = 64)" in line
+    assert "The size of the misfit decides, not the χ² p-value" in line
+    dis_e = _lines(mis["notesE"], out, "disclosures")
+    (line_e,) = [x for x in dis_e if "drawn faded because" in x]
+    assert line_e.startswith("2 fits are drawn faded because their forms do not describe their windows")
+    assert "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark, origin-pinned fit a₀/√E ⊕ 0 (S = 8, χ²/ν = 64)" in line_e
+    assert "Shower B · Energy network · absolute frame, quadrature fit a/√E ⊕ b (S = 8, χ²/ν = 64)" in line_e
+    for n in (base["notes"], base["notesE"]):
+        assert not [x for x in _lines(n, out, "disclosures") if "drawn faded because" in x]
+
+
+def test_res_a_fit_above_the_windows_top_gets_its_caret_true_values_and_count(out):
+    """Tops set by the windows alone (a clone of the two-shower payload): every fit line or band above is clipped."""
+    lt = out["resMisfit"]["lowTop"]
+    for view, hi, floor in (("linear", lt["yhi"], ""), ("energy", lt["ehi"], " from 2 GeV")):
+        got = lt[view]
+        above = [f for f in got["fits"] if f["peak"] > hi]
+        assert above and [f for f in above if not f["provisional"]], (view, "a robust fit leaves a top the windows set")
+        assert all(f["cut"] for f in above) and not [f for f in got["fits"] if f["cut"] and f["peak"] <= hi], view
+        assert got["clipped"]["fits"] == len(above)
+        tips = [_plain(t) for t in got["tips"] if "leaves the top of the" in t]
+        assert len(tips) == len(above) and all("True values" in t for t in tips)
+        rule = f"Clipped, not rescaled: the range follows the windows of N ≥ 20{floor} alone; a fit summarises its windows, so no line, curve or band sets it."
+        assert all(rule in t for t in tips), view
+        assert not [t for t in tips if "fitted lines through them" in t or "fitted curves over their windows" in t]
+    for n, word in ((lt["notes"], "line or band sets it"), (lt["notesE"], "curve, band or extrapolation sets it")):
+        (leave,) = [x for x in _lines(n, out, "disclosures") if "the top of the" in x and "line or band, each clipped there" in x]
+        assert leave.endswith(f"The range follows the windows alone, so no {word}.")
+
+
+def test_res_the_drawers_say_the_windows_alone_set_the_range(out):
+    stale = ("non-provisional fits", "lines fitted through them", "fitted lines through them", "and the fits through them",
+             "fitted curves over their windows")
+    for key, rec in out["resMisfit"]["fixtures"].items():
+        lin_dis = _lines(rec["linear"], out, "disclosures")
+        e_dis = _lines(rec["energy"], out, "disclosures")
+        if rec["provisional"]:
+            assert any(x.startswith("The y range is provisional") and x.endswith("; no fit sets it.") for x in lin_dis), key
+        else:
+            assert ("The y range follows the windows with N ≥ 20 (whiskers included) alone, from zero: a fit summarises its "
+                    "windows and is not more evidence, so no fitted line or band sets it.") in lin_dis, key
+        if not rec["provisionalE"]:
+            assert ("The y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included. A fit "
+                    "summarises its windows and is not more evidence, so no fitted curve, band or extrapolation sets it; a window "
+                    "below 2 GeV never sets it, whatever its N.") in e_dis, key
+        # The ratio range: the windows alone, against a reference neither provisional nor a misfit; no fit sets it.
+        ratio = [x for x in e_dis if x.startswith("The ratio range, ")]
+        assert len(ratio) == 1 and ratio[0].endswith("no fit sets it."), key
+        assert "neither provisional nor of a form that does not describe its windows" in ratio[0], key
+        assert ("follows the windows alone" in ratio[0]) or ("is provisional" in ratio[0]), key
+        assert not [x for x in e_dis + _lines(rec["energy"], out, "drawn") if "drawn unfaded" in x], key
+        assert any("that covers the robust ratio marks, the windows alone" in x and "No fit sets it: a fit's ratio that leaves the "
+                   "axis is clipped there with a caret." in x for x in _lines(rec["energy"], out, "drawn")), key
+        # Faded fits in the legend of either view; no fit sets either range.
+        assert any("A fit drawn faded, its line and its band alike, is provisional (fewer than two windows of N ≥ 20) or of a form "
+                   "that does not describe its windows (S > 5); no fit, faded or not, sets the range." == x
+                   for x in _lines(rec["linear"], out, "legend")), key
+        assert any("A fit drawn fainter, its curve, dashed extrapolation and band alike, is provisional or of a form that does not "
+                   "describe its windows (S > 5); no fit, faded or not, sets either panel's range." in x
+                   for x in _lines(rec["energy"], out, "legend")), key
+        # The 1/√E view's bands: the outline rule stated in the legend.
+        assert any("A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is "
+                   "drawn as two thin edges in the series' colour, solid over those windows and dashed beyond, never as a wash." in x
+                   for x in _lines(rec["linear"], out, "legend")), key
+        # No sentence the drawer writes itself says a fit sets the range (the server's own notes are held in Python).
+        for n in (rec["linear"], rec["energy"]):
+            owned = _lines(n, out, "disclosures") + _lines(n, out, "legend")
+            assert not [x for x in owned for s in stale if s in x], key
+        # A misfit is disclosed exactly where one is drawn.
+        assert any("drawn faded because" in x for x in lin_dis) == bool(rec["misfits"]), key
+        assert any("drawn faded because" in x for x in e_dis) == bool(rec["misfitsE"]), key
+
+
+def test_res_misfit_no_rendered_number_uses_an_ascii_hyphen(out):
+    m = out["resMisfit"]
+    for case in (m["mis"], m["lowTop"]):
+        for key in ("notes", "notesE"):
+            _no_hyphen_numbers(line for lines in case[key]["sections"].values() for line in lines)
+    _no_hyphen_numbers(_plain(x["tip"]) for x in m["mis"]["eA"] + m["mis"]["eB"] + m["mis"]["eARatio"] + m["mis"]["linearLines"])
+    _no_hyphen_numbers(_plain(t) for view in ("linear", "energy") for t in m["lowTop"][view]["tips"])
+
+
+# ------------------- res-scaling: the lead's follow-ups (2026-11-11): k, the misfit reference, the 1/√E outline --
+
+def test_res_a_ratio_against_a_misfit_reference_is_not_robust(out):
+    """As against a provisional reference (P10): each shower's deposit quadrature fit undefined, so the reference falls back
+    to its pinned fit, a misfit. No ratio mark sets k, which turns provisional and says so; the drawer, the reference's own
+    band, the 1.0 rule and every ratio mark's tooltip name the reference's S."""
+    mis, calm = out["resMisfit"]["misfitRef"]["misfit"], out["resMisfit"]["misfitRef"]["calm"]
+    for case, want in ((mis, True), (calm, False)):
+        assert [(r["form"], r["misfit"], r["provisional"]) for r in case["refs"]] == [("pinned", want, False)] * 2
+    # The same windows are robust as windows; against the misfit reference none of their ratios is.
+    assert mis["windowsRobust"] == calm["windowsRobust"] and any(mis["windowsRobust"])
+    assert not any(mis["robust"]) and any(calm["robust"])
+    assert mis["provisional"] is True and calm["provisional"] is False
+    assert mis["axisName"].endswith("— provisional") and not calm["axisName"].endswith("— provisional")
+    text = ("does not describe its windows: S = 8 > 5 (χ²/ν = 64), so a ratio against it is not robust and never sets the "
+            "ratio range.")
+    for tips in ("pointTips", "referenceTips", "unityTip"):
+        assert mis[tips] and all(text in _plain(t) for t in mis[tips]), tips
+        assert not [t for t in calm[tips] if "does not describe its windows" in t], tips
+    dis = _lines(mis["notes"], out, "disclosures")
+    named = [x for x in dis if "does not describe its windows (S = 8 > 5, χ²/ν = 64)" in x]
+    assert [x.split(" does not")[0] for x in named] == ["Shower A's reference, its deposit's a₀/√E fit,",
+                                                         "Shower B's reference, its deposit's a₀/√E fit,"]
+    assert all("so none of them sets the ratio range" in x for x in named)
+    (ratio,) = [x for x in dis if x.startswith("The ratio range, ")]
+    assert "is provisional: no window of N ≥ 20 from 2 GeV gives a ratio mark against a reference that is neither provisional " \
+           "nor of a form that does not describe its windows" in ratio
+    drawn = _lines(mis["notes"], out, "drawn")
+    assert sum("a form that does not describe the deposit's windows (S = 8 > 5)" in x for x in drawn) == 2
+    # Its only flag is the existing provisional ratio range; no hazard of its own.
+    assert set(calm["hazards"]) <= set(mis["hazards"]) and set(mis["hazards"]) - set(calm["hazards"]) == {"provisional ratio range"}
+
+
+def _band_at(block: dict, x: float) -> tuple[float, float, float]:
+    """A fit block's line and 95% band at x = 1/√E, from its params alone (the server's `rfit.band`)."""
+    p, q = block["params"], block["band_quantile"]
+    if block["form"] == "pinned":
+        y, half = p["a0"] * x, q * p["se_a0"] * x
+    else:
+        y = p["a"] * x + p["b"]
+        half = q * max((x * p["se_a"]) ** 2 + 2 * p["rho_ab"] * x * p["se_a"] * p["se_b"] + p["se_b"] ** 2, 0) ** 0.5
+    return y, y - half, y + half
+
+
+@pytest.mark.parametrize("name", RES)
+def test_res_the_linear_bands_follow_the_outline_rule(out, name):
+    """The 1/√E view's affine and pinned bands are outlined exactly where, at some x of the fitted windows' momentum edges
+    mapped by x = 1/√E, the part of the band inside the axis covers half of it or more: re-derived from the payload."""
+    payload = _load(name)
+    for key in RES_KEYS:
+        windows, shower = key.split(":")
+        model = {s["key"]: s for s in out["res"][name]["models"][key]["series"]}
+        top = out["res"][name]["models"][key]["y"]["hi"]
+        for s in _res_shown(payload, shower):
+            mf = s["fits"][windows]
+            span = mf["span_gev"]
+            for form in ("affine", "pinned"):
+                block = mf[form]
+                if block is None:
+                    continue
+                got = model[s["key"]]["fits"][form]
+                x_span = [1 / span[1] ** 0.5, 1 / span[0] ** 0.5]
+                assert got["span"] == span and got["xSpan"] == pytest.approx(x_span)
+                rows = [(c[0], c[2], c[3]) for c in block["curve"] if x_span[0] - 1e-9 <= c[0] <= x_span[1] + 1e-9]
+                rows += [(x, lo, hi) for x in x_span for _, lo, hi in [_band_at(block, x)]]
+                want = any(min(hi, top) - max(lo, 0.0) >= 0.5 * top for _, lo, hi in rows)
+                assert got["outlined"] is want, (name, key, s["key"], form)
+
+
+def test_res_a_wide_linear_band_is_drawn_as_its_edges(out):
+    """A ν = 1 affine band at t₀.₉₇₅,₁ = 12.71: two thin edges in the series' colour, solid over its fitted windows and
+    dashed beyond, clipped to the plot; no wash; its line, its edges and the drawer say why; no hazard of its own."""
+    o = out["resMisfit"]["outline"]
+    assert o["outlined"] is True and o["baseOutlined"] is False and o["bands"] == 0
+    x_lo, x_hi = o["xSpan"]
+    assert (x_lo, x_hi) == pytest.approx((1 / o["span"][1] ** 0.5, 1 / o["span"][0] ** 0.5))
+    assert {e["id"].split("|")[-2] for e in o["edges"]} == {"solid", "dashed"}
+    why = ("Its 95% band spans half its axis or more over its fitted windows (S = 1.5, ν = 1, q = 12.71), so it is drawn as its "
+           "edges, not as a wash.")
+    for e in o["edges"]:
+        part = e["id"].split("|")[-2]
+        assert e["name"] == o["label"] and e["stroke"] == o["colour"]
+        assert e["width"] == pytest.approx(0.8 * o["lineAxis"]) and e["opacity"] == pytest.approx(o["edgeOpacity"])
+        assert e["dash"] == ([6, 4] if part == "dashed" else None)
+        for x, y in e["points"]:  # identity coordinates
+            assert 0 < y <= o["yhi"] + 1e-9
+            if part == "solid":
+                assert x_lo - 1e-9 <= x <= x_hi + 1e-9
+        tip = _plain(e["tip"])
+        assert why in tip and "95% confidence band of the affine fit" in tip
+        assert ("Extrapolated: beyond the windows this fit used" in tip) == (part == "dashed")
+    assert why in _plain(o["lineTip"]) and "The shaded band beside it" not in o["lineTip"]
+    (listed,) = [x for x in _lines(o["notes"], out, "disclosures") if "never as a wash: " in x]
+    n = o["outlinedCount"]
+    assert n >= 1 and listed.startswith(
+        f"{n} band{'s' if n > 1 else ''} span{'' if n > 1 else 's'} half {'their' if n > 1 else 'its'} axis or more at some x over "
+        f"the fitted windows, so {'they are' if n > 1 else 'it is'} drawn as two thin edges in the series' colour, solid over the "
+        "fitted windows and dashed beyond, never as a wash: ")
+    assert "Shower B · Energy network · absolute frame, affine fit a/√E + b (S = 1.5, ν = 1, q = 12.71)" in listed
+    assert o["hazards"] == o["hazardsBase"], "no hazard of its own"
+    assert out["resMisfit"]["xSpans"] == [pytest.approx([1 / 20 ** 0.5, 1 / 5 ** 0.5]), pytest.approx([0.4472136, 0.5]), None, None]

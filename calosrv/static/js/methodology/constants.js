@@ -269,6 +269,8 @@ export const CONSTANTS = Object.freeze({
     'Fraction of the way to each refit the parameters move once the refits oscillate.'),
   RES_TOLERANCE: entry(1e-10, 'py:calosrv.stats.resolution_fit:TOLERANCE',
     'A refit has converged when no parameter moves by more than this, relative to max(1, |θ|).'),
+  RES_MISFIT_SCALE: entry(5, 'py:calosrv.stats.resolution_fit:MISFIT_SCALE',
+    'A resolution fit with ν ≥ 1 whose scale factor S = √(χ²/ν), the RMS of its residuals in the windows’ own standard errors, exceeds this does not describe its windows: it is drawn faded and never sets a range.'),
   RES_E_VIEW_MAX_GEV: entry(80.0, 'py:calosrv.query.resolution_scaling:E_VIEW_MAX_GEV',
     'The E view’s energy axis ends here (GeV), or at the dataset’s highest window edge rounded up to the tick interval when that is higher.'),
   RES_E_VIEW_INTERVAL_GEV: entry(10.0, 'py:calosrv.query.resolution_scaling:E_VIEW_INTERVAL_GEV',

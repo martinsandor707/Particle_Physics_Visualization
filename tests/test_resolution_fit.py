@@ -8,8 +8,10 @@ generating a and b within 3 standard errors, and the coverage of the reported
 95% intervals over 400 seeded replicas. The quadrature band, drawn in the
 card's E view, is held to √ of a z-band built independently from ``lstsq``, to
 its cut at zero and its value at x = 0, to Student's t once S scales it, and to
-its coverage of the generating σ/E over 400 replicas. Nothing here is a
-measurement of the detector.
+its coverage of the generating σ/E over 400 replicas. The misfit gate
+(``Fit.misfit``: ν ≥ 1 and S > 5) is held just above and just below 5, at ν = 0,
+and on a pinned fit through a constant term. Nothing here is a measurement of
+the detector.
 """
 
 from __future__ import annotations
@@ -139,6 +141,54 @@ def test_an_unscaled_band_keeps_the_normal_quantile():
     assert fit.scale_factor == 1.0 and fit.band_quantile == rf.Z95
     y, lo, hi = rf.band(fit, [0.0])
     assert hi[0] - y[0] == approx(rf.Z95 * math.sqrt(fit.cov[1, 1]))
+
+
+def _fit_at(scale: float, ndf: int = 3, form: str = rf.FORM_PINNED) -> rf.Fit:
+    """A fit with a chosen S and ν (χ² = ν·S²), for the misfit gate alone."""
+    theta = (0.2,) if form == rf.FORM_PINNED else (0.2, 0.02)
+    chi2 = ndf * scale ** 2
+    return rf.Fit(form, ndf + len(theta), theta, np.eye(len(theta)) * 1e-6, chi2=chi2, ndf=ndf,
+                  p_value=rf.chi2_sf(chi2, ndf), scale_factor=scale, iterations=1, converged=True)
+
+
+@pytest.mark.parametrize("scale, misfit", [
+    (5.0 * (1 + 1e-9), True), (5.0001, True), (12.0, True),
+    (5.0, False), (4.9999, False), (5.0 * (1 - 1e-9), False), (1.0, False),
+])
+@pytest.mark.parametrize("form", [rf.FORM_AFFINE, rf.FORM_PINNED, rf.FORM_QUADRATURE])
+def test_the_misfit_gate_is_s_above_five(scale, misfit, form):
+    """S = √(χ²/ν), the RMS of the residuals in the windows' own errors: a misfit just above 5, never at or below."""
+    assert rf.MISFIT_SCALE == 5.0
+    fit = _fit_at(scale, form=form)
+    assert fit.scale_factor == scale and fit.misfit is misfit
+
+
+def test_no_degree_of_freedom_is_never_a_misfit():
+    """ν = 0 passes through its points and has no test: never a misfit, whatever S is set to."""
+    assert _fit_at(50.0, ndf=0).misfit is False
+    assert _fit_at(5.0001, ndf=1).misfit is True
+    # Real fits with ν = 0, through points far from any common form, at N = 5,000.
+    line = rf.fit_affine([0.25, 0.4], [0.07, 0.30], [5000, 5000])
+    assert line.ndf == 0 and line.scale_factor == 1.0 and line.misfit is False
+    pinned = rf.fit_pinned([0.3], [0.6], [5000])
+    assert pinned.ndf == 0 and pinned.misfit is False
+
+
+def test_a_pinned_fit_through_a_constant_term_is_a_misfit_and_its_block_says_so():
+    """σ/E = √(a²/E + b²) with b = 30% at N = 2,000 a window: a₀/√E cannot hold it, the quadrature form can."""
+    rng = np.random.default_rng(1111)
+    x, r, n = _windows(rng, lambda p: np.sqrt(0.2 ** 2 / p + 0.3 ** 2), 2000)
+    pinned, quad = rf.fit_pinned(x, r, n), rf.fit_quadrature(x, r, n)
+    assert pinned.ndf >= 1 and pinned.scale_factor > rf.MISFIT_SCALE and pinned.misfit
+    assert quad.scale_factor < 3 and not quad.misfit
+    # The χ² test rejects the pinned form at any threshold a reader would use, as it rejects small misfits too.
+    assert pinned.p_value < 1e-6
+    block = rs.fit_block(pinned, provisional=False)
+    assert block["misfit"] is True and block["provisional"] is False
+    assert f"S = {pinned.scale_factor:.3g} > 5" in block["note"] and "does not describe these windows" in block["note"]
+    assert "drawn faded and never sets a range" in block["note"]
+    calm = rs.fit_block(quad, provisional=False)
+    assert calm["misfit"] is False and "does not describe" not in calm["note"]
 
 
 def test_an_oscillating_refit_is_damped_to_its_fixed_point():

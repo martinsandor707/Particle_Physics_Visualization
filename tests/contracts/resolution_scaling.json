@@ -176,7 +176,8 @@
        "type": "string"
       }
      },
-     "additionalProperties": false
+     "additionalProperties": false,
+     "description": "The 1/√E view's σ/E range, set by the windows alone: those of N ≥ 20 from e_min_gev (whiskers included), else provisionally the weaker windows' markers. No fit sets it; n_clipped counts the windows beyond it."
     },
     "energy": {
      "type": "object",
@@ -262,7 +263,7 @@
         }
        },
        "additionalProperties": false,
-       "description": "The E view's own σ/E range: windows of N ≥ 20 from y_min_gev (whiskers included) and the non-provisional drawn fits over their fitted spans; windows below y_min_gev only counted in n_clipped."
+       "description": "The E view's own σ/E range, set by the windows alone: those of N ≥ 20 from y_min_gev (whiskers included), else provisionally every window's marker; no fit sets it; windows below y_min_gev only counted in n_clipped."
       },
       "curve_min_gev": {
        "type": "number",
@@ -302,7 +303,8 @@
     "fit_n",
     "e_min_gev",
     "anchor_low_gev",
-    "n_anchors"
+    "n_anchors",
+    "misfit_scale"
    ],
    "properties": {
     "report_n": {
@@ -322,6 +324,10 @@
     },
     "n_anchors": {
      "const": 3
+    },
+    "misfit_scale": {
+     "const": 5.0,
+     "description": "A fit with ndf ≥ 1 and scale_factor above this does not describe its windows (misfit)."
     }
    },
    "additionalProperties": false
@@ -717,6 +723,7 @@
     "converged",
     "curve",
     "provisional",
+    "misfit",
     "note"
    ],
    "properties": {
@@ -802,6 +809,10 @@
     },
     "provisional": {
      "type": "boolean"
+    },
+    "misfit": {
+     "type": "boolean",
+     "description": "ndf ≥ 1 and scale_factor > gates.misfit_scale (5): the residuals' RMS exceeds five of the windows' own standard errors, so the form does not describe them; drawn faded, never setting a range."
     },
     "note": {
      "type": "string"

@@ -48,16 +48,29 @@
  * factor S = √(χ²/ν) > 1 scales Σ (S is then estimated from the fit's own ν;
  * the server ships the quantile). It is the uncertainty of the fitted line, not
  * the spread of the events, and the band's tooltip says so. The affine band is
- * a wash at `bandAlpha`, the pinned one at half of it. A line and its band are
+ * a wash at `bandAlpha`, the pinned one at half of it. A band whose part inside
+ * the axis covers `OUTLINE_SHARE` of it or more at some x of its fitted span is
+ * drawn as its two edges instead, solid over the span and dashed beyond, never
+ * as a wash, as on the E view (Martin's decision of 2026-11-11: under the
+ * windows-only range, the three anchors' ν = 1 affine bands, at t₀.₉₇₅,₁ =
+ * 12.71, washed over the whole plot). The span is the E view's own, the fitted
+ * windows' momentum edges (`span_gev`) mapped by x = 1/√E (`xSpanOf`), so both
+ * views judge a band over one stretch of momentum. A line and its band are
  * clipped to the plot: an affine fit with a negative intercept runs down to the
- * axis and stops there. A line or band that leaves the top of the plot (a
- * provisional fit never sets the range, and a band may be far wider than its
- * line) is clipped and said so, as a weak window is: a caret where it leaves,
- * its true values in the caret's tooltip, and a count in the drawer. A
- * provisional fit (fewer than two windows of N ≥ 20, so it runs through
- * windows of N ≥ 8) is drawn faded. A fit whose iterated weights did not
- * settle says so in its tooltip, the table and the drawer. On this view the
- * quadrature fit is never drawn; it is tabled. The E view draws it (below).
+ * axis and stops there. The σ/E range is the server's and follows the windows
+ * alone (Martin's decision of 2026-11-11): a fit summarises its windows and is
+ * not more evidence, so no line or band sets it. One that leaves the top of the
+ * plot is clipped and said so, as a weak window is: a caret where it leaves,
+ * its true values in the caret's tooltip, and a count in the drawer. Two kinds
+ * of fit are drawn faded, their lines at `PROVISIONAL_OPACITY` and their bands
+ * at 0.6 of their strength (`faded`): a provisional fit (fewer than two windows
+ * of N ≥ 20, so it runs through windows of N ≥ 8), and a fit whose form does not
+ * describe its windows, the server's `misfit` (ν ≥ 1 and S = √(χ²/ν) above
+ * `gates.misfit_scale`, 5: its residuals average more than five of the windows'
+ * own errors). Each says why in its tooltip and the table's Status cell, and the
+ * drawer names it. A fit whose iterated weights did not settle says so in its
+ * tooltip, the table and the drawer. On this view the quadrature fit is never
+ * drawn; it is tabled. The E view draws it (below).
  *
  * ## Colour is the estimator, fill and dash are the shower
  *
@@ -91,7 +104,8 @@
  * the other (its ⟨p⟩, larger by Jensen's inequality, is in its tooltip). The
  * axis is linear from 0 to `axis.energy.x.max`; the windows below 4 GeV, off
  * the 1/√E axis, are on it as points no fit uses. σ/E runs from zero to the
- * server's E-view top, which windows below 2 GeV never set.
+ * server's E-view top, which the windows alone set (from 2 GeV, never below);
+ * a curve or band that leaves it is clipped, as on the 1/√E view.
  *
  * Two fits are drawn, evaluated from their blocks' params alone
  * (`fitCurveE`, held to the server's `curve` rows and `rfit.band` by the
@@ -151,10 +165,13 @@
  * mark against it says so. The axis is logarithmic and symmetric about 1 over
  * [1/k, k], so ×2 and ÷2 lie at equal distances and a linear axis's impossible
  * negative ratios never arise; its ticks below 1 read 1/x. k is the first
- * `RATIO_STEPS` value covering the robust ratio marks (`ratioRange`: windows
- * of N ≥ 20 from 2 GeV and non-provisional fits, each against a reference that
- * is not provisional), provisional without them, capped at the ladder's end
- * and said so, and marks beyond it get carets. The panel's plot is
+ * `RATIO_STEPS` value covering the robust ratio marks (`ratioRange`): the
+ * windows alone, those of N ≥ 20 from 2 GeV, each against a reference that is
+ * neither provisional nor a misfit (Martin's decisions of 2026-11-11); no fit
+ * sets k. It is provisional without them, capped at the ladder's end and said
+ * so, and marks beyond it, fits included, get carets. The faded fits are drawn
+ * on both panels as on the 1/√E view, their dashed extrapolations faded with
+ * them. The panel's plot is
  * `ENERGY_VIEW_PX` tall where the view draws its two panels (`syncHeight`),
  * and its export keeps the two panels' proportions (`energyExportMetrics`).
  * `energyModel` decides all of it once, for the chart and the drawer.
@@ -179,7 +196,7 @@ export const RES_WINDOW_MODES = Object.freeze(['anchors', 'all']);
 
 /** The gates the payload states, as the server's constants (`gates`) default them. */
 const DEFAULT_GATES = Object.freeze({
-  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3,
+  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3, misfit_scale: 5,
 });
 
 /** The fits drawn as lines; the quadrature form is tabled only. */
@@ -197,7 +214,7 @@ const SERIES_OFFSET_PX = 3.5;
 /** Opacities asked of a weak window (N < 20) and a sub-floor one (N < 8); raised to 3:1 where needed. */
 const WEAK_OPACITY = 0.6;
 const SUB_FLOOR_OPACITY = 0.45;
-/** Opacity asked of a provisional fit's line. */
+/** Opacity asked of a faded fit's line: a provisional fit, or one whose form does not describe its windows. */
 const PROVISIONAL_OPACITY = 0.55;
 /** Shower B's affine dash, the pinned fit's dots, and a sub-floor ring's dash. */
 const DASH_B = [6, 4];
@@ -210,6 +227,25 @@ const A_UNIT = '%·√GeV';
 const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
 const sig = (v, d = 3) => sigFigs(v, d);
 const plural = (n, word, many = `${word}s`) => `${formatInt(n)} ${n === 1 ? word : many}`;
+
+/**
+ * Whether a fit block's form does not describe its windows: the server's
+ * `misfit` (ν ≥ 1 and S = √(χ²/ν) above `gates.misfit_scale`). The flag is the
+ * server's alone; a block without it (an older payload) is not a misfit.
+ */
+export function isMisfit(fit) {
+  return fit?.misfit === true;
+}
+
+/**
+ * What a misfit's tooltip says: its χ²/ν and S, the RMS of its residuals in
+ * units of the windows' own standard errors, against the gate.
+ */
+export function misfitText(fit, gates = DEFAULT_GATES) {
+  return `Its form does not describe these windows: χ²/ν = ${sig(fit.chi2 / fit.ndf)}, so its residuals average `
+    + `S = ${sig(fit.scale_factor)} times the windows' own errors (above ${formatNumber(gates.misfit_scale ?? DEFAULT_GATES.misfit_scale)}); `
+    + 'drawn faded, it never sets the range.';
+}
 
 /** The mode in force: 'anchors' unless 'all' is asked for. */
 export function windowMode(windows) {
@@ -321,6 +357,32 @@ function cutAbove(curve, hi) {
   return { at: lineAt ?? bandAt, lineAt, bandAt, peak };
 }
 
+/**
+ * A fit's span on the 1/√E view: its fitted windows' momentum edges `[lo, hi]`
+ * (GeV, `span_gev`, the stretch the E view draws solid) mapped by x = 1/√E, so
+ * `[1/√hi, 1/√lo]`; null without a span. Both views judge a band over one
+ * stretch of momentum.
+ */
+export function xSpanOf(span) {
+  if (!Array.isArray(span) || !(span[0] > 0) || !(span[1] > 0)) return null;
+  return [1 / Math.sqrt(span[1]), 1 / Math.sqrt(span[0])];
+}
+
+/**
+ * A fit's curve rows `[x, y, lo, hi]` with its line and band at the two span
+ * edges added (from the block's params, `evalFitAt`), sorted by x: the band is
+ * judged over the whole span however narrow, and its parts in and beyond the
+ * span meet at a shared row.
+ */
+function withSpanEdges(curve, fit, span) {
+  const extra = span.map((e) => {
+    const v = evalFitAt(fit, e);
+    return v ? [1 / Math.sqrt(e), v.y, v.lo, v.hi] : null;
+  }).filter(Boolean);
+  const rows = [...curve, ...extra].sort((a, b) => a[0] - b[0]);
+  return rows.filter((r, i) => i === 0 || r[0] - rows[i - 1][0] > 1e-12);
+}
+
 /** What one window is in the mode in force: the role line(s) its tooltip states. */
 function roleOf(payload, s, mf, mode, w, gates) {
   const fitted = (mf?.points ?? []).includes(w.bin);
@@ -358,9 +420,13 @@ function roleOf(payload, s, mf, mode, w, gates) {
  * fits: {affine, pinned}, unreported}], clipped: {markers, whiskers, fits},
  * nPoints, nLines}. A point is {w, x, value, lo, hi, n, whisker, weak,
  * subFloor, anchor, fitted, opacity, clip, over, roles}; a fit is {form, fit,
- * runs, band, provisional, cut, floorCut, converged}, `cut` (`cutAbove`) where
- * its line or band leaves the top of the plot; `unreported` the on-axis
- * windows with no σ/E.
+ * runs, band, provisional, misfit (`isMisfit`), faded (provisional or misfit:
+ * drawn faded), span (its windows' momentum edges, GeV), xSpan (the same in x,
+ * `xSpanOf`), outlined (its band spans `OUTLINE_SHARE` of the axis or more at
+ * some x of `xSpan`, so it is drawn as its edges), edges ({solid, dashed} runs
+ * of both edges, when outlined), cut, floorCut, converged}, `cut`
+ * (`cutAbove`) where its line or band leaves the top of the plot, which no fit
+ * sets; `unreported` the on-axis windows with no σ/E.
  */
 export function resolutionModel(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series) || !payload.axis) return null;
@@ -412,13 +478,24 @@ export function resolutionModel(payload, opts = {}) {
       if (!fit || !Array.isArray(fit.curve) || !fit.curve.length) { fits[form] = null; continue; }
       const curve = fit.curve.filter((c) => Array.isArray(c) && c.every(Number.isFinite));
       const clampY = (v) => Math.min(Math.max(v, y.lo), hi);
+      // No fit sets the range (the server's, from the windows alone): any line or band above it is cut and counted.
       const cut = cutAbove(curve, hi);
       if (cut) clipped.fits += 1;
+      const provisional = Boolean(fit.provisional ?? mf.provisional);
+      const misfit = isMisfit(fit);
+      // The E view's span (the fitted windows' momentum edges), mapped by x = 1/√E: a band that spans half the
+      // axis or more somewhere over it is drawn as its two edges, solid in the span and dashed beyond.
+      const span = spanOf(mf, s);
+      const xSpan = xSpanOf(span);
+      const rows = xSpan ? withSpanEdges(curve, fit, span) : curve;
+      const outlined = bandSpansShare(rows.map(([cx, , lo, up]) => [cx, lo, up]), xSpan, y.lo, hi);
       fits[form] = {
         form, fit,
         runs: clipPolyline(curve.map(([cx, cy]) => [cx, cy]), y.lo, hi),
         band: curve.map(([cx, , lo, up]) => [cx, clampY(lo), clampY(up)]),
-        provisional: Boolean(fit.provisional ?? mf.provisional),
+        provisional, misfit, faded: provisional || misfit,
+        span, xSpan, outlined,
+        edges: outlined ? edgeRuns(splitAtSpan(rows, xSpan), (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
         cut,
         floorCut: curve.some((c) => c[2] < y.lo),
         converged: fit.converged !== false,
@@ -523,6 +600,7 @@ export function lineTip(model, s, f, payload = null) {
   if (f.provisional) {
     lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
   }
+  if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
   if (form === 'affine' && (fit.negative_intercept || p.b < 0)) {
     lines.push(mutedLine('b < 0: the points fall faster than a/√E; the line runs down to the axis and stops there.'));
   }
@@ -533,7 +611,7 @@ export function lineTip(model, s, f, payload = null) {
     lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's line, not a fixed point.`));
   }
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
-  lines.push(mutedLine('The shaded band beside it is the line\'s 95% confidence band.'));
+  lines.push(mutedLine(f.outlined ? outlinedLine(fit) : 'The shaded band beside it is the line\'s 95% confidence band.'));
   return lines.join('<br/>');
 }
 
@@ -546,14 +624,19 @@ function bandRule(fit) {
     : '±1.96 √(gᵀΣg) from the parameter covariance';
 }
 
-/** The tooltip of one fit's band. */
-export function bandTip(s, f) {
+/**
+ * The tooltip of one fit's band: its wash, or, where it is outlined, its edges
+ * (`outside` for the dashed parts beyond its fitted windows).
+ */
+export function bandTip(s, f, outside = false) {
   const name = f.form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E';
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
     `95% confidence band of the ${name}: ${bandRule(f.fit)}`,
     mutedLine('The uncertainty of the fitted line, not the spread of the events.'),
   ];
+  if (f.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
+  if (outside) lines.push(mutedLine(extrapolatedLine(f)));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   if (f.floorCut) lines.push(mutedLine('Its lower edge is cut at σ/E = 0, the floor of the axis.'));
   return lines.join('<br/>');
@@ -574,11 +657,23 @@ export function fitCutTip(model, s, f) {
     `The ${f.provisional ? 'provisional ' : ''}${name} leaves the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}):`
       + `${cut.lineAt !== null ? ` its line from ${placeText(cut.lineAt)},` : ''} its 95% band from ${placeText(cut.bandAt ?? cut.lineAt)}.`,
     `True values where the band reaches highest, at ${placeText(px)}: the line ${pct(py)}, the band [${pct(plo)}, ${pct(pup)}].`,
-    mutedLine(f.provisional
-      ? 'Clipped, not rescaled: a provisional fit runs through windows of N < 20 and never sets the range.'
-      : 'Clipped, not rescaled: the range follows the windows of N ≥ 20 and the fitted lines through them, not the bands.'),
+    mutedLine(rangeRuleText(model)),
   ];
+  if (f.misfit) lines.push(mutedLine(misfitText(f.fit, model.gates)));
   return lines.join('<br/>');
+}
+
+/**
+ * Why a fit is clipped at the top, as its caret says: the σ/E range follows the
+ * windows alone (Martin's decision of 2026-11-11), so no line, curve or band
+ * sets it. `floor` is the E view's lowest window edge that may set it ('2 GeV').
+ */
+function rangeRuleText(model, floor = null) {
+  const n = formatInt(model.gates.fit_n);
+  const from = floor ? ` from ${floor}` : '';
+  return model.y.provisional
+    ? `Clipped, not rescaled: the provisional range follows the windows' markers, no window${from} reaching N = ${n}; no fit sets it.`
+    : `Clipped, not rescaled: the range follows the windows of N ≥ ${n}${from} alone; a fit summarises its windows, so no line, curve or band sets it.`;
 }
 
 /* --------------------------------------------------------------- marks -- */
@@ -668,7 +763,8 @@ function seriesMarks(model, s, payload) {
     const f = s.fits[form];
     if (!f) continue;
     const affine = form === 'affine';
-    const opacity = f.provisional ? legibleOpacity(s.colour, PROVISIONAL_OPACITY) : 1;
+    // Faded: a provisional fit, or one whose form does not describe its windows.
+    const opacity = f.faded ? legibleOpacity(s.colour, PROVISIONAL_OPACITY) : 1;
     f.runs.forEach((run, i) => {
       out.push(named({
         ...customPolyline({
@@ -680,10 +776,15 @@ function seriesMarks(model, s, payload) {
         id: `${s.key}|${form}|line|${i}`,
       }));
     });
+    // A band that spans half the axis or more over its fitted windows: its two edges, never a wash (as on the E view).
+    if (f.outlined) {
+      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, (part) => bandTip(s, f, part === 'dashed')).map(named));
+      continue;
+    }
     out.push(named({
       ...customBand({
         name: s.label, points: f.band, color: s.colour, z: 2,
-        opacity: (affine ? 1 : 0.5) * THEME.bandAlpha * (f.provisional ? 0.6 : 1),
+        opacity: (affine ? 1 : 0.5) * THEME.bandAlpha * (f.faded ? 0.6 : 1),
       }),
       id: `${s.key}|${form}|band`,
       silent: false,
@@ -835,11 +936,12 @@ function termCells(fit) {
   return [a, b];
 }
 
-/** The status of one fit: provisional, not converged, a negative intercept, or robust. */
+/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or robust. */
 function statusCell(fit, mf, gates) {
   if (!fit) return 'too few windows';
   const status = [];
   if (mf?.provisional) status.push(`provisional (windows of N ≥ ${formatInt(gates.whisker_n)})`);
+  if (isMisfit(fit)) status.push(`form does not describe its windows (S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale)})`);
   if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
   if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
   return status.length ? status.join('; ') : `robust (N ≥ ${formatInt(gates.fit_n)})`;
@@ -878,6 +980,8 @@ export function fitTableRows(payload, opts = {}) {
       }),
     };
   });
+  // Above the gate S is the RMS of a fit's residuals in the windows' own errors, too large for its form.
+  const misfitRule = `Above S = ${formatNumber(gates.misfit_scale)} a fit's form does not describe its windows, and a drawn one is faded.`;
   if (energy) {
     return {
       mode,
@@ -886,7 +990,7 @@ export function fitTableRows(payload, opts = {}) {
         + 'of its terms are defined, the quadrature a/√E ⊕ b, each solid over the windows it was fitted to and dashed beyond; '
         + 'the affine a/√E + b is drawn in the 1/√E view. '
         + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
-        + 'S = 1 where the windows\' own errors stand.'),
+        + `S = 1 where the windows' own errors stand. ${misfitRule}`),
       columns: [...FIT_TABLE_COLUMNS],
       rows,
     };
@@ -895,7 +999,7 @@ export function fitTableRows(payload, opts = {}) {
     mode,
     caption: typographic(`Fits through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
       + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
-      + 'S = 1 where the windows\' own errors stand.'),
+      + `S = 1 where the windows' own errors stand. ${misfitRule}`),
     columns: [...FIT_TABLE_COLUMNS],
     rows,
   };
@@ -1270,7 +1374,7 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax) {
   const det = all.find((s) => s.source === 'detector' && (s.shower ?? 'a') === shower) ?? null;
   const base = {
     key: 'deposit', shower, literature: null, interval: 'band', series: det?.key ?? null, seriesLabel: det?.label ?? null,
-    form: null, fit: null, span: null, provisional: false, band: null, bandClipped: false, why: null, valueAt: () => null,
+    form: null, fit: null, span: null, provisional: false, misfit: false, band: null, bandClipped: false, why: null, valueAt: () => null,
   };
   if (!det) return { ...base, label: `${owner} fit`, reason: 'this shower has no calibrated-deposit series' };
   const mf = det.fits?.[mode] ?? null;
@@ -1295,8 +1399,8 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax) {
     why: form === 'quadrature'
       ? `its a/√E ⊕ b fit, both of whose terms are defined`
       : `its a₀/√E fit, since its a/√E ⊕ b fit is not drawn (${quadratureReason(quad)})`,
-    form, fit, span, provisional: Boolean(fit.provisional ?? mf?.provisional), valueAt, band: splitAtSpan(rel, span),
-    reason: null,
+    form, fit, span, provisional: Boolean(fit.provisional ?? mf?.provisional), misfit: isMisfit(fit), valueAt,
+    band: splitAtSpan(rel, span), reason: null,
   };
 }
 
@@ -1304,7 +1408,7 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax) {
 function literatureReference(entry, shower) {
   return {
     key: entry.key, shower, literature: entry, interval: null, series: null, seriesLabel: null, form: 'literature', fit: null,
-    span: null, provisional: false, band: null, bandClipped: false, label: referenceLabel(entry), equation: referenceEquation(entry),
+    span: null, provisional: false, misfit: false, band: null, bandClipped: false, label: referenceLabel(entry), equation: referenceEquation(entry),
     why: `${referenceEquation(entry)}, ${LITERATURE_PROVENANCE}`, reason: null,
     valueAt: (e) => referenceValue(entry, e),
   };
@@ -1335,7 +1439,8 @@ function belowRoles(w, gates, curveMin) {
  *   the deposit, null for literature, flag: 'no interval reported' under a
  *   literature reference (else null), byShower: {a, b}}. Each shower's entry is {key, shower, label, form ('quadrature' |
  *   'pinned' | 'literature' | null), fit, series (the deposit series' key),
- *   seriesLabel, span, provisional, why (which fit and why), reason (null, or
+ *   seriesLabel, span, provisional, misfit (its form does not describe the
+ *   deposit's windows, said in the drawer), why (which fit and why), reason (null, or
  *   why that shower has no ratio marks), band ({below, inside, above} rows
  *   [E, 1, lo/ŷ, hi/ŷ], deposit only), outlined (that band spans half the
  *   ratio axis over its span, so drawn as its two edges), edges ({solid,
@@ -1352,18 +1457,22 @@ function belowRoles(w, gates, curveMin) {
  *   weak, subFloor, below4, anchor, fitted, robust, opacity, clip, over,
  *   roles, ratio}; `ratio` {drawn, reason, ref (the reference in % at E),
  *   value, lo, hi (the whisker divided, null without one), robust (the
- *   window's, and its reference not provisional), clip, over};
+ *   window's, against a reference neither provisional nor a misfit: only
+ *   these set k), clip, over};
  * - a fit: {form, fit, drawable, reason (why not drawn, else null), span,
  *   domain [curveMinGev, x.max], curve [[E, y, lo, hi]], solid (the runs over
  *   the span, clipped to [0, y.hi]), dashed (the runs beyond it), band
  *   {below, inside, above} (rows [E, lo, hi], clamped), outlined (its band is
  *   spans OUTLINE_SHARE of the axis or more at some E of its span,
  *   so it is drawn as its edges), edges ({solid, dashed} runs of both edges,
- *   when outlined), cut (where its curve or band leaves the top, scanning up
- *   in E: {at, lineAt, bandAt, peak}), floorCut, provisional, converged,
+ *   when outlined), cut (where its curve or band leaves the top, which no fit
+ *   sets, scanning up in E: {at, lineAt, bandAt, peak}), floorCut,
+ *   provisional, misfit (`isMisfit`), faded (provisional or misfit: its lines,
+ *   dashed parts and bands drawn faded on both panels), converged,
  *   isReference (the deposit reference itself: its ratio ≡ 1 is not drawn),
  *   ratio {rows, solid, dashed, band, outlined (lo ≤ 1/k and hi ≥ k at some
- *   E of the span), edges, cut} (null for the reference or without one)};
+ *   E of the span), edges, cut (where it leaves [1/k, k], which no fit sets)}
+ *   (null for the reference or without one)};
  * - `literature`: [] under the deposit reference, else the curve in force
  *   alone, [{key, entry, label ("π±", its end label), legend, colour (its
  *   identity colour on the card in force, `literatureColour`), curve [[E, %]],
@@ -1453,8 +1562,9 @@ export function energyModel(payload, opts = {}) {
       const pLo = Number.isFinite(w.p_lo) ? w.p_lo : E;
       const below4 = pLo < curveMin;
       const robust = (w.n ?? 0) >= gates.fit_n && pLo >= yMinGev;
-      // A ratio is robust only against a reference that is itself robust: a provisional deposit fit never sets k.
-      const ratioRobust = robust && !ref?.provisional;
+      // A ratio is robust only against a reference that is itself robust: a provisional deposit fit, or one whose
+      // form does not describe its windows (a misfit, S above the gate), never sets k.
+      const ratioRobust = robust && !ref?.provisional && !ref?.misfit;
       let ratio;
       if (!ref || ref.reason) {
         ratio = { drawn: false, reason: ref?.reason ?? 'no reference for this shower', ref: null, value: null, lo: null, hi: null, robust: ratioRobust };
@@ -1511,12 +1621,14 @@ export function energyModel(payload, opts = {}) {
         }).filter(Boolean);
         ratio = rows.length ? { rows } : null;
       }
+      const provisional = Boolean(fit.provisional ?? mf?.provisional);
+      const misfit = isMisfit(fit);
       fits[form] = {
         form, fit, drawable: true, reason: null, span, domain: [curveMin, x.max], curve,
         solid: lineRuns(parts.inside), dashed: [...lineRuns(parts.below), ...lineRuns(parts.above)],
         band: { below: bandRows(parts.below), inside: bandRows(parts.inside), above: bandRows(parts.above) },
         outlined, edges: outlined ? edgeRuns(parts, (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
-        cut, floorCut: grid.some((e) => evalFitAt(fit, e)?.cutLo), provisional: Boolean(fit.provisional ?? mf?.provisional),
+        cut, floorCut: grid.some((e) => evalFitAt(fit, e)?.cutLo), provisional, misfit, faded: provisional || misfit,
         converged: fit.converged !== false, isReference, ratio,
       };
     }
@@ -1524,14 +1636,16 @@ export function energyModel(payload, opts = {}) {
       key: s.key, label: s.label ?? s.key, short: shortName(s, nShowers), raw: s, colour, isB,
       // No dodge on this view: a window sits at its exact E, on its own curve (the curves cannot be dodged with it).
       offsetPx: 0,
-      lineOpacity: (provisional) => legibleOpacity(colour, (isB ? B_STRENGTH : 1) * (provisional ? PROVISIONAL_OPACITY : 1)),
+      // `faded`: a provisional fit, or one whose form does not describe its windows (a fit's `faded`).
+      lineOpacity: (faded) => legibleOpacity(colour, (isB ? B_STRENGTH : 1) * (faded ? PROVISIONAL_OPACITY : 1)),
       mf, provisional: Boolean(mf?.provisional), span, points, fits, unreported, reference: ref,
     };
   });
 
-  // The ratio axis: k from the robust ratio marks (windows of N ≥ fit_n from y_min_gev, whiskers included,
-  // and the drawn non-provisional fits over their spans, each against a non-provisional reference), then every
-  // ratio mark clipped to [1/k, k].
+  // The ratio axis: k from the windows alone (Martin's decision of 2026-11-11, both views' vertical ranges): the
+  // robust ratio marks are the windows of N ≥ fit_n from y_min_gev, whiskers included, each against a reference
+  // that is neither provisional nor a misfit. No fit sets k: a fit's ratio that leaves [1/k, k] is clipped below,
+  // with its caret, its true values and a count.
   const marks = [];
   for (const s of series) {
     for (const p of s.points) {
@@ -1539,11 +1653,6 @@ export function energyModel(payload, opts = {}) {
       marks.push(p.ratio.robust
         ? { value: p.ratio.value, lo: p.ratio.lo, hi: p.ratio.hi, robust: true, marker: true }
         : { value: p.ratio.value, marker: true });
-    }
-    for (const f of ENERGY_FORMS.map((form) => s.fits[form])) {
-      if (!f?.drawable || f.provisional || !f.ratio || s.reference?.provisional) continue;
-      const inside = splitAtSpan(f.ratio.rows, f.span).inside.map((r) => r[1]).filter((v) => v > 0);
-      if (inside.length) marks.push({ value: Math.max(...inside), lo: Math.min(...inside), robust: true });
     }
   }
   const { k, provisional: ratioProvisional, capped: ratioCapped } = ratioRange(marks);
@@ -1636,7 +1745,7 @@ export function energyModel(payload, opts = {}) {
       const solidAtEnd = Array.isArray(f.span) && f.span[1] >= x.max - 1e-9;
       const label = {
         key: s.key, form, name: s.label, text, colour: s.colour, literature: false,
-        stroke: { colour: s.colour, width: form === 'quadrature' ? 1.6 : 1, dash: solidAtEnd ? null : DASH_EXTRAPOLATED, opacity: s.lineOpacity(f.provisional) },
+        stroke: { colour: s.colour, width: form === 'quadrature' ? 1.6 : 1, dash: solidAtEnd ? null : DASH_EXTRAPOLATED, opacity: s.lineOpacity(f.faded) },
       };
       const v = atEnd(f.curve);
       if (v !== null && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v });
@@ -1744,6 +1853,7 @@ export function ratioPointTip(model, s, p) {
   lines.splice(5, 0, `<b>${escapeHtml(text)}</b>`);
   lines.push(mutedLine(`The reference reads ${pct(r.ref)} at this E. The interval is conditional on the reference: it is this window's 95% χ² interval divided by it, `
     + (ref.literature ? 'and the literature curve has no interval reported.' : 'and the reference\'s own uncertainty, its band about 1, is not included.')));
+  if (ref.misfit) lines.push(mutedLine(referenceMisfitText(ref, model.gates)));
   if (r.over || r.clip?.cutLo || r.clip?.cutHi) {
     lines.push(mutedLine(`clipped at the ratio axis (${ratioRangeText(model)}); the values above are the true ones`));
   }
@@ -1782,9 +1892,9 @@ function outlinedLine(fit, own = false) {
 /** What a literature reference adds to every ratio mark's tooltip: none of it carries an interval. */
 const LITERATURE_NO_INTERVAL = 'The literature curve has no interval reported; none is derived.';
 
-/** Shower B's strength as drawn: 70% asked, raised to 3:1 where the card needs it; the end labels name the shower. */
-function showerBLine(model, s, provisional) {
-  const strength = Math.round(100 * s.lineOpacity(provisional));
+/** Shower B's strength as drawn (`faded` for a faded fit): 70% asked, raised to 3:1 where the card needs it; the end labels name the shower. */
+function showerBLine(model, s, faded) {
+  const strength = Math.round(100 * s.lineOpacity(faded));
   return `Shower B's lines are drawn at 70% strength, raised where the card needs it to keep 3:1 (this one at ${strength}%)`
     + `${model.twoOnShow ? ', so the end labels name the shower' : ''}: on this view the dash means extrapolation, not the shower.`;
 }
@@ -1810,10 +1920,11 @@ export function energyFitTip(model, s, f, part = 'solid') {
   if (f.provisional) {
     lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
   }
+  if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
   if (!f.converged) {
     lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's curve, not a fixed point.`));
   }
-  if (s.isB) lines.push(mutedLine(showerBLine(model, s, f.provisional)));
+  if (s.isB) lines.push(mutedLine(showerBLine(model, s, f.faded)));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   lines.push(mutedLine(f.outlined ? outlinedLine(fit) : 'The shaded band beside it is the fit\'s 95% confidence band.'));
   return lines.join('<br/>');
@@ -1854,9 +1965,8 @@ export function energyFitCutTip(model, s, f) {
     escapeHtml(`The ${f.provisional ? 'provisional ' : ''}${name} leaves the top of the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}):`
       + `${cut.lineAt !== null ? ` its curve first at ${at(cut.lineAt)},` : ''} its 95% band first at ${at(cut.bandAt ?? cut.lineAt)}, scanning up in E.`),
     escapeHtml(`True values where the band reaches highest, at ${at(pe)}: the curve ${pct(py)}, the band [${pct(plo)}, ${pct(pup)}].`),
-    mutedLine(f.provisional
-      ? 'Clipped, not rescaled: a provisional fit runs through windows of N < 20 and never sets the range.'
-      : 'Clipped, not rescaled: the range follows the windows of N ≥ 20 from 2 GeV and the fitted curves over their windows, never a band or an extrapolation.'),
+    mutedLine(rangeRuleText(model, `${formatNumber(model.yMinGev)} GeV`)),
+    ...(f.misfit ? [mutedLine(misfitText(f.fit, model.gates))] : []),
   ].join('<br/>');
 }
 
@@ -1870,6 +1980,7 @@ export function ratioFitTip(model, s, f, part = 'solid') {
       + `conditional on the reference: the reference is held exact${ref.literature ? '' : ' (its own band about 1 is drawn beside it, not folded in)'}.`),
   ];
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
+  if (f.misfit) lines.push(mutedLine(misfitText(f.fit, model.gates)));
   if (f.ratio?.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
   if (f.ratio?.cut) lines.push(mutedLine('It leaves the ratio axis: the caret there gives its true values.'));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
@@ -1885,7 +1996,8 @@ function ratioFitCutTip(model, s, f) {
     `<b>${escapeHtml(s.label)}</b>`,
     escapeHtml(`The ratio of the ${name} to ${s.reference.label} leaves the ratio axis (${ratioRangeText(model)}) first at E = ${sig(cut.at)} GeV, scanning up in E.`),
     escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the ratio ${sig(pr)}, its band [${sig(plo)}, ${sig(pup)}].`),
-    mutedLine('Clipped, not rescaled: the ratio range follows the windows of N ≥ 20 from 2 GeV and the fits over their windows.'),
+    mutedLine(`Clipped, not rescaled: the ratio range follows the windows of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV alone; `
+      + 'a fit summarises its windows, so no fit ratio sets it.'),
   ];
   if (s.reference.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
   return lines.join('<br/>');
@@ -1902,6 +2014,7 @@ function referenceBandTip(model, ref, outside) {
     lines.push(mutedLine(`Beyond its fitted windows (${spanText(ref.span)}), where the reference extrapolates its form: drawn ${ref.outlined ? 'dashed' : 'fainter'}.`));
   }
   if (ref.outlined) lines.push(mutedLine(outlinedLine(ref.fit, true)));
+  if (ref.misfit) lines.push(mutedLine(referenceMisfitText(ref, model.gates)));
   if (ref.bandCut) lines.push(mutedLine('It leaves the ratio axis: the muted caret there gives its true values.'));
   return lines.join('<br/>');
 }
@@ -1916,6 +2029,7 @@ function referenceBandCutTip(model, ref) {
       + `${cut.dir === 'up' ? 'above' : 'below'} it, scanning up in E.`),
     escapeHtml(`True values where it deviates most, at E = ${sig(pe)} GeV: the band [${sig(plo)}, ${sig(pup)}].`),
     mutedLine('Clamped at the axis, not rescaled: a reference band never sets the ratio range.'),
+    ...(ref.misfit ? [mutedLine(referenceMisfitText(ref, model.gates))] : []),
   ].join('<br/>');
 }
 
@@ -1927,8 +2041,19 @@ function unityTip(model) {
     escapeHtml(`σ/E equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
+  for (const r of Object.values(ref.byShower ?? {})) if (r.misfit) lines.push(mutedLine(referenceMisfitText(r, model.gates)));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
   return lines.join('<br/>');
+}
+
+/**
+ * What a ratio mark's tooltip, the reference's own band and the 1.0 rule say of a deposit reference whose form
+ * does not describe its windows (its fit's `misfit`): its S and χ²/ν, and that no ratio against it sets k.
+ */
+function referenceMisfitText(ref, gates) {
+  const fit = ref.fit ?? {};
+  return `The reference, ${ref.label}, does not describe its windows: S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale ?? DEFAULT_GATES.misfit_scale)} `
+    + `(χ²/ν = ${sig(fit.chi2 / fit.ndf)}), so a ratio against it is not robust and never sets the ratio range.`;
 }
 
 /** The tooltip of the literature curve in force, the only one drawn. */
@@ -2042,7 +2167,8 @@ function energySeriesMarks(model, s) {
     const f = s.fits[form];
     if (!f?.drawable) continue;
     const wide = form === 'quadrature';
-    const opacity = s.lineOpacity(f.provisional);
+    // A faded fit (provisional, or a misfit) fades whole: its solid part, its dashed extrapolation and its band.
+    const opacity = s.lineOpacity(f.faded);
     const width = (wide ? 1.6 : 1) * THEME.lineAxis;
     for (const [part, runs] of [['solid', f.solid], ['dashed', f.dashed]]) {
       runs.forEach((run, i) => {
@@ -2060,7 +2186,7 @@ function energySeriesMarks(model, s) {
       out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, (part) => energyBandTip(model, s, f, part === 'dashed')).map(named));
       continue;
     }
-    const alpha = (wide ? 1 : 0.5) * THEME.bandAlpha * (f.provisional ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
+    const alpha = (wide ? 1 : 0.5) * THEME.bandAlpha * (f.faded ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
     for (const part of ['below', 'inside', 'above']) {
       const points = f.band[part];
       if (points.length < 2) continue;
@@ -2114,7 +2240,7 @@ function energySeriesMarks(model, s) {
     const f = s.fits[form];
     if (!f?.drawable || !f.ratio) continue;
     const wide = form === 'quadrature';
-    const opacity = s.lineOpacity(f.provisional);
+    const opacity = s.lineOpacity(f.faded);
     const width = (wide ? 1.6 : 1) * THEME.lineAxis;
     for (const [part, runs] of [['solid', f.ratio.solid], ['dashed', f.ratio.dashed]]) {
       runs.forEach((run, i) => {
@@ -2132,7 +2258,7 @@ function energySeriesMarks(model, s) {
       out.push(...bandEdges(f.ratio.edges, s.colour, `${s.key}|ratio|${form}`, (part) => ratioFitTip(model, s, f, part)).map((x) => named(onRatio(x))));
       continue;
     }
-    const alpha = RATIO_BAND_SHARE * (wide ? 1 : 0.5) * THEME.bandAlpha * (f.provisional ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
+    const alpha = RATIO_BAND_SHARE * (wide ? 1 : 0.5) * THEME.bandAlpha * (f.faded ? 0.6 : 1) * (s.isB ? B_STRENGTH : 1);
     for (const part of ['below', 'inside', 'above']) {
       const points = f.ratio.band[part];
       if (points.length < 2) continue;

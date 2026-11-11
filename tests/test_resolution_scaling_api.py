@@ -10,13 +10,20 @@ from the event table with NumPy, by the formula written out here.
 
 The E view's fields (``axis.energy``, each mode's ``span_gev``, the quadrature
 fit's ``rho_a2b2`` and ``band_quantile``) are checked on every kind, the 2 GeV
-floor of its σ/E range on synthetic windows, and the 1/√E view's axes and
-notes against the recorded payload fixtures, which they must not move.
+floor of its σ/E range on synthetic windows, and the 1/√E view's x axes against
+the recorded payload fixtures, which they must not move.
+
+**The windows alone set both views' σ/E range** (Martin's decision of
+2026-11-11): every served ``axis.y`` and ``axis.energy.y`` is held to the range
+the served windows alone give, rebuilt here from the payload, and a fit line
+above every window is shown not to raise either top. Every fit block carries
+``misfit``, ν ≥ 1 and S above ``gates.misfit_scale``.
 """
 
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pytest
@@ -29,6 +36,7 @@ from calosrv.db import ddl, registry
 from calosrv.modelruns import store
 from calosrv.query import density, performance_bins, response, showers
 from calosrv.query import resolution_scaling as rs
+from calosrv.stats import clip as clip_mod
 from calosrv.stats import resolution_fit as rfit
 from calosrv.text import signed_hyphens
 
@@ -69,9 +77,12 @@ def _common(body):
     for tick in axis["top"]["ticks"][:-1]:
         assert tick["x"] == approx(1 / np.sqrt(tick["e_gev"]), rel=REL)
     assert body["gates"] == {"report_n": 2, "whisker_n": 8, "fit_n": 20, "e_min_gev": 4.0,
-                             "anchor_low_gev": 5.0, "n_anchors": 3}
+                             "anchor_low_gev": 5.0, "n_anchors": 3,
+                             "misfit_scale": rfit.MISFIT_SCALE}
     bad = [s for s in _strings(body) if signed_hyphens(s)]
     assert not bad, bad[:3]
+    _check_windows_alone(body)
+    _check_misfit(body)
     off = {o["series"]: o for o in body["off_axis"]}
     for s in body["series"]:
         assert s["label"] == f"{s['shower_label']} · {s['estimator_label']}"
@@ -123,9 +134,75 @@ def _check_energy_axis(body):
     assert energy["y_min_gev"] == rs.E_VIEW_Y_MIN_GEV == 2.0
     assert energy["curve_min_gev"] == rs.E_MIN_GEV == 4.0
     assert len(energy["notes"]) == 3 and energy["rule"].startswith("E = 1/x²")
-    assert ("provisional" in energy["notes"][0]) == y["provisional"]
-    assert "clipped" not in energy["notes"][0]
+    basis = energy["notes"][0]
+    assert ("provisional" in basis) == y["provisional"]
+    assert ("follows the windows alone" in basis) == (not y["provisional"])
+    # No fit sets it, and one that leaves the top is clipped; the drawer states its own counts, so none is here.
+    assert "No fitted curve, band or extrapolation sets it" in basis and "clipped there with a caret" in basis
+    assert not re.search(r"\d+ (?:marks?|windows?) beyond it", basis)
+    assert "fits over the windows" not in basis
     assert f"to {x['max']:g} GeV" in energy["notes"][1]
+
+
+def _served_window_extents(body, energy: bool):
+    """What the served windows draw on a σ/E axis, rebuilt from the payload: (extents, tops below 2 GeV).
+
+    1/√E view: the windows on the axis; robust where eligible. E view: every window, those below
+    2 GeV apart; robust from N ≥ 20 with a positive SE. No fit enters either.
+    """
+    extents, below = [], []
+    for s in body["series"]:
+        for w in s["windows"]:
+            if w["value"] is None or w["n"] < rs.REPORT_MIN_N or (not energy and w["off_axis"]):
+                continue
+            lo = hi = w["value"]
+            if w["whisker"]:
+                lo, hi = min(w["value"], w["ci95"][0]), max(w["value"], w["ci95"][1])
+            if energy and w["p_lo"] < rs.E_VIEW_Y_MIN_GEV:
+                below.append(hi)
+                continue
+            robust = (w["n"] >= rs.FIT_MIN_N and (w["se_delta"] or 0) > 0) if energy else w["eligible"]
+            extents.append(response.Extent(lo, hi, w["value"], robust))
+    return extents, below
+
+
+def _check_windows_alone(body):
+    """Both served σ/E ranges are the ranges the served windows alone give (Martin, 2026-11-11)."""
+    keys = ("lo", "hi", "interval", "provisional", "n_clipped")
+    extents, _ = _served_window_extents(body, energy=False)
+    linear = response._y_axis(extents)
+    assert {k: body["axis"]["y"][k] for k in keys} == {k: linear[k] for k in keys}
+    extents, below = _served_window_extents(body, energy=True)
+    if not any(e.robust for e in extents):
+        # Nothing robust from 2 GeV: the provisional range follows every marker, those below 2 GeV included.
+        for s in body["series"]:
+            for w in s["windows"]:
+                if (w["value"] is not None and w["n"] >= rs.REPORT_MIN_N
+                        and w["p_lo"] < rs.E_VIEW_Y_MIN_GEV):
+                    extents.append(response.Extent(w["value"], w["value"], w["value"], False))
+    e_view = response._y_axis(extents)
+    e_view["n_clipped"] += sum(1 for top in below if top > e_view["hi"])
+    assert {k: body["axis"]["energy"]["y"][k] for k in keys} == {k: e_view[k] for k in keys}
+    # The sentences: the windows alone, no fit, and the clipped fits said.
+    (basis,) = [n for n in body["notes"] if n.startswith("The y range ")]
+    assert "No fit sets it" in basis and "clipped there with a caret" in basis
+    assert ("(whiskers included) alone" in basis) == (not body["axis"]["y"]["provisional"])
+    assert "the fits through them" not in basis
+
+
+def _check_misfit(body):
+    """Every fit block says whether its form describes its windows: ν ≥ 1 and S above the gate."""
+    gate = body["gates"]["misfit_scale"]
+    for s in body["series"]:
+        for mode in s["fits"].values():
+            for form in ("affine", "pinned", "quadrature"):
+                fit = mode[form]
+                if fit is None:
+                    continue
+                assert fit["misfit"] is (fit["ndf"] >= 1 and fit["scale_factor"] > gate), (s["key"], form)
+                assert ("does not describe these windows" in fit["note"]) == fit["misfit"]
+    rule = [n for n in body["notes"] if n.startswith("A fit whose residuals average more than")]
+    assert len(rule) == 1 and f"S = √(χ²/ν) > {gate:g}" in rule[0] and "p-value" in rule[0]
 
 
 def _check_detector_window(series, dep, p, bins):
@@ -241,7 +318,11 @@ def test_an_invalid_coord_system_is_refused(synthetic_client, bad):
 # --------------------------------------------- the 1/√E view stays put --
 
 #: The fields of the 1/√E view the E view must not move: the panel and the dark golden read them.
-LINEAR_FIELDS = (("axis", "x"), ("axis", "top"), ("axis", "y"), ("notes",))
+#: ``axis.y`` and ``notes`` left this guard on 2026-11-11, when they changed on purpose (the
+#: windows alone set the range; a misfit is said): ``_common`` now holds ``axis.y`` to the range the
+#: served windows alone give, and the notes to their range and misfit sentences, on every response,
+#: which also holds after the fixtures are re-recorded.
+LINEAR_FIELDS = (("axis", "x"), ("axis", "top"))
 
 
 def _linear_fields_match_the_recording(client, name):
@@ -493,22 +574,53 @@ def test_a_selection_wholly_below_2_gev_covers_its_markers_and_clips_nothing_rob
     assert not any(e.robust for e in extents)
 
 
-def test_the_e_range_takes_the_drawn_fits_over_their_span_only():
-    """Line only, over the fitted span: never the affine fit, the band or the extrapolation."""
-    series = _series(ROBUST)
+def test_no_fit_enters_either_views_extents():
+    """One extent per window that reports σ/E, in either view: a fit summarises its windows, not more evidence."""
+    series = _series({**ROBUST, 2: (400, 0.8), 3: (12, 0.5)})
+    assert all(f is not None for mode in series.modes.values() for f in mode.fits.values())
+    reported = [w for w in series.windows if w.r is not None and w.n >= rs.REPORT_MIN_N]
     extents, below = rs.energy_extents([series])
-    assert below == []
-    windows = [w for w in series.windows if w.n >= rs.REPORT_MIN_N]
-    fits = extents[len(windows):]
-    drawn = 0
+    assert below == [] and len(extents) == len(reported)
+    assert [e.core_hi for e in extents] == [100 * w.r for w in reported]
+    linear = rs.linear_extents([series])
+    on_axis = [w for w in reported if not w.off_axis]
+    assert len(linear) == len(on_axis) < len(reported)
+    assert [e.robust for e in linear] == [w.eligible for w in on_axis]
+
+
+#: σ/E flat at 30%, mostly a constant term, in windows of 2,000 events from 4 to 20 GeV.
+FLAT = {k: (2000, 0.30) for k in range(4, 20)}
+
+
+def test_a_fit_line_above_every_window_no_longer_raises_either_views_top():
+    """The origin-pinned line through a flat σ/E rises above every window towards 4 GeV: it is clipped, not followed.
+
+    The line a₀·x is forced through the origin, so through windows at a flat 30% it runs to about 45% at
+    x = 0.5 (4 GeV): above every window and its whisker. The windows alone set both tops, and the old rule,
+    which took that line, would have set a higher one.
+    """
+    series = _series(FLAT)
+    windows = [w for w in series.windows if w.r is not None]
+    reach = 100 * max(max(w.r, w.ci[1]) for w in windows)
+    linear, energy = rs.linear_y_axis([series]), rs.energy_y_axis([series])
+    for y in (linear, energy):
+        assert not y["provisional"] and y["n_clipped"] == 0
+        assert y["hi"] >= reach
+        assert (y["lo"], y["hi"], y["interval"]) == clip_mod.nice_range(0.0, reach * (1 + response.HEADROOM),
+                                                                          fine=True)
     for mode in series.modes.values():
+        pinned = mode.fits[rfit.FORM_PINNED]
+        line_top = 100 * float(pinned.predict(rs.X_MAX))      # 4 GeV, the 1/√E axis's left end
         span = rs.fitted_span(mode.points, series.windows)
-        quad = mode.fits[rfit.FORM_QUADRATURE]
-        drawn += 1 + (quad.theta[0] > 0 and quad.theta[1] > 0)
-        energies = np.linspace(span[0], span[1], rs.SPAN_POINTS)
-        pinned = 100 * mode.fits[rfit.FORM_PINNED].predict(1 / np.sqrt(energies))
-        assert any(e.hi == approx(float(pinned.max())) and e.robust for e in fits)
-    assert len(fits) == drawn
+        span_top = 100 * float(pinned.predict(1 / np.sqrt(span[0])))   # the E view, at its fitted span's foot
+        assert line_top > reach and line_top > linear["hi"], "the line leaves the 1/√E view's top: clipped"
+        assert span_top > energy["hi"], "and the E view's, over its own fitted windows"
+        old = clip_mod.nice_range(0.0, line_top * (1 + response.HEADROOM), fine=True)[1]
+        assert old > linear["hi"], "the old rule, which took the line, set a higher top"
+        # A form that does not describe these windows: S far above 5; the quadrature form describes them.
+        assert pinned.misfit and pinned.scale_factor > rfit.MISFIT_SCALE
+        assert not mode.fits[rfit.FORM_QUADRATURE].misfit
+        assert rs.fit_block(pinned, mode.provisional)["misfit"] is True
 
 
 def test_fitted_span_is_null_without_points():

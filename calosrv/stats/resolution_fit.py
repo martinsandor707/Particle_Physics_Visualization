@@ -48,6 +48,25 @@ Particle Data Group does for inconsistent measurements; the unscaled ones
 travel beside them. ``ν = 0`` (two points, two parameters) is a line through
 both points, with no test of fit and ``p = None``.
 
+**A form that does not describe its windows** (:attr:`Fit.misfit`,
+:data:`MISFIT_SCALE`). ``S = √(χ²/ν)`` is the RMS of the residuals in units of
+the windows' own standard errors. Where ``ν ≥ 1`` and ``S > 5`` they average
+more than five of those errors: the form does not describe the windows,
+whatever its parameters' errors say, and the card draws the fit faded and
+never lets it set a range. The p-value cannot make that call. A window holds
+hundreds to thousands of events, so its standard error is small and the χ²
+test rejects a form for a misfit no reader could see: measured on the five
+stored experiments (2026-11-11), 71 of the 84 fits with ``ν ≥ 1`` have
+``p < 0.05``, every fit of the all-windows mode among them. What separates a
+form that does not describe its windows is how large its misfit is. The
+calibrated deposit's origin-pinned fits have S = 5.5–28.6
+(χ²/ν 31–818): a deposit's σ/E is mostly a constant term, which ``a₀·x``
+cannot hold. The quadrature and affine fits through the same windows have
+S = 1.1–4.7. At ``S > 5`` the gate flags 21 of the 28 pinned fits with
+``ν ≥ 1`` and 4 of the 56 quadrature and affine ones; at ``S > 3`` it would
+flag 23 of those 56, which is why the threshold is 5. ``ν = 0`` has no test,
+and is never a misfit.
+
 **The band** is the 95% confidence band of the fitted line,
 ``ŷ ± q·√(gᵀΣg)`` with ``g = (x, 1)`` (affine) or ``(x)`` (pinned) and ``Σ``
 the scaled covariance: the uncertainty of the aggregate, never the spread of
@@ -91,6 +110,13 @@ TOLERANCE = 1e-10
 
 #: Two-sided 95% normal quantile of the band while the windows' standard errors stand.
 Z95 = _Z_975
+
+#: A fit with ν ≥ 1 whose scale factor S = √(χ²/ν) exceeds this does not describe its windows:
+#: its residuals average more than this many of the windows' own standard errors (RMS), so it is
+#: drawn faded and never sets a range. The size of the misfit, not the χ² p-value, which rejects
+#: almost every fit at the stored experiments' hundreds to thousands of events per window (the
+#: module docstring has the measurement behind the 5).
+MISFIT_SCALE = 5.0
 
 FORM_AFFINE, FORM_PINNED, FORM_QUADRATURE = "affine", "pinned", "quadrature"
 
@@ -234,6 +260,16 @@ class Fit:
     def band_quantile(self) -> float:
         """The band's multiplier: ``t₀.₉₇₅,ν`` once S scales the covariance, else ``z₀.₉₇₅``."""
         return t_quantile_975(self.ndf) if self.scale_factor > 1.0 else Z95
+
+    @property
+    def misfit(self) -> bool:
+        """The form does not describe its windows: ``ν ≥ 1`` and ``S > MISFIT_SCALE``.
+
+        S is the RMS of the residuals in units of the windows' own standard
+        errors. ``ν = 0`` passes through its points and has no test, so it is
+        never a misfit.
+        """
+        return self.ndf >= 1 and self.scale_factor > MISFIT_SCALE
 
     def predict(self, x) -> np.ndarray:
         """The fitted resolution ``r(x)`` (for quadrature, √ of a non-negative ``r²``)."""
