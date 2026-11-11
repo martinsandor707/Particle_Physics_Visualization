@@ -1098,6 +1098,18 @@ across a reload, and it never enters the view state or the hash. An export
 follows it, and the drawer's *Marks and legend* section says when the marks are
 hidden.
 
+**A chart remembers its legend** (Martin's reports of 2026-11-11). A series
+switched off on a chart card's legend stays off across every repaint: a theme
+switch, a card control, a new payload, a relayout. It is the panel's own
+(`ChartPanel.legendSelected`), never in the view state or the hash.
+- Every repaint is `setOption(…, {notMerge: true})`, which used to drop it.
+- While anything is off, the panel clears the chart before the new option.
+  ECharts 5.5.1 otherwise diffs a hidden custom series against elements the
+  legend detached and throws halfway through the render, drawing a hidden
+  series' points without its lines when the next option has fewer windows.
+- An export leaves the hidden series out and greys their legend entries.
+- Page 1's energy card is not a `ChartPanel` and does not yet do this.
+
 **The Details drawer.** The four on-card footnotes are gone. Each card has a
 **Details** button — its title row is clickable too — that opens a right-hand
 drawer (`<aside id="inspector">`, `js/shell.js`) with that panel's methodology
@@ -3618,10 +3630,18 @@ kind of experiment, where the performance section does not
       literature curves transcribed from the legend of Martin's ECCE G4 figure
       (π± 27.2%/√E ⊕ 1.0%, e± 14.0%/√E ⊕ 0.4%; `resolution_references.md`;
       "no interval reported").
+    - Only the chosen curve is drawn on the main panel, dotted at 1.6 px, in a
+      colour of its own in every theme: π± a brown and e± a purple, measured
+      against the card and the series hues under three visions
+      (`palette.js` `LITERATURE_COLOURS`).
     - Its axis is logarithmic and symmetric about 1.
   - **Shower and form.** Shower B is told by hollow markers and lines at 70 %
     strength, because the dash means extrapolation here. The ⊕ fit is the
     thicker line.
+    - With both showers on show, a column beside the plot labels each curve
+      end A or B, and the literature curve π± or e±.
+    - A label is ink text led by a key stroke in its curve's colour and dash,
+      since a curve colour may sit near 3:1 and text must clear 4.5:1.
   - **MAE/E** is described in the drawer and the Methodology, never converted:
     √(2/π)·σ/E holds only for unbiased Gaussian errors.
 

@@ -1379,14 +1379,16 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             assert _res_press(page, "res-windows", "anchors")
             assert page.evaluate(_RES_SERIES) == e_series
 
-            # "Ratio to": a literature curve as the ratio's divisor, both catalogue curves on the main panel (brief
-            # §4.3), then the other, then back to the deposit fit, which draws none.
+            # "Ratio to": a literature curve as the ratio's divisor and the only one on the main panel (Martin,
+            # 2026-11-11), then the other, then back to the deposit fit, which draws none.
             assert not [i for i in view["ids"] if i.startswith("literature|")], view["ids"]
             details = page.evaluate(_DETAILS, "res-scaling")
             for key, particle in (("pi", "π±"), ("e", "e±")):
                 assert _res_press(page, "res-reference", key)
                 got = page.evaluate(_RES_ENERGY)
-                assert {"literature|pi", "literature|e"} <= set(got["ids"]), got["ids"]
+                # Only the chosen curve is drawn: its line, and any end label or caret, are its own.
+                assert f"literature|{key}" in got["ids"], got["ids"]
+                assert {i.split("|")[1] for i in got["ids"] if i.startswith("literature|")} == {key}, got["ids"]
                 assert particle in got["y"][1]["name"], got["y"][1]
                 assert got["y"][1]["min"] * got["y"][1]["max"] == pytest.approx(1, abs=1e-12), got["y"][1]
                 # The main panel and its curves do not move: only the ratio panel and the literature curve do.

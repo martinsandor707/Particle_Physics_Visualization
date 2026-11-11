@@ -73,7 +73,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
       - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
   - **Recorded exception: transcribed literature reference curves** (`calosrv/static/js/catalog/resolution_refs.js`, pinned to `resolution_references.md` by `tests/test_resolution_refs.py`; Martin's decision, 2026-11-10).
-    - **What.** The energy-resolution card's E view (§5) can draw two curves and divide its ratio panel by either: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
+    - **What.** The energy-resolution card's E view (§5) can divide its ratio panel by either of two curves, and draws the one it divides by: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
     - **Why:** the figure prints no uncertainty for either curve and names no source publication. A number that carries no uncertainty cannot be given one by the dashboard.
     - **The rules:**
       - no interval is fabricated or derived;
@@ -340,6 +340,14 @@ When working with calorimeter simulation datasets in this repository:
   - Reference frame control, two tiers with one stored value: a primary radio "Absolute (detector coordinates)" (API `lab`, the cold-boot default) or "Separation-Aligned (D-Frame)", and under the latter a nested radio "Translated" (API `canonical`, the D-frame) or "Local (shower-fixed)" (API `local`). The legacy per-shower translated frame (API `trans`) has no radio: a `#frame=trans` link or a saved default opens it and reveals a hidden "Per-shower translated (legacy)" sub-option while it is active. The stored value, the URL hash (`#frame=lab|canonical|local|trans`) and the admin `default_coord_system` stay the flat four-value key; `js/labels.js` `FRAME_TREE` is the one definition. The separation vector D is drawn in the Absolute frame only; D is always the absolute-frame `centroid_AB_distance`. The D-frame's entry panel writes its horizontal axis as D — the signed x′ coordinate along the A→B separation, anchors at D = ∓⟨D_entry⟩/2, tick values the signed x′ in mm — while the depth panels keep x′, y′, z′, and the server's axis symbols and panel names (X′Y′, Y′Z′, X′Z′) are not renamed.
   - Absolute / segmentation / density is the built-in cold-boot view. An operator may save another in the **Admin Settings** panel (`/api/admin/config`). Saved defaults apply only to a link that carries no view state, so a bookmark never changes meaning. The built-in values (`state.js` `DEFAULTS`) are never edited to change the team's view.
   - **The Marks toggle** (`data-toggle-marks`, on the XY, YZ and XZ cards; `ProjectionPanel.setMarksShown`): one click hides every mark drawn over the raster (anchors, centroids, the ensemble and windowed axes with their wedges, the centre of deposited energy, trajectories, the D vector, the Longitudinal Channels' seams and spotlight) so the shower core reads unobstructed; a second brings them back. It redraws from the payload in hand, with no request, in either theme. The raster, axes, colour bar and calorimeter faces stay. The choice stays with the card across selections, frames and themes but not across a reload, and never enters the view state or the hash. The export follows it, and the drawer says when the marks are hidden.
+  - **A chart remembers its legend** (`panels/chart_panel.js` `withLegendMemory`, `legendHides`; `export/figure.js`; Martin's reports, 2026-11-11).
+    - **The memory:** a series the reader switches off on a chart's legend stays off across every repaint: theme switches, card controls, palettes, relayouts and new payloads. It is the panel's own, never in the view state, the hash or the Admin defaults, like the Marks toggle.
+    - **Why it is needed:** every repaint calls `setOption(…, {notMerge: true})`, which builds a new ECharts model and drops the legend.
+    - **The clear:** while anything is switched off, `paint()` clears the chart before the new option.
+      - **Why:** ECharts 5.5.1 reuses a custom series' view across setOption, and a legend-filtered series keeps elements the filter detached.
+      - Its next diff with fewer items then throws (`el.parent.remove` on null) halfway through the render. That is how the energy-resolution card drew a hidden series' points without its lines and bands after a switch from all windows to the three anchors.
+    - **The export follows it:** the hidden series are left out, and their legend entries print greyed at 4.58:1 on white.
+    - **Not yet:** Page 1's energy card (`panels/energy.js`) is not a `ChartPanel` and keeps the old behaviour.
   - **Longitudinal Channels** (layer groups; Martin's directive and decisions, 2026-11-04).
     - **Where it lives:** `grid/layer_groups.py`, `query/layer_profile.py`, `static/js/layer_groups.js`, `panels/depth_groups.js`, `controls/layer_groups_control.js`.
     - **What.** Thirteen contiguous groups of the lattice's depth layers, numbered by lattice ordinal (60 on production, 56 on the demonstration file).
@@ -495,8 +503,13 @@ When working with calorimeter simulation datasets in this repository:
       - **Encoding.**
         - The dash is extrapolation and the width is the form.
         - Marker fill and line strength are the shower. Shower B's lines are at 70% strength, raised to keep 3:1, so the network hue reaches 91% on the light card.
-        - Because of that, a right-margin column labels every drawn curve end "A" or "B" whenever two showers are on show. The literature curves are labelled "π±" and "e±" there too.
-        - The literature curves are dotted, in the muted ink. The figure does not state the energy range they were fitted over, so they are drawn over the whole axis, and the tooltip and drawer say so.
+        - Because of that, a right-margin column labels every drawn curve end "A" or "B" whenever two showers are on show; the literature curve is labelled "π±" or "e±" there too.
+          - **Each label is ink text, led by a key stroke** in its curve's own colour, dash, width and strength. Text must clear 4.5:1, which a curve colour need not: the literature hues sit near 3:1 on the dark card, the network teal at 3.39:1 on white.
+        - **Only the chosen literature curve is drawn** (Martin's decision, 2026-11-11). "Ratio to" π± draws the π± curve alone (its line, end label, legend entry and caret), e± the e± curve; "Deposit fit" draws neither.
+          - **Each has one identity colour in every state** (`palette.js` `LITERATURE_COLOURS`, picked by `THEME.qualitativePalette`, no THEME key): π± a brown, e± a purple. On the dark card they are #b15928 (3.34:1) and #984ea3 (3.05:1); on white, light and print, #a65628 (5.27:1) and #6a3d9a (7.65:1).
+          - **Why these:** ColorBrewer colours, chosen by the largest worst-pair CIEDE2000 against the ink, E2's four hues and each other, under normal vision, deuteranopia and protanopia. The worst pair is 17.2 on the dark card and 8.8 on white. `tests/test_js_literature_colours.py` measures them.
+          - The curve is dotted at 1.6 px, so a hue near 3:1 reads.
+          - The figure does not state the energy range the curves were fitted over, so a curve is drawn over the whole axis, and the tooltip and drawer say so.
         - There is no series dodge on this view: every window sits at its exact E.
         - There is no zoom, only a crosshair linked across the two grids.
         - The Ratio-to buttons read "Deposit fit | π± | e±". The equations are in their titles and on the ratio axis.
