@@ -254,6 +254,8 @@ export const DEFAULT_CONTROLS = Object.freeze({
   resShower: 'both',
   resView: 'linear',
   resReference: 'deposit',
+  // The literature curves drawn beside the ratio's reference: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
+  resLiterature: '',
   resWindows: 'anchors',
   resScalingShower: 'both',
   tableStat: 'median',
@@ -500,18 +502,47 @@ const RES_VIEW_CONTROL = {
   choices: () => MODELS_LABELS.res_view,
 };
 
+/** The literature toggles' keys from their stored value ('' | 'pi' | 'e' | 'pi,e'), in the catalogue's order. */
+export function literatureKeys(value) {
+  const asked = typeof value === 'string' ? value.split(',') : [];
+  return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => asked.includes(key));
+}
+
+/* Which literature curves the E view draws: either, both or neither, each a
+ * toggle (Martin's request of 2026-11-11). The curve the ratio panel divides
+ * by is drawn whatever its toggle says, so its button shows pressed and is
+ * shut while it is the reference. Render-only; visible in the E view only. */
+const RES_LITERATURE_CONTROL = {
+  name: 'resLiterature', kind: 'toggles', attr: 'resLiterature', label: 'Literature curves',
+  choices: () => RESOLUTION_REFERENCES.map((entry) => ({
+    value: entry.key,
+    label: entry.particle,
+    title: `Draw or hide ${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported`,
+  })),
+  pressed: ({ controls }, choice) => controls?.resReference === choice || literatureKeys(controls?.resLiterature).includes(choice),
+  choiceDisabled: ({ controls }, choice) => (controls?.resReference === choice
+    ? 'Drawn while the ratio panel divides by it; choose another "÷" reference to hide it' : null),
+  toggle: ({ controls }, choice) => {
+    const on = new Set(literatureKeys(controls?.resLiterature));
+    if (on.has(choice)) on.delete(choice);
+    else on.add(choice);
+    return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => on.has(key)).join(',');
+  },
+  visible: ({ controls }) => controls?.resView === 'energy',
+};
+
 /* What the E view's ratio panel divides by: the deposit fit, or one of the
- * literature curves of the catalogue. Visible in the E view only. */
+ * literature curves of the catalogue, which is then drawn. "÷" tells these
+ * buttons from the literature toggles beside them. Visible in the E view only. */
 const RES_REFERENCE_CONTROL = {
   name: 'resReference', kind: 'seg', attr: 'resReference', label: 'Ratio to',
   choices: () => [
-    { value: 'deposit', label: 'Deposit fit', title: 'The ratio panel divides by the calibrated-deposit fit' },
+    { value: 'deposit', label: '÷ deposit fit', title: 'The ratio panel divides each shower by its own calibrated-deposit fit' },
     ...RESOLUTION_REFERENCES.map((entry) => ({
       value: entry.key,
-      // The particle alone, so the E view's toolbar keeps to one row at 1024 px; the title and the
-      // ratio axis's name carry the equation.
-      label: entry.particle,
-      title: `${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported`,
+      // The particle alone after "÷"; the title and the ratio axis's name carry the equation.
+      label: `÷ ${entry.particle}`,
+      title: `The ratio panel divides by ${referenceEquation(entry)}, which is then drawn; transcribed from the supplied figure's legend; no interval reported`,
     })),
   ],
   visible: ({ controls }) => controls?.resView === 'energy',
@@ -537,7 +568,7 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_REFERENCE_CONTROL],
+  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL, RES_REFERENCE_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -688,6 +719,7 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   } else if (spec.group === 'res-scaling') {
     opts.view = c.resView;
     opts.reference = c.resReference;
+    opts.literature = literatureKeys(c.resLiterature);
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
   } else if (spec.section === 'features') {
@@ -714,6 +746,9 @@ export function exportMeta(payload, opts = null) {
   if (opts?.view === 'energy') {
     meta.view = 'energy';
     meta.reference = opts.reference ?? 'deposit';
+    // A literature curve drawn beside the reference makes another figure.
+    const beside = (opts.literature ?? []).filter((key) => key !== meta.reference);
+    if (beside.length) meta.literature = beside;
   }
   return meta;
 }
@@ -885,7 +920,7 @@ export class ModelsSection {
     return record;
   }
 
-  /** One toolbar control: a segmented group of buttons, or a select. */
+  /** One toolbar control: a segmented group of buttons (one pressed, or any number for `toggles`), or a select. */
   buildControl(id, control) {
     if (control.kind === 'select') {
       const select = document.createElement('select');
@@ -908,7 +943,9 @@ export class ModelsSection {
       button.dataset[control.attr] = choice.value;
       button.textContent = choice.label;
       if (choice.title) button.title = choice.title;
-      button.addEventListener('click', () => this.setControl(control, choice.value));
+      // A toggle adds its choice to the control's value or takes it out; a segment button is the value.
+      button.addEventListener('click', () => this.setControl(control, control.kind === 'toggles'
+        ? control.toggle(this.ctx(null), choice.value) : choice.value));
       buttons.set(choice.value, { button, title: choice.title ?? '' });
       group.append(button);
     }
@@ -957,8 +994,9 @@ export class ModelsSection {
             }
             const { button, title } = entry;
             const reason = control.choiceDisabled ? control.choiceDisabled(ctx, choice) : null;
-            button.classList.toggle('is-active', choice === value);
-            button.setAttribute('aria-pressed', String(choice === value));
+            const pressed = control.kind === 'toggles' ? Boolean(control.pressed(ctx, choice)) : choice === value;
+            button.classList.toggle('is-active', pressed);
+            button.setAttribute('aria-pressed', String(pressed));
             button.disabled = Boolean(reason);
             button.title = reason ?? title;
           }
@@ -1056,7 +1094,8 @@ export class ModelsSection {
   setControl(control, value) {
     const ctx = this.ctx(null);
     if (controlValue(control, ctx) === value) return;
-    if (control.choiceDisabled && control.choiceDisabled(ctx, value)) return;
+    // A toggle's value is a set, not a choice: its shut buttons cannot be clicked.
+    if (control.kind !== 'toggles' && control.choiceDisabled && control.choiceDisabled(ctx, value)) return;
     if (control.write || control.stateKey) {
       const patch = control.write ? control.write(ctx, value) : { [control.stateKey]: value };
       // A new classing has other classes: the correlation card goes back to the pool.

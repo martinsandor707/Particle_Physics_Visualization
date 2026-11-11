@@ -1045,9 +1045,13 @@ _RES_CHROME = """() => {
     title: card.querySelector('.title')?.textContent ?? '',
     height: plot.getBoundingClientRect().height, styleHeight: plot.style.height,
     views: shown('button[data-res-view]'), windows: shown('button[data-res-windows]'),
-    references: shown('button[data-res-reference]'),
+    references: shown('button[data-res-reference]'), literature: shown('button[data-res-literature]'),
   };
 }"""
+
+#: The literature toggles' state: [particle, aria-pressed, disabled, title] per button.
+_RES_LIT_TOGGLES = """() => [...document.querySelectorAll('.main .card[data-panel="res-scaling"] button[data-res-literature]')]
+  .map((b) => [b.textContent, b.getAttribute('aria-pressed'), b.disabled, b.title])"""
 
 #: Every chart the SVG export builds (echarts.init with the svg renderer), its option's shape when exported.
 _WATCH_EXPORT_GRIDS = """() => {
@@ -1310,7 +1314,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         assert linear["title"] == "Energy Resolution vs. 1/√E", linear
         assert linear["height"] == 420 and linear["styleHeight"] == "", linear
         assert [v for v, _ in linear["views"]] == ["1/√E linear", "E (GeV) + ratio"], linear
-        assert linear["views"][0][1] == "true" and linear["references"] == [], linear
+        assert linear["views"][0][1] == "true" and linear["references"] == [] and linear["literature"] == [], linear
         before = len(requests)
 
         # The toggle: the E view from the response in hand.
@@ -1323,8 +1327,10 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         else:
             assert chrome["height"] == 420 and chrome["styleHeight"] == "", chrome
         assert [w for w, _ in chrome["windows"]] == ["3 anchors", "All windows"], chrome
-        assert [r for r, _ in chrome["references"]] == ["Deposit fit", "π±", "e±"], chrome
+        assert [r for r, _ in chrome["references"]] == ["÷ deposit fit", "÷ π±", "÷ e±"], chrome
         assert chrome["references"][0][1] == "true", chrome
+        # The literature toggles (Martin, 2026-11-11): either, both or neither; none is on by default.
+        assert chrome["literature"] == [["π±", "false"], ["e±", "false"]], chrome
         title, headings, _ = _drawer(page, "res-scaling")
         assert title == "Energy Resolution vs. E", title
         _assert_sections(headings, f"{table} res-scaling (E view)")
@@ -1403,6 +1409,39 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                 flagged = page.evaluate(_DETAILS, "res-scaling")
                 assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
             assert _res_press(page, "res-reference", "deposit")
+            assert page.evaluate(_RES_SERIES) == e_series
+            assert page.evaluate(_DETAILS, "res-scaling") == details, details
+
+            # Both literature curves at once (Martin, 2026-11-11): ÷ π± draws π± and shuts its toggle; e± toggled on
+            # is drawn beside it, and on the ratio panel as e±/π±. The data curves never move.
+            lit_ids = lambda got: sorted(i for i in got["ids"] if i.startswith("literature|") and not i.endswith("endlabels"))
+            assert _res_press(page, "res-reference", "pi")
+            toggles = page.evaluate(_RES_LIT_TOGGLES)
+            assert toggles[0][:3] == ["π±", "true", True] and "divides by it" in toggles[0][3], toggles
+            assert toggles[1][:3] == ["e±", "false", False], toggles
+            assert _res_press(page, "res-literature", "e")
+            got = page.evaluate(_RES_ENERGY)
+            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e", "literature|e|ratio", "literature|pi"], got["ids"]
+            assert got["y"][0] == y_main and got["x"] == view["x"], (got["y"][0], y_main)
+            now, then = _main_curves(got), _main_curves(view)
+            assert now.keys() == then.keys() and all(now[c] == pytest.approx(then[c], abs=E_TOL) for c in now)
+            assert "π±" in got["y"][1]["name"], got["y"][1]
+            flagged = page.evaluate(_DETAILS, "res-scaling")
+            assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
+            name, _ = _download_svg(page, "res-scaling")
+            assert "_energy_ratio-pi_lit-e_" in name, name
+            # ÷ deposit fit: π± goes with its reference role, e± stays, on the main panel only.
+            assert _res_press(page, "res-reference", "deposit")
+            got = page.evaluate(_RES_ENERGY)
+            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e"], got["ids"]
+            assert page.evaluate(_RES_LIT_TOGGLES)[0][:3] == ["π±", "false", False]
+            # π± toggled on too: both on the main panel, still nothing on the ratio panel; the hazard stands.
+            assert _res_press(page, "res-literature", "pi")
+            got = page.evaluate(_RES_ENERGY)
+            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e", "literature|pi"], got["ids"]
+            assert NO_INTERVAL in page.evaluate(_DETAILS, "res-scaling")["title"]
+            # Both off again: exactly the picture and the drawer flag it was.
+            assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
             assert page.evaluate(_RES_SERIES) == e_series
             assert page.evaluate(_DETAILS, "res-scaling") == details, details
 

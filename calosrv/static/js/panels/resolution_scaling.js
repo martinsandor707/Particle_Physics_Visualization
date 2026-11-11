@@ -142,16 +142,20 @@
  * pixels of offset would move a window visibly off its own curve, and flip a
  * small residual's sign. Every window sits at its exact E.
  *
- * Under a literature reference the curve in force (catalog/resolution_refs.js,
- * "no interval reported") is drawn on the main panel, and only it: the panel
- * never carries a curve the ratio panel does not divide by (Martin's decision
- * of 2026-11-11). It is dotted, in its identity colour (palette.js
+ * The literature curves (catalog/resolution_refs.js, "no interval reported")
+ * are drawn on the main panel as the reader asks: either, both or neither
+ * (`literature`, the card's π± | e± toggles; Martin's request of 2026-11-11),
+ * and always the one the ratio panel divides by. A curve drawn beside a
+ * literature reference is drawn on the ratio panel too, divided by it (e±/π±
+ * is one line, about 0.5); under the deposit reference it stays on the main
+ * panel, since each shower has its own deposit fit and a literature curve no
+ * one ratio to it. Each is dotted, in its identity colour (palette.js
  * `LITERATURE_COLOURS`, picked by the card's `THEME.qualitativePalette`): a
  * ColorBrewer qualitative hue of its own, π± a brown and e± a purple on every
  * card, measured apart from the deposit ink and E2's four hues, so it is never
  * a series hue and reads as the particle's without a hover. Its legend swatch,
- * its end label (its particle, in the end column) and its caret take the same
- * colour, and it never sets a range. A note band between the legend and the
+ * its end labels (its particle, in the end column) and its carets take the
+ * same colour, and it never sets a range on either panel. A note band between the legend and the
  * plot, part of the canvas and the export, lists the windows above the top
  * and states the extrapolation rule; where the two would not fit side by side
  * they are stacked, so neither overprints the other and the rule's span is
@@ -1029,6 +1033,16 @@ export function resolutionView(view) {
 export const RATIO_REFERENCES = Object.freeze(['deposit', ...REFERENCE_KEYS]);
 
 /**
+ * The literature curves the E view draws, in the catalogue's order: the one the
+ * ratio panel divides by, and any the reader drew beside it (`literature`, the
+ * card's toggles; Martin's request of 2026-11-11). Unknown keys are dropped.
+ */
+export function literatureDrawn(reference, literature = []) {
+  const asked = Array.isArray(literature) ? literature : [];
+  return REFERENCE_KEYS.filter((key) => key === reference || asked.includes(key));
+}
+
+/**
  * The half-ranges k of the log-symmetric ratio axis [1/k, k]: the first that
  * covers the robust marks. The ladder ends at 50: a robust mark beyond it is
  * clipped with a caret, and the axis name and the drawer say the axis is capped.
@@ -1424,7 +1438,8 @@ function belowRoles(w, gates, curveMin) {
 
 /**
  * Everything the E view's chart, its tooltips and the drawer need, decided
- * once. Pure. `opts` = {windows, shower, reference: 'deposit' | 'pi' | 'e'}.
+ * once. Pure. `opts` = {windows, shower, reference: 'deposit' | 'pi' | 'e',
+ * literature (the curves drawn beside the reference, `literatureDrawn`)}.
  * Null without a resolution payload that carries `axis.energy`.
  *
  * The returned shape (models_notes.js builds the E view's drawer from it):
@@ -1473,14 +1488,18 @@ function belowRoles(w, gates, curveMin) {
  *   ratio {rows, solid, dashed, band, outlined (lo ≤ 1/k and hi ≥ k at some
  *   E of the span), edges, cut (where it leaves [1/k, k], which no fit sets)}
  *   (null for the reference or without one)};
- * - `literature`: [] under the deposit reference, else the curve in force
- *   alone, [{key, entry, label ("π±", its end label), legend, colour (its
- *   identity colour on the card in force, `literatureColour`), curve [[E, %]],
- *   runs, cut {at, peak} | null}];
+ * - `literature`: the curves drawn (`literatureDrawn`), in the catalogue's
+ *   order, [{key, entry, isReference (the ratio panel divides by it), label
+ *   ("π±", its end label), legend, colour (its identity colour on the card in
+ *   force, `literatureColour`), curve [[E, %]], runs, cut {at, peak} | null,
+ *   ratio (beside a literature reference: {rows [[E, this/reference]], runs
+ *   (clipped to [1/k, k]), cut (`ratioCut`, where it leaves the axis)}; else
+ *   null)}];
  * - `ratio` {k, provisional, capped (the robust marks beyond the last
  *   `RATIO_STEPS` value, 0 when none), reference (key), clipped {markers,
  *   whiskers, fits, bands (deposit reference bands clamped at the axis but
- *   not outlined), each with a caret}, belowNotDrawn (windows below the curve
+ *   not outlined), literature (literature ratio lines that leave the axis),
+ *   each with a caret}, belowNotDrawn (windows below the curve
  *   floor left off the ratio panel under the deposit reference), noReference
  *   ([{shower, reason}])};
  * - `bandsOutlined` {main, ratio (counts per panel, the deposit reference's
@@ -1492,9 +1511,9 @@ function belowRoles(w, gates, curveMin) {
  *   literature, value (at x.max)}], the curves whose right end lies on the
  *   panel;
  * - `clipped` {markers, whiskers, fits, literature, ratio}: the marks
- *   clipped at the main axis, each with a caret (`literature`: 1 where the
- *   curve in force crosses its top, else 0), and the ratio panel's carets in
- *   total (markers + whiskers + fits + bands);
+ *   clipped at the main axis, each with a caret (`literature`: the drawn
+ *   literature curves that cross its top), and the ratio panel's carets in
+ *   total (markers + whiskers + fits + bands + literature);
  * - `offScale`: [{label, E, entries: [{key, short, value, n}]}], the drawn
  *   windows above y.hi grouped by window, in E order;
  * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: the drawn
@@ -1656,7 +1675,7 @@ export function energyModel(payload, opts = {}) {
     }
   }
   const { k, provisional: ratioProvisional, capped: ratioCapped } = ratioRange(marks);
-  const ratioClipped = { markers: 0, whiskers: 0, fits: 0, bands: 0 };
+  const ratioClipped = { markers: 0, whiskers: 0, fits: 0, bands: 0, literature: 0 };
   const outlinedBands = [];
   for (const s of series) {
     for (const p of s.points) {
@@ -1703,14 +1722,17 @@ export function energyModel(payload, opts = {}) {
       outlinedBands.push({ panel: 'ratio', key: ref.series, label: ref.seriesLabel, short: s?.short ?? ref.seriesLabel, form: ref.form, reference: true, fit: ref.fit });
     }
   }
-  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.bands;
 
-  // The literature curve in force, alone (Martin, 2026-11-11): the main panel never carries a curve the ratio panel
-  // does not divide by. It is drawn in its identity colour on this card, and it never sets a range.
+  // The literature curves drawn: the one the ratio divides by, and any the reader drew beside it (Martin, 2026-11-11).
+  // Each in its identity colour on this card; none ever sets a range. Beside a literature reference a curve is also
+  // drawn on the ratio panel, divided by it (one line, the same for every shower); under the deposit reference it
+  // stays on the main panel, since each shower has its own deposit fit and a literature curve no one ratio to it.
   const literature = [];
-  if (entry) {
-    const grid = energyGrid(E_GRID_STEP_GEV, x.max);
-    const curve = grid.map((e) => [e, referenceValue(entry, e)]).filter((c) => Number.isFinite(c[1]));
+  const literatureGrid = energyGrid(E_GRID_STEP_GEV, x.max);
+  for (const key of literatureDrawn(referenceKey, opts.literature)) {
+    const lit = referenceOf(key);
+    if (!lit) continue;
+    const curve = literatureGrid.map((e) => [e, referenceValue(lit, e)]).filter((c) => Number.isFinite(c[1]));
     let cut = null;
     for (let i = 0; i + 1 < curve.length && !cut; i += 1) {
       const [e0, v0] = curve[i];
@@ -1719,15 +1741,24 @@ export function energyModel(payload, opts = {}) {
     }
     if (!cut && curve.length && curve[0][1] > hi) cut = { at: curve[0][0], peak: curve[0] };
     if (cut) clipped.literature += 1;
+    let ratio = null;
+    if (entry && key !== referenceKey) {
+      const rows = curve.map(([e, v]) => [e, v / referenceValue(entry, e)]).filter(([, r]) => Number.isFinite(r) && r > 0);
+      const rcut = ratioCut(rows.map(([e, r]) => [e, r, r, r]), k);
+      if (rcut) ratioClipped.literature += 1;
+      ratio = { rows, runs: clipLog(rows, k), cut: rcut };
+    }
     literature.push({
-      key: entry.key, entry, label: entry.particle, legend: `${entry.particle} lit. — ${referenceEquation(entry)}`,
-      colour: literatureColour(entry.key, THEME.qualitativePalette), curve, runs: clipPolyline(curve, 0, hi), cut,
+      key, entry: lit, isReference: key === referenceKey, label: lit.particle, legend: `${lit.particle} lit. — ${referenceEquation(lit)}`,
+      colour: literatureColour(key, THEME.qualitativePalette), curve, runs: clipPolyline(curve, 0, hi), cut, ratio,
     });
   }
+  clipped.ratio = ratioClipped.markers + ratioClipped.whiskers + ratioClipped.fits + ratioClipped.bands + ratioClipped.literature;
 
   // Direct labels at the curves' right ends, in a column beside the plot: with two showers on show, the shower
   // letter of every drawn curve whose value at x.max lies on its panel (B's lines are at 70% strength or more, so
-  // the letter names the shower where the strength cannot); and the literature curve's particle, main panel only.
+  // the letter names the shower where the strength cannot); and each literature curve's particle, on the main panel
+  // and, beside a literature reference, on the ratio panel.
   // Each label is ink text led by a key stroke in its curve's colour, dash, width and strength (`endLabelSeries`).
   // A curve that leaves the plot before x.max has its caret and no label.
   const twoOnShow = nShowers > 1 && new Set(series.map((s) => s.raw.shower).filter(Boolean)).size > 1;
@@ -1754,13 +1785,14 @@ export function energyModel(payload, opts = {}) {
     }
   }
   for (const lit of literature) {
+    const label = {
+      key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: lit.colour, literature: true,
+    };
+    const stroke = { colour: lit.colour, width: LITERATURE_WIDTH, dash: DASH_LITERATURE, opacity: 1 };
     const v = referenceValue(lit.entry, x.max);
-    if (Number.isFinite(v) && v >= 0 && v <= hi) {
-      endLabels.main.push({
-        key: `literature|${lit.key}`, form: 'literature', name: lit.legend, text: lit.label, colour: lit.colour, literature: true, value: v,
-        stroke: { colour: lit.colour, width: LITERATURE_WIDTH, dash: DASH_LITERATURE, opacity: 1 },
-      });
-    }
+    if (Number.isFinite(v) && v >= 0 && v <= hi) endLabels.main.push({ ...label, value: v, stroke });
+    const r = lit.ratio ? atEnd(lit.ratio.rows) : null;
+    if (r !== null && r >= (1 / k) * (1 - 1e-9) && r <= k * (1 + 1e-9)) endLabels.ratio.push({ ...label, value: r, stroke });
   }
 
   // The canvas note: the windows above the top by window, and the extrapolation rule.
@@ -2056,16 +2088,55 @@ function referenceMisfitText(ref, gates) {
     + `(χ²/ν = ${sig(fit.chi2 / fit.ndf)}), so a ratio against it is not robust and never sets the ratio range.`;
 }
 
-/** The tooltip of the literature curve in force, the only one drawn. */
+/**
+ * The tooltip of a literature curve on the main panel: what it is, and what the
+ * ratio panel does with it (divides by it, draws it divided by the reference,
+ * or, under the deposit reference, leaves it to the main panel).
+ */
 export function literatureTip(model, lit) {
-  const others = REFERENCE_KEYS.filter((key) => key !== lit.key).map((key) => referenceOf(key)?.particle).filter(Boolean);
+  const ref = model.reference.literature;
+  const beside = model.literature.filter((l) => l.key !== lit.key).map((l) => l.entry.particle);
+  let role;
+  if (lit.isReference) {
+    role = `The ratio panel divides by this curve${beside.length
+      ? `; the ${beside.join(' and ')} curve drawn beside it is drawn there too, divided by it` : ''}.`;
+  } else if (ref) {
+    role = `Drawn beside the ratio's reference, the ${ref.particle} curve: the ratio panel draws it divided by that curve.`;
+  } else {
+    role = 'Drawn on the main panel only: the ratio panel divides each shower by its own deposit fit, so a literature curve has no one ratio to draw.';
+  }
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
     escapeHtml(referenceEquation(lit.entry)),
     mutedLine(LITERATURE_PROVENANCE),
-    mutedLine(`The ratio panel divides by this curve, the only literature curve drawn${others.length
-      ? `; choosing ${others.join(' or ')} under "Ratio to" draws that curve instead, in its own colour` : ''}.`),
+    mutedLine(role),
     mutedLine('A reference, not a measurement: it never sets the range.'),
+  ].join('<br/>');
+}
+
+/** The tooltip of a literature curve on the ratio panel: it divided by the literature reference, at the axis's two ends. */
+function literatureRatioTip(model, lit) {
+  const ref = model.reference.literature;
+  const rows = lit.ratio.rows;
+  const [e0, r0] = rows[0];
+  const [e1, r1] = rows[rows.length - 1];
+  return [
+    `<b>${escapeHtml(`${lit.entry.particle} literature curve ÷ ${ref.particle}`)}</b>`,
+    escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)}: ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
+    mutedLine('Both curves are transcribed point estimates with no interval reported, so neither has one here; it never sets the ratio range.'),
+    ...(lit.ratio.cut ? [mutedLine('It leaves the ratio axis: the caret there gives its true values.')] : []),
+  ].join('<br/>');
+}
+
+/** The tooltip of the caret where a literature curve's ratio leaves the ratio panel. */
+function literatureRatioCutTip(model, lit) {
+  const cut = lit.ratio.cut;
+  const [pe, pr] = cut.peak;
+  return [
+    `<b>${escapeHtml(`${lit.entry.particle} literature curve ÷ ${model.reference.literature.particle}`)}</b>`,
+    escapeHtml(`It leaves the ratio axis (${ratioRangeText(model)}) ${cut.dir === 'up' ? 'above' : 'below'} it first at E = ${sig(cut.at)} GeV, scanning up in E; at E = ${sig(pe)} GeV it reads ${sig(pr)}.`),
+    mutedLine('Clipped, not rescaled: a literature curve never sets the ratio range.'),
+    mutedLine(LITERATURE_NO_INTERVAL),
   ].join('<br/>');
 }
 
@@ -2335,29 +2406,32 @@ function bandEdges(edges, colour, id, tip) {
 }
 
 /**
- * The literature curve in force on the main panel: dotted runs in its identity colour, and its legend entry;
- * its label is in the end column.
+ * A drawn literature curve: dotted runs in its identity colour on the main
+ * panel, or (`ratio`) its line divided by the literature reference on the
+ * ratio panel, under one legend entry; its labels are in the end column.
  */
-function literatureSeries(model, lit) {
+function literatureSeries(model, lit, ratio = false) {
   const width = LITERATURE_WIDTH * THEME.lineAxis;
+  const runs = ratio ? lit.ratio.runs : lit.runs;
   return {
     type: 'custom',
-    id: `literature|${lit.key}`,
+    id: ratio ? `literature|${lit.key}|ratio` : `literature|${lit.key}`,
     name: lit.legend,
+    ...(ratio ? { xAxisIndex: 1, yAxisIndex: 1 } : {}),
     clip: true,
     z: 4,
     silent: false,
     itemStyle: { color: lit.colour },
-    data: [lit.curve[0] ?? [model.x.max, 0]],
+    data: [ratio ? (lit.ratio.rows[0] ?? [model.x.max, 1]) : (lit.curve[0] ?? [model.x.max, 0])],
     renderItem: (params, api) => ({
       type: 'group',
-      children: lit.runs.map((run) => ({
+      children: runs.map((run) => ({
         type: 'polyline',
         shape: { points: run.map((pt) => api.coord(pt)) },
         style: { fill: 'none', stroke: lit.colour, lineWidth: width, lineDash: DASH_LITERATURE },
       })),
     }),
-    tooltip: { formatter: () => literatureTip(model, lit) },
+    tooltip: { formatter: () => (ratio ? literatureRatioTip(model, lit) : literatureTip(model, lit)) },
   };
 }
 
@@ -2399,7 +2473,7 @@ function endLabelSeries(model, panel, name) {
   if (!own.length) return null;
   const ratio = panel === 'ratio';
   const ends = ratio ? [model.ratio.k, 1 / model.ratio.k] : [model.y.hi, 0];
-  const key = own[0][0].literature ? own[0][0].key : `${own[0][0].key}${ratio ? '|ratio' : ''}`;
+  const key = `${own[0][0].key}${ratio ? '|ratio' : ''}`;
   return {
     type: 'custom',
     id: `${key}|endlabels`,
@@ -2652,7 +2726,8 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     series.push(...energySeriesMarks(model, s));
     legend.push({ name: s.label, icon: 'circle' });
   }
-  // The literature curve in force, if any: its line, caret, legend swatch and end label in its identity colour.
+  // The literature curves drawn: each one's line, caret, legend swatch and end label in its identity colour, and
+  // beside a literature reference its line divided by it on the ratio panel, with its own caret.
   for (const lit of model.literature) {
     series.push(literatureSeries(model, lit));
     if (lit.cut) {
@@ -2661,6 +2736,20 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
         id: `literature|${lit.key}|caret`,
         itemStyle: { color: lit.colour },
       });
+    }
+    if (lit.ratio) {
+      series.push(literatureSeries(model, lit, true));
+      const cut = lit.ratio.cut;
+      if (cut) {
+        const k = model.ratio.k;
+        series.push({
+          ...caretSeries({ name: lit.legend, carets: [{ at: [cut.at, cut.dir === 'up' ? k : 1 / k], dir: cut.dir, tooltip: literatureRatioCutTip(model, lit) }], color: lit.colour }),
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+          id: `literature|${lit.key}|ratio|caret`,
+          itemStyle: { color: lit.colour },
+        });
+      }
     }
     legend.push({ name: lit.legend, icon: LITERATURE_ICON, itemStyle: { color: lit.colour } });
   }

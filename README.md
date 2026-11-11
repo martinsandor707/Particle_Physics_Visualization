@@ -3645,22 +3645,26 @@ kind of experiment, where the performance section does not
   - **The ratio panel.**
     - It sits under the plot on the same E axis, with a crosshair linked
       across both panels.
-    - It divides every mark by the **Ratio to** reference: each shower's
-      deposit fit, whose own band is a wash about 1, or one of the two
+    - It divides every mark by the reference the **÷** buttons choose: each
+      shower's deposit fit, whose own band is a wash about 1, or one of the two
       literature curves transcribed from the legend of Martin's ECCE G4 figure
       (π± 27.2%/√E ⊕ 1.0%, e± 14.0%/√E ⊕ 0.4%; `resolution_references.md`;
       "no interval reported").
-    - Only the chosen curve is drawn on the main panel, dotted at 1.6 px, in a
-      colour of its own in every theme: π± a brown and e± a purple, measured
-      against the card and the series hues under three visions
-      (`palette.js` `LITERATURE_COLOURS`).
+    - The **π± | e±** toggles draw either curve, or both, beside the
+      reference, which is always drawn; the **÷** buttons choose the
+      reference. Beside a literature reference the other curve is drawn on
+      the ratio panel too, divided by it; under the deposit reference it
+      stays on the main panel.
+    - Each curve is dotted at 1.6 px, in a colour of its own in every theme:
+      π± a brown and e± a purple, measured against the card and the series
+      hues under three visions (`palette.js` `LITERATURE_COLOURS`).
     - Its axis is logarithmic and symmetric about 1, over [1/k, k]. k follows
       the windows alone, and a ratio against a misfit reference never sets it.
   - **Shower and form.** Shower B is told by hollow markers and lines at 70 %
     strength, because the dash means extrapolation here. The ⊕ fit is the
     thicker line.
     - With both showers on show, a column beside the plot labels each curve
-      end A or B, and the literature curve π± or e±.
+      end A or B, and each literature curve π± or e±.
     - A label is ink text led by a key stroke in its curve's colour and dash,
       since a curve colour may sit near 3:1 and text must clear 4.5:1.
   - **MAE/E** is described in the drawer and the Methodology, never converted:

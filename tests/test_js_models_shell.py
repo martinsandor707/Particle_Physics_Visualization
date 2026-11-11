@@ -514,7 +514,33 @@ out.resScaling = {
       sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resReference: 'pi' })),
       opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
         controls: { resView: 'energy', resReference: 'e' } }),
-      inState: ['resView', 'resReference'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
+      inState: ['resView', 'resReference', 'resLiterature'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
+      // The literature toggles (Martin's request of 2026-11-11): either, both or neither, beside the reference.
+      lit: (() => {
+        const at = (resReference, resLiterature) => ({ controls: { ...en, resReference, resLiterature } });
+        return {
+          kind: ctl.resLiterature.kind,
+          choices: ctl.resLiterature.choices({ controls: en }).map((c) => [c.value, c.label]),
+          titles: ctl.resLiterature.choices({ controls: en }).map((c) => c.title),
+          refLabels: ctl.resReference.choices({ controls: en }).map((c) => c.label),
+          visible: [ctl.resLiterature.visible({ controls: lin }), ctl.resLiterature.visible({ controls: en })],
+          pressed: [['deposit', ''], ['deposit', 'e'], ['pi', ''], ['pi', 'e'], ['e', 'pi,e']]
+            .map(([r, l]) => ['pi', 'e'].map((c) => ctl.resLiterature.pressed(at(r, l), c))),
+          shut: [['pi', ''], ['deposit', 'pi,e']].map(([r, l]) => ['pi', 'e'].map((c) => ctl.resLiterature.choiceDisabled(at(r, l), c))),
+          toggle: [['', 'e'], ['e', 'pi'], ['pi,e', 'pi'], ['pi,e', 'e'], ['e', 'e']]
+            .map(([l, c]) => ctl.resLiterature.toggle(at('deposit', l), c)),
+          keys: [cards.literatureKeys('e,pi'), cards.literatureKeys(''), cards.literatureKeys(undefined), cards.literatureKeys('pi,mu')],
+          opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
+            controls: { resView: 'energy', resReference: 'pi', resLiterature: 'e' } }),
+          defaults: cards.DEFAULT_CONTROLS.resLiterature,
+          metas: [
+            cards.exportMeta({ meta: {} }, { view: 'energy', reference: 'pi', literature: ['pi', 'e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', reference: 'deposit', literature: [] }),
+            cards.exportMeta({ meta: {} }, { view: 'linear', reference: 'pi', literature: ['e'] }),
+          ],
+          sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'pi,e' })),
+        };
+      })(),
     };
   })(),
 };
@@ -663,12 +689,12 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resReference"]
+    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resLiterature", "resReference"]
     assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
-                                "reference": "deposit", "windows": "all", "shower": "b"}
+                                "reference": "deposit", "literature": [], "windows": "all", "shower": "b"}
     # One shower: no shower choice reaches the panel.
     assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
-                                 "reference": "deposit", "windows": "anchors", "shower": "both"}
+                                 "reference": "deposit", "literature": [], "windows": "anchors", "shower": "both"}
 
 
 def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
@@ -684,6 +710,33 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert v["windows"][1] == ["3 anchors", "All windows"]
     assert v["sameRequest"] is True
     assert v["opts"]["view"] == "energy" and v["opts"]["reference"] == "e"
+    assert v["inState"] == [False, False, False], "the view, the reference and the toggles are never in a link"
+
+
+def test_the_literature_curves_are_toggles_beside_the_ratio_reference(request_results):
+    """Martin's request of 2026-11-11: π± and e± can be drawn together. Each is a toggle; the ratio reference keeps
+    its single choice ("÷"), and the curve it divides by is drawn, its toggle pressed and shut. No request."""
+    lit = request_results["resScaling"]["views"]["lit"]
+    assert lit["kind"] == "toggles" and lit["visible"] == [False, True]
+    assert lit["choices"] == [["pi", "π±"], ["e", "e±"]]
+    assert all("no interval reported" in t and t.startswith("Draw or hide σ/E = ") for t in lit["titles"])
+    assert lit["refLabels"] == ["÷ deposit fit", "÷ π±", "÷ e±"]
+    assert lit["defaults"] == ""
+    # Pressed = toggled on, or the reference: [π±, e±] for (deposit, ''), (deposit, e), (pi, ''), (pi, e), (e, pi+e).
+    assert lit["pressed"] == [[False, False], [False, True], [True, False], [True, True], [True, True]]
+    # Shut only while it is the reference, with the way to hide it.
+    (pi_ref, deposit_both) = lit["shut"]
+    assert pi_ref[1] is None and deposit_both == [None, None]
+    assert pi_ref[0] == 'Drawn while the ratio panel divides by it; choose another "÷" reference to hide it'
+    # A click adds or takes out one key; the value stays in the catalogue's order.
+    assert lit["toggle"] == ["e", "pi,e", "e", "pi", ""]
+    assert lit["keys"] == [["pi", "e"], [], [], ["pi"]]
+    assert lit["opts"]["reference"] == "pi" and lit["opts"]["literature"] == ["e"]
+    # The export names a curve drawn beside the reference; the reference alone, or the 1/√E view, adds nothing.
+    assert lit["metas"][0] == {"view": "energy", "reference": "pi", "literature": ["e"]}
+    assert lit["metas"][1] == {"view": "energy", "reference": "deposit"}
+    assert lit["metas"][2] == {}
+    assert lit["sameRequest"] is True
 
 
 _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, "e2_min": 1, "e2_max": 20,

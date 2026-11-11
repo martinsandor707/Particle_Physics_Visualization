@@ -641,6 +641,27 @@ function literatureHueList(preposition = '') {
   return RESOLUTION_REFERENCES.map((e) => `${e.particle} ${preposition}a ${LITERATURE_HUES[e.key]}`).join(' and ');
 }
 
+/**
+ * The E view's legend line on the literature curves: which are drawn and what
+ * each is to the ratio panel, the buttons that choose them, and their colours.
+ */
+function literatureLegendLine(model) {
+  const hues = `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`;
+  const buttons = `The ${RESOLUTION_REFERENCES.map((e) => e.particle).join(' and ')} buttons draw either curve, or both; the "÷" buttons choose what the ratio panel divides by, and the curve it divides by is always drawn.`;
+  if (!model.literature.length) return `A literature curve is a dotted line in its own colour; none is drawn now. ${buttons} ${hues}`;
+  const refLit = model.literature.find((l) => l.isReference);
+  const others = model.literature.filter((l) => !l.isReference);
+  const parts = [];
+  if (refLit) parts.push(`the ${refLit.entry.particle} curve is the ratio's reference`);
+  if (others.length) {
+    parts.push(`the ${others.map((l) => l.entry.particle).join(' and ')} curve${others.length > 1 ? 's are' : ' is'} drawn beside `
+      + `${refLit ? 'it, and on the ratio panel divided by it' : 'the data, on the main panel only'}`);
+  }
+  const labelled = model.endLabels.main.some((l) => l.literature) ? ', labelled with their particles in the end column' : '';
+  return `Literature curves are dotted lines in their own colours${labelled}; they are references, not measurements, and never set a range. `
+    + `Here ${parts.join('; ')}. ${buttons} ${hues}`;
+}
+
 /** One ratio reference's line for a shower: which fit divides its windows, or why nothing does. */
 function depositReferenceLine(model, r) {
   const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit';
@@ -678,9 +699,9 @@ function misfitLine(items, gates, formName) {
  * text, so each count is the model's and the drawer never states what the
  * plot does not show.
  */
-function resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference }) {
+function resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature }) {
   const notes = new Notes(title ?? RES_SCALING_ENERGY_TITLE);
-  const model = energyModel(payload, { windows, shower, reference });
+  const model = energyModel(payload, { windows, shower, reference, literature });
   if (!model) {
     notes.section(SECTION.disclosures, [
       'This response carries no energy-resolution series with an E-view axis (axis.energy), so the E view draws nothing.',
@@ -708,17 +729,31 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   selection.push(lit
     ? `Ratio to: ${ref.label}, the literature curve ${referenceEquation(lit)}, the same curve for every shower.`
     : `Ratio to: ${ref.label}.`);
+  selection.push(model.literature.length
+    ? `Literature curves drawn: ${model.literature.map((l) => `${l.entry.particle}${l.isReference ? ' (the ratio\'s reference)' : ''}`).join(' and ')}.`
+    : 'Literature curves drawn: none.');
   notes.section(SECTION.selection, selection);
 
   // ---- What is drawn
   const spanRule = model.spans.shared && model.spans.span
     ? `here ${spanGeV(model.spans.span)}`
     : (drawn.length ? 'each its own, listed under Disclosures' : 'no fit is drawn for this selection');
+  // The literature curves the reader drew beside the reference (the reference itself is always drawn).
+  const beside = model.literature.filter((l) => !l.isReference);
   const refLines = lit
-    ? [`The ratio's reference is the literature curve ${referenceEquation(lit)}, evaluated at every E on the axis; it is the one literature curve drawn on the main panel, `
-      + `dotted in its own colour, since the panel never carries a curve the ratio panel does not divide by. The ratio panel draws no band about 1 for it: no interval reported.`]
+    ? [`The ratio's reference is the literature curve ${referenceEquation(lit)}, evaluated at every E on the axis and drawn dotted on the main panel in its own colour. `
+      + 'The ratio panel draws no band about 1 for it: no interval reported.',
+      ...beside.filter((l) => l.ratio?.rows?.length).map((l) => {
+        const rows = l.ratio.rows;
+        return `The ${l.entry.particle} curve, drawn beside it, is drawn on the ratio panel too, divided by it, one line for every shower: `
+          + `${referenceEquation(l.entry)} over ${referenceEquation(lit)} reads ${sig(rows[0][1])} at ${formatNumber(rows[0][0])} GeV and ${sig(rows[rows.length - 1][1])} at ${formatNumber(rows[rows.length - 1][0])} GeV.`;
+      })]
     : [...Object.values(ref.byShower).map((r) => depositReferenceLine(model, r)),
-      'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.'];
+      'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.',
+      ...(beside.length
+        ? [`The ${beside.map((l) => l.entry.particle).join(' and ')} literature curve${beside.length > 1 ? 's are' : ' is'} drawn on the main panel only: `
+          + 'the ratio divides each shower by its own deposit fit, so a literature curve has no one ratio to draw.']
+        : [])];
   const method = RES_ENERGY_METHOD_SECTION;
   notes.section(SECTION.drawn, [
     model.rule ? sentence(model.rule) : 'Each window is drawn at E = 1/x², x = ⟨1/√p⟩ being the 1/√E view\'s own abscissa.',
@@ -891,6 +926,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     ratio.clipped.whiskers && plural(ratio.clipped.whiskers, 'whisker'),
     ratio.clipped.fits && plural(ratio.clipped.fits, 'fit'),
     ratio.clipped.bands && plural(ratio.clipped.bands, 'reference band'),
+    ratio.clipped.literature && plural(ratio.clipped.literature, 'literature ratio line'),
   ].filter(Boolean);
   if (ratioParts.length) {
     dis.push(`Clipped at the ratio axis (${kText}) ${inForce(model, shower)}, each with a caret and its true values in its tooltip: ${ratioParts.join(', ')}.`);
@@ -923,15 +959,18 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     }
   }
 
-  // The literature curves.
-  if (lit) {
+  // The literature curves drawn.
+  if (model.literature.length) {
     dis.push(`The literature curves are the two legend curves of one figure, ${REFERENCE_SOURCE.figure}, supplied by ${REFERENCE_SOURCE.by} on ${REFERENCE_SOURCE.supplied} `
       + `(record ${REFERENCE_SOURCE.record}): ${RESOLUTION_REFERENCES.map((e) => referenceEquation(e)).join(' and ')}, transcribed as the legend prints them.`);
-    dis.push('Each is a documented point estimate with no interval reported and none derived, so the ratio panel draws no band about 1 for it.');
+    dis.push('Each is a documented point estimate with no interval reported and none derived: no band is drawn for it, and a ratio taken against it carries none of its uncertainty.');
     dis.push(`They are ${REFERENCE_SOURCE.scope}: a reference to compare with, never a statement about this detector.`);
-    dis.push('The figure does not state the energy range the curve was fitted over; it is drawn over the whole axis, and no part of it can be marked as extrapolated.');
-    dis.push(`The ${lit.particle} curve never sets a range${clipped.literature ? '; it crosses the top of the main panel, clipped there with a caret' : ''}. `
-      + 'The other literature curve is not drawn while this one is the reference; choosing it under "Ratio to" draws it in this one\'s place, in its own colour.');
+    dis.push('The figure does not state the energy range either curve was fitted over; each is drawn over the whole axis, and no part of it can be marked as extrapolated.');
+    const crossing = model.literature.filter((l) => l.cut).map((l) => l.entry.particle);
+    const ratioOut = model.literature.filter((l) => l.ratio?.cut).map((l) => l.entry.particle);
+    dis.push(`No literature curve sets a range on either panel${crossing.length
+      ? `; the ${crossing.join(' and ')} curve${crossing.length > 1 ? 's cross' : ' crosses'} the top of the main panel, clipped there with a caret` : ''}${ratioOut.length
+      ? `; the ${ratioOut.join(' and ')} curve's ratio leaves the ratio axis, clipped there with a caret` : ''}.`);
   }
   dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
   dis.push('MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.');
@@ -954,17 +993,13 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is provisional or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
     'The shaded bands are the fits\' 95% confidence bands: the quadrature band is the square root of the band of z = (σ/E)² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band\'s strength; q is 1.96, or Student\'s t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters\' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series\' colour, solid over the span and dashed beyond, never as a wash.',
-    lit
-      ? `The dotted line${model.endLabels.main.some((l) => l.literature) ? ` labelled "${lit.particle}" in the end column` : ''} is the ${lit.particle} literature curve, the ratio's reference: `
-        + 'a reference, not a measurement, drawn on the main panel and never setting a range. '
-        + `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`
-      : `A literature curve would be a dotted line in its own colour; none is drawn while the ratio reference is the deposit fit. Choosing π± or e± under "Ratio to" draws that curve alone, ${literatureHueList('in ')}.`,
+    literatureLegendLine(model),
     `The ratio panel: the 1.0 rule in ink marks σ/E equal to the reference; ${lit
       ? 'no band about 1 is drawn, since the literature curve has no interval reported'
       : 'a muted wash is the reference fit\'s own 95% band about 1, fainter beyond its fitted span (two thin muted edges where it spans half the axis or more within that span)'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
     `A linked crosshair crosses both panels at one E and reads it on the bottom axis, an exact coordinate readout and no data mark; the item tooltips carry the values. A caret at an axis edge marks a mark clipped there, its true values in its tooltip; a muted caret on the ratio panel marks where the reference's band about 1 leaves it. The note above the plot lists the windows above the top${extrapolation ? ` and states the extrapolation rule ("${extrapolation}")` : ''}. A legend entry shows or hides every mark of its series.`,
   ]);
-  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, view: 'energy', reference }));
+  return notes.done(modelsHazards(payload, 'res-scaling', { windows, shower, view: 'energy', reference, literature }));
 }
 
 /**
@@ -973,14 +1008,15 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
  * describes the mode in force and the series the shower choice draws, through
  * the panel's own pure model, so it never states what the plot does not show.
  * `view` 'energy' hands over to the E view's drawer (`reference` is its ratio
- * panel's: 'deposit' | 'pi' | 'e'); any other view is this one, unchanged.
+ * panel's: 'deposit' | 'pi' | 'e'; `literature` the curves drawn beside it);
+ * any other view is this one, unchanged.
  */
 export function resolutionScalingNotes({
   payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
-  view = 'linear', reference = 'deposit',
+  view = 'linear', reference = 'deposit', literature = [],
 } = {}) {
   if (!payload) return null;
-  if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference });
+  if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature });
   const notes = new Notes(title ?? RES_SCALING_TITLE);
   const model = resolutionModel(payload, { windows, shower });
   if (!model) {
@@ -1216,7 +1252,8 @@ export function modelsHazards(payload, card, opts = {}) {
     }
     const fitsOf = (s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature].filter(Boolean);
     if (model.series.some((s) => fitsOf(s).some((fit) => fit.converged === false))) out.push('fit not converged');
-    if (model.reference.literature) out.push(model.reference.flag);
+    // A drawn literature curve is a documented point estimate, reference or not (CLAUDE.md §2's recorded exception).
+    if (model.literature.length) out.push('no interval reported');
     return out;
   }
   if (card === 'res-scaling') {
