@@ -41,9 +41,27 @@
  * leaves out, the density reference, the measured comb - are the panel's
  * Details drawer (panel_notes.js), which is what an author carries into the
  * manuscript caption. The ramp's print title still names the display floor.
+ *
+ * ## What the legend hides stays hidden
+ *
+ * A series the reader switched off on a chart panel's legend is left out of
+ * its figure: `buildPrintOption` lays the panel's legend memory
+ * (`ChartPanel.legendSelected`) over the print option with the screen's own
+ * helper, `withLegendMemory` (panels/chart_panel.js). The figure is then the
+ * plot the reader is looking at, and its legend greys the hidden entries,
+ * which says on the figure that they are off. The grey is set here: ECharts
+ * draws a hidden entry, text and swatch, in the legend's `inactiveColor`,
+ * which `chartLegend` takes from `THEME.border`, and the print border is the
+ * near-black #111827, darker than the #374151 of the entries on show. A
+ * legend that hides an entry therefore takes `printInactiveInk()`, the
+ * lightest tint of the print muted ink that still clears 4.5:1 on the print
+ * card, so the hidden entry reads lighter and stays legible. A panel without
+ * a memory (the 2 × 2's spatial panels, the energy panel), and a legend that
+ * hides nothing, export their option unchanged.
  */
 
 import { THEME, restoreScreenTheme } from '../scale.js';
+import { blendOver, legibleOpacity, withLegendMemory } from '../panels/chart_panel.js';
 import { renderRaster } from '../decode.js';
 import { PRINT_TOKENS, PX_RATIO, widthToPx } from './tokens.js';
 import { displayOf } from './caption.js';
@@ -130,20 +148,24 @@ export function exportPanel(panel, { panelId, format = 'svg', widthMm, state, me
  *
  * The two panel classes return different shapes - the energy panel also hands
  * back the data its HTML side-tables need - so the difference is absorbed here
- * rather than forcing one of them to pretend it is the other.
+ * rather than forcing one of them to pretend it is the other. Either way the
+ * panel's legend memory is laid over the option, as the screen lays it, and a
+ * legend that then hides an entry greys it (see the header); a panel without
+ * a memory exports the option as built.
  */
 function buildPrintOption(panel, { width, height }) {
   const metrics = { width, height };
+  const legend = panel.legendSelected ?? null;
 
   if (panel.kind === 'projection') {
     // The raster is rebuilt rather than borrowed, so it can be upscaled for
     // print without disturbing the bitmap the live chart is drawing.
-    return panel.buildOption({
+    return withPrintLegend(panel.buildOption({
       payload: panel.payload,
       opts: panel.lastOpts || { palette: panel.palette },
       raster: printRaster(panel, width),
       metrics,
-    });
+    }), legend);
   }
 
   const { option } = panel.buildOption({
@@ -151,7 +173,36 @@ function buildPrintOption(panel, { width, height }) {
     opts: panel.lastOpts || {},
     metrics,
   });
-  return option;
+  return withPrintLegend(option, legend);
+}
+
+/**
+ * `option` with the panel's legend memory laid over it, and each legend that
+ * then hides an entry given the print's inactive ink for that entry's text
+ * and swatch. Called inside the synchronous window, under the print tokens.
+ */
+function withPrintLegend(option, memory) {
+  const remembered = withLegendMemory(option, memory);
+  if (remembered === option) return option;
+  const grey = (legend) => (Object.values(legend?.selected ?? {}).includes(false)
+    ? { ...legend, inactiveColor: printInactiveInk(), inactiveBorderColor: printInactiveInk() }
+    : legend);
+  const legends = remembered.legend;
+  return { ...remembered, legend: Array.isArray(legends) ? legends.map(grey) : grey(legends) };
+}
+
+/**
+ * The ink of a legend entry the reader switched off, on the print card: the
+ * lightest tint of `THEME.muted` that clears 4.5:1 against `THEME.card`
+ * (`legibleOpacity`), each channel rounded down, which only darkens it. Under
+ * the print tokens (muted #374151, card #FFFFFF) it is #6f7681, 4.58:1:
+ * lighter than the entries on show, at 10.3:1, and held to the print text
+ * floor.
+ */
+export function printInactiveInk() {
+  const alpha = legibleOpacity(THEME.muted, 0, 4.5);
+  const rgb = blendOver(THEME.muted, alpha, THEME.card);
+  return `#${rgb.map((v) => Math.max(0, Math.min(255, Math.floor(v))).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /**

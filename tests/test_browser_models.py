@@ -47,6 +47,11 @@ page is checked as a reader meets it:
   with none below 4 GeV, a 600 px plot, a title naming the view, an export of
   both grids and tooltips under the 20% rule on either grid; "Ratio to" and
   the shower buttons repaint it, and the 1/√E view comes back identical;
+* a series switched off on the resolution card's legend (Martin's bugs of
+  2026-11-11, both views, on the recorded two-shower response) stays off
+  across the window switch with no page error, and switched back on draws
+  every one of its marks as a fresh render does; it stays off across a theme
+  switch with no request, and the export leaves it out and greys its entry;
 * the 3-D cards' slice mode: K slices stepped with Previous, Next and the
   scrubber, K clamped to the volume's depth, the slices' cubes adding up to
   the whole volume's, the paired depth projections bracketing the slice drawn,
@@ -1484,6 +1489,216 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             assert linear_shape["width"] == shape["width"] and linear_shape["height"] < shape["height"], (linear_shape, shape)
             assert linear_shape["grids"] == 1, linear_shape
         assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+# ------------------------------------------------- the resolution card's legend --
+
+#: The legend entry Martin switched off (2026-11-11), in the recorded two-shower response: every mark of shower A's
+#: calibrated deposit (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it.
+LEGEND_ENTRY = "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark"
+#: The ink an exported figure's legend draws a hidden entry in (export/figure.js `printInactiveInk`, 4.58:1 on
+#: white; tests/test_js_chart_legend.py derives it).
+PRINT_INACTIVE = "#6f7681"
+
+#: The resolution card as ECharts drew it: per series, its id, its name, whether the legend filters it, its data
+#: items and the elements its view holds now; the legend's selected state.
+_RES_DRAWN = """() => {
+  const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+  const model = inst.getModel();
+  const series = model.getSeries().map((s) => {
+    let drawn = 0;
+    inst.getViewOfSeriesModel(s)?.group?.traverse((el) => { if (!el.isGroup) drawn += 1; });
+    return [s.id, s.name, model.isSeriesFiltered(s), s.getData().count(), drawn];
+  });
+  const legend = model.getComponent('legend');
+  return { series, selected: legend ? { ...(legend.option.selected || {}) } : null };
+}"""
+
+#: Where the resolution card's legend draws an entry's name, in viewport pixels: the centre of its text.
+_LEGEND_ITEM = """(name) => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const legend = inst.getModel().getComponent('legend');
+  const view = legend && inst.getViewOfComponentModel(legend);
+  if (!view) return null;
+  const c = host.getBoundingClientRect();
+  let at = null;
+  view.group.traverse((el) => {
+    if (at || el.type !== 'text' || el.style?.text !== name) return;
+    const r = el.getPaintRect();
+    at = [c.left + r.x + r.width / 2, c.top + r.y + r.height / 2];
+  });
+  return at;
+}"""
+
+#: Every chart the SVG export builds, its legend state and which of its series the legend filters when serialised.
+_WATCH_EXPORT_LEGEND = """() => {
+  if (window.__exportLegend) return;
+  window.__exportLegend = [];
+  const init = echarts.init;
+  echarts.init = function (dom, theme, opts) {
+    const chart = init.call(this, dom, theme, opts);
+    if (opts && opts.renderer === 'svg') {
+      const render = chart.renderToSVGString.bind(chart);
+      chart.renderToSVGString = (...args) => {
+        const model = chart.getModel();
+        window.__exportLegend.push({
+          selected: { ...((chart.getOption().legend || [])[0]?.selected || {}) },
+          series: model.getSeries().map((s) => [s.id, s.name, model.isSeriesFiltered(s)]),
+        });
+        return render(...args);
+      };
+    }
+    return chart;
+  };
+}"""
+
+
+def _click_legend(page, name):
+    """Click a legend entry of the resolution card, as a reader does (ECharts dispatches `legendToggleSelect`)."""
+    at = page.evaluate(_LEGEND_ITEM, name)
+    assert at is not None, f"no legend entry {name!r} on the resolution card"
+    page.mouse.click(*at)
+    page.mouse.move(2, 2)
+    _frames(page)
+
+
+def _drawn(page):
+    """The resolution card as drawn: {series id: (name, filtered, items, elements)} and the legend's selected map."""
+    got = page.evaluate(_RES_DRAWN)
+    return {sid: (name, filtered, items, drawn) for sid, name, filtered, items, drawn in got["series"]}, got["selected"]
+
+
+def _assert_hidden(drawn, fresh, where):
+    """The entry's series are all filtered and draw nothing; every other series draws as a fresh render did."""
+    series, selected = drawn
+    assert selected.get(LEGEND_ENTRY) is False, (where, selected)
+    own = {sid for sid, (name, *_) in series.items() if name == LEGEND_ENTRY}
+    assert own, (where, "no series of the entry", sorted(series))
+    for sid, (name, filtered, items, elements) in series.items():
+        if sid in own:
+            assert filtered and elements == 0, (where, sid, filtered, elements)
+        else:
+            assert not filtered and (name, False, items, elements) == fresh[sid], (where, sid, fresh.get(sid),
+                                                                                (name, filtered, items, elements))
+
+
+@pytest.mark.parametrize("view", ["linear", "energy"])
+def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_and_comes_back_whole(
+        models_live_server, view):
+    """Martin's bug 3 (2026-11-11), in both views of the resolution card on the recorded two-shower response.
+
+    A series switched off on the legend, then "All" → "3 anchors": its markers came back, its lines and bands did
+    not. The window switch is a repaint with notMerge, which forgot the legend, and ECharts 5.5.1 threw inside the
+    render (a custom series view the legend had emptied removing a detached element), so every series after the
+    throw stayed undrawn. Now the entry stays off across All → anchors → All → anchors, with no page error; switched
+    back on, every one of its series (markers, whiskers, carets, lines, bands) draws exactly what a fresh render of
+    that window mode draws, and so does every other series; no request is made. The last anchors switch is what
+    catches a memory without the clear: the entry's views then hold the more numerous items of the "All" render."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        if view == "energy":
+            assert _res_press(page, "res-view", "energy")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        before = len(requests)
+
+        # Fresh renders of both window modes, nothing switched off: what each draws, series by series.
+        assert _res_press(page, "res-windows", "anchors")
+        fresh = {"anchors": _drawn(page)[0]}
+        assert _res_press(page, "res-windows", "all")
+        fresh["all"] = _drawn(page)[0]
+        own = sorted(sid for sid, (name, *_) in fresh["all"].items() if name == LEGEND_ENTRY)
+        assert any(fresh["all"][sid][3] for sid in own), own
+        # The switch removes items from a series of the entry: the path ECharts threw on.
+        assert any(sid in fresh["anchors"] and fresh["anchors"][sid][2] < fresh["all"][sid][2] for sid in own), \
+            {sid: (fresh["anchors"].get(sid), fresh["all"][sid]) for sid in own}
+
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh["all"], f"{view}: switched off")
+        # Off and on again with no repaint between: ECharts redraws the entry from its own views, all of it.
+        _click_legend(page, LEGEND_ENTRY)
+        assert _drawn(page) == (fresh["all"], {LEGEND_ENTRY: True}), view
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh["all"], f"{view}: switched off again")
+        for mode in ("anchors", "all", "anchors"):
+            assert _res_press(page, "res-windows", mode)
+            _assert_hidden(_drawn(page), fresh[mode], f"{view}: switched off, then {mode}")
+            assert problems == [], (view, mode, problems)
+
+        # Back on, in the anchors mode: every series draws as the fresh render did, the entry's lines and bands too.
+        # Without the clear, this is where ECharts threw (a view holding the "All" render's detached elements).
+        _click_legend(page, LEGEND_ENTRY)
+        assert problems == [], (view, "switched back on", problems)
+        series, selected = _drawn(page)
+        assert selected.get(LEGEND_ENTRY) is True, selected
+        assert series == fresh["anchors"], {s: (series.get(s), fresh["anchors"].get(s))
+                                           for s in set(series) | set(fresh["anchors"])
+                                           if series.get(s) != fresh["anchors"].get(s)}
+        assert _res_press(page, "res-windows", "all")
+        assert _drawn(page)[0] == fresh["all"]
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+@pytest.mark.parametrize("view", ["linear", "energy"])
+def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and_out_of_the_export(
+        models_live_server, view):
+    """Martin's bug 2 (2026-11-11): a series switched off on the legend came back on a theme switch, whose repaint
+    (setOption with notMerge) forgot the legend. Now it stays off in the light theme and again in the dark one, with
+    no request; switched on again it draws whole, and off again it keeps the reader's last choice. The export
+    follows the screen: the figure's legend marks the entry off, the export chart filters its every series and no
+    other, and its legend draws the entry in the print's inactive grey, lighter than the entries on show."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        page.evaluate(_WATCH_EXPORT_LEGEND)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        if view == "energy":
+            assert _res_press(page, "res-view", "energy")
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+        fresh, selected = _drawn(page)
+        assert LEGEND_ENTRY not in selected, selected
+        before = len(requests)
+
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh, f"{view}: switched off")
+        for theme in ("light", "dark"):
+            page.click("#theme-toggle")
+            page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=theme, timeout=10_000)
+            _frames(page)
+            # Still off, in the new ink; every other series draws as before the switch.
+            _assert_hidden(_drawn(page), fresh, f"{view}: switched off, then the {theme} theme")
+        assert requests[before:] == [], f"a theme switch asked the service: {requests[before:]}"
+
+        # The export: the figure leaves the entry out, and its legend says so.
+        name, svg = _download_svg(page, "res-scaling")
+        assert name.startswith("res-scaling_") and name.endswith(".svg"), name
+        exported = page.evaluate("() => window.__exportLegend.at(-1)")
+        assert exported["selected"].get(LEGEND_ENTRY) is False, exported["selected"]
+        hidden = {sid for sid, name, filtered in exported["series"] if filtered}
+        assert hidden and hidden == {sid for sid, name, _ in exported["series"] if name == LEGEND_ENTRY}, exported
+        inks = {text: fill.lower() for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
+        on_show = [t for t in inks if t.startswith("Shower B · Calibrated deposit")]
+        assert LEGEND_ENTRY in inks and on_show, sorted(inks)
+        # The hidden entry in the print's inactive grey (export/figure.js printInactiveInk), lighter than the
+        # entries on show, never the near-black print border ECharts would have used.
+        assert inks[LEGEND_ENTRY] == PRINT_INACTIVE != inks[on_show[0]], (inks[LEGEND_ENTRY], inks[on_show[0]])
+
+        # Back on, then off again: the memory holds the last click.
+        _click_legend(page, LEGEND_ENTRY)
+        assert _drawn(page) == (fresh, {LEGEND_ENTRY: True}), view
+        _click_legend(page, LEGEND_ENTRY)
+        _assert_hidden(_drawn(page), fresh, f"{view}: switched off again")
+        assert requests[before:] == [], f"the legend asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 

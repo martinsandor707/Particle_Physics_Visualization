@@ -22,6 +22,39 @@
  * and the observer's own tick then finds nothing left to do. No CSS
  * transition may run on anything measured here.
  *
+ * ## The legend remembers what the reader switched off
+ *
+ * Every paint is `setOption(option, {notMerge: true})`, and with notMerge
+ * ECharts builds a new GlobalModel: the legend's `selected` state went with
+ * the old one, so a series the reader had switched off came back on every
+ * repaint (a theme switch, a palette, a card control, a relayout). The panel
+ * therefore listens to the legend's events (`LEGEND_EVENTS`: a click on an
+ * entry, and the scripted select, unselect, select-all and inverse) and
+ * records what each changed in `legendSelected`, {name: shown}; every paint
+ * lays it over the builder's option (`withLegendMemory`). The builder's own
+ * `selected` defaults survive wherever the reader has not changed them, and a
+ * name the legend on show does not list stays in the memory for the view,
+ * mode or payload that lists it again. The memory lives as long as the
+ * panel: across payloads, views, themes, card controls and `clear()`. It is
+ * the reader's, like the Physics page's Marks toggle, and never enters the
+ * URL hash, the view state or the Admin defaults. The exporter applies it
+ * too (export/figure.js), so a figure leaves out what the screen hides, and
+ * its legend greys their entries, which says so.
+ *
+ * While the memory hides anything, `paint` clears the chart before the new
+ * option, which disposes every series view. ECharts 5.5.1 reuses a custom
+ * series' view across `setOption(notMerge)` when the series id is the same.
+ * When the legend filters a series, its view's group is emptied, but the
+ * view keeps its old data, whose elements are now detached. The next render
+ * of that series (shown again, or the legend memory gone) with fewer items
+ * then removes one of those elements through `el.parent.remove(el)`, and
+ * throws "TypeError: Cannot read properties of null (reading 'remove')" (the
+ * vendored stack: gR ← t._remove ← t._executeOneToOne ← execute ← e.render).
+ * The throw stops the render loop midway: the series already drawn (a
+ * series' markers come first) show, and its lines and bands never draw. The
+ * chart is not cleared on every paint, because `clear` rebuilds every
+ * element, a big raster's on each resize.
+ *
  * ## Tooltips
  *
  * Every chart takes its tooltip from `tooltip.js`: mounted on the fixed
@@ -399,6 +432,78 @@ export function chartLegend(data, extra = {}) {
     itemHeight: 8,
     ...extra,
   };
+}
+
+/**
+ * The chart events that carry a reader's legend choice (ECharts 5.5.1,
+ * `installLegendAction`): a click on an entry dispatches `legendToggleSelect`,
+ * whose event is `legendselectchanged`; the others answer the scripted
+ * `legendSelect`, `legendUnSelect`, `legendAllSelect` and
+ * `legendInverseSelect`. Each event carries every legend's `selected` map as
+ * the action left it, and the named ones the entry acted on.
+ */
+export const LEGEND_EVENTS = Object.freeze([
+  'legendselectchanged', 'legendselected', 'legendunselected', 'legendselectall', 'legendinverseselect',
+]);
+
+/**
+ * What one legend event changed, as {name: shown}. A named event changes its
+ * entry alone; select-all and inverse change every entry, so their whole
+ * `selected` map is taken. Only the named entry is taken from a named event,
+ * because its `selected` map also holds every entry the reader did not touch,
+ * and recording those would pin the builder's defaults. (A legend with
+ * `selectedMode: 'single'` would change the other entries too; no builder
+ * sets one.) A batched dispatch carries its events in `batch`.
+ */
+export function legendChange(event) {
+  const out = {};
+  for (const e of Array.isArray(event?.batch) ? event.batch : [event]) {
+    const selected = e?.selected;
+    if (!selected || typeof selected !== 'object') continue;
+    const named = e.name !== undefined && e.name !== null;
+    for (const name of named ? [String(e.name)] : Object.keys(selected)) {
+      if (typeof selected[name] === 'boolean') out[name] = selected[name];
+    }
+  }
+  return out;
+}
+
+/** Whether a legend memory ({name: shown}) hides any entry. */
+export function legendHides(memory) {
+  return Object.values(memory ?? {}).some((shown) => shown === false);
+}
+
+/**
+ * `option` with the reader's legend choices laid over it (see the header):
+ * each legend's `selected` becomes `{...builder's selected, ...memory}`, for
+ * an object legend or for each legend of an array. Only the names a legend
+ * lists are applied when it lists its entries (`data`): ECharts' legend
+ * filter hides a series of any name its `selected` marks false, listed or
+ * not, so a remembered name the legend on show does not list would hide a
+ * series with no entry to bring it back. A legend that lists none (`data`
+ * absent) has an entry for every named series, and takes the whole memory; a
+ * hidden legend (`show: false`) takes none. The option is returned as it is,
+ * the same object, when the memory is empty or changes no legend, so the pure
+ * builders' outputs and the dark golden do not move. `memory` is not changed.
+ */
+export function withLegendMemory(option, memory) {
+  const entries = Object.entries(memory ?? {}).filter(([, shown]) => typeof shown === 'boolean');
+  if (!option?.legend || !entries.length) return option;
+  const apply = (legend) => {
+    if (!legend || typeof legend !== 'object' || legend.show === false) return legend;
+    const listed = Array.isArray(legend.data)
+      ? new Set(legend.data.map((d) => String(d !== null && typeof d === 'object' ? d.name : d)))
+      : null;
+    const remembered = entries.filter(([name]) => !listed || listed.has(name));
+    if (!remembered.length) return legend;
+    return { ...legend, selected: { ...(legend.selected ?? {}), ...Object.fromEntries(remembered) } };
+  };
+  if (Array.isArray(option.legend)) {
+    const legends = option.legend.map(apply);
+    return legends.every((l, i) => l === option.legend[i]) ? option : { ...option, legend: legends };
+  }
+  const legend = apply(option.legend);
+  return legend === option.legend ? option : { ...option, legend };
 }
 
 /**
@@ -830,6 +935,9 @@ export class ChartPanel {
     this.tooltipPosition = null;
     this.readoutPosition = null;
     this.resizeObserver = null;
+    // What the reader switched on and off on the legend, {name: shown}, for as
+    // long as the panel lives (see the header); `clear()` keeps it.
+    this.legendSelected = {};
   }
 
   /** Create the chart on first use; idempotent. */
@@ -841,8 +949,16 @@ export class ChartPanel {
     this.tooltipPosition = tooltipPosition(this.chart, plotBox);
     this.readoutPosition = tooltipPosition(this.chart, plotBox, { prefer: PREFER_POINTER });
     hideTooltipOnScroll(this.chart);
+    this.rememberLegend();
     this.observeResize();
     return this.chart;
+  }
+
+  /** Record each legend choice the reader makes, so every later paint keeps it (see the header). */
+  rememberLegend() {
+    if (typeof this.chart?.on !== 'function') return;
+    const remember = (event) => Object.assign(this.legendSelected, legendChange(event));
+    for (const type of LEGEND_EVENTS) this.chart.on(type, remember);
   }
 
   observeResize() {
@@ -890,12 +1006,20 @@ export class ChartPanel {
       tooltipPosition: this.tooltipPosition,
       readoutPosition: this.readoutPosition,
     };
-    const { option, plotGrid = null } = this.buildOption({ payload: this.lastPayload, opts, metrics: { width, height } });
+    const built = this.buildOption({ payload: this.lastPayload, opts, metrics: { width, height } });
+    const { plotGrid = null } = built;
+    // The reader's legend choices, laid over the builder's (see the header).
+    const option = withLegendMemory(built.option, this.legendSelected);
     this.laidOut = { width, height };
     this.liveGrid = option.grid ?? null;
     // A builder that draws outside any cartesian grid (a tree, a matrix)
     // names the plot area its tips must stay off as `plotGrid`.
     if (plotGrid) this.liveGrid = plotGrid;
+    // While the legend hides a series, dispose every series view first: a
+    // custom series' view that the legend emptied keeps its old data, and
+    // ECharts 5.5.1 throws when it next draws fewer items from it (the
+    // header has the stack). Only then: a clear rebuilds every element.
+    if (legendHides(this.legendSelected)) this.chart.clear();
     this.chart.setOption(option, { notMerge: true });
     return option;
   }
@@ -937,7 +1061,7 @@ export class ChartPanel {
     return { option: baseOption() };
   }
 
-  /** Forget the picture and the payload: nothing stale stays on screen. */
+  /** Forget the picture and the payload: nothing stale stays on screen. The legend memory stays with the panel. */
   clear() {
     this.chart?.clear();
     this.lastPayload = null;

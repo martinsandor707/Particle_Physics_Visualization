@@ -138,6 +138,23 @@ _AXIS_INK = """(plotId) => {
   return [...(option.xAxis || []), ...(option.yAxis || [])].map((a) => a.axisLabel?.color ?? null);
 }"""
 
+#: A chart's first legend entry switched off with the action a click on it dispatches; its name.
+_LEGEND_OFF = """(plotId) => {
+  const inst = echarts.getInstanceByDom(document.getElementById(plotId));
+  const name = inst.getModel().getComponent('legend')?.getData()?.[0]?.get('name') ?? null;
+  if (name !== null) inst.dispatchAction({ type: 'legendToggleSelect', name });
+  return name;
+}"""
+
+#: Whether a chart's legend shows `name`, and how many series of that name there are and it filters.
+_LEGEND_STATE = """([plotId, name]) => {
+  const inst = echarts.getInstanceByDom(document.getElementById(plotId));
+  const model = inst.getModel();
+  const series = model.getSeries().filter((s) => s.name === name);
+  return { shown: model.getComponent('legend')?.isSelected(name) ?? null, series: series.length,
+           filtered: series.filter((s) => model.isSeriesFiltered(s)).length };
+}"""
+
 #: The XY raster's own pixels: the offscreen canvas the raster series draws.
 _RASTER = """(plotId) => {
   const inst = echarts.getInstanceByDom(document.getElementById(plotId));
@@ -430,11 +447,18 @@ def test_a_switch_on_the_physics_page_repaints_everything_and_asks_nothing(live_
         dark = {plot: page.evaluate(_AXIS_INK, plot) for plot in plots}
         raster = page.evaluate(_RASTER, "plot-xy")
         fit_table = page.evaluate("() => document.getElementById('fit-table')?.innerHTML ?? null")
+        # A legend entry switched off on a physics card stays off across the switch (Martin's report on the Models
+        # page, 2026-11-11: the repaint's notMerge forgot the legend; ChartPanel now remembers it).
+        entry = page.evaluate(_LEGEND_OFF, "plot-profile-w")
+        assert entry is not None, "profile-w has no legend entry"
+        off = page.evaluate(_LEGEND_STATE, ["plot-profile-w", entry])
+        assert off["shown"] is False and off["series"] and off["filtered"] == off["series"], (entry, off)
         _open_drawer(page, "xy")
         _mark_drawer(page)
 
         asked = _toggle(page, requests)
         assert asked == [], f"a theme switch asked the service: {asked}"
+        assert page.evaluate(_LEGEND_STATE, ["plot-profile-w", entry]) == off, (entry, "came back on the switch")
         light = {plot: page.evaluate(_AXIS_INK, plot) for plot in plots}
         for plot in plots:
             assert dark[plot] and set(dark[plot]) <= {MUTED["dark"], None}, (plot, dark[plot])
