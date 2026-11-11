@@ -1,16 +1,50 @@
 services:
+  # Fetches the datasets and the XGBoost models from the project's Hugging
+  # Face dataset into ./ingest and ./xgboost_models, then exits. The dashboard
+  # waits for it to finish, so `docker compose up --build` is the whole
+  # download-and-start command. HF_SYNC=0 skips the fetch (offline, or files
+  # copied by hand); an offline start succeeds when the last sync's files
+  # are complete. It is the only service with write access to those folders.
+  hf-sync:
+    build:
+      context: .
+      target: hf-sync
+    volumes:
+      - ./ingest:/sync/ingest
+      - ./xgboost_models:/sync/xgboost_models
+    environment:
+      # 1 fetches, 0 skips the sync altogether.
+      - HF_SYNC=${HF_SYNC:-1}
+      - HF_SYNC_REPO=${HF_SYNC_REPO:-martinsandor707/particles_combined_all_models}
+      - HF_SYNC_REVISION=${HF_SYNC_REVISION:-main}
+      # Comma-separated globs, matched against the dataset's paths with `*`
+      # crossing `/`: the same patterns as the README's `hf download`.
+      - HF_SYNC_INCLUDE=${HF_SYNC_INCLUDE:-ingest/*.parquet,xgboost_models/*.json}
+      # 1 replaces a file that exists with a different content; 0 leaves it.
+      - HF_SYNC_OVERWRITE=${HF_SYNC_OVERWRITE:-0}
+    restart: "no"
+
   calorimeter-dashboard:
-    build: .
+    build:
+      context: .
+      target: app
     container_name: calorimeter-dashboard
+    depends_on:
+      hf-sync:
+        condition: service_completed_successfully
     ports:
-      - "8000:8000"
+      # The host side is HOST_PORT (8000 by default), for a computer where
+      # 8000 is taken; the container always listens on 8000.
+      - "${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
-      # Read-only mount of the repository so the offline ingest CLI can reach
-      # multi-gigabyte CSVs on the host without them traversing HTTP:
+      # Read-only mounts of the two folders the service reads. Nothing else of
+      # the repository is mounted, so multi-gigabyte files reach the offline
+      # ingest CLI without traversing HTTP:
       #   docker compose exec calorimeter-dashboard \
-      #     python -m calosrv.ingest --input /app/host/hits_all_models.csv --table all_models
-      - .:/app/host:ro
+      #     python -m calosrv.ingest --input /app/ingest/hits_all_models.parquet --table all_models
+      - ./ingest:/app/ingest:ro
+      - ./xgboost_models:/app/xgboost_models:ro
     environment:
       # DuckDB's memory ceiling in GB. 16 by default; `--env-file laptop.env`
       # lowers it for a computer that can give Docker 8 GB (README, Quick
@@ -22,9 +56,13 @@ services:
       - TMPDIR=/app/data/staging
       # Drop folder: every new CSV or Parquet file in ./ingest on the host
       # becomes an experiment at the next start, or on Scan now in the Admin
-      # Settings panel. Read-only in here, through the /app/host mount above;
-      # an experiment that already exists is never replaced.
-      - CALOSRV_AUTO_INGEST_DIR=/app/host/ingest
+      # Settings panel. Read-only in here, through the /app/ingest mount above.
+      - CALOSRV_AUTO_INGEST_DIR=/app/ingest
+      # The folder the Admin Settings panel lists its source files from: the
+      # same mount, so what the download put there can be re-ingested.
+      - CALOSRV_LOCAL_INGEST_DIR=/app/ingest
+      # The notebooks' XGBoost regressors, one folder scan finds them all.
+      - CALOSRV_MODEL_DIR=/app/xgboost_models
       # The default experiment a new session opens on, as a fallback beneath
       # whatever the Admin Settings panel saves: the production dataset the
       # drop folder ingests from ingest/hits_all_models.parquet.

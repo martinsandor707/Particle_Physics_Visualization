@@ -5,3 +5,4 @@ hits_all_models_dummy.parquet -text
 Dockerfile text eol=lf
 docker-compose.yml text eol=lf
 *.env text eol=lf
+.env.example text eol=lf

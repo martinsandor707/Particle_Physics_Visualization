@@ -134,7 +134,65 @@ def test_the_default_experiment_is_the_one_the_downloaded_dataset_becomes():
     compose = _read("docker-compose.yml")
     default = re.search(r"- CALOSRV_DEFAULT_DATASET=(\S+)", compose).group(1)
     assert default == naming.derive_experiment_name("hits_all_models")
-    assert "- CALOSRV_AUTO_INGEST_DIR=/app/host/ingest" in compose and "- .:/app/host:ro" in compose
+
+
+def _service(compose: str, name: str) -> str:
+    """The text of one top-level service block, by indentation (no YAML dependency)."""
+    match = re.search(rf"^  {re.escape(name)}:\n((?:(?:    .*|\s*)\n)+)", compose, re.MULTILINE)
+    assert match, name
+    return match.group(1)
+
+
+def _list_items(block: str, key: str) -> list[str]:
+    """The `- item` lines under `key:` in a service block, comments left out."""
+    match = re.search(rf"^    {key}:\n((?:      - .*\n|      #.*\n)+)", block, re.MULTILINE)
+    assert match, key
+    return [line.strip()[2:] for line in match.group(1).splitlines() if line.strip().startswith("- ")]
+
+
+def test_compose_mounts_only_the_two_folders_and_syncs_before_the_dashboard():
+    compose = _read("docker-compose.yml")
+    dashboard, sync = _service(compose, "calorimeter-dashboard"), _service(compose, "hf-sync")
+    assert _list_items(dashboard, "volumes") == [
+        "./data:/app/data", "./ingest:/app/ingest:ro", "./xgboost_models:/app/xgboost_models:ro"]
+    assert _list_items(sync, "volumes") == ["./ingest:/sync/ingest", "./xgboost_models:/sync/xgboost_models"]
+    assert not re.search(r"^\s*- \.:", compose, re.MULTILINE), "the repository is not mounted"
+    assert re.search(r"depends_on:\n\s+hf-sync:\n\s+condition: service_completed_successfully", dashboard)
+    assert 'restart: "no"' in sync and "restart: unless-stopped" in dashboard
+    assert "container_name: calorimeter-dashboard" in dashboard
+    assert re.search(r"target: hf-sync", sync) and re.search(r"target: app", dashboard)
+    assert '- "${HOST_PORT:-8000}:8000"' in dashboard and "- PORT=8000" in dashboard
+    for line in ("- CALOSRV_AUTO_INGEST_DIR=/app/ingest", "- CALOSRV_LOCAL_INGEST_DIR=/app/ingest",
+                 "- CALOSRV_MODEL_DIR=/app/xgboost_models"):
+        assert line in dashboard, line
+
+
+def test_the_sync_service_downloads_what_the_readme_downloads():
+    sync = _service(_read("docker-compose.yml"), "hf-sync")
+    assert f"- HF_SYNC_INCLUDE=${{HF_SYNC_INCLUDE:-{','.join(INCLUDE)}}}" in sync
+    assert f"- HF_SYNC_REPO=${{HF_SYNC_REPO:-{DATASET}}}" in sync
+    assert "- HF_SYNC=${HF_SYNC:-1}" in sync and "- HF_SYNC_OVERWRITE=${HF_SYNC_OVERWRITE:-0}" in sync
+
+
+def test_the_dockerfile_has_the_sync_stage_then_the_app_stage_last():
+    stages = re.findall(r"^FROM \S+ AS (\S+)$", _read("Dockerfile"), re.MULTILINE)
+    assert stages == ["hf-sync", "app"], "app is last, so a plain `docker build .` builds the dashboard"
+    dockerfile = _read("Dockerfile")
+    assert "COPY deploy/hf_sync.py /opt/hf_sync.py" in dockerfile
+    lock = tomllib.loads(_read("uv.lock"))
+    locked = next(package["version"] for package in lock["package"] if package["name"] == "huggingface-hub")
+    assert re.findall(r'huggingface_hub==([\w.]+)', dockerfile) == [locked]
+
+
+def test_no_deployment_file_names_the_retired_repository_mount():
+    for name in ("docker-compose.yml", "Dockerfile", ".dockerignore"):
+        assert "/app/host" not in _read(name), name
+
+
+def test_the_env_example_names_the_host_port_and_pins_its_line_endings():
+    example = _env(_read(".env.example"))
+    assert example.get("HOST_PORT") == "8000"
+    assert ".env.example text eol=lf" in _read(".gitattributes")
 
 
 def test_the_download_covers_the_models_and_leaves_the_tracked_note_alone():
