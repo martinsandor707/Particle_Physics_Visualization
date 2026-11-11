@@ -256,6 +256,9 @@ export function sourceBadge(row) {
   }
 }
 
+/** A re-ingest error that already says what became of the experiment (pipeline.py, jobs.py). */
+const STATED_OUTCOME = /served as it was|are committed|nothing was done|half-finished|interrupted/i;
+
 /** A job's error as a sentence: the server's own text, ended with a full stop. */
 function sentence(text) {
   const clean = String(text || 'see the server log').trim();
@@ -283,9 +286,11 @@ export function sourceJobText(row) {
       return job.mode === 'reingest' ? 'Re-ingested — ready' : 'Ingested — ready';
     case 'failed':
       if (job.mode === 'reingest') {
-        // The worker's own message already says the re-ingest was rolled back and the
-        // experiment is served as it was; repeating it would say so twice.
-        if (/served as it was/i.test(job.error || '')) return sentence(job.error);
+        // The worker's own message says what became of the experiment when it can: rolled
+        // back and served as it was, committed with its manifest pending, refused before
+        // anything was done, half-finished, interrupted. Adding "served as it was" would
+        // then repeat it, or contradict it. Any other failure was raised before a change.
+        if (STATED_OUTCOME.test(job.error || '')) return sentence(job.error);
         return `Re-ingest failed: ${sentence(job.error)} It is served as it was.`;
       }
       if (job.mode === 'rebuild') return `Rebuild failed: ${job.error || 'see the server log'}`;

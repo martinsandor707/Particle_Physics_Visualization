@@ -1048,6 +1048,10 @@ def test_the_route_refuses_a_rebuild_and_a_re_ingest_of_a_half_finished_experime
     assert rebuild.status_code == 409 and rebuild.json()["detail"] == message
     again = _post(source_client, name, {"force": True})
     assert again.status_code == 409 and again.json()["detail"] == message
+    # An append is refused by the upload route itself, before a byte is staged.
+    append = client.post("/api/upload", files={"file": ("more.parquet", b"not read")},
+                         data={"table_name": name, "mode": "append"})
+    assert append.status_code == 409 and append.json()["detail"] == message
     # What the next start does: roll the manifest forward. The guard is gone.
     settings = database.settings
     with database.read_cursor() as con:

@@ -66,6 +66,8 @@ def _check_target(database, settings, name: str, mode: str, force_reingest: bool
                     f"Cannot append to experiment {name!r}: it does not exist. "
                     "Use create_new for the first upload."
                 )
+            # The worker refuses too; answering here spares the transfer of a file it would refuse.
+            archive.refuse_if_half_finished(settings, name)
             return
         present = catalog.presence(con, settings, name)
     if present.exists and not force_reingest:

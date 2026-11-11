@@ -115,6 +115,15 @@ out.jobText = {
   failedReingestNoError: text(job('reingest', 'failed')),
   failedReingestServer: text(job('reingest', 'failed', { error: "The re-ingest of 'x' from x.parquet failed "
     + "(boom) and was rolled back; the experiment is served as it was." })),
+  failedReingestCommitted: text(job('reingest', 'failed', { error: "The new data of 'x' are committed, but its "
+    + 'archive manifest could not be switched (EIO): the server completes it at its next start. Do not rebuild '
+    + 'or append to it before then.' })),
+  failedReingestRefused: text(job('reingest', 'failed', {
+    error: "Experiment 'x' changed since the re-ingest was requested; nothing was done." })),
+  failedReingestPending: text(job('reingest', 'failed', {
+    error: "A re-ingest of 'x' is half-finished; restart the server to complete it." })),
+  failedReingestInterrupted: text(job('reingest', 'failed', {
+    error: 'The ingest worker was interrupted before the job finished.' })),
   failedRetry: text(job('retry', 'failed', { error: 'No space left.' })),
   failedOther: text(job('create_new', 'failed', { error: 'Bad schema.' })),
   failedOtherNoError: text(job('create_new', 'failed')),
@@ -318,6 +327,15 @@ def test_every_job_line(out):
     # The worker's message already says it was rolled back: shown once, not repeated.
     assert t["failedReingestServer"] == ("The re-ingest of 'x' from x.parquet failed (boom) and was rolled "
                                          "back; the experiment is served as it was.")
+    # A committed re-ingest whose manifest is pending is NOT served as it was: never say so.
+    assert t["failedReingestCommitted"].startswith("The new data of 'x' are committed")
+    assert "served as it was" not in t["failedReingestCommitted"]
+    # Messages that already say what became of the experiment are shown as they are.
+    assert t["failedReingestRefused"] == ("Experiment 'x' changed since the re-ingest was requested; "
+                                          "nothing was done.")
+    assert t["failedReingestPending"] == ("A re-ingest of 'x' is half-finished; restart the server to "
+                                          "complete it.")
+    assert t["failedReingestInterrupted"] == "The ingest worker was interrupted before the job finished."
     assert t["failedRetry"] == "Retry failed: No space left."
     assert t["failedOther"] == "Failed: Bad schema."
     assert t["failedOtherNoError"] == "Failed: see the server log"
