@@ -50,12 +50,15 @@
  * the spread of the events, and the band's tooltip says so. The affine band is
  * a wash at `bandAlpha`, the pinned one at half of it. A band whose part inside
  * the axis covers `OUTLINE_SHARE` of it or more at some x of its fitted span is
- * drawn as its two edges instead, solid over the span and dashed beyond, never
- * as a wash, as on the E view (Martin's decision of 2026-11-11: under the
- * windows-only range, the three anchors' ν = 1 affine bands, at t₀.₉₇₅,₁ =
- * 12.71, washed over the whole plot). The span is the E view's own, the fitted
- * windows' momentum edges (`span_gev`) mapped by x = 1/√E (`xSpanOf`), so both
- * views judge a band over one stretch of momentum. A line and its band are
+ * drawn as its two thin edges instead, never as a wash, as on the E view: once
+ * the windows alone set the range (Martin's decision of 2026-11-11), the three
+ * anchors' ν = 1 affine bands, at t₀.₉₇₅,₁ = 12.71, washed over the whole
+ * plot. Here the edges are solid along their whole length: this view marks no
+ * extrapolation on its lines, and its dash is shower B's affine line, so a dash
+ * beyond the span would give it a third meaning. The span only decides the
+ * outline. It is the E view's own, the fitted windows' momentum edges
+ * (`span_gev`) mapped by x = 1/√E (`xSpanOf`), so both views judge a band over
+ * one stretch of momentum. A line and its band are
  * clipped to the plot: an affine fit with a negative intercept runs down to the
  * axis and stops there. The σ/E range is the server's and follows the windows
  * alone (Martin's decision of 2026-11-11): a fit summarises its windows and is
@@ -130,7 +133,7 @@
  * A band is the fit's parameter uncertainty, and with three anchors a
  * quadrature fit has ν = 1, so once S > 1 its band takes t₀.₉₇₅,₁ = 12.7: it
  * can run from the floor to the top of the axis over the very windows it was
- * fitted to. Such a band (`widerThanAxis`, on either panel) is drawn as its
+ * fitted to. Such a band (`bandSpansShare`, on either panel) is drawn as its
  * two edges, thin lines solid over the span and dashed beyond, not as a wash
  * that would flood the panel and answer every hover; the model counts them
  * (`bandsOutlined`) and the drawer lists them.
@@ -484,7 +487,8 @@ export function resolutionModel(payload, opts = {}) {
       const provisional = Boolean(fit.provisional ?? mf.provisional);
       const misfit = isMisfit(fit);
       // The E view's span (the fitted windows' momentum edges), mapped by x = 1/√E: a band that spans half the
-      // axis or more somewhere over it is drawn as its two edges, solid in the span and dashed beyond.
+      // axis or more somewhere over it is drawn as its two edges, solid along their whole length on this view, whose
+      // lines mark no extrapolation and whose dash is shower B's.
       const span = spanOf(mf, s);
       const xSpan = xSpanOf(span);
       const rows = xSpan ? withSpanEdges(curve, fit, span) : curve;
@@ -495,7 +499,7 @@ export function resolutionModel(payload, opts = {}) {
         band: curve.map(([cx, , lo, up]) => [cx, clampY(lo), clampY(up)]),
         provisional, misfit, faded: provisional || misfit,
         span, xSpan, outlined,
-        edges: outlined ? edgeRuns(splitAtSpan(rows, xSpan), (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
+        edges: outlined ? edgeRuns({ below: [], inside: rows, above: [] }, (pts) => clipPolyline(pts, hi * 1e-9, hi)) : null,
         cut,
         floorCut: curve.some((c) => c[2] < y.lo),
         converged: fit.converged !== false,
@@ -624,11 +628,8 @@ function bandRule(fit) {
     : '±1.96 √(gᵀΣg) from the parameter covariance';
 }
 
-/**
- * The tooltip of one fit's band: its wash, or, where it is outlined, its edges
- * (`outside` for the dashed parts beyond its fitted windows).
- */
-export function bandTip(s, f, outside = false) {
+/** The tooltip of one fit's band: its wash, or, where it is outlined, its solid edges. */
+export function bandTip(s, f) {
   const name = f.form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E';
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
@@ -636,7 +637,6 @@ export function bandTip(s, f, outside = false) {
     mutedLine('The uncertainty of the fitted line, not the spread of the events.'),
   ];
   if (f.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
-  if (outside) lines.push(mutedLine(extrapolatedLine(f)));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   if (f.floorCut) lines.push(mutedLine('Its lower edge is cut at σ/E = 0, the floor of the axis.'));
   return lines.join('<br/>');
@@ -778,7 +778,7 @@ function seriesMarks(model, s, payload) {
     });
     // A band that spans half the axis or more over its fitted windows: its two edges, never a wash (as on the E view).
     if (f.outlined) {
-      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, (part) => bandTip(s, f, part === 'dashed')).map(named));
+      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, () => bandTip(s, f)).map(named));
       continue;
     }
     out.push(named({
@@ -2312,7 +2312,8 @@ function energySeriesMarks(model, s) {
 /**
  * A band that spans half its axis or more, drawn as its two edges: thin lines in `colour`
  * at `EDGE_OPACITY` (raised to 3:1), solid over the fitted span and dashed
- * beyond it, as its curve is; `edges` {solid, dashed} runs, already clipped
+ * beyond it, as its curve is, on the E view; the 1/√E view, whose lines mark
+ * no extrapolation, passes solid runs only. `edges` {solid, dashed} runs, already clipped
  * to the plot. Each run is a series `${id}|edges|<solid|dashed>|<i>` whose
  * tooltip is `tip(part)`.
  */

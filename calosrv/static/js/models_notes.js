@@ -1044,7 +1044,7 @@ export function resolutionScalingNotes({
   if (outlined.length) {
     const n = outlined.length;
     disclosures.push(`${plural(n, 'band')} ${n === 1 ? 'spans' : 'span'} half ${n === 1 ? 'its' : 'their'} axis or more at some x over the fitted windows, `
-      + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin edges in the series' colour, solid over the fitted windows and dashed beyond, never as a wash: `
+      + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin solid edges in the series' colour, never as a wash: `
       + `${outlined.map(({ s, f }) => `${s.label}, ${lineName(f.form)}${bandWhy(f.fit, sig)}`).join('; ')}. `
       + 'A small ν makes such a band wide: once S > 1 scales the covariance, q is Student\'s t of the fit\'s own ν, 12.7 at ν = 1.');
   }
@@ -1126,7 +1126,7 @@ export function resolutionScalingNotes({
     'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
     `The capped whisker is the 95% χ² interval of the window's σ/E (N − 1 degrees of freedom, R̄'s own error neglected): the uncertainty of the aggregate, never the spread of its events. It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
     'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it. '
-      + 'A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is drawn as two thin edges in the series\' colour, solid over those windows and dashed beyond, never as a wash.',
+      + 'A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is drawn as two thin solid edges in the series\' colour, never as a wash; this view marks no extrapolation, so the edges are not dashed beyond those windows.',
     `A fit drawn faded, its line and its band alike, is provisional (fewer than two windows of N ≥ ${formatInt(gates.fit_n)}) or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); `
       + 'no fit, faded or not, sets the range.',
     'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker, whisker, fitted line or band clipped there, its true values in its tooltip. A legend entry shows or hides every mark of its series.',

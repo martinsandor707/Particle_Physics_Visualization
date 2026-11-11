@@ -3575,8 +3575,9 @@ kind of experiment, where the performance section does not
   vanishes. The top axis relabels the same positions in GeV (5, 10, 15, 20, 30,
   50, 100 and ∞), E = 1/x²: an exact unit conversion, the one kind of second axis
   CLAUDE.md allows, with no data plotted against it. The y range follows the
-  windows with N ≥ 20 and the lines fitted through them; a weaker mark beyond
-  it, a provisional fit's line or a band that leaves the top, is clipped with a
+  windows with N ≥ 20 alone, whiskers included: a fit summarises its windows
+  and is not more evidence (Martin's decision, 2026-11-11). A weaker window
+  beyond it, or a fitted line or band that leaves the top, is clipped with a
   caret carrying its true values and counted in the drawer, and with no window
   at N ≥ 20 the range is labelled provisional.
 - **The marks.** A window's σ/E is reported from N = 2, drawn with its capped
@@ -3596,13 +3597,21 @@ kind of experiment, where the performance section does not
   dashed for B) and the origin-pinned a₀/√E (dotted, into the corner) each draw
   their 95 % confidence band, ±1.96 √(gᵀΣg) while the windows' own errors stand
   and ±t₀.₉₇₅,ν √(gᵀΣg) once S scales Σ, since S is then estimated from the
-  fit's own ν (12.71 at ν = 1). The weights are 1/se², with the delta-method se
-  recomputed at the fitted value and iterated, half-stepped once the refits
-  oscillate, for at most 200 refits; a fit that does not settle says so in its
-  tooltip, the table and the drawer. χ²/ν, its p-value and the PDG scale factor
-  S, applied when χ²/ν > 1, are quoted. The quadrature form √(a²/E + b²) is
-  fitted as a line in (σ/E)² against 1/E and, on this view, tabled, never drawn:
-  its constant term is not the linear sum's b. The E view draws it.
+  fit's own ν (12.71 at ν = 1). A band that spans half the axis or more over
+  its fitted windows is drawn as two thin solid edges, never as a wash. The
+  weights are 1/se², with the delta-method se recomputed at the fitted value
+  and iterated, half-stepped once the refits oscillate, for at most 200
+  refits; a fit that does not settle says so in its tooltip, the table and the
+  drawer. χ²/ν, its p-value and the PDG scale factor
+  S, applied when χ²/ν > 1, are quoted. A fit with ν ≥ 1 and S > 5, whose
+  residuals average more than five of the windows' own standard errors, has a
+  form that does not describe them: it is drawn faded and never sets a range,
+  and its tooltip, the table and the drawer say so. The size of the misfit
+  decides, not the p-value, which rejects nearly every fit at hundreds of
+  events a window (`stats/resolution_fit.py` `MISFIT_SCALE`). The quadrature
+  form √(a²/E + b²) is fitted as a line in (σ/E)² against 1/E and, on this
+  view, tabled, never drawn: its constant term is not the linear sum's b. The
+  E view draws it.
 - **The fit table** under the plot (screen only; the export is the plot) has a
   row group per series and a row per fit (affine, origin-pinned, quadrature):
   its a and b with their SEs, χ²/ν with p, S and its status, with the windows
@@ -3621,10 +3630,9 @@ kind of experiment, where the performance section does not
       higher); σ/E runs from zero.
     - **All windows** also draws the windows below 4 GeV, as points no fit
       uses.
-  - **The vertical range.** It follows the windows of N ≥ 20 from 2 GeV and
-    the drawn fits over their windows. A window below 2 GeV never sets it, and
-    one that overflows gets a caret, a drawer count and a line in the note
-    band above the plot.
+  - **The vertical range.** It follows the windows of N ≥ 20 from 2 GeV alone;
+    no fit sets it. A window below 2 GeV never sets it, and one that overflows
+    gets a caret, a drawer count and a line in the note band above the plot.
   - **The fits.**
     - The quadrature a/√E ⊕ b is drawn where both its terms are defined; its
       band is the root of its band in (σ/E)², exact because that is linear in
@@ -3646,7 +3654,8 @@ kind of experiment, where the performance section does not
       colour of its own in every theme: π± a brown and e± a purple, measured
       against the card and the series hues under three visions
       (`palette.js` `LITERATURE_COLOURS`).
-    - Its axis is logarithmic and symmetric about 1.
+    - Its axis is logarithmic and symmetric about 1, over [1/k, k]. k follows
+      the windows alone, and a ratio against a misfit reference never sets it.
   - **Shower and form.** Shower B is told by hollow markers and lines at 70 %
     strength, because the dash means extrapolation here. The ⊕ fit is the
     thicker line.

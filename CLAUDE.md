@@ -476,10 +476,20 @@ When working with calorimeter simulation datasets in this repository:
     - **What it plots.** Per 1 GeV momentum window, σ/E = s(R)/R̄ of the per-event ratio R = E_est/p, at x = ⟨1/√p⟩, so the window's momentum spread and the estimator's bias are divided out and the calibration cancels.
     - **Its series.** The detector's calibrated deposit, labelled "Calibrated deposit c·E_dep — linear-sum benchmark" and never called a limit, since a shape-aware model can beat a plain sum; the energy network of the selected frame on two-shower data; the XGBoost momentum hold-out on a paired aggregate.
     - **Its axes.** A reversed axis linear in 1/√E whose right border is the origin (E → ∞); the top axis is the exact relabelling E = 1/x², carrying no data; y from zero.
-    - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV; a window below 4 GeV is off the axis, counted and listed.
+    - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV, the range set by the windows alone (below); a window below 4 GeV is off the axis, counted and listed.
     - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. On this view the quadrature form is tabled, never drawn; the E view below draws it.
     - **Its band** is ±1.96 √(gᵀΣg) while the windows' errors stand and ±t₀.₉₇₅,ν √(gᵀΣg) once S > 1 scales Σ: S is then estimated from the fit's own ν, and the normal quantile would understate the interval 6.5× at ν = 1.
+    - **Its wide bands are drawn as their edges**, by the E view's rule below (`OUTLINE_SHARE`), judged over the fitted windows' momentum span mapped by x = 1/√E (`xSpanOf`).
+      - **Why:** once the windows alone set the range (below), the three anchors' ν = 1 affine bands (t₀.₉₇₅,₁ = 12.71) washed over the whole plot.
+      - **Solid along their whole length:** this view marks no extrapolation on its lines, and its dash is shower B's affine line, so a dash beyond the span would give the dash a third meaning.
     - **Its disclosures.** A line or band that leaves the top is clipped with a caret, its true values and a drawer count, as a weak window is; a fit whose weights did not settle says so.
+    - **The windows alone set the σ/E range, in both views** (`query/resolution_scaling.py` `linear_y_axis`, `energy_y_axis`; Martin's decision, 2026-11-11).
+      - **The rule:** no fitted line, curve, band or extrapolation enters either range, provisional or not. One that leaves the top is clipped there, as above.
+      - **Why:** a fit summarises its windows; it is not more evidence. Measured on the five stored experiments (2026-11-11), the deposit's origin-pinned line at 4 GeV (58–72%) set the 1/√E view's top at 70–80% on the three hadron files, whose windows peak at 37–44%, whiskers included.
+    - **A fit that does not describe its windows is drawn faded** (`stats/resolution_fit.py` `MISFIT_SCALE` = 5, `Fit.misfit`; the payload's `misfit` and `gates.misfit_scale`; Martin's decision, 2026-11-11).
+      - **The rule:** ν ≥ 1 and S = √(χ²/ν) > 5, so its residuals average more than five of the windows' own standard errors (RMS). It is drawn faded, as a provisional fit is, in both views, never sets a range, and says so in its tooltip, the fit table and the drawer. It raises no hazard. ν = 0 has no test and is never a misfit.
+      - **Why the size of the misfit, not the χ² p-value:** a window holds hundreds to thousands of events, so its standard error is small and the test rejects a form for misfits no reader could see. On the five stored experiments 71 of the 84 fits with ν ≥ 1 have p < 0.05.
+      - **Why 5:** the calibrated deposit's pinned fits have S = 5.5–28.6, because a deposit's σ/E is mostly a constant term, which a₀/√E cannot hold. The quadrature and affine fits through the same windows have S = 1.1–4.7. At S > 5 the gate flags 21 of the 28 pinned fits and 4 of the 56 quadrature and affine ones; at S > 3 it would flag 23 of those 56.
     - **Its second view: E (GeV) + ratio** (`panels/resolution_scaling.js` `energyModel` / `energyViewOption`; the payload's `axis.energy`, `span_gev`, `rho_a2b2`; Martin's decisions, 2026-11-10).
       - **The toggle.** "1/√E linear | E (GeV) + ratio" repaints the one response, so it sends no request. The 1/√E view is untouched, and the dark golden holds it. The view and the ratio reference are card controls, never in the hash or an Admin default.
       - **What it plots.**
@@ -499,7 +509,7 @@ When working with calorimeter simulation datasets in this repository:
           - **Why:** measured on the stored experiments, the three-anchor quadrature bands (ν = 1, t₀.₉₇₅,₁ = 12.71 once S scales them) covered up to 96% of the σ/E axis and fogged every window under them.
           - **Disclosure:** the band is listed in the drawer and named in its curve's tooltip.
           - **The reference band:** it contains the ratio axis's centre, 1, so it is outlined as soon as it reaches either end.
-      - **Its range** (`axis.energy.y`). It is set by the windows of N ≥ 20 from 2 GeV, whiskers included, and by the non-provisional drawn fits over their fitted spans (the line only). A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
+      - **Its range** (`axis.energy.y`). It is set by the windows alone, as on the 1/√E view: those of N ≥ 20 from 2 GeV, whiskers included. A window below 2 GeV never sets it and is counted when clipped. Measured: from 2 GeV the windows top out at 66%; from 1 GeV they reach 101%.
         - **The fallback:** with no robust window from 2 GeV, the range is provisional, set by the windows' markers, those below 2 GeV included. It is never the empty 0–1% default.
         - **The axis name** reads "provisional, no window from 2 GeV reaches N = 20".
       - **Off scale.** A clipped window takes a caret, its value in the tooltip and a drawer count. It is also named in a note band reserved above the plot, which also says where the curves extrapolate.
@@ -507,7 +517,7 @@ When working with calorimeter simulation datasets in this repository:
         - Every mark is divided by the reference: each shower's deposit fit (⊕ where defined, else pinned; its own band is a wash about 1), or a literature curve (§2's recorded exception).
         - A ratio whisker is conditional on its reference.
         - The axis is logarithmic and symmetric about 1, [1/k, k]. Measured ratios run 0.14–5.5, which no linear axis centred on 1 can hold.
-          - k is the first of 1.1 … 10, 20, 50 that covers the robust ratio marks. A ratio mark is robust only against a non-provisional reference.
+          - k is the first of 1.1 … 10, 20, 50 that covers the robust ratio marks: the windows alone, those of N ≥ 20 from 2 GeV, whiskers included, each against a reference that is neither provisional nor a misfit. No fit ratio sets it; one that leaves [1/k, k] takes a caret. With no robust mark, k follows the markers and the axis says provisional.
           - Robust marks beyond ×50 are counted, and the axis says "capped at ×50".
           - The ticks below 1 read 1/x, so 1/3 sits opposite 3.
       - **Encoding.**

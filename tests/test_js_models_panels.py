@@ -3832,7 +3832,8 @@ def test_res_the_drawers_say_the_windows_alone_set_the_range(out):
                    for x in _lines(rec["energy"], out, "legend")), key
         # The 1/√E view's bands: the outline rule stated in the legend.
         assert any("A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is "
-                   "drawn as two thin edges in the series' colour, solid over those windows and dashed beyond, never as a wash." in x
+                   "drawn as two thin solid edges in the series' colour, never as a wash; this view marks no extrapolation, so the edges "
+                   "are not dashed beyond those windows." in x
                    for x in _lines(rec["linear"], out, "legend")), key
         # No sentence the drawer writes itself says a fit sets the range (the server's own notes are held in Python).
         for n in (rec["linear"], rec["energy"]):
@@ -3922,34 +3923,35 @@ def test_res_the_linear_bands_follow_the_outline_rule(out, name):
 
 
 def test_res_a_wide_linear_band_is_drawn_as_its_edges(out):
-    """A ν = 1 affine band at t₀.₉₇₅,₁ = 12.71: two thin edges in the series' colour, solid over its fitted windows and
-    dashed beyond, clipped to the plot; no wash; its line, its edges and the drawer say why; no hazard of its own."""
+    """A ν = 1 affine band at t₀.₉₇₅,₁ = 12.71: two thin edges in the series' colour, solid along the whole axis (the 1/√E
+    view marks no extrapolation, and its dash is shower B's), clipped to the plot; no wash; its line, its edges and the
+    drawer say why; no hazard of its own."""
     o = out["resMisfit"]["outline"]
     assert o["outlined"] is True and o["baseOutlined"] is False and o["bands"] == 0
     x_lo, x_hi = o["xSpan"]
     assert (x_lo, x_hi) == pytest.approx((1 / o["span"][1] ** 0.5, 1 / o["span"][0] ** 0.5))
-    assert {e["id"].split("|")[-2] for e in o["edges"]} == {"solid", "dashed"}
+    assert {e["id"].split("|")[-2] for e in o["edges"]} == {"solid"}, "no dash on the 1/√E view"
+    xs = [x for e in o["edges"] for x, _ in e["points"]]
+    assert min(xs) < x_lo - 1e-6, "the edges run on past the fitted windows, undashed"
     why = ("Its 95% band spans half its axis or more over its fitted windows (S = 1.5, ν = 1, q = 12.71), so it is drawn as its "
            "edges, not as a wash.")
     for e in o["edges"]:
         part = e["id"].split("|")[-2]
         assert e["name"] == o["label"] and e["stroke"] == o["colour"]
         assert e["width"] == pytest.approx(0.8 * o["lineAxis"]) and e["opacity"] == pytest.approx(o["edgeOpacity"])
-        assert e["dash"] == ([6, 4] if part == "dashed" else None)
+        assert part == "solid" and e["dash"] is None
         for x, y in e["points"]:  # identity coordinates
             assert 0 < y <= o["yhi"] + 1e-9
-            if part == "solid":
-                assert x_lo - 1e-9 <= x <= x_hi + 1e-9
         tip = _plain(e["tip"])
         assert why in tip and "95% confidence band of the affine fit" in tip
-        assert ("Extrapolated: beyond the windows this fit used" in tip) == (part == "dashed")
+        assert "Extrapolated" not in tip
     assert why in _plain(o["lineTip"]) and "The shaded band beside it" not in o["lineTip"]
     (listed,) = [x for x in _lines(o["notes"], out, "disclosures") if "never as a wash: " in x]
     n = o["outlinedCount"]
     assert n >= 1 and listed.startswith(
         f"{n} band{'s' if n > 1 else ''} span{'' if n > 1 else 's'} half {'their' if n > 1 else 'its'} axis or more at some x over "
-        f"the fitted windows, so {'they are' if n > 1 else 'it is'} drawn as two thin edges in the series' colour, solid over the "
-        "fitted windows and dashed beyond, never as a wash: ")
+        f"the fitted windows, so {'they are' if n > 1 else 'it is'} drawn as two thin solid edges in the series' colour, never "
+        "as a wash: ")
     assert "Shower B · Energy network · absolute frame, affine fit a/√E + b (S = 1.5, ν = 1, q = 12.71)" in listed
     assert o["hazards"] == o["hazardsBase"], "no hazard of its own"
     assert out["resMisfit"]["xSpans"] == [pytest.approx([1 / 20 ** 0.5, 1 / 5 ** 0.5]), pytest.approx([0.4472136, 0.5]), None, None]
