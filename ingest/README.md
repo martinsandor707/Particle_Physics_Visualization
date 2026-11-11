@@ -44,10 +44,12 @@ deletes a file and never touches this note.
   README's Quick start; `HF_SYNC=0` turns it off, and downloads by hand still
   work). Any file you add stays on your computer: git ignores it, and nothing
   uploads it.
-- **`.hf-sync/`.** A hidden folder the sync keeps here: its record of the last
-  sync (`last-sync.json`), Hugging Face's metadata and partial downloads, and
-  spare copies while a file is replaced. The scan ignores it. Deleting it is
-  safe: the next start verifies every file once.
+- **`.hf-sync/`.** A hidden folder the sync keeps here: `stage/`, where every
+  download is written and checked before it is swapped into place with one
+  rename (so a file in this folder is never half-written, whatever stops the
+  sync), and `last-sync.json`, its record of the last sync. The scan ignores
+  it. Deleting it is safe: the next start checks every file once against the
+  dataset, by its content, and adopts those that match.
 - **Nothing is replaced by itself.** A file whose experiment already exists, in
   any state, is skipped, and so is a file already ingested under another name
   (same file name and size). A file whose experiment is ready and whose content

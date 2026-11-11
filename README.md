@@ -46,8 +46,9 @@ measured on the development computer with every file of `ingest` loaded:
 | the dashboard's Docker image | 0.6 GB |
 | **together** | **about 30 GB** |
 
-The space the load itself uses while it runs, and the spare copy an update
-keeps while it replaces a file, are not included: the figures are the sizes at rest.
+The space the load itself uses while it runs, and the new copy of a file that
+an update downloads beside the old one before it swaps them, are not included:
+the figures are the sizes at rest.
 If the disk is smaller, the [environment variable `HF_SYNC_INCLUDE`](#configuration)
 narrows the download to the files you want, for example
 `ingest/hits_all_models.parquet,xgboost_models/*.json`. Docker must also be
@@ -200,12 +201,20 @@ Run these in the project folder.
 - **Start without a connection:** if the last start finished its download,
   the same command works offline. The download service says that Hugging Face
   could not be reached and starts the dashboard with the files it has.
+- **Start again while it runs:** a second `docker compose up` runs the download
+  service again before it looks at the dashboard. A file it updates is swapped
+  into place whole, and the dashboard keeps serving what it has loaded. To
+  restart the dashboard alone, without the download, use
+  `docker compose --env-file laptop.env up --no-deps calorimeter-dashboard`.
 
 A copy made before the data moved to Hugging Face has no `ingest/.hf-sync`
 folder yet, and its `git pull` removes the two `hits_all_models` files from
-`ingest`. Run the start command once: the download service verifies each file
-that is already there, fetches the rest, and loads the experiments it lacks.
-Data the dashboard has already loaded stays in its `data` folder.
+`ingest`. Run the start command once: the download service checks each file
+that is already there against the dataset (`Checking … against the dataset…`,
+which reads every file once, 11.1 GB in all) and adopts it when it matches,
+fetches the rest, and the dashboard loads the experiments it lacks. A file that
+does not match is kept and named in the terminal (see below). Data the
+dashboard has already loaded stays in its `data` folder.
 
 ### Download the data by hand (optional)
 
@@ -289,8 +298,8 @@ start, and not downloaded again if it is the dataset's.
 | `ensurepip is not available` | On Debian and Ubuntu, Python's environments come in a separate package. Install it with `sudo apt install python3-venv`, then start the manual download again. |
 | `Could not find a version that satisfies the requirement huggingface_hub==2.3.0` | This Python is older than 3.10; on macOS it is probably the one Apple provides. Install a newer one from python.org, open a new terminal, and start the manual download again with `python3 -m venv --clear .venv` (`py -m venv --clear .venv` on Windows) as its first command. |
 | The manual download stops with an error such as `ConnectError`, `ReadTimeout` or `Connection reset` | The connection was interrupted. Run the `hf download` command again: it keeps what it already has and fetches the rest. |
-| `hf-sync:` lines ending in `error:`, and then a message that a dependency failed to start naming the `hf-sync` container, which exited with code 1 | The download service failed, so Docker did not start the dashboard (Compose words this as "dependency failed to start" with the container's name and its exit code). Scroll up to the last `hf-sync:` lines. With no connection and no earlier download they read `error: Hugging Face could not be reached (…) and nothing was ever synced to …`: connect and run the command again, or download by hand as above and start with `HF_SYNC=0`. With an interrupted download they end with `error: N file(s) are missing or unfinished: …`: run the command again, which fetches what is left and never truncates a good copy. An offline start succeeds only when every file of the last complete download is still on the disk; `HF_SYNC=0` skips the service altogether. |
-| `hf-sync: warning: ingest/… changed on this computer since the last sync; kept.`, or `… differs from the dataset; kept.` | The service never overwrites a file you changed, or one it did not put there and whose size differs from the dataset's. To replace it with the dataset's copy, start once with `HF_SYNC_OVERWRITE=1` (`HF_SYNC_OVERWRITE=1 docker compose --env-file laptop.env up --build`). Nothing is ever deleted. |
+| `hf-sync:` lines ending in `error:`, and then a message that a dependency failed to start naming the `hf-sync` container, which exited with code 1 | The download service failed, so Docker did not start the dashboard (Compose words this as "dependency failed to start" with the container's name and its exit code). Scroll up to the last `hf-sync:` lines. With no connection and no earlier download they read `error: Hugging Face could not be reached (…) and nothing was ever synced to …`: connect and run the command again, or download by hand as above and start with `HF_SYNC=0`. With a download that failed they end with `error: N file(s) are missing or unfinished: …`, followed by `The previous copy of each is untouched`: run the command again to continue. Files already finished are not downloaded again; a file cut off midway starts again from its beginning, because Hugging Face's downloader does not resume. A download never writes over a dataset file: each file is downloaded into the hidden `ingest/.hf-sync/stage` folder and swapped into place only once whole, so Ctrl-C or `docker compose stop` leaves every file in place as it was. An offline start succeeds only when the last download finished and every one of its files is still on the disk at its size; `HF_SYNC=0` skips the service altogether. |
+| `hf-sync: warning: ingest/… changed on this computer since the last sync; kept.`, or `… differs from the dataset; kept.` | The service never overwrites a file you changed, or one it did not put there whose content differs from the dataset's: it compares contents by hashing the file (`Checking … against the dataset…`), and adopts a file whose content matches, whatever its date. To replace a kept file with the dataset's copy, start once with `HF_SYNC_OVERWRITE=1` (`HF_SYNC_OVERWRITE=1 docker compose --env-file laptop.env up --build`). Nothing is ever deleted. |
 | `git pull` stops with `Your local changes to the following files would be overwritten by merge`, naming the two `hits_all_models` files | Your copy holds data files that Git still counts as its own, for example ones copied in by hand or by the older download. Move those two files out of `ingest`, run `git pull`, then move them back. The sync at the next start checks them once and does not fetch them again. |
 | `Cannot connect to the Docker daemon`, `error during connect`, or `docker` is not found | Docker is not running or not installed. Start Docker Desktop and wait until it is running. On Linux, if you see `permission denied`, put `sudo` in front of the `docker` command. |
 | `port is already allocated` | Another program already uses port 8000, possibly an earlier copy of the dashboard. Run `docker compose down`, or close the other program, then start again; or keep the other program and set `HOST_PORT` to a free port, as in step 2. |
@@ -325,6 +334,7 @@ laptop.env`, or the shell. [`.env.example`](.env.example) lists them.
 | `HF_SYNC_INCLUDE` | `ingest/*.parquet,xgboost_models/*.json` | Comma-separated patterns, matched as `hf` matches them (`*` also crosses `/`). Only paths that match and begin with `ingest/` or `xgboost_models/` are fetched, and `ingest/README.md` never. Narrow it on a small machine. |
 | `HF_SYNC_OVERWRITE` | `0` | `1` lets the sync replace a local file that changed since the last sync, or that differs from the dataset's on a first sync. At `0` such a file is kept and reported. |
 | `HF_SYNC_ROOT` | `/sync` | Inside the `hf-sync` container, where the two folders are mounted. Compose does not set it; the tests do. |
+| `HF_TOKEN` | empty | Compose only, passed to `hf-sync`: a Hugging Face token for a private copy of the dataset. The public dataset needs none, and an empty value is read as none. |
 | `PORT` | `8000` | HTTP listen port, inside the container; `HOST_PORT` publishes it. |
 | `CALOSRV_DATA_DIR` | `/app/data` | Database, upload staging and DuckDB temp spill. |
 | `CALOSRV_SEED_CSV` | — | Override the baseline seed file. The seed is Parquet now (`hits_all_models_dummy.parquet`), and the variable takes a CSV or a Parquet file, as every ingest does; the name is kept for existing deployments. Unset, the first of `/app/seed/hits_all_models_dummy.parquet`, `<data dir>/hits_all_models_dummy.parquet` and the repository root's copy that exists. |
@@ -351,8 +361,10 @@ and `./xgboost_models` at `/app/xgboost_models`, both read-only. The `hf-sync`
 service mounts the two folders read-write, at `/sync/ingest` and
 `/sync/xgboost_models`, and is the only thing that writes to them. It runs
 before the dashboard (`depends_on` with `condition:
-service_completed_successfully`, so a failed download stops the start) and
-never restarts (`restart: "no"`). Its consequence for ingest: **server-side
+service_completed_successfully`, so a failed download stops the start),
+never restarts (`restart: "no"`), and runs under a small init process
+(`init: true`): a Python process alone as PID 1 would ignore the stop signal
+that Ctrl-C and `docker compose stop` send. Its consequence for ingest: **server-side
 ingest reaches only `./ingest`.** The **Already on the server** source of
 **Upload dataset** and `python -m calosrv.ingest` read files under
 `/app/ingest` and nowhere else on the host (the paths are confined to that one
@@ -532,14 +544,29 @@ Only the folder's top level is scanned. Hidden files, temporary names (`.part`,
 `.tmp`, …) and anything that is not `.csv` or `.parquet` are passed over.
 
 **The hidden `ingest/.hf-sync/` folder** holds the sync's own state, and the
-scan never reads it: `last-sync.json` (what the last complete sync wrote: per
-file its size, modification time and etag, the commit and the date), Hugging
-Face's metadata and partial downloads (so a finished Parquet file is renamed
-into place atomically), and `previous/`, spare copies of a file while an update
-replaces it. The folder is git-ignored with the rest of `ingest/`. Deleting it
-is safe: the next start finds no record, so it verifies every file once (hashing
-a file whose size matches the dataset's, downloading one that differs), and
-nothing is ever deleted from `ingest` itself.
+scan never reads it.
+
+- `stage/` is where Hugging Face's downloader writes, with its metadata and
+  partial files. A file is checked against the dataset's size there, then
+  swapped into place: a dataset file with one rename on the same disk, a model
+  through a temporary name in `xgboost_models` and a rename. A file in
+  `ingest` or `xgboost_models` is therefore never deleted, truncated or
+  half-written, whatever stops the sync; partial files an interrupted run left
+  behind are removed at the next start.
+- `last-sync.json` records the commit and the date, every file the sync expects
+  (`expected`), whether the last run finished with all of them in place
+  (`complete`), the files it kept on purpose (`kept`), and per file its size,
+  modification time and etag. An offline start needs `complete` and every
+  expected file at its recorded size.
+
+A file is judged by its content when its record does not settle it. A file the
+sync did not write, or one whose date moved, is hashed (SHA-256 for the Parquet
+files, git's blob SHA-1 for the models) and compared with the dataset: equal, it
+is adopted without a download; equal to the version the last sync wrote, it is
+updated; different, it is kept and named in the log, unless
+`HF_SYNC_OVERWRITE=1`. The folder is git-ignored with the rest of `ingest/`.
+Deleting it is safe: the next start hashes every file once and adopts those
+that match, and nothing is ever deleted from `ingest` itself.
 `ingest/README.md` repeats these rules beside the files.
 
 **The whole folder, measured.** The six files of the repository's `ingest/`
@@ -942,7 +969,10 @@ tables from it:
     place); any other `.next` is **rolled back** (removed); and every
     `part-*.parquet` the committed manifest does not list is removed as an
     orphan. A folder whose manifest cannot be read is left alone. Each action is
-    logged at WARNING.
+    logged at WARNING. While the server runs with a `.next` waiting (the rename
+    failed after the commit), a rebuild, an append or another re-ingest of that
+    experiment is refused with 409 until a restart rolls it forward: each would
+    otherwise read the old part, which no longer matches the tables.
 - **The hot tables** live in `calorimeter.duckdb`, per kind (the
   [kind table](#what-each-kind-serves)). There is no `hit_` table any more. The
   production database measured 2.5 GB before Group-1, `layers_` and `profiles_`
@@ -1150,15 +1180,20 @@ the newest ingest job's line, and a button.
   when the size is equal, the time moved and the sampled digest differs. A file
   whose time moved and whose size and sampled content did not is `touched`.
   The server hashes nothing but the first and last mebibyte, and only for that
-  case. Experiments ingested before the record existed are compared by size and
-  by the archive's write time, and say so (`basis`).
+  case. Experiments ingested before the record existed are compared by **size
+  only**, and say so ("Recorded before source tracking: compared by size only.",
+  `basis: legacy`). A later file date is no evidence of a change without a
+  recorded fingerprint: the production files were rewritten as Parquet after
+  their experiments were archived, at exactly the size they had. **Re-ingest**
+  is offered for such a row only through the API's `force`; one re-ingest
+  records the full fingerprint.
 - **The five states, with the chip text the panel shows:**
 
   | State | Chip | Meaning |
   |---|---|---|
   | `changed` | **Source updated on disk** | size or sampled content differs from what was ingested |
   | `unchanged` | **Current** | size and modification time equal the record |
-  | `touched` | **Timestamp changed, content the same** | time moved; size and sampled content did not |
+  | `touched` | **Timestamp changed; sampled content the same** | time moved; size and sampled content did not |
   | `missing` | **Source file not found** | no file of that name under the folder |
   | `untracked` | **Uploaded: no file on the server to compare**, **Demonstration dataset: ships in the image**, or **No source recorded** | an upload, the seed, or a row with no record and no matching file |
 
@@ -1176,7 +1211,14 @@ the newest ingest job's line, and a button.
   the experiment was assembled from several files by append, or the file is not
   an accepted schema or not the experiment's own schema. It needs free disk for
   both copies: when there is not enough, the answer is **507** and points to
-  Upload → Replace, which drops the old copy first.
+  Upload → Replace, which drops the old copy first. The worker checks again that
+  the experiment is still the one the request saw: if another job (an upload
+  with Replace) rewrote it meanwhile, the job fails with "changed since the
+  re-ingest was requested; nothing was done." In the one window after the
+  commit, if the archive's manifest cannot be switched, the job says the new
+  data **are committed** and the next start completes it; until that restart a
+  rebuild, an append or another re-ingest of it is refused with **409**
+  ("half-finished").
 - **Retry ingest** (a failed experiment) drops the partial tables and archive
   and ingests the file again, from the same folder, with no upload.
 - **What is kept** through either: the experiment's name, its display name, its
@@ -1184,6 +1226,10 @@ the newest ingest job's line, and a button.
 - **When a job finishes**, the panel and the page refresh: the experiment menu,
   the Derived tables and XGBoost model runs sections, and the experiment's
   analyses are queued again. The server's caches for the experiment are emptied.
+  This holds for a re-ingest or retry started in another tab or before a reload:
+  the panel follows every such job it sees running. A row whose file is still
+  being written is read again once the settle time has passed, so its
+  **Re-ingest** button enables itself.
 - **Nothing is re-ingested automatically**: not at a boot, not by **Scan now**,
   and not by the sync. A button here, or the API route below, is the only way.
 
