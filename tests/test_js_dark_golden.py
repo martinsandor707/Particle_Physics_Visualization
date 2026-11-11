@@ -48,9 +48,8 @@ and prints a table of SHA-256 digests, one per case:
   both window modes and the three ratio references (the deposit fit, the π± and
   e± literature curves), under the screen and the print tokens; its fit table;
   its drawer; one shower; a narrow card. The 1/√E view's cases are untouched.
-  The literature toggles (added 2026-11-11, new case ids only:
-  `…/energy/all/<reference>+<curves>`): a curve drawn beside the reference, or
-  both beside the deposit fit.
+  Both literature curves, the card's default (added 2026-11-11, new case ids
+  only: `…/energy/<windows>/both`), the ratio dividing by the farther one.
 * **The benchmark catalogue** (added 2026-11-05, new `catalog/*` case ids only).
   Every catalogue payload (`catalog/select.js` `catalogPayload`) and every
   catalogue builder on it, for each species and Compare all and each task: the
@@ -877,12 +876,11 @@ for (const name of ['res_scaling_two', 'res_scaling_xgb', 'res_scaling_single_hi
     }
     put(`models/resolution/${name}/energy/${windows}/table`, rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both' }));
   }
-  // The literature toggles (Martin's request of 2026-11-11): a curve beside the reference, or both beside the deposit fit.
-  for (const [reference, literature] of [['pi', ['e']], ['e', ['pi']], ['deposit', ['pi', 'e']]]) {
-    const opts = { view: 'energy', windows: 'all', shower: 'both', reference, literature };
-    const id = `${reference}+${literature.join('+')}`;
-    both(`models/resolution/${name}/energy/all/${id}`, () => rs.energyViewOption(payload, opts, EW).option);
-    put(`notes/models_resolution/${name}/energy/all/${id}`, mn.resolutionScalingNotes({ payload, ...opts }));
+  // Both literature curves, the card's default (Martin's requests of 2026-11-11): the ratio divides by the farther one.
+  for (const windows of ['anchors', 'all']) {
+    const opts = { view: 'energy', windows, shower: 'both', literature: ['pi', 'e'] };
+    both(`models/resolution/${name}/energy/${windows}/both`, () => rs.energyViewOption(payload, opts, EW).option);
+    put(`notes/models_resolution/${name}/energy/${windows}/both`, mn.resolutionScalingNotes({ payload, ...opts }));
   }
   const allDeposit = { view: 'energy', windows: 'all', reference: 'deposit' };
   optionCase(`models/resolution/${name}/energy/showerA`, rs.energyViewOption(payload, { ...allDeposit, shower: 'a' }, EW).option);

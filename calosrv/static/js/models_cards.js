@@ -253,9 +253,8 @@ export const DEFAULT_CONTROLS = Object.freeze({
   predShower: 'both',
   resShower: 'both',
   resView: 'linear',
-  resReference: 'deposit',
-  // The literature curves drawn beside the ratio's reference: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
-  resLiterature: '',
+  // The literature curves drawn, both by default: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
+  resLiterature: 'pi,e',
   resWindows: 'anchors',
   resScalingShower: 'both',
   tableStat: 'median',
@@ -508,43 +507,27 @@ export function literatureKeys(value) {
   return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => asked.includes(key));
 }
 
-/* Which literature curves the E view draws: either, both or neither, each a
- * toggle (Martin's request of 2026-11-11). The curve the ratio panel divides
- * by is drawn whatever its toggle says, so its button shows pressed and is
- * shut while it is the reference. Render-only; visible in the E view only. */
+/* The E view's literature curves, one toggle each, both on by default
+ * (Martin's requests of 2026-11-11). They are also the ratio panel's
+ * reference: the curve on, the one the windows lie farther from with both on
+ * (panels/resolution_scaling.js `ratioReferenceChoice`), and each shower's
+ * deposit fit with neither. Render-only, never in a link; E view only. */
 const RES_LITERATURE_CONTROL = {
   name: 'resLiterature', kind: 'toggles', attr: 'resLiterature', label: 'Literature curves',
   choices: () => RESOLUTION_REFERENCES.map((entry) => ({
     value: entry.key,
     label: entry.particle,
-    title: `Draw or hide ${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported`,
+    title: `Draw or hide ${referenceEquation(entry)}; transcribed from the supplied figure's legend; no interval reported. `
+      + 'The ratio panel divides by the curve drawn, by the one the windows lie farther from when both are, '
+      + 'and by each shower\'s deposit fit when neither is.',
   })),
-  pressed: ({ controls }, choice) => controls?.resReference === choice || literatureKeys(controls?.resLiterature).includes(choice),
-  choiceDisabled: ({ controls }, choice) => (controls?.resReference === choice
-    ? 'Drawn while the ratio panel divides by it; choose another "÷" reference to hide it' : null),
+  pressed: ({ controls }, choice) => literatureKeys(controls?.resLiterature).includes(choice),
   toggle: ({ controls }, choice) => {
     const on = new Set(literatureKeys(controls?.resLiterature));
     if (on.has(choice)) on.delete(choice);
     else on.add(choice);
     return RESOLUTION_REFERENCES.map((entry) => entry.key).filter((key) => on.has(key)).join(',');
   },
-  visible: ({ controls }) => controls?.resView === 'energy',
-};
-
-/* What the E view's ratio panel divides by: the deposit fit, or one of the
- * literature curves of the catalogue, which is then drawn. "÷" tells these
- * buttons from the literature toggles beside them. Visible in the E view only. */
-const RES_REFERENCE_CONTROL = {
-  name: 'resReference', kind: 'seg', attr: 'resReference', label: 'Ratio to',
-  choices: () => [
-    { value: 'deposit', label: '÷ deposit fit', title: 'The ratio panel divides each shower by its own calibrated-deposit fit' },
-    ...RESOLUTION_REFERENCES.map((entry) => ({
-      value: entry.key,
-      // The particle alone after "÷"; the title and the ratio axis's name carry the equation.
-      label: `÷ ${entry.particle}`,
-      title: `The ratio panel divides by ${referenceEquation(entry)}, which is then drawn; transcribed from the supplied figure's legend; no interval reported`,
-    })),
-  ],
   visible: ({ controls }) => controls?.resView === 'energy',
 };
 
@@ -568,7 +551,7 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL, RES_REFERENCE_CONTROL],
+  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -718,7 +701,6 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
   } else if (spec.group === 'res-scaling') {
     opts.view = c.resView;
-    opts.reference = c.resReference;
     opts.literature = literatureKeys(c.resLiterature);
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
@@ -745,10 +727,11 @@ export function exportMeta(payload, opts = null) {
   // view and what its ratio divides by (export/filename.js).
   if (opts?.view === 'energy') {
     meta.view = 'energy';
-    meta.reference = opts.reference ?? 'deposit';
-    // A literature curve drawn beside the reference makes another figure.
-    const beside = (opts.literature ?? []).filter((key) => key !== meta.reference);
-    if (beside.length) meta.literature = beside;
+    // The curves drawn name the figure: the deposit fit is the ratio's reference with none, the curve with one;
+    // with both, the reference follows from the windows and is named on the ratio axis.
+    const drawn = Array.isArray(opts.literature) ? opts.literature : [];
+    if (drawn.length > 1) meta.literature = drawn;
+    else meta.reference = drawn[0] ?? 'deposit';
   }
   return meta;
 }

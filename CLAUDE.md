@@ -73,7 +73,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
       - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
   - **Recorded exception: transcribed literature reference curves** (`calosrv/static/js/catalog/resolution_refs.js`, pinned to `resolution_references.md` by `tests/test_resolution_refs.py`; Martin's decision, 2026-11-10).
-    - **What.** The energy-resolution card's E view (§5) can divide its ratio panel by either of two curves, draws the one it divides by, and can draw either or both beside it: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
+    - **What.** The energy-resolution card's E view (§5) draws either of two curves or both (both by default) and divides its ratio panel by one of them: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
     - **Why:** the figure prints no uncertainty for either curve and names no source publication. A number that carries no uncertainty cannot be given one by the dashboard.
     - **The rules:**
       - no interval is fabricated or derived;
@@ -491,7 +491,7 @@ When working with calorimeter simulation datasets in this repository:
       - **Why the size of the misfit, not the χ² p-value:** a window holds hundreds to thousands of events, so its standard error is small and the test rejects a form for misfits no reader could see. On the five stored experiments 71 of the 84 fits with ν ≥ 1 have p < 0.05.
       - **Why 5:** the calibrated deposit's pinned fits have S = 5.5–28.6, because a deposit's σ/E is mostly a constant term, which a₀/√E cannot hold. The quadrature and affine fits through the same windows have S = 1.1–4.7. At S > 5 the gate flags 21 of the 28 pinned fits and 4 of the 56 quadrature and affine ones; at S > 3 it would flag 23 of those 56.
     - **Its second view: E (GeV) + ratio** (`panels/resolution_scaling.js` `energyModel` / `energyViewOption`; the payload's `axis.energy`, `span_gev`, `rho_a2b2`; Martin's decisions, 2026-11-10).
-      - **The toggle.** "1/√E linear | E (GeV) + ratio" repaints the one response, so it sends no request. The 1/√E view is untouched, and the dark golden holds it. The view and the ratio reference are card controls, never in the hash or an Admin default.
+      - **The toggle.** "1/√E linear | E (GeV) + ratio" repaints the one response, so it sends no request. The 1/√E view is untouched, and the dark golden holds it. The view and the literature toggles are card controls, never in the hash or an Admin default.
       - **What it plots.**
         - Each window sits at E = 1/⟨1/√p⟩², the image of the 1/√E view's own abscissa, never at ⟨p⟩. So a window on its fitted line there sits on its fitted curve here.
         - The x axis is linear from 0 to 80 GeV, or to the dataset's top edge when higher. σ/E starts at zero.
@@ -525,20 +525,26 @@ When working with calorimeter simulation datasets in this repository:
         - Marker fill and line strength are the shower. Shower B's lines are at 70% strength, raised to keep 3:1, so the network hue reaches 91% on the light card.
         - Because of that, a right-margin column labels every drawn curve end "A" or "B" whenever two showers are on show; each literature curve on show is labelled "π±" or "e±" there too, on either panel.
           - **Each label is ink text, led by a key stroke** in its curve's own colour, dash, width and strength. Text must clear 4.5:1, which a curve colour need not: the literature hues sit near 3:1 on the dark card, the network teal at 3.39:1 on white.
-        - **Either literature curve, or both, can be drawn** (`models_cards.js` `RES_LITERATURE_CONTROL`, a `toggles` control; Martin's request, 2026-11-11, superseding his "only the chosen curve" of the same day).
-          - **The controls:** the toggles "π± | e±" draw a curve (any combination; `resLiterature`, never in a link). The ratio's reference keeps its single choice, "÷ deposit fit | ÷ π± | ÷ e±"; the "÷" tells the two groups apart.
-          - **The reference is always drawn:** under "÷ π±" the π± curve is on show, and its toggle is pressed and shut, its title saying how to hide it.
-          - **On the ratio panel:** beside a literature reference, another curve on show is drawn divided by it, one line for every shower (e±/π± ≈ 0.51), with its own end label and caret. Under the deposit reference a literature curve stays on the main panel, since each shower is divided by its own deposit fit and a curve has no one ratio to it.
-          - **Why not the windows against both:** π±/e± is 1.94–2.0 from 4 to 80 GeV, so a second set of ratio marks would repeat every window about a factor 2 apart.
-          - **Disclosure:** each curve on show raises the hazard "no interval reported", reference or not. The drawer's Selection lists the curves drawn, and an export's file name adds `lit-<curves>` for a curve beside the reference.
+        - **One pair of literature toggles, both on by default** (`models_cards.js` `RES_LITERATURE_CONTROL`, a `toggles` control; `resLiterature` 'pi,e', never in a link; Martin's requests, 2026-11-11, superseding the same day's "only the chosen curve" and its separate "÷" reference buttons).
+          - **The buttons:** "π± | e±", each drawing its curve, in any combination, none included.
+          - **The ratio's reference follows them** (`panels/resolution_scaling.js` `ratioReferenceChoice`):
+            - one curve on: that curve;
+            - both on: the one the windows lie farther from, "the one which needs scaling the most". It is the larger median |ln(σ/E ÷ curve)| over the robust windows on show (N ≥ 20 from 2 GeV, the marks that set k), or over every window on show where none is robust; π± on a tie or with no window;
+            - neither on: each shower's deposit fit.
+          - **Measured** (the five stored experiments, 2026-11-11): with both on, e± is the reference on every one. The windows sit a median ×4.2–5.8 from e± and ×2.1–3.0 from π±, since they all lie above both curves.
+          - **On the ratio panel:** the other curve is drawn divided by the reference, one line for every shower (π±/e± ≈ 1.95), with its own end label and caret. It never sets k.
+          - **Why one reference, not the windows against both:** π±/e± is 1.94–2.0 from 4 to 80 GeV, so a second set of ratio marks would repeat every window about a factor 2 apart.
+          - **Disclosure:** each curve on show raises the hazard "no interval reported".
+            - The drawer's Selection lists the curves drawn, and What is drawn says why the reference is the one it is, with both factors. The reference curve's tooltip and the 1.0 rule's say so too.
+            - An export's file name carries `lit-pi-e` with both, `ratio-<curve>` with one, `ratio-deposit` with neither.
           - **Each has one identity colour in every state** (`palette.js` `LITERATURE_COLOURS`, picked by `THEME.qualitativePalette`, no THEME key): π± a brown, e± a purple. On the dark card they are #b15928 (3.34:1) and #984ea3 (3.05:1); on white, light and print, #a65628 (5.27:1) and #6a3d9a (7.65:1).
           - **Why these:** ColorBrewer colours, chosen by the largest worst-pair CIEDE2000 against the ink, E2's four hues and each other, under normal vision, deuteranopia and protanopia. The worst pair is 17.2 on the dark card and 8.8 on white. `tests/test_js_literature_colours.py` measures them.
           - The curve is dotted at 1.6 px, so a hue near 3:1 reads.
           - The figure does not state the energy range the curves were fitted over, so a curve is drawn over the whole axis, and the tooltip and drawer say so.
         - There is no series dodge on this view: every window sits at its exact E.
         - There is no zoom, only a crosshair linked across the two grids.
-        - The Ratio-to buttons read "÷ deposit fit | ÷ π± | ÷ e±", the toggles beside them "π± | e±". The equations are in their titles and on the ratio axis.
-        - An export's file name carries `energy`, `ratio-<reference>` and, for curves drawn beside it, `lit-<curves>`.
+        - The literature buttons read "π± | e±". The equations are in their titles and on the ratio axis.
+        - An export's file name carries `energy` and the curves drawn, as above.
       - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out.
   - **One coordinate system at a time on Views** (`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`; Martin's directives, 2026-11-06).
     - **The rule.** Views draws one 3-D pair (a 3-D card and its three paired projections) at a time, in the frame selected under Reference Frame.

@@ -1327,10 +1327,8 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         else:
             assert chrome["height"] == 420 and chrome["styleHeight"] == "", chrome
         assert [w for w, _ in chrome["windows"]] == ["3 anchors", "All windows"], chrome
-        assert [r for r, _ in chrome["references"]] == ["÷ deposit fit", "÷ π±", "÷ e±"], chrome
-        assert chrome["references"][0][1] == "true", chrome
-        # The literature toggles (Martin, 2026-11-11): either, both or neither; none is on by default.
-        assert chrome["literature"] == [["π±", "false"], ["e±", "false"]], chrome
+        # One pair of literature toggles (Martin, 2026-11-11), both on by default; no separate reference buttons.
+        assert chrome["references"] == [] and chrome["literature"] == [["π±", "true"], ["e±", "true"]], chrome
         title, headings, _ = _drawer(page, "res-scaling")
         assert title == "Energy Resolution vs. E", title
         _assert_sections(headings, f"{table} res-scaling (E view)")
@@ -1343,6 +1341,23 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
             assert any("no σ/E can be drawn" in t for t in texts), texts
         else:
+            # The default draws both curves; the ratio divides by the farther one (e± on every stored response, whose
+            # windows all lie above both curves), and the other is drawn on the ratio panel divided by it.
+            lit_ids = lambda got: sorted(i for i in got["ids"] if i.startswith("literature|")
+                                         and not i.endswith("endlabels") and not i.endswith("caret"))
+            both = page.evaluate(_RES_ENERGY)
+            ref = "e" if "e±" in both["y"][1]["name"] else "pi"
+            other = "pi" if ref == "e" else "e"
+            assert lit_ids(both) == sorted(["literature|pi", "literature|e", f"literature|{other}|ratio"]), both["ids"]
+            assert ({"pi": "π±", "e": "e±"}[ref] in both["y"][1]["name"]
+                    and {"pi": "π±", "e": "e±"}[other] not in both["y"][1]["name"]), both["y"][1]
+            flagged = page.evaluate(_DETAILS, "res-scaling")
+            assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
+            name, _ = _download_svg(page, "res-scaling")
+            assert "_energy_lit-pi-e_" in name, name
+            # Both off: each shower's deposit fit is the reference, as the checks below take it.
+            assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+            assert [t[:3] for t in page.evaluate(_RES_LIT_TOGGLES)] == [["π±", "false", False], ["e±", "false", False]]
             view = page.evaluate(_RES_ENERGY)
             # Two grids, the main panel over the ratio panel, on one E axis.
             assert view["grids"] == 2 and len(view["rects"]) == 2, view["rects"]
@@ -1387,12 +1402,11 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             assert _res_press(page, "res-windows", "anchors")
             assert page.evaluate(_RES_SERIES) == e_series
 
-            # "Ratio to": a literature curve as the ratio's divisor and the only one on the main panel (Martin,
-            # 2026-11-11), then the other, then back to the deposit fit, which draws none.
+            # One curve on: it is drawn and the ratio divides by it; off again, back to the deposit fit, which draws none.
             assert not [i for i in view["ids"] if i.startswith("literature|")], view["ids"]
             details = page.evaluate(_DETAILS, "res-scaling")
             for key, particle in (("pi", "π±"), ("e", "e±")):
-                assert _res_press(page, "res-reference", key)
+                assert _res_press(page, "res-literature", key)
                 got = page.evaluate(_RES_ENERGY)
                 # Only the chosen curve is drawn: its line, and any end label or caret, are its own.
                 assert f"literature|{key}" in got["ids"], got["ids"]
@@ -1408,42 +1422,16 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                 # A literature reference is a documented point estimate: the Details button carries the hazard.
                 flagged = page.evaluate(_DETAILS, "res-scaling")
                 assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
-            assert _res_press(page, "res-reference", "deposit")
+                assert not _res_press(page, "res-literature", key)
             assert page.evaluate(_RES_SERIES) == e_series
             assert page.evaluate(_DETAILS, "res-scaling") == details, details
 
-            # Both literature curves at once (Martin, 2026-11-11): ÷ π± draws π± and shuts its toggle; e± toggled on
-            # is drawn beside it, and on the ratio panel as e±/π±. The data curves never move.
-            lit_ids = lambda got: sorted(i for i in got["ids"] if i.startswith("literature|") and not i.endswith("endlabels"))
-            assert _res_press(page, "res-reference", "pi")
-            toggles = page.evaluate(_RES_LIT_TOGGLES)
-            assert toggles[0][:3] == ["π±", "true", True] and "divides by it" in toggles[0][3], toggles
-            assert toggles[1][:3] == ["e±", "false", False], toggles
-            assert _res_press(page, "res-literature", "e")
-            got = page.evaluate(_RES_ENERGY)
-            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e", "literature|e|ratio", "literature|pi"], got["ids"]
-            assert got["y"][0] == y_main and got["x"] == view["x"], (got["y"][0], y_main)
-            now, then = _main_curves(got), _main_curves(view)
-            assert now.keys() == then.keys() and all(now[c] == pytest.approx(then[c], abs=E_TOL) for c in now)
-            assert "π±" in got["y"][1]["name"], got["y"][1]
-            flagged = page.evaluate(_DETAILS, "res-scaling")
-            assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
-            name, _ = _download_svg(page, "res-scaling")
-            assert "_energy_ratio-pi_lit-e_" in name, name
-            # ÷ deposit fit: π± goes with its reference role, e± stays, on the main panel only.
-            assert _res_press(page, "res-reference", "deposit")
-            got = page.evaluate(_RES_ENERGY)
-            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e"], got["ids"]
-            assert page.evaluate(_RES_LIT_TOGGLES)[0][:3] == ["π±", "false", False]
-            # π± toggled on too: both on the main panel, still nothing on the ratio panel; the hazard stands.
-            assert _res_press(page, "res-literature", "pi")
-            got = page.evaluate(_RES_ENERGY)
-            assert [i for i in lit_ids(got) if not i.endswith("caret")] == ["literature|e", "literature|pi"], got["ids"]
-            assert NO_INTERVAL in page.evaluate(_DETAILS, "res-scaling")["title"]
-            # Both off again: exactly the picture and the drawer flag it was.
+            # Both on again: exactly the default picture, the farther curve the reference; then both off for the rest.
+            assert _res_press(page, "res-literature", "pi") and _res_press(page, "res-literature", "e")
+            again = page.evaluate(_RES_ENERGY)
+            assert lit_ids(again) == lit_ids(both) and again["y"][1]["name"] == both["y"][1]["name"], again["ids"]
             assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
             assert page.evaluate(_RES_SERIES) == e_series
-            assert page.evaluate(_DETAILS, "res-scaling") == details, details
 
             showers = sorted({s["shower"] for s in payload["series"]})
             if len(showers) > 1:

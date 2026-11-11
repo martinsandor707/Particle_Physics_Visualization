@@ -505,40 +505,35 @@ out.resScaling = {
     return {
       titles: [cards.cardTitle('res-scaling', lin), cards.cardTitle('res-scaling', en),
                cards.cardTitle('res-scaling'), cards.cardTitle('perf-bins', en)],
-      refVisible: [ctl.resReference.visible({ controls: lin }), ctl.resReference.visible({ controls: en })],
-      refChoices: ctl.resReference.choices({ controls: en }).map((c) => c.value),
-      refTitle: ctl.resReference.choices({ controls: en })[1].title,
+      refControl: 'resReference' in ctl,
       windows: [ctl.resWindows.choices({ controls: lin }).map((c) => c.label),
                 ctl.resWindows.choices({ controls: en }).map((c) => c.label)],
       viewChoices: ctl.resView.choices({}).map((c) => c.value),
-      sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resReference: 'pi' })),
+      sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'e' })),
       opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
-        controls: { resView: 'energy', resReference: 'e' } }),
-      inState: ['resView', 'resReference', 'resLiterature'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
-      // The literature toggles (Martin's request of 2026-11-11): either, both or neither, beside the reference.
+        controls: { resView: 'energy', resLiterature: 'e' } }),
+      inState: ['resView', 'resLiterature'].map((k) => k in (cards.VIEW_DEFAULTS ?? {})),
+      // The literature toggles (Martin's requests of 2026-11-11): one pair, both on by default, also the ratio's reference.
       lit: (() => {
-        const at = (resReference, resLiterature) => ({ controls: { ...en, resReference, resLiterature } });
+        const at = (resLiterature) => ({ controls: { ...en, resLiterature } });
         return {
           kind: ctl.resLiterature.kind,
           choices: ctl.resLiterature.choices({ controls: en }).map((c) => [c.value, c.label]),
           titles: ctl.resLiterature.choices({ controls: en }).map((c) => c.title),
-          refLabels: ctl.resReference.choices({ controls: en }).map((c) => c.label),
           visible: [ctl.resLiterature.visible({ controls: lin }), ctl.resLiterature.visible({ controls: en })],
-          pressed: [['deposit', ''], ['deposit', 'e'], ['pi', ''], ['pi', 'e'], ['e', 'pi,e']]
-            .map(([r, l]) => ['pi', 'e'].map((c) => ctl.resLiterature.pressed(at(r, l), c))),
-          shut: [['pi', ''], ['deposit', 'pi,e']].map(([r, l]) => ['pi', 'e'].map((c) => ctl.resLiterature.choiceDisabled(at(r, l), c))),
-          toggle: [['', 'e'], ['e', 'pi'], ['pi,e', 'pi'], ['pi,e', 'e'], ['e', 'e']]
-            .map(([l, c]) => ctl.resLiterature.toggle(at('deposit', l), c)),
+          pressed: ['pi,e', 'e', 'pi', ''].map((l) => ['pi', 'e'].map((c) => ctl.resLiterature.pressed(at(l), c))),
+          shut: 'choiceDisabled' in ctl.resLiterature,
+          toggle: [['pi,e', 'e'], ['e', 'pi'], ['pi', 'pi'], ['', 'e'], ['', 'pi']].map(([l, c]) => ctl.resLiterature.toggle(at(l), c)),
           keys: [cards.literatureKeys('e,pi'), cards.literatureKeys(''), cards.literatureKeys(undefined), cards.literatureKeys('pi,mu')],
-          opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(),
-            controls: { resView: 'energy', resReference: 'pi', resLiterature: 'e' } }),
+          opts: cards.cardOptions('res-scaling', { plan: plans.two_shower_hits, view: view(), controls: { resView: 'energy' } }),
           defaults: cards.DEFAULT_CONTROLS.resLiterature,
           metas: [
-            cards.exportMeta({ meta: {} }, { view: 'energy', reference: 'pi', literature: ['pi', 'e'] }),
-            cards.exportMeta({ meta: {} }, { view: 'energy', reference: 'deposit', literature: [] }),
-            cards.exportMeta({ meta: {} }, { view: 'linear', reference: 'pi', literature: ['e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: ['pi', 'e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: ['e'] }),
+            cards.exportMeta({ meta: {} }, { view: 'energy', literature: [] }),
+            cards.exportMeta({ meta: {} }, { view: 'linear', literature: ['pi', 'e'] }),
           ],
-          sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: 'pi,e' })),
+          sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: '' })),
         };
       })(),
     };
@@ -689,12 +684,12 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resLiterature", "resReference"]
+    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resLiterature"]
     assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
-                                "reference": "deposit", "literature": [], "windows": "all", "shower": "b"}
+                                "literature": ["pi", "e"], "windows": "all", "shower": "b"}
     # One shower: no shower choice reaches the panel.
     assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
-                                 "reference": "deposit", "literature": [], "windows": "anchors", "shower": "both"}
+                                 "literature": ["pi", "e"], "windows": "anchors", "shower": "both"}
 
 
 def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
@@ -703,41 +698,36 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert v["titles"][0] == v["titles"][2] == "Energy Resolution vs. 1/\u221aE"
     assert v["titles"][1] == "Energy Resolution vs. E"
     assert v["titles"][3] == "Model Error vs. Incident Momentum"
-    assert v["refVisible"] == [False, True]
-    assert v["refChoices"] == ["deposit", "pi", "e"]
-    assert "no interval reported" in v["refTitle"]
+    assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
     assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
     assert v["windows"][1] == ["3 anchors", "All windows"]
     assert v["sameRequest"] is True
-    assert v["opts"]["view"] == "energy" and v["opts"]["reference"] == "e"
-    assert v["inState"] == [False, False, False], "the view, the reference and the toggles are never in a link"
+    assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
+    assert v["inState"] == [False, False], "the view and the toggles are never in a link"
 
 
-def test_the_literature_curves_are_toggles_beside_the_ratio_reference(request_results):
-    """Martin's request of 2026-11-11: π± and e± can be drawn together. Each is a toggle; the ratio reference keeps
-    its single choice ("÷"), and the curve it divides by is drawn, its toggle pressed and shut. No request."""
+def test_the_literature_curves_are_one_pair_of_toggles_both_on_by_default(request_results):
+    """Martin's requests of 2026-11-11: one pair of buttons, π± and e±, each a toggle, both on by default. They are
+    also the ratio's reference (the curve on; the farther of two; the deposit fit with neither), so nothing is shut
+    and no "÷" group remains. No request."""
     lit = request_results["resScaling"]["views"]["lit"]
     assert lit["kind"] == "toggles" and lit["visible"] == [False, True]
     assert lit["choices"] == [["pi", "π±"], ["e", "e±"]]
-    assert all("no interval reported" in t and t.startswith("Draw or hide σ/E = ") for t in lit["titles"])
-    assert lit["refLabels"] == ["÷ deposit fit", "÷ π±", "÷ e±"]
-    assert lit["defaults"] == ""
-    # Pressed = toggled on, or the reference: [π±, e±] for (deposit, ''), (deposit, e), (pi, ''), (pi, e), (e, pi+e).
-    assert lit["pressed"] == [[False, False], [False, True], [True, False], [True, True], [True, True]]
-    # Shut only while it is the reference, with the way to hide it.
-    (pi_ref, deposit_both) = lit["shut"]
-    assert pi_ref[1] is None and deposit_both == [None, None]
-    assert pi_ref[0] == 'Drawn while the ratio panel divides by it; choose another "÷" reference to hide it'
-    # A click adds or takes out one key; the value stays in the catalogue's order.
-    assert lit["toggle"] == ["e", "pi,e", "e", "pi", ""]
+    for t in lit["titles"]:
+        assert t.startswith("Draw or hide σ/E = ") and "no interval reported" in t
+        assert "by the one the windows lie farther from when both are, and by each shower's deposit fit when neither is" in t
+    assert lit["defaults"] == "pi,e" and lit["opts"]["literature"] == ["pi", "e"]
+    assert lit["pressed"] == [[True, True], [False, True], [True, False], [False, False]]
+    assert lit["shut"] is False
+    # A click adds or takes out one key; the value stays in the catalogue's order; neither may be on.
+    assert lit["toggle"] == ["pi", "pi,e", "", "e", "pi"]
     assert lit["keys"] == [["pi", "e"], [], [], ["pi"]]
-    assert lit["opts"]["reference"] == "pi" and lit["opts"]["literature"] == ["e"]
-    # The export names a curve drawn beside the reference; the reference alone, or the 1/√E view, adds nothing.
-    assert lit["metas"][0] == {"view": "energy", "reference": "pi", "literature": ["e"]}
-    assert lit["metas"][1] == {"view": "energy", "reference": "deposit"}
-    assert lit["metas"][2] == {}
+    # The export names the figure by its curves: both, or the ratio's reference with one or none.
+    assert lit["metas"][0] == {"view": "energy", "literature": ["pi", "e"]}
+    assert lit["metas"][1] == {"view": "energy", "reference": "e"}
+    assert lit["metas"][2] == {"view": "energy", "reference": "deposit"}
+    assert lit["metas"][3] == {}
     assert lit["sameRequest"] is True
-
 
 _TWO_FILTERS = {"table_name": "experiment_baseline", "e1_min": 1, "e1_max": 20, "e2_min": 1, "e2_max": 20,
                 "d_min": 0, "d_max": 900, "include_undefined_d": False}

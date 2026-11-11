@@ -725,7 +725,8 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
         assert len([u for u in requests if "/api/resolution-scaling" in u]) == 1, requests
         n = len(requests)
         assert _res_press(page, "res-view", "energy")
-        assert _res_press(page, "res-reference", "pi")
+        # Both curves are on by default (Martin, 2026-11-11): e± off leaves π± alone, the ratio's reference.
+        assert not _res_press(page, "res-literature", "e")
         before = page.evaluate(_RES_E_INK)
         option = page.evaluate(_OPTION, "res-scaling")
         picture = page.locator("#plot-res-scaling").screenshot()

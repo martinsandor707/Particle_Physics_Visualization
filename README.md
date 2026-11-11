@@ -3645,16 +3645,17 @@ kind of experiment, where the performance section does not
   - **The ratio panel.**
     - It sits under the plot on the same E axis, with a crosshair linked
       across both panels.
-    - It divides every mark by the reference the **÷** buttons choose: each
-      shower's deposit fit, whose own band is a wash about 1, or one of the two
+    - It divides every mark by a reference: each shower's deposit fit, whose
+      own band is a wash about 1, or one of the two
       literature curves transcribed from the legend of Martin's ECCE G4 figure
       (π± 27.2%/√E ⊕ 1.0%, e± 14.0%/√E ⊕ 0.4%; `resolution_references.md`;
       "no interval reported").
-    - The **π± | e±** toggles draw either curve, or both, beside the
-      reference, which is always drawn; the **÷** buttons choose the
-      reference. Beside a literature reference the other curve is drawn on
-      the ratio panel too, divided by it; under the deposit reference it
-      stays on the main panel.
+    - The **π± | e±** toggles draw either curve, both (the default) or
+      neither, and choose the reference with it: the curve drawn; with both,
+      the one the windows lie farther from (the larger median |ln(σ/E ÷
+      curve)| over the robust windows, the one that needs the most scaling);
+      with neither, the deposit fit. The other curve is drawn on the ratio
+      panel too, divided by the reference.
     - Each curve is dotted at 1.6 px, in a colour of its own in every theme:
       π± a brown and e± a purple, measured against the card and the series
       hues under three visions (`palette.js` `LITERATURE_COLOURS`).

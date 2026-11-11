@@ -24,7 +24,7 @@ import { describeSelection } from './export/caption.js';
 import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText, sigFigs } from './panels/chart_panel.js';
 import {
-  resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel,
+  resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel, referenceChoiceText,
 } from './panels/resolution_scaling.js';
 import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
 import { LITERATURE_HUES } from './palette.js';
@@ -647,15 +647,16 @@ function literatureHueList(preposition = '') {
  */
 function literatureLegendLine(model) {
   const hues = `Each literature curve has a colour of its own on every card, ${literatureHueList()}: ColorBrewer qualitative hues kept apart from the deposit ink and E2's four hues under normal vision, deuteranopia and protanopia.`;
-  const buttons = `The ${RESOLUTION_REFERENCES.map((e) => e.particle).join(' and ')} buttons draw either curve, or both; the "÷" buttons choose what the ratio panel divides by, and the curve it divides by is always drawn.`;
+  const buttons = `The ${RESOLUTION_REFERENCES.map((e) => e.particle).join(' and ')} buttons draw either curve, both (the default) or neither. `
+    + 'The ratio panel divides by the curve drawn; with both drawn, by the one the windows lie farther from; with neither, by each shower\'s deposit fit.';
   if (!model.literature.length) return `A literature curve is a dotted line in its own colour; none is drawn now. ${buttons} ${hues}`;
   const refLit = model.literature.find((l) => l.isReference);
   const others = model.literature.filter((l) => !l.isReference);
   const parts = [];
   if (refLit) parts.push(`the ${refLit.entry.particle} curve is the ratio's reference`);
   if (others.length) {
-    parts.push(`the ${others.map((l) => l.entry.particle).join(' and ')} curve${others.length > 1 ? 's are' : ' is'} drawn beside `
-      + `${refLit ? 'it, and on the ratio panel divided by it' : 'the data, on the main panel only'}`);
+    parts.push(`the ${others.map((l) => l.entry.particle).join(' and ')} curve${others.length > 1 ? 's are' : ' is'} drawn beside it, `
+      + 'and on the ratio panel divided by it');
   }
   const labelled = model.endLabels.main.some((l) => l.literature) ? ', labelled with their particles in the end column' : '';
   return `Literature curves are dotted lines in their own colours${labelled}; they are references, not measurements, and never set a range. `
@@ -750,10 +751,10 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       })]
     : [...Object.values(ref.byShower).map((r) => depositReferenceLine(model, r)),
       'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.',
-      ...(beside.length
-        ? [`The ${beside.map((l) => l.entry.particle).join(' and ')} literature curve${beside.length > 1 ? 's are' : ' is'} drawn on the main panel only: `
-          + 'the ratio divides each shower by its own deposit fit, so a literature curve has no one ratio to draw.']
-        : [])];
+      'With no literature curve drawn, the ratio divides each shower by its own deposit fit.'];
+  // With both curves drawn, why the ratio divides by the one it does.
+  const choiceLine = referenceChoiceText(model);
+  if (choiceLine) refLines.splice(1, 0, choiceLine);
   const method = RES_ENERGY_METHOD_SECTION;
   notes.section(SECTION.drawn, [
     model.rule ? sentence(model.rule) : 'Each window is drawn at E = 1/x², x = ⟨1/√p⟩ being the 1/√E view\'s own abscissa.',
@@ -1008,12 +1009,13 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
  * describes the mode in force and the series the shower choice draws, through
  * the panel's own pure model, so it never states what the plot does not show.
  * `view` 'energy' hands over to the E view's drawer (`reference` is its ratio
- * panel's: 'deposit' | 'pi' | 'e'; `literature` the curves drawn beside it);
- * any other view is this one, unchanged.
+ * panel's `literature`, the curves drawn, which decide its ratio's reference;
+ * the older single `reference` where it is absent); any other view is this
+ * one, unchanged.
  */
 export function resolutionScalingNotes({
   payload, state = null, experiment = null, title = null, windows = 'anchors', shower = 'both',
-  view = 'linear', reference = 'deposit', literature = [],
+  view = 'linear', reference = 'deposit', literature = undefined,
 } = {}) {
   if (!payload) return null;
   if (view === 'energy') return resolutionEnergyNotes({ payload, state, experiment, title, windows, shower, reference, literature });

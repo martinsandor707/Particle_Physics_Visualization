@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import html
 import json
+import math
+import statistics
 import re
 import shutil
 import subprocess
@@ -733,16 +735,19 @@ for (const name of %(corrs)s) {
   out.resE.litColours.light = { pi: litOf('pi'), e: litOf('e') };
   scale.setScreenTheme('dark');
 
-  // Martin's request of 2026-11-11: the literature curves are toggles, either, both or neither, beside the reference.
-  const litCase = (payload, reference, literature) => {
-    const m = rs.energyModel(payload, { windows: 'all', shower: 'both', reference, literature });
-    const opts = { view: 'energy', windows: 'all', shower: 'both', reference, literature };
+  // Martin's requests of 2026-11-11: one pair of toggles, both on by default; they also pick the ratio's reference.
+  const litCase = (payload, literature, windows = 'all') => {
+    const opts = { view: 'energy', windows, shower: 'both', literature };
+    const m = rs.energyModel(payload, opts);
     return {
+      reference: m.reference.key, choice: m.reference.choice, label: m.reference.label,
       literature: m.literature.map((l) => ({ key: l.key, isReference: l.isReference, colour: l.colour, cut: l.cut,
         ratio: l.ratio ? { rows: l.ratio.rows, runs: l.ratio.runs, cut: l.ratio.cut } : null })),
+      points: m.series.flatMap((s) => s.points.map((p) => ({ E: p.E, value: p.value, n: p.n, pLo: p.w.p_lo }))),
       k: m.ratio.k, ratioClipped: m.ratio.clipped, clippedRatio: m.clipped.ratio,
       endMain: m.endLabels.main.filter((l) => l.literature), endRatio: m.endLabels.ratio.filter((l) => l.literature),
       chart: optionOf(payload, opts),
+      unityTip: (() => { const u = rs.energyViewOption(payload, opts, RE).option.series.find((x) => x.id === 'ratio|unity'); return u?.tooltip?.formatter?.() ?? null; })(),
       notes: (() => {
         const n = mn.resolutionScalingNotes({ payload, ...opts });
         return { title: n.title, hazards: n.hazards, sections: Object.fromEntries(n.sections.map((sec) => [sec.heading, sec.lines])) };
@@ -750,24 +755,43 @@ for (const name of %(corrs)s) {
       hazards: mn.modelsHazards(payload, 'res-scaling', opts),
     };
   };
-  // A clone whose robust windows sit on the π± curve, so k is small and e±/π± (about 0.51) leaves the ratio axis.
-  const onPi = clone(two);
-  const piCurve = cat.referenceOf('pi');
-  for (const s of onPi.series) {
-    for (const w of s.windows) {
-      if (!(w.p_lo >= 2) || !(w.x > 0)) continue;
-      const v = cat.referenceValue(piCurve, 1 / (w.x * w.x));
-      Object.assign(w, { n: 200, value: v, ci95: [0.99 * v, 1.01 * v], whisker: true, weak: false });
+  // A clone whose windows sit at 0.7 × π±: π± is then the farther curve (|ln 0.7| = 0.36 against |ln 1.37| = 0.31),
+  // the reference; k is 1.5, and e±/π± (about 0.51) lies below 1/k.
+  const scaled = (factor, key) => {
+    const c = clone(two);
+    const lit = cat.referenceOf(key);
+    for (const s of c.series) {
+      for (const w of s.windows) {
+        if (!(w.p_lo >= 2) || !(w.x > 0)) continue;
+        const v = factor * cat.referenceValue(lit, 1 / (w.x * w.x));
+        Object.assign(w, { n: 200, value: v, ci95: [0.99 * v, 1.01 * v], whisker: true, weak: false });
+      }
     }
-  }
+    return c;
+  };
+  const W = (E, value, n = 100, pLo = E - 0.5) => ({ E, value, n, pLo });
   out.resE.litToggles = {
-    drawn: [['pi', ['e']], ['e', ['pi']], ['deposit', ['e', 'pi', 'mu']], ['deposit', []], ['pi', []], ['pi', 'e'], ['deposit', undefined]]
-      .map(([ref, lit]) => rs.literatureDrawn(ref, lit)),
-    piE: litCase(two, 'pi', ['e']),
-    ePi: litCase(two, 'e', ['pi']),
-    depositBoth: litCase(two, 'deposit', ['pi', 'e']),
-    depositPi: litCase(two, 'deposit', ['pi']),
-    onPi: litCase(onPi, 'pi', ['e']),
+    drawn: [[['pi', 'e'], null], [['e', 'pi', 'mu'], null], [[], 'pi'], [undefined, 'e'], [undefined, 'deposit'], [undefined, null], ['e', null]]
+      .map(([lit, ref]) => rs.literatureDrawn(lit, ref)),
+    choices: {
+      none: rs.ratioReferenceChoice([], [W(10, 20)]),
+      one: rs.ratioReferenceChoice(['e'], [W(10, 20)]),
+      onPi: rs.ratioReferenceChoice(['pi', 'e'], [5, 10, 15].map((E) => W(E, cat.referenceValue(cat.referenceOf('pi'), E)))),
+      onE: rs.ratioReferenceChoice(['pi', 'e'], [5, 10, 15].map((E) => W(E, cat.referenceValue(cat.referenceOf('e'), E)))),
+      // The geometric mean of the two curves: equally far from both, so π± (the catalogue's first).
+      tie: rs.ratioReferenceChoice(['pi', 'e'], [10].map((E) => W(E, Math.sqrt(cat.referenceValue(cat.referenceOf('pi'), E) * cat.referenceValue(cat.referenceOf('e'), E))))),
+      empty: rs.ratioReferenceChoice(['pi', 'e'], []),
+      // No robust window (N < 20): every window on show decides, and says so.
+      markers: rs.ratioReferenceChoice(['pi', 'e'], [W(10, 2.0, 5), W(12, 2.2, 5)]),
+      // A robust window outweighs any number of weak ones.
+      robustWins: rs.ratioReferenceChoice(['pi', 'e'], [W(10, cat.referenceValue(cat.referenceOf('e'), 10), 100), W(10, 50, 5), W(12, 60, 5)]),
+    },
+    both: litCase(two, ['pi', 'e']),
+    bothAnchors: litCase(two, ['pi', 'e'], 'anchors'),
+    pi: litCase(two, ['pi']),
+    e: litCase(two, ['e']),
+    none: litCase(two, []),
+    atSevenTenthsPi: litCase(scaled(0.7, 'pi'), ['pi', 'e']),
   };
 
   // The class: the plot is ENERGY_VIEW_PX tall in the E view, the CSS height in the 1/√E view; the E export is two panels tall.
@@ -3018,8 +3042,8 @@ RES_NOTE_KEYS = [f"{w}:{r}:{s}" for w in ("anchors", "all") for r in RES_E_REFS 
 MAE_SENTENCE = ("MAE/E is not σ/E: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also carries the bias "
                 "that σ(R)/μ(R) divides out; this card plots σ(R)/μ(R) and never converts one into the other.")
 LIT_EQUATIONS = {"pi": "σ/E = 27.2%/√E ⊕ 1.0%", "e": "σ/E = 14.0%/√E ⊕ 0.4%"}
-LIT_BUTTONS = ('The π± and e± buttons draw either curve, or both; the "÷" buttons choose what the ratio panel divides by, '
-               'and the curve it divides by is always drawn.')
+LIT_BUTTONS = ('The π± and e± buttons draw either curve, both (the default) or neither. The ratio panel divides by the curve '
+               "drawn; with both drawn, by the one the windows lie farther from; with neither, by each shower's deposit fit.")
 
 
 def _n(count: int, word: str, many: str | None = None) -> str:
@@ -3692,25 +3716,58 @@ def _lit(key: str, e: float) -> float:
     return (a * a / e + b * b) ** 0.5
 
 
+def _sig3(v: float) -> str:
+    """chart_panel.js sigFigs(v, 3) for a factor ≥ 1: three significant figures, trailing zeros dropped."""
+    return f"{float(f'{v:.3g}'):g}"
+
+
 def _lit_series(chart: dict, prefix: str = "literature|") -> dict:
     return {s["id"]: s for s in chart["chart"]["series"] if (s["id"] or "").startswith(prefix)}
 
 
-def test_res_literature_drawn_is_the_reference_and_the_toggles_in_catalogue_order(out):
-    assert out["resE"]["litToggles"]["drawn"] == [["pi", "e"], ["pi", "e"], ["pi", "e"], [], ["pi"], ["pi"], []]
+def test_res_literature_drawn_follows_the_toggles_in_catalogue_order(out):
+    # The toggles' keys, unknown ones dropped; without them the older single reference draws that curve alone.
+    assert out["resE"]["litToggles"]["drawn"] == [["pi", "e"], ["pi", "e"], [], ["e"], [], [], []]
 
 
-def test_res_both_literature_curves_beside_a_literature_reference(out):
-    """π± is the ratio's reference and e± is toggled on: both on the main panel in their own colours, e± also on the
-    ratio panel as e±/π± (one line for every shower), never setting k; the drawer and the hazard say so."""
+def test_res_the_ratio_reference_is_the_curve_that_needs_the_most_scaling(out):
+    """Martin's request of 2026-11-11: with both curves drawn the ratio divides by the one the windows lie farther
+    from, by the median |ln(σ/E ÷ curve)| over the robust windows (N ≥ 20 from 2 GeV), else every window on show;
+    π±, the catalogue's first, on a tie or with no window. One curve is the reference; none leaves the deposit fit."""
+    c = out["resE"]["litToggles"]["choices"]
+    assert c["none"] == {"key": "deposit", "rule": "deposit", "basis": None, "n": 0, "scores": []}
+    assert c["one"] == {"key": "e", "rule": "single", "basis": None, "n": 0, "scores": []}
+    on_pi = {sc["key"]: sc for sc in c["onPi"]["scores"]}
+    assert c["onPi"]["key"] == "e" and c["onPi"]["rule"] == "farther" and c["onPi"]["basis"] == "robust" and c["onPi"]["n"] == 3
+    assert on_pi["pi"]["factor"] == pytest.approx(1.0, abs=1e-12)
+    assert on_pi["e"]["factor"] == pytest.approx(statistics.median(_lit("pi", e) / _lit("e", e) for e in (5, 10, 15)), rel=1e-12)
+    assert c["onE"]["key"] == "pi"
+    assert c["tie"]["key"] == "pi" and c["tie"]["scores"][0]["factor"] == pytest.approx(c["tie"]["scores"][1]["factor"], rel=1e-9)
+    assert c["empty"]["key"] == "pi" and c["empty"]["basis"] is None and all(sc["factor"] is None for sc in c["empty"]["scores"])
+    assert c["markers"]["basis"] == "markers" and c["markers"]["n"] == 2
+    # 2.0% and 2.2% lie below both curves at 10-12 GeV, nearer e± (3.8%) than π± (8.4%): π± needs the most scaling.
+    assert c["markers"]["key"] == "pi"
+    assert c["robustWins"]["basis"] == "robust" and c["robustWins"]["n"] == 1 and c["robustWins"]["key"] == "pi"
+
+
+def test_res_both_literature_curves_by_default_divide_by_the_farther(out):
+    """Both curves on: both drawn in their own colours; the ratio divides by the farther one, recomputed here from the
+    windows on show; the other is drawn on the ratio panel divided by it, never setting k; the drawer, the tooltips and
+    the hazard say why and what."""
     t = out["resE"]["litToggles"]
     colours = out["resE"]["litColours"]["dark"]
-    for ref, other, case in (("pi", "e", t["piE"]), ("e", "pi", t["ePi"])):
+    particle = {"pi": "π±", "e": "e±"}
+    for case in (t["both"], t["bothAnchors"]):
+        robust = [p for p in case["points"] if p["n"] >= 20 and p["pLo"] >= 2 and p["value"] > 0]
+        basis = robust or [p for p in case["points"] if p["value"] > 0]
+        factor = {k: math.exp(statistics.median(abs(math.log(p["value"] / _lit(k, p["E"]))) for p in basis)) for k in ("pi", "e")}
+        ref = "e" if factor["e"] > factor["pi"] * (1 + 1e-12) else "pi"
+        other = "pi" if ref == "e" else "e"
+        assert case["reference"] == ref and case["choice"]["rule"] == "farther", (case["reference"], factor)
+        assert {sc["key"]: sc["factor"] for sc in case["choice"]["scores"]} == pytest.approx(factor, rel=1e-12)
         lits = {l["key"]: l for l in case["literature"]}
-        assert [l["key"] for l in case["literature"]] == ["pi", "e"], "catalogue order, whichever is the reference"
-        assert lits[ref]["isReference"] is True and lits[ref]["ratio"] is None
-        assert lits[other]["isReference"] is False
-        assert lits["pi"]["colour"] != lits["e"]["colour"]
+        assert [l["key"] for l in case["literature"]] == ["pi", "e"]
+        assert lits[ref]["isReference"] is True and lits[ref]["ratio"] is None and lits[other]["isReference"] is False
         assert {k: lits[k]["colour"] for k in lits} == {k: colours[k]["literature"][0]["colour"] for k in ("pi", "e")}
         rows = lits[other]["ratio"]["rows"]
         assert rows and all(r == pytest.approx(_lit(other, e) / _lit(ref, e), rel=1e-12) for e, r in rows)
@@ -3719,67 +3776,52 @@ def test_res_both_literature_curves_beside_a_literature_reference(out):
         series = _lit_series(case["chart"])
         assert {f"literature|{ref}", f"literature|{other}", f"literature|{other}|ratio"} <= set(series)
         assert f"literature|{ref}|ratio" not in series, "the reference is the 1.0 rule, not a line"
-        line = series[f"literature|{other}|ratio"]
-        assert line["xAxisIndex"] == 1 and line["yAxisIndex"] == 1
-        main = series[f"literature|{other}"]
-        assert line["name"] == main["name"], "one legend entry hides both of its lines"
-        tip = _plain(line["items"][0]["tip"])
-        particle = {"pi": "π±", "e": "e±"}
-        assert f"{particle[other]} literature curve ÷ {particle[ref]}" in tip and "no interval reported" in tip
-        assert "drawn beside it is drawn there too, divided by it" in _plain(series[f"literature|{ref}"]["items"][0]["tip"])
-        assert "the ratio panel draws it divided by that curve" in _plain(main["items"][0]["tip"])
-        assert [x["text"] for x in case["endRatio"]] == ([particle[other]] if 1 / k <= rows[-1][1] <= k else [])
-        legend = [x["name"] for x in case["chart"]["legendItems"] if " lit. — " in str(x["name"])]
-        assert len(legend) == 2
+        line, main = series[f"literature|{other}|ratio"], series[f"literature|{other}"]
+        assert line["xAxisIndex"] == 1 and line["yAxisIndex"] == 1 and line["name"] == main["name"]
+        assert f"{particle[other]} literature curve ÷ {particle[ref]}" in _plain(line["items"][0]["tip"])
+        why = (f"With both curves drawn the ratio divides by {particle[ref]}, the curve the windows lie farther from and so the "
+               "one that needs the most scaling: ")
+        ref_tip = _plain(series[f"literature|{ref}"]["items"][0]["tip"])
+        assert why in ref_tip and "drawn beside it is drawn there too, divided by it" in ref_tip
+        assert why in _plain(case["unityTip"])
+        assert particle[ref] in case["chart"]["yAxes"][1]["name"]
         n = case["notes"]
-        selection = _lines(n, out, "selection")
-        assert f"Literature curves drawn: π±{' (the ratio' + chr(39) + 's reference)' if ref == 'pi' else ''} and e±{' (the ratio' + chr(39) + 's reference)' if ref == 'e' else ''}." in selection
-        drawn = " ".join(_lines(n, out, "drawn"))
-        assert f"The {particle[other]} curve, drawn beside it, is drawn on the ratio panel too, divided by it, one line for every shower" in drawn
-        legend_text = " ".join(_lines(n, out, "legend"))
-        assert f"Here the {particle[ref]} curve is the ratio's reference; the {particle[other]} curve is drawn beside it, and on the ratio panel divided by it." in legend_text
+        assert f"Literature curves drawn: π±{' (the ratio' + chr(39) + 's reference)' if ref == 'pi' else ''} and e±{' (the ratio' + chr(39) + 's reference)' if ref == 'e' else ''}." in _lines(n, out, "selection")
+        drawn = _lines(n, out, "drawn")
+        (said,) = [x for x in drawn if x.startswith(why)]
+        assert f"sit a median ×{_sig3(factor[ref])} from {particle[ref]} and ×{_sig3(factor[other])} from {particle[other]}" in said
+        assert f"The {particle[other]} curve, drawn beside it, is drawn on the ratio panel too, divided by it, one line for every shower" in " ".join(drawn)
+        assert LIT_BUTTONS in " ".join(_lines(n, out, "legend"))
         assert "no interval reported" in case["hazards"]
 
 
-def test_res_literature_curves_under_the_deposit_reference_stay_on_the_main_panel(out):
-    """Toggled on while the ratio divides by the deposit fit: drawn on the main panel only, since each shower has its
-    own deposit fit; the hazard still names the documented point estimates."""
+def test_res_one_curve_is_the_reference_and_none_leaves_the_deposit_fit(out):
     t = out["resE"]["litToggles"]
-    for case, keys in ((t["depositBoth"], ["pi", "e"]), (t["depositPi"], ["pi"])):
-        assert [l["key"] for l in case["literature"]] == keys
-        assert all(l["isReference"] is False and l["ratio"] is None for l in case["literature"])
-        series = _lit_series(case["chart"])
-        assert {f"literature|{k}" for k in keys} <= set(series)
-        assert not [i for i in series if "|ratio" in i] and not case["endRatio"]
-        assert case["ratioClipped"]["literature"] == 0
-        for k in keys:
-            assert "Drawn on the main panel only" in _plain(series[f"literature|{k}"]["items"][0]["tip"])
-        names = " and ".join({"pi": "π±", "e": "e±"}[k] for k in keys)
-        n = case["notes"]
-        assert f"Literature curves drawn: {names}." in _lines(n, out, "selection")
-        drawn = " ".join(_lines(n, out, "drawn"))
-        assert f"The {names} literature curve{'s are' if len(keys) > 1 else ' is'} drawn on the main panel only: the ratio divides each shower by its own deposit fit" in drawn
+    for key in ("pi", "e"):
+        case = t[key]
+        assert case["reference"] == key and case["choice"]["rule"] == "single"
+        assert [(l["key"], l["isReference"], l["ratio"]) for l in case["literature"]] == [(key, True, None)]
+        assert not [x for x in _lines(case["notes"], out, "drawn") if x.startswith("With both curves drawn")]
         assert "no interval reported" in case["hazards"]
-        assert "Ratio to: " in " ".join(_lines(n, out, "selection")) and "deposit" in " ".join(_lines(n, out, "selection"))
-    # The deposit reference with no toggle on draws none and raises no literature hazard.
-    plain = out["resE"]["fixtures"]["res_scaling_two"]["models"]["all:deposit"]
-    assert not plain["literature"]
+    none = t["none"]
+    assert none["reference"] == "deposit" and not none["literature"] and "deposit fit" in none["chart"]["yAxes"][1]["name"]
+    assert not _lit_series(none["chart"]) and "no interval reported" not in none["hazards"]
+    assert "With no literature curve drawn, the ratio divides each shower by its own deposit fit." in _lines(none["notes"], out, "drawn")
+    assert "Literature curves drawn: none." in _lines(none["notes"], out, "selection")
 
 
 def test_res_a_literature_ratio_off_the_axis_is_clipped_and_counted(out):
-    """Windows on the π± curve make k small; e±/π± (about 0.51) then lies below 1/k: no line, one caret pointing down
-    with its true value, a count in the drawer, and k is still the windows' alone."""
-    case = out["resE"]["litToggles"]["onPi"]
-    k = case["k"]
-    assert k < 1 / 0.52, k
+    """Windows at 0.7 × π±: π± is the farther curve and the reference, k is 1.5, and e±/π± (about 0.51) lies below
+    1/k: no line, one caret pointing down with its true value, a count in the drawer; k is still the windows' alone."""
+    case = out["resE"]["litToggles"]["atSevenTenthsPi"]
+    assert case["reference"] == "pi" and case["k"] == 1.5, (case["reference"], case["k"])
     (e,) = [l for l in case["literature"] if l["key"] == "e"]
     assert e["ratio"]["runs"] == [] and e["ratio"]["cut"]["dir"] == "down"
     assert e["ratio"]["cut"]["at"] == pytest.approx(e["ratio"]["rows"][0][0])
-    assert case["ratioClipped"]["literature"] == 1
     clipped = case["ratioClipped"]
+    assert clipped["literature"] == 1
     assert case["clippedRatio"] == clipped["markers"] + clipped["whiskers"] + clipped["fits"] + clipped["bands"] + clipped["literature"]
-    series = _lit_series(case["chart"])
-    caret = series["literature|e|ratio|caret"]
+    caret = _lit_series(case["chart"])["literature|e|ratio|caret"]
     assert caret["xAxisIndex"] == 1 and caret["yAxisIndex"] == 1
     assert not case["endRatio"], "a line off the axis has its caret, not an end label"
     dis = _dis(case["notes"], out)

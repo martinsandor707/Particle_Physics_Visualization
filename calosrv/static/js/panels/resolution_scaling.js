@@ -143,13 +143,13 @@
  * small residual's sign. Every window sits at its exact E.
  *
  * The literature curves (catalog/resolution_refs.js, "no interval reported")
- * are drawn on the main panel as the reader asks: either, both or neither
- * (`literature`, the card's π± | e± toggles; Martin's request of 2026-11-11),
- * and always the one the ratio panel divides by. A curve drawn beside a
- * literature reference is drawn on the ratio panel too, divided by it (e±/π±
- * is one line, about 0.5); under the deposit reference it stays on the main
- * panel, since each shower has its own deposit fit and a literature curve no
- * one ratio to it. Each is dotted, in its identity colour (palette.js
+ * are drawn as the reader asks: either, both (the default) or neither
+ * (`literature`, the card's π± | e± toggles; Martin's requests of
+ * 2026-11-11). The ratio panel divides by the curve drawn; with both drawn,
+ * by the one the windows lie farther from, "the one that needs scaling the
+ * most" (`ratioReferenceChoice`); with neither, by each shower's deposit fit.
+ * The other curve is drawn on the ratio panel too, divided by the reference
+ * (e±/π± is one line, about 0.5). Each is dotted, in its identity colour (palette.js
  * `LITERATURE_COLOURS`, picked by the card's `THEME.qualitativePalette`): a
  * ColorBrewer qualitative hue of its own, π± a brown and e± a purple on every
  * card, measured apart from the deposit ink and E2's four hues, so it is never
@@ -1033,13 +1033,59 @@ export function resolutionView(view) {
 export const RATIO_REFERENCES = Object.freeze(['deposit', ...REFERENCE_KEYS]);
 
 /**
- * The literature curves the E view draws, in the catalogue's order: the one the
- * ratio panel divides by, and any the reader drew beside it (`literature`, the
- * card's toggles; Martin's request of 2026-11-11). Unknown keys are dropped.
+ * The literature curves the E view draws, in the catalogue's order: `literature`,
+ * the card's π± | e± toggles (both by default; Martin's requests of 2026-11-11).
+ * Unknown keys are dropped. Without the array, the older single-choice
+ * `reference` draws that curve alone, and 'deposit' none, as the tests and the
+ * golden still spell it.
  */
-export function literatureDrawn(reference, literature = []) {
-  const asked = Array.isArray(literature) ? literature : [];
-  return REFERENCE_KEYS.filter((key) => key === reference || asked.includes(key));
+export function literatureDrawn(literature, reference = null) {
+  const asked = Array.isArray(literature) ? literature : (REFERENCE_KEYS.includes(reference) ? [reference] : []);
+  return REFERENCE_KEYS.filter((key) => asked.includes(key));
+}
+
+/**
+ * What the ratio panel divides by, given the literature curves drawn (`keys`,
+ * `literatureDrawn`): each shower's deposit fit when none is; the curve when
+ * one is; with both, the one the windows on show lie farther from (Martin's
+ * request of 2026-11-11: "the one which needs scaling the most"), by the
+ * median over those windows of |ln(σ/E ÷ curve)|, the factor by which that
+ * curve would have to be scaled to meet them. The windows are the robust ones
+ * (N ≥ fit_n from `yMinGev`: the marks that set k), or every window on show
+ * with a positive σ/E where none is robust; π±, the catalogue's first, on a
+ * tie or with no window. `windows` [{E, value, n, pLo}]. Returns {key, rule
+ * ('deposit' | 'single' | 'farther'), basis ('robust' | 'markers' | null), n,
+ * scores [{key, factor (e^median, ≥ 1; null without a window), n}]}.
+ */
+export function ratioReferenceChoice(keys, windows, gates = DEFAULT_GATES, yMinGev = 2) {
+  if (!keys.length) return { key: 'deposit', rule: 'deposit', basis: null, n: 0, scores: [] };
+  if (keys.length === 1) return { key: keys[0], rule: 'single', basis: null, n: 0, scores: [] };
+  const usable = (windows ?? []).filter((w) => Number.isFinite(w.value) && w.value > 0 && Number.isFinite(w.E) && w.E > 0);
+  const robust = usable.filter((w) => (w.n ?? 0) >= gates.fit_n && w.pLo >= yMinGev);
+  const set = robust.length ? robust : usable;
+  const median = (values) => {
+    const a = [...values].sort((p, q) => p - q);
+    const m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+  const scores = keys.map((key) => {
+    const lit = referenceOf(key);
+    const logs = set.map((w) => Math.abs(Math.log(w.value / referenceValue(lit, w.E)))).filter(Number.isFinite);
+    return { key, factor: logs.length ? Math.exp(median(logs)) : null, n: logs.length };
+  });
+  let best = scores[0];
+  for (const sc of scores.slice(1)) {
+    if (sc.factor !== null && (best.factor === null || sc.factor > best.factor * (1 + 1e-12))) best = sc;
+  }
+  return { key: best.key, rule: 'farther', basis: robust.length ? 'robust' : (usable.length ? 'markers' : null), n: set.length, scores };
+}
+
+/** The windows a series draws on the E view in `mode`: every one on [0, x.max] that reports σ/E; anchors: its fitted ones. */
+function windowsOnShow(s, mode, gates, xMax) {
+  const fitted = new Set(s.fits?.[mode]?.points ?? []);
+  const eligible = (s.windows ?? []).filter((w) => Number.isFinite(w.value) && Number.isFinite(w.x) && w.x > 0
+    && (w.n ?? 0) >= gates.report_n && 1 / (w.x * w.x) <= xMax + 1e-9);
+  return mode === 'anchors' ? eligible.filter((w) => fitted.has(w.bin)) : eligible;
 }
 
 /**
@@ -1438,8 +1484,9 @@ function belowRoles(w, gates, curveMin) {
 
 /**
  * Everything the E view's chart, its tooltips and the drawer need, decided
- * once. Pure. `opts` = {windows, shower, reference: 'deposit' | 'pi' | 'e',
- * literature (the curves drawn beside the reference, `literatureDrawn`)}.
+ * once. Pure. `opts` = {windows, shower, literature (the curves drawn,
+ * `literatureDrawn`; the older single `reference` where it is absent)}. The
+ * ratio's reference follows from them (`ratioReferenceChoice`).
  * Null without a resolution payload that carries `axis.energy`.
  *
  * The returned shape (models_notes.js builds the E view's drawer from it):
@@ -1449,7 +1496,8 @@ function belowRoles(w, gates, curveMin) {
  *   name, n_clipped}: `axis.energy`'s, the y range the server's 2 GeV rule;
  *   `curveMinGev` (no curve below it), `yMinGev`, `dataMaxGev`, `rule` and
  *   `notes` (the server's sentences);
- * - `reference` {key: 'deposit' | 'pi' | 'e', label (the ratio axis's
+ * - `reference` {key: 'deposit' | 'pi' | 'e', choice (`ratioReferenceChoice`:
+ *   why this one), label (the ratio axis's
  *   wording), literature: the catalogue entry or null, interval: 'band' for
  *   the deposit, null for literature, flag: 'no interval reported' under a
  *   literature reference (else null), byShower: {a, b}}. Each shower's entry is {key, shower, label, form ('quadrature' |
@@ -1544,7 +1592,14 @@ export function energyModel(payload, opts = {}) {
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
   const shown = shownSeries(payload, opts.shower);
   const colours = seriesColours(shown);
-  const referenceKey = RATIO_REFERENCES.includes(opts.reference) ? opts.reference : 'deposit';
+  // The curves drawn, and what the ratio divides by: the one drawn, the farther of two, or the deposit fit.
+  const drawnKeys = literatureDrawn(opts.literature, opts.reference);
+  const onShow = shown.flatMap((s) => windowsOnShow(s, mode, gates, x.max).map((w) => {
+    const E = 1 / (w.x * w.x);
+    return { E, value: w.value, n: w.n, pLo: Number.isFinite(w.p_lo) ? w.p_lo : E };
+  }));
+  const choice = ratioReferenceChoice(drawnKeys, onShow, gates, yMinGev);
+  const referenceKey = choice.key;
   const entry = referenceKey === 'deposit' ? null : referenceOf(referenceKey);
   const clipped = { markers: 0, whiskers: 0, fits: 0, literature: 0, ratio: 0 };
   const clampY = (v) => Math.min(Math.max(v, 0), hi);
@@ -1564,10 +1619,7 @@ export function energyModel(payload, opts = {}) {
     const fittedBins = new Set(mf?.points ?? []);
     const anchorBins = new Set(s.fits?.anchors?.points ?? []);
     // Every window on [0, x.max] that reports σ/E; the anchors mode draws its fitted ones only.
-    const eligible = (s.windows ?? []).filter((w) => Number.isFinite(w.value) && Number.isFinite(w.x) && w.x > 0
-      && (w.n ?? 0) >= gates.report_n && 1 / (w.x * w.x) <= x.max + 1e-9);
-    const drawn = mode === 'anchors' ? eligible.filter((w) => fittedBins.has(w.bin)) : eligible;
-    const points = drawn.map((w) => {
+    const points = windowsOnShow(s, mode, gates, x.max).map((w) => {
       const E = 1 / (w.x * w.x);
       const ci = Array.isArray(w.ci95) && Number.isFinite(w.ci95[0]) && Number.isFinite(w.ci95[1]) ? w.ci95 : null;
       const whisker = Boolean(w.whisker) && ci !== null;
@@ -1723,13 +1775,12 @@ export function energyModel(payload, opts = {}) {
     }
   }
 
-  // The literature curves drawn: the one the ratio divides by, and any the reader drew beside it (Martin, 2026-11-11).
-  // Each in its identity colour on this card; none ever sets a range. Beside a literature reference a curve is also
-  // drawn on the ratio panel, divided by it (one line, the same for every shower); under the deposit reference it
-  // stays on the main panel, since each shower has its own deposit fit and a literature curve no one ratio to it.
+  // The literature curves drawn (Martin, 2026-11-11), each in its identity colour on this card; none ever sets a
+  // range. The one the ratio does not divide by is drawn on the ratio panel too, divided by the reference (one
+  // line, the same for every shower).
   const literature = [];
   const literatureGrid = energyGrid(E_GRID_STEP_GEV, x.max);
-  for (const key of literatureDrawn(referenceKey, opts.literature)) {
+  for (const key of drawnKeys) {
     const lit = referenceOf(key);
     if (!lit) continue;
     const curve = literatureGrid.map((e) => [e, referenceValue(lit, e)]).filter((c) => Number.isFinite(c[1]));
@@ -1826,7 +1877,7 @@ export function energyModel(payload, opts = {}) {
     view: 'energy', mode, gates, nShowers, payload, x, y,
     curveMinGev: curveMin, yMinGev, dataMaxGev: ea.data_max_gev ?? null, rule: ea.rule ?? null, notes: [...(ea.notes ?? [])],
     reference: {
-      key: referenceKey, label: refLabel, literature: entry, interval: entry ? null : 'band',
+      key: referenceKey, choice, label: refLabel, literature: entry, interval: entry ? null : 'band',
       flag: entry ? 'no interval reported' : null, byShower,
     },
     series, literature,
@@ -2074,6 +2125,8 @@ function unityTip(model) {
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
   for (const r of Object.values(ref.byShower ?? {})) if (r.misfit) lines.push(mutedLine(referenceMisfitText(r, model.gates)));
+  const why = referenceChoiceText(model);
+  if (why) lines.push(mutedLine(why));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
   return lines.join('<br/>');
 }
@@ -2089,27 +2142,48 @@ function referenceMisfitText(ref, gates) {
 }
 
 /**
+ * Why the ratio divides by the curve it does when both are drawn (`ratioReferenceChoice`), or null when one or
+ * neither is: the median factor between the windows and each curve, over which windows.
+ */
+export function referenceChoiceText(model) {
+  const c = model.reference.choice;
+  if (c?.rule !== 'farther') return null;
+  const name = (key) => referenceOf(key)?.particle ?? key;
+  const ref = c.scores.find((sc) => sc.key === c.key);
+  const other = c.scores.find((sc) => sc.key !== c.key);
+  const head = `With both curves drawn the ratio divides by ${name(c.key)}, the curve the windows lie farther from `
+    + 'and so the one that needs the most scaling';
+  if (!c.basis || !(ref?.factor > 0) || !(other?.factor > 0)) {
+    return `${head}: no window on show reports σ/E, so it is ${name(c.key)}, the catalogue's first.`;
+  }
+  const over = c.basis === 'robust'
+    ? `the ${plural(c.n, 'window')} of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`
+    : `the ${plural(c.n, 'window')} on show, none of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`;
+  if (ref.factor <= other.factor * (1 + 1e-12)) {
+    return `${head}: ${over} sit a median ×${sig(ref.factor)} from both, so it is ${name(c.key)}, the catalogue's first.`;
+  }
+  return `${head}: ${over} sit a median ×${sig(ref.factor)} from ${name(c.key)} and ×${sig(other.factor)} from ${name(other.key)} `
+    + '(the median of |ln(σ/E ÷ curve)|, as a factor).';
+}
+
+/**
  * The tooltip of a literature curve on the main panel: what it is, and what the
- * ratio panel does with it (divides by it, draws it divided by the reference,
- * or, under the deposit reference, leaves it to the main panel).
+ * ratio panel does with it (divides by it, or draws it divided by the reference).
  */
 export function literatureTip(model, lit) {
   const ref = model.reference.literature;
   const beside = model.literature.filter((l) => l.key !== lit.key).map((l) => l.entry.particle);
-  let role;
-  if (lit.isReference) {
-    role = `The ratio panel divides by this curve${beside.length
-      ? `; the ${beside.join(' and ')} curve drawn beside it is drawn there too, divided by it` : ''}.`;
-  } else if (ref) {
-    role = `Drawn beside the ratio's reference, the ${ref.particle} curve: the ratio panel draws it divided by that curve.`;
-  } else {
-    role = 'Drawn on the main panel only: the ratio panel divides each shower by its own deposit fit, so a literature curve has no one ratio to draw.';
-  }
+  const role = lit.isReference
+    ? `The ratio panel divides by this curve${beside.length
+      ? `; the ${beside.join(' and ')} curve drawn beside it is drawn there too, divided by it` : ''}.`
+    : `Drawn beside the ratio's reference, the ${ref?.particle ?? 'other'} curve: the ratio panel draws it divided by that curve.`;
+  const why = lit.isReference ? referenceChoiceText(model) : null;
   return [
     `<b>${escapeHtml(`${lit.entry.particle} literature curve`)}</b>`,
     escapeHtml(referenceEquation(lit.entry)),
     mutedLine(LITERATURE_PROVENANCE),
     mutedLine(role),
+    ...(why ? [mutedLine(why)] : []),
     mutedLine('A reference, not a measurement: it never sets the range.'),
   ].join('<br/>');
 }
