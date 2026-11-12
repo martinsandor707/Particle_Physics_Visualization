@@ -2828,6 +2828,7 @@ size that supports it:
 | N ≥ 8 | the continuous parametric density curve |
 | N ≥ 15 | the density histogram, and the iterated ±2.5σ core refit |
 | N ≥ 20 | the robust width and the Gaussian-shape verdict |
+| N ≥ 300 | the resolution card's tail share of a window (events beyond 3 robust σ): a Gaussian sample of fewer events exceeds 0.27 % by chance |
 
 The histogram has the highest floor for a reason specific to the estimator: a
 `density=True` histogram normalises by `N × bin_width`, so once the bins are
@@ -3799,28 +3800,36 @@ by name, its reconstruction being Page 1's energy panel.
 
 ### The energy-resolution card
 
-`GET /api/resolution-scaling` feeds one card, **Energy Resolution vs. 1/√E**, or
-**vs. E** in its second view (below), in
+`GET /api/resolution-scaling` feeds one card, **Median Relative Error vs. 1/√E**
+by default, or **vs. E** in its second view (below); the title follows the
+Estimator control, and under Robust σ (IQR) and Sample σ/μ it reads **Energy
+Resolution vs. 1/√E** (**vs. E**). It is in
 a section of its own: its detector series needs no model, so it shows on every
 kind of experiment, where the performance section does not
 (`query/resolution_scaling.py`, `stats/resolution_fit.py`,
 `static/js/panels/resolution_scaling.js`).
 
 - **What is plotted.** Per series and per 1 GeV momentum window (the producer's
-  integer bin of the shower's own momentum), σ/E = s(R)/R̄ in percent, with
-  R = E_est/p per event: c·E_dep for the detector, the energy network's
-  prediction over its truth, or the XGBoost momentum regressor's prediction over
-  the true momentum. Dividing by p event by event removes the window's own
-  momentum spread (5.2 % at 5 GeV and 1.5 % at 19 GeV for a uniform 1 GeV window)
-  and each estimator's own bias, and c cancels: the detector series does not
-  depend on the calibration, and it is Page 1's response-ratio series. A window
-  sits at x = ⟨1/√p⟩ over its events.
+  integer bin of the shower's own momentum), the error scale of the active
+  estimator, in percent, with R = E_est/p per event: c·E_dep for the detector,
+  the energy network's prediction over its truth, or the XGBoost momentum
+  regressor's prediction over the true momentum. The estimator is the card's
+  Estimator control (below): the median relative error median|R − 1| by default,
+  the robust σ/E = IQR(R)/(1.349·median R), or the sample σ/E = s(R)/R̄.
+  Dividing by p event by event removes the window's own momentum spread (5.2 %
+  at 5 GeV and 1.5 % at 19 GeV for a uniform 1 GeV window) and each estimator's
+  own bias. Under Robust σ and Sample σ/μ c cancels: the detector series does
+  not depend on the calibration, and under Sample σ/μ it is Page 1's
+  response-ratio series. The median relative error does depend on c, and the
+  deposit takes its own median calibration there (below). A window sits at
+  x = ⟨1/√p⟩ over its events.
 - **The Estimator control** (Martin's decisions, 2026-11-12; CLAUDE.md §5).
   One estimator per response: `estimator=median|robust|sample`, never two in a
   body, which would break the 100 KB rule. The choice is a card control, never
   in the hash or an Admin default. R = E_est/p as above; every window carries
   the other two estimators as cross-references (`alt`), its median response
-  R̃ − 1 and its share of events beyond 3 robust σ (0.27 % for a Gaussian).
+  R̃ − 1 and, from N = 300 (`TAIL_MIN_N`), its share of events beyond 3 robust σ
+  (0.27 % for a large Gaussian sample; none below N = 300 or where the IQR is 0).
   - **Median |rel. err.|, the default.** ε = median|E_est − p|/p per window:
     the *Median rel.* of Model Error vs. Incident Momentum, same events, seed
     `[42, frame, shower, bin, 2]` and interval, equal to that card bit for bit
@@ -3828,21 +3837,64 @@ kind of experiment, where the performance section does not
     order-statistic interval for 6 ≤ N < 20. Gates: reported from N = 2, whisker
     from N = 8, fits and range from N = 20. It is not a σ: for unbiased Gaussian
     errors median|R − 1| = 0.6745·σ/E, so it is quoted beside σ/E and never
-    converted into it. Fit weights 1/se² with se = κ·ŷ, κ the window's bootstrap
-    relative SE, recomputed at the fitted value.
+    converted into it. Its fit weights are the pooled scale's (below).
   - **Robust σ (IQR).** ε = IQR(R)/(1.349·median R), type-7 percentiles. Interval:
     an exact bootstrap of the three quantiles' order statistics (B = 2,000, seed
     `[42, frame, shower, bin, 8]`). Value, whisker, fits and range all from
     N = 20, the robust floor, so a window below it is listed unreported and no
-    provisional fallback exists. Weights by κ, as above. This is the σ-scaled
-    comparison with the literature curves.
-  - **Sample σ/μ.** Today's s(R)/R̄ with its χ² whisker, delta-method weights and
-    gates 2 / 8 / 20, every number unchanged.
+    provisional fallback exists. Fit weights by the pooled scale (below). This
+    estimator fits no line through fewer than two fittable windows, in either
+    mode: a ν = 0 line through the origin and one window would be drawn as a
+    confident fit, and it has no weaker window to fall back on. The window is
+    drawn in the all-windows mode, and the notes say it is not fitted. When more
+    than 2.5 % of the bootstrap replicates have a median R ≤ 0 (a replicate's
+    width goes to +∞ as its median goes to 0, so dropping them truncates the
+    upper tail), the interval, the SE and the fit weight are withheld: the value
+    is drawn with no whisker, is not fitted, and its note says why
+    (`MAX_DROPPED_SHARE`). This is the σ-scaled comparison with the literature
+    curves.
+  - **Sample σ/μ.** Today's s(R)/R̄ with its χ² whisker [s_lo/R̄, s_hi/R̄],
+    delta-method weights and gates 2 / 8 / 20, every number unchanged.
+  - **The fit weights of median and robust: one pooled scale per series**
+    (the lead's decision of 2026-11-12, after the statistical review). Neither
+    width has a closed-form SE that holds on these windows: the bootstrap SE
+    over the Gaussian large-N law has a median ratio of 1.37× for the robust
+    width and 1.06× for the median rel. on the pion file's windows of N ≥ 20,
+    1.23× and 0.97× over every stored experiment (measured 2026-11-12). Each
+    window carries its bootstrap SE and κ = SE/value as information (`se`,
+    `se_rel`), but the fits weight window k by se = c·ŷₖ/√Nₖ, c the series'
+    pooled scale: the median of √N·κ over its fittable windows (N ≥ 20, from
+    4 GeV, κ at least `KAPPA_FLOOR`; with none, the median's N ≥ 8 fallback
+    windows; with none, no pooled scale and no fit). The first fit takes
+    c·εₖ/√Nₖ and every refit c·ŷₖ/√Nₖ. One c per series cancels in the fitted
+    parameters and sets only χ², S and their errors (`weight_scale`: `c`,
+    `n_windows`, `rule`). A per-window κ would put each window's own value back
+    into its weight, so one that fluctuated high is up-weighted: a Monte Carlo
+    of the served code paths (2026-11-12; 16 windows, true σ/E = 30 %/√E) put
+    the origin-pinned term +0.70 (median) and +0.77 (robust) of its SD high at
+    40 events a window, +0.35 and +0.33 at 200, +0.15 and +0.17 at 1,000, and
+    0.00 under the pooled scale.
+  - **The tied-window floor** (`stats/robust_width.py` `KAPPA_FLOOR` = 10⁻⁶). A
+    window whose bootstrap SE is below 10⁻⁶ of its value is the rounding of tied
+    replicates, not a sampling error: it carries no κ, no fit weight and no
+    place in the pooled scale, and is drawn in the all-windows mode only. A
+    window of N ≥ 20 without a fit weight is never blamed on N: the notes, the
+    anchors' substitutions and the range sentences name its cause (tied; no
+    robust σ/E, the median response being ≤ 0; no median rel., there being no
+    c̃; interval withheld).
+  - **The tail-share floor** (`TAIL_MIN_N` = 300). A Gaussian window's mean
+    share beyond 3 robust σ is 1.50 %, 1.17 %, 0.72 %, 0.49 %, 0.34 % and
+    0.29 % at N = 20, 30, 50, 100, 300 and 1,000 (measured 2026-11-12), so
+    below N = 300 it exceeds the 0.27 % of a large Gaussian sample by chance. The
+    share is reported from there, and none where the IQR is 0.
   - **The deposit's calibration.** Under `robust` and `sample`, c = c_sum =
     Σp/ΣE_dep, which cancels in a width. Under `median` the constant is the
     median calibration c̃ = 1/median(E_dep/p) over the shower's events with
-    E_dep > 0, so the deposit's median response is exactly 1; c_sum and c̃ are
-    both reported (`estimator.calibration`).
+    E_dep > 0, so the deposit's median response over those events is 1 (the
+    zero-deposit events stay in the windows, and a window's own median response
+    is not exactly 1); c_sum and c̃ are both reported
+    (`estimator.calibration`), with the deposit's measured median response
+    under c_sum, c_sum/c̃ − 1, in a note.
   - **Why the default moved.** On `pion_hits_with_model_outputs`, shower A,
     absolute-frame network, 10–11 GeV (N = 1,022; measured 2026-11-12): median
     rel. 8.52 %, robust σ/E 12.03 %, sample σ/μ 17.15 %, against the π± curve's
@@ -3863,7 +3915,7 @@ kind of experiment, where the performance section does not
   hit data has the detector series only, named after the selection's species
   where one covers 95 % of it, counting the events without a primary particle
   against the name. E on both axes is the incident momentum p.
-- **The axes.** y is σ/E from zero. The bottom axis is linear in x = 1/√E and
+- **The axes.** y is the plotted error scale from zero. The bottom axis is linear in x = 1/√E and
   reversed, from 0.5 GeV⁻¹ᐟ² (4 GeV) at the left to 0 at the right border, so the
   bottom-right corner is the origin, E → ∞, where a purely stochastic resolution
   vanishes. The top axis relabels the same positions in GeV (5, 10, 15, 20, 30,
@@ -3874,28 +3926,34 @@ kind of experiment, where the performance section does not
   beyond it, or a fitted line or band that leaves the top, is clipped with a
   caret carrying its true values and counted in the drawer, and with no window
   at N ≥ 20 the range is labelled provisional.
-- **The marks.** A window's σ/E is reported from N = 2, drawn with its capped
-  95 % χ² whisker [s_lo/R̄, s_hi/R̄] from N = 8 (a faded ring below), faded below
-  N = 20, and off the axis below 4 GeV, where it is counted and listed in the
-  drawer. The detector series is drawn in ink and a model in its E2 hue; shower A
-  filled, B hollow.
+- **The marks.** Under Median |rel. err.| and Sample σ/μ a window's value is
+  reported from N = 2, drawn with its capped 95 % whisker from N = 8 (a faded
+  ring below) and faded below N = 20; the whisker is the median's interval or
+  the sample width's χ² interval. Under Robust σ (IQR) a window is reported,
+  drawn and fitted from N = 20 alone, with its exact bootstrap whisker, and
+  none below. Under every estimator a window is off the axis below 4 GeV, where
+  it is counted and listed in the drawer. The detector series is drawn in ink
+  and a model in its E2 hue; shower A filled, B hollow.
 - **The fits.** Weighted least squares in closed form, through three anchor
   windows by default - the lowest bin from 5 GeV, the highest, and the one
   between them nearest in log E to their geometric mean, chosen on the whole
   table so they do not move with the selection ({5, 10, 19} on the 0–20 GeV
-  files) - or, with **All ≥ 4 GeV**, through every window with N ≥ 20, the
-  4–5 GeV window included, which the drawer then names. A thin anchor is
-  replaced by its nearest eligible window from 5 GeV, by name, never one below
-  the floor the low anchor keeps; with fewer than two the fit runs through
-  windows of N ≥ 8 and is provisional. The affine fit a/√E + b (solid for A,
+  files) - or, with **All ≥ 4 GeV**, through every fittable window (N ≥ 20 and,
+  under median and robust, a fit weight), the 4–5 GeV window included, which
+  the drawer then names. An anchor that is not fittable is replaced by its
+  nearest fittable window from 5 GeV, by name and with its cause, never one
+  below the floor the low anchor keeps; with fewer than two the fit runs through
+  windows of N ≥ 8 and is provisional (not under Robust σ, which has none and
+  fits no line through fewer than two fittable windows). The affine fit a/√E + b (solid for A,
   dashed for B) and the origin-pinned a₀/√E (dotted, into the corner) each draw
   their 95 % confidence band, ±1.96 √(gᵀΣg) while the windows' own errors stand
   and ±t₀.₉₇₅,ν √(gᵀΣg) once S scales Σ, since S is then estimated from the
   fit's own ν (12.71 at ν = 1). A band that spans half the axis or more over
   its fitted windows is drawn as two thin solid edges, never as a wash. The
-  weights are 1/se², with the delta-method se recomputed at the fitted value
-  and iterated, half-stepped once the refits oscillate, for at most 200
-  refits; a fit that does not settle says so in its tooltip, the table and the
+  weights are 1/se². Under Sample σ/μ the se is the delta-method one,
+  recomputed at the fitted value; under median and robust it is c·ŷ/√N with c
+  the series' pooled scale (above), likewise recomputed. Either is iterated,
+  half-stepped once the refits oscillate, for at most 200 refits; a fit that does not settle says so in its tooltip, the table and the
   drawer. χ²/ν, its p-value and the PDG scale factor
   S, applied when χ²/ν > 1, are quoted. A fit with ν ≥ 1 and S > 5, whose
   residuals average more than five of the windows' own standard errors, has a
@@ -5000,7 +5058,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
-| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median|robust|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 90.8 KB under median, on the muon two-shower file, measured 2026-11-12). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median |rel. err.|, robust σ/E or sample σ/E), its interval, its weight SE (bootstrap, or delta-method under `sample`), the two other estimators as `alt`, the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based σ/E range from the windows of N ≥ 20 from 2 GeV and the drawn fits over their spans, and its sentences), each mode's `span_gev`, and the quadrature fit's `rho_a2b2` and `band_quantile`, from which the browser draws its band. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median\|robust\|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 90.8 KB under median, on the muon two-shower file, measured 2026-11-12). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median \|rel. err.\|, robust σ/E or sample σ/E), its interval, its bootstrap SE and κ (`se`, `se_rel`, information; under `sample` the delta-method SE), the series' pooled fit-weight scale `weight_scale` (`c`, `n_windows`, `rule`; null under `sample`), the two other estimators as `alt` (the tail share from N = 300), the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based error-scale range from the windows of N ≥ 20 from 2 GeV alone, no fit setting it, and its sentences), each mode's `span_gev`, and the quadrature fit's `rho_a2b2` and `band_quantile`, from which the browser draws its band. `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
