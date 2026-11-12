@@ -73,6 +73,7 @@ Sections 2 through 5 below apply **identically to both architectures**.
       - every report number is shown with the report's printed decimals, so a reader sees its rounding, and differences smaller than that rounding are not resolved;
       - a qualified value ("< 0", "≈ 0", "~1 050", "no formula") keeps its qualifier and is never coerced to a number.
   - **Recorded exception: transcribed literature reference curves** (`calosrv/static/js/catalog/resolution_refs.js`, pinned to `resolution_references.md` by `tests/test_resolution_refs.py`; Martin's decision, 2026-11-10).
+    - **Under every estimator** (Martin's override at approval, 2026-11-12: the reference ECCE figure plots MAE/E against these curves). The curves are drawn under all three estimators of the resolution card. Under Median |rel. err.| each curve and each ratio against one carries, verbatim, "Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison)." and its Details button the hazard "median rel. against σ/E curve"; never under robust or sample.
     - **What.** The energy-resolution card's E view (§5) draws either of two curves or both (both by default) and divides its ratio panel by one of them: π± σ/E = 27.2%/√E ⊕ 1.0% and e± σ/E = 14.0%/√E ⊕ 0.4%. Both are transcribed from the legend of Martin's figure "ECCE G4 simulation — Dual-Readout Inlay, 2.55 < η < 3.98, with models S1 and S2".
     - **Why:** the figure prints no uncertainty for either curve and names no source publication. A number that carries no uncertainty cannot be given one by the dashboard.
     - **The rules:**
@@ -476,6 +477,14 @@ When working with calorimeter simulation datasets in this repository:
     - **What it plots.** Per 1 GeV momentum window, σ/E = s(R)/R̄ of the per-event ratio R = E_est/p, at x = ⟨1/√p⟩, so the window's momentum spread and the estimator's bias are divided out and the calibration cancels.
     - **Its series.** The detector's calibrated deposit, labelled "Calibrated deposit c·E_dep — linear-sum benchmark" and never called a limit, since a shape-aware model can beat a plain sum; the energy network of the selected frame on two-shower data; the XGBoost momentum hold-out on a paired aggregate.
     - **Its axes.** A reversed axis linear in 1/√E whose right border is the origin (E → ∞); the top axis is the exact relabelling E = 1/x², carrying no data; y from zero.
+    - **Its Estimator control** (`estimator=median|robust|sample`; Martin's decisions, 2026-11-12). One estimator per response, so the body stays under 100 KB; a card control, never in the hash or an Admin default.
+      - **Median |rel. err.|, the default:** median|E_est − p|/p per window, the Median rel. of Model Error vs. Incident Momentum, same events, seed and interval, equal to it bit for bit (`tests/test_resolution_scaling_api.py`). Percentile bootstrap from N = 20, order-statistic interval for 6 ≤ N < 20.
+      - **Robust σ (IQR):** IQR(R)/(1.349·median R) with an exact bootstrap. The robust floor is N = 20 for value, whisker, fits and range, so there is no provisional fallback.
+      - **Sample σ/μ:** the estimator above, every number unchanged.
+      - **Weights:** under median and robust κ = SE/ε, se = κ·ŷ recomputed at the fitted value; under sample the delta method.
+      - **The deposit's calibration:** c_sum under robust and sample; under median the median calibration c̃ = 1/median(E_dep/p) over events with E_dep > 0, so its median response is 1. Both are reported.
+      - **Why:** measured 2026-11-12 on `pion_hits_with_model_outputs`, shower A, 10–11 GeV: median rel. 8.52%, robust 12.03%, sample 17.15%, π± 8.45%. 17.15 = 8.52 × 1.4826 (definition) × 0.953 (bias) × 1.43 (non-Gaussian tails).
+      - **Edge windows** of the bounded-range regressors are disclosed only; anchors and fit rules are unchanged.
     - **Its gates.** The χ² whisker from N = 8; the fits and the y range from N = 20 and 4 GeV, the range set by the windows alone (below); a window below 4 GeV is off the axis, counted and listed.
     - **Its fits.** Weighted least squares with model-iterated weights and the PDG scale factor: the affine a/√E + b and the origin-pinned a₀/√E, each with its 95 % band, through three anchors fixed on the whole table or through every window from 4 GeV. A thin anchor takes a window from 5 GeV only. On this view the quadrature form is tabled, never drawn; the E view below draws it.
     - **Its band** is ±1.96 √(gᵀΣg) while the windows' errors stand and ±t₀.₉₇₅,ν √(gᵀΣg) once S > 1 scales Σ: S is then estimated from the fit's own ν, and the normal quantile would understate the interval 6.5× at ν = 1.
@@ -545,7 +554,7 @@ When working with calorimeter simulation datasets in this repository:
         - There is no zoom, only a crosshair linked across the two grids.
         - The literature buttons read "π± | e±". The equations are in their titles and on the ratio axis.
         - An export's file name carries `energy` and the curves drawn, as above.
-      - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out.
+      - **MAE/E is documented, never converted.** MAE/E = √(2/π)·σ/E holds only for unbiased Gaussian errors, and MAE also carries the bias that σ(R)/μ(R) divides out. The median relative error is the same: median|R − 1| = 0.6745·σ/E for unbiased Gaussian errors, so it is quoted beside σ/E, never converted into it.
   - **One coordinate system at a time on Views** (`voxel_views.js` `PAIR_FRAMES`, `pairDrawable`, `pairOnShow`, `syncPairs`; Martin's directives, 2026-11-06).
     - **The rule.** Views draws one 3-D pair (a 3-D card and its three paired projections) at a time, in the frame selected under Reference Frame.
       - The event view is drawn in the Absolute, per-shower translated and Local frames, the ensemble cloud in Local and the D-frame.
