@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import html
 import json
+from decimal import ROUND_HALF_UP, Decimal
 import math
 import statistics
 import re
@@ -4145,3 +4146,488 @@ def test_res_a_wide_linear_band_is_drawn_as_its_edges(out):
     assert "Shower B · Energy network · absolute frame, affine fit a/√E + b (S = 1.5, ν = 1, q = 12.71)" in listed
     assert o["hazards"] == o["hazardsBase"], "no hazard of its own"
     assert out["resMisfit"]["xSpans"] == [pytest.approx([1 / 20 ** 0.5, 1 / 5 ** 0.5]), pytest.approx([0.4472136, 0.5]), None, None]
+
+
+# ------------------------------------------- res-scaling: the three estimators --
+# Martin's decisions of 2026-11-12 (brief section 4): an Estimator control, Median |rel. err.| by default, Robust σ
+# (IQR) and Sample σ/μ. The window tooltips name the plotted value with its interval and weight, the median
+# response, the two estimators not plotted and the tail share; the median's literature disclosure appears in the E
+# view's note band, every literature-curve tooltip, every ratio tooltip against a literature curve and the drawer,
+# and the Details hazard "median rel. against σ/E curve" with it, exactly there and never under robust or sample;
+# perf-bins' energy Median rel. reconciles itself with the card.
+
+RES_KINDS = ["two", "xgb", "single_hits", "single_events"]
+RES_EST = {**{f"res_scaling_median_{k}": "median" for k in RES_KINDS},
+           **{f"res_scaling_robust_{k}": "robust" for k in RES_KINDS},
+           **{f"res_scaling_{k}": "sample" for k in RES_KINDS}}
+#: The E view's literature states: none, either curve, both (the card's default).
+RES_LIT = {"none": [], "pi": ["pi"], "e": ["e"], "both": ["pi", "e"]}
+PERF_ALL = ["perf_two_energy", "perf_two_angle", "perf_xgb_energy", "perf_xgb_angle"]
+RES_HAZARD = "median rel. against σ/E curve"
+#: brief section 4, verbatim.
+PERF_RECONCILIATION = ("Median rel. is median |pred − true| / true, not a σ: for unbiased Gaussian errors it is "
+                       "0.6745·σ/E. The Energy Resolution card plots the same number by default (Median |rel. err.|) "
+                       "and offers a robust σ/E (IQR) of the same showers for a σ-scaled comparison.")
+PERF_NOT_SIGMA = PERF_RECONCILIATION[:PERF_RECONCILIATION.index(" The Energy Resolution card")]
+
+_EST_BODY = r"""
+const est = { fixtures: {}, perf: {} };
+const RE = { width: 760, height: 600 };
+const LW = { width: 760, height: 420 };
+const packN = (n) => (n ? { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
+  sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null);
+// Every tooltip of an option, by series: its name, its grid (0 the main panel, 1 the ratio panel) and its texts.
+const tipsOf = (o) => o.series.map((s) => ({ name: s.name ?? '', id: s.id ?? null, grid: s.xAxisIndex ?? 0,
+  tips: (s.data ?? []).map((d, i) => (typeof s.tooltip?.formatter === 'function'
+    ? s.tooltip.formatter({ dataIndex: i, value: Array.isArray(d) ? d : d?.value }) : null)).filter(Boolean) }));
+const graphicsOf = (o) => (o.graphic ?? []).map((g) => g.style?.text).filter(Boolean);
+const pointsOf = (m, tip) => m.series.flatMap((s) => s.points.map((p) => ({ key: s.key, source: s.raw.source, shower: s.raw.shower ?? null,
+  bin: p.w.bin, n: p.w.n, tip: tip(m, s, p) })));
+for (const [name, estimator] of Object.entries(%(est)s)) {
+  const payload = load(name);
+  const entry = { linear: {}, energy: {} };
+  for (const windows of ['anchors', 'all']) {
+    const opts = { windows, shower: 'both', estimator, palette: 'viridis', card: 'res-scaling' };
+    const opt = rs.resolutionScalingOption(payload, opts, LW);
+    entry.linear[windows] = {
+      points: pointsOf(rs.resolutionModel(payload, opts), rs.pointTip), series: tipsOf(opt), graphics: graphicsOf(opt),
+      notes: packN(mn.resolutionScalingNotes({ payload, windows, shower: 'both' })),
+      hazards: mn.modelsHazards(payload, 'res-scaling', { windows, shower: 'both', view: 'linear', literature: ['pi', 'e'] }),
+    };
+    for (const [lit, literature] of Object.entries(%(lit)s)) {
+      const eo = { view: 'energy', windows, shower: 'both', literature, estimator, palette: 'viridis', card: 'res-scaling' };
+      const model = rs.energyModel(payload, eo);
+      const built = rs.energyViewOption(payload, eo, RE).option;
+      entry.energy[`${windows}:${lit}`] = {
+        warning: model.noteText.warning, reference: model.reference.key, nLiterature: model.literature.length,
+        graphics: graphicsOf(built), series: tipsOf(built),
+        literatureTips: model.literature.map((l) => rs.literatureTip(model, l)),
+        ratioTips: model.series.flatMap((s) => s.points.filter((p) => p.ratio.drawn).map((p) => rs.ratioPointTip(model, s, p))),
+        pointTips: pointsOf(model, rs.energyPointTip),
+        notes: packN(mn.resolutionScalingNotes({ payload, view: 'energy', windows, shower: 'both', literature })),
+        hazards: mn.modelsHazards(payload, 'res-scaling', { view: 'energy', windows, shower: 'both', literature }),
+      };
+    }
+  }
+  est.fixtures[name] = entry;
+}
+// perf-bins: every quantity of every task, its tooltips and its drawer.
+for (const name of %(perf)s) {
+  const payload = load(name);
+  est.perf[name] = Object.fromEntries(perf.perfQuantities(payload).map((q) => {
+    const m = perf.perfModel(payload, { quantity: q.key });
+    return [q.key, { task: m.model, energyMedian: perf.isEnergyMedianRel(m),
+      tips: m.series.flatMap((x) => x.points.map((pt) => perf.perfTip(m, x, pt))),
+      notes: packN(mn.perfBinsNotes({ payload, quantity: q.key })) }];
+  }));
+}
+est.perfConsts = { notSigma: perf.MEDIAN_REL_NOT_SIGMA, reconciliation: perf.MEDIAN_REL_RECONCILIATION };
+console.log(JSON.stringify(est));
+"""
+
+
+@pytest.fixture(scope="module")
+def est() -> dict:
+    """The estimator harness: the panel's helpers and builders of `_SCRIPT`, then `_EST_BODY`."""
+    prelude = _script()
+    prelude = prelude[:prelude.index("const out = { perf")]
+    body = _EST_BODY % {"est": json.dumps(RES_EST), "lit": json.dumps(RES_LIT), "perf": json.dumps(PERF_ALL)}
+    args = json.dumps([JS.as_uri(), str(FIXTURES)])
+    done = subprocess.run([NODE, "--input-type=module", "-e", prelude + body, args],
+                          capture_output=True, text=True, timeout=180, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _js_round(v: float, d: int) -> tuple[Decimal, int]:
+    """JavaScript's `toPrecision(d)`: the exact binary value rounded half away from zero (Python's format rounds
+    half to even, so 216.5 is "216" there and "217" here), as (mantissa in [1, 10), exponent)."""
+    x = Decimal(v)
+    exponent = x.copy_abs().adjusted()
+    quantum = Decimal(1).scaleb(1 - d)
+    m = x.scaleb(-exponent).quantize(quantum, rounding=ROUND_HALF_UP)
+    if abs(m) >= 10:
+        m, exponent = (m / 10).quantize(quantum, rounding=ROUND_HALF_UP), exponent + 1
+    return m, exponent
+
+
+def _sf(v: float, d: int = 3) -> str:
+    """chart_panel.js `sigFigs(v, d)`: plain from 10⁻³ to 10⁵, else m×10ⁿ; U+2212 for a negative."""
+    if v == 0:
+        return "0"
+    m, exponent = _js_round(v, d)
+    if 1e-3 <= abs(v) < 1e5:
+        text = f"{float(m.scaleb(exponent)):.15g}"
+    else:
+        text = f"{float(m):g}×10{str(exponent).translate(_SUPERSCRIPT)}"
+    return text.replace("-", "−")
+
+
+def _pc(v) -> str:
+    """The panel's percent: three significant figures and %, or an em dash."""
+    return "—" if v is None else f"{_sf(v)}%"
+
+
+def _signed_pc(v: float) -> str:
+    return f"{'+' if v > 0 else ''}{_sf(v)}%"
+
+
+def _windows(payload: dict) -> dict:
+    return {(s["key"], w["bin"]): w for s in payload["series"] for w in s["windows"]}
+
+
+def _warning() -> str:
+    return _load("res_scaling_median_two")["estimator"]["literature"]["warning"]
+
+
+def _every_text(entry: dict):
+    """Every tooltip, canvas text and drawer line one fixture's harness entry produced."""
+    for view in ("linear", "energy"):
+        for e in entry[view].values():
+            for s in e["series"]:
+                yield from s["tips"]
+            yield from e["graphics"]
+            yield from (p["tip"] for p in e.get("points", e.get("pointTips", [])))
+            yield from e.get("literatureTips", [])
+            yield from e.get("ratioTips", [])
+            for lines in e["notes"]["sections"].values():
+                yield from lines
+            yield e["notes"]["title"]
+
+
+def test_res_est_the_median_fixtures_carry_the_disclosure_and_the_others_none():
+    for name, estimator in RES_EST.items():
+        block = _load(name)["estimator"]
+        assert block["name"] == estimator
+        assert block["literature"]["drawn"] is True
+        assert (block["literature"]["warning"] is not None) == (estimator == "median"), name
+    assert _warning().startswith("Note: comparing Median |rel. err.| against a σ/E literature curve")
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_value_line_names_the_estimator_and_its_interval(est, name):
+    """Median: "Median rel. = …, 95% bootstrap interval […]", order-statistic below N = 20 by the window's own
+    method; robust: "Robust σ/E = …, 95% bootstrap interval […]"; sample: the χ² interval, as ever."""
+    estimator = RES_EST[name]
+    windows = _windows(_load(name))
+    points = [p for v in est["fixtures"][name]["linear"].values() for p in v["points"]]
+    assert points
+    for p in points:
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        ci = w["ci95"] if w["ci95"] and all(x is not None for x in w["ci95"]) else None
+        if estimator == "median":
+            interval = {"order_statistic": "order-statistic", "bootstrap_percentile": "bootstrap"}[w["method"]] if ci else None
+            line = f"Median rel. = {_pc(w['value'])}" + (f", 95% {interval} interval [{_pc(ci[0])}, {_pc(ci[1])}]" if ci else "")
+        elif estimator == "robust":
+            assert w["method"] == "bootstrap_percentile" and ci
+            line = f"Robust σ/E = {_pc(w['value'])}, 95% bootstrap interval [{_pc(ci[0])}, {_pc(ci[1])}]"
+        else:
+            line = f"σ/E = {_pc(w['value'])}" + (f", 95% χ² interval [{_pc(ci[0])}, {_pc(ci[1])}]" if ci else "")
+        assert line in tip, (name, p["key"], p["bin"], tip)
+        if estimator != "sample":
+            lines = [_plain(x) for x in p["tip"].split("<br/>")]
+            assert not any(x.startswith("σ/E = ") for x in lines), "no σ/E value line under the median or robust width"
+
+
+def test_res_est_the_median_quotes_its_order_statistic_interval_below_n_twenty(est):
+    """The order-statistic branch is exercised: a median window of 6 ≤ N < 20 names it."""
+    seen = 0
+    for name, estimator in RES_EST.items():
+        if estimator != "median":
+            continue
+        windows = _windows(_load(name))
+        for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+            w = windows[(p["key"], p["bin"])]
+            if w["method"] == "order_statistic":
+                assert w["n"] < 20 and "95% order-statistic interval [" in _plain(p["tip"])
+                seen += 1
+            elif w["method"] == "bootstrap_percentile":
+                assert w["n"] >= 20 and "95% bootstrap interval [" in _plain(p["tip"])
+    assert seen > 0
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_se_line_names_the_weight(est, name):
+    """κ under the median and robust widths: the bootstrap SE and its relative SE κ, applied at the fitted value;
+    the delta-method SE under the sample width, as ever."""
+    estimator = RES_EST[name]
+    assert _load(name)["estimator"]["weight"]["method"] == ("delta" if estimator == "sample" else "kappa")
+    windows = _windows(_load(name))
+    for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        if estimator == "sample":
+            assert w["se_rel"] is None
+            if w["se_delta"] is not None:
+                assert (f"delta-method SE {_pc(w['se_delta'])} (R̄'s error included): the fit weight 1/se², "
+                        "recomputed at the fitted value") in tip
+            assert "κ =" not in tip and "bootstrap SE" not in tip
+        else:
+            assert w["se_delta"] is None and "delta-method" not in tip
+            if w["se"] is not None:
+                kappa = f"{_sf(100 * w['se_rel'])}%" if w["se_rel"] is not None else "—"
+                assert (f"bootstrap SE {_pc(w['se'])}: the fit weight 1/se², its relative SE κ = {kappa} "
+                        "applied at the fitted value") in tip
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_cross_references_and_the_tail_share(est, name):
+    """The median response, the two estimators not plotted in the brief's order (robust, sample, median; the
+    deposit's median under c̃), and the share beyond 3 robust σ against a Gaussian's 0.27%."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    windows = _windows(payload)
+    cal = payload["estimator"]["calibration"]["showers"]
+    names = [("robust", "Robust σ/E"), ("sample", "sample σ/μ"), ("median", "median rel.")]
+    for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        if estimator == "sample":
+            if w["median_response"] is not None:
+                assert f"median response R̃ − 1 = {_pc(w['median_response'])}" in tip
+        elif w["median_response"] is not None or w["bias"] is not None:
+            assert f"median response R̃ − 1 = {_pc(w['median_response'])}; mean bias R̄ − 1 = {_pc(w['bias'])}" in tip
+        parts = []
+        for key, label in names:
+            if key == estimator:
+                continue
+            v = w["alt"].get(key)
+            c_median = cal.get(p["shower"] or "a", {}).get("c_median")
+            if v is not None:
+                parts.append(f"{label} {_pc(v)}" + (f" (c̃·E_dep, c̃ = {_sf(c_median)})"
+                                                    if key == "median" and p["source"] == "detector" and c_median is not None else ""))
+            elif key == "robust" and w["n"] < 20:
+                parts.append(f"{label} not reported below N = 20, the robust floor")
+            else:
+                parts.append(f"{label} not reported")
+        assert f"Not plotted: {'; '.join(parts)}" in tip, (name, p["key"], p["bin"], tip)
+        if w["tail_share"] is not None:
+            assert w["n"] >= 20
+            assert f"{_pc(w['tail_share'])} of events beyond 3 robust σ (0.27% for a Gaussian)" in tip
+        elif w["n"] < 20:
+            assert "share of events beyond 3 robust σ not reported below N = 20" in tip
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_median_names_its_parity_and_the_deposits_median_calibration(est, name):
+    """Under the median a model window is perf-bins' own Median rel. and the deposit is c̃·E_dep; under the two σ
+    widths neither line appears."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    cal = payload["estimator"]["calibration"]["showers"]
+    parity = "the Median rel. of Model Error vs. Incident Momentum: the same events, seed and interval"
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            for p in e.get("points", e.get("pointTips")):
+                tip = _plain(p["tip"])
+                deposit = p["source"] == "detector"
+                assert (parity in tip) == (estimator == "median" and not deposit), (name, p["key"])
+                c = cal[p["shower"] or "a"]
+                line = (f"c̃·E_dep with the median calibration c̃ = {_sf(c['c_median'])} "
+                        f"(the ratio of sums c = {_sf(c['c_sum'])})")
+                assert (line in tip) == (estimator == "median" and deposit), (name, p["key"])
+                assert ("median calibration" in tip) == (estimator == "median" and deposit)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(est, name):
+    """Under the median with a curve on: one line of the note band, every literature curve's tooltip, every
+    tooltip of the ratio panel (whose reference is then a literature curve). Nowhere else, never on the 1/√E view
+    and never under robust or sample."""
+    estimator = RES_EST[name]
+    warning = _warning()
+    entry = est["fixtures"][name]
+    for key, e in entry["energy"].items():
+        lit = key.split(":")[1]
+        on = estimator == "median" and lit != "none"
+        assert e["warning"] == (warning if on else "")
+        assert sum(g.replace("\n", " ") == warning for g in e["graphics"]) == (1 if on else 0), key
+        assert all(warning not in g for g in e["graphics"] if g.replace("\n", " ") != warning)
+        assert e["reference"] == ("deposit" if lit == "none" else e["reference"]) and (lit == "none") == (e["reference"] == "deposit")
+        assert e["nLiterature"] == len(RES_LIT[lit]) and len(e["literatureTips"]) == len(RES_LIT[lit])
+        for tip in e["literatureTips"]:
+            assert (warning in tip) == on
+        assert e["ratioTips"]
+        for tip in e["ratioTips"]:
+            assert (warning in tip) == on
+        main = [s for s in e["series"] if s["grid"] == 0]
+        ratio = [s for s in e["series"] if s["grid"] == 1]
+        lit_series = [s for s in main if re.match(r"^(π±|e±) lit\.", s["name"])]
+        assert bool(lit_series) == (lit != "none")
+        for s in main:
+            for tip in s["tips"]:
+                assert (warning in tip) == (on and s in lit_series), (key, s["name"])
+        assert any(s["tips"] for s in ratio)
+        for s in ratio:
+            for tip in s["tips"]:
+                assert (warning in tip) == on, (key, s["name"])
+    for e in entry["linear"].values():
+        assert not any(warning in t for s in e["series"] for t in s["tips"]) and not any(warning in g for g in e["graphics"])
+        assert not any(warning in p["tip"] for p in e["points"])
+    if estimator != "median":
+        assert not any("Note: comparing" in t for t in _every_text(entry))
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_median_hazard_sits_beside_no_interval_reported(est, name):
+    """modelsHazards: "median rel. against σ/E curve" when the estimator is the median, the view is E and a curve
+    is on; "no interval reported" whenever a curve is on; the drawer carries the same list."""
+    estimator = RES_EST[name]
+    entry = est["fixtures"][name]
+    for key, e in entry["energy"].items():
+        on = key.split(":")[1] != "none"
+        assert (RES_HAZARD in e["hazards"]) == (estimator == "median" and on), key
+        assert ("no interval reported" in e["hazards"]) == on
+        assert e["notes"]["hazards"] == e["hazards"]
+        if RES_HAZARD in e["hazards"]:
+            assert e["hazards"].index(RES_HAZARD) == e["hazards"].index("no interval reported") + 1
+    for e in entry["linear"].values():
+        assert RES_HAZARD not in e["hazards"] and RES_HAZARD not in e["notes"]["hazards"]
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_says_the_disclosure_in_the_e_view_only_under_the_median(est, name):
+    estimator = RES_EST[name]
+    warning = _warning()
+    entry = est["fixtures"][name]
+    for key, e in entry["energy"].items():
+        on = estimator == "median" and key.split(":")[1] != "none"
+        dis = e["notes"]["sections"]["Disclosures"]
+        assert dis.count(warning) == (1 if on else 0), key
+        assert all(warning not in line for heading, lines in e["notes"]["sections"].items() for line in lines
+                   if not (heading == "Disclosures" and line == warning))
+    for e in entry["linear"].values():
+        assert not any(warning in line for lines in e["notes"]["sections"].values() for line in lines)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_names_the_estimator_its_interval_and_weight(est, name):
+    """Selection names the estimator; What is drawn the fit weight (κ or delta method); the legend the whisker by
+    the payload's interval label; the relation sentence under the median and robust widths, never converting."""
+    estimator = RES_EST[name]
+    block = _load(name)["estimator"]
+    entry = est["fixtures"][name]
+    titles = {"median": ("Median Relative Error vs. 1/√E", "Median Relative Error vs. E"),
+              "robust": ("Energy Resolution vs. 1/√E", "Energy Resolution vs. E"),
+              "sample": ("Energy Resolution vs. 1/√E", "Energy Resolution vs. E")}[estimator]
+    for view, title in zip(("linear", "energy"), titles):
+        for e in entry[view].values():
+            n = e["notes"]
+            s = n["sections"]
+            assert n["title"] == title
+            assert f"Estimator: {block['label']}." in s["Selection"]
+            drawn = " ".join(s["What is drawn"])
+            text = " ".join(line for lines in s.values() for line in lines)
+            # The 1/√E view words the weight law in its fits sentence; both views carry the payload's weight label
+            # under the median and robust widths.
+            if estimator == "sample":
+                assert ("delta-method standard error of σ/μ" in drawn) == (view == "linear") and "κ" not in drawn
+            else:
+                assert ("se = κ·ŷ with κ the window's bootstrap relative standard error" in drawn) == (view == "linear")
+                assert block["weight"]["label"].rstrip(".") in drawn
+                assert "delta-method" not in text and "χ² whisker" not in text
+                assert block["interval"]["label"].rstrip(".") in " ".join(s["Marks and legend"])
+                rel = [line for line in s["Disclosures"] if line.startswith(block["relation"])]
+                assert len(rel) == 1
+                # Alone on the 1/√E view; on the E view with the MAE/E sentence and what the card plots.
+                if view == "linear":
+                    assert rel[0] == block["relation"]
+                else:
+                    assert "MAE/E is not σ/E either" in rel[0]
+                    assert rel[0].endswith("This card plots the median relative error and never converts it into σ/E." if estimator == "median"
+                                           else "This card plots the robust width IQR(R) / (1.349 · median R) and never converts one into another.")
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_gives_c_tilde_beside_c_sum_under_the_median(est, name):
+    estimator = RES_EST[name]
+    showers = _load(name)["estimator"]["calibration"]["showers"]
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            dis = e["notes"]["sections"]["Disclosures"]
+            for key, c in showers.items():
+                owner = f"Shower {key.upper()}" if len(showers) > 1 else "The deposit"
+                line = f"{owner}: c̃ = {_sf(c['c_median'], 6)} beside c_sum = {_sf(c['c_sum'], 6)} ("
+                assert any(x.startswith(line) for x in dis) == (estimator == "median"), (view, owner)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_counts_the_windows_below_the_robust_floor(est, name):
+    """Under the robust width only: the windows of 2 ≤ N < 20, which have no value, counted over the series on show."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    below = sum(1 for s in payload["series"] for w in s["windows"] if 2 <= (w["n"] or 0) < 20 and w["value"] is None)
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            lines = [x for x in e["notes"]["sections"]["Disclosures"] if "below its floor of N = 20" in x]
+            if estimator != "robust":
+                assert not lines
+                continue
+            many = below != 1
+            assert lines == [f"{below} window{'s' if many else ''} of 2 ≤ N < 20 {'have' if many else 'has'} no Robust σ/E, "
+                             "below its floor of N = 20 (the CLAUDE.md robust floor), "
+                             f"so {'they are' if many else 'it is'} not drawn; Sample σ/μ draws {'them' if many else 'it'}."]
+    if estimator == "robust" and name.endswith("_two"):
+        assert below > 0, "the two-shower fixture holds windows below the floor"
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_gives_each_model_series_median_response_range(est, name):
+    estimator = RES_EST[name]
+    payload = _load(name)
+    models = [s for s in payload["series"] if s["source"] != "detector"]
+    tail = {"median": "The median relative error divides nothing out, so this bias is part of the plotted value there.",
+            "robust": "The robust width divides the bias out, so it does not enter the plotted value, though the narrowing does.",
+            "sample": "The sample width divides the bias out, so it does not enter the plotted value, though the narrowing does."}[estimator]
+    for view in ("linear", "energy"):
+        for key, e in est["fixtures"][name][view].items():
+            mode = key.split(":")[0]
+            dis = e["notes"]["sections"]["Disclosures"]
+            for s in models:
+                r = s["median_response_range"][mode]
+                mode_text = "the 3-anchor mode" if mode == "anchors" else "the all-windows mode"
+                line = (f"{s['label']}: the median response R̃ − 1 runs from {_signed_pc(r[0])} to {_signed_pc(r[1])} "
+                        f"over the fitted windows of {mode_text}." if r else
+                        f"{s['label']}: no median response range, fewer than two fitted windows of {mode_text}.")
+                assert line in dis, (view, key, line)
+            bounded = [x for x in dis if x.startswith("A regressor trained on a bounded momentum range")]
+            assert len(bounded) == (1 if models else 0)
+            if models:
+                assert bounded[0].endswith(tail)
+
+
+def test_res_est_no_rendered_number_uses_an_ascii_hyphen(est):
+    for entry in est["fixtures"].values():
+        _no_hyphen_numbers(_every_text(entry))
+    for quantities in est["perf"].values():
+        for q in quantities.values():
+            _no_hyphen_numbers(q["tips"])
+            _no_hyphen_numbers(line for lines in q["notes"]["sections"].values() for line in lines)
+
+
+def test_perf_the_median_rel_reconciliation_is_the_briefs_sentence(est):
+    assert est["perfConsts"] == {"notSigma": PERF_NOT_SIGMA, "reconciliation": PERF_RECONCILIATION}
+
+
+@pytest.mark.parametrize("name", PERF_ALL)
+def test_perf_the_energy_median_rel_says_it_is_not_a_sigma_and_never_the_angle_task(est, name):
+    """The tooltip line on every bar of the energy task's Median rel. and the drawer's last Estimators line; no
+    other quantity and never the angle task, whose relative error is not an energy's."""
+    quantities = est["perf"][name]
+    assert "median_rel" in quantities
+    energy = not name.endswith("_angle")
+    for key, q in quantities.items():
+        mine = key == "median_rel" and energy
+        assert q["energyMedian"] is mine and (q["task"] == "angle") is (not energy)
+        assert q["tips"]
+        for tip in q["tips"]:
+            assert (PERF_NOT_SIGMA in _plain(tip)) is mine, (key, tip)
+        lines = q["notes"]["sections"]["Estimators"]
+        assert lines.count(PERF_RECONCILIATION) == (1 if mine else 0)
+        if mine:
+            assert lines[-1] == PERF_RECONCILIATION
+        assert not any(PERF_NOT_SIGMA in line for line in lines if line != PERF_RECONCILIATION)
