@@ -75,7 +75,7 @@
  * tooltip, the table and the drawer. On this view the quadrature fit is never
  * drawn; it is tabled. The E view draws it (below).
  *
- * ## Colour is the estimator, fill and dash are the shower
+ * ## Colour is the series, fill and dash are the shower
  *
  * The detector series is drawn in ink (`THEME.text`), the neutral reference;
  * a model series takes the hue E2 gives its source (perf_bins.js
@@ -195,8 +195,12 @@
  * σ/μ described above. Only words change with it: the axis names are the
  * payload's, every fit, caption, note and tooltip names the plotted quantity
  * by `estimator.symbol`, a window's tooltip gives its interval by its own
- * `method`, its fit weight by `estimator.weight.method` (the bootstrap SE and
- * its κ, or the delta-method SE) and the two estimators not plotted (`alt`).
+ * `method`, its fit weight by `estimator.weight.method` (the bootstrap SE, its
+ * κ and the series' pooled scale c of se = c·ŷ/√N, `weight_scale`; or the
+ * delta-method SE) and the two estimators not plotted (`alt`). A window that
+ * carries no fit weight (tied replicates, a withheld robust interval) and a
+ * robust mode that declines to fit through one window say so by their cause,
+ * never by N (brief-fix F3, F4, F7).
  * Every mark, colour, dash and gate is as above, the gates the payload's.
  * The literature curves stay drawable under all three (Martin's override):
  * under the median, with a curve on, the payload's disclosure
@@ -223,7 +227,7 @@ export const RES_WINDOW_MODES = Object.freeze(['anchors', 'all']);
 
 /** The gates the payload states, as the server's constants (`gates`) default them. */
 const DEFAULT_GATES = Object.freeze({
-  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3, misfit_scale: 5,
+  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3, misfit_scale: 5, tail_min_n: 300,
 });
 
 /**
@@ -278,6 +282,79 @@ function intervalName(est, w) {
   return est.name === 'sample' ? 'χ²' : 'bootstrap';
 }
 
+/**
+ * A window's fit weight under the pooled-scale law of the median and robust
+ * estimators (brief-fix F1, F3, F7): 'weighted' (a measured relative SE κ),
+ * 'tied' (a bootstrap SE below 10⁻⁶ of its value: the replicates differ by
+ * rounding alone), 'withheld' (a robust value whose interval, SE and κ are
+ * withheld) or 'none'; null under the sample estimator, whose weight is the
+ * delta method.
+ */
+export function weightState(est, w) {
+  if ((est?.name ?? 'sample') === 'sample') return null;
+  if (Number.isFinite(w?.se_rel) && w.se_rel > 0) return 'weighted';
+  if (Number.isFinite(w?.se)) return 'tied';
+  if (est.name === 'robust' && Number.isFinite(w?.value)) return 'withheld';
+  return 'none';
+}
+
+/** Whether a window can enter a fit: N ≥ the fit gate, on the axis from 4 GeV, a value and, off sample, a fit weight. */
+function fittableWindow(est, w, gates) {
+  const weight = weightState(est, w);
+  return (w.n ?? 0) >= gates.fit_n && !w.off_axis && (w.p_lo ?? 0) >= gates.e_min_gev && Number.isFinite(w.value)
+    && (weight === null ? Number.isFinite(w.se_delta ?? w.se) : weight === 'weighted');
+}
+
+/**
+ * The one fittable window a robust mode declines to fit (brief-fix F4: no
+ * line through fewer than two), or null: under Robust σ (IQR), a mode that
+ * fits no window while exactly one fittable window is in its pool (from
+ * 5 GeV in the 3-anchor mode, from 4 GeV in the all-windows mode). `raw` is
+ * the payload's series, `mf` its mode block.
+ */
+export function declinedWindow(est, raw, mf, mode, gates) {
+  if (est?.name !== 'robust' || !raw || (mf?.points ?? []).length) return null;
+  const floor = mode === 'anchors' ? gates.anchor_low_gev : gates.e_min_gev;
+  const pool = (raw.windows ?? []).filter((w) => fittableWindow(est, w, gates) && (w.p_lo ?? 0) >= floor);
+  return pool.length === 1 ? pool[0] : null;
+}
+
+/**
+ * The empty state of a mode that draws nothing because Robust σ (IQR) declines
+ * every series' one fittable window (brief-fix F4), or null: each declined
+ * window named, and which mode draws it. `allName` is the all-windows button.
+ */
+function declinedEmptyText(model, allName) {
+  const declined = model.series.map((s) => declinedWindow(model.estimator, s.raw, s.mf, model.mode, model.gates)).filter(Boolean);
+  if (!declined.length || declined.length < model.series.length) return null;
+  const drawsIt = model.mode === 'anchors' ? ` "${allName}" draws ${declined.length === 1 ? 'it' : 'them'}, unfitted.` : '';
+  return `${declined.map((w) => declinedText(w)).join('; ')}: no fit, so ${model.mode === 'anchors' ? 'the 3-anchor mode draws nothing' : 'no line is drawn'}.${drawsIt}`;
+}
+
+/** The sentence a robust mode that declines its one fittable window says, in the empty state, the role line and the drawer. */
+export function declinedText(w) {
+  return `Robust σ (IQR) fits no line through fewer than two fittable windows, and only ${w.label ?? `bin ${w.bin}`} (N = ${formatInt(w.n)}) is fittable here`;
+}
+
+/** Why a nominal anchor was replaced or dropped, by the substitution's `cause`: never "too few events" unless N was the cause. */
+function substitutionWhy(sub, symbol) {
+  switch (sub?.cause) {
+    case 'tied': return 'which carries no fit weight: its bootstrap SE is below 10⁻⁶ of its value (tied replicates)';
+    case 'no_value': return `which reports no ${symbol}`;
+    case 'withheld': return 'whose robust interval is withheld, so it carries no fit weight';
+    case 'no_se': return 'which has no positive standard error, so it carries no fit weight';
+    case 'off_axis': return 'which lies off the axis, below 4 GeV';
+    default: return 'which holds too few events for this series';
+  }
+}
+
+/**
+ * The drawer's decomposition sentence (brief-fix, R-ui M3), verbatim, in the
+ * Disclosures of both views under every estimator (models_notes.js): why the
+ * three estimators of one window differ, without a payload number.
+ */
+export const RES_DECOMPOSITION = 'The three estimators differ for stated reasons: median|R − 1| is 0.6745 of a σ by definition and keeps the response\'s bias, which the two widths divide out by centring on the median; the sample width also counts the tails, which the robust width does not (each window\'s tooltip gives its share of events beyond 3 robust σ). Methodology §2.4 measures the three factors on one window.';
+
 /** The fits drawn as lines; the quadrature form is tabled only. */
 export const DRAWN_FORMS = Object.freeze(['affine', 'pinned']);
 
@@ -304,6 +381,8 @@ const X_UNIT = 'GeV⁻¹ᐟ²';
 const A_UNIT = '%·√GeV';
 
 const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
+/** "−12.3%" or "+4.5%": a signed percent, its minus the sign U+2212 (as the drawer writes a median response). */
+const signedPct = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${sigFigs(v, 3)}%` : '—');
 const sig = (v, d = 3) => sigFigs(v, d);
 const plural = (n, word, many = `${word}s`) => `${formatInt(n)} ${n === 1 ? word : many}`;
 
@@ -464,13 +543,15 @@ function withSpanEdges(curve, fit, span) {
 
 /** What one window is in the mode in force: the role line(s) its tooltip states. */
 function roleOf(payload, s, mf, mode, w, gates) {
+  const est = estimatorOf(payload);
   const fitted = (mf?.points ?? []).includes(w.bin);
   const roles = [];
+  const weight = weightState(est, w);
   if (fitted) {
     if (mode === 'anchors') {
       const sub = (mf.substitutions ?? []).find((x) => x.used === w.bin);
       roles.push(sub
-        ? `anchor of this mode, standing in for the nominal anchor ${binLabel(payload, s, sub.nominal)}, which holds too few events for this series`
+        ? `anchor of this mode, standing in for the nominal anchor ${binLabel(payload, s, sub.nominal)}, ${substitutionWhy(sub, est.symbol)}`
         : 'anchor of this mode (a nominal anchor)');
     } else {
       roles.push('fitted in this mode');
@@ -482,6 +563,12 @@ function roleOf(payload, s, mf, mode, w, gates) {
     roles.push(`below the whisker floor N = ${formatInt(gates.whisker_n)}: drawn as a faded ring, not fitted`);
   } else if (w.n < gates.fit_n) {
     roles.push(`not fitted because N < ${formatInt(gates.fit_n)}, the fit and range floor: drawn faded`);
+  } else if (weight === 'tied') {
+    roles.push('not fitted: its bootstrap SE is below 10⁻⁶ of its value (tied replicates), so it carries no fit weight; drawn in the all-windows mode only');
+  } else if (weight === 'withheld') {
+    roles.push('not fitted: its robust interval is withheld, so it carries no fit weight');
+  } else if (declinedWindow(est, s, mf, mode, gates)?.bin === w.bin) {
+    roles.push(`not fitted: ${declinedText(w)}`);
   } else {
     roles.push('not fitted in this mode');
   }
@@ -611,22 +698,25 @@ function pointTipLines(model, s, p) {
   lines.push(`⟨p⟩ = ${formatNumber(w.p_mean, 2)} GeV · x = ⟨1/√p⟩ = ${formatNumber(w.x, 4)} ${X_UNIT}`);
   const est = model.estimator ?? estimatorOf(null);
   lines.push(valueLine(est, w, p));
-  const se = seLine(est, w);
+  const se = seLine(est, s, w);
   if (se) lines.push(mutedLine(se));
   if (Number.isFinite(w.c4)) lines.push(mutedLine(`bias factor c₄(N) = ${formatNumber(w.c4, 4)}: below N = 15 the sample SD runs low by this factor`));
   if (est.name === 'sample') {
     if (Number.isFinite(w.bias)) lines.push(mutedLine(`bias R̄ − 1 = ${pct(w.bias)}: the estimator's own bias, divided out of σ/E`));
   } else if (Number.isFinite(w.median_response) || Number.isFinite(w.bias)) {
-    lines.push(mutedLine(`median response R̃ − 1 = ${pct(w.median_response)}; mean bias R̄ − 1 = ${pct(w.bias)}`));
+    lines.push(mutedLine(`median response R̃ − 1 = ${signedPct(w.median_response)}; mean bias R̄ − 1 = ${signedPct(w.bias)}`));
   }
   if (Number.isFinite(w.momentum_spread)) {
     lines.push(mutedLine(`momentum spread σ_p/⟨p⟩ = ${pct(w.momentum_spread)} in the window, divided out event by event by R = E_est / p`));
   }
   if (w.dof_note) lines.push(mutedLine(String(w.dof_note)));
-  for (const line of crossLines(est, s, w)) lines.push(mutedLine(line));
+  for (const line of crossLines(est, s, w, gates)) lines.push(mutedLine(line));
   for (const role of p.roles) lines.push(`Role: ${escapeHtml(role)}`);
-  lines.push(mutedLine(p.whisker ? whiskerText(est, w)
-    : `No whisker: N = ${formatInt(w.n)} is below the N = ${formatInt(gates.whisker_n)} floor for a drawn interval; ${est.quantity} is reported from N = ${formatInt(gates.report_n)}.`));
+  let whiskerLine;
+  if (p.whisker) whiskerLine = whiskerText(est, w);
+  else if (weightState(est, w) === 'withheld') whiskerLine = 'No whisker: this window\'s robust interval is withheld (the note above says why); its value is drawn as a faded dashed ring.';
+  else whiskerLine = `No whisker: N = ${formatInt(w.n)} is below the N = ${formatInt(gates.whisker_n)} floor for a drawn interval; ${est.quantity} is reported from N = ${formatInt(gates.report_n)}.`;
+  lines.push(mutedLine(whiskerLine));
   if (p.over || p.clip?.cutLo || p.clip?.cutHi) {
     lines.push(mutedLine(`clipped at the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}); the values above are the true ones`));
   }
@@ -648,14 +738,22 @@ function valueLine(est, w, p) {
 }
 
 /**
- * The fit weight's line, by `estimator.weight.method`: the bootstrap SE and
- * its relative SE κ (median, robust), or the delta-method SE (sample, as ever).
+ * The fit weight's line, by `estimator.weight.method`: under median and robust
+ * the bootstrap SE with its relative SE κ and the series' pooled scale c of
+ * the weight se = c·ŷ/√N (brief-fix F1), or a tied window's SE, which carries
+ * no fit weight (F3); the delta-method SE under sample, as ever. A withheld
+ * robust window has no SE and no line: its `dof_note` says why (F7).
  */
-function seLine(est, w) {
+function seLine(est, s, w) {
   if (est.weight === 'kappa') {
     if (!Number.isFinite(w.se)) return null;
-    const kappa = Number.isFinite(w.se_rel) ? `${sig(100 * w.se_rel)}%` : '—';
-    return `bootstrap SE ${pct(w.se)}: the fit weight 1/se², its relative SE κ = ${kappa} applied at the fitted value`;
+    if (!(Number.isFinite(w.se_rel) && w.se_rel > 0)) {
+      return `bootstrap SE ${pct(w.se)}: below 10⁻⁶ of the value (tied replicates), so no fit weight`;
+    }
+    const c = s?.raw?.weight_scale?.c;
+    return Number.isFinite(c)
+      ? `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`
+      : `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); no fit weight: no window of this series from ${formatNumber(DEFAULT_GATES.e_min_gev)} GeV carries one, so it has no pooled scale c`;
   }
   return Number.isFinite(w.se_delta)
     ? `delta-method SE ${pct(w.se_delta)} (R̄'s error included): the fit weight 1/se², recomputed at the fitted value`
@@ -670,12 +768,12 @@ function seLine(est, w) {
  * series, c̃·E_dep for the deposit. Under the sample estimator the median
  * response R̃ − 1 leads them, its bias line being the old one.
  */
-function crossLines(est, s, w) {
+function crossLines(est, s, w, gates = DEFAULT_GATES) {
   const out = [];
   const shower = s.raw?.shower ?? 'a';
   const deposit = s.raw?.source === 'detector';
   const cal = est.calibration?.[shower] ?? null;
-  if (est.name === 'sample' && Number.isFinite(w.median_response)) out.push(`median response R̃ − 1 = ${pct(w.median_response)}`);
+  if (est.name === 'sample' && Number.isFinite(w.median_response)) out.push(`median response R̃ − 1 = ${signedPct(w.median_response)}`);
   if (w.alt && typeof w.alt === 'object') {
     const parts = ALT_NAMES.filter(([key]) => key !== est.name).map(([key, name]) => {
       const v = w.alt[key];
@@ -688,10 +786,13 @@ function crossLines(est, s, w) {
     });
     out.push(`Not plotted: ${parts.join('; ')}`);
   }
+  const tailFloor = gates.tail_min_n ?? DEFAULT_GATES.tail_min_n;
   if (Number.isFinite(w.tail_share)) {
-    out.push(`${pct(w.tail_share)} of events beyond 3 robust σ (0.27% for a Gaussian)`);
-  } else if (w.tail_share === null && (w.n ?? 0) < ROBUST_MIN_N) {
-    out.push(`share of events beyond 3 robust σ not reported below N = ${formatInt(ROBUST_MIN_N)}`);
+    out.push(`${pct(w.tail_share)} of events beyond 3 robust σ (0.27% for a large Gaussian sample)`);
+  } else if ((w.n ?? 0) < tailFloor) {
+    out.push(`share beyond 3 robust σ not reported below N = ${formatInt(tailFloor)}: a Gaussian sample of fewer events exceeds 0.27% by chance`);
+  } else {
+    out.push('share beyond 3 robust σ not reported: the window\'s IQR is 0, so there is no robust σ to measure it in');
   }
   if (est.name === 'median') {
     if (!deposit) out.push('the Median rel. of Model Error vs. Incident Momentum: the same events, seed and interval');
@@ -1000,6 +1101,8 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
     // Windows that report a value (N ≥ report_n) but cannot anchor a fit (N < whisker_n): the anchors mode draws none of them.
     const reportable = model.series.reduce((a, s) => a + (s.raw.windows ?? []).filter((w) => !w.off_axis
       && (w.p_lo ?? 0) >= gates.e_min_gev && (w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)).length, 0);
+    const declined = declinedEmptyText(model, `All ≥ ${formatNumber(gates.e_min_gev)} GeV`);
+    if (declined) return emptyChartOption(opts, metrics, `${declined}${listed}`);
     if (model.mode === 'anchors' && reportable && model.y.hi > 0) {
       return emptyChartOption(opts, metrics, `No window from ${formatNumber(gates.anchor_low_gev)} GeV reaches N = ${formatInt(gates.whisker_n)}, `
         + `the fewest an anchor fit runs through, so the 3-anchor mode draws nothing. "All ≥ ${formatNumber(gates.e_min_gev)} GeV" draws the `
@@ -1099,7 +1202,7 @@ function termCells(fit) {
   return [a, b];
 }
 
-/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or robust. */
+/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or N ≥ 20 throughout. */
 function statusCell(fit, mf, gates) {
   if (!fit) return 'too few windows';
   const status = [];
@@ -1107,7 +1210,7 @@ function statusCell(fit, mf, gates) {
   if (isMisfit(fit)) status.push(`form does not describe its windows (S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale)})`);
   if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
   if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
-  return status.length ? status.join('; ') : `robust (N${NBSP}≥${NBSP}${formatInt(gates.fit_n)})`;
+  return status.length ? status.join('; ') : `N${NBSP}≥${NBSP}${formatInt(gates.fit_n)} throughout`;
 }
 
 /**
@@ -2957,6 +3060,8 @@ function energyEmptyText(model) {
   const { gates } = model;
   const reportable = model.series.reduce((a, s) => a + (s.raw.windows ?? [])
     .filter((w) => (w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)).length, 0);
+  const declined = declinedEmptyText(model, 'All windows');
+  if (declined) return declined;
   if (model.mode === 'anchors' && reportable && model.y.hi > 0) {
     return `No window from ${formatNumber(gates.anchor_low_gev)} GeV reaches N = ${formatInt(gates.whisker_n)}, the fewest an anchor fit runs through, `
       + `so the 3-anchor mode draws nothing. "All windows" draws the ${plural(reportable, 'window')} that report ${model.estimator.quantity} `

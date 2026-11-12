@@ -349,10 +349,10 @@ function intervalText(model, p) {
 /**
  * Median rel. is not a σ (Martin's decision of 2026-11-12, brief section 4): the
  * first sentence is the energy task's tooltip line, the whole text the drawer's
- * reconciliation with the Energy Resolution card.
+ * reconciliation with the card of the Energy resolution section.
  */
 export const MEDIAN_REL_NOT_SIGMA = 'Median rel. is median |pred − true| / true, not a σ: for unbiased Gaussian errors it is 0.6745·σ/E.';
-export const MEDIAN_REL_RECONCILIATION = `${MEDIAN_REL_NOT_SIGMA} The Energy Resolution card plots the same number by default (Median |rel. err.|) and offers a robust σ/E (IQR) of the same showers for a σ-scaled comparison.`;
+export const MEDIAN_REL_RECONCILIATION = `${MEDIAN_REL_NOT_SIGMA} The card of the Energy resolution section plots the same number by default (Median |rel. err.|) and offers a robust σ/E (IQR) of the same showers for a σ-scaled comparison.`;
 
 /** The energy task's median relative error, the quantity the reconciliation belongs to (not the angle task's). */
 export const isEnergyMedianRel = (model) => model.quantity === 'median_rel' && model.model !== 'angle';

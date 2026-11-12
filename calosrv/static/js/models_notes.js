@@ -25,6 +25,7 @@ import { formatInt, formatNumber, formatPercent } from './scale.js';
 import { sigmaText, sigFigs } from './panels/chart_panel.js';
 import {
   resolutionModel, modeLabel, DRAWN_FORMS, energyModel, ENERGY_FORMS, RATIO_STEPS, ratioTickLabel, referenceChoiceText,
+  weightState, declinedWindow, declinedText, RES_DECOMPOSITION,
 } from './panels/resolution_scaling.js';
 import { REFERENCE_SOURCE, RESOLUTION_REFERENCES, referenceEquation } from './catalog/resolution_refs.js';
 import { LITERATURE_HUES } from './palette.js';
@@ -586,15 +587,18 @@ function resWords(payload, gates) {
     whiskerLegend: (sample
       ? 'The capped whisker is the 95% χ² interval of the window\'s σ/E (N − 1 degrees of freedom, R̄\'s own error neglected): the uncertainty of the aggregate, never the spread of its events.'
       : `The capped whisker is the 95% interval of the window's ${symbol}: ${sentence(est.interval?.label ?? 'a bootstrap interval')} It is the uncertainty of the aggregate, never the spread of its events.`)
-      + ` It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`,
-    // The fit weights: the clause inside "each by weighted least squares" and, off sample, the server's own sentence.
+      + (name === 'robust'
+        ? ` It is drawn from N = ${formatInt(gates.whisker_n)}, the robust floor, below which no window is drawn.`
+        : ` It is drawn from N = ${formatInt(gates.whisker_n)}; windows below N = ${formatInt(gates.fit_n)} are faded, never below 3:1 against the card.`),
+    // The fit weights: the clause inside "each by weighted least squares" and, off sample, the server's own
+    // sentence, which describes the series' pooled scale c (brief-fix F1), never a window's own κ.
     weightClause: sample
       ? 'weights 1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and iterated'
-      : `weights 1/se², se = κ·ŷ with κ the window's bootstrap relative standard error of the ${symbol}, recomputed at the fitted value and iterated`,
+      : 'weights 1/se², se = c·ŷ/√N with c the series\' pooled scale (below), recomputed at the fitted value and iterated',
     weightSentence: sample ? '' : sentence(est.weight?.label ?? ''),
     // Why a window is not estimable.
     unreportedWhy: (w) => ((w.n ?? 0) < gates.report_n ? `N = ${formatInt(w.n ?? 0)}`
-      : (name === 'robust' ? 'median R ≤ 0' : (name === 'median' ? 'no median' : 'R̄ ≤ 0'))),
+      : (name === 'robust' ? 'median R ≤ 0' : (name === 'median' ? 'no median calibration c̃' : 'R̄ ≤ 0'))),
   };
 }
 
@@ -622,7 +626,9 @@ function calibrationLines(w) {
   for (const [key, c] of showers) {
     const owner = showers.length > 1 ? `Shower ${String(key).toUpperCase()}` : 'The deposit';
     lines.push(Number.isFinite(c.c_median)
-      ? `${owner}: c̃ = ${sigFigs(c.c_median, 6)} beside c_sum = ${sigFigs(c.c_sum, 6)} (${plural(c.n ?? 0, 'event')} with E_dep > 0${c.n_zero_deposit ? `, ${formatInt(c.n_zero_deposit)} with a zero deposit left out` : ''}); the median calibration c̃ makes the deposit's median response over the selection exactly 1.`
+      ? `${owner}: c̃ = ${sigFigs(c.c_median, 6)} beside c_sum = ${sigFigs(c.c_sum, 6)} (${plural(c.n ?? 0, 'event')} with E_dep > 0${c.n_zero_deposit ? `, ${formatInt(c.n_zero_deposit)} with a zero deposit left out of c̃` : ''}); `
+        + `the median calibration c̃ makes the deposit's median response exactly 1 over the selection's events with E_dep > 0${c.n_zero_deposit ? ', not over the zero-deposit events, which stay in the windows' : ''}`
+        + `${Number.isFinite(c.c_sum) && c.c_median > 0 ? `; c_sum would give them a median response c_sum/c̃ − 1 = ${signedPct(100 * (c.c_sum / c.c_median - 1))}` : ''}.`
       : `${owner}: no c̃, no selected event has E_dep > 0 (c_sum = ${sigFigs(c.c_sum, 6)}), so the deposit has no median value.`);
   }
   return lines.filter(Boolean);
@@ -652,13 +658,90 @@ function responseRangeLines(w, model) {
   return lines;
 }
 
-/** Under robust: the windows of 2 ≤ N < 20 with no value, which Sample σ/μ draws. */
+/**
+ * Under robust: the windows of 2 ≤ N < 20 with no value, which Sample σ/μ
+ * draws, and, never blamed on N (brief-fix F3, F7), the windows of N ≥ 20
+ * with no robust σ/E (median response ≤ 0) and those whose interval is
+ * withheld. The server's count of the same is not reprinted (`restatedNote`).
+ */
 function robustFloorLine(w, model) {
   if (w.name !== 'robust') return '';
   const floor = model.gates.report_n;
-  const below = model.series.flatMap((s) => (s.raw.windows ?? []).filter((x) => (x.n ?? 0) >= 2 && (x.n ?? 0) < floor && !Number.isFinite(x.value)));
-  return `${plural(below.length, 'window')} of 2 ≤ N < ${formatInt(floor)} ${below.length === 1 ? 'has' : 'have'} no Robust σ/E, below its floor of N = ${formatInt(floor)} (the CLAUDE.md robust floor), `
+  const windows = model.series.flatMap((s) => s.raw.windows ?? []);
+  const below = windows.filter((x) => (x.n ?? 0) >= 2 && (x.n ?? 0) < floor && !Number.isFinite(x.value));
+  const bare = windows.filter((x) => (x.n ?? 0) >= floor && !Number.isFinite(x.value));
+  const withheld = windows.filter((x) => weightState({ name: 'robust' }, x) === 'withheld');
+  let line = `${plural(below.length, 'window')} of 2 ≤ N < ${formatInt(floor)} ${below.length === 1 ? 'has' : 'have'} no Robust σ/E, below its floor of N = ${formatInt(floor)} (the CLAUDE.md robust floor), `
     + `so ${below.length === 1 ? 'it is' : 'they are'} not drawn; Sample σ/μ reports ${below.length === 1 ? 'it' : 'them'} from N = 2.`;
+  if (bare.length) {
+    const one = bare.length === 1;
+    line += ` ${plural(bare.length, 'window')} of N ≥ ${formatInt(floor)} ${one ? 'reports' : 'report'} no Robust σ/E because ${one ? 'its' : 'their'} median response is not positive, so ${one ? 'it is' : 'they are'} not drawn either.`;
+  }
+  if (withheld.length) {
+    const one = withheld.length === 1;
+    line += ` ${plural(withheld.length, 'window')} ${one ? 'reports' : 'report'} a Robust σ/E whose interval is withheld: more than 2.5% of ${one ? 'its' : 'their'} bootstrap replicates have a median R ≤ 0, so no whisker, SE or fit weight.`;
+  }
+  return line;
+}
+
+/** The drawer's decomposition sentence (brief-fix, R-ui M3), the panel's `RES_DECOMPOSITION`, re-exported for the tests. */
+export { RES_DECOMPOSITION };
+
+/**
+ * Each series' pooled scale c of the fit weights se = c·ŷ/√N (brief-fix F1,
+ * the payload's `weight_scale`), as one What-is-drawn line; '' under sample.
+ */
+function pooledScaleLine(w, model) {
+  if (w.sample) return '';
+  const { gates } = model;
+  const parts = model.series.map((s) => {
+    const ws = s.raw.weight_scale;
+    if (!ws) return null;
+    if (!Number.isFinite(ws.c)) return `${s.label}: none, no window from ${formatNumber(gates.e_min_gev)} GeV carries a fit weight, so no fit`;
+    const strong = (s.raw.windows ?? []).some((x) => (x.n ?? 0) >= gates.fit_n && !x.off_axis && (x.p_lo ?? 0) >= gates.e_min_gev
+      && weightState({ name: w.name }, x) === 'weighted');
+    return `${s.label}: c = ${sigFigs(ws.c, 3)} over ${plural(ws.n_windows ?? 0, 'window')}`
+      + (strong ? '' : ` of N ≥ ${formatInt(gates.whisker_n)}, since no window of N ≥ ${formatInt(gates.fit_n)} carries a fit weight`);
+  }).filter(Boolean);
+  return parts.length
+    ? `The pooled scale c, one per series, cancels in the fitted parameters and sets only χ², S and the errors: ${parts.join('; ')}.`
+    : '';
+}
+
+/**
+ * The windows that carry no fit weight for a reason other than N (brief-fix
+ * F3, F7), as Disclosures lines: per series its tied windows of N ≥ 20 on the
+ * axis, and the drawn windows whose robust interval is withheld. `points` are
+ * the drawn windows of the view.
+ */
+function noWeightLines(w, model, points) {
+  if (w.sample) return [];
+  const { gates } = model;
+  const lines = [];
+  for (const s of model.series) {
+    const tied = (s.raw.windows ?? []).filter((x) => (x.n ?? 0) >= gates.fit_n && !x.off_axis && weightState({ name: w.name }, x) === 'tied');
+    if (!tied.length) continue;
+    const one = tied.length === 1;
+    lines.push(`${s.label}: ${plural(tied.length, 'window')} of N ≥ ${formatInt(gates.fit_n)} (${tied.map((x) => x.label).join(', ')}) ${one ? 'carries' : 'carry'} no fit weight: `
+      + `${one ? 'its' : 'their'} bootstrap SE is below 10⁻⁶ of ${one ? 'its' : 'their'} value (tied replicates, which differ by rounding alone), so ${one ? 'it is' : 'they are'} drawn in the all-windows mode only, never fitted.`);
+  }
+  const withheld = points.filter((p) => weightState({ name: w.name }, p.w) === 'withheld').length;
+  if (withheld) {
+    const one = withheld === 1;
+    lines.push(`${plural(withheld, 'window')} ${one ? 'is' : 'are'} drawn as a faded dashed ring with no whisker and not fitted: ${one ? 'its' : 'their'} robust interval is withheld, `
+      + 'more than 2.5% of the bootstrap replicates having a median R ≤ 0, which would cut the interval\'s upper tail; the tooltip gives the count.');
+  }
+  return lines;
+}
+
+/** The series of the mode in force whose robust fit declines its one fittable window (brief-fix F4), as Disclosures lines. */
+function declinedLines(w, model) {
+  if (w.name !== 'robust') return [];
+  return model.series.map((s) => {
+    const one = declinedWindow({ name: w.name }, s.raw, s.mf, model.mode, model.gates);
+    if (!one) return '';
+    return `${s.label}: ${declinedText(one)}, so no fit is drawn${model.mode === 'anchors' ? '; the window is drawn in the all-windows mode' : '; the window is drawn unfitted'}.`;
+  }).filter(Boolean);
 }
 
 /** The relation and MAE/E sentence closing the Disclosures, by estimator; sample keeps today's. */
@@ -673,10 +756,34 @@ function relationLine(w) {
     : `${sentence(rel)} ${mae} This card plots the robust width IQR(R) / (1.349 · median R) and never converts one into another.`;
 }
 
+/**
+ * A series' on-axis windows that are not drawn because they report no value,
+ * as Disclosures lines. Under robust the ones below the robust floor are
+ * named as such (never "not estimable"), apart from those of N ≥ 20 whose
+ * median response is not positive; the other estimators keep one line.
+ */
+function unreportedLines(w, s, gates) {
+  if (!s.unreported.length) return [];
+  const list = (xs) => xs.map((x) => `${x.label} (${w.unreportedWhy(x)})`).join(', ');
+  if (w.name !== 'robust') {
+    return [`${s.label}: on the axis but not drawn, ${w.symbol} not estimable: ${list(s.unreported)}; ${w.symbol} is reported from N = ${formatInt(gates.report_n)}.`];
+  }
+  const below = s.unreported.filter((x) => (x.n ?? 0) < gates.report_n);
+  const bare = s.unreported.filter((x) => (x.n ?? 0) >= gates.report_n);
+  return [
+    below.length ? `${s.label}: on the axis but not drawn, below the robust floor of N = ${formatInt(gates.report_n)}, from which Robust σ/E is reported: ${list(below)}.` : '',
+    bare.length ? `${s.label}: on the axis but not drawn, no Robust σ/E because the median response is not positive: ${list(bare)}.` : '',
+  ].filter(Boolean);
+}
+
 /** The payload notes the builder states itself, from structure, in the section they belong to. */
 function restatedNote(line, labels) {
   return labels.some((label) => line.startsWith(`${label} (`))
-    || /^Off the axis:|^The y range follows|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median/.test(line);
+    || /^Off the axis:|^The y range follows|^The y range is provisional:|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median/.test(line)
+    // The median calibration c̃ (calibrationLines), the robust floor count (robustFloorLine) and the tied windows (noWeightLines).
+    || /: c̃ = 1 \/ median\(E_dep \/ p\) = .* so the deposit's median response over them is 1/.test(line)
+    || /^[\d,]+ of the [\d,]+ windows across the series hold N < /.test(line)
+    || /: [\d,]+ windows? with a bootstrap SE below 10⁻⁶ of (?:its|their) value/.test(line);
 }
 
 /**
@@ -886,15 +993,16 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       ? 'The windows control reads "3 anchors": only the windows the 3-anchor fit used are drawn.'
       : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a ${w.symbol} is drawn, those below ${curveMin} GeV as points only, since no fit uses them.`}`,
     `${plural(model.nPoints, 'window')} and ${plural(model.nLines, 'fit curve')} are drawn in this view.`,
-    'Two fits per series can be drawn, each by weighted least squares with the 1/√E view\'s iterated weights: the quadrature a/√E ⊕ b = √(a²/E + b²), fitted as (σ/E)² = A/E + B and drawn only where both terms are defined (A > 0 and B > 0), '
+    `Two fits per series can be drawn, each by weighted least squares with the 1/√E view's iterated weights: the quadrature a/√E ⊕ b = √(a²/E + b²), fitted as (${w.symbol})² = A/E + B and drawn only where both terms are defined (A > 0 and B > 0), `
       + 'and the origin-pinned a₀/√E ⊕ 0, always. The affine a/√E + b is drawn in the 1/√E view and stays in the fit table; on that view the quadrature fit is tabled, never drawn.',
     w.weightSentence,
+    pooledScaleLine(w, model),
     `Each curve is solid over the span of the windows it was fitted to (the lowest window edge to the highest: ${spanRule}) and dashed beyond it, up to ${formatNumber(x.max)} GeV and down to ${curveMin} GeV; `
       + `no curve is drawn below ${curveMin} GeV, the lowest window edge any fit can use. Its 95% band continues over the dashed parts at one third of its strength.`,
     `The energy axis is linear from 0 to ${formatNumber(x.max)} GeV in steps of ${formatNumber(x.interval)} GeV${Number.isFinite(model.dataMaxGev) ? `; the highest window edge is ${formatNumber(model.dataMaxGev)} GeV` : ''}. `
       + `${capital(w.symbol)} starts at zero and ends at ${pct(y.hi)}${y.provisional ? ' (provisional)' : ''}.`,
     ...model.notes.map((note, i) => (i === 0 ? rangeBasis(note) : note)).filter(Boolean).map(sentence),
-    'The ratio panel shares the energy axis. A window is drawn as its σ/E divided by the reference at its E and its whisker, where it has one, as the two ends of its interval divided the same way; each drawn fit is divided by the reference too, with its band divided the same way; the fit that is the reference is not drawn, being 1 by construction.',
+    `The ratio panel shares the energy axis. A window is drawn as its ${w.symbol} divided by the reference at its E and its whisker, where it has one, as the two ends of its interval divided the same way; each drawn fit is divided by the reference too, with its band divided the same way; the fit that is the reference is not drawn, being 1 by construction.`,
     ...refLines,
     `The ratio axis is logarithmic and symmetric about 1, from ${kText}, so a factor k above 1 and a factor k below lie at equal distances from the 1.0 rule; `
       + `k is the first of ${RATIO_STEPS.map(String).join(', ')} that covers the robust ratio marks, the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), `
@@ -910,12 +1018,19 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     const reported = (payload.series ?? []).flatMap((s) => s.windows ?? [])
       .filter((w) => Number.isFinite(w.value) && (w.n ?? 0) >= gates.report_n);
     const weakFrom = reported.filter((w) => (w.p_lo ?? 0) >= model.yMinGev && w.n < gates.fit_n).length;
+    // Windows of N ≥ 20 from the floor that still set nothing carry no fit weight: never blamed on N (brief-fix F3).
+    const unweighted = reported.filter((x) => (x.p_lo ?? 0) >= model.yMinGev && x.n >= gates.fit_n
+      && ['tied', 'withheld', 'none'].includes(weightState({ name: w.name }, x))).length;
     const belowFloor = reported.filter((w) => (w.p_lo ?? 0) < model.yMinGev).length;
     const by = [
       weakFrom && `the ${plural(weakFrom, 'window')} of N < ${formatInt(gates.fit_n)} from ${yMin} GeV`,
+      unweighted && `the markers of the ${plural(unweighted, 'window')} of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV without a fit weight`,
       belowFloor && `the markers of the ${plural(belowFloor, 'window')} below ${yMin} GeV`,
     ].filter(Boolean);
-    dis.push(`The y range is provisional: no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}${by.length
+    const cause = unweighted
+      ? `no window from ${yMin} GeV of N ≥ ${formatInt(gates.fit_n)} carries a fit weight (What is drawn names the causes)`
+      : `no window from ${yMin} GeV reaches N = ${formatInt(gates.fit_n)}`;
+    dis.push(`The y range is provisional: ${cause}${by.length
       ? `, so it is set by weaker windows of the response, ${by.join(' and ')}`
       : `, and no window of the response reports ${w.symbol}, so nothing on the plot sets it`}.`);
   } else {
@@ -948,8 +1063,8 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const floorCut = drawn.filter(({ f }) => f.floorCut);
   if (floorCut.length) {
     const why = [
-      floorCut.some(({ f }) => f.form === 'quadrature') && 'for the quadrature fit, where the band of (σ/E)² falls below zero, its lower edge is cut at 0',
-      floorCut.some(({ f }) => f.form === 'pinned') && 'for the origin-pinned fit, where a₀/√E − q·SE(a₀)/√E would be negative, its lower edge is cut at σ/E = 0',
+      floorCut.some(({ f }) => f.form === 'quadrature') && `for the quadrature fit, where the band of (${w.symbol})² falls below zero, its lower edge is cut at 0`,
+      floorCut.some(({ f }) => f.form === 'pinned') && `for the origin-pinned fit, where a₀/√E − q·SE(a₀)/√E would be negative, its lower edge is cut at ${w.symbol} = 0`,
     ].filter(Boolean);
     dis.push(`${plural(floorCut.length, 'fit')} ${floorCut.length === 1 ? 'has the lower edge of its band' : 'have the lower edges of their bands'} cut at 0: `
       + `${floorCut.map(({ s, f }) => `${s.label}, ${ENERGY_FORM_NAMES[f.form]}`).join('; ')}; ${why.join('; ')}.`);
@@ -1010,7 +1125,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const weakAlone = weak.length - weakFitted;
   if (weakFitted) dis.push(`${plural(weakFitted, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakFitted === 1 ? 'its' : 'their'} ${w.whisker} and fitted, in a provisional fit.`);
   if (weakAlone) dis.push(`${plural(weakAlone, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakAlone === 1 ? 'its' : 'their'} ${w.whisker}, not fitted.`);
-  const sub = points.filter((p) => p.subFloor).length;
+  const sub = points.filter((p) => p.subFloor && weightState({ name: w.name }, p.w) !== 'withheld').length;
   if (sub) dis.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: ${w.symbol} is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
   const below = points.filter((p) => p.below4);
   if (below.length) {
@@ -1028,13 +1143,10 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     const names = [...new Set(belowAnchors.flatMap((s) => s.points
       .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
     dis.push(`This mode fits every window from ${curveMin} GeV, ${names.join(', ')} included (${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, `
-      + 'the anchors\' floor, the sampling fraction is still rising and a/√E ⊕ b may not describe σ/E.');
+      + `the anchors' floor, the sampling fraction is still rising and a/√E ⊕ b may not describe ${w.symbol}${w.symbol.endsWith('.') ? '' : '.'}`);
   }
-  for (const s of model.series) {
-    if (!s.unreported.length) continue;
-    dis.push(`${s.label}: on the axis but not drawn, ${w.symbol} not estimable: `
-      + `${s.unreported.map((x) => `${x.label} (${w.unreportedWhy(x)})`).join(', ')}; ${w.symbol} is reported from N = ${formatInt(gates.report_n)}.`);
-  }
+  for (const s of model.series) dis.push(...unreportedLines(w, s, gates));
+  dis.push(...noWeightLines(w, model, points), ...declinedLines(w, model));
 
   // The ratio panel.
   dis.push(ratio.provisional
@@ -1097,7 +1209,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       ? `; the ${ratioOut.join(' and ')} curve's ratio leaves the ratio axis, clipped there with a caret` : ''}.`);
   }
   dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
-  dis.push(relationLine(w));
+  dis.push(relationLine(w), RES_DECOMPOSITION);
   dis.push(...calibrationLines(w));
   dis.push(robustFloorLine(w, model));
   dis.push(...responseRangeLines(w, model));
@@ -1117,13 +1229,13 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   // ---- Marks and legend
   const extrapolation = model.noteText.extrapolation;
   notes.section(SECTION.legend, [
-    'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in the series\' colour at each curve\'s right end, in a column beside the plot, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
+    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in the series\' colour at each curve\'s right end, in a column beside the plot, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
     'The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is the quadrature a/√E ⊕ b, the thinner the origin-pinned a₀/√E ⊕ 0. '
-      + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is provisional or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
+      + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is ${w.name === 'robust' ? '' : 'provisional or '}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     w.whiskerLegend,
-    'The shaded bands are the fits\' 95% confidence bands: the quadrature band is the square root of the band of z = (σ/E)² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band\'s strength; q is 1.96, or Student\'s t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters\' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series\' colour, solid over the span and dashed beyond, never as a wash.',
+    `The shaded bands are the fits' 95% confidence bands: the quadrature band is the square root of the band of z = (${w.symbol})² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band's strength; q is 1.96, or Student's t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash.`,
     literatureLegendLine(model),
-    `The ratio panel: the 1.0 rule in ink marks σ/E equal to the reference; ${lit
+    `The ratio panel: the 1.0 rule in ink marks ${w.symbol} equal to the reference; ${lit
       ? 'no band about 1 is drawn, since the literature curve has no interval reported'
       : 'a muted wash is the reference fit\'s own 95% band about 1, fainter beyond its fitted span (two thin muted edges where it spans half the axis or more within that span)'}; the axis is logarithmic and symmetric about 1, with ticks at 1 and at the round steps up to k with their reciprocals, which read 1/x below 1, so ÷3 reads 1/3 beside 3.`,
     `A linked crosshair crosses both panels at one E and reads it on the bottom axis, an exact coordinate readout and no data mark; the item tooltips carry the values. A caret at an axis edge marks a mark clipped there, its true values in its tooltip; a muted caret on the ratio panel marks where the reference's band about 1 leaves it. The note above the plot lists the windows above the top${extrapolation ? ` and states the extrapolation rule ("${extrapolation}")` : ''}. A legend entry shows or hides every mark of its series.`,
@@ -1168,7 +1280,7 @@ export function resolutionScalingNotes({
   const nominal = payload.anchors?.labels ?? [];
   // A series with fewer than two windows of N ≥ 20 is fitted provisionally, through its weaker windows.
   const provisional = model.series.some((s) => s.provisional);
-  const weakRule = mode === 'anchors' ? ''
+  const weakRule = mode === 'anchors' || w.name === 'robust' ? ''
     : provisional
       ? `; windows of N < ${formatInt(gates.fit_n)} are drawn faded, and fitted only by a series with fewer than two windows of N ≥ ${formatInt(gates.fit_n)}, whose fit is then provisional`
       : `; windows of N < ${formatInt(gates.fit_n)} are drawn faded and not fitted`;
@@ -1176,8 +1288,9 @@ export function resolutionScalingNotes({
     est.definition ? sentence(est.definition) : '',
     `Each window is the producer's 1 GeV momentum bin; its abscissa is x = ⟨1/√p⟩ over its events, in GeV⁻¹ᐟ², on a reversed axis from 0.5 (4 GeV) at the left to 0 (E → ∞) at the right border, and ${w.symbol} starts at zero, so the bottom-right corner is the origin.`,
     `Mode drawn: ${modeLabel(mode, gates)}${weakRule}.`,
-    'Two fits per series are drawn, each by weighted least squares with ' + w.weightClause + `: the affine ${w.symbol} = a/√E + b and the origin-pinned ${w.symbol} = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled under the plot, not drawn.`,
+    'Two fits per series are drawn, each by weighted least squares with ' + w.weightClause + `: the affine ${w.symbol} = a/√E + b and the origin-pinned ${w.symbol} = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (${w.symbol})² = A/E + B and tabled under the plot, not drawn.`,
     w.weightSentence,
+    pooledScaleLine(w, model),
     payload.anchors?.rule
       ? `Anchors${nominal.length ? ` (nominal: ${nominal.join(', ')})` : ''}: ${sentence(payload.anchors.rule)}`
       : '',
@@ -1187,7 +1300,13 @@ export function resolutionScalingNotes({
 
   // ---- Disclosures
   const disclosures = [];
-  if (model.y.provisional) disclosures.push(`The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows; no fit sets it.`);
+  // A provisional range takes the server's own basis, which names why no window sets it (N, or no fit weight: brief-fix F3).
+  const provisionalBasis = noteLines(payload.notes).find((line) => line.startsWith('The y range is provisional:'));
+  if (model.y.provisional) {
+    disclosures.push(provisionalBasis
+      ? `${provisionalBasis.replace(/\s*No fit sets it:.*$/su, '')} No fit sets it.`
+      : `The y range is provisional: no window reaches N = ${formatInt(gates.fit_n)}, so it is set by weaker windows; no fit sets it.`);
+  }
   else {
     disclosures.push(`The y range follows the windows with N ≥ ${formatInt(gates.fit_n)} (whiskers included) alone, from zero: a fit summarises its windows and is not more evidence, `
       + 'so no fitted line or band sets it.');
@@ -1223,12 +1342,9 @@ export function resolutionScalingNotes({
         + `${off.map((w) => `${w.label} ${Number.isFinite(w.value) ? pct(w.value) : 'not estimable'} (N = ${formatInt(w.n)})`).join(', ')}.`);
     }
   }
-  for (const s of model.series) {
-    if (!s.unreported.length) continue;
-    disclosures.push(`${s.label}: on the axis but not drawn, ${w.symbol} not estimable: `
-      + `${s.unreported.map((x) => `${x.label} (${w.unreportedWhy(x)})`).join(', ')}; ${w.symbol} is reported from N = ${formatInt(gates.report_n)}.`);
-  }
+  for (const s of model.series) disclosures.push(...unreportedLines(w, s, gates));
   const points = model.series.flatMap((s) => s.points);
+  disclosures.push(...noWeightLines(w, model, points));
   const weak = points.filter((p) => p.weak && !p.subFloor);
   const weakFitted = weak.filter((p) => p.fitted).length;
   const weakAlone = weak.length - weakFitted;
@@ -1241,9 +1357,9 @@ export function resolutionScalingNotes({
       .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
     disclosures.push(`This mode fits every window from ${formatNumber(gates.e_min_gev)} GeV, ${windows.join(', ')} included `
       + `(${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, the anchors' floor, the sampling `
-      + 'fraction is still rising and a/√E + b may not describe σ/E.');
+      + `fraction is still rising and a/√E + b may not describe ${w.symbol}${w.symbol.endsWith('.') ? '' : '.'}`);
   }
-  const sub = points.filter((p) => p.subFloor).length;
+  const sub = points.filter((p) => p.subFloor && weightState({ name: w.name }, p.w) !== 'withheld').length;
   if (sub) disclosures.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: ${w.symbol} is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
   for (const s of model.series) {
     const mf = s.mf;
@@ -1252,7 +1368,9 @@ export function resolutionScalingNotes({
     if (mode === 'anchors') for (const x of mf.substitutions ?? []) disclosures.push(`${s.label}: ${sentence(x.reason)}`);
     const affine = mf.affine;
     const pinned = mf.pinned;
-    if (!affine) disclosures.push(`${s.label}: fewer than two windows to fit, so no line is drawn.`);
+    const declined = declinedWindow({ name: w.name }, s.raw, mf, mode, gates);
+    if (declined) disclosures.push(`${s.label}: ${declinedText(declined)}, so no line is drawn${mode === 'anchors' ? '; the window is drawn in the all-windows mode' : '; the window is drawn unfitted'}.`);
+    else if (!affine) disclosures.push(`${s.label}: fewer than two windows to fit, so no line is drawn.`);
     for (const fit of [affine, pinned, mf.quadrature]) {
       if (!fit) continue;
       const name = { affine: 'affine fit', pinned: 'origin-pinned fit', quadrature: 'quadrature fit (tabled)' }[fit.form];
@@ -1271,7 +1389,7 @@ export function resolutionScalingNotes({
       disclosures.push(`${s.label}: the affine b is negative (${pct(affine.params?.b)}): the points fall faster than a/√E; the line runs down to the axis and stops there.`);
     }
     if (Number.isFinite(affine?.params?.a) && affine.params.a < 0) {
-      disclosures.push(`${s.label}: the affine a is negative (${sig(affine.params.a)} %·√GeV): σ/E rises with E over these windows, which no stochastic term describes.`);
+      disclosures.push(`${s.label}: the affine a is negative (${sig(affine.params.a)} %·√GeV): ${w.symbol} rises with E over these windows, which no stochastic term describes.`);
     }
     const q = mf.quadrature?.params;
     if (q) {
@@ -1284,7 +1402,7 @@ export function resolutionScalingNotes({
     }
   }
   disclosures.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
-  disclosures.push(w.sample ? '' : sentence(w.est.relation ?? ''), ...calibrationLines(w), robustFloorLine(w, model), ...responseRangeLines(w, model));
+  disclosures.push(w.sample ? '' : sentence(w.est.relation ?? ''), RES_DECOMPOSITION, ...calibrationLines(w), robustFloorLine(w, model), ...responseRangeLines(w, model));
   if (m.source === 'xgb') disclosures.push('The detector series uses every selected event; the XGBoost series only its validation split, so the two series do not share their events.');
   disclosures.push('E on both axes is the incident momentum p as the producer writes it; for a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.');
   disclosures.push(...metaDisclosures(payload));
@@ -1292,11 +1410,11 @@ export function resolutionScalingNotes({
 
   // ---- Marks and legend
   notes.section(SECTION.legend, [
-    'Colour is the estimator: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
+    'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). Shower A is a filled marker and a solid affine line, shower B a hollow marker and a dashed affine line; the origin-pinned fit is a thinner dotted line for both. A larger marker is a window of the 3-anchor fit.',
     w.whiskerLegend,
     'The shaded bands are the fits\' 95% confidence bands from the parameter covariance: ±1.96 √(gᵀΣg) while the windows\' own errors stand, and ±t₀.₉₇₅,ν √(gᵀΣg) once S = √(χ²/ν) > 1 scales the covariance, since S is then estimated from the fit\'s own ν (12.71 at ν = 1). They are the uncertainty of the line, not the spread of the events. The affine band is the stronger wash, the pinned band half of it. '
       + 'A band that spans half its axis or more over its fitted windows (their momentum edges, mapped by x = 1/√E) is drawn as two thin solid edges in the series\' colour, never as a wash; this view marks no extrapolation, so the edges are not dashed beyond those windows.',
-    `A fit drawn faded, its line and its band alike, is provisional (fewer than two windows of N ≥ ${formatInt(gates.fit_n)}) or of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); `
+    `A fit drawn faded, its line and its band alike, is ${w.name === 'robust' ? '' : `provisional (fewer than two windows of N ≥ ${formatInt(gates.fit_n)}) or `}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); `
       + 'no fit, faded or not, sets the range.',
     'The top axis reads the energy at the same x, E = 1/x², with ∞ at the right border; no data are plotted against it. A caret at the axis marks a marker, whisker, fitted line or band clipped there, its true values in its tooltip. A legend entry shows or hides every mark of its series.',
   ]);
