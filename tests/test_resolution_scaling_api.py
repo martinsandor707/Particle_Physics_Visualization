@@ -18,12 +18,22 @@ the recorded payload fixtures, which they must not move.
 the served windows alone give, rebuilt here from the payload, and a fit line
 above every window is shown not to raise either top. Every fit block carries
 ``misfit``, ν ≥ 1 and S above ``gates.misfit_scale``.
+
+**Three estimators** (``?estimator=``, Martin's decisions of 2026-11-12): the
+median relative error by default, the robust IQR width and the sample s(R)/R̄.
+Every common check runs under each. The median windows of the network and
+XGBoost series are held bit for bit to ``/api/model-performance``'s Median rel.,
+the robust widths to ``np.percentile`` over the event table, the sample numbers
+to the committed recordings, the deposit's median calibration c̃ to its rule;
+the cross-references (``alt``) to the other two responses, the literature
+warning to the median estimator alone, and every estimator to the byte contract.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
@@ -34,14 +44,20 @@ import test_payload_fixtures as recorded_payloads
 from conftest import SINGLE_EVENTS_TABLE, SINGLE_HITS_TABLE, XGB_SOURCE, xgb_table
 from calosrv.db import ddl, registry
 from calosrv.modelruns import store
-from calosrv.query import density, performance_bins, response, showers
+from calosrv.query import density, filters, performance_bins, response, showers
 from calosrv.query import resolution_scaling as rs
 from calosrv.stats import clip as clip_mod
 from calosrv.stats import resolution_fit as rfit
+from calosrv.stats import robust_width as rw
 from calosrv.text import signed_hyphens
 
 ROUTE = "/api/resolution-scaling"
 REL = 1e-5      # six significant figures
+ESTIMATORS = ("median", "robust", "sample")
+#: The disclosure, as Martin's override of 2026-11-12 words it (brief §2.7), with its U+2212.
+LITERATURE_WARNING = (
+    "Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian "
+    "errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison).")
 
 
 def _get(client, **params):
@@ -68,17 +84,39 @@ def _strings(node):
             yield from _strings(value)
 
 
+def _usable(w, estimator):
+    """A window a fit can weight, read off the wire: a positive SE, and κ under median and robust."""
+    if estimator == "sample":
+        return w["value"] is not None and (w["se"] or 0) > 0
+    return (w["se_rel"] or 0) > 0
+
+
+def _check_estimator_block(body, estimator):
+    block = body["estimator"]
+    assert block["name"] == estimator and block["choices"] == list(ESTIMATORS)
+    assert block["label"] == rs.ESTIMATOR_LABELS[estimator]
+    assert block["axis_name"] == body["axis"]["y"]["name"] == body["axis"]["energy"]["y"]["name"]
+    assert block["relation"] == rs.RELATION
+    assert block["literature"]["drawn"] is True
+    assert block["literature"]["warning"] == (LITERATURE_WARNING if estimator == "median" else None)
+    assert block["weight"]["method"] == ("delta" if estimator == "sample" else "kappa")
+    assert block["calibration"]["rule"] == ("median" if estimator == "median" else "sum")
+    gates = rs.ESTIMATOR_GATES[estimator]
+    assert body["gates"] == {**gates, "e_min_gev": 4.0, "anchor_low_gev": 5.0, "n_anchors": 3,
+                             "misfit_scale": rfit.MISFIT_SCALE}
+    return gates
+
+
 def _common(body):
-    """What holds on every kind: the axes, the gates, the typography and the size."""
+    """What holds on every kind and estimator: the axes, the gates, the typography and the size."""
+    estimator = body["estimator"]["name"]
+    gates = _check_estimator_block(body, estimator)
     axis = body["axis"]
     assert axis["y"]["zero_based"] and axis["y"]["lo"] == 0.0
     assert axis["x"] == {**axis["x"], "min": 0.0, "max": rs.X_MAX, "inverse": True}
     assert [t["e_gev"] for t in axis["top"]["ticks"]] == [*rs.ENERGY_TICKS_GEV, None]
     for tick in axis["top"]["ticks"][:-1]:
         assert tick["x"] == approx(1 / np.sqrt(tick["e_gev"]), rel=REL)
-    assert body["gates"] == {"report_n": 2, "whisker_n": 8, "fit_n": 20, "e_min_gev": 4.0,
-                             "anchor_low_gev": 5.0, "n_anchors": 3,
-                             "misfit_scale": rfit.MISFIT_SCALE}
     bad = [s for s in _strings(body) if signed_hyphens(s)]
     assert not bad, bad[:3]
     _check_windows_alone(body)
@@ -89,9 +127,29 @@ def _common(body):
         gone = [w for w in s["windows"] if w["off_axis"]]
         for w in s["windows"]:
             assert w["off_axis"] == (w["p_lo"] < rs.E_MIN_GEV)
-            assert w["eligible"] == (w["n"] >= 20 and not w["off_axis"])
-            assert w["whisker"] == (w["n"] >= 8)
-            assert (w["value"] is None) == (w["n"] < 2)
+            assert w["eligible"] == (w["n"] >= gates["fit_n"] and not w["off_axis"]
+                                     and _usable(w, estimator))
+            assert w["whisker"] == (w["n"] >= gates["whisker_n"] and w["ci95"] is not None)
+            assert (w["method"] is None) == (w["ci95"] is None)
+            if w["n"] < gates["report_n"]:
+                assert w["value"] is None
+            assert set(w["alt"]) == set(ESTIMATORS) - {estimator}
+            assert (w["se_delta"] is None) == (estimator != "sample" or w["value"] is None)
+            if estimator == "sample":
+                assert w["se_rel"] is None and w["se"] == w["se_delta"]
+                assert (w["value"] is None) == (w["n"] < 2)
+                assert w["whisker"] == (w["n"] >= 8)
+            elif w["value"] is not None and w["se"]:
+                assert w["se_rel"] == approx(w["se"] / w["value"], rel=1e-4)
+            assert (w["tail_share"] is None) == (w["n"] < rw.MIN_ROBUST_N)
+            assert (w["median_response"] is None) == (w["n"] < 2)
+        if estimator == "robust":
+            assert not any(m["fallback"] for m in s["fits"].values())
+        for name, mode in s["fits"].items():
+            fitted = [w["median_response"] for w in s["windows"]
+                      if w["bin"] in set(mode["points"]) and w["median_response"] is not None]
+            expected = [min(fitted), max(fitted)] if fitted else None
+            assert s["median_response_range"][name] == expected
         if gone:
             assert off[s["key"]]["bins"] == [w["bin"] for w in gone]
             assert off[s["key"]]["n"] == sum(w["n"] for w in gone)
@@ -161,7 +219,8 @@ def _served_window_extents(body, energy: bool):
             if energy and w["p_lo"] < rs.E_VIEW_Y_MIN_GEV:
                 below.append(hi)
                 continue
-            robust = (w["n"] >= rs.FIT_MIN_N and (w["se_delta"] or 0) > 0) if energy else w["eligible"]
+            robust = ((w["n"] >= rs.FIT_MIN_N and _usable(w, body["estimator"]["name"]))
+                      if energy else w["eligible"])
             extents.append(response.Extent(lo, hi, w["value"], robust))
     return extents, below
 
@@ -220,7 +279,7 @@ def _check_detector_window(series, dep, p, bins):
 
 
 def test_two_showers_draw_the_detector_and_the_energy_network(synthetic_client):
-    body = _get(synthetic_client)
+    body = _get(synthetic_client, estimator="sample")
     _common(body)
     assert body["kind"] == ddl.KIND_TWO_SHOWER
     assert body["model"] == {"available": True, "source": "network", "frame": "absolute",
@@ -256,9 +315,10 @@ def test_two_showers_draw_the_detector_and_the_energy_network(synthetic_client):
     assert len(str(body).encode()) < density.RESPONSE_LIMIT
 
 
-def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client):
-    """data_max_gev is the bin axis's top edge; rho_a2b2 and band_quantile are a refit's."""
-    body = _get(synthetic_client)
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client, estimator):
+    """data_max_gev is the bin axis's top edge; rho_a2b2 and band_quantile are a refit's, κ-weighted but under sample."""
+    body = _get(synthetic_client, estimator=estimator)
     with synthetic_client.app.state.database.read_cursor() as con:
         record = registry.get_experiment(con, body["meta"]["table_name"])
         axis = performance_bins.dataset_axis(con, record)
@@ -273,8 +333,9 @@ def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client):
             if quad is None:
                 continue
             chosen = [by_bin[k] for k in mode["points"]]
+            kappa = None if estimator == "sample" else [w["se_rel"] for w in chosen]
             fit = rfit.fit_quadrature([w["x"] for w in chosen], [w["value"] / 100 for w in chosen],
-                                      [w["n"] for w in chosen])
+                                      [w["n"] for w in chosen], kappa)
             # The payload's x and σ/E are written at six significant figures.
             assert quad["params"]["rho_a2b2"] == approx(fit.rho, rel=1e-3)
             assert quad["band_quantile"] == approx(fit.band_quantile, rel=1e-5)
@@ -283,9 +344,11 @@ def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client):
     assert refits == 8                   # four series, two modes
 
 
-def test_the_two_shower_payload_stays_under_the_contract(synthetic_client):
-    """Measured on 2026-11-10: 56,388 bytes, the E view's fields 1,620 of them."""
-    reply = synthetic_client.get(ROUTE)
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_two_shower_payload_stays_under_the_contract(synthetic_client, estimator):
+    """Measured on 2026-11-10: 56,388 bytes, the E view's fields 1,620 of them; the estimators' fields add
+    about 140 bytes a window (sizes per estimator in data/dev/design/res-robust/S1-backend.md)."""
+    reply = synthetic_client.get(ROUTE, params={"estimator": estimator})
     assert reply.status_code == 200
     assert len(reply.content) < density.RESPONSE_LIMIT == 100_000
     assert "over the" not in " ".join(reply.json()["meta"]["warnings"])
@@ -361,11 +424,317 @@ def test_the_budget_ladder_says_what_it_shortened(synthetic_client, monkeypatch)
     assert body["series"][0]["windows"][0]["n"] == full["series"][0]["windows"][0]["n"]
 
 
+# ------------------------------------------------------ the three estimators --
+
+
+def _masked_body(body):
+    return recorded_payloads._comparable(ROUTE, recorded_payloads._masked(body))
+
+
+def _perf_bins(client, **params):
+    reply = client.get("/api/model-performance",
+                       params={"slice_by": "momentum_bin", "model": "energy", **params})
+    assert reply.status_code == 200, reply.text
+    return reply.json()["by_momentum_bin"]
+
+
+def _as_percent(fraction):
+    """perf-bins' wire value, × 100 and written at six significant figures as res-scaling writes it."""
+    return None if fraction is None else float(f"{100 * fraction:.6g}")
+
+
+def _check_parity(res_series, perf_series, bins):
+    checked = 0
+    index = {k: i for i, k in enumerate(bins)}
+    for w in res_series["windows"]:
+        i = index[w["bin"]]
+        if w["n"] < 2:
+            assert w["value"] is None
+            continue
+        assert w["value"] == _as_percent(perf_series["median_rel"][i]), w["bin"]
+        lo, hi = perf_series["median_rel_lo"][i], perf_series["median_rel_hi"][i]
+        if lo is None:
+            assert w["ci95"] is None and w["method"] is None
+        else:
+            assert w["ci95"] == [_as_percent(lo), _as_percent(hi)], w["bin"]
+            assert w["method"] == perf_series["median_rel_method"][i]
+        checked += 1
+    return checked
+
+
+def _leaves(node, path=()):
+    """Every number, boolean and null of a payload, by path: the data, not the sentences."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _leaves(value, (*path, key))
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from _leaves(value, (*path, i))
+    elif not isinstance(node, str):
+        yield path, node
+
+
+def _sample_numbers_match(client, name):
+    """The sample estimator did not move: every number, flag and null of a recording is served unchanged.
+
+    The four recordings that predate the estimators (res_scaling_two, _single_hits, _single_events,
+    _xgb) are requested with estimator=sample; only sentences and new fields may differ. Run against
+    the recordings committed before the estimators (2026-11-12), this is the proof that s(R)/R̄, its
+    whisker, its weights, fits and ranges are byte for byte today's.
+    """
+    _, path, params, _ = recorded_payloads.PAYLOADS[name]
+    assert params["estimator"] == "sample"
+    served = recorded_payloads._comparable(path, recorded_payloads._masked(_get(client, **params)),
+                                           name)
+    stored = recorded_payloads.OUT / f"{name}.json"
+    recorded = recorded_payloads._comparable(
+        path, json.loads(stored.read_text(encoding="utf-8")), name)
+    compared = 0
+    for keys, value in _leaves(recorded):
+        node = served
+        for key in keys:
+            assert (key in node) if isinstance(node, dict) else key < len(node), (name, keys)
+            node = node[key]
+        assert node == value, (name, keys, node, value)
+        compared += 1
+    assert compared > 500
+    return compared
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_every_kind_holds_under_every_estimator(synthetic_client, estimator):
+    """The axes, gates, ranges, misfit flags, cross-reference fields and contract, under each estimator."""
+    body = _get(synthetic_client, estimator=estimator)
+    _common(body)
+    for s in body["series"]:
+        for mode in s["fits"].values():
+            for form in ("affine", "pinned", "quadrature"):
+                fit = mode[form]
+                if fit is None:
+                    continue
+                weight = "se = κ·ŷ" if estimator != "sample" else "with se recomputed at the fitted"
+                assert weight in fit["note"]
+                assert fit["note"].startswith(rs.ESTIMATOR_SYMBOLS[estimator])
+
+
+def test_the_estimator_defaults_to_median(synthetic_client):
+    default = _get(synthetic_client)
+    named = _get(synthetic_client, estimator="median")
+    assert rs.DEFAULT_ESTIMATOR == "median" and default["estimator"]["name"] == "median"
+    assert _masked_body(default) == _masked_body(named)
+    assert default["axis"]["y"]["name"] == "Median |E_est − p| / p [%]"
+    assert default["estimator"]["label"] == "Median |rel. err.|"
+    assert default["estimator"]["quantity"] == "median_error"
+    assert default["estimator"]["symbol"] == "median rel."
+
+
+@pytest.mark.parametrize("bad", ["bogus", "MEDIAN", "mean", "iqr", ""])
+def test_an_invalid_estimator_is_a_422_naming_its_field(synthetic_client, bad):
+    reply = synthetic_client.get(ROUTE, params={"estimator": bad})
+    assert reply.status_code == 422
+    problem = reply.json()
+    assert problem["field"] == "estimator"
+    assert "estimator must be one of median, robust, sample" in problem["detail"]
+
+
+def test_the_literature_curves_are_drawn_under_every_estimator_and_warned_under_median(synthetic_client):
+    """Martin's override (2026-11-12): drawn under all three; the 0.6745 disclosure under median alone."""
+    assert rs.LITERATURE_WARNING == LITERATURE_WARNING
+    assert "R − 1" in rs.LITERATURE_WARNING and "R - 1" not in rs.LITERATURE_WARNING
+    for estimator in ESTIMATORS:
+        body = _get(synthetic_client, estimator=estimator)
+        literature = body["estimator"]["literature"]
+        assert literature["drawn"] is True
+        assert literature["warning"] == (LITERATURE_WARNING if estimator == "median" else None)
+        text = json.dumps(body, ensure_ascii=False)
+        assert (LITERATURE_WARNING in text) == (estimator == "median")
+
+
+@pytest.mark.parametrize("coord_system", ["lab", "trans", "local"])
+def test_median_windows_are_model_performance_median_rel_bit_for_bit(synthetic_client, coord_system):
+    """Every network window's value and interval are the Median rel. of /api/model-performance, × 100.
+
+    On the wire both are written at six significant figures; in memory the two computations are held
+    equal to the last bit (same rows, same arithmetic |pred − true| / true, same seed).
+    """
+    body = _get(synthetic_client, estimator="median", coord_system=coord_system)
+    perf = _perf_bins(synthetic_client)
+    frame = ddl.NETWORK_FRAME[coord_system]
+    perf_series = {s["key"]: s for s in perf["series"]}
+    checked = methods = 0
+    for s in body["series"]:
+        if s["source"] != "network":
+            continue
+        checked += _check_parity(s, perf_series[f"{frame}:{s['shower']}"], perf["bins"]["index"])
+        methods |= {w["method"] for w in s["windows"]} >= {"bootstrap_percentile", "order_statistic"}
+    assert checked >= 30 and methods
+
+    with synthetic_client.app.state.database.read_cursor() as con:
+        record = registry.get_experiment(con, body["meta"]["table_name"])
+        spec = filters.build(record)
+        result = rs.compute(con, record, spec, coord_system, "median")
+        report = performance_bins.compute(con, record, spec, "energy")
+    points = {(s.coord_system, s.shower): s.points for s in report.series}
+    exact = 0
+    for s in result.series:
+        if s.source != rs.SOURCE_NETWORK:
+            continue
+        by_bin = dict(zip(report.axis.numbers, points[(coord_system, s.shower)]))
+        for w in s.windows:
+            if w.r is None:
+                continue
+            estimate = by_bin[w.bin].median_rel
+            assert w.r == estimate.value
+            interval = estimate.interval
+            assert w.ci == (None if interval is None else (interval.lo, interval.hi))
+            exact += 1
+    assert exact >= 30
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_network_windows_against_numpy(synthetic_client, estimator):
+    """Each estimator's value, the cross-references, the median response and the tail share, by NumPy."""
+    body = _get(synthetic_client, estimator=estimator)
+    events = _events(synthetic_client, body["meta"]["table_name"], "d IS NOT NULL")
+    a = events[events["n_a_rows"] > 0]
+    pred, true = a["en_pred_a_abs"].to_numpy(float), a["en_true_a"].to_numpy(float)
+    bins = a["e1_bin"].to_numpy(float)
+    (series,) = [s for s in body["series"] if s["key"] == "network:a"]
+    robust_seen = 0
+    for w in series["windows"]:
+        mask = bins == w["bin"]
+        ratio = pred[mask] / true[mask]
+        values = {
+            "median": float(np.median(np.abs(pred[mask] - true[mask]) / true[mask])),
+            "sample": float(ratio.std(ddof=1) / ratio.mean()),
+            "robust": None,
+        }
+        if ratio.size >= 20:
+            q25, q50, q75 = np.percentile(ratio, [25, 50, 75])
+            values["robust"] = float((q75 - q25) / 1.349 / q50)
+            robust_seen += 1
+        for name, value in values.items():
+            served = w["value"] if name == estimator else w["alt"][name]
+            if value is None:
+                assert served is None
+            else:
+                assert served == approx(100 * value, rel=REL), (name, w["bin"])
+        assert w["median_response"] == approx(100 * (np.median(ratio) - 1), rel=REL, abs=1e-9)
+        if ratio.size >= 20:
+            q25, q50, q75 = np.percentile(ratio, [25, 50, 75])
+            share = np.mean(np.abs(ratio - q50) > 3 * (q75 - q25) / 1.349)
+            assert w["tail_share"] == approx(100 * share, rel=REL, abs=1e-12)
+    assert robust_seen >= 5
+
+
+def test_the_cross_references_are_the_other_responses_values(synthetic_client):
+    """``alt`` under one estimator is the value the other two responses plot, window by window."""
+    bodies = {e: _get(synthetic_client, estimator=e) for e in ESTIMATORS}
+    for e in ESTIMATORS:
+        for s_index, s in enumerate(bodies[e]["series"]):
+            for w_index, w in enumerate(s["windows"]):
+                for other, value in w["alt"].items():
+                    assert value == bodies[other]["series"][s_index]["windows"][w_index]["value"]
+                assert w["median_response"] == bodies["sample"]["series"][s_index]["windows"][
+                    w_index]["median_response"] or s["source"] == "detector"
+
+
+def test_the_robust_floor(synthetic_client):
+    """Robust σ/E from N = 20 alone: no value, whisker, fit or range below; counted in the notes."""
+    body = _get(synthetic_client, estimator="robust")
+    assert body["gates"]["report_n"] == body["gates"]["whisker_n"] == body["gates"]["fit_n"] == 20
+    thin = total = 0
+    for s in body["series"]:
+        for w in s["windows"]:
+            total += 1
+            if w["n"] < 20:
+                thin += 1
+                assert w["value"] is None and w["ci95"] is None and not w["whisker"]
+                assert not w["eligible"] and "below the robust floor" in w["dof_note"]
+                assert w["alt"]["sample"] is not None
+            else:
+                assert w["value"] is not None and w["whisker"]
+                assert w["method"] == "bootstrap_percentile"
+        for mode in s["fits"].values():
+            assert not mode["fallback"] and not mode["provisional"]
+            by_bin = {w["bin"]: w for w in s["windows"]}
+            assert all(by_bin[k]["n"] >= 20 for k in mode["points"])
+    assert thin > 0
+    (count,) = [n for n in body["notes"] if "report no robust σ/E (the robust floor)" in n]
+    assert count.startswith(f"{thin} of the {total} windows")
+    assert "no weaker window to fall back on" in body["anchors"]["rule"]
+
+
+def test_the_median_calibration_rule(synthetic_client):
+    """Under median the deposit is c̃·E_dep, c̃ = 1/median(E_dep/p) over E_dep > 0; both constants reported."""
+    bodies = {e: _get(synthetic_client, estimator=e) for e in ESTIMATORS}
+    events = _events(synthetic_client, bodies["median"]["meta"]["table_name"], "d IS NOT NULL")
+    a = events[events["n_a_rows"] > 0]
+    dep = a[ddl.seg_stat_column("e_a_true", "lab")].to_numpy(float)
+    p = a["e1"].to_numpy(float)
+    bins = a["e1_bin"].to_numpy(float)
+    positive = dep > 0
+    c_tilde = 1 / np.median(dep[positive] / p[positive])
+    c_sum = p.sum() / dep.sum()
+    for e, body in bodies.items():
+        cal = body["estimator"]["calibration"]
+        assert cal["rule"] == ("median" if e == "median" else "sum")
+        shower = cal["showers"]["a"]
+        assert shower["c_median"] == approx(c_tilde, rel=REL)
+        assert shower["c_sum"] == approx(c_sum, rel=REL)
+        assert shower["n"] == dep.size and shower["n_zero_deposit"] == int((~positive).sum())
+    # Over the events it is taken on, the calibrated deposit's median response is 1.
+    assert np.median(c_tilde * dep[positive] / p[positive]) == approx(1.0, rel=1e-12)
+    (deposit,) = [s for s in bodies["median"]["series"] if s["key"] == "detector:a"]
+    for w in deposit["windows"]:
+        mask = bins == w["bin"]
+        if mask.sum() < 2:
+            continue
+        expected = np.median(np.abs(c_tilde * dep[mask] - p[mask]) / p[mask])
+        assert w["value"] == approx(100 * expected, rel=REL)
+        assert w["median_response"] == approx(100 * (np.median(c_tilde * dep[mask] / p[mask]) - 1),
+                                              rel=REL, abs=1e-9)
+    # The robust and sample responses take c = Σp/ΣE_dep, which cancels; their median rel. takes c̃.
+    (robust_deposit,) = [s for s in bodies["robust"]["series"] if s["key"] == "detector:a"]
+    assert [w["alt"]["median"] for w in robust_deposit["windows"]] == [
+        w["value"] for w in deposit["windows"]]
+    notes = " ".join(bodies["median"]["notes"])
+    assert "c̃ = 1 / median(E_dep / p)" in notes and "c = Σ p / Σ E_dep" in notes
+
+
+def test_the_notes_name_the_estimator_its_weight_and_the_relation(synthetic_client):
+    for estimator in ESTIMATORS:
+        body = _get(synthetic_client, estimator=estimator)
+        notes = body["notes"]
+        assert rs.RELATION in notes
+        weights = [n for n in notes if n.startswith("Fits: ")]
+        assert len(weights) == 1
+        assert ("se = κ·ŷ" in weights[0]) == (estimator != "sample")
+        ranges = [n for n in notes if "median response R̃ − 1 from" in n]
+        assert len(ranges) == 2                    # the two network series
+        assert any(n.startswith("A regressor trained on a bounded momentum range") for n in notes)
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_every_estimator_is_deterministic_across_requests_and_threads(synthetic_client, estimator):
+    """Seeded per window: two requests in turn and four at once serve one body."""
+    first = _masked_body(_get(synthetic_client, estimator=estimator))
+    assert _masked_body(_get(synthetic_client, estimator=estimator)) == first
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        bodies = list(pool.map(lambda _: _get(synthetic_client, estimator=estimator), range(4)))
+    assert all(_masked_body(b) == first for b in bodies)
+
+
+def test_the_sample_numbers_equal_the_two_shower_recording(synthetic_client):
+    """Every number, flag and null of the recorded payload is served unchanged under estimator=sample."""
+    _sample_numbers_match(synthetic_client, "res_scaling_two")
+
+
 # ------------------------------------------------------------- one shower --
 
 
 def test_single_shower_hits_draw_the_detector_only_and_name_the_species(single_client):
-    body = _get(single_client, table_name=SINGLE_HITS_TABLE)
+    body = _get(single_client, table_name=SINGLE_HITS_TABLE, estimator="sample")
     _common(body)
     assert body["model"]["available"] is False and body["model"]["source"] is None
     assert "single-shower hit" in body["model"]["reason"]
@@ -411,7 +780,7 @@ def test_a_selection_without_an_eligible_window_has_a_provisional_range(single_c
 
 
 def test_an_unpaired_aggregate_says_why_it_has_no_model(single_client):
-    body = _get(single_client, table_name=SINGLE_EVENTS_TABLE)
+    body = _get(single_client, table_name=SINGLE_EVENTS_TABLE, estimator="sample")
     _common(body)
     assert body["kind"] == ddl.KIND_SINGLE_EVENTS
     model = body["model"]
@@ -429,9 +798,67 @@ def test_the_linear_fields_match_the_single_shower_recordings(single_client, nam
     _linear_fields_match_the_recording(single_client, name)
 
 
+# ------------------------------------------- one shower, every estimator --
+
+
+def test_the_estimator_is_validated_on_every_kind(single_client):
+    for table in (SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE):
+        reply = single_client.get(ROUTE, params={"table_name": table, "estimator": "x"})
+        assert reply.status_code == 422 and reply.json()["field"] == "estimator"
+
+
+def test_a_deposit_without_energy_has_no_median_windows_and_says_why(single_client):
+    """No event with E_dep > 0: no c̃, so the deposit plots nothing under the median estimator, with a warning."""
+    p = np.repeat(np.arange(4.0, 20.0) + 0.5, 25)
+    sample = response.Sample(showers._SINGLE, np.zeros(p.size), p, np.floor(p).astype(np.int64),
+                             p.size, 0, 0)
+    cal, med = response.calibrate(sample), rs.median_calibration(sample)
+    assert med.c is None and med.n_zero == p.size and med.n_positive == 0
+    axis = rs.performance_bins.axis_from_ranges({k: (k + 0.01, k + 0.99) for k in range(4, 20)})
+    nominal = rs.nominal_anchors(axis)
+    for estimator in ESTIMATORS:
+        ratio, relative = rs._deposit_inputs(sample, cal, med, estimator)
+        assert np.isnan(relative).all() and (ratio == 0).all()
+        series = rs.build_series(rs.SOURCE_DETECTOR, "a", "Shower", rs.DETECTOR_LABEL,
+                                 rs.SOURCE_DETECTOR, ratio, sample.p, sample.bin, axis, nominal,
+                                 estimator=estimator, relative=relative)
+        assert all(w.r is None and w.value_of("median") is None for w in series.windows)
+        if estimator == "median":
+            with single_client.app.state.database.read_cursor() as con:
+                record = registry.get_experiment(con, SINGLE_HITS_TABLE)
+            result = rs.ResolutionScaling(
+                record=record, axis=axis, nominal=nominal, series=[series], samples=[sample],
+                calibrations={"a": cal}, model={"available": False, "source": None},
+                coord_system="lab", n_events=p.size, estimator="median", medians={"a": med})
+            (warning,) = [w for w in result.warnings() if "c̃" in w]
+            assert "no event of the selection deposits energy" in warning
+            block = result.as_dict()["estimator"]["calibration"]["showers"]["a"]
+            assert block["c_median"] is None and block["n_zero_deposit"] == p.size
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+@pytest.mark.parametrize("table", [SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+def test_the_single_shower_payloads_stay_under_the_byte_contract(single_client, table, estimator):
+    reply = single_client.get(ROUTE, params={"table_name": table, "estimator": estimator})
+    assert reply.status_code == 200
+    assert len(reply.content) < density.RESPONSE_LIMIT
+    assert "over the" not in " ".join(reply.json()["meta"]["warnings"])
+    _common(reply.json())
+
+
+@pytest.mark.parametrize("name", ["res_scaling_single_hits", "res_scaling_single_events"])
+def test_the_sample_numbers_equal_the_single_shower_recordings(single_client, name):
+    _sample_numbers_match(single_client, name)
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_xgboost_payload_holds_under_every_estimator(xgb_client, estimator):
+    _common(_get(xgb_client, table_name=xgb_table(XGB_SOURCE), estimator=estimator))
+
+
 def test_xgboost_series_on_a_paired_aggregate(xgb_client):
     table = xgb_table(XGB_SOURCE)
-    body = _get(xgb_client, table_name=table)
+    body = _get(xgb_client, table_name=table, estimator="sample")
     _common(body)
     model = body["model"]
     assert model["available"] and model["source"] == "xgb" and model["frame"] is None
@@ -465,11 +892,32 @@ def test_the_linear_fields_match_the_xgboost_recording(xgb_client):
     _linear_fields_match_the_recording(xgb_client, "res_scaling_xgb")
 
 
+def test_xgboost_median_windows_are_model_performance_median_rel_bit_for_bit(xgb_client):
+    table = xgb_table(XGB_SOURCE)
+    body = _get(xgb_client, table_name=table, estimator="median")
+    perf = _perf_bins(xgb_client, table_name=table)
+    (perf_series,) = perf["series"]
+    assert perf_series["key"] == "xgb:a"
+    (xgb,) = [s for s in body["series"] if s["source"] == "xgb"]
+    assert _check_parity(xgb, perf_series, perf["bins"]["index"]) >= 4
+
+
+@pytest.mark.parametrize("estimator", ESTIMATORS)
+def test_the_xgboost_payload_stays_under_the_byte_contract(xgb_client, estimator):
+    reply = xgb_client.get(ROUTE, params={"table_name": xgb_table(XGB_SOURCE), "estimator": estimator})
+    assert reply.status_code == 200 and len(reply.content) < density.RESPONSE_LIMIT
+
+
+def test_the_sample_numbers_equal_the_xgboost_recording(xgb_client):
+    _sample_numbers_match(xgb_client, "res_scaling_xgb")
+
+
 # ---------------------------------------------------------- the estimator --
 
 
-def test_the_calibration_cancels_in_sigma_over_mu():
-    """Scaling every deposit leaves σ/E unchanged: c rescales with it and cancels."""
+@pytest.mark.parametrize("estimator", ["sample", "robust"])
+def test_the_calibration_cancels_in_sigma_over_mu(estimator):
+    """Scaling every deposit leaves σ/E unchanged: c rescales with it and cancels, in s/R̄ and in the IQR width."""
     rng = np.random.default_rng(5)
     p = rng.uniform(4, 20, 3000)
     bins = np.floor(p)
@@ -480,21 +928,48 @@ def test_the_calibration_cancels_in_sigma_over_mu():
     for scale in (1.0, 7.3):
         sample = response.Sample(columns, dep * scale, p, bins.astype(np.int64), p.size, 0, 0)
         c = response.calibrate(sample).c.value
-        windows = rs.windows_of(c * sample.dep / sample.p, sample.p, sample.bin, axis)
+        windows = rs.windows_of(c * sample.dep / sample.p, sample.p, sample.bin, axis,
+                                estimator=estimator)
         values.append([w.as_dict() for w in windows])
     for a, b in zip(*values):
         assert a["value"] == approx(b["value"], rel=1e-12)
         assert a["mean_r"] == approx(b["mean_r"], rel=1e-12)
         assert a["ci95"] == approx(b["ci95"], rel=1e-12)
+        assert a["se"] == approx(b["se"], rel=1e-10)
+
+
+@pytest.mark.parametrize("estimator", ["sample", "robust"])
+@pytest.mark.parametrize("c", [0.031, 2.0, 41.0])
+def test_both_widths_are_invariant_under_r_to_c_r(estimator, c):
+    """R → cR, any c > 0: the robust and sample widths, their intervals, SEs and fits do not move."""
+    rng = np.random.default_rng(1112)
+    p = rng.uniform(4, 20, 4000)
+    ratio = 1.0 + (0.25 / np.sqrt(p)) * rng.standard_t(4, p.size)
+    bins = np.floor(p)
+    axis = rs.performance_bins.axis_from_ranges({k: (k + 0.01, k + 0.99) for k in range(4, 20)})
+    nominal = rs.nominal_anchors(axis)
+    one = rs.build_series(rs.SOURCE_DETECTOR, "a", "Shower", rs.DETECTOR_LABEL, rs.SOURCE_DETECTOR,
+                          ratio, p, bins, axis, nominal, estimator=estimator)
+    scaled = rs.build_series(rs.SOURCE_DETECTOR, "a", "Shower", rs.DETECTOR_LABEL,
+                             rs.SOURCE_DETECTOR, c * ratio, p, bins, axis, nominal,
+                             estimator=estimator)
+    for a, b in zip(one.windows, scaled.windows):
+        assert b.r == approx(a.r, rel=1e-12) and b.ci == approx(a.ci, rel=1e-12)
+        assert b.se == approx(a.se, rel=1e-9)
+    for mode in rs.MODES:
+        for form, fit in one.modes[mode].fits.items():
+            assert scaled.modes[mode].fits[form].theta == approx(fit.theta, rel=1e-7, abs=1e-12)
 
 
 # ----------------------------------------------- the E view's 2 GeV floor --
 
 
-def _series(windows: dict[int, tuple[int, float]], seed: int = 9) -> rs.Series:
+def _series(windows: dict[int, tuple[int, float]], seed: int = 9,
+            estimator: str = "sample") -> rs.Series:
     """A detector series on the axis 0–19 GeV: ``windows[k] = (N, σ/E)`` in bin k, R ~ N(1, σ²).
 
     Each bin draws from its own seeded stream, so adding a window leaves the others unchanged.
+    The sample estimator unless one is named.
     """
     bins, p, ratio = [], [], []
     for k, (count, sigma) in windows.items():
@@ -505,7 +980,7 @@ def _series(windows: dict[int, tuple[int, float]], seed: int = 9) -> rs.Series:
     axis = performance_bins.axis_from_ranges({k: (k + 0.01, k + 0.99) for k in range(0, 20)})
     return rs.build_series(rs.SOURCE_DETECTOR, "a", "Shower", rs.DETECTOR_LABEL, rs.SOURCE_DETECTOR,
                            np.array(ratio), np.array(p), np.array(bins, dtype=float), axis,
-                           rs.nominal_anchors(axis))
+                           rs.nominal_anchors(axis), estimator=estimator)
 
 
 ROBUST = {k: (200, 0.2 / np.sqrt(k + 0.5)) for k in range(4, 20)}

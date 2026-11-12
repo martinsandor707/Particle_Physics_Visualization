@@ -10,8 +10,14 @@ card's E view, is held to √ of a z-band built independently from ``lstsq``, to
 its cut at zero and its value at x = 0, to Student's t once S scales it, and to
 its coverage of the generating σ/E over 400 replicas. The misfit gate
 (``Fit.misfit``: ν ≥ 1 and S > 5) is held just above and just below 5, at ν = 0,
-and on a pinned fit through a constant term. Nothing here is a measurement of
-the detector.
+and on a pinned fit through a constant term.
+
+The κ law (the ``kappa`` argument, Martin's decisions of 2026-11-12): without
+it every fit runs the delta-method law exactly as before; with it each form
+reaches the fixed point of ``se = κ·ŷ`` (``se_z = 2κ·ŷ²`` for the quadrature),
+held to ``numpy.linalg.lstsq`` on the ``√w``-scaled system at the final weights,
+with the χ² those weights give. The window gates of the three estimators are
+held on bare windows. Nothing here is a measurement of the detector.
 """
 
 from __future__ import annotations
@@ -411,8 +417,8 @@ def test_nominal_anchors_on_both_producer_axes():
     assert rs.nominal_anchors(_axis(5, 6)) == (5, 6)
 
 
-def _series_windows(counts: dict[int, int], seed: int = 3):
-    """Windows of an axis 0–19 holding ``counts[k]`` events in bin k."""
+def _series_windows(counts: dict[int, int], seed: int = 3, estimator: str = "sample"):
+    """Windows of an axis 0–19 holding ``counts[k]`` events in bin k (the sample estimator unless named)."""
     rng = np.random.default_rng(seed)
     bins, p = [], []
     for k, count in counts.items():
@@ -420,7 +426,7 @@ def _series_windows(counts: dict[int, int], seed: int = 3):
         p += list(rng.uniform(k, k + 1, count))
     bins, p = np.array(bins, dtype=float), np.array(p)
     ratio = 1.0 + (0.2 / np.sqrt(p)) * rng.standard_normal(p.size)
-    return rs.windows_of(ratio, p, bins, _axis(0, 19))
+    return rs.windows_of(ratio, p, bins, _axis(0, 19), estimator=estimator)
 
 
 def test_a_thin_anchor_takes_the_nearest_eligible_window_and_says_so():
@@ -477,3 +483,143 @@ def test_window_gates():
     assert windows[8].whisker and windows[8].as_dict()["weak"] and not windows[8].eligible
     assert not windows[9].eligible and windows[10].eligible
     assert windows[10].as_dict()["c4"] is None
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust"])
+def test_the_anchor_rules_hold_under_the_other_estimators(estimator):
+    """A thin anchor is replaced the same way; under the robust width no N ≥ 8 fallback exists."""
+    windows = _series_windows({3: 40, 5: 10, 6: 30, 10: 50, 19: 25}, estimator=estimator)
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows)
+    assert mode.points == [6, 10, 19] and not mode.fallback
+    thin = _series_windows({5: 10, 10: 30, 19: 9}, estimator=estimator)
+    fallback = rs.mode_fits("anchors", (5, 10, 19), thin)
+    if estimator == "robust":
+        assert fallback.points == [10] and not fallback.fallback and not fallback.provisional
+        assert fallback.fits["affine"] is None
+    else:
+        assert fallback.points == [5, 10, 19] and fallback.fallback and fallback.provisional
+
+
+def test_window_gates_under_the_median_estimator():
+    """The median rel. from N = 2, its order-statistic interval from N = 6, the whisker from N = 8."""
+    windows = {w.bin: w for w in _series_windows({6: 1, 7: 2, 8: 6, 9: 8, 10: 19, 11: 20},
+                                                 estimator="median")}
+    assert windows[6].r is None and windows[6].as_dict()["value"] is None
+    assert windows[7].r is not None and windows[7].ci is None and windows[7].as_dict()["c4"] is None
+    assert windows[7].as_dict()["dof_note"] is None and windows[7].se > 0
+    assert windows[8].ci is not None and not windows[8].whisker
+    assert windows[8].method == "order_statistic"
+    assert windows[9].whisker and windows[9].method == "order_statistic"
+    assert windows[10].whisker and not windows[10].eligible
+    assert windows[11].eligible and windows[11].method == "bootstrap_percentile"
+    for w in windows.values():
+        d = w.as_dict()
+        assert d["se_delta"] is None and set(d["alt"]) == {"robust", "sample"}
+        if w.r is not None:
+            assert d["se_rel"] == approx(w.se / w.r) and d["se"] == approx(100 * w.se)
+
+
+def test_window_gates_under_the_robust_estimator():
+    """Nothing below the robust floor: no value, no whisker, no fit, and the window says why."""
+    windows = {w.bin: w for w in _series_windows({7: 2, 8: 8, 9: 19, 10: 20},
+                                                 estimator="robust")}
+    for k in (7, 8, 9):
+        d = windows[k].as_dict()
+        assert d["value"] is None and d["ci95"] is None and not d["whisker"] and not d["eligible"]
+        assert "below the robust floor" in d["dof_note"] and d["weak"]
+        assert d["alt"]["sample"] is not None and d["alt"]["median"] is not None
+    d = windows[10].as_dict()
+    assert d["value"] is not None and d["whisker"] and d["eligible"] and not d["weak"]
+    assert d["method"] == "bootstrap_percentile" and d["se_rel"] == approx(d["se"] / d["value"])
+    assert set(d["alt"]) == {"median", "sample"} and d["dof_note"] is None
+    assert d["tail_share"] is not None and d["se_delta"] is None
+
+
+# ------------------------------------------------------------- the κ law --
+
+
+def _kappa_windows(seed: int, spread: float = 0.0):
+    rng = np.random.default_rng(seed)
+    x = 1 / np.sqrt(np.array([4.5, 6.5, 9.5, 13.5, 18.5]))
+    r = np.sqrt(0.04 * x * x + 0.0025) * (1 + spread * rng.standard_normal(x.size))
+    n = np.array([300, 250, 400, 150, 220])
+    kappa = rng.uniform(0.03, 0.09, x.size)
+    return x, r, n, kappa
+
+
+def test_no_kappa_is_the_delta_method_law_exactly():
+    """kappa=None runs the delta-method law: the same Fit, field for field, as the call without it."""
+    rng = np.random.default_rng(20261112)
+    x, r, n = _windows(rng, lambda p: A_TRUE / np.sqrt(p) + B_TRUE, 300)
+    for fit in (rf.fit_affine, rf.fit_pinned, rf.fit_quadrature):
+        a, b = fit(x, r, n), fit(x, r, n, kappa=None)
+        assert a.theta == b.theta and np.array_equal(a.cov_stat, b.cov_stat)
+        assert (a.chi2, a.ndf, a.p_value, a.scale_factor, a.iterations, a.converged) == (
+            b.chi2, b.ndf, b.p_value, b.scale_factor, b.iterations, b.converged)
+    # At its fixed point the delta law's weights are 1/resolution_se(ŷ, n)², not κ's.
+    fit = rf.fit_affine(x, r, n)
+    w = 1.0 / rf.resolution_se(fit.predict(x), n) ** 2
+    again, _ = rf.wls_affine(x, r, w)
+    assert again == approx(np.array(fit.theta), rel=1e-9)
+
+
+@pytest.mark.parametrize("seed, spread", [(31, 0.0), (32, 0.2), (33, 0.4)])
+@pytest.mark.parametrize("form", [rf.FORM_AFFINE, rf.FORM_PINNED])
+def test_a_kappa_fit_is_lstsq_at_its_final_weights(seed, spread, form):
+    """At convergence w = 1/(κ·ŷ)²: lstsq on the √w-scaled system returns θ, (XᵀWX)⁻¹ its covariance."""
+    x, r, n, kappa = _kappa_windows(seed, spread)
+    fit = (rf.fit_affine if form == rf.FORM_AFFINE else rf.fit_pinned)(x, r, n, kappa)
+    assert fit.converged and fit.iterations < rf.MAX_ITERATIONS
+    yhat = fit.predict(x)
+    assert (yhat > 0).all()
+    w = 1.0 / (kappa * yhat) ** 2
+    design = np.stack([x, np.ones_like(x)], axis=1) if form == rf.FORM_AFFINE else x[:, None]
+    root = np.sqrt(w)
+    theta, *_ = np.linalg.lstsq(design * root[:, None], r * root, rcond=None)
+    assert theta == approx(np.array(fit.theta), rel=1e-8)
+    assert fit.cov_stat == approx(np.linalg.inv(design.T @ (w[:, None] * design)), rel=1e-6)
+    assert fit.chi2 == approx(float((w * (r - design @ theta) ** 2).sum()), rel=1e-6)
+    # Not the delta law's answer: the weights differ.
+    delta = (rf.fit_affine if form == rf.FORM_AFFINE else rf.fit_pinned)(x, r, n)
+    assert not np.allclose(delta.theta, fit.theta, rtol=1e-6)
+
+
+@pytest.mark.parametrize("seed, spread", [(41, 0.0), (42, 0.25)])
+def test_a_kappa_quadrature_fit_is_lstsq_in_z_at_its_final_weights(seed, spread):
+    """se_z = 2κ·ŷ² at the fixed point; lstsq on the √w-scaled (u, 1) system in z = r² returns (A, B)."""
+    x, r, n, kappa = _kappa_windows(seed, spread)
+    fit = rf.fit_quadrature(x, r, n, kappa)
+    assert fit.converged
+    zhat = fit.theta[0] * x * x + fit.theta[1]
+    assert (zhat > 0).all()
+    w = 1.0 / (2.0 * kappa * zhat) ** 2
+    design = np.stack([x * x, np.ones_like(x)], axis=1)
+    root = np.sqrt(w)
+    theta, *_ = np.linalg.lstsq(design * root[:, None], r * r * root, rcond=None)
+    assert theta == approx(np.array(fit.theta), rel=1e-7)
+    assert fit.cov_stat == approx(np.linalg.inv(design.T @ (w[:, None] * design)), rel=1e-6)
+    assert fit.chi2 == approx(float((w * (r * r - design @ theta) ** 2).sum()), rel=1e-6)
+
+
+def test_kappa_fits_recover_the_generating_terms_and_converge():
+    """Windows with a known relative SE κ: the κ-weighted fits recover a and b within 3 SE."""
+    rng = np.random.default_rng(1112)
+    x = 1 / np.sqrt(np.arange(5.5, 20.0))
+    truth = A_TRUE * x + B_TRUE
+    kappa = np.full(x.size, 0.04)
+    hits = 0
+    for _ in range(200):
+        r = truth * (1 + kappa * rng.standard_normal(x.size))
+        fit = rf.fit_affine(x, r, np.full(x.size, 500), kappa)
+        assert fit.converged
+        hits += abs(fit.theta[0] - A_TRUE) <= rf.Z95 * fit.se[0]
+    assert 0.9 <= hits / 200 <= 0.99
+    pinned = rf.fit_pinned(x, A_TRUE * x, np.full(x.size, 500), kappa)
+    assert pinned.theta[0] == approx(A_TRUE, rel=1e-12) and pinned.chi2 == approx(0.0, abs=1e-20)
+
+
+@pytest.mark.parametrize("kappa", [[0.05, 0.0, 0.05], [0.05, -0.1, 0.05], [0.05, np.nan, 0.05],
+                                   [0.05, np.inf, 0.05], [0.05, 0.05]])
+def test_kappa_must_be_positive_finite_and_aligned(kappa):
+    with pytest.raises(ValueError):
+        rf.fit_affine([0.25, 0.3, 0.4], [0.1, 0.09, 0.08], [50, 50, 50], kappa)

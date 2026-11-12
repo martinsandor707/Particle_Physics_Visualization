@@ -11,9 +11,48 @@
  "n_events": 286,
  "unit": "%",
  "estimator": {
-  "name": "response_ratio",
+  "name": "sample",
+  "label": "Sample σ/μ",
+  "quantity": "resolution",
+  "symbol": "σ/E",
   "definition": "R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the unbiased (ddof = 1) sample SD.",
-  "label": "σ(R)/μ(R), R = E_est / p"
+  "axis_name": "σ/E [%]",
+  "interval": {
+   "method": "chi2_over_mu",
+   "label": "95% χ² interval of s (N − 1 d.o.f.) divided by R̄; R̄'s own uncertainty is neglected, the delta-method se includes it."
+  },
+  "weight": {
+   "method": "delta",
+   "label": "Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard error of σ/μ, recomputed at the fitted value and iterated."
+  },
+  "literature": {
+   "drawn": true,
+   "warning": null
+  },
+  "calibration": {
+   "rule": "sum",
+   "label": "The deposit is c·E_dep with c = Σ p / Σ E_dep per shower over the selection (c_sum), fitted once; it cancels in the robust and sample widths. c_median, 1 / median(E_dep / p) over the events with E_dep > 0, is the calibration the median rel. cross-reference (alt) takes.",
+   "showers": {
+    "a": {
+     "c_sum": 138.334,
+     "c_median": 139.283,
+     "n": 286,
+     "n_zero_deposit": 0
+    },
+    "b": {
+     "c_sum": 136.056,
+     "c_median": 136.63,
+     "n": 286,
+     "n_zero_deposit": 0
+    }
+   }
+  },
+  "relation": "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
+  "choices": [
+   "median",
+   "robust",
+   "sample"
+  ]
  },
  "axis": {
   "x": {
@@ -168,9 +207,18 @@
       42.9845,
       85.8766
      ],
+     "method": "chi2_over_mu",
+     "se": 12.5031,
+     "se_rel": null,
      "se_delta": 12.5031,
      "c4": null,
      "bias": 13.7516,
+     "median_response": 64.267,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 12.2033,
      "dof_note": null,
      "weak": true,
@@ -193,9 +241,18 @@
       65.6551,
       126.091
      ],
+     "method": "chi2_over_mu",
+     "se": 21.7691,
+     "se_rel": null,
      "se_delta": 21.7691,
      "c4": null,
      "bias": -33.1556,
+     "median_response": -65.6298,
+     "tail_share": 25.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 70.0399
+     },
      "momentum_spread": 8.87613,
      "dof_note": null,
      "weak": false,
@@ -218,9 +275,18 @@
       60.5529,
       116.292
      ],
+     "method": "chi2_over_mu",
+     "se": 19.1783,
+     "se_rel": null,
      "se_delta": 19.1783,
      "c4": null,
      "bias": -20.166,
+     "median_response": -65.6298,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 280.159
+     },
      "momentum_spread": 6.65189,
      "dof_note": null,
      "weak": false,
@@ -243,9 +309,18 @@
       44.3023,
       90.5285
      ],
+     "method": "chi2_over_mu",
+     "se": 13.5728,
+     "se_rel": null,
      "se_delta": 13.5728,
      "c4": null,
      "bias": 10.7801,
+     "median_response": 64.267,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 4.46053,
      "dof_note": null,
      "weak": true,
@@ -268,9 +343,18 @@
       46.7817,
       93.4628
      ],
+     "method": "chi2_over_mu",
+     "se": 14.0797,
+     "se_rel": null,
      "se_delta": 14.0797,
      "c4": null,
      "bias": 6.53506,
+     "median_response": 64.267,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 4.52246,
      "dof_note": null,
      "weak": true,
@@ -293,9 +377,18 @@
       41.0823,
       75.1841
      ],
+     "method": "chi2_over_mu",
+     "se": 9.93714,
+     "se_rel": null,
      "se_delta": 9.93714,
      "c4": null,
      "bias": 19.0855,
+     "median_response": 64.267,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 58.6187
+     },
      "momentum_spread": 3.99146,
      "dof_note": null,
      "weak": false,
@@ -318,9 +411,18 @@
       49.6609,
       93.7357
      ],
+     "method": "chi2_over_mu",
+     "se": 13.7797,
+     "se_rel": null,
      "se_delta": 13.7797,
      "c4": null,
      "bias": 2.41136,
+     "median_response": 64.267,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 58.6187
+     },
      "momentum_spread": 3.58607,
      "dof_note": null,
      "weak": false,
@@ -343,9 +445,18 @@
       49.1969,
       109.327
      ],
+     "method": "chi2_over_mu",
+     "se": 18.1279,
+     "se_rel": null,
      "se_delta": 18.1279,
      "c4": 0.980971,
      "bias": -0.681429,
+     "median_response": -0.68143,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 3.28777,
      "dof_note": null,
      "weak": true,
@@ -368,9 +479,18 @@
       43.0832,
       81.3201
      ],
+     "method": "chi2_over_mu",
+     "se": 11.277,
+     "se_rel": null,
      "se_delta": 11.277,
      "c4": null,
      "bias": 14.7825,
+     "median_response": 64.267,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 58.6187
+     },
      "momentum_spread": 2.97964,
      "dof_note": null,
      "weak": false,
@@ -393,9 +513,18 @@
       59.7464,
       128.699
      ],
+     "method": "chi2_over_mu",
+     "se": 23.098,
+     "se_rel": null,
      "se_delta": 23.098,
      "c4": null,
      "bias": -22.3309,
+     "median_response": -65.6298,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 2.60766,
      "dof_note": null,
      "weak": true,
@@ -418,9 +547,18 @@
       53.7098,
       119.356
      ],
+     "method": "chi2_over_mu",
+     "se": 20.6476,
+     "se_rel": null,
      "se_delta": 20.6476,
      "c4": 0.980971,
      "bias": -9.95977,
+     "median_response": -65.6298,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 2.21372,
      "dof_note": null,
      "weak": true,
@@ -443,9 +581,18 @@
       44.3023,
       90.5285
      ],
+     "method": "chi2_over_mu",
+     "se": 13.5728,
+     "se_rel": null,
      "se_delta": 13.5728,
      "c4": null,
      "bias": 10.7801,
+     "median_response": 64.267,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 2.26727,
      "dof_note": null,
      "weak": true,
@@ -468,9 +615,18 @@
       63.7651,
       127.393
      ],
+     "method": "chi2_over_mu",
+     "se": 22.4067,
+     "se_rel": null,
      "se_delta": 22.4067,
      "c4": null,
      "bias": -29.5474,
+     "median_response": -65.6298,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 2.09926,
      "dof_note": null,
      "weak": true,
@@ -493,9 +649,18 @@
       46.4046,
       87.5894
      ],
+     "method": "chi2_over_mu",
+     "se": 12.5072,
+     "se_rel": null,
      "se_delta": 12.5072,
      "c4": null,
      "bias": 8.59692,
+     "median_response": 64.267,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.394,
+      "robust": 58.6187
+     },
      "momentum_spread": 2.01702,
      "dof_note": null,
      "weak": false,
@@ -518,9 +683,18 @@
       44.3023,
       90.5285
      ],
+     "method": "chi2_over_mu",
+     "se": 13.5728,
+     "se_rel": null,
      "se_delta": 13.5728,
      "c4": null,
      "bias": 10.7801,
+     "median_response": 64.267,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 1.34709,
      "dof_note": null,
      "weak": true,
@@ -543,9 +717,18 @@
       48.3847,
       115.964
      ],
+     "method": "chi2_over_mu",
+     "se": 19.8347,
+     "se_rel": null,
      "se_delta": 19.8347,
      "c4": 0.977559,
      "bias": -0.681427,
+     "median_response": -0.68143,
+     "tail_share": null,
+     "alt": {
+      "median": 65.394,
+      "robust": null
+     },
      "momentum_spread": 1.60877,
      "dof_note": null,
      "weak": true,
@@ -1263,6 +1446,16 @@
       16.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     64.267,
+     64.267
+    ],
+    "all": [
+     -65.6298,
+     64.267
+    ]
    }
   },
   {
@@ -1293,9 +1486,18 @@
       65.4973,
       130.854
      ],
+     "method": "chi2_over_mu",
+     "se": 23.3782,
+     "se_rel": null,
      "se_delta": 23.3782,
      "c4": null,
      "bias": 270.292,
+     "median_response": 41.5716,
+     "tail_share": null,
+     "alt": {
+      "median": 41.5716,
+      "robust": null
+     },
      "momentum_spread": 12.2033,
      "dof_note": null,
      "weak": true,
@@ -1318,9 +1520,18 @@
       36.306,
       69.7258
      ],
+     "method": "chi2_over_mu",
+     "se": 9.27083,
+     "se_rel": null,
      "se_delta": 9.27083,
      "c4": null,
      "bias": 329.414,
+     "median_response": 409.114,
+     "tail_share": 25.0,
+     "alt": {
+      "median": 409.114,
+      "robust": 26.2385
+     },
      "momentum_spread": 8.87613,
      "dof_note": null,
      "weak": false,
@@ -1343,9 +1554,18 @@
       44.5412,
       85.5416
      ],
+     "method": "chi2_over_mu",
+     "se": 12.2109,
+     "se_rel": null,
      "se_delta": 12.2109,
      "c4": null,
      "bias": 200.028,
+     "median_response": 296.139,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 296.139,
+      "robust": 67.3425
+     },
      "momentum_spread": 6.65189,
      "dof_note": null,
      "weak": false,
@@ -1368,9 +1588,18 @@
       63.7212,
       130.21
      ],
+     "method": "chi2_over_mu",
+     "se": 23.3229,
+     "se_rel": null,
      "se_delta": 23.3229,
      "c4": null,
      "bias": 77.3301,
+     "median_response": -44.259,
+     "tail_share": null,
+     "alt": {
+      "median": 47.3774,
+      "robust": null
+     },
      "momentum_spread": 4.46053,
      "dof_note": null,
      "weak": true,
@@ -1393,9 +1622,18 @@
       61.203,
       122.274
      ],
+     "method": "chi2_over_mu",
+     "se": 21.0121,
+     "se_rel": null,
      "se_delta": 21.0121,
      "c4": null,
      "bias": 57.4827,
+     "median_response": -50.1203,
+     "tail_share": null,
+     "alt": {
+      "median": 55.7161,
+      "robust": null
+     },
      "momentum_spread": 4.52246,
      "dof_note": null,
      "weak": true,
@@ -1418,9 +1656,18 @@
       70.4795,
       128.983
      ],
+     "method": "chi2_over_mu",
+     "se": 22.1045,
+     "se_rel": null,
      "se_delta": 22.1045,
      "c4": null,
      "bias": 15.6102,
+     "median_response": -57.8023,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 61.1666,
+      "robust": 369.137
+     },
      "momentum_spread": 3.99146,
      "dof_note": null,
      "weak": false,
@@ -1443,9 +1690,18 @@
       59.0995,
       111.551
      ],
+     "method": "chi2_over_mu",
+     "se": 17.8536,
+     "se_rel": null,
      "se_delta": 17.8536,
      "c4": null,
      "bias": 26.7628,
+     "median_response": -62.2729,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 65.6927,
+      "robust": 362.303
+     },
      "momentum_spread": 3.58607,
      "dof_note": null,
      "weak": false,
@@ -1468,9 +1724,18 @@
       54.3723,
       120.828
      ],
+     "method": "chi2_over_mu",
+     "se": 21.0328,
+     "se_rel": null,
      "se_delta": 21.0328,
      "c4": 0.980971,
      "bias": 16.4992,
+     "median_response": 13.3963,
+     "tail_share": null,
+     "alt": {
+      "median": 81.2365,
+      "robust": null
+     },
      "momentum_spread": 3.28777,
      "dof_note": null,
      "weak": true,
@@ -1493,9 +1758,18 @@
       66.9383,
       126.347
      ],
+     "method": "chi2_over_mu",
+     "se": 21.6899,
+     "se_rel": null,
      "se_delta": 21.6899,
      "c4": null,
      "bias": -12.2389,
+     "median_response": -70.0043,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 71.8854,
+      "robust": 374.11
+     },
      "momentum_spread": 2.97964,
      "dof_note": null,
      "weak": false,
@@ -1518,9 +1792,18 @@
       42.0251,
       90.5257
      ],
+     "method": "chi2_over_mu",
+     "se": 13.786,
+     "se_rel": null,
      "se_delta": 13.786,
      "c4": null,
      "bias": 20.7113,
+     "median_response": 63.5274,
+     "tail_share": null,
+     "alt": {
+      "median": 71.7128,
+      "robust": null
+     },
      "momentum_spread": 2.60766,
      "dof_note": null,
      "weak": true,
@@ -1543,9 +1826,18 @@
       49.2901,
       109.534
      ],
+     "method": "chi2_over_mu",
+     "se": 18.1782,
+     "se_rel": null,
      "se_delta": 18.1782,
      "c4": 0.980971,
      "bias": -1.05886,
+     "median_response": 50.0926,
+     "tail_share": null,
+     "alt": {
+      "median": 58.9788,
+      "robust": null
+     },
      "momentum_spread": 2.21372,
      "dof_note": null,
      "weak": true,
@@ -1568,9 +1860,18 @@
       62.6184,
       127.956
      ],
+     "method": "chi2_over_mu",
+     "se": 22.6902,
+     "se_rel": null,
      "se_delta": 22.6902,
      "c4": null,
      "bias": -28.7182,
+     "median_response": -76.9189,
+     "tail_share": null,
+     "alt": {
+      "median": 76.9189,
+      "robust": null
+     },
      "momentum_spread": 2.26727,
      "dof_note": null,
      "weak": true,
@@ -1593,9 +1894,18 @@
       38.1974,
       76.3127
      ],
+     "method": "chi2_over_mu",
+     "se": 10.6542,
+     "se_rel": null,
      "se_delta": 10.6542,
      "c4": null,
      "bias": 2.32662,
+     "median_response": 31.6601,
+     "tail_share": null,
+     "alt": {
+      "median": 36.2011,
+      "robust": null
+     },
      "momentum_spread": 2.09926,
      "dof_note": null,
      "weak": true,
@@ -1618,9 +1928,18 @@
       63.0363,
       118.982
      ],
+     "method": "chi2_over_mu",
+     "se": 19.7279,
+     "se_rel": null,
      "se_delta": 19.7279,
      "c4": null,
      "bias": -35.6384,
+     "median_response": -79.8867,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 79.8867,
+      "robust": 378.816
+     },
      "momentum_spread": 2.01702,
      "dof_note": null,
      "weak": false,
@@ -1643,9 +1962,18 @@
       63.089,
       128.918
      ],
+     "method": "chi2_over_mu",
+     "se": 22.959,
+     "se_rel": null,
      "se_delta": 22.959,
      "c4": null,
      "bias": -41.1961,
+     "median_response": -81.2839,
+     "tail_share": null,
+     "alt": {
+      "median": 81.2839,
+      "robust": null
+     },
      "momentum_spread": 1.34709,
      "dof_note": null,
      "weak": true,
@@ -1668,9 +1996,18 @@
       53.8882,
       129.155
      ],
+     "method": "chi2_over_mu",
+     "se": 23.2828,
+     "se_rel": null,
      "se_delta": 23.2828,
      "c4": 0.977559,
      "bias": -36.5683,
+     "median_response": -36.8188,
+     "tail_share": null,
+     "alt": {
+      "median": 46.6598,
+      "robust": null
+     },
      "momentum_spread": 1.60877,
      "dof_note": null,
      "weak": true,
@@ -2388,6 +2725,16 @@
       16.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -79.8867,
+     -57.8023
+    ],
+    "all": [
+     -79.8867,
+     296.139
+    ]
    }
   },
   {
@@ -2418,9 +2765,18 @@
       83.6353,
       175.228
      ],
+     "method": "chi2_over_mu",
+     "se": 38.1341,
+     "se_rel": null,
      "se_delta": 38.1341,
      "c4": null,
      "bias": -12.5044,
+     "median_response": -97.0936,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 10.9236,
      "dof_note": null,
      "weak": true,
@@ -2443,9 +2799,18 @@
       78.1624,
       134.568
      ],
+     "method": "chi2_over_mu",
+     "se": 22.851,
+     "se_rel": null,
      "se_delta": 22.851,
      "c4": null,
      "bias": -0.420201,
+     "median_response": -0.420204,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 143.931
+     },
      "momentum_spread": 8.61476,
      "dof_note": null,
      "weak": false,
@@ -2468,9 +2833,18 @@
       90.6676,
       163.64
      ],
+     "method": "chi2_over_mu",
+     "se": 32.6732,
+     "se_rel": null,
      "se_delta": 32.6732,
      "c4": null,
      "bias": -16.5324,
+     "median_response": -97.0936,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 4931.39
+     },
      "momentum_spread": 6.20667,
      "dof_note": null,
      "weak": false,
@@ -2493,9 +2867,18 @@
       68.619,
       211.221
      ],
+     "method": "chi2_over_mu",
+     "se": 47.1126,
+     "se_rel": null,
      "se_delta": 47.1126,
      "c4": 0.96503,
      "bias": -0.420202,
+     "median_response": -0.420205,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 4.26466,
      "dof_note": null,
      "weak": true,
@@ -2518,9 +2901,18 @@
       65.5334,
       137.302
      ],
+     "method": "chi2_over_mu",
+     "se": 25.4842,
+     "se_rel": null,
      "se_delta": 25.4842,
      "c4": null,
      "bias": 11.664,
+     "median_response": 96.2532,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 4.8425,
      "dof_note": null,
      "weak": true,
@@ -2543,9 +2935,18 @@
       52.4045,
       112.884
      ],
+     "method": "chi2_over_mu",
+     "se": 18.9204,
+     "se_rel": null,
      "se_delta": 18.9204,
      "c4": null,
      "bias": 31.8043,
+     "median_response": 96.2532,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 3.66171,
      "dof_note": null,
      "weak": true,
@@ -2568,9 +2969,18 @@
       78.4864,
       169.066
      ],
+     "method": "chi2_over_mu",
+     "se": 35.9302,
+     "se_rel": null,
      "se_delta": 35.9302,
      "c4": null,
      "bias": -6.86509,
+     "median_response": -97.0936,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 3.76479,
      "dof_note": null,
      "weak": true,
@@ -2593,9 +3003,18 @@
       69.9565,
       129.943
      ],
+     "method": "chi2_over_mu",
+     "se": 22.53,
+     "se_rel": null,
      "se_delta": 22.53,
      "c4": null,
      "bias": 8.36829,
+     "median_response": 96.2532,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 73.0312
+     },
      "momentum_spread": 2.81017,
      "dof_note": null,
      "weak": false,
@@ -2618,9 +3037,18 @@
       80.0767,
       146.547
      ],
+     "method": "chi2_over_mu",
+     "se": 27.2642,
+     "se_rel": null,
      "se_delta": 27.2642,
      "c4": null,
      "bias": -4.62339,
+     "median_response": -97.0936,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 4931.39
+     },
      "momentum_spread": 2.82579,
      "dof_note": null,
      "weak": false,
@@ -2643,9 +3071,18 @@
       71.6034,
       140.133
      ],
+     "method": "chi2_over_mu",
+     "se": 25.9583,
+     "se_rel": null,
      "se_delta": 25.9583,
      "c4": null,
      "bias": 4.66787,
+     "median_response": 96.2532,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 2.45261,
      "dof_note": null,
      "weak": true,
@@ -2668,9 +3105,18 @@
       75.7478,
       145.474
      ],
+     "method": "chi2_over_mu",
+     "se": 27.4443,
+     "se_rel": null,
      "se_delta": 27.4443,
      "c4": null,
      "bias": -0.420201,
+     "median_response": -0.420204,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 143.931
+     },
      "momentum_spread": 2.62699,
      "dof_note": null,
      "weak": false,
@@ -2693,9 +3139,18 @@
       85.5824,
       227.165
      ],
+     "method": "chi2_over_mu",
+     "se": 57.068,
+     "se_rel": null,
      "se_delta": 57.068,
      "c4": 0.972659,
      "bias": -19.7549,
+     "median_response": -97.0936,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 2.2247,
      "dof_note": null,
      "weak": true,
@@ -2718,9 +3173,18 @@
       57.5981,
       132.589
      ],
+     "method": "chi2_over_mu",
+     "se": 24.2698,
+     "se_rel": null,
      "se_delta": 24.2698,
      "c4": 0.979406,
      "bias": 21.889,
+     "median_response": 96.2532,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 1.87526,
      "dof_note": null,
      "weak": true,
@@ -2743,9 +3207,18 @@
       91.286,
       169.563
      ],
+     "method": "chi2_over_mu",
+     "se": 35.1589,
+     "se_rel": null,
      "se_delta": 35.1589,
      "c4": null,
      "bias": -17.9972,
+     "median_response": -97.0936,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 4931.39
+     },
      "momentum_spread": 1.54772,
      "dof_note": null,
      "weak": false,
@@ -2768,9 +3241,18 @@
       78.0734,
       179.722
      ],
+     "method": "chi2_over_mu",
+     "se": 39.6844,
+     "se_rel": null,
      "se_delta": 39.6844,
      "c4": 0.979406,
      "bias": -7.85662,
+     "median_response": -97.0936,
+     "tail_share": null,
+     "alt": {
+      "median": 97.0813,
+      "robust": null
+     },
      "momentum_spread": 1.84775,
      "dof_note": null,
      "weak": true,
@@ -2793,9 +3275,18 @@
       69.9565,
       129.943
      ],
+     "method": "chi2_over_mu",
+     "se": 22.53,
+     "se_rel": null,
      "se_delta": 22.53,
      "c4": null,
      "bias": 8.36829,
+     "median_response": 96.2532,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 97.0813,
+      "robust": 73.0312
+     },
      "momentum_spread": 1.50594,
      "dof_note": null,
      "weak": false,
@@ -3504,6 +3995,16 @@
       18.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -97.0936,
+     96.2532
+    ],
+    "all": [
+     -97.0936,
+     96.2532
+    ]
    }
   },
   {
@@ -3534,9 +4035,18 @@
       25.8052,
       54.0657
      ],
+     "method": "chi2_over_mu",
+     "se": 7.06991,
+     "se_rel": null,
      "se_delta": 7.06991,
      "c4": null,
      "bias": 249.372,
+     "median_response": 180.177,
+     "tail_share": null,
+     "alt": {
+      "median": 180.177,
+      "robust": null
+     },
      "momentum_spread": 10.9236,
      "dof_note": null,
      "weak": true,
@@ -3559,9 +4069,18 @@
       27.7078,
       47.7028
      ],
+     "method": "chi2_over_mu",
+     "se": 5.30397,
+     "se_rel": null,
      "se_delta": 5.30397,
      "c4": null,
      "bias": 167.362,
+     "median_response": 157.659,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 157.659,
+      "robust": 51.3735
+     },
      "momentum_spread": 8.61476,
      "dof_note": null,
      "weak": false,
@@ -3584,9 +4103,18 @@
       29.6249,
       53.468
      ],
+     "method": "chi2_over_mu",
+     "se": 6.35457,
+     "se_rel": null,
      "se_delta": 6.35457,
      "c4": null,
      "bias": 96.391,
+     "median_response": 46.6558,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 46.6558,
+      "robust": 70.0071
+     },
      "momentum_spread": 6.20667,
      "dof_note": null,
      "weak": false,
@@ -3609,9 +4137,18 @@
       23.5267,
       72.4194
      ],
+     "method": "chi2_over_mu",
+     "se": 10.5111,
+     "se_rel": null,
      "se_delta": 10.5111,
      "c4": 0.96503,
      "bias": 74.3745,
+     "median_response": 71.3889,
+     "tail_share": null,
+     "alt": {
+      "median": 71.3889,
+      "robust": null
+     },
      "momentum_spread": 4.26466,
      "dof_note": null,
      "weak": true,
@@ -3634,9 +4171,18 @@
       23.4984,
       49.2327
      ],
+     "method": "chi2_over_mu",
+     "se": 6.33473,
+     "se_rel": null,
      "se_delta": 6.33473,
      "c4": null,
      "bias": 50.2397,
+     "median_response": 82.3516,
+     "tail_share": null,
+     "alt": {
+      "median": 82.3516,
+      "robust": null
+     },
      "momentum_spread": 4.8425,
      "dof_note": null,
      "weak": true,
@@ -3659,9 +4205,18 @@
       22.5871,
       48.6545
      ],
+     "method": "chi2_over_mu",
+     "se": 6.32713,
+     "se_rel": null,
      "se_delta": 6.32713,
      "c4": null,
      "bias": 40.9806,
+     "median_response": 70.113,
+     "tail_share": null,
+     "alt": {
+      "median": 70.113,
+      "robust": null
+     },
      "momentum_spread": 3.66171,
      "dof_note": null,
      "weak": true,
@@ -3684,9 +4239,18 @@
       25.7752,
       55.522
      ],
+     "method": "chi2_over_mu",
+     "se": 7.38297,
+     "se_rel": null,
      "se_delta": 7.38297,
      "c4": null,
      "bias": 7.05698,
+     "median_response": -23.0518,
+     "tail_share": null,
+     "alt": {
+      "median": 31.2043,
+      "robust": null
+     },
      "momentum_spread": 3.76479,
      "dof_note": null,
      "weak": true,
@@ -3709,9 +4273,18 @@
       26.3806,
       49.0016
      ],
+     "method": "chi2_over_mu",
+     "se": 5.85476,
+     "se_rel": null,
      "se_delta": 5.85476,
      "c4": null,
      "bias": 2.25059,
+     "median_response": 26.781,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 34.6101,
+      "robust": 40.1126
+     },
      "momentum_spread": 2.81017,
      "dof_note": null,
      "weak": false,
@@ -3734,9 +4307,18 @@
       27.0753,
       49.5502
      ],
+     "method": "chi2_over_mu",
+     "se": 5.86391,
+     "se_rel": null,
      "se_delta": 5.86391,
      "c4": null,
      "bias": -12.7973,
+     "median_response": -38.9267,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 38.9267,
+      "robust": 70.4015
+     },
      "momentum_spread": 2.82579,
      "dof_note": null,
      "weak": false,
@@ -3759,9 +4341,18 @@
       26.1674,
       51.2117
      ],
+     "method": "chi2_over_mu",
+     "se": 6.39397,
+     "se_rel": null,
      "se_delta": 6.39397,
      "c4": null,
      "bias": -17.1421,
+     "median_response": 4.41488,
+     "tail_share": null,
+     "alt": {
+      "median": 11.4651,
+      "robust": null
+     },
      "momentum_spread": 2.45261,
      "dof_note": null,
      "weak": true,
@@ -3784,9 +4375,18 @@
       26.5637,
       51.0157
      ],
+     "method": "chi2_over_mu",
+     "se": 6.28888,
+     "se_rel": null,
      "se_delta": 6.28888,
      "c4": null,
      "bias": -25.0425,
+     "median_response": -26.1684,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 26.6954,
+      "robust": 49.3573
+     },
      "momentum_spread": 2.62699,
      "dof_note": null,
      "weak": false,
@@ -3809,9 +4409,18 @@
       25.5669,
       67.8635
      ],
+     "method": "chi2_over_mu",
+     "se": 9.79014,
+     "se_rel": null,
      "se_delta": 9.79014,
      "c4": 0.972659,
      "bias": -35.4632,
+     "median_response": -53.1795,
+     "tail_share": null,
+     "alt": {
+      "median": 53.1795,
+      "robust": null
+     },
      "momentum_spread": 2.2247,
      "dof_note": null,
      "weak": true,
@@ -3834,9 +4443,18 @@
       23.0616,
       53.087
      ],
+     "method": "chi2_over_mu",
+     "se": 7.16411,
+     "se_rel": null,
      "se_delta": 7.16411,
      "c4": 0.979406,
      "bias": -30.5178,
+     "median_response": -14.7061,
+     "tail_share": null,
+     "alt": {
+      "median": 14.7061,
+      "robust": null
+     },
      "momentum_spread": 1.87526,
      "dof_note": null,
      "weak": true,
@@ -3859,9 +4477,18 @@
       28.1534,
       52.2946
      ],
+     "method": "chi2_over_mu",
+     "se": 6.32726,
+     "se_rel": null,
      "se_delta": 6.32726,
      "c4": null,
      "bias": -43.4583,
+     "median_response": -59.389,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 59.389,
+      "robust": 74.7442
+     },
      "momentum_spread": 1.54772,
      "dof_note": null,
      "weak": false,
@@ -3884,9 +4511,18 @@
       26.2422,
       60.4086
      ],
+     "method": "chi2_over_mu",
+     "se": 8.34262,
+     "se_rel": null,
      "se_delta": 8.34262,
      "c4": 0.979406,
      "bias": -44.1975,
+     "median_response": -61.6759,
+     "tail_share": null,
+     "alt": {
+      "median": 61.6759,
+      "robust": null
+     },
      "momentum_spread": 1.84775,
      "dof_note": null,
      "weak": true,
@@ -3909,9 +4545,18 @@
       25.7637,
       47.8558
      ],
+     "method": "chi2_over_mu",
+     "se": 5.69359,
+     "se_rel": null,
      "se_delta": 5.69359,
      "c4": null,
      "bias": -44.872,
+     "median_response": -30.0386,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 30.0386,
+      "robust": 37.9315
+     },
      "momentum_spread": 1.50594,
      "dof_note": null,
      "weak": false,
@@ -4620,6 +5265,16 @@
       18.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -38.9267,
+     26.781
+    ],
+    "all": [
+     -59.389,
+     46.6558
+    ]
    }
   }
  ],
@@ -4660,6 +5315,7 @@
  "notes": [
   "Each shower's deposit E_dep is the truth segmentation's share of the event's hit energy (a cell both showers hit is divided by the truth fraction) and p is that shower's own incident momentum. Showers A and B are separate series with one value per event each; an event in which a shower has no hit rows is not part of that shower's series.",
   "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ (N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread and the estimator's bias, and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+  "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
   "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
@@ -4668,8 +5324,13 @@
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower A: c = Σ p / Σ E_dep = 138.3 over N = 286 events, fitted once over the whole selection.",
+  "Shower A: the median rel. cross-reference (alt) takes the median calibration c̃ = 1 / median(E_dep / p) = 139.3, over the 286 events with E_dep > 0.",
   "Shower B: c = Σ p / Σ E_dep = 136.1 over N = 286 events, fitted once over the whole selection.",
+  "Shower B: the median rel. cross-reference (alt) takes the median calibration c̃ = 1 / median(E_dep / p) = 136.6, over the 286 events with E_dep > 0.",
   "The model series is the energy network of the absolute frame (coord_system), R = predicted energy / its truth; the networks predict the momentum scale directly, with no calibration.",
+  "Shower A · Energy network · absolute frame: median response R̃ − 1 from −79.89% to −57.80% over the anchors' fitted windows, −79.89% to +296.14% over every fitted window.",
+  "Shower B · Energy network · absolute frame: median response R̃ − 1 from −38.93% to +26.78% over the anchors' fitted windows, −59.39% to +46.66% over every fitted window.",
+  "A regressor trained on a bounded momentum range pulls its predictions toward mid-range, so its median response leaves 1 near the ends of that range: there it narrows a σ and adds a bias to the median rel.",
   "Off the axis: 8 windows below 4 GeV (164 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
   "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23).",
   "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21).",

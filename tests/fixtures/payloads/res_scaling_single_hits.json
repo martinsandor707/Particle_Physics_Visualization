@@ -11,9 +11,42 @@
  "n_events": 287,
  "unit": "%",
  "estimator": {
-  "name": "response_ratio",
+  "name": "sample",
+  "label": "Sample σ/μ",
+  "quantity": "resolution",
+  "symbol": "σ/E",
   "definition": "R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the unbiased (ddof = 1) sample SD.",
-  "label": "σ(R)/μ(R), R = E_est / p"
+  "axis_name": "σ/E [%]",
+  "interval": {
+   "method": "chi2_over_mu",
+   "label": "95% χ² interval of s (N − 1 d.o.f.) divided by R̄; R̄'s own uncertainty is neglected, the delta-method se includes it."
+  },
+  "weight": {
+   "method": "delta",
+   "label": "Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard error of σ/μ, recomputed at the fitted value and iterated."
+  },
+  "literature": {
+   "drawn": true,
+   "warning": null
+  },
+  "calibration": {
+   "rule": "sum",
+   "label": "The deposit is c·E_dep with c = Σ p / Σ E_dep per shower over the selection (c_sum), fitted once; it cancels in the robust and sample widths. c_median, 1 / median(E_dep / p) over the events with E_dep > 0, is the calibration the median rel. cross-reference (alt) takes.",
+   "showers": {
+    "a": {
+     "c_sum": 105.996,
+     "c_median": 62.3697,
+     "n": 287,
+     "n_zero_deposit": 0
+    }
+   }
+  },
+  "relation": "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
+  "choices": [
+   "median",
+   "robust",
+   "sample"
+  ]
  },
  "axis": {
   "x": {
@@ -168,9 +201,18 @@
       60.9695,
       187.675
      ],
+     "method": "chi2_over_mu",
+     "se": 38.8751,
+     "se_rel": null,
      "se_delta": 38.8751,
      "c4": 0.96503,
      "bias": -0.223506,
+     "median_response": -1.34747,
+     "tail_share": null,
+     "alt": {
+      "median": 50.6565,
+      "robust": null
+     },
      "momentum_spread": 24.5083,
      "dof_note": null,
      "weak": true,
@@ -193,9 +235,18 @@
       67.3036,
       129.257
      ],
+     "method": "chi2_over_mu",
+     "se": 22.6457,
+     "se_rel": null,
      "se_delta": 22.6457,
      "c4": null,
      "bias": -0.223506,
+     "median_response": -1.34747,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 11.007,
      "dof_note": null,
      "weak": false,
@@ -215,9 +266,18 @@
      "sd_r": null,
      "value": null,
      "ci95": null,
+     "method": null,
+     "se": null,
+     "se_rel": null,
      "se_delta": null,
      "c4": null,
      "bias": 69.9486,
+     "median_response": null,
+     "tail_share": null,
+     "alt": {
+      "median": null,
+      "robust": null
+     },
      "momentum_spread": null,
      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
      "weak": true,
@@ -237,9 +297,18 @@
      "sd_r": null,
      "value": null,
      "ci95": null,
+     "method": null,
+     "se": null,
+     "se_rel": null,
      "se_delta": null,
      "c4": null,
      "bias": -96.9284,
+     "median_response": null,
+     "tail_share": null,
+     "alt": {
+      "median": null,
+      "robust": null
+     },
      "momentum_spread": null,
      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
      "weak": true,
@@ -262,9 +331,18 @@
       60.6103,
       130.56
      ],
+     "method": "chi2_over_mu",
+     "se": 23.6204,
+     "se_rel": null,
      "se_delta": 23.6204,
      "c4": null,
      "bias": 6.27731,
+     "median_response": 69.9486,
+     "tail_share": null,
+     "alt": {
+      "median": 17.41,
+      "robust": null
+     },
      "momentum_spread": 4.99202,
      "dof_note": null,
      "weak": true,
@@ -287,9 +365,18 @@
       47.8798,
       3424.69
      ],
+     "method": "chi2_over_mu",
+     "se": 111.316,
+     "se_rel": null,
      "se_delta": 111.316,
      "c4": 0.797885,
      "bias": 13.4465,
+     "median_response": 13.4465,
+     "tail_share": null,
+     "alt": {
+      "median": 50.6565,
+      "robust": null
+     },
      "momentum_spread": 1.66368,
      "dof_note": "1 d.o.f.",
      "weak": true,
@@ -312,9 +399,18 @@
       78.7495,
       95.8958
      ],
+     "method": "chi2_over_mu",
+     "se": 6.83733,
+     "se_rel": null,
      "se_delta": 6.83733,
      "c4": null,
      "bias": -0.223506,
+     "median_response": -1.34747,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 2.76062,
      "dof_note": null,
      "weak": false,
@@ -337,9 +433,18 @@
       55.135,
       188.435
      ],
+     "method": "chi2_over_mu",
+     "se": 37.0893,
+     "se_rel": null,
      "se_delta": 37.0893,
      "c4": 0.959369,
      "bias": 10.1222,
+     "median_response": 69.9486,
+     "tail_share": null,
+     "alt": {
+      "median": 17.41,
+      "robust": null
+     },
      "momentum_spread": 1.91202,
      "dof_note": null,
      "weak": true,
@@ -362,9 +467,18 @@
       73.1211,
       162.492
      ],
+     "method": "chi2_over_mu",
+     "se": 33.6241,
+     "se_rel": null,
      "se_delta": 33.6241,
      "c4": 0.980971,
      "bias": -12.3615,
+     "median_response": -72.6435,
+     "tail_share": null,
+     "alt": {
+      "median": 83.9031,
+      "robust": null
+     },
      "momentum_spread": 1.70886,
      "dof_note": null,
      "weak": true,
@@ -387,9 +501,18 @@
       64.9316,
       127.076
      ],
+     "method": "chi2_over_mu",
+     "se": 22.1835,
+     "se_rel": null,
      "se_delta": 22.1835,
      "c4": null,
      "bias": 3.58807,
+     "median_response": 69.9486,
+     "tail_share": null,
+     "alt": {
+      "median": 17.41,
+      "robust": null
+     },
      "momentum_spread": 1.54357,
      "dof_note": null,
      "weak": true,
@@ -1090,6 +1213,16 @@
       20.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -1.34747,
+     69.9486
+    ],
+    "all": [
+     -72.6435,
+     69.9486
+    ]
    }
   }
  ],
@@ -1107,6 +1240,7 @@
  "notes": [
   "The deposit E_dep is the shower's total hit energy in GeV, summed over its cells, and p its incident momentum: one shower per event.",
   "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ (N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread and the estimator's bias, and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+  "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
   "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
@@ -1115,6 +1249,7 @@
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower: c = Σ p / Σ E_dep = 106 over N = 287 events, fitted once over the whole selection.",
+  "Shower: the median rel. cross-reference (alt) takes the median calibration c̃ = 1 / median(E_dep / p) = 62.37, over the 287 events with E_dep > 0.",
   "The shower is not named after a species: the commonest primary particle, e-, covers 24.7% of the 287 selected events; 216 of them have no primary particle, below 95%.",
   "No model series: A single-shower hit experiment carries no reconstruction network, and the XGBoost models read the 59-column aggregate only, so only the detector series is drawn.",
   "Off the axis: 3 windows below 4 GeV (29 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",

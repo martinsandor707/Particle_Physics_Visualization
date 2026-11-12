@@ -16,6 +16,15 @@ toggle sends no request either.
 ``coord_system`` picks the energy network's input frame on two-shower data
 (the D-frame's view asks for ``lab``, whose networks it uses); on the other
 kinds it is validated and stated in ``meta`` as not applying.
+
+``estimator`` picks the error scale every window plots (Martin's decisions,
+2026-11-12): ``median`` (the default), the median relative error of Model
+Error vs. Incident Momentum with its seed and interval; ``robust``, the
+IQR-based σ/E; ``sample``, s(R)/R̄. One estimator per response: the card's
+Estimator control sends one request per switch, because two estimators in one
+body would break the 100 KB contract (about 55 KB more for two showers). An
+estimator outside the three is a 422 naming the field ``estimator``, as an
+unknown ``coord_system`` is one naming its own.
 """
 
 from __future__ import annotations
@@ -59,10 +68,20 @@ def get_resolution_scaling(
             "two-shower data only."
         ),
     ),
+    estimator: str = Query(
+        res.DEFAULT_ESTIMATOR,
+        description=(
+            "median | robust | sample: the error scale each momentum window plots. median (the "
+            "default) is median |R − 1|, for a model series the Median rel. of Model Error vs. "
+            "Incident Momentum with its seed and interval; robust is σ/E = IQR(R) / (1.349 · "
+            "median R) from N = 20 with an exact bootstrap interval; sample is s(R)/R̄ with its "
+            "χ² interval. R = E_est / p per event. Any other value is a 422."
+        ),
+    ),
 ):
     timer = Timer()
     capabilities.require(record, "res-scaling")
-    result = res.compute(con, record, spec, coord_system)
+    result = res.compute(con, record, spec, coord_system, estimator)
     steps = res.FIDELITY_STEPS
 
     def build(step: tuple[int, int], notices: list[str]) -> dict[str, Any]:
@@ -85,5 +104,8 @@ def get_resolution_scaling(
     # 2026-11-10: four series over 16 windows, each series' fits about 6 KB, the notes about
     # 5 KB, the E view's axis, spans and quadrature ρ and quantiles 1.6 KB) and about 62 KB at
     # 20 windows; the ladder guards a dataset with many more windows than the producers write.
+    # The estimators' window fields (method, se, se_rel, alt, median response, tail share) add
+    # about 140 bytes a window, and the estimator block and its notes 2–5 KB: that fixture serves
+    # 75,768 bytes under median, 72,437 under robust and 68,374 under sample (2026-11-12).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

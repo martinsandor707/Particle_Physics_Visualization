@@ -11,9 +11,42 @@
  "n_events": 307,
  "unit": "%",
  "estimator": {
-  "name": "response_ratio",
+  "name": "sample",
+  "label": "Sample σ/μ",
+  "quantity": "resolution",
+  "symbol": "σ/E",
   "definition": "R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the unbiased (ddof = 1) sample SD.",
-  "label": "σ(R)/μ(R), R = E_est / p"
+  "axis_name": "σ/E [%]",
+  "interval": {
+   "method": "chi2_over_mu",
+   "label": "95% χ² interval of s (N − 1 d.o.f.) divided by R̄; R̄'s own uncertainty is neglected, the delta-method se includes it."
+  },
+  "weight": {
+   "method": "delta",
+   "label": "Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard error of σ/μ, recomputed at the fitted value and iterated."
+  },
+  "literature": {
+   "drawn": true,
+   "warning": null
+  },
+  "calibration": {
+   "rule": "sum",
+   "label": "The deposit is c·E_dep with c = Σ p / Σ E_dep per shower over the selection (c_sum), fitted once; it cancels in the robust and sample widths. c_median, 1 / median(E_dep / p) over the events with E_dep > 0, is the calibration the median rel. cross-reference (alt) takes.",
+   "showers": {
+    "a": {
+     "c_sum": 105.378,
+     "c_median": 62.3697,
+     "n": 307,
+     "n_zero_deposit": 0
+    }
+   }
+  },
+  "relation": "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
+  "choices": [
+   "median",
+   "robust",
+   "sample"
+  ]
  },
  "axis": {
   "x": {
@@ -174,9 +207,18 @@
       73.7317,
       106.105
      ],
+     "method": "chi2_over_mu",
+     "se": 12.6313,
+     "se_rel": null,
      "se_delta": 12.6313,
      "c4": null,
      "bias": -0.80599,
+     "median_response": -1.92339,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 55.4594,
      "dof_note": null,
      "weak": false,
@@ -199,9 +241,18 @@
       73.7317,
       106.105
      ],
+     "method": "chi2_over_mu",
+     "se": 12.6313,
+     "se_rel": null,
      "se_delta": 12.6313,
      "c4": null,
      "bias": -0.80599,
+     "median_response": -1.92339,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 18.649,
      "dof_note": null,
      "weak": false,
@@ -224,9 +275,18 @@
       5.05253,
       361.392
      ],
+     "method": "chi2_over_mu",
+     "se": 8.0591,
+     "se_rel": null,
      "se_delta": 8.0591,
      "c4": 0.797885,
      "bias": 83.6641,
+     "median_response": 83.6641,
+     "tail_share": null,
+     "alt": {
+      "median": 8.705,
+      "robust": null
+     },
      "momentum_spread": 16.0707,
      "dof_note": "1 d.o.f.",
      "weak": true,
@@ -249,9 +309,18 @@
       67.3114,
       230.05
      ],
+     "method": "chi2_over_mu",
+     "se": 51.0877,
+     "se_rel": null,
      "se_delta": 51.0877,
      "c4": 0.959369,
      "bias": -14.9742,
+     "median_response": -72.8032,
+     "tail_share": null,
+     "alt": {
+      "median": 83.9031,
+      "robust": null
+     },
      "momentum_spread": 6.90606,
      "dof_note": null,
      "weak": true,
@@ -274,9 +343,18 @@
       69.2465,
       149.163
      ],
+     "method": "chi2_over_mu",
+     "se": 29.2066,
+     "se_rel": null,
      "se_delta": 29.2066,
      "c4": null,
      "bias": -5.45682,
+     "median_response": -72.8032,
+     "tail_share": null,
+     "alt": {
+      "median": 83.9031,
+      "robust": null
+     },
      "momentum_spread": 5.36421,
      "dof_note": null,
      "weak": true,
@@ -299,9 +377,18 @@
       67.3036,
       129.257
      ],
+     "method": "chi2_over_mu",
+     "se": 22.6457,
+     "se_rel": null,
      "se_delta": 22.6457,
      "c4": null,
      "bias": -0.80599,
+     "median_response": -1.92339,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 3.70473,
      "dof_note": null,
      "weak": false,
@@ -324,9 +411,18 @@
       76.8743,
       99.2212
      ],
+     "method": "chi2_over_mu",
+     "se": 8.85663,
+     "se_rel": null,
      "se_delta": 8.85663,
      "c4": null,
      "bias": -0.80599,
+     "median_response": -1.92339,
+     "tail_share": 0.0,
+     "alt": {
+      "median": 50.6565,
+      "robust": 117.418
+     },
      "momentum_spread": 2.76059,
      "dof_note": null,
      "weak": false,
@@ -346,9 +442,18 @@
      "sd_r": null,
      "value": null,
      "ci95": null,
+     "method": null,
+     "se": null,
+     "se_rel": null,
      "se_delta": null,
      "c4": null,
      "bias": 68.9565,
+     "median_response": null,
+     "tail_share": null,
+     "alt": {
+      "median": null,
+      "robust": null
+     },
      "momentum_spread": null,
      "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
      "weak": true,
@@ -371,9 +476,18 @@
       63.7488,
       141.665
      ],
+     "method": "chi2_over_mu",
+     "se": 26.9168,
+     "se_rel": null,
      "se_delta": 26.9168,
      "c4": 0.980971,
      "bias": 1.13547,
+     "median_response": -1.92339,
+     "tail_share": null,
+     "alt": {
+      "median": 50.6565,
+      "robust": null
+     },
      "momentum_spread": 2.17591,
      "dof_note": null,
      "weak": true,
@@ -396,9 +510,18 @@
       60.9695,
       187.675
      ],
+     "method": "chi2_over_mu",
+     "se": 38.8751,
+     "se_rel": null,
      "se_delta": 38.8751,
      "c4": 0.96503,
      "bias": -0.80599,
+     "median_response": -1.92339,
+     "tail_share": null,
+     "alt": {
+      "median": 50.6565,
+      "robust": null
+     },
      "momentum_spread": 1.39094,
      "dof_note": null,
      "weak": true,
@@ -1107,6 +1230,16 @@
       11.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -1.92339,
+     -1.92339
+    ],
+    "all": [
+     -1.92339,
+     -1.92339
+    ]
    }
   },
   {
@@ -1137,9 +1270,18 @@
       41.5217,
       99.5156
      ],
+     "method": "chi2_over_mu",
+     "se": 15.9537,
+     "se_rel": null,
      "se_delta": 15.9537,
      "c4": 0.977559,
      "bias": 38.5401,
+     "median_response": 11.5039,
+     "tail_share": null,
+     "alt": {
+      "median": 11.5039,
+      "robust": null
+     },
      "momentum_spread": 34.6904,
      "dof_note": null,
      "weak": true,
@@ -1162,9 +1304,18 @@
       4.30912,
       9.2822
      ],
+     "method": "chi2_over_mu",
+     "se": 1.11589,
+     "se_rel": null,
      "se_delta": 1.11589,
      "c4": null,
      "bias": -1.2825,
+     "median_response": -2.38075,
+     "tail_share": null,
+     "alt": {
+      "median": 3.7324,
+      "robust": null
+     },
      "momentum_spread": 18.6785,
      "dof_note": null,
      "weak": true,
@@ -1187,9 +1338,18 @@
       12.3339,
       882.206
      ],
+     "method": "chi2_over_mu",
+     "se": 20.2816,
+     "se_rel": null,
      "se_delta": 20.2816,
      "c4": 0.797885,
      "bias": -20.9816,
+     "median_response": -20.9816,
+     "tail_share": null,
+     "alt": {
+      "median": 20.9816,
+      "robust": null
+     },
      "momentum_spread": 7.36232,
      "dof_note": "1 d.o.f.",
      "weak": true,
@@ -1212,9 +1372,18 @@
       3.94734,
       12.1506
      ],
+     "method": "chi2_over_mu",
+     "se": 1.60058,
+     "se_rel": null,
      "se_delta": 1.60058,
      "c4": 0.96503,
      "bias": -3.80704,
+     "median_response": -2.20405,
+     "tail_share": null,
+     "alt": {
+      "median": 2.601,
+      "robust": null
+     },
      "momentum_spread": 3.5945,
      "dof_note": null,
      "weak": true,
@@ -1237,9 +1406,18 @@
       1.01417,
       1.98481
      ],
+     "method": "chi2_over_mu",
+     "se": 0.223734,
+     "se_rel": null,
      "se_delta": 0.223734,
      "c4": null,
      "bias": -0.974591,
+     "median_response": -1.34043,
+     "tail_share": null,
+     "alt": {
+      "median": 1.53398,
+      "robust": null
+     },
      "momentum_spread": 2.90132,
      "dof_note": null,
      "weak": true,
@@ -1262,9 +1440,18 @@
       4.65986,
       56.2687
      ],
+     "method": "chi2_over_mu",
+     "se": 4.49888,
+     "se_rel": null,
      "se_delta": 4.49888,
      "c4": 0.886227,
      "bias": -6.00811,
+     "median_response": -2.88996,
+     "tail_share": null,
+     "alt": {
+      "median": 2.88996,
+      "robust": null
+     },
      "momentum_spread": 2.46776,
      "dof_note": null,
      "weak": true,
@@ -1287,9 +1474,18 @@
       4.17684,
       50.4361
      ],
+     "method": "chi2_over_mu",
+     "se": 4.02835,
+     "se_rel": null,
      "se_delta": 4.02835,
      "c4": 0.886227,
      "bias": -10.7729,
+     "median_response": -7.91146,
+     "tail_share": null,
+     "alt": {
+      "median": 7.91146,
+      "robust": null
+     },
      "momentum_spread": 1.63902,
      "dof_note": null,
      "weak": true,
@@ -1998,6 +2194,16 @@
       11.0
      ]
     }
+   },
+   "median_response_range": {
+    "anchors": [
+     -2.20405,
+     -1.34043
+    ],
+    "all": [
+     -2.20405,
+     -1.34043
+    ]
    }
   }
  ],
@@ -2025,6 +2231,7 @@
  "notes": [
   "The deposit E_dep is the producer's total_hit_energy and p its incoming_momentum, both read from the 59-column event aggregate: one shower per event, no hits.",
   "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ (N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread and the estimator's bias, and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+  "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
   "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "σ/E is reported from N = 2; a window is drawn with its whisker from N = 8, and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
@@ -2033,8 +2240,11 @@
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A series whose anchor window holds N < 20 takes its nearest window from 5 GeV in log E with N ≥ 20 instead; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every window with N ≥ 20 from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
   "Shower: c = Σ p / Σ E_dep = 105.4 over N = 307 events, fitted once over the whole selection.",
+  "Shower: the median rel. cross-reference (alt) takes the median calibration c̃ = 1 / median(E_dep / p) = 62.37, over the 307 events with E_dep > 0.",
   "The shower is named Electron e⁻: the species of the paired XGBoost models (electron).",
   "The model series is the shipped XGBoost momentum regressor on the notebook's 20% validation split: 62 of the 307 selected events. The detector series uses every selected event, so the two series do not share their events.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split: median response R̃ − 1 from −2.20% to −1.34% over the anchors' fitted windows, −2.20% to −1.34% over every fitted window.",
+  "A regressor trained on a bounded momentum range pulls its predictions toward mid-range, so its median response leaves 1 near the ends of that range: there it narrows a σ and adds a bias to the median rel.",
   "Off the axis: 7 windows below 4 GeV (158 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
   "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20).",
   "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 5 GeV with N ≥ 20 is left: it is dropped.",
