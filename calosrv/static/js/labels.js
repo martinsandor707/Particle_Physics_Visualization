@@ -273,6 +273,14 @@ export const MODELS_LABELS = Object.freeze({
     { value: 'linear', label: '1/√E linear', title: 'σ/E against a reversed 1/√E axis: a pure stochastic term is a straight line into the origin' },
     { value: 'energy', label: 'E (GeV) + ratio', title: 'σ/E against the energy in GeV, the a/√E ⊕ b and a₀/√E fits solid over their windows and dashed beyond, and a ratio panel' },
   ],
+  // The resolution card's estimator of each window (Martin's decisions of 2026-11-12): the
+  // Model Error card's median relative error by default, a robust σ/E (IQR), or the sample
+  // σ/μ. Each choice is its own response (`estimator`), never in a link or an Admin default.
+  res_estimator: [
+    { value: 'median', label: 'Median |rel. err.|', title: 'median |E_est − p| / p per window: the Median rel. of Model Error vs. Incident Momentum, same events, seed and interval. Not a σ: for unbiased Gaussian errors it is 0.6745·σ/E.' },
+    { value: 'robust', label: 'Robust σ (IQR)', title: 'IQR(R) / (1.349 · median R), R = E_est / p: a σ-consistent width that a few badly reconstructed events cannot inflate; the σ-scaled comparison with the π± and e± curves.' },
+    { value: 'sample', label: 'Sample σ/μ', title: 's(R) / R̄ over every event of the window, tails included: the Physics page resolution card\'s estimator.' },
+  ],
   // The windows control's words in the E view, where "all" also draws the windows below
   // 4 GeV, as points no fit uses.
   res_windows_energy: [
