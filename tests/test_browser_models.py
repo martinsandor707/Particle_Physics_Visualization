@@ -1527,6 +1527,22 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                 assert _res_press(page, "models-shower", "both")
                 assert page.evaluate(_RES_SERIES) == e_series
 
+            # With both curves off the ratio panel divides each shower's windows by its deposit fit, so a shower
+            # whose deposit has no fit in this mode has no ratio marks. Under the default median the recorded
+            # two-shower deposits tie (every bootstrap replicate the same value, SE below 10⁻⁶ of it): they carry
+            # no fit weight and no fit (review-ui M1), and that panel holds nothing to read.
+            fitted = {s["shower"] for s in payload["series"]
+                      if s["source"] == "detector" and s["fits"]["anchors"]["pinned"]}
+            marked = {k.split("|")[0].split(":")[1] for k, m in view["markers"].items()
+                      if k.endswith("|ratio|markers") and m["fills"]}
+            assert marked == fitted, (marked, fitted)
+            # The tooltips are read on the default picture, both curves on: a literature reference is drawn under
+            # every estimator, so every series on show has ratio marks to hover.
+            assert _res_press(page, "res-literature", "pi") and _res_press(page, "res-literature", "e")
+            assert lit_ids(page.evaluate(_RES_ENERGY)) == lit_ids(both)
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+
             # Tooltips over both grids: on the layer, beside or off the plot, none over more than the cap.
             found = _hover_chart(page, "plot-res-scaling", columns=12, rows=10)
             found += _hover_marks(page, "plot-res-scaling", cap=60)
@@ -1840,31 +1856,128 @@ def test_the_median_estimator_discloses_its_comparison_with_the_literature_curve
     assert problems == [], problems
 
 
+#: A window tooltip's SE line under the median and the robust estimators (brief-fix F1 and F3, "The tooltip's SE
+#: line"): a window whose bootstrap SE is below 10⁻⁶ of its value is tied replicates and carries no fit weight; any
+#: other is weighted with its series' pooled scale c, printed to three significant figures.
+SE_TIED = ": below 10⁻⁶ of the value (tied replicates), so no fit weight"
+SE_WEIGHTED = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c·ŷ/√N, c = ([\d.]+) for this series$")
+#: A window tooltip's second line: the window and its count.
+WINDOW_LINE = re.compile(r"^(\d+–\d+ GeV) · N = ")
+
+
+def _se_lines(texts, payload, where):
+    """Every window tooltip's SE line, checked against the window it names: under the median and the robust
+    estimators a tied window (an SE but no κ) says so and no c, every other window prints its series' pooled scale c;
+    under the sample estimator there is no bootstrap SE line. Returns (tied, weighted, the series hovered)."""
+    by_label = {s["label"]: s for s in payload["series"]}
+    tied, weighted, hovered = 0, 0, set()
+    for text in texts:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        se = [line for line in lines if line.startswith("bootstrap SE ")]
+        if payload["estimator"]["name"] == "sample":
+            assert se == [], (where, se)
+            continue
+        if not se:
+            continue
+        assert len(se) == 1, (where, se)
+        s = by_label.get(lines[0])
+        label = next((m.group(1) for line in lines[1:3] if (m := WINDOW_LINE.match(line))), None)
+        assert s is not None and label is not None, (where, lines[:3])
+        w = next(w for w in s["windows"] if w["label"] == label)
+        hovered.add(s["key"])
+        if w["se_rel"] is None:
+            # Tied: never a κ, never a c, never blamed on N.
+            assert w["se"] is not None, (where, s["key"], label)
+            assert se[0].endswith(SE_TIED) and "κ" not in se[0] and " c = " not in se[0], (where, se[0])
+            tied += 1
+        else:
+            got = SE_WEIGHTED.match(se[0])
+            assert got, (where, s["key"], label, se[0])
+            assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c"], rel=5e-3), \
+                (where, s["key"], se[0], s["weight_scale"])
+            weighted += 1
+    return tied, weighted, hovered
+
+
+#: The centre of every window marker the resolution card drew (series `<key>|markers` and `<key>|ratio|markers`), in
+#: viewport pixels: the marks `_hover_marks` spreads its cap over every element for, hovered one by one here.
+_RES_WINDOW_MARKS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((series) => {
+    if (!/\\|markers$/.test(series.get('id') || '')) return;
+    inst.getViewOfSeriesModel(series).group.traverse((el) => {
+      if (el.type !== 'circle' || el.invisible || el.ignore) return;
+      // The circle's centre through its current transform (a cached paint rect can still hold the previous
+      // render's place while a reused element moves to its new one).
+      el.updateTransform();
+      const [x, y] = el.transformCoordToGlobal(el.shape.cx ?? 0, el.shape.cy ?? 0);
+      out.push([c.left + x, c.top + y]);
+    });
+  });
+  return out.filter(([x, y]) => x > c.left + 1 && x < c.right - 1 && y > c.top + 1 && y < c.bottom - 1);
+}"""
+
+
+def _hover_windows(page):
+    """Hover every window marker of the resolution card; every tooltip that showed, probed (as `_hover_marks`)."""
+    page.evaluate(_WATCH_HOVER, "plot-res-scaling")
+    boxes = page.evaluate(_BOXES, "plot-res-scaling")
+    # The marks where they come to rest: a repaint moves a reused element over its update animation.
+    marks, waited = page.evaluate(_RES_WINDOW_MARKS), 0
+    while waited < 3_000:
+        page.wait_for_timeout(100)
+        waited += 100
+        again = page.evaluate(_RES_WINDOW_MARKS)
+        if again == marks:
+            break
+        marks = again
+    found = []
+    for x, y in marks:
+        page.mouse.move(x, y)
+        _frames(page)
+        probe = page.evaluate(_PROBE)
+        if probe is not None:
+            found.append(((x, y), probe, boxes))
+    page.mouse.move(2, 2)
+    _frames(page)
+    return found
+
+
 @pytest.mark.parametrize("estimator", RES_ESTIMATORS)
 def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_live_server, estimator):
-    """Every tooltip over the resolution card's windows, curves and ratio marks, under each estimator and in both
-    views of the recorded two-shower response: on the tooltip layer, beside or off the plot, none over more than a
-    fifth of the plot or of the grid being read (the 20% readout cap), with U+2212 for every negative number. A
-    window's value line names the estimator's quantity and its cross-references the two not plotted (brief §4).
-    Under the median in the E view the literature curves' and the ratio marks' tooltips carry the verbatim
-    disclosure (the ratio divides by a literature curve while both are on); no tooltip carries it otherwise."""
+    """Every tooltip over the resolution card's windows, curves and ratio marks, under each estimator, in both
+    views and both window modes of the recorded two-shower response: on the tooltip layer, beside or off the plot,
+    none over more than a fifth of the plot or of the grid being read (the 20% readout cap), with U+2212 for every
+    negative number. A window's value line names the estimator's quantity and its cross-references the two not
+    plotted (brief §4). Under the median in the E view the literature curves' and the ratio marks' tooltips carry
+    the verbatim disclosure (the ratio divides by a literature curve while both are on); no tooltip carries it
+    otherwise. The SE line (brief-fix F1, F3): under the median and the robust estimators a weighted window prints
+    "c = … for this series", its series' pooled scale; under the median the recorded deposits' tied windows say
+    "below 10⁻⁶ of the value (tied replicates), so no fit weight" and are drawn in the all-windows mode only."""
+    served = _fixture_payload(RES_TWO, estimator)
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
         _serve_res_fixture(page, RES_TWO)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
         if estimator != DEFAULT_ESTIMATOR:
-            served = _fixture_payload(RES_TWO, estimator)
             _res_estimator(page, requests, estimator, served["estimator"]["axis_name"])
-        shares = {}
-        for view in ("linear", "energy"):
+        shares, counts = {}, {}
+        # Each view in both modes; the E view's anchors after its all-windows render, the switch that reuses and
+        # moves the markers.
+        for view, mode in (("linear", "anchors"), ("linear", "all"), ("energy", "all"), ("energy", "anchors")):
             if view == "energy":
                 assert _res_press(page, "res-view", "energy")
+            assert _res_press(page, "res-windows", mode)
             page.evaluate(_SCROLL_START, "res-scaling")
             _frames(page)
-            where = f"res-scaling, {estimator}, {view} view"
+            where = f"res-scaling, {estimator}, {view} view, {mode}"
             found = _hover_chart(page, "plot-res-scaling", columns=12, rows=10)
             found += _hover_marks(page, "plot-res-scaling", cap=60)
+            found += _hover_windows(page)
             assert found, f"{where}: no tooltip"
             _check_tips(found, where)
             boxes = page.evaluate(_BOXES, "plot-res-scaling")
@@ -1885,8 +1998,18 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
                         worst = max(worst, part)
                         if i == 1:
                             on_ratio.append(probe["text"])
-            shares[view] = round(worst, 3)
+            shares[f"{view}/{mode}"] = round(worst, 3)
             texts = [probe["text"] for _, probe, _ in found]
+            tied, weighted, hovered = _se_lines(texts, served, where)
+            counts[f"{view}/{mode}"] = (tied, weighted)
+            if estimator != "sample":
+                assert weighted, f"{where}: no weighted window's tooltip read"
+            if estimator == "median":
+                # The tied deposits are drawn in the all-windows mode only, never fitted (brief-fix F3).
+                deposits = {k for k in hovered if k.startswith("detector:")}
+                assert bool(tied) is (mode == "all") and bool(deposits) is (mode == "all"), (where, tied, hovered)
+            else:
+                assert tied == 0, (where, tied)
             assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
             lines = [line.strip() for t in texts for line in t.splitlines()]
             assert any(line.startswith(VALUE_LINE[estimator]) for line in lines), (where, texts[:4])
@@ -1901,7 +2024,76 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
                 assert any("literature" in t.lower() or "π±" in t or "e±" in t for t in warned), (where, warned[:2])
             else:
                 assert warned == [], (where, warned[:2])
-        print(f"res-scaling, {estimator}: largest share of the grid read {shares}")
+        print(f"res-scaling, {estimator}: largest share of the grid read {shares}; "
+              f"tooltips read (tied, weighted) {counts}")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_robust_single_shower_card_names_its_decline_in_both_views(models_live_server):
+    """Brief-fix F4 on the live single-shower hit experiment: under Robust σ (IQR) its one series, the calibrated
+    deposit, has a single fittable window (N ≥ 20, from 5 GeV, with a fit weight), and the robust estimator fits no
+    line through fewer than two, so the 3-anchor mode draws nothing. The empty state of both views names that
+    decline and the window, never "no window reaches N = 20", and says which button draws it; the all-windows mode
+    draws the window unfitted, and its tooltip's role line names the decline; the drawer says it in both views. Only
+    the estimator switch asks the service."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, SINGLE_HITS_TABLE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        count = len(_requests_of(requests, "/api/resolution-scaling"))
+        page.locator('.main .card[data-panel="res-scaling"] button[data-res-estimator="robust"]').click()
+        _until(page, lambda: len(_requests_of(requests, "/api/resolution-scaling")) > count, "the robust request")
+        _until(page, lambda: "fits no line" in _res_note(page), "the robust empty state")
+        asked = _requests_of(requests, "/api/resolution-scaling")[count:]
+        assert len(asked) == 1 and asked[0].get("estimator") == "robust", asked
+        payload = _res_payload(base, asked[0])
+        assert payload["estimator"]["name"] == "robust" and len(payload["series"]) == 1, payload["estimator"]
+        series = payload["series"][0]
+        gates = payload["gates"]
+        # The decline as the payload states it: no fit in either mode, one fittable window in the anchors' pool.
+        assert series["fits"]["anchors"]["points"] == [] and series["fits"]["all"]["points"] == [], series["fits"]
+        fittable = [w for w in series["windows"] if (w["n"] or 0) >= 20 and w.get("se_rel") and w["value"] is not None
+                    and (w.get("p_lo") or 0) >= gates["anchor_low_gev"]]
+        assert len(fittable) == 1, [(w["label"], w["n"], w.get("se_rel")) for w in series["windows"]]
+        window = fittable[0]
+        assert window["n"] < 1000, window  # formatInt's digit grouping is not this test's subject
+        declined = (f"Robust σ (IQR) fits no line through fewer than two fittable windows, and only {window['label']} "
+                    f"(N = {window['n']}) is fittable here")
+        before = len(requests)
+
+        all_names = {"linear": f"All ≥ {gates['e_min_gev']:g} GeV", "energy": "All windows"}
+        for view in ("linear", "energy"):
+            assert _res_press(page, "res-view", view)
+            assert _res_press(page, "res-windows", "anchors")
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            note = _res_note(page)
+            # The empty state says why, by the decline, never by N.
+            # (The 1/√E view adds the count of windows below 4 GeV that its Details drawer lists.)
+            assert note.startswith(f"{declined}: no fit, so the 3-anchor mode draws nothing. "
+                                   f"\"{all_names[view]}\" draws it, unfitted."), (view, note)
+            assert "reaches N = " not in note, (view, note)
+            _, _, body = _drawer(page, "res-scaling")
+            assert declined in _flat(body), (view, _flat(body)[:400])
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+
+            # The all-windows mode draws the window, unfitted, and its tooltip names the decline.
+            assert _res_press(page, "res-windows", "all")
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            assert "fits no line" not in _res_note(page), (view, _res_note(page))
+            found = _hover_windows(page)
+            _check_tips(found, f"single robust {view} view, all windows")
+            tips = [probe["text"] for _, probe, _ in found if f"{window['label']} · N = " in probe["text"]]
+            assert tips and all(declined in _flat(t) for t in tips), (view, [t[:200] for t in tips])
+            for (x, y), probe, box in found:
+                plot = box["plot"]
+                area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                assert _overlap(probe["tip"], plot) / area <= PROJECTION_READOUT_SHARE, (view, (x, y), probe["text"][:60])
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
         browser.close()
     assert problems == [], problems
 
@@ -1970,9 +2162,14 @@ def test_the_resolution_card_screens_under_each_estimator(models_live_server, sc
 
 # ------------------------------------------------- the resolution card's legend --
 
-#: The legend entry Martin switched off (2026-11-11), in the recorded two-shower response: every mark of shower A's
-#: calibrated deposit (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it.
-LEGEND_ENTRY = "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark"
+#: The legend entry switched off, in the recorded two-shower response: every mark of shower A's energy network
+#: (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it. Martin switched off
+#: the calibrated deposit (2026-11-11); under the default median estimator the recorded deposits tie (bootstrap SE
+#: below 10⁻⁶ of the value), carry no fit weight and in the 3-anchor mode draw nothing (review-ui M1), so the tests
+#: take the network, which every estimator draws and fits in both window modes.
+LEGEND_ENTRY = "Shower A · Energy network · absolute frame"
+#: Another entry, on show while LEGEND_ENTRY is hidden: its export ink is the legend's ink for an entry on show.
+LEGEND_ON_SHOW = "Shower B · Energy network · absolute frame"
 #: The ink an exported figure's legend draws a hidden entry in (export/figure.js `printInactiveInk`, 4.58:1 on
 #: white; tests/test_js_chart_legend.py derives it).
 PRINT_INACTIVE = "#6f7681"
@@ -2090,6 +2287,12 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
         fresh["all"] = _drawn(page)[0]
         own = sorted(sid for sid, (name, *_) in fresh["all"].items() if name == LEGEND_ENTRY)
         assert any(fresh["all"][sid][3] for sid in own), own
+        # The entry draws fitted lines and bands in both modes, as well as its markers: what the bug lost. A band
+        # is a wash, or its two edges where it spans half its axis or more (OUTLINE_SHARE).
+        for mode in ("anchors", "all"):
+            drawn = [sid for sid, (name, _, _, elements) in fresh[mode].items() if name == LEGEND_ENTRY and elements]
+            assert any("|pinned|" in sid and ("|line|" in sid or "|solid|" in sid) for sid in drawn), (mode, drawn)
+            assert any("|band" in sid or "|edges|" in sid for sid in drawn), (mode, drawn)
         # The switch removes items from a series of the entry: the path ECharts threw on.
         assert any(sid in fresh["anchors"] and fresh["anchors"][sid][2] < fresh["all"][sid][2] for sid in own), \
             {sid: (fresh["anchors"].get(sid), fresh["all"][sid]) for sid in own}
@@ -2162,7 +2365,7 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
         hidden = {sid for sid, name, filtered in exported["series"] if filtered}
         assert hidden and hidden == {sid for sid, name, _ in exported["series"] if name == LEGEND_ENTRY}, exported
         inks = {text: fill.lower() for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
-        on_show = [t for t in inks if t.startswith("Shower B · Calibrated deposit")]
+        on_show = [t for t in inks if t == LEGEND_ON_SHOW]
         assert LEGEND_ENTRY in inks and on_show, sorted(inks)
         # The hidden entry in the print's inactive grey (export/figure.js printInactiveInk), lighter than the
         # entries on show, never the near-black print border ECharts would have used.
