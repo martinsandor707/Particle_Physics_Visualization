@@ -713,14 +713,14 @@ def test_a_switch_repaints_the_resolution_cards_e_view_without_a_request(live_se
     identity colour for the new card on its dotted line, its end label and its legend swatch; the picture is redrawn
     (its pixels change) with every curve where it was, the two grids, the axes and the 600 px plot kept; a switch
     back returns the option exactly. The baseline's two events draw no window, so the page is served the recorded
-    two-shower response (test_browser_models.py RES_TWO_FIXTURE), still asked for and counted."""
-    from test_browser_models import RES_TWO_FIXTURE, _OPTION, _res_press, _serve_res_fixture
+    two-shower responses (test_browser_models.py RES_TWO, by the request's estimator), still asked for and counted."""
+    from test_browser_models import RES_TWO, _OPTION, _res_press, _serve_res_fixture
 
     other = OTHER[scheme]
     with live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(
             p, live_server["base"], "/models", scheme=scheme, fragment=f"#table_name={BASELINE_TABLE}&model=energy")
-        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        _serve_res_fixture(page, RES_TWO)
         _models_card(page, "res-scaling")
         assert len([u for u in requests if "/api/resolution-scaling" in u]) == 1, requests
         n = len(requests)
