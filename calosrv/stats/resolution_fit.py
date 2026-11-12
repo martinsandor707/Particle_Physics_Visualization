@@ -39,20 +39,35 @@ refits left 142 of about 6,000 fits unconverged after 50; damped, one after 200.
 A fit that still has not settled is reported as not converged, and the card
 says so.
 
-**A measured weight law, κ** (the ``kappa`` argument of every fit; Martin's
+**A relative weight law, κ** (the ``kappa`` argument of every fit; Martin's
 decisions, 2026-11-12). The card's two non-sample estimators, the median
 relative error ``median |R − 1|`` and the robust ``IQR(R)/(1.349·median R)``,
-have no closed-form standard error the delta method could give, and the
-Gaussian asymptotic law understates their measured bootstrap SE: by a median
-1.17×, 0.94–1.71× over the 5th–95th percentile of windows and up to 2.4× at the
-edge windows of a bounded-range regressor (``pion_hits_with_model_outputs``,
-2026-11-12; ``stats/robust_width.py``). So a fit given ``kappa``, each window's
-measured relative SE ``κ = SE_boot / value``, takes ``se = κ·r`` (the bootstrap
-SE itself) for its first fit and ``se = κ·ŷ`` at the fitted value for every
-refit; the quadrature fit takes ``se_z = 2κ·ŷ²``. Everything else is the same
-code: the closed forms, the iteration and its damping, χ², S, the band, the
-misfit gate. ``kappa=None`` runs the delta-method law exactly as before, so the
-sample estimator's fits did not move by a bit.
+have no closed-form standard error that holds on these windows: R-stats
+measured the bootstrap SE over the Gaussian large-N law at a median 1.37× for
+the robust width and 1.06× for the median rel. on
+``pion_hits_with_model_outputs`` (1.23× and 0.97× over every stored
+experiment; windows of N ≥ 20, 2026-11-12; ``stats/robust_width.py``). A fit
+given ``kappa``, one relative SE per point, takes ``se = κ·r`` for its first
+fit and ``se = κ·ŷ`` at the fitted value for every refit; the quadrature fit
+takes ``se_z = 2κ·ŷ²``. Everything else is the same code: the closed forms, the
+iteration and its damping, χ², S, the band, the misfit gate. ``kappa=None``
+runs the delta-method law exactly as before, so the sample estimator's fits did
+not move by a bit.
+
+**What κ must not be.** ``kappa`` takes any array, and the card passes
+``κₖ = c/√Nₖ`` with ``c`` its series' pooled scale, the median of ``√N·κ``
+over the series' fittable windows (``query/resolution_scaling.py``). It must not
+be each window's own measured ``SEₖ/valueₖ``: the refit weight would be
+``1/(SEₖ·ŷₖ/valueₖ)²``, which still holds the window's measured value, now in
+the numerator, so a window that fluctuated high is up-weighted. That is a bias
+opposite to Neyman's and larger, not a protection against it: R-stats' Monte
+Carlo of the served code paths (2026-11-12; 16 windows, true σ/E = 30%/√E,
+Gaussian R) put the origin-pinned term +0.70 (median rel.) and +0.77 (robust)
+of its SD high at 40 events a window, +0.35 and +0.33 at 200, +0.15 and +0.17
+at 1,000, against 0.00 within Monte Carlo error under the pooled scale. A common
+``c`` cancels in the fitted parameters (scaling every weight by one constant
+leaves the WLS solution unchanged) and sets only χ², S and the parameters'
+errors.
 
 **Goodness of fit and the PDG scale factor.** ``χ² = Σ w (y − ŷ)²`` at the
 final weights, ``ν = n − p`` and ``p = Q(ν/2, χ²/2)``, the upper tail of
@@ -350,7 +365,8 @@ def _arrays(x, r, n, kappa=None
             ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """The points as float arrays, their measured se, and κ (``None`` for the delta-method law).
 
-    With ``kappa`` the measured se is ``κ·|r|``, the window's bootstrap SE.
+    With ``kappa`` the first fit's se is ``κ·|r|`` (the card passes ``κ = c/√N``,
+    the module docstring).
     """
     x = np.asarray(x, dtype=np.float64)
     r = np.asarray(r, dtype=np.float64)
@@ -381,8 +397,9 @@ def _se_law(n: np.ndarray, kappa: np.ndarray | None) -> Callable[[np.ndarray], n
 def fit_affine(x, r, n, kappa=None) -> Fit | None:
     """``r = a·x + b``; ``None`` below two points or with fewer than two distinct x.
 
-    ``kappa``: each point's relative SE, for the κ law (the module docstring);
-    ``None``, the delta-method law.
+    ``kappa``: each point's relative SE, for the κ law (the module docstring:
+    a pooled ``c/√N``, never a window's own measured SE/value); ``None``, the
+    delta-method law.
     """
     if len(x) < MIN_POINTS[FORM_AFFINE]:
         return None

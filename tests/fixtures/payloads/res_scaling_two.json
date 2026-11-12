@@ -155,7 +155,8 @@
   "e_min_gev": 4.0,
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
-  "misfit_scale": 5.0
+  "misfit_scale": 5.0,
+  "tail_min_n": 300
  },
  "anchors": {
   "nominal_bins": [
@@ -248,7 +249,7 @@
      "c4": null,
      "bias": -33.1556,
      "median_response": -65.6298,
-     "tail_share": 25.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 70.0399
@@ -282,7 +283,7 @@
      "c4": null,
      "bias": -20.166,
      "median_response": -65.6298,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 280.159
@@ -384,7 +385,7 @@
      "c4": null,
      "bias": 19.0855,
      "median_response": 64.267,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 58.6187
@@ -418,7 +419,7 @@
      "c4": null,
      "bias": 2.41136,
      "median_response": 64.267,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 58.6187
@@ -486,7 +487,7 @@
      "c4": null,
      "bias": 14.7825,
      "median_response": 64.267,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 58.6187
@@ -656,7 +657,7 @@
      "c4": null,
      "bias": 8.59692,
      "median_response": 64.267,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.394,
       "robust": 58.6187
@@ -748,16 +749,19 @@
       {
        "nominal": 5,
        "used": 7,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23)."
       },
       {
        "nominal": 9,
        "used": 10,
+       "cause": "n",
        "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21)."
       },
       {
        "nominal": 17,
        "used": 15,
+       "cause": "n",
        "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21)."
       }
      ],
@@ -1456,7 +1460,8 @@
      -65.6298,
      64.267
     ]
-   }
+   },
+   "weight_scale": null
   },
   {
    "key": "network:a",
@@ -1527,7 +1532,7 @@
      "c4": null,
      "bias": 329.414,
      "median_response": 409.114,
-     "tail_share": 25.0,
+     "tail_share": null,
      "alt": {
       "median": 409.114,
       "robust": 26.2385
@@ -1561,7 +1566,7 @@
      "c4": null,
      "bias": 200.028,
      "median_response": 296.139,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 296.139,
       "robust": 67.3425
@@ -1663,7 +1668,7 @@
      "c4": null,
      "bias": 15.6102,
      "median_response": -57.8023,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 61.1666,
       "robust": 369.137
@@ -1697,7 +1702,7 @@
      "c4": null,
      "bias": 26.7628,
      "median_response": -62.2729,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 65.6927,
       "robust": 362.303
@@ -1765,7 +1770,7 @@
      "c4": null,
      "bias": -12.2389,
      "median_response": -70.0043,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 71.8854,
       "robust": 374.11
@@ -1935,7 +1940,7 @@
      "c4": null,
      "bias": -35.6384,
      "median_response": -79.8867,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 79.8867,
       "robust": 378.816
@@ -2027,16 +2032,19 @@
       {
        "nominal": 5,
        "used": 7,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 17 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 23)."
       },
       {
        "nominal": 9,
        "used": 10,
+       "cause": "n",
        "reason": "The nominal anchor 9–10 GeV holds N = 14 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 21)."
       },
       {
        "nominal": 17,
        "used": 15,
+       "cause": "n",
        "reason": "The nominal anchor 17–18 GeV holds N = 12 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 15–16 GeV (N = 21)."
       }
      ],
@@ -2735,7 +2743,8 @@
      -79.8867,
      296.139
     ]
-   }
+   },
+   "weight_scale": null
   },
   {
    "key": "detector:b",
@@ -2806,7 +2815,7 @@
      "c4": null,
      "bias": -0.420201,
      "median_response": -0.420204,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 143.931
@@ -2840,7 +2849,7 @@
      "c4": null,
      "bias": -16.5324,
      "median_response": -97.0936,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 4931.39
@@ -3010,7 +3019,7 @@
      "c4": null,
      "bias": 8.36829,
      "median_response": 96.2532,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 73.0312
@@ -3044,7 +3053,7 @@
      "c4": null,
      "bias": -4.62339,
      "median_response": -97.0936,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 4931.39
@@ -3112,7 +3121,7 @@
      "c4": null,
      "bias": -0.420201,
      "median_response": -0.420204,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 143.931
@@ -3214,7 +3223,7 @@
      "c4": null,
      "bias": -17.9972,
      "median_response": -97.0936,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 4931.39
@@ -3282,7 +3291,7 @@
      "c4": null,
      "bias": 8.36829,
      "median_response": 96.2532,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 97.0813,
       "robust": 73.0312
@@ -3306,6 +3315,7 @@
       {
        "nominal": 5,
        "used": 10,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23)."
       }
      ],
@@ -4005,7 +4015,8 @@
      -97.0936,
      96.2532
     ]
-   }
+   },
+   "weight_scale": null
   },
   {
    "key": "network:b",
@@ -4076,7 +4087,7 @@
      "c4": null,
      "bias": 167.362,
      "median_response": 157.659,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 157.659,
       "robust": 51.3735
@@ -4110,7 +4121,7 @@
      "c4": null,
      "bias": 96.391,
      "median_response": 46.6558,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 46.6558,
       "robust": 70.0071
@@ -4280,7 +4291,7 @@
      "c4": null,
      "bias": 2.25059,
      "median_response": 26.781,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 34.6101,
       "robust": 40.1126
@@ -4314,7 +4325,7 @@
      "c4": null,
      "bias": -12.7973,
      "median_response": -38.9267,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 38.9267,
       "robust": 70.4015
@@ -4382,7 +4393,7 @@
      "c4": null,
      "bias": -25.0425,
      "median_response": -26.1684,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 26.6954,
       "robust": 49.3573
@@ -4484,7 +4495,7 @@
      "c4": null,
      "bias": -43.4583,
      "median_response": -59.389,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 59.389,
       "robust": 74.7442
@@ -4552,7 +4563,7 @@
      "c4": null,
      "bias": -44.872,
      "median_response": -30.0386,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 30.0386,
       "robust": 37.9315
@@ -4576,6 +4587,7 @@
       {
        "nominal": 5,
        "used": 10,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23)."
       }
      ],
@@ -5275,7 +5287,8 @@
      -59.389,
      46.6558
     ]
-   }
+   },
+   "weight_scale": null
   }
  ],
  "off_axis": [

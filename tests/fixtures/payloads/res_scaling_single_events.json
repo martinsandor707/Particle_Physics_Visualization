@@ -149,7 +149,8 @@
   "e_min_gev": 4.0,
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
-  "misfit_scale": 5.0
+  "misfit_scale": 5.0,
+  "tail_min_n": 300
  },
  "anchors": {
   "nominal_bins": [
@@ -242,7 +243,7 @@
      "c4": null,
      "bias": -0.371381,
      "median_response": -1.49368,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -375,7 +376,7 @@
      "c4": null,
      "bias": -0.371381,
      "median_response": -1.49368,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -1192,7 +1193,8 @@
      -72.6841,
      69.6967
     ]
-   }
+   },
+   "weight_scale": null
   }
  ],
  "off_axis": [

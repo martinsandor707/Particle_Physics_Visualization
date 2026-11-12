@@ -124,7 +124,7 @@
       }
      },
      "additionalProperties": false,
-     "description": "kappa: se = κ·ŷ with κ the window's bootstrap relative SE (median, robust); delta: the delta-method SE of σ/μ (sample)."
+     "description": "kappa: se = c·ŷ/√N with c the series' pooled scale (series.weight_scale), median and robust; delta: the delta-method SE of σ/μ (sample)."
     },
     "literature": {
      "type": "object",
@@ -477,7 +477,8 @@
     "e_min_gev",
     "anchor_low_gev",
     "n_anchors",
-    "misfit_scale"
+    "misfit_scale",
+    "tail_min_n"
    ],
    "properties": {
     "report_n": {
@@ -507,6 +508,10 @@
     "misfit_scale": {
      "const": 5.0,
      "description": "A fit with ndf ≥ 1 and scale_factor above this does not describe its windows (misfit)."
+    },
+    "tail_min_n": {
+     "const": 300,
+     "description": "A window's tail_share is reported from this N (stats/robust_width.TAIL_MIN_N); null below, where a Gaussian sample exceeds 0.27% by chance."
     }
    },
    "additionalProperties": false,
@@ -856,14 +861,14 @@
       "number",
       "null"
      ],
-     "description": "The fit weight's SE at the measured value, percent: the SD (ddof = 1) of the bootstrap replicates behind ci95 (median, robust), or the delta-method SE (sample)."
+     "description": "The window's measured SE at its value, percent: the SD (ddof = 1) of the bootstrap replicates behind ci95 (median, robust; reported even when tied below KAPPA_FLOOR, null when a robust interval is withheld), or the delta-method SE, the fit weight (sample)."
     },
     "se_rel": {
      "type": [
       "number",
       "null"
      ],
-     "description": "κ = se / value as a fraction: the relative SE the median and robust fits weight by (se = κ·ŷ); null under sample."
+     "description": "κ = se / value as a fraction, the window's measured bootstrap relative SE (median, robust): information and the input of the series' pooled scale (weight_scale), never the window's own fit weight; null under sample, below KAPPA_FLOOR (tied replicates) or with a withheld robust interval."
     },
     "se_delta": {
      "type": [
@@ -898,7 +903,7 @@
       "number",
       "null"
      ],
-     "description": "Percent of events with |R − median R| > 3 IQR(R)/1.349, from N = 20 (a Gaussian gives 0.27%); null below."
+     "description": "Percent of events with |R − median R| > 3 IQR(R)/1.349, from N = 300 (gates.tail_min_n; a large Gaussian sample gives 0.27%); null below, or where IQR = 0."
     },
     "alt": {
      "type": "object",
@@ -929,7 +934,7 @@
       "string",
       "null"
      ],
-     "description": "The window's low-N sentence: the sample's d.o.f., N = 1, or under robust the robust floor."
+     "description": "The window's own note: the sample's d.o.f., N = 1, or under robust the robust floor, a non-positive median response, or a withheld interval (more than 2.5% of the bootstrap replicates with a median R ≤ 0)."
     },
     "weak": {
      "type": "boolean",
@@ -1078,7 +1083,8 @@
      "type": "array",
      "items": {
       "type": "integer"
-     }
+     },
+     "description": "The windows this mode fits. Empty when it fits none: under robust also when only one window is fittable (no fit through fewer than two; the notes name it)."
     },
     "substitutions": {
      "type": "array",
@@ -1087,7 +1093,8 @@
       "required": [
        "nominal",
        "used",
-       "reason"
+       "reason",
+       "cause"
       ],
       "properties": {
        "nominal": {
@@ -1101,6 +1108,17 @@
        },
        "reason": {
         "type": "string"
+       },
+       "cause": {
+        "enum": [
+         "n",
+         "off_axis",
+         "no_value",
+         "withheld",
+         "tied",
+         "no_se"
+        ],
+        "description": "Why the nominal anchor is not fittable: n (N below the gate, or no event), or for a window of enough events no_value (no median rel. / robust σ/E / σ/E), withheld (robust interval), tied (bootstrap SE below KAPPA_FLOOR of the value), no_se. Only n blames N."
        }
       },
       "additionalProperties": false
@@ -1177,7 +1195,8 @@
     "n_missing",
     "windows",
     "fits",
-    "median_response_range"
+    "median_response_range",
+    "weight_scale"
    ],
    "properties": {
     "key": {
@@ -1293,6 +1312,39 @@
      },
      "additionalProperties": false,
      "description": "[lo, hi] of 100 (median R − 1) in percent over each mode's fitted windows; null without one."
+    },
+    "weight_scale": {
+     "anyOf": [
+      {
+       "type": "object",
+       "required": [
+        "c",
+        "n_windows",
+        "rule"
+       ],
+       "properties": {
+        "c": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
+        },
+        "n_windows": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "rule": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "Median and robust: the series' pooled scale c, the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. The fits weight window k by se = c·ŷ/√N; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights)."
     }
    },
    "additionalProperties": false

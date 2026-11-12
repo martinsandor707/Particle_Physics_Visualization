@@ -240,12 +240,39 @@ def test_the_robust_width_is_invariant_under_a_rescaled_response(c):
 
 
 def test_a_replicate_with_a_non_positive_median_is_left_out_and_counted():
-    """A median R near zero: a few replicates' medians fall to or below zero and are dropped, said so."""
-    x = np.concatenate([np.full(11, 0.5), np.full(10, -0.5)])
+    """A few replicates' medians fall to or below zero: up to 2.5% of them are dropped and said so.
+
+    Six of 21 values negative: 43 of the 2,000 replicates (2.15%) have a median ≤ 0. The interval
+    and SE are taken over the rest, and its label counts them.
+    """
+    x = np.concatenate([np.full(6, -0.5), np.linspace(0.6, 1.4, 15)])
     width = rw.robust_width(x, seed=2)
-    assert width.value is not None
-    assert 0 < rw.BOOTSTRAP_REPLICATES - width.n_replicates < rw.BOOTSTRAP_REPLICATES
-    assert "non-positive median left out" in width.interval.label
+    dropped = rw.BOOTSTRAP_REPLICATES - width.n_replicates
+    assert width.value is not None and not width.withheld and width.note == ""
+    assert 0 < dropped <= rw.MAX_DROPPED_SHARE * rw.BOOTSTRAP_REPLICATES
+    assert width.interval is not None and width.se > 0 and width.kappa is not None
+    assert f"{dropped:,} replicates with a non-positive median left out" in width.interval.label
+
+
+@pytest.mark.parametrize("negatives", [7, 10])
+def test_a_robust_interval_with_too_many_dropped_replicates_is_withheld(negatives):
+    """F7: above 2.5% dropped, leaving them out would cut the upper tail: no interval, SE or κ.
+
+    Seven of 21 negative: 121 replicates (6.05%); ten of 21: 790 (39.5%). The value stands; the
+    note says why the rest is withheld.
+    """
+    assert rw.MAX_DROPPED_SHARE == 0.025
+    x = np.concatenate([np.full(negatives, -0.5), np.linspace(0.6, 1.4, 21 - negatives)])
+    width = rw.robust_width(x, seed=2)
+    dropped = rw.BOOTSTRAP_REPLICATES - width.n_replicates
+    assert dropped > rw.MAX_DROPPED_SHARE * rw.BOOTSTRAP_REPLICATES
+    assert width.value == rw.iqr_resolution(x) and width.withheld
+    assert width.interval is None and width.se is None and width.kappa is None
+    share = 100 * dropped / rw.BOOTSTRAP_REPLICATES
+    assert width.note == (
+        f"Robust interval withheld: {dropped:,} of the 2,000 bootstrap replicates ({share:.1f}%) "
+        "have a median R ≤ 0, more than 2.5%, and leaving them out would cut the interval's upper "
+        "tail; no whisker, SE or fit weight.")
 
 
 def test_relative_se():
@@ -305,13 +332,45 @@ def test_bootstrap_medians_drops_non_finite_values_and_is_empty_for_none():
 
 
 def test_the_tail_share_by_hand():
-    """Beyond 3·IQR/1.349 of the median: 2 of 40 here."""
-    core = np.linspace(0.9, 1.1, 38)
-    x = np.concatenate([core, [5.0, -3.0]])
+    """Beyond 3·IQR/1.349 of the median: 6 of 300 here, the first N it is reported at."""
+    core = np.linspace(0.9, 1.1, 294)
+    x = np.concatenate([core, [5.0, -3.0, 4.0, -2.0, 3.0, 9.0]])
     q25, q50, q75 = np.percentile(x, [25, 50, 75])
     limit = 3 * (q75 - q25) / 1.349
-    assert np.sum(np.abs(x - q50) > limit) == 2
-    assert rw.tail_share(x) == 2 / 40
+    assert np.sum(np.abs(x - q50) > limit) == 6
+    assert x.size == rw.TAIL_MIN_N and rw.tail_share(x) == 6 / 300
+
+
+def test_the_tail_share_starts_at_n_300():
+    """F5: a Gaussian sample of fewer events exceeds 0.27% by chance, so nothing is reported below 300.
+
+    The mean share of Gaussian windows, through ``tail_share`` with the floor lifted, as R-stats
+    measured it (2026-11-12): 1.50% at N = 20, falling towards 0.27%; at N = 300 within 30% of it.
+    """
+    assert rw.TAIL_MIN_N == 300
+    x = _heavy(400)
+    for n in (20, 21, 100, 299):
+        assert rw.tail_share(x[:n]) is None, n
+    assert rw.tail_share(x[:300]) is not None
+    rng = np.random.default_rng(20261112)
+
+    def mean_share(n: int, windows: int) -> float:
+        draws = rng.standard_normal((windows, n))
+        q25, q50, q75 = np.percentile(draws, [25, 50, 75], axis=1)
+        sigma = (q75 - q25) / rw.IQR_TO_SIGMA
+        return float(np.mean(np.abs(draws - q50[:, None]) > 3 * sigma[:, None]))
+
+    small, floor = mean_share(20, 4000), mean_share(300, 2000)
+    assert small > 4 * rw.GAUSSIAN_TAIL_SHARE          # 1.5%: five times the asymptote
+    assert floor == approx(rw.GAUSSIAN_TAIL_SHARE, rel=0.3)
+
+
+def test_no_tail_share_where_the_iqr_is_zero():
+    """F6: with half the window tied, IQR = 0 and every event off the median would be a 'tail'."""
+    x = np.concatenate([np.ones(250), np.linspace(0.5, 1.5, 100)])
+    q25, q75 = np.percentile(x, [25, 75])
+    assert q25 == q75 == 1.0 and x.size >= rw.TAIL_MIN_N
+    assert rw.tail_share(x) is None
 
 
 def test_a_gaussian_has_the_gaussian_tail_share():

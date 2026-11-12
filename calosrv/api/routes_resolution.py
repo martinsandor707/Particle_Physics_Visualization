@@ -1,4 +1,4 @@
-"""``GET /api/resolution-scaling`` - σ/E against 1/√E with its fits (Page 2, ``res-scaling``).
+"""``GET /api/resolution-scaling`` - the energy error scale against 1/√E with its fits (Page 2, ``res-scaling``).
 
 One request serves the whole card: every series the experiment carries (the
 detector's calibrated deposit per shower, and the energy network or the
@@ -20,7 +20,9 @@ kinds it is validated and stated in ``meta`` as not applying.
 ``estimator`` picks the error scale every window plots (Martin's decisions,
 2026-11-12): ``median`` (the default), the median relative error of Model
 Error vs. Incident Momentum with its seed and interval; ``robust``, the
-IQR-based σ/E; ``sample``, s(R)/R̄. One estimator per response: the card's
+IQR-based σ/E; ``sample``, s(R)/R̄. Under median and robust the fits weight each
+window by ``se = c·ŷ/√N`` with ``c`` the series' pooled scale (``weight_scale``
+on every series). One estimator per response: the card's
 Estimator control sends one request per switch, because two estimators in one
 body would break the 100 KB contract (about 55 KB more for two showers). An
 estimator outside the three is a 422 naming the field ``estimator``, as an
@@ -52,7 +54,8 @@ def _describe(old: tuple[int, int], new: tuple[int, int], size: int, limit: int)
 
 @router.get(
     "/api/resolution-scaling",
-    summary="Energy resolution σ/E per momentum window against 1/√E, with WLS fits",
+    summary=("Energy error scale (median rel., robust σ/E or sample σ/E) per momentum window "
+             "against 1/√E, with WLS fits"),
 )
 def get_resolution_scaling(
     con: CursorDep,
@@ -105,7 +108,8 @@ def get_resolution_scaling(
     # 5 KB, the E view's axis, spans and quadrature ρ and quantiles 1.6 KB) and about 62 KB at
     # 20 windows; the ladder guards a dataset with many more windows than the producers write.
     # The estimators' window fields (method, se, se_rel, alt, median response, tail share) add
-    # about 140 bytes a window, and the estimator block and its notes 2–5 KB: that fixture serves
-    # 75,768 bytes under median, 72,437 under robust and 68,374 under sample (2026-11-12).
+    # about 140 bytes a window, and the estimator block and its notes 2–5 KB; each series' pooled
+    # weight scale about 300 bytes. That fixture serves 63,197 bytes under median (its tied
+    # deposits carry no fit), 76,075 under robust and 68,591 under sample (2026-11-12, after F1–F8).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

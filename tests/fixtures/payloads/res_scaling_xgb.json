@@ -149,7 +149,8 @@
   "e_min_gev": 4.0,
   "anchor_low_gev": 5.0,
   "n_anchors": 3,
-  "misfit_scale": 5.0
+  "misfit_scale": 5.0,
+  "tail_min_n": 300
  },
  "anchors": {
   "nominal_bins": [
@@ -214,7 +215,7 @@
      "c4": null,
      "bias": -0.80599,
      "median_response": -1.92339,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -248,7 +249,7 @@
      "c4": null,
      "bias": -0.80599,
      "median_response": -1.92339,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -384,7 +385,7 @@
      "c4": null,
      "bias": -0.80599,
      "median_response": -1.92339,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -418,7 +419,7 @@
      "c4": null,
      "bias": -0.80599,
      "median_response": -1.92339,
-     "tail_share": 0.0,
+     "tail_share": null,
      "alt": {
       "median": 50.6565,
       "robust": 117.418
@@ -540,12 +541,14 @@
       {
        "nominal": 5,
        "used": 7,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20)."
       },
       {
        "nominal": 19,
        "used": null,
-       "reason": "The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 5 GeV with N ≥ 20 is left: it is dropped."
+       "cause": "n",
+       "reason": "The nominal anchor 19–20 GeV holds N = 8 for this series, below 20, and no other window from 5 GeV with N ≥ 20 is left: it is dropped."
       }
      ],
      "fallback": false,
@@ -1240,7 +1243,8 @@
      -1.92339,
      -1.92339
     ]
-   }
+   },
+   "weight_scale": null
   },
   {
    "key": "xgb:a",
@@ -1504,12 +1508,14 @@
       {
        "nominal": 5,
        "used": 7,
+       "cause": "n",
        "reason": "The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8)."
       },
       {
        "nominal": 19,
        "used": null,
-       "reason": "The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped."
+       "cause": "n",
+       "reason": "The nominal anchor 19–20 GeV holds N = 3 for this series, below 8, and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped."
       }
      ],
      "fallback": true,
@@ -2204,7 +2210,8 @@
      -2.20405,
      -1.34043
     ]
-   }
+   },
+   "weight_scale": null
   }
  ],
  "off_axis": [
@@ -2247,9 +2254,9 @@
   "A regressor trained on a bounded momentum range pulls its predictions toward mid-range, so its median response leaves 1 near the ends of that range: there it narrows a σ and adds a bias to the median rel.",
   "Off the axis: 7 windows below 4 GeV (158 events across the series) have x > 0.5; they are listed in off_axis with their σ/E and not drawn.",
   "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20).",
-  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series and no other window from 5 GeV with N ≥ 20 is left: it is dropped.",
+  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series, below 20, and no other window from 5 GeV with N ≥ 20 is left: it is dropped.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8).",
-  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 19–20 GeV holds N = 3 for this series and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 19–20 GeV holds N = 3 for this series, below 8, and no other window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (anchors, pinned): χ²/ν = 24.5, so its errors are scaled by S = 4.95.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): the affine b is negative (−24.2%): the points fall faster than a/√E, and the line is drawn down to zero.",
   "Electron e⁻ · XGBoost momentum regressor · validation split (all, pinned): χ²/ν = 24.5, so its errors are scaled by S = 4.95.",

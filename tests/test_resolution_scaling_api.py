@@ -27,6 +27,14 @@ the robust widths to ``np.percentile`` over the event table, the sample numbers
 to the committed recordings, the deposit's median calibration c̃ to its rule;
 the cross-references (``alt``) to the other two responses, the literature
 warning to the median estimator alone, and every estimator to the byte contract.
+
+**The fix round** (the fix brief, 2026-11-12): every served series' ``weight_scale``
+is held to the median of √N·κ over its fittable windows; every substitution's
+``cause`` to its nominal window, and only an N cause says "below"; the tied,
+no-value and empty-range sentences of R-stats #3 and R-ui m2 on the recorded
+median body and on synthetic robust selections; no robust line through one
+window (F4); the tail share from N = 300 (F5); the c_sum note's signed median
+response (F8); and the route's summary (F10).
 """
 
 from __future__ import annotations
@@ -49,7 +57,7 @@ from calosrv.query import resolution_scaling as rs
 from calosrv.stats import clip as clip_mod
 from calosrv.stats import resolution_fit as rfit
 from calosrv.stats import robust_width as rw
-from calosrv.text import signed_hyphens
+from calosrv.text import fmt_signed, signed_hyphens
 
 ROUTE = "/api/resolution-scaling"
 REL = 1e-5      # six significant figures
@@ -103,7 +111,7 @@ def _check_estimator_block(body, estimator):
     assert block["calibration"]["rule"] == ("median" if estimator == "median" else "sum")
     gates = rs.ESTIMATOR_GATES[estimator]
     assert body["gates"] == {**gates, "e_min_gev": 4.0, "anchor_low_gev": 5.0, "n_anchors": 3,
-                             "misfit_scale": rfit.MISFIT_SCALE}
+                             "misfit_scale": rfit.MISFIT_SCALE, "tail_min_n": 300}
     return gates
 
 
@@ -145,10 +153,30 @@ def _common(body):
                     assert w["se_rel"] is None
                 else:
                     assert w["se_rel"] == approx(w["se"] / w["value"], rel=1e-4)
-            assert (w["tail_share"] is None) == (w["n"] < rw.MIN_ROBUST_N)
+            # The tail share from N = 300 (F5), and never where IQR = 0 (F6), where the robust value is 0.
+            robust_value = w["value"] if estimator == "robust" else w["alt"]["robust"]
+            if w["n"] < rw.TAIL_MIN_N:
+                assert w["tail_share"] is None
+            elif robust_value:
+                assert w["tail_share"] is not None
             assert (w["median_response"] is None) == (w["n"] < 2)
+        _check_weight_scale(s, estimator, gates)
+        _check_substitutions(s, gates)
         if estimator == "robust":
             assert not any(m["fallback"] for m in s["fits"].values())
+            # F4: no line through fewer than two fittable windows; the one declined is named.
+            for name, mode in s["fits"].items():
+                assert len(mode["points"]) != 1, (s["key"], name)
+                if not mode["points"]:
+                    assert all(mode[f] is None for f in ("affine", "pinned", "quadrature"))
+            eligible = [w for w in s["windows"] if w["eligible"]]
+            declined = [n for n in body["notes"] if n.startswith(f"{s['label']} (all): only ")]
+            assert len(declined) == (len(eligible) == 1)
+            if declined:
+                assert declined[0] == (
+                    f"{s['label']} (all): only {eligible[0]['label']} is fittable, and Robust σ "
+                    "(IQR) fits no line through fewer than two windows: no fit; the window is "
+                    "drawn in the all-windows mode.")
         for name, mode in s["fits"].items():
             fitted = [w["median_response"] for w in s["windows"]
                       if w["bin"] in set(mode["points"]) and w["median_response"] is not None]
@@ -171,6 +199,40 @@ def _common(body):
                 if mode[form] is not None:
                     assert mode[form]["band_quantile"] > 0
     _check_energy_axis(body)
+
+
+def _check_weight_scale(series, estimator, gates):
+    """F1: c is the median of √N·κ over the fittable windows (with none, the N ≥ whisker ones); null under sample."""
+    scale = series["weight_scale"]
+    if estimator == "sample":
+        assert scale is None
+        return
+    weighted = [w for w in series["windows"] if not w["off_axis"] and _usable(w, estimator)]
+    pool = ([w for w in weighted if w["n"] >= gates["fit_n"]]
+            or [w for w in weighted if w["n"] >= gates["whisker_n"]])
+    assert scale["n_windows"] == len(pool), series["key"]
+    if not pool:
+        assert scale["c"] is None and scale["rule"].startswith("No window from 4 GeV")
+        return
+    expected = float(np.median([np.sqrt(w["n"]) * w["se_rel"] for w in pool]))
+    assert scale["c"] == approx(expected, rel=1e-4), series["key"]
+    assert "√N·κ" in scale["rule"] and "se = c·ŷ/√N" in scale["rule"]
+
+
+def _check_substitutions(series, gates):
+    """F3: a substitution's cause is the nominal window's, and only an N cause says "below"."""
+    by_bin = {w["bin"]: w for w in series["windows"]}
+    for mode in series["fits"].values():
+        threshold = gates["whisker_n"] if mode["fallback"] else gates["fit_n"]
+        for sub in mode["substitutions"]:
+            assert sub["cause"] in rs.CAUSES
+            window = by_bin.get(sub["nominal"])
+            n = window["n"] if window else 0
+            assert (sub["cause"] == "n") == (n < threshold), (series["key"], sub)
+            head = sub["reason"].split(";")[0].split(", and no other")[0]
+            assert (f", below {threshold}" in head) == (sub["cause"] == "n"), sub["reason"]
+            if sub["cause"] == "tied":
+                assert "its bootstrap SE is below 10⁻⁶ of its value (tied replicates)" in head
 
 
 def _check_span(mode, windows):
@@ -321,7 +383,8 @@ def test_two_showers_draw_the_detector_and_the_energy_network(synthetic_client):
 
 @pytest.mark.parametrize("estimator", ESTIMATORS)
 def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client, estimator):
-    """data_max_gev is the bin axis's top edge; rho_a2b2 and band_quantile are a refit's, κ-weighted but under sample."""
+    """data_max_gev is the bin axis's top edge; rho_a2b2 and band_quantile are a refit's, weighted by the
+    pooled scale (c/√N) but under sample."""
     body = _get(synthetic_client, estimator=estimator)
     with synthetic_client.app.state.database.read_cursor() as con:
         record = registry.get_experiment(con, body["meta"]["table_name"])
@@ -337,7 +400,8 @@ def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client, estimator
             if quad is None:
                 continue
             chosen = [by_bin[k] for k in mode["points"]]
-            kappa = None if estimator == "sample" else [w["se_rel"] for w in chosen]
+            c = None if estimator == "sample" else s["weight_scale"]["c"]
+            kappa = None if c is None else [c / np.sqrt(w["n"]) for w in chosen]
             fit = rfit.fit_quadrature([w["x"] for w in chosen], [w["value"] / 100 for w in chosen],
                                       [w["n"] for w in chosen], kappa)
             # The payload's x and σ/E are written at six significant figures.
@@ -519,7 +583,7 @@ def test_every_kind_holds_under_every_estimator(synthetic_client, estimator):
                 fit = mode[form]
                 if fit is None:
                     continue
-                weight = "se = κ·ŷ" if estimator != "sample" else "with se recomputed at the fitted"
+                weight = "se = c·ŷ/√N" if estimator != "sample" else "with se recomputed at the fitted"
                 assert weight in fit["note"]
                 assert fit["note"].startswith(rs.ESTIMATOR_SYMBOLS[estimator])
 
@@ -535,7 +599,7 @@ def test_the_estimator_defaults_to_median(synthetic_client):
     assert default["estimator"]["symbol"] == "median rel."
 
 
-def test_tied_windows_are_drawn_but_never_fitted_and_the_notes_count_them(synthetic_client):
+def test_tied_windows_are_drawn_in_the_all_windows_mode_only_and_the_notes_count_them(synthetic_client):
     """The synthetic deposits tie: their median windows' bootstrap SE is rounding (KAPPA_FLOOR).
 
     Such a window keeps its value and interval, has no κ, enters no fit of either
@@ -560,7 +624,9 @@ def test_tied_windows_are_drawn_but_never_fitted_and_the_notes_count_them(synthe
             many = len(tied) != 1
             phrase = (f"{s['label']}: {len(tied)} window{'s' if many else ''} with a bootstrap SE below "
                       "10⁻⁶ of")
-            assert any(note.startswith(phrase) for note in body["notes"]), phrase
+            (note,) = [n for n in body["notes"] if n.startswith(phrase)]
+            assert note.endswith(f"so {'they are' if many else 'it is'} drawn in the all-windows mode "
+                                 "only, never fitted."), note
     assert counted, "the synthetic two-shower fixture ties its deposits"
     # Every fit weight left is a sampling error: no fit is scaled by the rounding of tied windows.
     for s in body["series"]:
@@ -569,6 +635,44 @@ def test_tied_windows_are_drawn_but_never_fitted_and_the_notes_count_them(synthe
                 fit = mode.get(form)
                 if fit:
                     assert fit["scale_factor"] < 1e4, (s["key"], form, fit["scale_factor"])
+
+
+def test_a_tied_anchor_is_named_tied_and_never_called_thin(synthetic_client):
+    """R-stats #3 and R-ui m2, on the body res_scaling_median_two records.
+
+    Deposit B's nominal anchors 9–10 GeV and 17–18 GeV hold N = 22 but are tied; deposit A's
+    5–6 GeV holds N = 17 while five of its windows of N ≥ 20 are tied. Before the fix both read
+    "holds N = … and no other window from 5 GeV with N ≥ 20 is left".
+    """
+    body = _get(synthetic_client, estimator="median")
+    deposit = "Calibrated deposit c·E_dep — linear-sum benchmark"
+    tail = ", and no other fittable window from 5 GeV with N ≥ 20 is left: it is dropped."
+    for bin_label in ("9–10", "17–18"):
+        assert (f"Shower B · {deposit} (anchors): The nominal anchor {bin_label} GeV holds N = 22 "
+                "for this series but its bootstrap SE is below 10⁻⁶ of its value (tied "
+                f"replicates), so it carries no fit weight{tail}") in body["notes"]
+    assert (f"Shower A · {deposit} (anchors): The nominal anchor 5–6 GeV holds N = 17 for this "
+            f"series, below 20{tail}") in body["notes"]
+    (b,) = [s for s in body["series"] if s["key"] == "detector:b"]
+    causes = {sub["nominal"]: sub["cause"] for sub in b["fits"]["anchors"]["substitutions"]}
+    assert causes == {5: "n", 9: "tied", 17: "tied"}
+    # Nothing in the deposits carries a weight, so neither has a pooled scale or a fit.
+    assert b["weight_scale"] == {"c": None, "n_windows": 0, "rule": (
+        "No window from 4 GeV carries a fit weight, so this series has no pooled scale and no "
+        "fit.")}
+    # The network substitutes by N, a fittable window named so.
+    (net,) = [s for s in body["series"] if s["key"] == "network:b"]
+    (sub,) = net["fits"]["anchors"]["substitutions"]
+    assert sub["cause"] == "n" and sub["reason"] == (
+        "The nominal anchor 5–6 GeV holds N = 8 for this series, below 20; the nearest fittable "
+        "window from 5 GeV in log E with N ≥ 20 is 10–11 GeV (N = 23).")
+
+
+def test_the_route_summary_names_every_estimator(synthetic_client):
+    """F10: the OpenAPI summary no longer calls every estimator σ/E."""
+    summary = synthetic_client.app.openapi()["paths"][ROUTE]["get"]["summary"]
+    assert summary == ("Energy error scale (median rel., robust σ/E or sample σ/E) per momentum "
+                       "window against 1/√E, with WLS fits")
 
 
 @pytest.mark.parametrize("bad", ["bogus", "MEDIAN", "mean", "iqr", ""])
@@ -663,10 +767,12 @@ def test_the_network_windows_against_numpy(synthetic_client, estimator):
             else:
                 assert served == approx(100 * value, rel=REL), (name, w["bin"])
         assert w["median_response"] == approx(100 * (np.median(ratio) - 1), rel=REL, abs=1e-9)
-        if ratio.size >= 20:
+        if ratio.size >= rw.TAIL_MIN_N:
             q25, q50, q75 = np.percentile(ratio, [25, 50, 75])
             share = np.mean(np.abs(ratio - q50) > 3 * (q75 - q25) / 1.349)
             assert w["tail_share"] == approx(100 * share, rel=REL, abs=1e-12)
+        else:
+            assert w["tail_share"] is None
     assert robust_seen >= 5
 
 
@@ -743,6 +849,14 @@ def test_the_median_calibration_rule(synthetic_client):
         w["value"] for w in deposit["windows"]]
     notes = " ".join(bodies["median"]["notes"])
     assert "c̃ = 1 / median(E_dep / p)" in notes and "c = Σ p / Σ E_dep" in notes
+    # F8: the median response c_sum would give, measured and signed (R-ui m3: −0.68% here, below 1).
+    (note,) = [n for n in bodies["median"]["notes"] if n.startswith("Shower A: c̃ = ")]
+    response_sum = 100 * (c_sum / c_tilde - 1)
+    assert response_sum < 0
+    assert note.endswith(f"would give them a median response c/c̃ − 1 = "
+                         f"{fmt_signed(response_sum, 2, plus=True)}%."), note
+    assert note.endswith("c/c̃ − 1 = −0.68%.")
+    assert "leakage" not in note
 
 
 def test_the_notes_name_the_estimator_its_weight_and_the_relation(synthetic_client):
@@ -752,7 +866,11 @@ def test_the_notes_name_the_estimator_its_weight_and_the_relation(synthetic_clie
         assert rs.RELATION in notes
         weights = [n for n in notes if n.startswith("Fits: ")]
         assert len(weights) == 1
-        assert ("se = κ·ŷ" in weights[0]) == (estimator != "sample")
+        assert ("se = c·ŷ/√N" in weights[0]) == (estimator != "sample")
+        assert ("a window's own κ would put its measured value back" in weights[0]) == (
+            estimator != "sample")
+        label = body["estimator"]["weight"]["label"]
+        assert (label == rs.WEIGHT_LABELS["kappa"]) == (estimator != "sample")
         ranges = [n for n in notes if "median response R̃ − 1 from" in n]
         assert len(ranges) == 2                    # the two network series
         assert any(n.startswith("A regressor trained on a bounded momentum range") for n in notes)
@@ -820,6 +938,117 @@ def test_a_selection_without_an_eligible_window_has_a_provisional_range(single_c
     assert any("provisional" in n for n in body["notes"])
     # The anchors are the whole table's, whatever the selection.
     assert body["anchors"]["nominal_bins"] == [5, 10, 19]
+
+
+@pytest.mark.parametrize("table", [SINGLE_HITS_TABLE, SINGLE_EVENTS_TABLE])
+def test_robust_fits_no_line_through_one_fittable_window(single_client, table):
+    """F4 (R-stats #4): only 10–11 GeV (N = 200) is fittable under robust, so neither mode has a fit.
+
+    Before the fix both single-shower robust recordings served a ν = 0 pinned line through it,
+    a₀ = 380 ± 616 %·√GeV on the hit file, as a non-provisional fit; the rule said there was none.
+    """
+    body = _get(single_client, table_name=table, estimator="robust")
+    (series,) = body["series"]
+    assert [w["bin"] for w in series["windows"] if w["eligible"]] == [10]
+    for name, mode in series["fits"].items():
+        assert mode["points"] == [] and mode["span_gev"] is None and not mode["provisional"]
+        assert all(mode[f] is None for f in ("affine", "pinned", "quadrature")), name
+        assert (f"{series['label']} ({name}): only 10–11 GeV is fittable, and Robust σ (IQR) fits "
+                "no line through fewer than two windows: no fit; the window is drawn in the "
+                "all-windows mode.") in body["notes"]
+    assert series["median_response_range"] == {"anchors": None, "all": None}
+    assert body["anchors"]["rule"].endswith(
+        "with fewer than two, no fit: the robust width has no weaker window to fall back on, and "
+        "fits no line through one.")
+    # The pooled scale is still measured, on its one window: c = √N·κ there.
+    (w,) = [w for w in series["windows"] if w["eligible"]]
+    assert series["weight_scale"]["n_windows"] == 1
+    assert series["weight_scale"]["c"] == approx(np.sqrt(w["n"]) * w["se_rel"], rel=1e-4)
+    # The median keeps its one-window behaviour, which predates the estimators: a provisional fit.
+    median = _get(single_client, table_name=table, estimator="median")
+    assert median["series"][0]["fits"]["anchors"]["provisional"]
+
+
+def test_a_robust_selection_below_the_floor_says_its_range_is_the_empty_default(single_client):
+    """R-stats #3: with every window below N = 20 robust has no marker at all: never "weaker windows' markers"."""
+    body = _get(single_client, table_name=SINGLE_HITS_TABLE, e1_min=5.0, e1_max=9.99,
+                estimator="robust")
+    y = body["axis"]["y"]
+    assert y["provisional"] and (y["lo"], y["hi"]) == (0.0, 1.0)
+    (basis,) = [n for n in body["notes"] if n.startswith("The y range ")]
+    assert basis.startswith(
+        "The y range is provisional: no window from 4 GeV reaches N = 20, and no window has a "
+        "marker there, so it spans the empty default, 0–1%.")
+    median = _get(single_client, table_name=SINGLE_HITS_TABLE, e1_min=5.0, e1_max=9.99)
+    (basis,) = [n for n in median["notes"] if n.startswith("The y range ")]
+    assert basis.startswith("The y range is provisional: no window from 4 GeV reaches N = 20, so "
+                            "it follows the weaker windows' markers.")
+
+
+def _robust_scaling(single_client, windows: dict[int, tuple[int, float, float]]):
+    """A robust ResolutionScaling of one detector series on the 0–19 GeV axis: ``windows[k] =
+    (N, median R, spread)``, R ~ N(median R, spread²) in bin k."""
+    rng = np.random.default_rng(60)
+    bins, p, ratio = [], [], []
+    for k, (count, centre, spread) in windows.items():
+        bins += [k] * count
+        p += list(rng.uniform(k, k + 1, count))
+        ratio += list(centre + spread * rng.standard_normal(count))
+    axis = performance_bins.axis_from_ranges({k: (k + 0.01, k + 0.99) for k in range(0, 20)})
+    nominal = rs.nominal_anchors(axis)
+    series = rs.build_series(rs.SOURCE_DETECTOR, "a", "Shower", rs.DETECTOR_LABEL,
+                             rs.SOURCE_DETECTOR, np.array(ratio), np.array(p),
+                             np.array(bins, dtype=float), axis, nominal, estimator="robust")
+    with single_client.app.state.database.read_cursor() as con:
+        record = registry.get_experiment(con, SINGLE_HITS_TABLE)
+    result = rs.ResolutionScaling(
+        record=record, axis=axis, nominal=nominal, series=[series], samples=[], calibrations={},
+        model={"available": False, "source": None, "reason": None}, coord_system="lab",
+        n_events=len(bins), estimator="robust")
+    return series, result.as_dict()
+
+
+def test_a_window_of_sixty_events_with_a_negative_median_response_is_never_called_thin(single_client):
+    """R-stats #3: the 10–11 GeV anchor holds N = 60 with median R < 0: no robust σ/E, said so."""
+    good = {k: (40, 1.0, 0.1) for k in range(4, 20)}
+    series, body = _robust_scaling(single_client, {**good, 10: (60, -0.2, 0.1)})
+    window = next(w for w in series.windows if w.bin == 10)
+    assert window.n == 60 and window.r is None and window.unfit_cause(20) == "no_value"
+    label = "Shower · Calibrated deposit c·E_dep — linear-sum benchmark"
+    (anchor,) = [n for n in body["notes"] if n.startswith(f"{label} (anchors): The nominal anchor 10–11")]
+    assert anchor == (
+        f"{label} (anchors): The nominal anchor 10–11 GeV holds N = 60 for this series but has no "
+        "robust σ/E (its median response is not positive); the nearest fittable window from 5 GeV "
+        "in log E with N ≥ 20 is 11–12 GeV (N = 40).")
+    (sub,) = body["series"][0]["fits"]["anchors"]["substitutions"]
+    assert sub["cause"] == "no_value" and sub["used"] == 11
+    (floor,) = [n for n in body["notes"] if "report no robust σ/E (the robust floor)" in n]
+    assert floor.endswith("1 holds N ≥ 20 but reports no robust σ/E: its median response is not "
+                          "positive.")
+    assert "not positive" in body["series"][0]["windows"][10 - 4]["dof_note"]
+
+
+def test_a_robust_selection_whose_every_window_lacks_a_value_blames_no_n(single_client):
+    """R-stats #3: every window holds N = 60 and a negative median response: no marker, no fit weight."""
+    series, body = _robust_scaling(single_client, {k: (60, -0.2, 0.1) for k in range(4, 20)})
+    assert all(w.r is None for w in series.windows)
+    assert body["axis"]["y"]["provisional"]
+    (basis,) = [n for n in body["notes"] if n.startswith("The y range ")]
+    assert basis.startswith(
+        "The y range is provisional: no window from 4 GeV carries a fit weight (16 of N ≥ 20 have "
+        "none: 16 without a robust σ/E, the median response not positive), and no window has a "
+        "marker there, so it spans the empty default, 0–1%.")
+    assert "reaches N = 20" not in basis
+    energy = body["axis"]["energy"]["notes"][0]
+    assert energy.startswith("The E view's y range is provisional: no window from 2 GeV carries a "
+                             "fit weight (16 of N ≥ 20 have none: 16 without a robust σ/E, the "
+                             "median response not positive), and no window has a marker there")
+    (floor,) = [n for n in body["notes"] if "report no robust σ/E (the robust floor)" in n]
+    assert floor == ("0 of the 16 windows across the series hold N < 20 and report no robust σ/E "
+                     "(the robust floor); Sample σ/μ reports them from N = 2. 16 hold N ≥ 20 but "
+                     "report no robust σ/E: their median response is not positive.")
+    scale = body["series"][0]["weight_scale"]
+    assert scale["c"] is None and scale["n_windows"] == 0
 
 
 def test_an_unpaired_aggregate_says_why_it_has_no_model(single_client):
