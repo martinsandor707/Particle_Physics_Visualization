@@ -1575,7 +1575,11 @@ class ResolutionScaling:
             _FITS_NOTES[est],
             f"A fit whose residuals average more than {rfit.MISFIT_SCALE:g} of the windows' own "
             f"standard errors (ν ≥ 1 and S = √(χ²/ν) > {rfit.MISFIT_SCALE:g}) has a form that does "
-            "not describe its windows: it is drawn faded, as a provisional fit is, and said so in "
+            # Robust σ/E never has a provisional fit (its floor is N = 20 throughout), so the
+            # comparison would name a mark this estimator never draws.
+            "not describe its windows: it is drawn faded"
+            + ("" if est == ROBUST else ", as a provisional fit is")
+            + ", and said so in "
             "its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² "
             "p-value: a window of hundreds of events has so small a standard error that the test "
             "rejects a form for misfits no reader could see.",

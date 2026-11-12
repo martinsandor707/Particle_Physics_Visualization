@@ -114,6 +114,19 @@ and prints a table of SHA-256 digests, one per case:
     reconciliation names "the card of the Energy resolution section". The
     tooltips keep its first sentence, so no `models/perf` case moved.
 
+  The lead's two follow-up fixes of the same day re-recorded 22 more cases,
+  in two of those families, against a run of the golden at d3c5e47:
+  - 14 `models/resolution/*` E-view cases of the three recordings whose
+    deposit reference has no fit (`res_scaling_median_two`, whose median
+    deposits tie, and `res_scaling_robust_single_{hits,events}`, declined
+    through one window). The ratio panel's 1.0 rule no longer says "equal to
+    the reference: … deposit fit" there: it names each shower without one,
+    as the drawer does, and with none says there is nothing to divide by.
+  - 8 `notes/models_resolution/*` drawers, both modes of the four robust
+    recordings: the server's misfit note, which the drawer restates, no
+    longer says "as a provisional fit is", since robust has no provisional
+    fit.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or

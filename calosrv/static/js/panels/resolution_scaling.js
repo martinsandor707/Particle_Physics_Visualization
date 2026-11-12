@@ -2403,14 +2403,24 @@ function referenceBandCutTip(model, ref) {
   ].join('<br/>');
 }
 
-/** The tooltip of the ratio panel's 1.0 rule. */
+/**
+ * The tooltip of the ratio panel's 1.0 rule. Under the deposit reference a shower whose deposit has no fit in this
+ * mode is named with its reason; when no shower has one, the rule is the axis's centre with nothing to divide by.
+ */
 function unityTip(model) {
   const ref = model.reference;
+  const missing = ref.literature ? [] : Object.values(ref.byShower ?? {}).filter((r) => r.reason);
+  const none = missing.length > 0 && missing.length === Object.keys(ref.byShower ?? {}).length;
   const lines = [
     `<b>ratio = 1</b>`,
-    escapeHtml(`${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
+    escapeHtml(none
+      ? 'The ratio axis\'s centre, with no reference to divide by, so the panel holds no ratio marks.'
+      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
+  for (const r of missing) {
+    lines.push(mutedLine(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${r.reason}.`));
+  }
   for (const r of Object.values(ref.byShower ?? {})) if (r.misfit) lines.push(mutedLine(referenceMisfitText(r, model.gates)));
   const why = referenceChoiceText(model);
   if (why) lines.push(mutedLine(why));

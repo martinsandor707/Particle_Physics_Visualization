@@ -4516,6 +4516,39 @@ def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(es
 
 
 @pytest.mark.parametrize("name", list(RES_EST))
+def test_res_the_unity_rule_names_only_a_reference_that_exists(est, name):
+    """The ratio panel's 1.0 rule says what it divides by, and never a deposit fit that does not exist. Under the
+    deposit reference a shower whose deposit has no fit in the mode is named with its reason, word for word as the
+    drawer's Disclosures name it; with no shower fitted the rule is the axis's centre with nothing to divide by.
+    (F-jstests' nit, fixed by the lead on 2026-11-12: the tied median deposits and the robust single-shower
+    all-windows view had a rule saying "equal to the reference: each shower's deposit fit".)"""
+    entry = est["fixtures"][name]
+    showers = {s["shower"] for s in _load(name)["series"]}
+    seen_missing = False
+    for key, e in entry["energy"].items():
+        lit = key.split(":")[1]
+        unity = [t for s in e["series"] if s["grid"] == 1 and s["name"] == "ratio = 1" for t in s["tips"]]
+        if not e["pointTips"]:
+            assert not unity, key                  # the empty state draws no panel at all
+            continue
+        (tip,) = unity
+        tip = _plain(tip)
+        missing = [line for line in e["notes"]["sections"].get("Disclosures", []) if " has no ratio marks: " in line]
+        if lit != "none":
+            assert not missing, key                # a literature curve is defined everywhere on the axis
+        assert [line for line in missing if line not in tip] == [], key
+        assert tip.count(" has no ratio marks: ") == len(missing), key
+        nothing = lit == "none" and len(missing) == len(showers)
+        assert ("no reference to divide by" in tip) == nothing, key
+        assert ("equal to the reference: " in tip) == (not nothing), key
+        seen_missing |= bool(missing)
+    # The recordings that reach it: the tied median deposits of the two-shower recording (KAPPA_FLOOR), and robust's
+    # single-shower series, declined through one fittable window (brief-fix F4).
+    assert seen_missing == (name in {"res_scaling_median_two", "res_scaling_robust_single_hits",
+                                     "res_scaling_robust_single_events"}), name
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
 def test_res_est_the_median_hazard_sits_beside_no_interval_reported(est, name):
     """modelsHazards: "median rel. against σ/E curve" when the estimator is the median, the view is E and a curve
     is on; "no interval reported" whenever a curve is on; the drawer carries the same list."""

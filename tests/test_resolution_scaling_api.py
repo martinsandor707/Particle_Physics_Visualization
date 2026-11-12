@@ -874,6 +874,10 @@ def test_the_notes_name_the_estimator_its_weight_and_the_relation(synthetic_clie
         ranges = [n for n in notes if "median response R̃ − 1 from" in n]
         assert len(ranges) == 2                    # the two network series
         assert any(n.startswith("A regressor trained on a bounded momentum range") for n in notes)
+        # Robust σ/E has no provisional fit (N ≥ 20 throughout), so its misfit rule compares with none.
+        (misfit,) = [n for n in notes if n.startswith("A fit whose residuals average more than")]
+        assert ("as a provisional fit is" in misfit) == (estimator != "robust")
+        assert "it is drawn faded" in misfit
 
 
 @pytest.mark.parametrize("estimator", ESTIMATORS)
