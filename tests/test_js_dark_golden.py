@@ -90,8 +90,29 @@ and prints a table of SHA-256 digests, one per case:
     10 drawers of `res_scaling_median_two`.
   - The robust-floor sentence now reads "Sample σ/μ reports them from N = 2",
     because it does not draw them on every view. This moved 40 robust drawers.
-  - A no-break space keeps "robust (N ≥ 20)" on one line in the fit table's
+  - A no-break space keeps "N ≥ 20 throughout" on one line in the fit table's
     Status column. This moved 32 table cases.
+
+  The res-robust fix round (2026-11-12, brief-fix.md, after the statistics and
+  UI reviews) re-recorded 450 of the 2,869 cases, in the same three families
+  and nothing else; the case-id set and the theme map did not move (measured
+  against a dump of the golden commit, 017c845):
+  - 328 `models/resolution/*` chart cases: 28 per fixture, except 24 for each
+    sample single-shower fixture. The fits moved under the pooled weight scale
+    (F1: se = c·ŷ/√N, one c per series), and the robust single-shower fits
+    through one window are gone (F4). The tooltips gained the new SE line
+    (c for the series, or tied replicates), the tail share from N = 300 (F5,
+    F6), the signed median response, and role lines that name the cause of a
+    substitution or decline. The empty states name the robust decline. The fit
+    table's Status reads "N ≥ 20 throughout".
+  - 120 `notes/models_resolution/*` drawers, 10 per fixture. They gained the
+    decomposition sentence under every estimator, the pooled-scale line and
+    weight sentence, "Colour is the series", and "median rel." for σ/E under
+    the median. Lines for tied, withheld and declined windows were added, and
+    the server notes the drawer restates are dropped.
+  - 2 `notes/models_perf/perf/perf_{two,xgb}_energy` drawers: the
+    reconciliation names "the card of the Energy resolution section". The
+    tooltips keep its first sentence, so no `models/perf` case moved.
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
