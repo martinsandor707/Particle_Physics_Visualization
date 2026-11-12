@@ -254,6 +254,19 @@ def test_relative_se():
         assert rw.relative_se(se, value) is None
 
 
+def test_a_relative_se_below_the_floor_is_rounding_not_a_sampling_error():
+    """Tied replicates differ by rounding alone: below KAPPA_FLOOR there is no κ to weight a fit by."""
+    assert rw.KAPPA_FLOOR == 1e-6
+    assert rw.relative_se(rw.KAPPA_FLOOR * 0.2, 0.2) == approx(rw.KAPPA_FLOOR)
+    assert rw.relative_se(1e-9, 0.2) is None
+    assert rw.relative_se(0.5 * rw.KAPPA_FLOOR * 0.2, 0.2) is None
+    # A window of values tied to rounding: every replicate's median is the same order statistic.
+    tied = 0.2 + 1e-13 * np.random.default_rng(3).standard_normal(400)
+    se = rw.median_se(tied, seed=[42, 0, 0, 10, 2])
+    assert se is not None and se > 0
+    assert rw.relative_se(se, float(np.median(tied))) is None
+
+
 # ------------------------------------------------ the median's bootstrap SE --
 
 

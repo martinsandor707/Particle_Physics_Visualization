@@ -334,6 +334,17 @@ def nominal_anchors(axis: performance_bins.BinAxis) -> tuple[int, ...]:
 # --------------------------------------------------------------- windows --
 
 
+_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _power_of_ten(value: float) -> str:
+    """A power of ten as text, ``1e-06`` as "10⁻⁶"; any other value in ``:g`` form."""
+    exponent = round(math.log10(value)) if value > 0 else None
+    if exponent is None or not math.isclose(value, 10.0 ** exponent, rel_tol=1e-12):
+        return f"{value:g}"
+    return "10" + str(exponent).translate(_SUPERSCRIPT)
+
+
 def check_estimator(estimator: str) -> str:
     """The estimator, or a 422 naming the field ``estimator``."""
     if estimator not in ESTIMATORS:
@@ -464,6 +475,17 @@ class Window:
         if self.estimator == SAMPLE:
             return None
         return rw.relative_se(self.se, self.r)
+
+    @property
+    def tied(self) -> bool:
+        """A median or robust value whose bootstrap SE is below ``KAPPA_FLOOR`` of it: no fit weight.
+
+        Tied replicates (``stats/robust_width.KAPPA_FLOOR``): the window is
+        drawn with its interval and left out of the fits, and the notes count it.
+        """
+        if self.estimator == SAMPLE or self.r is None or self.se is None or not self.r > 0:
+            return False
+        return self.se / self.r < rw.KAPPA_FLOOR
 
     @property
     def off_axis(self) -> bool:
@@ -1333,6 +1355,15 @@ class ResolutionScaling:
                          f"{X_MAX:g}; they are listed in off_axis with their "
                          f"{ESTIMATOR_SYMBOLS[est]} and not drawn.")
         for s in self.series:
+            tied = [w for w in s.windows
+                    if w.tied and w.n >= gates["fit_n"] and not w.off_axis]
+            if tied:
+                many = len(tied) != 1
+                notes.append(
+                    f"{s.label}: {len(tied)} window{'s' if many else ''} with a bootstrap SE below "
+                    f"{_power_of_ten(rw.KAPPA_FLOOR)} of {'their' if many else 'its'} value (tied values: the "
+                    f"replicates differ by rounding alone) carr{'y' if many else 'ies'} no fit weight, "
+                    f"so {'they are' if many else 'it is'} drawn but not fitted.")
             for mode_name, mode in s.modes.items():
                 for sub in mode.substitutions:
                     notes.append(f"{s.label} ({mode_name}): {sub['reason']}")

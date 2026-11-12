@@ -236,7 +236,7 @@ const DEFAULT_GATES = Object.freeze({
 export const RES_ESTIMATORS = Object.freeze(['median', 'robust', 'sample']);
 
 /** The robust floor (CLAUDE.md section 2, `stats/robust_width.MIN_ROBUST_N`): no robust σ/E and no tail share below it. */
-const ROBUST_MIN_N = 20;
+export const ROBUST_MIN_N = 20;
 
 /** The cross-references a window's tooltip quotes, in this order, without the estimator plotted. */
 const ALT_NAMES = Object.freeze([['robust', 'Robust σ/E'], ['sample', 'sample σ/μ'], ['median', 'median rel.']]);
@@ -1107,7 +1107,7 @@ function statusCell(fit, mf, gates) {
   if (isMisfit(fit)) status.push(`form does not describe its windows (S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale)})`);
   if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
   if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
-  return status.length ? status.join('; ') : `robust (N ≥ ${formatInt(gates.fit_n)})`;
+  return status.length ? status.join('; ') : `robust (N${NBSP}≥${NBSP}${formatInt(gates.fit_n)})`;
 }
 
 /**

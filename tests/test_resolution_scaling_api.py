@@ -140,7 +140,11 @@ def _common(body):
                 assert (w["value"] is None) == (w["n"] < 2)
                 assert w["whisker"] == (w["n"] >= 8)
             elif w["value"] is not None and w["se"]:
-                assert w["se_rel"] == approx(w["se"] / w["value"], rel=1e-4)
+                if w["se"] < rw.KAPPA_FLOOR * w["value"]:
+                    # Tied replicates (rw.KAPPA_FLOOR): rounding, not a sampling error; no κ.
+                    assert w["se_rel"] is None
+                else:
+                    assert w["se_rel"] == approx(w["se"] / w["value"], rel=1e-4)
             assert (w["tail_share"] is None) == (w["n"] < rw.MIN_ROBUST_N)
             assert (w["median_response"] is None) == (w["n"] < 2)
         if estimator == "robust":
@@ -341,7 +345,9 @@ def test_the_e_view_fields_of_the_two_shower_payload(synthetic_client, estimator
             assert quad["band_quantile"] == approx(fit.band_quantile, rel=1e-5)
             assert mode["span_gev"] == [chosen[0]["p_lo"], chosen[-1]["p_hi"]]
             refits += 1
-    assert refits == 8                   # four series, two modes
+    # Four series, two modes; under median the synthetic deposits tie in every window (rw.KAPPA_FLOOR),
+    # so they carry no fit and only the two networks are refitted.
+    assert refits == (4 if estimator == "median" else 8)
 
 
 @pytest.mark.parametrize("estimator", ESTIMATORS)
@@ -419,8 +425,9 @@ def test_the_budget_ladder_says_what_it_shortened(synthetic_client, monkeypatch)
     warnings = " ".join(body["meta"]["warnings"])
     assert "significant figures" in warnings and "11 points" in warnings
     assert "served as it is" in warnings
-    fit = body["series"][0]["fits"]["all"]["affine"]
-    assert len(fit["curve"]) == 11
+    fitted = [s for s in body["series"] if s["fits"]["all"]["affine"] is not None]
+    assert fitted, "a fitted series to read the shortened curve from"
+    assert len(fitted[0]["fits"]["all"]["affine"]["curve"]) == 11
     assert body["series"][0]["windows"][0]["n"] == full["series"][0]["windows"][0]["n"]
 
 
@@ -526,6 +533,42 @@ def test_the_estimator_defaults_to_median(synthetic_client):
     assert default["estimator"]["label"] == "Median |rel. err.|"
     assert default["estimator"]["quantity"] == "median_error"
     assert default["estimator"]["symbol"] == "median rel."
+
+
+def test_tied_windows_are_drawn_but_never_fitted_and_the_notes_count_them(synthetic_client):
+    """The synthetic deposits tie: their median windows' bootstrap SE is rounding (KAPPA_FLOOR).
+
+    Such a window keeps its value and interval, has no κ, enters no fit of either
+    mode, and the notes count it per series. Measured on this fixture
+    (2026-11-12): before the floor, these windows weighted the pinned fits to
+    S = 8.2 × 10⁶.
+    """
+    body = _get(synthetic_client, estimator="median")
+    gates = body["gates"]
+    counted = 0
+    for s in body["series"]:
+        tied = [w for w in s["windows"]
+                if w["value"] is not None and w["se_rel"] is None and w["se"] is not None
+                and w["n"] >= gates["fit_n"] and not w["off_axis"]]
+        for w in tied:
+            assert w["ci95"] is not None and w["whisker"], w["label"]
+            assert w["se"] < rw.KAPPA_FLOOR * w["value"] * (1 + 1e-9), w["label"]
+            for mode in s["fits"].values():
+                assert w["bin"] not in mode["points"], (s["key"], w["label"])
+        if tied:
+            counted += 1
+            many = len(tied) != 1
+            phrase = (f"{s['label']}: {len(tied)} window{'s' if many else ''} with a bootstrap SE below "
+                      "10⁻⁶ of")
+            assert any(note.startswith(phrase) for note in body["notes"]), phrase
+    assert counted, "the synthetic two-shower fixture ties its deposits"
+    # Every fit weight left is a sampling error: no fit is scaled by the rounding of tied windows.
+    for s in body["series"]:
+        for mode in s["fits"].values():
+            for form in ("affine", "pinned", "quadrature"):
+                fit = mode.get(form)
+                if fit:
+                    assert fit["scale_factor"] < 1e4, (s["key"], form, fit["scale_factor"])
 
 
 @pytest.mark.parametrize("bad", ["bogus", "MEDIAN", "mean", "iqr", ""])

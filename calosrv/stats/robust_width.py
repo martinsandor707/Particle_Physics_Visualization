@@ -184,11 +184,28 @@ def _replicate_summary(replicates: np.ndarray) -> tuple[tuple[float, float] | No
     return (float(lo), float(hi)), float(finite.std(ddof=1)), int(finite.size)
 
 
+#: The smallest relative SE that is a sampling error. Below one part per million of its own
+#: value, a bootstrap SD is the floating-point spread of tied replicates: every resample's
+#: median (or quartiles) is the same order statistic, so the replicates differ by rounding
+#: alone. Such a "SE" would weight its window 10¹² times or more against the others. On the
+#: synthetic two-shower fixture (2026-11-12), 32 median windows of tied deposits gave
+#: κ ≈ 10⁻⁸, and the pinned fits through them reached S = 8.2 × 10⁶. A window below the floor
+#: therefore has no κ: it is drawn with its (zero-width) interval and not fitted, which is the
+#: rule a window without a positive SE has always followed. Continuous data stay far above it:
+#: the stored experiments' windows have κ of 2–40%.
+KAPPA_FLOOR = 1e-6
+
+
 def relative_se(se: float | None, value: float | None) -> float | None:
-    """κ = SE / value: a window's relative standard error; ``None`` unless both are positive."""
+    """κ = SE / value: a window's relative standard error.
+
+    ``None`` unless both are positive and κ reaches :data:`KAPPA_FLOOR`: below
+    it the SE is the rounding of tied replicates, not a sampling error.
+    """
     if se is None or value is None or not (se > 0.0 and value > 0.0):
         return None
-    return se / value
+    kappa = se / value
+    return kappa if kappa >= KAPPA_FLOOR else None
 
 
 @dataclass(frozen=True)

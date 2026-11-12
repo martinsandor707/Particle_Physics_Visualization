@@ -4441,9 +4441,15 @@ def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(es
     estimator = RES_EST[name]
     warning = _warning()
     entry = est["fixtures"][name]
+    payload = _load(name)
     for key, e in entry["energy"].items():
-        lit = key.split(":")[1]
+        windows, lit = key.split(":")
         on = estimator == "median" and lit != "none"
+        # With no curve on, the ratio divides by each shower's deposit fit; a deposit whose windows
+        # tie (stats/robust_width.KAPPA_FLOOR, the synthetic median recording) has none, and then no
+        # ratio mark exists: the drawer says so instead.
+        deposit_fitted = any(s["source"] == "detector" and any(s["fits"][windows][f] for f in ("quadrature", "pinned"))
+                             for s in payload["series"])
         assert e["warning"] == (warning if on else "")
         assert sum(g.replace("\n", " ") == warning for g in e["graphics"]) == (1 if on else 0), key
         assert all(warning not in g for g in e["graphics"] if g.replace("\n", " ") != warning)
@@ -4451,7 +4457,7 @@ def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(es
         assert e["nLiterature"] == len(RES_LIT[lit]) and len(e["literatureTips"]) == len(RES_LIT[lit])
         for tip in e["literatureTips"]:
             assert (warning in tip) == on
-        assert e["ratioTips"]
+        assert bool(e["ratioTips"]) == (lit != "none" or deposit_fitted), key
         for tip in e["ratioTips"]:
             assert (warning in tip) == on
         main = [s for s in e["series"] if s["grid"] == 0]
@@ -4461,7 +4467,7 @@ def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(es
         for s in main:
             for tip in s["tips"]:
                 assert (warning in tip) == (on and s in lit_series), (key, s["name"])
-        assert any(s["tips"] for s in ratio)
+        assert any(s["tips"] for s in ratio)   # the 1.0 rule's own tip at least
         for s in ratio:
             for tip in s["tips"]:
                 assert (warning in tip) == on, (key, s["name"])
@@ -4570,7 +4576,7 @@ def test_res_est_the_drawer_counts_the_windows_below_the_robust_floor(est, name)
             many = below != 1
             assert lines == [f"{below} window{'s' if many else ''} of 2 ≤ N < 20 {'have' if many else 'has'} no Robust σ/E, "
                              "below its floor of N = 20 (the CLAUDE.md robust floor), "
-                             f"so {'they are' if many else 'it is'} not drawn; Sample σ/μ draws {'them' if many else 'it'}."]
+                             f"so {'they are' if many else 'it is'} not drawn; Sample σ/μ reports {'them' if many else 'it'} from N = 2."]
     if estimator == "robust" and name.endswith("_two"):
         assert below > 0, "the two-shower fixture holds windows below the floor"
 

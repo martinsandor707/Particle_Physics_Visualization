@@ -658,7 +658,7 @@ function robustFloorLine(w, model) {
   const floor = model.gates.report_n;
   const below = model.series.flatMap((s) => (s.raw.windows ?? []).filter((x) => (x.n ?? 0) >= 2 && (x.n ?? 0) < floor && !Number.isFinite(x.value)));
   return `${plural(below.length, 'window')} of 2 ≤ N < ${formatInt(floor)} ${below.length === 1 ? 'has' : 'have'} no Robust σ/E, below its floor of N = ${formatInt(floor)} (the CLAUDE.md robust floor), `
-    + `so ${below.length === 1 ? 'it is' : 'they are'} not drawn; Sample σ/μ draws ${below.length === 1 ? 'it' : 'them'}.`;
+    + `so ${below.length === 1 ? 'it is' : 'they are'} not drawn; Sample σ/μ reports ${below.length === 1 ? 'it' : 'them'} from N = 2.`;
 }
 
 /** The relation and MAE/E sentence closing the Disclosures, by estimator; sample keeps today's. */

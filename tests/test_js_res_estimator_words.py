@@ -118,6 +118,7 @@ walk(tree);
 out.article = { errors, callouts, paragraphs };
 
 out.labels = { estimator: MODELS_LABELS.res_estimator.map((c) => [c.value, c.label, c.title]) };
+out.robustFloor = panel.ROBUST_MIN_N;
 out.titles = Object.fromEntries(['median', 'robust', 'sample'].map((name) => [name, ['linear', 'energy'].map((resView) =>
   cards.cardTitle('res-scaling', { ...cards.DEFAULT_CONTROLS, resView, resEstimator: name }))]));
 out.noteTitles = { median: [mn.RES_SCALING_MEDIAN_TITLE, mn.RES_SCALING_MEDIAN_ENERGY_TITLE],
@@ -213,3 +214,9 @@ def test_the_titles_agree_between_the_shell_and_the_drawer(words):
 def test_the_brief_tables_are_json_round_trippable():
     """Guards the literals above against an editor's smart quotes: every string survives JSON unchanged."""
     assert json.loads(json.dumps(BRIEF_ESTIMATORS, ensure_ascii=False)) == BRIEF_ESTIMATORS
+
+
+def test_the_panels_robust_floor_is_the_servers_gate(words):
+    """The panel says "not reported below N = 20" itself, for the cross-references; the server gates the robust width."""
+    gate = rs.ESTIMATOR_GATES[rs.ROBUST]
+    assert words["robustFloor"] == gate["report_n"] == gate["whisker_n"] == gate["fit_n"]

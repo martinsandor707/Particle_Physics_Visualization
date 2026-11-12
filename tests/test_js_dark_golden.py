@@ -83,7 +83,15 @@ and prints a table of SHA-256 digests, one per case:
     `models/perf/tips`: the energy task's Median rel. is not a σ, and the
     reconciliation with the resolution card.
 
-  The theme map did not move.
+  The theme map did not move. A second deliberate re-record the same day moved
+  106 cases of the same two families, and nothing else:
+  - The κ floor (`stats/robust_width.KAPPA_FLOOR`) leaves the synthetic
+    deposits' tied median windows unfitted. This moved 24 chart cases and
+    10 drawers of `res_scaling_median_two`.
+  - The robust-floor sentence now reads "Sample σ/μ reports them from N = 2",
+    because it does not draw them on every view. This moved 40 robust drawers.
+  - A no-break space keeps "robust (N ≥ 20)" on one line in the fit table's
+    Status column. This moved 32 table cases.
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
