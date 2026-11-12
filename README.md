@@ -3851,12 +3851,14 @@ kind of experiment, where the performance section does not
     width goes to +∞ as its median goes to 0, so dropping them truncates the
     upper tail), the interval, the SE and the fit weight are withheld: the value
     is drawn with no whisker, is not fitted, and its note says why
-    (`MAX_DROPPED_SHARE`). This is the σ-scaled comparison with the literature
+    (`MAX_DROPPED_SHARE`; the lead's decision of 2026-11-12, after the
+    statistical review). This is the σ-scaled comparison with the literature
     curves.
   - **Sample σ/μ.** Today's s(R)/R̄ with its χ² whisker [s_lo/R̄, s_hi/R̄],
     delta-method weights and gates 2 / 8 / 20, every number unchanged.
   - **The fit weights of median and robust: one pooled scale per series**
-    (the lead's decision of 2026-11-12, after the statistical review). Neither
+    (the lead's decision of 2026-11-12, after the statistical review, in place
+    of the approved plan's per-window κ; awaiting Martin's confirmation). Neither
     width has a closed-form SE that holds on these windows: the bootstrap SE
     over the Gaussian large-N law has a median ratio of 1.37× for the robust
     width and 1.06× for the median rel. on the pion file's windows of N ≥ 20,
@@ -3874,7 +3876,8 @@ kind of experiment, where the performance section does not
     the origin-pinned term +0.70 (median) and +0.77 (robust) of its SD high at
     40 events a window, +0.35 and +0.33 at 200, +0.15 and +0.17 at 1,000, and
     0.00 under the pooled scale.
-  - **The tied-window floor** (`stats/robust_width.py` `KAPPA_FLOOR` = 10⁻⁶). A
+  - **The tied-window floor** (`stats/robust_width.py` `KAPPA_FLOOR` = 10⁻⁶; the
+    lead's decision of 2026-11-12). A
     window whose bootstrap SE is below 10⁻⁶ of its value is the rounding of tied
     replicates, not a sampling error: it carries no κ, no fit weight and no
     place in the pooled scale, and is drawn in the all-windows mode only. A
@@ -3882,7 +3885,8 @@ kind of experiment, where the performance section does not
     anchors' substitutions and the range sentences name its cause (tied; no
     robust σ/E, the median response being ≤ 0; no median rel., there being no
     c̃; interval withheld).
-  - **The tail-share floor** (`TAIL_MIN_N` = 300). A Gaussian window's mean
+  - **The tail-share floor** (`TAIL_MIN_N` = 300; the lead's decision of
+    2026-11-12, after the statistical review). A Gaussian window's mean
     share beyond 3 robust σ is 1.50 %, 1.17 %, 0.72 %, 0.49 %, 0.34 % and
     0.29 % at N = 20, 30, 50, 100, 300 and 1,000 (measured 2026-11-12), so
     below N = 300 it exceeds the 0.27 % of a large Gaussian sample by chance. The
