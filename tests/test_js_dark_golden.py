@@ -144,6 +144,16 @@ against a dump of the golden commit, 97adcd1, and a dump at cf4d742 before the r
     naming caveat, the correlated terms, the entry at the top, the ratio reference from 1 GeV and its count
     below 1 GeV, in place of the a/√E ⊕ b lines and "no curve is drawn below 4 GeV".
 
+  The lead's fixes of the same day (N-jstests' findings F1–F5) re-recorded 100 more cases, in the same two
+  families, against the golden at b3052cb; the case-id set and the theme map did not move:
+  - 96 `notes/models_resolution/*` E-view drawers, 8 per recording and 10 on the two sample single-shower ones:
+    the mode line names both floors under All windows and the low anchor in the 3-anchor mode (F4); the bands
+    cut at 0 include the a/√E ⊕ b ⊕ c/E ones (F1); a noise band above the top with its curve inside is named
+    (F2); a reference band beyond the whole ratio axis is said (F5).
+  - 4 `models/resolution/*` cases, the two sample single-shower recordings' 3-anchor E view on screen and in
+    print: that reference band leaves the list of bands drawn as edges, and the 1.0 rule's tooltip says it
+    lies beyond the axis (F5).
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or

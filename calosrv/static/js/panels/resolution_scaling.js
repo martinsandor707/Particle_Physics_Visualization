@@ -1435,7 +1435,11 @@ export function noiseCorrelationText(rho) {
   const list = pairs.map(([key, name]) => `${name} = ${sig(rho[key])}`).join(', ');
   const largest = Math.max(...pairs.map(([key]) => Math.abs(rho[key])));
   if (largest < NOISE_STRONG_RHO) {
-    return `${list}: no pair of the fitted squares is strongly correlated here (largest |ρ| = ${sig(largest)}, below ${formatNumber(NOISE_STRONG_RHO)}).`;
+    // Rounded as the list is, except where rounding would read as the threshold it lies below: 0.69999 is
+    // truncated to 0.699, never shown as "0.7, below 0.7".
+    const rounded = sig(largest);
+    const shown = Number(rounded) >= NOISE_STRONG_RHO ? sig(Math.floor(largest * 1000) / 1000) : rounded;
+    return `${list}: no pair of the fitted squares is strongly correlated here (largest |ρ| = ${shown}, below ${formatNumber(NOISE_STRONG_RHO)}).`;
   }
   if (pairs.every(([key]) => rho[key] < 0)) {
     return `${list}: the terms trade off against each other over the fitted windows, so the curve is better determined than its terms.`;
@@ -2588,10 +2592,13 @@ export function energyModel(payload, opts = {}) {
       .filter((r, i, all) => i === 0 || r[0] !== all[i - 1][0]);
     ref.outlined = bandSpansShare(rows.map(([e, , lo, up]) => [e, lo, up]), ref.span, 1 / k, k, true);
     ref.edges = ref.outlined ? edgeRuns(ref.band, (pts) => clipLog(pts, k)) : null;
+    // An outlined band whose two edges both lie beyond [1/k, k] at every E draws nothing: it is said (the drawer and
+    // the 1.0 rule's tooltip) and never listed among the bands drawn as edges, nor turned into a wash (OUTLINE_SHARE).
+    ref.edgesOffAxis = Boolean(ref.outlined && !ref.edges.solid.length && !ref.edges.dashed.length);
     ref.bandCut = ref.outlined ? null : ratioCut(rows, k);
     ref.bandClipped = Boolean(ref.bandCut);
     if (ref.bandClipped) ratioClipped.bands += 1;
-    if (ref.outlined) {
+    if (ref.outlined && !ref.edgesOffAxis) {
       const s = series.find((x) => x.key === ref.series);
       outlinedBands.push({ panel: 'ratio', key: ref.series, label: ref.seriesLabel, short: s?.short ?? ref.seriesLabel, form: ref.form, reference: true, fit: ref.fit });
     }
@@ -3113,6 +3120,11 @@ function unityTip(model) {
     lines.push(mutedLine(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${r.reason}.`));
   }
   for (const r of Object.values(ref.byShower ?? {})) if (r.misfit) lines.push(mutedLine(referenceMisfitText(r, model.gates)));
+  for (const r of Object.values(ref.byShower ?? {})) {
+    if (!r.edgesOffAxis) continue;
+    lines.push(mutedLine(`The reference's own 95% band about 1 (${r.label}) lies beyond the ratio axis (${ratioRangeText(model)}) `
+      + 'at every energy of its span, above and below, so neither of its edges is drawn.'));
+  }
   const why = referenceChoiceText(model);
   if (why) lines.push(mutedLine(why));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));

@@ -1183,8 +1183,12 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     model.rule ? sentence(model.rule) : 'Each window is drawn at E = 1/x², x = ⟨1/√p⟩ being the 1/√E view\'s own abscissa.',
     `Methodology §${method.number}, "${method.title}", derives this view, from E = 1/x² to the ratio panel's axis; §3.6 audits its marks.`,
     'Windows of different series at one energy are drawn at that energy, not set apart: a window sits on its own curve, which no offset could follow.',
-    `Mode drawn: ${modeLabel(mode, gates)}. ${mode === 'anchors'
-      ? 'The windows control reads "3 anchors": only the windows the 3-anchor fit used are drawn.'
+    // This view's two drawn forms fit from different floors, so its mode line names both (the 1/√E view's
+    // modeLabel says "from 4 GeV", true there).
+    `Mode drawn: ${mode === 'all'
+      ? `every window; a₀/√E fits those from ${curveMin} GeV and ${NOISE_FORM} those from ${noiseMinText} GeV, each with N ≥ ${formatInt(gates.fit_n)}`
+      : `${modeLabel(mode, gates)}${noiseDrawn.some(({ fit }) => fit.low_anchor !== null && fit.low_anchor !== undefined) ? `, with the low anchor of ${NOISE_FORM}` : ''}`}. ${mode === 'anchors'
+      ? 'The windows control reads "3 anchors": only the windows the 3-anchor fits used are drawn.'
       : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a ${w.symbol} is drawn; the fits use the fittable ones, a₀/√E from ${curveMin} GeV and ${NOISE_FORM} from ${noiseMinText} GeV, and a window below ${noiseMinText} GeV is drawn as a point no fit uses.`}`,
     `${plural(model.nPoints, 'window')} and ${plural(model.nLines, 'fit curve')} are drawn in this view.`,
     `Two fits per series can be drawn, each by weighted least squares with the 1/√E view's iterated weights: the origin-pinned a₀/√E ⊕ 0 and ${NOISE_FORM}, `
@@ -1273,15 +1277,28 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   for (const { s, fit } of above) {
     dis.push(`${s.label}: its ${NOISE_FORM} curve lies above the top of the main panel (${pct(y.hi)}) at every E, its constant term b = ${pct(fit.params?.b)} alone reaching it; it is clipped there with a caret.`);
   }
+  // A curve inside the plot whose band's upper edge lies above the top: the panel's caret is on the band alone
+  // (its model's entry with no line entry), counted in clipped.entries; the drawer names it as it names the rest.
+  for (const { s } of noiseDrawn) {
+    const e = s.fits?.noise?.entry;
+    if (!e || e.above || e.lineAt !== null) continue;
+    dis.push(`${s.label}: the 95% band of its ${NOISE_FORM} curve lies above the top of the main panel (${pct(y.hi)}) `
+      + `${e.bandAbove ? 'at every E' : `below E = ${sig(e.bandAt)} GeV`}, its curve inside; the band is clipped there with a caret.`);
+  }
   const misfits = misfitLine([
     ...drawn,
     ...noiseDrawn.map(({ s, fit }) => ({ s, f: { form: 'noise', fit, misfit: fit.misfit === true } })),
   ], gates, (form) => ENERGY_FORM_NAMES[form]);
   if (misfits) dis.push(misfits);
-  const floorCut = drawn.filter(({ f }) => f.floorCut);
+  // Every drawn band the panel cuts at 0: a₀/√E's from the model's drawn fits, the three-term fit's from its noise model.
+  const floorCut = [
+    ...drawn.filter(({ f }) => f.floorCut),
+    ...noiseDrawn.filter(({ s }) => s.fits?.noise?.drawable && s.fits.noise.floorCut).map(({ s }) => ({ s, f: s.fits.noise })),
+  ];
   if (floorCut.length) {
     const why = [
       floorCut.some(({ f }) => f.form === 'pinned') && `for the origin-pinned fit, where a₀/√E − q·SE(a₀)/√E would be negative, its lower edge is cut at ${w.symbol} = 0`,
+      floorCut.some(({ f }) => f.form === 'noise') && `for ${NOISE_FORM}, where the band of (${w.symbol})² falls below zero, its lower edge is cut at 0`,
     ].filter(Boolean);
     dis.push(`${plural(floorCut.length, 'fit')} ${floorCut.length === 1 ? 'has the lower edge of its band' : 'have the lower edges of their bands'} cut at 0: `
       + `${floorCut.map(({ s, f }) => `${s.label}, ${ENERGY_FORM_NAMES[f.form]}`).join('; ')}; ${why.join('; ')}.`);
@@ -1295,6 +1312,12 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     dis.push(`${plural(n, 'band')} ${n === 1 ? 'spans' : 'span'} half ${n === 1 ? 'its' : 'their'} axis or more at some energy over the fitted windows, `
       + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash: ${listed.join('; ')}. `
       + 'A small ν makes such a band wide: once S > 1 scales the covariance, q is Student\'s t of the fit\'s own ν, 12.7 at ν = 1.');
+  }
+  // A deposit reference's band about 1 wider than the whole ratio axis: outlined, yet with no edge on the axis.
+  for (const r of Object.values(model.reference?.byShower ?? {})) {
+    if (!r.edgesOffAxis) continue;
+    dis.push(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s` : 'The'} reference band about 1, the 95% band of ${r.label}, `
+      + `lies beyond the ratio axis (1/${sig(model.ratio.k)} to ${sig(model.ratio.k)}) at every energy of its span, above and below, so neither of its edges is drawn.`);
   }
   if (!spanList.length) {
     dis.push('No fit is drawn for this selection, so the main panel shows windows only and the ratio panel marks only.');

@@ -3065,7 +3065,12 @@ def _rho_line(rho: dict) -> str | None:
     listed = ", ".join(f"{n} = {_sf(rho[k])}" for k, n in pairs)
     largest = max(abs(rho[k]) for k, _ in pairs)
     if largest < 0.7:
-        return f"{listed}: no pair of the fitted squares is strongly correlated here (largest |ρ| = {_sf(largest)}, below 0.7)."
+        # As the list rounds, except where rounding would read as the threshold it lies below (lead's fix of
+        # N-jstests' F3, 2026-11-13): 0.69999 is truncated to 0.699.
+        shown = _sf(largest)
+        if float(shown) >= 0.7:
+            shown = _sf(math.floor(largest * 1000) / 1000)
+        return f"{listed}: no pair of the fitted squares is strongly correlated here (largest |ρ| = {shown}, below 0.7)."
     return listed + (TRADE_OFF if all(rho[k] < 0 for k, _ in pairs) else STRONG)
 
 
@@ -5303,8 +5308,6 @@ def test_res_est_the_noise_drawer_sentences_are_each_said_once_where_they_apply(
         assert not [x for x in lin_lines if x.startswith("a/√E ⊕ b ⊕ c/E, the E view's second curve")], (name, windows)
 
 
-@pytest.mark.xfail(strict=True, reason="N-jstests finding F1 (models_notes.js): the drawer's \"cut at 0\" line counts the "
-                   "a₀/√E bands only, while the panel's model flags the a/√E ⊕ b ⊕ c/E bands it cuts at 0 too")
 def test_res_notes_e_view_counts_every_band_cut_at_zero(out, est):
     """The drawer's "n fits have the lower edges of their bands cut at 0" counts every drawn fit whose band the panel
     cuts at 0, a/√E ⊕ b ⊕ c/E included (the quadrature band's line named its own reason before 2026-11-13)."""
@@ -5320,9 +5323,6 @@ def test_res_notes_e_view_counts_every_band_cut_at_zero(out, est):
                 assert "where the band of (σ/E)² falls below zero, its lower edge is cut at 0" in cut0[0], (name, key)
 
 
-@pytest.mark.xfail(strict=True, reason="N-jstests finding F2 (models_notes.js): a/√E ⊕ b ⊕ c/E whose line is inside the plot "
-                   "but whose band's upper edge lies above the top at every E has a caret and is counted in clipped.entries, "
-                   "but the drawer says nothing of it (res_scaling_robust_two, deposit B)")
 def test_res_notes_e_view_names_every_noise_curve_or_band_coming_from_the_top(out, est):
     """Every a/√E ⊕ b ⊕ c/E caret at the top of the main panel is named in the drawer: a curve that comes down (the
     "come down" line), a curve above the top at every E (its own line), and a band above the top at every E while its
@@ -5919,3 +5919,47 @@ def test_res_fix3_colour_is_the_series_and_the_status_names_no_estimator(est, na
                   if (fit := s["fits"][m][f]) and not s["fits"][m].get("provisional") and not fit.get("misfit")
                   and fit.get("converged") is not False and not (f == "affine" and fit.get("negative_intercept"))]
     assert (statuses > 0) == bool(plain_fits), (statuses, plain_fits)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_e_the_mode_line_names_both_floors(est, name):
+    """The E view's "Mode drawn" line (the lead's fix of N-jstests' F4, 2026-11-13). All windows names both floors, a₀/√E
+    from 4 GeV and a/√E ⊕ b ⊕ c/E from 1 GeV, never "every window from 4 GeV", which is the 1/√E view's; the 3-anchor
+    mode names the low anchor exactly when a series on show has one."""
+    payload = _load(name)
+    low = any((s["fits"]["anchors"]["noise"] or {}).get("low_anchor") is not None for s in payload["series"])
+    for key, e in est["fixtures"][name]["energy"].items():
+        windows = key.split(":")[0]
+        lines = [line for sec in e["notes"]["sections"].values() for line in sec if line.startswith("Mode drawn: ")]
+        assert len(lines) == 1, key
+        if windows == "all":
+            assert lines[0].startswith("Mode drawn: every window; a₀/√E fits those from 4 GeV and a/√E ⊕ b ⊕ c/E those "
+                                       "from 1 GeV, each with N ≥ "), (key, lines[0])
+        else:
+            assert ("with the low anchor of a/√E ⊕ b ⊕ c/E" in lines[0]) == low, (key, lines[0])
+        assert "every window from 4 GeV" not in lines[0], key
+
+
+@pytest.mark.parametrize("name", ["res_scaling_single_hits", "res_scaling_single_events"])
+def test_res_e_a_reference_band_beyond_the_axis_is_said_never_listed_as_drawn(est, name):
+    """A deposit reference's band about 1 wider than the whole ratio axis (the lead's fix of N-jstests' F5, 2026-11-13).
+    Neither edge is on the axis, so it is never listed among the bands drawn as two thin edges, nor turned into a
+    wash; the drawer and the 1.0 rule's tooltip say it lies beyond the axis at every energy of its span. Reached by
+    the sample single-shower recordings' 3-anchor E view with both literature curves off."""
+    e = est["fixtures"][name]["energy"]["anchors:none"]
+    dis = e["notes"]["sections"]["Disclosures"]
+    beyond = [line for line in dis if "lies beyond the ratio axis" in line]
+    assert len(beyond) == 1, beyond
+    assert beyond[0].startswith("The reference band about 1, the 95% band of the deposit a/√E ⊕ b ⊕ c/E fit") \
+        and beyond[0].endswith("at every energy of its span, above and below, so neither of its edges is drawn."), beyond[0]
+    assert not any("drawn as two thin edges" in line and "the reference band about 1 of" in line for line in dis)
+    unity = [_plain(t) for s in e["series"] if s["grid"] == 1 and s["name"] == "ratio = 1" for t in s["tips"]]
+    assert len(unity) == 1 and "lies beyond the ratio axis" in unity[0] and "neither of its edges is drawn" in unity[0]
+    # Nowhere else: no other recording or state carries the sentence (the two sample single-shower recordings'
+    # 3-anchor state without a literature curve are the only ones that reach it).
+    reached = {("res_scaling_single_hits", "anchors:none"), ("res_scaling_single_events", "anchors:none")}
+    for other, entry in est["fixtures"].items():
+        for key, e2 in entry["energy"].items():
+            if (other, key) in reached:
+                continue
+            assert not any("lies beyond the ratio axis" in line for line in e2["notes"]["sections"].get("Disclosures", [])), (other, key)
