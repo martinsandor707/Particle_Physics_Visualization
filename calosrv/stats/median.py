@@ -18,6 +18,14 @@ distribution instead of resampling ``n`` values: the k-th order statistic of
 ``n`` uniforms is Beta(k, n - k + 1), and resampling with replacement from a
 sorted sample picks ``x_(ceil(n U))``. That is the same distribution at O(B)
 cost, which matters when one request needs a hundred medians.
+
+**The replicates themselves** (:func:`bootstrap_medians`). The energy-resolution
+card weights its median-relative-error fits by the standard deviation of the
+very replicates whose percentiles are the whisker
+(``stats/robust_width.median_se``), so the array is exposed rather than
+redrawn. :func:`bootstrap_median_interval` takes its percentiles from the same
+function: one seed gives one replicate array, and the interval Model Error vs.
+Incident Momentum quotes did not move when the array was exposed (2026-11-12).
 """
 
 from __future__ import annotations
@@ -42,6 +50,42 @@ def _sorted_finite(values: np.ndarray) -> np.ndarray:
     return np.sort(a[np.isfinite(a)])
 
 
+def _replicate_medians(x: np.ndarray, replicates: int, seed: int | Sequence[int]) -> np.ndarray:
+    """The bootstrap medians of the sorted, finite, non-empty sample ``x``, drawn exactly."""
+    n = int(x.size)
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    if n % 2:
+        m = (n + 1) // 2
+        u = rng.beta(m, n - m + 1, size=replicates)
+        return x[np.clip(np.ceil(n * u).astype(np.int64), 1, n) - 1]
+    m = n // 2
+    u = rng.beta(m, n - m + 1, size=replicates)
+    # Given U_(m) = u, the next order statistic is u + (1 - u) Beta(1, n - m).
+    u2 = u + (1.0 - u) * rng.beta(1, n - m, size=replicates)
+    lo = x[np.clip(np.ceil(n * u).astype(np.int64), 1, n) - 1]
+    hi = x[np.clip(np.ceil(n * u2).astype(np.int64), 1, n) - 1]
+    return 0.5 * (lo + hi)
+
+
+def bootstrap_medians(
+    values: np.ndarray,
+    replicates: int = BOOTSTRAP_REPLICATES,
+    seed: int | Sequence[int] = BOOTSTRAP_SEED,
+) -> np.ndarray:
+    """The ``replicates`` bootstrap medians of the finite ``values``, at any N.
+
+    The array :func:`bootstrap_median_interval` takes its percentiles from:
+    the same seed gives the same replicates, so a standard error taken from them
+    belongs to the very interval quoted beside it. Not gated, because a
+    standard error is a reported number (CLAUDE.md, from N = 2); the percentile
+    interval keeps its own gate at N = 20. Empty for an empty sample.
+    """
+    x = _sorted_finite(values)
+    if x.size == 0:
+        return np.empty(0, dtype=np.float64)
+    return _replicate_medians(x, replicates, seed)
+
+
 def bootstrap_median_interval(
     values: np.ndarray,
     replicates: int = BOOTSTRAP_REPLICATES,
@@ -58,19 +102,7 @@ def bootstrap_median_interval(
     n = int(x.size)
     if n < MIN_BOOTSTRAP_N:
         return None
-    rng = np.random.default_rng(np.random.SeedSequence(seed))
-    if n % 2:
-        m = (n + 1) // 2
-        u = rng.beta(m, n - m + 1, size=replicates)
-        medians = x[np.clip(np.ceil(n * u).astype(np.int64), 1, n) - 1]
-    else:
-        m = n // 2
-        u = rng.beta(m, n - m + 1, size=replicates)
-        # Given U_(m) = u, the next order statistic is u + (1 - u) Beta(1, n - m).
-        u2 = u + (1.0 - u) * rng.beta(1, n - m, size=replicates)
-        lo = x[np.clip(np.ceil(n * u).astype(np.int64), 1, n) - 1]
-        hi = x[np.clip(np.ceil(n * u2).astype(np.int64), 1, n) - 1]
-        medians = 0.5 * (lo + hi)
+    medians = _replicate_medians(x, replicates, seed)
     q_lo, q_hi = np.quantile(medians, [(1.0 - level) / 2.0, (1.0 + level) / 2.0])
     seed_text = seed if isinstance(seed, int) else "/".join(str(s) for s in seed)
     return Interval(float(q_lo), float(q_hi), METHOD_BOOTSTRAP,

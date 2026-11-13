@@ -148,6 +148,9 @@ function describeSlice(state, extra, display = null, spatial = true, meta = null
       if (typeof meta.reference === 'string') tokens.push(`ratio-${meta.reference}`);
       if (Array.isArray(meta.literature) && meta.literature.length) tokens.push(`lit-${meta.literature.join('-')}`);
     }
+    // The resolution card's estimator, in both views: est-median, est-robust or est-sample (Martin, 2026-11-12).
+    // A median relative error and a σ/E of one selection are different figures.
+    if (typeof meta?.estimator === 'string' && meta.estimator) tokens.push(`est-${meta.estimator}`);
   }
   for (const item of extra) if (item) tokens.push(item);
 

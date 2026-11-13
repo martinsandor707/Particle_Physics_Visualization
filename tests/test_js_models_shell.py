@@ -496,7 +496,7 @@ out.resScaling = {
     controls: { resScalingShower: 'b' } }),
   notice: cards.cardNotice('res-scaling', { plan: plans.two_shower_hits, view: view() }),
   controls: cards.cardControls('res-scaling').map((c) => c.name),
-  views: (() => {
+  views: await (async () => {
     const ctl = Object.fromEntries(cards.cardControls('res-scaling').map((c) => [c.name, c]));
     const lin = { ...cards.DEFAULT_CONTROLS, resView: 'linear' };
     const en = { ...cards.DEFAULT_CONTROLS, resView: 'energy' };
@@ -534,6 +534,41 @@ out.resScaling = {
             cards.exportMeta({ meta: {} }, { view: 'linear', literature: ['pi', 'e'] }),
           ],
           sameRequest: JSON.stringify(req(lin)) === JSON.stringify(req({ ...en, resLiterature: '' })),
+        };
+      })(),
+      // The Estimator control (Martin's decisions of 2026-11-12): one estimator per response, so it reloads the card.
+      est: await (async () => {
+        const { DEFAULTS: stateDefaults } = await import(new URL('./state.js', cardsUrl).href);
+        const e = ctl.resEstimator;
+        const titleOf = (name, resView, payload = null) => cards.cardTitle('res-scaling', { ...cards.DEFAULT_CONTROLS, resView, resEstimator: name }, payload);
+        const served = (name) => ({ estimator: { name, choices: ['median', 'robust', 'sample'] } });
+        return {
+          spec: { kind: e.kind, attr: e.attr, label: e.label, request: e.request ?? null, stateKey: e.stateKey ?? null },
+          choices: e.choices({}).map((c) => [c.value, c.label, c.title]),
+          defaults: cards.DEFAULT_CONTROLS.resEstimator,
+          inState: ['resEstimator', 'estimator'].map((k) => k in stateDefaults),
+          asked: ['median', 'robust', 'sample', 'bogus', undefined].map((name) => req({ ...lin, resEstimator: name }).params.estimator),
+          oneShower: cards.cardRequest('res-scaling', { filters: filters.one, plan: plans.single_shower_hits, view: view(),
+            controls: { resEstimator: 'robust' } }).params,
+          open: cards.cardRequest('res-scaling', { filters: filters.open, plan: plans.open, view: view(),
+            controls: { resEstimator: 'sample' } }).params,
+          // A view switch sends nothing; an estimator switch sends one request.
+          sameAcrossViews: ['median', 'robust', 'sample'].map((name) =>
+            JSON.stringify(req({ ...lin, resEstimator: name })) === JSON.stringify(req({ ...en, resEstimator: name }))),
+          differs: JSON.stringify(req({ ...lin, resEstimator: 'robust' })) !== JSON.stringify(req({ ...lin, resEstimator: 'sample' })),
+          titles: Object.fromEntries(['median', 'robust', 'sample', 'bogus'].map((name) =>
+            [name, [titleOf(name, 'linear'), titleOf(name, 'energy')]])),
+          // The response's estimator wins over the control: a title never names numbers not yet drawn.
+          payloadWins: [titleOf('median', 'linear', served('robust')), titleOf('robust', 'energy', served('median')),
+            titleOf('sample', 'energy', served('median')), titleOf('robust', 'linear', served('bogus')),
+            titleOf('median', 'energy', { estimator: null })],
+          options: ['median', 'robust', 'sample', 'bogus'].map((name) => cards.cardOptions('res-scaling', { plan: plans.two_shower_hits,
+            view: view(), controls: { resEstimator: name, resView: 'energy' } }).estimator),
+          metas: [
+            cards.exportMeta(served('robust'), { card: 'res-scaling', estimator: 'median', view: 'linear' }),
+            cards.exportMeta({ meta: {} }, { card: 'res-scaling', estimator: 'sample', view: 'energy', literature: ['e'] }),
+            cards.exportMeta({ meta: {} }, { card: 'perf-bins', estimator: 'sample' }),
+          ],
         };
       })(),
     };
@@ -678,25 +713,28 @@ def test_the_resolution_card_asks_with_the_selection_and_the_frames_energy_netwo
     r = request_results["resScaling"]
     assert r["two"]["route"] == "/api/resolution-scaling" and r["two"]["abortKey"] == "models-res-scaling"
     # The D-frame reads the absolute-frame networks; the sidebar's network choice never enters.
-    assert r["two"]["params"] == {**_TWO_FILTERS, "coord_system": "lab"}
+    # The estimator is the card's own (Martin, 2026-11-12): median by default, one per response.
+    assert r["two"]["params"] == {**_TWO_FILTERS, "coord_system": "lab", "estimator": "median"}
     assert r["twoLocal"]["params"]["coord_system"] == "local"
     # Without networks the detector series and the XGBoost hold-out need the selection alone.
     assert "coord_system" not in r["one"]["params"] and "coord_system" not in r["open"]["params"]
+    assert r["one"]["params"]["estimator"] == r["open"]["params"]["estimator"] == "median"
     # It draws whatever network is selected: no notice, unlike the performance cards.
     assert r["notice"] is None
-    assert r["controls"] == ["resView", "resWindows", "resScalingShower", "resLiterature"]
-    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+    assert r["controls"] == ["resView", "resEstimator", "resWindows", "resScalingShower", "resLiterature"]
+    assert r["optionsTwo"] == {"palette": "viridis", "card": "res-scaling", "view": "linear", "estimator": "median",
                                 "literature": ["pi", "e"], "windows": "all", "shower": "b"}
     # One shower: no shower choice reaches the panel.
-    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear",
+    assert r["optionsOne"] == {"palette": "viridis", "card": "res-scaling", "view": "linear", "estimator": "median",
                                  "literature": ["pi", "e"], "windows": "anchors", "shower": "both"}
 
 
 def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     v = request_results["resScaling"]["views"]
     assert v["viewChoices"] == ["linear", "energy"]
-    assert v["titles"][0] == v["titles"][2] == "Energy Resolution vs. 1/\u221aE"
-    assert v["titles"][1] == "Energy Resolution vs. E"
+    # Under the default estimator, the median relative error, the card is not titled a resolution.
+    assert v["titles"][0] == v["titles"][2] == "Median Relative Error vs. 1/\u221aE"
+    assert v["titles"][1] == "Median Relative Error vs. E"
     assert v["titles"][3] == "Model Error vs. Incident Momentum"
     assert v["refControl"] is False, "one set of literature buttons (Martin, 2026-11-11): no separate reference control"
     assert v["windows"][0] == ["3 anchors", "All \u2265 4 GeV"]
@@ -704,6 +742,57 @@ def test_the_resolution_card_has_two_views_that_send_nothing(request_results):
     assert v["sameRequest"] is True
     assert v["opts"]["view"] == "energy" and v["opts"]["literature"] == ["e"] and "reference" not in v["opts"]
     assert v["inState"] == [False, False], "the view and the toggles are never in a link"
+
+
+_RES_TITLES = {
+    "median": ["Median Relative Error vs. 1/\u221aE", "Median Relative Error vs. E"],
+    "robust": ["Energy Resolution vs. 1/\u221aE", "Energy Resolution vs. E"],
+    "sample": ["Energy Resolution vs. 1/\u221aE", "Energy Resolution vs. E"],
+}
+
+
+def test_the_estimator_is_a_card_control_that_asks_the_server(request_results):
+    """Martin's decisions of 2026-11-12: Median |rel. err.| (the default), Robust σ (IQR), Sample σ/μ, in that order.
+    The choice is the card's own, sent as `estimator` (one per response, the 100 KB contract), never in a link or
+    an Admin default; an unknown value asks for the default."""
+    e = request_results["resScaling"]["views"]["est"]
+    assert e["spec"] == {"kind": "seg", "attr": "resEstimator", "label": "Estimator", "request": True, "stateKey": None}
+    assert [c[:2] for c in e["choices"]] == [["median", "Median |rel. err.|"], ["robust", "Robust \u03c3 (IQR)"],
+                                              ["sample", "Sample \u03c3/\u03bc"]]
+    assert e["defaults"] == "median"
+    assert e["inState"] == [False, False], "the estimator is never in a link or an Admin default"
+    assert e["asked"] == ["median", "robust", "sample", "median", "median"]
+    # Every kind takes it: one shower, and the XGBoost-paired aggregate.
+    assert e["oneShower"]["estimator"] == "robust" and "coord_system" not in e["oneShower"]
+    assert e["open"]["estimator"] == "sample" and "coord_system" not in e["open"]
+    # The view repaints the one response; the estimator asks for another.
+    assert e["sameAcrossViews"] == [True, True, True]
+    assert e["differs"] is True
+    assert e["options"] == ["median", "robust", "sample", "median"]
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust", "sample"])
+def test_the_resolution_cards_title_follows_its_estimator_and_view(request_results, estimator):
+    """A median relative error is not a resolution: the median title says so; the two σ widths keep the old title."""
+    e = request_results["resScaling"]["views"]["est"]
+    assert e["titles"][estimator] == _RES_TITLES[estimator]
+
+
+def test_the_responses_estimator_wins_over_the_control_in_the_title(request_results):
+    """With a response in hand the title names the numbers drawn, never a choice still loading; an unknown or
+    missing served estimator falls back to the control; an unknown control falls back to the median."""
+    e = request_results["resScaling"]["views"]["est"]
+    assert e["titles"]["bogus"] == _RES_TITLES["median"]
+    assert e["payloadWins"] == [_RES_TITLES["robust"][0], _RES_TITLES["median"][1], _RES_TITLES["median"][1],
+                                _RES_TITLES["robust"][0], _RES_TITLES["median"][1]]
+
+
+def test_an_exported_resolution_figure_names_its_estimator(request_results):
+    """The response's estimator, else the one asked for; never on another card."""
+    m = request_results["resScaling"]["views"]["est"]["metas"]
+    assert m[0] == {"estimator": "robust"}
+    assert m[1] == {"estimator": "sample", "view": "energy", "reference": "e"}
+    assert m[2] == {}
 
 
 def test_the_literature_curves_are_one_pair_of_toggles_both_on_by_default(request_results):

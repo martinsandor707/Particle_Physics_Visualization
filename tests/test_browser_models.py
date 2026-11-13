@@ -47,6 +47,13 @@ page is checked as a reader meets it:
   with none below 4 GeV, a 600 px plot, a title naming the view, an export of
   both grids and tooltips under the 20% rule on either grid; "Ratio to" and
   the shower buttons repaint it, and the 1/√E view comes back identical;
+* the resolution card's Estimator control (Martin's decisions of 2026-11-12), on the recorded two-shower responses
+  served by the request's estimator: View, Estimator, Windows, Shower, Literature in that order, Median |rel. err.|
+  pressed by default; each switch one request carrying the new estimator, the other choices kept; the title, the
+  y axis and the export's est-<name> follow it; under the median in the E view with a curve on, the note band, the
+  drawer, the Details hazard and the curve and ratio tooltips carry the literature disclosure, and under Robust σ
+  (IQR) or with no curve none do; every tooltip keeps to the 20% cap under each estimator; screens of both views
+  under each estimator in both themes (CALOSRV_RES_SCREENS);
 * a series switched off on the resolution card's legend (Martin's bugs of
   2026-11-11, both views, on the recorded two-shower response) stays off
   across the window switch with no page error, and switched back on draws
@@ -1118,6 +1125,9 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         assert len(asked) == 1, _urls(requests)
         # A networked plan names the energy network's frame (models_cards.js cardRequest).
         assert (asked[0].get("coord_system") == "lab") is (table == BASELINE_TABLE), asked
+        # The default estimator goes on the request (brief §3), and the title names what it plots (brief §4).
+        assert asked[0].get("estimator") == DEFAULT_ESTIMATOR, asked
+        assert state["title"] == "Median Relative Error vs. 1/√E", state
         axes = page.evaluate(_RES_AXES)
         fit = page.evaluate(_RES_TABLE)
         series = page.evaluate(_RES_SERIES)
@@ -1126,7 +1136,8 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         # The fit table: after the plot frame, inside the card, below the plot and clear of it.
         assert fit is not None and fit["inCard"] and fit["afterFrame"] and not fit["inFrame"], fit
         assert fit["host"]["top"] >= fit["plot"]["bottom"] - 0.5, fit
-        assert fit["caption"].startswith("Fits through the 3 anchor windows"), fit
+        # The caption names the quantity under the median (S2-panel decision 7).
+        assert fit["caption"].startswith("Fits of the median rel. through the 3 anchor windows"), fit
         assert fit["heads"][0] == "Series" and "Windows fitted" in fit["heads"], fit
         assert fit["rows"] and len(fit["fits"]) == 3 * len(fit["rows"]), fit
         # Its text columns wrap, so at 1600 px the table keeps to its card (it ran 1721 px in 1212 kept on one line).
@@ -1139,6 +1150,8 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
             assert (bottom["min"], bottom["max"]) == (0, 0.5) and "1/√E" in bottom["name"], bottom
             assert top["position"] == "top" and top["inverse"] and (top["min"], top["max"]) == (0, 0.5), top
             assert top["name"].startswith("Energy (GeV)"), top
+            # The y axis is named by the estimator in force (brief §3 `axis.y.name`).
+            assert axes["y"][0]["name"].startswith("Median |E_est − p| / p [%]"), axes["y"]
             assert top["values"] == top["ticks"] and 0 in top["values"], top
             assert top["labels"][top["values"].index(0)] == "∞", top
             assert "5" in top["labels"] and "10" in top["labels"], top
@@ -1166,10 +1179,11 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
             assert page.evaluate("() => document.querySelector('.main .card[data-panel=\"res-scaling\"] "
                                  "[aria-label=\"Showers\"]').hidden") is True
         else:
-            # Two events hold no window of two events from 4 GeV: the empty state, said on the chart.
+            # Two events hold no window of two events from 4 GeV: the empty state, said on the chart, naming the
+            # quantity of the estimator in force.
             assert state["series"] == 0 and state["graphic"] == 1, state
             texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
-            assert any("no σ/E can be drawn" in t for t in texts), texts
+            assert any("no median rel. can be drawn" in t for t in texts), texts
             assert {r.split(" · ")[0] for r in fit["rows"]} == {"Shower A", "Shower B"}, fit
             assert _res_press(page, "res-windows", "all")
             assert page.evaluate(_RES_TABLE)["caption"] != fit["caption"]
@@ -1205,14 +1219,22 @@ E_TOL = 1e-6
 
 def _assert_e_view_curves(view, payload, mode):
     """The E view's fitted curves as drawn (brief §1 decision 3, §4.3): no point below `curve_min_gev`; each solid
-    run inside its series' fitted span and meeting it at both edges; each dashed run [6, 4] and wholly outside the
-    span; on the main panel the dashed part beyond the span runs to the axis end; the quadrature fit drawn only
+    run inside its series' fitted span and meeting it at both edges, unless the curve leaves the top of the plot
+    there (CLAUDE.md §5: a fit is never a range setter, and one that leaves the top is clipped with a caret, so its
+    solid run then starts where it comes back in, on the axis's top edge); each dashed run [6, 4] and wholly outside
+    the span; on the main panel the dashed part beyond the span runs to the axis end; the quadrature fit drawn only
     where both its terms are defined. Returns the forms drawn per series."""
     energy = payload["axis"]["energy"]
     x_max, curve_min = energy["x"]["max"], energy["curve_min_gev"]
     assert curve_min == CURVE_MIN_GEV, energy
     by_key = {s["key"]: s for s in payload["series"]}
+    top = view["y"][0]["max"]
     drawn = {}
+
+    def at_top(value):
+        # A point read back from its pixel on the main panel's top edge (the float round trip of a 600 px plot).
+        return value == pytest.approx(top, rel=1e-3, abs=1e-6)
+
     for cid, curve in view["curves"].items():
         parts = cid.split("|")
         key, run_part, form = parts[0], parts[-2], parts[-3]
@@ -1231,7 +1253,8 @@ def _assert_e_view_curves(view, payload, mode):
             assert curve["dash"] == [6, 4], (cid, curve["dash"])
             assert max(es) <= lo + E_TOL or min(es) >= hi - E_TOL, (cid, (min(es), max(es)), (lo, hi))
         if not on_ratio:
-            drawn.setdefault(key, {}).setdefault(form, []).append((run_part, min(es), max(es)))
+            first = min(curve["points"], key=lambda pt: pt[0])
+            drawn.setdefault(key, {}).setdefault(form, []).append((run_part, min(es), max(es), first[1]))
     for key, forms in drawn.items():
         s = by_key[key]
         lo, hi = s["fits"][mode]["span_gev"]
@@ -1242,16 +1265,26 @@ def _assert_e_view_curves(view, payload, mode):
         for form, runs in forms.items():
             solid = [r for r in runs if r[0] == "solid"]
             assert len(solid) == 1, (key, form, runs)
-            # Solid over the fitted windows, meeting the dashed parts exactly at the span's edges.
-            assert solid[0][1] == pytest.approx(lo, abs=E_TOL) and solid[0][2] == pytest.approx(hi, abs=E_TOL), (key, form, runs)
+            # Solid over the fitted windows, meeting the dashed parts exactly at the span's edges; a curve that is
+            # above the plot at the span's low edge (both fitted forms fall with E) comes in at the top edge instead.
+            clipped_low = solid[0][1] > lo + E_TOL
+            if clipped_low:
+                assert at_top(solid[0][3]), (key, form, runs, top)
+            else:
+                assert solid[0][1] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
+            assert solid[0][2] == pytest.approx(hi, abs=E_TOL), (key, form, runs)
             beyond = [r for r in runs if r[0] == "dashed" and r[1] >= hi - E_TOL]
             if hi < x_max:
                 assert len(beyond) == 1 and beyond[0][1] == pytest.approx(hi, abs=E_TOL), (key, form, runs)
                 assert beyond[0][2] == pytest.approx(x_max, abs=E_TOL), (key, form, runs)
             below = [r for r in runs if r[0] == "dashed" and r[2] <= lo + E_TOL]
-            if lo > curve_min:
+            if clipped_low:
+                # Above the plot from the span's low edge down to 4 GeV: nothing is drawn below the span.
+                assert below == [], (key, form, runs)
+            elif lo > curve_min:
                 # Down to 4 GeV, or to where the curve leaves the top of the axis on its way there.
                 assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
+                assert below[0][1] == pytest.approx(curve_min, abs=E_TOL) or at_top(below[0][3]), (key, form, runs)
     return {key: sorted(forms) for key, forms in drawn.items()}
 
 
@@ -1266,21 +1299,48 @@ def _within(point, rect):
     return rect["left"] <= point[0] <= rect["right"] and rect["top"] <= point[1] <= rect["bottom"]
 
 
-#: The recorded two-shower response (tests/test_payload_fixtures.py), served to the baseline's page in place of its
-#: own: the live two-shower baseline holds two events, too few for any window, and the E view's two-shower
-#: grammar (shower B hollow, its lines at 70%, the A / B / Both buttons) needs one drawn.
-RES_TWO_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "payloads" / "res_scaling_two.json"
+#: The card's estimators, in the Estimator control's order (brief §4; models_cards.js RES_ESTIMATOR_CONTROL), and
+#: the one a request carries when the reader has chosen none.
+RES_ESTIMATORS = ("median", "robust", "sample")
+DEFAULT_ESTIMATOR = "median"
+#: The recorded responses (tests/test_payload_fixtures.py), one per estimator and kind: the sample estimator's keeps
+#: the older name `res_scaling_<kind>`, the others are `res_scaling_<estimator>_<kind>`.
+PAYLOADS = Path(__file__).resolve().parent / "fixtures" / "payloads"
+#: The recorded two-shower kind, served to the baseline's page in place of its own: the live two-shower baseline
+#: holds two events, too few for any window, and the E view's two-shower grammar (shower B hollow, its lines at
+#: 70%, the A / B / Both buttons) needs one drawn.
+RES_TWO = "two"
 #: The E view's cases: each live kind, and the baseline's page drawing the recorded two-shower response.
 E_VIEW_CASES = [pytest.param(BASELINE_TABLE, None, id="baseline"), pytest.param(SINGLE_HITS_TABLE, None, id="single"),
                 pytest.param(MODELS_XGB_TABLE, None, id="xgb"),
-                pytest.param(BASELINE_TABLE, RES_TWO_FIXTURE, id="two-shower-fixture")]
+                pytest.param(BASELINE_TABLE, RES_TWO, id="two-shower-fixture")]
 
 
-def _serve_res_fixture(page, fixture):
-    """Answer the page's /api/resolution-scaling with a recorded response; the request is still made and counted."""
-    body = fixture.read_text(encoding="utf-8")
-    page.route("**/api/resolution-scaling?*",
-               lambda route: route.fulfill(status=200, content_type="application/json", body=body))
+def _res_fixture(kind, estimator=DEFAULT_ESTIMATOR):
+    """The recorded response of one kind (`two`, `xgb`, `single_hits`, `single_events`) under one estimator."""
+    stem = f"res_scaling_{kind}" if estimator == "sample" else f"res_scaling_{estimator}_{kind}"
+    return PAYLOADS / f"{stem}.json"
+
+
+def _fixture_payload(kind, estimator=DEFAULT_ESTIMATOR):
+    return json.loads(_res_fixture(kind, estimator).read_text(encoding="utf-8"))
+
+
+def _serve_res_fixture(page, kind):
+    """Answer the page's /api/resolution-scaling with the recorded response of `kind` for the estimator the request
+    names; the request is still made and counted. A request naming no estimator, or another one, is answered 422,
+    so it shows in the page's problems."""
+    bodies = {est: _res_fixture(kind, est).read_text(encoding="utf-8") for est in RES_ESTIMATORS}
+
+    def answer(route):
+        asked = parse_qs(urlparse(route.request.url).query).get("estimator", [None])[0]
+        if asked in bodies:
+            route.fulfill(status=200, content_type="application/json", body=bodies[asked])
+        else:
+            route.fulfill(status=422, content_type="application/json",
+                          body=json.dumps({"detail": f"the test serves no estimator {asked!r}"}))
+
+    page.route("**/api/resolution-scaling?*", answer)
 
 
 @pytest.mark.parametrize(("table", "fixture"), E_VIEW_CASES)
@@ -1307,11 +1367,14 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         assert state["message"] is None and state["canvas"], state
         asked = _requests_of(requests, "/api/resolution-scaling")
         assert len(asked) == 1, _urls(requests)
-        payload = json.loads(fixture.read_text(encoding="utf-8")) if fixture else _res_payload(base, asked[0])
+        assert asked[0].get("estimator") == DEFAULT_ESTIMATOR, asked
+        payload = _fixture_payload(fixture) if fixture else _res_payload(base, asked[0])
+        assert payload["estimator"]["name"] == DEFAULT_ESTIMATOR, payload["estimator"]
         energy = payload["axis"]["energy"]
         axes, fit, series = page.evaluate(_RES_AXES), page.evaluate(_RES_TABLE), page.evaluate(_RES_SERIES)
         linear = page.evaluate(_RES_CHROME)
-        assert linear["title"] == "Energy Resolution vs. 1/√E", linear
+        # Under the default median the card plots a median relative error, never called a resolution (brief §4).
+        assert linear["title"] == "Median Relative Error vs. 1/√E", linear
         assert linear["height"] == 420 and linear["styleHeight"] == "", linear
         assert [v for v, _ in linear["views"]] == ["1/√E linear", "E (GeV) + ratio"], linear
         assert linear["views"][0][1] == "true" and linear["references"] == [] and linear["literature"] == [], linear
@@ -1320,7 +1383,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         # The toggle: the E view from the response in hand.
         assert _res_press(page, "res-view", "energy")
         chrome = page.evaluate(_RES_CHROME)
-        assert chrome["title"] == "Energy Resolution vs. E", chrome
+        assert chrome["title"] == "Median Relative Error vs. E", chrome
         # 600 px for the two panels; an empty state keeps the card's 420 px (the review's U-F11).
         if drawn:
             assert chrome["height"] == 600 and chrome["styleHeight"] == "600px", chrome
@@ -1330,7 +1393,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
         # One pair of literature toggles (Martin, 2026-11-11), both on by default; no separate reference buttons.
         assert chrome["references"] == [] and chrome["literature"] == [["π±", "true"], ["e±", "true"]], chrome
         title, headings, _ = _drawer(page, "res-scaling")
-        assert title == "Energy Resolution vs. E", title
+        assert title == "Median Relative Error vs. E", title
         _assert_sections(headings, f"{table} res-scaling (E view)")
         page.evaluate(_SCROLL_START, "res-scaling")
         _frames(page)
@@ -1339,7 +1402,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             # Two events hold no window of two events: the E view's empty state, said on the chart.
             assert page.evaluate(_CARD, "res-scaling")["series"] == 0
             texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
-            assert any("no σ/E can be drawn" in t for t in texts), texts
+            assert any("no median rel. can be drawn" in t for t in texts), texts
         else:
             # The default draws both curves; the ratio divides by the farther one (e± on every stored response, whose
             # windows all lie above both curves), and the other is drawn on the ratio panel divided by it.
@@ -1354,7 +1417,7 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             flagged = page.evaluate(_DETAILS, "res-scaling")
             assert flagged["flagged"] and NO_INTERVAL in flagged["title"], flagged
             name, _ = _download_svg(page, "res-scaling")
-            assert "_energy_lit-pi-e_" in name, name
+            assert "_energy_lit-pi-e_est-median_" in name, name
             # Both off: each shower's deposit fit is the reference, as the checks below take it.
             assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
             assert [t[:3] for t in page.evaluate(_RES_LIT_TOGGLES)] == [["π±", "false", False], ["e±", "false", False]]
@@ -1449,7 +1512,9 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                     fitted = next(s for s in payload["series"] if s["key"] == key)["fits"]["anchors"][form]
                     if key.endswith(":b"):
                         assert curve["opacity"] < 1, (cid, curve["opacity"])
-                    elif not fitted["provisional"]:
+                    elif not fitted["provisional"] and not fitted.get("misfit"):
+                        # Shower A at full strength, unless the fit is provisional or a misfit (S > 5, drawn faded:
+                        # the median's deposit pinned fits are, on the recorded two-shower response).
                         assert curve["opacity"] == 1, (cid, curve["opacity"])
                 # A / B / Both repaint the E view from the response in hand.
                 for shower in ("a", "b"):
@@ -1461,6 +1526,22 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                     _assert_e_view_curves(got, payload, "anchors")
                 assert _res_press(page, "models-shower", "both")
                 assert page.evaluate(_RES_SERIES) == e_series
+
+            # With both curves off the ratio panel divides each shower's windows by its deposit fit, so a shower
+            # whose deposit has no fit in this mode has no ratio marks. Under the default median the recorded
+            # two-shower deposits tie (every bootstrap replicate the same value, SE below 10⁻⁶ of it): they carry
+            # no fit weight and no fit (review-ui M1), and that panel holds nothing to read.
+            fitted = {s["shower"] for s in payload["series"]
+                      if s["source"] == "detector" and s["fits"]["anchors"]["pinned"]}
+            marked = {k.split("|")[0].split(":")[1] for k, m in view["markers"].items()
+                      if k.endswith("|ratio|markers") and m["fills"]}
+            assert marked == fitted, (marked, fitted)
+            # The tooltips are read on the default picture, both curves on: a literature reference is drawn under
+            # every estimator, so every series on show has ratio marks to hover.
+            assert _res_press(page, "res-literature", "pi") and _res_press(page, "res-literature", "e")
+            assert lit_ids(page.evaluate(_RES_ENERGY)) == lit_ids(both)
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
 
             # Tooltips over both grids: on the layer, beside or off the plot, none over more than the cap.
             found = _hover_chart(page, "plot-res-scaling", columns=12, rows=10)
@@ -1524,11 +1605,571 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
     assert problems == [], problems
 
 
+# ------------------------------------------------ the resolution card's estimator --
+
+#: The card's toolbar groups in page order (models_cards.js CARD_CONTROLS['res-scaling'], brief §4): each group's
+#: label, whether it is on show, and its buttons as [text, aria-pressed, title].
+_RES_CONTROLS = """() => {
+  const card = document.querySelector('.main .card[data-panel="res-scaling"]');
+  return [...card.querySelectorAll('.seg[role="group"]')].map((g) => ({
+    label: g.getAttribute('aria-label'), shown: !g.closest('[hidden]'),
+    buttons: [...g.querySelectorAll('button')].map((b) => [b.textContent, b.getAttribute('aria-pressed'), b.title]),
+  }));
+}"""
+
+#: The controls in the brief's order: View, Estimator, Windows, Shower, Literature.
+RES_CONTROL_LABELS = ["View", "Estimator", "Windows", "Showers", "Literature curves"]
+#: The Estimator buttons, verbatim from brief §4 (labels.js MODELS_LABELS.res_estimator).
+RES_ESTIMATOR_BUTTONS = {
+    "median": ("Median |rel. err.|",
+               "median |E_est − p| / p per window: the Median rel. of Model Error vs. Incident Momentum, same events, "
+               "seed and interval. Not a σ: for unbiased Gaussian errors it is 0.6745·σ/E."),
+    "robust": ("Robust σ (IQR)",
+               "IQR(R) / (1.349 · median R), R = E_est / p: a σ-consistent width that a few badly reconstructed events "
+               "cannot inflate; the σ-scaled comparison with the π± and e± curves."),
+    "sample": ("Sample σ/μ",
+               "s(R) / R̄ over every event of the window, tails included: the Physics page resolution card's "
+               "estimator."),
+}
+#: The card's title per estimator and view (brief §4 `cardTitle`): a median relative error is not a resolution.
+RES_TITLES = {
+    "median": {"linear": "Median Relative Error vs. 1/√E", "energy": "Median Relative Error vs. E"},
+    "robust": {"linear": "Energy Resolution vs. 1/√E", "energy": "Energy Resolution vs. E"},
+    "sample": {"linear": "Energy Resolution vs. 1/√E", "energy": "Energy Resolution vs. E"},
+}
+#: The literature disclosure, verbatim from brief §2.7 (resolution_scaling.py LITERATURE_WARNING), with its U+2212.
+LITERATURE_WARNING = ("Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian "
+                      "errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison).")
+#: The hazard the Details button carries with it (brief §4, models_notes.js modelsHazards).
+MEDIAN_HAZARD = "median rel. against σ/E curve"
+#: How a window tooltip's value line opens under each estimator (brief §4, "Tooltip value line").
+VALUE_LINE = {"median": "Median rel. = ", "robust": "Robust σ/E = ", "sample": "σ/E = "}
+#: The two estimators a window tooltip names as not plotted, by the words it uses for them (brief §4).
+CROSS_REFERENCES = {"median": ("Robust σ/E", "sample σ/μ"), "robust": ("sample σ/μ", "median rel."),
+                    "sample": ("Robust σ/E", "median rel.")}
+
+
+def _flat(text):
+    """Text with every run of white space made one space: a canvas note wraps at spaces, a drawer at its width."""
+    return " ".join(text.split())
+
+
+def _res_note(page):
+    """Every text the resolution card's chart states (the note band, an empty state), flattened into one line."""
+    return _flat(" ".join(page.evaluate(_CHART_TEXTS, "plot-res-scaling")))
+
+
+def _res_pressed(page):
+    """{group label: [pressed buttons' texts]} of the resolution card's toolbar."""
+    return {g["label"]: [text for text, pressed, _ in g["buttons"] if pressed == "true"]
+            for g in page.evaluate(_RES_CONTROLS)}
+
+
+def _res_ids(page):
+    return page.evaluate("""() => (echarts.getInstanceByDom(document.getElementById('plot-res-scaling'))
+      .getOption().series || []).map((s) => s.id ?? s.name)""")
+
+
+def _literature_drawn(page):
+    """The literature curves drawn on the main panel: their keys."""
+    return sorted(i.split("|")[1] for i in _res_ids(page) if re.fullmatch(r"literature\|[a-z]+", i))
+
+
+def _res_y_name(page):
+    return page.evaluate("""() => (echarts.getInstanceByDom(document.getElementById('plot-res-scaling'))
+      .getOption().yAxis || [])[0]?.name ?? ''""")
+
+
+def _res_estimator(page, requests, estimator, axis_name, *, asks=1):
+    """Press an Estimator button the card is not on; wait for the card to draw that estimator's response (its y axis
+    named by the estimator, brief §3). A first switch to an estimator sends exactly one request, whose query is
+    returned; a switch back to one already loaded (`asks=0`) is answered from the cards' shared response cache
+    (models_cards.js `fetchShared`, as every Models card is) and sends none."""
+    count = len(_requests_of(requests, "/api/resolution-scaling"))
+    page.locator(f'.main .card[data-panel="res-scaling"] button[data-res-estimator="{estimator}"]').click()
+    if asks:
+        _until(page, lambda: len(_requests_of(requests, "/api/resolution-scaling")) > count,
+               f"the {estimator} request")
+    page.wait_for_function(
+        """(name) => { const card = document.querySelector('.main .card[data-panel="res-scaling"]');
+          const inst = echarts.getInstanceByDom(document.getElementById('plot-res-scaling'));
+          return !card.classList.contains('is-loading')
+            && String((inst?.getOption().yAxis || [])[0]?.name ?? '').startsWith(name); }""",
+        arg=axis_name, timeout=30_000)
+    _frames(page, 4)
+    new = _requests_of(requests, "/api/resolution-scaling")[count:]
+    assert len(new) == asks, f"the {estimator} switch asked {len(new)} times, not {asks}: {new}"
+    return new[0] if new else None
+
+
+def _without(query, *keys):
+    return {k: v for k, v in query.items() if k not in keys}
+
+
+def test_the_estimator_control_reloads_the_card_once_and_keeps_every_other_choice(models_live_server):
+    """The res-scaling card's Estimator control (Martin's decision 1 of 2026-11-12; brief §4), on the recorded
+    two-shower responses served by the request's estimator.
+
+    The toolbar reads View, Estimator, Windows, Shower, Literature; the Estimator offers Median |rel. err.|, Robust σ
+    (IQR) and Sample σ/μ, with the brief's titles, Median pressed at open and on the first request. A switch to an
+    estimator not yet loaded sends exactly one /api/resolution-scaling request, carrying the new estimator and
+    otherwise the request it replaces; a switch back is answered from the cards' shared response cache with none.
+    Every switch keeps the view, the windows mode, the shower and the literature toggles as the reader left them,
+    and the estimator never enters the link. The title follows the estimator in both views, the y axis takes the estimator's name, and a
+    figure exported under each estimator carries est-<name> in its file name."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        first = _requests_of(requests, "/api/resolution-scaling")
+        assert len(first) == 1 and first[0].get("estimator") == DEFAULT_ESTIMATOR, first
+        assert state["title"] == RES_TITLES["median"]["linear"], state
+
+        controls = page.evaluate(_RES_CONTROLS)
+        assert [g["label"] for g in controls] == RES_CONTROL_LABELS, controls
+        estimator = next(g for g in controls if g["label"] == "Estimator")
+        assert estimator["shown"], estimator
+        assert estimator["buttons"] == [[label, "true" if value == DEFAULT_ESTIMATOR else "false", title]
+                                        for value, (label, title) in RES_ESTIMATOR_BUTTONS.items()], estimator
+        assert [page.get_attribute(f'.main .card[data-panel="res-scaling"] .seg[aria-label="Estimator"] '
+                                   f'button:nth-child({i + 1})', "data-res-estimator")
+                for i in range(3)] == list(RES_ESTIMATORS)
+
+        # The reader's other choices, none of them the defaults: the E view, every window, shower B, e± alone.
+        before = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        assert _res_press(page, "res-windows", "all")
+        assert _res_press(page, "models-shower", "b")
+        assert not _res_press(page, "res-literature", "pi")
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        kept = {k: v for k, v in _res_pressed(page).items() if k != "Estimator"}
+        assert kept == {"View": ["E (GeV) + ratio"], "Windows": ["All windows"], "Showers": ["B"],
+                        "Literature curves": ["e±"]}, kept
+        assert _literature_drawn(page) == ["e"]
+        page.evaluate(_SCROLL_START, "res-scaling")
+        _frames(page)
+
+        exported = {}
+        # Robust and sample are asked once each; the median, loaded at open, and robust again come from the cache.
+        for est, asks in (("robust", 1), ("sample", 1), ("median", 0), ("robust", 0)):
+            served = _fixture_payload(RES_TWO, est)
+            asked = _res_estimator(page, requests, est, served["estimator"]["axis_name"], asks=asks)
+            where = f"switched to {est}"
+            if asks:
+                assert asked.get("estimator") == est, (where, asked)
+                assert _without(asked, "estimator") == _without(first[0], "estimator"), (where, asked, first[0])
+            pressed = _res_pressed(page)
+            assert pressed["Estimator"] == [RES_ESTIMATOR_BUTTONS[est][0]], (where, pressed)
+            assert {k: v for k, v in pressed.items() if k != "Estimator"} == kept, (where, pressed)
+            # The literature toggle the reader left: e± alone is drawn, under every estimator.
+            assert _literature_drawn(page) == ["e"], (where, _res_ids(page))
+            assert _res_y_name(page).startswith(served["axis"]["energy"]["y"]["name"]), (where, _res_y_name(page))
+            assert page.evaluate(_RES_CHROME)["title"] == RES_TITLES[est]["energy"], where
+            assert not {"estimator", "resEstimator", "res_estimator"} & set(_hash(page)), (where, _hash(page))
+            name, _ = _download_svg(page, "res-scaling")
+            assert name.startswith("res-scaling_") and "_energy_ratio-e_" in name, (where, name)
+            assert re.search(rf"_est-{est}_\d{{8}}_\d{{6}}\.svg$", name), (where, name)
+            exported.setdefault((est, "energy"), name)
+            # The 1/√E view of the same response: its title, its axis name and its export, with no request.
+            count = len(requests)
+            assert _res_press(page, "res-view", "linear")
+            assert page.evaluate(_RES_CHROME)["title"] == RES_TITLES[est]["linear"], where
+            assert _res_y_name(page).startswith(served["axis"]["y"]["name"]), (where, _res_y_name(page))
+            name, _ = _download_svg(page, "res-scaling")
+            assert name.startswith("res-scaling_") and "_energy" not in name, (where, name)
+            assert re.search(rf"_est-{est}_\d{{8}}_\d{{6}}\.svg$", name), (where, name)
+            exported.setdefault((est, "linear"), name)
+            assert _res_press(page, "res-view", "energy")
+            assert requests[count:] == [], f"{where}: the view asked the service: {requests[count:]}"
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+        print(f"res-scaling export names: {exported}")
+        # One request per estimator in all: the median's at open, robust's and sample's on their first switch.
+        assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == \
+            ["median", "robust", "sample"], _urls(requests)
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_median_estimator_discloses_its_comparison_with_the_literature_curves(models_live_server):
+    """Martin's override (brief §1 decision 2, §2.7, §4): the literature curves stay on under every estimator, and
+    under the median, in the E view with a curve on, the comparison is disclosed.
+
+    Median, E view, both curves on (the default): both curves are drawn; the note band shows the verbatim
+    disclosure; the Details button is flagged and names the hazard "median rel. against σ/E curve" beside "no
+    interval reported"; the drawer states the disclosure. Under Robust σ (IQR) the curves stay, the disclosure and
+    that hazard go. Back under the median, both curves switched off take the disclosure and the hazards with them,
+    and one curve on brings them back. The 1/√E view, which draws no curve, carries neither."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+
+        def disclosed(where, *, warning, hazard, no_interval):
+            note = _res_note(page)
+            assert (LITERATURE_WARNING in note) is warning, (where, note[-400:])
+            details = page.evaluate(_DETAILS, "res-scaling")
+            assert (MEDIAN_HAZARD in details["title"]) is hazard, (where, details)
+            assert (NO_INTERVAL in details["title"]) is no_interval, (where, details)
+            if hazard or no_interval:
+                assert details["flagged"], (where, details)
+            _, _, body = _drawer(page, "res-scaling")
+            assert (LITERATURE_WARNING in _flat(body)) is warning, (where, _flat(body)[:300])
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            return details
+
+        # The 1/√E view draws no curve: nothing to disclose.
+        assert _literature_drawn(page) == []
+        disclosed("median, 1/√E view", warning=False, hazard=False, no_interval=False)
+
+        assert _res_press(page, "res-view", "energy")
+        assert [t[:2] for t in page.evaluate(_RES_LIT_TOGGLES)] == [["π±", "true"], ["e±", "true"]]
+        assert _literature_drawn(page) == ["e", "pi"]
+        details = disclosed("median, E view, both curves", warning=True, hazard=True, no_interval=True)
+        # One line of the note band at this width (S2-panel: two lines at 760 px).
+        texts = page.evaluate(_CHART_TEXTS, "plot-res-scaling")
+        assert any(LITERATURE_WARNING in _flat(t) for t in texts), texts
+        print(f"res-scaling, median, E view: Details title {details['title']!r}")
+
+        # Robust σ (IQR): the σ-scaled comparison; the curves stay, the disclosure and its hazard go.
+        robust = _fixture_payload(RES_TWO, "robust")
+        _res_estimator(page, requests, "robust", robust["estimator"]["axis_name"])
+        assert _literature_drawn(page) == ["e", "pi"], _res_ids(page)
+        disclosed("robust, E view, both curves", warning=False, hazard=False, no_interval=True)
+
+        # Back under the median: the disclosure comes back; both curves off take it and every hazard with them.
+        median = _fixture_payload(RES_TWO, "median")
+        _res_estimator(page, requests, "median", median["estimator"]["axis_name"], asks=0)
+        disclosed("median again, both curves", warning=True, hazard=True, no_interval=True)
+        before = len(requests)
+        assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+        assert _literature_drawn(page) == []
+        disclosed("median, no curve", warning=False, hazard=False, no_interval=False)
+        assert _res_press(page, "res-literature", "pi")
+        assert _literature_drawn(page) == ["pi"]
+        disclosed("median, π± alone", warning=True, hazard=True, no_interval=True)
+        assert requests[before:] == [], f"a literature toggle asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+#: A window tooltip's SE line under the median and the robust estimators (brief-fix F1 and F3, "The tooltip's SE
+#: line"): a window whose bootstrap SE is below 10⁻⁶ of its value is tied replicates and carries no fit weight; any
+#: other is weighted with its series' pooled scale c, printed to three significant figures.
+SE_TIED = ": below 10⁻⁶ of the value (tied replicates), so no fit weight"
+SE_WEIGHTED = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c·ŷ/√N, c = ([\d.]+) for this series$")
+#: A window tooltip's second line: the window and its count.
+WINDOW_LINE = re.compile(r"^(\d+–\d+ GeV) · N = ")
+
+
+def _se_lines(texts, payload, where):
+    """Every window tooltip's SE line, checked against the window it names: under the median and the robust
+    estimators a tied window (an SE but no κ) says so and no c, every other window prints its series' pooled scale c;
+    under the sample estimator there is no bootstrap SE line. Returns (tied, weighted, the series hovered)."""
+    by_label = {s["label"]: s for s in payload["series"]}
+    tied, weighted, hovered = 0, 0, set()
+    for text in texts:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        se = [line for line in lines if line.startswith("bootstrap SE ")]
+        if payload["estimator"]["name"] == "sample":
+            assert se == [], (where, se)
+            continue
+        if not se:
+            continue
+        assert len(se) == 1, (where, se)
+        s = by_label.get(lines[0])
+        label = next((m.group(1) for line in lines[1:3] if (m := WINDOW_LINE.match(line))), None)
+        assert s is not None and label is not None, (where, lines[:3])
+        w = next(w for w in s["windows"] if w["label"] == label)
+        hovered.add(s["key"])
+        if w["se_rel"] is None:
+            # Tied: never a κ, never a c, never blamed on N.
+            assert w["se"] is not None, (where, s["key"], label)
+            assert se[0].endswith(SE_TIED) and "κ" not in se[0] and " c = " not in se[0], (where, se[0])
+            tied += 1
+        else:
+            got = SE_WEIGHTED.match(se[0])
+            assert got, (where, s["key"], label, se[0])
+            assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c"], rel=5e-3), \
+                (where, s["key"], se[0], s["weight_scale"])
+            weighted += 1
+    return tied, weighted, hovered
+
+
+#: The centre of every window marker the resolution card drew (series `<key>|markers` and `<key>|ratio|markers`), in
+#: viewport pixels: the marks `_hover_marks` spreads its cap over every element for, hovered one by one here.
+_RES_WINDOW_MARKS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((series) => {
+    if (!/\\|markers$/.test(series.get('id') || '')) return;
+    inst.getViewOfSeriesModel(series).group.traverse((el) => {
+      if (el.type !== 'circle' || el.invisible || el.ignore) return;
+      // The circle's centre through its current transform (a cached paint rect can still hold the previous
+      // render's place while a reused element moves to its new one).
+      el.updateTransform();
+      const [x, y] = el.transformCoordToGlobal(el.shape.cx ?? 0, el.shape.cy ?? 0);
+      out.push([c.left + x, c.top + y]);
+    });
+  });
+  return out.filter(([x, y]) => x > c.left + 1 && x < c.right - 1 && y > c.top + 1 && y < c.bottom - 1);
+}"""
+
+
+def _hover_windows(page):
+    """Hover every window marker of the resolution card; every tooltip that showed, probed (as `_hover_marks`)."""
+    page.evaluate(_WATCH_HOVER, "plot-res-scaling")
+    boxes = page.evaluate(_BOXES, "plot-res-scaling")
+    # The marks where they come to rest: a repaint moves a reused element over its update animation.
+    marks, waited = page.evaluate(_RES_WINDOW_MARKS), 0
+    while waited < 3_000:
+        page.wait_for_timeout(100)
+        waited += 100
+        again = page.evaluate(_RES_WINDOW_MARKS)
+        if again == marks:
+            break
+        marks = again
+    found = []
+    for x, y in marks:
+        page.mouse.move(x, y)
+        _frames(page)
+        probe = page.evaluate(_PROBE)
+        if probe is not None:
+            found.append(((x, y), probe, boxes))
+    page.mouse.move(2, 2)
+    _frames(page)
+    return found
+
+
+@pytest.mark.parametrize("estimator", RES_ESTIMATORS)
+def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_live_server, estimator):
+    """Every tooltip over the resolution card's windows, curves and ratio marks, under each estimator, in both
+    views and both window modes of the recorded two-shower response: on the tooltip layer, beside or off the plot,
+    none over more than a fifth of the plot or of the grid being read (the 20% readout cap), with U+2212 for every
+    negative number. A window's value line names the estimator's quantity and its cross-references the two not
+    plotted (brief §4). Under the median in the E view the literature curves' and the ratio marks' tooltips carry
+    the verbatim disclosure (the ratio divides by a literature curve while both are on); no tooltip carries it
+    otherwise. The SE line (brief-fix F1, F3): under the median and the robust estimators a weighted window prints
+    "c = … for this series", its series' pooled scale; under the median the recorded deposits' tied windows say
+    "below 10⁻⁶ of the value (tied replicates), so no fit weight" and are drawn in the all-windows mode only."""
+    served = _fixture_payload(RES_TWO, estimator)
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        if estimator != DEFAULT_ESTIMATOR:
+            _res_estimator(page, requests, estimator, served["estimator"]["axis_name"])
+        shares, counts = {}, {}
+        # Each view in both modes; the E view's anchors after its all-windows render, the switch that reuses and
+        # moves the markers.
+        for view, mode in (("linear", "anchors"), ("linear", "all"), ("energy", "all"), ("energy", "anchors")):
+            if view == "energy":
+                assert _res_press(page, "res-view", "energy")
+            assert _res_press(page, "res-windows", mode)
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            where = f"res-scaling, {estimator}, {view} view, {mode}"
+            found = _hover_chart(page, "plot-res-scaling", columns=12, rows=10)
+            found += _hover_marks(page, "plot-res-scaling", cap=60)
+            found += _hover_windows(page)
+            assert found, f"{where}: no tooltip"
+            _check_tips(found, where)
+            boxes = page.evaluate(_BOXES, "plot-res-scaling")
+            chart = boxes["chart"]
+            rects = page.evaluate(_RES_ENERGY)["rects"]
+            grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"]) for k, v in r.items()}
+                     for r in rects]
+            worst, on_ratio = 0.0, []
+            for (x, y), probe, box in found:
+                plot = box["plot"]
+                area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                share = _overlap(probe["tip"], plot) / area
+                assert share <= PROJECTION_READOUT_SHARE, (where, (x, y), probe["text"][:60], share)
+                for i, g in enumerate(grids):
+                    if _within((x, y), g):
+                        part = _overlap(probe["tip"], g) / ((g["right"] - g["left"]) * (g["bottom"] - g["top"]))
+                        assert part <= PROJECTION_READOUT_SHARE, (where, i, (x, y), probe["text"][:60], part)
+                        worst = max(worst, part)
+                        if i == 1:
+                            on_ratio.append(probe["text"])
+            shares[f"{view}/{mode}"] = round(worst, 3)
+            texts = [probe["text"] for _, probe, _ in found]
+            tied, weighted, hovered = _se_lines(texts, served, where)
+            counts[f"{view}/{mode}"] = (tied, weighted)
+            if estimator != "sample":
+                assert weighted, f"{where}: no weighted window's tooltip read"
+            if estimator == "median":
+                # The tied deposits are drawn in the all-windows mode only, never fitted (brief-fix F3).
+                deposits = {k for k in hovered if k.startswith("detector:")}
+                assert bool(tied) is (mode == "all") and bool(deposits) is (mode == "all"), (where, tied, hovered)
+            else:
+                assert tied == 0, (where, tied)
+            assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+            lines = [line.strip() for t in texts for line in t.splitlines()]
+            assert any(line.startswith(VALUE_LINE[estimator]) for line in lines), (where, texts[:4])
+            for name in CROSS_REFERENCES[estimator]:
+                assert any(name in t for t in texts), (where, name, texts[:4])
+            warned = [t for t in texts if LITERATURE_WARNING in _flat(t)]
+            if estimator == "median" and view == "energy":
+                assert on_ratio, f"{where}: no tooltip over the ratio panel"
+                # The ratio panel divides by a literature curve (both on): every mark there says what it compares.
+                assert all(LITERATURE_WARNING in _flat(t) for t in on_ratio), (where, [t[:80] for t in on_ratio
+                                                                                      if LITERATURE_WARNING not in _flat(t)])
+                assert any("literature" in t.lower() or "π±" in t or "e±" in t for t in warned), (where, warned[:2])
+            else:
+                assert warned == [], (where, warned[:2])
+        print(f"res-scaling, {estimator}: largest share of the grid read {shares}; "
+              f"tooltips read (tied, weighted) {counts}")
+        browser.close()
+    assert problems == [], problems
+
+
+def test_the_robust_single_shower_card_names_its_decline_in_both_views(models_live_server):
+    """Brief-fix F4 on the live single-shower hit experiment: under Robust σ (IQR) its one series, the calibrated
+    deposit, has a single fittable window (N ≥ 20, from 5 GeV, with a fit weight), and the robust estimator fits no
+    line through fewer than two, so the 3-anchor mode draws nothing. The empty state of both views names that
+    decline and the window, never "no window reaches N = 20", and says which button draws it; the all-windows mode
+    draws the window unfitted, and its tooltip's role line names the decline; the drawer says it in both views. Only
+    the estimator switch asks the service."""
+    base = models_live_server["base"]
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, base, SINGLE_HITS_TABLE)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        count = len(_requests_of(requests, "/api/resolution-scaling"))
+        page.locator('.main .card[data-panel="res-scaling"] button[data-res-estimator="robust"]').click()
+        _until(page, lambda: len(_requests_of(requests, "/api/resolution-scaling")) > count, "the robust request")
+        _until(page, lambda: "fits no line" in _res_note(page), "the robust empty state")
+        asked = _requests_of(requests, "/api/resolution-scaling")[count:]
+        assert len(asked) == 1 and asked[0].get("estimator") == "robust", asked
+        payload = _res_payload(base, asked[0])
+        assert payload["estimator"]["name"] == "robust" and len(payload["series"]) == 1, payload["estimator"]
+        series = payload["series"][0]
+        gates = payload["gates"]
+        # The decline as the payload states it: no fit in either mode, one fittable window in the anchors' pool.
+        assert series["fits"]["anchors"]["points"] == [] and series["fits"]["all"]["points"] == [], series["fits"]
+        fittable = [w for w in series["windows"] if (w["n"] or 0) >= 20 and w.get("se_rel") and w["value"] is not None
+                    and (w.get("p_lo") or 0) >= gates["anchor_low_gev"]]
+        assert len(fittable) == 1, [(w["label"], w["n"], w.get("se_rel")) for w in series["windows"]]
+        window = fittable[0]
+        assert window["n"] < 1000, window  # formatInt's digit grouping is not this test's subject
+        declined = (f"Robust σ (IQR) fits no line through fewer than two fittable windows, and only {window['label']} "
+                    f"(N = {window['n']}) is fittable here")
+        before = len(requests)
+
+        all_names = {"linear": f"All ≥ {gates['e_min_gev']:g} GeV", "energy": "All windows"}
+        for view in ("linear", "energy"):
+            assert _res_press(page, "res-view", view)
+            assert _res_press(page, "res-windows", "anchors")
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            note = _res_note(page)
+            # The empty state says why, by the decline, never by N.
+            # (The 1/√E view adds the count of windows below 4 GeV that its Details drawer lists.)
+            assert note.startswith(f"{declined}: no fit, so the 3-anchor mode draws nothing. "
+                                   f"\"{all_names[view]}\" draws it, unfitted."), (view, note)
+            assert "reaches N = " not in note, (view, note)
+            _, _, body = _drawer(page, "res-scaling")
+            assert declined in _flat(body), (view, _flat(body)[:400])
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+
+            # The all-windows mode draws the window, unfitted, and its tooltip names the decline.
+            assert _res_press(page, "res-windows", "all")
+            page.evaluate(_SCROLL_START, "res-scaling")
+            _frames(page)
+            assert "fits no line" not in _res_note(page), (view, _res_note(page))
+            found = _hover_windows(page)
+            _check_tips(found, f"single robust {view} view, all windows")
+            tips = [probe["text"] for _, probe, _ in found if f"{window['label']} · N = " in probe["text"]]
+            assert tips and all(declined in _flat(t) for t in tips), (view, [t[:200] for t in tips])
+            for (x, y), probe, box in found:
+                plot = box["plot"]
+                area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+                assert _overlap(probe["tip"], plot) / area <= PROJECTION_READOUT_SHARE, (view, (x, y), probe["text"][:60])
+        assert requests[before:] == [], f"a render-only control asked the service: {requests[before:]}"
+        browser.close()
+    assert problems == [], problems
+
+
+#: The part of a card `.main` shows, in viewport pixels: a screenshot clip.
+_VISIBLE_CARD = """(id) => {
+  const r = document.querySelector(`.main .card[data-panel="${id}"]`).getBoundingClientRect();
+  const m = document.querySelector('.main').getBoundingClientRect();
+  const top = Math.max(r.top, m.top);
+  const bottom = Math.min(r.bottom, m.bottom);
+  return { x: r.left, y: top, width: r.width, height: Math.max(0, bottom - top) };
+}"""
+
+
+#: Where the resolution card's screens go: CALOSRV_RES_SCREENS, else the test's temporary folder.
+def _res_screens(tmp_path):
+    folder = Path(os.environ.get("CALOSRV_RES_SCREENS") or tmp_path)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_resolution_card_screens_under_each_estimator(models_live_server, scheme, tmp_path):
+    """The resolution card at 1600 × 900, both views × the three estimators, on the recorded two-shower responses,
+    saved as PNG (CALOSRV_RES_SCREENS, else the temporary folder) for a reader's eye. Each screen is the card as
+    drawn: its title follows the estimator, its y axis is named by it, and the disclosure is on the canvas exactly
+    under the median in the E view."""
+    folder = _res_screens(tmp_path)
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        card = page.locator('.main .card[data-panel="res-scaling"]')
+        for est in RES_ESTIMATORS:
+            served = _fixture_payload(RES_TWO, est)
+            if est != DEFAULT_ESTIMATOR:
+                _res_estimator(page, requests, est, served["estimator"]["axis_name"])
+            for view in ("linear", "energy"):
+                _res_press(page, "res-view", view)
+                page.evaluate(_SCROLL_START, "res-scaling")
+                page.mouse.move(2, 2)
+                _frames(page, 4)
+                where = f"{scheme} {est} {view}"
+                assert page.evaluate(_RES_CHROME)["title"] == RES_TITLES[est][view], where
+                axis = served["axis"]["energy"]["y"] if view == "energy" else served["axis"]["y"]
+                assert _res_y_name(page).startswith(axis["name"]), (where, _res_y_name(page))
+                assert (LITERATURE_WARNING in _res_note(page)) is (est == "median" and view == "energy"), where
+                # The card from its top as far as `.main` shows it (its plot whole; an element screenshot of a card
+                # taller than the scroller is cut there and padded with the page), then its fit table on its own.
+                clip = page.evaluate(_VISIBLE_CARD, "res-scaling")
+                assert clip["height"] > 500, (where, clip)
+                target = folder / f"res-scaling_{scheme}_{view}_{est}.png"
+                page.screenshot(path=str(target), clip=clip)
+                assert target.stat().st_size > 20_000, target
+                table = card.locator(".res-fit-table")
+                table.scroll_into_view_if_needed()
+                _frames(page)
+                table.screenshot(path=str(folder / f"res-scaling_{scheme}_{view}_{est}_table.png"))
+            _res_press(page, "res-view", "linear")
+        browser.close()
+    print(f"res-scaling screens in {folder}")
+    assert problems == [], problems
+
+
 # ------------------------------------------------- the resolution card's legend --
 
-#: The legend entry Martin switched off (2026-11-11), in the recorded two-shower response: every mark of shower A's
-#: calibrated deposit (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it.
-LEGEND_ENTRY = "Shower A · Calibrated deposit c·E_dep — linear-sum benchmark"
+#: The legend entry switched off, in the recorded two-shower response: every mark of shower A's energy network
+#: (markers, whiskers, carets, fitted lines and bands, on both grids in the E view) carries it. Martin switched off
+#: the calibrated deposit (2026-11-11); under the default median estimator the recorded deposits tie (bootstrap SE
+#: below 10⁻⁶ of the value), carry no fit weight and in the 3-anchor mode draw nothing (review-ui M1), so the tests
+#: take the network, which every estimator draws and fits in both window modes.
+LEGEND_ENTRY = "Shower A · Energy network · absolute frame"
+#: Another entry, on show while LEGEND_ENTRY is hidden: its export ink is the legend's ink for an entry on show.
+LEGEND_ON_SHOW = "Shower B · Energy network · absolute frame"
 #: The ink an exported figure's legend draws a hidden entry in (export/figure.js `printInactiveInk`, 4.58:1 on
 #: white; tests/test_js_chart_legend.py derives it).
 PRINT_INACTIVE = "#6f7681"
@@ -1630,7 +2271,7 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
     catches a memory without the clear: the entry's views then hold the more numerous items of the "All" render."""
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
-        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        _serve_res_fixture(page, RES_TWO)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
         if view == "energy":
@@ -1646,6 +2287,12 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_the_window_switch_
         fresh["all"] = _drawn(page)[0]
         own = sorted(sid for sid, (name, *_) in fresh["all"].items() if name == LEGEND_ENTRY)
         assert any(fresh["all"][sid][3] for sid in own), own
+        # The entry draws fitted lines and bands in both modes, as well as its markers: what the bug lost. A band
+        # is a wash, or its two edges where it spans half its axis or more (OUTLINE_SHARE).
+        for mode in ("anchors", "all"):
+            drawn = [sid for sid, (name, _, _, elements) in fresh[mode].items() if name == LEGEND_ENTRY and elements]
+            assert any("|pinned|" in sid and ("|line|" in sid or "|solid|" in sid) for sid in drawn), (mode, drawn)
+            assert any("|band" in sid or "|edges|" in sid for sid in drawn), (mode, drawn)
         # The switch removes items from a series of the entry: the path ECharts threw on.
         assert any(sid in fresh["anchors"] and fresh["anchors"][sid][2] < fresh["all"][sid][2] for sid in own), \
             {sid: (fresh["anchors"].get(sid), fresh["all"][sid]) for sid in own}
@@ -1688,7 +2335,7 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
     other, and its legend draws the entry in the print's inactive grey, lighter than the entries on show."""
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
-        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        _serve_res_fixture(page, RES_TWO)
         page.evaluate(_WATCH_EXPORT_LEGEND)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
@@ -1718,7 +2365,7 @@ def test_a_series_switched_off_on_the_legend_stays_off_across_a_theme_switch_and
         hidden = {sid for sid, name, filtered in exported["series"] if filtered}
         assert hidden and hidden == {sid for sid, name, _ in exported["series"] if name == LEGEND_ENTRY}, exported
         inks = {text: fill.lower() for fill, text in re.findall(r'<text[^>]*?fill="([^"]+)"[^>]*>([^<]+)</text>', svg)}
-        on_show = [t for t in inks if t.startswith("Shower B · Calibrated deposit")]
+        on_show = [t for t in inks if t == LEGEND_ON_SHOW]
         assert LEGEND_ENTRY in inks and on_show, sorted(inks)
         # The hidden entry in the print's inactive grey (export/figure.js printInactiveInk), lighter than the
         # entries on show, never the near-black print border ECharts would have used.
@@ -1775,7 +2422,7 @@ def test_the_open_drawer_names_the_series_the_legend_hides_and_the_entry_stays_l
     light card's ink and keeps the line. Switched back on, the drawer is as it was. No request."""
     with models_live_server["playwright"].sync_playwright() as p:
         browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE)
-        _serve_res_fixture(page, RES_TWO_FIXTURE)
+        _serve_res_fixture(page, RES_TWO)
         state = _scroll_to(page, "res-scaling")
         assert state["message"] is None and state["canvas"], state
         details = '.main button[data-inspect="res-scaling"]'

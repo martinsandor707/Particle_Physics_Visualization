@@ -34,20 +34,193 @@
   },
   "estimator": {
    "type": "object",
+   "description": "The one estimator this response plots (?estimator=, default median; Martin's decisions, 2026-11-12). The top-level gates are its own; every window's value, ci95, method, se and se_rel are its own, and alt carries the other two.",
    "required": [
     "name",
+    "label",
+    "quantity",
+    "symbol",
     "definition",
-    "label"
+    "axis_name",
+    "interval",
+    "weight",
+    "literature",
+    "calibration",
+    "relation",
+    "choices"
    ],
    "properties": {
     "name": {
-     "const": "response_ratio"
+     "enum": [
+      "median",
+      "robust",
+      "sample"
+     ]
+    },
+    "label": {
+     "enum": [
+      "Median |rel. err.|",
+      "Robust σ (IQR)",
+      "Sample σ/μ"
+     ]
+    },
+    "quantity": {
+     "enum": [
+      "median_error",
+      "resolution"
+     ]
+    },
+    "symbol": {
+     "enum": [
+      "median rel.",
+      "σ/E"
+     ]
     },
     "definition": {
      "type": "string"
     },
-    "label": {
-     "type": "string"
+    "axis_name": {
+     "enum": [
+      "Median |E_est − p| / p [%]",
+      "Robust σ/E [%]",
+      "σ/E [%]"
+     ],
+     "description": "axis.y.name and axis.energy.y.name."
+    },
+    "interval": {
+     "type": "object",
+     "required": [
+      "method",
+      "label"
+     ],
+     "properties": {
+      "method": {
+       "enum": [
+        "bootstrap_percentile",
+        "chi2_over_mu"
+       ]
+      },
+      "label": {
+       "type": "string"
+      }
+     },
+     "additionalProperties": false
+    },
+    "weight": {
+     "type": "object",
+     "required": [
+      "method",
+      "label"
+     ],
+     "properties": {
+      "method": {
+       "enum": [
+        "kappa",
+        "delta"
+       ]
+      },
+      "label": {
+       "type": "string"
+      }
+     },
+     "additionalProperties": false,
+     "description": "kappa: se = c·ŷ/√N with c the series' pooled scale (series.weight_scale), median and robust; delta: the delta-method SE of σ/μ (sample)."
+    },
+    "literature": {
+     "type": "object",
+     "required": [
+      "drawn",
+      "warning"
+     ],
+     "properties": {
+      "drawn": {
+       "const": true
+      },
+      "warning": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "LITERATURE_WARNING under median, null otherwise."
+      }
+     },
+     "additionalProperties": false
+    },
+    "calibration": {
+     "type": "object",
+     "required": [
+      "rule",
+      "label",
+      "showers"
+     ],
+     "properties": {
+      "rule": {
+       "enum": [
+        "median",
+        "sum"
+       ],
+       "description": "median: the deposit is c̃·E_dep, c̃ = 1/median(E_dep/p) over the events with E_dep > 0 (median estimator); sum: c = Σp/ΣE_dep."
+      },
+      "label": {
+       "type": "string"
+      },
+      "showers": {
+       "type": "object",
+       "propertyNames": {
+        "enum": [
+         "a",
+         "b"
+        ]
+       },
+       "additionalProperties": {
+        "type": "object",
+        "required": [
+         "c_sum",
+         "c_median",
+         "n",
+         "n_zero_deposit"
+        ],
+        "properties": {
+         "c_sum": {
+          "type": [
+           "number",
+           "null"
+          ]
+         },
+         "c_median": {
+          "type": [
+           "number",
+           "null"
+          ],
+          "description": "c̃; null without an event with E_dep > 0."
+         },
+         "n": {
+          "type": "integer",
+          "minimum": 0
+         },
+         "n_zero_deposit": {
+          "type": [
+           "integer",
+           "null"
+          ],
+          "minimum": 0
+         }
+        },
+        "additionalProperties": false
+       }
+      }
+     },
+     "additionalProperties": false
+    },
+    "relation": {
+     "const": "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it."
+    },
+    "choices": {
+     "const": [
+      "median",
+      "robust",
+      "sample"
+     ]
     }
    },
    "additionalProperties": false
@@ -304,14 +477,21 @@
     "e_min_gev",
     "anchor_low_gev",
     "n_anchors",
-    "misfit_scale"
+    "misfit_scale",
+    "tail_min_n"
    ],
    "properties": {
     "report_n": {
-     "const": 2
+     "enum": [
+      2,
+      20
+     ]
     },
     "whisker_n": {
-     "const": 8
+     "enum": [
+      8,
+      20
+     ]
     },
     "fit_n": {
      "const": 20
@@ -328,9 +508,14 @@
     "misfit_scale": {
      "const": 5.0,
      "description": "A fit with ndf ≥ 1 and scale_factor above this does not describe its windows (misfit)."
+    },
+    "tail_min_n": {
+     "const": 300,
+     "description": "A window's tail_share is reported from this N (stats/robust_width.TAIL_MIN_N); null below, where a Gaussian sample exceeds 0.27% by chance."
     }
    },
-   "additionalProperties": false
+   "additionalProperties": false,
+   "description": "report_n, whisker_n and fit_n are the active estimator's: 2 / 8 / 20 under median and sample, 20 / 20 / 20 under robust."
   },
   "anchors": {
    "type": "object",
@@ -583,9 +768,15 @@
     "sd_r",
     "value",
     "ci95",
+    "method",
+    "se",
+    "se_rel",
     "se_delta",
     "c4",
     "bias",
+    "median_response",
+    "tail_share",
+    "alt",
     "momentum_spread",
     "dof_note",
     "weak",
@@ -638,7 +829,7 @@
       "number",
       "null"
      ],
-     "description": "σ/E = 100 sd_r / mean_r in percent; null below N = 2 or where mean_r ≤ 0."
+     "description": "The active estimator's value in percent: median |R − 1| (median, from N = 2), IQR(R)/(1.349·median R) (robust, from N = 20, null where median R ≤ 0) or σ/E = 100 sd_r / mean_r (sample, from N = 2, null where mean_r ≤ 0)."
     },
     "ci95": {
      "anyOf": [
@@ -654,21 +845,44 @@
        "type": "null"
       }
      ],
-     "description": "95% χ² interval of σ (N − 1 d.o.f.) divided by μ, percent: the whisker."
+     "description": "The active estimator's 95% interval in percent, named by method: the median's percentile bootstrap (N ≥ 20) or order-statistic interval (6 ≤ N < 20), the robust width's exact percentile bootstrap, or the χ² interval of σ (N − 1 d.o.f.) divided by μ. The whisker from gates.whisker_n."
+    },
+    "method": {
+     "enum": [
+      "bootstrap_percentile",
+      "order_statistic",
+      "chi2_over_mu",
+      null
+     ],
+     "description": "ci95's method (metrics.METHOD_*); null without an interval."
+    },
+    "se": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "The window's measured SE at its value, percent: the SD (ddof = 1) of the bootstrap replicates behind ci95 (median, robust; reported even when tied below KAPPA_FLOOR, null when a robust interval is withheld), or the delta-method SE, the fit weight (sample)."
+    },
+    "se_rel": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "κ = se / value as a fraction, the window's measured bootstrap relative SE (median, robust): information and the input of the series' pooled scale (weight_scale), never the window's own fit weight; null under sample, below KAPPA_FLOOR (tied replicates) or with a withheld robust interval."
     },
     "se_delta": {
      "type": [
       "number",
       "null"
      ],
-     "description": "Delta-method SE of σ/μ in percent: the fit weight's basis."
+     "description": "Sample only: the delta-method SE of σ/μ in percent, the fit weight's basis; null under median and robust."
     },
     "c4": {
      "type": [
       "number",
       "null"
      ],
-     "description": "Bias factor c4(N) of σ, quoted from N = 2 below N = 15."
+     "description": "Sample only: bias factor c4(N) of σ, quoted from N = 2 below N = 15; null under median and robust."
     },
     "bias": {
      "type": [
@@ -676,6 +890,37 @@
       "null"
      ],
      "description": "100 (mean_r − 1): the estimator's own bias, percent."
+    },
+    "median_response": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "100 (median R − 1), percent, of this response's R; null below N = 2."
+    },
+    "tail_share": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "Percent of events with |R − median R| > 3 IQR(R)/1.349, from N = 300 (gates.tail_min_n; a large Gaussian sample gives 0.27%); null below, or where IQR = 0."
+    },
+    "alt": {
+     "type": "object",
+     "propertyNames": {
+      "enum": [
+       "median",
+       "robust",
+       "sample"
+      ]
+     },
+     "additionalProperties": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "description": "The two estimators not plotted, in percent: null where not reportable (robust below N = 20, median and sample below N = 2). The deposit's median takes c̃."
     },
     "momentum_spread": {
      "type": [
@@ -688,19 +933,20 @@
      "type": [
       "string",
       "null"
-     ]
+     ],
+     "description": "The window's own note: the sample's d.o.f., N = 1, or under robust the robust floor, a non-positive median response, or a withheld interval (more than 2.5% of the bootstrap replicates with a median R ≤ 0)."
     },
     "weak": {
      "type": "boolean",
-     "description": "N < 20."
+     "description": "N < gates.fit_n (20)."
     },
     "whisker": {
      "type": "boolean",
-     "description": "N ≥ 8 and an interval exists: drawn with its whisker."
+     "description": "N ≥ gates.whisker_n (8, or 20 under robust) and an interval exists: drawn with its whisker."
     },
     "eligible": {
      "type": "boolean",
-     "description": "N ≥ 20, p_lo ≥ 4 GeV and a positive SE: used by the fits and the y range."
+     "description": "N ≥ gates.fit_n, p_lo ≥ 4 GeV and a positive SE (and κ under median and robust): used by the fits and the y range."
     },
     "off_axis": {
      "type": "boolean",
@@ -837,7 +1083,8 @@
      "type": "array",
      "items": {
       "type": "integer"
-     }
+     },
+     "description": "The windows this mode fits. Empty when it fits none: under robust also when only one window is fittable (no fit through fewer than two; the notes name it)."
     },
     "substitutions": {
      "type": "array",
@@ -846,7 +1093,8 @@
       "required": [
        "nominal",
        "used",
-       "reason"
+       "reason",
+       "cause"
       ],
       "properties": {
        "nominal": {
@@ -860,6 +1108,17 @@
        },
        "reason": {
         "type": "string"
+       },
+       "cause": {
+        "enum": [
+         "n",
+         "off_axis",
+         "no_value",
+         "withheld",
+         "tied",
+         "no_se"
+        ],
+        "description": "Why the nominal anchor is not fittable: n (N below the gate, or no event), or for a window of enough events no_value (no median rel. / robust σ/E / σ/E), withheld (robust interval), tied (bootstrap SE below KAPPA_FLOOR of the value), no_se. Only n blames N."
        }
       },
       "additionalProperties": false
@@ -935,7 +1194,9 @@
     "n_absent",
     "n_missing",
     "windows",
-    "fits"
+    "fits",
+    "median_response_range",
+    "weight_scale"
    ],
    "properties": {
     "key": {
@@ -1010,6 +1271,80 @@
       }
      },
      "additionalProperties": false
+    },
+    "median_response_range": {
+     "type": "object",
+     "required": [
+      "anchors",
+      "all"
+     ],
+     "properties": {
+      "anchors": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "number"
+         },
+         "minItems": 2,
+         "maxItems": 2
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "all": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "type": "number"
+         },
+         "minItems": 2,
+         "maxItems": 2
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
+     },
+     "additionalProperties": false,
+     "description": "[lo, hi] of 100 (median R − 1) in percent over each mode's fitted windows; null without one."
+    },
+    "weight_scale": {
+     "anyOf": [
+      {
+       "type": "object",
+       "required": [
+        "c",
+        "n_windows",
+        "rule"
+       ],
+       "properties": {
+        "c": {
+         "type": [
+          "number",
+          "null"
+         ],
+         "minimum": 0
+        },
+        "n_windows": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "rule": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "Median and robust: the series' pooled scale c, the median of √N·κ over its n_windows fittable windows (N ≥ 20 from 4 GeV with κ ≥ KAPPA_FLOOR; with none, those of N ≥ the whisker gate), and the rule as a sentence. The fits weight window k by se = c·ŷ/√N; c cancels in the parameters and sets only χ², S and the errors. c is null when no window carries a fit weight. null under sample (delta-method weights)."
     }
    },
    "additionalProperties": false

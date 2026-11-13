@@ -346,6 +346,17 @@ function intervalText(model, p) {
   return `95% interval [${withUnit(p.lo, model.unit)}, ${withUnit(p.hi, model.unit)}] ${mutedLine(`(${methodText(model, p)}: the precision of the ${model.q.label ?? model.quantity}, not the spread of the ${noun}s)`)}`;
 }
 
+/**
+ * Median rel. is not a σ (Martin's decision of 2026-11-12, brief section 4): the
+ * first sentence is the energy task's tooltip line, the whole text the drawer's
+ * reconciliation with the card of the Energy resolution section.
+ */
+export const MEDIAN_REL_NOT_SIGMA = 'Median rel. is median |pred − true| / true, not a σ: for unbiased Gaussian errors it is 0.6745·σ/E.';
+export const MEDIAN_REL_RECONCILIATION = `${MEDIAN_REL_NOT_SIGMA} The card of the Energy resolution section plots the same number by default (Median |rel. err.|) and offers a robust σ/E (IQR) of the same showers for a σ-scaled comparison.`;
+
+/** The energy task's median relative error, the quantity the reconciliation belongs to (not the angle task's). */
+export const isEnergyMedianRel = (model) => model.quantity === 'median_rel' && model.model !== 'angle';
+
 /** The tooltip of one bar. */
 export function perfTip(model, s, p) {
   const bins = model.bins;
@@ -358,6 +369,7 @@ export function perfTip(model, s, p) {
   else if (p.weak) mark = ` — below the ${model.q.label ?? model.quantity}'s interval floor, N = ${formatInt(model.intervalFloor)}: the bar is faded`;
   lines.push(`N = ${formatInt(p.n)} ${noun}${p.n === 1 ? '' : 's'}${mark}`);
   if (model.q.definition) lines.push(mutedLine(model.q.definition));
+  if (isEnergyMedianRel(model)) lines.push(mutedLine(MEDIAN_REL_NOT_SIGMA));
   if (p.n_missing) lines.push(mutedLine(`${formatInt(p.n_missing)} ${noun}${p.n_missing === 1 ? '' : 's'} without a prediction in this bin: dropped, never zero-filled`));
   if (Number.isFinite(p.theta_min)) {
     lines.push(mutedLine(`smallest true θ in the bin ${num(p.theta_min, 4)} rad; ${formatInt(p.n_small_theta)} shower${p.n_small_theta === 1 ? '' : 's'} with θ < 0.1 rad`

@@ -4,32 +4,128 @@ A calorimeter's resolution is quoted as ``σ/E = a/√E ⊕ b``: a stochastic te
 that falls as 1/√E and a constant term that does not. Plotted against
 ``x = 1/√E`` the stochastic term is a straight line through the origin, which
 sits at the right-hand border of a reversed axis (E → ∞). This module measures
-σ/E per momentum window for every series the experiment carries and fits that
-line to it; ``stats/resolution_fit.py`` holds the fits.
+one error scale per momentum window for every series the experiment carries and
+fits that line to it; ``stats/resolution_fit.py`` holds the fits.
 
-**One estimator for every series: the per-event response ratio.** In window k
+**One ratio for every series: the per-event response ratio.** In window k
 (the producer's integer momentum bin, [k, k + 1) GeV, of the shower's own
 momentum) each usable event gives ``R = E_est / p``: ``c·E_dep`` for the
-detector, with ``c`` the shower's selection-wide calibration
-(``response.calibrate``); the energy network's prediction over its truth; the
-XGBoost momentum regressor's prediction over the true momentum. The plotted
-value is ``s(R)/R̄`` (ddof = 1) in percent, its whisker the χ²_{N−1} interval
-of ``s`` divided by ``R̄`` (Page 1's resolution whisker), its fit weight the
-delta-method standard error, and its abscissa ``x = ⟨1/√p⟩`` over the
-window's events. Dividing by p event by event removes the window's own
-momentum spread (5.2% at 5 GeV, 1.5% at 19 GeV for a 1 GeV window) and each
-estimator's per-energy bias, and ``c`` cancels in ``s/R̄``: the detector series
-does not depend on the calibration. It is Page 1's response-ratio series
-(``response.KIND_RATIO``), so the two cards agree.
+detector, with ``c`` the shower's selection-wide calibration; the energy
+network's prediction over its truth; the XGBoost momentum regressor's
+prediction over the true momentum. Its abscissa is ``x = ⟨1/√p⟩`` over the
+window's events. Dividing by p event by event removes the window's own momentum
+spread (5.2% at 5 GeV, 1.5% at 19 GeV for a 1 GeV window).
+
+**Three estimators of one window's error scale** (``ESTIMATORS``, one per
+response, ``?estimator=``; Martin's decisions, 2026-11-12). On
+``pion_hits_with_model_outputs`` (shower A, absolute-frame network, 10–11 GeV,
+N = 1,022) this card plotted ``s(R)/R̄`` = 17.15% while Model Error vs.
+Incident Momentum (``query/performance_bins.py``) showed a Median rel. of
+8.52% for the same events, and the π± curve reads 8.45% there. 17.15 = 8.52 ×
+1.4826 × 0.953 × 1.425: ×1.4826 is a definition (``median |R − 1| =
+0.6745·σ/E`` for unbiased Gaussian errors, so a median relative error is not a
+σ), ×0.953 is bias and centring, and ×1.425 (17.1498/12.0319) is non-Gaussian
+tails (4.3% of the events beyond 3 robust σ against 0.27% for a large Gaussian
+sample). So the card offers, in this order:
+
+* ``median``, the default, **Median |rel. err.|**: ``median |R − 1|``, computed
+  exactly as Model Error vs. Incident Momentum computes its Median rel.
+  (``np.abs(pred − true) / true`` for a model series), with that card's seed
+  ``[42, frame, shower, bin, 2]`` and interval (the percentile bootstrap from
+  N = 20, the order-statistic interval for 6 ≤ N < 20), so a network or XGBoost
+  window equals it bit for bit. Gates: reported from N = 2, whisker from N = 8,
+  fits and range from N = 20, the provisional N ≥ 8 fallback kept. The deposit
+  takes the median calibration ``c̃ = 1 / median(E_dep/p)`` (below) and the
+  frame index :data:`DEPOSIT_FRAME_INDEX`. It is quoted beside σ/E, never
+  converted into it.
+* ``robust``, **Robust σ (IQR)**: ``IQR(R) / (1.349 · median R)``, type-7
+  quartiles, from N = 20 for value, whisker, fit and range alike (the CLAUDE.md
+  robust floor), with the exact order-statistic bootstrap of
+  ``stats/robust_width.py`` (seed ``[42, frame, shower, bin, 8]``). It is
+  invariant under ``R → cR``, and a few badly reconstructed events cannot
+  inflate it: 12.03% [11.05, 13.34] in the window above. More than 2.5% of
+  its bootstrap replicates with a median R ≤ 0 withhold its interval, SE and
+  fit weight (``stats/robust_width.MAX_DROPPED_SHARE``), and the window says so.
+* ``sample``, **Sample σ/μ**: today's ``s(R)/R̄`` (ddof = 1), its whisker the
+  χ²_{N−1} interval of ``s`` divided by ``R̄`` (Page 1's resolution whisker),
+  its fit weight the delta-method standard error, gates 2 / 8 / 20. Its numbers
+  did not move by a bit when the other two arrived, and it is Page 1's
+  response-ratio series (``response.KIND_RATIO``), so the two cards agree under
+  it.
+
+**The median and robust fits weight by a pooled scale** (:class:`WeightScale`,
+:func:`pooled_scale`; the lead's decision F1 of 2026-11-12, after R-stats'
+review). Neither estimator has a closed-form SE that holds here (R-stats,
+2026-11-12: the bootstrap SE over the Gaussian large-N law has a median of
+1.37× for the robust width and 1.06× for the median rel. on the pion file's
+windows of N ≥ 20, 1.23× and 0.97× over every stored experiment), so the scale
+is measured per series. Each window carries its bootstrap SE and
+``κ = SE / value`` (``se``, ``se_rel``) as information; the fits weight window
+k by ``se = c·ŷₖ/√Nₖ``, where ``c`` is the series' pooled scale, the median of
+``√N·κ`` over its fittable windows (N ≥ the fit gate, from 4 GeV, κ at least
+``stats/robust_width.KAPPA_FLOOR``), or, with none, over the windows of N ≥ the
+whisker gate the provisional fits draw on. The first fit takes
+``c·εₖ/√Nₖ``, every refit ``c·ŷₖ/√Nₖ`` (``stats/resolution_fit.py``, the
+``kappa`` argument, given ``c/√Nₖ``). One ``c`` per series cancels in the
+fitted parameters and sets only χ², S and the errors. A per-window κ would put
+each window's own value back into its weight and bias the fits upward: R-stats'
+Monte Carlo of the served code paths (2026-11-12; 16 windows, true σ/E =
+30%/√E, Gaussian R) put the origin-pinned term +0.70 (median rel.) and +0.77
+(robust) of its SD high at 40 events a window, +0.15 and +0.17 at 1,000, and
+0.00 under the pooled scale; on the pion two-shower file narrowed to D
+2,400–2,600 mm the per-window fits sat +0.9 to +1.9 SE high.
+
+Under Robust σ (IQR) no line is fitted through fewer than two fittable
+windows (plan §1.4): the robust width has no weaker window to fall back on, and
+a ν = 0 line through the origin and one window would be drawn as a confident
+fit. The median and sample estimators keep their one-window behaviour, which
+predates the estimators.
+
+**A window of N ≥ 20 without a fit weight is never blamed on N.** Four causes
+other than N leave it out of every fit (:meth:`Window.unfit_cause`): tied
+replicates (a bootstrap SE below ``KAPPA_FLOOR`` of the value), no robust σ/E
+(the median response is ≤ 0), no median rel. (no ``c̃``), and a withheld robust
+interval. The anchors' substitutions and drops, the y-range sentences and the
+robust-floor count name them.
+
+Every window also carries the two estimators not
+plotted (``alt``), its median response ``R̃ − 1`` and its share of events
+beyond 3 robust σ (from N = 300, ``stats/robust_width.TAIL_MIN_N``), and every
+model series the range of its median response over
+each mode's fitted windows: a regressor trained on a bounded range (0–20 GeV)
+pulls its predictions toward mid-range (median response +8.2% at 5–6 GeV, −5.4%
+at 19–20 GeV on the pion file), which narrows a σ near the ends of that range
+and adds a bias to the median rel. there. Martin's decision: disclosed only;
+the anchors and fit rules do not change.
+
+**The deposit's calibration under the median estimator.** ``s(R)/R̄`` and the
+IQR ratio do not depend on ``c``, but ``median |c·E_dep/p − 1|`` does. With the
+ratio of sums ``c = Σp / ΣE_dep`` (``response.calibrate``) the deposit's
+per-window median response is +3% to +14% from 5 GeV, because the low-side
+leakage tail pulls the mean below the median: pion deposit A at 10–11 GeV reads
+18.32% with it and 13.92% with ``c̃ = 1 / median(E_dep/p)`` over the shower's
+events with ``E_dep > 0`` (median response +9.0% against +1.7%). So the median
+estimator takes ``c̃``, one constant per shower over the selection, the median
+analogue of the ratio of sums, and both constants are reported. Without an
+event that deposits energy there is no ``c̃``, and the deposit plots nothing
+under the median estimator, with a warning.
+
+**The literature curves stay on under every estimator** (Martin's override,
+2026-11-12): the reference ECCE figure plots the models' MAE/E directly against
+them. Under the median estimator the payload carries
+:data:`LITERATURE_WARNING`, which the card shows wherever a curve or a ratio to
+one is on.
 
 **The detector series is a benchmark, not a limit.** ``c·E_dep`` is a plain
 linear sum; a model that reads the shower's shape (leakage, compensation) can
 beat it, so it is labelled "Calibrated deposit c·E_dep — linear-sum benchmark".
 
-**Gates** (CLAUDE.md, the low-N table): σ/E is reported from N = 2, a window
-is drawn with its whisker from N = 8, and it enters the fits and sets the y
-range from N = 20 *and* p ≥ 4 GeV. Below 4 GeV, x > 0.5 and the window lies off
-the axis; it is counted and listed, never drawn.
+**Gates** (CLAUDE.md, the low-N table; per estimator in :data:`ESTIMATOR_GATES`):
+under the median and sample estimators a window's value is reported from
+N = 2, it is drawn with its whisker from N = 8, and it enters the fits and sets
+the y range from N = 20 *and* p ≥ 4 GeV; the robust width waits for N = 20 at
+every step. Below 4 GeV, x > 0.5 and the window lies off the axis; it is
+counted and listed, never drawn.
 
 **The E view.** The same response serves the card's second view, σ/E against
 the energy E in GeV on a linear axis (``axis.energy``), so switching views
@@ -73,10 +169,12 @@ three nominal windows chosen on the whole table's bin axis
 sampling fraction is still rising, which a/√E + b does not describe), the
 highest bin, and the bin between them nearest in log E to the geometric mean of
 their centres. On the 0–20 GeV files that is {5, 10, 19}. A series whose
-anchor window is thin takes its nearest eligible window from 5 GeV instead, by
+anchor window is not fittable (thin, or N ≥ 20 without a fit weight, its
+cause named) takes its nearest fittable window from 5 GeV instead, by
 name, never one below the floor the low anchor keeps; with too few eligible
-windows the fit falls back to windows of N ≥ 8 and is labelled provisional.
-The "all windows" mode fits every eligible window from 4 GeV, the 4–5 GeV
+windows the fit falls back to windows of N ≥ 8 and is labelled provisional
+(never under the robust width, whose every gate is N = 20: it has no weaker
+window to fall back on, and fits nothing through fewer than two). The "all windows" mode fits every eligible window from 4 GeV, the 4–5 GeV
 window included, as asked of it, and its notes say so. Both modes are computed
 here; the card's toggle only repaints.
 
@@ -89,7 +187,7 @@ milliseconds.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import duckdb
@@ -101,8 +199,11 @@ from ..db.registry import ExperimentRecord
 from ..encode.numbers import SIGNIFICANT
 from ..errors import ValidationError
 from ..stats import gaussian
+from ..stats import median as median_mod
+from ..stats import metrics
 from ..stats import resolution_fit as rfit
-from ..text import typographic
+from ..stats import robust_width as rw
+from ..text import fmt_signed, typographic
 from . import capabilities, performance_bins, response
 from . import showers as showers_mod
 from .filters import FilterSpec
@@ -147,6 +248,68 @@ FIDELITY_STEPS: tuple[tuple[int, int], ...] = (
 #: A one-shower selection is named after its species when one covers this share of it:
 #: of every selected event, those without a primary particle included.
 DOMINANT_SHARE = 0.95
+
+# ------------------------------------------------------------ estimators --
+# Martin's decisions of 2026-11-12: the card's Estimator control, in this order, the median
+# relative error by default. One estimator per response: two would break the 100 KB contract.
+
+ESTIMATORS: tuple[str, ...] = ("median", "robust", "sample")
+DEFAULT_ESTIMATOR = "median"
+MEDIAN, ROBUST, SAMPLE = ESTIMATORS
+
+#: Each estimator's gates (the payload's top-level ``gates`` carry the active one's). The median
+#: and sample estimators keep the low-N ladder above; the robust width waits for the robust floor
+#: at every step, so it has no provisional fallback (that picks N ≥ whisker_n, the same windows).
+ESTIMATOR_GATES: dict[str, dict[str, int]] = {
+    MEDIAN: {"report_n": REPORT_MIN_N, "whisker_n": WHISKER_MIN_N, "fit_n": FIT_MIN_N},
+    ROBUST: {"report_n": rw.MIN_ROBUST_N, "whisker_n": rw.MIN_ROBUST_N, "fit_n": rw.MIN_ROBUST_N},
+    SAMPLE: {"report_n": REPORT_MIN_N, "whisker_n": WHISKER_MIN_N, "fit_n": FIT_MIN_N},
+}
+
+#: The deposit's frame position in the bootstrap seed ``[42, frame, shower, bin, quantity]``:
+#: after the three network frames (0–2) and the XGBoost series (3,
+#: ``performance_bins.XGB_FRAME_INDEX``).
+DEPOSIT_FRAME_INDEX = performance_bins.XGB_FRAME_INDEX + 1
+#: The last seed element of each bootstrapped estimator: the median rel.'s position in
+#: ``performance_bins.QUANTITIES`` (so a model window draws Model Error vs. Incident Momentum's
+#: own replicates), and the robust width's (``stats/robust_width.SEED_QUANTITY_INDEX``).
+MEDIAN_QUANTITY_INDEX = performance_bins.QUANTITY_INDEX["median_rel"]
+ROBUST_QUANTITY_INDEX = rw.SEED_QUANTITY_INDEX
+
+ESTIMATOR_LABELS: dict[str, str] = {
+    MEDIAN: "Median |rel. err.|", ROBUST: "Robust σ (IQR)", SAMPLE: "Sample σ/μ",
+}
+ESTIMATOR_QUANTITIES: dict[str, str] = {
+    MEDIAN: "median_error", ROBUST: "resolution", SAMPLE: "resolution",
+}
+ESTIMATOR_SYMBOLS: dict[str, str] = {MEDIAN: "median rel.", ROBUST: "σ/E", SAMPLE: "σ/E"}
+AXIS_NAMES: dict[str, str] = {
+    MEDIAN: "Median |E_est − p| / p [%]", ROBUST: "Robust σ/E [%]", SAMPLE: "σ/E [%]",
+}
+ESTIMATOR_DEFINITIONS: dict[str, str] = {
+    MEDIAN: ("R = E_est / p per event; the median relative error median |R − 1| per momentum "
+             "window, in percent, computed for a model series as median |E_est − p| / p: the "
+             "Median rel. of Model Error vs. Incident Momentum, with its events, seed and "
+             "interval."),
+    ROBUST: ("R = E_est / p per event; σ/E = IQR(R) / (1.349 · median R) per momentum window, in "
+             "percent, with type-7 quartiles: a σ-consistent width for Gaussian errors that a "
+             "few badly reconstructed events cannot inflate."),
+    SAMPLE: ("R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in percent, with s the "
+             "unbiased (ddof = 1) sample SD."),
+}
+#: ``kappa``: the window's bootstrap relative SE at the fitted value; ``delta``: the delta method.
+WEIGHT_METHODS: dict[str, str] = {MEDIAN: "kappa", ROBUST: "kappa", SAMPLE: "delta"}
+
+#: The disclosure every median-against-curve comparison carries (Martin's override, 2026-11-12).
+LITERATURE_WARNING = (
+    "Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian "
+    "errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison)."
+)
+#: How the median relative error and σ/E relate, quoted wherever both appear.
+RELATION = (
+    "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is "
+    "quoted beside σ/E, never converted into it."
+)
 
 DETECTOR_LABEL = "Calibrated deposit c·E_dep — linear-sum benchmark"
 XGB_LABEL = "XGBoost momentum regressor · validation split"
@@ -207,9 +370,93 @@ def nominal_anchors(axis: performance_bins.BinAxis) -> tuple[int, ...]:
 # --------------------------------------------------------------- windows --
 
 
+_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _power_of_ten(value: float) -> str:
+    """A power of ten as text, ``1e-06`` as "10⁻⁶"; any other value in ``:g`` form."""
+    exponent = round(math.log10(value)) if value > 0 else None
+    if exponent is None or not math.isclose(value, 10.0 ** exponent, rel_tol=1e-12):
+        return f"{value:g}"
+    return "10" + str(exponent).translate(_SUPERSCRIPT)
+
+
+#: Why a window is not fittable (:meth:`Window.unfit_cause`). Only ``CAUSE_N`` blames N.
+CAUSES: tuple[str, ...] = ("n", "off_axis", "no_value", "withheld", "tied", "no_se")
+CAUSE_N, CAUSE_OFF_AXIS, CAUSE_NO_VALUE, CAUSE_WITHHELD, CAUSE_TIED, CAUSE_NO_SE = CAUSES
+
+#: What a window of enough events lacks when it reports no value, per estimator.
+_NO_VALUE_WORDS: dict[str, str] = {
+    "median": "no median rel. (no median calibration c̃)",
+    "robust": "no robust σ/E (its median response is not positive)",
+    "sample": "no σ/E (its mean response is not positive)",
+}
+
+
+def _cause_clause(cause: str, estimator: str, threshold: int) -> str:
+    """The clause that follows "holds N = … for this series" and says why it is not fitted."""
+    if cause == CAUSE_N:
+        return f", below {threshold}"
+    if cause == CAUSE_OFF_AXIS:
+        return f" but lies below {E_MIN_GEV:g} GeV"
+    if cause == CAUSE_NO_VALUE:
+        return f" but has {_NO_VALUE_WORDS[estimator]}"
+    if cause == CAUSE_WITHHELD:
+        return (" but its robust interval is withheld (more than "
+                f"{100 * rw.MAX_DROPPED_SHARE:g}% of its bootstrap replicates have a median "
+                "R ≤ 0), so it carries no fit weight")
+    if cause == CAUSE_TIED:
+        return (f" but its bootstrap SE is below {_power_of_ten(rw.KAPPA_FLOOR)} of its value "
+                "(tied replicates), so it carries no fit weight")
+    return " but has no positive standard error, so it carries no fit weight"
+
+
+#: Each cause of a missing fit weight, counted in a range sentence ("6 tied, …; 2 without …").
+_COUNTED_CAUSES: dict[str, str] = {
+    CAUSE_TIED: f"tied, a bootstrap SE below {_power_of_ten(rw.KAPPA_FLOOR)} of the value",
+    CAUSE_WITHHELD: (f"with the robust interval withheld, over {100 * rw.MAX_DROPPED_SHARE:g}% of "
+                     "its replicates at a median R ≤ 0"),
+    CAUSE_NO_SE: "without a positive standard error",
+}
+_COUNTED_NO_VALUE: dict[str, str] = {
+    "median": "without a median rel., no median calibration c̃",
+    "robust": "without a robust σ/E, the median response not positive",
+    "sample": "without a σ/E, the mean response not positive",
+}
+
+
+def _cause_counts(windows: Sequence["Window"], estimator: str) -> str:
+    """"6 tied, …; 2 without a robust σ/E, …": why each of ``windows`` carries no fit weight, counted."""
+    words = {**_COUNTED_CAUSES, CAUSE_NO_VALUE: _COUNTED_NO_VALUE[estimator]}
+    counts: dict[str, int] = {}
+    for w in windows:
+        cause = w.weight_cause
+        if cause in words:
+            counts[cause] = counts.get(cause, 0) + 1
+    return "; ".join(f"{counts[c]} {words[c]}" for c in CAUSES if c in counts)
+
+
+def check_estimator(estimator: str) -> str:
+    """The estimator, or a 422 naming the field ``estimator``."""
+    if estimator not in ESTIMATORS:
+        raise ValidationError(
+            f"estimator must be one of {', '.join(ESTIMATORS)}; got {estimator!r}.",
+            field="estimator")
+    return estimator
+
+
 @dataclass
 class Window:
-    """One momentum window of one series: the moments of R and where it may be drawn."""
+    """One momentum window of one series: each estimator's value and where it may be drawn.
+
+    ``fit`` holds the moments of R (the sample estimator); ``median_rel`` the
+    median relative error with Model Error vs. Incident Momentum's interval,
+    computed under the median estimator, and ``median_abs`` its value under the
+    others (the cross-reference); ``robust`` the robust width, bootstrapped
+    under the robust estimator only. ``estimator`` picks the plotted one, whose
+    value, interval, SE and gates the properties below give. The sample
+    estimator needs nothing beyond ``fit``.
+    """
 
     bin: int
     label: str
@@ -219,6 +466,13 @@ class Window:
     p_mean: float
     x: float
     momentum_spread: float | None
+    estimator: str = SAMPLE
+    median_rel: median_mod.MedianEstimate | None = None
+    median_abs: float | None = None
+    median_se: float | None = None
+    robust: rw.RobustWidth | None = None
+    median_r: float | None = None
+    tail: float | None = None
 
     @property
     def n(self) -> int:
@@ -229,23 +483,100 @@ class Window:
         return 0.5 * (self.p_lo + self.p_hi)
 
     @property
-    def r(self) -> float | None:
-        """σ/μ as a fraction, where μ > 0 makes it a resolution."""
+    def gates(self) -> dict[str, int]:
+        return ESTIMATOR_GATES[self.estimator]
+
+    # -- each estimator's own value, gated, as a fraction --
+
+    @property
+    def sample_value(self) -> float | None:
+        """σ/μ, where μ > 0 makes it a resolution."""
         f = self.fit
         if f.resolution is None or f.mu is None or not f.mu > 0:
             return None
         return f.resolution
 
     @property
-    def ci(self) -> tuple[float, float] | None:
-        f = self.fit
-        if self.r is None or f.sigma_ci95 is None:
+    def median_value(self) -> float | None:
+        """median |R − 1| from N = 2; under the median estimator, Model Error vs. Incident Momentum's."""
+        if self.n < ESTIMATOR_GATES[MEDIAN]["report_n"]:
             return None
-        return f.sigma_ci95[0] / f.mu, f.sigma_ci95[1] / f.mu
+        if self.median_rel is not None:
+            return self.median_rel.value
+        return self.median_abs
+
+    @property
+    def robust_value(self) -> float | None:
+        """IQR(R) / (1.349 · median R) from N = 20 (``robust_width`` gates it)."""
+        return None if self.robust is None else self.robust.value
+
+    def value_of(self, estimator: str) -> float | None:
+        return {MEDIAN: self.median_value, ROBUST: self.robust_value,
+                SAMPLE: self.sample_value}[estimator]
+
+    # -- the plotted estimator --
+
+    @property
+    def r(self) -> float | None:
+        """The plotted value as a fraction: σ/μ, the median rel. or the robust σ/E."""
+        return self.value_of(self.estimator)
+
+    def _interval(self) -> metrics.Interval | None:
+        if self.estimator == MEDIAN:
+            return None if self.median_rel is None else self.median_rel.interval
+        if self.estimator == ROBUST:
+            return None if self.robust is None else self.robust.interval
+        return None
+
+    @property
+    def ci(self) -> tuple[float, float] | None:
+        if self.r is None:
+            return None
+        if self.estimator == SAMPLE:
+            f = self.fit
+            if f.sigma_ci95 is None:
+                return None
+            return f.sigma_ci95[0] / f.mu, f.sigma_ci95[1] / f.mu
+        interval = self._interval()
+        return None if interval is None else (interval.lo, interval.hi)
+
+    @property
+    def method(self) -> str | None:
+        """The interval's method (``metrics.METHOD_*``), or ``None`` without one."""
+        if self.ci is None:
+            return None
+        if self.estimator == SAMPLE:
+            return metrics.METHOD_CHI2_RATIO
+        return self._interval().method
 
     @property
     def se(self) -> float | None:
-        return self.fit.resolution_error if self.r is not None else None
+        """The fit weight's standard error at the measured value: delta method, or bootstrap SD."""
+        if self.r is None:
+            return None
+        if self.estimator == SAMPLE:
+            return self.fit.resolution_error
+        if self.estimator == MEDIAN:
+            return self.median_se
+        return self.robust.se
+
+    @property
+    def kappa(self) -> float | None:
+        """κ = SE / value, the relative SE the median and robust fits weight by; ``None`` under sample."""
+        if self.estimator == SAMPLE:
+            return None
+        return rw.relative_se(self.se, self.r)
+
+    @property
+    def tied(self) -> bool:
+        """A median or robust value whose bootstrap SE is below ``KAPPA_FLOOR`` of it: no fit weight.
+
+        Tied replicates (``stats/robust_width.KAPPA_FLOOR``): the window is
+        drawn with its interval and left out of the fits, and the notes count it.
+        """
+        if self.estimator == SAMPLE or self.r is None or self.se is None or not self.r > 0:
+            return False
+        return self.se / self.r < rw.KAPPA_FLOOR
 
     @property
     def off_axis(self) -> bool:
@@ -253,35 +584,96 @@ class Window:
 
     @property
     def usable(self) -> bool:
-        """A point a fit can weight: a resolution with a positive standard error."""
+        """A point a fit can weight: a value with a positive standard error (and κ, where it weights)."""
+        if self.estimator != SAMPLE:
+            return self.kappa is not None
         return self.r is not None and self.se is not None and self.se > 0
 
     def fittable(self, threshold: int) -> bool:
         return self.n >= threshold and not self.off_axis and self.usable
 
     @property
+    def withheld(self) -> bool:
+        """Under the robust estimator, a value whose interval, SE and κ are withheld (F7)."""
+        return (self.estimator == ROBUST and self.robust is not None and self.robust.withheld)
+
+    def unfit_cause(self, threshold: int) -> str | None:
+        """Why the window cannot be fitted at ``threshold``; ``None`` when it can.
+
+        ``"n"`` (N below it), ``"off_axis"``, or, for a window that holds
+        enough events, one of the causes a reader must never see blamed on N:
+        ``"no_value"`` (no robust σ/E: median response ≤ 0; no median rel.: no
+        c̃; no σ/E: mean response ≤ 0), ``"withheld"`` (the robust interval),
+        ``"tied"`` (a bootstrap SE below ``KAPPA_FLOOR`` of the value) or
+        ``"no_se"`` (no positive standard error otherwise).
+        """
+        if self.fittable(threshold):
+            return None
+        if self.n < threshold:
+            return CAUSE_N
+        if self.off_axis:
+            return CAUSE_OFF_AXIS
+        return self.weight_cause
+
+    @property
+    def weight_cause(self) -> str | None:
+        """Why the window carries no fit weight, whatever its N and place; ``None`` when it does."""
+        if self.usable:
+            return None
+        if self.r is None:
+            return CAUSE_NO_VALUE
+        if self.withheld:
+            return CAUSE_WITHHELD
+        if self.tied:
+            return CAUSE_TIED
+        return CAUSE_NO_SE
+
+    @property
     def eligible(self) -> bool:
-        return self.fittable(FIT_MIN_N)
+        return self.fittable(self.gates["fit_n"])
 
     @property
     def whisker(self) -> bool:
-        return self.n >= WHISKER_MIN_N and self.ci is not None
+        return self.n >= self.gates["whisker_n"] and self.ci is not None
+
+    @property
+    def dof_note(self) -> str | None:
+        """The window's own note: the sample's degrees of freedom, or under robust the robust
+        floor, a non-positive median response, or a withheld interval (``RobustWidth.note``)."""
+        if self.estimator == SAMPLE:
+            return response._dof_note(self.n)
+        if self.estimator == ROBUST and self.robust is not None and self.robust.note:
+            return typographic(self.robust.note)
+        return response._dof_note(self.n) if self.n == 1 else None
 
     def as_dict(self) -> dict[str, Any]:
         f, r, ci, n = self.fit, self.r, self.ci, self.n
+        sample = self.estimator == SAMPLE
+        se = self.se
+
+        def pct(v: float | None) -> float | None:
+            return None if v is None else 100.0 * v
+
         return {
             "bin": self.bin, "label": self.label, "p_lo": self.p_lo, "p_hi": self.p_hi,
             "n": n, "p_mean": self.p_mean, "x": self.x,
             "mean_r": f.mu, "sd_r": f.sigma,
-            "value": None if r is None else 100.0 * r,
+            "value": pct(r),
             "ci95": None if ci is None else [100.0 * ci[0], 100.0 * ci[1]],
-            "se_delta": None if self.se is None else 100.0 * self.se,
+            "method": self.method,
+            "se": pct(se),
+            "se_rel": None if sample else self.kappa,
+            "se_delta": pct(se) if sample else None,
             "c4": (f.sigma_bias_factor
-                   if REPORT_MIN_N <= n < gaussian.MIN_CORE_SAMPLES else None),
+                   if sample and REPORT_MIN_N <= n < gaussian.MIN_CORE_SAMPLES else None),
             "bias": None if f.mu is None else 100.0 * (f.mu - 1.0),
+            "median_response": None if self.median_r is None else 100.0 * (self.median_r - 1.0),
+            "tail_share": pct(self.tail),
+            "alt": {name: pct(self.value_of(name)) for name in ESTIMATORS
+                    if name != self.estimator},
             "momentum_spread": self.momentum_spread,
-            "dof_note": response._dof_note(n),
-            "weak": n < FIT_MIN_N,
+            "dof_note": self.dof_note,
+            "weak": n < self.gates["fit_n"],
             "whisker": self.whisker,
             "eligible": self.eligible,
             "off_axis": self.off_axis,
@@ -289,22 +681,52 @@ class Window:
 
 
 def windows_of(ratio: np.ndarray, p: np.ndarray, bins: np.ndarray,
-               axis: performance_bins.BinAxis) -> list[Window]:
-    """Every populated window of one series, in the axis's order."""
+               axis: performance_bins.BinAxis, *, estimator: str = DEFAULT_ESTIMATOR,
+               relative: np.ndarray | None = None,
+               seed: Sequence[int] = (median_mod.BOOTSTRAP_SEED,)) -> list[Window]:
+    """Every populated window of one series, in the axis's order.
+
+    ``relative`` is the per-event relative error the median estimator takes the
+    median of, aligned with ``ratio``: :func:`compute` passes Model Error vs.
+    Incident Momentum's own arithmetic (``|pred − true| / true``, or
+    ``|c̃·E_dep − p| / p`` for the deposit, NaN where no ``c̃`` exists); bare
+    arrays fall back to ``|R − 1|``. ``seed`` is the series' prefix
+    ``(42, frame, shower)``: each window appends its bin and the quantity index
+    of its estimator (``MEDIAN_QUANTITY_INDEX``, ``ROBUST_QUANTITY_INDEX``), so
+    no window's interval depends on which others one request computed.
+    """
+    check_estimator(estimator)
+    ratio = np.asarray(ratio, dtype=np.float64)
+    if relative is None:
+        relative = np.abs(ratio - 1.0)
     out = []
     for i, k in enumerate(axis.numbers):
         mask = bins == k
         if not mask.any():
             continue
-        pk = p[mask]
+        pk, rk, rel = p[mask], ratio[mask], relative[mask]
         n = int(pk.size)
         p_mean = float(pk.mean())
         spread = (100.0 * float(pk.std(ddof=gaussian.DDOF)) / p_mean
                   if n >= 2 and p_mean > 0 else None)
+        prefix = [*seed, int(k)]
+        median_seed = [*prefix, MEDIAN_QUANTITY_INDEX]
+        finite_rel = rel[np.isfinite(rel)]
+        median_rel = median_se = None
+        if estimator == MEDIAN:
+            median_rel = median_mod.median_estimate(rel, seed=median_seed)
+            median_se = rw.median_se(rel, seed=median_seed)
         out.append(Window(
             bin=int(k), label=axis.labels[i], p_lo=float(axis.p_lo[i]), p_hi=float(axis.p_hi[i]),
-            fit=gaussian.fit_gaussian(ratio[mask]), p_mean=p_mean,
+            fit=gaussian.fit_gaussian(rk), p_mean=p_mean,
             x=float(np.mean(1.0 / np.sqrt(pk))), momentum_spread=spread,
+            estimator=estimator, median_rel=median_rel,
+            median_abs=float(np.median(np.sort(finite_rel))) if finite_rel.size else None,
+            median_se=median_se,
+            robust=rw.robust_width(rk, seed=[*prefix, ROBUST_QUANTITY_INDEX],
+                                   bootstrap=estimator == ROBUST),
+            median_r=float(np.median(rk)) if n >= gaussian.MIN_MOMENT_SAMPLES else None,
+            tail=rw.tail_share(rk),
         ))
     return out
 
@@ -312,14 +734,74 @@ def windows_of(ratio: np.ndarray, p: np.ndarray, bins: np.ndarray,
 # ------------------------------------------------------------------ fits --
 
 
+@dataclass(frozen=True)
+class WeightScale:
+    """A series' pooled scale ``c``: its fits weight window k by ``se = c·ŷₖ/√Nₖ`` (median, robust).
+
+    ``c`` is the median of ``√N·κ`` over ``n_windows`` windows, ``κ = SE/value``
+    each one's measured bootstrap relative SE; ``basis`` says which windows:
+    ``"fit"`` the series' fittable windows (N ≥ the fit gate, from 4 GeV, κ at
+    least ``KAPPA_FLOOR``), ``"fallback"`` (none of those) the windows of N ≥
+    the whisker gate with a fit weight, which the provisional fits draw on, and
+    ``"none"`` (no window from 4 GeV carries a fit weight) no scale and no fit.
+    """
+
+    c: float | None
+    n_windows: int
+    basis: str
+    rule: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"c": self.c, "n_windows": self.n_windows, "rule": self.rule}
+
+
+def pooled_scale(windows: Sequence[Window]) -> WeightScale | None:
+    """The series' pooled weight scale under the median and robust estimators; ``None`` under sample.
+
+    One ``c`` per series, so it cancels in the fitted parameters and sets only
+    χ², S and the errors (the module docstring has why a window's own κ must
+    not weight it).
+    """
+    if not windows or windows[0].estimator == SAMPLE:
+        return None
+    gates = windows[0].gates
+    fit_n, whisker_n = gates["fit_n"], gates["whisker_n"]
+    pool = [w for w in windows if w.fittable(fit_n)]
+    basis = "fit"
+    if not pool and whisker_n < fit_n:
+        pool = [w for w in windows if w.fittable(whisker_n)]
+        basis = "fallback"
+    floor = _power_of_ten(rw.KAPPA_FLOOR)
+    if not pool:
+        return WeightScale(None, 0, "none", (
+            f"No window from {E_MIN_GEV:g} GeV carries a fit weight, so this series has no "
+            "pooled scale and no fit."))
+    c = float(np.median([math.sqrt(w.n) * w.kappa for w in pool]))
+    if basis == "fit":
+        rule = (f"c is the median of √N·κ over this series' windows of N ≥ {fit_n} from "
+                f"{E_MIN_GEV:g} GeV with a fit weight, κ = SE/value each window's bootstrap "
+                f"relative SE (at least {floor}); the fits weight window k by se = c·ŷ/√N.")
+    else:
+        rule = (f"No window of N ≥ {fit_n} from {E_MIN_GEV:g} GeV carries a fit weight, so c "
+                f"is the median of √N·κ over its windows of N ≥ {whisker_n} from "
+                f"{E_MIN_GEV:g} GeV with one, the windows its provisional fits draw on; "
+                "the fits weight window k by se = c·ŷ/√N.")
+    return WeightScale(c, len(pool), basis, rule)
+
+
 @dataclass
 class ModeFits:
-    """One window mode of one series: the points it fits and the three fits."""
+    """One window mode of one series: the points it fits and the three fits.
+
+    ``declined`` holds the one fittable window a robust mode fits nothing
+    through (F4: no fit through fewer than two); ``points`` is then empty.
+    """
 
     points: list[int]
     substitutions: list[dict[str, Any]]
     fallback: bool
     fits: dict[str, rfit.Fit | None]
+    declined: list[int] = field(default_factory=list)
 
     @property
     def provisional(self) -> bool:
@@ -333,13 +815,16 @@ def _nearest(target: float, pool: Sequence[Window]) -> Window:
 def _choose_anchors(nominal: Sequence[int], windows: Sequence[Window], threshold: int,
                     axis: performance_bins.BinAxis | None = None
                     ) -> tuple[list[int], list[dict[str, Any]]]:
-    """The nominal anchors this series can fit, each thin one replaced by its nearest candidate.
+    """The nominal anchors this series can fit, each one that is not fittable replaced by its nearest candidate.
 
-    A candidate is a window with ``N ≥ threshold`` from ``ANCHOR_LOW_GEV``, the
-    low anchor's own floor (below it the sampling fraction is still rising): a
-    thin anchor takes the candidate nearest in ``|ln|`` of the centres that no
-    other anchor uses, or is dropped when none is left. ``axis`` names and
-    places an anchor the series holds no event in.
+    A candidate is a fittable window (``N ≥ threshold`` with a fit weight) from
+    ``ANCHOR_LOW_GEV``, the low anchor's own floor (below it the sampling
+    fraction is still rising): an anchor that is not fittable takes the
+    candidate nearest in ``|ln|`` of the centres that no other anchor uses, or
+    is dropped when none is left. Each substitution names its ``cause``
+    (:meth:`Window.unfit_cause`; ``"n"`` for an anchor the series holds no
+    event in) and says it in its reason, so a window of enough events is never
+    called thin. ``axis`` names and places an anchor the series holds no event in.
     """
     by_bin = {w.bin: w for w in windows}
     on_axis = ({k: (axis.labels[i], 0.5 * (axis.p_lo[i] + axis.p_hi[i]))
@@ -354,26 +839,53 @@ def _choose_anchors(nominal: Sequence[int], windows: Sequence[Window], threshold
         n = have.n if have else 0
         label, centre = ((have.label, have.centre) if have else
                          on_axis.get(k, (f"bin {k}", k + 0.5)))
+        cause = have.unfit_cause(threshold) if have else CAUSE_N
+        estimator = have.estimator if have else (windows[0].estimator if windows else SAMPLE)
+        why = f"The nominal anchor {label} holds N = {n} for this series" + _cause_clause(
+            cause, estimator, threshold)
         pool = [w for w in candidates if w.bin not in chosen]
         floor = f"N ≥ {threshold}" + (" (provisional)" if threshold < FIT_MIN_N else "")
+        # Under median and robust a window of N ≥ 20 can lack a fit weight: the pool is fittable
+        # windows, said so. The sample estimator keeps its words.
+        window = "window" if estimator == SAMPLE else "fittable window"
         if not pool:
-            substitutions.append({"nominal": k, "used": None, "reason": (
-                f"The nominal anchor {label} holds N = {n} for this series and no other window "
-                f"from {ANCHOR_LOW_GEV:g} GeV with {floor} is left: it is dropped.")})
+            substitutions.append({"nominal": k, "used": None, "cause": cause, "reason": (
+                f"{why}, and no other {window} from {ANCHOR_LOW_GEV:g} GeV with {floor} is "
+                "left: it is dropped.")})
             continue
         best = _nearest(centre, pool)
         chosen.add(best.bin)
-        substitutions.append({"nominal": k, "used": best.bin, "reason": (
-            f"The nominal anchor {label} holds N = {n} for this series, below "
-            f"{threshold}; the nearest window from {ANCHOR_LOW_GEV:g} GeV in log E with {floor} "
-            f"is {best.label} (N = {best.n}).")})
+        substitutions.append({"nominal": k, "used": best.bin, "cause": cause, "reason": (
+            f"{why}; the nearest {window} from {ANCHOR_LOW_GEV:g} GeV in log E with "
+            f"{floor} is {best.label} (N = {best.n}).")})
     return sorted(chosen), substitutions
 
 
-def _fits(points: Sequence[Window]) -> dict[str, rfit.Fit | None]:
+def fit_kappa(points: Sequence[Window], c: float) -> list[float]:
+    """Each point's relative SE for the fits: ``c/√N``, the series' pooled scale over √N, never its own κ."""
+    return [c / math.sqrt(w.n) for w in points]
+
+
+def _fits(points: Sequence[Window], c: float | None = None) -> dict[str, rfit.Fit | None]:
+    """The three forms through ``points``: the delta-method law under the sample estimator, else
+    ``se = c·ŷ/√N`` with ``c`` the series' pooled scale (:func:`pooled_scale` of ``points`` when
+    none is given)."""
     x = [w.x for w in points]
     r = [w.r for w in points]
     n = [w.n for w in points]
+    if points and points[0].estimator != SAMPLE:
+        if c is None:
+            scale = pooled_scale(points)
+            c = None if scale is None else scale.c
+        kappa = fit_kappa(points, c) if c is not None else None
+        if kappa is None:
+            return {form: None for form in (rfit.FORM_AFFINE, rfit.FORM_PINNED,
+                                            rfit.FORM_QUADRATURE)}
+        return {
+            rfit.FORM_AFFINE: rfit.fit_affine(x, r, n, kappa),
+            rfit.FORM_PINNED: rfit.fit_pinned(x, r, n, kappa),
+            rfit.FORM_QUADRATURE: rfit.fit_quadrature(x, r, n, kappa),
+        }
     return {
         rfit.FORM_AFFINE: rfit.fit_affine(x, r, n),
         rfit.FORM_PINNED: rfit.fit_pinned(x, r, n),
@@ -381,23 +893,44 @@ def _fits(points: Sequence[Window]) -> dict[str, rfit.Fit | None]:
     }
 
 
+#: Under the robust estimator no line is fitted through fewer fittable windows than this (F4).
+ROBUST_MIN_POINTS = 2
+
+
 def mode_fits(mode: str, nominal: Sequence[int], windows: Sequence[Window],
-              axis: performance_bins.BinAxis | None = None) -> ModeFits:
-    """The points of one mode and its fits, with the N ≥ 8 fallback when fewer than two remain."""
+              axis: performance_bins.BinAxis | None = None,
+              scale: WeightScale | None = None) -> ModeFits:
+    """The points of one mode and its fits, with the whisker-gate fallback when fewer than two remain.
+
+    The gates are the windows' estimator's: N ≥ 20 and the N ≥ 8 fallback under
+    the median and sample estimators; under the robust width both are N = 20,
+    so it never falls back, and it fits nothing through fewer than two windows
+    (the one it declines is in ``declined``). ``scale`` is the series' pooled
+    scale (:func:`pooled_scale` of ``windows`` when not given).
+    """
     by_bin = {w.bin: w for w in windows}
+    gates = windows[0].gates if windows else ESTIMATOR_GATES[DEFAULT_ESTIMATOR]
+    estimator = windows[0].estimator if windows else DEFAULT_ESTIMATOR
+    if scale is None:
+        scale = pooled_scale(windows)
 
     def pick(threshold: int) -> tuple[list[int], list[dict[str, Any]]]:
         if mode == "anchors":
             return _choose_anchors(nominal, windows, threshold, axis)
         return [w.bin for w in windows if w.fittable(threshold)], []
 
-    points, substitutions = pick(FIT_MIN_N)
+    points, substitutions = pick(gates["fit_n"])
     fallback = False
     if len(points) < rfit.MIN_POINTS[rfit.FORM_AFFINE]:
-        weak_points, weak_subs = pick(WHISKER_MIN_N)
+        weak_points, weak_subs = pick(gates["whisker_n"])
         if len(weak_points) > len(points):
             points, substitutions, fallback = weak_points, weak_subs, True
-    return ModeFits(points, substitutions, fallback, _fits([by_bin[k] for k in points]))
+    declined: list[int] = []
+    if estimator == ROBUST and 0 < len(points) < ROBUST_MIN_POINTS:
+        points, declined = [], list(points)
+    c = None if scale is None else scale.c
+    return ModeFits(points, substitutions, fallback, _fits([by_bin[k] for k in points], c),
+                    declined)
 
 
 # ---------------------------------------------------------------- series --
@@ -405,7 +938,11 @@ def mode_fits(mode: str, nominal: Sequence[int], windows: Sequence[Window],
 
 @dataclass
 class Series:
-    """One estimator of one shower across the windows, with both modes' fits."""
+    """One source of one shower across the windows, with both modes' fits.
+
+    ``estimator_label`` names the source (the deposit, a network, XGBoost),
+    as it always has; the plotted estimator is the windows' own.
+    """
 
     source: str
     shower: str
@@ -417,6 +954,8 @@ class Series:
     n_dropped: int = 0
     n_absent: int = 0
     n_missing: int = 0
+    #: The pooled scale both modes' fits weight by (median, robust); ``None`` under sample.
+    weight_scale: WeightScale | None = None
 
     @property
     def key(self) -> str:
@@ -430,14 +969,29 @@ class Series:
     def n(self) -> int:
         return sum(w.n for w in self.windows)
 
+    def median_response_range(self, mode: str) -> list[float] | None:
+        """``[lo, hi]`` of ``100·(median R − 1)`` over one mode's fitted windows; ``None`` without one."""
+        chosen = set(self.modes[mode].points)
+        values = [100.0 * (w.median_r - 1.0) for w in self.windows
+                  if w.bin in chosen and w.median_r is not None]
+        return [min(values), max(values)] if values else None
+
 
 def build_series(source: str, shower: str, shower_label: str, estimator_label: str,
                  colour_slot: str, ratio: np.ndarray, p: np.ndarray, bins: np.ndarray,
-                 axis: performance_bins.BinAxis, nominal: Sequence[int], **counts: int) -> Series:
-    windows = windows_of(ratio, p, bins, axis)
-    modes = {mode: mode_fits(mode, nominal, windows, axis) for mode in MODES}
+                 axis: performance_bins.BinAxis, nominal: Sequence[int], *,
+                 estimator: str = DEFAULT_ESTIMATOR, relative: np.ndarray | None = None,
+                 seed: Sequence[int] = (median_mod.BOOTSTRAP_SEED,), **counts: int) -> Series:
+    """One series under one estimator; ``relative`` and ``seed`` as :func:`windows_of` takes them.
+
+    Under the median and robust estimators one pooled scale (:func:`pooled_scale`)
+    weights both modes' fits.
+    """
+    windows = windows_of(ratio, p, bins, axis, estimator=estimator, relative=relative, seed=seed)
+    scale = pooled_scale(windows)
+    modes = {mode: mode_fits(mode, nominal, windows, axis, scale) for mode in MODES}
     return Series(source, shower, shower_label, estimator_label, colour_slot, windows, modes,
-                  **counts)
+                  **counts, weight_scale=scale)
 
 
 def _pairs(est: np.ndarray, true: np.ndarray, bins: np.ndarray
@@ -593,15 +1147,24 @@ def _curve(fit: rfit.Fit, points: int) -> list[list[float]]:
             for a, b, c, d in zip(xs, y, lo, hi)]
 
 
-def _fit_note(fit: rfit.Fit, provisional: bool) -> str:
+#: How a fit's note names its weights, per law (``WEIGHT_METHODS``).
+_WEIGHT_WORDS: dict[str, str] = {
+    "delta": "weights 1/se² with se recomputed at the fitted value",
+    "kappa": ("weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the "
+              "fitted value"),
+}
+
+
+def _fit_note(fit: rfit.Fit, provisional: bool, estimator: str = SAMPLE) -> str:
+    symbol = ESTIMATOR_SYMBOLS[estimator]
     equation = {
-        rfit.FORM_AFFINE: "σ/E = a/√E + b",
-        rfit.FORM_PINNED: "σ/E = a₀/√E, through the origin",
-        rfit.FORM_QUADRATURE: "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B",
+        rfit.FORM_AFFINE: f"{symbol} = a/√E + b",
+        rfit.FORM_PINNED: f"{symbol} = a₀/√E, through the origin",
+        rfit.FORM_QUADRATURE: f"{symbol} = √(a²/E + b²), fitted as ({symbol})² = A/E + B",
     }[fit.form]
     parts = [f"{equation}: weighted least squares over {fit.n_points} window"
-             f"{'s' if fit.n_points != 1 else ''}, weights 1/se² with se recomputed at the fitted "
-             f"value ({fit.iterations} refit{'s' if fit.iterations != 1 else ''}"
+             f"{'s' if fit.n_points != 1 else ''}, {_WEIGHT_WORDS[WEIGHT_METHODS[estimator]]} "
+             f"({fit.iterations} refit{'s' if fit.iterations != 1 else ''}"
              f"{'' if fit.converged else ', not converged'})."]
     if fit.ndf == 0:
         parts.append("ν = 0: the fit passes through its points exactly, so there is no χ² test.")
@@ -622,8 +1185,9 @@ def _fit_note(fit: rfit.Fit, provisional: bool) -> str:
     if fit.form == rfit.FORM_QUADRATURE and fit.theta[1] <= 0:
         parts.append("B ≤ 0, so b = √B is undefined; B is reported with its standard error.")
     if provisional:
-        parts.append(f"Provisional: fewer than two windows reach N = {FIT_MIN_N}, so it runs "
-                     f"through windows of N ≥ {WHISKER_MIN_N}.")
+        gates = ESTIMATOR_GATES[estimator]
+        parts.append(f"Provisional: fewer than two windows reach N = {gates['fit_n']}, so it runs "
+                     f"through windows of N ≥ {gates['whisker_n']}.")
     if fit.misfit:
         parts.append(f"S = {fit.scale_factor:.3g} > {rfit.MISFIT_SCALE:g}: its residuals average "
                      "S times the windows' own standard errors, so its form does not describe "
@@ -631,15 +1195,17 @@ def _fit_note(fit: rfit.Fit, provisional: bool) -> str:
     return " ".join(parts)
 
 
-def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_POINTS
-              ) -> dict[str, Any] | None:
+def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_POINTS,
+              estimator: str = SAMPLE) -> dict[str, Any] | None:
     """One fit for the wire: parameters in percent (a in %·√GeV, b in %), its curve and note.
 
     Every form carries its ``band_quantile`` and ``misfit`` (:attr:`rfit.Fit.misfit`:
     its form does not describe its windows, so the card draws it faded). The
     quadrature fit's ``curve`` is ``None`` (the 1/√E view tables it); its params
     carry ``rho_a2b2``, the correlation of A and B, so the E view can rebuild its
-    band from ``a2``, ``b2``, their SEs and ``band_quantile`` alone.
+    band from ``a2``, ``b2``, their SEs and ``band_quantile`` alone. ``estimator``
+    names the fitted quantity and the weight law in the note; it defaults to the
+    sample estimator, whose delta-method law is ``stats/resolution_fit``'s default.
     """
     if fit is None:
         return None
@@ -680,8 +1246,172 @@ def fit_block(fit: rfit.Fit | None, provisional: bool, band_points: int = BAND_P
     out["curve"] = None if fit.form == rfit.FORM_QUADRATURE else _curve(fit, band_points)
     out["provisional"] = provisional
     out["misfit"] = fit.misfit
-    out["note"] = _fit_note(fit, provisional)
+    out["note"] = _fit_note(fit, provisional, estimator)
     return out
+
+
+# ----------------------------------------------------------- calibration --
+
+
+@dataclass(frozen=True)
+class MedianCalibration:
+    """One shower's median calibration ``c̃ = 1 / median(E_dep / p)``, the median estimator's ``c``."""
+
+    c: float | None
+    n_positive: int
+    n_zero: int
+
+
+def median_calibration(sample: response.Sample) -> MedianCalibration:
+    """``c̃`` over the shower's usable events of the selection with ``E_dep > 0``; ``None`` without one.
+
+    The median analogue of the ratio of sums ``c = Σp / ΣE_dep``: over the
+    events it is taken on, the calibrated deposit's median response
+    ``c̃·E_dep / p`` is 1 by construction (the module docstring has why the
+    median estimator needs it). An event that deposited nothing has no ratio
+    to take the median of; it stays in the windows, at R = 0, and is counted.
+    """
+    positive = sample.dep > 0.0
+    n_positive = int(positive.sum())
+    n_zero = int(sample.n - n_positive)
+    if not n_positive:
+        return MedianCalibration(None, 0, n_zero)
+    return MedianCalibration(1.0 / float(np.median(sample.dep[positive] / sample.p[positive])),
+                             n_positive, n_zero)
+
+
+#: Each estimator's whisker, as the estimator block names it.
+INTERVAL_METHODS: dict[str, str] = {
+    MEDIAN: metrics.METHOD_BOOTSTRAP, ROBUST: metrics.METHOD_BOOTSTRAP,
+    SAMPLE: metrics.METHOD_CHI2_RATIO,
+}
+INTERVAL_LABELS: dict[str, str] = {
+    MEDIAN: (f"95% percentile bootstrap of the median from N = {median_mod.MIN_BOOTSTRAP_N} "
+             f"(B = {median_mod.BOOTSTRAP_REPLICATES:,}, each replicate's median drawn exactly), "
+             f"the distribution-free order-statistic interval for {median_mod.MIN_ORDER_N} ≤ N < "
+             f"{median_mod.MIN_BOOTSTRAP_N}, none below: Model Error vs. Incident Momentum's own, "
+             "seeded [42, frame, shower, bin, 2] with frame 0–2 the network frames (absolute, "
+             "per-shower translated, local), 3 XGBoost and 4 the deposit, shower 0 for A and 1 "
+             "for B."),
+    ROBUST: (f"95% percentile bootstrap of IQR(R) / (1.349 · median R) from N = "
+             f"{rw.MIN_ROBUST_N}, B = {rw.BOOTSTRAP_REPLICATES:,}, each replicate's quartiles "
+             "drawn exactly from its resample's order statistics (sequential conditional Betas), "
+             "seeded [42, frame, shower, bin, 8] with frames and showers numbered as for the "
+             "median."),
+    SAMPLE: ("95% χ² interval of s (N − 1 d.o.f.) divided by R̄; R̄'s own uncertainty is "
+             "neglected, the delta-method se includes it."),
+}
+WEIGHT_LABELS: dict[str, str] = {
+    # Verbatim from the fix brief (F1, 2026-11-12).
+    "kappa": ("Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with "
+              "c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from "
+              "4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels "
+              "in the fitted parameters and sets only χ², S and the errors; a per-window κ would "
+              "put each window's own value back into its weight."),
+    "delta": ("Fit weights 1/se², se = |r|·√(1/(2(N − 1)) + r²/N), the delta-method standard "
+              "error of σ/μ, recomputed at the fitted value and iterated."),
+}
+CALIBRATION_LABELS: dict[str, str] = {
+    "median": ("Under Median |rel. err.| the deposit is c̃·E_dep, with c̃ = 1 / median(E_dep / p) "
+               "over the shower's events of the selection with E_dep > 0: one constant per "
+               "shower, the median analogue of the ratio of sums c = Σ p / Σ E_dep (c_sum), "
+               "which is reported beside it. median |c·E_dep − p| / p depends on c; the robust "
+               "and sample widths do not."),
+    "sum": ("The deposit is c·E_dep with c = Σ p / Σ E_dep per shower over the selection "
+            "(c_sum), fitted once; it cancels in the robust and sample widths. c_median, "
+            "1 / median(E_dep / p) over the events with E_dep > 0, is the calibration the "
+            "median rel. cross-reference (alt) takes."),
+}
+
+_WINDOW_NOTES: dict[str, str] = {
+    SAMPLE: (
+        "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the "
+        "shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in "
+        "percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ "
+        "(N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta "
+        "includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p "
+        "event by event removes the window's own momentum spread and the estimator's bias, "
+        "and c cancels in s(R)/R̄, so the detector series does not depend on the calibration."),
+    MEDIAN: (
+        "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the "
+        "shower's own momentum. Per event R = E_est / p; the plotted value is the median "
+        "relative error median |R − 1| in percent, for a model series median |E_est − p| / p: "
+        "the Median rel. of Model Error vs. Incident Momentum, with its events, its seed and "
+        "its interval, the 95% percentile bootstrap of the median from N = 20 (B = 2,000) and "
+        "the distribution-free order-statistic interval below. Its abscissa is x = ⟨1/√p⟩ over "
+        "the window's events. Dividing by p event by event removes the window's own momentum "
+        "spread; unlike σ/E the median relative error keeps the estimator's bias, and it "
+        "depends on the deposit's calibration."),
+    ROBUST: (
+        "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the "
+        "shower's own momentum. Per event R = E_est / p; the plotted value is the robust "
+        "σ/E = IQR(R) / (1.349 · median R) in percent, with type-7 quartiles, its whisker the "
+        "95% percentile bootstrap of that ratio (B = 2,000, each replicate's quartiles drawn "
+        "exactly from its resample's order statistics), and its abscissa x = ⟨1/√p⟩ over the "
+        "window's events. It equals σ/E for Gaussian errors and is not inflated by a few "
+        "badly reconstructed events; dividing by p event by event removes the window's own "
+        "momentum spread and the estimator's bias, and c cancels in it, so the detector "
+        "series does not depend on the calibration."),
+}
+
+_GATE_NOTES: dict[str, str] = {
+    SAMPLE: (f"σ/E is reported from N = {REPORT_MIN_N}; a window is drawn with its whisker from "
+             f"N = {WHISKER_MIN_N}, and enters the fits and sets the y range from N = {FIT_MIN_N} "
+             f"and p ≥ {E_MIN_GEV:g} GeV."),
+    MEDIAN: (f"The median rel. is reported from N = {REPORT_MIN_N}; a window is drawn with its "
+             f"whisker from N = {WHISKER_MIN_N} (its order-statistic interval exists from "
+             f"N = {median_mod.MIN_ORDER_N}), and enters the fits and sets the y range from "
+             f"N = {FIT_MIN_N} and p ≥ {E_MIN_GEV:g} GeV."),
+    ROBUST: (f"Robust σ/E is reported, drawn with its whisker, fitted and allowed to set the y "
+             f"range from N = {rw.MIN_ROBUST_N} alone, the robust floor: quartiles of fewer "
+             f"events interpolate between single events. A window enters the fits and sets the "
+             f"y range from p ≥ {E_MIN_GEV:g} GeV."),
+}
+
+_FIT_TAIL = (
+    "χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are "
+    "scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than "
+    "1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of "
+    "the line, not the spread of the events.")
+
+#: How the median and robust fits weight, in the Fits note.
+_POOLED_WORDS = (
+    "1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits "
+    "oscillate; the first fit takes c·value/√N), with c the series' pooled scale "
+    "(weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit "
+    "weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the "
+    "fitted parameters and sets only χ², S and the errors; a window's own κ would put its "
+    "measured value back into its weight, and bias the fits upward.")
+
+_FITS_NOTES: dict[str, str] = {
+    SAMPLE: (
+        "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
+        "1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and "
+        "iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where "
+        "χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the "
+        "band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the "
+        "fit's own ν. The band is the 95% confidence band of the line, not the spread of the "
+        "events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, "
+        "not drawn; its b and the affine b are different constant terms."),
+    ROBUST: (
+        "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
+        + _POOLED_WORDS + " "
+        + _FIT_TAIL + " The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and "
+        "tabled, not drawn; its b and the affine b are different constant terms."),
+    MEDIAN: (
+        "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
+        + _POOLED_WORDS + " "
+        + _FIT_TAIL + " The quadrature form √(a²/E + b²) is fitted as (median rel.)² = A/E + B "
+        "and tabled, not drawn. The three forms describe the median relative error: their "
+        "parameters are not the stochastic and constant terms of a resolution."),
+}
+
+
+def _range_words(values: list[float] | None) -> str:
+    if values is None:
+        return "no fitted window"
+    lo, hi = values
+    return f"{fmt_signed(lo, 2, plus=True)}% to {fmt_signed(hi, 2, plus=True)}%"
 
 
 @dataclass
@@ -700,9 +1430,11 @@ class ResolutionScaling:
     undefined_d: int = 0
     shower_note: str | None = None
     run: dict[str, Any] | None = None
+    estimator: str = DEFAULT_ESTIMATOR
+    medians: dict[str, MedianCalibration] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Both views' σ/E ranges follow the windows alone (the module docstring).
+        # Both views' ranges follow the windows alone (the module docstring).
         self.y = linear_y_axis(self.series)
         self.energy_y = energy_y_axis(self.series)
 
@@ -732,6 +1464,13 @@ class ResolutionScaling:
                     f"{'were' if many else 'was'} dropped before the ratios (a deposit or momentum "
                     "that is not finite, a negative deposit, or a momentum that is not positive), "
                     "counted and never zero-filled.")
+            median_cal = self.medians.get(s.key)
+            if self.estimator == MEDIAN and s.n and median_cal is not None and median_cal.c is None:
+                out.append(
+                    f"{s.columns.label}: no event of the selection deposits energy (E_dep > 0), so "
+                    "the median calibration c̃ = 1 / median(E_dep / p) does not exist and the "
+                    "deposit has no windows under Median |rel. err.| (their values are null); "
+                    "Robust σ (IQR) and Sample σ/μ do not depend on the calibration.")
         for s in self.series:
             if s.source != SOURCE_DETECTOR and s.n_missing and not s.n:
                 out.append(f"{s.label}: no event of the selection has a finite prediction and "
@@ -740,55 +1479,142 @@ class ResolutionScaling:
             out.append(self.run["split"]["warning"])
         return [typographic(w) for w in out if w]
 
+    def _calibration_notes(self) -> list[str]:
+        notes = []
+        for s in self.samples:
+            cal, med = self.calibrations[s.key], self.medians.get(s.key)
+            c_tilde = None if med is None else med.c
+            label = s.columns.label
+            if self.estimator == MEDIAN:
+                if c_tilde is None:
+                    continue
+                c_sum = cal.c.value
+                # Over the same events, median(c_sum·E_dep/p) = c_sum/c̃ exactly: measured, signed,
+                # and no direction claimed (F8).
+                beside = ("" if c_sum is None else
+                          f"; the ratio of sums c = Σ p / Σ E_dep = {c_sum:.4g} beside it would "
+                          "give them a median response c/c̃ − 1 = "
+                          f"{fmt_signed(100.0 * (c_sum / c_tilde - 1.0), 2, plus=True)}%")
+                notes.append(f"{label}: c̃ = 1 / median(E_dep / p) = {c_tilde:.4g} over the "
+                             f"{med.n_positive:,} events with E_dep > 0, fitted once over the "
+                             f"selection, so the deposit's median response over them is 1{beside}.")
+                continue
+            if cal.c.value is not None:
+                notes.append(f"{label}: c = Σ p / Σ E_dep = {cal.c.value:.4g} over "
+                             f"N = {cal.n:,} events, fitted once over the whole selection.")
+            if c_tilde is not None:
+                notes.append(f"{label}: the median rel. cross-reference (alt) takes the median "
+                             f"calibration c̃ = 1 / median(E_dep / p) = {c_tilde:.4g}, over the "
+                             f"{med.n_positive:,} events with E_dep > 0.")
+        return notes
+
+    def _model_range_notes(self) -> list[str]:
+        models = [s for s in self.series if s.source != SOURCE_DETECTOR]
+        notes = [f"{s.label}: median response R̃ − 1 from "
+                 f"{_range_words(s.median_response_range('anchors'))} over the anchors' fitted "
+                 f"windows, {_range_words(s.median_response_range('all'))} over every fitted "
+                 "window." for s in models]
+        if models:
+            notes.append(
+                "A regressor trained on a bounded momentum range pulls its predictions toward "
+                "mid-range, so its median response leaves 1 near the ends of that range: there it "
+                "narrows a σ and adds a bias to the median rel.")
+        return notes
+
+    def _provisional_cause(self, windows: Sequence[Window], floor_gev: float) -> tuple[str, bool]:
+        """Why no window from ``floor_gev`` sets a provisional range: ``(clause, N is the cause)``.
+
+        A window of N ≥ the fit gate without a fit weight is never blamed on N
+        (F3): when such windows exist, the clause says no window carries a fit
+        weight and counts their causes.
+        """
+        fit_n = ESTIMATOR_GATES[self.estimator]["fit_n"]
+        enough = [w for w in windows if w.n >= fit_n]
+        if not enough:
+            return f"no window from {floor_gev:g} GeV reaches N = {fit_n}", True
+        others = len(windows) - len(enough)
+        return (f"no window from {floor_gev:g} GeV carries a fit weight ({len(enough)} of "
+                f"N ≥ {fit_n} have none: {_cause_counts(enough, self.estimator)}"
+                + (f"; {others} hold N < {fit_n}" if others else "") + ")"), False
+
+    @staticmethod
+    def _empty_default(y: dict[str, Any]) -> str:
+        return f"and no window has a marker there, so it spans the empty default, {y['lo']:g}–{y['hi']:g}%"
+
     def _notes(self) -> list[str]:
         kind = self.record.kind or ""
+        est = self.estimator
+        gates = ESTIMATOR_GATES[est]
+        if est == ROBUST:
+            fallback = ("with fewer than two such windows there is no fit, since the robust width "
+                        "has no weaker window to fall back on")
+        else:
+            fallback = (f"with fewer than two such windows its fit runs through windows of "
+                        f"N ≥ {gates['whisker_n']} and is provisional")
+        if est == SAMPLE:
+            substitute = (f"A series whose anchor window holds N < {gates['fit_n']} takes its "
+                          f"nearest window from {ANCHOR_LOW_GEV:g} GeV in log E with "
+                          f"N ≥ {gates['fit_n']} instead")
+        else:
+            # F3: a window of N ≥ 20 can lack a fit weight; that is never called thin.
+            substitute = (
+                f"A fittable window holds N ≥ {gates['fit_n']}, lies from {E_MIN_GEV:g} GeV and "
+                f"carries a fit weight (a bootstrap SE of at least "
+                f"{_power_of_ten(rw.KAPPA_FLOOR)} of its value). A series whose anchor window is "
+                f"not fittable takes its nearest fittable window from {ANCHOR_LOW_GEV:g} GeV in "
+                "log E instead, and the substitution says why the anchor was not")
         notes = [
             response._DEPOSIT_NOTE.get(kind, ""),
-            "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the "
-            "shower's own momentum. Per event R = E_est / p; the plotted value is σ/E = s(R)/R̄ in "
-            "percent (s with ddof = 1), its whisker the 95% χ² interval of s divided by R̄ "
-            "(N − 1 d.o.f.; R̄'s own uncertainty is neglected, the delta-method se_delta "
-            "includes it), and its abscissa x = ⟨1/√p⟩ over the window's events. Dividing by p "
-            "event by event removes the window's own momentum spread and the estimator's bias, "
-            "and c cancels in s(R)/R̄, so the detector series does not depend on the calibration.",
+            _WINDOW_NOTES[est],
+            RELATION,
             "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that "
             "reads the shower's shape (leakage, compensation) can do better than a plain sum.",
             "E on both axes is the incident momentum p as the producer writes it. For a massive "
             "species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
-            f"σ/E is reported from N = {REPORT_MIN_N}; a window is drawn with its whisker from "
-            f"N = {WHISKER_MIN_N}, and enters the fits and sets the y range from N = {FIT_MIN_N} "
-            f"and p ≥ {E_MIN_GEV:g} GeV.",
-            "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
-            "1/se², se the delta-method standard error of σ/μ recomputed at the fitted value and "
-            "iterated (half steps once the refits oscillate); χ², ν = n − p and its p-value. Where "
-            "χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the "
-            "band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the "
-            "fit's own ν. The band is the 95% confidence band of the line, not the spread of the "
-            "events. The quadrature form √(a²/E + b²) is fitted as (σ/E)² = A/E + B and tabled, "
-            "not drawn; its b and the affine b are different constant terms.",
+            _GATE_NOTES[est],
+            _FITS_NOTES[est],
             f"A fit whose residuals average more than {rfit.MISFIT_SCALE:g} of the windows' own "
             f"standard errors (ν ≥ 1 and S = √(χ²/ν) > {rfit.MISFIT_SCALE:g}) has a form that does "
-            "not describe its windows: it is drawn faded, as a provisional fit is, and said so in "
+            # Robust σ/E never has a provisional fit (its floor is N = 20 throughout), so the
+            # comparison would name a mark this estimator never draws.
+            "not describe its windows: it is drawn faded"
+            + ("" if est == ROBUST else ", as a provisional fit is")
+            + ", and said so in "
             "its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² "
             "p-value: a window of hundreds of events has so small a standard error that the test "
             "rejects a form for misfits no reader could see.",
             f"Anchors: the lowest bin from {ANCHOR_LOW_GEV:g} GeV (below it the sampling fraction "
             "is still rising), the highest bin and the bin between them nearest in log E to the "
             "geometric mean of their centres, chosen on the whole table so they do not move with "
-            f"the selection. A series whose anchor window holds N < {FIT_MIN_N} takes its nearest "
-            f"window from {ANCHOR_LOW_GEV:g} GeV in log E with N ≥ {FIT_MIN_N} instead; with fewer "
-            f"than two such windows its fit runs through windows of N ≥ {WHISKER_MIN_N} and is "
-            f"provisional. The other mode fits every window with N ≥ {FIT_MIN_N} from "
+            f"the selection. {substitute}; {fallback}. The other mode fits every "
+            + (f"window with N ≥ {gates['fit_n']}" if est == SAMPLE else "fittable window")
+            + " from "
             f"{E_MIN_GEV:g} GeV, the {E_MIN_GEV:g}–{ANCHOR_LOW_GEV:g} GeV window included, below "
             "the anchors' floor.",
             "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic "
             "unit conversion, and no data are plotted against it.",
         ]
-        for s in self.samples:
-            cal = self.calibrations[s.key]
-            if cal.c.value is not None:
-                notes.append(f"{s.columns.label}: c = Σ p / Σ E_dep = {cal.c.value:.4g} over "
-                             f"N = {cal.n:,} events, fitted once over the whole selection.")
+        if est == ROBUST:
+            windows = [w for s in self.series for w in s.windows]
+            thin = sum(1 for w in windows if w.n < rw.MIN_ROBUST_N)
+            # F3: the windows of N ≥ 20 that report no robust σ/E are counted too, by their cause.
+            bare = sum(1 for w in windows if w.n >= rw.MIN_ROBUST_N and w.r is None)
+            withheld = sum(1 for w in windows if w.withheld)
+            more = ""
+            if bare:
+                more += (f" {bare} hold{'s' if bare == 1 else ''} N ≥ {rw.MIN_ROBUST_N} but "
+                         f"report{'s' if bare == 1 else ''} no robust σ/E: "
+                         f"{'its' if bare == 1 else 'their'} median response is not positive.")
+            if withheld:
+                more += (f" {withheld} report{'s' if withheld == 1 else ''} a robust σ/E whose "
+                         f"interval is withheld: more than {100 * rw.MAX_DROPPED_SHARE:g}% of "
+                         f"{'its' if withheld == 1 else 'their'} bootstrap replicates have a "
+                         "median R ≤ 0, so no whisker, SE or fit weight.")
+            notes.append(
+                f"{thin} of the {len(windows)} windows across the series hold "
+                f"N < {rw.MIN_ROBUST_N} and report no robust σ/E (the robust floor); Sample σ/μ "
+                f"reports them from N = {REPORT_MIN_N}.{more}")
+        notes.extend(self._calibration_notes())
         if self.shower_note:
             notes.append(self.shower_note)
         if self.model.get("source") == SOURCE_NETWORK:
@@ -805,6 +1631,7 @@ class ResolutionScaling:
                 "selected event, so the two series do not share their events.")
         elif self.model.get("reason"):
             notes.append(f"No model series: {self.model['reason']}")
+        notes.extend(self._model_range_notes())
         if self.undefined_d:
             notes.append(
                 f"{self.undefined_d:,} of the experiment's {self.record.n_events:,} events have no "
@@ -816,11 +1643,28 @@ class ResolutionScaling:
             events = sum(o["n"] for o in off)
             notes.append(f"Off the axis: {listed} window{'s' if listed != 1 else ''} below "
                          f"{E_MIN_GEV:g} GeV ({events:,} events across the series) have x > "
-                         f"{X_MAX:g}; they are listed in off_axis with their σ/E and not drawn.")
+                         f"{X_MAX:g}; they are listed in off_axis with their "
+                         f"{ESTIMATOR_SYMBOLS[est]} and not drawn.")
         for s in self.series:
+            tied = [w for w in s.windows
+                    if w.tied and w.n >= gates["fit_n"] and not w.off_axis]
+            if tied:
+                many = len(tied) != 1
+                notes.append(
+                    f"{s.label}: {len(tied)} window{'s' if many else ''} with a bootstrap SE below "
+                    f"{_power_of_ten(rw.KAPPA_FLOOR)} of {'their' if many else 'its'} value (tied values: the "
+                    f"replicates differ by rounding alone) carr{'y' if many else 'ies'} no fit weight, "
+                    f"so {'they are' if many else 'it is'} drawn in the all-windows mode only, "
+                    "never fitted.")
             for mode_name, mode in s.modes.items():
                 for sub in mode.substitutions:
                     notes.append(f"{s.label} ({mode_name}): {sub['reason']}")
+                if mode.declined:
+                    (one,) = (w for w in s.windows if w.bin == mode.declined[0])
+                    notes.append(
+                        f"{s.label} ({mode_name}): only {one.label} is fittable, and Robust σ "
+                        "(IQR) fits no line through fewer than two windows: no fit; the window "
+                        "is drawn in the all-windows mode.")
                 for fit in mode.fits.values():
                     if fit is not None and fit.scale_factor > 1.0:
                         misfit = (f"; S > {rfit.MISFIT_SCALE:g}, so its form does not describe "
@@ -834,10 +1678,18 @@ class ResolutionScaling:
                                  f"({100 * affine.theta[1]:.3g}%): the points fall faster than "
                                  "a/√E, and the line is drawn down to zero.")
         y = self.y
-        basis = (f"The y range is provisional: no window from {E_MIN_GEV:g} GeV reaches "
-                 f"N = {FIT_MIN_N}, so it follows the weaker windows' markers." if y["provisional"]
-                 else f"The y range follows the windows with N ≥ {FIT_MIN_N} (whiskers included) "
-                      "alone, from zero.")
+        fit_n = gates["fit_n"]
+        if y["provisional"]:
+            on_axis = [w for s in self.series for w in s.windows if not w.off_axis]
+            cause, thin = self._provisional_cause(on_axis, E_MIN_GEV)
+            follows = ("so it follows the weaker windows' markers" if thin else
+                       "so it follows the windows' markers")
+            if not linear_extents(self.series):
+                follows = self._empty_default(y)
+            basis = f"The y range is provisional: {cause}, {follows}."
+        else:
+            basis = (f"The y range follows the windows with N ≥ {fit_n} (whiskers included) "
+                     "alone, from zero.")
         fits = ("No fit sets it: a fit summarises its windows and is not more evidence, so a "
                 "fitted line or band that leaves the top is clipped there with a caret.")
         clipped = y["n_clipped"]
@@ -866,25 +1718,33 @@ class ResolutionScaling:
             "top": {"name": "Energy (GeV) ⟶", "ticks": ticks,
                     "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are "
                             "plotted against it."},
-            "y": {**self.y, "unit": UNIT, "name": "σ/E [%]"},
+            "y": {**self.y, "unit": UNIT, "name": AXIS_NAMES[self.estimator]},
             "energy": self._energy_axis(),
         }
 
     def _energy_axis(self) -> dict[str, Any]:
-        """The E view's axes: E in GeV from zero, its own σ/E range, and the sentences that say why."""
+        """The E view's axes: E in GeV from zero, its own value range, and the sentences that say why."""
         data_max = float(self.axis.p_hi[-1]) if self.axis.p_hi else None
         x_max = E_VIEW_MAX_GEV
         if data_max is not None:
             x_max = max(E_VIEW_MAX_GEV,
                         math.ceil(data_max / E_VIEW_INTERVAL_GEV) * E_VIEW_INTERVAL_GEV)
         y = self.energy_y
+        fit_n = ESTIMATOR_GATES[self.estimator]["fit_n"]
         floor = f"{E_VIEW_Y_MIN_GEV:g} GeV"
-        basis = (f"The E view's y range is provisional: no window from {floor} reaches "
-                 f"N = {FIT_MIN_N}, so it follows the windows' markers, those below {floor} "
-                 "included." if y["provisional"] else
-                 f"The E view's y range follows the windows alone, from zero: those with "
-                 f"N ≥ {FIT_MIN_N} from {floor}, whiskers included; a window below {floor} never "
-                 "sets it.")
+        if y["provisional"]:
+            from_floor = [w for s in self.series for w in s.windows
+                          if w.p_lo >= E_VIEW_Y_MIN_GEV]
+            cause, _ = self._provisional_cause(from_floor, E_VIEW_Y_MIN_GEV)
+            marked = any(w.r is not None and w.n >= REPORT_MIN_N
+                         for s in self.series for w in s.windows)
+            follows = (f"so it follows the windows' markers, those below {floor} included"
+                       if marked else self._empty_default(y))
+            basis = f"The E view's y range is provisional: {cause}, {follows}."
+        else:
+            basis = (f"The E view's y range follows the windows alone, from zero: those with "
+                     f"N ≥ {fit_n} from {floor}, whiskers included; a window below {floor} "
+                     "never sets it.")
         fits = ("No fitted curve, band or extrapolation sets it: one that leaves the top is "
                 "clipped there with a caret.")
         notes = [
@@ -899,7 +1759,7 @@ class ResolutionScaling:
         return {
             "x": {"min": 0.0, "max": float(x_max), "interval": E_VIEW_INTERVAL_GEV,
                   "unit": "GeV", "name": "Energy E [GeV]"},
-            "y": {**y, "unit": UNIT, "name": "σ/E [%]"},
+            "y": {**y, "unit": UNIT, "name": AXIS_NAMES[self.estimator]},
             "curve_min_gev": E_MIN_GEV,
             "y_min_gev": E_VIEW_Y_MIN_GEV,
             "data_max_gev": data_max,
@@ -911,15 +1771,54 @@ class ResolutionScaling:
 
     def _anchors(self) -> dict[str, Any]:
         index = {k: i for i, k in enumerate(self.axis.numbers)}
+        gates = ESTIMATOR_GATES[self.estimator]
+        fallback = ("with fewer than two, no fit: the robust width has no weaker window to fall "
+                    "back on, and fits no line through one." if self.estimator == ROBUST else
+                    f"with fewer than two, windows of N ≥ {gates['whisker_n']} and the fit is "
+                    "provisional.")
+        if self.estimator == SAMPLE:
+            substitute = (f"A series whose anchor holds N < {gates['fit_n']} takes its nearest "
+                          f"window from {ANCHOR_LOW_GEV:g} GeV in log E with "
+                          f"N ≥ {gates['fit_n']}, named in substitutions")
+        else:
+            substitute = (f"A series whose anchor is not fittable (N < {gates['fit_n']}, or no fit "
+                          "weight: tied, no value or a withheld interval) takes its nearest "
+                          f"fittable window from {ANCHOR_LOW_GEV:g} GeV in log E, named in "
+                          "substitutions with its cause")
         return {
             "nominal_bins": list(self.nominal),
             "labels": [self.axis.labels[index[k]] for k in self.nominal],
             "rule": (f"Chosen on the whole table's bins, not the selection: the lowest bin from "
                      f"{ANCHOR_LOW_GEV:g} GeV, the highest bin, and the bin between them nearest "
-                     "in log E to the geometric mean of their centres. A series whose anchor "
-                     f"holds N < {FIT_MIN_N} takes its nearest window from {ANCHOR_LOW_GEV:g} GeV "
-                     f"in log E with N ≥ {FIT_MIN_N}, named in substitutions; with fewer than two, "
-                     f"windows of N ≥ {WHISKER_MIN_N} and the fit is provisional."),
+                     f"in log E to the geometric mean of their centres. {substitute}; {fallback}"),
+        }
+
+    def _estimator_block(self) -> dict[str, Any]:
+        est = self.estimator
+        rule = "median" if est == MEDIAN else "sum"
+        weight = WEIGHT_METHODS[est]
+        showers = {}
+        for s in self.samples:
+            cal, med = self.calibrations[s.key], self.medians.get(s.key)
+            showers[s.key] = {
+                "c_sum": cal.c.value,
+                "c_median": None if med is None else med.c,
+                "n": cal.n,
+                "n_zero_deposit": None if med is None else med.n_zero,
+            }
+        return {
+            "name": est,
+            "label": ESTIMATOR_LABELS[est],
+            "quantity": ESTIMATOR_QUANTITIES[est],
+            "symbol": ESTIMATOR_SYMBOLS[est],
+            "definition": ESTIMATOR_DEFINITIONS[est],
+            "axis_name": AXIS_NAMES[est],
+            "interval": {"method": INTERVAL_METHODS[est], "label": INTERVAL_LABELS[est]},
+            "weight": {"method": weight, "label": WEIGHT_LABELS[weight]},
+            "literature": {"drawn": True, "warning": LITERATURE_WARNING if est == MEDIAN else None},
+            "calibration": {"rule": rule, "label": CALIBRATION_LABELS[rule], "showers": showers},
+            "relation": RELATION,
+            "choices": list(ESTIMATORS),
         }
 
     def _series_dict(self, s: Series, band_points: int) -> dict[str, Any]:
@@ -934,12 +1833,16 @@ class ResolutionScaling:
                     "points": list(mode.points),
                     "substitutions": list(mode.substitutions),
                     "fallback": mode.fallback, "provisional": mode.provisional,
-                    **{form: fit_block(mode.fits.get(form), mode.provisional, band_points)
+                    **{form: fit_block(mode.fits.get(form), mode.provisional, band_points,
+                                       self.estimator)
                        for form in (rfit.FORM_AFFINE, rfit.FORM_PINNED, rfit.FORM_QUADRATURE)},
                     "span_gev": fitted_span(mode.points, s.windows),
                 }
                 for name, mode in s.modes.items()
             },
+            "median_response_range": {name: s.median_response_range(name) for name in MODES},
+            "weight_scale": (None if s.weight_scale is None else
+                             {**s.weight_scale.as_dict(), "rule": typographic(s.weight_scale.rule)}),
         }
 
     def as_dict(self, digits: int = SIGNIFICANT, band_points: int = BAND_POINTS) -> dict[str, Any]:
@@ -948,16 +1851,12 @@ class ResolutionScaling:
             "kind": self.record.kind,
             "n_events": self.n_events,
             "unit": UNIT,
-            "estimator": {
-                "name": response.KIND_RATIO,
-                "definition": ("R = E_est / p per event; σ/E = s(R)/R̄ per momentum window, in "
-                               "percent, with s the unbiased (ddof = 1) sample SD."),
-                "label": "σ(R)/μ(R), R = E_est / p",
-            },
+            "estimator": self._estimator_block(),
             "axis": self._axis(),
-            "gates": {"report_n": REPORT_MIN_N, "whisker_n": WHISKER_MIN_N, "fit_n": FIT_MIN_N,
+            "gates": {**ESTIMATOR_GATES[self.estimator],
                       "e_min_gev": E_MIN_GEV, "anchor_low_gev": ANCHOR_LOW_GEV,
-                      "n_anchors": N_ANCHORS, "misfit_scale": rfit.MISFIT_SCALE},
+                      "n_anchors": N_ANCHORS, "misfit_scale": rfit.MISFIT_SCALE,
+                      "tail_min_n": rw.TAIL_MIN_N},
             "anchors": self._anchors(),
             "model": self.model,
             "series": [self._series_dict(s, band_points) for s in self.series],
@@ -973,9 +1872,15 @@ class ResolutionScaling:
 def _model_series(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
                   caps: capabilities.Capabilities, coord_system: str,
                   shower_labels: dict[str, str], axis: performance_bins.BinAxis,
-                  nominal: Sequence[int]
+                  nominal: Sequence[int], estimator: str = DEFAULT_ESTIMATOR,
                   ) -> tuple[dict[str, Any], dict[str, Series], dict[str, Any] | None]:
-    """The model block, the model series per shower and, on an aggregate, the XGBoost run."""
+    """The model block, the model series per shower and, on an aggregate, the XGBoost run.
+
+    The relative error is computed as ``performance_bins.point`` computes its
+    Median rel., ``|pred − true| / true`` over the same rows, and seeded as it
+    seeds them (``[42, frame, shower, bin, …]``), so a window's median value and
+    interval equal that card's bit for bit.
+    """
     kind = record.kind
     if kind == ddl.KIND_TWO_SHOWER:
         if not caps.models:
@@ -984,15 +1889,19 @@ def _model_series(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec
                      "reason": reason, "split": None}, {}, None)
         frame = ddl.NETWORK_FRAME[coord_system]
         label = f"Energy network · {FRAME_WORDS[frame]} frame"
+        frame_index = ddl.COORD_SYSTEMS.index(coord_system)
         cols = performance_bins.read_selection(con, record, spec, "energy", [coord_system])
         out = {}
-        for key in shower_labels:
+        for shower_index, key in enumerate(shower_labels):
             bins, true = cols[f"bin_{key}"], cols[f"true_{key}"]
             pred = cols[f"pred_{key}_{coord_system}"]
             usable, missing, dropped = _pairs(pred, true, bins)
+            pred_u, true_u = pred[usable], true[usable]
             out[key] = build_series(
                 SOURCE_NETWORK, key, shower_labels[key], label, frame,
-                pred[usable] / true[usable], true[usable], bins[usable], axis, nominal,
+                pred_u / true_u, true_u, bins[usable], axis, nominal,
+                estimator=estimator, relative=np.abs(pred_u - true_u) / true_u,
+                seed=(median_mod.BOOTSTRAP_SEED, frame_index, shower_index),
                 n_missing=missing, n_dropped=dropped)
         return ({"available": True, "source": SOURCE_NETWORK, "frame": frame, "label": label,
                  "reason": None, "split": None}, out, None)
@@ -1016,10 +1925,13 @@ def _model_series(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec
         n_selected = xgb_store.count_selected(con, record, where, spec.params())
         bins, true, pred = rows["bin"], rows["true_momentum"], rows["pred_momentum"]
         usable, missing, dropped = _pairs(pred, true, bins)
+        pred_u, true_u = pred[usable], true[usable]
         key = next(iter(shower_labels))
         series = build_series(
             SOURCE_XGB, key, shower_labels[key], XGB_LABEL, SOURCE_XGB,
-            pred[usable] / true[usable], true[usable], bins[usable], axis, nominal,
+            pred_u / true_u, true_u, bins[usable], axis, nominal,
+            estimator=estimator, relative=np.abs(pred_u - true_u) / true_u,
+            seed=(median_mod.BOOTSTRAP_SEED, performance_bins.XGB_FRAME_INDEX, 0),
             n_missing=missing, n_dropped=dropped)
         run = xgb_views.run_block(runs, "momentum")
         split = {"n_selected": n_selected, "n_validation": int(bins.size),
@@ -1050,31 +1962,54 @@ def _shower_labels(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spe
     return {key: label or columns[0].label}, note
 
 
+def _deposit_inputs(sample: response.Sample, cal: response.Calibration, med: MedianCalibration,
+                    estimator: str) -> tuple[np.ndarray, np.ndarray]:
+    """The deposit's ``(R, relative error)`` under one estimator.
+
+    Under the robust and sample estimators ``R = c·E_dep / p`` with today's
+    ratio of sums, which cancels in both widths; a selection that deposited
+    nothing has no c, and its R are all zero either way. Under the median
+    estimator ``R = c̃·E_dep / p``. The relative error is always
+    ``|c̃·E_dep − p| / p``, Model Error vs. Incident Momentum's arithmetic with
+    the deposit as the prediction, and NaN where no c̃ exists, so no median is
+    reported then.
+    """
+    c = cal.c.value
+    ratio = (1.0 if c is None else c) * sample.dep / sample.p
+    if med.c is None:
+        return ratio, np.full(sample.dep.shape, np.nan)
+    if estimator == MEDIAN:
+        ratio = med.c * sample.dep / sample.p
+    return ratio, np.abs(med.c * sample.dep - sample.p) / sample.p
+
+
 def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: FilterSpec,
-            coord_system: str = "lab") -> ResolutionScaling:
-    """Every series of the selection: the detector's per shower and the model's where it exists."""
+            coord_system: str = "lab", estimator: str = DEFAULT_ESTIMATOR) -> ResolutionScaling:
+    """Every series of the selection, under one estimator: the detector's per shower and the model's."""
     if coord_system not in ddl.COORD_SYSTEMS:
         raise ValidationError(
             f"coord_system must be one of {', '.join(ddl.COORD_SYSTEMS)}; got {coord_system!r}.",
             field="coord_system")
+    check_estimator(estimator)
     caps = capabilities.of(record)
     axis = performance_bins.dataset_axis(con, record)
     nominal = nominal_anchors(axis)
     columns = showers_mod.of(record, "both")
     samples = response.fetch(con, record, spec, columns)
     calibrations = {s.key: response.calibrate(s) for s in samples}
+    medians = {s.key: median_calibration(s) for s in samples}
     labels, shower_note = _shower_labels(con, record, spec, caps, columns)
     model, model_series, run = _model_series(con, record, spec, caps, coord_system, labels,
-                                             axis, nominal)
+                                             axis, nominal, estimator)
     series: list[Series] = []
-    for sample in samples:
-        # A selection that deposited nothing has no c; its R are all zero either way, and
-        # σ/μ, the only plotted number, does not depend on c.
-        c = calibrations[sample.key].c.value
-        ratio = (1.0 if c is None else c) * sample.dep / sample.p
+    for shower_index, sample in enumerate(samples):
+        ratio, relative = _deposit_inputs(sample, calibrations[sample.key], medians[sample.key],
+                                          estimator)
         series.append(build_series(
             SOURCE_DETECTOR, sample.key, labels[sample.key], DETECTOR_LABEL, SOURCE_DETECTOR,
             ratio, sample.p, sample.bin, axis, nominal,
+            estimator=estimator, relative=relative,
+            seed=(median_mod.BOOTSTRAP_SEED, DEPOSIT_FRAME_INDEX, shower_index),
             n_dropped=sample.n_dropped, n_absent=sample.n_absent))
         if sample.key in model_series:
             series.append(model_series[sample.key])
@@ -1085,4 +2020,5 @@ def compute(con: duckdb.DuckDBPyConnection, record: ExperimentRecord, spec: Filt
         calibrations=calibrations, model=model, coord_system=coord_system,
         n_events=max((s.n_selected for s in samples), default=0),
         undefined_d=left_out or 0, shower_note=shower_note, run=run,
+        estimator=estimator, medians=medians,
     )

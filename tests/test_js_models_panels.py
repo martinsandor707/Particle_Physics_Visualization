@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import html
 import json
+from decimal import ROUND_HALF_UP, Decimal
 import math
 import statistics
 import re
@@ -4145,3 +4146,950 @@ def test_res_a_wide_linear_band_is_drawn_as_its_edges(out):
     assert "Shower B · Energy network · absolute frame, affine fit a/√E + b (S = 1.5, ν = 1, q = 12.71)" in listed
     assert o["hazards"] == o["hazardsBase"], "no hazard of its own"
     assert out["resMisfit"]["xSpans"] == [pytest.approx([1 / 20 ** 0.5, 1 / 5 ** 0.5]), pytest.approx([0.4472136, 0.5]), None, None]
+
+
+# ------------------------------------------- res-scaling: the three estimators --
+# Martin's decisions of 2026-11-12 (brief section 4): an Estimator control, Median |rel. err.| by default, Robust σ
+# (IQR) and Sample σ/μ. The window tooltips name the plotted value with its interval and weight, the median
+# response, the two estimators not plotted and the tail share; the median's literature disclosure appears in the E
+# view's note band, every literature-curve tooltip, every ratio tooltip against a literature curve and the drawer,
+# and the Details hazard "median rel. against σ/E curve" with it, exactly there and never under robust or sample;
+# perf-bins' energy Median rel. reconciles itself with the card.
+
+RES_KINDS = ["two", "xgb", "single_hits", "single_events"]
+RES_EST = {**{f"res_scaling_median_{k}": "median" for k in RES_KINDS},
+           **{f"res_scaling_robust_{k}": "robust" for k in RES_KINDS},
+           **{f"res_scaling_{k}": "sample" for k in RES_KINDS}}
+#: The E view's literature states: none, either curve, both (the card's default).
+RES_LIT = {"none": [], "pi": ["pi"], "e": ["e"], "both": ["pi", "e"]}
+PERF_ALL = ["perf_two_energy", "perf_two_angle", "perf_xgb_energy", "perf_xgb_angle"]
+RES_HAZARD = "median rel. against σ/E curve"
+#: brief-fix.md (R-ui n5), verbatim: it names the card's section, whose card is titled by its estimator.
+PERF_RECONCILIATION = ("Median rel. is median |pred − true| / true, not a σ: for unbiased Gaussian errors it is "
+                       "0.6745·σ/E. The card of the Energy resolution section plots the same number by default "
+                       "(Median |rel. err.|) and offers a robust σ/E (IQR) of the same showers for a σ-scaled comparison.")
+#: The tooltip takes the first sentence only.
+PERF_NOT_SIGMA = PERF_RECONCILIATION[:PERF_RECONCILIATION.index(" The card of the Energy resolution section")]
+
+_EST_BODY = r"""
+const est = { fixtures: {}, perf: {} };
+const RE = { width: 760, height: 600 };
+const LW = { width: 760, height: 420 };
+const packN = (n) => (n ? { title: n.title, hazards: n.hazards, headings: n.sections.map((s) => s.heading),
+  sections: Object.fromEntries(n.sections.map((s) => [s.heading, s.lines])) } : null);
+// Every tooltip of an option, by series: its name, its grid (0 the main panel, 1 the ratio panel) and its texts.
+const tipsOf = (o) => o.series.map((s) => ({ name: s.name ?? '', id: s.id ?? null, grid: s.xAxisIndex ?? 0,
+  tips: (s.data ?? []).map((d, i) => (typeof s.tooltip?.formatter === 'function'
+    ? s.tooltip.formatter({ dataIndex: i, value: Array.isArray(d) ? d : d?.value }) : null)).filter(Boolean) }));
+const graphicsOf = (o) => (o.graphic ?? []).map((g) => g.style?.text).filter(Boolean);
+// The fit table's caption and every cell, the windows column included.
+const tableOf = (t) => (t ? [t.caption, ...t.rows.flatMap((r) => [r.label, r.windows, ...r.fits.flatMap((f) => f.cells)])] : []);
+const pointsOf = (m, tip) => m.series.flatMap((s) => s.points.map((p) => ({ key: s.key, source: s.raw.source, shower: s.raw.shower ?? null,
+  bin: p.w.bin, n: p.w.n, tip: tip(m, s, p) })));
+for (const [name, estimator] of Object.entries(%(est)s)) {
+  const payload = load(name);
+  const entry = { linear: {}, energy: {} };
+  for (const windows of ['anchors', 'all']) {
+    const opts = { windows, shower: 'both', estimator, palette: 'viridis', card: 'res-scaling' };
+    const opt = rs.resolutionScalingOption(payload, opts, LW);
+    entry.linear[windows] = {
+      points: pointsOf(rs.resolutionModel(payload, opts), rs.pointTip), series: tipsOf(opt), graphics: graphicsOf(opt),
+      notes: packN(mn.resolutionScalingNotes({ payload, windows, shower: 'both' })),
+      hazards: mn.modelsHazards(payload, 'res-scaling', { windows, shower: 'both', view: 'linear', literature: ['pi', 'e'] }),
+      table: tableOf(rs.fitTableRows(payload, { windows, shower: 'both' })),
+    };
+    for (const [lit, literature] of Object.entries(%(lit)s)) {
+      const eo = { view: 'energy', windows, shower: 'both', literature, estimator, palette: 'viridis', card: 'res-scaling' };
+      const model = rs.energyModel(payload, eo);
+      const built = rs.energyViewOption(payload, eo, RE).option;
+      entry.energy[`${windows}:${lit}`] = {
+        warning: model.noteText.warning, reference: model.reference.key, nLiterature: model.literature.length,
+        graphics: graphicsOf(built), series: tipsOf(built),
+        literatureTips: model.literature.map((l) => rs.literatureTip(model, l)),
+        ratioTips: model.series.flatMap((s) => s.points.filter((p) => p.ratio.drawn).map((p) => rs.ratioPointTip(model, s, p))),
+        pointTips: pointsOf(model, rs.energyPointTip),
+        notes: packN(mn.resolutionScalingNotes({ payload, view: 'energy', windows, shower: 'both', literature })),
+        hazards: mn.modelsHazards(payload, 'res-scaling', { view: 'energy', windows, shower: 'both', literature }),
+        table: tableOf(rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both' })),
+      };
+    }
+  }
+  est.fixtures[name] = entry;
+}
+// perf-bins: every quantity of every task, its tooltips and its drawer.
+for (const name of %(perf)s) {
+  const payload = load(name);
+  est.perf[name] = Object.fromEntries(perf.perfQuantities(payload).map((q) => {
+    const m = perf.perfModel(payload, { quantity: q.key });
+    return [q.key, { task: m.model, energyMedian: perf.isEnergyMedianRel(m),
+      tips: m.series.flatMap((x) => x.points.map((pt) => perf.perfTip(m, x, pt))),
+      notes: packN(mn.perfBinsNotes({ payload, quantity: q.key })) }];
+  }));
+}
+est.perfConsts = { notSigma: perf.MEDIAN_REL_NOT_SIGMA, reconciliation: perf.MEDIAN_REL_RECONCILIATION };
+est.decomposition = { panel: rs.RES_DECOMPOSITION ?? null, notes: mn.RES_DECOMPOSITION ?? null };
+console.log(JSON.stringify(est));
+"""
+
+
+@pytest.fixture(scope="module")
+def est() -> dict:
+    """The estimator harness: the panel's helpers and builders of `_SCRIPT`, then `_EST_BODY`."""
+    prelude = _script()
+    prelude = prelude[:prelude.index("const out = { perf")]
+    body = _EST_BODY % {"est": json.dumps(RES_EST), "lit": json.dumps(RES_LIT), "perf": json.dumps(PERF_ALL)}
+    args = json.dumps([JS.as_uri(), str(FIXTURES)])
+    done = subprocess.run([NODE, "--input-type=module", "-e", prelude + body, args],
+                          capture_output=True, text=True, timeout=180, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _js_round(v: float, d: int) -> tuple[Decimal, int]:
+    """JavaScript's `toPrecision(d)`: the exact binary value rounded half away from zero (Python's format rounds
+    half to even, so 216.5 is "216" there and "217" here), as (mantissa in [1, 10), exponent)."""
+    x = Decimal(v)
+    exponent = x.copy_abs().adjusted()
+    quantum = Decimal(1).scaleb(1 - d)
+    m = x.scaleb(-exponent).quantize(quantum, rounding=ROUND_HALF_UP)
+    if abs(m) >= 10:
+        m, exponent = (m / 10).quantize(quantum, rounding=ROUND_HALF_UP), exponent + 1
+    return m, exponent
+
+
+def _sf(v: float, d: int = 3) -> str:
+    """chart_panel.js `sigFigs(v, d)`: plain from 10⁻³ to 10⁵, else m×10ⁿ; U+2212 for a negative."""
+    if v == 0:
+        return "0"
+    m, exponent = _js_round(v, d)
+    if 1e-3 <= abs(v) < 1e5:
+        text = f"{float(m.scaleb(exponent)):.15g}"
+    else:
+        text = f"{float(m):g}×10{str(exponent).translate(_SUPERSCRIPT)}"
+    return text.replace("-", "−")
+
+
+def _pc(v) -> str:
+    """The panel's percent: three significant figures and %, or an em dash."""
+    return "—" if v is None else f"{_sf(v)}%"
+
+
+def _signed_pc(v: float) -> str:
+    return f"{'+' if v > 0 else ''}{_sf(v)}%"
+
+
+def _windows(payload: dict) -> dict:
+    return {(s["key"], w["bin"]): w for s in payload["series"] for w in s["windows"]}
+
+
+def _warning() -> str:
+    return _load("res_scaling_median_two")["estimator"]["literature"]["warning"]
+
+
+def _every_text(entry: dict):
+    """Every tooltip, canvas text, fit-table caption and cell, and drawer line one fixture's harness entry produced."""
+    for view in ("linear", "energy"):
+        for e in entry[view].values():
+            for s in e["series"]:
+                yield from s["tips"]
+            yield from e["graphics"]
+            yield from e.get("table", [])
+            yield from (p["tip"] for p in e.get("points", e.get("pointTips", [])))
+            yield from e.get("literatureTips", [])
+            yield from e.get("ratioTips", [])
+            for lines in e["notes"]["sections"].values():
+                yield from lines
+            yield e["notes"]["title"]
+
+
+def test_res_est_the_median_fixtures_carry_the_disclosure_and_the_others_none():
+    for name, estimator in RES_EST.items():
+        block = _load(name)["estimator"]
+        assert block["name"] == estimator
+        assert block["literature"]["drawn"] is True
+        assert (block["literature"]["warning"] is not None) == (estimator == "median"), name
+    assert _warning().startswith("Note: comparing Median |rel. err.| against a σ/E literature curve")
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_value_line_names_the_estimator_and_its_interval(est, name):
+    """Median: "Median rel. = …, 95% bootstrap interval […]", order-statistic below N = 20 by the window's own
+    method; robust: "Robust σ/E = …, 95% bootstrap interval […]"; sample: the χ² interval, as ever."""
+    estimator = RES_EST[name]
+    windows = _windows(_load(name))
+    points = [p for v in est["fixtures"][name]["linear"].values() for p in v["points"]]
+    assert points
+    for p in points:
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        ci = w["ci95"] if w["ci95"] and all(x is not None for x in w["ci95"]) else None
+        if estimator == "median":
+            interval = {"order_statistic": "order-statistic", "bootstrap_percentile": "bootstrap"}[w["method"]] if ci else None
+            line = f"Median rel. = {_pc(w['value'])}" + (f", 95% {interval} interval [{_pc(ci[0])}, {_pc(ci[1])}]" if ci else "")
+        elif estimator == "robust":
+            assert w["method"] == "bootstrap_percentile" and ci
+            line = f"Robust σ/E = {_pc(w['value'])}, 95% bootstrap interval [{_pc(ci[0])}, {_pc(ci[1])}]"
+        else:
+            line = f"σ/E = {_pc(w['value'])}" + (f", 95% χ² interval [{_pc(ci[0])}, {_pc(ci[1])}]" if ci else "")
+        assert line in tip, (name, p["key"], p["bin"], tip)
+        if estimator != "sample":
+            lines = [_plain(x) for x in p["tip"].split("<br/>")]
+            assert not any(x.startswith("σ/E = ") for x in lines), "no σ/E value line under the median or robust width"
+
+
+def test_res_est_the_median_quotes_its_order_statistic_interval_below_n_twenty(est):
+    """The order-statistic branch is exercised: a median window of 6 ≤ N < 20 names it."""
+    seen = 0
+    for name, estimator in RES_EST.items():
+        if estimator != "median":
+            continue
+        windows = _windows(_load(name))
+        for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+            w = windows[(p["key"], p["bin"])]
+            if w["method"] == "order_statistic":
+                assert w["n"] < 20 and "95% order-statistic interval [" in _plain(p["tip"])
+                seen += 1
+            elif w["method"] == "bootstrap_percentile":
+                assert w["n"] >= 20 and "95% bootstrap interval [" in _plain(p["tip"])
+    assert seen > 0
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_se_line_names_the_weight(est, name):
+    """Under the median and robust widths (brief-fix F1, F3): the bootstrap SE with its measured κ and the series'
+    pooled scale c of the weight se = c·ŷ/√N, or, for a tied window (κ below the floor), the SE and "no fit weight";
+    never a window's own κ applied at the fitted value. The delta-method SE under the sample width, as ever."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    assert payload["estimator"]["weight"]["method"] == ("delta" if estimator == "sample" else "kappa")
+    windows = _windows(payload)
+    scale = {s["key"]: s["weight_scale"] for s in payload["series"]}
+    for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        if estimator == "sample":
+            assert w["se_rel"] is None and scale[p["key"]] is None
+            if w["se_delta"] is not None:
+                assert (f"delta-method SE {_pc(w['se_delta'])} (R̄'s error included): the fit weight 1/se², "
+                        "recomputed at the fitted value") in tip
+            assert "κ =" not in tip and "bootstrap SE" not in tip
+        else:
+            assert w["se_delta"] is None and "delta-method" not in tip
+            ws = scale[p["key"]]
+            assert ws is not None and set(ws) == {"c", "n_windows", "rule"}
+            assert "applied at the fitted value" not in tip and "its relative SE κ" not in tip
+            if w["se"] is None:
+                assert "bootstrap SE" not in tip
+            elif w["se_rel"] is None:
+                assert f"bootstrap SE {_pc(w['se'])}: below 10⁻⁶ of the value (tied replicates), so no fit weight" in tip
+                assert "κ =" not in tip
+            elif ws["c"] is not None:
+                assert (f"bootstrap SE {_pc(w['se'])} (κ = {_sf(100 * w['se_rel'])}%); fit weight se = c·ŷ/√N, "
+                        f"c = {_sf(ws['c'])} for this series") in tip, (name, p["key"], p["bin"], tip)
+            else:
+                assert (f"bootstrap SE {_pc(w['se'])} (κ = {_sf(100 * w['se_rel'])}%); no fit weight: no window of this "
+                        "series from 4 GeV carries one, so it has no pooled scale c") in tip, (name, p["key"], p["bin"], tip)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_cross_references_and_the_tail_share(est, name):
+    """The signed median response (R-ui n2), the two estimators not plotted in the brief's order (robust, sample,
+    median; the deposit's median under c̃), and the share beyond 3 robust σ against 0.27% for a large Gaussian
+    sample, reported from N = 300 only (brief-fix F5) and never where the IQR is 0 (F6)."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    windows = _windows(payload)
+    cal = payload["estimator"]["calibration"]["showers"]
+    tail_min_n = payload["gates"]["tail_min_n"]
+    assert tail_min_n == 300
+    names = [("robust", "Robust σ/E"), ("sample", "sample σ/μ"), ("median", "median rel.")]
+    signed = lambda v: "—" if v is None else _signed_pc(v)   # noqa: E731
+    for p in (p for v in est["fixtures"][name]["linear"].values() for p in v["points"]):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        if estimator == "sample":
+            if w["median_response"] is not None:
+                assert f"median response R̃ − 1 = {signed(w['median_response'])}" in tip
+        elif w["median_response"] is not None or w["bias"] is not None:
+            assert f"median response R̃ − 1 = {signed(w['median_response'])}; mean bias R̄ − 1 = {signed(w['bias'])}" in tip
+        if w["median_response"] is not None and w["median_response"] > 0:
+            assert f"R̃ − 1 = +{_sf(w['median_response'])}%" in tip, "a positive median response carries its sign"
+        parts = []
+        for key, label in names:
+            if key == estimator:
+                continue
+            v = w["alt"].get(key)
+            c_median = cal.get(p["shower"] or "a", {}).get("c_median")
+            if v is not None:
+                parts.append(f"{label} {_pc(v)}" + (f" (c̃·E_dep, c̃ = {_sf(c_median)})"
+                                                    if key == "median" and p["source"] == "detector" and c_median is not None else ""))
+            elif key == "robust" and w["n"] < 20:
+                parts.append(f"{label} not reported below N = 20, the robust floor")
+            else:
+                parts.append(f"{label} not reported")
+        assert f"Not plotted: {'; '.join(parts)}" in tip, (name, p["key"], p["bin"], tip)
+        assert "(0.27% for a Gaussian)" not in tip and "share of events beyond 3 robust σ not reported below N = 20" not in tip
+        if w["tail_share"] is not None:
+            assert w["n"] >= tail_min_n
+            assert f"{_pc(w['tail_share'])} of events beyond 3 robust σ (0.27% for a large Gaussian sample)" in tip
+        elif w["n"] < tail_min_n:
+            assert ("share beyond 3 robust σ not reported below N = 300: a Gaussian sample of fewer events exceeds "
+                    "0.27% by chance") in tip, (name, p["key"], p["bin"], tip)
+        else:
+            assert ("share beyond 3 robust σ not reported: the window's IQR is 0, so there is no robust σ to "
+                    "measure it in") in tip, (name, p["key"], p["bin"], tip)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_median_names_its_parity_and_the_deposits_median_calibration(est, name):
+    """Under the median a model window is perf-bins' own Median rel. and the deposit is c̃·E_dep; under the two σ
+    widths neither line appears."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    cal = payload["estimator"]["calibration"]["showers"]
+    parity = "the Median rel. of Model Error vs. Incident Momentum: the same events, seed and interval"
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            for p in e.get("points", e.get("pointTips")):
+                tip = _plain(p["tip"])
+                deposit = p["source"] == "detector"
+                assert (parity in tip) == (estimator == "median" and not deposit), (name, p["key"])
+                c = cal[p["shower"] or "a"]
+                line = (f"c̃·E_dep with the median calibration c̃ = {_sf(c['c_median'])} "
+                        f"(the ratio of sums c = {_sf(c['c_sum'])})")
+                assert (line in tip) == (estimator == "median" and deposit), (name, p["key"])
+                assert ("median calibration" in tip) == (estimator == "median" and deposit)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_literature_disclosure_is_exactly_where_the_brief_puts_it(est, name):
+    """Under the median with a curve on: one line of the note band, every literature curve's tooltip, every
+    tooltip of the ratio panel (whose reference is then a literature curve). Nowhere else, never on the 1/√E view
+    and never under robust or sample."""
+    estimator = RES_EST[name]
+    warning = _warning()
+    entry = est["fixtures"][name]
+    payload = _load(name)
+    for key, e in entry["energy"].items():
+        windows, lit = key.split(":")
+        on = estimator == "median" and lit != "none"
+        # With no curve on, the ratio divides by each shower's deposit fit; a deposit whose windows
+        # tie (stats/robust_width.KAPPA_FLOOR, the synthetic median recording) has none, and then no
+        # ratio mark exists: the drawer says so instead.
+        deposit_fitted = any(s["source"] == "detector" and any(s["fits"][windows][f] for f in ("quadrature", "pinned"))
+                             for s in payload["series"])
+        assert e["warning"] == (warning if on else "")
+        assert sum(g.replace("\n", " ") == warning for g in e["graphics"]) == (1 if on else 0), key
+        assert all(warning not in g for g in e["graphics"] if g.replace("\n", " ") != warning)
+        assert e["reference"] == ("deposit" if lit == "none" else e["reference"]) and (lit == "none") == (e["reference"] == "deposit")
+        assert e["nLiterature"] == len(RES_LIT[lit]) and len(e["literatureTips"]) == len(RES_LIT[lit])
+        for tip in e["literatureTips"]:
+            assert (warning in tip) == on
+        # Robust declines a single-shower series' one fittable window (brief-fix F4): the 3-anchor mode then draws
+        # no window at all, and the view is its empty state (test_res_fix3_the_robust_decline_is_said_…).
+        drawn = bool(e["pointTips"])
+        assert bool(e["ratioTips"]) == (drawn and (lit != "none" or deposit_fitted)), key
+        for tip in e["ratioTips"]:
+            assert (warning in tip) == on
+        main = [s for s in e["series"] if s["grid"] == 0]
+        ratio = [s for s in e["series"] if s["grid"] == 1]
+        lit_series = [s for s in main if re.match(r"^(π±|e±) lit\.", s["name"])]
+        assert bool(lit_series) == (drawn and lit != "none")
+        for s in main:
+            for tip in s["tips"]:
+                assert (warning in tip) == (on and s in lit_series), (key, s["name"])
+        if drawn:
+            assert any(s["tips"] for s in ratio)   # the 1.0 rule's own tip at least
+        else:
+            assert not ratio and not main, key
+        for s in ratio:
+            for tip in s["tips"]:
+                assert (warning in tip) == on, (key, s["name"])
+    for e in entry["linear"].values():
+        assert not any(warning in t for s in e["series"] for t in s["tips"]) and not any(warning in g for g in e["graphics"])
+        assert not any(warning in p["tip"] for p in e["points"])
+    if estimator != "median":
+        assert not any("Note: comparing" in t for t in _every_text(entry))
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_the_unity_rule_names_only_a_reference_that_exists(est, name):
+    """The ratio panel's 1.0 rule says what it divides by, and never a deposit fit that does not exist. Under the
+    deposit reference a shower whose deposit has no fit in the mode is named with its reason, word for word as the
+    drawer's Disclosures name it; with no shower fitted the rule is the axis's centre with nothing to divide by.
+    (F-jstests' nit, fixed by the lead on 2026-11-12: the tied median deposits and the robust single-shower
+    all-windows view had a rule saying "equal to the reference: each shower's deposit fit".)"""
+    entry = est["fixtures"][name]
+    showers = {s["shower"] for s in _load(name)["series"]}
+    seen_missing = False
+    for key, e in entry["energy"].items():
+        lit = key.split(":")[1]
+        unity = [t for s in e["series"] if s["grid"] == 1 and s["name"] == "ratio = 1" for t in s["tips"]]
+        if not e["pointTips"]:
+            assert not unity, key                  # the empty state draws no panel at all
+            continue
+        (tip,) = unity
+        tip = _plain(tip)
+        missing = [line for line in e["notes"]["sections"].get("Disclosures", []) if " has no ratio marks: " in line]
+        if lit != "none":
+            assert not missing, key                # a literature curve is defined everywhere on the axis
+        assert [line for line in missing if line not in tip] == [], key
+        assert tip.count(" has no ratio marks: ") == len(missing), key
+        nothing = lit == "none" and len(missing) == len(showers)
+        assert ("no reference to divide by" in tip) == nothing, key
+        assert ("equal to the reference: " in tip) == (not nothing), key
+        seen_missing |= bool(missing)
+    # The recordings that reach it: the tied median deposits of the two-shower recording (KAPPA_FLOOR), and robust's
+    # single-shower series, declined through one fittable window (brief-fix F4).
+    assert seen_missing == (name in {"res_scaling_median_two", "res_scaling_robust_single_hits",
+                                     "res_scaling_robust_single_events"}), name
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_median_hazard_sits_beside_no_interval_reported(est, name):
+    """modelsHazards: "median rel. against σ/E curve" when the estimator is the median, the view is E and a curve
+    is on; "no interval reported" whenever a curve is on; the drawer carries the same list."""
+    estimator = RES_EST[name]
+    entry = est["fixtures"][name]
+    for key, e in entry["energy"].items():
+        on = key.split(":")[1] != "none"
+        assert (RES_HAZARD in e["hazards"]) == (estimator == "median" and on), key
+        assert ("no interval reported" in e["hazards"]) == on
+        assert e["notes"]["hazards"] == e["hazards"]
+        if RES_HAZARD in e["hazards"]:
+            assert e["hazards"].index(RES_HAZARD) == e["hazards"].index("no interval reported") + 1
+    for e in entry["linear"].values():
+        assert RES_HAZARD not in e["hazards"] and RES_HAZARD not in e["notes"]["hazards"]
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_says_the_disclosure_in_the_e_view_only_under_the_median(est, name):
+    estimator = RES_EST[name]
+    warning = _warning()
+    entry = est["fixtures"][name]
+    for key, e in entry["energy"].items():
+        on = estimator == "median" and key.split(":")[1] != "none"
+        dis = e["notes"]["sections"]["Disclosures"]
+        assert dis.count(warning) == (1 if on else 0), key
+        assert all(warning not in line for heading, lines in e["notes"]["sections"].items() for line in lines
+                   if not (heading == "Disclosures" and line == warning))
+    for e in entry["linear"].values():
+        assert not any(warning in line for lines in e["notes"]["sections"].values() for line in lines)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_names_the_estimator_its_interval_and_weight(est, name):
+    """Selection names the estimator; What is drawn the fit weight (κ or delta method); the legend the whisker by
+    the payload's interval label; the relation sentence under the median and robust widths, never converting."""
+    estimator = RES_EST[name]
+    block = _load(name)["estimator"]
+    entry = est["fixtures"][name]
+    titles = {"median": ("Median Relative Error vs. 1/√E", "Median Relative Error vs. E"),
+              "robust": ("Energy Resolution vs. 1/√E", "Energy Resolution vs. E"),
+              "sample": ("Energy Resolution vs. 1/√E", "Energy Resolution vs. E")}[estimator]
+    for view, title in zip(("linear", "energy"), titles):
+        for e in entry[view].values():
+            n = e["notes"]
+            s = n["sections"]
+            assert n["title"] == title
+            assert f"Estimator: {block['label']}." in s["Selection"]
+            drawn = " ".join(s["What is drawn"])
+            text = " ".join(line for lines in s.values() for line in lines)
+            # The 1/√E view words the weight law in its fits sentence; both views carry the payload's weight label
+            # under the median and robust widths.
+            if estimator == "sample":
+                assert ("delta-method standard error of σ/μ" in drawn) == (view == "linear") and "κ" not in drawn
+            else:
+                assert ("se = c·ŷ/√N with c the series' pooled scale (below)" in drawn) == (view == "linear")
+                assert "se = κ·ŷ" not in text and "window's bootstrap relative standard error" not in text
+                assert block["weight"]["label"].rstrip(".") in drawn
+                assert "delta-method" not in text and "χ² whisker" not in text
+                assert block["interval"]["label"].rstrip(".") in " ".join(s["Marks and legend"])
+                rel = [line for line in s["Disclosures"] if line.startswith(block["relation"])]
+                assert len(rel) == 1
+                # Alone on the 1/√E view; on the E view with the MAE/E sentence and what the card plots.
+                if view == "linear":
+                    assert rel[0] == block["relation"]
+                else:
+                    assert "MAE/E is not σ/E either" in rel[0]
+                    assert rel[0].endswith("This card plots the median relative error and never converts it into σ/E." if estimator == "median"
+                                           else "This card plots the robust width IQR(R) / (1.349 · median R) and never converts one into another.")
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_gives_c_tilde_beside_c_sum_under_the_median(est, name):
+    estimator = RES_EST[name]
+    showers = _load(name)["estimator"]["calibration"]["showers"]
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            dis = e["notes"]["sections"]["Disclosures"]
+            for key, c in showers.items():
+                owner = f"Shower {key.upper()}" if len(showers) > 1 else "The deposit"
+                line = f"{owner}: c̃ = {_sf(c['c_median'], 6)} beside c_sum = {_sf(c['c_sum'], 6)} ("
+                assert any(x.startswith(line) for x in dis) == (estimator == "median"), (view, owner)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_counts_the_windows_below_the_robust_floor(est, name):
+    """Under the robust width only: the windows of 2 ≤ N < 20, which have no value, counted over the series on show."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    below = sum(1 for s in payload["series"] for w in s["windows"] if 2 <= (w["n"] or 0) < 20 and w["value"] is None)
+    for view in ("linear", "energy"):
+        for e in est["fixtures"][name][view].values():
+            lines = [x for x in e["notes"]["sections"]["Disclosures"] if "below its floor of N = 20" in x]
+            if estimator != "robust":
+                assert not lines
+                continue
+            many = below != 1
+            assert lines == [f"{below} window{'s' if many else ''} of 2 ≤ N < 20 {'have' if many else 'has'} no Robust σ/E, "
+                             "below its floor of N = 20 (the CLAUDE.md robust floor), "
+                             f"so {'they are' if many else 'it is'} not drawn; Sample σ/μ reports {'them' if many else 'it'} from N = 2."]
+    if estimator == "robust" and name.endswith("_two"):
+        assert below > 0, "the two-shower fixture holds windows below the floor"
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_est_the_drawer_gives_each_model_series_median_response_range(est, name):
+    estimator = RES_EST[name]
+    payload = _load(name)
+    models = [s for s in payload["series"] if s["source"] != "detector"]
+    tail = {"median": "The median relative error divides nothing out, so this bias is part of the plotted value there.",
+            "robust": "The robust width divides the bias out, so it does not enter the plotted value, though the narrowing does.",
+            "sample": "The sample width divides the bias out, so it does not enter the plotted value, though the narrowing does."}[estimator]
+    for view in ("linear", "energy"):
+        for key, e in est["fixtures"][name][view].items():
+            mode = key.split(":")[0]
+            dis = e["notes"]["sections"]["Disclosures"]
+            for s in models:
+                r = s["median_response_range"][mode]
+                mode_text = "the 3-anchor mode" if mode == "anchors" else "the all-windows mode"
+                line = (f"{s['label']}: the median response R̃ − 1 runs from {_signed_pc(r[0])} to {_signed_pc(r[1])} "
+                        f"over the fitted windows of {mode_text}." if r else
+                        f"{s['label']}: no median response range, fewer than two fitted windows of {mode_text}.")
+                assert line in dis, (view, key, line)
+            bounded = [x for x in dis if x.startswith("A regressor trained on a bounded momentum range")]
+            assert len(bounded) == (1 if models else 0)
+            if models:
+                assert bounded[0].endswith(tail)
+
+
+def test_res_est_no_rendered_number_uses_an_ascii_hyphen(est):
+    for entry in est["fixtures"].values():
+        _no_hyphen_numbers(_every_text(entry))
+    for quantities in est["perf"].values():
+        for q in quantities.values():
+            _no_hyphen_numbers(q["tips"])
+            _no_hyphen_numbers(line for lines in q["notes"]["sections"].values() for line in lines)
+
+
+def test_perf_the_median_rel_reconciliation_is_the_briefs_sentence(est):
+    assert est["perfConsts"] == {"notSigma": PERF_NOT_SIGMA, "reconciliation": PERF_RECONCILIATION}
+
+
+@pytest.mark.parametrize("name", PERF_ALL)
+def test_perf_the_energy_median_rel_says_it_is_not_a_sigma_and_never_the_angle_task(est, name):
+    """The tooltip line on every bar of the energy task's Median rel. and the drawer's last Estimators line; no
+    other quantity and never the angle task, whose relative error is not an energy's."""
+    quantities = est["perf"][name]
+    assert "median_rel" in quantities
+    energy = not name.endswith("_angle")
+    for key, q in quantities.items():
+        mine = key == "median_rel" and energy
+        assert q["energyMedian"] is mine and (q["task"] == "angle") is (not energy)
+        assert q["tips"]
+        for tip in q["tips"]:
+            assert (PERF_NOT_SIGMA in _plain(tip)) is mine, (key, tip)
+        lines = q["notes"]["sections"]["Estimators"]
+        assert lines.count(PERF_RECONCILIATION) == (1 if mine else 0)
+        if mine:
+            assert lines[-1] == PERF_RECONCILIATION
+        assert not any(PERF_NOT_SIGMA in line for line in lines if line != PERF_RECONCILIATION)
+
+
+# ------------------------------------------------- res-robust fix round: the review's coverage gaps (R-ui)
+# Each pin below failed on the pre-fix wording (017c845's panel, notes and fixtures) and passes on the fix round's.
+#
+# - No bare "σ/E" names the plotted value under the median (R-ui M2), in any drawer line, tooltip, canvas text, note
+#   band or fit-table caption or cell. Allowed: the literature equations, the payload's relation sentence, the MAE/E
+#   sentence, the server's definition sentence that contrasts the two, the literature disclosure and the name
+#   "Robust σ/E" of the robust estimator in a cross-reference.
+# - The tied, withheld and declined wording sits on exactly those windows and series (R-ui m2, brief-fix F3, F4, F7),
+#   and the robust drawer never says a window is faded (R-ui m1).
+# - The decomposition sentence, once per drawer under every estimator and view (R-ui M3).
+# - The pooled-scale line under median and robust, never under sample, its c the payload's (brief-fix F1).
+# - No role line says "holds too few events" for a substitution whose cause is not N (brief-fix F3).
+# - The robust single-shower 3-anchor empty state names the decline, in both views (brief-fix F4).
+
+#: brief-fix.md, "The drawer's decomposition sentence", verbatim.
+RES_DECOMPOSITION = (
+    "The three estimators differ for stated reasons: median|R − 1| is 0.6745 of a σ by definition and keeps the "
+    "response's bias, which the two widths divide out by centring on the median; the sample width also counts the "
+    "tails, which the robust width does not (each window's tooltip gives its share of events beyond 3 robust σ). "
+    "Methodology §2.4 measures the three factors on one window.")
+#: A literature curve's printed equation, the one σ/E a median text may carry as an equation.
+_LIT_EQUATION = re.compile(r"σ/E = \d+(?:\.\d+)?%/√E ⊕ \d+(?:\.\d+)?%")
+_MAE_SENTENCE = ("MAE/E is not σ/E either: for unbiased Gaussian errors MAE/E = √(2/π)·σ/E ≈ 0.798·σ/E, and MAE also "
+                 "carries the bias that σ(R)/μ(R) divides out.")
+#: substitutionWhy: the clause a stand-in anchor's role line gives for its nominal anchor, by the substitution's cause.
+_CAUSE_WORDS = {
+    "n": "which holds too few events for this series",
+    "tied": "which carries no fit weight: its bootstrap SE is below 10⁻⁶ of its value (tied replicates)",
+    "no_value": "which reports no {symbol}",
+    "withheld": "whose robust interval is withheld, so it carries no fit weight",
+    "no_se": "which has no positive standard error, so it carries no fit weight",
+    "off_axis": "which lies off the axis, below 4 GeV",
+}
+_WITHHELD_NOTE = ("Robust interval withheld: 61 of the 2,000 bootstrap replicates (3.0%) have a median R ≤ 0, more "
+                  "than 2.5%, and leaving them out would cut the interval's upper tail; no whisker, SE or fit weight.")
+_SYN_CAUSES = [c for c in _CAUSE_WORDS if c != "n"]
+
+
+def _synthetic_payloads() -> dict:
+    """The cases the recordings do not hold, each a copy of a recording with one thing changed:
+
+    - ``syn_robust_withheld``: one fitted, non-anchor window of the robust two-shower network A withheld (brief-fix
+      F7): value kept; ci95, SE, κ and method null; the server's withheld note; out of the all-windows fit;
+    - ``syn_median_tail``: on the median XGBoost recording's deposit, one window at N = 1,022 with a 4.31% tail share and one at
+      N = 400 with none (IQR = 0, brief-fix F6);
+    - ``syn_median_cause_<cause>``: the median two-shower recording with every stand-in anchor's substitution given
+      that cause, so each role line's clause is exercised."""
+    out = {}
+    robust = _load("res_scaling_robust_two")
+    s = next(x for x in robust["series"] if x["key"] == "network:a")
+    w = next(x for x in s["windows"] if x["bin"] in s["fits"]["all"]["points"]
+             and x["bin"] not in s["fits"]["anchors"]["points"] and x["n"] >= 20)
+    w.update(ci95=None, se=None, se_rel=None, method=None, dof_note=_WITHHELD_NOTE)
+    s["fits"]["all"]["points"] = [b for b in s["fits"]["all"]["points"] if b != w["bin"]]
+    out["syn_robust_withheld"] = robust
+    tail = _load("res_scaling_median_xgb")
+    s = next(x for x in tail["series"] if x["key"] == "detector:a")
+    big = [x for x in s["windows"] if x["n"] >= 20 and x["value"] is not None and not x.get("off_axis")]
+    big[0].update(n=1022, tail_share=4.31)
+    big[1].update(n=400, tail_share=None)
+    out["syn_median_tail"] = tail
+    for cause in _SYN_CAUSES:
+        payload = _load("res_scaling_median_two")
+        for s in payload["series"]:
+            for sub in s["fits"]["anchors"].get("substitutions") or []:
+                if sub["used"] is not None:
+                    sub["cause"] = cause
+        out[f"syn_median_cause_{cause}"] = payload
+    return out
+
+
+@pytest.fixture(scope="module")
+def syn(tmp_path_factory) -> dict:
+    """`_EST_BODY` over the synthetic payloads, written to a temporary fixture folder."""
+    payloads = _synthetic_payloads()
+    folder = tmp_path_factory.mktemp("res_fix3")
+    for name, payload in payloads.items():
+        (folder / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+    names = {name: name.split("_")[1] for name in payloads}
+    prelude = _script()
+    prelude = prelude[:prelude.index("const out = { perf")]
+    body = _EST_BODY % {"est": json.dumps(names), "lit": json.dumps(RES_LIT), "perf": json.dumps([])}
+    done = subprocess.run([NODE, "--input-type=module", "-e", prelude + body, json.dumps([JS.as_uri(), str(folder)])],
+                          capture_output=True, text=True, timeout=180, check=False)
+    assert done.returncode == 0, done.stderr
+    result = json.loads(done.stdout)
+    result["payloads"] = payloads
+    return result
+
+
+def _fix3_drawers(entry: dict):
+    """(view, key, notes) for every drawer one fixture's harness entry built."""
+    for view in ("linear", "energy"):
+        for key, e in entry[view].items():
+            yield view, key, e["notes"]
+
+
+def _fix3_lines(notes: dict) -> list[str]:
+    return [line for lines in notes["sections"].values() for line in lines]
+
+
+def _fix3_point_tips(entry: dict):
+    """(view, mode, point) for every drawn window's tooltip, both views."""
+    for view in ("linear", "energy"):
+        for key, e in entry[view].items():
+            for p in e.get("points", e.get("pointTips", [])):
+                yield view, key.split(":")[0], p
+
+
+def _fix3_roles(tip: str) -> list[str]:
+    return [line[len("Role: "):] for line in (_plain(x) for x in tip.split("<br/>")) if line.startswith("Role: ")]
+
+
+def _fix3_tied(w: dict) -> bool:
+    return w["se"] is not None and w["se_rel"] is None
+
+
+def _fix3_fittable(w: dict, gates: dict) -> bool:
+    """resolution_scaling.js `fittableWindow` off sample: N ≥ the fit gate, on the axis from 4 GeV, a value and a κ."""
+    return (w["n"] or 0) >= gates["fit_n"] and not w.get("off_axis") and (w.get("p_lo") or 0) >= gates["e_min_gev"] \
+        and w["value"] is not None and (w["se_rel"] or 0) > 0
+
+
+@pytest.mark.parametrize("name", [n for n, e in RES_EST.items() if e == "median"])
+def test_res_fix3_no_bare_sigma_e_names_the_median_value(est, name):
+    """R-ui M2: under Median |rel. err.| the plotted value is "median rel." everywhere it is named."""
+    block = _load(name)["estimator"]
+    allowed = [block["literature"]["warning"], block["relation"], _MAE_SENTENCE,
+               "This card plots the median relative error and never converts it into σ/E.",
+               "unlike σ/E the median relative error keeps", "Robust σ/E"]
+    texts = list(_every_text(est["fixtures"][name]))
+    assert any(t for t in texts)
+    for text in texts:
+        rest = _plain(text)
+        for phrase in allowed:
+            rest = rest.replace(phrase, "")
+        rest = _LIT_EQUATION.sub("", rest)
+        assert "σ/E" not in rest, (name, rest)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fix3_the_decomposition_sentence_is_once_in_every_drawer(est, name):
+    """R-ui M3: the brief-fix sentence, verbatim, once in the Disclosures of every drawer, every estimator and view."""
+    assert est["decomposition"] == {"panel": RES_DECOMPOSITION, "notes": RES_DECOMPOSITION}
+    for view, key, notes in _fix3_drawers(est["fixtures"][name]):
+        assert notes["sections"]["Disclosures"].count(RES_DECOMPOSITION) == 1, (view, key)
+        assert sum(RES_DECOMPOSITION in line for line in _fix3_lines(notes)) == 1, (view, key)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fix3_the_pooled_scale_line_gives_each_series_its_payload_c(est, name):
+    """brief-fix F1: one What-is-drawn line under median and robust names every series' c from `weight_scale`
+    (or says it has none); under sample no text speaks of a pooled scale."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    gates = payload["gates"]
+    lead = "The pooled scale c, one per series, cancels in the fitted parameters and sets only χ², S and the errors: "
+    if estimator == "sample":
+        assert all(s["weight_scale"] is None for s in payload["series"])
+        assert not any("pooled scale" in t or "c·ŷ/√N" in t for t in _every_text(est["fixtures"][name]))
+        return
+    for view, key, notes in _fix3_drawers(est["fixtures"][name]):
+        mine = [line for line in notes["sections"]["What is drawn"] if line.startswith(lead)]
+        assert len(mine) == 1 and sum(line.startswith(lead) for line in _fix3_lines(notes)) == 1, (view, key)
+        line = mine[0]
+        for s in payload["series"]:
+            ws = s["weight_scale"]
+            if ws["c"] is None:
+                assert ws["n_windows"] == 0
+                assert f"{s['label']}: none, no window from 4 GeV carries a fit weight, so no fit" in line, (view, key)
+                continue
+            strong = any(_fix3_fittable(w, gates) for w in s["windows"])
+            part = (f"{s['label']}: c = {_sf(ws['c'])} over {ws['n_windows']} window{'' if ws['n_windows'] == 1 else 's'}"
+                    + ("" if strong else " of N ≥ 8, since no window of N ≥ 20 carries a fit weight"))
+            assert part + (";" if s is not payload["series"][-1] else ".") in line, (view, key, part, line)
+            printed = re.search(re.escape(s["label"]) + r": c = ([\d.]+) over", line)
+            assert printed and float(printed.group(1)) == pytest.approx(ws["c"], rel=5e-3)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fix3_tied_wording_is_on_exactly_the_tied_windows(est, name):
+    """R-ui m2, brief-fix F3: a tied window (a bootstrap SE below 10⁻⁶ of its value) says so in its SE line and, at
+    N ≥ 20, in its role line, "drawn in the all-windows mode only"; no other window speaks of tied replicates. The
+    drawer names each series' tied windows of N ≥ 20 once, and never reprints the server's note of the same."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    windows = _windows(payload)
+    gates = payload["gates"]
+    entry = est["fixtures"][name]
+    role = ("not fitted: its bootstrap SE is below 10⁻⁶ of its value (tied replicates), so it carries no fit weight; "
+            "drawn in the all-windows mode only")
+    for view, mode, p in _fix3_point_tips(entry):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        tied = estimator != "sample" and _fix3_tied(w)
+        assert ("tied replicates" in tip) == tied, (view, mode, p["key"], p["bin"])
+        if tied:
+            assert "so no fit weight" in tip and "κ =" not in tip
+            assert _fix3_roles(p["tip"]) == [role] if w["n"] >= gates["fit_n"] and not w.get("off_axis") else True
+            assert mode == "all", "a tied window is drawn in the all-windows mode only"
+    tied_series = {s["label"]: [w["label"] for w in s["windows"]
+                                if estimator != "sample" and _fix3_tied(w) and w["n"] >= gates["fit_n"] and not w.get("off_axis")]
+                   for s in payload["series"]}
+    if name == "res_scaling_median_two":
+        assert sum(map(len, tied_series.values())) >= 10, "the recording holds the synthetic deposits' tied windows"
+    for view, key, notes in _fix3_drawers(entry):
+        dis = notes["sections"]["Disclosures"]
+        assert not any("tied values: the replicates differ by rounding alone" in line for line in _fix3_lines(notes)), (view, key)
+        for label, labels in tied_series.items():
+            mine = [line for line in dis if line.startswith(f"{label}: ") and "no fit weight: " in line and "tied replicates" in line]
+            if not labels:
+                assert not mine, (view, key, label)
+                continue
+            one = len(labels) == 1
+            assert mine == [f"{label}: {len(labels)} window{'' if one else 's'} of N ≥ 20 ({', '.join(labels)}) "
+                            f"{'carries' if one else 'carry'} no fit weight: {'its' if one else 'their'} bootstrap SE is "
+                            f"below 10⁻⁶ of {'its' if one else 'their'} value (tied replicates, which differ by rounding "
+                            f"alone), so {'it is' if one else 'they are'} drawn in the all-windows mode only, never fitted."], (view, key)
+
+
+def test_res_fix3_withheld_wording_is_on_exactly_the_withheld_window(syn):
+    """brief-fix F7: a robust window whose interval is withheld keeps its value, prints the server's note, is not
+    fitted for that reason and has no whisker for it, never for N; no other window says withheld. The drawer counts
+    it in the robust-floor line and, where the mode draws it, in its own line."""
+    name = "syn_robust_withheld"
+    payload = syn["payloads"][name]
+    entry = syn["fixtures"][name]
+    withheld = {(s["key"], w["bin"]) for s in payload["series"] for w in s["windows"] if w["dof_note"] == _WITHHELD_NOTE}
+    assert len(withheld) == 1
+    seen = 0
+    for view, mode, p in _fix3_point_tips(entry):
+        tip = _plain(p["tip"])
+        if (p["key"], p["bin"]) in withheld:
+            seen += 1
+            assert _WITHHELD_NOTE in tip
+            assert "Role: not fitted: its robust interval is withheld, so it carries no fit weight" in tip
+            assert ("No whisker: this window's robust interval is withheld (the note above says why); its value is drawn "
+                    "as a faded dashed ring.") in tip
+            assert "No whisker: N =" not in tip and "bootstrap SE" not in tip and "Robust σ/E = " in tip
+        else:
+            assert "withheld" not in tip, (view, mode, p["key"], p["bin"])
+    all_mode = sum(key.startswith("all") for view in ("linear", "energy") for key in entry[view])
+    assert seen == all_mode == 5, "drawn in every all-windows entry of both views, never in the 3-anchor mode"
+    for view, key, notes in _fix3_drawers(entry):
+        lines = _fix3_lines(notes)
+        floor = [line for line in lines if "below its floor of N = 20" in line]
+        assert len(floor) == 1 and floor[0].endswith(
+            " 1 window reports a Robust σ/E whose interval is withheld: more than 2.5% of its bootstrap replicates have "
+            "a median R ≤ 0, so no whisker, SE or fit weight."), (view, key)
+        own = [line for line in lines if line.startswith("1 window is drawn as a faded dashed ring with no whisker and not fitted: its robust interval is withheld")]
+        assert len(own) == (1 if key.startswith("all") else 0), (view, key)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fix3_withheld_and_declined_wording_is_absent_where_nothing_is(est, name):
+    """The recordings hold no withheld window, and only the robust single-shower ones a declined series."""
+    declined = name.startswith("res_scaling_robust_single")
+    for text in _every_text(est["fixtures"][name]):
+        t = _plain(text)
+        assert "interval is withheld" not in t and "Robust interval withheld" not in t
+        assert ("fits no line through fewer than two fittable windows, and only" in t) <= declined
+
+
+@pytest.mark.parametrize("name", ["res_scaling_robust_single_hits", "res_scaling_robust_single_events"])
+def test_res_fix3_the_robust_decline_is_said_in_the_empty_state_role_and_drawer(est, name):
+    """brief-fix F4: Robust σ (IQR) fits no line through its one fittable window. The 3-anchor mode then draws nothing,
+    and its empty state names the decline in both views (never "No window from 5 GeV reaches N = 20"); the
+    all-windows mode draws the window unfitted, its role line saying why; each drawer has one line for the series."""
+    payload = _load(name)
+    gates = payload["gates"]
+    entry = est["fixtures"][name]
+    (s,) = payload["series"]
+    assert all(not s["fits"][m]["points"] for m in ("anchors", "all"))
+    fittable = [w for w in s["windows"] if _fix3_fittable(w, gates) and (w["p_lo"] or 0) >= gates["anchor_low_gev"]]
+    assert len(fittable) == 1
+    w = fittable[0]
+    said = (f"Robust σ (IQR) fits no line through fewer than two fittable windows, and only {w['label']} "
+            f"(N = {w['n']:,}) is fittable here")
+    for view, all_name in (("linear", "All ≥ 4 GeV"), ("energy", "All windows")):
+        for key, e in entry[view].items():
+            mode = key.split(":")[0]
+            canvas = [g.replace("\n", " ") for g in e["graphics"]]
+            if mode == "anchors":
+                assert any(g.startswith(f'{said}: no fit, so the 3-anchor mode draws nothing. "{all_name}" draws it, unfitted.')
+                           for g in canvas), (view, key, canvas)
+                assert not any("reaches N = 20" in g for g in canvas)
+                assert not e.get("points", e.get("pointTips"))
+            else:
+                assert not any(said in g for g in canvas)
+                tips = [p for p in e.get("points", e.get("pointTips")) if p["bin"] == w["bin"]]
+                assert tips and all(_fix3_roles(p["tip"]) == [f"not fitted: {said}"] for p in tips), (view, key)
+            verb = "line" if view == "linear" else "fit"
+            tail = "the window is drawn in the all-windows mode" if mode == "anchors" else "the window is drawn unfitted"
+            dis = e["notes"]["sections"]["Disclosures"]
+            assert dis.count(f"{s['label']}: {said}, so no {verb} is drawn; {tail}.") == 1, (view, key)
+            assert not any("fewer than two windows to fit" in line for line in dis), (view, key)
+
+
+@pytest.mark.parametrize("name", [n for n, e in RES_EST.items() if e == "robust"])
+def test_res_fix3_the_robust_drawer_never_says_a_window_is_faded(est, name):
+    """R-ui m1: under Robust σ (IQR) no window below N = 20 is drawn, so no drawer sentence says one is faded; a
+    faded mark there is a fit (a misfit), and no fit is provisional, so the legend never says so."""
+    for view, key, notes in _fix3_drawers(est["fixtures"][name]):
+        for heading, lines in notes["sections"].items():
+            for line in lines:
+                for sentence in re.split(r"(?<=[.;])\s+", line):
+                    if "faded" in sentence:
+                        assert re.search(r"\bfits?\b", sentence) or "withheld" in sentence, (view, key, sentence)
+                        assert "N < " not in sentence and "windows below" not in sentence, (view, key, sentence)
+                if heading == "Marks and legend":
+                    assert "provisional" not in line, (view, key, line)
+        legend = " ".join(notes["sections"]["Marks and legend"])
+        if view == "linear":
+            assert "It is drawn from N = 20, the robust floor, below which no window is drawn." in legend
+
+
+def test_res_fix3_no_role_line_blames_n_for_another_cause(est, syn):
+    """brief-fix F3: a stand-in anchor's role line gives its nominal anchor's cause; "holds too few events" only
+    where N was the cause."""
+    checked = 0
+    cases = [(name, _load(name), est["fixtures"][name]) for name in RES_EST]
+    cases += [(name, syn["payloads"][name], syn["fixtures"][name]) for name in syn["payloads"]]
+    for name, payload, entry in cases:
+        symbol = payload["estimator"].get("symbol") or "σ/E"
+        subs = {(s["key"], sub["used"]): sub for s in payload["series"]
+                for sub in s["fits"]["anchors"].get("substitutions") or [] if sub["used"] is not None}
+        for view, mode, p in _fix3_point_tips(entry):
+            tip = _plain(p["tip"])
+            sub = subs.get((p["key"], p["bin"])) if mode == "anchors" else None
+            if sub is None:
+                assert "holds too few events" not in tip, (name, view, mode, p["key"], p["bin"])
+                continue
+            checked += 1
+            words = _CAUSE_WORDS[sub["cause"]].format(symbol=symbol)
+            assert any(r.startswith("anchor of this mode, standing in for the nominal anchor ") and r.endswith(words)
+                       for r in _fix3_roles(p["tip"])), (name, sub["cause"], tip)
+            assert ("holds too few events" in tip) == (sub["cause"] == "n"), (name, sub["cause"])
+    assert checked > 0
+    assert {name.rsplit("_", 1)[-1] for name in syn["payloads"] if name.startswith("syn_median_cause_")} >= {"tied", "withheld"}
+
+
+def test_res_fix3_the_tail_share_from_n_300_and_never_at_iqr_zero(syn):
+    """brief-fix F5, F6, on the synthetic windows: a finite share against 0.27% for a large Gaussian sample; at
+    N ≥ 300 with no share, the IQR = 0 sentence."""
+    payload = syn["payloads"]["syn_median_tail"]
+    windows = _windows(payload)
+    seen = {"share": 0, "iqr": 0}
+    for view, mode, p in _fix3_point_tips(syn["fixtures"]["syn_median_tail"]):
+        w = windows[(p["key"], p["bin"])]
+        tip = _plain(p["tip"])
+        if w["tail_share"] is not None:
+            seen["share"] += 1
+            assert "4.31% of events beyond 3 robust σ (0.27% for a large Gaussian sample)" in tip
+        elif w["n"] >= 300:
+            seen["iqr"] += 1
+            assert ("share beyond 3 robust σ not reported: the window's IQR is 0, so there is no robust σ to measure it "
+                    "in") in tip
+            assert "not reported below N = 300" not in tip
+    assert seen["share"] and seen["iqr"]
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fix3_colour_is_the_series_and_the_status_names_no_estimator(est, name):
+    """R-ui m8: the legend says "Colour is the series", since the Estimator control is not encoded by colour; R-ui n4:
+    a fit table's plain status is "N ≥ 20 throughout" (no-break spaces kept), never "robust (N ≥ 20)", which read as
+    the robust estimator under the other two."""
+    entry = est["fixtures"][name]
+    plain = "N ≥ 20 throughout"
+    statuses = 0
+    for view, key, notes in _fix3_drawers(entry):
+        legend = notes["sections"]["Marks and legend"]
+        assert sum(line.startswith("Colour is the series: ") for line in legend) == 1, (view, key)
+        assert not any("Colour is the estimator" in line for line in _fix3_lines(notes))
+    for view in ("linear", "energy"):
+        for e in entry[view].values():
+            assert not any("robust (N" in t for t in e["table"])
+            statuses += sum(t == plain for t in e["table"])
+    # A fit with nothing else to say: not provisional, not a misfit, converged and, if affine, b ≥ 0.
+    plain_fits = [(s["key"], m, f) for s in _load(name)["series"] for m in ("anchors", "all")
+                  for f in ("affine", "pinned", "quadrature")
+                  if (fit := s["fits"][m][f]) and not s["fits"][m].get("provisional") and not fit.get("misfit")
+                  and fit.get("converged") is not False and not (f == "affine" and fit.get("negative_intercept"))]
+    assert (statuses > 0) == bool(plain_fits), (statuses, plain_fits)

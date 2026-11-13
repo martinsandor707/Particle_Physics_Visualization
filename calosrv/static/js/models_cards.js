@@ -125,7 +125,7 @@ export const MODELS_CARDS = Object.freeze([
     group: 'pred', notes: ['models', 'residualNotes'], exportable: true,
   },
   {
-    id: 'res-scaling', section: 'resolution', title: 'Energy Resolution vs. 1/√E', panel: 'ResolutionScalingPanel',
+    id: 'res-scaling', section: 'resolution', title: 'Median Relative Error vs. 1/√E', panel: 'ResolutionScalingPanel',
     group: 'res-scaling', notes: ['models', 'resolutionScalingNotes'], exportable: true, wide: true,
   },
   {
@@ -253,6 +253,8 @@ export const DEFAULT_CONTROLS = Object.freeze({
   predShower: 'both',
   resShower: 'both',
   resView: 'linear',
+  // The resolution card's estimator, its own response: 'median' | 'robust' | 'sample' (Martin, 2026-11-12).
+  resEstimator: 'median',
   // The literature curves drawn, both by default: '' | 'pi' | 'e' | 'pi,e' (the catalogue's order).
   resLiterature: 'pi,e',
   resWindows: 'anchors',
@@ -531,13 +533,46 @@ const RES_LITERATURE_CONTROL = {
   visible: ({ controls }) => controls?.resView === 'energy',
 };
 
-const RES_ENERGY_TITLE = 'Energy Resolution vs. E';
+/* The resolution card's estimator of each window (Martin's decisions of
+ * 2026-11-12): the Model Error card's median relative error (the default), a
+ * robust σ/E from the IQR, or today's sample σ/μ. Each is its own response
+ * (`estimator`), so the choice reloads the card; it is the section's own,
+ * never in a link or an Admin default, like the correlation card's class. The
+ * literature toggles stay live under every estimator: under the median the
+ * panel and the drawer say what the comparison with a σ/E curve means. */
+const RES_ESTIMATOR_CONTROL = {
+  name: 'resEstimator', kind: 'seg', attr: 'resEstimator', label: 'Estimator', request: true,
+  choices: () => MODELS_LABELS.res_estimator,
+};
 
-/** A card's title under the controls in hand: the resolution card's names its view. */
-export function cardTitle(id, controls = DEFAULT_CONTROLS) {
+/** The estimators the card offers, in the control's order. */
+const RES_ESTIMATORS = Object.freeze(MODELS_LABELS.res_estimator.map((c) => c.value));
+
+/** The resolution card's estimator from its stored value: one the card offers, else the default. */
+function resEstimator(value) {
+  return RES_ESTIMATORS.includes(value) ? value : DEFAULT_CONTROLS.resEstimator;
+}
+
+/** The resolution card's title per estimator and view: a median relative error is not a resolution. */
+const RES_TITLES = Object.freeze({
+  median: { linear: 'Median Relative Error vs. 1/√E', energy: 'Median Relative Error vs. E' },
+  robust: { linear: 'Energy Resolution vs. 1/√E', energy: 'Energy Resolution vs. E' },
+  sample: { linear: 'Energy Resolution vs. 1/√E', energy: 'Energy Resolution vs. E' },
+});
+
+/**
+ * A card's title under the controls in hand: the resolution card's names its
+ * estimator and its view. With its response in hand (`payload`), the
+ * estimator is the one the numbers drawn were computed with
+ * (`payload.estimator.name`), so a title never runs ahead of a reload.
+ */
+export function cardTitle(id, controls = DEFAULT_CONTROLS, payload = null) {
   const spec = SPEC[id];
   if (!spec) return '';
-  return id === 'res-scaling' && controls?.resView === 'energy' ? RES_ENERGY_TITLE : spec.title;
+  if (id !== 'res-scaling') return spec.title;
+  const served = payload?.estimator?.name;
+  const estimator = RES_ESTIMATORS.includes(served) ? served : resEstimator(controls?.resEstimator);
+  return RES_TITLES[estimator][controls?.resView === 'energy' ? 'energy' : 'linear'];
 }
 
 /* The validation-accuracy card's angle axis: render-only, the section's own
@@ -551,7 +586,7 @@ const CARD_CONTROLS = {
   'perf-bins': [TASK_CONTROL, STAT_CONTROL, showerControl('perfShower')],
   'pred-truth': [TASK_CONTROL, PRED_LABEL_CONTROL, showerControl('predShower')],
   'pred-residuals': [showerControl('resShower')],
-  'res-scaling': [RES_VIEW_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL],
+  'res-scaling': [RES_VIEW_CONTROL, RES_ESTIMATOR_CONTROL, RES_WINDOWS_CONTROL, showerControl('resScalingShower'), RES_LITERATURE_CONTROL],
   'xgb-cv': [XGB_TASK_CONTROL],
   'xgb-surrogate': [XGB_TASK_CONTROL, TREE_LABEL_CONTROL],
   'xgb-importance': [XGB_TASK_CONTROL],
@@ -618,6 +653,8 @@ export function cardRequest(id, { filters, view = VIEW_DEFAULTS, controls = DEFA
       // reads the absolute-frame networks), so only a networked plan names it.
       const params = { ...filters };
       if (plan?.networks) params.coord_system = viewFrame('network', v.frame).frame;
+      // One estimator per response (the 100 KB contract): the card's own choice.
+      params.estimator = resEstimator(c.resEstimator);
       return { route: '/api/resolution-scaling', abortKey, params };
     }
     case 'feat-table':
@@ -701,6 +738,8 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
     opts.shower = two ? (id === 'pred-truth' ? c.predShower : c.resShower) : 'both';
   } else if (spec.group === 'res-scaling') {
     opts.view = c.resView;
+    // The estimator asked for; the panel and the drawer prefer the response's own (`payload.estimator`).
+    opts.estimator = resEstimator(c.resEstimator);
     opts.literature = literatureKeys(c.resLiterature);
     opts.windows = c.resWindows;
     opts.shower = two ? c.resScalingShower : 'both';
@@ -718,11 +757,17 @@ export function cardOptions(id, { view = VIEW_DEFAULTS, controls = DEFAULT_CONTR
   return opts;
 }
 
-/** What an exported figure is named by: its response's meta and frame, and the resolution card's view. */
+/** What an exported figure is named by: its response's meta and frame, and the resolution card's estimator and view. */
 export function exportMeta(payload, opts = null) {
   const meta = { ...(payload?.meta ?? {}) };
   const coord = meta.coord_system ?? payload?.coord_system;
   if (coord) meta.coord_system = coord;
+  // The resolution card's estimator names every figure of it, in both views: the response's own, which the
+  // figure draws, else the one asked for (export/filename.js `est-<name>`).
+  const served = payload?.estimator?.name;
+  const resolution = opts?.card === 'res-scaling' || (RES_ESTIMATORS.includes(served) && Array.isArray(payload?.estimator?.choices));
+  if (resolution && RES_ESTIMATORS.includes(served)) meta.estimator = served;
+  else if (resolution && RES_ESTIMATORS.includes(opts?.estimator)) meta.estimator = opts.estimator;
   // The resolution card's E view is another figure of the same response, so its file names the
   // view and what its ratio divides by (export/filename.js).
   if (opts?.view === 'energy') {
@@ -985,7 +1030,7 @@ export class ModelsSection {
           }
         }
       }
-      const heading = cardTitle(record.spec.id, this.controls);
+      const heading = cardTitle(record.spec.id, this.controls, record.payload);
       if (record.title.textContent !== heading) record.title.textContent = heading;
       if (record.exporter) record.exporter.disabled = Boolean(record.disabled);
       this.syncCaption(record);
@@ -1100,7 +1145,7 @@ export class ModelsSection {
   /** The title of the card an element belongs to, for an error's context. */
   titleOf(element) {
     const record = [...this.cards.values()].find((r) => r.element === element);
-    return record ? cardTitle(record.spec.id, this.controls) : 'models card';
+    return record ? cardTitle(record.spec.id, this.controls, record.payload) : 'models card';
   }
 
   /** Load the visible stale cards after a control changed, reporting failures one by one. */
@@ -1393,7 +1438,7 @@ export class ModelsSection {
   notes(id, { state = this.state, experiment = this.getExperiment() } = {}) {
     const record = this.cards.get(id);
     if (!record) return null;
-    const title = cardTitle(id, this.controls);
+    const title = cardTitle(id, this.controls, record.payload);
     if (record.disabled) return shutNotes(title, record.disabled);
     if (record.notice) return shutNotes(title, record.notice);
     if (!record.payload) return record.error ? shutNotes(title, record.error) : null;

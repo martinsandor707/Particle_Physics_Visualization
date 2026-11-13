@@ -75,7 +75,7 @@
  * tooltip, the table and the drawer. On this view the quadrature fit is never
  * drawn; it is tabled. The E view draws it (below).
  *
- * ## Colour is the estimator, fill and dash are the shower
+ * ## Colour is the series, fill and dash are the shower
  *
  * The detector series is drawn in ink (`THEME.text`), the neutral reference;
  * a model series takes the hue E2 gives its source (perf_bins.js
@@ -182,6 +182,30 @@
  * `ENERGY_VIEW_PX` tall where the view draws its two panels (`syncHeight`),
  * and its export keeps the two panels' proportions (`energyExportMetrics`).
  * `energyModel` decides all of it once, for the chart and the drawer.
+ *
+ * ## Three estimators, one per response
+ *
+ * The card's Estimator control (Martin's decisions of 2026-11-12) asks the
+ * server for one of three per-window numbers, and the response names the one
+ * it carries (`payload.estimator`, read by `estimatorOf`, which the panel
+ * prefers to the control): the median relative error median |R − 1|, Model
+ * Error vs. Incident Momentum's own number with its events, seed and interval
+ * (the default; not a σ, so it is quoted, never converted); the robust σ/E
+ * = IQR(R) / (1.349 · median R), reported from N = 20 only; and the sample
+ * σ/μ described above. Only words change with it: the axis names are the
+ * payload's, every fit, caption, note and tooltip names the plotted quantity
+ * by `estimator.symbol`, a window's tooltip gives its interval by its own
+ * `method`, its fit weight by `estimator.weight.method` (the bootstrap SE, its
+ * κ and the series' pooled scale c of se = c·ŷ/√N, `weight_scale`; or the
+ * delta-method SE) and the two estimators not plotted (`alt`). A window that
+ * carries no fit weight (tied replicates, a withheld robust interval) and a
+ * robust mode that declines to fit through one window say so by their cause,
+ * never by N (brief-fix F3, F4, F7).
+ * Every mark, colour, dash and gate is as above, the gates the payload's.
+ * The literature curves stay drawable under all three (Martin's override):
+ * under the median, with a curve on, the payload's disclosure
+ * (`estimator.literature.warning`) is one more line of the note band and of
+ * every literature-curve tooltip and every ratio-mark tooltip against a curve.
  */
 
 import { THEME, axisPadding, formatNumber, formatInt, typographic } from '../scale.js';
@@ -203,8 +227,133 @@ export const RES_WINDOW_MODES = Object.freeze(['anchors', 'all']);
 
 /** The gates the payload states, as the server's constants (`gates`) default them. */
 const DEFAULT_GATES = Object.freeze({
-  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3, misfit_scale: 5,
+  report_n: 2, whisker_n: 8, fit_n: 20, e_min_gev: 4, anchor_low_gev: 5, n_anchors: 3, misfit_scale: 5, tail_min_n: 300,
 });
+
+/**
+ * The estimators of a window (query/resolution_scaling.py `ESTIMATORS`, Martin's
+ * decisions of 2026-11-12), the default first: the median relative error
+ * median |R − 1| (Model Error vs. Incident Momentum's own number), the robust
+ * σ/E = IQR(R) / (1.349 · median R), and the sample σ/μ = s(R)/R̄. A response
+ * carries one (`payload.estimator`), which names the numbers it draws.
+ */
+export const RES_ESTIMATORS = Object.freeze(['median', 'robust', 'sample']);
+
+/** The robust floor (CLAUDE.md section 2, `stats/robust_width.MIN_ROBUST_N`): no robust σ/E and no tail share below it. */
+export const ROBUST_MIN_N = 20;
+
+/** The cross-references a window's tooltip quotes, in this order, without the estimator plotted. */
+const ALT_NAMES = Object.freeze([['robust', 'Robust σ/E'], ['sample', 'sample σ/μ'], ['median', 'median rel.']]);
+
+/**
+ * The estimator of a response, as the card words it: the payload's own
+ * (`estimator`, which describes the numbers drawn), else the one asked for
+ * (`asked`, the card's control), else the sample σ/μ (an older response,
+ * `response_ratio`). {name, symbol (the plotted quantity in an equation:
+ * "median rel." or "σ/E"), quantity (in prose: "median rel.", "robust σ/E",
+ * "σ/E"), label, axisName, weight ('kappa' | 'delta'), warning (the literature
+ * disclosure, under the median only, else null), calibration (per shower key:
+ * {c_sum, c_median, n, n_zero_deposit})}.
+ */
+export function estimatorOf(payload, asked = null) {
+  const est = payload?.estimator ?? null;
+  let name = 'sample';
+  if (RES_ESTIMATORS.includes(est?.name)) name = est.name;
+  else if (!est && RES_ESTIMATORS.includes(asked)) name = asked;
+  const symbol = typeof est?.symbol === 'string' && est.symbol ? est.symbol : (name === 'median' ? 'median rel.' : 'σ/E');
+  return {
+    name,
+    symbol,
+    quantity: { median: 'median rel.', robust: 'robust σ/E', sample: 'σ/E' }[name],
+    label: typeof est?.label === 'string' ? est.label : null,
+    axisName: typeof est?.axis_name === 'string' && est.axis_name ? est.axis_name : `${symbol} [%]`,
+    weight: est?.weight?.method ?? (name === 'sample' ? 'delta' : 'kappa'),
+    warning: name === 'median' && typeof est?.literature?.warning === 'string' && est.literature.warning
+      ? est.literature.warning : null,
+    calibration: est?.calibration?.showers ?? {},
+  };
+}
+
+/** A window interval's name: its own `method`, else the estimator's. */
+function intervalName(est, w) {
+  if (w?.method === 'order_statistic') return 'order-statistic';
+  if (w?.method === 'bootstrap_percentile') return 'bootstrap';
+  if (w?.method === 'chi2_over_mu') return 'χ²';
+  return est.name === 'sample' ? 'χ²' : 'bootstrap';
+}
+
+/**
+ * A window's fit weight under the pooled-scale law of the median and robust
+ * estimators (brief-fix F1, F3, F7): 'weighted' (a measured relative SE κ),
+ * 'tied' (a bootstrap SE below 10⁻⁶ of its value: the replicates differ by
+ * rounding alone), 'withheld' (a robust value whose interval, SE and κ are
+ * withheld) or 'none'; null under the sample estimator, whose weight is the
+ * delta method.
+ */
+export function weightState(est, w) {
+  if ((est?.name ?? 'sample') === 'sample') return null;
+  if (Number.isFinite(w?.se_rel) && w.se_rel > 0) return 'weighted';
+  if (Number.isFinite(w?.se)) return 'tied';
+  if (est.name === 'robust' && Number.isFinite(w?.value)) return 'withheld';
+  return 'none';
+}
+
+/** Whether a window can enter a fit: N ≥ the fit gate, on the axis from 4 GeV, a value and, off sample, a fit weight. */
+function fittableWindow(est, w, gates) {
+  const weight = weightState(est, w);
+  return (w.n ?? 0) >= gates.fit_n && !w.off_axis && (w.p_lo ?? 0) >= gates.e_min_gev && Number.isFinite(w.value)
+    && (weight === null ? Number.isFinite(w.se_delta ?? w.se) : weight === 'weighted');
+}
+
+/**
+ * The one fittable window a robust mode declines to fit (brief-fix F4: no
+ * line through fewer than two), or null: under Robust σ (IQR), a mode that
+ * fits no window while exactly one fittable window is in its pool (from
+ * 5 GeV in the 3-anchor mode, from 4 GeV in the all-windows mode). `raw` is
+ * the payload's series, `mf` its mode block.
+ */
+export function declinedWindow(est, raw, mf, mode, gates) {
+  if (est?.name !== 'robust' || !raw || (mf?.points ?? []).length) return null;
+  const floor = mode === 'anchors' ? gates.anchor_low_gev : gates.e_min_gev;
+  const pool = (raw.windows ?? []).filter((w) => fittableWindow(est, w, gates) && (w.p_lo ?? 0) >= floor);
+  return pool.length === 1 ? pool[0] : null;
+}
+
+/**
+ * The empty state of a mode that draws nothing because Robust σ (IQR) declines
+ * every series' one fittable window (brief-fix F4), or null: each declined
+ * window named, and which mode draws it. `allName` is the all-windows button.
+ */
+function declinedEmptyText(model, allName) {
+  const declined = model.series.map((s) => declinedWindow(model.estimator, s.raw, s.mf, model.mode, model.gates)).filter(Boolean);
+  if (!declined.length || declined.length < model.series.length) return null;
+  const drawsIt = model.mode === 'anchors' ? ` "${allName}" draws ${declined.length === 1 ? 'it' : 'them'}, unfitted.` : '';
+  return `${declined.map((w) => declinedText(w)).join('; ')}: no fit, so ${model.mode === 'anchors' ? 'the 3-anchor mode draws nothing' : 'no line is drawn'}.${drawsIt}`;
+}
+
+/** The sentence a robust mode that declines its one fittable window says, in the empty state, the role line and the drawer. */
+export function declinedText(w) {
+  return `Robust σ (IQR) fits no line through fewer than two fittable windows, and only ${w.label ?? `bin ${w.bin}`} (N = ${formatInt(w.n)}) is fittable here`;
+}
+
+/** Why a nominal anchor was replaced or dropped, by the substitution's `cause`: never "too few events" unless N was the cause. */
+function substitutionWhy(sub, symbol) {
+  switch (sub?.cause) {
+    case 'tied': return 'which carries no fit weight: its bootstrap SE is below 10⁻⁶ of its value (tied replicates)';
+    case 'no_value': return `which reports no ${symbol}`;
+    case 'withheld': return 'whose robust interval is withheld, so it carries no fit weight';
+    case 'no_se': return 'which has no positive standard error, so it carries no fit weight';
+    case 'off_axis': return 'which lies off the axis, below 4 GeV';
+    default: return 'which holds too few events for this series';
+  }
+}
+
+/**
+ * The drawer's decomposition sentence (brief-fix, R-ui M3), verbatim, in the
+ * Disclosures of both views under every estimator (models_notes.js): why the
+ * three estimators of one window differ, without a payload number.
+ */
+export const RES_DECOMPOSITION = 'The three estimators differ for stated reasons: median|R − 1| is 0.6745 of a σ by definition and keeps the response\'s bias, which the two widths divide out by centring on the median; the sample width also counts the tails, which the robust width does not (each window\'s tooltip gives its share of events beyond 3 robust σ). Methodology §2.4 measures the three factors on one window.';
 
 /** The fits drawn as lines; the quadrature form is tabled only. */
 export const DRAWN_FORMS = Object.freeze(['affine', 'pinned']);
@@ -232,6 +381,8 @@ const X_UNIT = 'GeV⁻¹ᐟ²';
 const A_UNIT = '%·√GeV';
 
 const pct = (v) => (Number.isFinite(v) ? `${sigFigs(v, 3)}%` : '—');
+/** "−12.3%" or "+4.5%": a signed percent, its minus the sign U+2212 (as the drawer writes a median response). */
+const signedPct = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${sigFigs(v, 3)}%` : '—');
 const sig = (v, d = 3) => sigFigs(v, d);
 const plural = (n, word, many = `${word}s`) => `${formatInt(n)} ${n === 1 ? word : many}`;
 
@@ -392,13 +543,15 @@ function withSpanEdges(curve, fit, span) {
 
 /** What one window is in the mode in force: the role line(s) its tooltip states. */
 function roleOf(payload, s, mf, mode, w, gates) {
+  const est = estimatorOf(payload);
   const fitted = (mf?.points ?? []).includes(w.bin);
   const roles = [];
+  const weight = weightState(est, w);
   if (fitted) {
     if (mode === 'anchors') {
       const sub = (mf.substitutions ?? []).find((x) => x.used === w.bin);
       roles.push(sub
-        ? `anchor of this mode, standing in for the nominal anchor ${binLabel(payload, s, sub.nominal)}, which holds too few events for this series`
+        ? `anchor of this mode, standing in for the nominal anchor ${binLabel(payload, s, sub.nominal)}, ${substitutionWhy(sub, est.symbol)}`
         : 'anchor of this mode (a nominal anchor)');
     } else {
       roles.push('fitted in this mode');
@@ -410,6 +563,12 @@ function roleOf(payload, s, mf, mode, w, gates) {
     roles.push(`below the whisker floor N = ${formatInt(gates.whisker_n)}: drawn as a faded ring, not fitted`);
   } else if (w.n < gates.fit_n) {
     roles.push(`not fitted because N < ${formatInt(gates.fit_n)}, the fit and range floor: drawn faded`);
+  } else if (weight === 'tied') {
+    roles.push('not fitted: its bootstrap SE is below 10⁻⁶ of its value (tied replicates), so it carries no fit weight; drawn in the all-windows mode only');
+  } else if (weight === 'withheld') {
+    roles.push('not fitted: its robust interval is withheld, so it carries no fit weight');
+  } else if (declinedWindow(est, s, mf, mode, gates)?.bin === w.bin) {
+    roles.push(`not fitted: ${declinedText(w)}`);
   } else {
     roles.push('not fitted in this mode');
   }
@@ -422,7 +581,7 @@ function roleOf(payload, s, mf, mode, w, gates) {
  * Everything the chart, its tooltips, the table and the drawer need, decided
  * once. Pure. `opts` = {windows, shower}. Null without a resolution payload.
  *
- * {mode, gates, y: {lo, hi, interval, provisional, name, n_clipped}, nShowers,
+ * {mode, gates, estimator (`estimatorOf`), y: {lo, hi, interval, provisional, name, n_clipped}, nShowers,
  * series: [{key, label, raw, colour, isB, offsetPx, mf, provisional, points,
  * fits: {affine, pinned}, unreported}], clipped: {markers, whiskers, fits},
  * nPoints, nLines}. A point is {w, x, value, lo, hi, n, whisker, weak,
@@ -439,10 +598,11 @@ export function resolutionModel(payload, opts = {}) {
   if (!payload || !Array.isArray(payload.series) || !payload.axis) return null;
   const mode = windowMode(opts.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
+  const estimator = estimatorOf(payload, opts.estimator);
   const ya = payload.axis.y ?? {};
   const y = {
     lo: 0, hi: ya.hi, interval: ya.interval, provisional: Boolean(ya.provisional),
-    name: ya.name ?? 'σ/E [%]', n_clipped: ya.n_clipped ?? 0,
+    name: ya.name ?? estimator.axisName, n_clipped: ya.n_clipped ?? 0,
   };
   const all = payload.series;
   const nShowers = new Set(all.map((s) => s.shower).filter(Boolean)).size;
@@ -476,7 +636,7 @@ export function resolutionModel(payload, opts = {}) {
         roles: roleOf(payload, s, mf, mode, w, gates),
       };
     });
-    // Windows on the axis that report no σ/E (one event, or R̄ ≤ 0): never drawn, and named in the drawer.
+    // Windows on the axis that report no value (one event, R̄ ≤ 0, or below the robust floor): never drawn, and named in the drawer.
     const unreported = (s.windows ?? []).filter((w) => !w.off_axis && (w.p_lo ?? 0) >= gates.e_min_gev
       && !((w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)));
     const fits = {};
@@ -516,7 +676,7 @@ export function resolutionModel(payload, opts = {}) {
     };
   });
   return {
-    mode, gates, y, nShowers, series, clipped,
+    mode, gates, estimator, y, nShowers, series, clipped,
     nPoints: series.reduce((a, s) => a + s.points.length, 0),
     nLines: series.reduce((a, s) => a + DRAWN_FORMS.filter((f) => s.fits[f]).length, 0),
   };
@@ -536,33 +696,126 @@ function pointTipLines(model, s, p) {
   const lines = [`<b>${escapeHtml(s.label)}</b>`];
   lines.push(`${escapeHtml(w.label ?? `bin ${w.bin}`)} · N = ${plural(w.n, 'event')}`);
   lines.push(`⟨p⟩ = ${formatNumber(w.p_mean, 2)} GeV · x = ⟨1/√p⟩ = ${formatNumber(w.x, 4)} ${X_UNIT}`);
-  let value = `σ/E = ${pct(w.value)}`;
-  if (Number.isFinite(p.lo) && Number.isFinite(p.hi)) value += `, 95% χ² interval [${pct(p.lo)}, ${pct(p.hi)}]`;
-  lines.push(value);
-  if (Number.isFinite(w.se_delta)) {
-    lines.push(mutedLine(`delta-method SE ${pct(w.se_delta)} (R̄'s error included): the fit weight 1/se², recomputed at the fitted value`));
-  }
+  const est = model.estimator ?? estimatorOf(null);
+  lines.push(valueLine(est, w, p));
+  const se = seLine(est, s, w);
+  if (se) lines.push(mutedLine(se));
   if (Number.isFinite(w.c4)) lines.push(mutedLine(`bias factor c₄(N) = ${formatNumber(w.c4, 4)}: below N = 15 the sample SD runs low by this factor`));
-  if (Number.isFinite(w.bias)) lines.push(mutedLine(`bias R̄ − 1 = ${pct(w.bias)}: the estimator's own bias, divided out of σ/E`));
+  if (est.name === 'sample') {
+    if (Number.isFinite(w.bias)) lines.push(mutedLine(`bias R̄ − 1 = ${pct(w.bias)}: the estimator's own bias, divided out of σ/E`));
+  } else if (Number.isFinite(w.median_response) || Number.isFinite(w.bias)) {
+    lines.push(mutedLine(`median response R̃ − 1 = ${signedPct(w.median_response)}; mean bias R̄ − 1 = ${signedPct(w.bias)}`));
+  }
   if (Number.isFinite(w.momentum_spread)) {
     lines.push(mutedLine(`momentum spread σ_p/⟨p⟩ = ${pct(w.momentum_spread)} in the window, divided out event by event by R = E_est / p`));
   }
   if (w.dof_note) lines.push(mutedLine(String(w.dof_note)));
+  for (const line of crossLines(est, s, w, gates)) lines.push(mutedLine(line));
   for (const role of p.roles) lines.push(`Role: ${escapeHtml(role)}`);
-  lines.push(p.whisker
-    ? mutedLine('Whisker: the 95% χ² interval of this window\'s σ/E (N − 1 degrees of freedom), the uncertainty of the aggregate, not the spread of its events.')
-    : mutedLine(`No whisker: N = ${formatInt(w.n)} is below the N = ${formatInt(gates.whisker_n)} floor for a drawn interval; σ/E is reported from N = ${formatInt(gates.report_n)}.`));
+  let whiskerLine;
+  if (p.whisker) whiskerLine = whiskerText(est, w);
+  else if (weightState(est, w) === 'withheld') whiskerLine = 'No whisker: this window\'s robust interval is withheld (the note above says why); its value is drawn as a faded dashed ring.';
+  else whiskerLine = `No whisker: N = ${formatInt(w.n)} is below the N = ${formatInt(gates.whisker_n)} floor for a drawn interval; ${est.quantity} is reported from N = ${formatInt(gates.report_n)}.`;
+  lines.push(mutedLine(whiskerLine));
   if (p.over || p.clip?.cutLo || p.clip?.cutHi) {
     lines.push(mutedLine(`clipped at the ${model.y.provisional ? 'provisional ' : ''}axis (0 to ${pct(model.y.hi)}); the values above are the true ones`));
   }
   return lines;
 }
 
-/** A fit's equation as written on the card. */
-function equationOf(form) {
-  if (form === 'affine') return 'Affine fit σ/E = a/√E + b';
-  if (form === 'pinned') return 'Origin-pinned fit σ/E = a₀/√E';
-  return 'Quadrature fit σ/E = √(a²/E + b²)';
+/**
+ * A window's value line, by estimator (brief section 4): "Median rel. = 8.52%,
+ * 95% bootstrap interval [8.08%, 8.99%]" (or its order-statistic interval
+ * below N = 20), "Robust σ/E = …, 95% bootstrap interval […]", or the sample
+ * σ/E with its χ² interval, as ever. The interval is quoted where the window
+ * reports one, drawn as a whisker or not.
+ */
+function valueLine(est, w, p) {
+  const ci = Number.isFinite(p.lo) && Number.isFinite(p.hi) ? ` [${pct(p.lo)}, ${pct(p.hi)}]` : '';
+  if (est.name === 'median') return `Median rel. = ${pct(w.value)}${ci ? `, 95% ${intervalName(est, w)} interval${ci}` : ''}`;
+  if (est.name === 'robust') return `Robust σ/E = ${pct(w.value)}${ci ? `, 95% ${intervalName(est, w)} interval${ci}` : ''}`;
+  return `σ/E = ${pct(w.value)}${ci ? `, 95% χ² interval${ci}` : ''}`;
+}
+
+/**
+ * The fit weight's line, by `estimator.weight.method`: under median and robust
+ * the bootstrap SE with its relative SE κ and the series' pooled scale c of
+ * the weight se = c·ŷ/√N (brief-fix F1), or a tied window's SE, which carries
+ * no fit weight (F3); the delta-method SE under sample, as ever. A withheld
+ * robust window has no SE and no line: its `dof_note` says why (F7).
+ */
+function seLine(est, s, w) {
+  if (est.weight === 'kappa') {
+    if (!Number.isFinite(w.se)) return null;
+    if (!(Number.isFinite(w.se_rel) && w.se_rel > 0)) {
+      return `bootstrap SE ${pct(w.se)}: below 10⁻⁶ of the value (tied replicates), so no fit weight`;
+    }
+    const c = s?.raw?.weight_scale?.c;
+    return Number.isFinite(c)
+      ? `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`
+      : `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); no fit weight: no window of this series from ${formatNumber(DEFAULT_GATES.e_min_gev)} GeV carries one, so it has no pooled scale c`;
+  }
+  return Number.isFinite(w.se_delta)
+    ? `delta-method SE ${pct(w.se_delta)} (R̄'s error included): the fit weight 1/se², recomputed at the fitted value`
+    : null;
+}
+
+/**
+ * A window's cross-references (brief section 2.6): the two estimators not
+ * plotted (`alt`; the deposit's median rel. under its median calibration c̃),
+ * the share of events beyond 3 robust σ, and under the median where the
+ * number comes from: Model Error vs. Incident Momentum's own for a model
+ * series, c̃·E_dep for the deposit. Under the sample estimator the median
+ * response R̃ − 1 leads them, its bias line being the old one.
+ */
+function crossLines(est, s, w, gates = DEFAULT_GATES) {
+  const out = [];
+  const shower = s.raw?.shower ?? 'a';
+  const deposit = s.raw?.source === 'detector';
+  const cal = est.calibration?.[shower] ?? null;
+  if (est.name === 'sample' && Number.isFinite(w.median_response)) out.push(`median response R̃ − 1 = ${signedPct(w.median_response)}`);
+  if (w.alt && typeof w.alt === 'object') {
+    const parts = ALT_NAMES.filter(([key]) => key !== est.name).map(([key, name]) => {
+      const v = w.alt[key];
+      if (Number.isFinite(v)) {
+        return key === 'median' && deposit && Number.isFinite(cal?.c_median)
+          ? `${name} ${pct(v)} (c̃·E_dep, c̃ = ${sig(cal.c_median)})` : `${name} ${pct(v)}`;
+      }
+      if (key === 'robust' && (w.n ?? 0) < ROBUST_MIN_N) return `${name} not reported below N = ${formatInt(ROBUST_MIN_N)}, the robust floor`;
+      return `${name} not reported`;
+    });
+    out.push(`Not plotted: ${parts.join('; ')}`);
+  }
+  const tailFloor = gates.tail_min_n ?? DEFAULT_GATES.tail_min_n;
+  if (Number.isFinite(w.tail_share)) {
+    out.push(`${pct(w.tail_share)} of events beyond 3 robust σ (0.27% for a large Gaussian sample)`);
+  } else if ((w.n ?? 0) < tailFloor) {
+    out.push(`share beyond 3 robust σ not reported below N = ${formatInt(tailFloor)}: a Gaussian sample of fewer events exceeds 0.27% by chance`);
+  } else {
+    out.push('share beyond 3 robust σ not reported: the window\'s IQR is 0, so there is no robust σ to measure it in');
+  }
+  if (est.name === 'median') {
+    if (!deposit) out.push('the Median rel. of Model Error vs. Incident Momentum: the same events, seed and interval');
+    else if (Number.isFinite(cal?.c_median)) {
+      out.push(`c̃·E_dep with the median calibration c̃ = ${sig(cal.c_median)}${Number.isFinite(cal.c_sum) ? ` (the ratio of sums c = ${sig(cal.c_sum)})` : ''}`);
+    }
+  }
+  return out;
+}
+
+/** What a drawn whisker is, by estimator: always the uncertainty of the aggregate, never the spread of the events. */
+function whiskerText(est, w) {
+  if (est.name === 'sample') {
+    return 'Whisker: the 95% χ² interval of this window\'s σ/E (N − 1 degrees of freedom), the uncertainty of the aggregate, not the spread of its events.';
+  }
+  return `Whisker: the 95% ${intervalName(est, w)} interval of this window's ${est.quantity}, the uncertainty of the aggregate, not the spread of its events.`;
+}
+
+/** A fit's equation as written on the card, in the plotted quantity's symbol (`sym`). */
+function equationOf(form, sym = 'σ/E') {
+  if (form === 'affine') return `Affine fit ${sym} = a/√E + b`;
+  if (form === 'pinned') return `Origin-pinned fit ${sym} = a₀/√E`;
+  return `Quadrature fit ${sym} = √(a²/E + b²)`;
 }
 
 /** The χ² sentence of a fit: χ²/ν with p, or ν = 0 said. */
@@ -592,7 +845,8 @@ export function lineTip(model, s, f, payload = null) {
   const { fit, form } = f;
   const p = fit.params ?? {};
   const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
-  const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(equationOf(form))];
+  const sym = model.estimator?.symbol ?? 'σ/E';
+  const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(equationOf(form, sym))];
   if (form === 'affine') {
     lines.push(`a = ${sig(p.a)} ± ${sig(p.se_a)} ${A_UNIT}; b = ${sig(p.b)} ± ${sig(p.se_b)}%`
       + (Number.isFinite(p.rho_ab) ? `; ρ(a, b) = ${sig(p.rho_ab)}` : ''));
@@ -613,7 +867,7 @@ export function lineTip(model, s, f, payload = null) {
     lines.push(mutedLine('b < 0: the points fall faster than a/√E; the line runs down to the axis and stops there.'));
   }
   if (form === 'affine' && Number.isFinite(p.a) && p.a < 0) {
-    lines.push(mutedLine('a < 0: σ/E rises with E here, which no stochastic term describes.'));
+    lines.push(mutedLine(`a < 0: ${sym} rises with E here, which no stochastic term describes.`));
   }
   if (!f.converged) {
     lines.push(mutedLine(`Not converged: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so this is the last refit's line, not a fixed point.`));
@@ -633,7 +887,7 @@ function bandRule(fit) {
 }
 
 /** The tooltip of one fit's band: its wash, or, where it is outlined, its solid edges. */
-export function bandTip(s, f) {
+export function bandTip(s, f, est = null) {
   const name = f.form === 'affine' ? 'affine fit a/√E + b' : 'origin-pinned fit a₀/√E';
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
@@ -642,7 +896,7 @@ export function bandTip(s, f) {
   ];
   if (f.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
-  if (f.floorCut) lines.push(mutedLine('Its lower edge is cut at σ/E = 0, the floor of the axis.'));
+  if (f.floorCut) lines.push(mutedLine(`Its lower edge is cut at ${est?.symbol ?? 'σ/E'} = 0, the floor of the axis.`));
   return lines.join('<br/>');
 }
 
@@ -782,7 +1036,7 @@ function seriesMarks(model, s, payload) {
     });
     // A band that spans half the axis or more over its fitted windows: its two edges, never a wash (as on the E view).
     if (f.outlined) {
-      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, () => bandTip(s, f)).map(named));
+      out.push(...bandEdges(f.edges, s.colour, `${s.key}|${form}`, () => bandTip(s, f, model.estimator)).map(named));
       continue;
     }
     out.push(named({
@@ -792,10 +1046,15 @@ function seriesMarks(model, s, payload) {
       }),
       id: `${s.key}|${form}|band`,
       silent: false,
-      tooltip: { formatter: () => bandTip(s, f) },
+      tooltip: { formatter: () => bandTip(s, f, model.estimator) },
     }));
   }
   return out;
+}
+
+/** "holds two events" at the report floor N = 2; "reaches N = 20" under the robust estimator's floor. */
+function holdsText(gates) {
+  return gates.report_n === 2 ? 'holds two events' : `reaches N = ${formatInt(gates.report_n)}`;
 }
 
 /** The top axis: the bottom one relabelled, E = 1/x², ticks at the payload's energies and ∞ at 0. */
@@ -839,16 +1098,19 @@ export function resolutionScalingOption(payload, opts = {}, metrics = {}) {
     const { gates } = model;
     const offAxis = model.series.reduce((a, s) => a + (s.raw.windows ?? []).filter((w) => w.off_axis && Number.isFinite(w.value)).length, 0);
     const listed = offAxis ? ` ${plural(offAxis, 'window')} below ${formatNumber(gates.e_min_gev)} GeV ${offAxis === 1 ? 'is' : 'are'} listed in the Details drawer.` : '';
-    // Windows that report σ/E (N ≥ 2) but cannot anchor a fit (N < 8): the anchors mode draws none of them.
+    // Windows that report a value (N ≥ report_n) but cannot anchor a fit (N < whisker_n): the anchors mode draws none of them.
     const reportable = model.series.reduce((a, s) => a + (s.raw.windows ?? []).filter((w) => !w.off_axis
       && (w.p_lo ?? 0) >= gates.e_min_gev && (w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)).length, 0);
+    const declined = declinedEmptyText(model, `All ≥ ${formatNumber(gates.e_min_gev)} GeV`);
+    if (declined) return emptyChartOption(opts, metrics, `${declined}${listed}`);
     if (model.mode === 'anchors' && reportable && model.y.hi > 0) {
       return emptyChartOption(opts, metrics, `No window from ${formatNumber(gates.anchor_low_gev)} GeV reaches N = ${formatInt(gates.whisker_n)}, `
         + `the fewest an anchor fit runs through, so the 3-anchor mode draws nothing. "All ≥ ${formatNumber(gates.e_min_gev)} GeV" draws the `
-        + `${plural(reportable, 'window')} from ${formatNumber(gates.e_min_gev)} GeV that report σ/E (N ≥ ${formatInt(gates.report_n)}).${listed}`);
+        + `${plural(reportable, 'window')} from ${formatNumber(gates.e_min_gev)} GeV that report ${model.estimator.quantity} (N ≥ ${formatInt(gates.report_n)}).${listed}`);
     }
     const mode = model.mode === 'anchors' ? ' No series has a window its anchors fit can run through.' : '';
-    return emptyChartOption(opts, metrics, `No momentum window from ${formatNumber(gates.e_min_gev)} GeV holds two events in this selection, so no σ/E can be drawn on this axis.${mode}${listed}`);
+    return emptyChartOption(opts, metrics, `No momentum window from ${formatNumber(gates.e_min_gev)} GeV ${holdsText(gates)} in this selection, `
+      + `so no ${model.estimator.quantity} can be drawn on this axis.${mode}${listed}`);
   }
   const pad = axisPadding();
   const width = metrics.width || 760;
@@ -940,7 +1202,7 @@ function termCells(fit) {
   return [a, b];
 }
 
-/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or robust. */
+/** The status of one fit: provisional, a form that does not describe its windows, not converged, a negative intercept, or N ≥ 20 throughout. */
 function statusCell(fit, mf, gates) {
   if (!fit) return 'too few windows';
   const status = [];
@@ -948,7 +1210,7 @@ function statusCell(fit, mf, gates) {
   if (isMisfit(fit)) status.push(`form does not describe its windows (S = ${sig(fit.scale_factor)} > ${formatNumber(gates.misfit_scale)})`);
   if (fit.converged === false) status.push(`not converged in ${formatInt(fit.iterations)} refits`);
   if (fit.form === 'affine' && fit.negative_intercept) status.push('b < 0');
-  return status.length ? status.join('; ') : `robust (N ≥ ${formatInt(gates.fit_n)})`;
+  return status.length ? status.join('; ') : `N${NBSP}≥${NBSP}${formatInt(gates.fit_n)} throughout`;
 }
 
 /**
@@ -969,6 +1231,9 @@ export function fitTableRows(payload, opts = {}) {
   const mode = windowMode(opts?.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
   const energy = resolutionView(opts?.view) === 'energy';
+  const est = estimatorOf(payload, opts?.estimator);
+  // The plotted quantity leads the caption under the median and robust estimators; the sample caption is unchanged.
+  const of = est.name === 'sample' ? '' : ` of the ${est.quantity}`;
   const text = (c) => typographic(String(c));
   const rows = shownSeries(payload, opts?.shower).map((s) => {
     const mf = s.fits?.[mode] ?? null;
@@ -979,7 +1244,7 @@ export function fitTableRows(payload, opts = {}) {
       fits: TABLE_FORMS.map(([form, name]) => {
         const fit = mf?.[form] ?? null;
         const [a, b] = termCells(fit);
-        const cellName = energy ? energyTableName(form, fit) : name;
+        const cellName = energy ? energyTableName(form, fit, est.symbol) : name;
         return { form, cells: [cellName, a, b, chi2Cell(fit), scaleCell(fit), statusCell(fit, mf, gates)].map(text) };
       }),
     };
@@ -990,7 +1255,7 @@ export function fitTableRows(payload, opts = {}) {
     return {
       mode,
       view: 'energy',
-      caption: typographic(`Fits through ${modeLabel(mode, gates)}. This view draws the origin-pinned a₀/√E ⊕ 0 and, where both `
+      caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}. This view draws the origin-pinned a₀/√E ⊕ 0 and, where both `
         + 'of its terms are defined, the quadrature a/√E ⊕ b, each solid over the windows it was fitted to and dashed beyond; '
         + 'the affine a/√E + b is drawn in the 1/√E view. '
         + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
@@ -1001,7 +1266,7 @@ export function fitTableRows(payload, opts = {}) {
   }
   return {
     mode,
-    caption: typographic(`Fits through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
+    caption: typographic(`Fits${of} through ${modeLabel(mode, gates)}; the quadrature form is tabled, not drawn. `
       + 'S = √(χ²/ν) scales a fit\'s standard errors where χ²/ν > 1 (PDG), and its band then takes Student\'s t of its ν; '
       + `S = 1 where the windows' own errors stand. ${misfitRule}`),
     columns: [...FIT_TABLE_COLUMNS],
@@ -1010,12 +1275,12 @@ export function fitTableRows(payload, opts = {}) {
 }
 
 /** The Fit cell of one form in the E view: what the view draws of it, and why not where it does not. */
-function energyTableName(form, fit) {
+function energyTableName(form, fit, sym = 'σ/E') {
   if (form === 'affine') return 'Affine a/√E + b — drawn in the 1/√E view';
   if (form === 'pinned') {
     return pinnedDrawable(fit) ? 'Origin-pinned a₀/√E ⊕ 0 — drawn' : 'Origin-pinned a₀/√E ⊕ 0 — not drawn: too few windows';
   }
-  const reason = quadratureReason(fit);
+  const reason = quadratureReason(fit, sym);
   return reason ? `Quadrature a/√E ⊕ b — not drawn: ${reason}` : 'Quadrature a/√E ⊕ b — drawn';
 }
 
@@ -1218,12 +1483,12 @@ export function fitCurveE(fit, energies) {
 }
 
 /** Why the E view does not draw a quadrature fit block, or null where it does. */
-function quadratureReason(fit) {
+function quadratureReason(fit, sym = 'σ/E') {
   if (!fit) return 'too few windows';
   const p = fit.params ?? {};
   const reasons = [];
-  if (p.a_defined !== true) reasons.push('A ≤ 0: σ/E rises with E');
-  if (p.b_defined !== true) reasons.push('B ≤ 0: σ/E falls faster than 1/√E, so there is no real constant term');
+  if (p.a_defined !== true) reasons.push(`A ≤ 0: ${sym} rises with E`);
+  if (p.b_defined !== true) reasons.push(`B ≤ 0: ${sym} falls faster than 1/√E, so there is no real constant term`);
   if (reasons.length) return reasons.join('; ');
   if (!Number.isFinite(p.rho_a2b2) || !Number.isFinite(p.a2) || !Number.isFinite(p.b2)) {
     return 'the correlation of A and B is not in the response, so its band cannot be built';
@@ -1429,7 +1694,7 @@ function shortName(s, nShowers) {
 }
 
 /** The ratio's reference for one shower under 'deposit': its detector series' a/√E ⊕ b fit, else its a₀/√E. */
-function depositReference(all, shower, mode, nShowers, curveMin, xMax) {
+function depositReference(all, shower, mode, nShowers, curveMin, xMax, sym = 'σ/E') {
   const owner = nShowers > 1 ? `shower ${String(shower).toUpperCase()}'s deposit` : 'the deposit';
   const det = all.find((s) => s.source === 'detector' && (s.shower ?? 'a') === shower) ?? null;
   const base = {
@@ -1458,7 +1723,7 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax) {
     label: form === 'quadrature' ? `${owner} a/√E ⊕ b fit` : `${owner} a₀/√E fit`,
     why: form === 'quadrature'
       ? `its a/√E ⊕ b fit, both of whose terms are defined`
-      : `its a₀/√E fit, since its a/√E ⊕ b fit is not drawn (${quadratureReason(quad)})`,
+      : `its a₀/√E fit, since its a/√E ⊕ b fit is not drawn (${quadratureReason(quad, sym)})`,
     form, fit, span, provisional: Boolean(fit.provisional ?? mf?.provisional), misfit: isMisfit(fit), valueAt,
     band: splitAtSpan(rel, span), reason: null,
   };
@@ -1491,7 +1756,7 @@ function belowRoles(w, gates, curveMin) {
  *
  * The returned shape (models_notes.js builds the E view's drawer from it):
  *
- * - `view` 'energy', `mode`, `gates`, `nShowers`, `payload`;
+ * - `view` 'energy', `mode`, `gates`, `estimator` (`estimatorOf`), `nShowers`, `payload`;
  * - `x` {min, max, interval, name} and `y` {lo, hi, interval, provisional,
  *   name, n_clipped}: `axis.energy`'s, the y range the server's 2 GeV rule;
  *   `curveMinGev` (no curve below it), `yMinGev`, `dataMaxGev`, `rule` and
@@ -1566,8 +1831,10 @@ function belowRoles(w, gates, curveMin) {
  *   windows above y.hi grouped by window, in E order;
  * - `spans` {shared, span, bySeries: [{key, label, form, span}]}: the drawn
  *   fits' fitted spans, `shared` when they are one;
- * - `noteText` {offScale, extrapolation}: the canvas note's two strings
+ * - `noteText` {offScale, extrapolation, warning}: the canvas note's strings
  *   before they are fitted to its width ('' where there is nothing to say);
+ *   `warning` the literature disclosure, under the median estimator with a
+ *   literature curve on;
  * - `nPoints`, `nLines`.
  */
 export function energyModel(payload, opts = {}) {
@@ -1575,6 +1842,7 @@ export function energyModel(payload, opts = {}) {
   const ea = payload.axis.energy;
   const mode = windowMode(opts.windows);
   const gates = { ...DEFAULT_GATES, ...(payload.gates ?? {}) };
+  const estimator = estimatorOf(payload, opts.estimator);
   const xa = ea.x ?? {};
   const x = {
     min: Number.isFinite(xa.min) ? xa.min : 0, max: Number.isFinite(xa.max) ? xa.max : 80,
@@ -1583,7 +1851,7 @@ export function energyModel(payload, opts = {}) {
   const ya = ea.y ?? {};
   const y = {
     lo: 0, hi: ya.hi, interval: ya.interval, provisional: Boolean(ya.provisional),
-    name: ya.name ?? 'σ/E [%]', n_clipped: ya.n_clipped ?? 0,
+    name: ya.name ?? estimator.axisName, n_clipped: ya.n_clipped ?? 0,
   };
   const hi = Number.isFinite(y.hi) ? y.hi : Infinity;
   const curveMin = Number.isFinite(ea.curve_min_gev) ? ea.curve_min_gev : gates.e_min_gev;
@@ -1607,7 +1875,7 @@ export function energyModel(payload, opts = {}) {
 
   const byShower = {};
   for (const sh of new Set(shown.map((s) => s.shower ?? 'a'))) {
-    byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max);
+    byShower[sh] = entry ? literatureReference(entry, sh) : depositReference(all, sh, mode, nShowers, curveMin, x.max, estimator.symbol);
   }
   let belowNotDrawn = 0;
 
@@ -1618,7 +1886,7 @@ export function energyModel(payload, opts = {}) {
     const ref = byShower[s.shower ?? 'a'] ?? null;
     const fittedBins = new Set(mf?.points ?? []);
     const anchorBins = new Set(s.fits?.anchors?.points ?? []);
-    // Every window on [0, x.max] that reports σ/E; the anchors mode draws its fitted ones only.
+    // Every window on [0, x.max] that reports a value; the anchors mode draws its fitted ones only.
     const points = windowsOnShow(s, mode, gates, x.max).map((w) => {
       const E = 1 / (w.x * w.x);
       const ci = Array.isArray(w.ci95) && Number.isFinite(w.ci95[0]) && Number.isFinite(w.ci95[1]) ? w.ci95 : null;
@@ -1672,7 +1940,7 @@ export function energyModel(payload, opts = {}) {
     const fits = {};
     for (const form of ENERGY_FORMS) {
       const fit = mf?.[form] ?? null;
-      const reason = form === 'quadrature' ? quadratureReason(fit) : (pinnedDrawable(fit) ? null : 'too few windows');
+      const reason = form === 'quadrature' ? quadratureReason(fit, estimator.symbol) : (pinnedDrawable(fit) ? null : 'too few windows');
       if (reason) {
         fits[form] = { form, fit, drawable: false, reason, span, ratio: null };
         continue;
@@ -1869,12 +2137,15 @@ export function energyModel(payload, opts = {}) {
       : (shared && bySeries[0].span
         ? `dashed: fit extrapolated beyond its fitted windows (${spanText(bySeries[0].span)})`
         : 'dashed: each fit extrapolated beyond its own fitted windows (Details)'),
+    // The literature disclosure (brief section 2.7, Martin's override of 2026-11-12): under the median, whenever a
+    // literature curve is on, the payload's own sentence, verbatim, as one line of the note band.
+    warning: estimator.warning && literature.length ? estimator.warning : '',
   };
 
   const refLabel = entry ? referenceLabel(entry)
     : (Object.keys(byShower).length > 1 ? 'each shower\'s deposit fit' : (Object.values(byShower)[0]?.label ?? 'the deposit fit'));
   return {
-    view: 'energy', mode, gates, nShowers, payload, x, y,
+    view: 'energy', mode, gates, estimator, nShowers, payload, x, y,
     curveMinGev: curveMin, yMinGev, dataMaxGev: ea.data_max_gev ?? null, rule: ea.rule ?? null, notes: [...(ea.notes ?? [])],
     reference: {
       key: referenceKey, choice, label: refLabel, literature: entry, interval: entry ? null : 'band',
@@ -1934,8 +2205,10 @@ export function ratioPointTip(model, s, p) {
   let text = `Ratio to ${ref.label} = ${sig(r.value)}`;
   if (Number.isFinite(r.lo) && Number.isFinite(r.hi)) text += `, interval [${sig(r.lo)}, ${sig(r.hi)}]`;
   lines.splice(5, 0, `<b>${escapeHtml(text)}</b>`);
-  lines.push(mutedLine(`The reference reads ${pct(r.ref)} at this E. The interval is conditional on the reference: it is this window's 95% χ² interval divided by it, `
+  const est = model.estimator ?? estimatorOf(null);
+  lines.push(mutedLine(`The reference reads ${pct(r.ref)} at this E. The interval is conditional on the reference: it is this window's 95% ${intervalName(est, p.w)} interval divided by it, `
     + (ref.literature ? 'and the literature curve has no interval reported.' : 'and the reference\'s own uncertainty, its band about 1, is not included.')));
+  lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
   if (ref.misfit) lines.push(mutedLine(referenceMisfitText(ref, model.gates)));
   if (r.over || r.clip?.cutLo || r.clip?.cutHi) {
     lines.push(mutedLine(`clipped at the ratio axis (${ratioRangeText(model)}); the values above are the true ones`));
@@ -1944,11 +2217,21 @@ export function ratioPointTip(model, s, p) {
 }
 
 /** A drawn fit's equation, in ⊕ notation, with its parameters. */
-function energyEquation(f) {
+function energyEquation(f, sym = 'σ/E') {
   const p = f.fit.params ?? {};
   return f.form === 'quadrature'
-    ? `Quadrature fit σ/E = (${sig(p.a)} ± ${sig(p.se_a)})%/√E ⊕ (${sig(p.b)} ± ${sig(p.se_b)})%`
-    : `Origin-pinned fit σ/E = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
+    ? `Quadrature fit ${sym} = (${sig(p.a)} ± ${sig(p.se_a)})%/√E ⊕ (${sig(p.b)} ± ${sig(p.se_b)})%`
+    : `Origin-pinned fit ${sym} = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
+}
+
+/**
+ * The literature disclosure as tooltip lines (brief section 2.7): the
+ * payload's sentence under the median estimator, where `on` (a literature
+ * curve is drawn, or is the ratio's reference); none otherwise.
+ */
+function literatureWarningLines(model, on = true) {
+  const warning = model.estimator?.warning;
+  return on && warning ? [mutedLine(warning)] : [];
 }
 
 /** The extrapolation sentence of a dashed part. */
@@ -1987,9 +2270,10 @@ export function energyFitTip(model, s, f, part = 'solid') {
   const { fit, form } = f;
   const p = fit.params ?? {};
   const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
-  const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(energyEquation(f))];
+  const sym = model.estimator?.symbol ?? 'σ/E';
+  const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(energyEquation(f, sym))];
   if (form === 'quadrature') {
-    lines.push(mutedLine(`fitted as (σ/E)² = A/E + B: A = ${sig(p.a2)} ± ${sig(p.se_a2)} %²·GeV, B = ${sig(p.b2)} ± ${sig(p.se_b2)} %², ρ(A, B) = ${sig(p.rho_a2b2)}`));
+    lines.push(mutedLine(`fitted as (${sym})² = A/E + B: A = ${sig(p.a2)} ± ${sig(p.se_a2)} %²·GeV, B = ${sig(p.b2)} ± ${sig(p.se_b2)} %², ρ(A, B) = ${sig(p.rho_a2b2)}`));
     if (scaled) lines.push(mutedLine(`errors scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a) = ${sig(p.se_a_stat)}, SE(b) = ${sig(p.se_b_stat)}`));
   } else if (scaled) {
     lines.push(mutedLine(`error scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a₀) = ${sig(p.se_a0_stat)}`));
@@ -2018,9 +2302,10 @@ export function energyBandTip(model, s, f, outside = false) {
   const fit = f.fit;
   const q = Number.isFinite(fit.band_quantile) ? fit.band_quantile : DEFAULT_QUANTILE;
   const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
+  const sym = model.estimator?.symbol ?? 'σ/E';
   const lines = [`<b>${escapeHtml(s.label)}</b>`];
   lines.push(escapeHtml(f.form === 'quadrature'
-    ? `95% confidence band of the quadrature fit a/√E ⊕ b: √ of the band of z = (σ/E)² = A/E + B, ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1). z is linear in (A, B) and √ is monotone, so this is the exact 95% band, with no delta method.`
+    ? `95% confidence band of the quadrature fit a/√E ⊕ b: √ of the band of z = (${sym})² = A/E + B, ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1). z is linear in (A, B) and √ is monotone, so this is the exact 95% band, with no delta method.`
     : `95% confidence band of the origin-pinned fit a₀/√E ⊕ 0: a₀/√E ± ${sigFigs(q, 4)}·SE(a₀)/√E.`));
   if (scaled) {
     lines.push(mutedLine(`The covariance is scaled by S = ${sig(fit.scale_factor)}; S is estimated from the fit's own ν = ${formatInt(fit.ndf)}, so Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(q, 4)} replaces 1.96.`));
@@ -2030,8 +2315,8 @@ export function energyBandTip(model, s, f, outside = false) {
   if (outside) lines.push(escapeHtml(f.outlined ? extrapolatedLine(f) : `${extrapolatedLine(f)} Drawn at a third of its strength.`));
   if (f.floorCut) {
     lines.push(mutedLine(f.form === 'quadrature'
-      ? 'Its lower edge is cut at 0 where ẑ − h < 0: a resolution cannot be negative.'
-      : 'Its lower edge is cut at σ/E = 0, the floor of the axis.'));
+      ? `Its lower edge is cut at 0 where ẑ − h < 0: ${model.estimator?.name === 'median' ? 'a median relative error' : 'a resolution'} cannot be negative.`
+      : `Its lower edge is cut at ${sym} = 0, the floor of the axis.`));
   }
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   return lines.join('<br/>');
@@ -2058,7 +2343,7 @@ export function ratioFitTip(model, s, f, part = 'solid') {
   const ref = s.reference;
   const lines = [
     `<b>${escapeHtml(s.label)}</b>`,
-    escapeHtml(`${energyEquation(f)} ÷ ${ref.label}`),
+    escapeHtml(`${energyEquation(f, model.estimator?.symbol)} ÷ ${ref.label}`),
     mutedLine(`The fitted curve divided by the reference at each E. Its ${f.ratio?.outlined ? '' : 'faint '}band is the fit's 95% band divided the same way, `
       + `conditional on the reference: the reference is held exact${ref.literature ? '' : ' (its own band about 1 is drawn beside it, not folded in)'}.`),
   ];
@@ -2067,6 +2352,7 @@ export function ratioFitTip(model, s, f, part = 'solid') {
   if (f.ratio?.outlined) lines.push(mutedLine(outlinedLine(f.fit)));
   if (f.ratio?.cut) lines.push(mutedLine('It leaves the ratio axis: the caret there gives its true values.'));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
   return lines.join('<br/>');
 }
 
@@ -2083,6 +2369,7 @@ function ratioFitCutTip(model, s, f) {
       + 'a fit summarises its windows, so no fit ratio sets it.'),
   ];
   if (s.reference.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  lines.push(...literatureWarningLines(model, Boolean(s.reference.literature)));
   return lines.join('<br/>');
 }
 
@@ -2116,18 +2403,29 @@ function referenceBandCutTip(model, ref) {
   ].join('<br/>');
 }
 
-/** The tooltip of the ratio panel's 1.0 rule. */
+/**
+ * The tooltip of the ratio panel's 1.0 rule. Under the deposit reference a shower whose deposit has no fit in this
+ * mode is named with its reason; when no shower has one, the rule is the axis's centre with nothing to divide by.
+ */
 function unityTip(model) {
   const ref = model.reference;
+  const missing = ref.literature ? [] : Object.values(ref.byShower ?? {}).filter((r) => r.reason);
+  const none = missing.length > 0 && missing.length === Object.keys(ref.byShower ?? {}).length;
   const lines = [
     `<b>ratio = 1</b>`,
-    escapeHtml(`σ/E equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
+    escapeHtml(none
+      ? 'The ratio axis\'s centre, with no reference to divide by, so the panel holds no ratio marks.'
+      : `${model.estimator?.symbol ?? 'σ/E'} equal to the reference: ${ref.literature ? referenceEquation(ref.literature) : ref.label}.`),
     mutedLine(`A log axis symmetric about 1 (${ratioRangeText(model)}), so ×k and ÷k lie at equal distances from this rule.`),
   ];
+  for (const r of missing) {
+    lines.push(mutedLine(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${r.reason}.`));
+  }
   for (const r of Object.values(ref.byShower ?? {})) if (r.misfit) lines.push(mutedLine(referenceMisfitText(r, model.gates)));
   const why = referenceChoiceText(model);
   if (why) lines.push(mutedLine(why));
   if (ref.literature) lines.push(mutedLine(LITERATURE_NO_INTERVAL));
+  lines.push(...literatureWarningLines(model, Boolean(ref.literature)));
   return lines.join('<br/>');
 }
 
@@ -2154,7 +2452,7 @@ export function referenceChoiceText(model) {
   const head = `With both curves drawn the ratio divides by ${name(c.key)}, the curve the windows lie farther from `
     + 'and so the one that needs the most scaling';
   if (!c.basis || !(ref?.factor > 0) || !(other?.factor > 0)) {
-    return `${head}: no window on show reports σ/E, so it is ${name(c.key)}, the catalogue's first.`;
+    return `${head}: no window on show reports ${model.estimator?.quantity ?? 'σ/E'}, so it is ${name(c.key)}, the catalogue's first.`;
   }
   const over = c.basis === 'robust'
     ? `the ${plural(c.n, 'window')} of N ≥ ${formatInt(model.gates.fit_n)} from ${formatNumber(model.yMinGev)} GeV`
@@ -2163,7 +2461,7 @@ export function referenceChoiceText(model) {
     return `${head}: ${over} sit a median ×${sig(ref.factor)} from both, so it is ${name(c.key)}, the catalogue's first.`;
   }
   return `${head}: ${over} sit a median ×${sig(ref.factor)} from ${name(c.key)} and ×${sig(other.factor)} from ${name(other.key)} `
-    + '(the median of |ln(σ/E ÷ curve)|, as a factor).';
+    + `(the median of |ln(${model.estimator?.symbol ?? 'σ/E'} ÷ curve)|, as a factor).`;
 }
 
 /**
@@ -2185,6 +2483,7 @@ export function literatureTip(model, lit) {
     mutedLine(role),
     ...(why ? [mutedLine(why)] : []),
     mutedLine('A reference, not a measurement: it never sets the range.'),
+    ...literatureWarningLines(model),
   ].join('<br/>');
 }
 
@@ -2199,6 +2498,7 @@ function literatureRatioTip(model, lit) {
     escapeHtml(`${referenceEquation(lit.entry)} divided by ${referenceEquation(ref)}: ${sig(r0)} at E = ${sig(e0)} GeV, ${sig(r1)} at E = ${sig(e1)} GeV.`),
     mutedLine('Both curves are transcribed point estimates with no interval reported, so neither has one here; it never sets the ratio range.'),
     ...(lit.ratio.cut ? [mutedLine('It leaves the ratio axis: the caret there gives its true values.')] : []),
+    ...literatureWarningLines(model),
   ].join('<br/>');
 }
 
@@ -2211,6 +2511,7 @@ function literatureRatioCutTip(model, lit) {
     escapeHtml(`It leaves the ratio axis (${ratioRangeText(model)}) ${cut.dir === 'up' ? 'above' : 'below'} it first at E = ${sig(cut.at)} GeV, scanning up in E; at E = ${sig(pe)} GeV it reads ${sig(pr)}.`),
     mutedLine('Clipped, not rescaled: a literature curve never sets the ratio range.'),
     mutedLine(LITERATURE_NO_INTERVAL),
+    ...literatureWarningLines(model),
   ].join('<br/>');
 }
 
@@ -2222,6 +2523,7 @@ function literatureCutTip(model, lit) {
     escapeHtml(`${referenceEquation(lit.entry)} lies above the top of the axis (0 to ${pct(model.y.hi)}) below E = ${sig(lit.cut.at)} GeV; at E = ${sig(pe)} GeV it reads ${pct(pv)}.`),
     mutedLine('Clipped, not rescaled: a literature curve never sets the range.'),
     mutedLine(LITERATURE_NO_INTERVAL),
+    ...literatureWarningLines(model),
   ].join('<br/>');
 }
 
@@ -2640,8 +2942,28 @@ export function ratioTickLabel(v) {
  * the two blocks are stacked instead (`stacked`): the list first, over all of
  * `fullPx` (the canvas right of the y axis), then the rule right-aligned
  * beneath it, so the two never overprint. `height` reserves either layout.
+ *
+ * Under the median estimator with a literature curve on, the literature
+ * disclosure (`noteText.warning`, brief section 2.7) is one more line of the
+ * band, beneath both blocks over all of `fullPx`, wrapped at its spaces where
+ * the canvas is too narrow for it (`warning`, its lines; `warnAt`, the lines
+ * above it). Without it the layout is the one it always was.
  */
 function noteLayout(model, plotWidthPx, fullPx = plotWidthPx) {
+  const base = noteBlocks(model, plotWidthPx, fullPx);
+  const text = model.noteText.warning;
+  if (!text) return { ...base, warning: [], warnAt: 0 };
+  const font = THEME.fontTip;
+  const warning = packTokens(text.split(' '), Math.max(80, fullPx), font, THEME.fontFamily);
+  const above = base.stacked ? base.left.length + base.right.length : Math.max(base.left.length, base.right.length);
+  return {
+    ...base, warning, warnAt: above,
+    height: (above + warning.length) * base.lineH + Math.round(1.1 * font),
+  };
+}
+
+/** The off-scale list and the extrapolation rule of the canvas note (`noteLayout`), as they always were. */
+function noteBlocks(model, plotWidthPx, fullPx = plotWidthPx) {
   const font = THEME.fontTip;
   const family = THEME.fontFamily;
   const lineH = Math.ceil(1.35 * font);
@@ -2748,12 +3070,14 @@ function energyEmptyText(model) {
   const { gates } = model;
   const reportable = model.series.reduce((a, s) => a + (s.raw.windows ?? [])
     .filter((w) => (w.n ?? 0) >= gates.report_n && Number.isFinite(w.value)).length, 0);
+  const declined = declinedEmptyText(model, 'All windows');
+  if (declined) return declined;
   if (model.mode === 'anchors' && reportable && model.y.hi > 0) {
     return `No window from ${formatNumber(gates.anchor_low_gev)} GeV reaches N = ${formatInt(gates.whisker_n)}, the fewest an anchor fit runs through, `
-      + `so the 3-anchor mode draws nothing. "All windows" draws the ${plural(reportable, 'window')} that report σ/E `
+      + `so the 3-anchor mode draws nothing. "All windows" draws the ${plural(reportable, 'window')} that report ${model.estimator.quantity} `
       + `(N ≥ ${formatInt(gates.report_n)}), those below ${formatNumber(model.curveMinGev)} GeV as points only.`;
   }
-  return 'No momentum window holds two events in this selection, so no σ/E can be drawn on this axis.';
+  return `No momentum window ${holdsText(gates)} in this selection, so no ${model.estimator.quantity} can be drawn on this axis.`;
 }
 
 /**
@@ -2886,6 +3210,13 @@ export function energyViewOption(payload, opts = {}, metrics = {}) {
     // Beside the list at its top, or (stacked) beneath it; right-aligned at the plot's right border either way.
     const y = noteTop + (note.stacked ? note.left.length * note.lineH : 0);
     graphic.push({ type: 'text', silent: true, style: { ...noteStyle, x: width - right, y, text: note.right.join('\n'), textAlign: 'right' } });
+  }
+  if (note.warning.length) {
+    // The literature disclosure under the median estimator: one line of the band, beneath the other two.
+    graphic.push({
+      type: 'text', silent: true,
+      style: { ...noteStyle, x: pad.left, y: noteTop + note.warnAt * note.lineH, text: note.warning.join('\n') },
+    });
   }
   return {
     option: {

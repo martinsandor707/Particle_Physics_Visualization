@@ -61,6 +61,71 @@ and prints a table of SHA-256 digests, one per case:
   accuracy table and the diagnostics blocks; the seven drawer-note builders,
   with and without the panels' own state (a highlighted feature, moved curve
   values).
+* **The resolution card's three estimators** (2026-11-12, Martin's decisions of
+  that day: an Estimator control, Median |rel. err.| by default, Robust σ (IQR)
+  and Sample σ/μ). The four `res_scaling_*` fixtures were re-recorded under
+  `estimator=sample`, whose every number is unchanged, and eight were added,
+  `res_scaling_{median,robust}_{two,xgb,single_hits,single_events}`. They are
+  walked last (`LATER_FIXTURES`), so no scale case is renamed, and recorded as
+  304 new case ids, 38 per fixture as for the sample ones: both views, both
+  window modes, one shower, a narrow card, and on the E view the deposit, π±,
+  e± and both-curve states, the median's curve states carrying the literature
+  disclosure. 143 cases moved on purpose, and nothing else, each only by added
+  lines (measured against a dump of the golden commit):
+  - 96 `models/resolution/*` chart cases of the sample fixtures: their window
+    tooltips gained the cross-references (the median response, the two
+    estimators not plotted, the tail share). No option, mark or fit table moved.
+  - 40 `notes/models_resolution/*` drawers: the estimator's name, the
+    deposit's median calibration c̃, each model series' median-response range
+    and the bounded-range sentence.
+  - 2 `notes/models_perf/perf/perf_{two,xgb}_energy` drawers and 5 charts,
+    `models/perf/perf_{two,xgb}_energy/median_rel` with `@print` and
+    `models/perf/tips`: the energy task's Median rel. is not a σ, and the
+    reconciliation with the resolution card.
+
+  The theme map did not move. A second deliberate re-record the same day moved
+  106 cases of the same two families, and nothing else:
+  - The κ floor (`stats/robust_width.KAPPA_FLOOR`) leaves the synthetic
+    deposits' tied median windows unfitted. This moved 24 chart cases and
+    10 drawers of `res_scaling_median_two`.
+  - The robust-floor sentence now reads "Sample σ/μ reports them from N = 2",
+    because it does not draw them on every view. This moved 40 robust drawers.
+  - A no-break space keeps "N ≥ 20 throughout" on one line in the fit table's
+    Status column. This moved 32 table cases.
+
+  The res-robust fix round (2026-11-12, brief-fix.md, after the statistics and
+  UI reviews) re-recorded 450 of the 2,869 cases, in the same three families
+  and nothing else; the case-id set and the theme map did not move (measured
+  against a dump of the golden commit, 017c845):
+  - 328 `models/resolution/*` chart cases: 28 per fixture, except 24 for each
+    sample single-shower fixture. The fits moved under the pooled weight scale
+    (F1: se = c·ŷ/√N, one c per series), and the robust single-shower fits
+    through one window are gone (F4). The tooltips gained the new SE line
+    (c for the series, or tied replicates), the tail share from N = 300 (F5,
+    F6), the signed median response, and role lines that name the cause of a
+    substitution or decline. The empty states name the robust decline. The fit
+    table's Status reads "N ≥ 20 throughout".
+  - 120 `notes/models_resolution/*` drawers, 10 per fixture. They gained the
+    decomposition sentence under every estimator, the pooled-scale line and
+    weight sentence, "Colour is the series", and "median rel." for σ/E under
+    the median. Lines for tied, withheld and declined windows were added, and
+    the server notes the drawer restates are dropped.
+  - 2 `notes/models_perf/perf/perf_{two,xgb}_energy` drawers: the
+    reconciliation names "the card of the Energy resolution section". The
+    tooltips keep its first sentence, so no `models/perf` case moved.
+
+  The lead's two follow-up fixes of the same day re-recorded 22 more cases,
+  in two of those families, against a run of the golden at d3c5e47:
+  - 14 `models/resolution/*` E-view cases of the three recordings whose
+    deposit reference has no fit (`res_scaling_median_two`, whose median
+    deposits tie, and `res_scaling_robust_single_{hits,events}`, declined
+    through one window). The ratio panel's 1.0 rule no longer says "equal to
+    the reference: … deposit fit" there: it names each shower without one,
+    as the drawer does, and with none says there is nothing to divide by.
+  - 8 `notes/models_resolution/*` drawers, both modes of the four robust
+    recordings: the server's misfit note, which the drawer restates, no
+    longer says "as a provisional fit is", since robust has no provisional
+    fit.
 
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
@@ -398,8 +463,9 @@ const SCALES = {
   voxel_gev_mm3: { scale: 'log10', vmin: -10.7, vmax: -6.27, unit: 'GeV/mm^3', mode: 'percentile', locked: true,
     quantity: 'energy_density', floor_density: 1.9e-11 },
 };
-/* Payload fixtures recorded after the golden froze (the selection's cells, 2026-10-31): walked last. */
-const LATER_FIXTURES = ['selection_cells_'];
+/* Payload fixtures recorded after the golden froze, walked last, one batch per entry in this order: the
+ * selection's cells (2026-10-31), then the resolution card's median and robust estimators (2026-11-12). */
+const LATER_FIXTURES = ['selection_cells_', 'res_scaling_median_', 'res_scaling_robust_'];
 /* Payload fixtures the two generic walks below (scale blocks, code tables) skip: the five layer-group
  * responses (2026-11-04) carry the server's existing scale shapes on other selections - of the 407
  * cases the walks derived from them, 34 were new hashes - so they are exercised through their panels'
@@ -885,6 +951,38 @@ for (const name of ['res_scaling_two', 'res_scaling_xgb', 'res_scaling_single_hi
   const allDeposit = { view: 'energy', windows: 'all', reference: 'deposit' };
   optionCase(`models/resolution/${name}/energy/showerA`, rs.energyViewOption(payload, { ...allDeposit, shower: 'a' }, EW).option);
   optionCase(`models/resolution/${name}/energy/narrow`, rs.energyViewOption(payload, { ...allDeposit, shower: 'both' }, { width: 360, height: rs.ENERGY_VIEW_PX }).option);
+}
+
+/* ---- Models: the resolution card's median and robust estimators (added 2026-11-12, new case ids only) ---- */
+// The eight fixtures recorded with estimator=median and estimator=robust, walked as the four sample fixtures are
+// above, both views; the card's options carry the estimator asked for, as models_cards.js `cardOptions` does.
+// Under the median the E view's literature states that draw a curve ('pi', 'e', both) carry the disclosure.
+for (const estimator of ['median', 'robust']) {
+  for (const kind of ['two', 'xgb', 'single_hits', 'single_events']) {
+    const name = `res_scaling_${estimator}_${kind}`;
+    const payload = load(name);
+    for (const windows of ['anchors', 'all']) {
+      both(`models/resolution/${name}/${windows}`, () => rs.resolutionScalingOption(payload, { windows, shower: 'both', estimator }, MW));
+      put(`models/resolution/${name}/${windows}/table`, rs.fitTableRows(payload, { windows, shower: 'both', estimator }));
+      put(`notes/models_resolution/${name}/${windows}`, mn.resolutionScalingNotes({ payload, windows, shower: 'both', estimator }));
+    }
+    optionCase(`models/resolution/${name}/showerA`, rs.resolutionScalingOption(payload, { windows: 'anchors', shower: 'a', estimator }, MW));
+    optionCase(`models/resolution/${name}/narrow`, rs.resolutionScalingOption(payload, { windows: 'all', shower: 'both', estimator }, { width: 360, height: 420 }));
+    for (const windows of ['anchors', 'all']) {
+      for (const reference of ['deposit', 'pi', 'e']) {
+        const opts = { view: 'energy', windows, shower: 'both', reference, estimator };
+        both(`models/resolution/${name}/energy/${windows}/${reference}`, () => rs.energyViewOption(payload, opts, EW).option);
+        put(`notes/models_resolution/${name}/energy/${windows}/${reference}`, mn.resolutionScalingNotes({ payload, ...opts }));
+      }
+      put(`models/resolution/${name}/energy/${windows}/table`, rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both', estimator }));
+      const opts = { view: 'energy', windows, shower: 'both', literature: ['pi', 'e'], estimator };
+      both(`models/resolution/${name}/energy/${windows}/both`, () => rs.energyViewOption(payload, opts, EW).option);
+      put(`notes/models_resolution/${name}/energy/${windows}/both`, mn.resolutionScalingNotes({ payload, ...opts }));
+    }
+    const allDeposit = { view: 'energy', windows: 'all', reference: 'deposit', estimator };
+    optionCase(`models/resolution/${name}/energy/showerA`, rs.energyViewOption(payload, { ...allDeposit, shower: 'a' }, EW).option);
+    optionCase(`models/resolution/${name}/energy/narrow`, rs.energyViewOption(payload, { ...allDeposit, shower: 'both' }, { width: 360, height: rs.ENERGY_VIEW_PX }).option);
+  }
 }
 
 for (const name of ['pred_density_two_energy', 'pred_density_two_angle', 'pred_density_xgb_energy', 'pred_density_xgb_phi', 'pred_density_xgb_theta']) {

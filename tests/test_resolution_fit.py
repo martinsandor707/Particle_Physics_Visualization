@@ -10,8 +10,23 @@ card's E view, is held to √ of a z-band built independently from ``lstsq``, to
 its cut at zero and its value at x = 0, to Student's t once S scales it, and to
 its coverage of the generating σ/E over 400 replicas. The misfit gate
 (``Fit.misfit``: ν ≥ 1 and S > 5) is held just above and just below 5, at ν = 0,
-and on a pinned fit through a constant term. Nothing here is a measurement of
-the detector.
+and on a pinned fit through a constant term.
+
+The κ law (the ``kappa`` argument, Martin's decisions of 2026-11-12): without
+it every fit runs the delta-method law exactly as before; with it each form
+reaches the fixed point of ``se = κ·ŷ`` (``se_z = 2κ·ŷ²`` for the quadrature),
+held to ``numpy.linalg.lstsq`` on the ``√w``-scaled system at the final weights,
+with the χ² those weights give. The window gates of the three estimators are
+held on bare windows.
+
+The pooled weight scale (the fix brief's F1, 2026-11-12): the card passes
+``κ = c/√N`` with ``c`` the series' median of ``√N·κ`` over its fittable windows,
+never a window's own κ. It is held to its definition, to cancelling in the
+parameters (3c leaves θ and divides χ² by 9), and, by a seeded Monte Carlo
+through ``windows_of`` and ``mode_fits``, to removing the upward bias a
+per-window κ adds. Why a window is not fitted (F3: never blamed on N when N is
+not the cause) and the robust estimator's refusal to fit one window (F4) are
+held on bare windows. Nothing here is a measurement of the detector.
 """
 
 from __future__ import annotations
@@ -411,8 +426,8 @@ def test_nominal_anchors_on_both_producer_axes():
     assert rs.nominal_anchors(_axis(5, 6)) == (5, 6)
 
 
-def _series_windows(counts: dict[int, int], seed: int = 3):
-    """Windows of an axis 0–19 holding ``counts[k]`` events in bin k."""
+def _series_windows(counts: dict[int, int], seed: int = 3, estimator: str = "sample"):
+    """Windows of an axis 0–19 holding ``counts[k]`` events in bin k (the sample estimator unless named)."""
     rng = np.random.default_rng(seed)
     bins, p = [], []
     for k, count in counts.items():
@@ -420,7 +435,7 @@ def _series_windows(counts: dict[int, int], seed: int = 3):
         p += list(rng.uniform(k, k + 1, count))
     bins, p = np.array(bins, dtype=float), np.array(p)
     ratio = 1.0 + (0.2 / np.sqrt(p)) * rng.standard_normal(p.size)
-    return rs.windows_of(ratio, p, bins, _axis(0, 19))
+    return rs.windows_of(ratio, p, bins, _axis(0, 19), estimator=estimator)
 
 
 def test_a_thin_anchor_takes_the_nearest_eligible_window_and_says_so():
@@ -449,8 +464,11 @@ def test_an_anchor_with_nothing_left_is_dropped():
     windows = _series_windows({5: 10, 10: 50, 19: 25})
     mode = rs.mode_fits("anchors", (5, 10, 19), windows)
     assert mode.points == [10, 19] and not mode.fallback
-    assert mode.substitutions == [{"nominal": 5, "used": None, "reason": mode.substitutions[0]["reason"]}]
-    assert "dropped" in mode.substitutions[0]["reason"]
+    assert mode.substitutions == [{"nominal": 5, "used": None, "cause": "n",
+                                   "reason": mode.substitutions[0]["reason"]}]
+    assert mode.substitutions[0]["reason"] == (
+        "The nominal anchor 5–6 GeV holds N = 10 for this series, below 20, and no other window "
+        "from 5 GeV with N ≥ 20 is left: it is dropped.")
 
 
 def test_too_few_eligible_windows_fall_back_to_whiskered_ones_provisionally():
@@ -477,3 +495,352 @@ def test_window_gates():
     assert windows[8].whisker and windows[8].as_dict()["weak"] and not windows[8].eligible
     assert not windows[9].eligible and windows[10].eligible
     assert windows[10].as_dict()["c4"] is None
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust"])
+def test_the_anchor_rules_hold_under_the_other_estimators(estimator):
+    """A thin anchor is replaced the same way; under the robust width no N ≥ 8 fallback exists,
+    and no line is fitted through one window (F4)."""
+    windows = _series_windows({3: 40, 5: 10, 6: 30, 10: 50, 19: 25}, estimator=estimator)
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows)
+    assert mode.points == [6, 10, 19] and not mode.fallback
+    (sub,) = mode.substitutions
+    assert sub["cause"] == "n" and "fittable window from 5 GeV" in sub["reason"]
+    thin = _series_windows({5: 10, 10: 30, 19: 9}, estimator=estimator)
+    fallback = rs.mode_fits("anchors", (5, 10, 19), thin)
+    if estimator == "robust":
+        assert fallback.points == [] and fallback.declined == [10]
+        assert not fallback.fallback and not fallback.provisional
+        assert all(fit is None for fit in fallback.fits.values())
+        every = rs.mode_fits("all", (5, 10, 19), thin)
+        assert every.points == [] and every.declined == [10]
+        assert all(fit is None for fit in every.fits.values())
+    else:
+        assert fallback.points == [5, 10, 19] and fallback.fallback and fallback.provisional
+        assert fallback.declined == []
+
+
+def test_window_gates_under_the_median_estimator():
+    """The median rel. from N = 2, its order-statistic interval from N = 6, the whisker from N = 8."""
+    windows = {w.bin: w for w in _series_windows({6: 1, 7: 2, 8: 6, 9: 8, 10: 19, 11: 20},
+                                                 estimator="median")}
+    assert windows[6].r is None and windows[6].as_dict()["value"] is None
+    assert windows[7].r is not None and windows[7].ci is None and windows[7].as_dict()["c4"] is None
+    assert windows[7].as_dict()["dof_note"] is None and windows[7].se > 0
+    assert windows[8].ci is not None and not windows[8].whisker
+    assert windows[8].method == "order_statistic"
+    assert windows[9].whisker and windows[9].method == "order_statistic"
+    assert windows[10].whisker and not windows[10].eligible
+    assert windows[11].eligible and windows[11].method == "bootstrap_percentile"
+    for w in windows.values():
+        d = w.as_dict()
+        assert d["se_delta"] is None and set(d["alt"]) == {"robust", "sample"}
+        if w.r is not None:
+            assert d["se_rel"] == approx(w.se / w.r) and d["se"] == approx(100 * w.se)
+
+
+def test_window_gates_under_the_robust_estimator():
+    """Nothing below the robust floor: no value, no whisker, no fit, and the window says why."""
+    windows = {w.bin: w for w in _series_windows({7: 2, 8: 8, 9: 19, 10: 20},
+                                                 estimator="robust")}
+    for k in (7, 8, 9):
+        d = windows[k].as_dict()
+        assert d["value"] is None and d["ci95"] is None and not d["whisker"] and not d["eligible"]
+        assert "below the robust floor" in d["dof_note"] and d["weak"]
+        assert d["alt"]["sample"] is not None and d["alt"]["median"] is not None
+    d = windows[10].as_dict()
+    assert d["value"] is not None and d["whisker"] and d["eligible"] and not d["weak"]
+    assert d["method"] == "bootstrap_percentile" and d["se_rel"] == approx(d["se"] / d["value"])
+    assert set(d["alt"]) == {"median", "sample"} and d["dof_note"] is None
+    # The tail share waits for N = 300 (F5).
+    assert d["tail_share"] is None and d["se_delta"] is None
+
+
+# ------------------------------------------------------------- the κ law --
+
+
+def _kappa_windows(seed: int, spread: float = 0.0):
+    rng = np.random.default_rng(seed)
+    x = 1 / np.sqrt(np.array([4.5, 6.5, 9.5, 13.5, 18.5]))
+    r = np.sqrt(0.04 * x * x + 0.0025) * (1 + spread * rng.standard_normal(x.size))
+    n = np.array([300, 250, 400, 150, 220])
+    kappa = rng.uniform(0.03, 0.09, x.size)
+    return x, r, n, kappa
+
+
+def test_no_kappa_is_the_delta_method_law_exactly():
+    """kappa=None runs the delta-method law: the same Fit, field for field, as the call without it."""
+    rng = np.random.default_rng(20261112)
+    x, r, n = _windows(rng, lambda p: A_TRUE / np.sqrt(p) + B_TRUE, 300)
+    for fit in (rf.fit_affine, rf.fit_pinned, rf.fit_quadrature):
+        a, b = fit(x, r, n), fit(x, r, n, kappa=None)
+        assert a.theta == b.theta and np.array_equal(a.cov_stat, b.cov_stat)
+        assert (a.chi2, a.ndf, a.p_value, a.scale_factor, a.iterations, a.converged) == (
+            b.chi2, b.ndf, b.p_value, b.scale_factor, b.iterations, b.converged)
+    # At its fixed point the delta law's weights are 1/resolution_se(ŷ, n)², not κ's.
+    fit = rf.fit_affine(x, r, n)
+    w = 1.0 / rf.resolution_se(fit.predict(x), n) ** 2
+    again, _ = rf.wls_affine(x, r, w)
+    assert again == approx(np.array(fit.theta), rel=1e-9)
+
+
+@pytest.mark.parametrize("seed, spread", [(31, 0.0), (32, 0.2), (33, 0.4)])
+@pytest.mark.parametrize("form", [rf.FORM_AFFINE, rf.FORM_PINNED])
+def test_a_kappa_fit_is_lstsq_at_its_final_weights(seed, spread, form):
+    """At convergence w = 1/(κ·ŷ)²: lstsq on the √w-scaled system returns θ, (XᵀWX)⁻¹ its covariance."""
+    x, r, n, kappa = _kappa_windows(seed, spread)
+    fit = (rf.fit_affine if form == rf.FORM_AFFINE else rf.fit_pinned)(x, r, n, kappa)
+    assert fit.converged and fit.iterations < rf.MAX_ITERATIONS
+    yhat = fit.predict(x)
+    assert (yhat > 0).all()
+    w = 1.0 / (kappa * yhat) ** 2
+    design = np.stack([x, np.ones_like(x)], axis=1) if form == rf.FORM_AFFINE else x[:, None]
+    root = np.sqrt(w)
+    theta, *_ = np.linalg.lstsq(design * root[:, None], r * root, rcond=None)
+    assert theta == approx(np.array(fit.theta), rel=1e-8)
+    assert fit.cov_stat == approx(np.linalg.inv(design.T @ (w[:, None] * design)), rel=1e-6)
+    assert fit.chi2 == approx(float((w * (r - design @ theta) ** 2).sum()), rel=1e-6)
+    # Not the delta law's answer: the weights differ.
+    delta = (rf.fit_affine if form == rf.FORM_AFFINE else rf.fit_pinned)(x, r, n)
+    assert not np.allclose(delta.theta, fit.theta, rtol=1e-6)
+
+
+@pytest.mark.parametrize("seed, spread", [(41, 0.0), (42, 0.25)])
+def test_a_kappa_quadrature_fit_is_lstsq_in_z_at_its_final_weights(seed, spread):
+    """se_z = 2κ·ŷ² at the fixed point; lstsq on the √w-scaled (u, 1) system in z = r² returns (A, B)."""
+    x, r, n, kappa = _kappa_windows(seed, spread)
+    fit = rf.fit_quadrature(x, r, n, kappa)
+    assert fit.converged
+    zhat = fit.theta[0] * x * x + fit.theta[1]
+    assert (zhat > 0).all()
+    w = 1.0 / (2.0 * kappa * zhat) ** 2
+    design = np.stack([x * x, np.ones_like(x)], axis=1)
+    root = np.sqrt(w)
+    theta, *_ = np.linalg.lstsq(design * root[:, None], r * r * root, rcond=None)
+    assert theta == approx(np.array(fit.theta), rel=1e-7)
+    assert fit.cov_stat == approx(np.linalg.inv(design.T @ (w[:, None] * design)), rel=1e-6)
+    assert fit.chi2 == approx(float((w * (r * r - design @ theta) ** 2).sum()), rel=1e-6)
+
+
+def test_kappa_fits_recover_the_generating_terms_and_converge():
+    """Windows with a known relative SE κ: the κ-weighted fits recover a and b within 3 SE."""
+    rng = np.random.default_rng(1112)
+    x = 1 / np.sqrt(np.arange(5.5, 20.0))
+    truth = A_TRUE * x + B_TRUE
+    kappa = np.full(x.size, 0.04)
+    hits = 0
+    for _ in range(200):
+        r = truth * (1 + kappa * rng.standard_normal(x.size))
+        fit = rf.fit_affine(x, r, np.full(x.size, 500), kappa)
+        assert fit.converged
+        hits += abs(fit.theta[0] - A_TRUE) <= rf.Z95 * fit.se[0]
+    assert 0.9 <= hits / 200 <= 0.99
+    pinned = rf.fit_pinned(x, A_TRUE * x, np.full(x.size, 500), kappa)
+    assert pinned.theta[0] == approx(A_TRUE, rel=1e-12) and pinned.chi2 == approx(0.0, abs=1e-20)
+
+
+@pytest.mark.parametrize("kappa", [[0.05, 0.0, 0.05], [0.05, -0.1, 0.05], [0.05, np.nan, 0.05],
+                                   [0.05, np.inf, 0.05], [0.05, 0.05]])
+def test_kappa_must_be_positive_finite_and_aligned(kappa):
+    with pytest.raises(ValueError):
+        rf.fit_affine([0.25, 0.3, 0.4], [0.1, 0.09, 0.08], [50, 50, 50], kappa)
+
+
+# ------------------------------------------------- the pooled weight scale --
+# F1 of the fix brief (2026-11-12): under median and robust the fits weight window k by
+# se = c·ŷₖ/√Nₖ, c the series' pooled scale, the median of √N·κ over its fittable windows.
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust"])
+def test_the_pooled_scale_is_the_median_of_root_n_kappa_over_the_fittable_windows(estimator):
+    """Off-axis, thin and κ-less windows stay out of c; each window keeps its measured κ as se_rel."""
+    windows = _series_windows({3: 40, 5: 10, 6: 30, 10: 50, 14: 60, 19: 25}, estimator=estimator)
+    scale = rs.pooled_scale(windows)
+    fittable = [w for w in windows if w.eligible]
+    assert [w.bin for w in fittable] == [6, 10, 14, 19]
+    assert scale.basis == "fit" and scale.n_windows == 4
+    assert scale.c == float(np.median([math.sqrt(w.n) * w.kappa for w in fittable]))
+    assert "median of √N·κ over this series' windows of N ≥ 20 from 4 GeV" in scale.rule
+    assert scale.as_dict() == {"c": scale.c, "n_windows": 4, "rule": scale.rule}
+    for w in windows:
+        if w.r is not None and w.kappa is not None:
+            assert w.as_dict()["se_rel"] == w.kappa == approx(w.se / w.r)
+    assert rs.pooled_scale(_series_windows({10: 50, 14: 60})) is None   # sample: the delta method
+
+
+def test_the_pooled_scale_falls_back_with_the_median_and_is_absent_without_a_weight():
+    """No window of N ≥ 20: c over the N ≥ 8 windows the provisional fits draw on; none at all: no c."""
+    windows = _series_windows({5: 10, 10: 12, 19: 9}, estimator="median")
+    scale = rs.pooled_scale(windows)
+    assert scale.basis == "fallback" and scale.n_windows == 3
+    assert scale.c == float(np.median([math.sqrt(w.n) * w.kappa for w in windows]))
+    assert "No window of N ≥ 20 from 4 GeV carries a fit weight" in scale.rule
+    mode = rs.mode_fits("all", (5, 10, 19), windows)
+    assert mode.provisional and mode.points == [5, 10, 19]
+    bare = rs.pooled_scale(_series_windows({5: 3, 10: 5}, estimator="median"))
+    assert bare.c is None and bare.n_windows == 0 and bare.basis == "none"
+    assert bare.rule.startswith("No window from 4 GeV carries a fit weight")
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust"])
+def test_the_fits_weight_by_c_over_root_n_never_by_a_windows_own_kappa(estimator):
+    """Both modes' fits are resolution_fit's κ law given c/√N, the same c for every window."""
+    windows = _series_windows({4: 60, 6: 30, 8: 45, 10: 50, 14: 60, 19: 25}, estimator=estimator)
+    c = rs.pooled_scale(windows).c
+    mode = rs.mode_fits("all", (5, 10, 19), windows)
+    points = [w for w in windows if w.bin in mode.points]
+    x, r, n = [w.x for w in points], [w.r for w in points], [w.n for w in points]
+    for form, fit in (("affine", rf.fit_affine), ("pinned", rf.fit_pinned),
+                      ("quadrature", rf.fit_quadrature)):
+        expected = fit(x, r, n, [c / math.sqrt(k) for k in n])
+        assert mode.fits[form].theta == expected.theta and mode.fits[form].chi2 == expected.chi2
+        own = fit(x, r, n, [w.kappa for w in points])
+        assert own.theta != expected.theta
+
+
+@pytest.mark.parametrize("form", [rf.FORM_AFFINE, rf.FORM_PINNED, rf.FORM_QUADRATURE])
+def test_the_pooled_scale_cancels_in_the_parameters(form):
+    """Scaling c by 3 scales every weight by 1/9: θ is unchanged, χ² falls by 9, the WLS errors grow 3×."""
+    windows = _series_windows({4: 60, 6: 30, 8: 45, 10: 50, 14: 60, 19: 25}, estimator="median")
+    c = rs.pooled_scale(windows).c
+    one, three = rs._fits(windows, c)[form], rs._fits(windows, 3 * c)[form]
+    assert three.theta == approx(one.theta, rel=1e-9, abs=1e-15)
+    assert three.chi2 == approx(one.chi2 / 9, rel=1e-9)
+    assert np.asarray(three.se_stat) == approx(3 * np.asarray(one.se_stat), rel=1e-9)
+    assert three.iterations == one.iterations and three.converged and one.converged
+
+
+def _expected_median_of_half_normals(n: int) -> float:
+    """E[median of n |Z|], Z standard normal: the order statistics' means by quadrature (n even)."""
+    x = np.linspace(0.0, 12.0, 20001)
+    cdf = np.vectorize(math.erf)(x / math.sqrt(2.0))
+    pdf = 2.0 * np.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+    def mean_order(k: int) -> float:
+        log_c = math.lgamma(n + 1) - math.lgamma(k) - math.lgamma(n - k + 1)
+        with np.errstate(divide="ignore"):
+            density = np.exp(log_c + (k - 1) * np.log(cdf) + (n - k) * np.log1p(-cdf)) * pdf
+        density[0] = 0.0
+        return float(np.trapezoid(x * density, x))
+
+    return 0.5 * (mean_order(n // 2) + mean_order(n // 2 + 1))
+
+
+#: The Monte Carlo below: 16 windows of 40 events at 4–20 GeV, true σ/E = 30%/√E.
+MC_REPLICAS = 200
+MC_EVENTS = 40
+MC_STOCHASTIC = 0.30
+
+
+def test_the_pooled_scale_removes_the_bias_a_per_window_kappa_adds():
+    """F1, the reason pinned: a window's own κ puts its value back into its weight and biases the fit up.
+
+    R-stats' Monte Carlo of the served code paths (2026-11-12) put the origin-pinned term of the
+    per-window κ fit +0.70 of its SD high at 40 events a window under the median rel., and the
+    pooled scale at 0.00. Here, through ``windows_of`` and ``mode_fits`` (the median estimator,
+    16 windows of N = 40 from 4 to 20 GeV, R ~ N(1, σₖ²) with σₖ = 30%·⟨1/√p⟩ₖ, so window k's
+    expected median rel. is 30%·m₄₀·xₖ exactly, m₄₀ = E[median of 40 |Z|] = 0.67977): over 200
+    seeded replicas the served pinned a₀ is unbiased for 30%·m₄₀ (measured −0.05 of its SD, Monte
+    Carlo SE 0.07), and the same replicas refitted with each window's own κ come out +0.77 of their
+    SD high (2026-11-12). About 1.8 s.
+    """
+    axis = performance_bins.axis_from_ranges({k: (k + 0.01, k + 0.99) for k in range(4, 20)})
+    nominal = rs.nominal_anchors(axis)
+    truth = MC_STOCHASTIC * _expected_median_of_half_normals(MC_EVENTS)
+    assert truth == approx(MC_STOCHASTIC * 0.67977312, rel=1e-7)
+    rng = np.random.default_rng(20261112)
+    pooled, own = [], []
+    for replica in range(MC_REPLICAS):
+        bins, p, ratio = [], [], []
+        for k in range(4, 20):
+            pk = rng.uniform(k, k + 1, MC_EVENTS)
+            sigma = MC_STOCHASTIC * float(np.mean(1.0 / np.sqrt(pk)))
+            bins += [k] * MC_EVENTS
+            p += list(pk)
+            ratio += list(1.0 + sigma * rng.standard_normal(MC_EVENTS))
+        windows = rs.windows_of(np.array(ratio), np.array(p), np.array(bins, dtype=float), axis,
+                                estimator="median", seed=(42, 0, 0, replica))
+        assert len(windows) == 16 and all(w.eligible for w in windows)
+        mode = rs.mode_fits("all", nominal, windows, axis)
+        pooled.append(mode.fits[rf.FORM_PINNED].theta[0])
+        x, r, n = [w.x for w in windows], [w.r for w in windows], [w.n for w in windows]
+        own.append(rf.fit_pinned(x, r, n, [w.kappa for w in windows]).theta[0])
+    pooled, own = np.array(pooled), np.array(own)
+    pooled_bias = (pooled.mean() - truth) / pooled.std(ddof=1)
+    own_bias = (own.mean() - truth) / own.std(ddof=1)
+    assert abs(pooled_bias) <= 0.25, pooled_bias
+    assert own_bias >= 0.5, own_bias
+    assert (own > pooled).mean() > 0.9           # replica by replica, the own-κ fit sits higher
+
+
+# -------------------------------------------- why a window is not fitted --
+# F3 of the fix brief: a window of N ≥ 20 without a fit weight is never blamed on N.
+
+
+def _windows_with(estimator: str, special: dict[int, tuple[np.ndarray, np.ndarray]],
+                  counts: dict[int, int], seed: int = 3):
+    """Windows on the 0–19 axis: ``counts[k]`` Gaussian events in bin k, and in each ``special``
+    bin the given ``(R, relative error)`` instead."""
+    rng = np.random.default_rng(seed)
+    bins, p, ratio, relative = [], [], [], []
+    for k, count in counts.items():
+        pk = rng.uniform(k, k + 1, count)
+        rk = 1.0 + (0.2 / np.sqrt(pk)) * rng.standard_normal(count)
+        bins += [k] * count
+        p += list(pk)
+        ratio += list(rk)
+        relative += list(np.abs(rk - 1.0))
+    for k, (rk, rel) in special.items():
+        bins += [k] * rk.size
+        p += list(rng.uniform(k, k + 1, rk.size))
+        ratio += list(rk)
+        relative += list(rel)
+    return rs.windows_of(np.array(ratio), np.array(p), np.array(bins, dtype=float), _axis(0, 19),
+                         estimator=estimator, relative=np.array(relative))
+
+
+def test_an_anchor_without_a_robust_value_is_never_called_thin():
+    """R-stats' example: the 10–11 GeV anchor holds N = 60 but its median R < 0."""
+    rk = -0.2 + 0.1 * np.random.default_rng(5).standard_normal(60)
+    windows = _windows_with("robust", {10: (rk, np.abs(rk - 1))}, {6: 40, 9: 50, 19: 30})
+    window = next(w for w in windows if w.bin == 10)
+    assert window.n == 60 and window.r is None and window.unfit_cause(20) == "no_value"
+    assert "not positive" in window.as_dict()["dof_note"]
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows)
+    by_nominal = {s["nominal"]: s for s in mode.substitutions}
+    assert by_nominal[10]["cause"] == "no_value" and by_nominal[10]["used"] == 9
+    assert by_nominal[10]["reason"] == (
+        "The nominal anchor 10–11 GeV holds N = 60 for this series but has no robust σ/E (its "
+        "median response is not positive); the nearest fittable window from 5 GeV in log E with "
+        "N ≥ 20 is 9–10 GeV (N = 50).")
+    assert "below 20" not in by_nominal[10]["reason"]
+    assert by_nominal[5]["cause"] == "n" and ", below 20; " in by_nominal[5]["reason"]
+
+
+def test_a_tied_anchor_is_named_tied_and_dropped_when_nothing_fittable_is_left():
+    """R-ui's example: a tied median window of N ≥ 20 has no fit weight, said so, and is dropped."""
+    tied = 0.2 + 1e-13 * np.random.default_rng(3).standard_normal(22)
+    windows = _windows_with("median", {10: (1.0 + tied, tied)}, {5: 5, 19: 4})
+    window = next(w for w in windows if w.bin == 10)
+    assert window.n == 22 and window.tied and window.unfit_cause(20) == "tied"
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows)
+    by_nominal = {s["nominal"]: s for s in mode.substitutions}
+    assert by_nominal[10]["cause"] == "tied" and by_nominal[10]["used"] is None
+    assert by_nominal[10]["reason"] == (
+        "The nominal anchor 10–11 GeV holds N = 22 for this series but its bootstrap SE is below "
+        "10⁻⁶ of its value (tied replicates), so it carries no fit weight, and no other fittable "
+        "window from 5 GeV with N ≥ 20 is left: it is dropped.")
+
+
+def test_a_withheld_robust_interval_is_the_anchors_cause():
+    """F7: 7 of 21 events at R < 0 drop 6% of the replicates; the window keeps its value, not its weight."""
+    rk = np.concatenate([np.full(7, -0.5), np.linspace(0.6, 1.4, 14)])
+    windows = _windows_with("robust", {10: (rk, np.abs(rk - 1))}, {6: 40, 9: 50, 19: 30})
+    window = next(w for w in windows if w.bin == 10)
+    d = window.as_dict()
+    assert window.withheld and d["value"] is not None
+    assert d["ci95"] is None and d["se"] is None and d["se_rel"] is None and not d["whisker"]
+    assert not d["eligible"] and d["dof_note"].startswith("Robust interval withheld:")
+    (sub,) = [s for s in rs.mode_fits("anchors", (5, 10, 19), windows).substitutions
+              if s["nominal"] == 10]
+    assert sub["cause"] == "withheld" and "its robust interval is withheld" in sub["reason"]

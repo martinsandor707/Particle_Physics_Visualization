@@ -1,0 +1,2274 @@
+{
+ "meta": {
+  "table_name": "electron_m0_20gev_reg_balanced_aggr_s1_v3_82c5d8",
+  "exact": true,
+  "warnings": [],
+  "coord_system": "lab",
+  "coord_system_applies": false,
+  "coord_system_note": "coord_system selects the energy network's input frame on two-shower data only; it does not apply to this experiment."
+ },
+ "kind": "single_shower_events",
+ "n_events": 307,
+ "unit": "%",
+ "estimator": {
+  "name": "median",
+  "label": "Median |rel. err.|",
+  "quantity": "median_error",
+  "symbol": "median rel.",
+  "definition": "R = E_est / p per event; the median relative error median |R − 1| per momentum window, in percent, computed for a model series as median |E_est − p| / p: the Median rel. of Model Error vs. Incident Momentum, with its events, seed and interval.",
+  "axis_name": "Median |E_est − p| / p [%]",
+  "interval": {
+   "method": "bootstrap_percentile",
+   "label": "95% percentile bootstrap of the median from N = 20 (B = 2,000, each replicate's median drawn exactly), the distribution-free order-statistic interval for 6 ≤ N < 20, none below: Model Error vs. Incident Momentum's own, seeded [42, frame, shower, bin, 2] with frame 0–2 the network frames (absolute, per-shower translated, local), 3 XGBoost and 4 the deposit, shower 0 for A and 1 for B."
+  },
+  "weight": {
+   "method": "kappa",
+   "label": "Fit weights 1/se², se = c·ŷ/√N recomputed at the fitted value ŷ and iterated, with c the series' pooled scale: the median of √N·κ over its windows of N ≥ 20 from 4 GeV, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters and sets only χ², S and the errors; a per-window κ would put each window's own value back into its weight."
+  },
+  "literature": {
+   "drawn": true,
+   "warning": "Note: comparing Median |rel. err.| against a σ/E literature curve (for unbiased Gaussian errors, median|R − 1| = 0.6745·σ/E; use Robust σ (IQR) for a σ-scaled comparison)."
+  },
+  "calibration": {
+   "rule": "median",
+   "label": "Under Median |rel. err.| the deposit is c̃·E_dep, with c̃ = 1 / median(E_dep / p) over the shower's events of the selection with E_dep > 0: one constant per shower, the median analogue of the ratio of sums c = Σ p / Σ E_dep (c_sum), which is reported beside it. median |c·E_dep − p| / p depends on c; the robust and sample widths do not.",
+   "showers": {
+    "a": {
+     "c_sum": 105.378,
+     "c_median": 62.3697,
+     "n": 307,
+     "n_zero_deposit": 0
+    }
+   }
+  },
+  "relation": "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
+  "choices": [
+   "median",
+   "robust",
+   "sample"
+  ]
+ },
+ "axis": {
+  "x": {
+   "min": 0.0,
+   "max": 0.5,
+   "inverse": true,
+   "interval": 0.1,
+   "unit": "GeV^−1/2",
+   "name": "⟵ 1/√E [GeV⁻¹ᐟ²]"
+  },
+  "top": {
+   "name": "Energy (GeV) ⟶",
+   "ticks": [
+    {
+     "e_gev": 5,
+     "x": 0.447214,
+     "label": "5"
+    },
+    {
+     "e_gev": 10,
+     "x": 0.316228,
+     "label": "10"
+    },
+    {
+     "e_gev": 15,
+     "x": 0.258199,
+     "label": "15"
+    },
+    {
+     "e_gev": 20,
+     "x": 0.223607,
+     "label": "20"
+    },
+    {
+     "e_gev": 30,
+     "x": 0.182574,
+     "label": "30"
+    },
+    {
+     "e_gev": 50,
+     "x": 0.141421,
+     "label": "50"
+    },
+    {
+     "e_gev": 100,
+     "x": 0.1,
+     "label": "100"
+    },
+    {
+     "e_gev": null,
+     "x": 0.0,
+     "label": "∞"
+    }
+   ],
+   "rule": "E = 1/x², an exact relabelling of the bottom axis; no data are plotted against it."
+  },
+  "y": {
+   "zero_based": true,
+   "lo": 0.0,
+   "hi": 90.0,
+   "interval": 10.0,
+   "provisional": false,
+   "n_clipped": 3,
+   "unit": "%",
+   "name": "Median |E_est − p| / p [%]"
+  },
+  "energy": {
+   "x": {
+    "min": 0.0,
+    "max": 80.0,
+    "interval": 10.0,
+    "unit": "GeV",
+    "name": "Energy E [GeV]"
+   },
+   "y": {
+    "zero_based": true,
+    "lo": 0.0,
+    "hi": 90.0,
+    "interval": 10.0,
+    "provisional": false,
+    "n_clipped": 3,
+    "unit": "%",
+    "name": "Median |E_est − p| / p [%]"
+   },
+   "curve_min_gev": 4.0,
+   "y_min_gev": 2.0,
+   "data_max_gev": 20.0,
+   "rule": "E = 1/x² of the 1/√E view's x = ⟨1/√p⟩: one exact bijection, so both views draw the same measurements.",
+   "notes": [
+    "The E view's y range follows the windows alone, from zero: those with N ≥ 20 from 2 GeV, whiskers included; a window below 2 GeV never sets it. No fitted curve, band or extrapolation sets it: one that leaves the top is clipped there with a caret.",
+    "Fitted curves are drawn from 4 GeV, the lowest window edge any fit can use, to 80 GeV: solid over the windows each fit ran through, dashed beyond, where the curve extrapolates its form.",
+    "Each window is drawn at E = 1/x² with x = ⟨1/√p⟩, the abscissa the fits used, so a window on its fitted line in the 1/√E view sits on its fitted curve here; its ⟨p⟩, slightly larger (Jensen's inequality), is in its tooltip."
+   ]
+  }
+ },
+ "gates": {
+  "report_n": 2,
+  "whisker_n": 8,
+  "fit_n": 20,
+  "e_min_gev": 4.0,
+  "anchor_low_gev": 5.0,
+  "n_anchors": 3,
+  "misfit_scale": 5.0,
+  "tail_min_n": 300
+ },
+ "anchors": {
+  "nominal_bins": [
+   5,
+   10,
+   19
+  ],
+  "labels": [
+   "5–6 GeV",
+   "10–11 GeV",
+   "19–20 GeV"
+  ],
+  "rule": "Chosen on the whole table's bins, not the selection: the lowest bin from 5 GeV, the highest bin, and the bin between them nearest in log E to the geometric mean of their centres. A series whose anchor is not fittable (N < 20, or no fit weight: tied, no value or a withheld interval) takes its nearest fittable window from 5 GeV in log E, named in substitutions with its cause; with fewer than two, windows of N ≥ 8 and the fit is provisional."
+ },
+ "model": {
+  "available": true,
+  "source": "xgb",
+  "frame": null,
+  "label": "XGBoost momentum regressor · validation split",
+  "reason": null,
+  "split": {
+   "n_selected": 307,
+   "n_validation": 62,
+   "n_training_excluded": 245,
+   "fraction": 0.2,
+   "reproduced": true
+  }
+ },
+ "series": [
+  {
+   "key": "detector:a",
+   "source": "detector",
+   "shower": "a",
+   "shower_label": "Electron e⁻",
+   "estimator_label": "Calibrated deposit c·E_dep — linear-sum benchmark",
+   "label": "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark",
+   "colour_slot": "detector",
+   "n": 307,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 0,
+     "label": "0–1 GeV",
+     "p_lo": 0.0,
+     "p_hi": 1.0,
+     "n": 60,
+     "p_mean": 0.52812,
+     "x": 1.84351,
+     "mean_r": 0.587098,
+     "sd_r": 0.510698,
+     "value": 50.6565,
+     "ci95": [
+      17.41,
+      83.9031
+     ],
+     "method": "bootstrap_percentile",
+     "se": 31.3899,
+     "se_rel": 0.619662,
+     "se_delta": null,
+     "c4": null,
+     "bias": -41.2902,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": 117.418,
+      "sample": 86.9868
+     },
+     "momentum_spread": 55.4594,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 1,
+     "label": "1–2 GeV",
+     "p_lo": 1.0,
+     "p_hi": 2.0,
+     "n": 60,
+     "p_mean": 1.44324,
+     "x": 0.843249,
+     "mean_r": 0.587098,
+     "sd_r": 0.510698,
+     "value": 50.6565,
+     "ci95": [
+      17.41,
+      83.9031
+     ],
+     "method": "bootstrap_percentile",
+     "se": 31.5477,
+     "se_rel": 0.622776,
+     "se_delta": null,
+     "c4": null,
+     "bias": -41.2902,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": 117.418,
+      "sample": 86.9868
+     },
+     "momentum_spread": 18.649,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 2,
+     "label": "2–3 GeV",
+     "p_lo": 2.0,
+     "p_hi": 3.0,
+     "n": 2,
+     "p_mean": 2.51259,
+     "x": 0.633953,
+     "mean_r": 1.08705,
+     "sd_r": 0.123107,
+     "value": 8.705,
+     "ci95": null,
+     "method": null,
+     "se": 6.15602,
+     "se_rel": 0.707182,
+     "se_delta": null,
+     "c4": null,
+     "bias": 8.705,
+     "median_response": 8.705,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 11.3249
+     },
+     "momentum_spread": 16.0707,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 7,
+     "p_mean": 3.27665,
+     "x": 0.553286,
+     "mean_r": 0.503241,
+     "sd_r": 0.525663,
+     "value": 83.9031,
+     "ci95": [
+      0.0,
+      98.6677
+     ],
+     "method": "order_statistic",
+     "se": 36.4679,
+     "se_rel": 0.434643,
+     "se_delta": null,
+     "c4": null,
+     "bias": -49.6759,
+     "median_response": -83.9031,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 104.456
+     },
+     "momentum_spread": 6.90606,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 5,
+     "label": "5–6 GeV",
+     "p_lo": 5.0,
+     "p_hi": 6.0,
+     "n": 15,
+     "p_mean": 5.49751,
+     "x": 0.426933,
+     "mean_r": 0.559571,
+     "sd_r": 0.529258,
+     "value": 83.9031,
+     "ci95": [
+      17.41,
+      98.6677
+     ],
+     "method": "order_statistic",
+     "se": 32.6439,
+     "se_rel": 0.389067,
+     "se_delta": null,
+     "c4": null,
+     "bias": -44.0429,
+     "median_response": -83.9031,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 94.5828
+     },
+     "momentum_spread": 5.36421,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 20,
+     "p_mean": 7.51261,
+     "x": 0.365021,
+     "mean_r": 0.587098,
+     "sd_r": 0.51958,
+     "value": 50.6565,
+     "ci95": [
+      17.41,
+      83.9031
+     ],
+     "method": "bootstrap_percentile",
+     "se": 30.5744,
+     "se_rel": 0.603563,
+     "se_delta": null,
+     "c4": null,
+     "bias": -41.2902,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": 117.418,
+      "sample": 88.4998
+     },
+     "momentum_spread": 3.70473,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 120,
+     "p_mean": 10.5295,
+     "x": 0.308262,
+     "mean_r": 0.587098,
+     "sd_r": 0.508548,
+     "value": 50.6565,
+     "ci95": [
+      17.41,
+      83.9031
+     ],
+     "method": "bootstrap_percentile",
+     "se": 32.0049,
+     "se_rel": 0.631803,
+     "se_delta": null,
+     "c4": null,
+     "bias": -41.2902,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": 117.418,
+      "sample": 86.6206
+     },
+     "momentum_spread": 2.76059,
+     "dof_note": null,
+     "weak": false,
+     "whisker": true,
+     "eligible": true,
+     "off_axis": false
+    },
+    {
+     "bin": 12,
+     "label": "12–13 GeV",
+     "p_lo": 12.0,
+     "p_hi": 13.0,
+     "n": 1,
+     "p_mean": 12.9517,
+     "x": 0.277867,
+     "mean_r": 1.0,
+     "sd_r": null,
+     "value": null,
+     "ci95": null,
+     "method": null,
+     "se": null,
+     "se_rel": null,
+     "se_delta": null,
+     "c4": null,
+     "bias": 2.22045e-14,
+     "median_response": null,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": null
+     },
+     "momentum_spread": null,
+     "dof_note": "N = 1: a single shower; no spread or uncertainty can be estimated.",
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 14,
+     "p_mean": 15.3919,
+     "x": 0.254932,
+     "mean_r": 0.598589,
+     "sd_r": 0.526373,
+     "value": 50.6565,
+     "ci95": [
+      3.33193e-14,
+      98.6677
+     ],
+     "method": "order_statistic",
+     "se": 29.8402,
+     "se_rel": 0.58907,
+     "se_delta": null,
+     "c4": null,
+     "bias": -40.1411,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 87.9357
+     },
+     "momentum_spread": 2.17591,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 19,
+     "label": "19–20 GeV",
+     "p_lo": 19.0,
+     "p_hi": 20.0,
+     "n": 8,
+     "p_mean": 19.2998,
+     "x": 0.227642,
+     "mean_r": 0.587098,
+     "sd_r": 0.54139,
+     "value": 50.6565,
+     "ci95": [
+      1.82801e-14,
+      98.6677
+     ],
+     "method": "order_statistic",
+     "se": 30.641,
+     "se_rel": 0.604878,
+     "se_delta": null,
+     "c4": null,
+     "bias": -41.2902,
+     "median_response": -41.9515,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 92.2147
+     },
+     "momentum_spread": 1.39094,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      7,
+      10
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 7,
+       "cause": "n",
+       "reason": "The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest fittable window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20)."
+      },
+      {
+       "nominal": 19,
+       "used": null,
+       "cause": "n",
+       "reason": "The nominal anchor 19–20 GeV holds N = 8 for this series, below 20, and no other fittable window from 5 GeV with N ≥ 20 is left: it is dropped."
+      }
+     ],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 0.0,
+       "se_a": 1036.86,
+       "b": 50.6565,
+       "se_b": 328.678,
+       "rho_ab": -0.998035,
+       "se_a_stat": 1036.86,
+       "se_b_stat": 328.678
+      },
+      "chi2": 2.84861e-27,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "negative_intercept": false,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        50.6565,
+        -593.54,
+        694.854
+       ],
+       [
+        0.025,
+        50.6565,
+        -542.844,
+        644.157
+       ],
+       [
+        0.05,
+        50.6565,
+        -492.167,
+        593.48
+       ],
+       [
+        0.075,
+        50.6565,
+        -441.517,
+        542.83
+       ],
+       [
+        0.1,
+        50.6565,
+        -390.902,
+        492.215
+       ],
+       [
+        0.125,
+        50.6565,
+        -340.337,
+        441.65
+       ],
+       [
+        0.15,
+        50.6565,
+        -289.844,
+        391.157
+       ],
+       [
+        0.175,
+        50.6565,
+        -239.459,
+        340.772
+       ],
+       [
+        0.2,
+        50.6565,
+        -189.252,
+        290.565
+       ],
+       [
+        0.225,
+        50.6565,
+        -139.364,
+        240.677
+       ],
+       [
+        0.25,
+        50.6565,
+        -90.1319,
+        191.445
+       ],
+       [
+        0.275,
+        50.6565,
+        -42.6037,
+        143.917
+       ],
+       [
+        0.3,
+        50.6565,
+        -1.64924,
+        102.962
+       ],
+       [
+        0.325,
+        50.6565,
+        6.64894,
+        94.6642
+       ],
+       [
+        0.35,
+        50.6565,
+        -28.7147,
+        130.028
+       ],
+       [
+        0.375,
+        50.6565,
+        -75.1419,
+        176.455
+       ],
+       [
+        0.4,
+        50.6565,
+        -124.023,
+        225.336
+       ],
+       [
+        0.425,
+        50.6565,
+        -173.761,
+        275.074
+       ],
+       [
+        0.45,
+        50.6565,
+        -223.89,
+        325.203
+       ],
+       [
+        0.475,
+        50.6565,
+        -274.229,
+        375.542
+       ],
+       [
+        0.5,
+        50.6565,
+        -324.694,
+        426.007
+       ]
+      ],
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 2,
+      "ndf": 1,
+      "params": {
+       "a0": 160.679,
+       "se_a0": 65.321,
+       "se_a0_stat": 65.321
+      },
+      "chi2": 0.0187373,
+      "p_value": 0.891122,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        4.01698,
+        0.81631,
+        7.21765
+       ],
+       [
+        0.05,
+        8.03396,
+        1.63262,
+        14.4353
+       ],
+       [
+        0.075,
+        12.0509,
+        2.44893,
+        21.6529
+       ],
+       [
+        0.1,
+        16.0679,
+        3.26524,
+        28.8706
+       ],
+       [
+        0.125,
+        20.0849,
+        4.08155,
+        36.0882
+       ],
+       [
+        0.15,
+        24.1019,
+        4.89786,
+        43.3059
+       ],
+       [
+        0.175,
+        28.1189,
+        5.71417,
+        50.5235
+       ],
+       [
+        0.2,
+        32.1358,
+        6.53048,
+        57.7412
+       ],
+       [
+        0.225,
+        36.1528,
+        7.34679,
+        64.9588
+       ],
+       [
+        0.25,
+        40.1698,
+        8.1631,
+        72.1765
+       ],
+       [
+        0.275,
+        44.1868,
+        8.97942,
+        79.3941
+       ],
+       [
+        0.3,
+        48.2037,
+        9.79573,
+        86.6118
+       ],
+       [
+        0.325,
+        52.2207,
+        10.612,
+        93.8294
+       ],
+       [
+        0.35,
+        56.2377,
+        11.4283,
+        101.047
+       ],
+       [
+        0.375,
+        60.2547,
+        12.2447,
+        108.265
+       ],
+       [
+        0.4,
+        64.2717,
+        13.061,
+        115.482
+       ],
+       [
+        0.425,
+        68.2886,
+        13.8773,
+        122.7
+       ],
+       [
+        0.45,
+        72.3056,
+        14.6936,
+        129.918
+       ],
+       [
+        0.475,
+        76.3226,
+        15.5099,
+        137.135
+       ],
+       [
+        0.5,
+        80.3396,
+        16.3262,
+        144.353
+       ]
+      ],
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.0187/1, p = 0.891."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 1.37198e-05,
+       "se_a": 5686050000.0,
+       "b": 50.6565,
+       "se_b": 156.112,
+       "b2": 2566.09,
+       "se_b2": 15816.1,
+       "b_defined": true,
+       "a2": 1.88233e-10,
+       "se_a2": 156023.0,
+       "a_defined": true,
+       "se_a_stat": 5686050000.0,
+       "se_b_stat": 156.112,
+       "se_a2_stat": 156023.0,
+       "se_b2_stat": 15816.1,
+       "rho_a2b2": -0.991261
+      },
+      "chi2": 1.58792e-28,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": null,
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
+    },
+    "all": {
+     "points": [
+      7,
+      10
+     ],
+     "substitutions": [],
+     "fallback": false,
+     "provisional": false,
+     "affine": {
+      "form": "affine",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 0.0,
+       "se_a": 1036.86,
+       "b": 50.6565,
+       "se_b": 328.678,
+       "rho_ab": -0.998035,
+       "se_a_stat": 1036.86,
+       "se_b_stat": 328.678
+      },
+      "chi2": 2.84861e-27,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "negative_intercept": false,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        50.6565,
+        -593.54,
+        694.854
+       ],
+       [
+        0.025,
+        50.6565,
+        -542.844,
+        644.157
+       ],
+       [
+        0.05,
+        50.6565,
+        -492.167,
+        593.48
+       ],
+       [
+        0.075,
+        50.6565,
+        -441.517,
+        542.83
+       ],
+       [
+        0.1,
+        50.6565,
+        -390.902,
+        492.215
+       ],
+       [
+        0.125,
+        50.6565,
+        -340.337,
+        441.65
+       ],
+       [
+        0.15,
+        50.6565,
+        -289.844,
+        391.157
+       ],
+       [
+        0.175,
+        50.6565,
+        -239.459,
+        340.772
+       ],
+       [
+        0.2,
+        50.6565,
+        -189.252,
+        290.565
+       ],
+       [
+        0.225,
+        50.6565,
+        -139.364,
+        240.677
+       ],
+       [
+        0.25,
+        50.6565,
+        -90.1319,
+        191.445
+       ],
+       [
+        0.275,
+        50.6565,
+        -42.6037,
+        143.917
+       ],
+       [
+        0.3,
+        50.6565,
+        -1.64924,
+        102.962
+       ],
+       [
+        0.325,
+        50.6565,
+        6.64894,
+        94.6642
+       ],
+       [
+        0.35,
+        50.6565,
+        -28.7147,
+        130.028
+       ],
+       [
+        0.375,
+        50.6565,
+        -75.1419,
+        176.455
+       ],
+       [
+        0.4,
+        50.6565,
+        -124.023,
+        225.336
+       ],
+       [
+        0.425,
+        50.6565,
+        -173.761,
+        275.074
+       ],
+       [
+        0.45,
+        50.6565,
+        -223.89,
+        325.203
+       ],
+       [
+        0.475,
+        50.6565,
+        -274.229,
+        375.542
+       ],
+       [
+        0.5,
+        50.6565,
+        -324.694,
+        426.007
+       ]
+      ],
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 2,
+      "ndf": 1,
+      "params": {
+       "a0": 160.679,
+       "se_a0": 65.321,
+       "se_a0_stat": 65.321
+      },
+      "chi2": 0.0187373,
+      "p_value": 0.891122,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        4.01698,
+        0.81631,
+        7.21765
+       ],
+       [
+        0.05,
+        8.03396,
+        1.63262,
+        14.4353
+       ],
+       [
+        0.075,
+        12.0509,
+        2.44893,
+        21.6529
+       ],
+       [
+        0.1,
+        16.0679,
+        3.26524,
+        28.8706
+       ],
+       [
+        0.125,
+        20.0849,
+        4.08155,
+        36.0882
+       ],
+       [
+        0.15,
+        24.1019,
+        4.89786,
+        43.3059
+       ],
+       [
+        0.175,
+        28.1189,
+        5.71417,
+        50.5235
+       ],
+       [
+        0.2,
+        32.1358,
+        6.53048,
+        57.7412
+       ],
+       [
+        0.225,
+        36.1528,
+        7.34679,
+        64.9588
+       ],
+       [
+        0.25,
+        40.1698,
+        8.1631,
+        72.1765
+       ],
+       [
+        0.275,
+        44.1868,
+        8.97942,
+        79.3941
+       ],
+       [
+        0.3,
+        48.2037,
+        9.79573,
+        86.6118
+       ],
+       [
+        0.325,
+        52.2207,
+        10.612,
+        93.8294
+       ],
+       [
+        0.35,
+        56.2377,
+        11.4283,
+        101.047
+       ],
+       [
+        0.375,
+        60.2547,
+        12.2447,
+        108.265
+       ],
+       [
+        0.4,
+        64.2717,
+        13.061,
+        115.482
+       ],
+       [
+        0.425,
+        68.2886,
+        13.8773,
+        122.7
+       ],
+       [
+        0.45,
+        72.3056,
+        14.6936,
+        129.918
+       ],
+       [
+        0.475,
+        76.3226,
+        15.5099,
+        137.135
+       ],
+       [
+        0.5,
+        80.3396,
+        16.3262,
+        144.353
+       ]
+      ],
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.0187/1, p = 0.891."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 1.37198e-05,
+       "se_a": 5686050000.0,
+       "b": 50.6565,
+       "se_b": 156.112,
+       "b2": 2566.09,
+       "se_b2": 15816.1,
+       "b_defined": true,
+       "a2": 1.88233e-10,
+       "se_a2": 156023.0,
+       "a_defined": true,
+       "se_a_stat": 5686050000.0,
+       "se_b_stat": 156.112,
+       "se_a2_stat": 156023.0,
+       "se_b2_stat": 15816.1,
+       "rho_a2b2": -0.991261
+      },
+      "chi2": 1.58792e-28,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": null,
+      "provisional": false,
+      "misfit": false,
+      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
+    }
+   },
+   "median_response_range": {
+    "anchors": [
+     -41.9515,
+     -41.9515
+    ],
+    "all": [
+     -41.9515,
+     -41.9515
+    ]
+   },
+   "weight_scale": {
+    "c": 4.81013,
+    "n_windows": 2,
+    "rule": "c is the median of √N·κ over this series' windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE (at least 10⁻⁶); the fits weight window k by se = c·ŷ/√N."
+   }
+  },
+  {
+   "key": "xgb:a",
+   "source": "xgb",
+   "shower": "a",
+   "shower_label": "Electron e⁻",
+   "estimator_label": "XGBoost momentum regressor · validation split",
+   "label": "Electron e⁻ · XGBoost momentum regressor · validation split",
+   "colour_slot": "xgb",
+   "n": 62,
+   "n_dropped": 0,
+   "n_absent": 0,
+   "n_missing": 0,
+   "windows": [
+    {
+     "bin": 0,
+     "label": "0–1 GeV",
+     "p_lo": 0.0,
+     "p_hi": 1.0,
+     "n": 12,
+     "p_mean": 0.614891,
+     "x": 1.37789,
+     "mean_r": 1.3854,
+     "sd_r": 0.812034,
+     "value": 11.5039,
+     "ci95": [
+      6.91475,
+      40.1176
+     ],
+     "method": "order_statistic",
+     "se": 9.77765,
+     "se_rel": 0.849939,
+     "se_delta": null,
+     "c4": null,
+     "bias": 38.5401,
+     "median_response": 11.5039,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 58.6137
+     },
+     "momentum_spread": 34.6904,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 1,
+     "label": "1–2 GeV",
+     "p_lo": 1.0,
+     "p_hi": 2.0,
+     "n": 15,
+     "p_mean": 1.37882,
+     "x": 0.861332,
+     "mean_r": 0.987175,
+     "sd_r": 0.0581027,
+     "value": 3.7324,
+     "ci95": [
+      2.38075,
+      5.6437
+     ],
+     "method": "order_statistic",
+     "se": 0.97916,
+     "se_rel": 0.262341,
+     "se_delta": null,
+     "c4": null,
+     "bias": -1.2825,
+     "median_response": -2.38075,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 5.88576
+     },
+     "momentum_spread": 18.6785,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 3,
+     "label": "3–4 GeV",
+     "p_lo": 3.0,
+     "p_hi": 4.0,
+     "n": 2,
+     "p_mean": 3.29182,
+     "x": 0.551727,
+     "mean_r": 0.790184,
+     "sd_r": 0.218451,
+     "value": 20.9816,
+     "ci95": null,
+     "method": null,
+     "se": 10.9901,
+     "se_rel": 0.523798,
+     "se_delta": null,
+     "c4": null,
+     "bias": -20.9816,
+     "median_response": -20.9816,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 27.6456
+     },
+     "momentum_spread": 7.36232,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": true
+    },
+    {
+     "bin": 7,
+     "label": "7–8 GeV",
+     "p_lo": 7.0,
+     "p_hi": 8.0,
+     "n": 8,
+     "p_mean": 7.60349,
+     "x": 0.362811,
+     "mean_r": 0.96193,
+     "sd_r": 0.0574296,
+     "value": 2.601,
+     "ci95": [
+      0.763248,
+      16.1942
+     ],
+     "method": "order_statistic",
+     "se": 1.47099,
+     "se_rel": 0.565547,
+     "se_delta": null,
+     "c4": null,
+     "bias": -3.80704,
+     "median_response": -2.20405,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 5.97024
+     },
+     "momentum_spread": 3.5945,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 10,
+     "label": "10–11 GeV",
+     "p_lo": 10.0,
+     "p_hi": 11.0,
+     "n": 19,
+     "p_mean": 10.6009,
+     "x": 0.307228,
+     "mean_r": 0.990254,
+     "sd_r": 0.013291,
+     "value": 1.53398,
+     "ci95": [
+      1.12037,
+      1.75476
+     ],
+     "method": "order_statistic",
+     "se": 0.131684,
+     "se_rel": 0.0858445,
+     "se_delta": null,
+     "c4": null,
+     "bias": -0.974591,
+     "median_response": -1.34043,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 1.34218
+     },
+     "momentum_spread": 2.90132,
+     "dof_note": null,
+     "weak": true,
+     "whisker": true,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 15,
+     "label": "15–16 GeV",
+     "p_lo": 15.0,
+     "p_hi": 16.0,
+     "n": 3,
+     "p_mean": 15.5722,
+     "x": 0.253449,
+     "mean_r": 0.939919,
+     "sd_r": 0.0841236,
+     "value": 2.88996,
+     "ci95": null,
+     "method": null,
+     "se": 6.12814,
+     "se_rel": 2.12049,
+     "se_delta": null,
+     "c4": null,
+     "bias": -6.00811,
+     "median_response": -2.88996,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 8.95009
+     },
+     "momentum_spread": 2.46776,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": false
+    },
+    {
+     "bin": 19,
+     "label": "19–20 GeV",
+     "p_lo": 19.0,
+     "p_hi": 20.0,
+     "n": 3,
+     "p_mean": 19.3521,
+     "x": 0.227335,
+     "mean_r": 0.892271,
+     "sd_r": 0.0715811,
+     "value": 7.91146,
+     "ci95": null,
+     "method": null,
+     "se": 5.25138,
+     "se_rel": 0.663769,
+     "se_delta": null,
+     "c4": null,
+     "bias": -10.7729,
+     "median_response": -7.91146,
+     "tail_share": null,
+     "alt": {
+      "robust": null,
+      "sample": 8.02235
+     },
+     "momentum_spread": 1.63902,
+     "dof_note": null,
+     "weak": true,
+     "whisker": false,
+     "eligible": false,
+     "off_axis": false
+    }
+   ],
+   "fits": {
+    "anchors": {
+     "points": [
+      7,
+      10
+     ],
+     "substitutions": [
+      {
+       "nominal": 5,
+       "used": 7,
+       "cause": "n",
+       "reason": "The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest fittable window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8)."
+      },
+      {
+       "nominal": 19,
+       "used": null,
+       "cause": "n",
+       "reason": "The nominal anchor 19–20 GeV holds N = 3 for this series, below 8, and no other fittable window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped."
+      }
+     ],
+     "fallback": true,
+     "provisional": true,
+     "affine": {
+      "form": "affine",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 19.1967,
+       "se_a": 17.4825,
+       "b": -4.36378,
+       "se_b": 5.50479,
+       "rho_ab": -0.998262,
+       "se_a_stat": 17.4825,
+       "se_b_stat": 5.50479
+      },
+      "chi2": 3.00323e-28,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "negative_intercept": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        -4.36378,
+        -15.153,
+        6.42542
+       ],
+       [
+        0.025,
+        -3.88386,
+        -13.818,
+        6.05033
+       ],
+       [
+        0.05,
+        -3.40394,
+        -12.4834,
+        5.67554
+       ],
+       [
+        0.075,
+        -2.92402,
+        -11.1492,
+        5.30116
+       ],
+       [
+        0.1,
+        -2.4441,
+        -9.81552,
+        4.92731
+       ],
+       [
+        0.125,
+        -1.96419,
+        -8.48259,
+        4.55421
+       ],
+       [
+        0.15,
+        -1.48427,
+        -7.15075,
+        4.18221
+       ],
+       [
+        0.175,
+        -1.00435,
+        -5.82057,
+        3.81187
+       ],
+       [
+        0.2,
+        -0.524433,
+        -4.49313,
+        3.44427
+       ],
+       [
+        0.225,
+        -0.0445152,
+        -3.17067,
+        3.08164
+       ],
+       [
+        0.25,
+        0.435403,
+        -1.85865,
+        2.72945
+       ],
+       [
+        0.275,
+        0.915321,
+        -0.57469,
+        2.40533
+       ],
+       [
+        0.3,
+        1.39524,
+        0.59199,
+        2.19849
+       ],
+       [
+        0.325,
+        1.87516,
+        1.14174,
+        2.60857
+       ],
+       [
+        0.35,
+        2.35507,
+        0.977323,
+        3.73283
+       ],
+       [
+        0.375,
+        2.83499,
+        0.661029,
+        5.00896
+       ],
+       [
+        0.4,
+        3.31491,
+        0.311305,
+        6.31852
+       ],
+       [
+        0.425,
+        3.79483,
+        -0.0502709,
+        7.63993
+       ],
+       [
+        0.45,
+        4.27475,
+        -0.417326,
+        8.96682
+       ],
+       [
+        0.475,
+        4.75466,
+        -0.787349,
+        10.2967
+       ],
+       [
+        0.5,
+        5.23458,
+        -1.15916,
+        11.6283
+       ]
+      ],
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 2,
+      "ndf": 1,
+      "params": {
+       "a0": 5.63774,
+       "se_a0": 1.07077,
+       "se_a0_stat": 1.07077
+      },
+      "chi2": 0.861103,
+      "p_value": 0.35343,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        0.140943,
+        0.0884768,
+        0.19341
+       ],
+       [
+        0.05,
+        0.281887,
+        0.176954,
+        0.38682
+       ],
+       [
+        0.075,
+        0.42283,
+        0.26543,
+        0.58023
+       ],
+       [
+        0.1,
+        0.563774,
+        0.353907,
+        0.773641
+       ],
+       [
+        0.125,
+        0.704717,
+        0.442384,
+        0.967051
+       ],
+       [
+        0.15,
+        0.845661,
+        0.530861,
+        1.16046
+       ],
+       [
+        0.175,
+        0.986604,
+        0.619338,
+        1.35387
+       ],
+       [
+        0.2,
+        1.12755,
+        0.707814,
+        1.54728
+       ],
+       [
+        0.225,
+        1.26849,
+        0.796291,
+        1.74069
+       ],
+       [
+        0.25,
+        1.40943,
+        0.884768,
+        1.9341
+       ],
+       [
+        0.275,
+        1.55038,
+        0.973245,
+        2.12751
+       ],
+       [
+        0.3,
+        1.69132,
+        1.06172,
+        2.32092
+       ],
+       [
+        0.325,
+        1.83227,
+        1.1502,
+        2.51433
+       ],
+       [
+        0.35,
+        1.97321,
+        1.23868,
+        2.70774
+       ],
+       [
+        0.375,
+        2.11415,
+        1.32715,
+        2.90115
+       ],
+       [
+        0.4,
+        2.2551,
+        1.41563,
+        3.09456
+       ],
+       [
+        0.425,
+        2.39604,
+        1.50411,
+        3.28797
+       ],
+       [
+        0.45,
+        2.53698,
+        1.59258,
+        3.48138
+       ],
+       [
+        0.475,
+        2.67793,
+        1.68106,
+        3.67479
+       ],
+       [
+        0.5,
+        2.81887,
+        1.76954,
+        3.8682
+       ]
+      ],
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.861/1, p = 0.353. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 10.8843,
+       "se_a": 5.96971,
+       "b": null,
+       "se_b": null,
+       "b2": -8.82894,
+       "se_b2": 12.5438,
+       "b_defined": false,
+       "a2": 118.468,
+       "se_a2": 129.952,
+       "a_defined": true,
+       "se_a_stat": 5.96971,
+       "se_b_stat": null,
+       "se_a2_stat": 129.952,
+       "se_b2_stat": 12.5438,
+       "rho_a2b2": -0.996561
+      },
+      "chi2": 3.22459e-27,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": null,
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
+    },
+    "all": {
+     "points": [
+      7,
+      10
+     ],
+     "substitutions": [],
+     "fallback": true,
+     "provisional": true,
+     "affine": {
+      "form": "affine",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 19.1967,
+       "se_a": 17.4825,
+       "b": -4.36378,
+       "se_b": 5.50479,
+       "rho_ab": -0.998262,
+       "se_a_stat": 17.4825,
+       "se_b_stat": 5.50479
+      },
+      "chi2": 3.00323e-28,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "negative_intercept": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        -4.36378,
+        -15.153,
+        6.42542
+       ],
+       [
+        0.025,
+        -3.88386,
+        -13.818,
+        6.05033
+       ],
+       [
+        0.05,
+        -3.40394,
+        -12.4834,
+        5.67554
+       ],
+       [
+        0.075,
+        -2.92402,
+        -11.1492,
+        5.30116
+       ],
+       [
+        0.1,
+        -2.4441,
+        -9.81552,
+        4.92731
+       ],
+       [
+        0.125,
+        -1.96419,
+        -8.48259,
+        4.55421
+       ],
+       [
+        0.15,
+        -1.48427,
+        -7.15075,
+        4.18221
+       ],
+       [
+        0.175,
+        -1.00435,
+        -5.82057,
+        3.81187
+       ],
+       [
+        0.2,
+        -0.524433,
+        -4.49313,
+        3.44427
+       ],
+       [
+        0.225,
+        -0.0445152,
+        -3.17067,
+        3.08164
+       ],
+       [
+        0.25,
+        0.435403,
+        -1.85865,
+        2.72945
+       ],
+       [
+        0.275,
+        0.915321,
+        -0.57469,
+        2.40533
+       ],
+       [
+        0.3,
+        1.39524,
+        0.59199,
+        2.19849
+       ],
+       [
+        0.325,
+        1.87516,
+        1.14174,
+        2.60857
+       ],
+       [
+        0.35,
+        2.35507,
+        0.977323,
+        3.73283
+       ],
+       [
+        0.375,
+        2.83499,
+        0.661029,
+        5.00896
+       ],
+       [
+        0.4,
+        3.31491,
+        0.311305,
+        6.31852
+       ],
+       [
+        0.425,
+        3.79483,
+        -0.0502709,
+        7.63993
+       ],
+       [
+        0.45,
+        4.27475,
+        -0.417326,
+        8.96682
+       ],
+       [
+        0.475,
+        4.75466,
+        -0.787349,
+        10.2967
+       ],
+       [
+        0.5,
+        5.23458,
+        -1.15916,
+        11.6283
+       ]
+      ],
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "pinned": {
+      "form": "pinned",
+      "n_points": 2,
+      "ndf": 1,
+      "params": {
+       "a0": 5.63774,
+       "se_a0": 1.07077,
+       "se_a0_stat": 1.07077
+      },
+      "chi2": 0.861103,
+      "p_value": 0.35343,
+      "scale_factor": 1.0,
+      "iterations": 2,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": [
+       [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+       ],
+       [
+        0.025,
+        0.140943,
+        0.0884768,
+        0.19341
+       ],
+       [
+        0.05,
+        0.281887,
+        0.176954,
+        0.38682
+       ],
+       [
+        0.075,
+        0.42283,
+        0.26543,
+        0.58023
+       ],
+       [
+        0.1,
+        0.563774,
+        0.353907,
+        0.773641
+       ],
+       [
+        0.125,
+        0.704717,
+        0.442384,
+        0.967051
+       ],
+       [
+        0.15,
+        0.845661,
+        0.530861,
+        1.16046
+       ],
+       [
+        0.175,
+        0.986604,
+        0.619338,
+        1.35387
+       ],
+       [
+        0.2,
+        1.12755,
+        0.707814,
+        1.54728
+       ],
+       [
+        0.225,
+        1.26849,
+        0.796291,
+        1.74069
+       ],
+       [
+        0.25,
+        1.40943,
+        0.884768,
+        1.9341
+       ],
+       [
+        0.275,
+        1.55038,
+        0.973245,
+        2.12751
+       ],
+       [
+        0.3,
+        1.69132,
+        1.06172,
+        2.32092
+       ],
+       [
+        0.325,
+        1.83227,
+        1.1502,
+        2.51433
+       ],
+       [
+        0.35,
+        1.97321,
+        1.23868,
+        2.70774
+       ],
+       [
+        0.375,
+        2.11415,
+        1.32715,
+        2.90115
+       ],
+       [
+        0.4,
+        2.2551,
+        1.41563,
+        3.09456
+       ],
+       [
+        0.425,
+        2.39604,
+        1.50411,
+        3.28797
+       ],
+       [
+        0.45,
+        2.53698,
+        1.59258,
+        3.48138
+       ],
+       [
+        0.475,
+        2.67793,
+        1.68106,
+        3.67479
+       ],
+       [
+        0.5,
+        2.81887,
+        1.76954,
+        3.8682
+       ]
+      ],
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.861/1, p = 0.353. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "quadrature": {
+      "form": "quadrature",
+      "n_points": 2,
+      "ndf": 0,
+      "params": {
+       "a": 10.8843,
+       "se_a": 5.96971,
+       "b": null,
+       "se_b": null,
+       "b2": -8.82894,
+       "se_b2": 12.5438,
+       "b_defined": false,
+       "a2": 118.468,
+       "se_a2": 129.952,
+       "a_defined": true,
+       "se_a_stat": 5.96971,
+       "se_b_stat": null,
+       "se_a2_stat": 129.952,
+       "se_b2_stat": 12.5438,
+       "rho_a2b2": -0.996561
+      },
+      "chi2": 3.22459e-27,
+      "p_value": null,
+      "scale_factor": 1.0,
+      "iterations": 1,
+      "converged": true,
+      "band_quantile": 1.95996,
+      "curve": null,
+      "provisional": true,
+      "misfit": false,
+      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+     },
+     "span_gev": [
+      7.0,
+      11.0
+     ]
+    }
+   },
+   "median_response_range": {
+    "anchors": [
+     -2.20405,
+     -1.34043
+    ],
+    "all": [
+     -2.20405,
+     -1.34043
+    ]
+   },
+   "weight_scale": {
+    "c": 0.986898,
+    "n_windows": 2,
+    "rule": "No window of N ≥ 20 from 4 GeV carries a fit weight, so c is the median of √N·κ over its windows of N ≥ 8 from 4 GeV with one, the windows its provisional fits draw on; the fits weight window k by se = c·ŷ/√N."
+   }
+  }
+ ],
+ "off_axis": [
+  {
+   "series": "detector:a",
+   "bins": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "n": 129
+  },
+  {
+   "series": "xgb:a",
+   "bins": [
+    0,
+    1,
+    3
+   ],
+   "n": 29
+  }
+ ],
+ "notes": [
+  "The deposit E_dep is the producer's total_hit_energy and p its incoming_momentum, both read from the 59-column event aggregate: one shower per event, no hits.",
+  "Each window is the producer's integer momentum bin k, [k, k + 1) GeV, of the shower's own momentum. Per event R = E_est / p; the plotted value is the median relative error median |R − 1| in percent, for a model series median |E_est − p| / p: the Median rel. of Model Error vs. Incident Momentum, with its events, its seed and its interval, the 95% percentile bootstrap of the median from N = 20 (B = 2,000) and the distribution-free order-statistic interval below. Its abscissa is x = ⟨1/√p⟩ over the window's events. Dividing by p event by event removes the window's own momentum spread; unlike σ/E the median relative error keeps the estimator's bias, and it depends on the deposit's calibration.",
+  "For unbiased Gaussian errors median|R − 1| = 0.6745·σ/E, so a median relative error is quoted beside σ/E, never converted into it.",
+  "The detector series c·E_dep is a linear-sum benchmark, not a limit: a model that reads the shower's shape (leakage, compensation) can do better than a plain sum.",
+  "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
+  "The median rel. is reported from N = 2; a window is drawn with its whisker from N = 8 (its order-statistic interval exists from N = 6), and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
+  "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits oscillate; the first fit takes c·value/√N), with c the series' pooled scale (weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters and sets only χ², S and the errors; a window's own κ would put its measured value back into its weight, and bias the fits upward. χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (median rel.)² = A/E + B and tabled, not drawn. The three forms describe the median relative error: their parameters are not the stochastic and constant terms of a resolution.",
+  "A fit whose residuals average more than 5 of the windows' own standard errors (ν ≥ 1 and S = √(χ²/ν) > 5) has a form that does not describe its windows: it is drawn faded, as a provisional fit is, and said so in its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² p-value: a window of hundreds of events has so small a standard error that the test rejects a form for misfits no reader could see.",
+  "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A fittable window holds N ≥ 20, lies from 4 GeV and carries a fit weight (a bootstrap SE of at least 10⁻⁶ of its value). A series whose anchor window is not fittable takes its nearest fittable window from 5 GeV in log E instead, and the substitution says why the anchor was not; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every fittable window from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
+  "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
+  "Shower: c̃ = 1 / median(E_dep / p) = 62.37 over the 307 events with E_dep > 0, fitted once over the selection, so the deposit's median response over them is 1; the ratio of sums c = Σ p / Σ E_dep = 105.4 beside it would give them a median response c/c̃ − 1 = +68.96%.",
+  "The shower is named Electron e⁻: the species of the paired XGBoost models (electron).",
+  "The model series is the shipped XGBoost momentum regressor on the notebook's 20% validation split: 62 of the 307 selected events. The detector series uses every selected event, so the two series do not share their events.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split: median response R̃ − 1 from −2.20% to −1.34% over the anchors' fitted windows, −2.20% to −1.34% over every fitted window.",
+  "A regressor trained on a bounded momentum range pulls its predictions toward mid-range, so its median response leaves 1 near the ends of that range: there it narrows a σ and adds a bias to the median rel.",
+  "Off the axis: 7 windows below 4 GeV (158 events across the series) have x > 0.5; they are listed in off_axis with their median rel. and not drawn.",
+  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 5–6 GeV holds N = 15 for this series, below 20; the nearest fittable window from 5 GeV in log E with N ≥ 20 is 7–8 GeV (N = 20).",
+  "Electron e⁻ · Calibrated deposit c·E_dep — linear-sum benchmark (anchors): The nominal anchor 19–20 GeV holds N = 8 for this series, below 20, and no other fittable window from 5 GeV with N ≥ 20 is left: it is dropped.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 5–6 GeV holds N = 0 for this series, below 8; the nearest fittable window from 5 GeV in log E with N ≥ 8 (provisional) is 7–8 GeV (N = 8).",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): The nominal anchor 19–20 GeV holds N = 3 for this series, below 8, and no other fittable window from 5 GeV with N ≥ 8 (provisional) is left: it is dropped.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (anchors): the affine b is negative (−4.36%): the points fall faster than a/√E, and the line is drawn down to zero.",
+  "Electron e⁻ · XGBoost momentum regressor · validation split (all): the affine b is negative (−4.36%): the points fall faster than a/√E, and the line is drawn down to zero.",
+  "The y range follows the windows with N ≥ 20 (whiskers included) alone, from zero. No fit sets it: a fit summarises its windows and is not more evidence, so a fitted line or band that leaves the top is clipped there with a caret. 3 windows beyond it are clipped, not rescaled."
+ ],
+ "filter": {
+  "e1": [
+   0.012118219512702866,
+   19.70456381908061
+  ],
+  "e2": [
+   null,
+   null
+  ],
+  "d": [
+   null,
+   null
+  ],
+  "include_undefined_d": false
+ }
+}

@@ -106,12 +106,28 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
                                 {"model": "energy", "coord_system": "lab"}, "prediction_density"),
     "pred_density_two_angle": ("synthetic_client", "/api/prediction-density",
                                {"model": "angle", "coord_system": "lab"}, "prediction_density"),
-    # σ/E against 1/√E: every kind, the unpaired aggregate without a model series.
-    "res_scaling_two": ("synthetic_client", "/api/resolution-scaling", {}, "resolution_scaling"),
-    "res_scaling_single_hits": ("single_client", "/api/resolution-scaling", HITS,
-                                "resolution_scaling"),
-    "res_scaling_single_events": ("single_client", "/api/resolution-scaling", EVENTS,
-                                  "resolution_scaling"),
+    # σ/E against 1/√E: every kind, the unpaired aggregate without a model series. The four
+    # first recordings keep their names under the sample estimator, s(R)/R̄, whose numbers the
+    # Estimator control did not move (2026-11-12); the median (the default) and robust ones are
+    # recorded beside them on the same clients.
+    "res_scaling_two": ("synthetic_client", "/api/resolution-scaling", {"estimator": "sample"},
+                        "resolution_scaling"),
+    "res_scaling_single_hits": ("single_client", "/api/resolution-scaling",
+                                {**HITS, "estimator": "sample"}, "resolution_scaling"),
+    "res_scaling_single_events": ("single_client", "/api/resolution-scaling",
+                                  {**EVENTS, "estimator": "sample"}, "resolution_scaling"),
+    "res_scaling_median_two": ("synthetic_client", "/api/resolution-scaling",
+                               {"estimator": "median"}, "resolution_scaling"),
+    "res_scaling_median_single_hits": ("single_client", "/api/resolution-scaling",
+                                       {**HITS, "estimator": "median"}, "resolution_scaling"),
+    "res_scaling_median_single_events": ("single_client", "/api/resolution-scaling",
+                                         {**EVENTS, "estimator": "median"}, "resolution_scaling"),
+    "res_scaling_robust_two": ("synthetic_client", "/api/resolution-scaling",
+                               {"estimator": "robust"}, "resolution_scaling"),
+    "res_scaling_robust_single_hits": ("single_client", "/api/resolution-scaling",
+                                       {**HITS, "estimator": "robust"}, "resolution_scaling"),
+    "res_scaling_robust_single_events": ("single_client", "/api/resolution-scaling",
+                                         {**EVENTS, "estimator": "robust"}, "resolution_scaling"),
     "features_single_catalog": ("single_client", "/api/features", {**HITS, "view": "catalog"},
                                 "features"),
     "features_single_describe": ("single_client", "/api/features",
@@ -213,7 +229,12 @@ PAYLOADS: dict[str, tuple[str, str, dict, str | None]] = {
                                {**XGB, "model": "angle", "label": "theta"}, "prediction_density"),
     "pred_density_xgb_phi": ("xgb_client", "/api/prediction-density",
                              {**XGB, "model": "angle", "label": "phi"}, "prediction_density"),
-    "res_scaling_xgb": ("xgb_client", "/api/resolution-scaling", XGB, "resolution_scaling"),
+    "res_scaling_xgb": ("xgb_client", "/api/resolution-scaling", {**XGB, "estimator": "sample"},
+                        "resolution_scaling"),
+    "res_scaling_median_xgb": ("xgb_client", "/api/resolution-scaling",
+                               {**XGB, "estimator": "median"}, "resolution_scaling"),
+    "res_scaling_robust_xgb": ("xgb_client", "/api/resolution-scaling",
+                               {**XGB, "estimator": "robust"}, "resolution_scaling"),
     # Admin Settings: each experiment against the file it was ingested from. The XGBoost
     # server holds the seed and five drop-folder aggregates, all unchanged.
     "admin_experiments": ("xgb_client", "/api/admin/experiments", {}, "admin_experiments"),

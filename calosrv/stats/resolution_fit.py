@@ -39,6 +39,36 @@ refits left 142 of about 6,000 fits unconverged after 50; damped, one after 200.
 A fit that still has not settled is reported as not converged, and the card
 says so.
 
+**A relative weight law, κ** (the ``kappa`` argument of every fit; Martin's
+decisions, 2026-11-12). The card's two non-sample estimators, the median
+relative error ``median |R − 1|`` and the robust ``IQR(R)/(1.349·median R)``,
+have no closed-form standard error that holds on these windows: R-stats
+measured the bootstrap SE over the Gaussian large-N law at a median 1.37× for
+the robust width and 1.06× for the median rel. on
+``pion_hits_with_model_outputs`` (1.23× and 0.97× over every stored
+experiment; windows of N ≥ 20, 2026-11-12; ``stats/robust_width.py``). A fit
+given ``kappa``, one relative SE per point, takes ``se = κ·r`` for its first
+fit and ``se = κ·ŷ`` at the fitted value for every refit; the quadrature fit
+takes ``se_z = 2κ·ŷ²``. Everything else is the same code: the closed forms, the
+iteration and its damping, χ², S, the band, the misfit gate. ``kappa=None``
+runs the delta-method law exactly as before, so the sample estimator's fits did
+not move by a bit.
+
+**What κ must not be.** ``kappa`` takes any array, and the card passes
+``κₖ = c/√Nₖ`` with ``c`` its series' pooled scale, the median of ``√N·κ``
+over the series' fittable windows (``query/resolution_scaling.py``). It must not
+be each window's own measured ``SEₖ/valueₖ``: the refit weight would be
+``1/(SEₖ·ŷₖ/valueₖ)²``, which still holds the window's measured value, now in
+the numerator, so a window that fluctuated high is up-weighted. That is a bias
+opposite to Neyman's and larger, not a protection against it: R-stats' Monte
+Carlo of the served code paths (2026-11-12; 16 windows, true σ/E = 30%/√E,
+Gaussian R) put the origin-pinned term +0.70 (median rel.) and +0.77 (robust)
+of its SD high at 40 events a window, +0.35 and +0.33 at 200, +0.15 and +0.17
+at 1,000, against 0.00 within Monte Carlo error under the pooled scale. A common
+``c`` cancels in the fitted parameters (scaling every weight by one constant
+leaves the WLS solution unchanged) and sets only χ², S and the parameters'
+errors.
+
 **Goodness of fit and the PDG scale factor.** ``χ² = Σ w (y − ŷ)²`` at the
 final weights, ``ν = n − p`` and ``p = Q(ν/2, χ²/2)``, the upper tail of
 χ²_ν through a hand-written regularised incomplete gamma (:func:`chi2_sf`;
@@ -331,60 +361,87 @@ def _finish(form: str, theta: np.ndarray, cov: np.ndarray, residual: np.ndarray,
                chi2_sf(chi2, ndf) if ndf >= 1 else None, float(scale), iterations, converged)
 
 
-def _arrays(x, r, n) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _arrays(x, r, n, kappa=None
+            ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    """The points as float arrays, their measured se, and κ (``None`` for the delta-method law).
+
+    With ``kappa`` the first fit's se is ``κ·|r|`` (the card passes ``κ = c/√N``,
+    the module docstring).
+    """
     x = np.asarray(x, dtype=np.float64)
     r = np.asarray(r, dtype=np.float64)
     n = np.asarray(n, dtype=np.float64)
     if not (x.shape == r.shape == n.shape) or x.ndim != 1:
         raise ValueError("x, r and n must be one-dimensional and of one length")
-    se = np.asarray(resolution_se(r, n), dtype=np.float64).reshape(x.shape)
+    if kappa is None:
+        se = np.asarray(resolution_se(r, n), dtype=np.float64).reshape(x.shape)
+    else:
+        kappa = np.asarray(kappa, dtype=np.float64)
+        if kappa.shape != x.shape:
+            raise ValueError("kappa must be aligned with x")
+        if not (np.isfinite(kappa).all() and (kappa > 0).all()):
+            raise ValueError("every κ must be finite and positive")
+        se = kappa * np.abs(r)
     if (n < 2).any() or not (se > 0).all():
         raise ValueError("every point needs N ≥ 2 and a positive standard error")
-    return x, r, n, se
+    return x, r, n, se, kappa
 
 
-def fit_affine(x, r, n) -> Fit | None:
-    """``r = a·x + b``; ``None`` below two points or with fewer than two distinct x."""
+def _se_law(n: np.ndarray, kappa: np.ndarray | None) -> Callable[[np.ndarray], np.ndarray]:
+    """se at a model value ŷ: the delta-method ``resolution_se(ŷ, n)``, or ``κ·ŷ``."""
+    if kappa is None:
+        return lambda yhat: resolution_se(yhat, n)
+    return lambda yhat: kappa * yhat
+
+
+def fit_affine(x, r, n, kappa=None) -> Fit | None:
+    """``r = a·x + b``; ``None`` below two points or with fewer than two distinct x.
+
+    ``kappa``: each point's relative SE, for the κ law (the module docstring:
+    a pooled ``c/√N``, never a window's own measured SE/value); ``None``, the
+    delta-method law.
+    """
     if len(x) < MIN_POINTS[FORM_AFFINE]:
         return None
-    x, r, n, se0 = _arrays(x, r, n)
+    x, r, n, se0, kappa = _arrays(x, r, n, kappa)
     out = _iterate(lambda t: t[0] * x + t[1], lambda w: wls_affine(x, r, w),
-                   lambda yhat: resolution_se(yhat, n), se0)
+                   _se_law(n, kappa), se0)
     if out is None:
         return None
     theta, cov, w, iterations, converged = out
     return _finish(FORM_AFFINE, theta, cov, r - (theta[0] * x + theta[1]), w, iterations, converged)
 
 
-def fit_pinned(x, r, n) -> Fit | None:
-    """``r = a₀·x``; ``None`` without a point."""
+def fit_pinned(x, r, n, kappa=None) -> Fit | None:
+    """``r = a₀·x``; ``None`` without a point. ``kappa`` as :func:`fit_affine`'s."""
     if len(x) < MIN_POINTS[FORM_PINNED]:
         return None
-    x, r, n, se0 = _arrays(x, r, n)
-    out = _iterate(lambda t: t[0] * x, lambda w: wls_pinned(x, r, w),
-                   lambda yhat: resolution_se(yhat, n), se0)
+    x, r, n, se0, kappa = _arrays(x, r, n, kappa)
+    out = _iterate(lambda t: t[0] * x, lambda w: wls_pinned(x, r, w), _se_law(n, kappa), se0)
     if out is None:
         return None
     theta, cov, w, iterations, converged = out
     return _finish(FORM_PINNED, theta, cov, r - theta[0] * x, w, iterations, converged)
 
 
-def fit_quadrature(x, r, n) -> Fit | None:
+def fit_quadrature(x, r, n, kappa=None) -> Fit | None:
     """``r² = A·x² + B`` by WLS in ``z = r²`` against ``u = x²``, with ``se_z = 2ŷ·se(ŷ)``.
 
     The first fit takes ``se_z = 2r·se(r)`` at the measured r; later ones take
     it at the model's ``ŷ = √(A·x² + B)``, and a point where ``A·x² + B ≤ 0``
-    keeps its measured se_z.
+    keeps its measured se_z. Under the κ law (``kappa`` as :func:`fit_affine`'s)
+    se(ŷ) = κ·ŷ, so ``se_z = 2κ·ŷ²``.
     """
     if len(x) < MIN_POINTS[FORM_QUADRATURE]:
         return None
-    x, r, n, se0 = _arrays(x, r, n)
+    x, r, n, se0, kappa = _arrays(x, r, n, kappa)
     u, z = x * x, r * r
     se_z0 = 2.0 * np.abs(r) * se0
+    law = _se_law(n, kappa)
 
     def se_z(zhat: np.ndarray) -> np.ndarray:
         yhat = np.sqrt(zhat)
-        return 2.0 * yhat * resolution_se(yhat, n)
+        return 2.0 * yhat * law(yhat)
 
     out = _iterate(lambda t: t[0] * u + t[1], lambda w: wls_affine(u, z, w), se_z, se_z0)
     if out is None:
