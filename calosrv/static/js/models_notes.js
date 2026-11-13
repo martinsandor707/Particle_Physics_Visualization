@@ -671,15 +671,18 @@ function robustFloorLine(w, model) {
   const below = windows.filter((x) => (x.n ?? 0) >= 2 && (x.n ?? 0) < floor && !Number.isFinite(x.value));
   const bare = windows.filter((x) => (x.n ?? 0) >= floor && !Number.isFinite(x.value));
   const withheld = windows.filter((x) => weightState({ name: 'robust' }, x) === 'withheld');
-  let line = `${plural(below.length, 'window')} of 2 ≤ N < ${formatInt(floor)} ${below.length === 1 ? 'has' : 'have'} no Robust σ/E, below its floor of N = ${formatInt(floor)} (the CLAUDE.md robust floor), `
-    + `so ${below.length === 1 ? 'it is' : 'they are'} not drawn; Sample σ/μ reports ${below.length === 1 ? 'it' : 'them'} from N = 2.`;
+  // Each clause only where its count is not 0 (review nit 8: never "0 windows … have no Robust σ/E").
+  let line = below.length
+    ? `${plural(below.length, 'window')} of 2 ≤ N < ${formatInt(floor)} ${below.length === 1 ? 'has' : 'have'} no Robust σ/E, below its floor of N = ${formatInt(floor)} (the CLAUDE.md robust floor), `
+      + `so ${below.length === 1 ? 'it is' : 'they are'} not drawn; Sample σ/μ reports ${below.length === 1 ? 'it' : 'them'} from N = 2.`
+    : '';
   if (bare.length) {
     const one = bare.length === 1;
-    line += ` ${plural(bare.length, 'window')} of N ≥ ${formatInt(floor)} ${one ? 'reports' : 'report'} no Robust σ/E because ${one ? 'its' : 'their'} median response is not positive, so ${one ? 'it is' : 'they are'} not drawn either.`;
+    line += `${line ? ' ' : ''}${plural(bare.length, 'window')} of N ≥ ${formatInt(floor)} ${one ? 'reports' : 'report'} no Robust σ/E because ${one ? 'its' : 'their'} median response is not positive, so ${one ? 'it is' : 'they are'} not drawn${below.length ? ' either' : ''}.`;
   }
   if (withheld.length) {
     const one = withheld.length === 1;
-    line += ` ${plural(withheld.length, 'window')} ${one ? 'reports' : 'report'} a Robust σ/E whose interval is withheld: more than 2.5% of ${one ? 'its' : 'their'} bootstrap replicates have a median R ≤ 0, so no whisker, SE or fit weight.`;
+    line += `${line ? ' ' : ''}${plural(withheld.length, 'window')} ${one ? 'reports' : 'report'} a Robust σ/E whose interval is withheld: more than 2.5% of ${one ? 'its' : 'their'} bootstrap replicates have a median R ≤ 0, so no whisker, SE or fit weight.`;
   }
   return line;
 }
@@ -688,24 +691,46 @@ function robustFloorLine(w, model) {
 export { RES_DECOMPOSITION };
 
 /**
- * Each series' pooled scale c of the fit weights se = c·ŷ/√N (brief-fix F1,
- * the payload's `weight_scale`), as one What-is-drawn line; '' under sample.
+ * Each series' two pooled scales of the fit weights se = c·ŷ/√N (brief-fix
+ * F1, the payload's `weight_scale`): c, over its windows from 4 GeV, and
+ * c_low, over its windows of 1–4 GeV, which weighs the a/√E ⊕ b ⊕ c/E fit's
+ * windows below 4 GeV (res-noise fix round FX2), then the brief's weights
+ * sentence; one What-is-drawn line, '' under sample. Both views print it,
+ * since both table the three-term fit.
  */
-function pooledScaleLine(w, model) {
+function pooledScaleLine(w, model, payload) {
   if (w.sample) return '';
   const { gates } = model;
+  const noiseMin = noiseMinGev(payload);
+  const lowRange = `${formatNumber(noiseMin)}–${formatNumber(gates.e_min_gev)} GeV`;
+  const weighted = (x) => weightState({ name: w.name }, x) === 'weighted';
   const parts = model.series.map((s) => {
     const ws = s.raw.weight_scale;
     if (!ws) return null;
-    if (!Number.isFinite(ws.c)) return `${s.label}: none, no window from ${formatNumber(gates.e_min_gev)} GeV carries a fit weight, so no fit`;
-    const strong = (s.raw.windows ?? []).some((x) => (x.n ?? 0) >= gates.fit_n && !x.off_axis && (x.p_lo ?? 0) >= gates.e_min_gev
-      && weightState({ name: w.name }, x) === 'weighted');
+    const windows = s.raw.windows ?? [];
+    // c_low's own clause: over the 1–4 GeV windows of N ≥ fit_n with a fit weight, else the whisker gate's, else c.
+    const strongLow = windows.some((x) => (x.n ?? 0) >= gates.fit_n && (x.p_lo ?? 0) >= noiseMin && (x.p_lo ?? 0) < gates.e_min_gev && weighted(x));
+    const low = !Number.isFinite(ws.c_low) ? ''
+      : (ws.n_low ?? 0) > 0
+        ? `c_low = ${sigFigs(ws.c_low, 3)} over ${plural(ws.n_low, 'window')} of ${lowRange}`
+          + (strongLow ? '' : ` of N ≥ ${formatInt(gates.whisker_n)}, since none of N ≥ ${formatInt(gates.fit_n)} there carries a fit weight`)
+        : `c_low = c, no window of ${lowRange} carrying a fit weight`;
+    if (!Number.isFinite(ws.c)) {
+      return `${s.label}: ${low ? 'no c' : 'none'}, no window from ${formatNumber(gates.e_min_gev)} GeV carries a fit weight, so no fit`
+        + (low ? `; ${low}, which no fit uses without c` : '');
+    }
+    const strong = windows.some((x) => (x.n ?? 0) >= gates.fit_n && !x.off_axis && (x.p_lo ?? 0) >= gates.e_min_gev && weighted(x));
     return `${s.label}: c = ${sigFigs(ws.c, 3)} over ${plural(ws.n_windows ?? 0, 'window')}`
-      + (strong ? '' : ` of N ≥ ${formatInt(gates.whisker_n)}, since no window of N ≥ ${formatInt(gates.fit_n)} carries a fit weight`);
+      + (strong ? '' : ` of N ≥ ${formatInt(gates.whisker_n)}, since no window of N ≥ ${formatInt(gates.fit_n)} carries a fit weight`)
+      + (low ? `, ${low}` : '');
   }).filter(Boolean);
-  return parts.length
-    ? `The pooled scale c, one per series, cancels in the fitted parameters and sets only χ², S and the errors: ${parts.join('; ')}.`
-    : '';
+  if (!parts.length) return '';
+  const e4 = formatNumber(gates.e_min_gev);
+  return `The pooled scales, one pair per series, c over its windows from ${e4} GeV and c_low over its windows of ${lowRange}: `
+    + `c cancels in the parameters of a₀/√E and the affine and quadrature fits and sets only their χ², S and errors, and in ${NOISE_FORM} `
+    + `the ratio c_low/c also sets how much its windows below ${e4} GeV weigh against those from ${e4} GeV. ${parts.join('; ')}. `
+    + `The ${NOISE_FORM} fit weights a window from ${e4} GeV by se = c·ŷ/√N and a window below ${e4} GeV by se = c_low·ŷ/√N, `
+    + `c_low the median of √N·κ over the series' windows of ${lowRange}, so the low anchor never sets its own weight.`;
 }
 
 /**
@@ -779,7 +804,7 @@ function unreportedLines(w, s, gates) {
 /** The payload notes the builder states itself, from structure, in the section they belong to. */
 function restatedNote(line, labels) {
   return labels.some((label) => line.startsWith(`${label} (`))
-    || /^Off the axis:|^The y range follows|^The y range is provisional:|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median|^a\/√E ⊕ b ⊕ c\/E, the E view's second curve/.test(line)
+    || /^Off the axis:|^The y range follows|^The y range is provisional:|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median/.test(line)
     // The median calibration c̃ (calibrationLines), the robust floor count (robustFloorLine) and the tied windows (noWeightLines).
     || /: c̃ = 1 \/ median\(E_dep \/ p\) = .* so the deposit's median response over them is 1/.test(line)
     || /^[\d,]+ of the [\d,]+ windows across the series hold N < /.test(line)
@@ -872,16 +897,32 @@ function heldTerms(fit) {
 }
 
 /**
- * A series' held terms, as the Disclosures line words them: "b held at 0 by the
- * constraint b² ≥ 0; its band is conditional on it". c is named as the noise
- * term c/E, never a bare c, which the drawer also uses for the calibration
- * c·E_dep and the pooled scale.
+ * The band sentence of a fit that holds `held` (brief-fix §Words, verbatim):
+ * the envelope of the conditional band and the all-free face's band where the
+ * payload carries that face (`params.free`), else the conditional band, whose
+ * free face is singular. '' with nothing held. Never a coverage claim: the
+ * envelope does not assume the held term is 0, which is all it may be said to
+ * do (brief-fix "Coverage: what may be claimed").
  */
-function heldLine(label, held) {
+function noiseBandText(fit, held) {
+  if (!held.length) return '';
+  const t = held.map((x) => `${x} = 0`).join(' and ');
+  return fit?.params?.free
+    ? `The band is the envelope of the band with ${t} and the band of the fit with all three terms free, so it does not assume ${t}.`
+    : `The band is conditional on ${t}: the fit with all three terms free cannot be solved through these windows.`;
+}
+
+/**
+ * A series' held terms, as the Disclosures line words them: "b held at 0 by the
+ * constraint b² ≥ 0", then the band sentence (`noiseBandText`). c is named as
+ * the noise term c/E, never a bare c, which the drawer also uses for the
+ * calibration c·E_dep and the pooled scale.
+ */
+function heldLine(label, held, fit) {
   const name = (t) => (t === 'c' ? 'the noise term c/E' : t);
   const one = held.length === 1;
-  return `${label}: ${andList(held.map(name))} held at 0 by the constraint${one ? '' : 's'} ${andList(held.map((t) => `${t}² ≥ 0`))}; `
-    + `its band is conditional on ${one ? 'it' : 'them'}.`;
+  return `${label}: ${andList(held.map(name))} held at 0 by the constraint${one ? '' : 's'} ${andList(held.map((t) => `${t}² ≥ 0`))}. `
+    + noiseBandText(fit, held);
 }
 
 /** A window's label in a payload series, by bin: "3–4 GeV". */
@@ -901,27 +942,6 @@ const STRONG_RHO = 0.7;
 /** "three", "two": a small count in words, as the brief's low-anchor sentence writes it. */
 const COUNT_WORDS = Object.freeze(['no', 'one', 'two', 'three', 'four', 'five']);
 const countWord = (n) => COUNT_WORDS[n] ?? formatInt(n);
-
-/**
- * The energy at which an a/√E ⊕ b ⊕ c/E curve comes down into the plot from its
- * top `hi` (%), in GeV: the root of C·u² + A·u + (B − hi²) = 0 in u = 1/E.
- * {E, term} with `term` the term that dominates as E → 0 ('c' when C > 0, else
- * 'a'); {E: Infinity} when the curve lies above the top at every E (B ≥ hi²
- * and the curve never falls below it); null when it never leaves the plot
- * (A = C = 0 and B < hi²).
- */
-function noiseEntry(fit, hi) {
-  const p = fit?.params ?? {};
-  const A = Number.isFinite(p.a2) ? p.a2 : 0;
-  const B = Number.isFinite(p.b2) ? p.b2 : 0;
-  const C = Number.isFinite(p.c2) ? p.c2 : 0;
-  if (!(hi > 0)) return null;
-  const k = B - hi * hi;
-  if (k >= 0) return { E: Infinity, term: C > 0 ? 'c' : 'a' };
-  if (!(A > 0) && !(C > 0)) return null;
-  const u = C > 0 ? (-A + Math.sqrt(A * A - 4 * C * k)) / (2 * C) : -k / A;
-  return u > 0 ? { E: 1 / u, term: C > 0 ? 'c' : 'a' } : null;
-}
 
 /**
  * The ratio panel's deposit reference for one shower, from the payload alone
@@ -1200,7 +1220,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       : '',
     ...lowAnchorLines(mode, noiseDrawn, gates, noiseMinText),
     w.weightSentence,
-    pooledScaleLine(w, model),
+    pooledScaleLine(w, model, payload),
     spanList.length
       ? `Each curve is solid over the span of the windows it was fitted to, the lowest window edge to the highest (${spanRule}), and dashed beyond it; `
         + 'its 95% band continues over the dashed parts at one third of its strength.'
@@ -1264,15 +1284,18 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
         + `${f.cut.lineAt !== null ? 'line and band' : 'band'}, highest ${pct(f.cut.peak[3])} at E = ${sig(f.cut.peak[0])} GeV`).join('; ')}. `
       + 'The range follows the windows alone, so no curve, band or extrapolation sets it.');
   }
-  // The three-term curves' entry at the top: each rises without bound as E → 0 unless A = C = 0 (brief res-noise §4.1).
-  const entries = Number.isFinite(y.hi)
-    ? noiseDrawn.map(({ s, fit }) => ({ s, fit, at: noiseEntry(fit, y.hi) })).filter((x) => x.at) : [];
-  const entering = entries.filter((x) => Number.isFinite(x.at.E));
-  const above = entries.filter((x) => !Number.isFinite(x.at.E));
+  // The three-term curves' entry at the top: each rises without bound as E → 0 unless A = C = 0 (brief res-noise
+  // §4.1), read from the panel's model (`s.fits.noise.entry`, review nit 3), never solved again here.
+  const entries = noiseDrawn.map(({ s, fit }) => ({ s, fit, e: s.fits?.noise?.drawable ? s.fits.noise.entry : null })).filter((it) => it.e);
+  const entering = entries.filter((it) => !it.e.above && it.e.lineAt !== null && it.e.lineAt !== undefined);
+  const above = entries.filter((it) => it.e.above);
+  // An entry within 0.1% of the axis from E = 0 (review m7: a fixed fraction, so the text is deterministic).
+  const nearZero = (e) => e.at < x.max * 1e-3;
   if (entering.length) {
     const n = entering.length;
     dis.push(`${plural(n, `${NOISE_FORM} curve`)} ${n === 1 ? 'comes' : 'come'} down into the main panel from its top (${pct(y.hi)}), ${n === 1 ? 'with a caret where it enters, since it rises' : 'each with a caret where it enters, since they rise'} without bound as E → 0: `
-      + `${entering.map(({ s, at }) => `${s.label} at E = ${sig(at.E)} GeV, through its ${at.term === 'c' ? 'noise term c/E' : 'stochastic term a/√E'}`).join('; ')}.`);
+      + `${entering.map(({ s, e }) => `${s.label} at E = ${sig(e.lineAt)} GeV, through its ${e.term === 'c' ? 'noise term c/E' : 'stochastic term a/√E'}`
+        + `${nearZero(e) ? ' (less than 0.1% of the axis from E = 0: the curve runs up along the axis line there)' : ''}`).join('; ')}.`);
   }
   for (const { s, fit } of above) {
     dis.push(`${s.label}: its ${NOISE_FORM} curve lies above the top of the main panel (${pct(y.hi)}) at every E, its constant term b = ${pct(fit.params?.b)} alone reaching it; it is clipped there with a caret.`);
@@ -1344,7 +1367,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   for (const s of model.series) {
     const mf = s.mf;
     if (!mf) continue;
-    if (mf.provisional) dis.push(`${s.label}: the fits are provisional, through windows of N ≥ ${formatInt(gates.whisker_n)}, because fewer than two windows reach N = ${formatInt(gates.fit_n)}; drawn faded.`);
+    if (mf.provisional) dis.push(`${s.label}: the fits are provisional, through windows of N ≥ ${formatInt(gates.whisker_n)}, because fewer than two windows from ${curveMin} GeV reach N = ${formatInt(gates.fit_n)}; drawn faded.`);
     if (mode === 'anchors') for (const sub of mf.substitutions ?? []) dis.push(`${s.label}: ${sentence(sub.reason)}`);
     for (const [form, fit] of [['affine', mf.affine], ['pinned', mf.pinned], ['quadrature', mf.quadrature], ['noise', mf.noise]]) {
       if (!fit) continue;
@@ -1367,7 +1390,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   }
   for (const { s, fit } of noiseDrawn) {
     const held = heldTerms(fit);
-    if (held.length) dis.push(heldLine(s.label, held));
+    if (held.length) dis.push(heldLine(s.label, held, fit));
   }
   for (const { s, fit, reason } of noiseItems) if (!fit && reason) dis.push(`${s.label}: ${sentence(reason)}`);
   if (noiseDrawn.length) {
@@ -1378,11 +1401,16 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       const top = Math.max(...rhos.map(Math.abs));
       const how = top >= STRONG_RHO ? 'strongly correlated (each curve\'s tooltip gives ρ)' : `correlated (here |ρ| ≤ ${sig(top)}; each curve's tooltip gives ρ)`;
       dis.push(`Over the fitted windows 1/√E, 1 and 1/E change together, so the fitted squares are ${how}: the curve is better determined than its split into a, b and c, `
-        + 'and a term held at 0 means the windows need no separate term of that form once the others are free, not that the detector has none.');
+        + 'and each free term\'s standard error already carries that correlation, conditional only on the held terms.');
+    }
+    // The held-term caveat stands whenever a drawn fit holds a term, with or without a correlation to give (review m3).
+    if (noiseDrawn.some(({ fit }) => heldTerms(fit).length)) {
+      dis.push('A term held at 0 means the windows need no separate term of that form once the others are free, not that the detector has none.');
     }
   }
   const weak = points.filter((p) => p.weak && !p.subFloor);
-  const weakFitted = weak.filter((p) => p.fitted).length;
+  // A window the three-term fit alone uses is fitted too (review m1).
+  const weakFitted = weak.filter((p) => p.fitted || p.noiseFitted).length;
   const weakAlone = weak.length - weakFitted;
   if (weakFitted) dis.push(`${plural(weakFitted, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakFitted === 1 ? 'its' : 'their'} ${w.whisker} and fitted, in a provisional fit.`);
   if (weakAlone) dis.push(`${plural(weakAlone, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakAlone === 1 ? 'its' : 'their'} ${w.whisker}, not fitted.`);
@@ -1413,7 +1441,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   if (mode === 'all' && belowAnchors.length) {
     const names = [...new Set(belowAnchors.flatMap((s) => s.points
       .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
-    dis.push(`This mode fits every window from ${curveMin} GeV, ${names.join(', ')} included (${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, `
+    dis.push(`a₀/√E fits every window from ${curveMin} GeV, ${names.join(', ')} included (${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, `
       + `the anchors' floor, the sampling fraction is still rising and a₀/√E may not describe ${w.symbol}${w.symbol.endsWith('.') ? '' : '.'}`);
   }
   for (const s of model.series) dis.push(...unreportedLines(w, s, gates));
@@ -1525,8 +1553,12 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     `The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is ${NOISE_FORM}, the thinner the origin-pinned a₀/√E ⊕ 0. `
       + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is ${w.name === 'robust' ? '' : 'provisional or '}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     w.whiskerLegend,
-    `The shaded bands are the fits' 95% confidence bands: the ${NOISE_FORM} band is the square root of the band of z = (${w.symbol})² = A/E + B + C/E², ẑ ± q√(gᵀΣg) with g = (1/E, 1, 1/E²), its lower edge cut at 0 where that band falls below zero; `
-      + `a held term's row and column of Σ are zero, so the band is conditional on it. The pinned band is a₀/√E ± q·SE(a₀)/√E, at half the ${NOISE_FORM} band's strength; q is 1.96, or Student's t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash.`,
+    `The shaded bands are the fits' 95% confidence bands under their forms. The ${NOISE_FORM} band is built in z = (${w.symbol})² = A/E + B + C/E², where the fit is linear, `
+      + 'as ẑ ± q√(gᵀΣg) with g = (1/E, 1, 1/E²), and taken through the square root, its lower edge cut at 0 where that band falls below zero. '
+      + 'Where the constraint holds a term at 0, that band has zero rows at the held term and is conditional on it, so the band drawn is its envelope with the band of the fit '
+      + 'with all three terms free (A, B and C unconstrained, at the same weights, S and q), which does not assume the held term is 0; where that free fit cannot be solved '
+      + 'through the windows, the conditional band is drawn and Disclosures says so. Neither is claimed to cover at 95% for a fit that holds a term. '
+      + `The pinned band is a₀/√E ± q·SE(a₀)/√E, at half the ${NOISE_FORM} band's strength; q is 1.96, or Student's t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash.`,
     literatureLegendLine(model),
     `The ratio panel: the 1.0 rule in ink marks ${w.symbol} equal to the reference; ${lit
       ? 'no band about 1 is drawn, since the literature curve has no interval reported'
@@ -1582,11 +1614,19 @@ export function resolutionScalingNotes({
     `Each window is the producer's 1 GeV momentum bin; its abscissa is x = ⟨1/√p⟩ over its events, in GeV⁻¹ᐟ², on a reversed axis from 0.5 (4 GeV) at the left to 0 (E → ∞) at the right border, and ${w.symbol} starts at zero, so the bottom-right corner is the origin.`,
     `Mode drawn: ${modeLabel(mode, gates)}${weakRule}.`,
     'Two fits per series are drawn, each by weighted least squares with ' + w.weightClause + `: the affine ${w.symbol} = a/√E + b and the origin-pinned ${w.symbol} = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (${w.symbol})² = A/E + B and tabled under the plot, not drawn.`,
-    // The server's definition note of the three-term fit is restated here (`restatedNote`), with why this view only tables it.
+    // The three-term fit's definition, which the server no longer serves as a note (res-noise fix round FX3): its form,
+    // its constraint, its windows in each mode and its floor, with why this view only tables it.
     `${NOISE_FORM}, fitted as (${w.symbol})² = A/E + B + C/E² with A, B and C held non-negative, is tabled under the plot as well, not drawn: `
       + `it is fitted to windows from ${formatNumber(noiseMinGev(payload))} GeV, and those below ${formatNumber(gates.e_min_gev)} GeV lie off this view's axis, so it is drawn in the E (GeV) + ratio view.`,
+    `It is fitted by weighted least squares through every fittable window from ${formatNumber(noiseMinGev(payload))} GeV, or in the 3-anchor mode through the anchors `
+      + `and the lowest fittable window from ${formatNumber(noiseMinGev(payload))} GeV, since anchors from ${formatNumber(gates.anchor_low_gev)} GeV cannot fix a 1/E term; `
+      + 'a term the constraint holds at 0 is written "0 (held)" in the table. '
+      + `Below ${formatNumber(noiseMinGev(payload))} GeV a window's momenta reach nearly zero, so no single abscissa carries its average of 1/E².`,
+    // A tabled fit of the 3-anchor mode with no low anchor: the payload's `low_anchor: null` is its only sign (FX3).
+    ...lowAnchorLines(mode, model.series.map((s) => ({ s, fit: noiseFitOf(s, mode) }))
+      .filter(({ fit }) => fit && (fit.low_anchor === null || fit.low_anchor === undefined)), gates, formatNumber(noiseMinGev(payload))),
     w.weightSentence,
-    pooledScaleLine(w, model),
+    pooledScaleLine(w, model, payload),
     payload.anchors?.rule
       ? `Anchors${nominal.length ? ` (nominal: ${nominal.join(', ')})` : ''}: ${sentence(payload.anchors.rule)}`
       : '',
