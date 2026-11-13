@@ -1904,19 +1904,25 @@ def test_the_median_estimator_discloses_its_comparison_with_the_literature_curve
 
 #: A window tooltip's SE line under the median and the robust estimators (brief-fix F1 and F3, "The tooltip's SE
 #: line"): a window whose bootstrap SE is below 10⁻⁶ of its value is tied replicates and carries no fit weight; any
-#: other is weighted with its series' pooled scale c, printed to three significant figures.
+#: other is weighted with its series' pooled scale c, printed to three significant figures, or, below 4 GeV, where
+#: only a/√E ⊕ b ⊕ c/E uses it, with the second scale c_low (res-noise brief-fix FX2 and §Words, "A window below
+#: 4 GeV").
 SE_TIED = ": below 10⁻⁶ of the value (tied replicates), so no fit weight"
 SE_WEIGHTED = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c·ŷ/√N, c = ([\d.]+) for this series$")
+SE_WEIGHTED_LOW = re.compile(r"^bootstrap SE \S+ \(κ = [\d.]+%\); fit weight se = c_low·ŷ/√N, c_low = ([\d.]+) for "
+                             r"this series' windows below 4 GeV$")
 #: A window tooltip's second line: the window and its count.
 WINDOW_LINE = re.compile(r"^(\d+–\d+ GeV) · N = ")
 
 
 def _se_lines(texts, payload, where):
     """Every window tooltip's SE line, checked against the window it names: under the median and the robust
-    estimators a tied window (an SE but no κ) says so and no c, every other window prints its series' pooled scale c;
-    under the sample estimator there is no bootstrap SE line. Returns (tied, weighted, the series hovered)."""
+    estimators a tied window (an SE but no κ) says so and no c; every other window from 4 GeV prints its series'
+    pooled scale c, and one below 4 GeV its second scale c_low (brief-fix FX2), never c; under the sample estimator
+    there is no bootstrap SE line. Returns (tied, weighted, of those weighted the windows below 4 GeV, the series
+    hovered)."""
     by_label = {s["label"]: s for s in payload["series"]}
-    tied, weighted, hovered = 0, 0, set()
+    tied, weighted, low, hovered = 0, 0, 0, set()
     for text in texts:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         se = [line for line in lines if line.startswith("bootstrap SE ")]
@@ -1936,13 +1942,21 @@ def _se_lines(texts, payload, where):
             assert w["se"] is not None, (where, s["key"], label)
             assert se[0].endswith(SE_TIED) and "κ" not in se[0] and " c = " not in se[0], (where, se[0])
             tied += 1
+        elif w["p_lo"] < CURVE_MIN_GEV and s["weight_scale"]["c_low"] is not None:
+            # Below 4 GeV only a/√E ⊕ b ⊕ c/E fits the window, weighted by c_low, never by c (brief-fix FX2).
+            got = SE_WEIGHTED_LOW.match(se[0])
+            assert got and " c = " not in se[0], (where, s["key"], label, se[0])
+            assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c_low"], rel=5e-3), \
+                (where, s["key"], se[0], s["weight_scale"])
+            weighted += 1
+            low += 1
         else:
             got = SE_WEIGHTED.match(se[0])
             assert got, (where, s["key"], label, se[0])
             assert float(got.group(1)) == pytest.approx(s["weight_scale"]["c"], rel=5e-3), \
                 (where, s["key"], se[0], s["weight_scale"])
             weighted += 1
-    return tied, weighted, hovered
+    return tied, weighted, low, hovered
 
 
 #: The centre of every window marker the resolution card drew (series `<key>|markers` and `<key>|ratio|markers`), in
@@ -2000,8 +2014,9 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
     negative number. A window's value line names the estimator's quantity and its cross-references the two not
     plotted (brief §4). Under the median in the E view the literature curves' and the ratio marks' tooltips carry
     the verbatim disclosure (the ratio divides by a literature curve while both are on); no tooltip carries it
-    otherwise. The SE line (brief-fix F1, F3): under the median and the robust estimators a weighted window prints
-    "c = … for this series", its series' pooled scale; under the median the recorded deposits' tied windows say
+    otherwise. The SE line (brief-fix F1, F3, FX2): under the median and the robust estimators a weighted window
+    prints "c = … for this series", its series' pooled scale, or below 4 GeV (the E view's 1–4 GeV windows) "c_low =
+    … for this series' windows below 4 GeV", its second scale; under the median the recorded deposits' tied windows say
     "below 10⁻⁶ of the value (tied replicates), so no fit weight" and are drawn in the all-windows mode only."""
     served = _fixture_payload(RES_TWO, estimator)
     with models_live_server["playwright"].sync_playwright() as p:
@@ -2046,10 +2061,13 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
                             on_ratio.append(probe["text"])
             shares[f"{view}/{mode}"] = round(worst, 3)
             texts = [probe["text"] for _, probe, _ in found]
-            tied, weighted, hovered = _se_lines(texts, served, where)
-            counts[f"{view}/{mode}"] = (tied, weighted)
+            tied, weighted, low, hovered = _se_lines(texts, served, where)
+            counts[f"{view}/{mode}"] = (tied, weighted, low)
             if estimator != "sample":
                 assert weighted, f"{where}: no weighted window's tooltip read"
+                # The 1/√E view draws no window below 4 GeV; the E view draws the 1–4 GeV windows in the all-windows
+                # mode (and the low anchor in the 3-anchor mode), each weighted by c_low (brief-fix FX2).
+                assert bool(low) is (view == "energy"), (where, low)
             if estimator == "median":
                 # The tied deposits are drawn in the all-windows mode only, never fitted (brief-fix F3).
                 deposits = {k for k in hovered if k.startswith("detector:")}
@@ -2057,6 +2075,7 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
             else:
                 assert tied == 0, (where, tied)
             assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+            assert _says_exact(texts) == [], (where, _says_exact(texts))
             lines = [line.strip() for t in texts for line in t.splitlines()]
             assert any(line.startswith(VALUE_LINE[estimator]) for line in lines), (where, texts[:4])
             for name in CROSS_REFERENCES[estimator]:
@@ -2071,7 +2090,7 @@ def test_the_resolution_tooltips_name_the_estimator_and_keep_to_the_cap(models_l
             else:
                 assert warned == [], (where, warned[:2])
         print(f"res-scaling, {estimator}: largest share of the grid read {shares}; "
-              f"tooltips read (tied, weighted) {counts}")
+              f"tooltips read (tied, weighted, of those below 4 GeV) {counts}")
         browser.close()
     assert problems == [], problems
 
@@ -2251,7 +2270,7 @@ _RES_MARK_ES = """() => {
 }"""
 
 #: brief §8, verbatim: the floor sentence and the naming caveat (panels/resolution_scaling.js noiseFloorText,
-#: NOISE_NAMING_CAVEAT).
+#: NOISE_NAMING_CAVEAT). The drawer's alone since brief-fix m6: no curve tooltip carries either.
 NOISE_FLOOR = ("It uses windows from 1 GeV: below that a 1 GeV window reaches momenta near zero, so its average of 1/E² is "
                "far from what its plotted energy implies, and no single abscissa can carry the noise term c/E.")
 NOISE_CAVEAT = ("c/E is the calorimeter's conventional noise term. Here it takes up whatever grows like 1/E at low "
@@ -2260,6 +2279,24 @@ NOISE_CAVEAT = ("c/E is the calorimeter's conventional noise term. Here it takes
 NOISE_ENTRY = re.compile(r"It comes down into the plot at E = ([\d.]+(?:e[−-]?\d+)?) GeV: a/√E ⊕ b ⊕ c/E rises "
                          r"without bound as E → 0, through its (noise term c/E|stochastic term a/√E)\.")
 NOISE_UNITS = {"a": "%·√GeV", "b": "%", "c": "%·GeV"}
+#: A term's square's unit, where the term is printed as its square (brief-fix m4: its SE exceeds its value).
+NOISE_SQUARE_UNITS = {"a": "%²·GeV", "b": "%²", "c": "%²·GeV²"}
+#: A non-negative number as the panel prints it to three significant figures (chart_panel.js `sigFigs`: plain from
+#: 10⁻³ to 10⁵, else a mantissa × a power of ten in superscript digits).
+_NUM = r"[\d.]+(?:×10⁻?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?"
+
+
+def _noise_band_sentence(held, free):
+    """The band sentence of a noise fit that holds `held` (brief-fix §Words, verbatim): the envelope of the
+    conditional band and the all-free face's where that face exists (`params.free`), conditional where it is
+    singular; None with no term held."""
+    if not held:
+        return None
+    t = " and ".join(f"{x} = 0" for x in held)
+    if free:
+        return (f"The band is the envelope of the band with {t} and the band of the fit with all three terms free, so "
+                f"it does not assume {t}.")
+    return f"The band is conditional on {t}: the fit with all three terms free cannot be solved through these windows."
 
 
 def _noise_tip_lines(text):
@@ -2268,9 +2305,11 @@ def _noise_tip_lines(text):
 
 def _assert_noise_tip(text, s, noise, payload, mode, where):
     """A curve tooltip of a/√E ⊕ b ⊕ c/E (brief §4.3, §8, §11): its series and equation; every term with its SE
-    and unit, or the held phrase; χ²/ν and S; the windows fitted, the low anchor named in the 3-anchor mode, with
-    its sentence; the band's condition on the held terms; the correlations of the fitted squares where any pair is
-    free; the floor sentence and the naming caveat."""
+    and unit, its square with the square's SE where the term's SE exceeds it (brief-fix m4), or the held phrase;
+    χ²/ν and S; the windows fitted, the low anchor named in the 3-anchor mode, with its sentence; where a term is
+    held, the band sentence (brief-fix FX1: the envelope, or conditional where the all-free face is singular); the
+    correlations of the fitted squares where any pair is free. The floor sentence and the naming caveat are the
+    drawer's alone (brief-fix m6), so the tooltip carries neither."""
     lines = _noise_tip_lines(text)
     flat = _flat(text)
     params = noise["params"]
@@ -2286,9 +2325,11 @@ def _assert_noise_tip(text, s, noise, payload, mode, where):
         assert (t == "c") is term.startswith("the noise term c/E: "), (where, term)
         if t in held:
             assert body == f"{t} = 0, held there by the constraint {t}² ≥ 0", (where, term)
+        elif params[f"se_{t}"] > params[t]:
+            # A symmetric error larger than the value would reach below 0 for a term that cannot: its square.
+            assert re.fullmatch(rf"{t}² = {_NUM} ± {_NUM} {re.escape(NOISE_SQUARE_UNITS[t])}", body), (where, term)
         else:
-            assert re.fullmatch(rf"{t} = [\d.]+(?:e\d+)? ± [\d.]+(?:e\d+)? {re.escape(NOISE_UNITS[t])}", body), \
-                (where, term)
+            assert re.fullmatch(rf"{t} = {_NUM} ± {_NUM} {re.escape(NOISE_UNITS[t])}", body), (where, term)
     assert "held non-negative, so every term is real." in flat, where
     if noise["ndf"] > 0:
         assert re.search(r"χ²/ν = .+; S = [\d.]+", flat), (where, flat[:300])
@@ -2304,8 +2345,15 @@ def _assert_noise_tip(text, s, noise, payload, mode, where):
                 f"({labels[low]}), since anchors from 5 GeV cannot fix a 1/E term.") in flat, (where, flat[-600:])
     else:
         assert "(the low anchor)" not in windows, (where, windows)
-    conditional = f"The band is conditional on {' and '.join(f'{t} = 0' for t in held)}." if held else None
-    assert (conditional in lines) if conditional else ("conditional on" not in flat), (where, held, flat[-800:])
+    band = _noise_band_sentence(held, params["free"] is not None)
+    if band:
+        assert band in lines, (where, held, flat[-800:])
+        assert lines.count(band) == 1, (where, band)
+    else:
+        assert "The band is the envelope" not in flat and "conditional on" not in flat, (where, flat[-800:])
+    # The older conditional sentence, which the envelope replaced wherever the free face exists (brief-fix FX1).
+    if params["free"] is not None:
+        assert "The band is conditional on" not in flat, (where, flat[-800:])
     rho = {k: v for k, v in params["rho"].items() if v is not None}
     names = {"a2b2": "ρ(a², b²)", "a2c2": "ρ(a², c²)", "b2c2": "ρ(b², c²)"}
     if rho:
@@ -2320,7 +2368,9 @@ def _assert_noise_tip(text, s, noise, payload, mode, where):
             assert "no pair of the fitted squares is strongly correlated here" in line, (where, line)
     else:
         assert "ρ(" not in flat, (where, flat[-600:])
-    assert NOISE_FLOOR in flat and NOISE_CAVEAT in flat, (where, flat[-700:])
+    # brief-fix m6: the floor sentence and the naming caveat are the drawer's, stated there once.
+    assert NOISE_FLOOR not in flat and NOISE_CAVEAT not in flat, (where, flat[-700:])
+    assert "It uses windows from 1 GeV" not in flat and "not a measured noise level" not in flat, (where, flat[-700:])
     assert _hyphen_negatives([text]) == [], (where, text)
 
 
@@ -2371,9 +2421,10 @@ def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_
     - **The entry.** Each a/√E ⊕ b ⊕ c/E curve with A > 0 or C > 0 comes down into the main panel at its top, from
       the left: its first point lies on the axis top at the energy where its line reaches it (the root of
       C·u² + A·u + (B − top²)), and it falls from there; a flat one (b alone) starts at E = 0. Hovered, the curve
-      names its terms with their SEs or the held phrase, the band's condition on the held terms, the correlation of
-      the free squares, the windows (the low anchor named), the floor sentence and the naming caveat; the entry caret
-      says where the curve comes down and through which term (§8). Every tooltip keeps to the 20% cap.
+      names its terms with their SEs (a term's square where its SE exceeds it) or the held phrase, the band sentence
+      where a term is held (the envelope, brief-fix FX1), the correlation of the free squares and the windows (the
+      low anchor named), and no longer the floor sentence or the naming caveat (the drawer's, brief-fix m6); the
+      entry caret says where the curve comes down and through which term (§8). Every tooltip keeps to the 20% cap.
     - **The low anchor.** In the 3-anchor mode the low anchor's window is drawn on the E view (on neither the 1/√E
       view's axis nor its anchors), and its tooltip's role line names it the low anchor.
     - **Ratio marks from 1 GeV.** With both literature curves off, every window from 1 GeV the mode draws, those of
@@ -2527,6 +2578,9 @@ def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_
                         (where, key, [t[:300] for t in ratio_tips[:2]])
                 assert found, where
                 _assert_capped(page, found, where)
+                # brief-fix FX1: no tooltip calls the band, or anything, exact.
+                said = _says_exact([probe["text"] for _, probe, _ in found])
+                assert said == [], (where, said)
             # The 1/√E view and back, both window modes: repaints of the response in hand.
             assert _res_press(page, "res-view", "linear")
             assert _res_press(page, "res-windows", "anchors")
@@ -2539,6 +2593,278 @@ def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_
         browser.close()
     assert problems == [], problems
 
+
+# ------------------------------------- the noise fit's envelope band (fix round) --
+
+#: The one tooltip phrase with the word "exact" the fix round keeps: the ratio-fit tooltip's statement that its band
+#: is divided by a reference held fixed (panels/resolution_scaling.js `ratioFitTip`). It names the reference's
+#: treatment, not the band's coverage; NF-panel kept it for the lead's call (NF-panel.md §2). Drop it from here
+#: once the panel rewords it, and `_says_exact` then holds every tooltip to the brief.
+EXACT_KEPT = "the reference is held exact"
+
+
+def _says_exact(texts):
+    """Every tooltip line that says "exact" (brief-fix FX1: the word goes from every band sentence), the kept phrase
+    aside. "exactly" is not the word: a ν = 0 fit "passes through its points exactly", which is no band claim."""
+    return [line for t in texts for line in (_flat(x) for x in t.splitlines())
+            if re.search(r"\bexact\b", line.replace(EXACT_KEPT, ""))]
+
+
+#: Every mark of every a/√E ⊕ b ⊕ c/E fit the E view drew, on both grids, read back from the elements ECharts
+#: painted (a custom series keeps its geometry in a closure): per series id (`<key>|[ratio|]noise|<rest>`, `rest`
+#: `solid|<i>`, `dashed|<i>`, `band|<below|inside|above>` or `edges|<solid|dashed>|<i>`), each polyline or polygon's
+#: points in viewport pixels and in data on its own grid. A band polygon is its lower edge, then its upper edge back
+#: (marks.js `customBand`).
+_RES_NOISE_DRAWN = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const out = [];
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || '';
+    const m = /^([^|]+)\\|(ratio\\|)?noise\\|(.+)$/.exec(id);
+    if (!m) return;
+    const grid = s.get('yAxisIndex') ?? 0;
+    const els = [];
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore || !el.shape?.points?.length) return;
+      if (el.type !== 'polygon' && el.type !== 'polyline') return;
+      els.push({
+        type: el.type,
+        px: el.shape.points.map(([x, y]) => [c.left + x, c.top + y]),
+        data: el.shape.points.map((pt) => inst.convertFromPixel({ gridIndex: grid }, pt)),
+      });
+    });
+    out.push({ id, key: m[1], ratio: Boolean(m[2]), rest: m[3], grid, els });
+  });
+  return out;
+}"""
+
+
+def _noise_face(face, u, q):
+    """One face of a noise block at u = 1/E (panels/resolution_scaling.js `noiseFaceAt`, stats/resolution_fit.band):
+    (ẑ, h), ẑ = A·u + B + C·u² and h = q·√(gᵀΣg), g = (u, 1, u²), Σᵢⱼ = ρᵢⱼ·SEᵢ·SEⱼ from the face's scaled SEs and
+    ρ, in %²; a held term has no SE and no ρ, so its row is zero."""
+    g = (u, 1.0, u * u)
+    se = [face.get(k) or 0.0 for k in ("se_a2", "se_b2", "se_c2")]
+    rho = face.get("rho") or {}
+    pairs = {(0, 1): rho.get("a2b2") or 0.0, (0, 2): rho.get("a2c2") or 0.0, (1, 2): rho.get("b2c2") or 0.0}
+    var = sum((g[i] * se[i]) ** 2 for i in range(3))
+    var += sum(2 * r * g[i] * g[j] * se[i] * se[j] for (i, j), r in pairs.items())
+    return face["a2"] * u + face["b2"] + face["c2"] * u * u, q * max(var, 0.0) ** 0.5
+
+
+def _noise_bands(block, energy):
+    """A noise block at E (GeV), from the payload alone, in %: (ŷ, the conditional band (lo, hi), the envelope
+    (lo, hi)). The conditional band is the constrained fit's ẑ ± h with zero rows at the held terms; the envelope is
+    its union in z with the all-free face's band at the same q (brief-fix FX1): z_lo = min(ẑ − h, ẑ_free − h_free),
+    z_hi = max(ẑ + h, ẑ_free + h_free); each taken through √ with its lower edge cut at 0."""
+    params, q, u = block["params"], block["band_quantile"], 1.0 / energy
+    root = lambda z: max(z, 0.0) ** 0.5  # noqa: E731
+    z, h = _noise_face(params, u, q)
+    lo, hi = z - h, z + h
+    if params["held"] and params["free"] is not None:
+        zf, hf = _noise_face(params["free"], u, q)
+        env = (min(lo, zf - hf), max(hi, zf + hf))
+    else:
+        env = (lo, hi)
+    return root(z), (root(lo), root(hi)), (root(env[0]), root(env[1]))
+
+
+def _assert_envelope_drawn(drawn, payload, mode, top, where):
+    """The main panel's a/√E ⊕ b ⊕ c/E bands as drawn, against the payload (brief-fix FX1). Every drawn band point
+    off the axis ends lies on the envelope: an upper-edge point at the envelope's upper edge, which is at or above the
+    conditional band's, a lower-edge point at its lower edge. A wash (`band|<part>`) is its lower edge, then its
+    upper edge back; an outlined band (`edges|…`) is told apart by the line ŷ, which its upper edge never falls
+    below. Returns (upper-edge points checked, of those strictly above the conditional band, lower-edge points
+    checked), per series key."""
+    blocks = {s["key"]: s["fits"][mode]["noise"] for s in payload["series"]}
+    tol = 1e-5 * top
+    counts = {}
+    for item in drawn:
+        if item["ratio"] or not item["rest"].startswith(("band|", "edges|")):
+            continue
+        block = blocks[item["key"]]
+        assert block is not None, (where, item["id"])
+        upper, lower = [], []
+        for el in item["els"]:
+            pts = [tuple(pt) for pt in el["data"]]
+            if item["rest"].startswith("band|"):
+                assert el["type"] == "polygon" and len(pts) % 2 == 0, (where, item["id"], el["type"], len(pts))
+                n = len(pts) // 2
+                lower += pts[:n]
+                upper += pts[n:]
+            else:
+                assert el["type"] == "polyline", (where, item["id"], el["type"])
+                for e, v in pts:
+                    if e > 1e-9 and tol < v < top - tol:
+                        (upper if v >= _noise_bands(block, e)[0] else lower).append((e, v))
+        got = counts.setdefault(item["key"], [0, 0, 0])
+        for e, v in upper:
+            # E = 0 (a flat curve's first point) and the axis ends (a clamp or a clip) carry no value to compare.
+            if e <= 1e-9 or v >= top - tol or v <= tol:
+                continue
+            line, (_, cond_hi), (_, env_hi) = _noise_bands(block, e)
+            assert v >= line - tol, (where, item["id"], e, v, line)
+            assert v >= min(cond_hi, top) - tol, (where, item["id"], e, v, cond_hi)
+            assert v == pytest.approx(min(env_hi, top), abs=tol), (where, item["id"], e, v, env_hi, cond_hi)
+            got[0] += 1
+            got[1] += v > min(cond_hi, top) + 1e-3 * top
+        for e, v in lower:
+            if e <= 1e-9 or v >= top - tol or v <= tol:
+                continue
+            _, _, (env_lo, _) = _noise_bands(block, e)
+            assert v == pytest.approx(min(env_lo, top), abs=tol), (where, item["id"], e, v, env_lo)
+            got[2] += 1
+    return counts
+
+
+def _band_hover_points(item):
+    """Pixels to hover inside a drawn band: inside a wash, between its edges at a few depths of its middle third
+    (the line runs through it, so several fractions); on an outlined band, along each edge."""
+    out = []
+    for el in item["els"]:
+        px = el["px"]
+        if el["type"] == "polygon":
+            n = len(px) // 2
+            lower, upper = px[:n], px[n:][::-1]
+            for i in sorted({n // 3, n // 2, (2 * n) // 3}):
+                (lx, ly), (ux, uy) = lower[i], upper[i]
+                if abs(ly - uy) < 6:
+                    continue
+                out += [(lx + f * (ux - lx), ly + f * (uy - ly)) for f in (0.2, 0.35, 0.65, 0.8)]
+        else:
+            step = max(1, len(px) // 6)
+            out += [tuple(p) for p in px[step // 2::step]]
+    return out
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_noise_band_is_the_envelope_and_a_low_window_prints_c_low(models_live_server, scheme):
+    """The res-noise fix round on the recorded two-shower response, in both themes, under every estimator and in
+    both window modes, both literature curves off (brief-fix FX1, FX2 and §Words).
+
+    - **The envelope, drawn.** Every fit of the recorded response holds a term and carries its all-free face, so
+      every a/√E ⊕ b ⊕ c/E band on the main panel, a wash or its two edges, is drawn as the envelope in z of the
+      conditional band and the free face's, read back from the painted elements and computed here from `params`,
+      `params.free` and `band_quantile` alone: its upper edge at the envelope's, at or above the conditional band's
+      everywhere, and above it somewhere on every theme; its lower edge at the envelope's. A band left undrawn
+      covers the whole axis wherever its line is drawn (both edges clipped away).
+    - **The band sentence.** Every tooltip read of a held fit's curve, band, ratio line or deposit reference band
+      carries the brief's envelope sentence for its held terms, once, and never the conditional one.
+    - **c_low.** Under the median and the robust estimators a 1–4 GeV window's tooltip prints its series' c_low
+      ("c_low = … for this series' windows below 4 GeV"), never c; one from 4 GeV prints c.
+    - **No "exact".** No tooltip read says it (`_says_exact`).
+    - **The cap.** Every tooltip read keeps to the 20% readout cap on the plot and on the grid being read.
+    - **No request** but the estimator's."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        before = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+        assert requests[before:] == [], f"the view or a literature toggle asked the service: {requests[before:]}"
+        seen = {"upper": 0, "above": 0, "lower": 0, "covering": 0, "sentences": 0, "kinds": set(), "low": 0, "tips": 0}
+        for est in RES_ESTIMATORS:
+            payload = _fixture_payload(RES_TWO, est)
+            if est != DEFAULT_ESTIMATOR:
+                _res_estimator(page, requests, est, payload["estimator"]["axis_name"])
+            mark = len(requests)
+            by_key = {s["key"]: s for s in payload["series"]}
+            by_label = {s["label"]: s for s in payload["series"]}
+            for mode in ("anchors", "all"):
+                assert _res_press(page, "res-windows", mode)
+                page.evaluate(_SCROLL_START, "res-scaling")
+                page.mouse.move(2, 2)
+                _frames(page, 4)
+                where = f"{scheme}, {est}, {mode}"
+                top = page.evaluate(_RES_ENERGY)["y"][0]["max"]
+                fitted = {k: s["fits"][mode]["noise"] for k, s in by_key.items() if s["fits"][mode]["noise"]}
+                # The premise: every fit here holds a term and has its free face (NF-backend's recordings).
+                assert fitted and all(b["params"]["held"] and b["params"]["free"] is not None
+                                      for b in fitted.values()), (where, {k: b["params"]["held"] for k, b in fitted.items()})
+                drawn = page.evaluate(_RES_NOISE_DRAWN)
+                counts = _assert_envelope_drawn(drawn, payload, mode, top, where)
+                assert set(counts) <= set(fitted), (where, sorted(counts), sorted(fitted))
+                for key in set(fitted) - set(counts):
+                    # No band drawn: its envelope covers the whole axis wherever its line is drawn, lower edge cut at
+                    # 0 and upper edge above the top (robust deposit B, 3-anchor mode: SE(a²) is 9× a²), so both
+                    # edges are clipped away. Never a band left undrawn while an edge lies inside the axis.
+                    line = [pt for item in drawn if item["key"] == key and not item["ratio"]
+                            and item["rest"].startswith(("solid|", "dashed|")) for el in item["els"] for pt in el["data"]]
+                    assert line, (where, key, "neither a band nor a line drawn")
+                    for e, _ in line:
+                        if e > 1e-9:
+                            _, _, (env_lo, env_hi) = _noise_bands(fitted[key], e)
+                            assert env_lo <= 1e-6 * top and env_hi >= top * (1 - 1e-6), (where, key, e, env_lo, env_hi)
+                    seen["covering"] += 1
+                for key, (upper, above, lower) in counts.items():
+                    assert upper or lower, (where, key, "no band point off the axis ends")
+                    seen["upper"] += upper
+                    seen["above"] += above
+                    seen["lower"] += lower
+
+                # Tooltips: each fit's curve (a solid run) and band, the ratio lines and bands, and every window.
+                targets = []
+                for item in drawn:
+                    if item["rest"].startswith(("band|", "edges|")):
+                        targets += _band_hover_points(item)
+                    elif item["rest"].startswith("solid|"):
+                        px = [pt for el in item["els"] for pt in el["px"]]
+                        step = max(1, len(px) // 6)
+                        targets += [tuple(pt) for pt in px[step // 2::step]]
+                found = _hover_points(page, targets, where)
+                found += _hover_windows(page)
+                assert found, where
+                texts = [probe["text"] for _, probe, _ in found]
+                seen["tips"] += len(texts)
+
+                for text in texts:
+                    lines = _noise_tip_lines(text)
+                    if len(lines) < 2:
+                        continue
+                    flat = _flat(text)
+                    if lines[1].endswith(" = a/√E ⊕ b ⊕ c/E"):
+                        kind = "curve"
+                    elif lines[1].startswith("95% confidence band of the a/√E ⊕ b ⊕ c/E fit"):
+                        kind = "band"
+                    elif lines[1].startswith("a/√E ⊕ b ⊕ c/E fit ÷ "):
+                        kind = "ratio"
+                    elif lines[1].startswith("The reference, ") and "a/√E ⊕ b ⊕ c/E" in lines[1]:
+                        kind = "reference"
+                    else:
+                        assert "The band is the envelope" not in flat, (where, lines[:2])
+                        continue
+                    s = by_label[lines[0]]
+                    block = s["fits"][mode]["noise"]
+                    assert block is not None, (where, kind, lines[0])
+                    held = block["params"]["held"]
+                    sentence = _noise_band_sentence(held, block["params"]["free"] is not None)
+                    assert lines.count(sentence) == 1, (where, kind, lines[0], held, flat[-600:])
+                    assert "The band is conditional on" not in flat, (where, kind, flat[-600:])
+                    seen["sentences"] += 1
+                    seen["kinds"].add(kind)
+
+                tied, weighted, low, hovered = _se_lines(texts, payload, where)
+                if est != "sample":
+                    assert low, (where, "no 1–4 GeV window's tooltip read")
+                    seen["low"] += low
+                assert _says_exact(texts) == [], (where, _says_exact(texts))
+                assert _hyphen_negatives(texts) == [], (where, _hyphen_negatives(texts))
+                _assert_capped(page, found, where)
+            assert _res_press(page, "res-windows", "anchors")
+            assert requests[mark:] == [], f"{scheme}, {est}: a window mode asked the service: {requests[mark:]}"
+        print(f"res-scaling envelope, {scheme}: upper-edge points {seen['upper']} (above the conditional band "
+              f"{seen['above']}), lower-edge points {seen['lower']}, bands covering the axis {seen['covering']}; band sentences {seen['sentences']} in "
+              f"{sorted(seen['kinds'])}; c_low lines {seen['low']}; tooltips read {seen['tips']}")
+        assert seen["above"], seen
+        assert {"curve", "band"} <= seen["kinds"], seen["kinds"]
+        assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == list(RES_ESTIMATORS)
+        browser.close()
+    assert problems == [], problems
 
 # ------------------------------------------------- the resolution card's legend --
 
