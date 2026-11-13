@@ -3870,12 +3870,33 @@ kind of experiment, where the performance section does not
     windows; with none, no pooled scale and no fit). The first fit takes
     c·εₖ/√Nₖ and every refit c·ŷₖ/√Nₖ. One c per series cancels in the fitted
     parameters and sets only χ², S and their errors (`weight_scale`: `c`,
-    `n_windows`, `rule`). A per-window κ would put each window's own value back
+    `n_windows`, `c_low`, `n_low`, `rule`), except in the noise fit, which has
+    a second scale below 4 GeV (next bullet). A per-window κ would put each window's own value back
     into its weight, so one that fluctuated high is up-weighted: a Monte Carlo
     of the served code paths (2026-11-12; 16 windows, true σ/E = 30 %/√E) put
     the origin-pinned term +0.70 (median) and +0.77 (robust) of its SD high at
     40 events a window, +0.35 and +0.33 at 200, +0.15 and +0.17 at 1,000, and
     0.00 under the pooled scale.
+  - **A second pooled scale below 4 GeV** (`weight_scale.c_low`, `n_low`;
+    Martin's decisions, 2026-11-13, after the review). The noise fit reaches
+    below the 4 GeV from which c is pooled, and there the c/√N law can fail for
+    one series. It weights a window from 4 GeV by se = c·ŷ/√N and a window below
+    4 GeV by se = c_low·ŷ/√N, c_low the median of √N·κ over the series' windows
+    with 1 ≤ lower edge < 4 GeV that hold N ≥ `fit_n` and a κ of at least
+    `KAPPA_FLOOR`, taken over all such windows whatever the mode, so the low
+    anchor never sets its own weight. With none, c_low falls back to the whisker
+    gate's windows (median) as c does, and with none at all c_low = c, which the
+    `rule` sentence says; it is null under `sample`, where the delta method
+    applies. The other fits never use a window below 4 GeV and are unchanged.
+    Measured on `pion_hits_with_model_outputs`, robust, network A (the review,
+    2026-11-13): √N·κ is 5.16 at 1–2 GeV and 3.94 at 2–3 GeV, against c = 1.39
+    (3.7 × and 2.8 ×), and 1.80 at 3–4 GeV; with c_low = 3.94 the three-anchor
+    curve at 1 GeV moves from 88.9 % to 108.6 % (the lead's re-run). c_low is
+    0.8–2.8 × c across the stored series. **The trade-off:** one scale serves
+    every window below 4 GeV, so a well-behaved one is under-weighted where its
+    neighbours are noisy: in the all-windows mode that series' 3–4 GeV window
+    (√N·κ = 1.80) is weighted about 4.8 × less than its own error suggests. That
+    is the rule as decided.
   - **The tied-window floor** (`stats/robust_width.py` `KAPPA_FLOOR` = 10⁻⁶; the
     lead's decision of 2026-11-12). A
     window whose bootstrap SE is below 10⁻⁶ of its value is the rounding of tied
@@ -3979,8 +4000,8 @@ kind of experiment, where the performance section does not
   view").
   - **The switch.** The card's **View** control, *1/√E linear* or *E (GeV) +
     ratio*, repaints the response in hand without a request. The same response
-    carries `axis.energy`, each mode's `span_gev` and the quadrature fit's
-    `rho_a2b2` and `band_quantile`.
+    carries `axis.energy`, each mode's `span_gev` and the noise fit's
+    `params.free` and `band_quantile`.
   - **The axes.**
     - A window sits at E = 1/⟨1/√p⟩², the 1/√E view's own abscissa mapped
       back, so a window on its line there sits on its curve here.
@@ -3999,15 +4020,37 @@ kind of experiment, where the performance section does not
       squares with A = a², B = b², C = c² held non-negative, so every term is
       real (`stats/resolution_fit.py` `wls_noise`, `fit_noise`): the seven
       faces of {A, B, C} are solved and the feasible one of least weighted SSR
-      wins, ν counts the free terms, and the band, the root of the band in
-      (σ/E)², is conditional on any held term, which the card names ("b = 0,
+      wins, ν counts the free terms, and a held term is named on the card ("b = 0,
       held there by the constraint b² ≥ 0"). Measured by the lead on
       2026-11-13 on the eight stored experiments, unconstrained fits give all
       three terms real on only 0 to 1 of the 8 network series per estimator.
+    - **Its band is an envelope where a term is held** (Martin's decisions,
+      2026-11-13, after the review). The conditional band (ẑ ± h in z = (σ/E)²,
+      zero rows at the held terms) undercovers when a held term is in fact
+      positive, so the band is the envelope in z of it and the band of the
+      **all-free face**: the same fit with no square held (one may be negative),
+      solved once at the constrained fit's final weights, with the same S and
+      quantile; z_lo = min(ẑ − h, ẑ_free − h_free), z_hi = max(…), rooted, the
+      lower edge cut at 0. The drawn line stays ẑ. With nothing held the band is
+      the fit's own; with a held term and a singular free face it is the
+      conditional band, and the tooltip and the drawer say so. The card says
+      "The band is the envelope of the band with b = 0 and the band of the fit
+      with all three terms free, so it does not assume b = 0." Measured on
+      synthetic replicas of the real `pion_hits_with_model_outputs` median
+      windows from 1 GeV (Gaussian relative noise of 1.3/√N, 800–2,000 replicas
+      a case, 2026-11-13): coverage of the true σ/E over every replica is
+      0.954–0.979 at every energy for the envelope and as low as 0.81 for the
+      conditional band; over the replicas that hold a term, at the worst energy,
+      0.68–0.74 and 0.000–0.005. The envelope's roughly 95 % is that of a fit
+      taken at random, not of a fit given that a term is held: it is never
+      claimed for "whatever is held", and the band is not called exact.
     - **Its windows.** Every fittable window from 1 GeV in the all-windows
       mode; in the 3-anchor mode the anchors plus the lowest fittable window
-      from 1 GeV, the low anchor, since anchors from 5 GeV cannot fix a 1/E
-      term. The 0–1 GeV window never enters: on `pion_hits_with_model_outputs`,
+      from 1 GeV, the low anchor (ν = 1 to 3 of the 60 three-anchor fits, measured
+      2026-11-13), since anchors from 5 GeV cannot fix a 1/E term; where there
+      is none the anchors alone are fitted and `low_anchor` is null. The noise
+      fit weights a window below 4 GeV by the second pooled scale c_low
+      (above). The 0–1 GeV window never enters: on `pion_hits_with_model_outputs`,
       shower A (2026-11-13) it spans 0.006–0.997 GeV and its mean of 1/p² is
       15.8 times what its abscissa implies, against 1.06, 1.02 and 1.01 in
       the next three windows. Fewer than three windows, or no pooled scale,
@@ -4017,14 +4060,19 @@ kind of experiment, where the performance section does not
       noise fit from 0 GeV (`span_gev` is the noise fit's own). The noise
       curve rises without bound as E → 0, so it enters the plot from the top:
       the part above the range is clipped, with a caret at the entry whose
-      tooltip names the dominating term. Bands continue fainter, the
+      tooltip gives the entry energy and the term that rises there (and, for an
+      entry within 0.1 % of the axis of E = 0, says the curve runs up along the
+      axis line). Bands continue fainter, the
       parameters' uncertainty only.
     - **Correlated terms.** Over the fitted windows 1/√E, 1 and 1/E change
       together: the median ρ(a², c²) is −0.83 to −0.93 and ρ(a², b²) −0.88 to
-      −0.96 where both terms are free (the stored experiments, 2026-11-13).
-      The curve is better determined than its split into terms, and a held
-      term means the windows need no term of that form, not that the detector
-      has none. c/E is a fitted coefficient, never a measured noise level.
+      −0.96 where both terms are free (the stored experiments, 2026-11-13),
+      and ρ(b², c²) is positive where all three are free, +0.70 to +0.82 on
+      `pion_hits_with_model_outputs`. A free term's SE already carries the
+      trade (the marginal variance over the free terms) and is conditional only
+      on the held terms. The curve is better determined than its split into
+      terms, and a held term means the windows need no term of that form, not
+      that the detector has none. c/E is a fitted coefficient, never a measured noise level.
     - The quadrature a/√E ⊕ b and the affine fit are in the fit table only.
   - **The ratio panel.**
     - It sits under the plot on the same E axis, with a crosshair linked
@@ -5094,7 +5142,7 @@ Parameters and payload fields below are the ones the checked-in contracts in
 | `GET /api/energy-distribution` | Per-slice Gaussian fits, histograms and benchmarks. `slice_by=d` (the default on two-shower data) slices by the A–B separation, with `d_edges`, from the `coord_system`'s segmentation network (`meta.network`). `slice_by=momentum` (the only slicing of a single-shower experiment, and the B3 card's) places each shower by its own incident momentum: `p_slices=notebook` (default: windows 1, 2, 5, 10, 15 and 19 GeV), `bins` (the producer's 1 GeV bins) or comma-separated window centres in GeV; `p_half_width` (0.5 GeV, up to 10, refused with `bins`); `series=truth\|model\|all` on two-shower data (the deposit split by the true segmentation fraction, the network's, or both). Each slice carries its own axis (`slice_axes`). A parameter of the other slicing is a 422 naming it. **Two-shower `p_slices=bins` with `series=all` is refused (422 on `series`)**: 80 fitted series measured 148,703 B on the synthetic two-shower fixture and about 167 KB on a constructed production-sized sample, over the 100 KB contract at the coarsest rendering the guard reaches; truth or model alone fits, and the notebook windows with `series=all` still serve. More than 40 fitted series (slices × series) on two-shower data is a 422 on `p_slices`. The default `slice_by=d` payload is byte-identical to the one before momentum slicing (pinned by `tests/golden/energy_default.json`). |
 | `GET /api/profiles` | C7, the longitudinal and radial profile cards. `shower=a\|b\|both`, `depth=w\|native`, `notebook=false\|true` (the notebook convention is defined along w: a 422 with `depth=native`). Per-bin sums come from `profiles_` and `layers_`, so the response is about 15 KB on every selection. `depth_layers` gives the reach of relative layers for `depth=native` and says that w has no layer grid. A stale experiment is refused with the rebuild it needs. |
 | `GET /api/response` | The sampling-fraction cards B1 and B2 and the resolution σ/μ. `parts=b1,b2,resolution` (default all three; a part not asked for is `null`), `shower=a\|b\|both`, `clip_low` and `clip_high` (the percentiles of B1's displayed axis, which is zero-based, so they are reported, not applied), `bins` (8–500, B1's histogram, default adapted to the smallest drawn series). Also `calibration` and `n_events`. Every kind answers, the aggregate from its event table. The body is measured as served: while it is over 100 KB the numbers are written at fewer significant figures and B1's histogram coarsened, and the step is disclosed; no statistic changes. |
-| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median\|robust\|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 96.5 KB under median, on the muon two-shower file, Local frame, measured 2026-11-13). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median \|rel. err.\|, robust σ/E or sample σ/E), its interval, its bootstrap SE and κ (`se`, `se_rel`, information; under `sample` the delta-method SE), the series' pooled fit-weight scale `weight_scale` (`c`, `n_windows`, `rule`; null under `sample`), the two other estimators as `alt` (the tail share from N = 300), the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled, through the three nominal anchors and through every window from 4 GeV, and the constrained noise fit a/√E ⊕ b ⊕ c/E (`fits[mode].noise`, compact: parameters, SEs and correlations, no curve; `noise_reason` when absent; `noise_min_gev` = 1 in `gates` and `axis.energy`) through every window from 1 GeV or the anchors plus the low anchor, each with χ², its p-value, the PDG scale factor and its 95 % band at 21 points; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based error-scale range from the windows of N ≥ 20 from 2 GeV alone, no fit setting it, and its sentences), each mode's `span_gev`, and the quadrature fit's `rho_a2b2` and `band_quantile`, from which the browser draws its band (the noise fit's `params.rho` and `band_quantile` give its own). `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
+| `GET /api/resolution-scaling` | The Models page's energy-resolution card ([The energy-resolution card](#the-energy-resolution-card)). `estimator=median\|robust\|sample` (default `median`, a 422 naming `estimator` otherwise; one estimator per response, so the body stays under 100 KB: the largest stored body is 84,027 B under median, on the muon two-shower file, per-shower translated frame, measured 2026-11-13; it was 96,519 B before the unread text left the wire). Per series - the detector's calibrated deposit, the energy network of `coord_system` on two-shower data, or the XGBoost momentum hold-out on a paired aggregate - and per 1 GeV momentum window: the active estimator's value of the per-event ratio E_est/p in percent (median \|rel. err.\|, robust σ/E or sample σ/E), its interval, its bootstrap SE and κ (`se`, `se_rel`, information; under `sample` the delta-method SE), the series' pooled fit-weight scales `weight_scale` (`c`, `n_windows`, `c_low`, `n_low`, `rule`; null under `sample`, `c_low` the noise fit's scale for windows below 4 GeV), the two other estimators as `alt` (the tail share from N = 300), the median response and ⟨1/√p⟩. The weighted fits a/√E + b and a₀/√E, with the quadrature form tabled (no band on the wire), through the three nominal anchors and through every window from 4 GeV, each with χ², its p-value, the PDG scale factor and, for these two, its 95 % band at 21 points; and the constrained noise fit a/√E ⊕ b ⊕ c/E (`fits[mode].noise`, compact: `params` with its squares, SEs and correlations, and `params.free`, the all-free face's squares, SEs and correlations or null, no curve and no band points; `noise_reason` when absent; `noise_min_gev` = 1 in `gates` and `axis.energy`) through every window from 1 GeV or the anchors plus the low anchor (`low_anchor` null when there is none), whose band the browser rebuilds from `params`, `params.free` and `band_quantile`, as the envelope of the conditional band and the free face's. No fit carries a prose note on the wire; the axes (the reversed 1/√E, the exact energy relabelling, the zero-based y); the off-axis windows below 4 GeV. For the card's E view, in the same body: `axis.energy` (E from 0 to 80 GeV, its own zero-based error-scale range from the windows of N ≥ 20 from 2 GeV alone, no fit setting it, and its sentences), each mode's `span_gev`, and `band_quantile` (the quadrature form is tabled and has no band). `coord_system=lab\|trans\|local` (default `lab`, a 422 naming it otherwise; it applies to two-shower networks only, and `meta.notes` says so). Gate `res-scaling`, open on every kind. It reads the event table and the XGBoost predictions, never a hit. The body is measured under 100 KB, stepping down significant figures and then band points, with a sentence. |
 | `GET /api/distributions` | C4. `quantity=u\|v\|w\|energy\|theta\|phi\|p` (default `theta`), `weighting=shower\|hit` (theta, phi and p only: the hit quantities are counted per hit, and `weighting=shower` with them is a 422), `shower`, `clip_low`, `clip_high`, `preview`. One series per 1 GeV momentum bin (up to 20) on shared display bins, exact counts. u, v, w and energy need hits (a 422 on the events-only kind). The display bins coarsen 2× then 4× if a response would reach 100 KB, and say so. |
 | `GET /api/correlations` | C8. `coord_system=local\|trans\|lab` (default `local`), `shower`, `energy_scale=linear\|log10`, `preview`. The Pearson matrix of seven variables with event-grouped jackknife intervals, `mardia`, `groups`, `dof` and the method named in the payload. |
 | `GET /api/statistics` | C1 and C9. `coord_system=local\|trans\|lab` (default `local`; the absolute frame adds the `z − 3649 mm` row), `shower`, `preview`. `describe` (unweighted and energy-weighted), `n_events` and `negative_w` (a stale experiment gets `available: false` with the reason). |
