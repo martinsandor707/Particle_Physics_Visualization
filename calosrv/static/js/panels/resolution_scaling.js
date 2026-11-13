@@ -121,8 +121,11 @@
  * otherwise the model and the table give the server's `noise_reason`). It is
  * fitted as (σ/E)² = A/E + B + C/E² with A, B, C ≥ 0, a held term exactly 0;
  * its band is √ of the z band, g = (1/E, 1, 1/E²) with the covariance rebuilt
- * from the squares' SEs and ρ, a held term's row zero, so the band is
- * conditional on it; the lower edge is cut at 0 where ẑ − h < 0. It rises
+ * from the squares' SEs and ρ, a held term's row zero; where a term is held,
+ * the band is the envelope in z of that conditional band and the band of the
+ * all-free face (`params.free`), so it does not assume the held term is 0
+ * (conditional only where that face is singular: `params.free` null); the
+ * lower edge is cut at 0 where the envelope's z falls below 0. It rises
  * without bound as E → 0 when A > 0 or C > 0: it is drawn from where it comes
  * down through the top (C·u² + A·u + B = y.hi², u = 1/E), its band's edges
  * from where each comes down, with one caret at the line's entry
@@ -724,7 +727,7 @@ function pointTipLines(model, s, p) {
   lines.push(`⟨p⟩ = ${formatNumber(w.p_mean, 2)} GeV · x = ⟨1/√p⟩ = ${formatNumber(w.x, 4)} ${X_UNIT}`);
   const est = model.estimator ?? estimatorOf(null);
   lines.push(valueLine(est, w, p));
-  const se = seLine(est, s, w);
+  const se = seLine(est, s, w, gates);
   if (se) lines.push(mutedLine(se));
   if (Number.isFinite(w.c4)) lines.push(mutedLine(`bias factor c₄(N) = ${formatNumber(w.c4, 4)}: below N = 15 the sample SD runs low by this factor`));
   if (est.name === 'sample') {
@@ -766,20 +769,30 @@ function valueLine(est, w, p) {
 /**
  * The fit weight's line, by `estimator.weight.method`: under median and robust
  * the bootstrap SE with its relative SE κ and the series' pooled scale c of
- * the weight se = c·ŷ/√N (brief-fix F1), or a tied window's SE, which carries
- * no fit weight (F3); the delta-method SE under sample, as ever. A withheld
- * robust window has no SE and no line: its `dof_note` says why (F7).
+ * the weight se = c·ŷ/√N (brief-fix F1), or, for a window below 4 GeV, which
+ * only a/√E ⊕ b ⊕ c/E can fit, the second scale c_low of se = c_low·ŷ/√N
+ * (res-noise brief-fix FX2); a tied window's SE, which carries no fit weight
+ * (F3); the delta-method SE under sample, as ever. A withheld robust window
+ * has no SE and no line: its `dof_note` says why (F7).
  */
-function seLine(est, s, w) {
+function seLine(est, s, w, gates = DEFAULT_GATES) {
   if (est.weight === 'kappa') {
     if (!Number.isFinite(w.se)) return null;
     if (!(Number.isFinite(w.se_rel) && w.se_rel > 0)) {
       return `bootstrap SE ${pct(w.se)}: below 10⁻⁶ of the value (tied replicates), so no fit weight`;
     }
-    const c = s?.raw?.weight_scale?.c;
-    return Number.isFinite(c)
-      ? `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`
-      : `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%); no fit weight: no window of this series from ${formatNumber(DEFAULT_GATES.e_min_gev)} GeV carries one, so it has no pooled scale c`;
+    const ws = s?.raw?.weight_scale ?? null;
+    const c = ws?.c;
+    const floor = Number.isFinite(gates?.e_min_gev) ? gates.e_min_gev : DEFAULT_GATES.e_min_gev;
+    const pLo = Number.isFinite(w.p_lo) ? w.p_lo : (Number.isFinite(w.x) && w.x > 0 ? 1 / (w.x * w.x) : Infinity);
+    const head = `bootstrap SE ${pct(w.se)} (κ = ${sig(100 * w.se_rel)}%)`;
+    if (!Number.isFinite(c)) {
+      return `${head}; no fit weight: no window of this series from ${formatNumber(floor)} GeV carries one, so it has no pooled scale c`;
+    }
+    if (pLo < floor && Number.isFinite(ws?.c_low)) {
+      return `${head}; fit weight se = c_low·ŷ/√N, c_low = ${sig(ws.c_low)} for this series' windows below ${formatNumber(floor)} GeV`;
+    }
+    return `${head}; fit weight se = c·ŷ/√N, c = ${sig(c)} for this series`;
   }
   return Number.isFinite(w.se_delta)
     ? `delta-method SE ${pct(w.se_delta)} (R̄'s error included): the fit weight 1/se², recomputed at the fitted value`
@@ -1218,27 +1231,50 @@ function scaleCell(fit) {
   return Number.isFinite(fit.scale_factor) && fit.scale_factor > 1 ? sig(fit.scale_factor) : '1';
 }
 
+/** The units of the squares a², b² and c² of the quadrature and noise forms. */
+const SQUARE_UNITS = Object.freeze({ a: '%²·GeV', b: '%²', c: '%²·GeV²' });
+
+/**
+ * Whether a term of the quadrature or noise form is printed as its square
+ * (brief-fix m4): its delta-method SE, se(t²)/(2t), exceeds its value, so a
+ * symmetric error would reach below 0 for a term that cannot; the square and
+ * its own SE are printed instead ("b² = 0.04 ± 8.1 %²").
+ */
+export function termAsSquare(p, t) {
+  const v = p?.[t];
+  const se = p?.[`se_${t}`];
+  return Number.isFinite(v) && Number.isFinite(se) && se > v && Number.isFinite(p?.[`${t}2`]);
+}
+
+/** A term's square with its SE and unit, as `termAsSquare` prints it; `space` between the parts. */
+function squareText(p, t, space = ' ') {
+  return `${t}²${space}=${space}${sig(p[`${t}2`])}${space}±${space}${sig(p[`se_${t}2`])}${space}${SQUARE_UNITS[t]}`;
+}
+
 /**
  * The a, b and c cells of one fit: the pinned b is zero by construction; an
  * undefined quadrature term is its square; a/√E ⊕ b ⊕ c/E writes a term the
- * constraint holds at 0 as "0 (held)". c, the noise term c/E, belongs to that
- * form alone, so the other rows leave its cell empty.
+ * constraint holds at 0 as "0 (held)"; a quadrature or noise term whose SE
+ * exceeds its value is written as its square with its SE (`termAsSquare`,
+ * brief-fix m4). c, the noise term c/E, belongs to that form alone, so the
+ * other rows leave its cell empty.
  */
 function termCells(fit) {
   if (!fit) return ['—', '—', '—'];
   const p = fit.params ?? {};
+  const term = (t) => (termAsSquare(p, t) ? squareText(p, t, NBSP) : pm(p[t], p[`se_${t}`]));
   if (fit.form === 'noise') {
     const held = new Set(p.held ?? []);
-    return ['a', 'b', 'c'].map((t) => (held.has(t) ? `0${NBSP}(held)` : pm(p[t], p[`se_${t}`])));
+    return ['a', 'b', 'c'].map((t) => (held.has(t) ? `0${NBSP}(held)` : term(t)));
   }
   if (fit.form === 'affine') return [pm(p.a, p.se_a), pm(p.b, p.se_b), '—'];
   if (fit.form === 'pinned') return [pm(p.a0, p.se_a0), '0 (through the origin)', '—'];
   const a = p.a_defined === false || !Number.isFinite(p.a)
     ? `A${NBSP}=${NBSP}${pm(p.a2, p.se_a2)}${NBSP}%²·GeV: a undefined`
-    : pm(p.a, p.se_a);
+    : term('a');
   const b = p.b_defined === false || !Number.isFinite(p.b)
     ? `B${NBSP}=${NBSP}${pm(p.b2, p.se_b2)}${NBSP}%²: b undefined`
-    : pm(p.b, p.se_b);
+    : term('b');
   return [a, b, '—'];
 }
 
@@ -1299,10 +1335,15 @@ export function fitTableRows(payload, opts = {}) {
   // Above the gate S is the RMS of a fit's residuals in the windows' own errors, too large for its form.
   const misfitRule = `Above S = ${formatNumber(gates.misfit_scale)} a fit's form does not describe its windows, and a drawn one is faded.`;
   const noiseFloor = formatNumber(payload.gates?.noise_min_gev ?? NOISE_MIN_GEV);
+  // The band clause belongs to the E view, which draws that band; the 1/√E view tables the fit only (brief-fix nit 6).
   const noiseRule = `${NOISE_FORM_NAME} is fitted with a², b² and c² held non-negative, through ${mode === 'all'
     ? `every fittable window from ${noiseFloor} GeV` : `the anchors and the lowest fittable window from ${noiseFloor} GeV, the low anchor`}; `
-    + 'a term the constraint holds at 0 is written "0 (held)", and its band is conditional on it. '
-    + 'c, the noise term c/E, belongs to that form alone.';
+    + `a term the constraint holds at 0 is written "0 (held)"${energy
+      ? ', and the band then is the envelope of the band with it held and the band of the fit with all three terms free, '
+        + 'so it does not assume it is 0 (conditional on it only where that free fit cannot be solved)' : ''}. `
+    + 'c, the noise term c/E, belongs to that form alone. '
+    + `Where a term's SE exceeds its value, ${NOISE_FORM_NAME} and the quadrature form print its square with the square's SE `
+    + '(b² = 0.04 ± 8.1 %²), never a symmetric error larger than a term that cannot be negative.';
   if (energy) {
     return {
       mode,
@@ -1394,6 +1435,32 @@ export function noiseConditionalText(held) {
   const h = [...(held ?? [])];
   return h.length ? `The band is conditional on ${h.map((t) => `${t} = 0`).join(' and ')}.` : '';
 }
+
+/**
+ * The band sentence of a noise fit (brief-fix FX1 and its Words, verbatim):
+ * where a term is held and the all-free face exists, the band is the envelope
+ * of the conditional band and the free face's, so it does not assume the held
+ * term is 0; where a term is held and the free face is singular (`free` null),
+ * the band is conditional, and why; '' with no term held. `free` is the
+ * block's `params.free` (or a truthy flag that it exists).
+ */
+export function noiseBandText(held, free) {
+  const h = [...(held ?? [])];
+  if (!h.length) return '';
+  const t = h.map((x) => `${x} = 0`).join(' and ');
+  return free
+    ? `The band is the envelope of the band with ${t} and the band of the fit with all three terms free, so it does not assume ${t}.`
+    : `The band is conditional on ${t}: the fit with all three terms free cannot be solved through these windows.`;
+}
+
+/**
+ * The share of the x axis from E = 0 below which an entry reads as the axis
+ * line (brief-fix m7): a fixed fraction, so the output is deterministic.
+ */
+export const NOISE_AXIS_SHARE = 1e-3;
+
+/** What the entry caret and the drawer add where a curve enters below `NOISE_AXIS_SHARE` of the axis (brief-fix m7, verbatim). */
+export const NOISE_AXIS_LINE_TEXT = 'less than 0.1% of the axis from E = 0: the curve runs up along the axis line there.';
 
 /** The floor sentence: why the noise fit uses windows from `floor` GeV (1). */
 export function noiseFloorText(floor = NOISE_MIN_GEV) {
@@ -1710,21 +1777,59 @@ export const LITERATURE_PROVENANCE = 'as printed in the legend of the supplied f
 /* --------------------------------------------------------- evaluators -- */
 
 /**
+ * One noise face's z and half-width h at u = 1/E: z = A·u + B + C·u² and h =
+ * q·√max(gᵀΣg, 0) with g = (u, 1, u²) and Σᵢⱼ = ρᵢⱼ·SEᵢ·SEⱼ from the face's
+ * `rho` and scaled SEs (a held term has no SE and no ρ: its row is zero).
+ */
+function noiseFaceAt(face, u, q) {
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  const g = [u, 1, u * u];
+  const se = [num(face.se_a2), num(face.se_b2), num(face.se_c2)];
+  const rho = face.rho ?? {};
+  const r = { '0,1': num(rho.a2b2), '0,2': num(rho.a2c2), '1,2': num(rho.b2c2) };
+  let v = 0;
+  for (let i = 0; i < 3; i += 1) {
+    v += (g[i] * se[i]) ** 2;
+    for (let j = i + 1; j < 3; j += 1) v += 2 * r[`${i},${j}`] * g[i] * g[j] * se[i] * se[j];
+  }
+  return { z: face.a2 * u + face.b2 + face.c2 * u * u, h: q * Math.sqrt(Math.max(v, 0)) };
+}
+
+/** A noise block's all-free face (`params.free`: A, B, C unconstrained, any sign), or null where it has none. */
+function noiseFreeFace(fit) {
+  const f = fit?.params?.free;
+  return f && [f.a2, f.b2, f.c2].every(Number.isFinite) ? f : null;
+}
+
+/**
+ * The free face's band edges in z as E → 0 (u → ∞), where a flat constrained
+ * curve still has a value: ±∞ by the sign of each edge at a vast u, so the
+ * envelope's upper edge is unbounded there wherever the free face rises.
+ */
+function noiseFreeEdgesAtZero(free, q) {
+  const { z, h } = noiseFaceAt(free, 1e12, q);
+  return { lo: z - h < 0 ? -Infinity : Infinity, hi: z + h < 0 ? -Infinity : Infinity };
+}
+
+/**
  * One fit block at one energy, in %, from its params alone: {y, lo, hi,
  * cutLo}, or null where the fit has no value there. x = 1/√E and q the
- * block's `band_quantile` (1.96 when absent).
+ * block's `band_quantile` (1.96 when absent). The E view draws two forms:
  *
  * - pinned: y = a₀·x, half-width q·SE(a₀)·x;
  * - affine: y = a·x + b, half-width q·√((x·SE(a))² + 2ρ·x·SE(a)·SE(b) + SE(b)²);
- * - quadrature: z = A·u + B with u = 1/E, half-width h = q·√max((u·SE(A))² +
- *   2ρ·u·SE(A)·SE(B) + SE(B)², 0), returned through √ as (√max(z, 0),
- *   √max(z − h, 0), √max(z + h, 0)): the exact 95% band of √(A/E + B), since z
- *   is linear in (A, B) and √ is monotone; `cutLo` where z − h < 0.
- * - noise: z = A·u + B + C·u², half-width h = q·√max(gᵀΣg, 0) with g = (u, 1,
- *   u²) and Σᵢⱼ = ρᵢⱼ·SEᵢ·SEⱼ from `params.rho` and the scaled SEs; a held
- *   term has no SE and no ρ, so its row is zero and the band is conditional on
- *   it (`stats/resolution_fit.band` for FORM_NOISE); returned through √ as the
- *   quadrature form is. At E = 0 only a flat curve (A = C = 0) has a value.
+ * - noise: z = A·u + B + C·u², u = 1/E, half-width h = q·√max(gᵀΣg, 0) with
+ *   g = (u, 1, u²) and Σᵢⱼ = ρᵢⱼ·SEᵢ·SEⱼ from `params.rho` and the scaled SEs;
+ *   a held term has no SE and no ρ, so its row is zero. Where the block holds a
+ *   term and carries its all-free face (`params.free`), the band is the
+ *   envelope in z of that conditional band and the free face's band, at the
+ *   same S and quantile (brief-fix FX1): z_lo = min(ẑ − h, ẑ_free − h_free),
+ *   z_hi = max(ẑ + h, ẑ_free + h_free). It is built in z, where the fit is
+ *   linear, and returned through √ as (√max(ẑ, 0), √max(z_lo, 0),
+ *   √max(z_hi, 0)), the line the constrained ẑ; `cutLo` where z_lo < 0
+ *   (`stats/resolution_fit.band` for FORM_NOISE). At E = 0 only a flat curve
+ *   (A = C = 0) has a value; its envelope's edges there are the free face's
+ *   limits (`noiseFreeEdgesAtZero`).
  *
  * The SEs are the block's scaled ones and ρ its correlation (S cancels in it),
  * so the covariance is the server's (`stats/resolution_fit.band`).
@@ -1738,20 +1843,20 @@ function evalFitAt(fit, energy) {
     if (![p.a2, p.b2, p.c2].every(Number.isFinite)) return null;
     if (!(energy > 0) && (energy !== 0 || p.a2 > 0 || p.c2 > 0)) return null;
     const u = energy > 0 ? 1 / energy : 0;
-    const g = [u, 1, u * u];
-    const se = [num(p.se_a2), num(p.se_b2), num(p.se_c2)];
-    const rho = p.rho ?? {};
-    const r = { '0,1': num(rho.a2b2), '0,2': num(rho.a2c2), '1,2': num(rho.b2c2) };
-    let v = 0;
-    for (let i = 0; i < 3; i += 1) {
-      v += (g[i] * se[i]) ** 2;
-      for (let j = i + 1; j < 3; j += 1) v += 2 * r[`${i},${j}`] * g[i] * g[j] * se[i] * se[j];
+    const { z, h } = noiseFaceAt(p, u, q);
+    let zLo = z - h;
+    let zHi = z + h;
+    const free = noiseFreeFace(fit);
+    if (free && (p.held ?? []).length) {
+      const edges = energy > 0
+        ? (({ z: zf, h: hf }) => ({ lo: zf - hf, hi: zf + hf }))(noiseFaceAt(free, u, q))
+        : noiseFreeEdgesAtZero(free, q);
+      zLo = Math.min(zLo, edges.lo);
+      zHi = Math.max(zHi, edges.hi);
     }
-    const z = p.a2 * u + p.b2 + p.c2 * u * u;
-    const half = q * Math.sqrt(Math.max(v, 0));
     return {
-      y: Math.sqrt(Math.max(z, 0)), lo: Math.sqrt(Math.max(z - half, 0)), hi: Math.sqrt(Math.max(z + half, 0)),
-      cutLo: z - half < 0,
+      y: Math.sqrt(Math.max(z, 0)), lo: Math.sqrt(Math.max(zLo, 0)), hi: Math.sqrt(Math.max(zHi, 0)),
+      cutLo: zLo < 0,
     };
   }
   if (!(energy > 0)) return null;
@@ -1770,18 +1875,6 @@ function evalFitAt(fit, energy) {
     const half = q * Math.sqrt(Math.max((x * sa) ** 2 + 2 * num(p.rho_ab) * x * sa * sb + sb * sb, 0));
     return { y, lo: y - half, hi: y + half, cutLo: y - half < 0 };
   }
-  if (fit.form === 'quadrature') {
-    if (!Number.isFinite(p.a2) || !Number.isFinite(p.b2)) return null;
-    const sa = num(p.se_a2);
-    const sb = num(p.se_b2);
-    const u = 1 / energy;
-    const z = p.a2 * u + p.b2;
-    const half = q * Math.sqrt(Math.max((u * sa) ** 2 + 2 * num(p.rho_a2b2) * u * sa * sb + sb * sb, 0));
-    return {
-      y: Math.sqrt(Math.max(z, 0)), lo: Math.sqrt(Math.max(z - half, 0)), hi: Math.sqrt(Math.max(z + half, 0)),
-      cutLo: z - half < 0,
-    };
-  }
   return null;
 }
 
@@ -1795,23 +1888,14 @@ export function fitCurveE(fit, energies) {
   return out;
 }
 
-/** Why the E view does not draw a quadrature fit block, or null where it does. */
+/** Why a quadrature fit block has no curve (the fit table's E-view name): a term undefined, or no fit at all; null where both are defined. */
 function quadratureReason(fit, sym = 'σ/E') {
   if (!fit) return 'too few windows';
   const p = fit.params ?? {};
   const reasons = [];
   if (p.a_defined !== true) reasons.push(`A ≤ 0: ${sym} rises with E`);
   if (p.b_defined !== true) reasons.push(`B ≤ 0: ${sym} falls faster than 1/√E, so there is no real constant term`);
-  if (reasons.length) return reasons.join('; ');
-  if (!Number.isFinite(p.rho_a2b2) || !Number.isFinite(p.a2) || !Number.isFinite(p.b2)) {
-    return 'the correlation of A and B is not in the response, so its band cannot be built';
-  }
-  return null;
-}
-
-/** Whether the E view draws a quadrature fit: both terms defined, and its band buildable (a finite ρ(A, B)). */
-export function quadratureDrawable(fit) {
-  return quadratureReason(fit) === null;
+  return reasons.length ? reasons.join('; ') : null;
 }
 
 /** Whether an origin-pinned fit block has a slope to draw. */
@@ -2052,8 +2136,13 @@ function ratioEntry(rows, k) {
  * - `entry` {at (the caret's E), lineAt, bandAt, lowAt, above (the line stays
  *   above the top over the whole axis), term ('c' | 'a' | null, the term that
  *   rises as E → 0)} | null: where the curve comes down into the plot, its
- *   band's edges at their own energies; `cut` any later exit, scanning up;
- * - `held`, `points`, `lowAnchor`: its held terms, windows and low anchor.
+ *   band's edges at their own energies, and `atAxis` where `at` lies below
+ *   `NOISE_AXIS_SHARE` of the axis from E = 0 (brief-fix m7); `cut` any later
+ *   exit, scanning up;
+ * - `held`, `points`, `lowAnchor`: its held terms, windows and low anchor;
+ * - `envelope` (a term held and the all-free face sent: the band is the
+ *   envelope of the conditional and free bands, brief-fix FX1) and `singular`
+ *   (a term held and no free face: the band is conditional on the held terms).
  *
  * Without a drawable block: {form, fit, drawable: false, reason (the server's
  * noise_reason, as a clause), span: null, ratio: null}.
@@ -2073,6 +2162,8 @@ function noiseFitModel(fit, mf, s, ref, x, hi, clampY) {
   // The main panel draws from where the band's lower edge comes down through the top; above it nothing shows.
   const curve = lower?.above ? [] : full.filter((r) => !(r[2] > top * (1 + 1e-9)));
   const term = noiseTermAtZero(fit);
+  const held = [...(fit.params?.held ?? [])];
+  const free = noiseFreeFace(fit);
   let entry = null;
   if (line?.above) {
     entry = { at: x.max, lineAt: null, bandAt: upper?.E ?? null, lowAt: lower?.E ?? null, above: true, term };
@@ -2082,6 +2173,8 @@ function noiseFitModel(fit, mf, s, ref, x, hi, clampY) {
       above: false, bandAbove: Boolean(upper?.above), term,
     };
   }
+  // An entry below NOISE_AXIS_SHARE of the axis from E = 0 reads as the axis line (brief-fix m7).
+  if (entry) entry.atAxis = entry.at < x.max * NOISE_AXIS_SHARE;
   // Any exit above the entry, scanning up in E (the band's upper edge need not fall monotonically).
   const enteredAt = Math.max(line?.E ?? 0, upper?.E ?? 0);
   const after = full.filter((r) => r[0] > enteredAt + 1e-9);
@@ -2109,7 +2202,10 @@ function noiseFitModel(fit, mf, s, ref, x, hi, clampY) {
     outlined, edges: outlined ? edgeRuns(parts, (pts) => clipPolyline(pts, top * 1e-9, top)) : null,
     entry, cut, floorCut: curve.some(([e]) => evalFitAt(fit, e)?.cutLo), provisional, misfit, faded: provisional || misfit,
     converged: fit.converged !== false, isReference, ratio,
-    held: [...(fit.params?.held ?? [])], points: [...(fit.points ?? [])], lowAnchor: fit.low_anchor ?? null,
+    held, points: [...(fit.points ?? [])], lowAnchor: fit.low_anchor ?? null,
+    // The band (brief-fix FX1): an envelope where a term is held and the all-free face exists; conditional on the
+    // held terms where a term is held and that face is singular (`singular`); the fit's own band with none held.
+    envelope: held.length > 0 && free !== null, singular: held.length > 0 && free === null,
   };
 }
 
@@ -2157,6 +2253,8 @@ function depositReference(all, shower, mode, nShowers, curveMin, xMax, sym = 'σ
       why: `its ${NOISE_FORM_NAME} fit, drawn from 0 GeV; its ratio marks start at ${formatNumber(noiseMin)} GeV, the lowest window edge the fit uses`,
       form: 'noise', fit: noise, span, provisional: Boolean(noise.provisional), misfit: isMisfit(noise), valueAt,
       band: splitAtSpan(rel, span), reason: null, floorGev: noiseMin, floorBy: 'p_lo', held: [...(noise.params?.held ?? [])],
+      envelope: (noise.params?.held ?? []).length > 0 && noiseFreeFace(noise) !== null,
+      singular: (noise.params?.held ?? []).length > 0 && noiseFreeFace(noise) === null,
     };
   }
   if (!pinnedDrawable(pinned)) {
@@ -2192,6 +2290,16 @@ function literatureReference(entry, shower) {
   };
 }
 
+/**
+ * The 1/√E view's provisional role in the E view's words (brief-fix m2): on
+ * this view windows of N ≥ 20 below 4 GeV can be drawn, so the fallback's
+ * count is said of the windows from 4 GeV, where it is taken.
+ */
+function energyProvisionalRole(gates) {
+  const from = `fewer than two windows from ${formatNumber(gates.e_min_gev)} GeV reach N = `;
+  return (role) => role.replace(/^part of a provisional fit: fewer than two windows reach N = /u, `part of a provisional fit: ${from}`);
+}
+
 /** The roles of a window below the noise fit's floor (1 GeV): drawn as a point, never fitted. */
 function belowRoles(w, gates, floor) {
   const roles = [`below ${formatNumber(floor)} GeV: no fit uses it; drawn as a point only`];
@@ -2219,23 +2327,33 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
   const allNote = mode === 'all' && lowOfAnchors === w.bin && !inMode
     ? [`the low anchor of the 3-anchor mode's ${NOISE_FORM_NAME} fit (the larger marker)`] : [];
   if (inMode) {
-    const roles = roleOf(payload, s, mf, mode, w, gates);
+    const roles = roleOf(payload, s, mf, mode, w, gates).map(energyProvisionalRole(gates));
     return inNoise ? roles : [...roles, `not in the ${NOISE_FORM_NAME} fit`];
   }
   if (inNoise) {
-    const roles = [noise.low_anchor === w.bin
-      ? `the low anchor of the ${NOISE_FORM_NAME} fit: the lowest fittable window from ${formatNumber(noiseMin)} GeV, `
-        + 'since anchors from 5 GeV cannot fix a 1/E term; a₀/√E does not use it'
-      : `fitted by ${NOISE_FORM_NAME} only: a₀/√E uses windows from ${formatNumber(curveMin)} GeV`];
+    // From 4 GeV a window the noise fit uses but a₀/√E does not is one Robust σ (IQR) declines there (brief-fix nit 1).
+    const declined = pLo >= curveMin && declinedWindow(est, s, mf, mode, gates)?.bin === w.bin;
+    let lead;
+    if (noise.low_anchor === w.bin) {
+      lead = `the low anchor of the ${NOISE_FORM_NAME} fit: the lowest fittable window from ${formatNumber(noiseMin)} GeV, `
+        + 'since anchors from 5 GeV cannot fix a 1/E term; a₀/√E does not use it';
+    } else if (declined) {
+      lead = `fitted by ${NOISE_FORM_NAME} only; declined by a₀/√E: ${declinedText(w)}`;
+    } else if (pLo >= curveMin) {
+      lead = `fitted by ${NOISE_FORM_NAME} only: a₀/√E does not use it in this mode`;
+    } else {
+      lead = `fitted by ${NOISE_FORM_NAME} only: a₀/√E uses windows from ${formatNumber(curveMin)} GeV`;
+    }
+    const roles = [lead];
     if (noise.provisional) {
-      roles.push(`part of a provisional fit: fewer than two windows reach N = ${formatInt(gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(gates.whisker_n)}`);
+      roles.push(`part of a provisional fit: fewer than two windows from ${formatNumber(gates.e_min_gev)} GeV reach N = ${formatInt(gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(gates.whisker_n)}`);
     }
     return [...roles, ...allNote];
   }
   // Not fitted by any form in this mode. From 4 GeV the noise fit's eligibility is the other fits', so the 1/√E
   // view's role says why (N, the fit weight, robust's decline); below it, say why by its cause.
   const below4 = pLo < curveMin;
-  if (!below4) return [...roleOf(payload, s, mf, mode, w, gates), ...allNote];
+  if (!below4) return [...roleOf(payload, s, mf, mode, w, gates).map(energyProvisionalRole(gates)), ...allNote];
   const where = `below ${formatNumber(curveMin)} GeV, the floor of a₀/√E; `;
   const weight = weightState(est, w);
   let why;
@@ -2282,13 +2400,15 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
  *   outside its domain), floorGev and floorBy (the lowest window edge that
  *   takes a ratio mark against it: 1 GeV by p_lo for 'noise', 4 GeV by E for
  *   'pinned'), noiseReason (the server's `noise_reason` where the deposit has
- *   no noise fit), held (a noise reference's held terms); a literature entry
+ *   no noise fit), held, envelope and singular (a noise reference's held terms
+ *   and how its own band is built, as a noise fit's); a literature entry
  *   adds `equation`};
  * - `series`: [{key, label, short (the canvas note's name), raw, colour, isB,
  *   offsetPx (0: no dodge on this view), lineOpacity (the strength its lines
  *   take: shower B 70%, raised to 3:1 where the card needs it), mf,
  *   provisional, span, points, fits: {noise, pinned, quadrature (table only:
- *   never drawable, kept so a reader of the model can name it)}, unreported,
+ *   never drawable, kept so a reader of the model can name it; the E view has
+ *   no quadrature evaluator)}, unreported,
  *   reference (its shower's entry), noise {points, lowAnchor, span, held,
  *   reason (the server's noise_reason, or null)}}];
  * - a point: {w, E (= 1/x², x = ⟨1/√p⟩), x, value, ci, lo, hi, n, whisker,
@@ -2314,8 +2434,8 @@ function energyRoles(payload, s, mf, mode, w, gates, curveMin, noiseMin) {
  *   E of the span), edges, cut (where it leaves [1/k, k], which no fit sets),
  *   entry (a noise fit's: where it comes into [1/k, k] as E rises from 0,
  *   `ratioEntry`; null otherwise)} (null for the reference or without one);
- *   a noise fit adds `full`, `entry`, `held`, `points` and `lowAnchor`
- *   (`noiseFitModel`), and without a block it is {form, fit, drawable:
+ *   a noise fit adds `full`, `entry` (with `atAxis`), `held`, `points`,
+ *   `lowAnchor`, `envelope` and `singular` (`noiseFitModel`), and without a block it is {form, fit, drawable:
  *   false, reason (the server's noise_reason as a clause)};
  * - `literature`: the curves drawn (`literatureDrawn`), in the catalogue's
  *   order, [{key, entry, isReference (the ratio panel divides by it), label
@@ -2782,21 +2902,20 @@ export function ratioPointTip(model, s, p) {
 function energyEquation(f, sym = 'σ/E') {
   const p = f.fit.params ?? {};
   if (f.form === 'noise') return `${sym} = ${NOISE_FORM_NAME}`;
-  return f.form === 'quadrature'
-    ? `Quadrature fit ${sym} = (${sig(p.a)} ± ${sig(p.se_a)})%/√E ⊕ (${sig(p.b)} ± ${sig(p.se_b)})%`
-    : `Origin-pinned fit ${sym} = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
+  return `Origin-pinned fit ${sym} = (${sig(p.a0)} ± ${sig(p.se_a0)})%/√E ⊕ 0 (b ≡ 0, through the origin)`;
 }
 
 /** A drawn fit's name in a sentence: "a/√E ⊕ b ⊕ c/E fit", "origin-pinned fit a₀/√E ⊕ 0". */
 function energyFitName(form) {
   if (form === 'noise') return `${NOISE_FORM_NAME} fit`;
-  return form === 'quadrature' ? 'quadrature fit a/√E ⊕ b' : 'origin-pinned fit a₀/√E ⊕ 0';
+  return 'origin-pinned fit a₀/√E ⊕ 0';
 }
 
 /**
- * The terms of a/√E ⊕ b ⊕ c/E, each with its SE and unit or the held phrase:
- * "a = 30.2 ± 4.1 %·√GeV; b = 0, held there by the constraint b² ≥ 0; the
- * noise term c/E: c = 71.5 ± 9 %·GeV".
+ * The terms of a/√E ⊕ b ⊕ c/E, each with its SE and unit, the held phrase, or
+ * its square with the square's SE where the term's SE exceeds it
+ * (`termAsSquare`, brief-fix m4): "a = 30.2 ± 4.1 %·√GeV; b = 0, held there by
+ * the constraint b² ≥ 0; the noise term c/E: c² = 0.04 ± 8.1 %²·GeV²".
  */
 function noiseTermsText(p) {
   const held = new Set(p.held ?? []);
@@ -2804,6 +2923,7 @@ function noiseTermsText(p) {
   return ['a', 'b', 'c'].map((t) => {
     const lead = t === 'c' ? 'the noise term c/E: ' : '';
     if (held.has(t)) return `${lead}${noiseHeldPhrase([t])}`;
+    if (termAsSquare(p, t)) return `${lead}${squareText(p, t)}`;
     return `${lead}${t} = ${sig(p[t])} ± ${sig(p[`se_${t}`])} ${units[t]}`;
   }).join('; ');
 }
@@ -2858,15 +2978,12 @@ function showerBLine(model, s, faded) {
 /** The tooltip of one drawn fit on the main panel; `part` 'solid' (over its windows) or 'dashed'. */
 export function energyFitTip(model, s, f, part = 'solid') {
   if (f.form === 'noise') return noiseFitTip(model, s, f, part);
-  const { fit, form } = f;
+  const { fit } = f;
   const p = fit.params ?? {};
   const scaled = Number.isFinite(fit.scale_factor) && fit.scale_factor > 1;
   const sym = model.estimator?.symbol ?? 'σ/E';
   const lines = [`<b>${escapeHtml(s.label)}</b>`, escapeHtml(energyEquation(f, sym))];
-  if (form === 'quadrature') {
-    lines.push(mutedLine(`fitted as (${sym})² = A/E + B: A = ${sig(p.a2)} ± ${sig(p.se_a2)} %²·GeV, B = ${sig(p.b2)} ± ${sig(p.se_b2)} %², ρ(A, B) = ${sig(p.rho_a2b2)}`));
-    if (scaled) lines.push(mutedLine(`errors scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a) = ${sig(p.se_a_stat)}, SE(b) = ${sig(p.se_b_stat)}`));
-  } else if (scaled) {
+  if (scaled) {
     lines.push(mutedLine(`error scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1); unscaled SE(a₀) = ${sig(p.se_a0_stat)}`));
   }
   lines.push(fit.ndf > 0 && Number.isFinite(fit.p_value)
@@ -2876,7 +2993,7 @@ export function energyFitTip(model, s, f, part = 'solid') {
   lines.push(mutedLine(`Solid over the span of the windows it was fitted to (${spanText(f.span)}); dashed beyond, from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
   if (f.provisional) {
-    lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
+    lines.push(mutedLine(`Provisional: fewer than two windows from ${formatNumber(model.gates.e_min_gev)} GeV reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
   }
   if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
   if (!f.converged) {
@@ -2890,10 +3007,12 @@ export function energyFitTip(model, s, f, part = 'solid') {
 
 /**
  * The tooltip of an a/√E ⊕ b ⊕ c/E curve on the main panel (brief section 4.3
- * of res-noise): the equation; each term with its SE and unit, or the held
- * phrase; χ²/ν and S; the windows fitted, the low anchor named; the band's
- * condition on a held term; the correlation of the squares; then the floor
- * sentence and the naming caveat, muted.
+ * of res-noise): the equation; each term with its SE and unit, the held
+ * phrase, or a term's square where its SE exceeds it (brief-fix m4); χ²/ν and
+ * S; the windows fitted, the low anchor named; the band sentence where a term
+ * is held (`noiseBandText`: the envelope, or conditional where the all-free
+ * face is singular); the correlation of the squares. The floor sentence and
+ * the naming caveat are the drawer's alone (brief-fix m6).
  */
 function noiseFitTip(model, s, f, part = 'solid') {
   const { fit } = f;
@@ -2903,8 +3022,11 @@ function noiseFitTip(model, s, f, part = 'solid') {
   const lines = [`<b>${escapeHtml(s.label)}</b>`, `<b>${escapeHtml(energyEquation(f, sym))}</b>`, escapeHtml(noiseTermsText(p))];
   lines.push(mutedLine(noiseConstraintText(sym)));
   if (scaled) {
+    // A term printed as its square (brief-fix m4) gives its square's unscaled SE.
     const unscaled = ['a', 'b', 'c'].filter((t) => Number.isFinite(p[`se_${t}`]))
-      .map((t) => `SE(${t}) = ${sig(p[`se_${t}`] / fit.scale_factor)}`).join(', ');
+      .map((t) => (termAsSquare(p, t)
+        ? `SE(${t}²) = ${sig(p[`se_${t}2`] / fit.scale_factor)}`
+        : `SE(${t}) = ${sig(p[`se_${t}`] / fit.scale_factor)}`)).join(', ');
     lines.push(mutedLine(`errors scaled by S = ${sig(fit.scale_factor)} (PDG, χ²/ν > 1)${unscaled ? `; unscaled ${unscaled}` : ''}`));
   }
   lines.push(escapeHtml(fit.ndf > 0 && Number.isFinite(fit.p_value)
@@ -2917,12 +3039,12 @@ function noiseFitTip(model, s, f, part = 'solid') {
   }
   lines.push(mutedLine(`Solid over the span of the windows it was fitted to (${spanText(f.span)}); dashed beyond, from 0 to ${formatNumber(model.x.max)} GeV, where it extrapolates its form.`));
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
-  const conditional = noiseConditionalText(f.held);
-  if (conditional) lines.push(escapeHtml(conditional));
+  const bandText = noiseBandText(f.held, !f.singular);
+  if (bandText) lines.push(escapeHtml(bandText));
   const rho = noiseCorrelationText(p.rho);
   if (rho) lines.push(mutedLine(rho));
   if (f.provisional) {
-    lines.push(mutedLine(`Provisional: fewer than two windows reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
+    lines.push(mutedLine(`Provisional: fewer than two windows from ${formatNumber(model.gates.e_min_gev)} GeV reach N = ${formatInt(model.gates.fit_n)}, so the fit runs through windows of N ≥ ${formatInt(model.gates.whisker_n)}; drawn faded.`));
   }
   if (f.misfit) lines.push(mutedLine(misfitText(fit, model.gates)));
   if (!f.converged) {
@@ -2932,8 +3054,6 @@ function noiseFitTip(model, s, f, part = 'solid') {
   if (f.entry) lines.push(mutedLine('It comes down into the plot from the top: the caret there says where.'));
   if (f.cut) lines.push(mutedLine('It leaves the top of the plot: the caret there gives its true values.'));
   lines.push(mutedLine(f.outlined ? outlinedLine(fit) : 'The shaded band beside it is the fit\'s 95% confidence band.'));
-  lines.push(mutedLine(noiseFloorText(model.noiseMinGev)));
-  lines.push(mutedLine(NOISE_NAMING_CAVEAT));
   return lines.join('<br/>');
 }
 
@@ -2961,6 +3081,7 @@ function noiseEntryTip(model, s, f) {
     lines.push(escapeHtml(`Its 95% band's upper edge lies above the top of the axis (0 to ${pct(model.y.hi)}) over the whole axis: `
       + `at ${at(model.x.max)} it reads ${pct(evalFitAt(f.fit, model.x.max)?.hi)}. Clipped, not rescaled.`));
   }
+  if (e.atAxis) lines.push(mutedLine(NOISE_AXIS_LINE_TEXT));
   return lines.join('<br/>');
 }
 
@@ -2991,13 +3112,11 @@ export function energyBandTip(model, s, f, outside = false) {
   const sym = model.estimator?.symbol ?? 'σ/E';
   const lines = [`<b>${escapeHtml(s.label)}</b>`];
   if (f.form === 'noise') {
-    lines.push(escapeHtml(`95% confidence band of the ${NOISE_FORM_NAME} fit: √ of the band of z = (${sym})² = A/E + B + C/E², ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1, 1/E²). z is linear in (A, B, C) and √ is monotone, so this is the exact 95% band, with no delta method.`));
-    const conditional = noiseConditionalText(f.held);
-    if (conditional) lines.push(escapeHtml(`${conditional} A held term has no variance, so the band leaves it out.`));
+    lines.push(escapeHtml(`95% confidence band of the ${NOISE_FORM_NAME} fit: √ of the band of z = (${sym})² = A/E + B + C/E², ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1, 1/E²). z is linear in (A, B, C), so the band is built in z and taken through √, which is monotone.`));
+    const bandText = noiseBandText(f.held, !f.singular);
+    if (bandText) lines.push(escapeHtml(bandText));
   } else {
-    lines.push(escapeHtml(f.form === 'quadrature'
-      ? `95% confidence band of the quadrature fit a/√E ⊕ b: √ of the band of z = (${sym})² = A/E + B, ẑ ± ${sigFigs(q, 4)} √(gᵀΣg) with g = (1/E, 1). z is linear in (A, B) and √ is monotone, so this is the exact 95% band, with no delta method.`
-      : `95% confidence band of the origin-pinned fit a₀/√E ⊕ 0: a₀/√E ± ${sigFigs(q, 4)}·SE(a₀)/√E.`));
+    lines.push(escapeHtml(`95% confidence band of the origin-pinned fit a₀/√E ⊕ 0: a₀/√E ± ${sigFigs(q, 4)}·SE(a₀)/√E.`));
   }
   if (scaled) {
     lines.push(mutedLine(`The covariance is scaled by S = ${sig(fit.scale_factor)}; S is estimated from the fit's own ν = ${formatInt(fit.ndf)}, so Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(q, 4)} replaces 1.96.`));
@@ -3042,8 +3161,8 @@ export function ratioFitTip(model, s, f, part = 'solid') {
   ];
   if (part === 'dashed') lines.push(escapeHtml(extrapolatedLine(f)));
   if (f.form === 'noise') {
-    const conditional = noiseConditionalText(f.held);
-    if (conditional) lines.push(mutedLine(conditional));
+    const bandText = noiseBandText(f.held, !f.singular);
+    if (bandText) lines.push(mutedLine(bandText));
   }
   if (f.misfit) lines.push(mutedLine(misfitText(f.fit, model.gates)));
   if (f.ratio?.entry) lines.push(mutedLine('It comes into the ratio axis from beyond it as E rises from 0: the caret there says where.'));
@@ -3078,6 +3197,10 @@ function referenceBandTip(model, ref, outside) {
     escapeHtml(`The reference, ${ref.label}: its own 95% confidence band relative to itself, [lo/ŷ, hi/ŷ] about 1.`),
     mutedLine('The ratio marks\' intervals are conditional on the reference and do not include this band.'),
   ];
+  if (ref.form === 'noise') {
+    const bandText = noiseBandText(ref.held, !ref.singular);
+    if (bandText) lines.push(mutedLine(bandText));
+  }
   if (outside) {
     lines.push(mutedLine(`Beyond its fitted windows (${spanText(ref.span)}), where the reference extrapolates its form: drawn ${ref.outlined ? 'dashed' : 'fainter'}.`));
   }
