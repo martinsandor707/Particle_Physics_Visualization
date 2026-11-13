@@ -15,7 +15,11 @@ toggle sends no request either. Each mode also carries the noise fit
 σ/E = a/√E ⊕ b ⊕ c/E (``fits[mode].noise``, or ``noise_reason`` saying why there
 is none; Martin's decisions, 2026-11-13): fitted with a², b², c² ≥ 0 to windows
 from 1 GeV (``gates.noise_min_gev``), drawn by the E view from 0 GeV, and served
-compact, with no curve and no unscaled errors.
+compact, with no curve, no unscaled errors and no note. Where it holds a term it
+carries its all-free face (``params.free``), and its band is the envelope of the
+two (the fix brief's FX1); below 4 GeV it weights by the series' second scale
+``weight_scale.c_low`` (FX2). No fit block carries a note (FX3): the card read
+none, and its facts are the block's fields.
 
 ``coord_system`` picks the energy network's input frame on two-shower data
 (the D-frame's view asks for ``lab``, whose networks it uses); on the other
@@ -26,7 +30,8 @@ kinds it is validated and stated in ``meta`` as not applying.
 Error vs. Incident Momentum with its seed and interval; ``robust``, the
 IQR-based σ/E; ``sample``, s(R)/R̄. Under median and robust the fits weight each
 window by ``se = c·ŷ/√N`` with ``c`` the series' pooled scale (``weight_scale``
-on every series). One estimator per response: the card's
+on every series), and the noise fit a window below 4 GeV by ``c_low·ŷ/√N``. One
+estimator per response: the card's
 Estimator control sends one request per switch, because two estimators in one
 body would break the 100 KB contract (about 55 KB more for two showers). An
 estimator outside the three is a 422 naming the field ``estimator``, as an
@@ -116,6 +121,11 @@ def get_resolution_scaling(
     # weight scale about 300 bytes. That fixture serves 63,197 bytes under median (its tied
     # deposits carry no fit), 76,075 under robust and 68,591 under sample (2026-11-12, after F1–F8).
     # The noise fit adds 596–628 bytes per fitted mode and series, and its two notes about 560:
-    # 66,846 under median, 81,712 under robust and 74,210 under sample (2026-11-13).
+    # 66,846 under median, 81,712 under robust and 74,210 under sample (2026-11-13). The fix round
+    # took the fit and noise notes, the noise definition note and three quadrature fields off the
+    # wire and added the all-free face (152–182 bytes) where a noise fit holds a term: 62,869 under
+    # median, 74,807 under robust and 68,268 under sample, each noise block 606–674 bytes
+    # (2026-11-13, at 7d41c68 + the fix round; the trim of d50d7f6 had already taken 65,683,
+    # 79,382 and 72,890).
     return budget.serve_measured(build, steps[0], shrink, _describe,
                                  remedy="a narrower momentum selection brings it under")

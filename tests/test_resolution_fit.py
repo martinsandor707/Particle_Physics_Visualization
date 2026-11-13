@@ -39,13 +39,25 @@ terms, Student's t once S scales it; ``MIN_POINTS``; determinism; and the
 damping fix of ``_iterate`` (a held term's zero step must not keep it off) on a
 constructed oscillation. On bare windows: noise eligibility from 1 GeV, each
 mode's points with the low anchor, the anchors alone, the fallback threshold,
-the pooled scale, the reasons for no fit, the held words and the note's 220
-characters. Nothing here is a measurement of the detector.
+the pooled scale, the reasons for no fit and the compact block.
+
+The fix round (the res-noise fix brief, Martin's decisions of 2026-11-13, after the
+review). FX1: where a term is held the fit carries its all-free face, held to
+``lstsq`` at the very final weights, and its band is the envelope of the two
+z-bands, held to that definition written out, with S and Student's t; the free
+face is absent where nothing is held and where it is singular; and the review's
+M1 coverage Monte Carlo is reproduced on the served code (the envelope covers at
+95% over every replica where the conditional band fails). FX2: the second scale
+c_low, its definition, its fallbacks, which window takes which scale, the other
+forms left bit for bit, and the review's m5 case (one low anchor of large κ no
+longer carries the 3-anchor fit). FX3: no block carries a note. Nothing here is a
+measurement of the detector.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -214,10 +226,11 @@ def test_a_pinned_fit_through_a_constant_term_is_a_misfit_and_its_block_says_so(
     assert pinned.p_value < 1e-6
     block = rs.fit_block(pinned, provisional=False)
     assert block["misfit"] is True and block["provisional"] is False
-    assert f"S = {pinned.scale_factor:.3g} > 5" in block["note"] and "does not describe these windows" in block["note"]
-    assert "drawn faded and never sets a range" in block["note"]
+    assert block["scale_factor"] == pinned.scale_factor > 5
+    # The fix brief's FX3: no block carries a note; its facts are its fields.
+    assert "note" not in block
     calm = rs.fit_block(quad, provisional=False)
-    assert calm["misfit"] is False and "does not describe" not in calm["note"]
+    assert calm["misfit"] is False and "note" not in calm
 
 
 def test_an_oscillating_refit_is_damped_to_its_fixed_point():
@@ -284,9 +297,11 @@ def test_quadrature_reports_b_undefined_when_b_squared_is_negative():
     block = rs.fit_block(fit, provisional=False)
     assert block["params"]["b"] is None and block["params"]["b_defined"] is False
     assert block["params"]["b2"] == approx(-5.0, rel=1e-6)     # %²
-    assert block["curve"] is None and "B ≤ 0" in block["note"]
-    # The E view rebuilds the band from the params: ρ(A, B) and the quantile travel with it.
-    assert block["params"]["rho_a2b2"] == approx(fit.rho) and -1.0 <= fit.rho <= 1.0
+    assert block["curve"] is None and "note" not in block
+    # Both views table it and neither draws it: no ρ(A, B) and no unscaled squares' SEs travel (FX3).
+    assert not {"rho_a2b2", "se_a2_stat", "se_b2_stat"} & set(block["params"])
+    assert set(block["params"]) == {"a", "se_a", "b", "se_b", "b2", "se_b2", "b_defined", "a2",
+                                    "se_a2", "a_defined", "se_a_stat", "se_b_stat"}
     assert block["band_quantile"] == fit.band_quantile
 
 
@@ -490,7 +505,7 @@ def test_too_few_eligible_windows_fall_back_to_whiskered_ones_provisionally():
     mode = rs.mode_fits("anchors", (5, 10, 19), windows)
     assert mode.points == [5, 10, 19] and mode.fallback and mode.provisional
     block = rs.fit_block(mode.fits["affine"], mode.provisional)
-    assert block["provisional"] is True and "Provisional" in block["note"]
+    assert block["provisional"] is True and "note" not in block
     every = rs.mode_fits("all", (5, 10, 19), windows)
     assert every.points == [5, 10, 19] and every.fallback
     # Nothing reaches N = 8 beside the one eligible window: no fallback, one point.
@@ -675,7 +690,11 @@ def test_the_pooled_scale_is_the_median_of_root_n_kappa_over_the_fittable_window
     assert scale.basis == "fit" and scale.n_windows == 4
     assert scale.c == float(np.median([math.sqrt(w.n) * w.kappa for w in fittable]))
     assert "median of √N·κ over this series' windows of N ≥ 20 from 4 GeV" in scale.rule
-    assert scale.as_dict() == {"c": scale.c, "n_windows": 4, "rule": scale.rule}
+    # FX2: the 3–4 GeV window (N = 40) is the one window of 1–4 GeV, so c_low is its own √N·κ.
+    (low,) = [w for w in windows if w.bin == 3]
+    assert scale.c_low == math.sqrt(low.n) * low.kappa and scale.n_low == 1
+    assert scale.as_dict() == {"c": scale.c, "n_windows": 4, "c_low": scale.c_low, "n_low": 1,
+                               "rule": scale.rule}
     for w in windows:
         if w.r is not None and w.kappa is not None:
             assert w.as_dict()["se_rel"] == w.kappa == approx(w.se / w.r)
@@ -689,11 +708,15 @@ def test_the_pooled_scale_falls_back_with_the_median_and_is_absent_without_a_wei
     assert scale.basis == "fallback" and scale.n_windows == 3
     assert scale.c == float(np.median([math.sqrt(w.n) * w.kappa for w in windows]))
     assert "No window of N ≥ 20 from 4 GeV carries a fit weight" in scale.rule
+    # No window of 1–4 GeV: c_low = c, and the rule says so (FX2).
+    assert scale.c_low == scale.c and scale.n_low == 0 and scale.low_basis == "c"
+    assert scale.rule.endswith("no window of 1–4 GeV carries a fit weight, so c_low = c.")
     mode = rs.mode_fits("all", (5, 10, 19), windows)
     assert mode.provisional and mode.points == [5, 10, 19]
     bare = rs.pooled_scale(_series_windows({5: 3, 10: 5}, estimator="median"))
     assert bare.c is None and bare.n_windows == 0 and bare.basis == "none"
-    assert bare.rule.startswith("No window from 4 GeV carries a fit weight")
+    assert bare.c_low is None and bare.n_low == 0
+    assert bare.rule == "No window from 4 GeV carries a fit weight, so this series has no pooled scale and no fit."
 
 
 @pytest.mark.parametrize("estimator", ["median", "robust"])
@@ -1035,12 +1058,17 @@ def test_a_term_that_moves_the_ssr_by_rounding_alone_is_held():
 
 @pytest.mark.parametrize("held", [None, "b", "c"])
 def test_the_noise_band_is_the_root_of_the_z_band_with_zero_rows_at_held_terms(held):
-    """√ of ẑ ± q·√(gᵀΣg), g = (u, 1, u²), Σ the scaled covariance of the free terms alone."""
+    """The conditional band: √ of ẑ ± q·√(gᵀΣg), g = (u, 1, u²), Σ the scaled covariance of the free
+    terms alone. It is the served band where nothing is held; where a term is held it is one of the
+    envelope's two bands, so it is taken here from the fit without its free face."""
     r = _noise_r(0.09, 0.0025, 0.25) if held is None else _boundary_r(held)
     r = r * (1 + 0.01 * np.random.default_rng(1305).standard_normal(r.size))
     fit = rf.fit_noise(NOISE_X, r, NOISE_N)
     if held is not None:
-        assert fit.held == (held,)
+        assert fit.held == (held,) and fit.free_theta is not None
+    else:
+        assert fit.free_theta is None and fit.free_cov_stat is None
+    fit = replace(fit, free_theta=None, free_cov_stat=None)
     xs = np.linspace(0.05, 1.0, 9)
     y, lo, hi = rf.band(fit, xs)
     free = [i for i, name in enumerate(rf.NOISE_TERMS) if name not in fit.held]
@@ -1166,21 +1194,21 @@ def test_the_noise_points_of_each_mode_and_the_low_anchor():
     chosen = [w for w in windows if w.bin in anchors.noise_points]
     expected = rf.fit_noise([w.x for w in chosen], [w.r for w in chosen], [w.n for w in chosen])
     assert anchors.noise.theta == expected.theta and anchors.noise.chi2 == expected.chi2
-    block = rs.noise_block(anchors, windows, "sample", anchors_mode=True)
+    block = rs.noise_block(anchors, windows)
     assert block["low_anchor"] == 1 and block["points"] == [1, 5, 10, 19]
     assert block["span_gev"] == [1.0, 20.0] and block["provisional"] is False
 
 
-def test_the_anchors_alone_are_fitted_when_no_other_window_is_eligible_and_the_note_says_so():
+def test_the_anchors_alone_are_fitted_when_no_other_window_is_eligible():
+    """No low anchor: the 3-anchor mode fits the anchors alone, and its block's null low_anchor says so."""
     windows = _noise_windows({0: 200, 5: 40, 10: 50, 19: 30})
     mode = rs.mode_fits("anchors", (5, 10, 19), windows)
     assert mode.noise_points == [5, 10, 19] and mode.noise_low_anchor is None
     assert mode.noise is not None
-    block = rs.noise_block(mode, windows, "sample", anchors_mode=True)
-    assert block["low_anchor"] is None
-    assert block["note"].endswith("No low anchor: no other window from 1 GeV is fittable.")
-    every = rs.noise_block(rs.mode_fits("all", (5, 10, 19), windows), windows, "sample", False)
-    assert "No low anchor" not in every["note"]
+    block = rs.noise_block(mode, windows)
+    assert block["low_anchor"] is None and block["points"] == [5, 10, 19] and "note" not in block
+    every = rs.noise_block(rs.mode_fits("all", (5, 10, 19), windows), windows)
+    assert every["low_anchor"] is None and every["points"] == [5, 10, 19]
 
 
 def test_a_fallback_mode_fits_its_noise_points_at_the_whisker_gate_and_is_provisional():
@@ -1190,7 +1218,7 @@ def test_a_fallback_mode_fits_its_noise_points_at_the_whisker_gate_and_is_provis
         assert mode.fallback and mode.provisional
         assert mode.noise is not None and mode.noise_reason is None
         assert set(mode.noise_points) <= {1, 2, 5, 10, 19}
-        assert rs.noise_block(mode, windows, "sample", name == "anchors")["provisional"] is True
+        assert rs.noise_block(mode, windows)["provisional"] is True
     assert rs.mode_fits("all", (5, 10, 19), windows).noise_points == [1, 2, 5, 10, 19]
     # Not provisional, and fewer than three windows at N ≥ 20: no fit, never a fallback of its own.
     thin = _noise_windows({1: 10, 2: 9, 5: 30, 10: 30, 19: 9})
@@ -1219,11 +1247,14 @@ def test_the_noise_fit_weights_by_the_series_pooled_scale_and_needs_one(estimato
     mode = rs.mode_fits("all", (5, 10, 19), windows, scale=scale)
     chosen = [w for w in windows if w.bin in mode.noise_points]
     assert mode.noise_points == [1, 2, 3, 6, 10, 19]
+    # FX2: the windows of 1–4 GeV take c_low/√N, those from 4 GeV c/√N.
     expected = rf.fit_noise([w.x for w in chosen], [w.r for w in chosen], [w.n for w in chosen],
-                            [scale.c / math.sqrt(w.n) for w in chosen])
+                            [(scale.c_low if w.p_lo < 4 else scale.c) / math.sqrt(w.n)
+                             for w in chosen])
     assert mode.noise.theta == expected.theta and mode.noise.chi2 == expected.chi2
-    # The scale is the series' own (from 4 GeV), never one taken over the noise points.
-    assert scale.n_windows == 3
+    # The scales are the series' own (c from 4 GeV, c_low over 1–4 GeV), never ones taken over
+    # the noise points.
+    assert scale.n_windows == 3 and scale.n_low == 3 and scale.low_basis == "fit"
     fit, points, low, reason = rs._noise_fit("all", mode.points, False, windows, None)
     assert fit is None and points == [1, 2, 3, 6, 10, 19] and low is None
     assert reason == "No a/√E ⊕ b ⊕ c/E fit: this series has no pooled scale c."
@@ -1237,34 +1268,364 @@ def test_robust_fits_no_noise_line_through_fewer_than_three_windows():
             mode.noise_reason)
 
 
-def test_the_held_phrase_and_the_noise_note_keep_to_their_words_and_length():
-    assert rs.held_phrase(("b",)) == "b = 0, held there by the constraint b² ≥ 0"
-    assert rs.held_phrase(("a", "b")) == (
-        "a = 0 and b = 0, held there by the constraints a² ≥ 0 and b² ≥ 0")
-    # The longest note the rules allow: two terms held, the anchors alone, a long χ² and symbol.
-    worst = rf.Fit(rf.FORM_NOISE, 3, (0.0, 0.0, 0.25), np.diag([0.0, 0.0, 1e-4]), chi2=123456.0,
-                   ndf=2, p_value=0.0, scale_factor=248.0, iterations=200, converged=False)
-    note = rs._noise_note(worst, [100.0, 200.0], "median", anchors_alone=True)
-    assert len(note) <= rs.NOISE_NOTE_MAX == 220
-    assert note == ("median rel. = a/√E ⊕ b ⊕ c/E over 3 windows, 100–200 GeV: χ²/ν = 1.23e+05/2. "
-                    "a = 0 and b = 0, held there by the constraints a² ≥ 0 and b² ≥ 0. No low "
-                    "anchor: no other window from 1 GeV is fittable.")
-    exact = rf.Fit(rf.FORM_NOISE, 3, (0.1, 0.01, 0.2), np.eye(3) * 1e-6, chi2=0.0, ndf=0,
-                   p_value=None, scale_factor=1.0, iterations=1, converged=True)
-    assert rs._noise_note(exact, [1.0, 20.0], "sample", anchors_alone=False) == (
-        "σ/E = a/√E ⊕ b ⊕ c/E over 3 windows, 1–20 GeV: ν = 0, so no χ² test.")
-
-
 def test_the_noise_block_is_compact():
+    """No _stat fields, no curve and no note (FX3); params.free is null where nothing is held."""
     windows = _noise_windows({1: 400, 2: 400, 3: 400, 5: 400, 10: 500, 19: 300})
     mode = rs.mode_fits("all", (5, 10, 19), windows)
-    block = rs.noise_block(mode, windows, "sample", anchors_mode=False)
+    block = rs.noise_block(mode, windows)
     assert set(block) == {"form", "n_points", "ndf", "points", "span_gev", "low_anchor", "params",
                           "chi2", "p_value", "scale_factor", "iterations", "converged",
-                          "band_quantile", "provisional", "misfit", "note"}
+                          "band_quantile", "provisional", "misfit"}
     assert set(block["params"]) == {"a2", "b2", "c2", "se_a2", "se_b2", "se_c2", "a", "b", "c",
-                                    "se_a", "se_b", "se_c", "held", "rho"}
+                                    "se_a", "se_b", "se_c", "held", "rho", "free"}
     assert not any(key.endswith("_stat") for key in block["params"])
     t = rf.noise_terms(mode.noise)
     assert block["params"]["a2"] == 1e4 * t.a2 and block["params"]["c"] == 100 * t.c
-    assert rs.noise_block(rs.ModeFits([], [], False, {}), windows, "sample", False) is None
+    assert mode.noise.held == () and block["params"]["free"] is None
+    assert rs.noise_block(rs.ModeFits([], [], False, {}), windows) is None
+
+
+# ------------------------------------------------------- the envelope band --
+# The res-noise fix brief's FX1 (Martin's decision, 2026-11-13, after the review's M1): where a
+# term is held, the band is the envelope in z of the conditional band and the band of the
+# all-free face, solved once at the constrained fit's final weights with the same S and quantile.
+
+
+def _final_noise_weights(x, r, n, kappa=None):
+    """The weights ``_iterate`` returns for the noise fit: those of its last refit, recomputed here."""
+    x, r, n, se0, kappa = rf._arrays(x, r, n, kappa)
+    u, z = x * x, r * r
+    law = rf._se_law(n, kappa)
+    out = rf._iterate(lambda t: t[0] * u + t[1] + t[2] * u * u, lambda w: rf.wls_noise(u, z, w),
+                      lambda zh: 2.0 * np.sqrt(zh) * law(np.sqrt(zh)), 2.0 * np.abs(r) * se0)
+    return u, z, out[2]
+
+
+@pytest.mark.parametrize("held, index", [("b", 1), ("c", 2)])
+@pytest.mark.parametrize("kappa", [None, 0.03])
+def test_the_free_face_is_the_unconstrained_fit_at_the_final_weights(held, index, kappa):
+    """(A, B, C) with no constraint at the very weights of the constrained θ and its χ²: lstsq on the
+    √w-scaled system and (XᵀWX)⁻¹. The held square comes out negative there, and the free face's SSR
+    is never above the constrained fit's χ²."""
+    r = _boundary_r(held)
+    k = None if kappa is None else np.full(r.size, kappa)
+    fit = rf.fit_noise(NOISE_X, r, NOISE_N, k)
+    assert fit.held == (held,) and fit.converged
+    u, z, w = _final_noise_weights(NOISE_X, r, NOISE_N, k)
+    free, free_cov = _unconstrained(u, z, w)
+    assert np.array(fit.free_theta) == approx(free, rel=1e-9)
+    assert fit.free_cov_stat == approx(free_cov, rel=1e-7)
+    assert fit.free_theta[index] < 0
+    assert _ssr(fit.free_theta, u, z, w) <= fit.chi2 * (1 + 1e-12)
+    assert fit.chi2 == approx(_ssr(fit.theta, u, z, w), rel=1e-12)
+    # Its covariance takes the constrained fit's S, as the main one does.
+    assert np.array_equal(fit.free_cov, fit.free_cov_stat * fit.scale_factor ** 2)
+
+
+def test_a_fit_that_holds_nothing_has_no_free_face():
+    rng = np.random.default_rng(1401)
+    fit = rf.fit_noise(NOISE_X, _noise_r(0.09, 0.0025, 0.25) * (
+        1 + 0.01 * rng.standard_normal(NOISE_X.size)), NOISE_N)
+    assert fit.held == () and fit.free_theta is None and fit.free_cov_stat is None
+    assert fit.free_cov is None and rf.noise_terms(fit).free is None
+    # Every other form carries none either.
+    for other in (rf.fit_affine, rf.fit_pinned, rf.fit_quadrature):
+        assert other(NOISE_X, _noise_r(0.09, 0.0025, 0.25), NOISE_N).free_theta is None
+
+
+def test_a_singular_free_face_leaves_the_conditional_band():
+    """Two distinct energies: (u, 1, u²) has rank 2, so the full face is singular, as _solve_face judges
+    it. A smaller face wins and holds a term, there is no free face, and the band is the conditional one."""
+    x = np.array([0.5, 0.5, 0.3, 0.3])
+    r = np.array([0.30, 0.31, 0.20, 0.21])
+    n = np.full(4, 400)
+    fit = rf.fit_noise(x, r, n)
+    assert fit.held and fit.free_theta is None and fit.free_cov_stat is None
+    u, z, w = _final_noise_weights(x, r, n)
+    assert rf._solve_face(rf._noise_basis(u), z, w) is None
+    assert rf.noise_terms(fit).free is None
+    xs = np.linspace(0.1, 1.0, 7)
+    y, lo, hi = rf.band(fit, xs)
+    g = rf._noise_basis(xs * xs)
+    zhat = g @ np.array(fit.theta)
+    half = fit.band_quantile * np.sqrt(np.einsum("ij,jk,ik->i", g, fit.cov, g))
+    assert lo == approx(np.sqrt(np.maximum(zhat - half, 0)), rel=1e-12, abs=1e-15)
+    assert hi == approx(np.sqrt(zhat + half), rel=1e-12)
+    # On the wire: params.free is null.
+    windows = _noise_windows({5: 400, 10: 400, 15: 400})
+    mode = rs.ModeFits([5, 10, 15], [], False, {}, noise=fit, noise_points=[5, 10, 15])
+    assert rs.noise_block(mode, windows)["params"]["free"] is None
+
+
+def _two_bands(fit, xs):
+    """The envelope written out from its definition: both z-bands at the fit's S and quantile."""
+    q = gaussian.t_quantile_975(fit.ndf) if fit.scale_factor > 1 else rf.Z95
+    s2 = fit.scale_factor ** 2
+    g = rf._noise_basis(xs * xs)
+    z_c, z_f = g @ np.array(fit.theta), g @ np.array(fit.free_theta)
+    h_c = q * np.sqrt(np.einsum("ij,jk,ik->i", g, s2 * fit.cov_stat, g))
+    h_f = q * np.sqrt(np.einsum("ij,jk,ik->i", g, s2 * fit.free_cov_stat, g))
+    lo = np.sqrt(np.maximum(np.minimum(z_c - h_c, z_f - h_f), 0.0))
+    hi = np.sqrt(np.maximum(np.maximum(z_c + h_c, z_f + h_f), 0.0))
+    return np.sqrt(z_c), lo, hi
+
+
+@pytest.mark.parametrize("held", ["b", "c"])
+@pytest.mark.parametrize("scale", [None, 2.5])
+def test_the_noise_band_is_the_envelope_of_the_conditional_and_free_bands(held, scale):
+    """z_lo = min(ẑ − h, ẑ_free − h_free), z_hi = max(ẑ + h, ẑ_free + h_free), through √, the lower edge
+    cut at 0; the line is the constrained ẑ. With S > 1 both bands take S and Student's t of the fit's ν."""
+    r = _boundary_r(held) * (1 + 0.01 * np.random.default_rng(1402).standard_normal(NOISE_X.size))
+    fit = rf.fit_noise(NOISE_X, r, NOISE_N)
+    assert fit.held == (held,) and fit.free_theta is not None
+    if scale is not None:
+        fit = replace(fit, scale_factor=scale)
+        assert fit.band_quantile == approx(gaussian.t_quantile_975(fit.ndf))
+    xs = np.linspace(0.05, 1.5, 30)
+    y, lo, hi = rf.band(fit, xs)
+    ey, elo, ehi = _two_bands(fit, xs)
+    assert y == approx(ey, rel=1e-12) and y == approx(fit.predict(xs), rel=1e-12)
+    assert lo == approx(elo, rel=1e-9, abs=1e-15) and hi == approx(ehi, rel=1e-9)
+    # It holds the conditional band, and is wider than it somewhere: the free face matters.
+    _, clo, chi = rf.band(replace(fit, free_theta=None, free_cov_stat=None), xs)
+    assert (lo <= clo * (1 + 1e-12) + 1e-15).all() and (hi >= chi * (1 - 1e-12)).all()
+    assert (hi > chi * 1.001).any()
+
+
+def test_the_free_face_on_the_wire():
+    """params.free: the free squares in %² units, possibly negative, their SEs scaled by S, their ρ from the
+    unscaled covariance; the band is rebuilt from them and the constrained params with one quantile."""
+    r = _boundary_r("b")
+    fit = rf.fit_noise(NOISE_X, r, NOISE_N)
+    t = rf.noise_terms(fit)
+    assert t.free is not None and t.free.b2 < 0
+    for i, name in enumerate(rf.NOISE_TERMS):
+        assert getattr(t.free, f"{name}2") == fit.free_theta[i]
+        assert getattr(t.free, f"se_{name}2") == approx(
+            fit.scale_factor * math.sqrt(fit.free_cov_stat[i, i]), rel=1e-12)
+    v = fit.free_cov_stat
+    assert t.free.rho == approx({"a2b2": v[0, 1] / math.sqrt(v[0, 0] * v[1, 1]),
+                                 "a2c2": v[0, 2] / math.sqrt(v[0, 0] * v[2, 2]),
+                                 "b2c2": v[1, 2] / math.sqrt(v[1, 1] * v[2, 2])}, rel=1e-12)
+    windows = _noise_windows({k: 400 for k in range(1, 20)})
+    mode = rs.ModeFits([], [], False, {}, noise=fit, noise_points=list(range(1, 20)))
+    free = rs.noise_block(mode, windows)["params"]["free"]
+    assert set(free) == {"a2", "b2", "c2", "se_a2", "se_b2", "se_c2", "rho"}
+    assert free["b2"] == 1e4 * t.free.b2 < 0 and free["se_c2"] == 1e4 * t.free.se_c2
+    assert free["rho"] == t.free.rho
+
+
+#: The review's M1 Monte Carlo (2026-11-13): the real pion median windows of shower A from 1 GeV
+#: (pion_hits_with_model_outputs, Absolute frame), at their real N and x = ⟨1/√p⟩, with Gaussian
+#: relative noise κ = 1.3/√N, the κ law as served.
+M1_N = np.array([388, 421, 528, 497, 622, 647, 702, 833, 899, 1022, 1068, 1248, 1306, 1425, 1394,
+                 1515, 1626, 1733, 1700])
+M1_X = np.array([0.82339, 0.6348, 0.53548, 0.47255, 0.42599, 0.39326, 0.36501, 0.3429, 0.32444,
+                 0.30854, 0.29492, 0.28285, 0.27219, 0.26255, 0.25398, 0.24607, 0.23897, 0.23258,
+                 0.22648])
+M1_ANCHORS = np.isin(np.arange(1, 20), [1, 5, 10, 19])        # the low anchor and three anchors
+M1_E = np.array([0.5, 1.0, 1.5, 3.0, 10.0, 20.0, 50.0, 80.0])
+M1_REPLICAS = 800
+
+
+def _m1_coverage(truth, windows, seed):
+    """(held, conditional covers, envelope covers) per replica and energy, by the served fit and band."""
+    a, b, c = truth
+    x, n = M1_X[windows], M1_N[windows]
+    kappa = 1.3 / np.sqrt(n)
+    exact = np.sqrt(a * a * x * x + b * b + c * c * x ** 4)
+    xe = 1.0 / np.sqrt(M1_E)
+    true_e = np.sqrt(a * a * xe * xe + b * b + c * c * xe ** 4)
+    rng = np.random.default_rng(seed)
+    held = np.zeros(M1_REPLICAS, dtype=bool)
+    cond = np.zeros((M1_REPLICAS, M1_E.size), dtype=bool)
+    env = np.zeros_like(cond)
+    for i in range(M1_REPLICAS):
+        fit = rf.fit_noise(x, exact * (1 + kappa * rng.standard_normal(x.size)), n, kappa)
+        held[i] = bool(fit.held)
+        _, lo, hi = rf.band(fit, xe)
+        env[i] = (lo <= true_e) & (true_e <= hi)
+        _, lo, hi = rf.band(replace(fit, free_theta=None, free_cov_stat=None), xe)
+        cond[i] = (lo <= true_e) & (true_e <= hi)
+    return held, cond, env
+
+
+@pytest.mark.parametrize("truth, windows, failing, worst", [
+    # c held in about 11% of the replicas, though truly 22.6 %·GeV: the conditional band fails at
+    # 0.5–1 GeV, worst at 0.5 GeV.
+    ((0.264, 0.122, 0.226), slice(None), [0, 1], 0),
+    # b held in about 21%, though truly 3%: it fails at 50–80 GeV (the 3-anchor mode), worst at 80.
+    ((0.191, 0.03, 0.589), M1_ANCHORS, [6, 7], 7),
+], ids=["c-held-all-windows", "b-held-3-anchors"])
+def test_the_envelope_covers_where_the_conditional_band_fails(truth, windows, failing, worst):
+    """The review's M1, reproduced on the served fit_noise and band (800 seeded replicas a case, ~3 s).
+
+    The review's 2,000-replica run: the conditional band covers the true σ/E 0.000–0.037 (c held) and
+    0.000–0.016 (b held) of the replicas that hold the term, at the energies listed in ``failing``;
+    over every replica 0.81–0.89 there. The envelope covers 0.958–0.978 over every replica at every
+    energy. The envelope's 95% is the coverage over every replica, which is what one fit's reader
+    gets: counted only over the replicas that hold a term it is still below it (0.68–0.74 at the worst
+    energy of the c-held case, 0.68 of the b-held one in All windows), though nowhere near the
+    conditional band's collapse. The bounds below allow the Monte Carlo error of 800 replicas
+    (SE 0.007 at 0.96). This run (2026-11-13): the envelope covers 0.954–0.976 over every replica
+    at every energy; over the replicas that hold the term the conditional band covers 0.000 at
+    0.5 GeV (c held, 11% of the replicas) and 0.005 at 80 GeV (b held, 23%), the envelope 0.708
+    and 0.896.
+    """
+    held, cond, env = _m1_coverage(truth, windows, 20261113)
+    assert 0.05 < held.mean() < 0.4
+    at = np.asarray(failing)
+    # Over every replica: the envelope covers at the 95% level, the conditional band does not.
+    assert env.mean(axis=0).min() >= 0.94, env.mean(axis=0)
+    assert env[:, at].mean() >= 0.95, env[:, at].mean(axis=0)
+    assert cond[:, at].mean(axis=0).max() <= 0.92, cond[:, at].mean(axis=0)
+    # Over the replicas that hold a term: the conditional band collapses, the envelope does not.
+    assert cond[held, worst].mean() <= 0.1, cond[held].mean(axis=0)
+    assert env[held, worst].mean() >= 0.6, env[held].mean(axis=0)
+
+
+# ------------------------------------------------- the second scale, c_low --
+# The res-noise fix brief's FX2 (Martin's decision, 2026-11-13, after the review's m5): the noise
+# fit weights a window below 4 GeV by c_low/√N, c_low the median of √N·κ over the series' windows
+# of 1–4 GeV, whatever the mode.
+
+
+def _set(window, value=None, kappa=None):
+    """A median window with its plotted value and its bootstrap SE set: κ = SE/value exactly."""
+    value = window.r if value is None else value
+    kappa = window.kappa if kappa is None else kappa
+    return replace(window, median_rel=replace(window.median_rel, value=value),
+                   median_se=kappa * value)
+
+
+def test_c_low_is_the_median_of_root_n_kappa_over_the_windows_of_1_to_4_gev():
+    """Windows of 1–4 GeV with N ≥ 20 and a fit weight, whatever the mode: the 0–1 GeV window, a thin
+    one and a tied one stay out; the windows from 4 GeV set c alone."""
+    base = _noise_windows({0: 60, 1: 30, 2: 25, 3: 12, 4: 40, 5: 40, 10: 50, 19: 30},
+                          estimator="median")
+    tied = {2: 1e-9}
+    windows = [_set(w, kappa=tied[w.bin]) if w.bin in tied else w for w in base]
+    by_bin = {w.bin: w for w in windows}
+    assert by_bin[2].tied and not by_bin[2].usable and by_bin[3].n < 20
+    scale = rs.pooled_scale(windows)
+    assert scale.c_low == math.sqrt(30) * by_bin[1].kappa and scale.n_low == 1
+    assert scale.low_basis == "fit"
+    assert scale.c == float(np.median([math.sqrt(by_bin[k].n) * by_bin[k].kappa
+                                       for k in (4, 5, 10, 19)]))
+    assert scale.n_windows == 4
+    assert scale.rule.endswith(
+        "The a/√E ⊕ b ⊕ c/E fit weights a window from 4 GeV by se = c·ŷ/√N and a window below "
+        "4 GeV by se = c_low·ŷ/√N, c_low the median of √N·κ over this series' windows of 1–4 GeV "
+        "with N ≥ 20 and a fit weight, whatever the mode, so the low anchor never sets its own "
+        "weight.")
+    # One scale for the series: both modes' noise fits take it.
+    for name in ("anchors", "all"):
+        mode = rs.mode_fits(name, (5, 10, 19), windows, scale=scale)
+        chosen = [by_bin[k] for k in mode.noise_points]
+        assert any(w.p_lo < 4 for w in chosen)
+        expected = rf.fit_noise([w.x for w in chosen], [w.r for w in chosen],
+                                [w.n for w in chosen],
+                                [(scale.c_low if w.p_lo < 4 else scale.c) / math.sqrt(w.n)
+                                 for w in chosen])
+        assert mode.noise.theta == expected.theta and mode.noise.chi2 == expected.chi2
+
+
+def test_c_low_falls_back_to_the_whisker_gate_then_to_c():
+    """No window of 1–4 GeV at N ≥ 20: the median's N ≥ 8 windows; robust has no weaker gate, and with
+    none at all c_low = c, said so; under sample no scale at all."""
+    counts = {1: 12, 2: 10, 3: 5, 5: 40, 10: 50, 19: 30}
+    median = rs.pooled_scale(_noise_windows(counts, estimator="median"))
+    low = [w for w in _noise_windows(counts, estimator="median") if w.bin in (1, 2)]
+    assert median.low_basis == "fallback" and median.n_low == 2
+    assert median.c_low == float(np.median([math.sqrt(w.n) * w.kappa for w in low]))
+    assert median.rule.endswith(
+        "; no window of 1–4 GeV with N ≥ 20 carries a fit weight, so c_low is the median of √N·κ "
+        "over its windows of 1–4 GeV with N ≥ 8 and one.")
+    robust = rs.pooled_scale(_noise_windows(counts, estimator="robust"))
+    assert robust.low_basis == "c" and robust.c_low == robust.c and robust.n_low == 0
+    assert robust.rule.endswith("; no window of 1–4 GeV carries a fit weight, so c_low = c.")
+    bare = rs.pooled_scale(_noise_windows({0: 80, 5: 40, 10: 50, 19: 30}, estimator="median"))
+    assert bare.c_low == bare.c and bare.n_low == 0 and bare.rule.endswith("so c_low = c.")
+    assert rs.pooled_scale(_noise_windows(counts)) is None              # sample: the delta method
+    # Without c the low windows still give c_low, which no fit uses.
+    lone = rs.pooled_scale(_noise_windows({1: 40, 2: 40, 3: 40, 10: 5}, estimator="median"))
+    assert lone.c is None and lone.n_low == 3 and lone.c_low is not None
+    assert lone.rule.endswith("give c_low, the median of √N·κ over them, which no fit uses without c.")
+    mode = rs.mode_fits("all", (5, 10, 19), _noise_windows({1: 40, 2: 40, 3: 40, 10: 5},
+                                                          estimator="median"))
+    assert mode.noise is None and mode.noise_reason.endswith("this series has no pooled scale c.")
+
+
+def test_a_window_below_4_gev_takes_c_low_and_one_from_4_gev_takes_c():
+    windows = _noise_windows({1: 40, 3: 40, 4: 40, 5: 40, 10: 50}, estimator="median")
+    kappa = rs.noise_kappa(windows, 1.5, 4.0)
+    assert [w.p_lo for w in windows] == [1.0, 3.0, 4.0, 5.0, 10.0]
+    assert kappa == [4.0 / math.sqrt(40), 4.0 / math.sqrt(40), 1.5 / math.sqrt(40),
+                     1.5 / math.sqrt(40), 1.5 / math.sqrt(50)]
+    assert rs.noise_kappa(windows, 1.5, None) == rs.fit_kappa(windows, 1.5)
+
+
+@pytest.mark.parametrize("estimator", ["median", "robust"])
+def test_c_low_moves_the_noise_fit_alone(estimator):
+    """The affine, pinned and quadrature fits never take a window below 4 GeV, so c_low leaves them bit for
+    bit; only the noise fit moves."""
+    windows = _noise_windows({1: 40, 2: 40, 3: 40, 5: 40, 7: 40, 10: 50, 14: 40, 19: 30},
+                             estimator=estimator)
+    scale = rs.pooled_scale(windows)
+    other = replace(scale, c_low=3.0 * scale.c_low)
+    for name in ("anchors", "all"):
+        one = rs.mode_fits(name, (5, 10, 19), windows, scale=scale)
+        two = rs.mode_fits(name, (5, 10, 19), windows, scale=other)
+        for form in (rf.FORM_AFFINE, rf.FORM_PINNED, rf.FORM_QUADRATURE):
+            a, b = one.fits[form], two.fits[form]
+            assert a.theta == b.theta and np.array_equal(a.cov_stat, b.cov_stat)
+            assert (a.chi2, a.iterations) == (b.chi2, b.iterations)
+        assert one.noise_points == two.noise_points
+        assert one.noise.theta != two.noise.theta
+
+
+#: The review's m5, synthetic: √N·κ of the 1–2, 2–3 and 3–4 GeV windows against 1.39 from 4 GeV
+#: (Robust σ (IQR), the pion file's network A, 2026-11-13), at the pion windows' N.
+M5_ROOT_N_KAPPA = {1: 5.16, 2: 3.94, 3: 1.80}
+M5_C = 1.39
+
+
+def _m5_windows(displacement: float):
+    """σ/E = 30%/√E ⊕ 71.5%/E exactly, the 1–2 GeV window ``displacement`` of its own SEs off it."""
+    counts = {k: int(n) for k, n in zip(range(1, 20), M1_N)}
+    windows = []
+    for w in _noise_windows(counts, estimator="median"):
+        kappa = M5_ROOT_N_KAPPA.get(w.bin, M5_C) / math.sqrt(w.n)
+        value = math.sqrt(0.30 ** 2 * w.x ** 2 + 0.715 ** 2 * w.x ** 4)
+        if w.bin == 1:
+            value *= 1 + displacement * kappa
+        windows.append(_set(w, value=value, kappa=kappa))
+    return windows
+
+
+@pytest.mark.parametrize("displacement", [-1.0, 1.0])
+def test_one_low_window_of_large_kappa_no_longer_dominates_the_3_anchor_fit(displacement):
+    """The review's m5: weighted by the series' c, a 1–2 GeV low anchor whose √N·κ is 3.7 c carries
+    3.7² ≈ 14 times the weight its own κ supports, and the 3-anchor fit follows nearly all of its
+    displacement (0.81–0.88 of it here). By c_low = 3.94, the median over the three windows of 1–4 GeV,
+    it carries 1.7 times, and the fit follows about half (0.24–0.54), close to the refit at each
+    window's own κ (0.15–0.43), which the review took as the reference."""
+    windows = _m5_windows(displacement)
+    scale = rs.pooled_scale(windows)
+    assert scale.c == approx(M5_C) and scale.c_low == approx(3.94) and scale.n_low == 3
+    mode = rs.mode_fits("anchors", (5, 10, 19), windows, scale=scale)
+    assert mode.noise_points == [1, 5, 10, 19] and mode.noise_low_anchor == 1
+    chosen = [w for w in windows if w.bin in mode.noise_points]
+    low = chosen[0]
+    x, r, n = [w.x for w in chosen], [w.r for w in chosen], [w.n for w in chosen]
+    truth = math.sqrt(0.30 ** 2 * low.x ** 2 + 0.715 ** 2 * low.x ** 4)
+
+    def followed(fit):
+        return (float(fit.predict(np.array([low.x]))[0]) - truth) / (low.r - truth)
+
+    served = followed(mode.noise)
+    by_c = followed(rf.fit_noise(x, r, n, rs.fit_kappa(chosen, scale.c)))
+    own = followed(rf.fit_noise(x, r, n, [w.kappa for w in chosen]))
+    assert (M5_ROOT_N_KAPPA[1] / scale.c) ** 2 > 13 and (M5_ROOT_N_KAPPA[1] / scale.c_low) ** 2 < 2
+    assert by_c > 0.8 and served < 0.6
+    assert abs(served - own) < 0.5 * abs(by_c - own)

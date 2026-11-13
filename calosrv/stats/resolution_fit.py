@@ -10,9 +10,9 @@ resolution_scaling.py`` chooses which windows):
 * **origin-pinned**, ``r = a₀·x``: a purely stochastic resolution, the line
   through the origin (E → ∞) of the reversed axis;
 * **quadrature**, ``r² = A·x² + B``: the textbook ``a/√E ⊕ b``, fitted as a
-  straight line in ``z = r²`` against ``u = x²``. On the 1/√E axis it is
-  tabled, never drawn; the card's E view (σ/E against E in GeV) draws it where
-  both terms are defined, ``A > 0`` and ``B > 0``.
+  straight line in ``z = r²`` against ``u = x²``. It is tabled on both of the
+  card's views, never drawn; the E view (σ/E against E in GeV) draws the noise
+  form below, which holds it as the case c = 0.
 
 **Closed forms, not a solver.** Each is a one- or two-parameter linear WLS
 problem with weights ``w = 1/se²``. With ``S = Σw``, ``Sx = Σwx``,
@@ -114,9 +114,9 @@ affine fit through three anchors). The quantile travels with the fit
 **The quadrature band** is built in ``z``, where the fit is linear: with
 ``u = x²``, ``ẑ = A·u + B`` and ``g = (u, 1)`` the 95% band of ``z`` is
 ``ẑ ± q·√(gᵀΣg)``, and it is returned as ``(√max(ẑ, 0), √max(ẑ − h, 0),
-√max(ẑ + h, 0))``. The interval of ``z`` is pointwise and ``√`` is monotone on
-``z ≥ 0``, so this is the exact 95% band of ``√(A/E + B)``, with no delta
-method; where ``ẑ − h < 0`` the lower edge is cut at zero, because a
+√max(ẑ + h, 0))``. The band is built in ``z``, where the fit is linear, and
+``√`` is monotone on ``z ≥ 0``, so its root is the 95% band of
+``√(A/E + B)``; where ``ẑ − h < 0`` the lower edge is cut at zero, because a
 resolution cannot be negative. At ``x = 0`` (E → ∞) it is ``√B``'s interval.
 
 **The noise form** (:data:`FORM_NOISE`; Martin's decisions, 2026-11-13). The
@@ -162,11 +162,28 @@ is the fit's.
 spends no degree of freedom. Three windows fitted by three free terms pass
 through their points (ν = 0, no χ² test), as two windows do for a two-term form.
 
-*The conditional band.* ``ẑ ± q·√(gᵀΣg)`` with ``g = (u, 1, u²)``, taken
-through ``√`` as the quadrature band is. ``Σ`` is zero on the held rows and
-columns, so the band is conditional on the held terms being 0: it carries the
-free terms' uncertainty, not the chance that a held term is in fact positive.
-The card says so wherever a term is held.
+*The band, an envelope where a term is held* (Martin's decision FX1,
+2026-11-13, after the review). ``ẑ ± q·√(gᵀΣg)`` with ``g = (u, 1, u²)``,
+built in z where the fit is linear and taken through ``√`` as the quadrature
+band is. ``Σ`` is zero on the held rows and columns, so on its own that band is
+conditional on the held terms being 0: it carries the free terms' uncertainty,
+not the chance that a held term is in fact positive. The review measured what
+that costs (2026-11-13; synthetic replicas of the real pion median windows from
+1 GeV at their real N, relative noise κ = 1.3/√N, 2,000 replicas a case): where
+c was held but truly 22.6 %·GeV the conditional band covered the true σ/E at
+1 GeV in 0.037 of the replicas, and where b was held but truly 3 % in 0.000 at
+50–80 GeV. So wherever a term is held the band is the **envelope in z** of
+that conditional band and the band of the **all-free face**: ``(A, B, C)``
+unconstrained, a square allowed negative, solved once at the constrained fit's
+final weights (:attr:`Fit.free_theta`, :attr:`Fit.free_cov_stat`) and taken
+with the same S and the same quantile. ``z_lo = min(ẑ − h, ẑ_free − h_free)``
+and ``z_hi = max(ẑ + h, ẑ_free + h_free)``, through ``√`` with the lower edge
+cut at 0; the drawn line stays the constrained ``ẑ``. On the same replicas the
+envelope covers 0.958–0.978 at every E and case, and inside the fitted span it
+is a median 1.00–1.10 times as wide as the conditional band. With nothing held,
+or a free face whose normal matrix is singular (judged as :func:`_solve_face`
+judges every face), the band is the conditional one, and where a term is held
+the card then says it is conditional.
 
 Pure NumPy. Every input and output here is a fraction (``r`` = 0.12, not
 12 %); the query module converts to percent for the wire.
@@ -175,8 +192,8 @@ Pure NumPy. Every input and output here is a fraction (``r`` = 0.12, not
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import dataclass, replace
+from typing import Callable, Sequence
 
 import numpy as np
 
@@ -387,7 +404,15 @@ def wls_noise(u: np.ndarray, z: np.ndarray, w: np.ndarray
 class Fit:
     """One fitted form. Parameters are fractions: affine ``(a, b)``, pinned ``(a₀,)``,
     quadrature ``(A, B)`` of ``r² = A·x² + B``, noise ``(A, B, C)`` of
-    ``r² = A·x² + B + C·x⁴``, each ≥ 0 and exactly 0 where the constraint holds it."""
+    ``r² = A·x² + B + C·x⁴``, each ≥ 0 and exactly 0 where the constraint holds it.
+
+    A noise fit that holds a term also carries its **all-free face**:
+    ``free_theta``, ``(A, B, C)`` solved without the constraint (a square may be
+    negative) at the fit's final weights, and its WLS covariance
+    ``free_cov_stat``; the band is the envelope of the two (the module
+    docstring). Both are ``None`` for every other form, for a noise fit that
+    holds nothing, and where that face's normal matrix is singular.
+    """
 
     form: str
     n_points: int
@@ -399,11 +424,18 @@ class Fit:
     scale_factor: float
     iterations: int
     converged: bool
+    free_theta: tuple[float, ...] | None = None
+    free_cov_stat: np.ndarray | None = None    # the free face's WLS covariance, before S
 
     @property
     def cov(self) -> np.ndarray:
         """The reported covariance: the WLS one times S²."""
         return self.cov_stat * self.scale_factor ** 2
+
+    @property
+    def free_cov(self) -> np.ndarray | None:
+        """The all-free face's covariance times the fit's own S² (``None`` without the face)."""
+        return None if self.free_cov_stat is None else self.free_cov_stat * self.scale_factor ** 2
 
     @property
     def se(self) -> tuple[float, ...]:
@@ -622,6 +654,12 @@ def fit_noise(x, r, n, kappa=None) -> Fit | None:
     ``ŷ = √ẑ`` (``2κ·ŷ²`` under the κ law; ``kappa`` as :func:`fit_affine`'s),
     each solved by :func:`wls_noise`. The final θ is the last refit's, so a held
     term is exactly 0, and ``ν = n −`` the free terms (the module docstring).
+
+    Where a term is held, the all-free face, ``(A, B, C)`` with no constraint,
+    is solved once at the final weights (the ``w`` of :func:`_iterate`, the
+    weights of the returned θ and of χ²) and kept as ``free_theta`` and
+    ``free_cov_stat`` for the band's envelope; ``None`` when its normal matrix
+    is singular, as :func:`_solve_face` judges every face.
     """
     if len(x) < MIN_POINTS[FORM_NOISE]:
         return None
@@ -641,8 +679,15 @@ def fit_noise(x, r, n, kappa=None) -> Fit | None:
     if out is None:
         return None
     theta, cov, w, iterations, converged = out
-    return _finish(FORM_NOISE, theta, cov, z - model(theta), w, iterations, converged,
-                   free=int(np.count_nonzero(theta)))
+    fit = _finish(FORM_NOISE, theta, cov, z - model(theta), w, iterations, converged,
+                  free=int(np.count_nonzero(theta)))
+    if not fit.held:
+        return fit
+    face = _solve_face(_noise_basis(u), z, w)
+    if face is None:
+        return fit
+    free_theta, free_cov = face
+    return replace(fit, free_theta=tuple(float(t) for t in free_theta), free_cov_stat=free_cov)
 
 
 @dataclass(frozen=True)
@@ -679,6 +724,38 @@ def quadrature_terms(fit: Fit) -> QuadratureTerms:
     )
 
 
+def _correlations(cov: np.ndarray, free: Sequence[bool] = (True, True, True)
+                  ) -> dict[str, float | None]:
+    """``a2b2``, ``a2c2`` and ``b2c2`` of a 3 × 3 covariance; ``None`` where either term is not free."""
+    var = np.diag(cov)
+
+    def rho(i: int, j: int) -> float | None:
+        if not (free[i] and free[j] and var[i] > 0 and var[j] > 0):
+            return None
+        return float(cov[i, j] / math.sqrt(var[i] * var[j]))
+
+    return {"a2b2": rho(0, 1), "a2c2": rho(0, 2), "b2c2": rho(1, 2)}
+
+
+@dataclass(frozen=True)
+class NoiseFreeFace:
+    """The all-free face of a noise fit that holds a term: ``A``, ``B``, ``C`` unconstrained.
+
+    A square may be negative here: it is the fit with no constraint, at the
+    constrained fit's final weights, which the band's envelope takes. The SEs
+    are scaled by the constrained fit's S, and ``rho`` is from the unscaled
+    covariance (S cancels in it).
+    """
+
+    a2: float
+    b2: float
+    c2: float
+    se_a2: float
+    se_b2: float
+    se_c2: float
+    rho: dict[str, float | None]
+
+
 @dataclass(frozen=True)
 class NoiseTerms:
     """The noise fit's terms: ``a = √A``, ``b = √B``, ``c = √C`` with delta-method SEs.
@@ -686,7 +763,9 @@ class NoiseTerms:
     A held term is 0 with no SE (``None``): it was not estimated. ``rho`` holds
     the correlations ``a2b2``, ``a2c2`` and ``b2c2`` of the squares, from the
     unscaled covariance (S cancels in them), each ``None`` when either term is
-    held. SEs are the scaled ones (``Fit.se``).
+    held. SEs are the scaled ones (``Fit.se``). ``free`` is the all-free face
+    the band's envelope takes (:class:`NoiseFreeFace`), ``None`` when nothing is
+    held or that face is singular.
     """
 
     a: float
@@ -703,6 +782,7 @@ class NoiseTerms:
     se_c2: float | None
     held: tuple[str, ...]
     rho: dict[str, float | None]
+    free: NoiseFreeFace | None = None
 
 
 def noise_terms(fit: Fit) -> NoiseTerms:
@@ -715,18 +795,18 @@ def noise_terms(fit: Fit) -> NoiseTerms:
     roots = [math.sqrt(v) if ok else 0.0 for v, ok in zip(squares, free)]
     se_sq = [se if ok else None for se, ok in zip(fit.se, free)]
     se_root = [None if s is None else s / (2.0 * root) for s, root in zip(se_sq, roots)]
-    var = np.diag(fit.cov_stat)
-
-    def rho(i: int, j: int) -> float | None:
-        if not (free[i] and free[j] and var[i] > 0 and var[j] > 0):
-            return None
-        return float(fit.cov_stat[i, j] / math.sqrt(var[i] * var[j]))
-
+    face = None
+    if fit.free_theta is not None and fit.free_cov_stat is not None:
+        se_free = [float(math.sqrt(max(v, 0.0))) for v in np.diag(fit.free_cov)]
+        face = NoiseFreeFace(
+            a2=float(fit.free_theta[0]), b2=float(fit.free_theta[1]), c2=float(fit.free_theta[2]),
+            se_a2=se_free[0], se_b2=se_free[1], se_c2=se_free[2],
+            rho=_correlations(fit.free_cov_stat))
     return NoiseTerms(
         a=roots[0], b=roots[1], c=roots[2], se_a=se_root[0], se_b=se_root[1], se_c=se_root[2],
         a2=squares[0], b2=squares[1], c2=squares[2],
         se_a2=se_sq[0], se_b2=se_sq[1], se_c2=se_sq[2], held=held,
-        rho={"a2b2": rho(0, 1), "a2c2": rho(0, 2), "b2c2": rho(1, 2)},
+        rho=_correlations(fit.cov_stat, free), free=face,
     )
 
 
@@ -739,8 +819,11 @@ def band(fit: Fit, xs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     ``z = r²`` against ``u = x²``, taken through ``√`` (the module docstring):
     ``(√max(ẑ, 0), √max(ẑ − h, 0), √max(ẑ + h, 0))``, the lower edge cut at 0
     where ``ẑ − h < 0``. Noise is the same in ``z = A·u + B + C·u²`` with
-    ``g = (u, 1, u²)``; its covariance is zero on the held rows, so its band is
-    conditional on the held terms.
+    ``g = (u, 1, u²)``, its covariance zero on the held rows; where the fit
+    holds a term and carries its all-free face, the band is the envelope in z
+    of that conditional band and the free face's band, at the same S and
+    quantile: ``z_lo = min(ẑ − h, ẑ_free − h_free)``, ``z_hi = max(ẑ + h,
+    ẑ_free + h_free)``. The line stays the constrained ``ẑ``.
     """
     xs = np.asarray(xs, dtype=np.float64)
     q = fit.band_quantile
@@ -753,8 +836,15 @@ def band(fit: Fit, xs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             g = np.stack([u, np.ones_like(u)], axis=1)
             zhat = fit.theta[0] * u + fit.theta[1]
         half = q * np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", g, fit.cov, g), 0.0))
-        return (np.sqrt(np.maximum(zhat, 0.0)), np.sqrt(np.maximum(zhat - half, 0.0)),
-                np.sqrt(np.maximum(zhat + half, 0.0)))
+        z_lo, z_hi = zhat - half, zhat + half
+        if fit.form == FORM_NOISE and fit.free_theta is not None:
+            free = fit.free_theta
+            z_free = free[0] * u + free[1] + free[2] * u * u
+            half_free = q * np.sqrt(np.maximum(np.einsum("ij,jk,ik->i", g, fit.free_cov, g), 0.0))
+            z_lo = np.minimum(z_lo, z_free - half_free)
+            z_hi = np.maximum(z_hi, z_free + half_free)
+        return (np.sqrt(np.maximum(zhat, 0.0)), np.sqrt(np.maximum(z_lo, 0.0)),
+                np.sqrt(np.maximum(z_hi, 0.0)))
     if fit.form == FORM_AFFINE:
         g = np.stack([xs, np.ones_like(xs)], axis=1)
     elif fit.form == FORM_PINNED:

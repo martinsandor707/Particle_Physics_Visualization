@@ -701,8 +701,7 @@
        ]
       ],
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -848,8 +847,7 @@
        ]
       ],
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.0187/1, p = 0.891."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -867,10 +865,7 @@
        "se_a2": 156023.0,
        "a_defined": true,
        "se_a_stat": 5686050000.0,
-       "se_b_stat": 156.112,
-       "se_a2_stat": 156023.0,
-       "se_b2_stat": 15816.1,
-       "rho_a2b2": -0.991261
+       "se_b_stat": 156.112
       },
       "chi2": 1.58792e-28,
       "p_value": null,
@@ -880,8 +875,7 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "misfit": false
      },
      "span_gev": [
       7.0,
@@ -906,13 +900,13 @@
        "b2": 2566.09,
        "c2": 0.0,
        "se_a2": null,
-       "se_b2": 1745.59,
+       "se_b2": 1747.1,
        "se_c2": null,
        "a": 0.0,
        "b": 50.6565,
        "c": 0.0,
        "se_a": null,
-       "se_b": 17.2297,
+       "se_b": 17.2446,
        "se_c": null,
        "held": [
         "a",
@@ -922,17 +916,29 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
+       },
+       "free": {
+        "a2": -2.96844e-09,
+        "b2": 2566.09,
+        "c2": 1.77587e-09,
+        "se_a2": 217126.0,
+        "se_b2": 19172.6,
+        "se_c2": 267838.0,
+        "rho": {
+         "a2b2": -0.993806,
+         "a2c2": -0.999586,
+         "b2c2": 0.991565
+        }
        }
       },
-      "chi2": 0.0,
+      "chi2": 1.00954e-31,
       "p_value": 1.0,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
       "band_quantile": 1.95996,
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a/√E ⊕ b ⊕ c/E over 3 windows, 1–11 GeV: χ²/ν = 0/2. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+      "misfit": false
      },
      "noise_reason": null
     },
@@ -1093,8 +1099,7 @@
        ]
       ],
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -1240,8 +1245,7 @@
        ]
       ],
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.0187/1, p = 0.891."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -1259,10 +1263,7 @@
        "se_a2": 156023.0,
        "a_defined": true,
        "se_a_stat": 5686050000.0,
-       "se_b_stat": 156.112,
-       "se_a2_stat": 156023.0,
-       "se_b2_stat": 15816.1,
-       "rho_a2b2": -0.991261
+       "se_b_stat": 156.112
       },
       "chi2": 1.58792e-28,
       "p_value": null,
@@ -1272,8 +1273,7 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "misfit": false
      },
      "span_gev": [
       7.0,
@@ -1298,13 +1298,13 @@
        "b2": 2566.09,
        "c2": 0.0,
        "se_a2": null,
-       "se_b2": 1745.59,
+       "se_b2": 1747.1,
        "se_c2": null,
        "a": 0.0,
        "b": 50.6565,
        "c": 0.0,
        "se_a": null,
-       "se_b": 17.2297,
+       "se_b": 17.2446,
        "se_c": null,
        "held": [
         "a",
@@ -1314,17 +1314,29 @@
         "a2b2": null,
         "a2c2": null,
         "b2c2": null
+       },
+       "free": {
+        "a2": -2.96844e-09,
+        "b2": 2566.09,
+        "c2": 1.77587e-09,
+        "se_a2": 217126.0,
+        "se_b2": 19172.6,
+        "se_c2": 267838.0,
+        "rho": {
+         "a2b2": -0.993806,
+         "a2c2": -0.999586,
+         "b2c2": 0.991565
+        }
        }
       },
-      "chi2": 0.0,
+      "chi2": 1.00954e-31,
       "p_value": 1.0,
       "scale_factor": 1.0,
       "iterations": 1,
       "converged": true,
       "band_quantile": 1.95996,
       "provisional": false,
-      "misfit": false,
-      "note": "median rel. = a/√E ⊕ b ⊕ c/E over 3 windows, 1–11 GeV: χ²/ν = 0/2. a = 0 and c = 0, held there by the constraints a² ≥ 0 and c² ≥ 0."
+      "misfit": false
      },
      "noise_reason": null
     }
@@ -1342,7 +1354,9 @@
    "weight_scale": {
     "c": 4.81013,
     "n_windows": 2,
-    "rule": "c is the median of √N·κ over this series' windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE (at least 10⁻⁶); the fits weight window k by se = c·ŷ/√N."
+    "c_low": 4.82401,
+    "n_low": 1,
+    "rule": "c is the median of √N·κ over this series' windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE (at least 10⁻⁶); the fits weight window k by se = c·ŷ/√N. The a/√E ⊕ b ⊕ c/E fit weights a window from 4 GeV by se = c·ŷ/√N and a window below 4 GeV by se = c_low·ŷ/√N, c_low the median of √N·κ over this series' windows of 1–4 GeV with N ≥ 20 and a fit weight, whatever the mode, so the low anchor never sets its own weight."
    }
   },
   {
@@ -1759,8 +1773,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -1906,8 +1919,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.861/1, p = 0.353. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -1925,10 +1937,7 @@
        "se_a2": 129.952,
        "a_defined": true,
        "se_a_stat": 5.96971,
-       "se_b_stat": null,
-       "se_a2_stat": 129.952,
-       "se_b2_stat": 12.5438,
-       "rho_a2b2": -0.996561
+       "se_b_stat": null
       },
       "chi2": 3.22459e-27,
       "p_value": null,
@@ -1938,8 +1947,7 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "span_gev": [
       7.0,
@@ -1960,36 +1968,48 @@
       ],
       "low_anchor": 1,
       "params": {
-       "a2": 18.92,
-       "b2": 1.3424,
+       "a2": 19.0861,
+       "b2": 1.3232,
        "c2": 0.0,
-       "se_a2": 15.2064,
-       "se_b2": 2.36444,
+       "se_a2": 15.716,
+       "se_b2": 2.39622,
        "se_c2": null,
-       "a": 4.34971,
-       "b": 1.15862,
+       "a": 4.36876,
+       "b": 1.1503,
        "c": 0.0,
-       "se_a": 1.74798,
-       "se_b": 1.02037,
+       "se_a": 1.79868,
+       "se_b": 1.04156,
        "se_c": null,
        "held": [
         "c"
        ],
        "rho": {
-        "a2b2": -0.761788,
+        "a2b2": -0.769542,
         "a2c2": null,
         "b2c2": null
+       },
+       "free": {
+        "a2": 155.722,
+        "b2": -10.8768,
+        "c2": -164.827,
+        "se_a2": 137.537,
+        "se_b2": 12.4331,
+        "se_c2": 164.827,
+        "rho": {
+         "a2b2": -0.991772,
+         "a2c2": -0.99345,
+         "b2c2": 0.981252
+        }
        }
       },
-      "chi2": 1.53545,
-      "p_value": 0.215297,
-      "scale_factor": 1.23913,
+      "chi2": 1.53192,
+      "p_value": 0.215824,
+      "scale_factor": 1.23771,
       "iterations": 12,
       "converged": true,
       "band_quantile": 12.706,
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a/√E ⊕ b ⊕ c/E over 3 windows, 1–11 GeV: χ²/ν = 1.54/1. c = 0, held there by the constraint c² ≥ 0."
+      "misfit": false
      },
      "noise_reason": null
     },
@@ -2150,8 +2170,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "pinned": {
       "form": "pinned",
@@ -2297,8 +2316,7 @@
        ]
       ],
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.861/1, p = 0.353. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "quadrature": {
       "form": "quadrature",
@@ -2316,10 +2334,7 @@
        "se_a2": 129.952,
        "a_defined": true,
        "se_a_stat": 5.96971,
-       "se_b_stat": null,
-       "se_a2_stat": 129.952,
-       "se_b2_stat": 12.5438,
-       "rho_a2b2": -0.996561
+       "se_b_stat": null
       },
       "chi2": 3.22459e-27,
       "p_value": null,
@@ -2329,8 +2344,7 @@
       "band_quantile": 1.95996,
       "curve": null,
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = √(a²/E + b²), fitted as (median rel.)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "misfit": false
      },
      "span_gev": [
       7.0,
@@ -2351,36 +2365,48 @@
       ],
       "low_anchor": null,
       "params": {
-       "a2": 18.92,
-       "b2": 1.3424,
+       "a2": 19.0861,
+       "b2": 1.3232,
        "c2": 0.0,
-       "se_a2": 15.2064,
-       "se_b2": 2.36444,
+       "se_a2": 15.716,
+       "se_b2": 2.39622,
        "se_c2": null,
-       "a": 4.34971,
-       "b": 1.15862,
+       "a": 4.36876,
+       "b": 1.1503,
        "c": 0.0,
-       "se_a": 1.74798,
-       "se_b": 1.02037,
+       "se_a": 1.79868,
+       "se_b": 1.04156,
        "se_c": null,
        "held": [
         "c"
        ],
        "rho": {
-        "a2b2": -0.761788,
+        "a2b2": -0.769542,
         "a2c2": null,
         "b2c2": null
+       },
+       "free": {
+        "a2": 155.722,
+        "b2": -10.8768,
+        "c2": -164.827,
+        "se_a2": 137.537,
+        "se_b2": 12.4331,
+        "se_c2": 164.827,
+        "rho": {
+         "a2b2": -0.991772,
+         "a2c2": -0.99345,
+         "b2c2": 0.981252
+        }
        }
       },
-      "chi2": 1.53545,
-      "p_value": 0.215297,
-      "scale_factor": 1.23913,
+      "chi2": 1.53192,
+      "p_value": 0.215824,
+      "scale_factor": 1.23771,
       "iterations": 12,
       "converged": true,
       "band_quantile": 12.706,
       "provisional": true,
-      "misfit": false,
-      "note": "median rel. = a/√E ⊕ b ⊕ c/E over 3 windows, 1–11 GeV: χ²/ν = 1.54/1. c = 0, held there by the constraint c² ≥ 0."
+      "misfit": false
      },
      "noise_reason": null
     }
@@ -2398,7 +2424,9 @@
    "weight_scale": {
     "c": 0.986898,
     "n_windows": 2,
-    "rule": "No window of N ≥ 20 from 4 GeV carries a fit weight, so c is the median of √N·κ over its windows of N ≥ 8 from 4 GeV with one, the windows its provisional fits draw on; the fits weight window k by se = c·ŷ/√N."
+    "c_low": 1.01604,
+    "n_low": 1,
+    "rule": "No window of N ≥ 20 from 4 GeV carries a fit weight, so c is the median of √N·κ over its windows of N ≥ 8 from 4 GeV with one, the windows its provisional fits draw on; the fits weight window k by se = c·ŷ/√N. The a/√E ⊕ b ⊕ c/E fit weights a window from 4 GeV by se = c·ŷ/√N and a window below 4 GeV by se = c_low·ŷ/√N; no window of 1–4 GeV with N ≥ 20 carries a fit weight, so c_low is the median of √N·κ over its windows of 1–4 GeV with N ≥ 8 and one."
    }
   }
  ],
@@ -2431,7 +2459,6 @@
   "E on both axes is the incident momentum p as the producer writes it. For a massive species √(p² + m²) differs from p by at most m²/2p², 1.7% for a proton at 5 GeV/c.",
   "The median rel. is reported from N = 2; a window is drawn with its whisker from N = 8 (its order-statistic interval exists from N = 6), and enters the fits and sets the y range from N = 20 and p ≥ 4 GeV.",
   "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights 1/se², se = c·ŷ/√N taken at the fitted value ŷ and iterated (half steps once the refits oscillate; the first fit takes c·value/√N), with c the series' pooled scale (weight_scale): the median of √N·κ over its windows of N ≥ 20 from 4 GeV with a fit weight, κ = SE/value each window's bootstrap relative SE. One c per series cancels in the fitted parameters and sets only χ², S and the errors; a window's own κ would put its measured value back into its weight, and bias the fits upward. χ², ν = n − p and its p-value. Where χ²/ν > 1 the standard errors and the 95% band are scaled by S = √(χ²/ν) (PDG), and the band then takes Student's t₀.₉₇₅,ν rather than 1.96, since S is estimated from the fit's own ν. The band is the 95% confidence band of the line, not the spread of the events. The quadrature form √(a²/E + b²) is fitted as (median rel.)² = A/E + B and tabled, not drawn. The forms describe the median relative error: their parameters are not the stochastic, constant and noise terms of a resolution.",
-  "a/√E ⊕ b ⊕ c/E, the E view's second curve: (median rel.)² = A/E + B + C/E² fitted by weighted least squares with A, B, C ≥ 0 (a term the constraint holds at 0 is named), through every fittable window from 1 GeV, or in the 3-anchor mode through the anchors and the lowest fittable window from 1 GeV. Below 1 GeV a window's momenta reach nearly zero, so no single abscissa carries its average of 1/E².",
   "A fit whose residuals average more than 5 of the windows' own standard errors (ν ≥ 1 and S = √(χ²/ν) > 5) has a form that does not describe its windows: it is drawn faded, as a provisional fit is, and said so in its tooltip, the fit table and the drawer. The size of the misfit decides, not the χ² p-value: a window of hundreds of events has so small a standard error that the test rejects a form for misfits no reader could see.",
   "Anchors: the lowest bin from 5 GeV (below it the sampling fraction is still rising), the highest bin and the bin between them nearest in log E to the geometric mean of their centres, chosen on the whole table so they do not move with the selection. A fittable window holds N ≥ 20, lies from 4 GeV and carries a fit weight (a bootstrap SE of at least 10⁻⁶ of its value). A series whose anchor window is not fittable takes its nearest fittable window from 5 GeV in log E instead, and the substitution says why the anchor was not; with fewer than two such windows its fit runs through windows of N ≥ 8 and is provisional. The other mode fits every fittable window from 4 GeV, the 4–5 GeV window included, below the anchors' floor.",
   "The top axis is an exact relabelling of the bottom one, E = 1/x²: a deterministic unit conversion, and no data are plotted against it.",
