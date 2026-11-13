@@ -705,7 +705,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "pinned": {
       "form": "pinned",
@@ -852,7 +852,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (4 refits). χ²/ν = 0.222/1, p = 0.637."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (4 refits). χ²/ν = 0.222/1, p = 0.637."
      },
      "quadrature": {
       "form": "quadrature",
@@ -884,7 +884,7 @@
       "curve": null,
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "span_gev": [
       7.0,
@@ -1096,7 +1096,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "pinned": {
       "form": "pinned",
@@ -1243,7 +1243,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (4 refits). χ²/ν = 0.222/1, p = 0.637."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (4 refits). χ²/ν = 0.222/1, p = 0.637."
      },
      "quadrature": {
       "form": "quadrature",
@@ -1275,7 +1275,7 @@
       "curve": null,
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "span_gev": [
       7.0,
@@ -1766,7 +1766,7 @@
       ],
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "pinned": {
       "form": "pinned",
@@ -1913,7 +1913,7 @@
       ],
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
       "form": "quadrature",
@@ -1945,7 +1945,7 @@
       "curve": null,
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "span_gev": [
       7.0,
@@ -2158,7 +2158,7 @@
       ],
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. b < 0: the points fall faster than a/√E; the line is drawn down to zero. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "pinned": {
       "form": "pinned",
@@ -2305,7 +2305,7 @@
       ],
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (18 refits). χ²/ν = 24.5/1, p = 7.54e−07. χ²/ν > 1, so the standard errors and the band are scaled by S = 4.95 (PDG), and the band takes Student's t₀.₉₇₅,1 = 12.71 for the variance scale S² estimated from ν = 1; the unscaled errors are the _stat fields. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "quadrature": {
       "form": "quadrature",
@@ -2337,7 +2337,7 @@
       "curve": null,
       "provisional": true,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se² with se recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. B ≤ 0, so b = √B is undefined; B is reported with its standard error. Provisional: fewer than two windows reach N = 20, so it runs through windows of N ≥ 8."
      },
      "span_gev": [
       7.0,

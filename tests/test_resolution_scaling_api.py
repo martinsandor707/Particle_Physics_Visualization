@@ -708,9 +708,11 @@ def test_every_kind_holds_under_every_estimator(synthetic_client, estimator):
                 fit = mode[form]
                 if fit is None:
                     continue
-                weight = "se = c·ŷ/√N" if estimator != "sample" else "with se recomputed at the fitted"
-                assert weight in fit["note"]
+                # The weight law is the "Fits:" note's, stated once (the lead's trim of 2026-11-13).
+                assert "se = c·ŷ/√N" not in fit["note"] and "recomputed at the fitted" not in fit["note"]
                 assert fit["note"].startswith(rs.ESTIMATOR_SYMBOLS[estimator])
+    (fits_note,) = [n for n in body["notes"] if n.startswith("Fits: ")]
+    assert ("se = c·ŷ/√N" in fits_note) == (estimator != "sample")
 
 
 def test_the_estimator_defaults_to_median(synthetic_client):

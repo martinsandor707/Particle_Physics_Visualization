@@ -690,7 +690,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "pinned": {
       "form": "pinned",
@@ -837,7 +837,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.00232/1, p = 0.962."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.00232/1, p = 0.962."
      },
      "quadrature": {
       "form": "quadrature",
@@ -869,7 +869,7 @@
       "curve": null,
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
      },
      "span_gev": [
       7.0,
@@ -1082,7 +1082,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a/√E + b: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
+      "note": "σ/E = a/√E + b: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test."
      },
      "pinned": {
       "form": "pinned",
@@ -1229,7 +1229,7 @@
       ],
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (2 refits). χ²/ν = 0.00232/1, p = 0.962."
+      "note": "σ/E = a₀/√E, through the origin: weighted least squares over 2 windows (2 refits). χ²/ν = 0.00232/1, p = 0.962."
      },
      "quadrature": {
       "form": "quadrature",
@@ -1261,7 +1261,7 @@
       "curve": null,
       "provisional": false,
       "misfit": false,
-      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows, weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the fitted value (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
+      "note": "σ/E = √(a²/E + b²), fitted as (σ/E)² = A/E + B: weighted least squares over 2 windows (1 refit). ν = 0: the fit passes through its points exactly, so there is no χ² test. A ≤ 0, so a = √A is undefined; A is reported with its standard error."
      },
      "span_gev": [
       7.0,

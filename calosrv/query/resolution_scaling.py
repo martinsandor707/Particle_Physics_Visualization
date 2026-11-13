@@ -1257,15 +1257,9 @@ def _curve(fit: rfit.Fit, points: int) -> list[list[float]]:
             for a, b, c, d in zip(xs, y, lo, hi)]
 
 
-#: How a fit's note names its weights, per law (``WEIGHT_METHODS``).
-_WEIGHT_WORDS: dict[str, str] = {
-    "delta": "weights 1/se² with se recomputed at the fitted value",
-    "kappa": ("weights 1/se², se = c·ŷ/√N with c the series' pooled scale, recomputed at the "
-              "fitted value"),
-}
-
-
 def _fit_note(fit: rfit.Fit, provisional: bool, estimator: str = SAMPLE) -> str:
+    """One fit's own facts. The weight law is the payload's "Fits:" note, stated once, not in every fit
+    (24 copies in a two-shower body cost 2.3 KB of the 100 KB contract; measured 2026-11-13)."""
     symbol = ESTIMATOR_SYMBOLS[estimator]
     equation = {
         rfit.FORM_AFFINE: f"{symbol} = a/√E + b",
@@ -1273,7 +1267,7 @@ def _fit_note(fit: rfit.Fit, provisional: bool, estimator: str = SAMPLE) -> str:
         rfit.FORM_QUADRATURE: f"{symbol} = √(a²/E + b²), fitted as ({symbol})² = A/E + B",
     }[fit.form]
     parts = [f"{equation}: weighted least squares over {fit.n_points} window"
-             f"{'s' if fit.n_points != 1 else ''}, {_WEIGHT_WORDS[WEIGHT_METHODS[estimator]]} "
+             f"{'s' if fit.n_points != 1 else ''} "
              f"({fit.iterations} refit{'s' if fit.iterations != 1 else ''}"
              f"{'' if fit.converged else ', not converged'})."]
     if fit.ndf == 0:
@@ -1592,8 +1586,8 @@ _FITS_NOTES: dict[str, str] = {
         "Fits: a/√E + b and a₀/√E through the origin, by weighted least squares with weights "
         + _POOLED_WORDS + " "
         + _FIT_TAIL + " The quadrature form √(a²/E + b²) is fitted as (median rel.)² = A/E + B "
-        "and tabled, not drawn. The three forms describe the median relative error: their "
-        "parameters are not the stochastic and constant terms of a resolution."),
+        "and tabled, not drawn. The forms describe the median relative error: their "
+        "parameters are not the stochastic, constant and noise terms of a resolution."),
 }
 
 
