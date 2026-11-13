@@ -779,7 +779,7 @@ function unreportedLines(w, s, gates) {
 /** The payload notes the builder states itself, from structure, in the section they belong to. */
 function restatedNote(line, labels) {
   return labels.some((label) => line.startsWith(`${label} (`))
-    || /^Off the axis:|^The y range follows|^The y range is provisional:|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median/.test(line)
+    || /^Off the axis:|^The y range follows|^The y range is provisional:|^E on both axes|^The top axis is an exact|^Anchors:|^Fits:|^σ\/E is reported from|median response R̃ − 1 from|^A regressor trained on a bounded|^For unbiased Gaussian errors median|^a\/√E ⊕ b ⊕ c\/E, the E view's second curve/.test(line)
     // The median calibration c̃ (calibrationLines), the robust floor count (robustFloorLine) and the tied windows (noWeightLines).
     || /: c̃ = 1 \/ median\(E_dep \/ p\) = .* so the deposit's median response over them is 1/.test(line)
     || /^[\d,]+ of the [\d,]+ windows across the series hold N < /.test(line)
@@ -819,11 +819,177 @@ function resSelectionLines(payload, state, experiment, model, shower) {
 /** A fitted span as the panel words it: "5–20 GeV". */
 const spanGeV = (span) => (span ? `${formatNumber(span[0])}–${formatNumber(span[1])} GeV` : 'no window');
 
-/** The two forms the E view draws, as the drawer names them. */
+/** The E view's three-term form, as every sentence names it (brief res-noise §8). */
+const NOISE_FORM = 'a/√E ⊕ b ⊕ c/E';
+
+/**
+ * The forms the E view's drawer names: the two it draws (a₀/√E and the
+ * three-term form) and the quadrature fit, which it tables only.
+ */
 const ENERGY_FORM_NAMES = Object.freeze({
   quadrature: 'quadrature fit a/√E ⊕ b',
   pinned: 'origin-pinned fit a₀/√E ⊕ 0',
+  noise: `${NOISE_FORM} fit`,
 });
+
+/** A form as a short list names it: "a/√E ⊕ b", "a/√E ⊕ b ⊕ c/E" or "a₀/√E ⊕ 0". */
+function energyFormShort(form) {
+  if (form === 'quadrature') return 'a/√E ⊕ b';
+  if (form === 'noise') return NOISE_FORM;
+  return 'a₀/√E ⊕ 0';
+}
+
+/*
+ * The three-term fit is read from the payload alone (`fits[mode].noise`,
+ * `noise_reason`, `gates.noise_min_gev`), never from the panel's model, which
+ * draws it: the drawer states what the server fitted, and the panel's own
+ * fields for it may change without the drawer having to follow.
+ */
+
+/** A model series' a/√E ⊕ b ⊕ c/E block in `mode` (its payload series' `fits[mode].noise`), or null. */
+const noiseFitOf = (s, mode) => s?.raw?.fits?.[mode]?.noise ?? null;
+
+/** Why a model series has no a/√E ⊕ b ⊕ c/E fit in `mode` (the server's `noise_reason`), or null. */
+const noiseReasonOf = (s, mode) => s?.raw?.fits?.[mode]?.noise_reason ?? null;
+
+/** The lowest window edge the three-term fit uses, GeV: the server's `noise_min_gev` (1). */
+function noiseMinGev(payload) {
+  const g = payload?.gates?.noise_min_gev;
+  if (Number.isFinite(g)) return g;
+  const e = payload?.axis?.energy?.noise_min_gev;
+  return Number.isFinite(e) ? e : 1;
+}
+
+/** "a", "a and c", "a, b and c". */
+function andList(xs) {
+  return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+}
+
+/** The terms a three-term fit holds at 0, in the order a, b, c (the server's `params.held`). */
+function heldTerms(fit) {
+  const held = fit?.params?.held;
+  return Array.isArray(held) ? ['a', 'b', 'c'].filter((t) => held.includes(t)) : [];
+}
+
+/**
+ * A series' held terms, as the Disclosures line words them: "b held at 0 by the
+ * constraint b² ≥ 0; its band is conditional on it". c is named as the noise
+ * term c/E, never a bare c, which the drawer also uses for the calibration
+ * c·E_dep and the pooled scale.
+ */
+function heldLine(label, held) {
+  const name = (t) => (t === 'c' ? 'the noise term c/E' : t);
+  const one = held.length === 1;
+  return `${label}: ${andList(held.map(name))} held at 0 by the constraint${one ? '' : 's'} ${andList(held.map((t) => `${t}² ≥ 0`))}; `
+    + `its band is conditional on ${one ? 'it' : 'them'}.`;
+}
+
+/** A window's label in a payload series, by bin: "3–4 GeV". */
+function binLabelOf(raw, bin) {
+  const w = (raw?.windows ?? []).find((x) => x.bin === bin);
+  return w?.label ?? `bin ${bin}`;
+}
+
+/**
+ * The largest |ρ| among a drawn three-term fit's squares from which the
+ * drawer calls them strongly correlated (the brief's §11 sentence); below it
+ * the sentence gives the largest |ρ| instead, since a recording whose terms
+ * correlate at −0.3 is not strongly correlated.
+ */
+const STRONG_RHO = 0.7;
+
+/** "three", "two": a small count in words, as the brief's low-anchor sentence writes it. */
+const COUNT_WORDS = Object.freeze(['no', 'one', 'two', 'three', 'four', 'five']);
+const countWord = (n) => COUNT_WORDS[n] ?? formatInt(n);
+
+/**
+ * The energy at which an a/√E ⊕ b ⊕ c/E curve comes down into the plot from its
+ * top `hi` (%), in GeV: the root of C·u² + A·u + (B − hi²) = 0 in u = 1/E.
+ * {E, term} with `term` the term that dominates as E → 0 ('c' when C > 0, else
+ * 'a'); {E: Infinity} when the curve lies above the top at every E (B ≥ hi²
+ * and the curve never falls below it); null when it never leaves the plot
+ * (A = C = 0 and B < hi²).
+ */
+function noiseEntry(fit, hi) {
+  const p = fit?.params ?? {};
+  const A = Number.isFinite(p.a2) ? p.a2 : 0;
+  const B = Number.isFinite(p.b2) ? p.b2 : 0;
+  const C = Number.isFinite(p.c2) ? p.c2 : 0;
+  if (!(hi > 0)) return null;
+  const k = B - hi * hi;
+  if (k >= 0) return { E: Infinity, term: C > 0 ? 'c' : 'a' };
+  if (!(A > 0) && !(C > 0)) return null;
+  const u = C > 0 ? (-A + Math.sqrt(A * A - 4 * C * k)) / (2 * C) : -k / A;
+  return u > 0 ? { E: 1 / u, term: C > 0 ? 'c' : 'a' } : null;
+}
+
+/**
+ * The ratio panel's deposit reference for one shower, from the payload alone
+ * (brief res-noise §4.2): the shower's deposit a/√E ⊕ b ⊕ c/E fit, whose
+ * ratio marks start at `noise_min_gev`; else its a₀/√E fit, from
+ * `curve_min_gev` as before, with the deposit's `noise_reason`; else none.
+ * {shower, owner, form ('noise' | 'pinned' | null), fit, label (the series'),
+ * floor (GeV), span, provisional, misfit, noiseReason, reason}.
+ */
+function depositRefOf(payload, shower, mode, nShowers, floors) {
+  const owner = nShowers > 1 ? `Shower ${String(shower).toUpperCase()}` : 'The deposit';
+  const det = (payload.series ?? []).find((s) => s.source === 'detector' && (s.shower ?? 'a') === shower) ?? null;
+  const base = { shower, owner, form: null, fit: null, label: det?.label ?? null, floor: null, span: null, provisional: false, misfit: false, noiseReason: null, reason: null };
+  if (!det) return { ...base, reason: 'this shower has no calibrated-deposit series' };
+  const mf = det.fits?.[mode] ?? null;
+  const noise = mf?.noise ?? null;
+  if (noise) {
+    return {
+      ...base, form: 'noise', fit: noise, floor: floors.noise, span: Array.isArray(noise.span_gev) ? noise.span_gev : null,
+      provisional: Boolean(noise.provisional), misfit: noise.misfit === true,
+    };
+  }
+  const pinned = mf?.pinned ?? null;
+  const noiseReason = mf?.noise_reason ?? null;
+  if (!Number.isFinite(pinned?.params?.a0)) {
+    return { ...base, noiseReason, reason: `the deposit has no ${NOISE_FORM} or a₀/√E fit in this mode` };
+  }
+  return {
+    ...base, form: 'pinned', fit: pinned, floor: floors.curve, span: Array.isArray(mf.span_gev) ? mf.span_gev : null,
+    provisional: Boolean(pinned.provisional ?? mf.provisional), misfit: pinned.misfit === true, noiseReason,
+  };
+}
+
+/**
+ * The 3-anchor mode's low-anchor sentence (brief res-noise §8), once, from the
+ * drawn three-term fits' `points` and `low_anchor`: the brief's words where
+ * every fit runs through the three anchors and one shared low anchor, the
+ * count and window per series otherwise, and a line for a fit that has no low
+ * anchor (no other window from 1 GeV fittable). [] outside the 3-anchor mode
+ * or with no three-term fit drawn.
+ */
+function lowAnchorLines(mode, noiseDrawn, gates, noiseMinText) {
+  if (mode !== 'anchors' || !noiseDrawn.length) return [];
+  const anchorFloor = formatNumber(gates.anchor_low_gev);
+  const why = `since anchors from ${anchorFloor} GeV cannot fix a 1/E term`;
+  const withLow = noiseDrawn.filter(({ fit }) => fit.low_anchor !== null && fit.low_anchor !== undefined)
+    .map(({ s, fit }) => ({ s, k: (fit.points ?? []).filter((b) => b !== fit.low_anchor).length, low: binLabelOf(s.raw, fit.low_anchor) }));
+  const without = noiseDrawn.filter(({ fit }) => fit.low_anchor === null || fit.low_anchor === undefined);
+  const lines = [];
+  if (withLow.length) {
+    const shapes = new Set(withLow.map((x) => `${x.k}|${x.low}`));
+    if (shapes.size === 1) {
+      const { k, low } = withLow[0];
+      lines.push(`In the 3-anchor mode ${NOISE_FORM} runs through the ${countWord(k)} anchor${k === 1 ? '' : 's'} and the lowest fittable window from ${noiseMinText} GeV (${low}), ${why}.`);
+    } else {
+      lines.push(`In the 3-anchor mode ${NOISE_FORM} runs through each series' anchors and its lowest fittable window from ${noiseMinText} GeV, ${why}: `
+        + `${withLow.map(({ s, k, low }) => `${s.short}, ${countWord(k)} anchor${k === 1 ? '' : 's'} and ${low}`).join('; ')}.`);
+    }
+  }
+  for (const { s, fit } of without) {
+    const k = (fit.points ?? []).length;
+    lines.push(`${s.label}: in the 3-anchor mode ${NOISE_FORM} runs through its ${countWord(k)} anchor${k === 1 ? '' : 's'} alone, with no low anchor: no other window from ${noiseMinText} GeV is fittable.`);
+  }
+  return lines;
+}
+
+/** "no a/√E ⊕ b ⊕ c/E fit: …", the server's reason with its first letter lowered to follow a colon. */
+const lowerFirst = (t) => String(t ?? '').replace(/^No /u, 'no ').replace(/\.$/u, '');
 
 /** Where the article derives the E view: its section, by number and title, which the drawer names. */
 export const RES_ENERGY_METHOD_SECTION = Object.freeze({ number: '2.4.11', title: 'Resolution scaling against E' });
@@ -856,7 +1022,7 @@ function bandWhy(fit = {}, sig) {
 
 /** The fit a band belongs to, as the drawer lists an outlined band: "A deposit a/√E ⊕ b (S = 3.62, ν = 1, q = 12.71)". */
 function outlinedBandName(b, sig) {
-  const form = b.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E ⊕ 0';
+  const form = energyFormShort(b.form);
   return `${b.reference ? `the reference band about 1 of ${b.short} ${form}` : `${b.short} ${form}`}${bandWhy(b.fit ?? {}, sig)}`;
 }
 
@@ -890,15 +1056,25 @@ function literatureLegendLine(model) {
     + `Here ${parts.join('; ')}. ${buttons} ${hues}`;
 }
 
-/** One ratio reference's line for a shower: which fit divides its windows, or why nothing does. */
+/**
+ * One shower's deposit reference, as What is drawn words it (`depositRefOf`):
+ * which fit divides its windows and from which energy a window gets a ratio
+ * mark, or why the shower has none.
+ */
 function depositReferenceLine(model, r) {
-  const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit';
-  if (r.reason) return `${owner}: no ratio marks, ${r.reason}.`;
+  if (r.reason) return `${r.owner}: no ratio marks, ${r.reason}.`;
+  const sig = (v) => sigFigs(v, 3);
   const misfit = r.misfit
-    ? `, a form that does not describe the deposit's windows (S = ${sigFigs(r.fit.scale_factor, 3)} > ${formatNumber(model.gates.misfit_scale)})`
+    ? `, a form that does not describe the deposit's windows (S = ${sig(r.fit.scale_factor)} > ${formatNumber(model.gates.misfit_scale)})`
     : '';
-  return `${owner}: the ratio divides by ${r.why} (${r.seriesLabel}), fitted over ${spanGeV(r.span)}${r.provisional ? ', provisional' : ''}${misfit}; `
-    + `it is evaluated from ${formatNumber(model.curveMinGev)} to ${formatNumber(model.x.max)} GeV only.`;
+  const fitted = `fitted over ${spanGeV(r.span)}${r.provisional ? ', provisional' : ''}${misfit}`;
+  if (r.form === 'noise') {
+    return `${r.owner}: the ratio divides by its deposit's ${NOISE_FORM} fit (${r.label}), ${fitted}; `
+      + `a window gets a ratio mark from ${formatNumber(r.floor)} GeV, the lowest window edge that fit can use.`;
+  }
+  return `${r.owner}: the ratio divides by its deposit's a₀/√E fit (${r.label}), since it has no ${NOISE_FORM} fit`
+    + `${r.noiseReason ? ` (${lowerFirst(r.noiseReason).replace(/^no a\/√E ⊕ b ⊕ c\/E fit: /u, '')})` : ''}, ${fitted}; `
+    + `it is evaluated from ${formatNumber(r.floor)} to ${formatNumber(model.x.max)} GeV only, so a window gets a ratio mark from ${formatNumber(r.floor)} GeV.`;
 }
 
 /**
@@ -946,8 +1122,26 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const m = payload.model ?? {};
   const curveMin = formatNumber(model.curveMinGev);
   const yMin = formatNumber(model.yMinGev);
-  const drawn = model.series.flatMap((s) => ENERGY_FORMS.map((form) => ({ s, f: s.fits[form] })).filter(({ f }) => f?.drawable));
+  // The model's drawn curves other than the three-term fit, which the payload describes (noiseItems), and
+  // a/√E ⊕ b, which this view tables only: the origin-pinned a₀/√E.
+  const modelForms = ENERGY_FORMS.filter((form) => form !== 'quadrature' && form !== 'noise');
+  const drawn = model.series.flatMap((s) => modelForms.map((form) => ({ s, f: s.fits?.[form] })).filter(({ f }) => f?.drawable));
   const points = model.series.flatMap((s) => s.points);
+  // The a/√E ⊕ b ⊕ c/E fit of each series on show, from the payload: drawn wherever the server fitted it.
+  const noiseMin = noiseMinGev(payload);
+  const noiseMinText = formatNumber(noiseMin);
+  const noiseItems = model.series.map((s) => ({ s, fit: noiseFitOf(s, mode), reason: noiseReasonOf(s, mode) }));
+  const noiseDrawn = noiseItems.filter((x) => x.fit);
+  const noiseKnown = noiseItems.some((x) => x.fit || x.reason);
+  // Every drawn curve's fitted span, a₀/√E's from the model and the three-term fit's from the payload.
+  const spanList = [
+    ...drawn.map(({ s, f }) => ({ key: s.key, short: s.short, form: f.form, span: f.span })),
+    ...noiseDrawn.map(({ s, fit }) => ({ key: s.key, short: s.short, form: 'noise', span: Array.isArray(fit.span_gev) ? fit.span_gev : null })),
+  ];
+  const spanShared = spanList.length > 0 && spanList.every((b) => spanGeV(b.span) === spanGeV(spanList[0].span));
+  // The ratio panel's deposit reference per shower, from the payload (brief res-noise §4.2).
+  const floors = { noise: noiseMin, curve: model.curveMinGev };
+  const depositRefs = Object.keys(ref.byShower ?? {}).map((sh) => depositRefOf(payload, sh, mode, model.nShowers, floors));
   // As the axis writes it: "1/8 to 8".
   const kText = `${ratioTickLabel(1 / ratio.k)} to ${ratioTickLabel(ratio.k)}`;
   const is = (n) => (n === 1 ? 'is' : 'are');
@@ -965,9 +1159,9 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   notes.section(SECTION.selection, selection);
 
   // ---- What is drawn
-  const spanRule = model.spans.shared && model.spans.span
-    ? `here ${spanGeV(model.spans.span)}`
-    : (drawn.length ? 'each its own, listed under Disclosures' : 'no fit is drawn for this selection');
+  const spanRule = spanShared && spanList[0].span
+    ? `here ${spanGeV(spanList[0].span)}`
+    : (spanList.length ? 'each its own, listed under Disclosures' : 'no fit is drawn for this selection');
   // The literature curves the reader drew beside the reference (the reference itself is always drawn).
   const beside = model.literature.filter((l) => !l.isReference);
   const refLines = lit
@@ -978,7 +1172,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
         return `The ${l.entry.particle} curve, drawn beside it, is drawn on the ratio panel too, divided by it, one line for every shower: `
           + `${referenceEquation(l.entry)} over ${referenceEquation(lit)} reads ${sig(rows[0][1])} at ${formatNumber(rows[0][0])} GeV and ${sig(rows[rows.length - 1][1])} at ${formatNumber(rows[rows.length - 1][0])} GeV.`;
       })]
-    : [...Object.values(ref.byShower).map((r) => depositReferenceLine(model, r)),
+    : [...depositRefs.map((r) => depositReferenceLine(model, r)),
       'The reference fit\'s own 95% band relative to itself, [lo/ŷ, hi/ŷ] about 1, is a muted wash, fainter beyond the reference\'s fitted span.',
       'With no literature curve drawn, the ratio divides each shower by its own deposit fit.'];
   // With both curves drawn, why the ratio divides by the one it does.
@@ -991,14 +1185,22 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     'Windows of different series at one energy are drawn at that energy, not set apart: a window sits on its own curve, which no offset could follow.',
     `Mode drawn: ${modeLabel(mode, gates)}. ${mode === 'anchors'
       ? 'The windows control reads "3 anchors": only the windows the 3-anchor fit used are drawn.'
-      : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a ${w.symbol} is drawn, those below ${curveMin} GeV as points only, since no fit uses them.`}`,
+      : `The windows control reads "All windows": every window with N ≥ ${formatInt(gates.report_n)} that has a ${w.symbol} is drawn; the fits use the fittable ones, a₀/√E from ${curveMin} GeV and ${NOISE_FORM} from ${noiseMinText} GeV, and a window below ${noiseMinText} GeV is drawn as a point no fit uses.`}`,
     `${plural(model.nPoints, 'window')} and ${plural(model.nLines, 'fit curve')} are drawn in this view.`,
-    `Two fits per series can be drawn, each by weighted least squares with the 1/√E view's iterated weights: the quadrature a/√E ⊕ b = √(a²/E + b²), fitted as (${w.symbol})² = A/E + B and drawn only where both terms are defined (A > 0 and B > 0), `
-      + 'and the origin-pinned a₀/√E ⊕ 0, always. The affine a/√E + b is drawn in the 1/√E view and stays in the fit table; on that view the quadrature fit is tabled, never drawn.',
+    `Two fits per series can be drawn, each by weighted least squares with the 1/√E view's iterated weights: the origin-pinned a₀/√E ⊕ 0 and ${NOISE_FORM}, `
+      + 'the stochastic term a/√E, the constant term b and the noise term c/E added in quadrature. a/√E ⊕ b is in the fit table, not drawn. '
+      + 'The affine a/√E + b is drawn in the 1/√E view and stays in the fit table.',
+    noiseKnown
+      ? `${NOISE_FORM} is fitted as (${w.symbol})² = A/E + B + C/E² by weighted least squares with A = a², B = b² and C = c² held non-negative, so every term is real; `
+        + 'a term the constraint holds at 0 is named under Disclosures, and the fit\'s ν counts its free terms only.'
+      : '',
+    ...lowAnchorLines(mode, noiseDrawn, gates, noiseMinText),
     w.weightSentence,
     pooledScaleLine(w, model),
-    `Each curve is solid over the span of the windows it was fitted to (the lowest window edge to the highest: ${spanRule}) and dashed beyond it, up to ${formatNumber(x.max)} GeV and down to ${curveMin} GeV; `
-      + `no curve is drawn below ${curveMin} GeV, the lowest window edge any fit can use. Its 95% band continues over the dashed parts at one third of its strength.`,
+    spanList.length
+      ? `Each curve is solid over the span of the windows it was fitted to, the lowest window edge to the highest (${spanRule}), and dashed beyond it; `
+        + 'its 95% band continues over the dashed parts at one third of its strength.'
+      : '',
     `The energy axis is linear from 0 to ${formatNumber(x.max)} GeV in steps of ${formatNumber(x.interval)} GeV${Number.isFinite(model.dataMaxGev) ? `; the highest window edge is ${formatNumber(model.dataMaxGev)} GeV` : ''}. `
       + `${capital(w.symbol)} starts at zero and ends at ${pct(y.hi)}${y.provisional ? ' (provisional)' : ''}.`,
     ...model.notes.map((note, i) => (i === 0 ? rangeBasis(note) : note)).filter(Boolean).map(sentence),
@@ -1008,7 +1210,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       + `k is the first of ${RATIO_STEPS.map(String).join(', ')} that covers the robust ratio marks, the windows alone: those of N ≥ ${formatInt(gates.fit_n)} from ${yMin} GeV (whiskers included), `
       + 'each against a reference that is neither provisional nor of a form that does not describe its windows. No fit sets it: a fit\'s ratio that leaves the axis is clipped there with a caret. '
       + `The ladder ends at ${RATIO_STEPS[RATIO_STEPS.length - 1]}, and a robust mark beyond it is clipped with a caret.`,
-    'The fit table under the plot keeps the three rows per series in the 1/√E view\'s order, affine, origin-pinned and quadrature, named for this view: the affine fit "drawn in the 1/√E view", the origin-pinned fit "drawn", the quadrature fit "drawn" or "not drawn" with its reason.',
+    `The fit table under the plot lists each series' four fits with their status on this view: the affine fit is drawn in the 1/√E view, the origin-pinned fit and ${NOISE_FORM} are drawn here, and the quadrature fit is in the table only.`,
   ]);
 
   // ---- Disclosures
@@ -1058,12 +1260,27 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
         + `${f.cut.lineAt !== null ? 'line and band' : 'band'}, highest ${pct(f.cut.peak[3])} at E = ${sig(f.cut.peak[0])} GeV`).join('; ')}. `
       + 'The range follows the windows alone, so no curve, band or extrapolation sets it.');
   }
-  const misfits = misfitLine(drawn, gates, (form) => ENERGY_FORM_NAMES[form]);
+  // The three-term curves' entry at the top: each rises without bound as E → 0 unless A = C = 0 (brief res-noise §4.1).
+  const entries = Number.isFinite(y.hi)
+    ? noiseDrawn.map(({ s, fit }) => ({ s, fit, at: noiseEntry(fit, y.hi) })).filter((x) => x.at) : [];
+  const entering = entries.filter((x) => Number.isFinite(x.at.E));
+  const above = entries.filter((x) => !Number.isFinite(x.at.E));
+  if (entering.length) {
+    const n = entering.length;
+    dis.push(`${plural(n, `${NOISE_FORM} curve`)} ${n === 1 ? 'comes' : 'come'} down into the main panel from its top (${pct(y.hi)}), ${n === 1 ? 'with a caret where it enters, since it rises' : 'each with a caret where it enters, since they rise'} without bound as E → 0: `
+      + `${entering.map(({ s, at }) => `${s.label} at E = ${sig(at.E)} GeV, through its ${at.term === 'c' ? 'noise term c/E' : 'stochastic term a/√E'}`).join('; ')}.`);
+  }
+  for (const { s, fit } of above) {
+    dis.push(`${s.label}: its ${NOISE_FORM} curve lies above the top of the main panel (${pct(y.hi)}) at every E, its constant term b = ${pct(fit.params?.b)} alone reaching it; it is clipped there with a caret.`);
+  }
+  const misfits = misfitLine([
+    ...drawn,
+    ...noiseDrawn.map(({ s, fit }) => ({ s, f: { form: 'noise', fit, misfit: fit.misfit === true } })),
+  ], gates, (form) => ENERGY_FORM_NAMES[form]);
   if (misfits) dis.push(misfits);
   const floorCut = drawn.filter(({ f }) => f.floorCut);
   if (floorCut.length) {
     const why = [
-      floorCut.some(({ f }) => f.form === 'quadrature') && `for the quadrature fit, where the band of (${w.symbol})² falls below zero, its lower edge is cut at 0`,
       floorCut.some(({ f }) => f.form === 'pinned') && `for the origin-pinned fit, where a₀/√E − q·SE(a₀)/√E would be negative, its lower edge is cut at ${w.symbol} = 0`,
     ].filter(Boolean);
     dis.push(`${plural(floorCut.length, 'fit')} ${floorCut.length === 1 ? 'has the lower edge of its band' : 'have the lower edges of their bands'} cut at 0: `
@@ -1079,21 +1296,21 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       + `so ${n === 1 ? 'it is' : 'they are'} drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash: ${listed.join('; ')}. `
       + 'A small ν makes such a band wide: once S > 1 scales the covariance, q is Student\'s t of the fit\'s own ν, 12.7 at ν = 1.');
   }
-  if (!drawn.length) {
+  if (!spanList.length) {
     dis.push('No fit is drawn for this selection, so the main panel shows windows only and the ratio panel marks only.');
-  } else if (!model.spans.shared) {
+  } else if (!spanShared) {
     // One clause per span, the fits that share it named by shower, estimator and form.
     const bySpan = new Map();
-    for (const b of model.spans.bySeries) {
+    for (const b of spanList) {
       const key = spanGeV(b.span);
-      const short = model.series.find((x) => x.key === b.key)?.short ?? b.label;
-      bySpan.set(key, [...(bySpan.get(key) ?? []), `${short} ${b.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E ⊕ 0'}`]);
+      bySpan.set(key, [...(bySpan.get(key) ?? []), `${b.short} ${energyFormShort(b.form)}`]);
     }
     dis.push(`The fits were not all fitted over the same windows, so their solid parts differ: ${[...bySpan].map(([span, names]) => `${span} for ${names.join(', ')}`).join('; ')}; each is dashed beyond its own span.`);
   }
   for (const s of model.series) {
-    for (const form of ENERGY_FORMS) {
-      const f = s.fits[form];
+    // a/√E ⊕ b is tabled on this view and the three-term fit's absence is its noise_reason, below: a₀/√E alone here.
+    for (const form of modelForms) {
+      const f = s.fits?.[form];
       if (!f || f.drawable) continue;
       const q = f.fit?.params;
       const numbers = form === 'quadrature' && q && Number.isFinite(q.a2) && Number.isFinite(q.b2)
@@ -1106,18 +1323,39 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     if (!mf) continue;
     if (mf.provisional) dis.push(`${s.label}: the fits are provisional, through windows of N ≥ ${formatInt(gates.whisker_n)}, because fewer than two windows reach N = ${formatInt(gates.fit_n)}; drawn faded.`);
     if (mode === 'anchors') for (const sub of mf.substitutions ?? []) dis.push(`${s.label}: ${sentence(sub.reason)}`);
-    for (const [form, fit] of [['affine', mf.affine], ['pinned', mf.pinned], ['quadrature', mf.quadrature]]) {
+    for (const [form, fit] of [['affine', mf.affine], ['pinned', mf.pinned], ['quadrature', mf.quadrature], ['noise', mf.noise]]) {
       if (!fit) continue;
-      const name = form === 'affine' ? 'affine fit (tabled in this view)' : ENERGY_FORM_NAMES[form];
-      const bandDrawn = form !== 'affine' && s.fits[form]?.drawable;
+      const name = { affine: 'affine fit (tabled in this view)', quadrature: 'quadrature fit a/√E ⊕ b (tabled in this view)' }[form] ?? ENERGY_FORM_NAMES[form];
+      const bandDrawn = form === 'noise' || (form === 'pinned' && s.fits?.pinned?.drawable);
       if (!(fit.ndf > 0)) dis.push(`${s.label}, ${name}: ν = 0, the fit passes through its points exactly and has no χ² test.`);
       if (fit.scale_factor > 1) {
         dis.push(`${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so its standard errors are scaled by S = ${sig(fit.scale_factor)} (PDG)`
           + `${bandDrawn ? `, and its band takes Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(fit.band_quantile, 4)} rather than 1.96, since S is estimated from the fit's own ν = ${formatInt(fit.ndf)}` : ''}.`);
       }
       if (fit.converged === false) {
-        dis.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${form === 'quadrature' ? 'fit' : 'line'}, not a fixed point.`);
+        dis.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${form === 'quadrature' || form === 'noise' ? 'fit' : 'line'}, not a fixed point.`);
       }
+    }
+  }
+  // The three-term fit (brief res-noise §5, §11): its floor, the terms it holds, the series without one, and what its terms mean.
+  if (noiseKnown) {
+    dis.push(`The ${NOISE_FORM} fit uses windows from ${noiseMinText} GeV: below that a 1 GeV window reaches momenta near zero, so its average of 1/E² is far from what its plotted energy implies, `
+      + 'and no single abscissa can carry the noise term c/E.');
+  }
+  for (const { s, fit } of noiseDrawn) {
+    const held = heldTerms(fit);
+    if (held.length) dis.push(heldLine(s.label, held));
+  }
+  for (const { s, fit, reason } of noiseItems) if (!fit && reason) dis.push(`${s.label}: ${sentence(reason)}`);
+  if (noiseDrawn.length) {
+    dis.push('c/E is the calorimeter\'s conventional noise term. Here it takes up whatever grows like 1/E at low momentum (for a network, its pull toward mid-range; '
+      + 'under Median |rel. err.|, the response\'s bias as well), so c is a fitted coefficient, not a measured noise level.');
+    const rhos = noiseDrawn.flatMap(({ fit }) => Object.values(fit.params?.rho ?? {})).filter(Number.isFinite);
+    if (rhos.length) {
+      const top = Math.max(...rhos.map(Math.abs));
+      const how = top >= STRONG_RHO ? 'strongly correlated (each curve\'s tooltip gives ρ)' : `correlated (here |ρ| ≤ ${sig(top)}; each curve's tooltip gives ρ)`;
+      dis.push(`Over the fitted windows 1/√E, 1 and 1/E change together, so the fitted squares are ${how}: the curve is better determined than its split into a, b and c, `
+        + 'and a term held at 0 means the windows need no separate term of that form once the others are free, not that the detector has none.');
     }
   }
   const weak = points.filter((p) => p.weak && !p.subFloor);
@@ -1127,9 +1365,19 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   if (weakAlone) dis.push(`${plural(weakAlone, 'window')} of N < ${formatInt(gates.fit_n)} drawn faded with ${weakAlone === 1 ? 'its' : 'their'} ${w.whisker}, not fitted.`);
   const sub = points.filter((p) => p.subFloor && weightState({ name: w.name }, p.w) !== 'withheld').length;
   if (sub) dis.push(`${plural(sub, 'window')} of N < ${formatInt(gates.whisker_n)} drawn as a faded dashed ring with no whisker: ${w.symbol} is reported from N = ${formatInt(gates.report_n)}, an interval is drawn from N = ${formatInt(gates.whisker_n)}.`);
-  const below = points.filter((p) => p.below4);
+  // The drawn windows below a₀/√E's floor: the three-term fit may use those from 1 GeV (its own points), no fit the rest.
+  const below = model.series.flatMap((s) => {
+    const used = new Set(noiseFitOf(s, mode)?.points ?? []);
+    return s.points.filter((p) => (p.w.p_lo ?? p.E) < model.curveMinGev).map((p) => ({ s, p, noise: used.has(p.w.bin) }));
+  });
   if (below.length) {
-    dis.push(`${plural(below.length, 'window')} below ${curveMin} GeV ${is(below.length)} drawn as ${below.length === 1 ? 'a point' : 'points'} only: no fit uses ${below.length === 1 ? 'it' : 'them'}, and no curve is drawn there.`);
+    const inNoise = below.filter((b) => b.noise);
+    const none = below.length - inNoise.length;
+    dis.push(`${plural(below.length, 'drawn window')} ${below.length === 1 ? 'lies' : 'lie'} below ${curveMin} GeV, where a₀/√E uses none: `
+      + [
+        inNoise.length && `${plural(inNoise.length, 'window')} ${is(inNoise.length)} fitted by ${NOISE_FORM} only (${inNoise.map(({ s, p }) => `${s.short} ${p.w.label}`).join(', ')})`,
+        none && `${plural(none, 'window')} ${is(none)} drawn as ${none === 1 ? 'a point' : 'points'} no fit uses`,
+      ].filter(Boolean).join('; ') + '.');
   }
   const lowRange = points.filter((p) => (p.w.p_lo ?? Infinity) < model.yMinGev);
   if (lowRange.length) {
@@ -1143,7 +1391,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
     const names = [...new Set(belowAnchors.flatMap((s) => s.points
       .filter((p) => p.fitted && (p.w.p_lo ?? 0) < gates.anchor_low_gev).map((p) => p.w.label)))];
     dis.push(`This mode fits every window from ${curveMin} GeV, ${names.join(', ')} included (${plural(belowAnchors.length, 'series', 'series')}): below ${formatNumber(gates.anchor_low_gev)} GeV, `
-      + `the anchors' floor, the sampling fraction is still rising and a/√E ⊕ b may not describe ${w.symbol}${w.symbol.endsWith('.') ? '' : '.'}`);
+      + `the anchors' floor, the sampling fraction is still rising and a₀/√E may not describe ${w.symbol}${w.symbol.endsWith('.') ? '' : '.'}`);
   }
   for (const s of model.series) dis.push(...unreportedLines(w, s, gates));
   dis.push(...noWeightLines(w, model, points), ...declinedLines(w, model));
@@ -1176,19 +1424,39 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
         ? 'The literature curve has no interval reported, so none is carried.'
         : 'The reference fit\'s own band about 1 is drawn beside it, not folded in.'}`);
   }
-  if (ratio.belowNotDrawn) {
-    dis.push(`${plural(ratio.belowNotDrawn, 'window')} below ${curveMin} GeV ${is(ratio.belowNotDrawn)} not drawn on the ratio panel: the deposit fit is drawn from ${curveMin} GeV, so the reference has no value there.`);
+  // The drawn windows below the floor of their shower's deposit reference: 1 GeV under the deposit's three-term
+  // fit, a₀/√E's 4 GeV where the deposit has none (brief res-noise §4.2), counted from the payload.
+  if (!lit) {
+    const belowRef = (form) => {
+      const refs = depositRefs.filter((r) => r.form === form);
+      const n = model.series.reduce((acc, s) => {
+        const r = refs.find((x) => x.shower === (s.raw.shower ?? 'a'));
+        return acc + (r ? s.points.filter((p) => (p.w.p_lo ?? p.E) < r.floor).length : 0);
+      }, 0);
+      return { refs, n };
+    };
+    const owners = (refs) => (model.nShowers > 1 && refs.length < depositRefs.length ? ` (${andList(refs.map((r) => `shower ${String(r.shower).toUpperCase()}`))})` : '');
+    const noiseBelow = belowRef('noise');
+    if (noiseBelow.n) {
+      dis.push(`${plural(noiseBelow.n, 'window')} below ${noiseMinText} GeV${owners(noiseBelow.refs)} ${is(noiseBelow.n)} not drawn on the ratio panel: `
+        + `no window below ${noiseMinText} GeV enters the deposit's ${NOISE_FORM} fit.`);
+    }
+    const pinnedBelow = belowRef('pinned');
+    if (pinnedBelow.n) {
+      dis.push(`${plural(pinnedBelow.n, 'window')} below ${curveMin} GeV${owners(pinnedBelow.refs)} ${is(pinnedBelow.n)} not drawn on the ratio panel: `
+        + `the deposit has no ${NOISE_FORM} fit, and its a₀/√E fit is drawn from ${curveMin} GeV, so the reference has no value there.`);
+    }
   }
   for (const r of ratio.noReference) {
     dis.push(`${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}` : 'The deposit'} has no ratio marks: ${sentence(r.reason)}`);
   }
   if (!lit) {
-    for (const r of Object.values(ref.byShower)) {
+    for (const r of depositRefs.filter((x) => !x.reason)) {
       const owner = model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s` : 'The deposit';
       if (r.provisional) dis.push(`${owner} reference fit is provisional: its ratio marks are conditional on a fit through windows of N < ${formatInt(gates.fit_n)}, so none of them sets the ratio range.`);
       if (r.misfit) {
         const which = `${model.nShowers > 1 ? `Shower ${String(r.shower).toUpperCase()}'s reference, its deposit's` : 'The reference, the deposit\'s'} `
-          + `${r.form === 'quadrature' ? 'a/√E ⊕ b' : 'a₀/√E'} fit,`;
+          + `${r.form === 'noise' ? NOISE_FORM : 'a₀/√E'} fit,`;
         dis.push(`${which} does not describe its windows (S = ${sig(r.fit.scale_factor)} > ${formatNumber(gates.misfit_scale)}, χ²/ν = ${sig(r.fit.chi2 / r.fit.ndf)}): `
           + 'its ratio marks are conditional on a form its own windows reject, so none of them sets the ratio range.');
       }
@@ -1209,6 +1477,7 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
       ? `; the ${ratioOut.join(' and ')} curve's ratio leaves the ratio axis, clipped there with a caret` : ''}.`);
   }
   dis.push('The quadrature b and the affine b are different constant terms: one adds in quadrature, the other linearly, so they are not compared as one number.');
+  if (noiseDrawn.length) dis.push(`The b of ${NOISE_FORM} is a third: it is fitted beside the noise term c/E, so it is not compared with either.`);
   dis.push(relationLine(w), RES_DECOMPOSITION);
   dis.push(...calibrationLines(w));
   dis.push(robustFloorLine(w, model));
@@ -1230,10 +1499,11 @@ function resolutionEnergyNotes({ payload, state, experiment, title, windows, sho
   const extrapolation = model.noteText.extrapolation;
   notes.section(SECTION.legend, [
     'Colour is the series: the detector\'s calibrated deposit in ink, a model in the hue E2 gives its source (ColorBrewer qualitative, ≥ 3:1 against the card). On two-shower data fill and line strength are the shower: shower A is a filled marker with full-strength lines, shower B a hollow marker with its lines at 70% strength, raised to 3:1 where the card needs it. With both showers drawn, a letter "A" or "B" in the series\' colour at each curve\'s right end, in a column beside the plot, names the shower; a curve that leaves the plot before the axis end has its caret instead. A larger marker is a window of the 3-anchor fit.',
-    'The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is the quadrature a/√E ⊕ b, the thinner the origin-pinned a₀/√E ⊕ 0. '
+    `The dash is extrapolation and the width is the form: a solid line is a fit over the windows it was fitted to and a dashed line the same fit beyond them; the thicker line is ${NOISE_FORM}, the thinner the origin-pinned a₀/√E ⊕ 0. `
       + `A fit drawn fainter, its curve, dashed extrapolation and band alike, is ${w.name === 'robust' ? '' : 'provisional or '}of a form that does not describe its windows (S > ${formatNumber(gates.misfit_scale)}); no fit, faded or not, sets either panel's range.`,
     w.whiskerLegend,
-    `The shaded bands are the fits' 95% confidence bands: the quadrature band is the square root of the band of z = (${w.symbol})² = A/E + B, ẑ ± q√(gᵀΣg) with g = (1/E, 1), and the pinned band is a₀/√E ± q·SE(a₀)/√E, at half the quadrature band's strength; q is 1.96, or Student's t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash.`,
+    `The shaded bands are the fits' 95% confidence bands: the ${NOISE_FORM} band is the square root of the band of z = (${w.symbol})² = A/E + B + C/E², ẑ ± q√(gᵀΣg) with g = (1/E, 1, 1/E²), its lower edge cut at 0 where that band falls below zero; `
+      + `a held term's row and column of Σ are zero, so the band is conditional on it. The pinned band is a₀/√E ± q·SE(a₀)/√E, at half the ${NOISE_FORM} band's strength; q is 1.96, or Student's t₀.₉₇₅,ν once S = √(χ²/ν) > 1 scales the covariance. Over the dashed parts they continue at one third of their strength and are the parameters' uncertainty only, which assumes the form holds. A band that spans half its axis or more over its fitted windows is drawn as two thin edges in the series' colour, solid over the span and dashed beyond, never as a wash.`,
     literatureLegendLine(model),
     `The ratio panel: the 1.0 rule in ink marks ${w.symbol} equal to the reference; ${lit
       ? 'no band about 1 is drawn, since the literature curve has no interval reported'
@@ -1289,6 +1559,9 @@ export function resolutionScalingNotes({
     `Each window is the producer's 1 GeV momentum bin; its abscissa is x = ⟨1/√p⟩ over its events, in GeV⁻¹ᐟ², on a reversed axis from 0.5 (4 GeV) at the left to 0 (E → ∞) at the right border, and ${w.symbol} starts at zero, so the bottom-right corner is the origin.`,
     `Mode drawn: ${modeLabel(mode, gates)}${weakRule}.`,
     'Two fits per series are drawn, each by weighted least squares with ' + w.weightClause + `: the affine ${w.symbol} = a/√E + b and the origin-pinned ${w.symbol} = a₀/√E. The quadrature form √(a²/E + b²) is fitted as (${w.symbol})² = A/E + B and tabled under the plot, not drawn.`,
+    // The server's definition note of the three-term fit is restated here (`restatedNote`), with why this view only tables it.
+    `${NOISE_FORM}, fitted as (${w.symbol})² = A/E + B + C/E² with A, B and C held non-negative, is tabled under the plot as well, not drawn: `
+      + `it is fitted to windows from ${formatNumber(noiseMinGev(payload))} GeV, and those below ${formatNumber(gates.e_min_gev)} GeV lie off this view's axis, so it is drawn in the E (GeV) + ratio view.`,
     w.weightSentence,
     pooledScaleLine(w, model),
     payload.anchors?.rule
@@ -1371,18 +1644,18 @@ export function resolutionScalingNotes({
     const declined = declinedWindow({ name: w.name }, s.raw, mf, mode, gates);
     if (declined) disclosures.push(`${s.label}: ${declinedText(declined)}, so no line is drawn${mode === 'anchors' ? '; the window is drawn in the all-windows mode' : '; the window is drawn unfitted'}.`);
     else if (!affine) disclosures.push(`${s.label}: fewer than two windows to fit, so no line is drawn.`);
-    for (const fit of [affine, pinned, mf.quadrature]) {
+    for (const fit of [affine, pinned, mf.quadrature, mf.noise]) {
       if (!fit) continue;
-      const name = { affine: 'affine fit', pinned: 'origin-pinned fit', quadrature: 'quadrature fit (tabled)' }[fit.form];
+      const name = { affine: 'affine fit', pinned: 'origin-pinned fit', quadrature: 'quadrature fit (tabled)', noise: `${NOISE_FORM} fit (tabled)` }[fit.form];
       if (!(fit.ndf > 0)) disclosures.push(`${s.label}, ${name}: ν = 0, the fit passes through its points exactly and has no χ² test.`);
       if (fit.scale_factor > 1) {
-        disclosures.push(fit.form === 'quadrature'
+        disclosures.push(fit.form === 'quadrature' || fit.form === 'noise'
           ? `${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so the standard errors in the table are scaled by S = ${sig(fit.scale_factor)} (PDG).`
           : `${s.label}, ${name}: χ²/ν = ${sig(fit.chi2 / fit.ndf)} (p = ${sig(fit.p_value)}), so its standard errors are scaled by S = ${sig(fit.scale_factor)} (PDG), `
             + `and its band takes Student's t₀.₉₇₅,${formatInt(fit.ndf)} = ${sigFigs(fit.band_quantile, 4)} rather than 1.96, since S is estimated from the fit's own ν = ${formatInt(fit.ndf)}; the unscaled errors are in its tooltip.`);
       }
       if (fit.converged === false) {
-        disclosures.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${fit.form === 'quadrature' ? 'fit' : 'line'}, not a fixed point.`);
+        disclosures.push(`${s.label}, ${name}: the iterated weights did not settle within ${formatInt(fit.iterations)} refits, so it is the last refit's ${fit.form === 'quadrature' || fit.form === 'noise' ? 'fit' : 'line'}, not a fixed point.`);
       }
     }
     if (affine?.negative_intercept) {
