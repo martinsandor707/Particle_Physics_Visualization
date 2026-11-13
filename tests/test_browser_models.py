@@ -998,7 +998,7 @@ _RES_ENERGY = """() => {
   const curves = {};
   model.eachSeries((s) => {
     const id = s.get('id') || '';
-    if (!/\\|(quadrature|pinned)\\|(solid|dashed)\\|\\d+$/.test(id)) return;
+    if (!/\\|(noise|quadrature|pinned)\\|(solid|dashed)\\|\\d+$/.test(id)) return;
     const grid = s.get('yAxisIndex') ?? 0;
     const pts = [];
     let dash = null;
@@ -1085,6 +1085,9 @@ _WATCH_EXPORT_GRIDS = """() => {
 
 #: The view's E axis: where a fitted curve may start (`axis.energy.curve_min_gev`).
 CURVE_MIN_GEV = 4.0
+#: Where a/√E ⊕ b ⊕ c/E's windows start (`axis.energy.noise_min_gev`, resolution_scaling.py NOISE_MIN_GEV): the
+#: 1–4 GeV windows enter it, the 0–1 GeV window never does (res-noise brief §0 decision 3).
+NOISE_MIN_GEV = 1.0
 
 
 def _res_payload(base, asked):
@@ -1139,7 +1142,8 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
         # The caption names the quantity under the median (S2-panel decision 7).
         assert fit["caption"].startswith("Fits of the median rel. through the 3 anchor windows"), fit
         assert fit["heads"][0] == "Series" and "Windows fitted" in fit["heads"], fit
-        assert fit["rows"] and len(fit["fits"]) == 3 * len(fit["rows"]), fit
+        # Four fits per series: the affine, the pinned, a/√E ⊕ b and a/√E ⊕ b ⊕ c/E (res-noise, tabled here).
+        assert fit["rows"] and len(fit["fits"]) == 4 * len(fit["rows"]), fit
         # Its text columns wrap, so at 1600 px the table keeps to its card (it ran 1721 px in 1212 kept on one line).
         assert fit["overflow"] <= 1, fit
 
@@ -1217,16 +1221,31 @@ def test_the_resolution_card_draws_its_axes_and_fit_table_and_repaints_without_a
 E_TOL = 1e-6
 
 
+def _noise_entry(params, top):
+    """Where a/√E ⊕ b ⊕ c/E comes down into the main panel, in GeV: the root u = 1/E of
+    C·u² + A·u + (B − top²) = 0 in its stable form (res-noise brief §4.1), the squares in %² as served; None for a
+    flat curve (A = C = 0), drawn from 0 GeV, or one above the top at every E (B ≥ top²)."""
+    a2, b2, c2 = params["a2"], params["b2"], params["c2"]
+    room = top * top - b2
+    if (a2 <= 0 and c2 <= 0) or room <= 0:
+        return None
+    u = 2 * room / (a2 + (a2 * a2 + 4 * c2 * room) ** 0.5)
+    return 1 / u
+
+
 def _assert_e_view_curves(view, payload, mode):
-    """The E view's fitted curves as drawn (brief §1 decision 3, §4.3): no point below `curve_min_gev`; each solid
-    run inside its series' fitted span and meeting it at both edges, unless the curve leaves the top of the plot
-    there (CLAUDE.md §5: a fit is never a range setter, and one that leaves the top is clipped with a caret, so its
-    solid run then starts where it comes back in, on the axis's top edge); each dashed run [6, 4] and wholly outside
-    the span; on the main panel the dashed part beyond the span runs to the axis end; the quadrature fit drawn only
-    where both its terms are defined. Returns the forms drawn per series."""
+    """The E view's fitted curves as drawn (res-noise brief §0 decision 2, §4.1; CLAUDE.md §5 "Solid and dashed").
+
+    a₀/√E: nothing below `curve_min_gev` (4 GeV). a/√E ⊕ b ⊕ c/E: drawn from 0 GeV, coming down into the main
+    panel from its top at the energy where its line reaches the axis top (the root of C·u² + A·u + (B − top²)), or
+    from E = 0 when flat (A = C = 0). Each solid run inside its fit's own span (`span_gev`) and meeting it at both
+    edges, unless the curve is above the plot at the span's low edge (CLAUDE.md §5: a fit is never a range setter, so
+    its solid run then starts on the axis's top edge); each dashed run [6, 4] and wholly outside the span; on the
+    main panel the dashed part beyond the span runs to the axis end. a/√E ⊕ b is never drawn on this view (it is
+    tabled); a/√E ⊕ b ⊕ c/E is drawn exactly where the mode has one. Returns the forms drawn per series."""
     energy = payload["axis"]["energy"]
     x_max, curve_min = energy["x"]["max"], energy["curve_min_gev"]
-    assert curve_min == CURVE_MIN_GEV, energy
+    assert curve_min == CURVE_MIN_GEV and energy["noise_min_gev"] == NOISE_MIN_GEV, energy
     by_key = {s["key"]: s for s in payload["series"]}
     top = view["y"][0]["max"]
     drawn = {}
@@ -1235,6 +1254,10 @@ def _assert_e_view_curves(view, payload, mode):
         # A point read back from its pixel on the main panel's top edge (the float round trip of a 600 px plot).
         return value == pytest.approx(top, rel=1e-3, abs=1e-6)
 
+    def fit_of(key, form):
+        mf = by_key[key]["fits"][mode]
+        return mf["noise"] if form == "noise" else mf
+
     for cid, curve in view["curves"].items():
         parts = cid.split("|")
         key, run_part, form = parts[0], parts[-2], parts[-3]
@@ -1242,10 +1265,12 @@ def _assert_e_view_curves(view, payload, mode):
         es = [pt[0] for pt in curve["points"]]
         assert es, (cid, curve)
         assert curve["grid"] == (1 if on_ratio else 0), (cid, curve["grid"])
-        # Nothing below 4 GeV, which no fit uses; nothing past the axis end.
-        assert min(es) >= curve_min - E_TOL, (cid, min(es))
+        # a/√E ⊕ b is tabled on this view, never drawn (res-noise decision 2).
+        assert form in ("noise", "pinned"), cid
+        # a₀/√E: nothing below 4 GeV, which it cannot use. a/√E ⊕ b ⊕ c/E: from 0 GeV. Nothing past the axis end.
+        assert min(es) >= (curve_min if form == "pinned" else 0) - E_TOL, (cid, min(es))
         assert max(es) <= x_max + E_TOL, (cid, max(es))
-        lo, hi = by_key[key]["fits"][mode]["span_gev"]
+        lo, hi = fit_of(key, form)["span_gev"]
         if run_part == "solid":
             assert curve["dash"] is None, (cid, curve["dash"])
             assert lo - E_TOL <= min(es) and max(es) <= hi + E_TOL, (cid, (min(es), max(es)), (lo, hi))
@@ -1256,17 +1281,18 @@ def _assert_e_view_curves(view, payload, mode):
             first = min(curve["points"], key=lambda pt: pt[0])
             drawn.setdefault(key, {}).setdefault(form, []).append((run_part, min(es), max(es), first[1]))
     for key, forms in drawn.items():
-        s = by_key[key]
-        lo, hi = s["fits"][mode]["span_gev"]
-        params = s["fits"][mode]["quadrature"]["params"]
-        # Martin's decision 2: the quadrature fit where both terms are defined; the pinned fit always.
-        assert ("quadrature" in forms) is bool(params.get("a_defined") and params.get("b_defined")), (key, forms, params)
-        assert "pinned" in forms, (key, forms)
+        mf = by_key[key]["fits"][mode]
+        # The noise fit wherever the mode has one and its line is not above the axis top at every E (B ≥ top², where
+        # its caret at the axis end says so instead); a₀/√E wherever the mode has one.
+        assert ("noise" in forms) is (mf["noise"] is not None and mf["noise"]["params"]["b2"] < top * top), \
+            (key, forms, mf["noise_reason"])
+        assert ("pinned" in forms) is bool(mf["pinned"]), (key, forms)
         for form, runs in forms.items():
+            lo, hi = fit_of(key, form)["span_gev"]
             solid = [r for r in runs if r[0] == "solid"]
             assert len(solid) == 1, (key, form, runs)
             # Solid over the fitted windows, meeting the dashed parts exactly at the span's edges; a curve that is
-            # above the plot at the span's low edge (both fitted forms fall with E) comes in at the top edge instead.
+            # above the plot at the span's low edge (every fitted form falls with E) comes in at the top edge instead.
             clipped_low = solid[0][1] > lo + E_TOL
             if clipped_low:
                 assert at_top(solid[0][3]), (key, form, runs, top)
@@ -1279,12 +1305,22 @@ def _assert_e_view_curves(view, payload, mode):
                 assert beyond[0][2] == pytest.approx(x_max, abs=E_TOL), (key, form, runs)
             below = [r for r in runs if r[0] == "dashed" and r[2] <= lo + E_TOL]
             if clipped_low:
-                # Above the plot from the span's low edge down to 4 GeV: nothing is drawn below the span.
+                # Above the plot from the span's low edge down: nothing is drawn below the span.
                 assert below == [], (key, form, runs)
-            elif lo > curve_min:
+            elif form == "pinned" and lo > curve_min:
                 # Down to 4 GeV, or to where the curve leaves the top of the axis on its way there.
                 assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
                 assert below[0][1] == pytest.approx(curve_min, abs=E_TOL) or at_top(below[0][3]), (key, form, runs)
+            elif form == "noise":
+                # Down from the span towards 0 GeV: from the top edge, where the line comes down into the plot at
+                # the root's energy, or from E = 0 when the curve is flat.
+                assert len(below) == 1 and below[0][2] == pytest.approx(lo, abs=E_TOL), (key, form, runs)
+                entry = _noise_entry(mf["noise"]["params"], top)
+                if entry is None:
+                    assert below[0][1] == pytest.approx(0, abs=1e-3), (key, runs, mf["noise"]["params"])
+                else:
+                    assert at_top(below[0][3]), (key, runs, top)
+                    assert below[0][1] == pytest.approx(entry, rel=1e-3, abs=1e-4), (key, runs, entry)
     return {key: sorted(forms) for key, forms in drawn.items()}
 
 
@@ -1351,7 +1387,8 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
     "1/√E linear | E (GeV) + ratio" repaints the one response: no request on the view, the windows or the "Ratio
     to" switch. The E view stacks two grids on one E axis 0 → `axis.energy.x.max` (the top one's labels hidden, a
     crosshair linked across both, no axis-trigger tooltip); σ/E from 0 to `axis.energy.y.hi`; fitted curves solid
-    over their fitted windows and dashed beyond, none below 4 GeV; a log ratio axis symmetric about 1 (min · max =
+    over their fitted windows and dashed beyond, a₀/√E from 4 GeV and a/√E ⊕ b ⊕ c/E from 0 GeV, a/√E ⊕ b only
+    tabled (res-noise); a log ratio axis symmetric about 1 (min · max =
     1). The title names the view, the plot is 600 px tall (420 px in the 1/√E view), its export holds both grids,
     and every tooltip over either grid keeps to the 20% rule. Back in the 1/√E view the axes, the series and the
     fit table are exactly what they were. The baseline's two events draw the E view's empty state; the recorded
@@ -1456,6 +1493,14 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
             table_e = page.evaluate(_RES_TABLE)
             assert any(f.startswith("Affine a/√E + b — drawn in the 1/√E view") for f in table_e["fits"]), table_e
             assert any(f.startswith("Origin-pinned a₀/√E ⊕ 0 — drawn") for f in table_e["fits"]), table_e
+            # a/√E ⊕ b is tabled on this view; a/√E ⊕ b ⊕ c/E is drawn where the mode has one (res-noise §4.4).
+            assert any(f.startswith("Quadrature a/√E ⊕ b — table only") for f in table_e["fits"]), table_e
+            assert not any(f.startswith("Quadrature a/√E ⊕ b — drawn") for f in table_e["fits"]), table_e
+            noise_fits = [s["fits"]["anchors"]["noise"] for s in payload["series"]]
+            assert (any(f == "a/√E ⊕ b ⊕ c/E — drawn" for f in table_e["fits"])
+                    is any(n is not None for n in noise_fits)), (table_e["fits"], noise_fits)
+            assert all(any(f.startswith("a/√E ⊕ b ⊕ c/E — not drawn: ") for f in table_e["fits"])
+                       for n in noise_fits if n is None), table_e["fits"]
             e_series = page.evaluate(_RES_SERIES)
 
             # Every window, then the anchors again: a repaint, and the curves keep the rules.
@@ -1527,12 +1572,13 @@ def test_the_resolution_cards_e_view_draws_two_grids_and_switches_back_without_a
                 assert _res_press(page, "models-shower", "both")
                 assert page.evaluate(_RES_SERIES) == e_series
 
-            # With both curves off the ratio panel divides each shower's windows by its deposit fit, so a shower
-            # whose deposit has no fit in this mode has no ratio marks. Under the default median the recorded
-            # two-shower deposits tie (every bootstrap replicate the same value, SE below 10⁻⁶ of it): they carry
-            # no fit weight and no fit (review-ui M1), and that panel holds nothing to read.
+            # With both curves off the ratio panel divides each shower's windows by its deposit's a/√E ⊕ b ⊕ c/E
+            # fit, else its a₀/√E fit (res-noise §4.2), so a shower whose deposit has neither in this mode has no
+            # ratio marks. Under the default median the recorded two-shower deposits tie (every bootstrap replicate
+            # the same value, SE below 10⁻⁶ of it): they carry no fit weight and no fit of either form (review-ui M1;
+            # their noise_reason says so), and that panel holds nothing to read.
             fitted = {s["shower"] for s in payload["series"]
-                      if s["source"] == "detector" and s["fits"]["anchors"]["pinned"]}
+                      if s["source"] == "detector" and (s["fits"]["anchors"]["noise"] or s["fits"]["anchors"]["pinned"])}
             marked = {k.split("|")[0].split(":")[1] for k, m in view["markers"].items()
                       if k.endswith("|ratio|markers") and m["fills"]}
             assert marked == fitted, (marked, fitted)
@@ -2157,6 +2203,340 @@ def test_the_resolution_card_screens_under_each_estimator(models_live_server, sc
             _res_press(page, "res-view", "linear")
         browser.close()
     print(f"res-scaling screens in {folder}")
+    assert problems == [], problems
+
+
+# ------------------------------------------- the resolution card's noise term --
+
+#: The E view's a/√E ⊕ b ⊕ c/E marks in viewport pixels (res-noise brief §4.1): per series key, every run of its
+#: main-panel curve (`<key>|noise|<solid|dashed>|<i>`, the polyline's pixel points), and the centroid of every
+#: caret its `<key>|carets` series drew (a window's, an entry's or a cut's: the tooltip tells them apart).
+_RES_NOISE_TARGETS = """() => {
+  const host = document.getElementById('plot-res-scaling');
+  const inst = echarts.getInstanceByDom(host);
+  const c = host.getBoundingClientRect();
+  const lines = {};
+  const carets = {};
+  inst.getModel().eachSeries((s) => {
+    const id = s.get('id') || '';
+    const line = /^([^|]+)\\|noise\\|(solid|dashed)\\|\\d+$/.exec(id);
+    const caret = /^([^|]+)\\|carets$/.exec(id);
+    if (!line && !caret) return;
+    inst.getViewOfSeriesModel(s).group.traverse((el) => {
+      if (el.isGroup || el.invisible || el.ignore) return;
+      if (line && el.type === 'polyline' && el.shape?.points) {
+        (lines[line[1]] ??= []).push({ id, part: line[2], points: el.shape.points.map(([x, y]) => [c.left + x, c.top + y]) });
+      } else if (caret && el.type === 'polygon' && el.shape?.points?.length) {
+        // The caret's centroid from its own pixel points (a reused element's cached paint rect can still hold the
+        // previous render's place).
+        const n = el.shape.points.length;
+        const sx = el.shape.points.reduce((t, [x]) => t + x, 0) / n;
+        const sy = el.shape.points.reduce((t, [, y]) => t + y, 0) / n;
+        (carets[caret[1]] ??= []).push([c.left + sx, c.top + sy]);
+      }
+    });
+  });
+  return { lines, carets };
+}"""
+
+#: Every window mark's E on each grid, by series key, from the option (`<key>|markers`, `<key>|ratio|markers`: a
+#: datum [E, value, index]; `<key>|ratio|carets`: [E, the axis end, index], a ratio beyond [1/k, k]).
+_RES_MARK_ES = """() => {
+  const out = {};
+  for (const s of echarts.getInstanceByDom(document.getElementById('plot-res-scaling')).getOption().series || []) {
+    const m = /^([^|]+)\\|(markers|ratio\\|markers|ratio\\|carets)$/.exec(s.id || '');
+    if (m) ((out[m[1]] ??= {})[m[2]] = (s.data || []).map((d) => d[0]));
+  }
+  return out;
+}"""
+
+#: brief §8, verbatim: the floor sentence and the naming caveat (panels/resolution_scaling.js noiseFloorText,
+#: NOISE_NAMING_CAVEAT).
+NOISE_FLOOR = ("It uses windows from 1 GeV: below that a 1 GeV window reaches momenta near zero, so its average of 1/E² is "
+               "far from what its plotted energy implies, and no single abscissa can carry the noise term c/E.")
+NOISE_CAVEAT = ("c/E is the calorimeter's conventional noise term. Here it takes up whatever grows like 1/E at low "
+                "momentum (for a network, its pull toward mid-range; under Median |rel. err.|, the response's bias as "
+                "well), so c is a fitted coefficient, not a measured noise level.")
+NOISE_ENTRY = re.compile(r"It comes down into the plot at E = ([\d.]+(?:e[−-]?\d+)?) GeV: a/√E ⊕ b ⊕ c/E rises "
+                         r"without bound as E → 0, through its (noise term c/E|stochastic term a/√E)\.")
+NOISE_UNITS = {"a": "%·√GeV", "b": "%", "c": "%·GeV"}
+
+
+def _noise_tip_lines(text):
+    return [_flat(line) for line in text.splitlines() if line.strip()]
+
+
+def _assert_noise_tip(text, s, noise, payload, mode, where):
+    """A curve tooltip of a/√E ⊕ b ⊕ c/E (brief §4.3, §8, §11): its series and equation; every term with its SE
+    and unit, or the held phrase; χ²/ν and S; the windows fitted, the low anchor named in the 3-anchor mode, with
+    its sentence; the band's condition on the held terms; the correlations of the fitted squares where any pair is
+    free; the floor sentence and the naming caveat."""
+    lines = _noise_tip_lines(text)
+    flat = _flat(text)
+    params = noise["params"]
+    held = params["held"]
+    sym = payload["estimator"]["symbol"] if "symbol" in payload["estimator"] else None
+    assert lines[0] == s["label"], (where, lines[:2])
+    assert lines[1].endswith(" = a/√E ⊕ b ⊕ c/E") and (sym is None or lines[1] == f"{sym} = a/√E ⊕ b ⊕ c/E"), \
+        (where, lines[1])
+    terms = lines[2].split("; ")
+    assert len(terms) == 3, (where, lines[2])
+    for t, term in zip("abc", terms):
+        body = term.removeprefix("the noise term c/E: ") if t == "c" else term
+        assert (t == "c") is term.startswith("the noise term c/E: "), (where, term)
+        if t in held:
+            assert body == f"{t} = 0, held there by the constraint {t}² ≥ 0", (where, term)
+        else:
+            assert re.fullmatch(rf"{t} = [\d.]+(?:e\d+)? ± [\d.]+(?:e\d+)? {re.escape(NOISE_UNITS[t])}", body), \
+                (where, term)
+    assert "held non-negative, so every term is real." in flat, where
+    if noise["ndf"] > 0:
+        assert re.search(r"χ²/ν = .+; S = [\d.]+", flat), (where, flat[:300])
+    windows = next((line for line in lines if line.startswith("Windows fitted (")), None)
+    assert windows and windows.startswith(f"Windows fitted ({noise['n_points']}, "), (where, windows)
+    low = noise["low_anchor"]
+    labels = {w["bin"]: w["label"] for w in s["windows"]}
+    if mode == "anchors" and low is not None:
+        assert f"{labels[low]} (the low anchor)" in windows, (where, windows)
+        others = len([b for b in noise["points"] if b != low])
+        count = {1: "the one anchor", 2: "the two anchors", 3: "the three anchors"}[others]
+        assert (f"In the 3-anchor mode it runs through {count} and the lowest fittable window from 1 GeV "
+                f"({labels[low]}), since anchors from 5 GeV cannot fix a 1/E term.") in flat, (where, flat[-600:])
+    else:
+        assert "(the low anchor)" not in windows, (where, windows)
+    conditional = f"The band is conditional on {' and '.join(f'{t} = 0' for t in held)}." if held else None
+    assert (conditional in lines) if conditional else ("conditional on" not in flat), (where, held, flat[-800:])
+    rho = {k: v for k, v in params["rho"].items() if v is not None}
+    names = {"a2b2": "ρ(a², b²)", "a2c2": "ρ(a², c²)", "b2c2": "ρ(b², c²)"}
+    if rho:
+        line = next((x for x in lines if x.startswith("ρ(")), None)
+        assert line is not None, (where, rho, lines)
+        assert [n for k, n in names.items() if k in rho] == re.findall(r"ρ\([abc]², [abc]²\)", line.split(":")[0]), \
+            (where, line)
+        if max(abs(v) for v in rho.values()) >= 0.7 and all(v < 0 for v in rho.values()):
+            assert line.endswith("the terms trade off against each other over the fitted windows, so the curve is "
+                                 "better determined than its terms."), (where, line)
+        elif max(abs(v) for v in rho.values()) < 0.7:
+            assert "no pair of the fitted squares is strongly correlated here" in line, (where, line)
+    else:
+        assert "ρ(" not in flat, (where, flat[-600:])
+    assert NOISE_FLOOR in flat and NOISE_CAVEAT in flat, (where, flat[-700:])
+    assert _hyphen_negatives([text]) == [], (where, text)
+
+
+def _hover_points(page, points, where):
+    """Hover each point; every tooltip that showed, probed (as `_hover_marks` returns them)."""
+    page.evaluate(_WATCH_HOVER, "plot-res-scaling")
+    boxes = page.evaluate(_BOXES, "plot-res-scaling")
+    found = []
+    for x, y in points:
+        page.mouse.move(x, y)
+        _frames(page)
+        probe = page.evaluate(_PROBE)
+        if probe is not None:
+            found.append(((x, y), probe, boxes))
+    page.mouse.move(2, 2)
+    _frames(page)
+    return found
+
+
+def _assert_capped(page, found, where):
+    """Every probe on the tooltip layer, beside or off the plot, and over at most a fifth of the plot and of the
+    grid being read (the 20% readout cap)."""
+    _check_tips(found, where)
+    chart = page.evaluate(_BOXES, "plot-res-scaling")["chart"]
+    grids = [{k: v + (chart["left"] if k in ("left", "right") else chart["top"]) for k, v in r.items()}
+             for r in page.evaluate(_RES_ENERGY)["rects"]]
+    for (x, y), probe, box in found:
+        plot = box["plot"]
+        area = (plot["right"] - plot["left"]) * (plot["bottom"] - plot["top"])
+        assert _overlap(probe["tip"], plot) / area <= PROJECTION_READOUT_SHARE, (where, (x, y), probe["text"][:80])
+        for g in grids:
+            if _within((x, y), g):
+                share = _overlap(probe["tip"], g) / ((g["right"] - g["left"]) * (g["bottom"] - g["top"]))
+                assert share <= PROJECTION_READOUT_SHARE, (where, (x, y), probe["text"][:80], share)
+
+
+#: The estimators the noise checks read on the recorded two-shower response: the median (the default; both networks
+#: come down from the top through c/E, the tied deposits have no fit of any form) and the sample estimator (both
+#: deposits fitted: shower A's through c/E, shower B's through a/√E with c held; network A flat, b alone).
+NOISE_ESTIMATORS = ("median", "sample")
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_the_noise_fit_comes_down_from_the_top_and_the_ratio_marks_start_at_one_gev(models_live_server, scheme):
+    """The res-noise change on the recorded two-shower response, in both themes (brief §0, §4; Martin's decisions
+    of 2026-11-13), under the median and the sample estimators, both literature curves off.
+
+    - **The entry.** Each a/√E ⊕ b ⊕ c/E curve with A > 0 or C > 0 comes down into the main panel at its top, from
+      the left: its first point lies on the axis top at the energy where its line reaches it (the root of
+      C·u² + A·u + (B − top²)), and it falls from there; a flat one (b alone) starts at E = 0. Hovered, the curve
+      names its terms with their SEs or the held phrase, the band's condition on the held terms, the correlation of
+      the free squares, the windows (the low anchor named), the floor sentence and the naming caveat; the entry caret
+      says where the curve comes down and through which term (§8). Every tooltip keeps to the 20% cap.
+    - **The low anchor.** In the 3-anchor mode the low anchor's window is drawn on the E view (on neither the 1/√E
+      view's axis nor its anchors), and its tooltip's role line names it the low anchor.
+    - **Ratio marks from 1 GeV.** With both literature curves off, every window from 1 GeV the mode draws, those of
+      1–4 GeV included, carries a ratio mark against its shower's deposit a/√E ⊕ b ⊕ c/E fit where it has one; a
+      shower whose deposit has no fit of any form has none.
+    - **No request.** Views and window modes repaint the response in hand; only the estimator asks the service."""
+    with models_live_server["playwright"].sync_playwright() as p:
+        browser, page, problems, requests = _open(p, models_live_server["base"], BASELINE_TABLE, scheme=scheme)
+        _serve_res_fixture(page, RES_TWO)
+        state = _scroll_to(page, "res-scaling")
+        assert state["message"] is None and state["canvas"], state
+        assert page.evaluate("() => document.documentElement.dataset.theme") == scheme
+        before = len(requests)
+        assert _res_press(page, "res-view", "energy")
+        assert not _res_press(page, "res-literature", "pi") and not _res_press(page, "res-literature", "e")
+        assert requests[before:] == [], f"the view or a literature toggle asked the service: {requests[before:]}"
+        seen = {"curve": 0, "entry": 0, "low": 0, "ratio": 0}
+        for est in NOISE_ESTIMATORS:
+            payload = _fixture_payload(RES_TWO, est)
+            if est != DEFAULT_ESTIMATOR:
+                # The one control that asks: exactly one request (`_res_estimator` counts it).
+                _res_estimator(page, requests, est, payload["estimator"]["axis_name"])
+            mark = len(requests)
+            by_key = {s["key"]: s for s in payload["series"]}
+            deposit = {s["shower"]: s for s in payload["series"] if s["source"] == "detector"}
+            for mode in ("anchors", "all"):
+                assert _res_press(page, "res-windows", mode)
+                page.evaluate(_SCROLL_START, "res-scaling")
+                page.mouse.move(2, 2)
+                _frames(page, 4)
+                where = f"{scheme}, {est}, {mode}"
+                view = page.evaluate(_RES_ENERGY)
+                _assert_e_view_curves(view, payload, mode)
+                top = view["y"][0]["max"]
+                targets = page.evaluate(_RES_NOISE_TARGETS)
+                fitted = {k: s["fits"][mode]["noise"] for k, s in by_key.items() if s["fits"][mode]["noise"]}
+                assert set(targets["lines"]) == set(fitted), (where, sorted(targets["lines"]), sorted(fitted))
+                found = []
+                for key, noise in fitted.items():
+                    s = by_key[key]
+                    # Comes down from the top-left: the main curve's lowest-E point on the axis top at the root's E,
+                    # and below the top just after it; a flat curve from E = 0 at b.
+                    pts = sorted(pt for cid, c in view["curves"].items() if cid.startswith(f"{key}|noise|")
+                                 for pt in c["points"])
+                    entry = _noise_entry(noise["params"], top)
+                    if entry is None:
+                        assert pts[0][0] == pytest.approx(0, abs=1e-3), (where, key, pts[:2])
+                        assert pts[0][1] == pytest.approx(noise["params"]["b"], rel=1e-3), (where, key, pts[:2])
+                    else:
+                        assert pts[0][0] == pytest.approx(entry, rel=1e-3, abs=1e-4), (where, key, pts[0], entry)
+                        assert pts[0][1] == pytest.approx(top, rel=1e-3), (where, key, pts[0], top)
+                        later = [pt for pt in pts if pt[0] > pts[0][0] * 1.5 + 0.05]
+                        assert later and later[0][1] < top and min(pt[1] for pt in pts) < top, (where, key, pts[:4])
+
+                    # Hover the curve: points along its runs until one of its own tooltips shows (a marker or a
+                    # crossing curve may lie over a point), one on its solid run and one on a dashed run.
+                    tips = {}
+                    for run in sorted(targets["lines"][key], key=lambda r: r["part"] != "solid"):
+                        if run["part"] in tips:
+                            continue
+                        pts_px = run["points"]
+                        step = max(1, len(pts_px) // 12)
+                        for got in _hover_points(page, pts_px[step // 2::step], where):
+                            lines = _noise_tip_lines(got[1]["text"])
+                            if len(lines) > 1 and lines[0] == s["label"] and lines[1].endswith("= a/√E ⊕ b ⊕ c/E"):
+                                tips[run["part"]] = got
+                                break
+                    assert "solid" in tips, (where, key, "no a/√E ⊕ b ⊕ c/E tooltip on its solid run")
+                    for part, got in tips.items():
+                        _assert_noise_tip(got[1]["text"], s, noise, payload, mode, f"{where}, {key}, {part}")
+                        assert (part == "dashed") is ("Extrapolated: beyond the windows this fit used" in got[1]["text"]), \
+                            (where, key, part)
+                        found.append(got)
+                    seen["curve"] += 1
+
+                    # The entry caret: §8's sentence, at the root's energy, through the term that dominates as E → 0.
+                    hovered = _hover_points(page, targets["carets"].get(key, []), where)
+                    # Its own entry tooltips: a caret within a pixel or two of another series' (both near E = 0) may
+                    # show that one's, read under its own key.
+                    entries = [got for got in hovered if NOISE_ENTRY.search(_flat(got[1]["text"]))
+                               and _noise_tip_lines(got[1]["text"])[0] == s["label"]]
+                    found += entries
+                    if entry is None:
+                        assert entries == [], (where, key, [g[1]["text"][:120] for g in entries])
+                        continue
+                    for got in entries:
+                        m = NOISE_ENTRY.search(_flat(got[1]["text"]))
+                        assert float(m.group(1)) == pytest.approx(entry, rel=6e-3), (where, key, m.group(0), entry)
+                        term = "noise term c/E" if noise["params"]["c2"] > 0 else "stochastic term a/√E"
+                        assert m.group(2) == term, (where, key, m.group(0))
+                    # A caret within a few pixels of E = 0 may lie under another series' caret; one at 0.5 GeV or
+                    # more is found (a window caret beside it may show the same tip, every one checked above).
+                    if entry >= 0.5:
+                        assert entries, (where, key, entry, "its entry caret shows no entry tooltip")
+                        seen["entry"] += 1
+
+                # The low anchor: drawn on the E view in the 3-anchor mode, and named so by its tooltip.
+                marks = page.evaluate(_RES_MARK_ES)
+                windows = _hover_windows(page)
+                found += windows
+                texts = [probe["text"] for _, probe, _ in windows]
+                for key, noise in fitted.items():
+                    s = by_key[key]
+                    low = noise["low_anchor"]
+                    if mode != "anchors":
+                        assert low is None, (where, key, low)
+                        continue
+                    assert low is not None, (where, key, noise)
+                    w = next(w for w in s["windows"] if w["bin"] == low)
+                    assert w["p_lo"] < CURVE_MIN_GEV and low not in s["fits"]["anchors"]["points"], (where, key, w)
+                    assert any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in marks[key]["markers"]), \
+                        (where, key, w["label"], marks[key]["markers"])
+                    tip = [t for t in texts if _noise_tip_lines(t)[0] == s["label"] and f"{w['label']} · N = " in t
+                           and "Ratio to " not in t]
+                    assert tip, (where, key, w["label"])
+                    assert all("the low anchor of the a/√E ⊕ b ⊕ c/E fit: the lowest fittable window from 1 GeV, "
+                               "since anchors from 5 GeV cannot fix a 1/E term; a₀/√E does not use it" in _flat(t)
+                               for t in tip), (where, key, [t[-400:] for t in tip])
+                    seen["low"] += 1
+
+                # Ratio marks from 1 GeV: every drawn window of a shower whose deposit has a noise fit, against it.
+                for key, s in by_key.items():
+                    ref = deposit[s["shower"]]["fits"][mode]
+                    drawn = sorted(marks.get(key, {}).get("markers", []))
+                    on_ratio = sorted(marks.get(key, {}).get("ratio|markers", []) + marks.get(key, {}).get("ratio|carets", []))
+                    if ref["noise"] is None:
+                        if not ref["pinned"]:
+                            assert on_ratio == [], (where, key, on_ratio)
+                        continue
+                    low_windows = [w for w in s["windows"] if w["value"] is not None
+                                   and NOISE_MIN_GEV <= w["p_lo"] < CURVE_MIN_GEV
+                                   and any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in drawn)]
+                    if mode == "all":
+                        assert low_windows, (where, key, "no 1–4 GeV window drawn")
+                    for w in low_windows:
+                        assert any(e == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for e in on_ratio), \
+                            (where, key, w["label"], on_ratio)
+                        seen["ratio"] += 1
+                    # Every window marker from 1 GeV on the main panel has its ratio mark (a marker, or a caret beyond
+                    # [1/k, k]), and no window below 1 GeV has one. (A ratio caret at no window's E is a fit's.)
+                    for e in drawn:
+                        if e >= NOISE_MIN_GEV:
+                            assert any(r == pytest.approx(e, rel=1e-6) for r in on_ratio), (where, key, e, on_ratio)
+                    for w in s["windows"]:
+                        if w["p_lo"] < NOISE_MIN_GEV and w.get("x"):
+                            assert not any(r == pytest.approx(1 / w["x"] ** 2, rel=1e-6) for r in on_ratio), \
+                                (where, key, w["label"], on_ratio)
+                    label = f"shower {s['shower'].upper()}'s deposit a/√E ⊕ b ⊕ c/E fit"
+                    ratio_tips = [t for t in texts if _noise_tip_lines(t)[0] == s["label"] and "Ratio to " in t]
+                    assert ratio_tips and all(f"Ratio to {label} = " in _flat(t) for t in ratio_tips), \
+                        (where, key, [t[:300] for t in ratio_tips[:2]])
+                assert found, where
+                _assert_capped(page, found, where)
+            # The 1/√E view and back, both window modes: repaints of the response in hand.
+            assert _res_press(page, "res-view", "linear")
+            assert _res_press(page, "res-windows", "anchors")
+            assert _res_press(page, "res-view", "energy")
+            assert requests[mark:] == [], f"{scheme}, {est}: a view or a window mode asked the service: {requests[mark:]}"
+        print(f"res-scaling noise, {scheme}: curves {seen['curve']}, entry carets {seen['entry']}, low anchors "
+              f"{seen['low']}, 1–4 GeV ratio marks {seen['ratio']}")
+        assert all(seen.values()), seen
+        assert [q.get("estimator") for q in _requests_of(requests, "/api/resolution-scaling")] == list(NOISE_ESTIMATORS)
+        browser.close()
     assert problems == [], problems
 
 
