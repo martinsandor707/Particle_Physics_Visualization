@@ -644,19 +644,16 @@ for (const name of %(corrs)s) {
         };
       }
       // The evaluators, from the fit blocks alone: pinned and affine at E = 1/x² of the server's own curve rows;
-      // quadrature and a/√E ⊕ b ⊕ c/E at fixed energies (the Python side holds them to rfit.band on a Fit rebuilt
-      // from the block).
+      // a/√E ⊕ b ⊕ c/E at fixed energies (the Python side holds it to rfit.band on a Fit rebuilt from the block,
+      // its free face included). The quadrature form is tabled only and has no evaluator (brief-fix nit 2).
       for (const s of payload.series) {
-        for (const form of ['affine', 'pinned', 'quadrature', 'noise']) {
+        for (const form of ['affine', 'pinned', 'noise']) {
           const fit = s.fits[windows][form];
           if (!fit) continue;
           const key = `${name}:${windows}:${s.key}:${form}`;
           if (form === 'noise') {
             const energies = [0.05, 0.2, 0.5, 1, 2, 3.5, 4, 5, 7.5, 10, 16, 20, 40, 80];
             out.resE.evaluators[key] = { energies, js: rs.fitCurveE(fit, energies), drawable: rs.noiseDrawable?.(fit) ?? null };
-          } else if (form === 'quadrature') {
-            const energies = [0.5, 1, 2, 3.5, 4, 5, 7.5, 10, 16, 20, 40, 80];
-            out.resE.evaluators[key] = { energies, js: rs.fitCurveE(fit, energies), drawable: rs.quadratureDrawable(fit) };
           } else {
             const rows = (fit.curve ?? []).filter((c) => c[0] > 0);
             out.resE.evaluators[key] = { server: rows, js: rs.fitCurveE(fit, rows.map((c) => 1 / (c[0] * c[0]))) };
@@ -720,7 +717,76 @@ for (const name of %(corrs)s) {
       Object.assign(pf, { c2: 400, se_c2: 300, c: 20, se_c: 7.5, held: [] });
       pf.rho = { a2b2: -0.5, a2c2: -0.3, b2c2: -0.2 };
     }
+    // brief-fix FX1: a held term whose all-free face is singular (params.free null on every block that holds a term):
+    // the conditional band is drawn, and the tooltip and the drawer say it is conditional.
+    const singular = clone(two);
+    const singularCurves = {};
+    for (const sx of singular.series) {
+      for (const mode of ['anchors', 'all']) {
+        const nf = sx.fits[mode].noise;
+        if (!nf || !(nf.params.held ?? []).length) continue;
+        nf.params.free = null;
+        const energies = [0.05, 0.5, 1, 2, 4, 10, 20, 80];
+        singularCurves[`${mode}:${sx.key}`] = { energies, js: rs.fitCurveE(nf, energies) };
+      }
+    }
+    // Review nit 1: a robust all-windows mode that declines its one fittable window from 4 GeV while the noise fit
+    // uses it (NF-panel's synthetic copy of robust_two: every other window from 4 GeV thinned to N = 10).
+    const declinedCase = (() => {
+      const r = load('res_scaling_robust_two');
+      for (const sx of r.series) {
+        const mf = sx.fits.all;
+        if (!mf.noise) continue;
+        const hi = mf.noise.points.map((b) => sx.windows.find((w) => w.bin === b)).filter((w) => w && w.p_lo >= 4);
+        if (!hi.length) continue;
+        const keep = hi[0];
+        for (const w of sx.windows) if (w.p_lo >= 4 && w.bin !== keep.bin) w.n = 10;
+        mf.points = [];
+        const mm = rs.energyModel(r, { view: 'energy', windows: 'all', shower: 'both' });
+        const pt = mm.series.find((x) => x.key === sx.key).points.find((q) => q.w.bin === keep.bin);
+        return { key: sx.key, label: keep.label, n: keep.n, roles: pt.roles,
+          declinedText: rs.declinedText(keep), tip: rs.energyPointTip(mm, mm.series.find((x) => x.key === sx.key), pt) };
+      }
+      return null;
+    })();
+    // Review nit 8: a robust payload with no window of 2 ≤ N < 20 left without a value (each thinned to N = 1), so
+    // robustFloorLine's first count is 0 and its clause is not printed.
+    const noThin = load('res_scaling_robust_two');
+    for (const sx of noThin.series) for (const w of sx.windows) if (w.n >= 2 && w.n < 20 && !Number.isFinite(w.value)) w.n = 1;
+    const robustNotes = (payload) => ['linear', 'energy'].flatMap((view) => ['anchors', 'all'].map((windows) => packNotes(
+      mn.resolutionScalingNotes({ payload, view, windows, shower: 'both', literature: [] }))));
+    // brief-fix FX3: the removed fields put back with sentinels (every fit block's and the noise block's `note`, the
+    // quadrature rho_a2b2 / se_a2_stat / se_b2_stat): no client output may change, so no client code reads them.
+    const everything = (payload) => JSON.stringify(['anchors', 'all'].flatMap((windows) => [
+      walk(rs.resolutionScalingOption(payload, { windows, shower: 'both' }, { width: 760, height: 420 })),
+      walk(rs.energyViewOption(payload, { view: 'energy', windows, shower: 'both', literature: ['pi', 'e'] }, RE).option),
+      rs.fitTableRows(payload, { windows, shower: 'both' }), rs.fitTableRows(payload, { view: 'energy', windows, shower: 'both' }),
+      ...['linear', 'energy'].map((view) => packNotes(mn.resolutionScalingNotes({ payload, view, windows, shower: 'both', literature: ['pi', 'e'] }))),
+    ]));
+    const removedFields = {};
+    for (const nm of ['res_scaling_two', 'res_scaling_median_two', 'res_scaling_robust_xgb']) {
+      const back = load(nm);
+      for (const sx of back.series) {
+        for (const mode of ['anchors', 'all']) {
+          for (const form of ['affine', 'pinned', 'quadrature', 'noise']) {
+            const f = sx.fits[mode][form];
+            if (!f) continue;
+            f.note = `SENTINEL_FX3_NOTE ${form}`;
+            if (form === 'quadrature') Object.assign(f.params, { rho_a2b2: 0.3141592, se_a2_stat: 2718.28, se_b2_stat: 1414.21 });
+          }
+        }
+      }
+      const a = everything(load(nm));
+      const b = everything(back);
+      removedFields[nm] = { same: a === b, sentinel: b.includes('SENTINEL_FX3'), length: a.length };
+    }
+    out.resE.fixRound = { declined: declinedCase, noThin: robustNotes(noThin), thin: robustNotes(load('res_scaling_robust_two')),
+      removedFields };
     out.resE.noise = {
+      singular: { anchors: noiseCase(singular, 'anchors'), all: noiseCase(singular, 'all'), curves: singularCurves },
+      bandText: [[[], true], [['b'], true], [['a', 'c'], true], [['b'], false], [['a', 'c'], false], [['c'], { a2: 1 }]]
+        .map(([h, f]) => rs.noiseBandText?.(h, f) ?? null),
+      axisLine: { share: rs.NOISE_AXIS_SHARE ?? null, text: rs.NOISE_AXIS_LINE_TEXT ?? null },
       fallback: { anchors: noiseCase(fallback, 'anchors'), all: noiseCase(fallback, 'all') },
       above: noiseCase(above, 'anchors'), bandAbove: noiseCase(bandAbove, 'anchors'), free: noiseCase(free, 'anchors'),
       noReason: NO_NOISE,
@@ -770,12 +836,13 @@ for (const name of %(corrs)s) {
       rs.ratioRange([{ value: 0.3, robust: true }]),
     ],
     ticks: [[1.5, 120], [2, 120], [4, 120], [10, 120], [1.1, 120], [10, 45]].map(([k, h]) => rs.ratioTicks(k, h)),
-    drawable: [
-      rs.quadratureDrawable({ params: { a_defined: true, b_defined: true, rho_a2b2: -0.9, a2: 1, b2: 1 } }),
-      rs.quadratureDrawable({ params: { a_defined: true, b_defined: true, rho_a2b2: null, a2: 1, b2: 1 } }),
-      rs.quadratureDrawable({ params: { a_defined: false, b_defined: true, rho_a2b2: -0.9, a2: -1, b2: 1 } }),
-      rs.quadratureDrawable(null),
+    // The quadrature form has no evaluator and no drawable test any more (brief-fix nit 2): a quadrature block gives
+    // fitCurveE nothing, defined or not.
+    quadratureCurve: [
+      rs.fitCurveE({ form: 'quadrature', params: { a_defined: true, b_defined: true, a2: 1, b2: 1, se_a2: 0.1, se_b2: 0.1 } }, [1, 4, 16]),
+      rs.fitCurveE({ form: 'quadrature', params: { a_defined: false, b_defined: true, a2: -1, b2: 1 } }, [1, 4, 16]),
     ],
+    exportsQuadratureDrawable: 'quadratureDrawable' in rs,
   };
   // B's lines at 70%% strength never fall below 3:1, on the dark card and on the light one.
   const inkOf = () => {
@@ -910,7 +977,8 @@ for (const name of %(corrs)s) {
         term: s.fits[f].entry.term } : null, held: s.fits[f].held ?? null }))),
     ratioBelow: m.ratio.below, noiseMinGev: m.noiseMinGev,
     anyUnconverged: m.series.some((s) => [s.mf?.affine, s.mf?.pinned, s.mf?.quadrature].some((f) => f && f.converged === false)),
-    points: { weak: m.series.flatMap((s) => s.points).filter((p) => p.weak).length, weakAlone: m.series.flatMap((s) => s.points).filter((p) => p.weak && !p.subFloor && !p.fitted).length,
+    points: { weak: m.series.flatMap((s) => s.points).filter((p) => p.weak).length, weakAlone: m.series.flatMap((s) => s.points).filter((p) => p.weak && !p.subFloor && !p.fitted && !p.noiseFitted).length,
+      weakNoiseOnly: m.series.flatMap((s) => s.points).filter((p) => p.weak && !p.subFloor && !p.fitted && p.noiseFitted).length,
       subFloor: m.series.flatMap((s) => s.points).filter((p) => p.subFloor).length, below4: m.series.flatMap((s) => s.points).filter((p) => p.below4).length,
       ratioWhiskers: m.series.flatMap((s) => s.points).filter((p) => p.ratio.drawn && Number.isFinite(p.ratio.lo)).length },
     noReference: m.ratio.noReference, anyB: m.series.some((s) => s.isB),
@@ -1330,6 +1398,7 @@ for (const name of %(corrs)s) {
     .filter(([, , f]) => f && (f.drawable ?? true)).map(([s, form, f]) => ({
       key: s.key, form, provisional: f.provisional, misfit: f.misfit, cut: f.cut ? { at: f.cut.at, peak: f.cut.peak } : null,
       peak: Math.max(...(f.curve ?? s.raw.fits.all[form].curve).map((c) => c[3])),
+      entry: f.entry ? { lineAt: f.entry.lineAt, bandAt: f.entry.bandAt, bandAbove: Boolean(f.entry.bandAbove) } : null,
     })));
   const lowLinear = rs.resolutionModel(low, lin);
   const lowEnergy = rs.energyModel(low, eo);
@@ -2442,6 +2511,23 @@ def _sig_cell(v: float) -> str:
     return _sf(v).replace("-", "−")
 
 
+#: The unit of a term's square, as the fit table and the noise tooltip print it (review m4).
+SQUARE_UNITS = {"a": "%²·GeV", "b": "%²", "c": "%²·GeV²"}
+
+
+def _as_square(p: dict, t: str) -> bool:
+    """Review m4: a free term whose SE exceeds its value is printed as its square with the square's SE."""
+    return p.get("se_" + t) is not None and p.get(t) is not None and p["se_" + t] > p[t]
+
+
+def _term_cell(p: dict, t: str, sep: str = "\u00a0") -> str:
+    """A free term's table cell: a ± se, or its square with its SE where se > a (review m4), never a symmetric error
+    larger than a term that cannot be negative."""
+    if _as_square(p, t):
+        return f"{t}²{sep}={sep}{_sig_cell(p[t + '2'])}{sep}±{sep}{_sig_cell(p['se_' + t + '2'])}{sep}{SQUARE_UNITS[t]}"
+    return f"{_sig_cell(p[t])}{sep}±{sep}{_sig_cell(p['se_' + t])}"
+
+
 @pytest.mark.parametrize("name", RES)
 def test_res_the_noise_row_gives_each_term_or_zero_held(out, name):
     """The a/√E ⊕ b ⊕ c/E row of both views (Martin's decisions of 2026-11-13): a, b and c with their SEs, a term the
@@ -2468,7 +2554,16 @@ def test_res_the_noise_row_gives_each_term_or_zero_held(out, name):
                 if t in p["held"]:
                     assert lin[i] == "0\u00a0(held)", (name, windows, s["key"], t)
                 else:
-                    assert lin[i] == f"{_sig_cell(p[t])}\u00a0±\u00a0{_sig_cell(p['se_' + t])}", (name, windows, s["key"], t)
+                    assert lin[i] == _term_cell(p, t), (name, windows, s["key"], t)
+                    # m4: never a symmetric error larger than the term.
+                    assert ("²" in lin[i]) == _as_square(p, t)
+            # The quadrature row's defined terms follow the same rule (m4); an undefined one is its square already.
+            q = s["fits"][windows]["quadrature"]
+            if q is not None:
+                qp, qcells = q["params"], energy[s["key"]]["quadrature"]
+                for i, t in enumerate("ab", start=1):
+                    if qp[f"{t}_defined"] and qp.get(t) is not None:
+                        assert qcells[i] == _term_cell(qp, t), (name, windows, s["key"], "quadrature", t)
             assert ("ν = 0" in lin[4]) == (nf["ndf"] == 0)
             if nf["ndf"] > 0:
                 assert lin[4].startswith(f"{_sig_cell(nf['chi2'])}/{nf['ndf']} (p")
@@ -2490,7 +2585,20 @@ def test_res_the_noise_row_gives_each_term_or_zero_held(out, name):
                   out["res"][name]["tables"]["all:both"], out["resE"]["fixtures"][name]["tables"]["all"]):
         cap = table["caption"]
         assert "a/√E ⊕ b ⊕ c/E is fitted with a², b² and c² held non-negative" in cap
-        assert 'written "0 (held)", and its band is conditional on it' in cap
+        assert 'written "0 (held)"' in cap and "its band is conditional on it" not in cap
+        if table in (out["resE"]["fixtures"][name]["tables"]["anchors"], out["resE"]["fixtures"][name]["tables"]["all"]):
+            # FX1: the E view, which draws the band, says it is the envelope.
+            assert ('"0 (held)", and the band then is the envelope of the band with it held and the band of the fit with '
+                    "all three terms free, so it does not assume it is 0 (conditional on it only where that free fit cannot "
+                    "be solved).") in cap
+        else:
+            # Nit 6: the 1/√E view draws no noise band, so its caption speaks of none.
+            assert "band then is the envelope" not in cap
+        # m4, said once.
+        sq = ("Where a term's SE exceeds its value, a/√E ⊕ b ⊕ c/E and the quadrature form print its square with the "
+              "square's SE (b² = 0.04 ± 8.1 %²)")
+        assert cap.count(sq) == 1
+        assert "exact" not in cap
         assert "c, the noise term c/E, belongs to that form alone." in cap
         assert ("the anchors and the lowest fittable window from 1 GeV, the low anchor" in cap) == (table["mode"] == "anchors")
         assert ("every fittable window from 1 GeV" in cap) == (table["mode"] == "all")
@@ -2681,59 +2789,35 @@ def test_res_e_pinned_and_affine_evaluators_reproduce_the_servers_curve(out, nam
     assert checked > 0
 
 
-def _quadrature_fit(block: dict):
-    """The server's Fit, rebuilt from a wire block: θ = (A, B) as fractions, cov_stat from the unscaled SEs and ρ."""
+def _noise_cov(face: dict, s_factor: float):
+    """cov_stat of one face (the constrained params or `params.free`): the unscaled SEs (se/S once S > 1) and ρ, zero
+    at a held term."""
     import numpy as np
-    from calosrv.stats import resolution_fit as rfit
 
-    p = block["params"]
-    sa, sb, rho = p["se_a2_stat"] / 1e4, p["se_b2_stat"] / 1e4, p["rho_a2b2"]
-    cov = np.array([[sa * sa, rho * sa * sb], [rho * sa * sb, sb * sb]])
-    return rfit.Fit("quadrature", block["n_points"], (p["a2"] / 1e4, p["b2"] / 1e4), cov, block["chi2"], block["ndf"],
-                    block["p_value"], block["scale_factor"], block["iterations"], block["converged"])
-
-
-@pytest.mark.parametrize("name", RES)
-def test_res_e_the_quadrature_evaluator_equals_rfit_band(out, name):
-    """√ of the z = A/E + B band, from a2, b2, their SEs, ρ(A, B) and band_quantile, is the server's band() exactly."""
-    import numpy as np
-    from calosrv.stats import resolution_fit as rfit
-
-    payload = _load(name)
-    checked = 0
-    for s in payload["series"]:
-        for mode in ("anchors", "all"):
-            block = s["fits"][mode]["quadrature"]
-            if not block or block["params"].get("rho_a2b2") is None:
-                continue
-            got = out["resE"]["evaluators"][f"{name}:{mode}:{s['key']}:quadrature"]
-            energies = np.array(got["energies"])
-            y, lo, hi = (100 * v for v in rfit.band(_quadrature_fit(block), 1 / np.sqrt(energies)))
-            assert [r[0] for r in got["js"]] == got["energies"]
-            for (e, jy, jlo, jhi), want in zip(got["js"], zip(y, lo, hi)):
-                scale = max(abs(v) for v in want) or 1e-9
-                assert [jy, jlo, jhi] == pytest.approx(list(want), rel=1e-4, abs=1e-4 * scale), (s["key"], mode, e)
-            assert got["drawable"] == (block["params"]["a_defined"] and block["params"]["b_defined"])
-            checked += 1
-    assert checked > 0
-
-
-def _noise_fit(block: dict):
-    """The server's noise Fit, rebuilt from a wire block: θ = (A, B, C) as fractions, cov_stat from the unscaled SEs
-    (se/S once S > 1) and ρ, zero at a held term."""
-    import numpy as np
-    from calosrv.stats import resolution_fit as rfit
-
-    p = block["params"]
-    s_factor = block["scale_factor"] if block["scale_factor"] > 1 else 1.0
-    se = [0.0 if p[k] is None else p[k] / s_factor / 1e4 for k in ("se_a2", "se_b2", "se_c2")]
-    rho = {(0, 1): p["rho"]["a2b2"], (0, 2): p["rho"]["a2c2"], (1, 2): p["rho"]["b2c2"]}
+    se = [0.0 if face[k] is None else face[k] / s_factor / 1e4 for k in ("se_a2", "se_b2", "se_c2")]
+    rho = {(0, 1): face["rho"]["a2b2"], (0, 2): face["rho"]["a2c2"], (1, 2): face["rho"]["b2c2"]}
     cov = np.diag([v * v for v in se])
     for (i, j), r in rho.items():
         if r is not None:
             cov[i, j] = cov[j, i] = r * se[i] * se[j]
-    return rfit.Fit("noise", block["n_points"], (p["a2"] / 1e4, p["b2"] / 1e4, p["c2"] / 1e4), cov, block["chi2"], block["ndf"],
-                    block["p_value"], block["scale_factor"], block["iterations"], block["converged"])
+    return cov
+
+
+def _noise_fit(block: dict, with_free: bool = True):
+    """The server's noise Fit, rebuilt from a wire block: θ = (A, B, C) as fractions, cov_stat from the unscaled SEs
+    and ρ, zero at a held term; and, where the block carries `params.free` (a term held, brief-fix FX1), the all-free
+    face's θ and cov_stat, so `rfit.band` is the envelope. `with_free=False` strips it: the conditional band."""
+    from calosrv.stats import resolution_fit as rfit
+
+    p = block["params"]
+    s_factor = block["scale_factor"] if block["scale_factor"] > 1 else 1.0
+    free = p.get("free") if with_free else None
+    kw = {}
+    if free:
+        kw = {"free_theta": (free["a2"] / 1e4, free["b2"] / 1e4, free["c2"] / 1e4), "free_cov_stat": _noise_cov(free, s_factor)}
+    return rfit.Fit("noise", block["n_points"], (p["a2"] / 1e4, p["b2"] / 1e4, p["c2"] / 1e4), _noise_cov(p, s_factor),
+                    block["chi2"], block["ndf"], block["p_value"], block["scale_factor"], block["iterations"],
+                    block["converged"], **kw)
 
 
 def _noise_band(block: dict, energy: float) -> tuple[float, float, float]:
@@ -2747,13 +2831,16 @@ def _noise_band(block: dict, energy: float) -> tuple[float, float, float]:
 
 @pytest.mark.parametrize("name", RES)
 def test_res_e_the_noise_evaluator_equals_rfit_band(out, name):
-    """a/√E ⊕ b ⊕ c/E: √ of the z = A/E + B + C/E² band, from a2, b2, c2, their (scaled) SEs, the three ρ and
-    band_quantile, is the server's band() on its Fit: conditional on the held terms, whose rows are zero."""
+    """a/√E ⊕ b ⊕ c/E: √ of the z = A/E + B + C/E² band, from a2, b2, c2, their (scaled) SEs, the three ρ, the all-free
+    face `params.free` and band_quantile, is the server's band() on its Fit: where a term is held, the envelope of the
+    conditional band (zero rows at the held terms) and the all-free face's band at the same S and quantile (brief-fix
+    FX1); with nothing held, the fit's own band. The envelope is never narrower than the conditional band, and is
+    strictly wider somewhere on every block that carries a free face."""
     import numpy as np
     from calosrv.stats import resolution_fit as rfit
 
     payload = _load(name)
-    checked = 0
+    checked = enveloped = 0
     for s in payload["series"]:
         for mode in ("anchors", "all"):
             block = s["fits"][mode]["noise"]
@@ -2763,16 +2850,35 @@ def test_res_e_the_noise_evaluator_equals_rfit_band(out, name):
             fit = _noise_fit(block)
             assert fit.band_quantile == pytest.approx(block["band_quantile"], rel=1e-5)
             assert fit.held == tuple(block["params"]["held"])
+            free = block["params"]["free"]
+            # The wire carries the free face exactly where a term is held (null on these recordings otherwise: none is
+            # singular), and the rebuilt Fit carries it too.
+            assert (free is not None) == bool(block["params"]["held"]), (s["key"], mode)
+            assert (fit.free_theta is not None) == (free is not None)
             energies = np.array(got["energies"])
             y, lo, hi = (100 * v for v in rfit.band(fit, 1 / np.sqrt(energies)))
+            _, clo, chi = (100 * v for v in rfit.band(_noise_fit(block, with_free=False), 1 / np.sqrt(energies)))
             assert [r[0] for r in got["js"]] == got["energies"]
-            for (e, jy, jlo, jhi), want in zip(got["js"], zip(y, lo, hi)):
+            wider = 0
+            for (e, jy, jlo, jhi), want, cond in zip(got["js"], zip(y, lo, hi), zip(clo, chi)):
                 scale = max(abs(v) for v in want) or 1e-9
                 assert [jy, jlo, jhi] == pytest.approx(list(want), rel=1e-4, abs=1e-4 * scale), (s["key"], mode, e)
+                # FX1: never narrower than the conditional band, at either edge.
+                assert jlo <= cond[0] * (1 + 1e-4) + 1e-9 and jhi >= cond[1] * (1 - 1e-4) - 1e-9, (s["key"], mode, e, jlo, jhi, cond)
+                wider += (jhi > cond[1] * (1 + 1e-6)) or (jlo < cond[0] * (1 - 1e-6))
+            if free is not None:
+                assert wider > 0, (s["key"], mode)
+                enveloped += 1
+            else:
+                assert wider == 0, (s["key"], mode)
             assert got["drawable"] is True
             checked += 1
     assert checked > 0
+    assert enveloped > 0  # every recording holds a term in at least one drawn noise fit
 
+
+#: Review m7 (brief-fix): where a noise curve enters below x.max·10⁻³, its caret and the drawer's entry line add this.
+NOISE_AXIS_LINE = "less than 0.1% of the axis from E = 0: the curve runs up along the axis line there."
 
 #: The roles of a window of 1–4 GeV on the E view (Martin's decisions of 2026-11-13).
 LOW_ANCHOR_ROLE = ("the low anchor of the a/√E ⊕ b ⊕ c/E fit: the lowest fittable window from 1 GeV, since anchors from "
@@ -2936,6 +3042,24 @@ def test_res_e_the_noise_curve_enters_at_the_top_where_its_quadratic_says(out, n
             e = f["entry"]
             if A == 0 and C == 0:
                 assert e is None or e["lineAt"] is None, "a flat curve never comes down"
+                if e is None:
+                    continue
+                # A flat curve's envelope band (brief-fix FX1) can still reach above the top where the all-free face
+                # widens: its upper edge then comes down at its own energy, or lies above the top at the axis end. One
+                # caret says which, and clipped.entries counts it.
+                assert block["params"]["free"] is not None and e["above"] is False, (key, s["key"])
+                carets = [i for x in chart["series"] if x["id"] == f"{s['key']}|carets" for i in x["items"]]
+                if e["bandAt"] is not None:
+                    assert _noise_band(block, e["bandAt"])[2] == pytest.approx(top, rel=1e-5)
+                    want = f"Its 95% band comes down into the plot at E = {_sf(e['bandAt'])} GeV."
+                    at_entry = [i for i in carets if i["value"][0] == pytest.approx(e["bandAt"]) and i["value"][1] == pytest.approx(top)]
+                else:
+                    assert e["bandAbove"] is True and _noise_band(block, ax["x"]["max"])[2] > top
+                    want = "Its 95% band's upper edge lies above the top of the axis"
+                    at_entry = [i for i in carets if i["value"][0] == pytest.approx(ax["x"]["max"]) and i["value"][1] == pytest.approx(top)]
+                assert len(at_entry) == 1 and want in _plain(at_entry[0]["tip"]), (key, s["key"])
+                entries += 1
+                seen += 1
                 continue
             assert B < H, "every recorded curve comes inside the plot"
             u = 2 * (H - B) / (A + math.sqrt(A * A + 4 * C * (H - B)))
@@ -2944,8 +3068,20 @@ def test_res_e_the_noise_curve_enters_at_the_top_where_its_quadratic_says(out, n
             assert e["term"] == ("c" if C > 0 else "a") and e["above"] is False
             # Each band edge at its own energy, where the server's band crosses the top: the upper edge first. The lower
             # edge may never rise above the top (cut at 0 where ẑ − h < 0), and then the curve is drawn from 0.01 GeV.
-            assert e["bandAt"] >= e["lineAt"], (key, s["key"])
-            assert _noise_band(block, e["bandAt"])[2] == pytest.approx(top, rel=1e-6)
+            # The envelope's upper edge (brief-fix FX1) may already be above the top at the axis end, where the all-free
+            # face's band widens in the extrapolation: then it has no crossing to enter at, and says so (bandAbove). The
+            # server's band agrees: above the top at x.max, and at or above it at the line's own entry.
+            if e["bandAt"] is None:
+                assert e["bandAbove"] is True and block["params"]["free"] is not None, (key, s["key"])
+                assert _noise_band(block, ax["x"]["max"])[2] > top, (key, s["key"])
+                assert _noise_band(block, e["lineAt"])[2] >= top * (1 - 1e-9), (key, s["key"])
+            else:
+                assert e["bandAbove"] is False
+                assert e["bandAt"] >= e["lineAt"], (key, s["key"])
+                # 1e-6 on the conditional band; 1e-5 where the envelope's edge is the free face's, whose squares and SEs
+                # the wire carries to six figures and whose edge is steep where it crosses the top.
+                rel = 1e-6 if block["params"]["free"] is None else 1e-5
+                assert _noise_band(block, e["bandAt"])[2] == pytest.approx(top, rel=rel)
             assert _noise_band(block, e["lineAt"])[0] == pytest.approx(top, rel=1e-6)
             if e["lowAt"] is not None:
                 assert e["lineAt"] >= e["lowAt"] and _noise_band(block, e["lowAt"])[1] == pytest.approx(top, rel=1e-6)
@@ -2958,6 +3094,10 @@ def test_res_e_the_noise_curve_enters_at_the_top_where_its_quadratic_says(out, n
             term = "noise term c/E" if C > 0 else "stochastic term a/√E"
             sentence = (f"It comes down into the plot at E = {_sf(e['lineAt'])} GeV: a/√E ⊕ b ⊕ c/E rises without bound as "
                         f"E → 0, through its {term}.")
+            # Review m7: an entry below 0.1% of the axis from E = 0 runs up the axis line, and the caret says so.
+            assert e["atAxis"] is (e["at"] < ax["x"]["max"] * 1e-3), (key, s["key"])
+            if e["atAxis"]:
+                sentence += " " + NOISE_AXIS_LINE
             carets = [i for x in chart["series"] if x["id"] == f"{s['key']}|carets" for i in x["items"]]
             at_entry = [i for i in carets if i["value"][0] == pytest.approx(e["lineAt"]) and i["value"][1] == pytest.approx(top)]
             assert len(at_entry) == 1 and _plain(at_entry[0]["tip"]).endswith(sentence), (key, s["key"])
@@ -3113,10 +3253,12 @@ def test_res_noise_words_are_the_briefs(out):
 
 
 @pytest.mark.parametrize("name", RES)
-def test_res_e_the_noise_curve_tooltip_names_terms_condition_correlation_floor_and_caveat(out, name):
-    """brief section 4.3: the equation; each term with its SE and unit or the held phrase; χ²/ν and S; the windows fitted,
-    the low anchor named in the 3-anchor mode; "The band is conditional on …" where a term is held; the correlation line
-    by the lead's rule; the floor sentence and the naming caveat, both muted."""
+def test_res_e_the_noise_curve_tooltip_names_terms_condition_and_correlation(out, name):
+    """brief section 4.3, as the fix round left it: the equation; each term with its SE and unit, its square with the
+    square's SE where the SE exceeds the term (review m4), or the held phrase; χ²/ν and S; the windows fitted, the low
+    anchor named in the 3-anchor mode; where a term is held, the envelope sentence (brief-fix FX1, the free face on every
+    recorded block that holds a term); the correlation line by the lead's rule. The floor sentence and the naming caveat
+    are the drawer's alone (review m6), and no band sentence says "exact"."""
     payload = {s["key"]: s for s in _load(name)["series"]}
     units = {"a": "%·√GeV", "b": "%", "c": "%·GeV"}
     seen = 0
@@ -3136,8 +3278,12 @@ def test_res_e_the_noise_curve_tooltip_names_terms_condition_correlation_floor_a
                 terms = []
                 for t in "abc":
                     lead = "the noise term c/E: " if t == "c" else ""
-                    terms.append(f"{lead}{t} = 0, held there by the constraint {t}² ≥ 0" if t in p["held"]
-                                 else f"{lead}{t} = {_sf(p[t])} ± {_sf(p['se_' + t])} {units[t]}")
+                    if t in p["held"]:
+                        terms.append(f"{lead}{t} = 0, held there by the constraint {t}² ≥ 0")
+                    elif _as_square(p, t):
+                        terms.append(f"{lead}{t}² = {_sf(p[t + '2'])} ± {_sf(p['se_' + t + '2'])} {SQUARE_UNITS[t]}")
+                    else:
+                        terms.append(f"{lead}{t} = {_sf(p[t])} ± {_sf(p['se_' + t])} {units[t]}")
                 assert html.unescape(lines[2]) == "; ".join(terms), (key, s["key"])
                 plain = _plain(tip)
                 chi = (f"χ²/ν = {_sf(nf['chi2'])}/{nf['ndf']}" if nf["ndf"] > 0 else "ν = 0")
@@ -3152,18 +3298,25 @@ def test_res_e_the_noise_curve_tooltip_names_terms_condition_correlation_floor_a
                     assert f"In the 3-anchor mode it runs through {count} and the lowest fittable window from 1 GeV ({low})" in plain
                 else:
                     assert "(the low anchor)" not in plain and "In the 3-anchor mode it runs through" not in plain
-                conditional = [x for x in lines if x.startswith("The band is conditional on ")]
-                if p["held"]:
-                    assert conditional == [f"The band is conditional on {' and '.join(f'{t} = 0' for t in p['held'])}."]
+                band = [html.unescape(x) for x in lines if x.startswith("The band is ")]
+                held_t = " and ".join(f"{t} = 0" for t in p["held"])
+                if p["held"] and p["free"] is not None:
+                    assert band == [f"The band is the envelope of the band with {held_t} and the band of the fit with all "
+                                    f"three terms free, so it does not assume {held_t}."], (key, s["key"])
+                elif p["held"]:
+                    assert band == [f"The band is conditional on {held_t}: the fit with all three terms free cannot be "
+                                    "solved through these windows."], (key, s["key"])
                 else:
-                    assert not conditional
+                    assert not band
+                assert "exact" not in plain and "no delta method" not in plain
                 rho = _rho_line(p["rho"])
                 rho_lines = [x for x in lines if "ρ(" in x]
                 assert ([_plain(x) for x in rho_lines] == [rho]) if rho else not rho_lines, (key, s["key"])
                 if rho:
                     assert rho_lines[0].startswith("<span style=")
-                muted = [_plain(x) for x in lines if x.startswith("<span style=")]
-                assert _plain(out["resE"]["noise"]["words"]["floor"]) in muted and _plain(out["resE"]["noise"]["words"]["caveat"]) in muted
+                # m6: the floor sentence and the naming caveat left the curve's tooltip; the drawer states both, once.
+                assert _plain(out["resE"]["noise"]["words"]["floor"]) not in plain
+                assert _plain(out["resE"]["noise"]["words"]["caveat"]) not in plain
                 assert ("Provisional:" in plain) == bool(nf["provisional"])
                 seen += 1
     assert seen > 0
@@ -3248,7 +3401,9 @@ def test_res_e_the_ratio_axis_covers_the_robust_marks(out, name):
         assert all(any(abs(t * u - 1) < 1e-9 for u in ticks) for t in ticks) and 1 in ticks
     assert helpers["grid"] == [4, 4.25, 4.5, 4.75, 5, 5.1, 5.25, 5.5, 5.75, 6]
     assert helpers["gridEnds"] == [4, 80, 305, True, True]
-    assert helpers["drawable"] == [True, False, False, False]
+    # Nit 2: the quadrature form is tabled only, so it has no curve and no drawable test.
+    assert helpers["quadratureCurve"] == [[], []]
+    assert helpers["exportsQuadratureDrawable"] is False
 
 
 @pytest.mark.parametrize("name", RES)
@@ -3461,8 +3616,10 @@ def test_res_e_fit_marks_carry_their_form_and_extrapolation_in_their_tips(out, n
                 else:
                     # The equation alone, bold; its terms on the next line.
                     lines = tip.split("<br/>")
-                    assert lines[1] == "<b>σ/E = a/√E ⊕ b ⊕ c/E</b>" and lines[2].startswith("a ") and "; b " in lines[2]
-                    assert "; the noise term c/E: c " in lines[2]
+                    # Each term as itself or, where its SE exceeds it, as its square (review m4).
+                    assert lines[1] == "<b>σ/E = a/√E ⊕ b ⊕ c/E</b>" and lines[2].startswith(("a ", "a² "))
+                    assert "; b " in lines[2] or "; b² " in lines[2]
+                    assert "; the noise term c/E: c " in lines[2] or "; the noise term c/E: c² " in lines[2]
                 assert ("Extrapolated: beyond the windows this fit used" in tip) == (x in dashed)
                 assert "assumes the form holds" in tip if x in dashed else True
             bands = [x for x in chart["chart"]["series"] if (x["id"] or "").startswith(f"{s['key']}|{form}|band|")]
@@ -4619,12 +4776,22 @@ def test_res_a_fit_above_the_windows_top_gets_its_caret_true_values_and_count(ou
         got = lt[view]
         # a/√E ⊕ b ⊕ c/E rises without bound as E → 0 (Martin's decisions of 2026-11-13): it comes down into the plot
         # rather than leaving it, each with its own caret, counted apart (clipped.entries).
-        above = [f for f in got["fits"] if f["peak"] > hi and f["form"] != "noise"]
+        # The noise fit is filtered first: its envelope is unbounded at E = 0 for a flat curve (brief-fix FX1, NF-panel
+        # §3.1), so its peak serialises to null and is not compared.
+        above = [f for f in got["fits"] if f["form"] != "noise" and f["peak"] > hi]
         if view == "energy":
             p_of = lambda f: payload[f["key"]]["fits"]["all"]["noise"]["params"]  # noqa: E731
             entering = [f for f in got["fits"] if f["form"] == "noise" and (p_of(f)["a2"] > 0 or p_of(f)["c2"] > 0)
                         and p_of(f)["b2"] < hi * hi]
-            assert entering and got["clipped"]["entries"] == len(entering)
+            # A flat curve (A = C = 0) does not come down, but its envelope band can (brief-fix FX1): its upper edge enters
+            # at its own energy, or lies above the top at the axis end; it is counted with the entries, its tip the band's.
+            flat_band = [f for f in got["fits"] if f["form"] == "noise" and p_of(f)["a2"] == 0 and p_of(f)["c2"] == 0
+                         and f["entry"] is not None]
+            assert all(f["entry"]["lineAt"] is None and (f["entry"]["bandAt"] is not None or f["entry"]["bandAbove"])
+                       and p_of(f)["free"] is not None for f in flat_band)
+            assert sum("Its 95% band" in _plain(t) and ("comes down into the plot" in t or "upper edge lies above the top" in t)
+                       for t in got["tips"]) == len(flat_band)
+            assert entering and got["clipped"]["entries"] == len(entering) + len(flat_band)
             assert sum(_plain(t).startswith(tuple(f"{payload[f['key']]['label']} It comes down into the plot at E = " for f in entering))
                        for t in got["tips"]) == len(entering)
             assert not [f for f in got["fits"] if f["form"] == "noise" and f["cut"]], "nothing in this clone leaves after entering"
@@ -5049,7 +5216,9 @@ def test_res_est_the_se_line_names_the_weight(est, name):
         else:
             assert w["se_delta"] is None and "delta-method" not in tip
             ws = scale[p["key"]]
-            assert ws is not None and set(ws) == {"c", "n_windows", "rule"}
+            assert ws is not None and set(ws) == {"c", "n_windows", "c_low", "n_low", "rule"}
+            assert w["p_lo"] >= 4, "the 1/√E view draws no window below 4 GeV"
+            assert "c_low" not in tip
             assert "applied at the fitted value" not in tip and "its relative SE κ" not in tip
             if w["se"] is None:
                 assert "bootstrap SE" not in tip
@@ -5062,6 +5231,45 @@ def test_res_est_the_se_line_names_the_weight(est, name):
             else:
                 assert (f"bootstrap SE {_pc(w['se'])} (κ = {_sf(100 * w['se_rel'])}%); no fit weight: no window of this "
                         "series from 4 GeV carries one, so it has no pooled scale c") in tip, (name, p["key"], p["bin"], tip)
+
+
+@pytest.mark.parametrize("name", list(RES_EST))
+def test_res_fx2_a_window_below_4_gev_prints_c_low_and_one_from_4_gev_prints_c(est, name):
+    """brief-fix FX2 on the E view, which draws the windows of 1–4 GeV: under the median and robust widths a window below
+    4 GeV prints its weight with the series' second pooled scale ("c_low = … for this series' windows below 4 GeV"), a
+    window from 4 GeV (4–5 GeV included) with c ("c = … for this series"), never the other; under sample neither scale
+    exists (c_low null) and no tip names one."""
+    estimator = RES_EST[name]
+    payload = _load(name)
+    windows = _windows(payload)
+    scale = {s["key"]: s["weight_scale"] for s in payload["series"]}
+    seen = {"low": 0, "high": 0}
+    for v in est["fixtures"][name]["energy"].values():
+        for p in v["pointTips"]:
+            w = windows[(p["key"], p["bin"])]
+            tip = _plain(p["tip"])
+            if estimator == "sample":
+                assert scale[p["key"]] is None and "c_low" not in tip
+                continue
+            ws = scale[p["key"]]
+            assert set(ws) == {"c", "n_windows", "c_low", "n_low", "rule"}
+            if w["se"] is None or w["se_rel"] is None or ws["c"] is None:
+                assert "c_low =" not in tip
+                continue
+            head = f"bootstrap SE {_pc(w['se'])} (κ = {_sf(100 * w['se_rel'])}%); fit weight "
+            if w["p_lo"] < 4 and ws["c_low"] is not None:
+                assert (head + f"se = c_low·ŷ/√N, c_low = {_sf(ws['c_low'])} for this series' windows below 4 GeV") in tip, \
+                    (name, p["key"], p["bin"], tip)
+                assert "for this series;" not in tip and not tip.endswith("for this series")
+                seen["low"] += 1
+            else:
+                assert (head + f"se = c·ŷ/√N, c = {_sf(ws['c'])} for this series") in tip, (name, p["key"], p["bin"], tip)
+                assert "c_low" not in tip
+                seen["high"] += 1
+    if estimator != "sample":
+        assert seen["high"] > 0
+        # Every median and robust recording with a two-shower or single-shower table draws a window of 1–4 GeV.
+        assert seen["low"] > 0, name
 
 
 @pytest.mark.parametrize("name", list(RES_EST))
@@ -5229,8 +5437,15 @@ NOISE_CAVEAT = ("c/E is the calorimeter's conventional noise term. Here it takes
                 "network, its pull toward mid-range; under Median |rel. err.|, the response's bias as well), so c is a fitted "
                 "coefficient, not a measured noise level.")
 NOISE_CORRELATED = ("Over the fitted windows 1/√E, 1 and 1/E change together, so the fitted squares are {how}: the curve is "
-                    "better determined than its split into a, b and c, and a term held at 0 means the windows need no separate "
-                    "term of that form once the others are free, not that the detector has none.")
+                    "better determined than its split into a, b and c, and each free term's standard error already carries "
+                    "that correlation, conditional only on the held terms.")
+#: Review m3: the held-term caveat, its own line wherever a drawn noise fit holds a term, with or without a ρ.
+NOISE_HELD_CAVEAT = ("A term held at 0 means the windows need no separate term of that form once the others are free, not that "
+                     "the detector has none.")
+#: brief-fix FX2, the drawer's weights sentence (verbatim), under median and robust only.
+FX2_WEIGHTS = ("The a/√E ⊕ b ⊕ c/E fit weights a window from 4 GeV by se = c·ŷ/√N and a window below 4 GeV by "
+               "se = c_low·ŷ/√N, c_low the median of √N·κ over the series' windows of 1–4 GeV, so the low anchor never sets "
+               "its own weight.")
 NOISE_TABLED_E = "a/√E ⊕ b is in the fit table, not drawn."
 NOISE_TABLED_LINEAR = ("a/√E ⊕ b ⊕ c/E, fitted as ({sym})² = A/E + B + C/E² with A, B and C held non-negative, is tabled under "
                        "the plot as well, not drawn: it is fitted to windows from 1 GeV, and those below 4 GeV lie off this view's "
@@ -5241,11 +5456,29 @@ NOISE_REMOVED_CLAIMS = ("no curve is drawn below 4 GeV", "no curve is drawn ther
                         "the thicker line is the quadrature")
 
 
-def _held_line(label: str, held: list[str]) -> str:
+def _exact_band_sentences(texts) -> list[str]:
+    """brief-fix FX1 Words: "exact" leaves every band sentence. The sentences (split at ". " and ";") that speak of a
+    band and call anything exact, the one sanctioned phrase aside: the ratio tooltip's "the reference is held exact",
+    which describes how the reference enters the ratio, not the band's coverage (NF-panel §2)."""
+    out = []
+    for t in texts:
+        for sentence in re.split(r"(?<=\.)\s+|;\s*", _plain(t)):
+            if "band" in sentence and re.search(r"\bexact\b", sentence.replace("the reference is held exact", "")):
+                out.append(sentence)
+    return out
+
+
+def _held_line(label: str, held: list[str], free: bool = True) -> str:
+    """The drawer's held line: the held terms, then the band sentence of brief-fix §Words (FX1), the envelope where the
+    all-free face exists, the conditional sentence where it is singular."""
     name = lambda t: "the noise term c/E" if t == "c" else t  # noqa: E731
     one = len(held) == 1
-    return (f"{label}: {' and '.join(name(t) for t in held)} held at 0 by the constraint{'' if one else 's'} "
-            f"{' and '.join(f'{t}² ≥ 0' for t in held)}; its band is conditional on {'it' if one else 'them'}.")
+    t = " and ".join(f"{x} = 0" for x in held)
+    band = (f"The band is the envelope of the band with {t} and the band of the fit with all three terms free, so it does "
+            f"not assume {t}." if free else
+            f"The band is conditional on {t}: the fit with all three terms free cannot be solved through these windows.")
+    return (f"{label}: {' and '.join(name(x) for x in held)} held at 0 by the constraint{'' if one else 's'} "
+            f"{' and '.join(f'{x}² ≥ 0' for x in held)}. {band}")
 
 
 @pytest.mark.parametrize("name", list(RES_EST))
@@ -5279,11 +5512,18 @@ def test_res_est_the_noise_drawer_sentences_are_each_said_once_where_they_apply(
                 assert corr == [NOISE_CORRELATED.format(how=how)], where
             else:
                 assert not corr, where
+            # m3: the held-term caveat whenever a drawn noise fit holds a term, ρ or no ρ.
+            any_held = any(s["fits"][windows]["noise"]["params"]["held"] for s in drawn)
+            assert lines.count(NOISE_HELD_CAVEAT) == (1 if any_held else 0), where
+            assert "its band is conditional on" not in text, where
+            assert not _exact_band_sentences(lines), where
+            # FX2: the weights sentence once, under median and robust only.
+            assert text.count(FX2_WEIGHTS) == (0 if RES_EST[name] == "sample" else 1), where
             for s in series:
                 nf = s["fits"][windows]["noise"]
                 held = [x for x in lines if x.startswith(f"{s['label']}: ") and " held at 0 by the constraint" in x]
                 if nf and nf["params"]["held"]:
-                    assert held == [_held_line(s["label"], nf["params"]["held"])], (where, s["key"])
+                    assert held == [_held_line(s["label"], nf["params"]["held"], nf["params"]["free"] is not None)], (where, s["key"])
                 else:
                     assert not held, (where, s["key"])
                 reason = s["fits"][windows]["noise_reason"]
@@ -5687,32 +5927,52 @@ def test_res_fix3_the_decomposition_sentence_is_once_in_every_drawer(est, name):
 
 @pytest.mark.parametrize("name", list(RES_EST))
 def test_res_fix3_the_pooled_scale_line_gives_each_series_its_payload_c(est, name):
-    """brief-fix F1: one What-is-drawn line under median and robust names every series' c from `weight_scale`
-    (or says it has none); under sample no text speaks of a pooled scale."""
+    """brief-fix F1 and FX2: one What-is-drawn line under median and robust names every series' c and c_low from
+    `weight_scale` (or says it has none), says what c cancels in and that c_low/c weighs the noise fit's windows below
+    4 GeV, and ends with the brief's weights sentence verbatim; under sample no text speaks of a pooled scale."""
     estimator = RES_EST[name]
     payload = _load(name)
     gates = payload["gates"]
-    lead = "The pooled scale c, one per series, cancels in the fitted parameters and sets only χ², S and the errors: "
+    lead = ("The pooled scales, one pair per series, c over its windows from 4 GeV and c_low over its windows of 1–4 GeV: "
+            "c cancels in the parameters of a₀/√E and the affine and quadrature fits and sets only their χ², S and errors, "
+            "and in a/√E ⊕ b ⊕ c/E the ratio c_low/c also sets how much its windows below 4 GeV weigh against those from "
+            "4 GeV. ")
     if estimator == "sample":
         assert all(s["weight_scale"] is None for s in payload["series"])
-        assert not any("pooled scale" in t or "c·ŷ/√N" in t for t in _every_text(est["fixtures"][name]))
+        assert not any("pooled scale" in t or "c·ŷ/√N" in t or "c_low" in t for t in _every_text(est["fixtures"][name]))
         return
+    win = lambda n: f"{n} window{'' if n == 1 else 's'}"  # noqa: E731
     for view, key, notes in _fix3_drawers(est["fixtures"][name]):
         mine = [line for line in notes["sections"]["What is drawn"] if line.startswith(lead)]
         assert len(mine) == 1 and sum(line.startswith(lead) for line in _fix3_lines(notes)) == 1, (view, key)
         line = mine[0]
+        assert line.endswith(". " + FX2_WEIGHTS), (view, key)
         for s in payload["series"]:
             ws = s["weight_scale"]
+            last = s is payload["series"][-1]
+            strong_low = any((w["n"] or 0) >= gates["fit_n"] and 1 <= (w.get("p_lo") or 0) < gates["e_min_gev"]
+                             and w["value"] is not None and (w["se_rel"] or 0) > 0 for w in s["windows"])
+            if ws["c_low"] is None:
+                low = ""
+            elif ws["n_low"] > 0:
+                low = (f"c_low = {_sf(ws['c_low'])} over {win(ws['n_low'])} of 1–4 GeV"
+                       + ("" if strong_low else " of N ≥ 8, since none of N ≥ 20 there carries a fit weight"))
+            else:
+                # FX2's last fallback: no window of 1–4 GeV, so c_low = c, and the line says so.
+                assert ws["c_low"] == ws["c"]
+                low = "c_low = c, no window of 1–4 GeV carrying a fit weight"
             if ws["c"] is None:
                 assert ws["n_windows"] == 0
-                assert f"{s['label']}: none, no window from 4 GeV carries a fit weight, so no fit" in line, (view, key)
-                continue
-            strong = any(_fix3_fittable(w, gates) for w in s["windows"])
-            part = (f"{s['label']}: c = {_sf(ws['c'])} over {ws['n_windows']} window{'' if ws['n_windows'] == 1 else 's'}"
-                    + ("" if strong else " of N ≥ 8, since no window of N ≥ 20 carries a fit weight"))
-            assert part + (";" if s is not payload["series"][-1] else ".") in line, (view, key, part, line)
-            printed = re.search(re.escape(s["label"]) + r": c = ([\d.]+) over", line)
-            assert printed and float(printed.group(1)) == pytest.approx(ws["c"], rel=5e-3)
+                part = (f"{s['label']}: {'no c' if low else 'none'}, no window from 4 GeV carries a fit weight, so no fit"
+                        + (f"; {low}, which no fit uses without c" if low else ""))
+            else:
+                strong = any(_fix3_fittable(w, gates) for w in s["windows"])
+                part = (f"{s['label']}: c = {_sf(ws['c'])} over {win(ws['n_windows'])}"
+                        + ("" if strong else " of N ≥ 8, since no window of N ≥ 20 carries a fit weight")
+                        + (f", {low}" if low else ""))
+                printed = re.search(re.escape(s["label"]) + r": c = ([\d.]+) over", line)
+                assert printed and float(printed.group(1)) == pytest.approx(ws["c"], rel=5e-3)
+            assert part + ("." if last else ";") in line, (view, key, part, line)
 
 
 @pytest.mark.parametrize("name", list(RES_EST))
@@ -5963,3 +6223,215 @@ def test_res_e_a_reference_band_beyond_the_axis_is_said_never_listed_as_drawn(es
             if (other, key) in reached:
                 continue
             assert not any("lies beyond the ratio axis" in line for line in e2["notes"]["sections"].get("Disclosures", [])), (other, key)
+
+
+# ---- res-noise fix round (brief-fix, 2026-11-13): FX1–FX3 and the review's minors and nits ----------------------------
+
+#: brief-fix §Words: the singular-face sentence's tail.
+FX1_SINGULAR_TAIL = ": the fit with all three terms free cannot be solved through these windows."
+
+
+def _fx1_envelope(t: str) -> str:
+    return f"The band is the envelope of the band with {t} and the band of the fit with all three terms free, so it does not assume {t}."
+
+
+def test_res_fx1_the_band_sentences_are_the_briefs(out):
+    """noiseBandText gives brief-fix §Words verbatim: the envelope sentence where a term is held and the free face
+    exists (one or two held terms), the singular sentence where it does not, nothing with no term held."""
+    assert out["resE"]["noise"]["bandText"] == [
+        "", _fx1_envelope("b = 0"), _fx1_envelope("a = 0 and c = 0"),
+        "The band is conditional on b = 0" + FX1_SINGULAR_TAIL, "The band is conditional on a = 0 and c = 0" + FX1_SINGULAR_TAIL,
+        _fx1_envelope("c = 0")]
+
+
+def test_res_fx1_a_singular_free_face_draws_the_conditional_band_and_says_so(out):
+    """brief-fix FX1, the case with no free face: with `params.free` null on every block that holds a term (a synthetic
+    copy of the two-shower recording), the band is the conditional one, rfit.band of the Fit without its free face,
+    and the curve's tooltip, its band's tooltip and the drawer's held line carry the conditional sentence, never the
+    envelope's."""
+    import numpy as np
+    from calosrv.stats import resolution_fit as rfit
+
+    payload = {s["key"]: s for s in _load("res_scaling_two")["series"]}
+    sing = out["resE"]["noise"]["singular"]
+    assert sing["curves"], "the recording holds a term somewhere"
+    for key, got in sing["curves"].items():
+        mode, skey = key.split(":", 1)
+        block = payload[skey]["fits"][mode]["noise"]
+        energies = np.array(got["energies"])
+        y, lo, hi = (100 * v for v in rfit.band(_noise_fit(block, with_free=False), 1 / np.sqrt(energies)))
+        _, elo, ehi = (100 * v for v in rfit.band(_noise_fit(block), 1 / np.sqrt(energies)))
+        assert [r[0] for r in got["js"]] == got["energies"]
+        for (e, jy, jlo, jhi), want in zip(got["js"], zip(y, lo, hi)):
+            scale = max(abs(v) for v in want) or 1e-9
+            assert [jy, jlo, jhi] == pytest.approx(list(want), rel=1e-4, abs=1e-4 * scale), (key, e)
+        # It is the conditional band, not the envelope: narrower somewhere.
+        assert any(jhi < h * (1 - 1e-6) or jlo > l * (1 + 1e-6) for (_, _, jlo, jhi), l, h in zip(got["js"], elo, ehi)), key
+    seen = 0
+    for mode in ("anchors", "all"):
+        case = sing[mode]
+        held_lines = [x for sec in case["notes"]["sections"].values() for x in sec if " held at 0 by the constraint" in x]
+        for skey, s in payload.items():
+            nf = s["fits"][mode]["noise"]
+            if not nf or not nf["params"]["held"]:
+                continue
+            t = " and ".join(f"{x} = 0" for x in nf["params"]["held"])
+            sentence = f"The band is conditional on {t}{FX1_SINGULAR_TAIL}"
+            tips = [_plain(tip) for sid, items in case["noiseTips"].items() if sid.startswith(f"{skey}|noise|") for tip in items]
+            assert tips and all(sentence in tip and "envelope" not in tip for tip in tips), (mode, skey)
+            assert any("|noise|band|" in sid or "|noise|edges|" in sid for sid in case["noiseTips"] if sid.startswith(skey))
+            assert [x for x in held_lines if x.startswith(f"{s['label']}: ")] == \
+                [_held_line(s["label"], nf["params"]["held"], free=False)], (mode, skey)
+            seen += 1
+        assert not [x for sec in case["notes"]["sections"].values() for x in sec if "the envelope of the band with" in x], mode
+    assert seen > 0
+
+
+def test_res_fx1_no_band_sentence_says_exact_on_screen_or_in_the_drawer(est):
+    """brief-fix FX1 §Words: "exact" goes from every band sentence, on every tooltip, canvas text, table and drawer of
+    every recording, estimator, mode and literature state; nor does any text say "no delta method"."""
+    for name, entry in est["fixtures"].items():
+        texts = list(_every_text(entry))
+        assert not _exact_band_sentences(texts), name
+        assert not any("no delta method" in _plain(t) for t in texts), name
+
+
+def test_res_fx3_no_client_code_reads_the_removed_fields(out):
+    """brief-fix FX3: no client module names the quadrature `rho_a2b2`, `se_a2_stat` or `se_b2_stat`, or filters the
+    retired definition note ("the E view's second curve"); and with every removed field put back on three recordings
+    (each fit block's and noise block's `note` a sentinel, the three quadrature numbers arbitrary) both views' charts,
+    tooltips, tables and drawers are unchanged, so nothing reads them."""
+    for name, got in out["resE"]["fixRound"]["removedFields"].items():
+        assert got["same"] and not got["sentinel"] and got["length"] > 0, name
+    removed = re.compile(r"rho_a2b2|se_a2_stat|se_b2_stat|the E view's second cur")
+    hits = []
+    for path in sorted(JS.rglob("*.js")):
+        # The vendored libraries and the article's prose (which may describe the form in words) are not client readers.
+        if "vendor" in path.parts or "methodology" in path.parts:
+            continue
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if removed.search(line):
+                hits.append(f"{path.relative_to(JS)}:{i}: {line.strip()}")
+    assert not hits, hits
+
+
+def test_res_m1_a_window_the_noise_fit_uses_is_never_not_fitted(out):
+    """Review m1: the E-view drawer counts a weak window as fitted when the noise fit uses it, so a 1–4 GeV window of
+    N < 20 that only a/√E ⊕ b ⊕ c/E runs through is never in the "not fitted" line."""
+    seen = 0
+    for name, key, rec in _e_notes(out):
+        p = rec["facts"]["points"]
+        dis = _lines(rec["notes"], out, "disclosures")
+        alone = [line for line in dis if line.endswith("χ² whisker, not fitted.")]
+        if p["weakNoiseOnly"]:
+            seen += 1
+            assert len(alone) == (1 if p["weakAlone"] else 0), (name, key)
+            if alone:
+                assert alone[0].startswith(_n(p["weakAlone"], "window") + " of N < 20"), (name, key)
+    assert seen > 0, "single_events draws a weak window the noise fit alone uses"
+
+
+def test_res_m2_the_e_view_says_from_4_gev(est):
+    """Review m2: the other fits' provisional rule is decided on the windows from 4 GeV, so on the E view, whose noise
+    fit reaches 1 GeV, every provisional sentence says "fewer than two windows from 4 GeV reach N = 20"; the 1/√E view's
+    sentences, true there, keep "fewer than two windows reach N = 20"."""
+    old, new = "fewer than two windows reach N = ", "fewer than two windows from 4 GeV reach N = "
+    said = {"energy": 0, "linear": 0}
+    for name, entry in est["fixtures"].items():
+        energy = [_plain(t) for e in entry["energy"].values() for t in _every_text({"linear": {}, "energy": {"x": e}})]
+        linear = [_plain(t) for e in entry["linear"].values() for t in _every_text({"energy": {}, "linear": {"x": e}})]
+        assert not [t for t in energy if old in t], name
+        assert not [t for t in linear if new in t], name
+        said["energy"] += sum(new in t for t in energy)
+        said["linear"] += sum(old in t for t in linear)
+    assert said["energy"] > 0 and said["linear"] > 0
+
+
+#: A term printed as "t = v ± se unit" (review m4): never with se > v.
+_TERM = re.compile(r"(?<![\w²])([abc]) = ([\d.]+) ± ([\d.]+) %")
+
+
+def test_res_m4_no_term_is_printed_with_an_error_larger_than_itself(est):
+    """Review m4: a free term of the noise or quadrature form whose SE exceeds it is printed as its square with the
+    square's SE, in the fit table and the noise tooltip, so no "t = v ± se" anywhere has se > v; and the squares are
+    printed (the recordings hold such terms)."""
+    squares = lines = 0
+    for name, entry in est["fixtures"].items():
+        for t in _every_text(entry):
+            # The noise tooltip's term line (the affine a and b may be negative and are not under the rule).
+            for line in (x for x in str(t).split("<br/>") if "the noise term c/E: c" in x):
+                text = _plain(line)
+                lines += 1
+                for term, v, se in _TERM.findall(text):
+                    assert float(se) <= float(v), (name, text)
+                squares += len(re.findall(r"(?<![\w])[abc]² = [\d.]+ ± [\d.]+ %²", text))
+    assert lines > 0 and squares > 0
+
+
+def test_res_m7_an_entry_at_the_axis_line_says_so_on_its_caret_and_in_the_drawer(est):
+    """Review m7: a noise curve entering below x.max·10⁻³ runs up the axis line; its caret's tooltip ends with the
+    brief's sentence and the drawer's entering line carries it in brackets, once per such curve, and no other text does."""
+    seen = 0
+    for name, entry in est["fixtures"].items():
+        x_max = _load(name)["axis"]["energy"]["x"]["max"]
+        for key, e in entry["energy"].items():
+            near = [n for n in e["noise"] if n["entry"] and not n["entry"]["above"] and n["entry"]["lineAt"] is not None
+                    and n["entry"]["at"] < x_max * 1e-3]
+            assert all(n["entry"]["atAxis"] for n in near)
+            assert sum(bool(n["entry"] and n["entry"].get("atAxis")) for n in e["noise"]) == len(near), (name, key)
+            carets = [_plain(t) for sx in e["series"] if (sx["id"] or "").endswith("|carets") and "|ratio|" not in sx["id"]
+                      for t in sx["tips"] if "comes down into the plot" in t]
+            assert sum(c.endswith(NOISE_AXIS_LINE) for c in carets) == len(near), (name, key)
+            text = " ".join(x for sec in e["notes"]["sections"].values() for x in sec)
+            assert text.count(f"({NOISE_AXIS_LINE[:-1]})") == len(near), (name, key)
+            for n in near:
+                assert f"{n['label']} at E = {_sf(n['entry']['lineAt'])} GeV, through its " in text, (name, key)
+            seen += len(near)
+    assert seen > 0, "median_xgb and xgb enter at 0.00236 GeV"
+
+
+def test_res_nit1_a_declined_window_the_noise_fit_uses_says_it_is_declined(out):
+    """Review nit 1: under Robust σ (IQR), all windows, a window from 4 GeV that a₀/√E declines (its one fittable
+    window) while the noise fit uses it reads "fitted by a/√E ⊕ b ⊕ c/E only; declined by a₀/√E: …", never the false
+    "a₀/√E uses windows from 4 GeV"."""
+    d = out["resE"]["fixRound"]["declined"]
+    assert d is not None
+    lead = f"fitted by a/√E ⊕ b ⊕ c/E only; declined by a₀/√E: {d['declinedText']}"
+    assert d["declinedText"] == (f"Robust σ (IQR) fits no line through fewer than two fittable windows, and only {d['label']} "
+                                 f"(N = {d['n']}) is fittable here")
+    assert d["roles"][0] == lead
+    assert not [r for r in d["roles"] if "a₀/√E uses windows from 4 GeV" in r]
+    assert lead in _plain(d["tip"])
+
+
+def test_res_nit4_the_e_view_names_a0_where_the_1_over_sqrt_e_view_says_this_mode(est):
+    """Review nit 4: the 4–5 GeV note of the all-windows mode reads "a₀/√E fits every window from 4 GeV …" on the E view,
+    where the noise fit reaches 1 GeV, and keeps "This mode fits every window from 4 GeV …" on the 1/√E view."""
+    seen = {"energy": 0, "linear": 0}
+    for name, entry in est["fixtures"].items():
+        for view in ("energy", "linear"):
+            for e in entry[view].values():
+                lines = [x for sec in e["notes"]["sections"].values() for x in sec]
+                hits = [x for x in lines if "fits every window from 4 GeV, 4–5 GeV included" in x]
+                want = "a₀/√E fits every window from 4 GeV" if view == "energy" else "This mode fits every window from 4 GeV"
+                assert all(x.startswith(want) for x in hits), (name, view, hits)
+                if view == "energy":
+                    assert not [x for x in lines if "This mode fits every window from" in x], name
+                seen[view] += len(hits)
+    assert seen["energy"] > 0 and seen["linear"] > 0
+
+
+def test_res_nit8_the_robust_floor_line_prints_no_zero_count(out):
+    """Review nit 8: robustFloorLine prints each clause only where its count is above 0: with no window of 2 ≤ N < 20
+    left without a value (a synthetic robust copy), no drawer says "0 windows …" or speaks of that floor's windows,
+    while the recording itself still says it once per drawer."""
+    clause = re.compile(r"\bwindows? of 2 ≤ N < 20 ha(?:s|ve) no Robust σ/E")
+    for n in out["resE"]["fixRound"]["noThin"]:
+        lines = [x for sec in n["sections"].values() for x in sec]
+        assert not [x for x in lines if clause.search(x)]
+        assert not [x for x in lines if re.search(r"(?<![\d.,])0 windows?\b", x)], lines
+        assert all(x.strip() for x in lines), "no empty line where the robust floor line has nothing to say"
+    for n in out["resE"]["fixRound"]["thin"]:
+        lines = [x for sec in n["sections"].values() for x in sec]
+        assert len([x for x in lines if clause.search(x)]) == 1
+        assert not [x for x in lines if re.search(r"(?<![\d.,])0 windows?\b", x)]

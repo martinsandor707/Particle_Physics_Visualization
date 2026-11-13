@@ -154,6 +154,32 @@ against a dump of the golden commit, 97adcd1, and a dump at cf4d742 before the r
     print: that reference band leaves the list of bands drawn as edges, and the 1.0 rule's tooltip says it
     lies beyond the axis (F5).
 
+The res-noise fix round (2026-11-13, brief-fix.md: Martin's decisions after the review, FX1 the noise band as
+the envelope of the conditional band and the all-free face's, FX2 a second pooled scale c_low below 4 GeV, FX3
+the unread notes and quadrature fields off the wire, and the lead's decisions on the review's m1–m7 and nits)
+re-recorded 368 of the 2,869 cases, in the same two families and nothing else; the case-id set and the theme map
+did not move (measured against a dump of the golden commit, 0909bf7, and a dump at 32d62c9 before the
+re-record):
+  - 248 `models/resolution/*` cases, 22 per recording and 14 for each robust single-shower recording. The 1/√E
+    options (both modes, print, narrow card, one shower) did not move; its two fit tables did, by the caption
+    (no band clause, nit 6; a term printed as its square where its SE exceeds it, m4) and the squared cells. On
+    the E view the noise band is the envelope wherever a term is held, so its edges, outlines and carets moved;
+    its tooltips carry the envelope sentence in place of "conditional on", the band tooltip no longer claims an
+    exact band or speaks of a held term's variance, the curve's tooltip drops the floor sentence and the naming
+    caveat (m6), a window below 4 GeV prints its weight with c_low, the provisional sentences say "from 4 GeV"
+    (m2), an entry within 0.1% of the axis says it runs up the axis line (m7), and the quadrature table cell no
+    longer says its band cannot be built (nit 2). The robust single-shower recordings serve no noise fit: their
+    3-anchor E options did not move.
+  - 120 `notes/models_resolution/*` drawers, 10 per recording: the held lines end in the envelope sentence; the
+    legend says how the envelope is built and claims no 95% coverage for a fit that holds a term; the pooled-scale
+    line names c and c_low and ends in the brief's weights sentence (median and robust); the held-term caveat is
+    its own line (m3) and the correlation line says each free term's SE already carries the trade; a window only
+    the noise fit uses is no longer "not fitted" (m1); "a₀/√E fits every window from 4 GeV" on the E view
+    (nit 4); an entry within 0.1% of the axis says so (m7); the 1/√E drawer states the noise fit's windows and
+    floor that the retired definition note carried (FX3). Nit 8 (no zero count on the robust floor line) moves no
+    recording: each holds a window of 2 ≤ N < 20 without a value, so `test_js_models_panels.py` pins it on a
+    synthetic copy.
+
 A case is the hash of its canonical JSON: object keys sorted recursively,
 functions dropped, numbers as JavaScript prints them. The hash records
 behaviour, never code, so a refactor that reorders an object literal or
